@@ -91863,25 +91863,6 @@
                                 "fn_body": "azul_layout::widgets::rich_text::doc::RichTableRow::create_empty(count)"
                             }
                         },
-                        "functions": {
-                            "cell": {
-                                "doc": [
-                                    "The text of cell `index` (\"\" past the end)."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "index": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "str"
-                                },
-                                "fn_body": "object.cell(index)"
-                            }
-                        },
                         "repr": "C"
                     },
                     "RichFormats": {
@@ -93527,34 +93508,6 @@
                                 },
                                 "fn_body": "object.with_link(url)"
                             },
-                            "as_str": {
-                                "doc": [
-                                    "The run's text."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "str"
-                                },
-                                "fn_body": "object.as_str()"
-                            },
-                            "link_str": {
-                                "doc": [
-                                    "The link's URL, if the run is a link."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "Optionstr"
-                                },
-                                "fn_body": "object.link_str().into()"
-                            },
                             "has": {
                                 "doc": [
                                     "Whether `format` is on."
@@ -93619,37 +93572,6 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "object.is_plain()"
-                            },
-                            "set_text": {
-                                "doc": [
-                                    "Replaces the run's text."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "text": "String"
-                                    }
-                                ],
-                                "fn_body": "object.set_text(text)"
-                            },
-                            "with_text": {
-                                "doc": [
-                                    "A copy of the run (formats and link) holding `text`."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "text": "String"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "RichRun"
-                                },
-                                "fn_body": "object.with_text(text.as_str())"
                             }
                         },
                         "repr": "C"
@@ -176481,37 +176403,6 @@
                             }
                         },
                         "functions": {
-                            "set_title_row": {
-                                "doc": [
-                                    "The app-drawn title row."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "title_row": "Dom"
-                                    }
-                                ],
-                                "fn_body": "object.set_title_row(title_row)"
-                            },
-                            "with_title_row": {
-                                "doc": [
-                                    "[`Self::set_title_row`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "title_row": "Dom"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "MediaShell"
-                                },
-                                "fn_body": "object.with_title_row(title_row)"
-                            },
                             "set_sidebar_ratio": {
                                 "doc": [
                                     "The sidebar's share of the width."
@@ -176542,111 +176433,6 @@
                                     "type": "MediaShell"
                                 },
                                 "fn_body": "object.with_sidebar_ratio(ratio)"
-                            },
-                            "set_on_pane_focus": {
-                                "doc": [
-                                    "F6 moved the focus to a pane."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneFocusCallback"
-                                    }
-                                ],
-                                "fn_body": "object.set_on_pane_focus(data, callback)"
-                            },
-                            "with_on_pane_focus": {
-                                "doc": [
-                                    "[`Self::set_on_pane_focus`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneFocusCallback"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "MediaShell"
-                                },
-                                "fn_body": "object.with_on_pane_focus(data, callback)"
-                            },
-                            "set_on_pane_resize": {
-                                "doc": [
-                                    "A splitter moved."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneResizeCallback"
-                                    }
-                                ],
-                                "fn_body": "object.set_on_pane_resize(data, callback)"
-                            },
-                            "with_on_pane_resize": {
-                                "doc": [
-                                    "[`Self::set_on_pane_resize`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneResizeCallback"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "MediaShell"
-                                },
-                                "fn_body": "object.with_on_pane_resize(data, callback)"
-                            },
-                            "set_theme": {
-                                "doc": [
-                                    "Pin the widget theme; unset, the shell follows the app theme."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "theme": "UiTheme"
-                                    }
-                                ],
-                                "fn_body": "object.set_theme(theme)"
-                            },
-                            "with_theme": {
-                                "doc": [
-                                    "[`Self::set_theme`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "theme": "UiTheme"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "MediaShell"
-                                },
-                                "fn_body": "object.with_theme(theme)"
                             },
                             "swap_with_default": {
                                 "doc": [
@@ -176901,37 +176687,6 @@
                             }
                         },
                         "functions": {
-                            "set_title_row": {
-                                "doc": [
-                                    "The app-drawn title row."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "title_row": "Dom"
-                                    }
-                                ],
-                                "fn_body": "object.set_title_row(title_row)"
-                            },
-                            "with_title_row": {
-                                "doc": [
-                                    "[`Self::set_title_row`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "title_row": "Dom"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "BrowserShell"
-                                },
-                                "fn_body": "object.with_title_row(title_row)"
-                            },
                             "set_ribbon": {
                                 "doc": [
                                     "The ribbon."
@@ -176962,37 +176717,6 @@
                                     "type": "BrowserShell"
                                 },
                                 "fn_body": "object.with_ribbon(ribbon)"
-                            },
-                            "set_backstage": {
-                                "doc": [
-                                    "The backstage."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "backstage": "Dom"
-                                    }
-                                ],
-                                "fn_body": "object.set_backstage(backstage)"
-                            },
-                            "with_backstage": {
-                                "doc": [
-                                    "[`Self::set_backstage`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "backstage": "Dom"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "BrowserShell"
-                                },
-                                "fn_body": "object.with_backstage(backstage)"
                             },
                             "set_preview": {
                                 "doc": [
@@ -177055,37 +176779,6 @@
                                     "type": "BrowserShell"
                                 },
                                 "fn_body": "object.with_details(details)"
-                            },
-                            "set_status_bar": {
-                                "doc": [
-                                    "The status bar."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "status_bar": "Dom"
-                                    }
-                                ],
-                                "fn_body": "object.set_status_bar(status_bar)"
-                            },
-                            "with_status_bar": {
-                                "doc": [
-                                    "[`Self::set_status_bar`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "status_bar": "Dom"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "BrowserShell"
-                                },
-                                "fn_body": "object.with_status_bar(status_bar)"
                             },
                             "set_tree_ratio": {
                                 "doc": [
@@ -177179,111 +176872,6 @@
                                     "type": "BrowserShell"
                                 },
                                 "fn_body": "object.with_details_ratio(ratio)"
-                            },
-                            "set_on_pane_focus": {
-                                "doc": [
-                                    "F6 moved the focus to a pane."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneFocusCallback"
-                                    }
-                                ],
-                                "fn_body": "object.set_on_pane_focus(data, callback)"
-                            },
-                            "with_on_pane_focus": {
-                                "doc": [
-                                    "[`Self::set_on_pane_focus`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneFocusCallback"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "BrowserShell"
-                                },
-                                "fn_body": "object.with_on_pane_focus(data, callback)"
-                            },
-                            "set_on_pane_resize": {
-                                "doc": [
-                                    "A splitter moved."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneResizeCallback"
-                                    }
-                                ],
-                                "fn_body": "object.set_on_pane_resize(data, callback)"
-                            },
-                            "with_on_pane_resize": {
-                                "doc": [
-                                    "[`Self::set_on_pane_resize`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneResizeCallback"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "BrowserShell"
-                                },
-                                "fn_body": "object.with_on_pane_resize(data, callback)"
-                            },
-                            "set_theme": {
-                                "doc": [
-                                    "Pin the widget theme; unset, the shell follows the app theme."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "theme": "UiTheme"
-                                    }
-                                ],
-                                "fn_body": "object.set_theme(theme)"
-                            },
-                            "with_theme": {
-                                "doc": [
-                                    "[`Self::set_theme`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "theme": "UiTheme"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "BrowserShell"
-                                },
-                                "fn_body": "object.with_theme(theme)"
                             },
                             "swap_with_default": {
                                 "doc": [
@@ -177743,80 +177331,6 @@
                                     "type": "CallShell"
                                 },
                                 "fn_body": "object.with_tiles_ratio(ratio)"
-                            },
-                            "set_on_pane_focus": {
-                                "doc": [
-                                    "F6 moved the focus to a pane."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneFocusCallback"
-                                    }
-                                ],
-                                "fn_body": "object.set_on_pane_focus(data, callback)"
-                            },
-                            "with_on_pane_focus": {
-                                "doc": [
-                                    "[`Self::set_on_pane_focus`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneFocusCallback"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "CallShell"
-                                },
-                                "fn_body": "object.with_on_pane_focus(data, callback)"
-                            },
-                            "set_on_pane_resize": {
-                                "doc": [
-                                    "A splitter moved."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneResizeCallback"
-                                    }
-                                ],
-                                "fn_body": "object.set_on_pane_resize(data, callback)"
-                            },
-                            "with_on_pane_resize": {
-                                "doc": [
-                                    "[`Self::set_on_pane_resize`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneResizeCallback"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "CallShell"
-                                },
-                                "fn_body": "object.with_on_pane_resize(data, callback)"
                             },
                             "set_theme": {
                                 "doc": [
@@ -180078,37 +179592,6 @@
                             }
                         },
                         "functions": {
-                            "set_title_row": {
-                                "doc": [
-                                    "The app-drawn title row."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "title_row": "Dom"
-                                    }
-                                ],
-                                "fn_body": "object.set_title_row(title_row)"
-                            },
-                            "with_title_row": {
-                                "doc": [
-                                    "[`Self::set_title_row`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "title_row": "Dom"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "DeveloperShell"
-                                },
-                                "fn_body": "object.with_title_row(title_row)"
-                            },
                             "set_panel": {
                                 "doc": [
                                     "The bottom panel."
@@ -180139,37 +179622,6 @@
                                     "type": "DeveloperShell"
                                 },
                                 "fn_body": "object.with_panel(panel)"
-                            },
-                            "set_status_bar": {
-                                "doc": [
-                                    "The status bar."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "status_bar": "Dom"
-                                    }
-                                ],
-                                "fn_body": "object.set_status_bar(status_bar)"
-                            },
-                            "with_status_bar": {
-                                "doc": [
-                                    "[`Self::set_status_bar`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "status_bar": "Dom"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "DeveloperShell"
-                                },
-                                "fn_body": "object.with_status_bar(status_bar)"
                             },
                             "set_side_bar_ratio": {
                                 "doc": [
@@ -180232,111 +179684,6 @@
                                     "type": "DeveloperShell"
                                 },
                                 "fn_body": "object.with_panel_ratio(ratio)"
-                            },
-                            "set_on_pane_focus": {
-                                "doc": [
-                                    "F6 moved the focus to a pane."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneFocusCallback"
-                                    }
-                                ],
-                                "fn_body": "object.set_on_pane_focus(data, callback)"
-                            },
-                            "with_on_pane_focus": {
-                                "doc": [
-                                    "[`Self::set_on_pane_focus`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneFocusCallback"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "DeveloperShell"
-                                },
-                                "fn_body": "object.with_on_pane_focus(data, callback)"
-                            },
-                            "set_on_pane_resize": {
-                                "doc": [
-                                    "A splitter moved."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneResizeCallback"
-                                    }
-                                ],
-                                "fn_body": "object.set_on_pane_resize(data, callback)"
-                            },
-                            "with_on_pane_resize": {
-                                "doc": [
-                                    "[`Self::set_on_pane_resize`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneResizeCallback"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "DeveloperShell"
-                                },
-                                "fn_body": "object.with_on_pane_resize(data, callback)"
-                            },
-                            "set_theme": {
-                                "doc": [
-                                    "Pin the widget theme; unset, the shell follows the app theme."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "theme": "UiTheme"
-                                    }
-                                ],
-                                "fn_body": "object.set_theme(theme)"
-                            },
-                            "with_theme": {
-                                "doc": [
-                                    "[`Self::set_theme`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "theme": "UiTheme"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "DeveloperShell"
-                                },
-                                "fn_body": "object.with_theme(theme)"
                             },
                             "swap_with_default": {
                                 "doc": [
@@ -180925,99 +180272,6 @@
                             }
                         },
                         "functions": {
-                            "set_title_row": {
-                                "doc": [
-                                    "The app-drawn title row."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "title_row": "Dom"
-                                    }
-                                ],
-                                "fn_body": "object.set_title_row(title_row)"
-                            },
-                            "with_title_row": {
-                                "doc": [
-                                    "[`Self::set_title_row`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "title_row": "Dom"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "PimShell"
-                                },
-                                "fn_body": "object.with_title_row(title_row)"
-                            },
-                            "set_ribbon": {
-                                "doc": [
-                                    "The ribbon."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "ribbon": "Dom"
-                                    }
-                                ],
-                                "fn_body": "object.set_ribbon(ribbon)"
-                            },
-                            "with_ribbon": {
-                                "doc": [
-                                    "[`Self::set_ribbon`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "ribbon": "Dom"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "PimShell"
-                                },
-                                "fn_body": "object.with_ribbon(ribbon)"
-                            },
-                            "set_backstage": {
-                                "doc": [
-                                    "The backstage."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "backstage": "Dom"
-                                    }
-                                ],
-                                "fn_body": "object.set_backstage(backstage)"
-                            },
-                            "with_backstage": {
-                                "doc": [
-                                    "[`Self::set_backstage`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "backstage": "Dom"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "PimShell"
-                                },
-                                "fn_body": "object.with_backstage(backstage)"
-                            },
                             "set_todo_bar": {
                                 "doc": [
                                     "The To-Do bar."
@@ -181048,37 +180302,6 @@
                                     "type": "PimShell"
                                 },
                                 "fn_body": "object.with_todo_bar(todo_bar)"
-                            },
-                            "set_status_bar": {
-                                "doc": [
-                                    "The status bar."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "status_bar": "Dom"
-                                    }
-                                ],
-                                "fn_body": "object.set_status_bar(status_bar)"
-                            },
-                            "with_status_bar": {
-                                "doc": [
-                                    "[`Self::set_status_bar`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "status_bar": "Dom"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "PimShell"
-                                },
-                                "fn_body": "object.with_status_bar(status_bar)"
                             },
                             "set_list_label": {
                                 "doc": [
@@ -181173,111 +180396,6 @@
                                 },
                                 "fn_body": "object.with_list_ratio(ratio)"
                             },
-                            "set_on_pane_focus": {
-                                "doc": [
-                                    "F6 moved the focus to a pane."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneFocusCallback"
-                                    }
-                                ],
-                                "fn_body": "object.set_on_pane_focus(data, callback)"
-                            },
-                            "with_on_pane_focus": {
-                                "doc": [
-                                    "[`Self::set_on_pane_focus`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneFocusCallback"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "PimShell"
-                                },
-                                "fn_body": "object.with_on_pane_focus(data, callback)"
-                            },
-                            "set_on_pane_resize": {
-                                "doc": [
-                                    "A splitter moved."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneResizeCallback"
-                                    }
-                                ],
-                                "fn_body": "object.set_on_pane_resize(data, callback)"
-                            },
-                            "with_on_pane_resize": {
-                                "doc": [
-                                    "[`Self::set_on_pane_resize`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneResizeCallback"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "PimShell"
-                                },
-                                "fn_body": "object.with_on_pane_resize(data, callback)"
-                            },
-                            "set_theme": {
-                                "doc": [
-                                    "Pin the widget theme; unset, the shell follows the app theme."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "theme": "UiTheme"
-                                    }
-                                ],
-                                "fn_body": "object.set_theme(theme)"
-                            },
-                            "with_theme": {
-                                "doc": [
-                                    "[`Self::set_theme`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "theme": "UiTheme"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "PimShell"
-                                },
-                                "fn_body": "object.with_theme(theme)"
-                            },
                             "swap_with_default": {
                                 "doc": [
                                     "Replaces `self` with an empty shell and returns the original."
@@ -181363,99 +180481,6 @@
                             }
                         },
                         "functions": {
-                            "set_title_row": {
-                                "doc": [
-                                    "The app-drawn title row."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "title_row": "Dom"
-                                    }
-                                ],
-                                "fn_body": "object.set_title_row(title_row)"
-                            },
-                            "with_title_row": {
-                                "doc": [
-                                    "[`Self::set_title_row`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "title_row": "Dom"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "DocumentShell"
-                                },
-                                "fn_body": "object.with_title_row(title_row)"
-                            },
-                            "set_ribbon": {
-                                "doc": [
-                                    "The ribbon."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "ribbon": "Dom"
-                                    }
-                                ],
-                                "fn_body": "object.set_ribbon(ribbon)"
-                            },
-                            "with_ribbon": {
-                                "doc": [
-                                    "[`Self::set_ribbon`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "ribbon": "Dom"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "DocumentShell"
-                                },
-                                "fn_body": "object.with_ribbon(ribbon)"
-                            },
-                            "set_backstage": {
-                                "doc": [
-                                    "The backstage."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "backstage": "Dom"
-                                    }
-                                ],
-                                "fn_body": "object.set_backstage(backstage)"
-                            },
-                            "with_backstage": {
-                                "doc": [
-                                    "[`Self::set_backstage`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "backstage": "Dom"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "DocumentShell"
-                                },
-                                "fn_body": "object.with_backstage(backstage)"
-                            },
                             "set_navigation": {
                                 "doc": [
                                     "The navigation pane."
@@ -181518,37 +180543,6 @@
                                 },
                                 "fn_body": "object.with_side_pane(side_pane)"
                             },
-                            "set_status_bar": {
-                                "doc": [
-                                    "The status bar."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "status_bar": "Dom"
-                                    }
-                                ],
-                                "fn_body": "object.set_status_bar(status_bar)"
-                            },
-                            "with_status_bar": {
-                                "doc": [
-                                    "[`Self::set_status_bar`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "status_bar": "Dom"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "DocumentShell"
-                                },
-                                "fn_body": "object.with_status_bar(status_bar)"
-                            },
                             "set_navigation_ratio": {
                                 "doc": [
                                     "The navigation pane's share of the width."
@@ -181610,111 +180604,6 @@
                                     "type": "DocumentShell"
                                 },
                                 "fn_body": "object.with_document_ratio(ratio)"
-                            },
-                            "set_on_pane_focus": {
-                                "doc": [
-                                    "F6 moved the focus to a pane."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneFocusCallback"
-                                    }
-                                ],
-                                "fn_body": "object.set_on_pane_focus(data, callback)"
-                            },
-                            "with_on_pane_focus": {
-                                "doc": [
-                                    "[`Self::set_on_pane_focus`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneFocusCallback"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "DocumentShell"
-                                },
-                                "fn_body": "object.with_on_pane_focus(data, callback)"
-                            },
-                            "set_on_pane_resize": {
-                                "doc": [
-                                    "A splitter moved."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneResizeCallback"
-                                    }
-                                ],
-                                "fn_body": "object.set_on_pane_resize(data, callback)"
-                            },
-                            "with_on_pane_resize": {
-                                "doc": [
-                                    "[`Self::set_on_pane_resize`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneResizeCallback"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "DocumentShell"
-                                },
-                                "fn_body": "object.with_on_pane_resize(data, callback)"
-                            },
-                            "set_theme": {
-                                "doc": [
-                                    "Pin the widget theme; unset, the shell follows the app theme."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "theme": "UiTheme"
-                                    }
-                                ],
-                                "fn_body": "object.set_theme(theme)"
-                            },
-                            "with_theme": {
-                                "doc": [
-                                    "[`Self::set_theme`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "theme": "UiTheme"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "DocumentShell"
-                                },
-                                "fn_body": "object.with_theme(theme)"
                             },
                             "swap_with_default": {
                                 "doc": [
@@ -181874,37 +180763,6 @@
                             }
                         },
                         "functions": {
-                            "set_title_row": {
-                                "doc": [
-                                    "The app-drawn title row."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "title_row": "Dom"
-                                    }
-                                ],
-                                "fn_body": "object.set_title_row(title_row)"
-                            },
-                            "with_title_row": {
-                                "doc": [
-                                    "[`Self::set_title_row`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "title_row": "Dom"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "RecordsShell"
-                                },
-                                "fn_body": "object.with_title_row(title_row)"
-                            },
                             "set_cards": {
                                 "doc": [
                                     "The cards strip."
@@ -181967,37 +180825,6 @@
                                 },
                                 "fn_body": "object.with_form(form)"
                             },
-                            "set_status_bar": {
-                                "doc": [
-                                    "The status bar."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "status_bar": "Dom"
-                                    }
-                                ],
-                                "fn_body": "object.set_status_bar(status_bar)"
-                            },
-                            "with_status_bar": {
-                                "doc": [
-                                    "[`Self::set_status_bar`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "status_bar": "Dom"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "RecordsShell"
-                                },
-                                "fn_body": "object.with_status_bar(status_bar)"
-                            },
                             "set_table_ratio": {
                                 "doc": [
                                     "The table's share beside the form."
@@ -182028,111 +180855,6 @@
                                     "type": "RecordsShell"
                                 },
                                 "fn_body": "object.with_table_ratio(ratio)"
-                            },
-                            "set_on_pane_focus": {
-                                "doc": [
-                                    "F6 moved the focus to a pane."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneFocusCallback"
-                                    }
-                                ],
-                                "fn_body": "object.set_on_pane_focus(data, callback)"
-                            },
-                            "with_on_pane_focus": {
-                                "doc": [
-                                    "[`Self::set_on_pane_focus`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneFocusCallback"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "RecordsShell"
-                                },
-                                "fn_body": "object.with_on_pane_focus(data, callback)"
-                            },
-                            "set_on_pane_resize": {
-                                "doc": [
-                                    "A splitter moved."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneResizeCallback"
-                                    }
-                                ],
-                                "fn_body": "object.set_on_pane_resize(data, callback)"
-                            },
-                            "with_on_pane_resize": {
-                                "doc": [
-                                    "[`Self::set_on_pane_resize`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneResizeCallback"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "RecordsShell"
-                                },
-                                "fn_body": "object.with_on_pane_resize(data, callback)"
-                            },
-                            "set_theme": {
-                                "doc": [
-                                    "Pin the widget theme; unset, the shell follows the app theme."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "theme": "UiTheme"
-                                    }
-                                ],
-                                "fn_body": "object.set_theme(theme)"
-                            },
-                            "with_theme": {
-                                "doc": [
-                                    "[`Self::set_theme`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "theme": "UiTheme"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "RecordsShell"
-                                },
-                                "fn_body": "object.with_theme(theme)"
                             },
                             "swap_with_default": {
                                 "doc": [
@@ -182492,111 +181214,6 @@
                                     "type": "TimelineShell"
                                 },
                                 "fn_body": "object.with_timeline_ratio(ratio)"
-                            },
-                            "set_on_pane_focus": {
-                                "doc": [
-                                    "F6 moved the focus to a pane."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneFocusCallback"
-                                    }
-                                ],
-                                "fn_body": "object.set_on_pane_focus(data, callback)"
-                            },
-                            "with_on_pane_focus": {
-                                "doc": [
-                                    "[`Self::set_on_pane_focus`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneFocusCallback"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "TimelineShell"
-                                },
-                                "fn_body": "object.with_on_pane_focus(data, callback)"
-                            },
-                            "set_on_pane_resize": {
-                                "doc": [
-                                    "A splitter moved."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneResizeCallback"
-                                    }
-                                ],
-                                "fn_body": "object.set_on_pane_resize(data, callback)"
-                            },
-                            "with_on_pane_resize": {
-                                "doc": [
-                                    "[`Self::set_on_pane_resize`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneResizeCallback"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "TimelineShell"
-                                },
-                                "fn_body": "object.with_on_pane_resize(data, callback)"
-                            },
-                            "set_theme": {
-                                "doc": [
-                                    "Pin the widget theme; unset, the shell follows the app theme."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "theme": "UiTheme"
-                                    }
-                                ],
-                                "fn_body": "object.set_theme(theme)"
-                            },
-                            "with_theme": {
-                                "doc": [
-                                    "[`Self::set_theme`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "theme": "UiTheme"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "TimelineShell"
-                                },
-                                "fn_body": "object.with_theme(theme)"
                             },
                             "swap_with_default": {
                                 "doc": [
@@ -183019,37 +181636,6 @@
                                 },
                                 "fn_body": "object.with_drawer(drawer)"
                             },
-                            "set_status_bar": {
-                                "doc": [
-                                    "The status bar."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "status_bar": "Dom"
-                                    }
-                                ],
-                                "fn_body": "object.set_status_bar(status_bar)"
-                            },
-                            "with_status_bar": {
-                                "doc": [
-                                    "[`Self::set_status_bar`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "status_bar": "Dom"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "CanvasShell"
-                                },
-                                "fn_body": "object.with_status_bar(status_bar)"
-                            },
                             "set_canvas_ratio": {
                                 "doc": [
                                     "The canvas's share beside the panels."
@@ -183111,80 +181697,6 @@
                                     "type": "CanvasShell"
                                 },
                                 "fn_body": "object.with_drawer_ratio(ratio)"
-                            },
-                            "set_on_pane_focus": {
-                                "doc": [
-                                    "F6 moved the focus to a pane."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneFocusCallback"
-                                    }
-                                ],
-                                "fn_body": "object.set_on_pane_focus(data, callback)"
-                            },
-                            "with_on_pane_focus": {
-                                "doc": [
-                                    "[`Self::set_on_pane_focus`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneFocusCallback"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "CanvasShell"
-                                },
-                                "fn_body": "object.with_on_pane_focus(data, callback)"
-                            },
-                            "set_on_pane_resize": {
-                                "doc": [
-                                    "A splitter moved."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneResizeCallback"
-                                    }
-                                ],
-                                "fn_body": "object.set_on_pane_resize(data, callback)"
-                            },
-                            "with_on_pane_resize": {
-                                "doc": [
-                                    "[`Self::set_on_pane_resize`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "callback": "ShellOnPaneResizeCallback"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "CanvasShell"
-                                },
-                                "fn_body": "object.with_on_pane_resize(data, callback)"
                             },
                             "set_theme": {
                                 "doc": [
