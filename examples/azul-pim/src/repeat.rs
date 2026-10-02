@@ -15,8 +15,8 @@
 use chrono::{Datelike, Duration, NaiveDate, Weekday};
 
 pub use crate::dates::WORK_DAYS;
-use crate::dates::{add_months_clamped, ordinal_suffix, weekday_short, ymd_clamped};
-use crate::rrule::Rule;
+use crate::dates::{add_months_clamped, days_in_month, ordinal_suffix, weekday_short, ymd_clamped};
+use crate::rrule::{ByDay, Freq, RepeatEnd, Rule};
 
 /// The step of a rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -255,18 +255,127 @@ impl Repeat {
 
 impl Repeat {
     /// The iCalendar rule (RRULE) that makes the same dates from `due` as this repeat - what a
-    /// VTODO or an event carries. Not yet.
+    /// VTODO or an event carries. `None` where RRULE cannot say it: a repeat counting from the
+    /// completion, a month repeat on the 29th or 30th (a to-do clamps it to February's last day,
+    /// RRULE skips February), or a `due` date that is not one of the repeat's own days. A month
+    /// repeat on the 31st is every month's last day (`BYMONTHDAY=-1`), a year repeat on a day
+    /// its month does not always have (29 February) that month's last day.
     #[must_use]
     pub fn to_rule(&self, due: NaiveDate) -> Option<Rule> {
-        let _ = due;
-        None
+        if self.from_completion {
+            return None;
+        }
+        let repeat = self.clone().anchored(due);
+        let every = repeat.every.max(1);
+        let rule = match repeat.unit {
+            Unit::Day => Rule::new(Freq::Daily).with_interval(every),
+            Unit::Week => Rule::new(Freq::Weekly)
+                .with_interval(every)
+                .with_by_day(repeat.weekdays.iter().copied().map(ByDay::every).collect()),
+            Unit::Month => {
+                let day = repeat.month_day.unwrap_or_else(|| due.day());
+                if ymd_clamped(due.year(), due.month(), day) != due {
+                    return None;
+                }
+                let by: i8 = match day {
+                    1..=28 => i8::try_from(day).ok()?,
+                    31 => -1,
+                    _ => return None,
+                };
+                Rule::new(Freq::Monthly)
+                    .with_interval(every)
+                    .with_by_month_day(vec![by])
+            }
+            Unit::Year => {
+                let day = repeat.month_day.unwrap_or_else(|| due.day());
+                if ymd_clamped(due.year(), due.month(), day) != due {
+                    return None;
+                }
+                // The fewest days the month has in any year (February: 28).
+                let shortest = if due.month() == 2 {
+                    28
+                } else {
+                    days_in_month(due.year(), due.month())
+                };
+                let by: i8 = if day <= shortest {
+                    i8::try_from(day).ok()?
+                } else {
+                    -1
+                };
+                Rule::new(Freq::Yearly)
+                    .with_interval(every)
+                    .with_by_month(vec![due.month()])
+                    .with_by_month_day(vec![by])
+            }
+        };
+        Some(rule)
     }
 
-    /// The repeat that makes the same dates from `first` as `rule`. Not yet.
+    /// The repeat that makes the same dates from `first` as `rule` - an imported VTODO's or an
+    /// event's. `None` for a rule a repeat cannot hold: one that ends (`COUNT`, `UNTIL`), nth
+    /// weekdays, several months or month days, weeks that do not start on Monday, a day the
+    /// rule skips in short months or common years (where a repeat clamps), or a `first` date
+    /// that is not one of the rule's own days.
     #[must_use]
     pub fn from_rule(rule: &Rule, first: NaiveDate) -> Option<Repeat> {
-        let _ = (rule, first);
-        None
+        if rule.end != RepeatEnd::Never || rule.by_day.iter().any(|d| d.nth != 0) {
+            return None;
+        }
+        let every = rule.interval.max(1);
+        let days: Vec<Weekday> = rule.by_day.iter().map(|d| d.weekday).collect();
+        let no_month_parts = rule.by_month_day.is_empty() && rule.by_month.is_empty();
+        let is_last_day = first.day() == days_in_month(first.year(), first.month());
+        // The day of the month a month or year rule names, from `first`: `None` when `first`
+        // is not on it.
+        let month_day = || -> Option<u32> {
+            match rule.by_month_day.as_slice() {
+                [] => Some(first.day()),
+                [-1] => is_last_day.then_some(first.day()),
+                [d] => (u32::try_from(*d).ok()? == first.day()).then_some(first.day()),
+                _ => None,
+            }
+        };
+        match rule.freq {
+            Freq::Daily if no_month_parts => {
+                if days.is_empty() {
+                    Some(Repeat::new(every, Unit::Day))
+                } else if every == 1 {
+                    Some(Repeat::new(1, Unit::Week).on_weekdays(&days))
+                } else {
+                    None
+                }
+            }
+            Freq::Weekly if no_month_parts && (every == 1 || rule.week_start == Weekday::Mon) => {
+                Some(Repeat::new(every, Unit::Week).on_weekdays(&days))
+            }
+            Freq::Monthly if days.is_empty() && rule.by_month.is_empty() => {
+                let day = month_day()?;
+                if matches!(rule.by_month_day.as_slice(), [-1]) {
+                    // Every month's last day: the 31st, clamped.
+                    Some(Repeat::new(every, Unit::Month).on_month_day(31))
+                } else if day <= 28 {
+                    Some(Repeat::new(every, Unit::Month).on_month_day(day))
+                } else {
+                    None
+                }
+            }
+            Freq::Yearly if days.is_empty() => {
+                if !matches!(rule.by_month.as_slice(), [] | [_]) {
+                    return None;
+                }
+                if rule.by_month.first().is_some_and(|&m| m != first.month()) {
+                    return None;
+                }
+                let day = month_day()?;
+                let last_day = matches!(rule.by_month_day.as_slice(), [-1]);
+                // 29 February named by its number is skipped in common years.
+                if first.month() == 2 && day == 29 && !last_day {
+                    return None;
+                }
+                Some(Repeat::new(every, Unit::Year).on_month_day(day))
+            }
+            _ => None,
+        }
     }
 }
 
