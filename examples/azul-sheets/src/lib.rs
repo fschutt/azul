@@ -69,7 +69,7 @@ use azul::{
         ShellThemeScope,
     },
     str::String as AzString,
-    vec::{BackstageNavItemVec, CellGridSizeVec, StringVec},
+    vec::{BackstageNavItemVec, CellGridRangeVec, CellGridSizeVec, StringVec},
     widgets::{
         Backstage, BackstageNavItem, Button, ButtonOnClick, CellGrid, CellGridCell,
         CellGridCellKind, CellGridCellRef, CellGridCellStyle, CellGridEditMode, CellGridEvent,
@@ -690,7 +690,7 @@ fn go_to(s: &mut AppState, sheet: u32, range: CellGridRange) {
     let mut view = CellGridView::create();
     view.active = range.first;
     view.anchor = range.first;
-    view.ranges = vec![range].into();
+    view.ranges = CellGridRangeVec::from_vec(vec![range]);
     let (rows, columns) = s.window_cells();
     let (rows, columns) = (u32::try_from(rows).unwrap_or(30), u32::try_from(columns).unwrap_or(12));
     if range.first.row >= view.top_row + rows.saturating_sub(2) {
@@ -1036,7 +1036,7 @@ fn size_overrides(sizes: &[(i32, f64)], default: f32) -> CellGridSizeVec {
             index: u32::try_from(*i - 1).unwrap_or(0),
         })
         .collect();
-    v.into()
+    CellGridSizeVec::from_vec(v)
 }
 
 fn grid(s: &AppState, app: &RefAny) -> Dom {
@@ -1908,7 +1908,7 @@ fn backstage(s: &AppState, app: &RefAny) -> Dom {
                 .with_child(line("Workbooks: sheets/<id>.xlsx with a sheets/<id>.json sidecar; exports: exports/."))
                 .with_child(line("Set AZSHEETS_DATA to use another folder."));
             pane.add_child(
-                ShellSettingsLayout::create(StringVec::from(vec![
+                ShellSettingsLayout::create(StringVec::from_vec(vec![
                     AzString::from("Appearance"),
                     AzString::from("Files"),
                 ]))
@@ -1925,7 +1925,7 @@ fn backstage(s: &AppState, app: &RefAny) -> Dom {
             pane.add_child(line("Shortcuts: Ctrl+S save, Ctrl+Z / Ctrl+Y undo / redo, Ctrl+B / I / U, Ctrl+F find, F9 calculate."));
         }
     }
-    Backstage::create(BackstageNavItemVec::from(items))
+    Backstage::create(BackstageNavItemVec::from_vec(items))
         .with_active_item(s.backstage_pane)
         .with_on_nav_select(app.clone(), on_backstage_nav as BackstageOnNavSelectCallbackType)
         .with_on_back(app.clone(), on_backstage_back as ButtonOnClickCallbackType)
@@ -2679,7 +2679,7 @@ fn commit_formula(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, down:
     };
     s.view.active = next;
     s.view.anchor = next;
-    s.view.ranges = vec![CellGridRange { first: next, last: next }].into();
+    s.view.ranges = CellGridRangeVec::from_vec(vec![CellGridRange { first: next, last: next }]);
 }
 
 extern "C" fn on_field_key(mut data: RefAny, mut info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
