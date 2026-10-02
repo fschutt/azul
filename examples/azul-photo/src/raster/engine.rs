@@ -8,6 +8,8 @@
 
 use std::{fmt, sync::Arc};
 
+use azul_appkit::UndoHistory;
+
 use super::{
     adjust::Adjustment,
     blend::{self, BlendMode},
@@ -15,7 +17,6 @@ use super::{
     document::{Composite, Document},
     filter,
     geom::IRect,
-    history::History,
     layer::{self, Layer, LayerContent, LayerId, Placement},
     selection::{Mask, SelectMode, Shape},
     tile::TileGrid,
@@ -248,14 +249,21 @@ pub trait RasterEngine {
     fn replace_document(&mut self, doc: Document, label: &str);
 }
 
+/// The History panel keeps this many steps.
+pub const HISTORY_LIMIT: usize = 60;
+
 /// The CPU tile store: the document, its composite, the History, the stroke
 /// in progress.
 pub struct TileEngine {
     doc: Document,
     active: Option<LayerId>,
     composite: Composite,
-    history: History,
+    /// The documents before each recorded edit (appkit's shared undo stack;
+    /// a document clone shares its tiles).
+    history: UndoHistory<Document>,
     stroke: Option<Stroke>,
+    /// The document before the stroke in progress: the stroke's undo step.
+    stroke_before: Option<Document>,
     /// Composited by the engine itself (an export, a merged sample) but not
     /// handed to the canvas yet.
     pending: IRect,
@@ -407,9 +415,10 @@ impl TileEngine {
         Self {
             active: top_layer(&doc.layers),
             composite: Composite::new(doc.width, doc.height),
-            history: History::new(label, doc.clone()),
+            history: UndoHistory::new(label).with_limit(HISTORY_LIMIT),
             doc,
             stroke: None,
+            stroke_before: None,
             pending: IRect::default(),
         }
     }
@@ -837,8 +846,11 @@ impl RasterEngine for TileEngine {
         }
         let label = op.label();
         let key = op.coalesce_key();
+        let before = self.doc.clone();
         if self.run(op)? {
-            self.history.push(&label, self.doc.clone(), key);
+            // A run of the same key (a dragged slider) is one step.
+            self.history
+                .checkpoint_with(&label, key.as_deref(), || before);
         }
         Ok(())
     }
@@ -854,6 +866,7 @@ impl RasterEngine for TileEngine {
             .and_then(Layer::grid)
             .cloned()
             .ok_or(EngineError::NotRaster)?;
+        self.stroke_before = Some(self.doc.clone());
         self.stroke = Some(Stroke::begin(settings, id, base));
         self.stroke_to(at);
         Ok(())
@@ -880,10 +893,10 @@ impl RasterEngine for TileEngine {
     }
 
     fn end_stroke(&mut self) {
-        if let Some(stroke) = self.stroke.take() {
+        let before = self.stroke_before.take();
+        if let (Some(stroke), Some(before)) = (self.stroke.take(), before) {
             if !stroke.dirty.is_empty() {
-                self.history
-                    .push(stroke.settings.tool.label(), self.doc.clone(), None);
+                self.history.checkpoint(stroke.settings.tool.label(), before);
             }
         }
     }
@@ -913,17 +926,19 @@ impl RasterEngine for TileEngine {
         if self.stroke.is_some() {
             self.end_stroke();
         }
-        let Some(doc) = self.history.undo().cloned() else {
+        let mut doc = self.doc.clone();
+        if !self.history.undo(&mut doc) {
             return false;
-        };
+        }
         self.restore(doc);
         true
     }
 
     fn redo(&mut self) -> bool {
-        let Some(doc) = self.history.redo().cloned() else {
+        let mut doc = self.doc.clone();
+        if !self.history.redo(&mut doc) {
             return false;
-        };
+        }
         self.restore(doc);
         true
     }
@@ -932,9 +947,10 @@ impl RasterEngine for TileEngine {
         if self.stroke.is_some() {
             self.end_stroke();
         }
-        let Some(doc) = self.history.jump(index).cloned() else {
+        let mut doc = self.doc.clone();
+        if !self.history.jump(index, &mut doc) {
             return false;
-        };
+        }
         self.restore(doc);
         true
     }
