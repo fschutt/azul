@@ -596,11 +596,22 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 // consulted — `image_for_layout` keeps the DOM's declared
                 // (sizeless) callback so a per-frame producer cannot resize
                 // the box it draws into.
-                let size = self
-                    .ctx
-                    .resolved_content()
-                    .image_for_layout(dom_id)
+                let layout_image = self.ctx.resolved_content().image_for_layout(dom_id);
+                let size = layout_image
+                    .as_ref()
                     .map_or_else(|| image_ref.get_size(), |img| img.get_size());
+                // An `<img src>` from markup whose picture nobody supplied
+                // (yet): the loaders' placeholder carrying its src, which
+                // `image_for_layout` hands back when the image cache has no
+                // picture under that src. A browser lays a not-yet-available
+                // image out with no size unless its `width` / `height`
+                // attributes give it one (HTML rendering 15.4.3; those land
+                // in the placeholder's size): no 300x150 hole for a pending
+                // or failed download (DEDUP_EDITORS A3.8).
+                let pending_markup_picture = layout_image
+                    .as_ref()
+                    .map_or_else(|| image_ref.source_tag(), |img| img.source_tag())
+                    .is_some();
                 // +spec:containing-block:1da6dc - use initial CB inline size for replaced elements
                 // with aspect ratio but no intrinsic size Per css-sizing-3 §5.1:
                 // "use an inline size matching the corresponding dimension
@@ -614,6 +625,8 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 } else if size.height > 0.0 {
                     // Has intrinsic height but no width — use initial CB inline dimension
                     (self.ctx.viewport_size.width, size.height)
+                } else if pending_markup_picture {
+                    (0.0, 0.0)
                 } else {
                     // +spec:replaced-elements:43376b - 300px fallback with 2:1 ratio for replaced
                     // elements No intrinsic dimensions — cap at 300x150 per CSS
