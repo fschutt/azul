@@ -739,6 +739,21 @@ fn keyword_is_whole_word(type_name: &str, keyword: &str) -> bool {
     false
 }
 
+/// THE "is a Vec type" rule: the generated `*Vec` and its destructor / ref
+/// helpers, all of which live in the `vec` module. One function for the
+/// name-only classifier (`determine_module`), the widget rule
+/// (`widget_module_for`) and the move check (`get_correct_module_with_path`):
+/// three hand-written copies of this list drifted apart (only one counted
+/// `vecslice`) and misfiled 14 widget slices. A `*VecSlice` is not one of
+/// them - it is a borrowed view of its element and lives with the element.
+/// `Option*Vec` is an Option: every caller tests the `Option` prefix first.
+pub fn is_vec_family(type_name: &str) -> bool {
+    let lower = type_name.to_lowercase();
+    ["vec", "vecdestructor", "vecdestructortype", "vecref", "vecrefmut"]
+        .iter()
+        .any(|suffix| lower.ends_with(suffix))
+}
+
 /// (module, is_guess). `is_guess` is true when no keyword matched (`misc`)
 /// AND when the winning keyword is only a substring of the name, not one of
 /// its words - `aria` inside `AccordionVariant` chose `dom` for a widget
@@ -754,12 +769,7 @@ pub fn determine_module(type_name: &str) -> (String, bool) {
     }
 
     // Priority 2: Vec types go to vec module
-    if lower_name.ends_with("vec")
-        || lower_name.ends_with("vecdestructor")
-        || lower_name.ends_with("vecdestructortype")
-        || lower_name.ends_with("vecref")
-        || lower_name.ends_with("vecrefmut")
-    {
+    if is_vec_family(type_name) {
         return ("vec".to_string(), false);
     }
 
@@ -848,19 +858,13 @@ pub fn widget_module_for(type_name: &str, full_path: &str) -> Option<String> {
     if !full_path.starts_with("azul_layout::widgets::") {
         return None;
     }
-    let lower = type_name.to_lowercase();
     let module = if type_name.ends_with("CallbackType") {
         "callbacks"
     } else if type_name.ends_with("Callback") {
         "dom"
     } else if type_name.starts_with("Option") {
         "option"
-    } else if lower.ends_with("vec")
-        || lower.ends_with("vecdestructor")
-        || lower.ends_with("vecdestructortype")
-        || lower.ends_with("vecref")
-        || lower.ends_with("vecrefmut")
-    {
+    } else if is_vec_family(type_name) {
         "vec"
     } else if full_path.starts_with("azul_layout::widgets::shells::") {
         // The app shells (OfficeShell, ShellNavigationPane, the S1..S11
@@ -890,15 +894,14 @@ pub fn get_correct_module_with_path(
 ) -> Option<String> {
     let (name_module, is_warning) = determine_module(type_name);
 
-    // Hard-coded module assignments (Vec/Option/Error) always win — they're structural
+    // Hard-coded module assignments (Vec/Option/Error) always win — they're
+    // structural. A `*VecSlice` is NOT structural: it lives with its element
+    // (a widget's slice with its widget, below). Counting it here answered
+    // with the name's keyword before the widget rule was asked, so
+    // `CellGridRangeVecSlice` was "correct" in css (DEDUP_WIDGETS_API F17).
     let lower_name = type_name.to_lowercase();
     let is_structural = lower_name.starts_with("option")
-        || lower_name.ends_with("vec")
-        || lower_name.ends_with("vecdestructor")
-        || lower_name.ends_with("vecdestructortype")
-        || lower_name.ends_with("vecref")
-        || lower_name.ends_with("vecrefmut")
-        || lower_name.ends_with("vecslice")
+        || is_vec_family(type_name)
         || lower_name.ends_with("error")
         || lower_name.starts_with("result");
 
