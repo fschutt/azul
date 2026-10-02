@@ -734,3 +734,5 @@ mod the_first_line_of_a_paragraph_starts_text_indent_further_in;
 mod a_line_height_in_points_sets_the_line_pitch;
 #[path = "text_beside_an_italic_or_bold_box_keeps_a_font.rs"]
 mod text_beside_an_italic_or_bold_box_keeps_a_font;
+#[path = "a_rows_stray_child_sits_in_an_anonymous_cell.rs"]
+mod a_rows_stray_child_sits_in_an_anonymous_cell;
