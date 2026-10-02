@@ -2244,4 +2244,257 @@ enum KeyAction {
     ToParagraph,
 }
 
-// RTE-WIDGET-PART-D: tests follow.
+/// The editor the lints and the showcase build: a toolbar and a block of
+/// every kind.
+#[cfg(test)]
+pub(crate) mod fixtures {
+    use super::*;
+
+    /// A note with a block of every kind.
+    pub(crate) fn sample_doc() -> RichTextDoc {
+        let bold = RichRun::plain("bold").with_format(RichFormat::Bold);
+        let link = RichRun::plain("the plan").with_link(AzString::from("https://example.org"));
+        RichTextDoc::from_blocks(vec![
+            RichBlock::text(RichBlockKind::Heading(1), "Offsite agenda"),
+            RichBlock::new(
+                RichBlockKind::Paragraph,
+                vec![RichRun::plain("Bring "), bold, RichRun::plain(" and "), link],
+            ),
+            RichBlock::text(RichBlockKind::Bullet(0), "Agree on priorities"),
+            RichBlock::text(RichBlockKind::Bullet(1), "before the holidays"),
+            RichBlock::text(RichBlockKind::Numbered(0), "Book the room"),
+            RichBlock::text(
+                RichBlockKind::Check(RichCheck {
+                    indent: 0,
+                    checked: true,
+                }),
+                "Send the invite",
+            ),
+            RichBlock::paragraph("Quoted words").with_quote_depth(1),
+            RichBlock::text(RichBlockKind::Code(AzString::from("rust")), "let x = 1;"),
+            RichBlock::new(RichBlockKind::Rule, vec![]),
+            RichBlock::new(RichBlockKind::Table(RichTable::empty(2, 2)), vec![]),
+        ])
+    }
+
+    /// The sample note in an editor with every toolbar group.
+    pub(crate) fn sample() -> RichTextEditor {
+        RichTextEditor::create(RichTextEditorState::create(sample_doc()))
+            .with_toolbar(RichTextToolbar::full())
+            .with_accessibility_name(AzString::from("Note text"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use azul_core::{
+        dom::{DomId, DomNodeId, NodeId, NodeType},
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+    };
+
+    use super::*;
+    use crate::widgets::{
+        roving::test_support as rv,
+        themes::{theme_blocks::checks, theme_checks, UiTheme},
+    };
+
+    type Log = Arc<Mutex<Vec<RichTextEditorState>>>;
+
+    extern "C" fn record(mut data: RefAny, _: CallbackInfo, state: RichTextEditorState) -> Update {
+        if let Some(log) = data.downcast_ref::<Log>() {
+            log.lock().expect("log").push(state);
+        }
+        Update::DoNothing
+    }
+
+    fn logged(editor: RichTextEditor) -> (RichTextEditor, Log) {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let editor = editor.with_on_change(
+            RefAny::new(log.clone()),
+            record as RichTextEditorOnChangeCallbackType,
+        );
+        (editor, log)
+    }
+
+    /// The host of a built editor.
+    fn host_of(dom: &Dom) -> Option<&Dom> {
+        if dom.root.has_id(DEFAULT_HOST_ID) {
+            return Some(dom);
+        }
+        dom.children.as_ref().iter().find_map(host_of)
+    }
+
+    fn node(index: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(index))),
+        }
+    }
+
+    /// The nodes that take a click, in document order.
+    fn clickables(styled: &StyledDom) -> Vec<usize> {
+        styled
+            .node_data
+            .as_ref()
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| {
+                n.get_callbacks()
+                    .as_ref()
+                    .iter()
+                    .any(|cb| cb.event == EventFilter::Hover(HoverEventFilter::Click))
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    #[test]
+    fn the_host_holds_one_element_per_block_and_one_node_per_run() {
+        let dom = fixtures::sample().with_theme(UiTheme::Flat).dom();
+        let host = host_of(&dom).expect("the host carries its id");
+        assert!(host.root.is_contenteditable(), "the host is the editing host");
+        let blocks = host.children.as_ref();
+        assert_eq!(blocks.len(), fixtures::sample_doc().block_count());
+        let paragraph = blocks[1].children.as_ref();
+        assert_eq!(paragraph.len(), 4, "one child per run: {paragraph:?}");
+        assert!(matches!(paragraph[0].root.get_node_type(), NodeType::Text(_)));
+        assert!(paragraph[1].root.has_class(rich_html::RUN_BOLD_CLASS));
+        assert!(
+            matches!(paragraph[3].root.get_node_type(), NodeType::A),
+            "a link is an <a>"
+        );
+        // The check item: its runs, then the box, an island after them.
+        let item = blocks[5].children.as_ref();
+        assert_eq!(item.len(), 2);
+        assert!(item[1].root.has_class(rich_html::ISLAND_CLASS));
+        assert!(blocks[5].root.has_class(rich_html::CHECKED_CLASS));
+        assert!(blocks[6].root.has_class(&rich_html::quote_class(1)));
+        assert!(blocks[0].root.has_id("az-rich-text-0"), "a block is named by its index");
+    }
+
+    #[test]
+    fn what_the_editor_renders_reads_back_as_the_same_blocks() {
+        // The engine's structural edits clone the editor's own elements:
+        // reading them back must give the blocks they came from.
+        let dom = fixtures::sample().with_theme(UiTheme::Flat).dom();
+        let host = host_of(&dom).expect("the host");
+        let blocks = rich_html::blocks_from_doms(host.children.as_ref());
+        let doc = fixtures::sample_doc();
+        let kinds: Vec<Option<RichBlockKind>> = blocks.iter().map(|b| b.kind.clone()).collect();
+        let want: Vec<Option<RichBlockKind>> = doc
+            .blocks()
+            .iter()
+            .map(|b| match &b.kind {
+                // A code block reads back without its language.
+                RichBlockKind::Code(_) => Some(RichBlockKind::Code(AzString::from_const_str(""))),
+                other => Some(other.clone()),
+            })
+            .collect();
+        assert_eq!(kinds, want);
+        assert_eq!(blocks[1].runs, doc.blocks()[1].runs_vec());
+        assert_eq!(blocks[6].quote_depth, 1);
+    }
+
+    #[test]
+    fn a_read_only_editor_takes_no_input() {
+        let dom = fixtures::sample()
+            .with_read_only(true)
+            .with_theme(UiTheme::Flat)
+            .dom();
+        let host = host_of(&dom).expect("the host");
+        assert!(!host.root.is_contenteditable());
+        assert!(host.root.get_callbacks().as_ref().is_empty());
+        let styled = StyledDom::create_from_dom(dom);
+        assert!(clickables(&styled).is_empty(), "no toolbar, no check box clicks");
+    }
+
+    #[test]
+    fn the_toolbar_shows_the_groups_asked_for() {
+        let count = |toolbar: RichTextToolbar| {
+            let dom = RichTextEditor::create(RichTextEditorState::default())
+                .with_toolbar(toolbar)
+                .with_theme(UiTheme::Flat)
+                .dom();
+            clickables(&StyledDom::create_from_dom(dom)).len()
+        };
+        assert_eq!(count(RichTextToolbar::none()), 0);
+        assert_eq!(count(RichTextToolbar::minimal()), 5 + 3);
+        assert_eq!(count(RichTextToolbar::full()), 5 + 3 + 3 + 3 + 2 + 4 + 2);
+    }
+
+    #[test]
+    fn a_toolbar_format_at_a_caret_is_the_typing_style_and_a_kind_changes_the_block() {
+        let (editor, log) = logged(fixtures::sample().with_theme(UiTheme::Flat));
+        let styled = StyledDom::create_from_dom(editor.dom());
+        let buttons = clickables(&styled);
+        // Bold first; with nothing selected it is the typing style.
+        let (update, _) = rv::fire(
+            &styled,
+            node(buttons[0]),
+            EventFilter::Hover(HoverEventFilter::Click),
+        )
+        .expect("Bold takes the click");
+        assert_eq!(update, Update::DoNothing, "the document did not change");
+        let typing = log
+            .lock()
+            .expect("log")
+            .last()
+            .and_then(|s| s.typing.as_ref().copied())
+            .expect("the typing style was reported");
+        assert!(typing.formats.bold);
+        // Heading 1 (after the five formats): the caret's block - the
+        // first - is a heading 1 already, so it turns back to a paragraph.
+        let (update, _) = rv::fire(
+            &styled,
+            node(buttons[5]),
+            EventFilter::Hover(HoverEventFilter::Click),
+        )
+        .expect("H1 takes the click");
+        assert_eq!(update, Update::RefreshDom);
+        let state = log.lock().expect("log").last().cloned().expect("a state");
+        assert_eq!(state.doc.blocks()[0].kind, RichBlockKind::Paragraph);
+        assert!(state.history.can_undo(), "the change is one undo step");
+    }
+
+    #[test]
+    fn a_click_on_a_check_box_ticks_its_item_off() {
+        let (editor, log) = logged(fixtures::sample().with_theme(UiTheme::Flat));
+        let styled = StyledDom::create_from_dom(editor.dom());
+        let island = styled
+            .node_data
+            .as_ref()
+            .iter()
+            .position(|n| n.has_class(rich_html::ISLAND_CLASS) && !n.get_callbacks().as_ref().is_empty())
+            .expect("the check box");
+        let (update, _) = rv::fire(
+            &styled,
+            node(island),
+            EventFilter::Hover(HoverEventFilter::Click),
+        )
+        .expect("the box takes the click");
+        assert_eq!(update, Update::RefreshDom);
+        let state = log.lock().expect("log").last().cloned().expect("a state");
+        assert_eq!(
+            state.doc.blocks()[5].kind,
+            RichBlockKind::Check(RichCheck {
+                indent: 0,
+                checked: false
+            })
+        );
+    }
+
+    #[test]
+    fn an_editor_without_a_theme_follows_the_app_theme() {
+        checks::assert_follows_the_app_theme(
+            "rich_text_editor",
+            || fixtures::sample().dom(),
+            |t: UiTheme| fixtures::sample().with_theme(t).dom(),
+        );
+        for theme in checks::BOTH {
+            let dom = checks::under(theme, || fixtures::sample().dom());
+            assert!(theme_checks::has_class(&dom, RICH_TEXT_EDITOR_CLASS));
+        }
+    }
+}

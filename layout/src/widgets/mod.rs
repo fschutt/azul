@@ -456,6 +456,17 @@ pub mod thumbnail_strip;
 /// content and looks asked from the app's data and style callbacks. See
 /// `cell_grid.rs`.
 pub mod cell_grid;
+/// The shared rich-text model: one document type for every rich editor
+/// (blocks of styled runs), its edits, its Markdown / HTML / plain-text
+/// forms and its undo history; see `rich_text/`.
+pub mod rich_text;
+/// Rich-text editor widget.
+///
+/// ONE editor for notes, mail compose and documents: a `contenteditable`
+/// host over a [`rich_text::RichTextDoc`], formats, headings, nested lists,
+/// check items, quotes, code, tables, Markdown shortcuts, one undo history;
+/// see `rich_text_editor.rs`.
+pub mod rich_text_editor;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
@@ -1807,6 +1818,11 @@ mod label_convention {
         all.extend(super::shells::fixtures::every_shell());
         // The spreadsheet grid, with a block of numbers as its data.
         all.push(("cell_grid", super::cell_grid::fixtures::small().dom()));
+        // The rich-text editor with its toolbar and a block of every kind.
+        all.push((
+            "rich_text_editor",
+            super::rich_text_editor::fixtures::sample().dom(),
+        ));
         all
     }
 
@@ -2659,6 +2675,8 @@ mod theme_contrast {
         "standard_dialogs (progress)",
         "standard_dialogs (login)",
         "standard_dialogs (find / replace)",
+        // The rich-text editor: a page of the user's own text.
+        "rich_text_editor",
     ];
     /// Controls a user types into, picks from or toggles.
     const INPUTS: &[&str] = &[
