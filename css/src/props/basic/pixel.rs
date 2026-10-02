@@ -3094,4 +3094,26 @@ mod autotest_generated {
             assert!(!s.contains("NaN") && !s.contains("inf"), "leaked {s:?}");
         }
     }
+
+    /// `ex` and `ch` lengths parse with the fallback CSS Values 4 (6.1.1)
+    /// gives where the font's own measure is not at hand: half an em each.
+    /// Gmail indents every quote with `margin: 0 0 0 0.8ex` and
+    /// `padding-left: 1ex`; refused, the whole margin declaration was
+    /// dropped and the blockquote fell back to the 40px UA margin.
+    #[test]
+    fn ex_and_ch_lengths_are_half_an_em() {
+        assert_eq!(parse_pixel_value("0.8ex").unwrap(), PixelValue::em(0.4));
+        assert_eq!(parse_pixel_value("1ex").unwrap(), PixelValue::em(0.5));
+        assert_eq!(parse_pixel_value("2ch").unwrap(), PixelValue::em(1.0));
+        assert_eq!(parse_pixel_value(" -4ex ").unwrap(), PixelValue::em(-2.0));
+        assert_eq!(
+            parse_pixel_value_no_percent("1ex").unwrap().inner,
+            PixelValue::em(0.5)
+        );
+        assert!(matches!(
+            parse_pixel_value("ex").unwrap_err(),
+            CssPixelValueParseError::NoValueGiven("ex", SizeMetric::Em)
+        ));
+        assert!(parse_pixel_value("1.2.3ex").is_err());
+    }
 }

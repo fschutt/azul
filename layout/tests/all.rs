@@ -734,3 +734,5 @@ mod the_first_line_of_a_paragraph_starts_text_indent_further_in;
 mod a_line_height_in_points_sets_the_line_pitch;
 #[path = "an_auto_height_block_stops_growing_at_its_max_height.rs"]
 mod an_auto_height_block_stops_growing_at_its_max_height;
+#[path = "a_gmail_quote_is_indented_by_its_ex_margin.rs"]
+mod a_gmail_quote_is_indented_by_its_ex_margin;
