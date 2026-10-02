@@ -1717,6 +1717,23 @@ fn process_layout_children<T: ParsedFontTrait>(
             continue;
         };
 
+        // A `<br>` is a forced line break (CSS Sizing 3 5.1: it still ends
+        // a line of the max-content), as the layout's own inline collection
+        // emits it (`fc::collect_and_measure_inline_content`). Entered as an
+        // empty inline it emitted nothing, and the lines on either side were
+        // measured as one: a table column of "item<br/>note" took both.
+        if matches!(
+            ctx.styled_dom.node_data.as_container()[child_dom_id].get_node_type(),
+            NodeType::Br
+        ) {
+            content.push(InlineContent::LineBreak(crate::text3::cache::InlineBreak {
+                break_type: crate::text3::cache::BreakType::Hard,
+                clear: crate::text3::cache::ClearType::None,
+                content_index: content.len(),
+            }));
+            continue;
+        }
+
         let display = get_display_property(ctx.styled_dom, Some(child_dom_id));
 
         // CSS Sizing Level 3: Inline-level boxes participate in the IFC
