@@ -456,6 +456,13 @@ pub mod thumbnail_strip;
 /// content and looks asked from the app's data and style callbacks. See
 /// `cell_grid.rs`.
 pub mod cell_grid;
+/// List selection model.
+///
+/// The selected items of a list, a tile grid, a slide rail or a canvas with
+/// the anchor and the focus: click, Ctrl / Shift / Ctrl+Shift click, the
+/// arrows, select all / none / invert - Explorer's rules written once; see
+/// `list_selection.rs`.
+pub mod list_selection;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
