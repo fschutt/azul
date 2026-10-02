@@ -20,8 +20,12 @@
 //!   becomes a `span`, `center` a centred `div`, a `body` with something to say (a `style`, a
 //!   `bgcolor` ...) a `div`, and any other tag is dropped with its text kept;
 //! - attributes: `href` (http, https and mailto only), `colspan`, `rowspan`, `dir`, and `style`
-//!   with a short list of properties whose values name no URL (and no negative margin);
-//!   `align`, `bgcolor`, `width` and `font color` become style;
+//!   with a short list of properties whose values name no URL (and no negative margin); the
+//!   presentational ones of tables, cells and blocks (`align`, `valign`, `width`, `height`,
+//!   `bgcolor`, `border`, `bordercolor`, `cellpadding`, `cellspacing`, `nowrap`) as written, for
+//!   azul's own HTML hints; on an element renamed here (`body`, `font`) and on a kept picture,
+//!   what they mean becomes style (`bgcolor`, `text`, `color`, `face`, `size`, `align`,
+//!   `hspace`, `vspace`, `border`);
 //! - nesting deeper than 200 keeps the text only;
 //! - the text (its character references decoded by the parser) is re-escaped.
 //!
@@ -355,13 +359,49 @@ impl Sanitizer {
                 escape_into(&mut self.out, alt, true);
                 self.out.push('"');
             }
-            for name in ["width", "height"] {
-                let pixels = attribute(name)
+            let pixels = |name: &str| {
+                attribute(name)
                     .map(|v| v.trim_end_matches("px").trim())
-                    .and_then(|v| v.parse::<u32>().ok());
-                if let Some(n) = pixels {
+                    .and_then(|v| v.parse::<u32>().ok())
+            };
+            for name in ["width", "height"] {
+                if let Some(n) = pixels(name) {
                     self.out.push_str(&format!(" {name}=\"{n}\""));
                 }
+            }
+            // What a picture's legacy attributes mean in a browser (HTML's rendering section,
+            // "images"): `align` floats it or aligns it on the line, `hspace` / `vspace` are
+            // its margins, `border` a solid border.
+            let mut styles: Vec<String> = Vec::new();
+            let align = attribute("align").map(str::to_ascii_lowercase);
+            match align.as_deref() {
+                Some("left") => styles.push(String::from("float: left")),
+                Some("right") => styles.push(String::from("float: right")),
+                Some("top") => styles.push(String::from("vertical-align: top")),
+                Some("texttop") => styles.push(String::from("vertical-align: text-top")),
+                Some("middle" | "absmiddle" | "center") => {
+                    styles.push(String::from("vertical-align: middle"));
+                }
+                Some("bottom" | "baseline") => styles.push(String::from("vertical-align: baseline")),
+                Some("absbottom") => styles.push(String::from("vertical-align: bottom")),
+                _ => {}
+            }
+            if let Some(n) = pixels("hspace") {
+                styles.push(format!("margin-left: {n}px"));
+                styles.push(format!("margin-right: {n}px"));
+            }
+            if let Some(n) = pixels("vspace") {
+                styles.push(format!("margin-top: {n}px"));
+                styles.push(format!("margin-bottom: {n}px"));
+            }
+            if let Some(n) = pixels("border") {
+                styles.push(format!("border-width: {n}px"));
+                styles.push(String::from("border-style: solid"));
+            }
+            if !styles.is_empty() {
+                self.out.push_str(" style=\"");
+                escape_into(&mut self.out, &styles.join("; "), true);
+                self.out.push('"');
             }
             self.out.push_str("/>");
             if !self.remote_images.iter().any(|u| u == src) {
@@ -405,14 +445,35 @@ impl Sanitizer {
     }
 }
 
-/// Writes the attributes an output tag keeps: `href`, `colspan`, `rowspan`, `dir`, and one
-/// `style` from the safe style declarations and the presentational attributes.
+/// The presentational attributes azul's own HTML hints map to CSS where a browser does (core's
+/// `presentational_css`, the one generator: on tables, their parts and cells, `div`, `p` and the
+/// headings - on any other element they mean nothing there either). Kept as written.
+const PRESENTATIONAL: &[&str] = &[
+    "align",
+    "valign",
+    "width",
+    "height",
+    "bgcolor",
+    "border",
+    "bordercolor",
+    "cellpadding",
+    "cellspacing",
+    "nowrap",
+];
+
+/// Writes the attributes an output tag keeps: `href`, `colspan`, `rowspan`, `dir`, the
+/// presentational attributes ([`PRESENTATIONAL`]) for azul's HTML hints, and one `style`: what a
+/// renamed element said with its attributes, then the safe style declarations.
 fn push_attributes(out: &mut String, source: &str, tag: &str, attributes: &[(&str, &str)]) {
     let mut kept: Vec<(&str, String)> = Vec::new();
     let mut styles: Vec<(String, String)> = Vec::new();
     if source == "center" {
         styles.push((String::from("text-align"), String::from("center")));
     }
+    // An element renamed in the output (`<body>` a `div`, `<font>` a `span`) takes what its
+    // attributes mean along as style: azul's hints know them only on the element they were
+    // written on.
+    let renamed = source != tag;
     for &(name, value) in attributes {
         let value = value.trim();
         let lower = value.to_ascii_lowercase();
@@ -442,32 +503,31 @@ fn push_attributes(out: &mut String, source: &str, tag: &str, attributes: &[(&st
                     kept.push(("dir", lower.clone()));
                 }
             }
-            "align" => {
-                if matches!(lower.as_str(), "left" | "right" | "center" | "justify") {
-                    styles.push((String::from("text-align"), lower.clone()));
-                }
-            }
-            "valign" => {
-                if matches!(lower.as_str(), "top" | "middle" | "bottom" | "baseline") {
-                    styles.push((String::from("vertical-align"), lower.clone()));
-                }
-            }
-            "bgcolor" => {
+            "bgcolor" | "text" if source == "body" => {
                 if !value.is_empty() && safe_style_value(value) {
-                    styles.push((String::from("background-color"), value.to_string()));
+                    let property = if name == "bgcolor" {
+                        "background-color"
+                    } else {
+                        "color"
+                    };
+                    styles.push((String::from(property), value.to_string()));
                 }
             }
-            "color" if source == "font" => {
+            "color" | "face" if source == "font" => {
                 if !value.is_empty() && safe_style_value(value) {
-                    styles.push((String::from("color"), value.to_string()));
+                    let property = if name == "color" { "color" } else { "font-family" };
+                    styles.push((String::from(property), value.to_string()));
                 }
             }
-            "width" | "height" if matches!(tag, "table" | "td" | "th") => {
-                if let Some(length) = html_length(value) {
-                    styles.push((name.to_string(), length));
+            "size" if source == "font" => {
+                if let Some(px) = html_font_size(value) {
+                    styles.push((String::from("font-size"), format!("{px}px")));
                 }
             }
             "style" => styles.extend(parse_style(value)),
+            _ if !renamed && PRESENTATIONAL.contains(&name) => {
+                kept.push((name, value.to_string()));
+            }
             _ => {}
         }
     }
@@ -488,6 +548,22 @@ fn push_attributes(out: &mut String, source: &str, tag: &str, attributes: &[(&st
         escape_into(out, &joined, true);
         out.push('"');
     }
+}
+
+/// A `<font size>` in px: HTML's rules for a legacy font size (`1` to `7`, or `+n` / `-n` from
+/// `3`, clamped to `1..=7`) and the CSS absolute sizes they stand for at a 16px `medium`.
+fn html_font_size(value: &str) -> Option<u32> {
+    const PX: [u32; 7] = [10, 13, 16, 18, 24, 32, 48];
+    let value = value.trim();
+    let (sign, rest) = match value.as_bytes().first() {
+        Some(b'+') => (Some(1_i64), &value[1..]),
+        Some(b'-') => (Some(-1_i64), &value[1..]),
+        _ => (None, value),
+    };
+    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+    let n: i64 = rest[..digits].parse().ok()?;
+    let size = sign.map_or(n, |sign| 3 + sign * n).clamp(1, 7);
+    usize::try_from(size - 1).ok().and_then(|i| PX.get(i).copied())
 }
 
 /// Whether a `color-scheme` value names the dark mode (`dark`, `light dark`, `only dark`).
@@ -712,23 +788,6 @@ fn safe_style_value(value: &str) -> bool {
     .iter()
     .any(|bad| lower.contains(bad))
         && !value.chars().any(char::is_control)
-}
-
-/// An HTML length attribute (`600`, `600px`, `50%`) as CSS.
-fn html_length(value: &str) -> Option<String> {
-    let number = |s: &str| {
-        s.trim()
-            .parse::<f32>()
-            .ok()
-            .filter(|n| n.is_finite() && *n >= 0.0)
-    };
-    if let Some(n) = value.strip_suffix('%') {
-        number(n).map(|_| value.to_string())
-    } else if let Some(n) = value.strip_suffix("px") {
-        number(n).map(|_| value.to_string())
-    } else {
-        number(value).map(|_| format!("{value}px"))
-    }
 }
 
 /// Appends `s` escaped for XML text (or, with `attribute`, a double-quoted attribute value),
@@ -973,12 +1032,12 @@ mod tests {
                 "<table><tr><td bgcolor=\"#eee\" align=center width=50% colspan=2 nowrap>x</td>\
                  </tr></table>"
             ),
-            "<table><tbody><tr><td colspan=\"2\" style=\"background-color: #eee; text-align: \
-             center; width: 50%\">x</td></tr></tbody></table>"
+            "<table><tbody><tr><td bgcolor=\"#eee\" align=\"center\" width=\"50%\" colspan=\"2\" \
+             nowrap=\"\">x</td></tr></tbody></table>"
         );
         assert_eq!(
             inner("<table width=600><tr><td>x</td></tr></table>"),
-            "<table style=\"width: 600px\"><tbody><tr><td>x</td></tr></tbody></table>"
+            "<table width=\"600\"><tbody><tr><td>x</td></tr></tbody></table>"
         );
         assert_eq!(inner("<p dir=rtl>x</p>"), "<p dir=\"rtl\">x</p>");
     }
@@ -1003,7 +1062,8 @@ mod tests {
     fn legacy_tags_become_their_modern_twins() {
         assert_eq!(
             inner("<font color=\"#ff0000\" face=Arial>red</font><center>c</center>"),
-            "<span style=\"color: #ff0000\">red</span><div style=\"text-align: center\">c</div>"
+            "<span style=\"color: #ff0000; font-family: Arial\">red</span><div style=\"text-align: \
+             center\">c</div>"
         );
         assert_eq!(
             inner("<body style=\"margin:0\"><h1>T</h1></body>"),
