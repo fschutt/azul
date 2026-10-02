@@ -754,8 +754,19 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                     false
                 };
 
-                if is_text_node || has_text_in_subtree {
-                    // Case 1 or 2: Text node or IFC root - measure inline content
+                // Case 4: an ANONYMOUS inline wrapper (no DOM node): the
+                // run of inline content a block container with block
+                // children puts in an anonymous box (`<td><i>..</i><table>`,
+                // `<td>Label<div>..</div></td>`). It is the IFC root of that
+                // run, so it measures it - it has no DOM node for the two
+                // checks above to look at, and it came out (0, 0): the cell's
+                // intrinsic width lost its inline content, and so did the
+                // anonymous box's own used width in the cell's min/max-content
+                // layout (`calculate_used_size_for_node` sizes a DOM-less box
+                // by these intrinsics under a measurement constraint).
+                let is_anonymous_wrapper = node.dom_node_id.is_none();
+                if is_text_node || has_text_in_subtree || is_anonymous_wrapper {
+                    // Case 1, 2 or 4: measure the inline content
                     self.calculate_ifc_root_intrinsic_sizes(tree, node_index)
                 } else {
                     // Case 3: True inline element - measured by parent IFC root

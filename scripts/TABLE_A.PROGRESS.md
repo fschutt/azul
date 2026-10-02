@@ -24,7 +24,12 @@ Brief: scratchpad `TABLE_A_go.md` (widths, row groups, presentational attributes
     lacked table-column(-group): a table's [colgroup, tr] was "mixed content" and the colgroup got
     wrapped in an anonymous INLINE box under the table, invisible to the grid. FIX: is_block_level +=
     TableColumnGroup | TableColumn (commit "colgroup ... wrapped").
-  - NEXT: #3 (anonymous inline wrapper measured as 0 in the intrinsic pass), #4 (a cell's children
+  - #3 cellpadding_pads_the_tables_own_cells_only: ROOT CAUSE the intrinsic pass's Inline arm
+    (sizing.rs calculate_node_intrinsic_sizes) measured only text nodes and DOM elements with text;
+    the ANONYMOUS inline wrapper reconcile builds around `<i>` beside the nested table has no DOM
+    node -> (0, 0): the cell's intrinsic width lost the 100px box (cell came out 12 + 2x6 = 24).
+    FIX: measure an anonymous inline wrapper like an IFC root (commit "anonymous inline wrapper").
+  - NEXT: #4 (a cell's children
     get the cell's intrinsic width as available space: prepare_layout_context), #1/#2 (test premise:
     whitespace between inline-blocks), then report section.
 
