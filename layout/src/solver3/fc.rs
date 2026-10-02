@@ -5394,7 +5394,14 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         .filter(|m| m.units_per_em > 0)
         .map_or((font_size * 0.8, font_size * 0.2), |m| {
             let scale = root_style.font_size_px / f32::from(m.units_per_em);
-            (m.ascent * scale, (-m.descent * scale).max(0.0))
+            // Half the font's line gap on each side: the strut's
+            // `line-height: normal` is then A + D + gap, the normal line height
+            // of text in that font, so a blank line (`<div><br></div>`, every
+            // blank line Gmail writes) is as tall as a line of text, as in a
+            // browser. A definite line-height is unaffected: its half-leading
+            // places the strut at (L + A - D) / 2 whatever the gap.
+            let half_gap = m.line_gap.max(0.0) / 2.0 * scale;
+            (m.ascent * scale + half_gap, (-m.descent * scale).max(0.0) + half_gap)
         });
 
     let hyphenation = if dom_declared & DOM_HAS_HYPHENS != 0 {

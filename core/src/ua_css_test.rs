@@ -816,9 +816,12 @@ mod autotest_generated {
 
     #[test]
     fn inline_emphasis_and_link_defaults() {
+        // The ELEMENT row of `<a>` carries no underline: only a link
+        // (`<a href>`) is underlined, through `get_ua_link_property`
+        // (`only_an_a_with_an_href_is_underlined`).
         assert_eq!(
             get_ua_property(&NodeType::A, CssPropertyType::TextDecoration),
-            Some(&TEXT_DECORATION_UNDERLINE)
+            None
         );
         assert_eq!(
             get_ua_property(&NodeType::U, CssPropertyType::TextDecoration),
@@ -1751,4 +1754,30 @@ fn editing_hosts_default_to_pre_wrap_and_break_word() {
         ws(get_ua_default(&NodeData::create_node(NodeType::TextArea), false, CssPropertyType::WhiteSpace, None)),
         Some(StyleWhiteSpace::PreWrap)
     );
+}
+
+/// Only a LINK is underlined (HTML rendering 15.3.4: `:link, :visited {
+/// text-decoration: underline }`): an `<a>` without an `href` is a
+/// placeholder, not a hyperlink, and gets neither the link colour nor the
+/// underline. AzMail's sanitizer drops every href it cannot follow
+/// (`{{support_url}}`, `javascript:`), and the mail corpus' postmark invoice
+/// showed "support team" underlined in azul and plain in Chrome.
+#[test]
+fn only_an_a_with_an_href_is_underlined() {
+    use crate::dom::{AttributeType, NodeData};
+
+    let underline = |n: &NodeData| {
+        get_ua_default(n, false, CssPropertyType::TextDecoration, None)
+            == Some(&TEXT_DECORATION_UNDERLINE)
+    };
+    let placeholder = NodeData::create_node(NodeType::A);
+    assert!(!underline(&placeholder), "an <a> without href is not underlined");
+
+    let mut link = NodeData::create_node(NodeType::A);
+    link.set_attributes(
+        vec![AttributeType::Href("https://example.org/".into())].into(),
+    );
+    assert!(underline(&link), "an <a href> is underlined");
+    // <u> and <ins> keep theirs.
+    assert!(underline(&NodeData::create_node(NodeType::U)));
 }

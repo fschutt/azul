@@ -596,11 +596,22 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 // consulted — `image_for_layout` keeps the DOM's declared
                 // (sizeless) callback so a per-frame producer cannot resize
                 // the box it draws into.
-                let size = self
-                    .ctx
-                    .resolved_content()
-                    .image_for_layout(dom_id)
+                let layout_image = self.ctx.resolved_content().image_for_layout(dom_id);
+                let size = layout_image
+                    .as_ref()
                     .map_or_else(|| image_ref.get_size(), |img| img.get_size());
+                // An `<img src>` from markup whose picture nobody supplied
+                // (yet): the loaders' placeholder carrying its src, which
+                // `image_for_layout` hands back when the image cache has no
+                // picture under that src. A browser lays a not-yet-available
+                // image out with no size unless its `width` / `height`
+                // attributes give it one (HTML rendering 15.4.3; those land
+                // in the placeholder's size): no 300x150 hole for a pending
+                // or failed download (DEDUP_EDITORS A3.8).
+                let pending_markup_picture = layout_image
+                    .as_ref()
+                    .map_or_else(|| image_ref.source_tag(), |img| img.source_tag())
+                    .is_some();
                 // +spec:containing-block:1da6dc - use initial CB inline size for replaced elements
                 // with aspect ratio but no intrinsic size Per css-sizing-3 §5.1:
                 // "use an inline size matching the corresponding dimension
@@ -614,6 +625,8 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 } else if size.height > 0.0 {
                     // Has intrinsic height but no width — use initial CB inline dimension
                     (self.ctx.viewport_size.width, size.height)
+                } else if pending_markup_picture {
+                    (0.0, 0.0)
                 } else {
                     // +spec:replaced-elements:43376b - 300px fallback with 2:1 ratio for replaced
                     // elements No intrinsic dimensions — cap at 300x150 per CSS
@@ -2987,6 +3000,73 @@ fn apply_height_constraints(
         result = result.min(max);
     }
     result.max(min_height)
+}
+
+/// The used block size of a box whose block size is `auto`, from the
+/// content-based size the layout of its children produced (CSS 2.2 10.7):
+/// the content size clamped by `max-height`, then by `min-height`, which wins
+/// a conflict.
+///
+/// `border_box` is the box's block-axis border-box extent as the
+/// content-based sizing gave it, and the result is a border box too. The
+/// limits apply to the content box under `box-sizing: content-box` and to the
+/// border box under `border-box` (CSS Box Sizing 3), floored at the padding
+/// and border. `horizontal` picks the axis: in a horizontal writing mode the
+/// block axis is the physical height (`min-height` / `max-height`), in a
+/// vertical one the physical width (`min-width` / `max-width`).
+/// `containing_block_extent` is that axis of the containing block, NaN when
+/// it is indefinite (a percentage limit then does not apply).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn clamp_auto_block_size(
+    styled_dom: &StyledDom,
+    id: NodeId,
+    node_state: &StyledNodeState,
+    border_box: f32,
+    containing_block_extent: f32,
+    box_props: &BoxProps,
+    horizontal: bool,
+) -> f32 {
+    let extras = if horizontal {
+        box_props.padding.top
+            + box_props.padding.bottom
+            + box_props.border.top
+            + box_props.border.bottom
+    } else {
+        box_props.padding.left
+            + box_props.padding.right
+            + box_props.border.left
+            + box_props.border.right
+    };
+    let constrain = |tentative: f32| {
+        if horizontal {
+            apply_height_constraints(
+                styled_dom,
+                id,
+                node_state,
+                tentative,
+                containing_block_extent,
+                box_props,
+            )
+        } else {
+            apply_width_constraints(
+                styled_dom,
+                id,
+                node_state,
+                tentative,
+                containing_block_extent,
+                box_props,
+            )
+        }
+    };
+    let border_box_sizing = matches!(
+        get_css_box_sizing(styled_dom, id, node_state),
+        MultiValue::Exact(azul_css::props::layout::LayoutBoxSizing::BorderBox)
+    );
+    if border_box_sizing {
+        constrain(border_box).max(extras)
+    } else {
+        constrain((border_box - extras).max(0.0)) + extras
+    }
 }
 
 #[must_use]

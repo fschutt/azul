@@ -364,6 +364,32 @@ pub mod parsed {
         }
     }
 
+    /// The ascent (font units) a face lays text out with, given its hhea
+    /// `ascent` and `descent` (either sign) and its PostScript name.
+    ///
+    /// Every browser on macOS adds 15% of ascent + descent to the ascent of
+    /// Apple's Times, Helvetica and Courier, "to closely match the vertical
+    /// metrics of their Microsoft counterparts that are the de facto web
+    /// standard" (WebKit `SimpleFontDataMac`, Blink
+    /// `FontMetrics::AscentDescentWithHacks`). Without it Helvetica's
+    /// `line-height: normal` is exactly 1em, and a mail written for
+    /// `Helvetica, Arial` - the usual mail stack - lost 2px on every 16px
+    /// line against Chrome. The faces are matched by their PostScript name:
+    /// the family is the part before the first `-` (`Times-Roman`,
+    /// `Helvetica-Bold`, `Courier`), so Helvetica Neue (`HelveticaNeue`),
+    /// Times New Roman and Courier New keep their own metrics.
+    #[must_use]
+    pub fn browser_compat_ascent(postscript_name: Option<&str>, ascent: f32, descent: f32) -> f32 {
+        let family = postscript_name
+            .map(|name| name.split('-').next().unwrap_or(name))
+            .unwrap_or_default();
+        if matches!(family, "Times" | "Helvetica" | "Courier") {
+            ascent + 0.15 * (ascent + descent.abs())
+        } else {
+            ascent
+        }
+    }
+
     /// Parsed font data with all required tables for text layout and PDF generation.
     ///
     /// This struct holds the parsed representation of a TrueType/OpenType font,
@@ -1218,7 +1244,11 @@ pub mod parsed {
                 } else {
                     head_table.units_per_em
                 },
-                ascent: f32::from(hhea_table.ascender),
+                ascent: browser_compat_ascent(
+                    font_name.as_deref(),
+                    f32::from(hhea_table.ascender),
+                    f32::from(hhea_table.descender),
+                ),
                 descent: f32::from(hhea_table.descender),
                 line_gap: f32::from(hhea_table.line_gap),
                 x_height: None, /* will be populated from OS/2 table via from_font_metrics if
@@ -3897,6 +3927,82 @@ pub mod parsed {
                 ..empty
             };
             assert!(build_glyph_path(&full).is_some());
+        }
+
+        // ---------------------------------------------------------------
+        // the browsers' Times / Helvetica / Courier ascent adjustment
+        // ---------------------------------------------------------------
+
+        /// Apple's Helvetica (hhea 1577 / -471 / 0 at 2048 upem) has a
+        /// `line-height: normal` of exactly 1em. Every browser on macOS adds
+        /// 15% of ascent + descent to the ascent of Times, Helvetica and
+        /// Courier (WebKit's SimpleFontDataMac, Blink's
+        /// `FontMetrics::AscentDescentWithHacks`) so that they line up with
+        /// the Microsoft fonts the web was made with: a 16px Helvetica line
+        /// is 18px in Chrome. Postmark's templates
+        /// (`"Nunito Sans", Helvetica, Arial`) lost 2px per line in azul.
+        #[test]
+        fn helvetica_times_and_courier_get_the_browsers_ascent_adjustment() {
+            let adjusted = browser_compat_ascent(Some("Helvetica"), 1577.0, -471.0);
+            assert!(
+                (adjusted - (1577.0 + 0.15 * 2048.0)).abs() < 0.01,
+                "Helvetica's ascent grows by 15% of ascent + descent: {adjusted}"
+            );
+            for name in [
+                "Helvetica-Bold",
+                "Helvetica-Oblique",
+                "Times-Roman",
+                "Times-Bold",
+                "Courier",
+                "Courier-BoldOblique",
+            ] {
+                assert!(
+                    browser_compat_ascent(Some(name), 800.0, -200.0) > 949.0,
+                    "{name} is a face of Times, Helvetica or Courier"
+                );
+            }
+            // Other families keep their metrics - Helvetica Neue, Times New
+            // Roman and Courier New included.
+            for name in [
+                "HelveticaNeue",
+                "HelveticaNeue-Bold",
+                "TimesNewRomanPSMT",
+                "CourierNewPSMT",
+                "ArialMT",
+                "Arial-BoldMT",
+                "NimbusSans-Regular",
+            ] {
+                assert_eq!(
+                    browser_compat_ascent(Some(name), 800.0, -200.0),
+                    800.0,
+                    "{name} is not adjusted"
+                );
+            }
+            assert_eq!(browser_compat_ascent(None, 800.0, -200.0), 800.0);
+            // The descent's sign does not matter (hhea stores it negative).
+            assert!(
+                (browser_compat_ascent(Some("Times-Roman"), 800.0, 200.0) - 950.0).abs() < 0.01
+            );
+        }
+
+        /// The adjustment reaches the metrics a parsed face lays text out
+        /// with: Apple's Helvetica, where the machine has it (macOS), comes
+        /// out with a 1.15em `line-height: normal` instead of 1em. Elsewhere
+        /// there is no such face to parse, and the test has nothing to check.
+        #[test]
+        fn apples_helvetica_parses_with_a_line_height_like_arials() {
+            let Ok(bytes) = std::fs::read("/System/Library/Fonts/Helvetica.ttc") else {
+                return;
+            };
+            let mut warnings = Vec::new();
+            let font = ParsedFont::from_bytes(&bytes, 0, &mut warnings)
+                .expect("the system Helvetica parses");
+            let m = font.get_font_metrics();
+            let normal = (m.ascent + m.descent + m.line_gap) / f32::from(m.units_per_em);
+            assert!(
+                (normal - 1.15).abs() < 0.01,
+                "Helvetica's normal line height is 1.15em as in the browsers, got {normal}em"
+            );
         }
     }
 }

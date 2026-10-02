@@ -2319,12 +2319,33 @@ fn too_many_shadows<'a>(
     (count > MAX_BOX_SHADOWS).then_some(CssParseWarnMsgInner::TooManyShadows { key, value, count })
 }
 
+/// A declaration's value without its `!important` flag (CSS Cascade 4, 6.4:
+/// `!` and then `important`, ASCII case-insensitive, white space allowed
+/// before and between). The value parsers do not know the flag: left on, it
+/// made every important declaration an invalid one, and mail CSS marks half
+/// its declarations important. Its precedence over inline declarations is
+/// not modelled - an important declaration cascades like a normal one.
+fn strip_important(value: &str) -> &str {
+    let trimmed = value.trim_end();
+    let Some(cut) = trimmed.len().checked_sub("important".len()) else {
+        return value;
+    };
+    match (trimmed.get(cut..), trimmed.get(..cut)) {
+        (Some(flag), Some(before)) if flag.eq_ignore_ascii_case("important") => before
+            .trim_end()
+            .strip_suffix('!')
+            .map_or(value, str::trim_end),
+        _ => value,
+    }
+}
+
 fn parse_declaration_resilient<'a>(
     unparsed_css_key: &'a str,
     unparsed_css_value: &'a str,
     location: ErrorLocationRange,
     css_key_map: &CssKeyMap,
 ) -> Result<Vec<CssDeclaration>, CssParseErrorInner<'a>> {
+    let unparsed_css_value = strip_important(unparsed_css_value);
     let mut declarations = Vec::new();
 
     if let Some(combined_key) = CombinedCssPropertyType::from_str(unparsed_css_key, css_key_map) {
@@ -4625,6 +4646,59 @@ mod autotest_generated {
         // The unknown key is skipped but the valid declaration survives.
         assert_eq!(css.rules.as_slice()[0].declarations.len(), 1);
         assert!(!warnings.is_empty(), "the unknown key should have warned");
+    }
+
+    /// An `!important` declaration is not a broken one. Mail CSS marks half its
+    /// declarations important (Cerberus: `color: inherit !important`, every
+    /// responsive `width: 100% !important`); the value parser read the flag as part
+    /// of the value and dropped the declaration. The value parses without it (the
+    /// flag's precedence over inline styles is not modelled yet), in a sheet and
+    /// in a `style` attribute alike, `! important` and upper case included.
+    #[test]
+    fn an_important_declaration_keeps_its_value() {
+        let (css, warnings) = new_from_str(
+            "p { color: red !important; width: 10px!important; height: 5px ! IMPORTANT; \
+             mso-line-height-rule: exactly; }",
+        );
+        assert_eq!(css.rules.len(), 1);
+        let declarations = css.rules.as_slice()[0].declarations.as_slice();
+        assert_eq!(
+            declarations.len(),
+            3,
+            "colour, width and height survive, the mso- key is skipped: {declarations:?}"
+        );
+        assert!(
+            warnings.iter().all(|w| !matches!(
+                w.warning,
+                CssParseWarnMsgInner::SkippedDeclaration { .. }
+            )),
+            "no declaration is skipped as a bad value: {warnings:?}"
+        );
+
+        let km = key_map();
+        let mut warnings = Vec::new();
+        let mut inline = Vec::new();
+        let r = parse_css_declaration(
+            "width",
+            "100% !important",
+            loc(0, 0),
+            &km,
+            &mut warnings,
+            &mut inline,
+        );
+        assert_eq!(r, Ok(()));
+        assert_eq!(inline.len(), 1);
+        // `!important` alone is no value.
+        let mut none = Vec::new();
+        assert!(parse_css_declaration(
+            "width",
+            "!important",
+            loc(0, 0),
+            &km,
+            &mut Vec::new(),
+            &mut none
+        )
+        .is_err());
     }
 
     /// `var()` is resolved by the CASCADE, under the live context and across

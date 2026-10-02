@@ -1,8 +1,12 @@
 //! Mail HTML made safe and well-formed for azul's XML parser.
 //!
 //! Real mail HTML is rarely XML: unquoted and bare attributes, unclosed `<p>` and `<td>`,
-//! `&nbsp;`, uppercase tags, conditional comments. azul's parser (`Xml::from_str`) takes XHTML
-//! only, so this module reads the HTML leniently and writes a small, well-formed XHTML subset:
+//! `&nbsp;`, uppercase tags, conditional comments. The mail is read with the engine's own HTML
+//! parser, `Xml::create_from_html` (the lenient tokenizer and the browser-like tree construction
+//! every azul loader shares: implied end tags, an end tag closing only within its element's
+//! scope, the formatting elements reopened in the next block, the implied `<tbody>`, the HTML
+//! Standard's named references), and the tree it builds is written out as a small, well-formed
+//! XHTML subset by the POLICY below:
 //!
 //! - scripts, titles, form controls (`select`, `textarea`, `button` with its label; `form` and
 //!   `input` are dropped too, since azul would make them live widgets), frames, SVG and MathML
@@ -13,14 +17,17 @@
 //! - images are NOT loaded (remote images are off): each becomes a grey `[image: alt]` text,
 //!   and a tracking pixel (1x1 or hidden) not even that;
 //! - only presentational tags stay (`p div span b i u a table tr td ul li h1 ...`); `font`
-//!   becomes a `span`, `center` a centred `div`, `body` a `div`, and any other tag is dropped
-//!   with its text kept;
+//!   becomes a `span`, `center` a centred `div`, a `body` with something to say (a `style`, a
+//!   `bgcolor` ...) a `div`, and any other tag is dropped with its text kept;
 //! - attributes: `href` (http, https and mailto only), `colspan`, `rowspan`, `dir`, and `style`
-//!   with a short list of properties whose values name no URL (and no negative margin);
-//!   `align`, `bgcolor`, `width` and `font color` become style;
-//! - every open tag is closed, mis-nested ones in order; `<p>`, `<li>`, `<td>` and `<tr>` close
-//!   themselves as HTML says; nesting deeper than 200 keeps the text only;
-//! - character references are decoded (named, decimal, hex) and the text re-escaped.
+//!   with a short list of properties whose values name no URL (and no negative margin); the
+//!   presentational ones of tables, cells and blocks (`align`, `valign`, `width`, `height`,
+//!   `bgcolor`, `border`, `bordercolor`, `cellpadding`, `cellspacing`, `nowrap`) as written, for
+//!   azul's own HTML hints; on an element renamed here (`body`, `font`) and on a kept picture,
+//!   what they mean becomes style (`bgcolor`, `text`, `color`, `face`, `size`, `align`,
+//!   `hspace`, `vspace`, `border`);
+//! - nesting deeper than 200 keeps the text only;
+//! - the text (its character references decoded by the parser) is re-escaped.
 //!
 //! The mail is read on PAPER, a `<div class="azmail-paper">`: a mail that says nothing about
 //! the dark mode was designed on white, so its paper is white with dark text in either mode (and
@@ -30,6 +37,11 @@
 //!
 //! The result is `<html><head><style>...</style></head><body><div class="azmail-paper">...
 //! </div></body></html>` for `Dom::create_from_parsed_xml`.
+
+use azul::{
+    dom::{XmlNode, XmlNodeChild},
+    xml::Xml,
+};
 
 /// The sanitized document and what was left out.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -60,7 +72,8 @@ pub fn sanitize_with(html: &str, pictures: bool) -> Sanitized {
         pictures,
         ..Sanitizer::default()
     };
-    s.run(html);
+    let document = Xml::create_from_html(html);
+    s.children(&document.root);
     s.finish()
 }
 
@@ -85,34 +98,6 @@ const PAPER_LINK: &str = ".azmail-paper a { color: #0b57d0; } ";
 const SKIP_WITH_CONTENT: &[&str] = &[
     "script", "style", "title", "textarea", "select", "button", "noscript", "template", "iframe",
     "object", "applet", "svg", "math", "xmp", "frameset", "noframes", "audio", "video", "canvas",
-];
-
-/// Output tags that end an open `<p>` when they start.
-const BLOCK: &[&str] = &[
-    "div",
-    "p",
-    "ul",
-    "ol",
-    "dl",
-    "table",
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "h5",
-    "h6",
-    "blockquote",
-    "pre",
-    "hr",
-    "li",
-    "dd",
-    "dt",
-];
-
-/// Output tags that may lie inside an open `<p>`.
-const INLINE: &[&str] = &[
-    "span", "a", "b", "strong", "i", "em", "u", "s", "del", "ins", "small", "big", "sub", "sup",
-    "code", "abbr", "cite", "q", "kbd", "samp", "var", "mark",
 ];
 
 /// Style properties that stay (with a value that names no URL).
@@ -243,8 +228,8 @@ fn classify(name: &str) -> Tag {
 #[derive(Default)]
 struct Sanitizer {
     out: String,
-    /// The open output elements.
-    stack: Vec<&'static str>,
+    /// How many output elements are open around the one being written.
+    depth: usize,
     blocked_images: usize,
     /// The mail's own style rules, made safe and scoped to the paper.
     styles: String,
@@ -256,81 +241,82 @@ struct Sanitizer {
 }
 
 impl Sanitizer {
-    fn run(&mut self, html: &str) {
-        let b = html.as_bytes();
-        let mut i = 0;
-        let mut text_start = 0;
-        while i < b.len() {
-            if b[i] != b'<' {
-                i += 1;
-                continue;
-            }
-            let rest = &html[i..];
-            // Comments (conditional ones too), doctypes, processing instructions.
-            if rest.starts_with("<!--") {
-                self.text(&html[text_start..i]);
-                i = rest[4..].find("-->").map_or(b.len(), |e| i + 4 + e + 3);
-                text_start = i;
-                continue;
-            }
-            if rest.starts_with("<!") || rest.starts_with("<?") {
-                self.text(&html[text_start..i]);
-                i = rest.find('>').map_or(b.len(), |e| i + e + 1);
-                text_start = i;
-                continue;
-            }
-            let is_end = rest.starts_with("</");
-            let name_start = if is_end { i + 2 } else { i + 1 };
-            if name_start >= b.len() || !b[name_start].is_ascii_alphabetic() {
-                // A `<` that starts no tag is text.
-                i += 1;
-                continue;
-            }
-            self.text(&html[text_start..i]);
-            let mut j = name_start;
-            while j < b.len()
-                && (b[j].is_ascii_alphanumeric() || matches!(b[j], b':' | b'-' | b'_'))
-            {
-                j += 1;
-            }
-            let name = html[name_start..j].to_ascii_lowercase();
-            let (attributes, after) = parse_attributes(html, j);
-            i = after;
-            text_start = i;
-            if is_end {
-                self.end_tag(&name);
-            } else if name == "style" {
-                // The sheet up to `</style>`: kept where it is safe (`style_sheet`).
-                let end = find_ascii_ci(&html[i..], "</style").map_or(b.len(), |at| i + at);
-                self.style_sheet(&html[i..end]);
-                i = html[end..].find('>').map_or(b.len(), |e| end + e + 1);
-                text_start = i;
-            } else if SKIP_WITH_CONTENT.contains(&name.as_str()) {
-                let close = format!("</{name}");
-                i = match find_ascii_ci(&html[i..], &close) {
-                    Some(at) => html[i + at..].find('>').map_or(b.len(), |e| i + at + e + 1),
-                    None => b.len(),
-                };
-                text_start = i;
-            } else {
-                if name == "meta" {
-                    self.meta(&attributes);
-                }
-                self.start_tag(&name, &attributes);
+    /// The nodes of the parsed mail, in order.
+    fn children(&mut self, nodes: &[XmlNodeChild]) {
+        for node in nodes {
+            match node {
+                XmlNodeChild::Text(text) => escape_into(&mut self.out, text.as_str(), false),
+                XmlNodeChild::Element(element) => self.element(element),
             }
         }
-        self.text(&html[text_start..]);
+    }
+
+    /// One element of the parsed mail (its name and its attribute names are lower case, its
+    /// attribute values and its text decoded) and everything in it, by the policy.
+    fn element(&mut self, element: &XmlNode) {
+        let name = element.node_type.inner.as_str();
+        let attributes: Vec<(&str, &str)> = element
+            .attributes
+            .inner
+            .iter()
+            .map(|pair| (pair.key.as_str(), pair.value.as_str()))
+            .collect();
+        if name == "style" {
+            // The sheet (the element's raw text): kept where it is safe (`style_sheet`).
+            let mut css = String::new();
+            for node in element.children.iter() {
+                if let XmlNodeChild::Text(text) = node {
+                    css.push_str(text.as_str());
+                }
+            }
+            self.style_sheet(&css);
+            return;
+        }
+        if SKIP_WITH_CONTENT.contains(&name) {
+            return;
+        }
+        if name == "meta" {
+            self.meta(&attributes);
+        }
+        match classify(name) {
+            Tag::Drop => self.children(&element.children),
+            Tag::Image => self.image(&attributes),
+            Tag::Void(tag) => {
+                self.out.push('<');
+                self.out.push_str(tag);
+                self.out.push_str("/>");
+            }
+            Tag::Keep(tag) => {
+                let mut kept = String::new();
+                push_attributes(&mut kept, name, tag, &attributes);
+                // Every document has a `<body>` (the parser implies one around a fragment): only
+                // one with something to say - a style, a background - becomes a `div`.
+                if (name == "body" && kept.is_empty()) || self.depth >= MAX_DEPTH {
+                    self.children(&element.children);
+                    return;
+                }
+                self.out.push('<');
+                self.out.push_str(tag);
+                self.out.push_str(&kept);
+                self.out.push('>');
+                self.depth += 1;
+                self.children(&element.children);
+                self.depth -= 1;
+                self.out.push_str("</");
+                self.out.push_str(tag);
+                self.out.push('>');
+            }
+        }
     }
 
     /// A `<meta name="color-scheme">` (or the older `supported-color-schemes`) that names
     /// `dark`: the mail supports the dark mode.
-    fn meta(&mut self, attributes: &[(String, Option<String>)]) {
+    fn meta(&mut self, attributes: &[(&str, &str)]) {
         let value = |name: &str| {
             attributes
                 .iter()
-                .find(|(n, _)| n == name)
-                .and_then(|(_, v)| v.as_deref())
-                .map(str::to_ascii_lowercase)
+                .find(|&&(n, _)| n == name)
+                .map(|&(_, v)| v.to_ascii_lowercase())
         };
         let names_scheme = value("name")
             .is_some_and(|n| matches!(n.trim(), "color-scheme" | "supported-color-schemes"));
@@ -341,151 +327,100 @@ impl Sanitizer {
 
     /// A `<style>`'s sheet: its safe rules, scoped to the paper, join the document's.
     fn style_sheet(&mut self, css: &str) {
-        let (safe, dark) = sanitize_style_sheet(&decode_references(css));
+        let (safe, dark) = sanitize_style_sheet(css);
         self.styles.push_str(&safe);
         self.has_dark_rules |= dark;
     }
 
-    fn text(&mut self, raw: &str) {
-        if !raw.is_empty() {
-            escape_into(&mut self.out, &decode_references(raw), false);
-        }
-    }
-
-    fn start_tag(&mut self, name: &str, attributes: &[(String, Option<String>)]) {
-        match classify(name) {
-            Tag::Drop => {}
-            Tag::Image => {
-                self.blocked_images += 1;
-                let attribute = |name: &str| {
-                    attributes
-                        .iter()
-                        .find(|(n, _)| n == name)
-                        .and_then(|(_, v)| v.as_deref())
-                        .map(str::trim)
-                };
-                if is_tracking_pixel(attribute("width"), attribute("height"), attribute("style")) {
-                    return;
-                }
-                let alt = attribute("alt").filter(|a| !a.is_empty());
-                let src = attribute("src").unwrap_or("");
-                let scheme = src.to_ascii_lowercase();
-                if self.pictures && (scheme.starts_with("https://") || scheme.starts_with("http://")) {
-                    // Loaded after all: an image the app fetches and caches under its src.
-                    self.blocked_images -= 1;
-                    self.out.push_str("<img src=\"");
-                    escape_into(&mut self.out, src, true);
-                    self.out.push('"');
-                    if let Some(alt) = alt {
-                        self.out.push_str(" alt=\"");
-                        escape_into(&mut self.out, alt, true);
-                        self.out.push('"');
-                    }
-                    for name in ["width", "height"] {
-                        let pixels = attribute(name)
-                            .map(|v| v.trim_end_matches("px").trim())
-                            .and_then(|v| v.parse::<u32>().ok());
-                        if let Some(n) = pixels {
-                            self.out.push_str(&format!(" {name}=\"{n}\""));
-                        }
-                    }
-                    self.out.push_str("/>");
-                    if !self.remote_images.iter().any(|u| u == src) {
-                        self.remote_images.push(src.to_string());
-                    }
-                    return;
-                }
-                let label = match alt {
-                    Some(alt) => format!("[image: {alt}]"),
-                    None => String::from("[image]"),
-                };
-                self.out.push_str("<span style=\"");
-                self.out.push_str(BLOCKED_IMAGE_STYLE);
-                self.out.push_str("\">");
-                escape_into(&mut self.out, &label, false);
-                self.out.push_str("</span>");
-            }
-            Tag::Void(tag) => {
-                self.implied_ends(tag);
-                self.out.push('<');
-                self.out.push_str(tag);
-                self.out.push_str("/>");
-            }
-            Tag::Keep(tag) => {
-                self.implied_ends(tag);
-                if self.stack.len() >= MAX_DEPTH {
-                    return;
-                }
-                self.out.push('<');
-                self.out.push_str(tag);
-                push_attributes(&mut self.out, name, tag, attributes);
-                self.out.push('>');
-                self.stack.push(tag);
-            }
-        }
-    }
-
-    fn end_tag(&mut self, name: &str) {
-        // The renamed body closes with the document.
-        if name == "body" {
+    /// An `<img>`: not loaded (a placeholder text, or nothing for a tracking pixel), or - with
+    /// pictures on - kept for the app to fetch.
+    fn image(&mut self, attributes: &[(&str, &str)]) {
+        self.blocked_images += 1;
+        let attribute = |name: &str| {
+            attributes
+                .iter()
+                .find(|&&(n, _)| n == name)
+                .map(|&(_, v)| v.trim())
+        };
+        if is_tracking_pixel(attribute("width"), attribute("height"), attribute("style")) {
             return;
         }
-        if let Tag::Keep(tag) = classify(name) {
-            if let Some(at) = self.stack.iter().rposition(|t| *t == tag) {
-                self.pop_through(at);
+        let alt = attribute("alt").filter(|a| !a.is_empty());
+        let src = attribute("src").unwrap_or("");
+        let scheme = src.to_ascii_lowercase();
+        if self.pictures && (scheme.starts_with("https://") || scheme.starts_with("http://")) {
+            // Loaded after all: an image the app fetches and caches under its src.
+            self.blocked_images -= 1;
+            self.out.push_str("<img src=\"");
+            escape_into(&mut self.out, src, true);
+            self.out.push('"');
+            if let Some(alt) = alt {
+                self.out.push_str(" alt=\"");
+                escape_into(&mut self.out, alt, true);
+                self.out.push('"');
             }
-        }
-    }
-
-    /// The ends HTML implies when `tag` starts: a block ends an open paragraph, an item ends
-    /// the open item of its list, a cell the open cell of its row, a row the open row.
-    fn implied_ends(&mut self, tag: &str) {
-        if BLOCK.contains(&tag) {
-            if let Some(p) = self.stack.iter().rposition(|t| *t == "p") {
-                if self.stack[p + 1..].iter().all(|t| INLINE.contains(t)) {
-                    self.pop_through(p);
+            let pixels = |name: &str| {
+                attribute(name)
+                    .map(|v| v.trim_end_matches("px").trim())
+                    .and_then(|v| v.parse::<u32>().ok())
+            };
+            for name in ["width", "height"] {
+                if let Some(n) = pixels(name) {
+                    self.out.push_str(&format!(" {name}=\"{n}\""));
                 }
             }
-        }
-        match tag {
-            "li" => self.close_item(&["li"], &["ul", "ol"]),
-            "dt" | "dd" => self.close_item(&["dt", "dd"], &["dl"]),
-            "td" | "th" => self.close_item(&["td", "th"], &["tr", "table"]),
-            "tr" => self.close_item(&["tr"], &["table"]),
-            "thead" | "tbody" | "tfoot" => {
-                self.close_item(&["thead", "tbody", "tfoot"], &["table"])
+            // What a picture's legacy attributes mean in a browser (HTML's rendering section,
+            // "images"): `align` floats it or aligns it on the line, `hspace` / `vspace` are
+            // its margins, `border` a solid border.
+            let mut styles: Vec<String> = Vec::new();
+            let align = attribute("align").map(str::to_ascii_lowercase);
+            match align.as_deref() {
+                Some("left") => styles.push(String::from("float: left")),
+                Some("right") => styles.push(String::from("float: right")),
+                Some("top") => styles.push(String::from("vertical-align: top")),
+                Some("texttop") => styles.push(String::from("vertical-align: text-top")),
+                Some("middle" | "absmiddle" | "center") => {
+                    styles.push(String::from("vertical-align: middle"));
+                }
+                Some("bottom" | "baseline") => styles.push(String::from("vertical-align: baseline")),
+                Some("absbottom") => styles.push(String::from("vertical-align: bottom")),
+                _ => {}
             }
-            _ => {}
+            if let Some(n) = pixels("hspace") {
+                styles.push(format!("margin-left: {n}px"));
+                styles.push(format!("margin-right: {n}px"));
+            }
+            if let Some(n) = pixels("vspace") {
+                styles.push(format!("margin-top: {n}px"));
+                styles.push(format!("margin-bottom: {n}px"));
+            }
+            if let Some(n) = pixels("border") {
+                styles.push(format!("border-width: {n}px"));
+                styles.push(String::from("border-style: solid"));
+            }
+            if !styles.is_empty() {
+                self.out.push_str(" style=\"");
+                escape_into(&mut self.out, &styles.join("; "), true);
+                self.out.push('"');
+            }
+            self.out.push_str("/>");
+            if !self.remote_images.iter().any(|u| u == src) {
+                self.remote_images.push(src.to_string());
+            }
+            return;
         }
+        let label = match alt {
+            Some(alt) => format!("[image: {alt}]"),
+            None => String::from("[image]"),
+        };
+        self.out.push_str("<span style=\"");
+        self.out.push_str(BLOCKED_IMAGE_STYLE);
+        self.out.push_str("\">");
+        escape_into(&mut self.out, &label, false);
+        self.out.push_str("</span>");
     }
 
-    /// Closes the innermost open `items` element, unless a `scopes` element is nearer.
-    fn close_item(&mut self, items: &[&str], scopes: &[&str]) {
-        for at in (0..self.stack.len()).rev() {
-            let open = self.stack[at];
-            if scopes.contains(&open) {
-                return;
-            }
-            if items.contains(&open) {
-                self.pop_through(at);
-                return;
-            }
-        }
-    }
-
-    /// Closes the open elements from the innermost down to (and with) `at`.
-    fn pop_through(&mut self, at: usize) {
-        while self.stack.len() > at {
-            if let Some(tag) = self.stack.pop() {
-                self.out.push_str("</");
-                self.out.push_str(tag);
-                self.out.push('>');
-            }
-        }
-    }
-
-    fn finish(mut self) -> Sanitized {
-        self.pop_through(0);
+    fn finish(self) -> Sanitized {
         // The paper first, the mail's rules after it (they win where they say something).
         let mut sheet = String::from(PAPER_LIGHT);
         if self.has_dark_rules {
@@ -505,80 +440,44 @@ impl Sanitizer {
             xhtml,
             blocked_images: self.blocked_images,
             has_dark_rules: self.has_dark_rules,
-            remote_images: std::mem::take(&mut self.remote_images),
+            remote_images: self.remote_images,
         }
     }
 }
 
-/// The attributes of a tag whose name ends at `at`, and where the tag ends. Values may be
-/// double-, single- or unquoted; a bare name has no value.
-fn parse_attributes(html: &str, mut k: usize) -> (Vec<(String, Option<String>)>, usize) {
-    let b = html.as_bytes();
-    let mut attributes = Vec::new();
-    loop {
-        while k < b.len() && (b[k].is_ascii_whitespace() || b[k] == b'/') {
-            k += 1;
-        }
-        if k >= b.len() {
-            return (attributes, b.len());
-        }
-        if b[k] == b'>' {
-            return (attributes, k + 1);
-        }
-        let name_start = k;
-        while k < b.len() && !b[k].is_ascii_whitespace() && !matches!(b[k], b'=' | b'>' | b'/') {
-            k += 1;
-        }
-        let name = html[name_start..k].to_ascii_lowercase();
-        while k < b.len() && b[k].is_ascii_whitespace() {
-            k += 1;
-        }
-        let mut value = None;
-        if k < b.len() && b[k] == b'=' {
-            k += 1;
-            while k < b.len() && b[k].is_ascii_whitespace() {
-                k += 1;
-            }
-            if k < b.len() && (b[k] == b'"' || b[k] == b'\'') {
-                let quote = b[k] as char;
-                let start = k + 1;
-                let end = html[start..].find(quote).map_or(b.len(), |e| start + e);
-                value = Some(decode_references(&html[start..end]));
-                k = (end + 1).min(b.len());
-            } else {
-                let start = k;
-                while k < b.len() && !b[k].is_ascii_whitespace() && b[k] != b'>' {
-                    k += 1;
-                }
-                value = Some(decode_references(&html[start..k]));
-            }
-        }
-        if name.is_empty() && value.is_none() {
-            // Nothing read (a stray character): step over it.
-            k += 1;
-        } else if !name.is_empty() {
-            attributes.push((name, value));
-        }
-    }
-}
+/// The presentational attributes azul's own HTML hints map to CSS where a browser does (core's
+/// `presentational_css`, the one generator: on tables, their parts and cells, `div`, `p` and the
+/// headings - on any other element they mean nothing there either). Kept as written.
+const PRESENTATIONAL: &[&str] = &[
+    "align",
+    "valign",
+    "width",
+    "height",
+    "bgcolor",
+    "border",
+    "bordercolor",
+    "cellpadding",
+    "cellspacing",
+    "nowrap",
+];
 
-/// Writes the attributes an output tag keeps: `href`, `colspan`, `rowspan`, `dir`, and one
-/// `style` from the safe style declarations and the presentational attributes.
-fn push_attributes(
-    out: &mut String,
-    source: &str,
-    tag: &str,
-    attributes: &[(String, Option<String>)],
-) {
+/// Writes the attributes an output tag keeps: `href`, `colspan`, `rowspan`, `dir`, the
+/// presentational attributes ([`PRESENTATIONAL`]) for azul's HTML hints, and one `style`: what a
+/// renamed element said with its attributes, then the safe style declarations.
+fn push_attributes(out: &mut String, source: &str, tag: &str, attributes: &[(&str, &str)]) {
     let mut kept: Vec<(&str, String)> = Vec::new();
     let mut styles: Vec<(String, String)> = Vec::new();
     if source == "center" {
         styles.push((String::from("text-align"), String::from("center")));
     }
-    for (name, value) in attributes {
-        let value = value.as_deref().unwrap_or("").trim();
+    // An element renamed in the output (`<body>` a `div`, `<font>` a `span`) takes what its
+    // attributes mean along as style: azul's hints know them only on the element they were
+    // written on.
+    let renamed = source != tag;
+    for &(name, value) in attributes {
+        let value = value.trim();
         let lower = value.to_ascii_lowercase();
-        match name.as_str() {
+        match name {
             "href" if tag == "a" => {
                 if ["http://", "https://", "mailto:"]
                     .iter()
@@ -604,32 +503,31 @@ fn push_attributes(
                     kept.push(("dir", lower.clone()));
                 }
             }
-            "align" => {
-                if matches!(lower.as_str(), "left" | "right" | "center" | "justify") {
-                    styles.push((String::from("text-align"), lower.clone()));
-                }
-            }
-            "valign" => {
-                if matches!(lower.as_str(), "top" | "middle" | "bottom" | "baseline") {
-                    styles.push((String::from("vertical-align"), lower.clone()));
-                }
-            }
-            "bgcolor" => {
+            "bgcolor" | "text" if source == "body" => {
                 if !value.is_empty() && safe_style_value(value) {
-                    styles.push((String::from("background-color"), value.to_string()));
+                    let property = if name == "bgcolor" {
+                        "background-color"
+                    } else {
+                        "color"
+                    };
+                    styles.push((String::from(property), value.to_string()));
                 }
             }
-            "color" if source == "font" => {
+            "color" | "face" if source == "font" => {
                 if !value.is_empty() && safe_style_value(value) {
-                    styles.push((String::from("color"), value.to_string()));
+                    let property = if name == "color" { "color" } else { "font-family" };
+                    styles.push((String::from(property), value.to_string()));
                 }
             }
-            "width" | "height" if matches!(tag, "table" | "td" | "th") => {
-                if let Some(length) = html_length(value) {
-                    styles.push((name.clone(), length));
+            "size" if source == "font" => {
+                if let Some(px) = html_font_size(value) {
+                    styles.push((String::from("font-size"), format!("{px}px")));
                 }
             }
             "style" => styles.extend(parse_style(value)),
+            _ if !renamed && PRESENTATIONAL.contains(&name) => {
+                kept.push((name, value.to_string()));
+            }
             _ => {}
         }
     }
@@ -650,6 +548,22 @@ fn push_attributes(
         escape_into(out, &joined, true);
         out.push('"');
     }
+}
+
+/// A `<font size>` in px: HTML's rules for a legacy font size (`1` to `7`, or `+n` / `-n` from
+/// `3`, clamped to `1..=7`) and the CSS absolute sizes they stand for at a 16px `medium`.
+fn html_font_size(value: &str) -> Option<u32> {
+    const PX: [u32; 7] = [10, 13, 16, 18, 24, 32, 48];
+    let value = value.trim();
+    let (sign, rest) = match value.as_bytes().first() {
+        Some(b'+') => (Some(1_i64), &value[1..]),
+        Some(b'-') => (Some(-1_i64), &value[1..]),
+        _ => (None, value),
+    };
+    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+    let n: i64 = rest[..digits].parse().ok()?;
+    let size = sign.map_or(n, |sign| 3 + sign * n).clamp(1, 7);
+    usize::try_from(size - 1).ok().and_then(|i| PX.get(i).copied())
 }
 
 /// Whether a `color-scheme` value names the dark mode (`dark`, `light dark`, `only dark`).
@@ -876,32 +790,6 @@ fn safe_style_value(value: &str) -> bool {
         && !value.chars().any(char::is_control)
 }
 
-/// An HTML length attribute (`600`, `600px`, `50%`) as CSS.
-fn html_length(value: &str) -> Option<String> {
-    let number = |s: &str| {
-        s.trim()
-            .parse::<f32>()
-            .ok()
-            .filter(|n| n.is_finite() && *n >= 0.0)
-    };
-    if let Some(n) = value.strip_suffix('%') {
-        number(n).map(|_| value.to_string())
-    } else if let Some(n) = value.strip_suffix("px") {
-        number(n).map(|_| value.to_string())
-    } else {
-        number(value).map(|_| format!("{value}px"))
-    }
-}
-
-/// Where `needle` (ASCII) first occurs in `haystack`, ignoring ASCII case.
-fn find_ascii_ci(haystack: &str, needle: &str) -> Option<usize> {
-    let (h, n) = (haystack.as_bytes(), needle.as_bytes());
-    if n.is_empty() || h.len() < n.len() {
-        return None;
-    }
-    (0..=h.len() - n.len()).find(|&k| h[k..k + n.len()].eq_ignore_ascii_case(n))
-}
-
 /// Appends `s` escaped for XML text (or, with `attribute`, a double-quoted attribute value),
 /// leaving out characters XML does not allow and control characters.
 fn escape_into(out: &mut String, s: &str, attribute: bool) {
@@ -917,165 +805,6 @@ fn escape_into(out: &mut String, s: &str, attribute: bool) {
             c => out.push(c),
         }
     }
-}
-
-/// `s` with its character references decoded; a `&` that starts none stays.
-fn decode_references(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut rest = s;
-    while let Some(at) = rest.find('&') {
-        out.push_str(&rest[..at]);
-        let after = &rest[at + 1..];
-        match reference(after) {
-            Some((decoded, used)) => {
-                if let Some(c) = decoded {
-                    out.push(c);
-                }
-                rest = &after[used..];
-            }
-            None => {
-                out.push('&');
-                rest = after;
-            }
-        }
-    }
-    out.push_str(rest);
-    out
-}
-
-/// The reference at the start of `s` (just after its `&`): the character (`None` for a numeric
-/// reference to nothing, such as `&#0;`) and the bytes used, `;` included.
-fn reference(s: &str) -> Option<(Option<char>, usize)> {
-    let end = s.bytes().take(33).position(|b| b == b';')?;
-    if end == 0 {
-        return None;
-    }
-    let body = &s[..end];
-    if let Some(number) = body.strip_prefix('#') {
-        let n = match number.strip_prefix(|c: char| c == 'x' || c == 'X') {
-            Some(hex) => u32::from_str_radix(hex, 16).ok()?,
-            None => number.parse::<u32>().ok()?,
-        };
-        return Some((numeric_char(n), end + 1));
-    }
-    named_char(body).map(|c| (Some(c), end + 1))
-}
-
-/// A numeric reference's character: 128 - 159 are read as Windows-1252, as browsers do.
-fn numeric_char(n: u32) -> Option<char> {
-    if (0x80..=0x9f).contains(&n) {
-        return WINDOWS_1252[(n - 0x80) as usize];
-    }
-    if n == 0 {
-        return None;
-    }
-    char::from_u32(n)
-}
-
-/// Windows-1252's characters for 0x80 - 0x9F.
-const WINDOWS_1252: [Option<char>; 32] = [
-    Some('\u{20ac}'),
-    None,
-    Some('\u{201a}'),
-    Some('\u{0192}'),
-    Some('\u{201e}'),
-    Some('\u{2026}'),
-    Some('\u{2020}'),
-    Some('\u{2021}'),
-    Some('\u{02c6}'),
-    Some('\u{2030}'),
-    Some('\u{0160}'),
-    Some('\u{2039}'),
-    Some('\u{0152}'),
-    None,
-    Some('\u{017d}'),
-    None,
-    None,
-    Some('\u{2018}'),
-    Some('\u{2019}'),
-    Some('\u{201c}'),
-    Some('\u{201d}'),
-    Some('\u{2022}'),
-    Some('\u{2013}'),
-    Some('\u{2014}'),
-    Some('\u{02dc}'),
-    Some('\u{2122}'),
-    Some('\u{0161}'),
-    Some('\u{203a}'),
-    Some('\u{0153}'),
-    None,
-    Some('\u{017e}'),
-    Some('\u{0178}'),
-];
-
-/// The Latin-1 entity names, for U+00A0 to U+00FF in order.
-const LATIN1: [&str; 96] = [
-    "nbsp", "iexcl", "cent", "pound", "curren", "yen", "brvbar", "sect", "uml", "copy", "ordf",
-    "laquo", "not", "shy", "reg", "macr", "deg", "plusmn", "sup2", "sup3", "acute", "micro",
-    "para", "middot", "cedil", "sup1", "ordm", "raquo", "frac14", "frac12", "frac34", "iquest",
-    "Agrave", "Aacute", "Acirc", "Atilde", "Auml", "Aring", "AElig", "Ccedil", "Egrave", "Eacute",
-    "Ecirc", "Euml", "Igrave", "Iacute", "Icirc", "Iuml", "ETH", "Ntilde", "Ograve", "Oacute",
-    "Ocirc", "Otilde", "Ouml", "times", "Oslash", "Ugrave", "Uacute", "Ucirc", "Uuml", "Yacute",
-    "THORN", "szlig", "agrave", "aacute", "acirc", "atilde", "auml", "aring", "aelig", "ccedil",
-    "egrave", "eacute", "ecirc", "euml", "igrave", "iacute", "icirc", "iuml", "eth", "ntilde",
-    "ograve", "oacute", "ocirc", "otilde", "ouml", "divide", "oslash", "ugrave", "uacute", "ucirc",
-    "uuml", "yacute", "thorn", "yuml",
-];
-
-/// Other entity names mail uses.
-const NAMED: &[(&str, char)] = &[
-    ("amp", '&'),
-    ("lt", '<'),
-    ("gt", '>'),
-    ("quot", '"'),
-    ("apos", '\''),
-    ("OElig", '\u{152}'),
-    ("oelig", '\u{153}'),
-    ("Scaron", '\u{160}'),
-    ("scaron", '\u{161}'),
-    ("Yuml", '\u{178}'),
-    ("fnof", '\u{192}'),
-    ("circ", '\u{2c6}'),
-    ("tilde", '\u{2dc}'),
-    ("ensp", '\u{2002}'),
-    ("emsp", '\u{2003}'),
-    ("thinsp", '\u{2009}'),
-    ("zwnj", '\u{200c}'),
-    ("zwj", '\u{200d}'),
-    ("lrm", '\u{200e}'),
-    ("rlm", '\u{200f}'),
-    ("ndash", '\u{2013}'),
-    ("mdash", '\u{2014}'),
-    ("lsquo", '\u{2018}'),
-    ("rsquo", '\u{2019}'),
-    ("sbquo", '\u{201a}'),
-    ("ldquo", '\u{201c}'),
-    ("rdquo", '\u{201d}'),
-    ("bdquo", '\u{201e}'),
-    ("dagger", '\u{2020}'),
-    ("Dagger", '\u{2021}'),
-    ("bull", '\u{2022}'),
-    ("hellip", '\u{2026}'),
-    ("permil", '\u{2030}'),
-    ("prime", '\u{2032}'),
-    ("lsaquo", '\u{2039}'),
-    ("rsaquo", '\u{203a}'),
-    ("euro", '\u{20ac}'),
-    ("trade", '\u{2122}'),
-    ("larr", '\u{2190}'),
-    ("uarr", '\u{2191}'),
-    ("rarr", '\u{2192}'),
-    ("darr", '\u{2193}'),
-    ("harr", '\u{2194}'),
-    ("hearts", '\u{2665}'),
-    ("check", '\u{2713}'),
-];
-
-fn named_char(name: &str) -> Option<char> {
-    if let Some(at) = LATIN1.iter().position(|n| *n == name) {
-        return char::from_u32(0xa0 + at as u32);
-    }
-    NAMED.iter().find(|(n, _)| *n == name).map(|(_, c)| *c)
 }
 
 #[cfg(test)]
@@ -1234,9 +963,11 @@ mod tests {
             inner("<!DOCTYPE html><!-- a comment --><!--[if mso]><table><![endif]-->t<?xml x?>"),
             "t"
         );
+        // A `<body>` with nothing to say is no element of its own: the parser implies one
+        // around every fragment.
         assert_eq!(
             inner("<head><title>T</title><meta charset=utf-8></head><body>b</body>"),
-            "<div>b</div>"
+            "b"
         );
         assert_eq!(
             inner(
@@ -1253,17 +984,19 @@ mod tests {
             inner("line<br>next<BR/>end<hr>"),
             "line<br/>next<br/>end<hr/>"
         );
-        assert_eq!(inner("<b><i>x</b>y</i>"), "<b><i>x</i></b>y");
+        // `</b>` closes the `<i>` in it, and the `<i>` goes on after it, as in a browser.
+        assert_eq!(inner("<b><i>x</b>y</i>"), "<b><i>x</i></b><i>y</i>");
         assert_eq!(
             inner("<div><ul><li>a<li>b"),
             "<div><ul><li>a</li><li>b</li></ul></div>"
         );
         assert_eq!(
             inner("<table><tr><td>a<td>b<tr><td>c</table>"),
-            "<table><tr><td>a</td><td>b</td></tr><tr><td>c</td></tr></table>"
+            "<table><tbody><tr><td>a</td><td>b</td></tr><tr><td>c</td></tr></tbody></table>"
         );
         assert_eq!(inner("<p>a<div>b</div>"), "<p>a</p><div>b</div>");
-        assert_eq!(inner("x</p></div>y"), "xy");
+        // A stray `</div>` closes nothing; `</p>` alone is an empty paragraph.
+        assert_eq!(inner("x</p></div>y"), "x<p></p>y");
     }
 
     #[test]
@@ -1273,7 +1006,8 @@ mod tests {
             inner("a&nbsp;b &amp; &lt;c&gt; &#8364; &#x263A; &copy; &uuml; &bogus; & x"),
             "a\u{a0}b &amp; &lt;c&gt; \u{20ac} \u{263a} \u{a9} \u{fc} &amp;bogus; &amp; x"
         );
-        assert_eq!(inner("&#150; &#0; x"), "\u{2013}  x");
+        // `&#0;` is U+FFFD, as a browser reads it.
+        assert_eq!(inner("&#150; &#0; x"), "\u{2013} \u{fffd} x");
         assert_eq!(inner("a\u{1}b\u{7f}c"), "abc");
     }
 
@@ -1294,12 +1028,16 @@ mod tests {
             "<a href=\"mailto:ada@example.org\">m</a>"
         );
         assert_eq!(
-            inner("<td bgcolor=\"#eee\" align=center width=50% colspan=2 nowrap>x</td>"),
-            "<td colspan=\"2\" style=\"background-color: #eee; text-align: center; width: 50%\">x</td>"
+            inner(
+                "<table><tr><td bgcolor=\"#eee\" align=center width=50% colspan=2 nowrap>x</td>\
+                 </tr></table>"
+            ),
+            "<table><tbody><tr><td bgcolor=\"#eee\" align=\"center\" width=\"50%\" colspan=\"2\" \
+             nowrap=\"\">x</td></tr></tbody></table>"
         );
         assert_eq!(
             inner("<table width=600><tr><td>x</td></tr></table>"),
-            "<table style=\"width: 600px\"><tr><td>x</td></tr></table>"
+            "<table width=\"600\"><tbody><tr><td>x</td></tr></tbody></table>"
         );
         assert_eq!(inner("<p dir=rtl>x</p>"), "<p dir=\"rtl\">x</p>");
     }
@@ -1324,13 +1062,59 @@ mod tests {
     fn legacy_tags_become_their_modern_twins() {
         assert_eq!(
             inner("<font color=\"#ff0000\" face=Arial>red</font><center>c</center>"),
-            "<span style=\"color: #ff0000\">red</span><div style=\"text-align: center\">c</div>"
+            "<span style=\"color: #ff0000; font-family: Arial\">red</span><div style=\"text-align: \
+             center\">c</div>"
         );
         assert_eq!(
             inner("<body style=\"margin:0\"><h1>T</h1></body>"),
             "<div style=\"margin: 0\"><h1>T</h1></div>"
         );
         assert_eq!(inner("<o:p>x</o:p><custom-tag>y</custom-tag>"), "xy");
+    }
+
+    /// The presentational attributes of tables, cells and blocks reach azul as they are: its
+    /// own HTML hints map them to CSS as Chrome's do (core's `presentational_css`, the one
+    /// generator), `<table align=center>` a centred table, `cellpadding` / `cellspacing` /
+    /// `border` included - where the sanitizer kept a subset as `text-align` and dropped the
+    /// rest. What becomes another element keeps its meaning as style: the body's `bgcolor` /
+    /// `text`, a `<font>`'s `color` / `face` / `size`, a picture's `align` / `hspace` /
+    /// `vspace` / `border`.
+    #[test]
+    fn presentational_attributes_mean_what_they_mean_in_a_browser() {
+        assert_eq!(
+            inner(
+                "<table align=center width=600 cellpadding=8 cellspacing=0 border=1 \
+                 bordercolor=#ccc bgcolor=ffffff><tr valign=top><td align=right width=50% \
+                 height=40 nowrap>x</td></tr></table>"
+            ),
+            "<table align=\"center\" width=\"600\" cellpadding=\"8\" cellspacing=\"0\" \
+             border=\"1\" bordercolor=\"#ccc\" bgcolor=\"ffffff\"><tbody><tr valign=\"top\"><td \
+             align=\"right\" width=\"50%\" height=\"40\" nowrap=\"\">x</td></tr></tbody></table>"
+        );
+        assert_eq!(inner("<p align=center>c</p>"), "<p align=\"center\">c</p>");
+        assert_eq!(
+            inner("<body bgcolor=\"#f4f4f4\" text=\"#333333\"><p>b</p></body>"),
+            "<div style=\"background-color: #f4f4f4; color: #333333\"><p>b</p></div>"
+        );
+        assert_eq!(
+            inner("<font face=\"Arial, Helvetica\" size=\"2\" color=red>a</font><font size=+2>b</font>"),
+            "<span style=\"font-family: Arial, Helvetica; font-size: 13px; color: red\">a</span>\
+             <span style=\"font-size: 24px\">b</span>"
+        );
+        let pictures = sanitize_with(
+            "<img src=\"https://cdn.example/a.png\" width=\"80\" height=\"60\" align=\"left\" \
+             hspace=\"10\" vspace=\"4\" border=\"2\">",
+            true,
+        );
+        assert!(
+            pictures.xhtml.contains(
+                "<img src=\"https://cdn.example/a.png\" width=\"80\" height=\"60\" style=\"float: \
+                 left; margin-left: 10px; margin-right: 10px; margin-top: 4px; margin-bottom: \
+                 4px; border-width: 2px; border-style: solid\"/>"
+            ),
+            "{}",
+            pictures.xhtml
+        );
     }
 
     #[test]
@@ -1414,6 +1198,37 @@ mod tests {
         assert_eq!(
             inner("<div style=\"margin-top: -40px; margin: 0 -10px; padding: 4px; margin-left: 2px\">x</div>"),
             "<div style=\"padding: 4px; margin-left: 2px\">x</div>"
+        );
+    }
+
+    /// The mail is read with the engine's HTML parser (`Xml::create_from_html`,
+    /// DEDUP_EDITORS B20), so the sanitized tree is the one a browser builds - where AzMail's
+    /// own tokenizer built a simpler one: a stray end tag in a table cell does not close the
+    /// table around it, a formatting element left open goes on in the next paragraph, `</p>`
+    /// alone is an empty paragraph, a row gets the `<tbody>` it implies, and every one of the
+    /// HTML Standard's 2231 named references decodes (with the legacy ones also without `;`).
+    #[test]
+    fn the_sanitizer_builds_the_tree_a_browser_builds() {
+        assert_eq!(
+            inner("<div><table><tr><td>a</div>b</td></tr></table></div>"),
+            "<div><table><tbody><tr><td>ab</td></tr></tbody></table></div>",
+            "a stray </div> inside a cell closes nothing"
+        );
+        assert_eq!(
+            inner("<p><b>x<p>y"),
+            "<p><b>x</b></p><p><b>y</b></p>",
+            "the bold left open goes on in the next paragraph"
+        );
+        assert_eq!(inner("x</p>y"), "x<p></p>y", "</p> alone is an empty paragraph");
+        assert_eq!(
+            inner("&star; &ThickSpace; &lrarr; &copy 2026"),
+            "\u{2606} \u{205f}\u{200a} \u{21c6} \u{a9} 2026",
+            "the named references a browser knows"
+        );
+        assert_eq!(
+            inner("<td>loose</td><tr>row"),
+            "looserow",
+            "a cell or a row outside any table is ignored, its content stays"
         );
     }
 

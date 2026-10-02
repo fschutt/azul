@@ -740,3 +740,11 @@ mod a_line_height_in_em_or_percent_inherits_as_a_length;
 mod an_inline_block_inside_a_span_is_sized_by_its_own_css;
 #[path = "a_text_edit_reports_the_formats_of_its_text.rs"]
 mod a_text_edit_reports_the_formats_of_its_text;
+#[path = "an_auto_height_block_stops_growing_at_its_max_height.rs"]
+mod an_auto_height_block_stops_growing_at_its_max_height;
+#[path = "a_gmail_quote_is_indented_by_its_ex_margin.rs"]
+mod a_gmail_quote_is_indented_by_its_ex_margin;
+#[path = "an_unresolved_img_from_markup_takes_no_space.rs"]
+mod an_unresolved_img_from_markup_takes_no_space;
+#[path = "a_blank_line_is_as_tall_as_a_line_of_text.rs"]
+mod a_blank_line_is_as_tall_as_a_line_of_text;

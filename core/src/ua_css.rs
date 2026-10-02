@@ -889,7 +889,8 @@ pub fn get_ua_property(
         // Inline Elements
         (NT::Span, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::A, PT::Display) => Some(&DISPLAY_INLINE),
-        (NT::A, PT::TextDecoration) => Some(&TEXT_DECORATION_UNDERLINE),
+        // No underline here: only a LINK (`<a href>`) is underlined, see
+        // `get_ua_link_property`.
         (NT::Strong, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Strong, PT::FontWeight) => Some(&FONT_WEIGHT_BOLDER),
         (NT::Em, PT::Display) => Some(&DISPLAY_INLINE),
@@ -1356,9 +1357,11 @@ pub fn is_link(node: &NodeData) -> bool {
 }
 
 /// UA defaults of a LINK ([`is_link`]): `:link { color: #0000EE; cursor:
-/// pointer }` (HTML rendering 15.3.4), the colour themed - #9E9EFF in the
-/// dark mode, where #0000EE cannot be read. The underline every `<a>` gets
-/// from the per-type table.
+/// pointer; text-decoration: underline }` (HTML rendering 15.3.4), the colour
+/// themed - #9E9EFF in the dark mode, where #0000EE cannot be read. An `<a>`
+/// without an `href` is a placeholder and gets none of them (the mail
+/// sanitizer drops the hrefs it cannot follow, and Chrome shows those
+/// anchors plain).
 #[must_use]
 pub fn get_ua_link_property(
     property_type: CssPropertyType,
@@ -1369,6 +1372,7 @@ pub fn get_ua_link_property(
         CssPropertyType::TextColor if dark => Some(&LINK_COLOR_DARK),
         CssPropertyType::TextColor => Some(&LINK_COLOR),
         CssPropertyType::Cursor => Some(&CURSOR_POINTER),
+        CssPropertyType::TextDecoration => Some(&TEXT_DECORATION_UNDERLINE),
         _ => None,
     }
 }
