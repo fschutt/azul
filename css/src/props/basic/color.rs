@@ -885,9 +885,66 @@ impl ColorU {
     }
 
     /// Format the color as an 8-digit lowercase hex string (e.g. `#ff0000ff`).
+    /// [`Self::to_hex`] writes the shortest exact form.
     #[must_use]
     pub fn to_hash(&self) -> String {
         format!("#{:02x}{:02x}{:02x}{:02x}", self.r, self.g, self.b, self.a)
+    }
+
+    /// The colour as CSS writes it, lower case: `#rrggbb`, or `#rrggbbaa`
+    /// when it is not fully opaque. [`Self::parse_hex`] reads it back.
+    #[must_use]
+    pub fn to_hex(&self) -> String {
+        if self.a == Self::ALPHA_OPAQUE {
+            format!("#{:02x}{:02x}{:02x}", self.r, self.g, self.b)
+        } else {
+            format!("#{:02x}{:02x}{:02x}{:02x}", self.r, self.g, self.b, self.a)
+        }
+    }
+
+    /// Reads a hex colour: `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa` - the
+    /// `#` optional, any case, surrounding whitespace ignored; a missing
+    /// alpha is opaque. `None` for any other text.
+    #[must_use]
+    #[allow(clippy::many_single_char_names)] // r, g, b, a: the channels
+    pub fn parse_hex(text: &str) -> Option<Self> {
+        let t = text.trim();
+        let t = t.strip_prefix('#').unwrap_or(t);
+        let bytes = t.as_bytes();
+        let nib = |ch: u8| -> Option<u8> {
+            char::from(ch)
+                .to_digit(16)
+                .and_then(|d| u8::try_from(d).ok())
+        };
+        let pair = |i: usize| -> Option<u8> { Some(nib(bytes[i])? * 16 + nib(bytes[i + 1])?) };
+        let (r, g, b, a) = match bytes.len() {
+            3 => (
+                nib(bytes[0])? * 17,
+                nib(bytes[1])? * 17,
+                nib(bytes[2])? * 17,
+                Self::ALPHA_OPAQUE,
+            ),
+            4 => (
+                nib(bytes[0])? * 17,
+                nib(bytes[1])? * 17,
+                nib(bytes[2])? * 17,
+                nib(bytes[3])? * 17,
+            ),
+            6 => (pair(0)?, pair(2)?, pair(4)?, Self::ALPHA_OPAQUE),
+            8 => (pair(0)?, pair(2)?, pair(4)?, pair(6)?),
+            _ => return None,
+        };
+        Some(Self { r, g, b, a })
+    }
+
+    /// Reads any CSS colour value - a keyword (`red`), a hex colour
+    /// (`#f53`), `rgb(..)`, `hsl(..)`, ... `None` when the text is no
+    /// colour; api.json's `ColorU::from_str` answers black instead, so a
+    /// caller cannot tell `"black"` from a typo.
+    #[cfg(feature = "parser")]
+    #[must_use]
+    pub fn parse_css(text: &str) -> Option<Self> {
+        parse_css_color(text).ok()
     }
 
     // ============================================================
@@ -2624,6 +2681,20 @@ mod tests {
         let concrete = ColorOrSystem::Color(ColorU::RED);
         let resolved_concrete = concrete.resolve(&system_colors, ColorU::GRAY);
         assert_eq!(resolved_concrete, ColorU::RED);
+    }
+
+    /// `parse_css` reads any CSS colour and says when the text is none:
+    /// `from_str` (api.json) answers BLACK for a typo, so an app cannot
+    /// tell `"black"` from `"blck"` (DEDUP_OFFICE D11 / A6).
+    #[test]
+    fn parse_css_reports_a_text_that_is_no_colour() {
+        assert_eq!(ColorU::parse_css("red"), Some(ColorU::RED));
+        assert_eq!(ColorU::parse_css("black"), Some(ColorU::BLACK));
+        assert_eq!(ColorU::parse_css(" #f53 "), Some(ColorU::new_rgb(0xff, 0x55, 0x33)));
+        assert_eq!(ColorU::parse_css("rgb(1,2,3)"), Some(ColorU::new_rgb(1, 2, 3)));
+        assert_eq!(ColorU::parse_css("blck"), None);
+        assert_eq!(ColorU::parse_css(""), None);
+        assert_eq!(ColorU::parse_css("#ff573"), None);
     }
 
     #[test]
@@ -4468,5 +4539,40 @@ mod autotest_generated {
             parse_css_color("#zzz"),
             Err(CssColorParseError::InvalidColorComponent(b'z'))
         );
+    }
+
+    /// `to_hex` writes the shortest exact CSS form - 6 digits when opaque,
+    /// 8 when not - and `parse_hex` reads every hex form back; the eight
+    /// private copies in widgets and apps did one or the other
+    /// (DEDUP_OFFICE D11, DEDUP_WIDGETS_API F32).
+    #[test]
+    fn to_hex_and_parse_hex_round_trip() {
+        let opaque = ColorU::new_rgb(0xff, 0x57, 0x33);
+        assert_eq!(opaque.to_hex(), "#ff5733");
+        let translucent = ColorU {
+            r: 1,
+            g: 2,
+            b: 3,
+            a: 4,
+        };
+        assert_eq!(translucent.to_hex(), "#01020304");
+        for c in SAMPLES {
+            assert_eq!(ColorU::parse_hex(&c.to_hex()), Some(c), "{c:?}");
+        }
+        assert_eq!(ColorU::parse_hex("  FF5733 "), Some(opaque), "no '#', any case, trimmed");
+        assert_eq!(ColorU::parse_hex("#f53"), Some(opaque));
+        assert_eq!(
+            ColorU::parse_hex("#f538"),
+            Some(ColorU {
+                r: 0xff,
+                g: 0x55,
+                b: 0x33,
+                a: 0x88
+            })
+        );
+        assert_eq!(ColorU::parse_hex("#ff573"), None);
+        assert_eq!(ColorU::parse_hex("#gg5733"), None);
+        assert_eq!(ColorU::parse_hex("red"), None, "a keyword is no hex colour");
+        assert_eq!(ColorU::parse_hex(""), None);
     }
 }

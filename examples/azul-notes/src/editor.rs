@@ -28,7 +28,7 @@ use std::collections::HashMap;
 
 use azul::{
     callbacks::{CallbackInfo, RefAny, Update},
-    css::{BoxOrStaticString, DocumentOperation, EventFilter, FocusEventFilter, HoverEventFilter},
+    css::{DocumentOperation, EventFilter, FocusEventFilter, HoverEventFilter},
     dom::{AttributeType, Dom, DomId, DomNodeId, NodeId, NodeType, TextFormat, VirtualKeyCode},
     image::ImageRef,
     svg::{CssPath, CssPathSelector},
@@ -113,7 +113,7 @@ pub fn open_url(url: &str) -> bool {
 /// Ctrl / Cmd + click on a link in the text opens it.
 extern "C" fn on_link_click(mut data: RefAny, info: CallbackInfo) -> Update {
     let modifiers = info.get_key_modifiers();
-    if !(modifiers.ctrl || modifiers.meta) {
+    if !modifiers.primary_down() {
         return Update::DoNothing;
     }
     let Some(url) = data.downcast_ref::<LinkRef>().map(|l| l.url.clone()) else {
@@ -411,23 +411,14 @@ fn bytes_before(block: &Block, child: usize) -> usize {
         .sum()
 }
 
-/// The string a text node holds (AzWriter's `document::box_str` is the
-/// twin; the generated API hands the text over behind a pointer).
-fn box_str(s: &BoxOrStaticString) -> &str {
-    // SAFETY: both variants point at the AzString the node owns (or a
-    // static one), alive as long as the node.
-    unsafe {
-        match s {
-            BoxOrStaticString::Boxed(p) => (**p).as_str(),
-            BoxOrStaticString::Static(p) => (**p).as_str(),
-        }
-    }
-}
-
 /// The text of a DOM subtree (a replacement's content), `<br>` as `\n`.
 fn dom_text(dom: &Dom, out: &mut String) {
     match &dom.root.node_type {
-        NodeType::Text(text) => out.push_str(box_str(text)),
+        NodeType::Text(_) => {
+            if let Some(text) = dom.root.node_type.get_text().into_option() {
+                out.push_str(text.as_str());
+            }
+        }
         NodeType::Br => out.push('\n'),
         _ => {}
     }
@@ -452,8 +443,9 @@ pub fn focus_editor(info: &mut CallbackInfo) {
 fn collect_runs(dom: &Dom, formats: FormatSet, out: &mut Vec<Run>) {
     let mut formats = formats;
     match &dom.root.node_type {
-        NodeType::Text(text) => {
-            let mut run = Run::plain(box_str(text));
+        NodeType::Text(_) => {
+            let text = dom.root.node_type.get_text().into_option();
+            let mut run = Run::plain(text.as_ref().map_or("", |t| t.as_str()));
             formats.apply_to(&mut run);
             crate::doc::push_run(out, run);
             return;
@@ -885,7 +877,7 @@ pub extern "C" fn on_editor_key(mut data: RefAny, mut info: CallbackInfo) -> Upd
         return Update::DoNothing;
     };
     let modifiers = info.get_key_modifiers();
-    let primary = modifiers.ctrl || modifiers.meta;
+    let primary = modifiers.primary_down();
     let shift = modifiers.shift;
     let Some(mut guard) = data.downcast_mut::<crate::AppState>() else {
         return Update::DoNothing;

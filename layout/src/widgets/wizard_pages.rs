@@ -60,7 +60,6 @@ use crate::{
         radio_group::{RadioGroup, RadioGroupOnChangeCallbackType, RadioGroupState},
         shells::{COLUMN_BASE, GROW_COLUMN_BASE},
         themes::{OptionUiTheme, UiTheme},
-        tile::format_bytes,
     },
 };
 
@@ -1076,7 +1075,7 @@ fn build_destination(page: WizardDestinationPage, look: &DialogKitLook) -> Dom {
     );
     let space = |label: &AzString, bytes: u64| {
         dialog_kit::line(
-            AzString::from(alloc::format!("{} {}", label.as_str(), format_bytes(bytes))),
+            AzString::from(alloc::format!("{} {}", label.as_str(), crate::file::DiskSpace::format_bytes(bytes))),
             &[],
             &look.hint,
         )
@@ -1090,8 +1089,8 @@ fn build_destination(page: WizardDestinationPage, look: &DialogKitLook) -> Dom {
         let mut warning = InfoBar::create(AzString::from(alloc::format!(
             "{} ({} needed, {} available)",
             page.short_reason.as_str(),
-            format_bytes(page.required_bytes),
-            format_bytes(page.available_bytes)
+            crate::file::DiskSpace::format_bytes(page.required_bytes),
+            crate::file::DiskSpace::format_bytes(page.available_bytes)
         )))
         .with_kind(AlertKind::Warning)
         .with_icon(AzString::from_const_str("warning"));
@@ -1279,7 +1278,7 @@ fn component_row(
     let size = if c.size_bytes == 0 {
         AzString::from_const_str("")
     } else {
-        AzString::from(format_bytes(c.size_bytes))
+        AzString::from(crate::file::DiskSpace::format_bytes(c.size_bytes))
     };
     // The indent is the tree's, the same in every theme.
     #[allow(clippy::cast_possible_wrap)]
@@ -1328,7 +1327,7 @@ fn build_components(page: WizardComponentsPage, look: &DialogKitLook) -> Dom {
             AzString::from(alloc::format!(
                 "{} {}",
                 page.total_label.as_str(),
-                format_bytes(total)
+                crate::file::DiskSpace::format_bytes(total)
             )),
             &[],
             &look.total,

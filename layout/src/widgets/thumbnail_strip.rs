@@ -223,7 +223,7 @@ pub struct ThumbnailStripEvent {
     pub kind: ThumbnailStripEventKind,
     /// `Select`: Shift was held (extend from the anchor).
     pub shift: bool,
-    /// `Select`: Ctrl / Cmd was held (toggle).
+    /// `Select`: the primary modifier was held (toggle): Cmd on macOS, Ctrl elsewhere.
     pub ctrl: bool,
 }
 
@@ -842,7 +842,7 @@ extern "C" fn on_item_click(mut data: RefAny, info: CallbackInfo) -> Update {
     let ks = info.get_current_keyboard_state();
     let mut event = ThumbnailStripEvent::create(ThumbnailStripEventKind::Select, index);
     event.shift = ks.shift_down();
-    event.ctrl = ks.ctrl_down() || ks.super_down();
+    event.ctrl = ks.primary_down();
     emit(&mut shared, info, event)
 }
 
@@ -927,7 +927,7 @@ extern "C" fn on_item_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     }
     let shift = ks.shift_down();
-    let ctrl = ks.ctrl_down() || ks.super_down();
+    let ctrl = ks.primary_down();
     let Some((index, mut shared)) = item_of(&mut data) else {
         return Update::DoNothing;
     };
@@ -1213,8 +1213,9 @@ mod thumbnail_strip_tests {
         assert_eq!(rv::focus_request(&changes), Some(id(items[2])));
         assert!(rv::prevented(&changes));
         rv::press(&styled, id(items[1]), K::Down, &[K::LShift]);
-        rv::press(&styled, id(items[1]), K::Down, &[K::LControl]);
-        rv::press(&styled, id(items[1]), K::Up, &[K::LControl]);
+        let (primary, _) = rv::command_keys();
+        rv::press(&styled, id(items[1]), K::Down, &[primary]);
+        rv::press(&styled, id(items[1]), K::Up, &[primary]);
         rv::press(&styled, id(items[1]), K::Return, &[]);
         rv::press(&styled, id(items[1]), K::Delete, &[]);
         rv::press(&styled, id(items[1]), K::Home, &[]);

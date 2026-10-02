@@ -539,7 +539,7 @@ extern "C" fn on_key(mut data: RefAny, info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     match key {
-        Some(VirtualKeyCode::K) if modifiers.ctrl || modifiers.meta => {
+        Some(VirtualKeyCode::K) if modifiers.primary_down() => {
             s.palette_open = !s.palette_open;
             Update::RefreshDom
         }

@@ -928,6 +928,18 @@ impl NodeType {
         }
     }
 
+    /// The text a text node holds (owned); `None` for every other node.
+    /// The safe way to read a `Text` payload: the `BoxOrStaticString` it
+    /// carries is a raw pointer in the C API, and three editors dereferenced
+    /// it by hand (`unsafe`).
+    #[must_use]
+    pub fn get_text(&self) -> Option<AzString> {
+        match self {
+            Self::Text(s) => Some(s.as_ref().clone()),
+            _ => None,
+        }
+    }
+
     /// Returns the `NodeTypeTag` for CSS selector matching.
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     #[must_use]
@@ -2862,6 +2874,97 @@ impl NodeData {
     pub fn attributes(&self) -> &AttributeTypeVec {
         static EMPTY: AttributeTypeVec = AttributeTypeVec::from_const_slice(&[]);
         self.extra.as_ref().map_or(&EMPTY, |ext| &ext.attributes)
+    }
+
+    /// The node's attributes (`href`, `alt`, `data-*`, ...), owned - what
+    /// [`Self::set_attributes`] and `Dom::with_attribute` set.
+    #[must_use]
+    pub fn get_attributes(&self) -> AttributeTypeVec {
+        self.attributes().clone()
+    }
+
+    /// The value of the attribute HTML calls `name` (`"href"`, `"alt"`,
+    /// `"data-id"`, `"aria-checked"`, ...), `None` when the node has none. A
+    /// boolean attribute answers `"true"` (`checked` also `"false"`), a
+    /// number its decimal text; the builder's flags answer as HTML spells
+    /// them (`contenteditable`, `tabindex`). The one lookup:
+    /// `CallbackInfo::get_node_attribute` reads a live node through it.
+    #[must_use]
+    pub fn get_attribute(&self, name: &str) -> Option<AzString> {
+        let number = |n: i32| -> AzString { n.to_string().into() };
+        for attr in self.attributes().as_ref() {
+            let found: Option<AzString> = match (name, attr) {
+                ("id", AttributeType::Id(v))
+                | ("class", AttributeType::Class(v))
+                | ("aria-label", AttributeType::AriaLabel(v))
+                | ("aria-labelledby", AttributeType::AriaLabelledBy(v))
+                | ("aria-describedby", AttributeType::AriaDescribedBy(v))
+                | ("role", AttributeType::AriaRole(v))
+                | ("href", AttributeType::Href(v))
+                | ("rel", AttributeType::Rel(v))
+                | ("target", AttributeType::Target(v))
+                | ("src", AttributeType::Src(v))
+                | ("alt", AttributeType::Alt(v))
+                | ("title", AttributeType::Title(v))
+                | ("name", AttributeType::Name(v))
+                | ("value", AttributeType::Value(v))
+                | ("type", AttributeType::InputType(v))
+                | ("placeholder", AttributeType::Placeholder(v))
+                | ("max", AttributeType::Max(v))
+                | ("min", AttributeType::Min(v))
+                | ("step", AttributeType::Step(v))
+                | ("pattern", AttributeType::Pattern(v))
+                | ("autocomplete", AttributeType::Autocomplete(v))
+                | ("scope", AttributeType::Scope(v))
+                | ("lang", AttributeType::Lang(v))
+                | ("dir", AttributeType::Dir(v)) => Some(v.clone()),
+                ("required", AttributeType::Required)
+                | ("disabled", AttributeType::Disabled)
+                | ("readonly", AttributeType::Readonly)
+                | ("checked", AttributeType::CheckedTrue)
+                | ("selected", AttributeType::Selected)
+                | ("hidden", AttributeType::Hidden)
+                | ("focusable", AttributeType::Focusable)
+                | ("autofocus", AttributeType::Autofocus) => Some(AzString::from_const_str("true")),
+                ("checked", AttributeType::CheckedFalse) => Some(AzString::from_const_str("false")),
+                ("minlength", AttributeType::MinLength(n))
+                | ("maxlength", AttributeType::MaxLength(n))
+                | ("colspan", AttributeType::ColSpan(n))
+                | ("rowspan", AttributeType::RowSpan(n))
+                | ("tabindex", AttributeType::TabIndex(n)) => Some(number(*n)),
+                ("contenteditable", AttributeType::ContentEditable(b))
+                | ("draggable", AttributeType::Draggable(b)) => Some(b.to_string().into()),
+                (_, AttributeType::Data(nv))
+                    if name.strip_prefix("data-") == Some(nv.attr_name.as_str()) =>
+                {
+                    Some(nv.value.clone())
+                }
+                (_, AttributeType::AriaState(nv) | AttributeType::AriaProperty(nv))
+                    if name.strip_prefix("aria-") == Some(nv.attr_name.as_str()) =>
+                {
+                    Some(nv.value.clone())
+                }
+                (_, AttributeType::Custom(nv)) if nv.attr_name.as_str() == name => {
+                    Some(nv.value.clone())
+                }
+                _ => None,
+            };
+            if found.is_some() {
+                return found;
+            }
+        }
+        // What the builder keeps as FLAGS (`Dom::with_contenteditable`,
+        // `Dom::with_tab_index`, which every text field and keyboard stop
+        // uses) answers too, as HTML spells it.
+        match name {
+            "contenteditable" if self.is_contenteditable() => Some(AzString::from_const_str("true")),
+            "tabindex" => self.get_tab_index().map(|tab| match tab {
+                TabIndex::Auto => AzString::from_const_str("0"),
+                TabIndex::OverrideInParent(n) => n.to_string().into(),
+                TabIndex::NoKeyboardFocus => AzString::from_const_str("-1"),
+            }),
+            _ => None,
+        }
     }
 
     /// Returns a mutable reference to the node's attributes,

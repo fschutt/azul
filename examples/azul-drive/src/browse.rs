@@ -257,24 +257,12 @@ pub fn sort_entries(entries: &mut [Entry], sort: Sort) {
     });
 }
 
-/// `0 B`, `999 B`, `1.5 KB`, `5.0 MB` (1024-based, as file managers show);
-/// empty for a folder.
+/// `0 B`, `999 B`, `1.5 KB`, `5.0 MB`, `324 GB` (azul's
+/// `DiskSpace::format_bytes`: 1024-based, as Explorer shows); empty for a
+/// folder.
 #[must_use]
 pub fn format_size(bytes: Option<u64>) -> String {
-    const UNITS: [&str; 5] = ["KB", "MB", "GB", "TB", "PB"];
-    match bytes {
-        None => String::new(),
-        Some(bytes) if bytes < 1024 => format!("{bytes} B"),
-        Some(bytes) => {
-            let mut value = bytes as f64 / 1024.0;
-            let mut unit = 0;
-            while value >= 1024.0 && unit + 1 < UNITS.len() {
-                value /= 1024.0;
-                unit += 1;
-            }
-            format!("{value:.1} {}", UNITS[unit])
-        }
-    }
+    bytes.map_or_else(String::new, |b| azul::file::DiskSpace::format_bytes(b).to_string())
 }
 
 /// `2009-10-12 17:50` in `zone`; empty when unknown.
@@ -739,6 +727,7 @@ mod tests {
         assert_eq!(format_size(Some(1536)), "1.5 KB");
         assert_eq!(format_size(Some(5 * 1024 * 1024)), "5.0 MB");
         assert_eq!(format_size(Some(3 * 1024 * 1024 * 1024)), "3.0 GB");
+        assert_eq!(format_size(Some(324 * 1024 * 1024 * 1024)), "324 GB", "no decimal from ten up");
     }
 
     #[test]

@@ -1265,3 +1265,43 @@ fn a_turn_names_the_windows_that_must_lay_out_again() {
     let turn = shared.begin_turn(&[1, 2]);
     assert!(turn.relayout.is_empty(), "nothing moved since");
 }
+
+/// A window key event tested against a parsed hotkey: an app keeps ONE
+/// table of `GlobalHotkey`s (parsed with `parse`, shown with
+/// `to_display_string`) and dispatches its key handler through it, instead
+/// of writing the shortcut twice - once as text, once as a key match
+/// (DEDUP_EDITORS D11 / B18). The match is exact: the key that went down
+/// and exactly the hotkey's modifiers, left and right alike.
+#[test]
+fn a_key_event_matches_exactly_the_hotkey_it_spells() {
+    use azul_core::window::{KeyboardState, OptionVirtualKeyCode};
+
+    let held = |keys: &[K], key: K| {
+        let mut pressed = keys.to_vec();
+        pressed.push(key);
+        KeyboardState {
+            current_virtual_keycode: OptionVirtualKeyCode::Some(key),
+            pressed_virtual_keycodes: VirtualKeyCodeVec::from_vec(pressed),
+            ..KeyboardState::default()
+        }
+    };
+    let ctrl_shift_n = hk(mods(true, false, true, false), K::N);
+    assert!(ctrl_shift_n.matches(&held(&[K::LControl, K::LShift], K::N)));
+    assert!(ctrl_shift_n.matches(&held(&[K::RControl, K::RShift], K::N)), "right twins too");
+    assert!(!ctrl_shift_n.matches(&held(&[K::LControl], K::N)), "Shift missing");
+    assert!(!ctrl_shift_n.matches(&held(&[K::LControl, K::LShift, K::LAlt], K::N)), "Alt extra");
+    assert!(!ctrl_shift_n.matches(&held(&[K::LControl, K::LShift], K::M)), "another key");
+
+    let cmd_k = hk(mods(false, false, false, true), K::K);
+    assert!(cmd_k.matches(&held(&[K::LWin], K::K)));
+    assert!(!cmd_k.matches(&held(&[K::LControl], K::K)), "Ctrl is not Cmd");
+
+    // The host's primary modifier, from one accelerator.
+    let primary_s = GlobalHotkey::parse("CmdOrCtrl+S").expect("a valid accelerator");
+    let primary = if azul_core::window::mac_shortcut_conventions() {
+        K::LWin
+    } else {
+        K::LControl
+    };
+    assert!(primary_s.matches(&held(&[primary], K::S)));
+}

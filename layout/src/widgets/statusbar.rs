@@ -57,8 +57,8 @@ use azul_css::{
 };
 
 use super::{
-    button::{Button, OptionButtonOnClick},
-    slider::{OptionSliderOnValueChange, Slider},
+    button::{Button, ButtonOnClick, ButtonOnClickCallback, OptionButtonOnClick},
+    slider::{OptionSliderOnValueChange, Slider, SliderOnValueChange, SliderOnValueChangeCallback},
     themes::{flat, style_kit, OptionUiTheme, UiTheme},
 };
 use crate::callbacks::CallbackInfo;
@@ -1386,10 +1386,97 @@ impl StatusBarZoom {
         }
     }
 
+    /// A zoom cluster at `percent` over the slider window `[min, max]`
+    /// (see [`Self::set_range`]), label shown, no hooks yet.
+    #[must_use]
+    pub fn create(percent: f32, min: f32, max: f32) -> Self {
+        Self::office_2013().with_range(min, max).with_percent(percent)
+    }
+
     /// Builder method: sets the zoom percent.
     #[must_use]
     pub const fn with_percent(mut self, percent: f32) -> Self {
         self.percent = percent;
+        self
+    }
+
+    /// Sets the zoom percent.
+    pub fn set_percent(&mut self, percent: f32) {
+        self.percent = percent;
+    }
+
+    /// Sets the slider's window: `min` is the thumb at the far left, `max`
+    /// at the far right (a reversed pair is the same window). Give it the
+    /// range the app's zoom buttons reach - a percent outside the window
+    /// pins the thumb to its end, and the first drag moves the zoom back
+    /// inside it. `office_2013()`'s window is `[10, 190]`.
+    pub fn set_range(&mut self, min: f32, max: f32) {
+        let (min, max) = if min <= max { (min, max) } else { (max, min) };
+        self.min = min;
+        self.max = max;
+    }
+
+    /// Builder method: sets the slider's window (see [`Self::set_range`]).
+    #[must_use]
+    pub fn with_range(mut self, min: f32, max: f32) -> Self {
+        self.set_range(min, max);
+        self
+    }
+
+    /// Sets the − button's callback.
+    pub fn set_on_zoom_out<C: Into<ButtonOnClickCallback>>(&mut self, data: RefAny, callback: C) {
+        self.on_zoom_out = Some(ButtonOnClick::create(data, callback)).into();
+    }
+
+    /// Builder method: sets the − button's callback.
+    #[must_use]
+    pub fn with_on_zoom_out<C: Into<ButtonOnClickCallback>>(mut self, data: RefAny, callback: C) -> Self {
+        self.set_on_zoom_out(data, callback);
+        self
+    }
+
+    /// Sets the + button's callback.
+    pub fn set_on_zoom_in<C: Into<ButtonOnClickCallback>>(&mut self, data: RefAny, callback: C) {
+        self.on_zoom_in = Some(ButtonOnClick::create(data, callback)).into();
+    }
+
+    /// Builder method: sets the + button's callback.
+    #[must_use]
+    pub fn with_on_zoom_in<C: Into<ButtonOnClickCallback>>(mut self, data: RefAny, callback: C) -> Self {
+        self.set_on_zoom_in(data, callback);
+        self
+    }
+
+    /// Sets the slider's callback: it reports the raw slider value, inside
+    /// the window [`Self::set_range`] gave.
+    pub fn set_on_slider_change<C: Into<SliderOnValueChangeCallback>>(
+        &mut self,
+        data: RefAny,
+        callback: C,
+    ) {
+        self.on_slider_change = Some(SliderOnValueChange::create(data, callback)).into();
+    }
+
+    /// Builder method: sets the slider's callback.
+    #[must_use]
+    pub fn with_on_slider_change<C: Into<SliderOnValueChangeCallback>>(
+        mut self,
+        data: RefAny,
+        callback: C,
+    ) -> Self {
+        self.set_on_slider_change(data, callback);
+        self
+    }
+
+    /// Shows or hides the "100%" label after the + button.
+    pub fn set_show_label(&mut self, show_label: bool) {
+        self.show_label = show_label;
+    }
+
+    /// Builder method: shows or hides the percent label.
+    #[must_use]
+    pub const fn with_show_label(mut self, show_label: bool) -> Self {
+        self.show_label = show_label;
         self
     }
 }
@@ -2145,6 +2232,45 @@ mod tests {
         let zoom_dom = &dom.children.as_ref()[1];
         // − button, track host, + button (no label)
         assert_eq!(zoom_dom.children.as_ref().len(), 3);
+    }
+
+    /// The state of the first slider in `dom` (the zoom cluster's).
+    fn slider_state(dom: &Dom) -> Option<crate::widgets::slider::SliderState> {
+        for cb in dom.root.callbacks.as_ref() {
+            let mut data = cb.refany.clone();
+            if let Some(w) = data.downcast_ref::<crate::widgets::slider::SliderStateWrapper>() {
+                return Some(w.inner);
+            }
+        }
+        dom.children.as_ref().iter().find_map(slider_state)
+    }
+
+    /// AzShow and AzSheets zoom to 400 %, but the cluster's slider window was
+    /// fixed at 10..190: the thumb sat pinned at the end and the first drag
+    /// snapped the zoom back below 190 % (DEDUP_OFFICE D28). The app gives
+    /// the window, and the slider spans it.
+    #[test]
+    fn the_zoom_slider_spans_the_range_the_app_gives() {
+        let zoom = StatusBarZoom::create(300.0, 10.0, 400.0);
+        assert_eq!((zoom.percent, zoom.min, zoom.max), (300.0, 10.0, 400.0));
+        let dom = StatusBar::new(segs(0)).with_zoom(zoom).dom();
+        let state = slider_state(&dom).expect("the zoom cluster holds a slider");
+        assert_eq!((state.min, state.max), (10.0, 400.0));
+        assert!((state.value - 300.0).abs() < 1e-3, "{state:?}");
+
+        let zoom = StatusBarZoom::office_2013()
+            .with_range(10.0, 400.0)
+            .with_percent(400.0);
+        let dom = StatusBar::new(segs(0)).with_zoom(zoom).dom();
+        let state = slider_state(&dom).expect("a slider");
+        assert!(
+            (state.value - 400.0).abs() < 1e-3,
+            "400 % rests at the end of a 10..400 window, not past a 190 one: {state:?}"
+        );
+
+        // A reversed range is the same window.
+        let zoom = StatusBarZoom::office_2013().with_range(400.0, 10.0);
+        assert_eq!((zoom.min, zoom.max), (10.0, 400.0));
     }
 
     #[test]

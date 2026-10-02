@@ -397,7 +397,7 @@ pub struct SelectionAdornerEvent {
     pub handle: AdornerHandle,
     /// Shift was held.
     pub shift: bool,
-    /// Ctrl (or Cmd) was held.
+    /// The primary modifier was held: Cmd on macOS, Ctrl elsewhere.
     pub ctrl: bool,
 }
 
@@ -2202,12 +2202,6 @@ fn cursor_units(info: &CallbackInfo, scale: f32) -> Option<(f32, f32)> {
     Some((p.x / s, p.y / s))
 }
 
-/// Shift, and Ctrl or Cmd.
-fn modifiers(info: &CallbackInfo) -> (bool, bool) {
-    let ks = info.get_current_keyboard_state();
-    (ks.shift_down(), ks.ctrl_down() || ks.super_down())
-}
-
 /// Hands `events` to the app, one after the other; the strongest update wins.
 fn emit(hook: &OptionSelectionAdornerOnEvent, info: CallbackInfo, events: Vec<SelectionAdornerEvent>) -> Update {
     let Some(SelectionAdornerOnEvent { refany, callback }) = hook.as_ref() else {
@@ -2226,7 +2220,8 @@ extern "C" fn on_press(mut data: RefAny, mut info: CallbackInfo) -> Update {
     if info.get_current_mouse_state().right_down {
         return Update::DoNothing;
     }
-    let (shift, ctrl) = modifiers(&info);
+    let ks = info.get_current_keyboard_state();
+    let (shift, ctrl) = (ks.shift_down(), ks.primary_down());
     let (events, capture, hook) = {
         let Some(mut state) = data.downcast_mut::<AdornerState>() else {
             return Update::DoNothing;
@@ -2246,7 +2241,7 @@ extern "C" fn on_press(mut data: RefAny, mut info: CallbackInfo) -> Update {
 
 /// A move: the drag's next step.
 extern "C" fn on_move(mut data: RefAny, info: CallbackInfo) -> Update {
-    let (shift, _) = modifiers(&info);
+    let shift = info.get_current_keyboard_state().shift_down();
     let (event, hook) = {
         let Some(mut state) = data.downcast_mut::<AdornerState>() else {
             return Update::DoNothing;
@@ -2325,7 +2320,7 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     if ks.alt_down() {
         return Update::DoNothing;
     }
-    let (shift, ctrl) = (ks.shift_down(), ks.ctrl_down() || ks.super_down());
+    let (shift, ctrl) = (ks.shift_down(), ks.primary_down());
     let (event, hook) = {
         let Some(state) = data.downcast_ref::<AdornerState>() else {
             return Update::DoNothing;

@@ -6,16 +6,14 @@
 use azul::{
     callbacks::{
         ButtonOnClickCallbackType, CallbackInfo, NumberInputOnValueChangeCallbackType, RefAny,
-        SelectionAdornerOnEventCallbackType, SliderOnValueChangeCallbackType,
-        StatusBarOnViewSelectCallbackType, TextAreaOnFocusLostCallbackType, TextAreaOnTextInputCallbackType,
+        SelectionAdornerOnEventCallbackType, StatusBarOnViewSelectCallbackType, TextAreaOnFocusLostCallbackType, TextAreaOnTextInputCallbackType,
         TextInputOnFocusLostCallbackType, ThumbnailStripOnEventCallbackType, Update,
     },
-    dom::{ButtonOnClickCallback, Dom, SliderOnValueChangeCallback},
-    option::OptionRefAny,
+    dom::Dom,
     str::String as AzString,
     widgets::{
-        AdornerFrame, AdornerItem, Button, ButtonOnClick, NumberInput, NumberInputState, OnTextInputReturn,
-        SelectionAdorner, SelectionAdornerEvent, SelectionAdornerEventKind, SliderOnValueChange, SliderState,
+        AdornerFrame, AdornerItem, Button, NumberInput, NumberInputState, OnTextInputReturn,
+        SelectionAdorner, SelectionAdornerEvent, SelectionAdornerEventKind, SliderState,
         StatusBar, StatusBarSegment, StatusBarView, StatusBarViewSwitcher, StatusBarZoom, TextArea, TextAreaState,
         TextInput, TextInputState, TextInputValid, ThumbnailItem, ThumbnailStrip, ThumbnailStripEvent,
         ThumbnailStripEventKind, ThumbnailStripLayout,
@@ -40,10 +38,6 @@ pub const NOTES_ID: &str = "azshow-notes";
 
 fn s(text: &str) -> AzString {
     AzString::from(text)
-}
-
-fn chars_of(text: &azul::vec::U32Vec) -> String {
-    text.as_ref().iter().filter_map(|&c| char::from_u32(c)).collect()
 }
 
 // ==== The slide rail and the sorter ====
@@ -325,7 +319,7 @@ fn notes_field(app: &RefAny, notes: &str) -> Dom {
 extern "C" fn on_notes_input(mut data: RefAny, _info: CallbackInfo, state: TextAreaState) -> OnTextInputReturn {
     if let Some(mut st) = data.downcast_mut::<AppState>() {
         if let Some(ed) = st.editor.as_mut() {
-            ed.set_notes(&chars_of(&state.text));
+            ed.set_notes(state.get_text().as_str());
         }
     }
     OnTextInputReturn {
@@ -337,7 +331,7 @@ extern "C" fn on_notes_input(mut data: RefAny, _info: CallbackInfo, state: TextA
 extern "C" fn on_notes_done(mut data: RefAny, _info: CallbackInfo, state: TextAreaState) -> Update {
     if let Some(mut st) = data.downcast_mut::<AppState>() {
         if let Some(ed) = st.editor.as_mut() {
-            ed.set_notes(&chars_of(&state.text));
+            ed.set_notes(state.get_text().as_str());
         }
     }
     Update::DoNothing
@@ -387,7 +381,7 @@ extern "C" fn on_outline_body(mut data: RefAny, _info: CallbackInfo, state: Text
         Some(f) => (f.app.clone(), f.slide, f.role),
         None => return Update::DoNothing,
     };
-    let text = chars_of(&state.text);
+    let text = state.get_text().to_string();
     if let Some(mut st) = app.downcast_mut::<AppState>() {
         if let Some(ed) = st.editor.as_mut() {
             ed.set_placeholder_text(slide, role, &text);
@@ -647,16 +641,6 @@ pub fn format_pane(app: &RefAny, ed: &Editor) -> Dom {
 
 // ==== The status bar ====
 
-fn click(app: &RefAny, cmd: Command) -> ButtonOnClick {
-    ButtonOnClick {
-        data: command(app, cmd),
-        callback: ButtonOnClickCallback {
-            cb: on_command as ButtonOnClickCallbackType,
-            callable: OptionRefAny::None,
-        },
-    }
-}
-
 extern "C" fn on_view_select(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
     let view = View::ALL.get(index).copied().unwrap_or(View::Normal);
     commands::run(&mut data, Command::View(view), &mut info)
@@ -666,7 +650,7 @@ extern "C" fn on_zoom_slider(mut data: RefAny, _info: CallbackInfo, slider: Slid
     let Some(mut st) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
-    st.zoom = Some(slider.value.round().clamp(10.0, 400.0));
+    st.zoom = Some(slider.value.round().clamp(crate::app::ZOOM_MIN, crate::app::ZOOM_MAX));
     Update::RefreshDom
 }
 
@@ -692,17 +676,12 @@ pub fn status_bar(app: &RefAny, st: &AppState, zoom_percent: f32) -> Dom {
         segments.push(StatusBarSegment::create(s(&st.message)));
     }
     let views: Vec<StatusBarView> = View::ALL.iter().map(|v| StatusBarView { icon: s(v.icon()) }).collect();
-    let mut zoom = StatusBarZoom::office_2013().with_percent(zoom_percent);
-    zoom.on_zoom_out = Some(click(app, Command::Zoom(-10))).into();
-    zoom.on_zoom_in = Some(click(app, Command::Zoom(10))).into();
-    zoom.on_slider_change = Some(SliderOnValueChange {
-        data: app.clone(),
-        callback: SliderOnValueChangeCallback {
-            cb: on_zoom_slider as SliderOnValueChangeCallbackType,
-            callable: OptionRefAny::None,
-        },
-    })
-    .into();
+    // The slider spans the buttons' whole range: a fixed 10..190 window
+    // snapped a 400 % zoom back on the first drag (DEDUP_OFFICE D28).
+    let zoom = StatusBarZoom::create(zoom_percent, crate::app::ZOOM_MIN, crate::app::ZOOM_MAX)
+        .with_on_zoom_out(command(app, Command::Zoom(-10)), on_command as ButtonOnClickCallbackType)
+        .with_on_zoom_in(command(app, Command::Zoom(10)), on_command as ButtonOnClickCallbackType)
+        .with_on_slider_change(app.clone(), on_zoom_slider);
     StatusBar::create(segments)
         .with_views(
             StatusBarViewSwitcher::create(views)

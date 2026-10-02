@@ -4097,101 +4097,14 @@ impl CallbackInfo {
     ///
     /// Returns the attribute value if found, None otherwise.
     /// This searches the strongly-typed `AttributeVec` on the node.
-    // Cross-type AttributeType payload dispatch: each `(attr_name, AttributeType::X(v))`
-    // arm binds a differently-typed `v`, so the same-bodied arms can't be merged into
-    // one or-pattern (won't type-check) — they are intentionally one-per-attribute.
-    #[allow(clippy::match_same_arms)]
     #[must_use]
     pub fn get_node_attribute(&self, node_id: DomNodeId, attr_name: &str) -> Option<AzString> {
-        use azul_core::dom::AttributeType;
-
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
         let node_id_internal = node_id.node.into_crate_internal()?;
         let node_data_cont = layout_result.styled_dom.node_data.as_container();
-        let node_data = node_data_cont.get(node_id_internal)?;
-
-        // Check the strongly-typed attributes vec
-        for attr in node_data.attributes().as_ref() {
-            match (attr_name, attr) {
-                ("id", AttributeType::Id(v)) => return Some(v.clone()),
-                ("class", AttributeType::Class(v)) => return Some(v.clone()),
-                ("aria-label", AttributeType::AriaLabel(v)) => return Some(v.clone()),
-                ("aria-labelledby", AttributeType::AriaLabelledBy(v)) => return Some(v.clone()),
-                ("aria-describedby", AttributeType::AriaDescribedBy(v)) => return Some(v.clone()),
-                ("role", AttributeType::AriaRole(v)) => return Some(v.clone()),
-                ("href", AttributeType::Href(v)) => return Some(v.clone()),
-                ("rel", AttributeType::Rel(v)) => return Some(v.clone()),
-                ("target", AttributeType::Target(v)) => return Some(v.clone()),
-                ("src", AttributeType::Src(v)) => return Some(v.clone()),
-                ("alt", AttributeType::Alt(v)) => return Some(v.clone()),
-                ("title", AttributeType::Title(v)) => return Some(v.clone()),
-                ("name", AttributeType::Name(v)) => return Some(v.clone()),
-                ("value", AttributeType::Value(v)) => return Some(v.clone()),
-                ("type", AttributeType::InputType(v)) => return Some(v.clone()),
-                ("placeholder", AttributeType::Placeholder(v)) => return Some(v.clone()),
-                ("max", AttributeType::Max(v)) => return Some(v.clone()),
-                ("min", AttributeType::Min(v)) => return Some(v.clone()),
-                ("step", AttributeType::Step(v)) => return Some(v.clone()),
-                ("pattern", AttributeType::Pattern(v)) => return Some(v.clone()),
-                ("autocomplete", AttributeType::Autocomplete(v)) => return Some(v.clone()),
-                ("scope", AttributeType::Scope(v)) => return Some(v.clone()),
-                ("lang", AttributeType::Lang(v)) => return Some(v.clone()),
-                ("dir", AttributeType::Dir(v)) => return Some(v.clone()),
-                ("required", AttributeType::Required) => return Some("true".into()),
-                ("disabled", AttributeType::Disabled) => return Some("true".into()),
-                ("readonly", AttributeType::Readonly) => return Some("true".into()),
-                ("checked", AttributeType::CheckedTrue) => return Some("true".into()),
-                ("checked", AttributeType::CheckedFalse) => return Some("false".into()),
-                ("selected", AttributeType::Selected) => return Some("true".into()),
-                ("hidden", AttributeType::Hidden) => return Some("true".into()),
-                ("focusable", AttributeType::Focusable) => return Some("true".into()),
-                ("minlength", AttributeType::MinLength(v)) => return Some(v.to_string().into()),
-                ("maxlength", AttributeType::MaxLength(v)) => return Some(v.to_string().into()),
-                ("colspan", AttributeType::ColSpan(v)) => return Some(v.to_string().into()),
-                ("rowspan", AttributeType::RowSpan(v)) => return Some(v.to_string().into()),
-                ("tabindex", AttributeType::TabIndex(v)) => return Some(v.to_string().into()),
-                ("contenteditable", AttributeType::ContentEditable(v)) => {
-                    return Some(v.to_string().into())
-                }
-                ("draggable", AttributeType::Draggable(v)) => return Some(v.to_string().into()),
-                // Handle data-* attributes
-                (name, AttributeType::Data(nv))
-                    if name.starts_with("data-") && nv.attr_name.as_str() == &name[5..] =>
-                {
-                    return Some(nv.value.clone());
-                }
-                // Handle aria-* state/property attributes
-                (name, AttributeType::AriaState(nv))
-                    if name == format!("aria-{}", nv.attr_name.as_str()) =>
-                {
-                    return Some(nv.value.clone());
-                }
-                (name, AttributeType::AriaProperty(nv))
-                    if name == format!("aria-{}", nv.attr_name.as_str()) =>
-                {
-                    return Some(nv.value.clone());
-                }
-                // Handle custom attributes
-                (name, AttributeType::Custom(nv)) if nv.attr_name.as_str() == name => {
-                    return Some(nv.value.clone());
-                }
-                _ => {}
-            }
-        }
-
-        // What the builder keeps as FLAGS (`Dom::with_contenteditable`,
-        // `Dom::with_tab_index`, which every text field and keyboard stop
-        // uses) answers too, as HTML spells it.
-        match attr_name {
-            "contenteditable" if node_data.is_contenteditable() => Some("true".into()),
-            "tabindex" => node_data.get_tab_index().map(|tab| match tab {
-                azul_core::dom::TabIndex::Auto => AzString::from("0"),
-                azul_core::dom::TabIndex::OverrideInParent(n) => n.to_string().into(),
-                azul_core::dom::TabIndex::NoKeyboardFocus => AzString::from("-1"),
-            }),
-            _ => None,
-        }
+        // The one lookup, by HTML name: `NodeData::get_attribute`.
+        node_data_cont.get(node_id_internal)?.get_attribute(attr_name)
     }
 
     /// Get all classes of a node as a vector of strings

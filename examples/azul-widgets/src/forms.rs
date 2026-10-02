@@ -30,14 +30,14 @@
 
 use azul::{
     dom::{AttributeType, SmallAriaInfo},
-    image::{ImageRef, RawImage, RawImageData, RawImageFormat},
+    image::{ImageRef, RawImage},
     option::OptionImageRef,
     prelude::*,
     str::String as AzString,
     widgets::*,
 };
 
-use crate::{captioned, section, strs, text_area_text, Showcase};
+use crate::{captioned, section, strs, Showcase};
 
 /// The radio group's options (`type=radio`).
 const PLANS: &[&str] = &["Free", "Team", "Enterprise"];
@@ -217,14 +217,7 @@ fn send_icon() -> OptionImageRef {
             pixels.extend_from_slice(if inside { &INK } else { &CLEAR });
         }
     }
-    ImageRef::create_rawimage(RawImage {
-        pixels: RawImageData::U8(pixels.into()),
-        width: SIZE,
-        height: SIZE,
-        premultiplied_alpha: false,
-        data_format: RawImageFormat::RGBA8,
-        tag: Vec::<u8>::new().into(),
-    })
+    ImageRef::create_rawimage(RawImage::create_rgba8(SIZE as u32, SIZE as u32, pixels.into(), false))
 }
 
 // ---------------------------------------------------------------------------
@@ -346,9 +339,9 @@ fn food_label(n: usize) -> &'static str {
         .unwrap_or("")
 }
 
-/// `#rrggbb`, as `<input type=color>` submits it.
+/// `#rrggbb`, as `<input type=color>` submits it (no alpha).
 fn hex(c: ColorU) -> String {
-    format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b)
+    ColorU { a: 255, ..c }.to_hex().to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -991,7 +984,7 @@ extern "C" fn on_notes(
     _: CallbackInfo,
     state: TextAreaState,
 ) -> OnTextInputReturn {
-    keep_text(&mut data, text_area_text(&state).into(), |v, t| v.notes = t)
+    keep_text(&mut data, state.get_text(), |v, t| v.notes = t)
 }
 extern "C" fn on_browser(mut data: RefAny, _: CallbackInfo, state: ComboBoxState) -> Update {
     keep(&mut data, |v| v.browser = state.text)

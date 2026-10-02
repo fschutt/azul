@@ -2429,3 +2429,58 @@ mod l10n_attribute_tests {
         assert_eq!(args[4].value, FluentArg::I32(42));
     }
 }
+
+#[cfg(test)]
+mod attribute_getter_tests {
+    use super::*;
+
+    fn text(v: Option<AzString>) -> Option<String> {
+        v.map(|v| v.as_str().to_string())
+    }
+
+    /// A node's attributes read back by their HTML name: AzMail kept a
+    /// link's address in a CSS class because nothing read the `href` back,
+    /// and lost the address of every pasted link (DEDUP_EDITORS D4,
+    /// DEDUP_WIDGETS_API F14).
+    #[test]
+    fn a_nodes_attributes_read_back_by_their_html_name() {
+        let link = NodeData::create_a_no_a11y(AzString::from("mailto:ann@example.com"));
+        assert_eq!(text(link.get_attribute("href")), Some(String::from("mailto:ann@example.com")));
+        assert_eq!(link.get_attribute("alt"), None);
+        assert_eq!(link.get_attributes().len(), 1);
+
+        let mut node = NodeData::create_div();
+        node.set_attributes(
+            vec![
+                AttributeType::Data(AttributeNameValue {
+                    attr_name: AzString::from("id"),
+                    value: AzString::from("7"),
+                }),
+                AttributeType::Disabled,
+                AttributeType::CheckedFalse,
+                AttributeType::ColSpan(2),
+            ]
+            .into(),
+        );
+        assert_eq!(text(node.get_attribute("data-id")), Some(String::from("7")));
+        assert_eq!(text(node.get_attribute("disabled")), Some(String::from("true")));
+        assert_eq!(text(node.get_attribute("checked")), Some(String::from("false")));
+        assert_eq!(text(node.get_attribute("colspan")), Some(String::from("2")));
+        assert_eq!(node.get_attribute("id"), None, "data-id is not id");
+        assert_eq!(NodeData::create_div().get_attributes().len(), 0);
+    }
+
+    /// A text node's text, read without dereferencing its payload by hand
+    /// (AzWriter, AzNotes and AzMail each carried an `unsafe` `box_str`,
+    /// DEDUP_EDITORS D3 / B9, DEDUP_WIDGETS_API F14).
+    #[test]
+    fn a_text_nodes_text_reads_back_and_other_nodes_have_none() {
+        let text = Dom::create_text_do_not_use_without_block_level_wrapper("Hello");
+        assert_eq!(
+            text.root.get_node_type().get_text().map(|t| t.as_str().to_string()),
+            Some(String::from("Hello"))
+        );
+        assert_eq!(NodeType::Div.get_text(), None);
+        assert_eq!(NodeType::Br.get_text(), None);
+    }
+}

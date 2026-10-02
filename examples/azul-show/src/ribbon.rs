@@ -48,15 +48,15 @@ fn toggle(app: &RefAny, icon: &str, label: &str, cmd: Command, on: bool) -> Ribb
 }
 
 fn column(items: Vec<RibbonItem>) -> RibbonItem {
-    RibbonItem::Column(items.into_iter().fold(RibbonColumn::create(), |c, it| c.with_item(it)))
+    RibbonItem::Column(RibbonColumn::create().with_items(items.into()))
 }
 
 fn row(items: Vec<RibbonItem>) -> RibbonItem {
-    RibbonItem::Row(items.into_iter().fold(RibbonRow::create(), |r, it| r.with_item(it)))
+    RibbonItem::Row(RibbonRow::create().with_items(items.into()))
 }
 
 fn group(label: &str, items: Vec<RibbonItem>) -> RibbonGroup {
-    items.into_iter().fold(RibbonGroup::create(s(label)), |g, it| g.with_item(it))
+    RibbonGroup::create(s(label)).with_items(items.into())
 }
 
 /// What a gallery's pick means.

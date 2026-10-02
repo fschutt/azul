@@ -3,11 +3,14 @@ use std::path::{Path, PathBuf};
 pub use azul::font::FontCacheSnapshot;
 pub use azul::image::ImageCacheSnapshot;
 use azul::{
-    css::{BoxOrStaticString, LayoutSize, LogicalSize},
-    dom::{Dom, DomSplit, NodeType},
+    css::{LayoutSize, LogicalSize},
+    dom::{Dom, DomSplit},
     misc::PaginationSnapshot,
     pdf::Pdf,
 };
+// The tests' node labels match on the node type (`use super::*`).
+#[cfg(test)]
+use azul::dom::NodeType;
 
 pub const A4_PAGE_W: f32 = 794.0;
 pub const A4_PAGE_H: f32 = 1123.0;
@@ -31,15 +34,6 @@ pub fn empty_image_cache() -> ImageCacheSnapshot {
 #[must_use]
 pub fn content_dom_from_ir(ir: &crate::ir::IrDocument) -> Dom {
     crate::ir::to_content_dom(ir, DOC_CSS)
-}
-
-fn box_str(s: &BoxOrStaticString) -> &str {
-    unsafe {
-        match s {
-            BoxOrStaticString::Boxed(p) => (**p).as_str(),
-            BoxOrStaticString::Static(p) => (**p).as_str(),
-        }
-    }
 }
 
 const DOC_CSS: &str = "
@@ -451,7 +445,10 @@ mod tests {
             NodeType::BlockQuote => "BlockQuote".into(),
             NodeType::Hr => "Hr".into(),
             NodeType::Style => "Style".into(),
-            NodeType::Text(t) => format!("Text({:?})", box_str(t)),
+            NodeType::Text(_) => format!(
+                "Text({:?})",
+                nt.get_text().into_option().map(|t| t.as_str().to_string()).unwrap_or_default()
+            ),
             _ => "<other>".into(),
         }
     }
@@ -541,9 +538,9 @@ pub fn dom_to_markdown(content: &Dom, text_of: &mut dyn FnMut(&[u32]) -> Option<
     fn own_text(d: &Dom) -> String {
         let mut s = String::new();
         for c in d.children.as_ref() {
-            match &c.root.node_type {
-                NodeType::Text(t) => s.push_str(box_str(t)),
-                _ => s.push_str(&own_text(c)),
+            match c.root.node_type.get_text().into_option() {
+                Some(t) => s.push_str(t.as_str()),
+                None => s.push_str(&own_text(c)),
             }
         }
         s
@@ -768,9 +765,9 @@ mod edit_loop_tests {
             fn own_text(d: &Dom) -> String {
                 let mut s = String::new();
                 for c in d.children.as_ref() {
-                    match &c.root.node_type {
-                        NodeType::Text(t) => s.push_str(box_str(t)),
-                        _ => s.push_str(&own_text(c)),
+                    match c.root.node_type.get_text().into_option() {
+                        Some(t) => s.push_str(t.as_str()),
+                        None => s.push_str(&own_text(c)),
                     }
                 }
                 s
@@ -1199,9 +1196,9 @@ mod undo_api_validation {
         fn own(d: &Dom) -> String {
             let mut s = String::new();
             for c in d.children.as_ref() {
-                match &c.root.node_type {
-                    NodeType::Text(t) => s.push_str(box_str(t)),
-                    _ => s.push_str(&own(c)),
+                match c.root.node_type.get_text().into_option() {
+                    Some(t) => s.push_str(t.as_str()),
+                    None => s.push_str(&own(c)),
                 }
             }
             s

@@ -675,33 +675,41 @@ pub fn fit_within(width: u32, height: u32, max_w: u32, max_h: u32) -> (u32, u32)
 /// for an empty one.
 #[must_use]
 pub fn thumbnail(image: &RawImage, max_w: u32, max_h: u32) -> Option<RawImage> {
+    let width = u32::try_from(image.width).ok()?;
+    let height = u32::try_from(image.height).ok()?;
+    let (w, h) = fit_within(width, height, max_w, max_h);
+    resized(image, w, h)
+}
+
+/// A copy of `image` resampled to exactly `width x height` - up or down,
+/// the aspect NOT kept ([`thumbnail`] keeps it) - as straight RGBA8,
+/// sampled by [`resample_rgba`] (area-averaging down, bilinear up). `None`
+/// for a source the scaler cannot read (16-bit, float or two-channel
+/// pixels, a buffer shorter than its size), for an empty one and for a
+/// zero size.
+#[must_use]
+pub fn resized(image: &RawImage, width: u32, height: u32) -> Option<RawImage> {
     let bytes: &[u8] = match &image.pixels {
         RawImageData::U8(bytes) => bytes.as_ref(),
         RawImageData::U16(_) | RawImageData::F32(_) => return None,
     };
-    let width = u32::try_from(image.width).ok()?;
-    let height = u32::try_from(image.height).ok()?;
     let src = SrcImage {
         bytes,
         format: image.data_format,
-        width,
-        height,
+        width: u32::try_from(image.width).ok()?,
+        height: u32::try_from(image.height).ok()?,
     };
-    if !src.is_sampleable() {
+    if src.width == 0 || src.height == 0 || width == 0 || height == 0 || !src.is_sampleable() {
         return None;
     }
-    let (w, h) = fit_within(width, height, max_w, max_h);
-    if w == 0 || h == 0 {
-        return None;
-    }
-    let pixels = resample_rgba(&src, w, h);
+    let pixels = resample_rgba(&src, width, height);
     if pixels.is_empty() {
         return None;
     }
     Some(RawImage {
         pixels: RawImageData::U8(U8Vec::from_vec(pixels)),
-        width: w as usize,
-        height: h as usize,
+        width: width as usize,
+        height: height as usize,
         premultiplied_alpha: image.premultiplied_alpha,
         data_format: RawImageFormat::RGBA8,
         tag: U8Vec::from_vec(Vec::new()),
@@ -766,6 +774,36 @@ mod tests {
             tag: U8Vec::from_vec(Vec::new()),
         };
         assert!(thumbnail(&hdr, 2, 2).is_none(), "a float image is not sampled");
+    }
+
+    /// `RawImage::create_rgba8` is the RGBA8 image four apps spelled out
+    /// field by field, and `RawImage::resized` scales one to an exact size,
+    /// up or down - AzVideoCut's monitor and bin had their own nearest
+    /// sampler for it (DEDUP_OFFICE D15 / A7).
+    #[test]
+    fn an_rgba8_image_resizes_to_exactly_the_size_asked_for() {
+        use crate::resources::{RawImage, RawImageData};
+        use azul_css::U8Vec;
+
+        let green = RawImage::create_rgba8(4, 2, U8Vec::from_vec([0u8, 200, 0, 255].repeat(8)), false);
+        assert_eq!((green.width, green.height), (4, 2));
+        assert_eq!(green.data_format, RawImageFormat::RGBA8);
+        assert!(!green.premultiplied_alpha);
+
+        let down = green.resized(2, 2).expect("an RGBA8 source scales");
+        assert_eq!((down.width, down.height), (2, 2), "the exact size, aspect not kept");
+        let up = green.resized(8, 6).expect("and enlarges");
+        assert_eq!((up.width, up.height), (8, 6));
+        match &up.pixels {
+            RawImageData::U8(bytes) => {
+                assert_eq!(bytes.as_ref().len(), 8 * 6 * 4);
+                assert_eq!(&bytes.as_ref()[..4], &[0, 200, 0, 255]);
+            }
+            other => panic!("not 8-bit pixels: {other:?}"),
+        }
+        assert!(green.resized(0, 4).is_none(), "no pixels to make");
+        let empty = RawImage::create_rgba8(0, 0, U8Vec::from_vec(Vec::new()), false);
+        assert!(empty.resized(4, 4).is_none(), "nothing to sample");
     }
 
     // --- consumers ---------------------------------------------------------

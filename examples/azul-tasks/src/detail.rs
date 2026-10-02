@@ -552,7 +552,7 @@ fn attachments(app: &RefAny, t: &Task) -> Dom {
                 .with_css(STEP_ROW)
                 .with_child(Dom::create_icon("description"))
                 .with_child(Dom::create_span_with_text(a.name.as_str()).with_css(STEP))
-                .with_child(Dom::create_span_with_text(size_text(a.size)).with_css(META))
+                .with_child(Dom::create_span_with_text(azul::file::DiskSpace::format_bytes(a.size)).with_css(META))
                 .with_child(
                     Button::create("Open")
                         .with_on_click(detail_ref(app, &t.id, n), on_attachment_open as ButtonOnClickCallbackType)
@@ -579,15 +579,6 @@ fn attachments(app: &RefAny, t: &Task) -> Dom {
             )
             .with_child(Dom::create_span_with_text("or drop files on the window").with_css(META)),
     )
-}
-
-/// "12 KB".
-fn size_text(bytes: u64) -> String {
-    match bytes {
-        b if b < 1024 => format!("{b} B"),
-        b if b < 1024 * 1024 => format!("{} KB", b / 1024),
-        b => format!("{:.1} MB", b as f64 / (1024.0 * 1024.0)),
-    }
 }
 
 /// Created / completed, and Delete.
@@ -617,16 +608,6 @@ const KEEP: OnTextInputReturn = OnTextInputReturn {
     update: Update::DoNothing,
     valid: TextInputValid::Yes,
 };
-
-/// The text of a text area's state.
-fn area_text(state: &TextAreaState) -> String {
-    state
-        .text
-        .as_slice()
-        .iter()
-        .filter_map(|c| char::from_u32(*c))
-        .collect()
-}
 
 /// The typed text is the app's: take it as seen (a field the app empties or reverts then
 /// rebuilds with what the app says).
@@ -690,13 +671,13 @@ extern "C" fn on_title_blur(mut data: RefAny, mut info: CallbackInfo, _state: Te
 extern "C" fn on_notes_text(mut data: RefAny, _info: CallbackInfo, state: TextAreaState) -> OnTextInputReturn {
     if let Some(mut s) = data.downcast_mut::<Tasks>() {
         s.sync_drafts();
-        s.drafts.notes = area_text(&state);
+        s.drafts.notes = state.get_text().to_string();
     }
     KEEP
 }
 
 extern "C" fn on_notes_blur(mut data: RefAny, mut info: CallbackInfo, state: TextAreaState) -> Update {
-    let text = area_text(&state);
+    let text = state.get_text().to_string();
     crate::with_tasks(&mut data, &mut info, |_info, _app, s| {
         s.sync_drafts();
         s.drafts.notes = text;
@@ -1193,12 +1174,5 @@ mod tests {
         assert_eq!(next_week(thursday, Weekday::Mon), day(2026, 10, 5));
         assert_eq!(next_week(thursday, Weekday::Sun), day(2026, 10, 4));
         assert_eq!(next_week(day(2026, 10, 5), Weekday::Mon), day(2026, 10, 12));
-    }
-
-    #[test]
-    fn sizes_read_in_bytes_kilobytes_and_megabytes() {
-        assert_eq!(size_text(900), "900 B");
-        assert_eq!(size_text(48_213), "47 KB");
-        assert_eq!(size_text(3 * 1024 * 1024 + 300_000), "3.3 MB");
     }
 }

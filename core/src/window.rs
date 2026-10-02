@@ -627,18 +627,23 @@ pub fn mac_shortcut_conventions() -> bool {
 }
 
 impl KeyboardState {
+    /// Is either Shift key held?
     #[must_use]
     pub fn shift_down(&self) -> bool {
         self.is_key_down(VirtualKeyCode::LShift) || self.is_key_down(VirtualKeyCode::RShift)
     }
+    /// Is either Ctrl key held? For a shortcut test [`Self::primary_down`]
+    /// (Cmd on macOS) instead.
     #[must_use]
     pub fn ctrl_down(&self) -> bool {
         self.is_key_down(VirtualKeyCode::LControl) || self.is_key_down(VirtualKeyCode::RControl)
     }
+    /// Is either Alt (Option) key held?
     #[must_use]
     pub fn alt_down(&self) -> bool {
         self.is_key_down(VirtualKeyCode::LAlt) || self.is_key_down(VirtualKeyCode::RAlt)
     }
+    /// Is either super key held - Cmd on macOS, the Win key elsewhere?
     #[must_use]
     pub fn super_down(&self) -> bool {
         self.is_key_down(VirtualKeyCode::LWin) || self.is_key_down(VirtualKeyCode::RWin)
@@ -649,14 +654,14 @@ impl KeyboardState {
     /// hardcoding `ctrl_down()` made Cmd+C/X/V/A/Z dead on macOS, where Cmd
     /// arrives as LWin/super. "macOS" means [`mac_shortcut_conventions`]: an
     /// X11 window on a Mac follows the Linux rule.
+    ///
+    /// Test this, never `ctrl_down() || super_down()` (the rule lives in
+    /// [`crate::events::KeyModifiers::primary_down_for`]).
     #[must_use]
     pub fn primary_down(&self) -> bool {
-        if mac_shortcut_conventions() {
-            self.super_down()
-        } else {
-            self.ctrl_down()
-        }
+        self.derived_modifiers().primary_down()
     }
+    /// Is `key` held right now?
     #[must_use]
     pub fn is_key_down(&self, key: VirtualKeyCode) -> bool {
         self.pressed_virtual_keycodes.iter().any(|k| *k == key)

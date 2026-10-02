@@ -253,6 +253,11 @@ impl AppState {
 pub const NAVIGATION_RATIO: f32 = 0.17;
 /// The document's share of the rest (the format pane has the remainder).
 pub const DOCUMENT_RATIO: f32 = 0.78;
+/// The zoom range in percent: what the zoom buttons reach and what the
+/// status bar's slider spans.
+pub const ZOOM_MIN: f32 = 10.0;
+/// See [`ZOOM_MIN`].
+pub const ZOOM_MAX: f32 = 400.0;
 
 /// The room the normal view leaves the slide: the window minus the rail,
 /// the format pane, the title row, the ribbon, the status bar, the notes

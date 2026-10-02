@@ -226,7 +226,8 @@ impl Palette {
 
     #[must_use]
     pub fn hex(c: ColorU) -> String {
-        format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b)
+        // Opaque: a translucent colour goes through `rgba`.
+        ColorU { a: 255, ..c }.to_hex().to_string()
     }
 
     #[must_use]

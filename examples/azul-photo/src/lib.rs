@@ -293,10 +293,10 @@ extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackIn
             Ok(saved) => {
                 a.s.modified = false;
                 a.status(format!(
-                    "Saved {} ({} tiles, {} KB).",
+                    "Saved {} ({} tiles, {}).",
                     a.s.name,
                     saved.tiles,
-                    saved.bytes / 1024
+                    azul::file::DiskSpace::format_bytes(saved.bytes)
                 ));
                 say(&format!("AZPHOTO_SAVED {uuid} {}", saved.tiles));
                 a.busy += 1;
@@ -316,7 +316,11 @@ extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackIn
         },
         Outcome::Exported { path, result } => match result {
             Ok(bytes) => {
-                a.status(format!("Exported {} ({} KB).", path.display(), bytes / 1024));
+                a.status(format!(
+                    "Exported {} ({}).",
+                    path.display(),
+                    azul::file::DiskSpace::format_bytes(bytes)
+                ));
                 say(&format!("AZPHOTO_EXPORTED {bytes} {}", path.display()));
             }
             Err(e) => a.status(format!("Export failed: {e}")),

@@ -57,7 +57,7 @@ use azul::{
     dialog::{FileDialog, FileOpenMultiResult},
     dom::{NodeId, VirtualKeyCode},
     file::{FilePath, FileTypeList},
-    image::{ImageRef, RawImage, RawImageData, RawImageFormat},
+    image::{ImageRef, RawImage, RawImageFormat},
     option::{OptionDarkLightMode, OptionFileTypeList, OptionString},
     prelude::*,
     shells::{
@@ -716,14 +716,7 @@ extern "C" fn on_job_done(mut data: RefAny, mut msg: RefAny, mut info: CallbackI
 
 /// A picture as an image for an image node (opaque RGBA8).
 fn image_of(c: &Canvas) -> Option<ImageRef> {
-    let raw = RawImage {
-        pixels: RawImageData::U8(U8Vec::from_vec(c.rgba.clone())),
-        width: c.width as usize,
-        height: c.height as usize,
-        premultiplied_alpha: true,
-        data_format: RawImageFormat::RGBA8,
-        tag: U8Vec::create(),
-    };
+    let raw = RawImage::create_rgba8(c.width, c.height, U8Vec::from_vec(c.rgba.clone()), true);
     ImageRef::create_rawimage(raw).into_option()
 }
 
@@ -1963,7 +1956,7 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     let m = info.get_key_modifiers();
-    let cmd = m.ctrl || m.meta;
+    let cmd = m.primary_down();
     // A text field keeps its letters, the focused timeline its own keys.
     if focus_has_class(&info, "text-input") || focus_has_class(&info, "number-input") {
         return Update::DoNothing;
@@ -2286,7 +2279,7 @@ extern "C" fn on_timeline_wheel(mut data: RefAny, mut info: CallbackInfo) -> Upd
         return Update::DoNothing;
     }
     info.prevent_default();
-    if m.ctrl || m.meta {
+    if m.primary_down() {
         let anchor = app.seconds(app.playhead);
         zoom_about(&mut app, if delta.y < 0.0 { 1.15 } else { 1.0 / 1.15 }, anchor);
     } else {

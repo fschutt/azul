@@ -376,6 +376,8 @@ impl FileInput {
             // claim the caller asked for something.
             icon_style: OptionCssPropertyWithConditionsVec::None,
             trailing_icon_style: OptionCssPropertyWithConditionsVec::None,
+            disabled_reason: AzString::from_const_str(""),
+            toggled: azul_css::OptionBool::None,
             on_click: Some(ButtonOnClick {
                 refany: RefAny::new(self.file_input_state),
                 callback: ButtonOnClickCallback {

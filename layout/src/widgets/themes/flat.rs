@@ -582,6 +582,9 @@ pub fn button(btn: Button) -> Dom {
     };
 
     let btn_type = btn.button_type;
+    // The states `Button::with_disabled` / `with_toggled` asked for.
+    let toggled_on = btn.toggled == azul_css::OptionBool::Some(true);
+    let disabled = btn.is_disabled();
     let type_class = btn.button_type.class_name();
     let classes: Vec<IdOrClass> = vec![
         Class(AzString::from("__azul-native-button")),
@@ -687,11 +690,23 @@ pub fn button(btn: Button) -> Dom {
             crate::widgets::button::ButtonSurface::OwnColour => {}
         }
 
+        // A toggled-on button rests on its pressed face - a resting face with
+        // its dark twin, so before the states like the faces above.
+        if toggled_on {
+            container_style.extend(button_toggled_face(btn_type));
+        }
+
         // The interactive states go LAST. Inline declarations resolve last-match
         // wins and a `dark_theme(..)` rule matches in every pseudo-state, so any
         // dark resting colour pushed after a `dark_on_hover` / `dark_on_focus` twin
         // would shadow it — no ring, no hover face, in dark mode.
         container_style.extend(button_states(btn_type));
+    }
+
+    // A disabled button has no hover / pressed paint and is dimmed - whoever
+    // owns the style (a ribbon button hands in its own).
+    if disabled {
+        container_style = crate::widgets::button::disabled_style(&container_style);
     }
 
     button
@@ -6248,4 +6263,38 @@ pub(crate) fn tree_view_badge_look() -> crate::widgets::tree_view::TreeViewBadge
         badge: on_base(t::BADGE_BASE, t::BADGE_STYLE),
         badge_selected: on_base(t::BADGE_BASE, t::BADGE_SELECTED_STYLE),
     }
+}
+
+// ==== button: toggled ====
+
+/// The face a toggled-on button rests on (`Button::with_toggled(true)`):
+/// the face its `:active` state shows, at rest, in both modes - a neutral
+/// button the desktop's pressed tone, a coloured one its own pressed
+/// colour, a link underlined.
+#[must_use]
+pub fn button_toggled_face(
+    button_type: crate::widgets::button::ButtonType,
+) -> Vec<CssPropertyWithConditions> {
+    use crate::widgets::button::{ButtonSurface, ButtonType};
+
+    if button_type == ButtonType::Link {
+        return CssPropertyWithConditions::themed(
+            CssProperty::TextDecoration(StyleTextDecoration::Underline.into()),
+            CssProperty::TextDecoration(StyleTextDecoration::Underline.into()),
+        )
+        .to_vec();
+    }
+    let bg = |c: ColorU| {
+        CssProperty::BackgroundContent(
+            StyleBackgroundContentVec::from_vec(alloc::vec![StyleBackgroundContent::Color(c)])
+                .into(),
+        )
+    };
+    let (_, _, active) = crate::widgets::button::get_button_colors(button_type);
+    let dark_active = if button_type.surface() == ButtonSurface::Neutral {
+        DARK_PT
+    } else {
+        active
+    };
+    CssPropertyWithConditions::themed(bg(active), bg(dark_active)).to_vec()
 }

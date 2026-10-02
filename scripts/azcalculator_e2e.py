@@ -98,7 +98,7 @@ def body(args, logs, out):
         app.key("escape")
         expect_display(app, "\t0", "Escape clears")
         app.type_keys(["4", "2"])
-        app.key("c", ctrl=True)
+        app.key("c", primary=True)
         app.until("Ctrl+C to copy", lambda: app.last("AZCALC_COPIED") == "42")
         app.log("Ctrl+C copied 42")
 
@@ -154,7 +154,7 @@ def body(args, logs, out):
 
         # Settings: Flora and Dark are saved.
         app.click(text="Standard")
-        app.key("comma", ctrl=True)
+        app.key("comma", primary=True)
         app.until("the settings page", lambda: app.has_id("appkit-settings"))
         app.click(text="Appearance")
         app.until("the Appearance section", lambda: app.has_id("appkit-theme"))

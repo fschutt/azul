@@ -4,10 +4,11 @@
 //! ground), with any of the font schemes. A deck stores the colours it was
 //! made with, so a later change of these presets does not change old decks.
 //!
-//! The stone ramps are flora's (`azul::shells::ShellThemeAccent`): the
-//! accent, its deep tone, its soft wash and its glow. They are spelled out
-//! here because `ShellThemeAccent::colors` is not in the public API yet (see
-//! the report); once it is, these four colours come from there.
+//! The stone ramps are flora's accent families (`azul::shells::ShellThemeAccent`):
+//! the accent, its deep tone, its soft wash and its glow, read from
+//! `ShellThemeAccent::colors`, and flora's paper ink (`on_accent`).
+
+use azul::shells::ShellThemeAccent;
 
 use crate::model::{Color, ColorScheme, FontScheme, Theme};
 
@@ -21,49 +22,52 @@ pub struct Stone {
     pub glow: Color,
 }
 
-/// Flora's paper ink, the ground of a light variant and the ink on a dark one.
-pub const PAPER: Color = Color::rgb(0xF4, 0xF2, 0xEA);
 /// The ink of a light variant.
 pub const INK: Color = Color::rgb(0x2B, 0x2A, 0x27);
 
-/// The five stone families, in flora's order.
-pub const STONES: [Stone; 5] = [
-    Stone {
-        name: "Stone",
-        accent: Color::rgb(0x2F, 0x4A, 0x85),
-        deep: Color::rgb(0x1E, 0x32, 0x60),
-        soft: Color::rgb(0xE0, 0xE4, 0xEE),
-        glow: Color::rgb(0x7A, 0x93, 0xC6),
-    },
-    Stone {
-        name: "Leaf",
-        accent: Color::rgb(0x44, 0x68, 0x4F),
-        deep: Color::rgb(0x2F, 0x4C, 0x39),
-        soft: Color::rgb(0xE1, 0xE6, 0xE1),
-        glow: Color::rgb(0x7F, 0xA9, 0x8C),
-    },
-    Stone {
-        name: "Plum",
-        accent: Color::rgb(0x57, 0x4A, 0x66),
-        deep: Color::rgb(0x3E, 0x34, 0x4B),
-        soft: Color::rgb(0xE5, 0xE1, 0xEA),
-        glow: Color::rgb(0x8E, 0x80, 0xA2),
-    },
-    Stone {
-        name: "Clay",
-        accent: Color::rgb(0x7E, 0x4A, 0x42),
-        deep: Color::rgb(0x5E, 0x33, 0x2D),
-        soft: Color::rgb(0xEA, 0xE0, 0xDD),
-        glow: Color::rgb(0xB3, 0x83, 0x7A),
-    },
-    Stone {
-        name: "Slate",
-        accent: Color::rgb(0x4A, 0x5C, 0x6B),
-        deep: Color::rgb(0x35, 0x45, 0x51),
-        soft: Color::rgb(0xDE, 0xE3, 0xE7),
-        glow: Color::rgb(0x8A, 0xA0, 0xB0),
-    },
+/// The five stone families, in flora's order: the name a deck stores and
+/// the shell accent family it is.
+pub const FAMILIES: [(&str, ShellThemeAccent); 5] = [
+    ("Stone", ShellThemeAccent::Blue),
+    ("Leaf", ShellThemeAccent::Leaf),
+    ("Plum", ShellThemeAccent::Plum),
+    ("Clay", ShellThemeAccent::Clay),
+    ("Slate", ShellThemeAccent::Slate),
 ];
+
+fn color(c: azul::css::ColorU) -> Color {
+    Color::rgba(c.r, c.g, c.b, c.a)
+}
+
+/// Flora's paper ink, the ground of a light variant and the ink on a dark one.
+#[must_use]
+pub fn paper() -> Color {
+    color(ShellThemeAccent::Blue.colors(false).on_accent)
+}
+
+/// Stone family `i` of [`FAMILIES`]: its light-mode ramp.
+#[must_use]
+pub fn stone(i: usize) -> Option<Stone> {
+    let (name, family) = *FAMILIES.get(i)?;
+    let c = family.colors(false);
+    Some(Stone {
+        name,
+        accent: color(c.accent),
+        deep: color(c.deep),
+        soft: color(c.soft),
+        glow: color(c.glow),
+    })
+}
+
+/// The shell accent that goes with theme `index` of [`names`]: the stone's
+/// family, Blue for Office.
+#[must_use]
+pub fn accent(index: usize) -> ShellThemeAccent {
+    index
+        .checked_sub(1)
+        .and_then(|i| FAMILIES.get(i))
+        .map_or(ShellThemeAccent::Blue, |(_, family)| *family)
+}
 
 /// The colour variants of a stone.
 pub const VARIANTS: [&str; 3] = ["Paper", "Deep", "Accent"];
@@ -72,7 +76,7 @@ pub const VARIANTS: [&str; 3] = ["Paper", "Deep", "Accent"];
 #[must_use]
 pub fn names() -> Vec<&'static str> {
     let mut out = vec!["Office"];
-    out.extend(STONES.iter().map(|s| s.name));
+    out.extend(FAMILIES.iter().map(|(name, _)| *name));
     out
 }
 
@@ -85,7 +89,7 @@ pub fn theme(index: usize, variant: usize, fonts: usize) -> Theme {
         .get(fonts)
         .cloned()
         .unwrap_or_else(|| font_schemes[0].clone());
-    let Some(stone) = index.checked_sub(1).and_then(|i| STONES.get(i)) else {
+    let Some(stone) = index.checked_sub(1).and_then(stone) else {
         let mut office = Theme::office();
         office.fonts = fonts;
         return office;
@@ -94,7 +98,7 @@ pub fn theme(index: usize, variant: usize, fonts: usize) -> Theme {
     let colors = match variant {
         0 => ColorScheme {
             name: format!("{} {}", stone.name, VARIANTS[0]),
-            background: PAPER,
+            background: paper(),
             text: INK,
             title: stone.deep,
             accent: stone.accent,
@@ -104,7 +108,7 @@ pub fn theme(index: usize, variant: usize, fonts: usize) -> Theme {
         1 => ColorScheme {
             name: format!("{} {}", stone.name, VARIANTS[1]),
             background: stone.deep,
-            text: PAPER,
+            text: paper(),
             title: Color::rgb(0xFF, 0xFF, 0xFF),
             accent: stone.glow,
             accent2: stone.soft,
@@ -113,7 +117,7 @@ pub fn theme(index: usize, variant: usize, fonts: usize) -> Theme {
         _ => ColorScheme {
             name: format!("{} {}", stone.name, VARIANTS[2]),
             background: stone.accent,
-            text: PAPER,
+            text: paper(),
             title: Color::rgb(0xFF, 0xFF, 0xFF),
             accent: stone.glow,
             accent2: stone.soft,
@@ -154,6 +158,19 @@ mod tests {
                 assert_eq!(index_of(&t), index);
             }
         }
+    }
+
+    /// The stones are the shell's accent families, not a copy of them
+    /// (DEDUP_OFFICE D1): flora's blue, its paper ink.
+    #[test]
+    fn the_stones_are_the_shells_accent_families() {
+        let blue = stone(0).expect("the first stone");
+        assert_eq!(blue.name, "Stone");
+        assert_eq!(blue.accent, Color::rgb(0x2F, 0x4A, 0x85));
+        assert_eq!(blue.deep, Color::rgb(0x1E, 0x32, 0x60));
+        assert_eq!(stone(4).expect("Slate").glow, Color::rgb(0x8A, 0xA0, 0xB0));
+        assert_eq!(paper(), Color::rgb(0xF4, 0xF2, 0xEA));
+        assert!(stone(5).is_none());
     }
 
     #[test]

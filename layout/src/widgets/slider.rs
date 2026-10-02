@@ -492,7 +492,7 @@ pub extern "C" fn on_slider_key(mut data: RefAny, mut info: CallbackInfo) -> Upd
         // Everything else keeps its default (Tab moves on, Escape clears).
         _ => return Update::DoNothing,
     };
-    let step_fraction = if ks.ctrl_down() || ks.super_down() {
+    let step_fraction = if ks.primary_down() {
         0.10
     } else {
         0.01

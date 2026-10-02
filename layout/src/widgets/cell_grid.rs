@@ -555,7 +555,7 @@ pub struct CellGridEvent {
     pub kind: CellGridEventKind,
     /// Shift was held.
     pub shift: bool,
-    /// Ctrl (or Cmd) was held.
+    /// The primary modifier was held: Cmd on macOS, Ctrl elsewhere.
     pub ctrl: bool,
 }
 
@@ -2857,7 +2857,7 @@ extern "C" fn on_grid_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     }
     let shift = ks.shift_down();
-    let ctrl = ks.ctrl_down() || ks.super_down();
+    let ctrl = ks.primary_down();
     let b = bounds_of(&grid, &geo);
     let event = if grid.view.is_editing() {
         edit_key(&grid, &b, key, shift)
@@ -3138,7 +3138,7 @@ extern "C" fn on_grid_mouse_down(mut data: RefAny, mut info: CallbackInfo) -> Up
         return Update::DoNothing;
     };
     let ks = info.get_current_keyboard_state();
-    let (shift, ctrl) = (ks.shift_down(), ks.ctrl_down() || ks.super_down());
+    let (shift, ctrl) = (ks.shift_down(), ks.primary_down());
     let window_px = info
         .get_cursor_position()
         .map_or((x, y), |p| (p.x, p.y));

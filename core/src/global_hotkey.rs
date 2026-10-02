@@ -703,6 +703,25 @@ impl GlobalHotkey {
         Self { modifiers, key }
     }
 
+    /// Is this combination the key event `keyboard` describes? The key that
+    /// just went down is this hotkey's key and EXACTLY its modifiers are
+    /// held (left and right alike), so `Ctrl+S` does not fire on
+    /// `Ctrl+Shift+S`. With it an app keeps one table of combinations -
+    /// parsed with [`Self::parse`] (`CmdOrCtrl` is the host's primary
+    /// modifier), shown with [`Self::to_display_string`] - and runs its
+    /// window key handler through the same table.
+    #[must_use]
+    pub fn matches(&self, keyboard: &crate::window::KeyboardState) -> bool {
+        keyboard.current_virtual_keycode.into_option() == Some(self.key)
+            && self.modifiers
+                == HotkeyModifiers {
+                    ctrl: keyboard.ctrl_down(),
+                    alt: keyboard.alt_down(),
+                    shift: keyboard.shift_down(),
+                    meta: keyboard.super_down(),
+                }
+    }
+
     /// Parse an accelerator string for the host platform, e.g.
     /// `"Cmd+Shift+K"`, `"Ctrl+Alt+K"`, `"CmdOrCtrl+Shift+Space"`, `"F13"`.
     ///

@@ -184,7 +184,7 @@ extern "C" fn on_main_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     let modifiers = info.get_key_modifiers();
-    let primary = modifiers.ctrl || modifiers.meta;
+    let primary = modifiers.primary_down();
     let action = match key {
         VirtualKeyCode::N if primary => Action::NewMail,
         VirtualKeyCode::R if primary && modifiers.shift => Action::ReplyAll,
@@ -1098,7 +1098,13 @@ fn reading_pane(s: &MailApp, app: &RefAny) -> Dom {
         let names: Vec<AzString> = view
             .attachments
             .iter()
-            .map(|a| AzString::from(format!("{} ({})", a.name, human_size(a.size))))
+            .map(|a| {
+                AzString::from(format!(
+                    "{} ({})",
+                    a.name,
+                    azul::file::DiskSpace::format_bytes(a.size as u64)
+                ))
+            })
             .collect();
         pane = pane.with_attachments(names);
     }
@@ -1132,15 +1138,6 @@ fn reading_pane(s: &MailApp, app: &RefAny) -> Dom {
         .with_on_link(app.clone(), on_reading_event as ReadingPaneOnEventCallbackType)
         .with_on_attachment(app.clone(), on_reading_event as ReadingPaneOnEventCallbackType)
         .dom()
-}
-
-/// "12 KB" for a byte count.
-fn human_size(bytes: usize) -> String {
-    match bytes {
-        b if b < 1024 => format!("{b} B"),
-        b if b < 1024 * 1024 => format!("{} KB", (b + 1023) / 1024),
-        b => format!("{:.1} MB", b as f64 / (1024.0 * 1024.0)),
-    }
 }
 
 /// Plain text on paper: every line a row, quoted lines indented behind a bar in their level's

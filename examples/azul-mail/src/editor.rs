@@ -13,14 +13,13 @@
 //!
 //! The model comes from a [`MailDoc`] ([`doc_to_host`]: a reply's quote, a forward's header
 //! block, a draft) and goes back to one on Save and Send ([`host_to_doc`]), which `compose.rs`
-//! writes as text/plain and text/html. A link keeps its address in a class
-//! (`azmail-href:<address>`): the generated API has no attribute getter on `NodeData`, so a
-//! link the app made is read back from its classes; a pasted link keeps its text.
+//! writes as text/plain and text/html. A link keeps its address where HTML keeps it, in its
+//! `href` attribute (`NodeData::get_attribute`) - a link the app made and a pasted one alike.
 
 use azul::{
     callbacks::DocumentChangeset,
-    css::{BoxOrStaticString, DocOpWrapRange, DocumentOperation, NodePosition},
-    dom::{DomNodeId, IdOrClass},
+    css::{DocOpWrapRange, DocumentOperation, NodePosition},
+    dom::DomNodeId,
     misc::EditResumePoint,
     option::OptionString,
     prelude::*,
@@ -31,8 +30,6 @@ use crate::compose::{Block, BlockKind, MailDoc, Run};
 
 /// The editor host's DOM id (scripts focus it as `#compose-body`).
 pub const HOST_ID: &str = "compose-body";
-/// The class prefix that carries a link's address.
-pub const LINK_CLASS_PREFIX: &str = "azmail-href:";
 
 /// The host's own style: the body of a mail on white paper (like the reading pane's), whatever
 /// the app's mode.
@@ -52,17 +49,6 @@ const BLOCK_CSS: &str = "
     li { min-height: 18px; }
     a { color: #0b57d0; text-decoration: underline; }
 ";
-
-/// The text of a text node's payload.
-fn box_str(s: &BoxOrStaticString) -> &str {
-    // SAFETY: both variants point at a live `AzString` the node owns (as AzWriter reads them).
-    unsafe {
-        match s {
-            BoxOrStaticString::Boxed(p) => (**p).as_str(),
-            BoxOrStaticString::Static(p) => (**p).as_str(),
-        }
-    }
-}
 
 // ==== MailDoc -> Dom ====
 
@@ -149,9 +135,9 @@ pub fn run_dom(run: &Run) -> Dom {
     node
 }
 
-/// An empty `<a>` for `href`, its address kept in a class.
+/// An empty `<a>` for `href` (its address in its `href` attribute).
 pub fn link_dom(href: &str) -> Dom {
-    Dom::create_a_no_a11y(href, OptionString::None).with_class(format!("{LINK_CLASS_PREFIX}{href}"))
+    Dom::create_a_no_a11y(href, OptionString::None)
 }
 
 // ==== Dom -> MailDoc ====
@@ -226,7 +212,11 @@ impl Collector {
 
     fn node(&mut self, node: &Dom, style: &RunStyle) {
         match &node.root.node_type {
-            NodeType::Text(text) => self.text(box_str(text), style),
+            NodeType::Text(_) => {
+                if let Some(text) = node.root.node_type.get_text().into_option() {
+                    self.text(text.as_str(), style);
+                }
+            }
             NodeType::Br => self.flush(true),
             NodeType::B | NodeType::Strong => {
                 let s = RunStyle {
@@ -320,19 +310,13 @@ impl Collector {
     }
 }
 
-/// The address of a link the app made (from its class).
+/// The address of a link (its `href` attribute): one the app made or a pasted one.
 fn link_of(node: &Dom) -> Option<String> {
     node.root
-        .get_ids_and_classes()
-        .as_ref()
-        .iter()
-        .find_map(|ic| match ic {
-            IdOrClass::Class(c) => c
-                .as_str()
-                .strip_prefix(LINK_CLASS_PREFIX)
-                .map(str::to_string),
-            IdOrClass::Id(_) => None,
-        })
+        .get_attribute("href")
+        .into_option()
+        .map(|href| href.as_str().to_string())
+        .filter(|href| !href.is_empty())
 }
 
 // ==== The engine's edits on the model ====

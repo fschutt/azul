@@ -59,9 +59,9 @@ use azul::{
     },
     css::{DarkLightMode, HoverEventFilter},
     dialog::{FileDialog, FileOpenResult},
-    dom::{ButtonOnClickCallback, VirtualKeyCode},
+    dom::VirtualKeyCode,
     file::FilePath,
-    option::{OptionColorU, OptionDarkLightMode, OptionFileTypeList, OptionRefAny, OptionString},
+    option::{OptionColorU, OptionDarkLightMode, OptionFileTypeList, OptionString},
     pdf::Pdf,
     prelude::*,
     shells::{
@@ -71,7 +71,7 @@ use azul::{
     str::String as AzString,
     vec::{BackstageNavItemVec, CellGridRangeVec, CellGridSizeVec, StringVec},
     widgets::{
-        Backstage, BackstageNavItem, Button, ButtonOnClick, CellGrid, CellGridCell,
+        Backstage, BackstageNavItem, Button, CellGrid, CellGridCell,
         CellGridCellKind, CellGridCellRef, CellGridCellStyle, CellGridEditMode, CellGridEvent,
         CellGridEventKind, CellGridHorizontalAlign, CellGridRange, CellGridSize,
         CellGridVerticalAlign, CellGridView, OnTextInputReturn, Ribbon, RibbonAppButton,
@@ -454,10 +454,7 @@ pub fn parse_reference(text: &str, sheets: &[SheetInfo], current: u32) -> Option
 
 /// An engine colour ("#RRGGBB") as the grid's.
 fn color_of(hex: &Option<String>) -> OptionColorU {
-    match hex.as_deref().and_then(model::parse_hex) {
-        Some((r, g, b)) => OptionColorU::Some(ColorU { r, g, b, a: 255 }),
-        None => OptionColorU::None,
-    }
+    hex.as_deref().map_or(OptionColorU::None, |h| ColorU::parse_hex(h))
 }
 
 /// An engine style in the grid's terms.
@@ -928,7 +925,7 @@ fn open_bytes(
         },
         dirty: imported,
     };
-    s.zoom = sidecar.zoom.clamp(10, 400);
+    s.zoom = sidecar.zoom.clamp(ZOOM_MIN, ZOOM_MAX);
     s.screen = Screen::Workbook;
     let active = to_cell(CellAddr::new(sidecar.sheet, sidecar.active.0.max(1), sidecar.active.1.max(1)));
     go_to(s, sidecar.sheet, CellGridRange { first: active, last: active });
@@ -1194,23 +1191,15 @@ fn toggle(app: &RefAny, icon: &str, label: &str, action: Action, on: bool) -> Ri
 }
 
 fn column(items: Vec<RibbonItem>) -> RibbonItem {
-    RibbonItem::Column(
-        items
-            .into_iter()
-            .fold(RibbonColumn::create(), |c, it| c.with_item(it)),
-    )
+    RibbonItem::Column(RibbonColumn::create().with_items(items.into()))
 }
 
 fn group(label: &str, items: Vec<RibbonItem>) -> RibbonGroup {
-    items
-        .into_iter()
-        .fold(RibbonGroup::create(AzString::from(label)), |g, it| g.with_item(it))
+    RibbonGroup::create(AzString::from(label)).with_items(items.into())
 }
 
 fn tab(label: &str, groups: Vec<RibbonGroup>) -> RibbonTab {
-    groups
-        .into_iter()
-        .fold(RibbonTab::create(AzString::from(label)), |t, g| t.with_group(g))
+    RibbonTab::create(AzString::from(label)).with_groups(groups.into())
 }
 
 fn ribbon(s: &AppState, app: &RefAny) -> Dom {
@@ -1611,9 +1600,9 @@ fn sheet_tabs(s: &AppState, app: &RefAny) -> Dom {
         let underline = info
             .color
             .as_deref()
-            .and_then(model::parse_hex)
-            .map_or_else(String::new, |(r, g, b)| {
-                format!("border-bottom: 3px solid rgb({r}, {g}, {b});")
+            .and_then(|h| ColorU::parse_hex(h).into_option())
+            .map_or_else(String::new, |c| {
+                format!("border-bottom: 3px solid rgb({}, {}, {});", c.r, c.g, c.b)
             });
         if let Some((renaming, text)) = &s.renaming {
             if *renaming == sheet {
@@ -1653,17 +1642,17 @@ fn sheet_tabs(s: &AppState, app: &RefAny) -> Dom {
 
 // ==== The status bar ====
 
-fn zoom_click(app: &RefAny, action: Action) -> ButtonOnClick {
-    ButtonOnClick {
-        data: RefAny::new(ActionRef {
-            app: app.clone(),
-            action,
-        }),
-        callback: ButtonOnClickCallback {
-            cb: on_action as ButtonOnClickCallbackType,
-            callable: OptionRefAny::None,
-        },
-    }
+/// The zoom range in percent: what the zoom buttons reach and what the
+/// status bar's slider spans.
+const ZOOM_MIN: u32 = 10;
+/// See [`ZOOM_MIN`].
+const ZOOM_MAX: u32 = 400;
+
+fn zoom_action(app: &RefAny, action: Action) -> RefAny {
+    RefAny::new(ActionRef {
+        app: app.clone(),
+        action,
+    })
 }
 
 fn status_bar(s: &AppState, app: &RefAny) -> Dom {
@@ -1675,9 +1664,11 @@ fn status_bar(s: &AppState, app: &RefAny) -> Dom {
     for text in model::stats_segments(&s.cache.snapshot.stats) {
         segments.push(StatusBarSegment::create(AzString::from(text)));
     }
-    let mut zoom = StatusBarZoom::office_2013().with_percent(s.zoom as f32);
-    zoom.on_zoom_out = Some(zoom_click(app, Action::ZoomOut)).into();
-    zoom.on_zoom_in = Some(zoom_click(app, Action::ZoomIn)).into();
+    // The slider spans the buttons' whole range: a fixed 10..190 window
+    // pinned a 400 % zoom's thumb to its end (DEDUP_OFFICE D28).
+    let zoom = StatusBarZoom::create(s.zoom as f32, ZOOM_MIN as f32, ZOOM_MAX as f32)
+        .with_on_zoom_out(zoom_action(app, Action::ZoomOut), on_action as ButtonOnClickCallbackType)
+        .with_on_zoom_in(zoom_action(app, Action::ZoomIn), on_action as ButtonOnClickCallbackType);
     StatusBar::create(segments).with_zoom(zoom).dom()
 }
 
@@ -2509,8 +2500,8 @@ fn act(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, action: Action) 
         Action::Headings => s.show_headers = !s.show_headers,
         Action::ZoomIn | Action::ZoomOut | Action::Zoom100 => {
             s.zoom = match action {
-                Action::ZoomIn => (s.zoom + 10).min(400),
-                Action::ZoomOut => s.zoom.saturating_sub(10).max(10),
+                Action::ZoomIn => (s.zoom + 10).min(ZOOM_MAX),
+                Action::ZoomOut => s.zoom.saturating_sub(10).max(ZOOM_MIN),
                 _ => 100,
             };
             fetch_if_needed(info, app, s);
@@ -2539,18 +2530,6 @@ extern "C" fn on_action(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     with_app(&mut app, &mut info, |info, app, s| act(info, app, s, action))
-}
-
-/// A copy of the callback info for the PDF renderer, which takes it by
-/// value (the pattern AzWriter's PDF export uses).
-fn reborrow_info(info: &CallbackInfo) -> CallbackInfo {
-    CallbackInfo {
-        ref_data: info.ref_data,
-        hit_dom_node: info.hit_dom_node,
-        cursor_relative_to_item: info.cursor_relative_to_item,
-        cursor_in_viewport: info.cursor_in_viewport,
-        changes: info.changes,
-    }
 }
 
 /// The sheet's data as a plain table, rendered to PDF, written to
@@ -2587,7 +2566,7 @@ fn export_pdf(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState) {
         )
         .with_child(table);
     let bytes = Pdf::create()
-        .from_dom_in_callback(reborrow_info(info), doc, 794.0, 1123.0)
+        .from_dom_in_callback(*info, doc, 794.0, 1123.0)
         .as_ref()
         .to_vec();
     if bytes.is_empty() {
@@ -2964,7 +2943,7 @@ extern "C" fn on_picked(mut data: RefAny, mut info: CallbackInfo, result: RefAny
 extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let key = info.get_current_keyboard_state().current_virtual_keycode.into_option();
     let modifiers = info.get_key_modifiers();
-    let command = modifiers.ctrl || modifiers.meta;
+    let command = modifiers.primary_down();
     let action = match key {
         Some(VirtualKeyCode::S) if command => Some(Action::Save),
         Some(VirtualKeyCode::Z) if command && modifiers.shift => Some(Action::Redo),

@@ -80,8 +80,9 @@ fn text(s: &str, css: &str) -> Dom {
     Dom::create_span_with_text(AzString::from(s)).with_css(css)
 }
 
+/// The swatch's colour, opaque (`#rrggbb`).
 fn hex(c: [u8; 4]) -> String {
-    format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2])
+    ColorU { r: c[0], g: c[1], b: c[2], a: 255 }.to_hex().to_string()
 }
 
 fn row(css: &str) -> Dom {

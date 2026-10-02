@@ -183,7 +183,14 @@ class App:
             raise Failure("%s has no layout: %s" % (selector, json.dumps(value)[:200]))
         return rect
 
-    def key(self, key, shift=False, ctrl=False, meta=False):
+    def key(self, key, shift=False, ctrl=False, meta=False, primary=False):
+        # `primary`: the platform's shortcut modifier, as the apps read it
+        # (KeyModifiers::primary_down) - Cmd on macOS, Ctrl elsewhere.
+        if primary:
+            if sys.platform == "darwin":
+                meta = True
+            else:
+                ctrl = True
         mods = {"shift": shift, "ctrl": ctrl, "alt": False, "meta": meta}
         self.must("key_down", key=key, modifiers=mods)
         self.must("key_up", key=key, modifiers=mods)
@@ -278,14 +285,14 @@ def run(args, logs, out):
         count, current, label = history(app)
         if label != "Opacity":
             raise Failure("the History should end in Opacity, got %r" % label)
-        app.key("z", ctrl=True)
+        app.key("z", primary=True)
         app.until("the undo", lambda: (history(app) or (0, 0, ""))[1] == current - 1)
         if history(app)[2] != "New Layer":
             raise Failure("undo should go back to New Layer, got %r" % (history(app),))
         log("layer added, opacity 50 %%, undone (History %s)" % (history(app),))
 
         # 5: export into the export folder.
-        app.key("e", ctrl=True, shift=True)
+        app.key("e", primary=True, shift=True)
         app.until("the export sheet", lambda: app.shows("Export"))
         app.click("#sheet-ok")
         exported = app.until("the export", lambda: app.last("AZPHOTO_EXPORTED", r"\d+ .+"))
@@ -297,7 +304,7 @@ def run(args, logs, out):
         log("exported %s (%s bytes)" % (path, size))
 
         # 6: save the document as files.
-        app.key("s", ctrl=True)
+        app.key("s", primary=True)
         saved = app.until("the save", lambda: app.last("AZPHOTO_SAVED", r"\S+ \d+"))
         uuid, tiles = saved.split(" ")
         folder = os.path.join(data, "photo", uuid)

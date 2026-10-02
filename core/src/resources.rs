@@ -2849,6 +2849,33 @@ impl RawImage {
     pub fn thumbnail(&self, max_w: u32, max_h: u32) -> Option<RawImage> {
         crate::image_scale::thumbnail(self, max_w, max_h)
     }
+
+    /// A copy resampled to exactly `width x height` - up or down, the
+    /// aspect not kept ([`Self::thumbnail`] keeps it) - as straight RGBA8
+    /// (area-averaging down, bilinear up). `None` for a source the scaler
+    /// cannot read (16-bit, float or two-channel pixels), for an empty one
+    /// and for a zero size.
+    #[must_use]
+    pub fn resized(&self, width: u32, height: u32) -> Option<RawImage> {
+        crate::image_scale::resized(self, width, height)
+    }
+
+    /// An 8-bit RGBA image, `width x height`, from `pixels`: rows top to
+    /// bottom, four bytes per pixel (`width * height * 4` bytes; a buffer of
+    /// another length makes `ImageRef::create_rawimage` refuse the image).
+    /// `premultiplied_alpha`: whether the colour channels are already
+    /// multiplied by alpha (an opaque image is both).
+    #[must_use]
+    pub fn create_rgba8(width: u32, height: u32, pixels: U8Vec, premultiplied_alpha: bool) -> Self {
+        Self {
+            pixels: RawImageData::U8(pixels),
+            width: width as usize,
+            height: height as usize,
+            premultiplied_alpha,
+            data_format: RawImageFormat::RGBA8,
+            tag: U8Vec::from_vec(Vec::new()),
+        }
+    }
 }
 
 impl RawImage {

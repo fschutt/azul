@@ -191,7 +191,7 @@ pub struct MessageListEvent {
     pub kind: MessageListEventKind,
     /// `Select`: Shift was held.
     pub shift: bool,
-    /// `Select`: Ctrl (or Cmd) was held.
+    /// `Select`: the primary modifier was held (Cmd on macOS, Ctrl elsewhere).
     pub ctrl: bool,
 }
 
@@ -1050,12 +1050,6 @@ fn row_identity(info: &mut CallbackInfo, node: azul_core::dom::DomNodeId) -> Opt
     Some((row.index, row.id))
 }
 
-/// The modifiers a selection carries.
-fn modifiers(info: &CallbackInfo) -> (bool, bool) {
-    let ks = info.get_current_keyboard_state();
-    (ks.shift_down(), ks.ctrl_down() || ks.super_down())
-}
-
 /// A click on a row: select it, with the modifiers held. The row becomes
 /// the rows' one Tab stop (the click already focused it).
 extern "C" fn on_row_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -1072,7 +1066,8 @@ extern "C" fn on_row_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
             roving::set_stop(&mut info, &rows, at);
         }
     }
-    let (shift, ctrl) = modifiers(&info);
+    let ks = info.get_current_keyboard_state();
+    let (shift, ctrl) = (ks.shift_down(), ks.primary_down());
     let mut event = MessageListEvent::create(MessageListEventKind::Select, index, id);
     event.shift = shift;
     event.ctrl = ctrl;
@@ -1138,7 +1133,7 @@ extern "C" fn on_row_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     let shift = ks.shift_down();
-    let ctrl = ks.ctrl_down() || ks.super_down();
+    let ctrl = ks.primary_down();
     let (on_select, on_open, on_delete, total_rows, first_row, row_height) = {
         let Some(shared) = shared.downcast_ref::<ListShared>() else {
             return Update::DoNothing;
@@ -2007,8 +2002,9 @@ mod message_list_tests {
         let (_, changes) =
             rv::press(&styled, id(rows[0]), K::Down, &[K::LShift]).expect("a key handler");
         assert_eq!(rv::focus_request(&changes), Some(id(rows[1])));
+        let (primary, _) = rv::command_keys();
         let (_, changes) =
-            rv::press(&styled, id(rows[0]), K::Down, &[K::LControl]).expect("a key handler");
+            rv::press(&styled, id(rows[0]), K::Down, &[primary]).expect("a key handler");
         assert_eq!(rv::focus_request(&changes), Some(id(rows[1])));
         rv::press(&styled, id(rows[2]), K::Return, &[]).expect("a key handler");
         rv::press(&styled, id(rows[2]), K::Delete, &[]).expect("a key handler");
@@ -2050,6 +2046,29 @@ mod message_list_tests {
                 (MessageListEventKind::Select, 0),
                 (MessageListEventKind::Select, 999)
             ]
+        );
+    }
+
+    /// Primary+Down moves the focus and keeps the selection; the OTHER
+    /// command key is no modifier of the list's, so Down with it held is a
+    /// plain Down that selects. On a Mac Cmd is primary and Ctrl is not;
+    /// elsewhere Ctrl is primary and the Win key is not (DEDUP_WIDGETS_API F9).
+    #[test]
+    fn only_the_platforms_primary_modifier_moves_the_focus_without_selecting() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        let (primary, other) = rv::command_keys();
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let styled = StyledDom::create_from_dom(list(&log).with_theme(UiTheme::Flat).dom());
+        let rows = message_rows(&styled);
+        rv::press(&styled, id(rows[0]), K::Down, &[primary]).expect("a key handler");
+        assert!(log.lock().expect("log").is_empty(), "{primary:?}+Down selects nothing");
+        rv::press(&styled, id(rows[0]), K::Down, &[other]).expect("a key handler");
+        let events = log.lock().expect("log").clone();
+        assert_eq!(
+            events.iter().map(|e| (e.0, e.1, e.2, e.3, e.4)).collect::<Vec<_>>(),
+            vec![(MessageListEventKind::Select, 2, 12, false, false)],
+            "{other:?}+Down is a plain Down: it selects the next row, with no toggle modifier"
         );
     }
 

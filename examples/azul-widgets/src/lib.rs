@@ -1257,22 +1257,13 @@ extern "C" fn on_radio(mut data: RefAny, _: CallbackInfo, state: RadioGroupState
     }
     bump(&mut data)
 }
-/// The text of a `TextAreaState` (its buffer is one `u32` per char).
-pub(crate) fn text_area_text(state: &TextAreaState) -> String {
-    state
-        .text
-        .as_slice()
-        .iter()
-        .filter_map(|c| char::from_u32(*c))
-        .collect()
-}
 extern "C" fn on_textarea_input(
     mut data: RefAny,
     _: CallbackInfo,
     state: TextAreaState,
 ) -> OnTextInputReturn {
     if let Some(mut s) = data.downcast_mut::<Showcase>() {
-        s.textarea_text = text_area_text(&state).into();
+        s.textarea_text = state.get_text();
         s.interactions += 1;
     }
     OnTextInputReturn {
