@@ -34,7 +34,6 @@ use azul_core::{
     dom::{DatasetMergeCallbackType, Dom, OptionDom},
     refany::{OptionRefAny, RefAny},
 };
-use azul_css::impl_option_inner; // for impl_widget_callback!'s impl_option!
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec},
     AzString,

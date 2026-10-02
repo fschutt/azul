@@ -42,7 +42,7 @@ use azul_core::{
     task::RequestId,
 };
 use azul_css::{
-    corety::OptionString, impl_option, impl_option_inner, impl_result_inner, AzString, StringVec,
+    corety::OptionString, impl_option, AzString, StringVec,
     U8Vec,
 };
 use azul_layout::{callbacks::ResumeCallback, request};

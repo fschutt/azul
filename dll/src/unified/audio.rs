@@ -12,7 +12,6 @@ use azul_core::audio::{AudioConfig, AudioFrame};
 // `azul_dll::unified::audio::AudioSink`. Includes a `Drop` impl to match the
 // real desktop type's `custom_impl(Drop)`.
 #[cfg(target_arch = "wasm32")]
-use azul_css::impl_option_inner;
 #[cfg(target_arch = "wasm32")]
 use azul_css::{AzString, OptionString, StringVec};
 

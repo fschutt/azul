@@ -47,7 +47,7 @@ use azul_core::{
 };
 use azul_css::{
     corety::OptionUsize,
-    impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
+    impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
     impl_vec_partialeq,
     AzString,
 };

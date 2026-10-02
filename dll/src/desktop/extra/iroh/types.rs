@@ -1,6 +1,6 @@
 //! Plain data of the `azul.iroh` API, shared by the native engine and the wasm stub.
 
-use azul_css::{impl_option, impl_option_inner, AzString, U8Vec};
+use azul_css::{impl_option, AzString, U8Vec};
 
 /// Where an endpoint may relay traffic when no direct UDP path to a peer exists.
 #[repr(C)]

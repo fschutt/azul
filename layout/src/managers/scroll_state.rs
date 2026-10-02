@@ -58,7 +58,7 @@ use azul_core::{
     styled_dom::NodeHierarchyItemId,
     task::{Duration, Instant},
 };
-use azul_css::{impl_option, impl_option_inner};
+use azul_css::impl_option;
 
 use crate::{
     managers::hover::InputPointId,

@@ -24,7 +24,6 @@ use azul_core::{
 use super::capture_common::{
     invoke_on_frame, OnVideoFrame, OnVideoFrameCallback, OptionOnVideoFrame,
 };
-use azul_css::impl_option_inner; // for impl_widget_callback!'s impl_option!
 
 use crate::{
     callbacks::{Callback, CallbackInfo, CallbackType},

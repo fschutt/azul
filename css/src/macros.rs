@@ -1098,7 +1098,7 @@ macro_rules! impl_option {
             }
         }
 
-        impl_option_inner!($struct_type, $struct_name);
+        $crate::impl_option_inner!($struct_type, $struct_name);
     );
     ($struct_type:ident, $struct_name:ident, copy = false, [$($derive:meta),* ]) => (
         $(#[derive($derive)])*
@@ -1121,7 +1121,7 @@ macro_rules! impl_option {
             }
         }
 
-        impl_option_inner!($struct_type, $struct_name);
+        $crate::impl_option_inner!($struct_type, $struct_name);
     );
     ($struct_type:ident, $struct_name:ident, [$($derive:meta),* ]) => (
         $(#[derive($derive)])*
@@ -1144,7 +1144,7 @@ macro_rules! impl_option {
             }
         }
 
-        impl_option_inner!($struct_type, $struct_name);
+        $crate::impl_option_inner!($struct_type, $struct_name);
     );
 }
 
@@ -1208,7 +1208,7 @@ macro_rules! impl_result {
             }
         }
 
-        impl_result_inner!($ok_struct_type, $err_struct_type, $struct_name);
+        $crate::impl_result_inner!($ok_struct_type, $err_struct_type, $struct_name);
     );
     ($ok_struct_type:ident, $err_struct_type:ident, $struct_name:ident, copy = false, [$($derive:meta),* ]) => (
         $(#[derive($derive)])*
@@ -1226,7 +1226,7 @@ macro_rules! impl_result {
             }
         }
 
-        impl_result_inner!($ok_struct_type, $err_struct_type, $struct_name);
+        $crate::impl_result_inner!($ok_struct_type, $err_struct_type, $struct_name);
     );
     ($ok_struct_type:ident, $err_struct_type:ident,  $struct_name:ident, [$($derive:meta),* ]) => (
         $(#[derive($derive)])*
@@ -1245,7 +1245,7 @@ macro_rules! impl_result {
             }
         }
 
-        impl_result_inner!($ok_struct_type, $err_struct_type, $struct_name);
+        $crate::impl_result_inner!($ok_struct_type, $err_struct_type, $struct_name);
     );
 }
 

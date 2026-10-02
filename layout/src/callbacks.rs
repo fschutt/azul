@@ -46,7 +46,7 @@ use azul_core::{
 use azul_css::{
     corety::{OptionString, OptionUsize},
     css::CssPath,
-    impl_option, impl_option_inner,
+    impl_option,
     props::{
         basic::FontRef,
         property::{CssProperty, CssPropertyType, CssPropertyVec},

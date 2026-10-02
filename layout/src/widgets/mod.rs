@@ -27,7 +27,7 @@ macro_rules! impl_widget_callback {
         #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
         #[repr(C)]
         pub struct $callback_wrapper {
-            pub refany: RefAny,
+            pub refany: azul_core::refany::RefAny,
             pub callback: $callback_value,
         }
 

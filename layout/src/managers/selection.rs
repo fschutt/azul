@@ -23,7 +23,7 @@
 //! published, because it also emits the matching RTF and the `CF_HTML`
 //! wrapper Windows needs. This stays as public FFI API.
 
-use azul_css::{impl_option, impl_option_inner, AzString, OptionString};
+use azul_css::{impl_option, AzString, OptionString};
 
 // Clipboard Content Extraction
 

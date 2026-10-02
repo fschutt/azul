@@ -56,7 +56,7 @@ use std::{
 };
 
 use azul_css::{
-    impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug, AzString,
+    impl_option, impl_vec, impl_vec_clone, impl_vec_debug, AzString,
     OptionStringVec, StringVec, U8Vec,
 };
 use fluent::{concurrent::FluentBundle, FluentArgs, FluentResource, FluentValue};

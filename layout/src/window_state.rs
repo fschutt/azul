@@ -15,7 +15,7 @@ use azul_core::{
     },
 };
 use azul_css::{
-    corety::OptionU32, impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug,
+    corety::OptionU32, impl_option, impl_vec, impl_vec_clone, impl_vec_debug,
     impl_vec_mut, impl_vec_partialeq, props::basic::OptionColorU, AzString,
 };
 

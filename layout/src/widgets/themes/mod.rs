@@ -1,4 +1,4 @@
-use azul_css::{impl_option, impl_option_inner};
+use azul_css::impl_option;
 
 pub mod flat;
 pub mod flora;

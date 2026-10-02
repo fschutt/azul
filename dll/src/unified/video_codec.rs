@@ -29,7 +29,7 @@ pub fn video_widget_dom(widget: azul_layout::widgets::video::VideoWidget) -> azu
 ))]
 pub mod pipeline {
     use azul_core::video::VideoFrameVec;
-    use azul_css::{impl_option, impl_option_inner};
+    use azul_css::impl_option;
 
     /// A decoded clip: stream geometry plus the decoded frames. Layout MUST
     /// match `desktop::extra::video_codec::pipeline::DecodedVideo` (the C-ABI
@@ -112,7 +112,7 @@ use core::ffi::c_void;
 #[cfg(target_arch = "wasm32")]
 use azul_core::video::{OptionVideoFrame, VideoFrame};
 #[cfg(target_arch = "wasm32")]
-use azul_css::{impl_option_inner, AzString, U8Vec};
+use azul_css::{AzString, U8Vec};
 
 /// wasm stub of the desktop `VideoEncoder` handle (no codec backend on wasm).
 #[cfg(target_arch = "wasm32")]

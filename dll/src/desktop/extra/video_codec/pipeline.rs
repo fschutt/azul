@@ -13,7 +13,7 @@
 //! batch/eager form used for tests and simple "load a clip" cases.
 
 use azul_core::video::{OptionVideoFrame, VideoFrameVec};
-use azul_css::{impl_option, impl_option_inner, U8Vec};
+use azul_css::{impl_option, U8Vec};
 
 use super::{demux::demux_mp4_h264, VideoDecoder};
 

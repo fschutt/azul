@@ -29,8 +29,6 @@ use azul_core::{
     task::{OptionThreadSendMsg, ThreadId, ThreadReceiver, ThreadSendMsg},
     video::{ConsumerFrame, FrameConsumer, VideoFrame},
 };
-use azul_css::impl_option_inner; /* brought into scope for impl_widget_callback!'s
-                                   * impl_option! */
 use azul_css::{props::basic::ColorU, AzString};
 
 use crate::{

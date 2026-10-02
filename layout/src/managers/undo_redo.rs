@@ -33,7 +33,7 @@ use azul_core::{
     selection::{OptionSelectionRange, OptionTextCursor},
     task::Instant,
 };
-use azul_css::{impl_option, impl_option_inner, AzString};
+use azul_css::{impl_option, AzString};
 
 use super::changeset::TextChangeset;
 

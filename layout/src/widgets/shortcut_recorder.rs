@@ -17,7 +17,6 @@
 //!
 //! Key types: [`ShortcutRecorder`], [`ShortcutRecorderEvent`].
 
-use azul_css::impl_option_inner;
 use azul_core::{
     a11y::{AccessibilityInfo, AccessibilityRole, AccessibilityState, AccessibilityStateVec},
     callbacks::{CoreCallback, CoreCallbackData, Update},

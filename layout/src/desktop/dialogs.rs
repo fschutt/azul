@@ -10,7 +10,7 @@
 use azul_core::{refany::RefAny, task::RequestId};
 use azul_css::{
     corety::OptionString,
-    impl_option, impl_option_inner,
+    impl_option,
     props::basic::color::{ColorU, OptionColorU},
     AzString, OptionStringVec, StringVec, U8Vec,
 };

@@ -85,7 +85,7 @@ pub use azul_css::props::basic::animation::{
     SvgCubicCurve, SvgPoint, SvgQuadraticCurve, SvgRect, SvgVector,
 };
 use azul_css::{
-    impl_result, impl_result_inner,
+    impl_result,
     props::basic::{ColorU, LayoutSize, OptionColorU, OptionLayoutSize},
     AzString, OptionI16, OptionString, OptionU16, StringVec, U8Vec,
 };

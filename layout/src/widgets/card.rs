@@ -13,7 +13,6 @@ use azul_core::{
 use azul_css::{
     css::BoxOrStatic,
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
-    impl_option_inner,
     props::{
         basic::{ColorU, FloatValue, PixelValue, PixelValueNoPercent},
         layout::{
