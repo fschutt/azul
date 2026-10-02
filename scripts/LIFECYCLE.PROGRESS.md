@@ -51,3 +51,8 @@ thread, monitor change re-reads the frame interval); dark "Dark" segment.
   finished (or detached after 2 s), never joined on the UI thread.
 
 ## Open questions
+
+## Follow-up on main (wt/lifecycle-fix from f9aba9e00)
+- 379ae30d4: a_render_image_callback_with_unchanged_inputs_is_not_invoked_again
+  premise fixed (window resize instead of an inline width change the
+  solver reconcile cannot see without begin_reconciliation). Memo unchanged.
