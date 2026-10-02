@@ -584,6 +584,21 @@ mod tests {
     }
 
     #[test]
+    fn the_search_box_ignores_diacritics_as_the_address_book_does() {
+        // DEDUP_EDITORS B16: AzContacts finds "Krüger" for "kruger"; the message list did not.
+        let e = IndexEntry {
+            from: String::from("Jürgen Krüger <jk@example.org>"),
+            to: String::from("ada@example.org"),
+            subject: String::from("Café opening"),
+            ..entry(1, "", &[])
+        };
+        assert!(matches_search(&e, "kruger"));
+        assert!(matches_search(&e, "JURGEN cafe"));
+        assert!(matches_search(&e, "Krüger"));
+        assert!(!matches_search(&e, "kruger closing"));
+    }
+
+    #[test]
     fn special_folders_take_outlooks_names_and_order() {
         assert_eq!(folder_label(Role::Inbox, "INBOX"), "Inbox");
         assert_eq!(folder_label(Role::Sent, "Sent"), "Sent Items");

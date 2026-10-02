@@ -840,6 +840,18 @@ mod tests {
     }
 
     #[test]
+    fn search_ignores_diacritics_and_an_empty_search_still_shows_nothing() {
+        // DEDUP_EDITORS B16: the address book finds "Krüger" for "kruger"; AzTasks did not.
+        let mut tasks = sample();
+        tasks[2].title = "Call Jürgen about the café".into();
+        assert!(search_matches(&tasks[2], "jurgen cafe"));
+        assert!(search_matches(&tasks[2], "CAFÉ"));
+        assert!(!search_matches(&tasks[2], "jurgen tea"));
+        assert!(!search_matches(&tasks[2], ""), "no words, no match");
+        assert!(!search_matches(&tasks[2], " # "), "a lone hash is no word");
+    }
+
+    #[test]
     fn grouped_lists_sit_under_their_group_where_its_first_list_is() {
         let ls = lists();
         assert_eq!(
