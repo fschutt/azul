@@ -191,8 +191,8 @@ impl ListSelection {
     /// Shift+click on `key` of a keyed list shown in `order`: the items from
     /// the anchor to it in that order, nothing else; the anchor stays. A key
     /// not in `order` selects nothing; an anchor not in it, `key` alone.
-    pub fn extend_in(&mut self, order: &[u64], key: u64) {
-        self.extend_over(Order::Keys(order), key);
+    pub fn extend_in(&mut self, order: U64Vec, key: u64) {
+        self.extend_over(Order::Keys(order.as_slice()), key);
     }
 
     /// Ctrl+Shift+click on row `key` of a positional list: the rows from the
@@ -203,8 +203,8 @@ impl ListSelection {
 
     /// Ctrl+Shift+click on `key` of a keyed list shown in `order`: the items
     /// from the anchor to it added; the anchor stays.
-    pub fn add_range_in(&mut self, order: &[u64], key: u64) {
-        self.add_range_over(Order::Keys(order), key);
+    pub fn add_range_in(&mut self, order: U64Vec, key: u64) {
+        self.add_range_over(Order::Keys(order.as_slice()), key);
     }
 
     /// A click on row `key` of a positional list with the modifiers held:
@@ -215,8 +215,8 @@ impl ListSelection {
     }
 
     /// [`Self::select`] for a keyed list shown in `order`.
-    pub fn select_in(&mut self, order: &[u64], key: u64, shift: bool, ctrl: bool) {
-        self.select_over(Order::Keys(order), key, shift, ctrl);
+    pub fn select_in(&mut self, order: U64Vec, key: u64, shift: bool, ctrl: bool) {
+        self.select_over(Order::Keys(order.as_slice()), key, shift, ctrl);
     }
 
     /// [`Self::select`] for the builder chain: the selection after a click
@@ -233,8 +233,8 @@ impl ListSelection {
     }
 
     /// Select all: every key of `order`. With nothing focused, the first is.
-    pub fn select_all_in(&mut self, order: &[u64]) {
-        self.select_all_over(Order::Keys(order));
+    pub fn select_all_in(&mut self, order: U64Vec) {
+        self.select_all_over(Order::Keys(order.as_slice()));
     }
 
     /// Select none. The anchor and the focus stay; `keep_one` does not apply
@@ -249,8 +249,8 @@ impl ListSelection {
     }
 
     /// Invert selection over the keys of `order`.
-    pub fn invert_in(&mut self, order: &[u64]) {
-        self.invert_over(Order::Keys(order));
+    pub fn invert_in(&mut self, order: U64Vec) {
+        self.invert_over(Order::Keys(order.as_slice()));
     }
 
     /// Keeps only rows `0..count` (the list got shorter): the rest, and an
@@ -261,16 +261,17 @@ impl ListSelection {
 
     /// Keeps only the keys still in `order` (after a listing, a search): the
     /// rest, and an anchor or focus no longer listed, go.
-    pub fn retain_in(&mut self, order: &[u64]) {
-        self.retain_over(Order::Keys(order));
+    pub fn retain_in(&mut self, order: U64Vec) {
+        self.retain_over(Order::Keys(order.as_slice()));
     }
 
     /// Selects exactly `keys` (what a paste or a marquee made): the first is
     /// the anchor, the last the focus.
-    pub fn select_keys(&mut self, keys: &[u64]) {
+    pub fn select_keys(&mut self, keys: U64Vec) {
+        let keys = keys.into_library_owned_vec();
         self.anchor = keys.first().copied().into();
         self.focus = keys.last().copied().into();
-        self.keys = ascending(keys.to_vec());
+        self.keys = ascending(keys);
     }
 
     /// An arrow key over rows `0..count`: the focus moves `delta` rows
@@ -283,8 +284,8 @@ impl ListSelection {
     }
 
     /// [`Self::step`] over the keys of `order`.
-    pub fn step_in(&mut self, order: &[u64], delta: i64, extend: bool, keep: bool) -> OptionU64 {
-        self.step_over(Order::Keys(order), delta, extend, keep)
+    pub fn step_in(&mut self, order: U64Vec, delta: i64, extend: bool, keep: bool) -> OptionU64 {
+        self.step_over(Order::Keys(order.as_slice()), delta, extend, keep)
     }
 
     /// Ctrl+Space: the focused item in or out of the selection.
@@ -423,6 +424,10 @@ mod list_selection_tests {
         OptionU64::Some(k)
     }
 
+    fn v(keys: &[u64]) -> U64Vec {
+        U64Vec::from_vec(keys.to_vec())
+    }
+
     #[test]
     fn a_plain_click_selects_the_item_alone_and_moves_anchor_and_focus_there() {
         let mut s = ListSelection::create();
@@ -483,22 +488,22 @@ mod list_selection_tests {
     fn a_keyed_list_takes_its_ranges_in_the_visible_order_not_by_number() {
         let order = [40, 10, 30, 20];
         let mut s = ListSelection::create();
-        s.select_in(&order, 10, false, false);
-        s.select_in(&order, 20, true, false);
+        s.select_in(v(&order), 10, false, false);
+        s.select_in(v(&order), 20, true, false);
         assert_eq!(
             keys(&s),
             vec![10, 20, 30],
             "10, 30, 20 on screen; kept ascending"
         );
-        s.select_in(&order, 40, false, true);
-        s.add_range_in(&order, 10);
+        s.select_in(v(&order), 40, false, true);
+        s.add_range_in(v(&order), 10);
         assert_eq!(keys(&s), vec![10, 20, 30, 40]);
         // A key not shown selects nothing; an anchor not shown, the key alone.
         let mut t = ListSelection::create();
         t.click(99);
-        t.extend_in(&order, 30);
+        t.extend_in(v(&order), 30);
         assert_eq!(keys(&t), vec![30]);
-        t.extend_in(&order, 77);
+        t.extend_in(v(&order), 77);
         assert!(t.is_empty());
     }
 
@@ -509,7 +514,7 @@ mod list_selection_tests {
             s.toggle(k);
         }
         assert_eq!(keys(&s), vec![1, 3, 6, 9]);
-        s.select_keys(&[5, 2, 5, 8]);
+        s.select_keys(v(&[5, 2, 5, 8]));
         assert_eq!(keys(&s), vec![2, 5, 8]);
         assert_eq!(
             (s.anchor, s.focus),
@@ -544,26 +549,26 @@ mod list_selection_tests {
         assert!(s.is_empty());
         assert_eq!(s.focus, some(2), "select none keeps the focus");
         let order = [30, 10, 20];
-        s.select_all_in(&order);
+        s.select_all_in(v(&order));
         assert_eq!(keys(&s), vec![10, 20, 30]);
         s.click(10);
-        s.invert_in(&order);
+        s.invert_in(v(&order));
         assert_eq!(keys(&s), vec![20, 30]);
     }
 
     #[test]
     fn retain_drops_the_items_no_longer_listed_and_a_lost_focus_or_anchor() {
         let mut s = ListSelection::create();
-        s.select_keys(&[1, 5, 9]);
-        s.retain_in(&[1, 9, 12]);
+        s.select_keys(v(&[1, 5, 9]));
+        s.retain_in(v(&[1, 9, 12]));
         assert_eq!(keys(&s), vec![1, 9]);
         assert_eq!(s.anchor, some(1));
         assert_eq!(s.focus, some(9));
-        s.retain_in(&[1]);
+        s.retain_in(v(&[1]));
         assert_eq!(keys(&s), vec![1]);
         assert_eq!(s.focus, OptionU64::None, "the focused item is gone");
         let mut rows = ListSelection::create();
-        rows.select_keys(&[0, 3, 6]);
+        rows.select_keys(v(&[0, 3, 6]));
         rows.retain(4);
         assert_eq!(keys(&rows), vec![0, 3]);
         assert_eq!((rows.anchor, rows.focus), (some(0), OptionU64::None));
@@ -602,9 +607,9 @@ mod list_selection_tests {
         let order = [7, 3, 5];
         let mut k = ListSelection::create();
         k.click(3);
-        assert_eq!(k.step_in(&order, 1, true, false), some(5));
+        assert_eq!(k.step_in(v(&order), 1, true, false), some(5));
         assert_eq!(keys(&k), vec![3, 5]);
-        assert_eq!(k.step_in(&order, -5, false, false), some(7));
+        assert_eq!(k.step_in(v(&order), -5, false, false), some(7));
         assert_eq!(keys(&k), vec![7]);
     }
 
