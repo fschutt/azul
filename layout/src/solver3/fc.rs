@@ -3739,6 +3739,10 @@ fn layout_ifc<T: ParsedFontTrait>(
     let node = tree
         .get(LayoutNodeId::new(node_index))
         .ok_or(LayoutError::InvalidTree)?;
+    // An anonymous box borrows an element's id to resolve its style, but
+    // only the INHERITED properties are its own (§9.2.1.1): it has no
+    // columns of the element's (see translate_to_text3_constraints).
+    let ifc_root_is_anonymous = node.dom_node_id.is_none();
     let ifc_root_dom_id = if let Some(id) = node.dom_node_id {
         id
     } else {
@@ -3937,8 +3941,13 @@ fn layout_ifc<T: ParsedFontTrait>(
     // property (text-align, text-align-last, text-indent, direction, line-height,
     // white-space, columns) — which is NOT covered by the per-run content hash — would
     // otherwise silently reuse a stale, differently-aligned/indented cached layout.
-    let text3_constraints =
-        translate_to_text3_constraints(ctx, constraints, ctx.styled_dom, ifc_root_dom_id);
+    let text3_constraints = translate_to_text3_constraints(
+        ctx,
+        constraints,
+        ctx.styled_dom,
+        ifc_root_dom_id,
+        ifc_root_is_anonymous,
+    );
 
     let current_content_hash = {
         let _p = crate::probe::Probe::span("ifc_content_hash");
@@ -4744,6 +4753,9 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     constraints: &'a LayoutConstraints<'a>,
     styled_dom: &StyledDom,
     dom_id: NodeId,
+    // The IFC root is an anonymous block box and `dom_id` the element it
+    // borrows its style from: the element's columns are not its own.
+    anonymous: bool,
 ) -> UnifiedConstraints {
     use azul_css::compact_cache::{
         DOM_HAS_EXCLUSION_MARGIN, DOM_HAS_HANGING_PUNCTUATION, DOM_HAS_HYPHENATION_LANGUAGE,
@@ -5220,10 +5232,15 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     // resolution (`multicol::column_style` / `ColumnStyle::geometry`, CSS
     // Multicol 1 §3.4), shared with the multi-column block layout. text3
     // splits this inline formatting context's lines over the columns; the
-    // gap only matters between columns.
-    let column_geometry =
+    // gap only matters between columns. The column properties are not
+    // inherited, so an anonymous box (laid out inside the multi-column
+    // container, `id` being the container's) has none.
+    let column_geometry = if anonymous {
+        None
+    } else {
         crate::solver3::multicol::column_style(styled_dom, id, node_state, ctx.viewport_size)
-            .map(|style| style.geometry(constraints.available_size.width));
+            .map(|style| style.geometry(constraints.available_size.width))
+    };
     let columns = column_geometry.map_or(1, |g| g.count);
     let column_gap = column_geometry.map_or(0.0, |g| g.gap);
 
