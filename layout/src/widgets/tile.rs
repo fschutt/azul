@@ -15,7 +15,7 @@
 //!
 //! Key types: [`Tile`], [`TileCapacity`], [`TileOnClick`].
 
-use alloc::{string::String, vec::Vec};
+use alloc::vec::Vec;
 
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
@@ -42,6 +42,7 @@ use azul_css::{
 
 use crate::{
     callbacks::{Callback, CallbackInfo},
+    file::DiskSpace,
     widgets::progressbar::ProgressBar,
 };
 
@@ -132,31 +133,9 @@ impl TileCapacity {
     pub fn label(&self) -> AzString {
         AzString::from(alloc::format!(
             "{} free of {}",
-            format_bytes(self.free),
-            format_bytes(self.total)
+            DiskSpace::format_bytes(self.free),
+            DiskSpace::format_bytes(self.total)
         ))
-    }
-}
-
-/// `bytes` as a file manager writes it: "500 B", "1.5 KB", "324 GB" - 1024
-/// per step, one decimal below ten, none above.
-#[must_use]
-#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-pub fn format_bytes(bytes: u64) -> String {
-    const UNITS: [&str; 5] = ["KB", "MB", "GB", "TB", "PB"];
-    if bytes < 1024 {
-        return alloc::format!("{bytes} B");
-    }
-    let mut value = bytes as f64 / 1024.0;
-    let mut unit = 0;
-    while value >= 1024.0 && unit + 1 < UNITS.len() {
-        value /= 1024.0;
-        unit += 1;
-    }
-    if value < 10.0 {
-        alloc::format!("{value:.1} {}", UNITS[unit])
-    } else {
-        alloc::format!("{} {}", value.round() as u64, UNITS[unit])
     }
 }
 
@@ -580,16 +559,6 @@ mod tile_tests {
         Tile::create(AzString::from("S3 Drive"))
             .with_icon(AzString::from("cloud"))
             .with_detail(AzString::from("S3 bucket"))
-    }
-
-    #[test]
-    fn bytes_read_like_a_file_manager_writes_them() {
-        assert_eq!(format_bytes(0), "0 B");
-        assert_eq!(format_bytes(500), "500 B");
-        assert_eq!(format_bytes(1536), "1.5 KB");
-        assert_eq!(format_bytes(324 * GB), "324 GB");
-        assert_eq!(format_bytes(456 * GB), "456 GB");
-        assert_eq!(format_bytes(1024 * 1024 * 1024 * 1024 * 3 / 2), "1.5 TB");
     }
 
     #[test]

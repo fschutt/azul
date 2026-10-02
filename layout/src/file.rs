@@ -1334,6 +1334,30 @@ impl DiskSpace {
     pub const fn used(&self) -> u64 {
         self.total.saturating_sub(self.free)
     }
+
+    /// `bytes` as a file manager writes it: "500 B", "1.5 KB", "324 GB" -
+    /// 1024 per step, one decimal below ten, none above (Explorer's rule).
+    /// The one byte-size formatter: the Tile's capacity bar, the setup
+    /// wizard and the apps' size columns all write sizes with it.
+    #[must_use]
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    pub fn format_bytes(bytes: u64) -> String {
+        const UNITS: [&str; 5] = ["KB", "MB", "GB", "TB", "PB"];
+        if bytes < 1024 {
+            return alloc::format!("{bytes} B");
+        }
+        let mut value = bytes as f64 / 1024.0;
+        let mut unit = 0;
+        while value >= 1024.0 && unit + 1 < UNITS.len() {
+            value /= 1024.0;
+            unit += 1;
+        }
+        if value < 10.0 {
+            alloc::format!("{value:.1} {}", UNITS[unit])
+        } else {
+            alloc::format!("{} {}", value.round() as u64, UNITS[unit])
+        }
+    }
 }
 
 /// The size and free space of the volume that holds `path` (a file or a
@@ -1504,6 +1528,22 @@ impl From<AzString> for FilePath {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// One decimal below ten, none above, 1024 per step - the Tile's
+    /// capacity bar, the setup wizard and the apps' size columns
+    /// (DEDUP_OFFICE D24 / A10, DEDUP_WIDGETS_API F10).
+    #[test]
+    fn bytes_read_like_a_file_manager_writes_them() {
+        const GB: u64 = 1024 * 1024 * 1024;
+        assert_eq!(DiskSpace::format_bytes(0), "0 B");
+        assert_eq!(DiskSpace::format_bytes(500), "500 B");
+        assert_eq!(DiskSpace::format_bytes(1024), "1.0 KB");
+        assert_eq!(DiskSpace::format_bytes(1536), "1.5 KB");
+        assert_eq!(DiskSpace::format_bytes(48_213), "47 KB");
+        assert_eq!(DiskSpace::format_bytes(324 * GB), "324 GB");
+        assert_eq!(DiskSpace::format_bytes(456 * GB), "456 GB");
+        assert_eq!(DiskSpace::format_bytes(GB * 1024 * 3 / 2), "1.5 TB");
+    }
 
     #[test]
     #[cfg(feature = "std")]
