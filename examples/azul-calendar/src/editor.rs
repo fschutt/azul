@@ -760,6 +760,22 @@ mod tests {
     }
 
     #[test]
+    fn an_attendee_written_last_comma_first_in_quotes_is_one_attendee() {
+        // What AzMail's To line and Outlook write: the comma is inside the quoted name.
+        assert_eq!(
+            parse_attendees("\"Lovelace, Ada\" <ada@example.org>, bo@example.org"),
+            Ok(vec![
+                String::from("ada@example.org"),
+                String::from("bo@example.org")
+            ])
+        );
+        assert_eq!(
+            parse_attendees("\"Lovelace; Ada\" <ada@example.org>;\n\"Ada, L.\" <ADA@example.org>"),
+            Ok(vec![String::from("ada@example.org")])
+        );
+    }
+
+    #[test]
     fn the_attendees_line_takes_names_and_addresses_and_names_a_bad_one() {
         assert_eq!(
             parse_attendees("Ana <ana@example.com>, bo@example.org;\n ANA@example.com ; "),
