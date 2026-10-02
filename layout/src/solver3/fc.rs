@@ -6137,6 +6137,10 @@ pub(crate) struct TableLayoutContext {
     pub(crate) h_spacing: f32,
     /// The used vertical `border-spacing` (0 in the collapsing model).
     pub(crate) v_spacing: f32,
+    /// The table's `direction` is `rtl` (CSS 2.2 17.5): its first column is
+    /// the rightmost - the layout places and the painter reads the columns
+    /// mirrored. Set by [`analyze_table_structure`].
+    pub(crate) rtl: bool,
 }
 
 impl TableLayoutContext {
@@ -6161,6 +6165,7 @@ impl TableLayoutContext {
             col_occupied: Vec::new(),
             h_spacing: 0.0,
             v_spacing: 0.0,
+            rtl: false,
         }
     }
 
@@ -7427,8 +7432,18 @@ pub(crate) fn analyze_table_structure<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
 ) -> Result<TableLayoutContext> {
     let mut table_ctx = TableLayoutContext::new();
-    tree.get(LayoutNodeId::new(table_index))
+    let table_node = tree
+        .get(LayoutNodeId::new(table_index))
         .ok_or(LayoutError::InvalidTree)?;
+    // CSS 2.2 17.5: the columns run in the table's `direction` (inherited:
+    // `<td dir="rtl">` reverses the table inside it).
+    table_ctx.rtl = table_node.dom_node_id.is_some_and(|dom_id| {
+        let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+        matches!(
+            get_direction_property(ctx.styled_dom, dom_id, node_state),
+            MultiValue::Exact(StyleDirection::Rtl)
+        )
+    });
 
     // +spec:width-calculation:0a2766 - table internal elements form rectangular grid of
     // rows/columns (CSS 2.2 §17.5) CSS 2.2 Section 17.4: A table may have one table-caption
@@ -9463,6 +9478,16 @@ fn position_table_cells<T: ParsedFontTrait>(
             }
         }
     }
+    // A right-to-left table runs its columns from the right (CSS 2.2 17.5):
+    // every column mirrored in the grid's width, so a cell's left edge is
+    // its LAST column's (the lowest x of its columns, read below).
+    if table_ctx.rtl {
+        let grid_width = x_offset;
+        for (i, col) in table_ctx.columns.iter().enumerate() {
+            let width = col.computed_width.unwrap_or(0.0);
+            col_positions[i] = grid_width - col_positions[i] - width;
+        }
+    }
 
     // Calculate cumulative row positions (y-offsets) with spacing
     let mut row_positions = vec![0.0; table_ctx.num_rows];
@@ -9502,8 +9527,13 @@ fn position_table_cells<T: ParsedFontTrait>(
             .get_mut(LayoutNodeId::new(cell_info.node_index))
             .ok_or(LayoutError::InvalidTree)?;
 
-        // Calculate cell position
-        let x = col_positions.get(cell_info.column).copied().unwrap_or(0.0);
+        // Calculate cell position: the left edge of its columns (its first
+        // column's, or its last one's in a right-to-left table).
+        let span_end = (cell_info.column + cell_info.colspan).min(col_positions.len());
+        let x = col_positions
+            .get(cell_info.column..span_end)
+            .and_then(|spanned| spanned.iter().copied().reduce(f32::min))
+            .unwrap_or(0.0);
         let y = row_positions.get(cell_info.row).copied().unwrap_or(0.0);
 
         // Calculate cell size (sum of spanned columns/rows and the spacing
@@ -9904,9 +9934,14 @@ fn place_table_grid_boxes(
             .and_then(|c| c.computed_width)
             .unwrap_or(0.0)
     };
-    // The grid's horizontal extent: from the first column's left to the last
-    // column's right (the outer spacing is outside every row).
-    let grid_left = col_positions.first().copied().unwrap_or(0.0);
+    // The grid's horizontal extent: from the leftmost column's left to the
+    // rightmost column's right (the outer spacing is outside every row; in a
+    // right-to-left table the first column is the rightmost).
+    let grid_left = col_positions
+        .iter()
+        .copied()
+        .reduce(f32::min)
+        .unwrap_or(0.0);
     let grid_right = col_positions
         .iter()
         .enumerate()
@@ -10003,7 +10038,9 @@ fn place_table_grid_boxes(
         if first >= last {
             continue;
         }
-        let left = col_positions[first];
+        let left = (first..last)
+            .map(|i| col_positions[i])
+            .fold(col_positions[first], f32::min);
         let right = (first..last)
             .map(|i| col_positions[i] + col_width(i))
             .fold(left, f32::max);

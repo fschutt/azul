@@ -6690,11 +6690,19 @@ where
                     *line = Some(v);
                 }
             };
+            // Column line `c` is the start edge of column `c`: its left edge,
+            // or its right edge in a right-to-left table (the columns run
+            // from the right, `fc::position_table_cells`).
+            let (start_x, end_x) = if grid.rtl {
+                (r.origin.x + r.size.width, r.origin.x)
+            } else {
+                (r.origin.x, r.origin.x + r.size.width)
+            };
             if let Some(line) = xs.get_mut(cell.column) {
-                set(line, r.origin.x);
+                set(line, start_x);
             }
             if let Some(line) = xs.get_mut(col_end) {
-                set(line, r.origin.x + r.size.width);
+                set(line, end_x);
             }
             if let Some(line) = ys.get_mut(cell.row) {
                 set(line, r.origin.y);
@@ -6749,7 +6757,8 @@ where
         }
         let (xs, _, rects) = self.table_grid_lines(grid);
         for (color, start, end) in painted {
-            let (x0, x1) = (xs[start], xs[end]);
+            // The columns' extent, whichever way they run.
+            let (x0, x1) = (xs[start].min(xs[end]), xs[start].max(xs[end]));
             for (cell, rect) in grid.cells.iter().zip(&rects) {
                 let Some(r) = rect else { continue };
                 if cell.column >= end || cell.column + cell.colspan <= start {
@@ -6856,8 +6865,12 @@ where
                 {
                     end += 1;
                 }
-                let x0 = joint(r, c).mul_add(-0.5, xs[c]);
-                let x1 = joint(r, end).mul_add(0.5, xs[end]);
+                // From the left line of the run to its right one (in a
+                // right-to-left table line `c` is the right one), each end
+                // reaching over its joint by half the widest vertical edge.
+                let (left_line, right_line) = if xs[c] <= xs[end] { (c, end) } else { (end, c) };
+                let x0 = joint(r, left_line).mul_add(-0.5, xs[left_line]);
+                let x1 = joint(r, right_line).mul_add(0.5, xs[right_line]);
                 let rect = LogicalRect::new(
                     LogicalPosition::new(x0, edge.width.mul_add(-0.5, ys[r])),
                     LogicalSize::new(x1 - x0, edge.width),
