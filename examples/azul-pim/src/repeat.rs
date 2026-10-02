@@ -16,6 +16,7 @@ use chrono::{Datelike, Duration, NaiveDate, Weekday};
 
 pub use crate::dates::WORK_DAYS;
 use crate::dates::{add_months_clamped, ordinal_suffix, weekday_short, ymd_clamped};
+use crate::rrule::Rule;
 
 /// The step of a rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -249,6 +250,23 @@ impl Repeat {
             text.push_str(" after completion");
         }
         text
+    }
+}
+
+impl Repeat {
+    /// The iCalendar rule (RRULE) that makes the same dates from `due` as this repeat - what a
+    /// VTODO or an event carries. Not yet.
+    #[must_use]
+    pub fn to_rule(&self, due: NaiveDate) -> Option<Rule> {
+        let _ = due;
+        None
+    }
+
+    /// The repeat that makes the same dates from `first` as `rule`. Not yet.
+    #[must_use]
+    pub fn from_rule(rule: &Rule, first: NaiveDate) -> Option<Repeat> {
+        let _ = (rule, first);
+        None
     }
 }
 
@@ -526,5 +544,158 @@ mod tests {
         assert_eq!(Unit::from_name("fortnight"), None);
         assert_eq!(Unit::Week.label(2), "weeks");
         assert_eq!(Unit::Day.label(1), "day");
+    }
+
+    /// `due` and the occurrences after it up to `until`, by walking the repeat.
+    fn walk_until(rule: &Repeat, due: NaiveDate, until: NaiveDate) -> Vec<NaiveDate> {
+        let rule = rule.clone().anchored(due);
+        let mut out = vec![due];
+        let mut at = due;
+        loop {
+            at = rule.next_after(at);
+            if at > until {
+                return out;
+            }
+            out.push(at);
+        }
+    }
+
+    #[test]
+    fn a_repeat_is_the_rrule_that_makes_the_same_dates() {
+        // DEDUP_EDITORS B6: a task's repeat as RRULE (VTODO, the calendar's To-Do bar).
+        let thursday = day(2026, 10, 1);
+        let text = |r: &Repeat, due: NaiveDate| r.to_rule(due).map(|rule| rule.to_rrule(true));
+        let cases: Vec<(Repeat, NaiveDate, &str)> = vec![
+            (Repeat::daily(), thursday, "FREQ=DAILY"),
+            (Repeat::new(3, Unit::Day), thursday, "FREQ=DAILY;INTERVAL=3"),
+            (Repeat::weekly(), thursday, "FREQ=WEEKLY"),
+            (
+                Repeat::weekdays(),
+                thursday,
+                "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
+            ),
+            (
+                Repeat::new(2, Unit::Week).on_weekdays(&[Weekday::Mon, Weekday::Wed]),
+                thursday,
+                "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE",
+            ),
+            (Repeat::monthly(), thursday, "FREQ=MONTHLY;BYMONTHDAY=1"),
+            (
+                Repeat::monthly().on_month_day(31),
+                day(2027, 1, 31),
+                "FREQ=MONTHLY;BYMONTHDAY=-1",
+            ),
+            (
+                Repeat::monthly().on_month_day(31),
+                day(2027, 2, 28),
+                "FREQ=MONTHLY;BYMONTHDAY=-1",
+            ),
+            (
+                Repeat::yearly(),
+                thursday,
+                "FREQ=YEARLY;BYMONTH=10;BYMONTHDAY=1",
+            ),
+            (
+                Repeat::yearly(),
+                day(2028, 2, 29),
+                "FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=-1",
+            ),
+        ];
+        for (repeat, due, rrule) in cases {
+            assert_eq!(
+                text(&repeat, due).as_deref(),
+                Some(rrule),
+                "{repeat:?} from {due}"
+            );
+            let until = due + Duration::days(3 * 366);
+            let rule = repeat.to_rule(due).unwrap();
+            assert_eq!(
+                rule.dates(due, &[], due, until),
+                walk_until(&repeat, due, until),
+                "{rrule} makes the repeat's dates"
+            );
+        }
+    }
+
+    #[test]
+    fn a_repeat_an_rrule_cannot_say_has_no_rule() {
+        let due = day(2026, 10, 1);
+        assert_eq!(
+            Repeat::daily().counting_from_completion(true).to_rule(due),
+            None,
+            "RRULE has no 'after completion'"
+        );
+        assert_eq!(
+            Repeat::monthly().on_month_day(30).to_rule(day(2026, 9, 30)),
+            None,
+            "the 30th clamps to the 28th in February, RRULE skips February"
+        );
+        assert_eq!(
+            Repeat::monthly().on_month_day(15).to_rule(due),
+            None,
+            "a due date off the repeat's own day"
+        );
+    }
+
+    #[test]
+    fn an_rrule_a_repeat_can_hold_comes_back_as_that_repeat() {
+        let thursday = day(2026, 10, 1);
+        let read =
+            |text: &str, first: NaiveDate| Repeat::from_rule(&Rule::parse(text).unwrap(), first);
+        assert_eq!(
+            read("FREQ=DAILY;INTERVAL=3", thursday),
+            Some(Repeat::new(3, Unit::Day))
+        );
+        assert_eq!(
+            read("FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR", thursday),
+            Some(Repeat::weekdays())
+        );
+        assert_eq!(
+            read("FREQ=WEEKLY;INTERVAL=2;BYDAY=WE,MO", thursday),
+            Some(Repeat::new(2, Unit::Week).on_weekdays(&[Weekday::Mon, Weekday::Wed]))
+        );
+        assert_eq!(
+            read("FREQ=MONTHLY", thursday),
+            Some(Repeat::monthly().on_month_day(1))
+        );
+        assert_eq!(
+            read("FREQ=MONTHLY;BYMONTHDAY=-1", day(2026, 10, 31)),
+            Some(Repeat::monthly().on_month_day(31))
+        );
+        assert_eq!(
+            read("FREQ=YEARLY", thursday),
+            Some(Repeat::yearly().on_month_day(1))
+        );
+        for (repeat, due) in [
+            (Repeat::daily(), thursday),
+            (Repeat::weekdays(), thursday),
+            (
+                Repeat::new(2, Unit::Week).on_weekdays(&[Weekday::Fri]),
+                thursday,
+            ),
+            (Repeat::monthly(), day(2026, 10, 12)),
+            (Repeat::monthly().on_month_day(31), day(2027, 4, 30)),
+            (Repeat::new(4, Unit::Year), day(2028, 2, 29)),
+        ] {
+            let rule = repeat.to_rule(due).unwrap();
+            assert_eq!(
+                Repeat::from_rule(&rule, due),
+                Some(repeat.clone().anchored(due)),
+                "{}",
+                rule.to_rrule(true)
+            );
+        }
+        for (text, first) in [
+            ("FREQ=WEEKLY;COUNT=3", thursday),
+            ("FREQ=MONTHLY;BYDAY=-1FR", thursday),
+            ("FREQ=MONTHLY;BYMONTHDAY=30", day(2026, 9, 30)),
+            ("FREQ=MONTHLY", day(2026, 10, 31)),
+            ("FREQ=MONTHLY;BYMONTHDAY=15", thursday),
+            ("FREQ=WEEKLY;INTERVAL=2;WKST=SU;BYDAY=MO", thursday),
+            ("FREQ=YEARLY;BYMONTH=3", thursday),
+            ("FREQ=YEARLY", day(2028, 2, 29)),
+        ] {
+            assert_eq!(read(text, first), None, "{text} from {first}");
+        }
     }
 }
