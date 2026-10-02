@@ -279,8 +279,12 @@ impl Pdf {
 
     /// REVERSE path: PDF bytes -> one standalone SVG string per page.
     /// Empty without the `pdf` feature or on parse failure.
-    pub fn to_svg_pages(&self, bytes: &[u8]) -> Vec<String> {
+    pub fn to_svg_pages(&self, bytes: &[u8]) -> azul_css::StringVec {
         pdf_to_svg_pages(bytes)
+            .into_iter()
+            .map(azul_css::AzString::from)
+            .collect::<Vec<_>>()
+            .into()
     }
 
     /// Turn one page-SVG (from [`Pdf::to_svg_pages`]) into a `Dom` subtree,
