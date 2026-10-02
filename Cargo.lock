@@ -2623,7 +2623,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
 dependencies = [
  "data-encoding",
- "syn 3.0.4",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -7568,7 +7568,7 @@ dependencies = [
 [[package]]
 name = "printpdf"
 version = "0.12.8"
-source = "git+https://github.com/fschutt/printpdf?branch=azul-codegen-api#8534db2bb1a33d129a939c86077d691ba19a925d"
+source = "git+https://github.com/fschutt/printpdf?branch=azul-codegen-api#84dce8c47850f5fe18012998f9689a7e2f743136"
 dependencies = [
  "allsorts-azul",
  "azul-core",
