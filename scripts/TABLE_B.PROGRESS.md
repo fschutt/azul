@@ -4,12 +4,13 @@ Task: table parity with Chrome, part B (borders, spans, fixed layout, cell sizin
 Brief: scratchpad `TABLE_B_go.md`; house rules `wave4_common.md`. Nothing is compiled here.
 
 ## REPLAY onto TABLE-A (branch `wt/table-b-on-a` from `1964f561e`) - DONE
-All of wt/table-b replayed in order (port commits listed in the report's section 9). Skipped:
-5de5cfd0a (its fix folded into the ef2673e6b pick), 51c16a9df / bc087a71f / 349d1418e (alignment
-commits, redundant or obsolete on A's base). Added on the way: 1cc1d38df (rows / groups / cols
-carry no border), 50c476b81 (fixed layout through table_width), fe268416f + 3043c201f (one span
-rule in table_width, the spanning cell's width included), f37ab69fa (three WPT lines out).
-- NEXT: report section 9 "replayed onto A", then tell the coordinator the tip.
+All of wt/table-b replayed in order; report section 9 "Replayed onto TABLE-A" written
+(`e8968026a`). Skipped picks: 5de5cfd0a (folded), 51c16a9df / bc087a71f / 349d1418e (alignment,
+redundant or obsolete on A's base). Added: 1cc1d38df (rows / groups / cols carry no border),
+50c476b81 (fixed layout through table_width), fe268416f + 3043c201f (one span rule in
+table_width, the spanning cell's width included), f37ab69fa (three WPT lines out), bc2c7328f
+(column_element_widths pub(crate)).
+- NEXT: nothing; waiting for the parent's compile and suite run (report sections 6, 7, 9).
 - Decisions: A's model wins on cell width (a width neither raises nor lowers a column's min);
   my table_harness.rs merged into A's tests/common/table_markup.rs.
 
