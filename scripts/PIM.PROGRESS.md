@@ -7,13 +7,14 @@ mail addresses, search, initials, one task store) + move AzCalendar / AzTasks / 
 - 3f32f0e51 crate skeleton + `dates` + registration (Cargo.toml member, workspace_test_members, rust.yml step)
 - 884d04bde `rrule` (AzCalendar rrule.rs moved; AzCalendar `pub use azul_pim::rrule;`)
 - 236a8f159 `repeat` (AzTasks recur.rs moved; AzTasks `pub use azul_pim::repeat as recur;`)
+- 4df836f84 RED / bea800bf3 GREEN: `mail_address`; AzCalendar attendees `"Lovelace, Ada" <..>` (B14, E4)
+- e77e7dcbb RED / 0d90994a8 GREEN: AzContacts form refuses `a@b@example.org`
+- c7b60675f AzMail compose.rs / account.rs re-export the shared address helpers
 
 ## IN PROGRESS
-- mail_address: RED test in AzCalendar editor.rs for `"Lovelace, Ada" <ada@example.org>`
+- content_line module (pim) from AzContacts vcard.rs Property + AzCalendar ics.rs ContentLine
 
 ## NEXT (in order)
-1. mail_address module + AzCalendar GREEN, then AzMail (compose.rs split/bare/same, account.rs is_email) and
-   AzContacts (contact.rs email check) adopt
 2. content_line module (vCard Property shape) + AzContacts vcard.rs / AzCalendar ics.rs adopt
 3. task + task_store (AzTasks model.rs + store load move; legacy azcalendar.task migration; RED first);
    AzCalendar To-Do bar on the shared store (root: Azlin root unless --data/AZCAL_DATA)
