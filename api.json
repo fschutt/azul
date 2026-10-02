@@ -84957,10 +84957,6 @@
                                 ],
                                 "fn_args": [],
                                 "fn_body": "azul_layout::widgets::cell_grid::CellGridCellStyle::create()"
-                            },
-                            "unwritten": {
-                                "fn_args": [],
-                                "fn_body": "azul_layout::widgets::cell_grid::CellGridCellStyle::unwritten()"
                             }
                         },
                         "repr": "C"
@@ -88429,10 +88425,6 @@
                                 ],
                                 "fn_args": [],
                                 "fn_body": "azul_layout::widgets::cell_grid::CellGridCell::empty()"
-                            },
-                            "unwritten": {
-                                "fn_args": [],
-                                "fn_body": "azul_layout::widgets::cell_grid::CellGridCell::unwritten()"
                             }
                         },
                         "repr": "C"
