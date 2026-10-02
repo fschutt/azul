@@ -724,3 +724,5 @@ mod a_partial_image_change_leaves_its_rect_for_the_renderer;
 mod an_img_from_markup_shows_the_image_the_app_cached_under_its_src;
 #[path = "content_clipped_by_an_overflow_hidden_box_adds_no_pages.rs"]
 mod content_clipped_by_an_overflow_hidden_box_adds_no_pages;
+#[path = "a_multicol_block_flows_its_children_through_its_columns.rs"]
+mod a_multicol_block_flows_its_children_through_its_columns;
