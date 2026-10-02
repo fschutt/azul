@@ -11,6 +11,7 @@ use crate::model::{
     VAlign, ZOrder,
 };
 use azul::widgets::ListSelection;
+use azul_appkit::UndoHistory;
 
 /// The most undo steps kept.
 pub const UNDO_DEPTH: usize = 100;
@@ -37,10 +38,9 @@ pub struct Editor {
     /// Copied elements.
     pub clipboard: Vec<Element>,
     paste_count: u32,
-    undo: Vec<Deck>,
-    redo: Vec<Deck>,
-    /// A drag is in flight (its first step took the undo snapshot).
-    transforming: bool,
+    /// The decks before each committed edit (appkit's shared undo stack); a
+    /// drag on the canvas is one step (its coalescing key, sealed on commit).
+    history: UndoHistory<Deck>,
 }
 
 /// A rail selection of slide `index` alone; the rail always keeps one
@@ -64,9 +64,7 @@ impl Editor {
             dirty: false,
             clipboard: Vec::new(),
             paste_count: 0,
-            undo: Vec::new(),
-            redo: Vec::new(),
-            transforming: false,
+            history: UndoHistory::new("Open").with_limit(UNDO_DEPTH),
         }
     }
 
@@ -82,22 +80,18 @@ impl Editor {
 
     /// Takes the undo snapshot of the deck before an edit.
     pub fn checkpoint(&mut self) {
-        self.undo.push(self.deck.clone());
-        if self.undo.len() > UNDO_DEPTH {
-            self.undo.remove(0);
-        }
-        self.redo.clear();
+        self.history.checkpoint("Edit", self.deck.clone());
         self.dirty = true;
     }
 
     #[must_use]
     pub fn can_undo(&self) -> bool {
-        !self.undo.is_empty()
+        self.history.can_undo()
     }
 
     #[must_use]
     pub fn can_redo(&self) -> bool {
-        !self.redo.is_empty()
+        self.history.can_redo()
     }
 
     fn after_history(&mut self) {
@@ -106,24 +100,21 @@ impl Editor {
         let ids: Vec<u64> = self.slide().elements.iter().map(|e| e.id).collect();
         self.selection.retain_in(ids);
         self.editing = None;
-        self.transforming = false;
         self.dirty = true;
     }
 
     pub fn undo(&mut self) -> bool {
-        let Some(deck) = self.undo.pop() else {
+        if !self.history.undo(&mut self.deck) {
             return false;
-        };
-        self.redo.push(core::mem::replace(&mut self.deck, deck));
+        }
         self.after_history();
         true
     }
 
     pub fn redo(&mut self) -> bool {
-        let Some(deck) = self.redo.pop() else {
+        if !self.history.redo(&mut self.deck) {
             return false;
-        };
-        self.undo.push(core::mem::replace(&mut self.deck, deck));
+        }
         self.after_history();
         true
     }
@@ -317,10 +308,11 @@ impl Editor {
     /// take `frames`. The first step of a drag takes the undo snapshot;
     /// `commit` ends the drag.
     pub fn transform(&mut self, indices: &[usize], frames: &[Frame], commit: bool) {
-        if !self.transforming {
-            self.checkpoint();
-            self.transforming = true;
-        }
+        // Every step of one drag is the same undo step: the deck is cloned
+        // only for the first.
+        let Self { history, deck, .. } = self;
+        history.checkpoint_with("Move", Some("transform"), || deck.clone());
+        self.dirty = true;
         let slide = self.slide_mut();
         for (&i, f) in indices.iter().zip(frames) {
             if let Some(e) = slide.elements.get_mut(i) {
@@ -328,7 +320,7 @@ impl Editor {
             }
         }
         if commit {
-            self.transforming = false;
+            self.history.seal();
         }
     }
 
