@@ -18317,6 +18317,10 @@ pub fn process_debug_event(
 
             new_state.keyboard_seat_mut(*seat).pressed_virtual_keycodes =
                 VirtualKeyCodeVec::from_vec(pressed_keys);
+            // `modifiers` is what a callback's `get_key_modifiers()` reads;
+            // every native backend re-derives it after touching the pressed
+            // set, and so must the op, or Shift+8 reaches the app as 8.
+            new_state.keyboard_seat_mut(*seat).sync_modifiers();
             callback_info.modify_window_state(new_state);
             // NOTE: Do NOT set needs_update = true here!
             // modify_window_state() pushes a CallbackChange::ModifyWindowState which
@@ -18395,6 +18399,10 @@ pub fn process_debug_event(
 
             new_state.keyboard_seat_mut(*seat).pressed_virtual_keycodes =
                 VirtualKeyCodeVec::from_vec(pressed_keys);
+            // `modifiers` is what a callback's `get_key_modifiers()` reads;
+            // every native backend re-derives it after touching the pressed
+            // set, and so must the op, or Shift+8 reaches the app as 8.
+            new_state.keyboard_seat_mut(*seat).sync_modifiers();
             callback_info.modify_window_state(new_state);
             // NOTE: Do NOT set needs_update = true here!
             // Same as KeyDown - modify_window_state handles event processing internally.
