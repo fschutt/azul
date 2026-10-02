@@ -1884,9 +1884,9 @@ fn real_table_cells_center_their_text_vertically() {
          EVERY alignment gives ~0), got y_offset={y}"
     );
 
-    // End-to-end glyph check: the white header glyphs must start ~2px
-    // (border) + 10px (padding) + a small cap-vs-ascent gap below the cell
-    // top, like Chrome. The regression painted them ~9px lower.
+    // End-to-end glyph check: the white header glyphs' baseline sits the
+    // cell's top border + 10px (padding) + an ascent below the cell top,
+    // like Chrome. The regression painted them ~9px lower.
     use azul_layout::solver3::display_list::DisplayListItem;
     let th_rect = lw_rect_of(&layout_window, 4);
     let result = layout_window
@@ -1904,8 +1904,13 @@ fn real_table_cells_center_their_text_vertically() {
         }
     }
     let baseline_y = glyph_min_y.expect("no white glyphs in the display list");
-    // baseline sits at border(2) + padding(10) + ascent(~15.2 at 14px)
-    let expected = th_rect.origin.y + 2.0 + 10.0 + 15.2;
+    // The cell's top border is HALF of the collapsed 2px edge (CSS 2.2
+    // 17.6.2: the other half is the table's border, above the cell top -
+    // the cell starts at y=1), then 10px of padding, then the first line's
+    // baseline: an ascent plus the half-leading of `line-height: normal`,
+    // ~0.91 em at 14px for the default serif face (Times: 0.89 em ascent;
+    // DejaVu Serif 0.93 em).
+    let expected = th_rect.origin.y + 1.0 + 10.0 + 12.8;
     assert!(
         (baseline_y - expected).abs() < 3.0,
         "header glyph baseline must sit at the padding-box top plus the ascent ({expected:.1}), \
