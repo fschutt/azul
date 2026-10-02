@@ -223,6 +223,9 @@ pub struct DatePicker {
     pub range_end: OptionDatePickerState,
     /// What the picker picks: a day, a month or an ISO week.
     pub mode: DatePickerMode,
+    /// The weekday the date grid's rows start on (Sunday by default); the
+    /// week picker's grid is always Monday-first (ISO 8601).
+    pub week_start: DatePickerWeekStart,
     /// The widget theme this widget is PINNED to (`with_theme`), or `None`
     /// to follow the app theme (`AppConfig::with_theme`,
     /// `CallbackInfo::set_theme`; flat unless the app chose another).
@@ -1114,9 +1117,22 @@ impl DatePicker {
             range_start: OptionDatePickerState::None,
             range_end: OptionDatePickerState::None,
             mode: DatePickerMode::Date,
+            week_start: DatePickerWeekStart::Sunday,
             theme: crate::widgets::themes::OptionUiTheme::None,
             inline: false,
         }
+    }
+
+    /// The weekday the date grid's rows start on (see [`Self::week_start`]).
+    pub const fn set_week_start(&mut self, week_start: DatePickerWeekStart) {
+        self.week_start = week_start;
+    }
+
+    /// [`Self::set_week_start`] for the builder chain.
+    #[must_use]
+    pub const fn with_week_start(mut self, week_start: DatePickerWeekStart) -> Self {
+        self.set_week_start(week_start);
+        self
     }
 
     /// Pin the widget theme: the picker keeps this look whatever the app
@@ -1300,6 +1316,7 @@ pub(crate) fn build(picker: DatePicker, look: &DatePickerLook) -> Dom {
         let value = format_value(&inner, mode);
 
         let inline = picker.inline;
+        let week_start = picker.week_start;
         let shared = RefAny::new(DatePickerData {
             state: picker.state,
             open: false,
@@ -1327,28 +1344,28 @@ pub(crate) fn build(picker: DatePicker, look: &DatePickerLook) -> Dom {
             ],
             DatePickerMode::Week => alloc::vec![
                 build_header_in(year, month, shared.clone(), look),
-                build_weekday_row_from(WeekStart::Monday, look),
+                build_weekday_row_from(DatePickerWeekStart::Monday, look),
                 build_grid_with(
                     year,
                     month,
                     sel_day,
                     marks,
                     shared.clone(),
-                    WeekStart::Monday,
+                    DatePickerWeekStart::Monday,
                     true,
                     look
                 ),
             ],
             DatePickerMode::Date => alloc::vec![
                 build_header_in(year, month, shared.clone(), look),
-                build_weekday_row_from(WeekStart::Sunday, look),
+                build_weekday_row_from(week_start, look),
                 build_grid_with(
                     year,
                     month,
                     sel_day,
                     marks,
                     shared.clone(),
-                    WeekStart::Sunday,
+                    week_start,
                     false,
                     look
                 ),
@@ -1467,15 +1484,21 @@ pub(crate) fn build(picker: DatePicker, look: &DatePickerLook) -> Dom {
     }
 }
 
-/// Which weekday a calendar row starts on: the date grid is Sunday-first (as
-/// it always was), the ISO week grid Monday-first so one row IS one week.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-enum WeekStart {
+/// Which weekday a calendar row starts on. The date grid starts on the
+/// picker's [`DatePicker::week_start`] (Sunday unless the app says Monday -
+/// a calendar whose weeks run Monday to Sunday); the ISO week grid is always
+/// Monday-first, so one row IS one week.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum DatePickerWeekStart {
+    /// Rows run Sunday to Saturday (the US convention; the default).
+    #[default]
     Sunday,
+    /// Rows run Monday to Sunday (ISO 8601, most of Europe).
     Monday,
 }
 
-impl WeekStart {
+impl DatePickerWeekStart {
     /// Blank cells before the 1st of `year`/`month` in a row starting on this
     /// day.
     fn leading_blanks(self, year: u32, month: u32) -> u32 {
@@ -1530,14 +1553,14 @@ fn build_header_in(year: u32, month: u32, shared: RefAny, look: &DatePickerLook)
 /// The Sunday-first weekday header of the date grid, in the established look.
 #[cfg(test)]
 fn build_weekday_row() -> Dom {
-    build_weekday_row_from(WeekStart::Sunday, &DatePickerLook::established())
+    build_weekday_row_from(DatePickerWeekStart::Sunday, &DatePickerLook::established())
 }
 
 /// The weekday header, starting on `start`.
-fn build_weekday_row_from(start: WeekStart, look: &DatePickerLook) -> Dom {
+fn build_weekday_row_from(start: DatePickerWeekStart, look: &DatePickerLook) -> Dom {
     let offset = match start {
-        WeekStart::Sunday => 0,
-        WeekStart::Monday => 1,
+        DatePickerWeekStart::Sunday => 0,
+        DatePickerWeekStart::Monday => 1,
     };
     let cells: Vec<Dom> = WEEKDAY_NAMES
         .iter()
@@ -1566,7 +1589,7 @@ fn build_grid(year: u32, month: u32, sel_day: u32, shared: RefAny) -> Dom {
         sel_day,
         DayMarks::default(),
         shared,
-        WeekStart::Sunday,
+        DatePickerWeekStart::Sunday,
         false,
         &DatePickerLook::established(),
     )
@@ -1581,7 +1604,7 @@ fn build_grid_with(
     sel_day: u32,
     marks: DayMarks,
     shared: RefAny,
-    start: WeekStart,
+    start: DatePickerWeekStart,
     whole_week: bool,
     look: &DatePickerLook,
 ) -> Dom {
