@@ -1100,6 +1100,7 @@ dependencies = [
  "objc2 0.6.4",
  "objc2-foundation 0.3.2",
  "png",
+ "pulldown-cmark",
  "regex-lite",
  "roxmltree 0.21.1",
  "rust-fontconfig",

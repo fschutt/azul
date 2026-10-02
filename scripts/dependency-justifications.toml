@@ -598,6 +598,8 @@ fallible-iterator = "Fallible iterator trait used by addr2line/gimli."
 ucd-trie = "Compressed Unicode trie used by regex-syntax."
 utf8_iter = "Iterate UTF-8 by char without prior validation — used by ICU4X (icu_collections)."
 utf16_iter = "Iterate UTF-16 by code point — used by ICU4X (icu_collator)."
+pulldown-cmark = "CommonMark parser (no default features): the Markdown reader of the shared rich-text editor (azul-layout feature rich_text_markdown; AzNotes / AzWriter documents)."
+unicase = "Case-insensitive string comparison under pulldown-cmark (link reference labels)."
 
 # === wasm / web target glue ===
 wasm-bindgen = "WebAssembly/web target glue (azul's wasm build)."

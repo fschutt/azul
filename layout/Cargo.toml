@@ -153,6 +153,12 @@ spmc = { version = "0.3", optional = true }
 # Platform-specific user directories (home, config, cache, etc.)
 dirs = { version = "6.0", default-features = false, optional = true }
 
+# CommonMark reader of the shared rich-text editor (`widgets::rich_text::markdown`,
+# feature `rich_text_markdown`): the Markdown AzNotes and AzWriter store. The same
+# version and features the two apps already locked (supply-chain/config.toml
+# exemption, build-script-policy "audited").
+pulldown-cmark = { version = "0.9", default-features = false, optional = true }
+
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tfd = { version = "0.1", optional = true }
 
@@ -229,7 +235,11 @@ std = ["azul-core/std", "regex-lite?/std"]
 strfmt = ["dep:strfmt", "std"]
 
 # Widget support (button, text_input, checkbox, etc.)
-widgets = ["text_layout", "strfmt"]
+widgets = ["text_layout", "strfmt", "rich_text_markdown"]
+
+# The rich-text editor's Markdown READER (`RichTextDoc::from_markdown`); the
+# writers (Markdown, HTML, plain text) need no dependency.
+rich_text_markdown = ["dep:pulldown-cmark", "std"]
 
 # Extra APIs (native dialogs, file operations). The dialogs are resumable
 # (`FileDialog::open_file(.., data, on_result)`), so they need the callback
