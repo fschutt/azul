@@ -66,11 +66,7 @@ fn small(b: RibbonButton) -> RibbonItem {
 }
 
 fn column(items: Vec<RibbonItem>) -> RibbonItem {
-    RibbonItem::Column(
-        items
-            .into_iter()
-            .fold(RibbonColumn::create(), |c, it| c.with_item(it)),
-    )
+    RibbonItem::Column(RibbonColumn::create().with_items(items.into()))
 }
 
 /// A check box with its label (Show/hide): both toggle `which`.
@@ -110,11 +106,7 @@ extern "C" fn on_check(mut data: RefAny, mut info: CallbackInfo, _state: CheckBo
 }
 
 fn group(label: &str, items: Vec<RibbonItem>) -> RibbonGroup {
-    items
-        .into_iter()
-        .fold(RibbonGroup::create(AzString::from(label)), |g, it| {
-            g.with_item(it)
-        })
+    RibbonGroup::create(AzString::from(label)).with_items(items.into())
 }
 
 fn home_tab(s: &DriveState, app: &RefAny) -> RibbonTab {

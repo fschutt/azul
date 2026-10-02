@@ -143,19 +143,11 @@ fn item_menu(icon: &str, label: &str) -> RibbonItem {
 }
 
 fn row(items: Vec<RibbonItem>) -> RibbonItem {
-    RibbonItem::Row(
-        items
-            .into_iter()
-            .fold(RibbonRow::create(), |r, it| r.with_item(it)),
-    )
+    RibbonItem::Row(RibbonRow::create().with_items(items.into()))
 }
 
 fn column(items: Vec<RibbonItem>) -> RibbonItem {
-    RibbonItem::Column(
-        items
-            .into_iter()
-            .fold(RibbonColumn::create(), |c, it| c.with_item(it)),
-    )
+    RibbonItem::Column(RibbonColumn::create().with_items(items.into()))
 }
 
 fn cell(preview_css: String, sample: &str, name: &str) -> RibbonGalleryCell {

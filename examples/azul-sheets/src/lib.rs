@@ -1194,23 +1194,15 @@ fn toggle(app: &RefAny, icon: &str, label: &str, action: Action, on: bool) -> Ri
 }
 
 fn column(items: Vec<RibbonItem>) -> RibbonItem {
-    RibbonItem::Column(
-        items
-            .into_iter()
-            .fold(RibbonColumn::create(), |c, it| c.with_item(it)),
-    )
+    RibbonItem::Column(RibbonColumn::create().with_items(items.into()))
 }
 
 fn group(label: &str, items: Vec<RibbonItem>) -> RibbonGroup {
-    items
-        .into_iter()
-        .fold(RibbonGroup::create(AzString::from(label)), |g, it| g.with_item(it))
+    RibbonGroup::create(AzString::from(label)).with_items(items.into())
 }
 
 fn tab(label: &str, groups: Vec<RibbonGroup>) -> RibbonTab {
-    groups
-        .into_iter()
-        .fold(RibbonTab::create(AzString::from(label)), |t, g| t.with_group(g))
+    RibbonTab::create(AzString::from(label)).with_groups(groups.into())
 }
 
 fn ribbon(s: &AppState, app: &RefAny) -> Dom {
