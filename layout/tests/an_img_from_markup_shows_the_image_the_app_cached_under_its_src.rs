@@ -10,6 +10,14 @@
 //! the same ids `background-image: url(..)` resolves against): the `<img>` then
 //! lays out at the picture's size and paints it, like a browser's.
 //!
+//! A src nobody supplied stays in the display list as the placeholder carrying
+//! its src - a renderer that fetches pictures itself (printpdf's HTML bridge
+//! lays out with an empty image cache and resolves `NullImage { tag: src }`)
+//! reads it there - and the window's renderers draw nothing for it: WebRender
+//! has no image to upload for a `NullImage`, and the CPU renderer must agree
+//! (it painted the grey "no GPU / not produced yet" placeholder over a
+//! 300x150 box).
+//!
 //! Not compiled by the author (house rule); expected RED before the fix.
 
 use azul_core::{
@@ -117,12 +125,57 @@ fn an_img_whose_src_is_cached_paints_the_picture() {
     );
 }
 
+/// The display list's image items: (carries pixels, the placeholder's src).
+fn image_items(lw: &LayoutWindow) -> Vec<(bool, Option<String>)> {
+    lw.layout_results[&DomId::ROOT_ID]
+        .display_list
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            DisplayListItem::Image { image, .. } => Some((
+                image.is_raw_image(),
+                image.source_tag().map(str::to_string),
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn an_img_whose_src_is_not_cached_keeps_its_src_for_a_renderer_that_fetches_it() {
+    let lw = laid_out(None);
+    let items = image_items(&lw);
+    assert!(
+        items
+            .iter()
+            .all(|(pixels, src)| !*pixels && src.as_deref() == Some(SRC)),
+        "no pixels, only the placeholder naming its src: {items:?}"
+    );
+}
+
+#[cfg(all(
+    feature = "cpurender",
+    feature = "text_layout",
+    feature = "font_loading"
+))]
 #[test]
 fn an_img_whose_src_is_not_cached_paints_nothing() {
-    let lw = laid_out(None);
-    assert!(
-        painted_images(&lw).iter().all(|(w, h)| *w <= 0.0 || *h <= 0.0),
-        "a picture nobody fetched is not drawn: {:?}",
-        painted_images(&lw)
+    use azul_layout::cpurender::{render_dom_to_image, AzulPixmap};
+
+    let parsed = azul_layout::xml::parse_xml(MAIL).expect("the mail parses");
+    let dom = azul_layout::xml::dom_from_parsed_xml(parsed);
+    let png = render_dom_to_image(dom, azul_css::css::Css::empty(), 800.0, 600.0, 1.0)
+        .expect("the mail renders");
+    let pixmap = AzulPixmap::decode_png(&png).expect("a png");
+    // Inside the img's box (300x150 at the top left, with or without the
+    // body's margin): the page shows through, white.
+    let (x, y) = (150u32, 75u32);
+    let at = ((y * pixmap.width() + x) * 4) as usize;
+    let rgb = (pixmap.data()[at], pixmap.data()[at + 1], pixmap.data()[at + 2]);
+    assert_eq!(
+        rgb,
+        (255, 255, 255),
+        "a picture nobody fetched is not drawn (grey is the placeholder of an image that \
+         exists but has no pixels yet)"
     );
 }
