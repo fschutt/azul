@@ -34,11 +34,13 @@ A16; DEDUP_WIDGETS_API F2, F6, F29.
 - 52d7636d2 AzDrive Selection = thin adapter over ListSelection
 - a06621bbc RED appkit history.rs (UndoHistory) ; a2567bbba GREEN
 - 7369b65ff AzPhoto on UndoHistory (raster/history.rs removed) ; 724b9a147 AzVideoCut ; fd3623512 AzShow
+- a94735330 RED pane modules wrap ; f30151254 GREEN ; 24a191049 ModuleSwitcher removed, showcase on the pane
+- f3b516785 RED CloseGuard + prevent_window_close ; b994e2617 GREEN
 
 ## IN PROGRESS
 
 ## NEXT
-- (A selection model: DONE) (B undo: DONE)
-- C switcher; D close guard; E presets; F report scripts/BLOCKS_2026_10_02.md.
+- (A selection model, B undo, C switcher, D close guard: DONE)
+- E presets: drop the chrome copies from the S-shells (office_shell() ones), fix call sites; F report.
 
 ## Open questions for the user
