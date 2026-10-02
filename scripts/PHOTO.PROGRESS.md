@@ -17,16 +17,13 @@ updates by dirty rect); tests; `scripts/azphoto_e2e.py`; report `scripts/PHOTO_2
 - the app crate (see NEXT)
 
 ## NEXT
-- DONE (app): view 63795c3db, storage 84d7673b7, args 1be2d10a3, state 051a51d95+69ca8c842
-  (77 tests pass in scratch: raster+view+state), codec 45e77d5b3, lib+jobs d1c39ff03,
-  canvas 1e24ff93f, commands 97f537f08.
-- next: src/ui.rs - `pub extern "C" fn layout(data, info) -> Dom` (mode -> s.set_dark,
-  canvas_image None), start screen, CanvasShell (menu row from one Menu table + native
-  with_menu_bar on macOS, options bar per tool, tools column with ids Tool::dom_id, doc tab,
-  canvas = rulers + canvas::canvas_dom, panels Color/Layers/Adjustments/Properties/
-  History/Navigator, StatusBar with CURSOR_MARKER), sheets (New, Export, Image/Canvas size,
-  Blur, Sharpen, Rotate, Feather, About, Settings on ShellSettingsLayout), window key
-  callback canvas::on_key. Write in pieces, commit each.
+- DONE (app): view 63795c3db, storage 84d7673b7, args 1be2d10a3, state 051a51d95+69ca8c842,
+  codec 45e77d5b3, lib+jobs d1c39ff03, canvas 1e24ff93f, commands 97f537f08,
+  ui e75b54765..15ec67f64 (menus, options, tools, panels, rulers, status, start, sheets, layout).
+- IN PROGRESS: scratch type check of the whole app against the REAL generated bindings
+  (scratchpad/photo/tc/azul_real.rs includes target/codegen/{dll_api_external,reexports}.rs;
+  build_azul_meta.sh under run_capped) - next: add `extern crate alloc;`, then a
+  check_app.sh that type-checks src/ with azul_storage + serde stubbed; fix what it finds.
 - then: registration (root Cargo.toml member, workspace_test_members.txt, rust.yml step),
   scripts/azphoto_e2e.py, report scripts/PHOTO_2026_10_01.md.
 
