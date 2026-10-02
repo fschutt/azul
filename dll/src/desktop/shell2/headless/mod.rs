@@ -12299,7 +12299,7 @@ mod tests {
             let r: &mut RefAny = &mut g;
             if let Some(mut host) = r.downcast_mut::<WorkerHost>() {
                 host.show = false;
-            }
+            };
         }
         window.regenerate_layout().expect("the node unmounts");
 
@@ -12448,7 +12448,10 @@ mod child_window_tests {
     extern "C" fn child_created(data: RefAny, mut info: CallbackInfo) -> Update {
         CHILD_CREATED.fetch_add(1, Ordering::SeqCst);
         let get_time = info.get_system_time_fn();
-        info.add_timer(TimerId::unique(), Timer::create(data, child_timer, get_time));
+        info.add_timer(
+            TimerId::unique(),
+            Timer::create(data, child_timer as azul_layout::timer::TimerCallbackType, get_time),
+        );
         Update::DoNothing
     }
 
@@ -12485,7 +12488,8 @@ mod child_window_tests {
     fn a_window_opened_from_a_callback_is_laid_out_and_runs_its_timers() {
         let mut root = root();
         let mut child = window(child_layout, "child");
-        child.create_callback = Some(Callback::create(child_created)).into();
+        child.create_callback =
+            Some(Callback::create(child_created as azul_layout::callbacks::CallbackType)).into();
         root.queue_window_create(child);
         root.pump_children();
         assert_eq!(root.children.len(), 1, "the child window exists");
@@ -12524,7 +12528,14 @@ mod child_window_tests {
 
     extern "C" fn child_refreshing_everything(data: RefAny, mut info: CallbackInfo) -> Update {
         let get_time = info.get_system_time_fn();
-        info.add_timer(TimerId::unique(), Timer::create(data, refresh_all_timer, get_time));
+        info.add_timer(
+            TimerId::unique(),
+            Timer::create(
+                data,
+                refresh_all_timer as azul_layout::timer::TimerCallbackType,
+                get_time,
+            ),
+        );
         Update::DoNothing
     }
 
@@ -12542,7 +12553,10 @@ mod child_window_tests {
         let _ = root.common.take_regeneration();
         let before = ROOT_LAYOUTS.load(Ordering::SeqCst);
         let mut child = window(quiet_child_layout, "child");
-        child.create_callback = Some(Callback::create(child_refreshing_everything)).into();
+        child.create_callback = Some(Callback::create(
+            child_refreshing_everything as azul_layout::callbacks::CallbackType,
+        ))
+        .into();
         root.queue_window_create(child);
         for _ in 0..3 {
             root.pump_children();
