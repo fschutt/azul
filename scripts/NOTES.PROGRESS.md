@@ -65,11 +65,16 @@ parse-checked with `rustfmt --edition 2021 --check`.
 - The background review subagent was cut by the session limit (no findings). Do the review by
   reading, no subagents (coordinator, 2026-10-02).
 
-## IN PROGRESS (precise next steps, in order)
-1. Compile review by reading, file by file, committing fixes per file: lib.rs, args.rs,
-   look.rs, sample.rs, store.rs, model.rs, doc.rs, markdown.rs (done: editor.rs, jobs.rs
-   partly), ui.rs (sections a-g).
-2. Update the report's commit list and "least sure" list; commit.
+- Compile review by reading done for every file (no more findings beyond the fixes above);
+  report updated `847c31ec2`.
+
+## IN PROGRESS
+- nothing: the task is complete. Last commit: the report update.
+
+## NEXT (for the parent)
+- autofix api.json (MessageListMark, MessageList.mark / set_mark / with_mark), compile, run
+  the commands in scripts/NOTES_2026_10_01.md ("Test commands"), the E2E through the capped
+  runner, look at the screenshots.
 
 ## Decisions (made unattended, for the report)
 - D1 The editor is app-local for this pass (`examples/azul-notes/src/editor.rs` +
