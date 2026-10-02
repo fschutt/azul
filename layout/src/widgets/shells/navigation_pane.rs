@@ -1082,7 +1082,7 @@ mod navigation_pane_tests {
     }
 
     #[test]
-    fn down_moves_the_stop_to_the_next_module_and_home_to_the_first() {
+    fn down_moves_the_stop_to_the_next_module_home_to_the_first_and_both_ends_wrap() {
         let (dom, _) = logged();
         let styled = StyledDom::create_from_dom(dom.clone());
         let modules = indices_of(&dom, MODULE_CLASS);
@@ -1091,8 +1091,11 @@ mod navigation_pane_tests {
         assert!(rv::prevented(&changes));
         let (_, changes) = rv::press(&styled, node(modules[2]), VirtualKeyCode::Home, &[]).expect("keys");
         assert_eq!(rv::focus_request(&changes), Some(node(modules[0])));
+        // WAI-ARIA APG tabs: the module buttons wrap at the ends.
         let (_, changes) = rv::press(&styled, node(modules[2]), VirtualKeyCode::Down, &[]).expect("keys");
-        assert_eq!(rv::focus_request(&changes), Some(node(modules[2])), "the ends hold");
+        assert_eq!(rv::focus_request(&changes), Some(node(modules[0])), "Down on the last wraps to the first");
+        let (_, changes) = rv::press(&styled, node(modules[0]), VirtualKeyCode::Up, &[]).expect("keys");
+        assert_eq!(rv::focus_request(&changes), Some(node(modules[2])), "Up on the first wraps to the last");
         let (_, changes) =
             rv::press(&styled, node(modules[0]), VirtualKeyCode::Down, &[VirtualKeyCode::LControl]).expect("keys");
         assert!(rv::focus_request(&changes).is_none(), "Ctrl+Down is the app's");
