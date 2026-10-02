@@ -157,6 +157,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "AzTasks"
+version = "0.1.0"
+dependencies = [
+ "azul-dll",
+ "azul-storage",
+ "chrono",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "AzVideoCut"
 version = "0.1.0"
 dependencies = [
