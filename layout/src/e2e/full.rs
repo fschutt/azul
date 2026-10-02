@@ -18314,6 +18314,21 @@ pub fn process_debug_event(
             if modifiers.meta && !pressed_keys.contains(&VirtualKeyCode::LWin) {
                 pressed_keys.push(VirtualKeyCode::LWin);
             }
+            // ...and the ones it says are NOT held come up, as `KeyUp` reads
+            // them: an op's modifiers are the whole modifier state at its key.
+            // A script's Shift+8 tap ends with `key_up 8 {shift}`, so the next
+            // `key_down 6 {}` typed with Shift still held (7 Shift+8 6 -> 7 x ^).
+            // The key pressed itself stays: `key_down LShift {}` presses Shift.
+            let this_key = parse_virtual_keycode(key);
+            let released = |k: &VirtualKeyCode, held: bool, pair: [VirtualKeyCode; 2]| {
+                !held && pair.contains(k) && this_key != Some(*k)
+            };
+            pressed_keys.retain(|k| {
+                !(released(k, modifiers.shift, [VirtualKeyCode::LShift, VirtualKeyCode::RShift])
+                    || released(k, modifiers.ctrl, [VirtualKeyCode::LControl, VirtualKeyCode::RControl])
+                    || released(k, modifiers.alt, [VirtualKeyCode::LAlt, VirtualKeyCode::RAlt])
+                    || released(k, modifiers.meta, [VirtualKeyCode::LWin, VirtualKeyCode::RWin]))
+            });
 
             new_state.keyboard_seat_mut(*seat).pressed_virtual_keycodes =
                 VirtualKeyCodeVec::from_vec(pressed_keys);
