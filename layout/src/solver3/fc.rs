@@ -8834,8 +8834,8 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
     // container's). Laid out as one IFC, the block was not laid out and the
     // clearing below wiped its text. Only a cell whose children are ALL
     // inline-level establishes an inline formatting context (9.4.2).
-    let has_text_children = cell_dom_id
-        .is_some_and(|dom_id| cell_is_inline_formatting_context(ctx.styled_dom, dom_id));
+    let has_text_children =
+        cell_dom_id.is_some_and(|dom_id| cell_is_inline_formatting_context(ctx.styled_dom, dom_id));
 
     debug_table_layout!(
         ctx,
@@ -9688,9 +9688,14 @@ fn position_table_cells<T: ParsedFontTrait>(
         if !cell_has_inline {
             let vertical_align = cell_vertical_align(ctx.styled_dom, cell_dom_node_id);
             let children: Vec<usize> = tree.children(cell_info.node_index).to_vec();
-            // Natural content height = furthest in-flow child bottom edge,
-            // measured from the cell content-box top (relative_position is
-            // relative to the parent content box).
+            // Natural content height = furthest in-flow child bottom MARGIN
+            // edge, measured from the cell content-box top (relative_position
+            // is relative to the parent content box). A cell is a BFC root:
+            // the last child's bottom margin stays inside it (CSS 2.2
+            // 10.6.7), and the row height (`layout_cell_for_height`, the
+            // cell's laid-out content height) counts it - measured to the
+            // border edge, content that filled its cell was moved down by
+            // half its bottom margin.
             let mut content_height = 0.0f32;
             let mut inflow: Vec<usize> = Vec::new();
             for &c in &children {
@@ -9705,11 +9710,13 @@ fn position_table_cells<T: ParsedFontTrait>(
                     .warm(LayoutNodeId::new(c))
                     .and_then(|w| w.relative_position)
                     .map_or(0.0, |p| p.y);
-                let h = tree
-                    .get(LayoutNodeId::new(c))
-                    .and_then(|n| n.used_size)
-                    .map_or(0.0, |s| s.height);
-                content_height = content_height.max(top + h);
+                let (h, margin_end) = tree.get(LayoutNodeId::new(c)).map_or((0.0, 0.0), |n| {
+                    (
+                        n.used_size.map_or(0.0, |s| s.height),
+                        n.box_props.unpack().margin.main_end(writing_mode),
+                    )
+                });
+                content_height = content_height.max(top + h + margin_end);
                 inflow.push(c);
             }
             let content_box_height = height
