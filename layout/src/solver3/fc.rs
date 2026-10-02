@@ -3831,12 +3831,17 @@ fn split_into_columns<T: ParsedFontTrait>(
             warm.relative_position = Some(pos);
         }
     }
-    // Its box is what stays in its first column.
+    // Its box is what stays in its first column - and so is its content
+    // extent. The overflow size its single-column pass stored still reached
+    // the whole unsplit height below the box, and the painter's content rect
+    // (`get_scroll_content_size` takes the larger of the two) carried it
+    // into the paged extent: 80px columns made a 163px document.
+    let first_column = LogicalSize::new(size.width, (next_column_start - flow_box.top).max(0.0));
     if let Some(node) = tree.get_mut(LayoutNodeId::new(child)) {
-        node.used_size = Some(LogicalSize::new(
-            size.width,
-            (next_column_start - flow_box.top).max(0.0),
-        ));
+        node.used_size = Some(first_column);
+    }
+    if let Some(warm) = tree.warm_mut(LayoutNodeId::new(child)) {
+        warm.overflow_content_size = Some(first_column);
     }
     Ok(())
 }
