@@ -2469,4 +2469,18 @@ mod attribute_getter_tests {
         assert_eq!(node.get_attribute("id"), None, "data-id is not id");
         assert_eq!(NodeData::create_div().get_attributes().len(), 0);
     }
+
+    /// A text node's text, read without dereferencing its payload by hand
+    /// (AzWriter, AzNotes and AzMail each carried an `unsafe` `box_str`,
+    /// DEDUP_EDITORS D3 / B9, DEDUP_WIDGETS_API F14).
+    #[test]
+    fn a_text_nodes_text_reads_back_and_other_nodes_have_none() {
+        let text = Dom::create_text_do_not_use_without_block_level_wrapper("Hello");
+        assert_eq!(
+            text.root.get_node_type().get_text().map(|t| t.as_str().to_string()),
+            Some(String::from("Hello"))
+        );
+        assert_eq!(NodeType::Div.get_text(), None);
+        assert_eq!(NodeType::Br.get_text(), None);
+    }
 }

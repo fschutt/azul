@@ -928,6 +928,18 @@ impl NodeType {
         }
     }
 
+    /// The text a text node holds (owned); `None` for every other node.
+    /// The safe way to read a `Text` payload: the `BoxOrStaticString` it
+    /// carries is a raw pointer in the C API, and three editors dereferenced
+    /// it by hand (`unsafe`).
+    #[must_use]
+    pub fn get_text(&self) -> Option<AzString> {
+        match self {
+            Self::Text(s) => Some(s.as_ref().clone()),
+            _ => None,
+        }
+    }
+
     /// Returns the `NodeTypeTag` for CSS selector matching.
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     #[must_use]
