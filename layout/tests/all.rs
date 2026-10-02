@@ -738,3 +738,5 @@ mod an_auto_height_block_stops_growing_at_its_max_height;
 mod a_gmail_quote_is_indented_by_its_ex_margin;
 #[path = "an_unresolved_img_from_markup_takes_no_space.rs"]
 mod an_unresolved_img_from_markup_takes_no_space;
+#[path = "a_blank_line_is_as_tall_as_a_line_of_text.rs"]
+mod a_blank_line_is_as_tall_as_a_line_of_text;
