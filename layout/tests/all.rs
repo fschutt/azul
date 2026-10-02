@@ -738,3 +738,5 @@ mod text_beside_an_italic_or_bold_box_keeps_a_font;
 mod a_rows_stray_child_sits_in_an_anonymous_cell;
 #[path = "an_inline_block_contributes_its_clamped_padded_width.rs"]
 mod an_inline_block_contributes_its_clamped_padded_width;
+#[path = "a_cells_vertical_align_counts_its_last_childs_bottom_margin.rs"]
+mod a_cells_vertical_align_counts_its_last_childs_bottom_margin;
