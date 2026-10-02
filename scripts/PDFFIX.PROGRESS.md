@@ -76,9 +76,10 @@ just to make the one layout work".
 - 60ccc01c2 RED + cf4ab81b2 fix: paged TextLayout of a split paragraph (lines above its box)
   keeps them inside its bounds (display_list.rs paint_inline_content, `lines_above`)
 
+- report scripts/PDFFIX_2026_10_02.md written
+
 ## NEXT
-- report scripts/PDFFIX_2026_10_02.md (self-review of compile-risk spots done: LayoutConstraints
-  13 literals / 13 column_flow; UnifiedConstraints only fc.rs literal is exhaustive)
+- nothing: task complete; the parent compiles and runs the commands in the report.
 - NOTE: commit messages ALWAYS via -F file (backticks in -m got shell-evaluated once).
 
 ## Open questions / decisions
