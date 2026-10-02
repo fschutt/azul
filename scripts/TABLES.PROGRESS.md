@@ -20,10 +20,15 @@ Branch `wt/tables` from `2e92c759b`. Brief: scratchpad/wave5/TABLES.md. Report: 
 - 1624bc60d RED / 8502418d9 FIX: atomic inline contributions (max-width clamp in stored intrinsic sizes,
   margin-box shapes, separate min-content scan). -> cerberus hybrid/responsive/fluid tables.
 - bd750b08b RED / 2db332ee0 FIX: cell vertical-align counts last child's bottom margin. -> postmark.
+- 303d81844 RED / 22661a53e FIX: <br> ends a line of the intrinsic measurement (sizing). -> 04_receipt.
+- 73195eff6 RED / 963ba093c FIX: a cell's inline-blocks get the positions their line gave them
+  (layout_cell_for_height publishes; vertical-align shift moves them). -> postmark button labels.
+- b998b2bb0 RED / 03ba7769c FIX: whitespace beside a table's inline children kept
+  (layout_tree::table_relevant_children, both builders); WPT whitespace-001, anonymous-table-ws-001 out.
+- 5e81932cd RED / 66af7e730 FIX: table baseline of a row w/o baseline cells; caption's own caption-side.
 
 ## IN PROGRESS
-- newsletters: next candidates 04_receipt (table azr-6 y +8), 02_gmail_reply, 01_newsletter (table azr-31
-  width -48), leemunroe (table azr-18 width -43), postmark receipt/welcome.
+- more feature probes (height attr, align attr floats, nowrap, % nested).
 
 ## NEXT
 1. Look at 01_newsletter azr-31 and leemunroe azr-18 (table width too narrow), 04_receipt azr-6.
