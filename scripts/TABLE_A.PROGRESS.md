@@ -35,8 +35,11 @@ Brief: scratchpad `TABLE_A_go.md` (widths, row groups, presentational attributes
     into used_size (800); layout_bfc takes `available_cross` from those constraints, so the 600px
     table had 0px to be centred in. FIX: a cell's table-given used_size is its used size there
     (commit "a table cell's children get the column").
-  - NEXT: #1/#2 (test premise:
-    whitespace between inline-blocks), then report section.
+  - #1/#2 width-cap tests: the table code is right (1000 / 500 are MIN; the cap and the floor
+    hold). ROOT CAUSE upstream: the intrinsic min-content of inline-blocks separated by
+    whitespace-only text = SUM of the boxes (spaces give no break and no width) - an inline
+    intrinsic bug, reported, not fixed here. Tests now measure prose (`table_markup::prose`).
+  - NEXT: report section "Parent run 2026-10-01: the five failures" + engine findings; commit.
 
 ## NEXT
 - parent: compile, run section 5 of the report, bless the WPT lists, send mail_boxes numbers.

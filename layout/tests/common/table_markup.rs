@@ -133,8 +133,36 @@ pub fn block(w: u32) -> String {
     format!("<i style=\"display: inline-block; width: {w}px; height: 10px\"></i>")
 }
 
+/// `n` words of prose: a max-content of several hundred px per ten words
+/// and a min-content of one word, whatever the font - for the tests that
+/// only need "wider than the container" and "narrower than it".
+///
+/// Not [`words`]: the intrinsic min-content of inline-blocks separated by
+/// whitespace-only text came out as the SUM of the boxes on the parent's
+/// run (2026-10-01: `words(10, 100)` measured 1000 px, `words(10, 50)`
+/// 500 px, spaces included in neither), so a table of them had no smaller
+/// minimum to shrink to (scripts/TABLE_A_2026_10_01.md, "engine findings").
+pub fn prose(n: usize) -> String {
+    const WORDS: [&str; 10] = [
+        "lorem",
+        "ipsum",
+        "dolor",
+        "sit",
+        "amet",
+        "consectetur",
+        "adipiscing",
+        "elit",
+        "sed",
+        "eiusmod",
+    ];
+    (0..n)
+        .map(|i| WORDS[i % WORDS.len()])
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// `n` fixed-size inline boxes of `w` px separated by spaces: min-content
-/// `w`, max-content about `n * w` (plus the spaces).
+/// `w`, max-content about `n * w` (plus the spaces) in a browser.
 pub fn words(n: usize, w: u32) -> String {
     (0..n).map(|_| block(w)).collect::<Vec<_>>().join(" ")
 }
