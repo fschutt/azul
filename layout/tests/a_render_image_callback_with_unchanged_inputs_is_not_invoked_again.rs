@@ -16,7 +16,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use azul_core::{
-    dom::Dom,
+    dom::{Dom, DomId, NodeId, NodeType},
     geom::LogicalSize,
     refany::RefAny,
     resources::{ImageRef, RawImageFormat, RendererResources},
@@ -39,19 +39,37 @@ extern "C" fn counting_canvas(_data: RefAny, _info: RenderImageCallbackInfo) -> 
     ImageRef::null_image(4, 4, RawImageFormat::BGRA8, Vec::new())
 }
 
-fn lay_out(lw: &mut LayoutWindow, canvas: &ImageRef, width: f32) {
-    let dom = Dom::create_body().with_child(
-        Dom::create_image(canvas.clone()).with_css(&format!("width: {width}px; height: 50px;")),
-    );
+/// Lay the canvas out in a window `window_width` wide. The canvas is a
+/// quarter of the window, so a resize of the WINDOW resizes it - the way a
+/// canvas changes size in an app. (Re-laying out an identical tree with a
+/// different inline `width` would not: the solver's reconcile is blind to a
+/// stylesheet change over an unchanged tree - that diff is staged by
+/// `begin_reconciliation`, which a bare `layout_and_generate_display_list`
+/// skips - so the box, and with it the canvas's inputs, would stay put.)
+fn lay_out(lw: &mut LayoutWindow, canvas: &ImageRef, window_width: f32) {
+    let dom = Dom::create_body()
+        .with_child(Dom::create_image(canvas.clone()).with_css("width: 25%; height: 50px;"));
     let styled = StyledDom::create_from_dom(dom);
     let mut ws = FullWindowState::default();
-    ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+    ws.size.dimensions = LogicalSize::new(window_width, 300.0);
     lw.current_window_state = ws.clone();
     let rr = RendererResources::default();
     let sc = ExternalSystemCallbacks::rust_internal();
     let mut dbg = None;
     lw.layout_and_generate_display_list(styled, &ws, &rr, &sc, &mut dbg)
         .expect("the canvas lays out");
+}
+
+/// The canvas's laid-out width, logical px.
+fn canvas_width(lw: &LayoutWindow) -> Option<isize> {
+    let sd = &lw.get_layout_result(&DomId::ROOT_ID)?.styled_dom;
+    let index = sd
+        .node_data
+        .as_ref()
+        .iter()
+        .position(|nd| matches!(nd.get_node_type(), NodeType::Image(_)))?;
+    lw.get_node_bounds(DomId::ROOT_ID, NodeId::new(index))
+        .map(|r| r.size.width)
 }
 
 #[test]
@@ -61,7 +79,7 @@ fn a_render_image_callback_with_unchanged_inputs_is_not_invoked_again() {
         RefAny::new(()),
     );
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
-    lay_out(&mut lw, &canvas, 100.0);
+    lay_out(&mut lw, &canvas, 400.0);
 
     lw.prepare_frame_content();
     assert_eq!(CALLS.load(Ordering::SeqCst), 1, "the first frame renders the canvas");
@@ -75,13 +93,20 @@ fn a_render_image_callback_with_unchanged_inputs_is_not_invoked_again() {
          invocation mints a new ImageRef and repaints its rect: the window never idles)"
     );
 
-    // A new box is a new input: the canvas renders at its new size.
-    lay_out(&mut lw, &canvas, 200.0);
+    // A new box is a new input: the window doubles, the canvas with it,
+    // and it renders at its new size.
+    let before = canvas_width(&lw);
+    lay_out(&mut lw, &canvas, 800.0);
+    let after = canvas_width(&lw);
+    assert!(
+        before.is_some() && after.is_some() && before != after,
+        "premise: the window resize resizes the canvas ({before:?} -> {after:?})"
+    );
     lw.prepare_frame_content();
     assert_eq!(CALLS.load(Ordering::SeqCst), 2, "a resized canvas renders again");
 
     // Laying out again at the same size changes nothing it reads.
-    lay_out(&mut lw, &canvas, 200.0);
+    lay_out(&mut lw, &canvas, 800.0);
     lw.prepare_frame_content();
     assert_eq!(CALLS.load(Ordering::SeqCst), 2);
 }
@@ -101,7 +126,7 @@ fn an_explicit_update_renders_a_canvas_at_rest_again() {
         RefAny::new(()),
     );
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
-    lay_out(&mut lw, &canvas, 120.0);
+    lay_out(&mut lw, &canvas, 480.0);
     lw.prepare_frame_content();
     lw.prepare_frame_content();
     assert_eq!(CALLS_B.load(Ordering::SeqCst), 1);
