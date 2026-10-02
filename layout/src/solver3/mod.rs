@@ -887,12 +887,17 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             }
             // Same lift as the reconcile's own roots get: a flex item or an
             // inline-level box is re-solved by its container, or its
-            // siblings keep the slots they had.
+            // siblings keep the slots they had; a box in a multi-column
+            // flow by the multi-column container.
+            let any_columns = multicol::dom_declares_columns(new_dom);
             let promoted = cache::promote_layout_roots_to_containers(&dirty_roots, |idx| {
-                new_tree
-                    .nodes
-                    .get(idx)
-                    .map(|n| (n.parent, n.formatting_context))
+                new_tree.nodes.get(idx).map(|n| {
+                    (
+                        n.parent,
+                        n.formatting_context,
+                        any_columns && multicol::is_multicol_box(new_dom, n.dom_node_id),
+                    )
+                })
             });
             recon_result.layout_roots.extend(promoted);
         }

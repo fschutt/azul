@@ -194,6 +194,19 @@ pub fn is_multicol_container(
     declared_columns(styled_dom, dom_id, node_state).is_some()
 }
 
+/// [`is_multicol_container`] for a layout box: an anonymous box (`None`)
+/// never is one.
+#[must_use]
+pub fn is_multicol_box(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> bool {
+    dom_id.is_some_and(|id| {
+        styled_dom
+            .styled_nodes
+            .as_container()
+            .get(id)
+            .is_some_and(|n| is_multicol_container(styled_dom, id, &n.styled_node_state))
+    })
+}
+
 /// The column declarations of `dom_id` when it is a multi-column container
 /// (a non-`auto` `column-count` or `column-width`), else `None`.
 ///
