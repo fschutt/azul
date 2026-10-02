@@ -57,6 +57,55 @@ enum Order<'a> {
     Keys(&'a [u64]),
 }
 
+impl Order<'_> {
+    /// How many items the order holds.
+    const fn len(self) -> u64 {
+        match self {
+            Self::Positions(count) => count,
+            Self::Keys(keys) => keys.len() as u64,
+        }
+    }
+
+    /// Where `key` stands in the order.
+    fn position(self, key: u64) -> Option<u64> {
+        match self {
+            Self::Positions(count) => (key < count).then_some(key),
+            Self::Keys(keys) => keys.iter().position(|k| *k == key).map(|i| i as u64),
+        }
+    }
+
+    /// The key at `position`.
+    fn key_at(self, position: u64) -> u64 {
+        match self {
+            Self::Positions(_) => position,
+            Self::Keys(keys) => keys[position as usize],
+        }
+    }
+
+    /// The keys from `a` to `b` (either way round): `b` alone when `a` is
+    /// not in the order, nothing when `b` is not.
+    fn range(self, a: u64, b: u64) -> Vec<u64> {
+        let Some(j) = self.position(b) else {
+            return Vec::new();
+        };
+        let i = self.position(a).unwrap_or(j);
+        let (from, to) = if i <= j { (i, j) } else { (j, i) };
+        (from..=to).map(|p| self.key_at(p)).collect()
+    }
+
+    /// Every key of the order, in order.
+    fn all(self) -> Vec<u64> {
+        (0..self.len()).map(|p| self.key_at(p)).collect()
+    }
+}
+
+/// `keys` ascending, without duplicates.
+fn ascending(mut keys: Vec<u64>) -> U64Vec {
+    keys.sort_unstable();
+    keys.dedup();
+    U64Vec::from_vec(keys)
+}
+
 impl ListSelection {
     /// Nothing selected, no anchor, no focus.
     #[must_use]
@@ -85,7 +134,7 @@ impl ListSelection {
     /// Whether `key` is selected.
     #[must_use]
     pub fn contains(&self, key: u64) -> bool {
-        todo!("GREEN: {key}")
+        self.keys.as_slice().binary_search(&key).is_ok()
     }
 
     /// How many items are selected.
@@ -103,55 +152,71 @@ impl ListSelection {
     /// The one selected key, when exactly one is selected.
     #[must_use]
     pub fn single(&self) -> OptionU64 {
-        todo!("GREEN")
+        match self.keys.as_slice() {
+            [only] => OptionU64::Some(*only),
+            _ => OptionU64::None,
+        }
     }
 
     /// A plain click: `key` alone; it is the new anchor and focus.
     pub fn click(&mut self, key: u64) {
-        todo!("GREEN: {key}")
+        self.keys = U64Vec::from_vec(alloc::vec![key]);
+        self.anchor = OptionU64::Some(key);
+        self.focus = OptionU64::Some(key);
     }
 
     /// Ctrl+click: `key` in or out (with `keep_one`, the last selected item
     /// stays in); it is the new anchor and focus.
     pub fn toggle(&mut self, key: u64) {
-        todo!("GREEN: {key}")
+        let mut keys = self.keys.as_slice().to_vec();
+        match keys.binary_search(&key) {
+            Ok(at) => {
+                if !(self.keep_one && keys.len() == 1) {
+                    keys.remove(at);
+                }
+            }
+            Err(at) => keys.insert(at, key),
+        }
+        self.keys = U64Vec::from_vec(keys);
+        self.anchor = OptionU64::Some(key);
+        self.focus = OptionU64::Some(key);
     }
 
     /// Shift+click on row `key` of a positional list: the rows from the
     /// anchor to it, nothing else; the anchor stays (no anchor: `key`).
     pub fn extend(&mut self, key: u64) {
-        todo!("GREEN: {key}")
+        self.extend_over(Order::Positions(u64::MAX), key);
     }
 
     /// Shift+click on `key` of a keyed list shown in `order`: the items from
     /// the anchor to it in that order, nothing else; the anchor stays. A key
     /// not in `order` selects nothing; an anchor not in it, `key` alone.
     pub fn extend_in(&mut self, order: &[u64], key: u64) {
-        todo!("GREEN: {order:?} {key}")
+        self.extend_over(Order::Keys(order), key);
     }
 
     /// Ctrl+Shift+click on row `key` of a positional list: the rows from the
     /// anchor to it added; the anchor stays.
     pub fn add_range(&mut self, key: u64) {
-        todo!("GREEN: {key}")
+        self.add_range_over(Order::Positions(u64::MAX), key);
     }
 
     /// Ctrl+Shift+click on `key` of a keyed list shown in `order`: the items
     /// from the anchor to it added; the anchor stays.
     pub fn add_range_in(&mut self, order: &[u64], key: u64) {
-        todo!("GREEN: {order:?} {key}")
+        self.add_range_over(Order::Keys(order), key);
     }
 
     /// A click on row `key` of a positional list with the modifiers held:
     /// plain = [`Self::click`], `ctrl` = [`Self::toggle`], `shift` =
     /// [`Self::extend`], both = [`Self::add_range`].
     pub fn select(&mut self, key: u64, shift: bool, ctrl: bool) {
-        todo!("GREEN: {key} {shift} {ctrl}")
+        self.select_over(Order::Positions(u64::MAX), key, shift, ctrl);
     }
 
     /// [`Self::select`] for a keyed list shown in `order`.
     pub fn select_in(&mut self, order: &[u64], key: u64, shift: bool, ctrl: bool) {
-        todo!("GREEN: {order:?} {key} {shift} {ctrl}")
+        self.select_over(Order::Keys(order), key, shift, ctrl);
     }
 
     /// [`Self::select`] for the builder chain: the selection after a click
@@ -164,46 +229,48 @@ impl ListSelection {
 
     /// Select all: rows `0..count`. With nothing focused, the first is.
     pub fn select_all(&mut self, count: u64) {
-        todo!("GREEN: {count}")
+        self.select_all_over(Order::Positions(count));
     }
 
     /// Select all: every key of `order`. With nothing focused, the first is.
     pub fn select_all_in(&mut self, order: &[u64]) {
-        todo!("GREEN: {order:?}")
+        self.select_all_over(Order::Keys(order));
     }
 
     /// Select none. The anchor and the focus stay; `keep_one` does not apply
     /// (the app clears on purpose).
     pub fn clear(&mut self) {
-        todo!("GREEN")
+        self.keys = U64Vec::from_const_slice(&[]);
     }
 
     /// Invert selection over rows `0..count`.
     pub fn invert(&mut self, count: u64) {
-        todo!("GREEN: {count}")
+        self.invert_over(Order::Positions(count));
     }
 
     /// Invert selection over the keys of `order`.
     pub fn invert_in(&mut self, order: &[u64]) {
-        todo!("GREEN: {order:?}")
+        self.invert_over(Order::Keys(order));
     }
 
     /// Keeps only rows `0..count` (the list got shorter): the rest, and an
     /// anchor or focus past the end, go.
     pub fn retain(&mut self, count: u64) {
-        todo!("GREEN: {count}")
+        self.retain_over(Order::Positions(count));
     }
 
     /// Keeps only the keys still in `order` (after a listing, a search): the
     /// rest, and an anchor or focus no longer listed, go.
     pub fn retain_in(&mut self, order: &[u64]) {
-        todo!("GREEN: {order:?}")
+        self.retain_over(Order::Keys(order));
     }
 
     /// Selects exactly `keys` (what a paste or a marquee made): the first is
     /// the anchor, the last the focus.
     pub fn select_keys(&mut self, keys: &[u64]) {
-        todo!("GREEN: {keys:?}")
+        self.anchor = keys.first().copied().into();
+        self.focus = keys.last().copied().into();
+        self.keys = ascending(keys.to_vec());
     }
 
     /// An arrow key over rows `0..count`: the focus moves `delta` rows
@@ -212,17 +279,19 @@ impl ListSelection {
     /// selection. With nothing focused the first row (the last, going back)
     /// is the target. Returns the focused row.
     pub fn step(&mut self, delta: i64, extend: bool, keep: bool, count: u64) -> OptionU64 {
-        todo!("GREEN: {delta} {extend} {keep} {count}")
+        self.step_over(Order::Positions(count), delta, extend, keep)
     }
 
     /// [`Self::step`] over the keys of `order`.
     pub fn step_in(&mut self, order: &[u64], delta: i64, extend: bool, keep: bool) -> OptionU64 {
-        todo!("GREEN: {order:?} {delta} {extend} {keep}")
+        self.step_over(Order::Keys(order), delta, extend, keep)
     }
 
     /// Ctrl+Space: the focused item in or out of the selection.
     pub fn toggle_focused(&mut self) {
-        todo!("GREEN")
+        if let Some(key) = self.focus.into_option() {
+            self.toggle(key);
+        }
     }
 
     /// The key of an item named by a string (a file path, a uuid): equal
@@ -230,7 +299,109 @@ impl ListSelection {
     /// within a process, not a value to store.
     #[must_use]
     pub fn key_of(name: &str) -> u64 {
-        todo!("GREEN: {name}")
+        use core::hash::{Hash, Hasher};
+        let mut hasher = azul_core::hash::DefaultHasher::new();
+        name.hash(&mut hasher);
+        hasher.finish()
+    }
+}
+
+/// The rules, once, over either kind of order.
+impl ListSelection {
+    fn extend_over(&mut self, order: Order<'_>, key: u64) {
+        let anchor = self.anchor.into_option().unwrap_or(key);
+        self.keys = ascending(order.range(anchor, key));
+        self.anchor = OptionU64::Some(anchor);
+        self.focus = OptionU64::Some(key);
+    }
+
+    fn add_range_over(&mut self, order: Order<'_>, key: u64) {
+        let anchor = self.anchor.into_option().unwrap_or(key);
+        let mut keys = self.keys.as_slice().to_vec();
+        keys.extend(order.range(anchor, key));
+        self.keys = ascending(keys);
+        self.anchor = OptionU64::Some(anchor);
+        self.focus = OptionU64::Some(key);
+    }
+
+    fn select_over(&mut self, order: Order<'_>, key: u64, shift: bool, ctrl: bool) {
+        match (shift, ctrl) {
+            (false, false) => self.click(key),
+            (false, true) => self.toggle(key),
+            (true, false) => self.extend_over(order, key),
+            (true, true) => self.add_range_over(order, key),
+        }
+    }
+
+    fn select_all_over(&mut self, order: Order<'_>) {
+        let all = order.all();
+        if self.focus.is_none() {
+            self.focus = all.first().copied().into();
+        }
+        self.keys = ascending(all);
+    }
+
+    fn invert_over(&mut self, order: Order<'_>) {
+        let inverted: Vec<u64> = order
+            .all()
+            .into_iter()
+            .filter(|k| !self.contains(*k))
+            .collect();
+        self.keys = ascending(inverted);
+    }
+
+    fn retain_over(&mut self, order: Order<'_>) {
+        // A keyed order is searched sorted: a re-listing of a big folder
+        // with much of it selected stays fast.
+        let mut listed: Vec<u64> = match order {
+            Order::Positions(_) => Vec::new(),
+            Order::Keys(keys) => keys.to_vec(),
+        };
+        listed.sort_unstable();
+        let shown = |k: u64| match order {
+            Order::Positions(count) => k < count,
+            Order::Keys(_) => listed.binary_search(&k).is_ok(),
+        };
+        let kept: Vec<u64> = self
+            .keys
+            .as_slice()
+            .iter()
+            .copied()
+            .filter(|k| shown(*k))
+            .collect();
+        self.keys = U64Vec::from_vec(kept);
+        if self.focus.into_option().is_some_and(|f| !shown(f)) {
+            self.focus = OptionU64::None;
+        }
+        if self.anchor.into_option().is_some_and(|a| !shown(a)) {
+            self.anchor = OptionU64::None;
+        }
+    }
+
+    fn step_over(&mut self, order: Order<'_>, delta: i64, extend: bool, keep: bool) -> OptionU64 {
+        let len = order.len();
+        if len == 0 {
+            return OptionU64::None;
+        }
+        let last = len - 1;
+        let current = self.focus.into_option().and_then(|f| order.position(f));
+        let target = match current {
+            None if delta < 0 => last,
+            None => 0,
+            Some(at) => {
+                let moved = i128::from(at) + i128::from(delta);
+                u64::try_from(moved.clamp(0, i128::from(last))).unwrap_or(0)
+            }
+        };
+        let key = order.key_at(target);
+        if keep {
+            self.focus = OptionU64::Some(key);
+        } else if extend {
+            self.extend_over(order, key);
+        } else {
+            self.click(key);
+        }
+        OptionU64::Some(key)
     }
 }
 
