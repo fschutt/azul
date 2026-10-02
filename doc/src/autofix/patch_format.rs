@@ -918,13 +918,22 @@ impl AutofixPatch {
                         remove: Some(true),
                         ..Default::default()
                     };
-                    let (module_name, warn) = determine_module(&r.type_name);
-                    if warn {
-                        eprintln!(
-                            "Warning: Could not determine module for '{}', using 'misc'",
-                            r.type_name
-                        );
-                    }
+                    // The class is removed from the module it IS in. Guessing the
+                    // module from the name (as for a new class) missed every
+                    // class whose source file is gone: ModuleSwitcher and its
+                    // family lived in `widgets`, the guess said `misc`, the
+                    // remove found nothing and the scan proposed it again,
+                    // forever.
+                    let module_name = find_existing_module(&r.type_name).unwrap_or_else(|| {
+                        let (module, warn) = determine_module(&r.type_name);
+                        if warn {
+                            eprintln!(
+                                "Warning: Could not determine module for '{}', using 'misc'",
+                                r.type_name
+                            );
+                        }
+                        module
+                    });
                     insert_class_patch(
                         &mut api_patch,
                         API_VERSION,
