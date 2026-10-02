@@ -250,3 +250,27 @@ fn the_child_of_a_multicol_block_gets_no_columns_of_its_own() {
         "the lines cross the middle of the column: {pens:?}"
     );
 }
+
+#[test]
+fn loose_text_beside_a_block_gets_no_columns_of_its_own() {
+    // Text directly in the container next to a block goes into an
+    // ANONYMOUS block box - whose inline context used to read its style off
+    // the container, columns included (the box has no element of its own).
+    // Its lines must run the column's whole width like a paragraph's.
+    let lw = page(
+        ".cols { column-count: 2; column-gap: 20px; width: 420px } #a { height: 20px }",
+        &format!(
+            "<div id=\"c\" class=\"cols\"><div id=\"a\"></div>{}</div>",
+            prose(80)
+        ),
+    );
+    let pens = pens(&lw);
+    assert!(
+        pens.iter().any(|(x, _)| *x > 90.0 && *x < 110.0),
+        "the loose text's lines cross the middle of the column: {pens:?}"
+    );
+    assert!(
+        pens.iter().all(|(x, _)| *x < 200.5 || *x >= 219.5),
+        "and stay out of the gap between the columns: {pens:?}"
+    );
+}
