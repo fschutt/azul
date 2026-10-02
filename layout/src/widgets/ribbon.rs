@@ -2886,6 +2886,20 @@ impl RibbonTab {
         self.add_group(group);
         self
     }
+
+    /// Appends every group of `groups`, in order.
+    pub fn add_groups(&mut self, groups: RibbonGroupVec) {
+        for group in groups.as_ref() {
+            self.groups.push(group.clone());
+        }
+    }
+
+    /// Builder method: appends every group of `groups` and returns `self`.
+    #[must_use]
+    pub fn with_groups(mut self, groups: RibbonGroupVec) -> Self {
+        self.add_groups(groups);
+        self
+    }
 }
 
 impl RibbonGroup {
@@ -2919,17 +2933,28 @@ impl RibbonGroup {
         self
     }
 
+    /// Appends every item of `items`, in order (what folding
+    /// [`Self::with_item`] over a list does).
+    pub fn add_items(&mut self, items: RibbonItemVec) {
+        for item in items.as_ref() {
+            self.items.push(item.clone());
+        }
+    }
+
+    /// Builder method: appends every item of `items` and returns `self`.
+    #[must_use]
+    pub fn with_items(mut self, items: RibbonItemVec) -> Self {
+        self.add_items(items);
+        self
+    }
+
     /// Sets the dialog-box-launcher callback (renders the launcher button).
     pub fn set_launcher<C: Into<super::button::ButtonOnClickCallback>>(
         &mut self,
         data: RefAny,
         on_click: C,
     ) {
-        self.launcher = Some(super::button::ButtonOnClick {
-            refany: data,
-            callback: on_click.into(),
-        })
-        .into();
+        self.launcher = Some(super::button::ButtonOnClick::create(data, on_click)).into();
     }
 
     /// Builder method: sets the launcher callback and returns `self`.
@@ -2964,6 +2989,21 @@ impl RibbonColumn {
         self.add_item(item);
         self
     }
+
+    /// Appends every item of `items`, in order (what folding
+    /// [`Self::with_item`] over a list does).
+    pub fn add_items(&mut self, items: RibbonItemVec) {
+        for item in items.as_ref() {
+            self.items.push(item.clone());
+        }
+    }
+
+    /// Builder method: appends every item of `items` and returns `self`.
+    #[must_use]
+    pub fn with_items(mut self, items: RibbonItemVec) -> Self {
+        self.add_items(items);
+        self
+    }
 }
 
 impl Default for RibbonColumn {
@@ -2990,6 +3030,21 @@ impl RibbonRow {
     #[must_use]
     pub fn with_item(mut self, item: RibbonItem) -> Self {
         self.add_item(item);
+        self
+    }
+
+    /// Appends every item of `items`, in order (what folding
+    /// [`Self::with_item`] over a list does).
+    pub fn add_items(&mut self, items: RibbonItemVec) {
+        for item in items.as_ref() {
+            self.items.push(item.clone());
+        }
+    }
+
+    /// Builder method: appends every item of `items` and returns `self`.
+    #[must_use]
+    pub fn with_items(mut self, items: RibbonItemVec) -> Self {
+        self.add_items(items);
         self
     }
 }
@@ -5498,6 +5553,41 @@ mod tests {
         let row_ch = ch[1].children.as_ref();
         assert_eq!(row_ch.len(), 2);
         assert!(has_class(&row_ch[1], "__azul-native-ribbon-separator"));
+    }
+
+    /// `with_items` / `with_groups` append a whole list, in order - what
+    /// six apps folded `with_item` over (DEDUP_OFFICE D9 / A4).
+    #[test]
+    fn with_items_appends_the_list_in_order() {
+        let items = || {
+            RibbonItemVec::from_vec(vec![
+                RibbonItem::SmallButton(small_btn("content_cut", "Cut")),
+                RibbonItem::Separator,
+            ])
+        };
+        let column = RibbonColumn::new()
+            .with_item(RibbonItem::SmallButton(small_btn("content_copy", "Copy")))
+            .with_items(items());
+        let labels: Vec<&str> = column
+            .items
+            .as_ref()
+            .iter()
+            .map(|it| match it {
+                RibbonItem::SmallButton(b) => b.label.as_str(),
+                RibbonItem::Separator => "|",
+                _ => "?",
+            })
+            .collect();
+        assert_eq!(labels, vec!["Copy", "Cut", "|"]);
+        assert_eq!(RibbonRow::new().with_items(items()).items.len(), 2);
+        let group = RibbonGroup::new(AzString::from("Clipboard")).with_items(items());
+        assert_eq!(group.items.len(), 2);
+        let tab = RibbonTab::new(AzString::from("Home")).with_groups(RibbonGroupVec::from_vec(vec![
+            group.clone(),
+            RibbonGroup::new(AzString::from("Font")),
+        ]));
+        let names: Vec<&str> = tab.groups.as_ref().iter().map(|g| g.label.as_str()).collect();
+        assert_eq!(names, vec!["Clipboard", "Font"]);
     }
 
     #[test]
