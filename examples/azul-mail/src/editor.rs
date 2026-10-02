@@ -18,7 +18,7 @@
 
 use azul::{
     callbacks::DocumentChangeset,
-    css::{BoxOrStaticString, DocOpWrapRange, DocumentOperation, NodePosition},
+    css::{DocOpWrapRange, DocumentOperation, NodePosition},
     dom::DomNodeId,
     misc::EditResumePoint,
     option::OptionString,
@@ -49,17 +49,6 @@ const BLOCK_CSS: &str = "
     li { min-height: 18px; }
     a { color: #0b57d0; text-decoration: underline; }
 ";
-
-/// The text of a text node's payload.
-fn box_str(s: &BoxOrStaticString) -> &str {
-    // SAFETY: both variants point at a live `AzString` the node owns (as AzWriter reads them).
-    unsafe {
-        match s {
-            BoxOrStaticString::Boxed(p) => (**p).as_str(),
-            BoxOrStaticString::Static(p) => (**p).as_str(),
-        }
-    }
-}
 
 // ==== MailDoc -> Dom ====
 
@@ -223,7 +212,11 @@ impl Collector {
 
     fn node(&mut self, node: &Dom, style: &RunStyle) {
         match &node.root.node_type {
-            NodeType::Text(text) => self.text(box_str(text), style),
+            NodeType::Text(_) => {
+                if let Some(text) = node.root.node_type.get_text().into_option() {
+                    self.text(text.as_str(), style);
+                }
+            }
             NodeType::Br => self.flush(true),
             NodeType::B | NodeType::Strong => {
                 let s = RunStyle {
