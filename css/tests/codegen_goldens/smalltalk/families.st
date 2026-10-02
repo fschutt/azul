@@ -70,7 +70,7 @@ AzulStyles class >> styleText [
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyVerticalAlign: (AzulNative azStyleVerticalAlignMiddle))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyLetterSpacing: (AzStyleLetterSpacing new inner: (AzulNative azPixelValuePx: 0.5); yourself))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyTextIndent: (AzStyleTextIndent new inner: (AzulNative azPixelValueEm: 2.0); each_line: false; hanging: false; yourself))).
-        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyLineHeight: (AzStyleLineHeight new inner: (AzPercentageValue new number: (AzulNative azFloatValueCreate: 150.0); yourself); yourself))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyLineHeight: (AzulNative azStyleLineHeightNumber: (AzulNative azFloatValueCreate: 1.5)))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyWordSpacing: (AzStyleWordSpacing new inner: (AzulNative azPixelValuePx: 4.0); yourself))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyTabSize: (AzStyleTabSize new inner: (AzulNative azPixelValueEm: 4.0); yourself))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyUserSelect: (AzStyleUserSelect None))).

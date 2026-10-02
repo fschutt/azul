@@ -37,7 +37,7 @@ CssPropertyWithConditions[] styleText()
         CssPropertyWithConditions.simple(CssProperty.lineFitEdge(StyleLineFitEdgeValue.exact(StyleLineFitEdge.leading))),
         CssPropertyWithConditions.simple(CssProperty.initialLetterAlign(StyleInitialLetterAlignValue.exact(StyleInitialLetterAlign.alphabetic))),
         CssPropertyWithConditions.simple(CssProperty.initialLetterWrap(StyleInitialLetterWrapValue.exact(StyleInitialLetterWrap.first))),
-        CssPropertyWithConditions.simple(CssProperty.lineHeight(StyleLineHeight(PercentageValue(FloatValue(150.0f))))),
+        CssPropertyWithConditions.simple(CssProperty.lineHeight(StyleLineHeight.number(FloatValue(1.5f)))),
         CssPropertyWithConditions.simple(CssProperty.wordSpacing(StyleWordSpacing(PixelValue.px(4.0f)))),
         CssPropertyWithConditions.simple(CssProperty.tabSize(StyleTabSize(PixelValue.em(4.0f)))),
         CssPropertyWithConditions.simple(CssProperty.whiteSpace(StyleWhiteSpaceValue.exact(StyleWhiteSpace.preWrap))),

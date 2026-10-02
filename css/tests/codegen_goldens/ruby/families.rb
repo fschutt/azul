@@ -87,7 +87,7 @@ module AzulStyles
       N.az_css_property_with_conditions_simple(N.az_css_property_line_fit_edge(AzulCodegen.union(N::AzStyleLineFitEdgeValue, :Exact, 6, N::AzStyleLineFitEdge::Leading))),
       N.az_css_property_with_conditions_simple(N.az_css_property_initial_letter_align(AzulCodegen.union(N::AzStyleInitialLetterAlignValue, :Exact, 6, N::AzStyleInitialLetterAlign::Alphabetic))),
       N.az_css_property_with_conditions_simple(N.az_css_property_initial_letter_wrap(AzulCodegen.union(N::AzStyleInitialLetterWrapValue, :Exact, 6, N::AzStyleInitialLetterWrap::First))),
-      N.az_css_property_with_conditions_simple(N.az_css_property_line_height(AzulCodegen.struct(N::AzStyleLineHeight, inner: AzulCodegen.struct(N::AzPercentageValue, number: N.az_float_value_create(150.0))))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_line_height(N.az_style_line_height_number(N.az_float_value_create(1.5)))),
       N.az_css_property_with_conditions_simple(N.az_css_property_word_spacing(AzulCodegen.struct(N::AzStyleWordSpacing, inner: N.az_pixel_value_px(4.0)))),
       N.az_css_property_with_conditions_simple(N.az_css_property_tab_size(AzulCodegen.struct(N::AzStyleTabSize, inner: N.az_pixel_value_em(4.0)))),
       N.az_css_property_with_conditions_simple(N.az_css_property_white_space(AzulCodegen.union(N::AzStyleWhiteSpaceValue, :Exact, 6, N::AzStyleWhiteSpace::PreWrap))),

@@ -66,7 +66,7 @@ contains
     t3(8) = az_css_property_with_conditions_simple(az_css_property_vertical_align(az_style_vertical_align_middle()))
     t3(9) = az_css_property_with_conditions_simple(az_css_property_letter_spacing(AzStyleLetterSpacing(inner=az_pixel_value_px(0.5_c_float))))
     t3(10) = az_css_property_with_conditions_simple(az_css_property_text_indent(AzStyleTextIndent(inner=az_pixel_value_em(2.0_c_float), each_line=.false._c_bool, hanging=.false._c_bool)))
-    t3(11) = az_css_property_with_conditions_simple(az_css_property_line_height(AzStyleLineHeight(inner=AzPercentageValue(number=az_float_value_create(150.0_c_float)))))
+    t3(11) = az_css_property_with_conditions_simple(az_css_property_line_height(az_style_line_height_number(az_float_value_create(1.5_c_float))))
     t3(12) = az_css_property_with_conditions_simple(az_css_property_word_spacing(AzStyleWordSpacing(inner=az_pixel_value_px(4.0_c_float))))
     t3(13) = az_css_property_with_conditions_simple(az_css_property_tab_size(AzStyleTabSize(inner=az_pixel_value_em(4.0_c_float))))
     t3(14) = az_css_property_with_conditions_simple(az_css_property_user_select(StyleUserSelect_None))

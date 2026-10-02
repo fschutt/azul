@@ -35,7 +35,7 @@ fn style_text() azul.AzCssPropertyWithConditionsVec {
 	t3[20] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_lineFitEdge(azul.AzStyleLineFitEdgeValue{ Exact: azul.AzStyleLineFitEdgeValueVariant_Exact{ tag: 6, payload: azul.AzStyleLineFitEdge.Leading } }))
 	t3[21] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initialLetterAlign(azul.AzStyleInitialLetterAlignValue{ Exact: azul.AzStyleInitialLetterAlignValueVariant_Exact{ tag: 6, payload: azul.AzStyleInitialLetterAlign.Alphabetic } }))
 	t3[22] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initialLetterWrap(azul.AzStyleInitialLetterWrapValue{ Exact: azul.AzStyleInitialLetterWrapValueVariant_Exact{ tag: 6, payload: azul.AzStyleInitialLetterWrap.First } }))
-	t3[23] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_lineHeight(azul.AzStyleLineHeight{ inner: azul.AzPercentageValue{ number: C.AzFloatValue_create(150.0) } }))
+	t3[23] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_lineHeight(C.AzStyleLineHeight_number(C.AzFloatValue_create(1.5))))
 	t3[24] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_wordSpacing(azul.AzStyleWordSpacing{ inner: C.AzPixelValue_px(4.0) }))
 	t3[25] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_tabSize(azul.AzStyleTabSize{ inner: C.AzPixelValue_em(4.0) }))
 	t3[26] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_whiteSpace(azul.AzStyleWhiteSpaceValue{ Exact: azul.AzStyleWhiteSpaceValueVariant_Exact{ tag: 6, payload: azul.AzStyleWhiteSpace.PreWrap } }))

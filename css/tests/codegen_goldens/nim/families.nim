@@ -42,7 +42,7 @@ proc styleText*(): AzCssPropertyWithConditionsVec =
     AzCssPropertyWithConditions_simple(AzCssProperty_lineFitEdge(AzStyleLineFitEdgeValue(Exact: AzStyleLineFitEdgeValueVariant_Exact(tag: 6, payload: AzStyleLineFitEdge.Leading)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_initialLetterAlign(AzStyleInitialLetterAlignValue(Exact: AzStyleInitialLetterAlignValueVariant_Exact(tag: 6, payload: AzStyleInitialLetterAlign.Alphabetic)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_initialLetterWrap(AzStyleInitialLetterWrapValue(Exact: AzStyleInitialLetterWrapValueVariant_Exact(tag: 6, payload: AzStyleInitialLetterWrap.First)))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_lineHeight(AzStyleLineHeight(inner: AzPercentageValue(number: AzFloatValue_create(150.0))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_lineHeight(AzStyleLineHeight_number(AzFloatValue_create(1.5)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_wordSpacing(AzStyleWordSpacing(inner: AzPixelValue_px(4.0)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_tabSize(AzStyleTabSize(inner: AzPixelValue_em(4.0)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_whiteSpace(AzStyleWhiteSpaceValue(Exact: AzStyleWhiteSpaceValueVariant_Exact(tag: 6, payload: AzStyleWhiteSpace.PreWrap)))),

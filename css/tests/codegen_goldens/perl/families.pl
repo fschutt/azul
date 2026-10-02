@@ -53,7 +53,7 @@ sub style_text {
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_verticalAlign(Azul::FFI::AzStyleVerticalAlign_middle())),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_letterSpacing(Azul::AzStyleLetterSpacing->new(inner => ${ Azul::FFI::AzPixelValue_px(0.5) }))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_textIndent(Azul::AzStyleTextIndent->new(inner => ${ Azul::FFI::AzPixelValue_em(2.0) }, each_line => 0, hanging => 0))),
-        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_lineHeight(Azul::AzStyleLineHeight->new(inner => ${ Azul::AzPercentageValue->new(number => ${ Azul::FFI::AzFloatValue_create(150.0) }) }))),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_lineHeight(Azul::FFI::AzStyleLineHeight_number(Azul::FFI::AzFloatValue_create(1.5)))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_wordSpacing(Azul::AzStyleWordSpacing->new(inner => ${ Azul::FFI::AzPixelValue_px(4.0) }))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_tabSize(Azul::AzStyleTabSize->new(inner => ${ Azul::FFI::AzPixelValue_em(4.0) }))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_userSelect(Azul::AzStyleUserSelect::None())),

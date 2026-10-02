@@ -33,7 +33,7 @@ def style_text():
         CssPropertyWithConditions.simple(CssProperty.LineFitEdge(StyleLineFitEdgeValue.Exact(StyleLineFitEdge.Leading))),
         CssPropertyWithConditions.simple(CssProperty.InitialLetterAlign(StyleInitialLetterAlignValue.Exact(StyleInitialLetterAlign.Alphabetic))),
         CssPropertyWithConditions.simple(CssProperty.InitialLetterWrap(StyleInitialLetterWrapValue.Exact(StyleInitialLetterWrap.First))),
-        CssPropertyWithConditions.simple(CssProperty.line_height(_with(StyleLineHeight.default(), inner=_with(PercentageValue.default(), number=FloatValue.create(150.0))))),
+        CssPropertyWithConditions.simple(CssProperty.line_height(StyleLineHeight.Number(FloatValue.create(1.5)))),
         CssPropertyWithConditions.simple(CssProperty.word_spacing(_with(StyleWordSpacing.default(), inner=PixelValue.px(4.0)))),
         CssPropertyWithConditions.simple(CssProperty.tab_size(_with(StyleTabSize.default(), inner=PixelValue.em(4.0)))),
         CssPropertyWithConditions.simple(CssProperty.WhiteSpace(StyleWhiteSpaceValue.Exact(StyleWhiteSpace.PreWrap))),

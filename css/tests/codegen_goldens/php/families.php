@@ -85,7 +85,7 @@ function style_text()
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_lineFitEdge(azul_union('AzStyleLineFitEdgeValue', 'Exact', 6, $L->AzStyleLineFitEdge_Leading))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_initialLetterAlign(azul_union('AzStyleInitialLetterAlignValue', 'Exact', 6, $L->AzStyleInitialLetterAlign_Alphabetic))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_initialLetterWrap(azul_union('AzStyleInitialLetterWrapValue', 'Exact', 6, $L->AzStyleInitialLetterWrap_First))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_lineHeight(azul_struct('AzStyleLineHeight', ['inner' => azul_struct('AzPercentageValue', ['number' => $L->AzFloatValue_create(150.0)])]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_lineHeight($L->AzStyleLineHeight_number($L->AzFloatValue_create(1.5)))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_wordSpacing(azul_struct('AzStyleWordSpacing', ['inner' => $L->AzPixelValue_px(4.0)]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_tabSize(azul_struct('AzStyleTabSize', ['inner' => $L->AzPixelValue_em(4.0)]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_whiteSpace(azul_union('AzStyleWhiteSpaceValue', 'Exact', 6, $L->AzStyleWhiteSpace_PreWrap))),

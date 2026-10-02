@@ -51,7 +51,7 @@ Function StyleText() As AzCssPropertyWithConditionsVec
     t3(7) = AzCssPropertyWithConditions_simple(AzCssProperty_verticalAlign(AzStyleVerticalAlign_middle()))
     t3(8) = AzCssPropertyWithConditions_simple(AzCssProperty_letterSpacing(Type<AzStyleLetterSpacing>(AzPixelValue_px(0.5))))
     t3(9) = AzCssPropertyWithConditions_simple(AzCssProperty_textIndent(Type<AzStyleTextIndent>(AzPixelValue_em(2.0), 0, 0)))
-    t3(10) = AzCssPropertyWithConditions_simple(AzCssProperty_lineHeight(Type<AzStyleLineHeight>(Type<AzPercentageValue>(AzFloatValue_create(150.0)))))
+    t3(10) = AzCssPropertyWithConditions_simple(AzCssProperty_lineHeight(AzStyleLineHeight_number(AzFloatValue_create(1.5))))
     t3(11) = AzCssPropertyWithConditions_simple(AzCssProperty_wordSpacing(Type<AzStyleWordSpacing>(AzPixelValue_px(4.0))))
     t3(12) = AzCssPropertyWithConditions_simple(AzCssProperty_tabSize(Type<AzStyleTabSize>(AzPixelValue_em(4.0))))
     t3(13) = AzCssPropertyWithConditions_simple(AzCssProperty_userSelect(AzStyleUserSelect_None))

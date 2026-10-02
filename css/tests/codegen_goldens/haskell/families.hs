@@ -34,7 +34,7 @@ styleText = sequence
     (CssPropertyWithConditions.simple (T.CssProperty_LineFitEdge (T.StyleLineFitEdgeValue_Exact T.StyleLineFitEdge_Leading))),
     (CssPropertyWithConditions.simple (T.CssProperty_InitialLetterAlign (T.StyleInitialLetterAlignValue_Exact T.StyleInitialLetterAlign_Alphabetic))),
     (CssPropertyWithConditions.simple (T.CssProperty_InitialLetterWrap (T.StyleInitialLetterWrapValue_Exact T.StyleInitialLetterWrap_First))),
-    (CssPropertyWithConditions.simple (T.CssProperty_LineHeight (T.StyleLineHeightValue_Exact (T.StyleLineHeight (T.PercentageValue (T.FloatValue 150000)))))),
+    (CssPropertyWithConditions.simple (T.CssProperty_LineHeight (T.StyleLineHeightValue_Exact (T.StyleLineHeight_Number (T.FloatValue 1500))))),
     (CssPropertyWithConditions.simple (T.CssProperty_WordSpacing (T.StyleWordSpacingValue_Exact (T.StyleWordSpacing (T.PixelValue T.SizeMetric_Px (T.FloatValue 4000)))))),
     (CssPropertyWithConditions.simple (T.CssProperty_TabSize (T.StyleTabSizeValue_Exact (T.StyleTabSize (T.PixelValue T.SizeMetric_Em (T.FloatValue 4000)))))),
     (CssPropertyWithConditions.simple (T.CssProperty_WhiteSpace (T.StyleWhiteSpaceValue_Exact T.StyleWhiteSpace_PreWrap))),

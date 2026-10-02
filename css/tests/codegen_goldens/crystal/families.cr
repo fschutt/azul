@@ -35,7 +35,7 @@ module AzulStyles
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.line_fit_edge(Azul::StyleLineFitEdgeValue::Exact.new(Azul::StyleLineFitEdge::Leading))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.initial_letter_align(Azul::StyleInitialLetterAlignValue::Exact.new(Azul::StyleInitialLetterAlign::Alphabetic))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.initial_letter_wrap(Azul::StyleInitialLetterWrapValue::Exact.new(Azul::StyleInitialLetterWrap::First))),
-      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.line_height(Azul::StyleLineHeight.__own(LibAzul::AzStyleLineHeight.new(inner: LibAzul::AzPercentageValue.new(number: Azul::FloatValue.new(150.0_f32).__take))))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.line_height(Azul::StyleLineHeight.number(Azul::FloatValue.new(1.5_f32)))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.word_spacing(Azul::StyleWordSpacing.__own(LibAzul::AzStyleWordSpacing.new(inner: Azul::PixelValue.px(4.0_f32).__take)))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.tab_size(Azul::StyleTabSize.__own(LibAzul::AzStyleTabSize.new(inner: Azul::PixelValue.em(4.0_f32).__take)))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.white_space(Azul::StyleWhiteSpaceValue::Exact.new(Azul::StyleWhiteSpace::PreWrap))),

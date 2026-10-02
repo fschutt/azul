@@ -35,7 +35,7 @@ pub fn styleText() C.AzCssPropertyWithConditionsVec {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_lineFitEdge(C.AzStyleLineFitEdgeValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleLineFitEdge_Leading } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initialLetterAlign(C.AzStyleInitialLetterAlignValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleInitialLetterAlign_Alphabetic } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initialLetterWrap(C.AzStyleInitialLetterWrapValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleInitialLetterWrap_First } })),
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_lineHeight(C.AzStyleLineHeight{ .inner = C.AzPercentageValue{ .number = C.AzFloatValue_create(150.0) } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_lineHeight(C.AzStyleLineHeight_number(C.AzFloatValue_create(1.5)))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_wordSpacing(C.AzStyleWordSpacing{ .inner = C.AzPixelValue_px(4.0) })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_tabSize(C.AzStyleTabSize{ .inner = C.AzPixelValue_em(4.0) })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_whiteSpace(C.AzStyleWhiteSpaceValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleWhiteSpace_PreWrap } })),

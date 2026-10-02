@@ -36,7 +36,7 @@ func StyleText() azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_LineFitEdge(azul.AzStyleLineFitEdgeValue_Exact(azul.StyleLineFitEdge_Leading))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_InitialLetterAlign(azul.AzStyleInitialLetterAlignValue_Exact(azul.StyleInitialLetterAlign_Alphabetic))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_InitialLetterWrap(azul.AzStyleInitialLetterWrapValue_Exact(azul.StyleInitialLetterWrap_First))),
-		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_lineHeight(azul.AzStyleLineHeight{Inner: azul.AzPercentageValue{Number: azul.AzFloatValue_create(150.0)}})),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_lineHeight(azul.AzStyleLineHeight_Number(azul.AzFloatValue_create(1.5)))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_wordSpacing(azul.AzStyleWordSpacing{Inner: azul.AzPixelValue_px(4.0)})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_tabSize(azul.AzStyleTabSize{Inner: azul.AzPixelValue_em(4.0)})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_WhiteSpace(azul.AzStyleWhiteSpaceValue_Exact(azul.StyleWhiteSpace_PreWrap))),

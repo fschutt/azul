@@ -63,7 +63,7 @@ package body Styles is
       t3 (20) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Line_Fit_Edge (Az_StyleLineFitEdgeValue'(Tag => Exact, Payload_Exact => Az_StyleLineFitEdge'(Leading))));
       t3 (21) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Initial_Letter_Align (Az_StyleInitialLetterAlignValue'(Tag => Exact, Payload_Exact => Az_StyleInitialLetterAlign'(Alphabetic))));
       t3 (22) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Initial_Letter_Wrap (Az_StyleInitialLetterWrapValue'(Tag => Exact, Payload_Exact => Az_StyleInitialLetterWrap'(First))));
-      t3 (23) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Line_Height (Az_StyleLineHeight'(Inner => Az_PercentageValue'(Number => Az_FloatValue_Create (150.0)))));
+      t3 (23) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Line_Height (Az_StyleLineHeight_Number (Az_FloatValue_Create (1.5))));
       t3 (24) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Word_Spacing (Az_StyleWordSpacing'(Inner => Az_PixelValue_Px (4.0))));
       t3 (25) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Tab_Size (Az_StyleTabSize'(Inner => Az_PixelValue_Em (4.0))));
       t3 (26) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_White_Space (Az_StyleWhiteSpaceValue'(Tag => Exact, Payload_Exact => Az_StyleWhiteSpace'(PreWrap))));

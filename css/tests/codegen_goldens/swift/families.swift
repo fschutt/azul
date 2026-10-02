@@ -34,7 +34,7 @@ public func styleText() -> [CssPropertyWithConditions] {
         CssPropertyWithConditions.simple(CssProperty.lineFitEdge(StyleLineFitEdgeValue.exact(StyleLineFitEdge.leading))),
         CssPropertyWithConditions.simple(CssProperty.initialLetterAlign(StyleInitialLetterAlignValue.exact(StyleInitialLetterAlign.alphabetic))),
         CssPropertyWithConditions.simple(CssProperty.initialLetterWrap(StyleInitialLetterWrapValue.exact(StyleInitialLetterWrap.first))),
-        CssPropertyWithConditions.simple(CssProperty.lineHeight(StyleLineHeight(inner: PercentageValue(number: FloatValue(150.0))))),
+        CssPropertyWithConditions.simple(CssProperty.lineHeight(StyleLineHeight.number(FloatValue(1.5)))),
         CssPropertyWithConditions.simple(CssProperty.wordSpacing(StyleWordSpacing(inner: PixelValue.px(4.0)))),
         CssPropertyWithConditions.simple(CssProperty.tabSize(StyleTabSize(inner: PixelValue.em(4.0)))),
         CssPropertyWithConditions.simple(CssProperty.whiteSpace(StyleWhiteSpaceValue.exact(StyleWhiteSpace.preWrap))),

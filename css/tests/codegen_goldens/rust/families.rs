@@ -48,7 +48,7 @@ pub fn style_text() -> CssPropertyWithConditionsVec {
         CssPropertyWithConditions::simple(CssProperty::LineFitEdge(StyleLineFitEdgeValue::Exact(StyleLineFitEdge::Leading))),
         CssPropertyWithConditions::simple(CssProperty::InitialLetterAlign(StyleInitialLetterAlignValue::Exact(StyleInitialLetterAlign::Alphabetic))),
         CssPropertyWithConditions::simple(CssProperty::InitialLetterWrap(StyleInitialLetterWrapValue::Exact(StyleInitialLetterWrap::First))),
-        CssPropertyWithConditions::simple(CssProperty::line_height(StyleLineHeight { inner: PercentageValue { number: FloatValue::create(150.0) } })),
+        CssPropertyWithConditions::simple(CssProperty::line_height(StyleLineHeight::Number(FloatValue::create(1.5)))),
         CssPropertyWithConditions::simple(CssProperty::word_spacing(StyleWordSpacing { inner: PixelValue::px(4.0) })),
         CssPropertyWithConditions::simple(CssProperty::tab_size(StyleTabSize { inner: PixelValue::em(4.0) })),
         CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(StyleWhiteSpace::PreWrap))),

@@ -38,7 +38,7 @@ function M.style_text()
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_lineFitEdge(ffi.new('AzStyleLineFitEdgeValue', { Exact = { tag = 6, payload = C.AzStyleLineFitEdge_Leading } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initialLetterAlign(ffi.new('AzStyleInitialLetterAlignValue', { Exact = { tag = 6, payload = C.AzStyleInitialLetterAlign_Alphabetic } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initialLetterWrap(ffi.new('AzStyleInitialLetterWrapValue', { Exact = { tag = 6, payload = C.AzStyleInitialLetterWrap_First } }))),
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_lineHeight(ffi.new('AzStyleLineHeight', { inner = ffi.new('AzPercentageValue', { number = C.AzFloatValue_create(150.0) }) }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_lineHeight(C.AzStyleLineHeight_number(C.AzFloatValue_create(1.5)))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_wordSpacing(ffi.new('AzStyleWordSpacing', { inner = C.AzPixelValue_px(4.0) }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_tabSize(ffi.new('AzStyleTabSize', { inner = C.AzPixelValue_em(4.0) }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_whiteSpace(ffi.new('AzStyleWhiteSpaceValue', { Exact = { tag = 6, payload = C.AzStyleWhiteSpace_PreWrap } }))),

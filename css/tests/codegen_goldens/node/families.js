@@ -36,7 +36,7 @@ function styleText() {
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_lineFitEdge({ Exact: { tag: 6, payload: azul.StyleLineFitEdge.Leading } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_initialLetterAlign({ Exact: { tag: 6, payload: azul.StyleInitialLetterAlign.Alphabetic } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_initialLetterWrap({ Exact: { tag: 6, payload: azul.StyleInitialLetterWrap.First } })),
-        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_lineHeight({ inner: { number: lib.AzFloatValue_create(150.0) } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_lineHeight(lib.AzStyleLineHeight_number(lib.AzFloatValue_create(1.5)))),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_wordSpacing({ inner: lib.AzPixelValue_px(4.0) })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_tabSize({ inner: lib.AzPixelValue_em(4.0) })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_whiteSpace({ Exact: { tag: 6, payload: azul.StyleWhiteSpace.PreWrap } })),

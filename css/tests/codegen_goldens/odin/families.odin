@@ -40,7 +40,7 @@ style_text :: proc() -> azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_lineFitEdge(azul.AzStyleLineFitEdgeValue{Exact = {tag = 6, payload = azul.AzStyleLineFitEdge.Leading}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initialLetterAlign(azul.AzStyleInitialLetterAlignValue{Exact = {tag = 6, payload = azul.AzStyleInitialLetterAlign.Alphabetic}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initialLetterWrap(azul.AzStyleInitialLetterWrapValue{Exact = {tag = 6, payload = azul.AzStyleInitialLetterWrap.First}})),
-		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_lineHeight(azul.AzStyleLineHeight{inner = azul.AzPercentageValue{number = azul.AzFloatValue_create(150.0)}})),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_lineHeight(azul.AzStyleLineHeight_number(azul.AzFloatValue_create(1.5)))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_wordSpacing(azul.AzStyleWordSpacing{inner = azul.AzPixelValue_px(4.0)})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_tabSize(azul.AzStyleTabSize{inner = azul.AzPixelValue_em(4.0)})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_whiteSpace(azul.AzStyleWhiteSpaceValue{Exact = {tag = 6, payload = azul.AzStyleWhiteSpace.PreWrap}})),

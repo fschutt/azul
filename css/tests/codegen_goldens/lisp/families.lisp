@@ -80,7 +80,7 @@
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-vertical-align (azul-internal::%az-style-vertical-align-middle)))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-letter-spacing (list 'azul-internal::inner (azul-internal::%az-pixel-value-px 0.5))))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-text-indent (list 'azul-internal::inner (azul-internal::%az-pixel-value-em 2.0) 'azul-internal::each-line nil 'azul-internal::hanging nil)))
-      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-line-height (list 'azul-internal::inner (list 'azul-internal::number (azul-internal::%az-float-value-create 150.0)))))
+      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-line-height (azul-internal::%az-style-line-height-number (azul-internal::%az-float-value-create 1.5))))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-word-spacing (list 'azul-internal::inner (azul-internal::%az-pixel-value-px 4.0))))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-tab-size (list 'azul-internal::inner (azul-internal::%az-pixel-value-em 4.0))))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-user-select :none))

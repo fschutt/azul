@@ -64,7 +64,7 @@ function style_text()
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_lineFitEdge(az_union(Azul.AzStyleLineFitEdgeValue, Azul.AzStyleLineFitEdgeValueVariant_Exact, UInt8(6), Azul.AzStyleLineFitEdge_Leading))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_initialLetterAlign(az_union(Azul.AzStyleInitialLetterAlignValue, Azul.AzStyleInitialLetterAlignValueVariant_Exact, UInt8(6), Azul.AzStyleInitialLetterAlign_Alphabetic))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_initialLetterWrap(az_union(Azul.AzStyleInitialLetterWrapValue, Azul.AzStyleInitialLetterWrapValueVariant_Exact, UInt8(6), Azul.AzStyleInitialLetterWrap_First))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_lineHeight(Azul.AzStyleLineHeight(Azul.AzPercentageValue(Azul.AzFloatValue_create(150.0f0))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_lineHeight(Azul.AzStyleLineHeight_number(Azul.AzFloatValue_create(1.5f0)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_wordSpacing(Azul.AzStyleWordSpacing(Azul.AzPixelValue_px(4.0f0)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_tabSize(Azul.AzStyleTabSize(Azul.AzPixelValue_em(4.0f0)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_whiteSpace(az_union(Azul.AzStyleWhiteSpaceValue, Azul.AzStyleWhiteSpaceValueVariant_Exact, UInt8(6), Azul.AzStyleWhiteSpace_PreWrap))),

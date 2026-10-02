@@ -54,7 +54,7 @@ let style_text () =
     (azCssPropertyWithConditions_simple (azCssProperty_lineFitEdge (az_union az_style_line_fit_edge_value 6 (Some (az_payload az_style_line_fit_edge (StyleLineFitEdge.to_int StyleLineFitEdge.Leading))))));
     (azCssPropertyWithConditions_simple (azCssProperty_initialLetterAlign (az_union az_style_initial_letter_align_value 6 (Some (az_payload az_style_initial_letter_align (StyleInitialLetterAlign.to_int StyleInitialLetterAlign.Alphabetic))))));
     (azCssPropertyWithConditions_simple (azCssProperty_initialLetterWrap (az_union az_style_initial_letter_wrap_value 6 (Some (az_payload az_style_initial_letter_wrap (StyleInitialLetterWrap.to_int StyleInitialLetterWrap.First))))));
-    (azCssPropertyWithConditions_simple (azCssProperty_lineHeight (az_struct az_style_line_height [ (fun v -> Ctypes.setf v az_style_line_height_field_inner (az_struct az_percentage_value [ (fun v -> Ctypes.setf v az_percentage_value_field_number (azFloatValue_create 150.0)) ])) ])));
+    (azCssPropertyWithConditions_simple (azCssProperty_lineHeight (azStyleLineHeight_number (azFloatValue_create 1.5))));
     (azCssPropertyWithConditions_simple (azCssProperty_wordSpacing (az_struct az_style_word_spacing [ (fun v -> Ctypes.setf v az_style_word_spacing_field_inner (azPixelValue_px 4.0)) ])));
     (azCssPropertyWithConditions_simple (azCssProperty_tabSize (az_struct az_style_tab_size [ (fun v -> Ctypes.setf v az_style_tab_size_field_inner (azPixelValue_em 4.0)) ])));
     (azCssPropertyWithConditions_simple (azCssProperty_whiteSpace (az_union az_style_white_space_value 6 (Some (az_payload az_style_white_space (StyleWhiteSpace.to_int StyleWhiteSpace.PreWrap))))));

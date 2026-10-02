@@ -40,7 +40,7 @@ inline AzCssPropertyWithConditionsVec style_text() {
             AzCssPropertyWithConditions_simple(AzCssProperty_lineFitEdge([]{ AzStyleLineFitEdgeValue v{}; v.Exact = AzStyleLineFitEdgeValueVariant_Exact{ AzStyleLineFitEdgeValue_Tag_Exact, AzStyleLineFitEdge_Leading }; return v; }())),
             AzCssPropertyWithConditions_simple(AzCssProperty_initialLetterAlign([]{ AzStyleInitialLetterAlignValue v{}; v.Exact = AzStyleInitialLetterAlignValueVariant_Exact{ AzStyleInitialLetterAlignValue_Tag_Exact, AzStyleInitialLetterAlign_Alphabetic }; return v; }())),
             AzCssPropertyWithConditions_simple(AzCssProperty_initialLetterWrap([]{ AzStyleInitialLetterWrapValue v{}; v.Exact = AzStyleInitialLetterWrapValueVariant_Exact{ AzStyleInitialLetterWrapValue_Tag_Exact, AzStyleInitialLetterWrap_First }; return v; }())),
-            AzCssPropertyWithConditions_simple(AzCssProperty_lineHeight(AzStyleLineHeight{ AzPercentageValue{ AzFloatValue_create(150.0f) } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_lineHeight(AzStyleLineHeight_number(AzFloatValue_create(1.5f)))),
             AzCssPropertyWithConditions_simple(AzCssProperty_wordSpacing(AzStyleWordSpacing{ AzPixelValue_px(4.0f) })),
             AzCssPropertyWithConditions_simple(AzCssProperty_tabSize(AzStyleTabSize{ AzPixelValue_em(4.0f) })),
             AzCssPropertyWithConditions_simple(AzCssProperty_whiteSpace([]{ AzStyleWhiteSpaceValue v{}; v.Exact = AzStyleWhiteSpaceValueVariant_Exact{ AzStyleWhiteSpaceValue_Tag_Exact, AzStyleWhiteSpace_PreWrap }; return v; }())),
