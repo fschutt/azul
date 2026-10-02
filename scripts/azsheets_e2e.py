@@ -277,6 +277,9 @@ def first_session(binary, args, data_dir, logs, out):
         app.focus_grid()
         for text in ("4", "5", "=SUM(A1:A2)"):
             before = app.replies()
+            # Re-focus each time: a rebuild that loses the focus must not
+            # send the next keys nowhere (the E2E checks the grid, not that).
+            app.focus_grid()
             app.type_text(text)
             app.key("return")
             app.settle(before, "the engine to take %s" % text)
@@ -288,6 +291,7 @@ def first_session(binary, args, data_dir, logs, out):
 
         # 3. The status bar's sum of A1:A3.
         before = app.replies()
+        app.focus_grid()
         app.key("up", shift=True)
         app.key("up", shift=True)
         app.settle(before, "the selection's statistics")
@@ -299,6 +303,9 @@ def first_session(binary, args, data_dir, logs, out):
         app.home(right=2)
         for text in ("3", "1", "2"):
             before = app.replies()
+            # Re-focus each time: a rebuild that loses the focus must not
+            # send the next keys nowhere (the E2E checks the grid, not that).
+            app.focus_grid()
             app.type_text(text)
             app.key("return")
             app.settle(before, "the engine to take %s" % text)
