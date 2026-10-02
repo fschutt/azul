@@ -10144,6 +10144,204 @@ fn atomic_inline_baseline_offset(
     }
 }
 
+/// Measure one ATOMIC inline-level box of the IFC `constraints` lays out (an
+/// inline-block, an inline-flex / -grid / -table box): its used border-box
+/// size from its own CSS (`calculate_used_size_for_node` against the IFC
+/// root's content box, [`atomic_inline_containing_block`]), its contents laid
+/// out to find its height and baseline, its used size stored in the tree.
+/// Returns the margin-box shape the line layout places; the caller pushes it
+/// and maps its content index to `child_index`, so the box is positioned.
+///
+/// THE one measurement for every place an IFC meets an atomic inline: a child
+/// of the IFC root, of an anonymous IFC wrapper, and one nested in inline
+/// spans. (Three copies had drifted: the span one sized the box from its
+/// max-content width alone - no width, height, padding or border - and never
+/// positioned it; the anonymous-wrapper one resolved the box's percentages
+/// against the root's own containing block.)
+fn measure_atomic_inline<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    text_cache: &mut TextLayoutCache,
+    child_index: usize,
+    dom_id: NodeId,
+    constraints: &LayoutConstraints<'_>,
+) -> Result<InlineShape> {
+    // The intrinsic sizing pass has already calculated its preferred size.
+    let intrinsic_size = tree
+        .warm(LayoutNodeId::new(child_index))
+        .and_then(|w| w.intrinsic_sizes)
+        .unwrap_or_default();
+    let box_props = tree
+        .get(LayoutNodeId::new(child_index))
+        .ok_or(LayoutError::InvalidTree)?
+        .box_props
+        .unpack();
+
+    let styled_node_state = ctx
+        .styled_dom
+        .styled_nodes
+        .as_container()
+        .get(dom_id)
+        .map(|n| n.styled_node_state)
+        .unwrap_or_default();
+
+    // Calculate tentative border-box size based on CSS properties
+    // This correctly handles explicit width/height, box-sizing, and constraints
+    let tentative_size = crate::solver3::sizing::calculate_used_size_for_node(
+        ctx.styled_dom,
+        Some(dom_id),
+        &CBTY::from_flattened_with_width_type(
+            atomic_inline_containing_block(constraints),
+            constraints.available_width_type,
+        ),
+        intrinsic_size,
+        &box_props,
+        &ctx.viewport_size,
+    )?;
+
+    let writing_mode =
+        get_writing_mode(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+
+    // Determine content-box size for laying out children
+    let content_box_size = box_props.inner_size(tentative_size, writing_mode);
+
+    debug_info!(
+        ctx,
+        "[measure_atomic_inline] Inline-block NodeId({:?}): tentative_border_box={:?}, \
+         content_box={:?}",
+        dom_id,
+        tentative_size,
+        content_box_size
+    );
+
+    // To find its height and baseline, we must lay out its contents.
+    let child_wm_ctx = super::geometry::WritingModeContext::new(
+        writing_mode,
+        get_direction_property(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default(),
+        get_text_orientation_property(ctx.styled_dom, dom_id, &styled_node_state)
+            .unwrap_or_default(),
+    );
+    let child_constraints = LayoutConstraints {
+        available_size: LogicalSize::new(content_box_size.width, f32::INFINITY),
+        writing_mode,
+        writing_mode_ctx: child_wm_ctx,
+        // Inline-blocks establish a new BFC, so no state is passed in.
+        bfc_state: None,
+        // Does not affect size/baseline of the container.
+        text_align: TextAlign::Start,
+        containing_block_size: atomic_inline_containing_block(constraints),
+        available_width_type: Text3AvailableSpace::Definite(content_box_size.width),
+        fragmentainer: None,
+        column_flow: None,
+    };
+
+    // Recursively lay out the inline-block to get its final height and baseline.
+    // Note: This does not affect its final position, only its dimensions.
+    let mut empty_float_cache = HashMap::new();
+    let layout_result = layout_formatting_context(
+        ctx,
+        tree,
+        text_cache,
+        child_index,
+        &child_constraints,
+        &mut empty_float_cache,
+    )?;
+
+    publish_interior_positions(tree, &layout_result.output);
+    let css_height = get_css_height(ctx.styled_dom, dom_id, &styled_node_state);
+
+    // Replaced elements (image / VirtualView) have no flow content, so the
+    // measured content_height is 0 — treat their auto height like an explicit
+    // height (use the CSS/intrinsic-resolved tentative_size). Fixes 0-height
+    // images / VirtualViews laid out as atomic inline-blocks.
+    let is_replaced_atomic = {
+        let nd = &ctx.styled_dom.node_data.as_container()[dom_id];
+        matches!(nd.get_node_type(), NodeType::Image(_)) || nd.is_virtual_view_node()
+    };
+    // Determine final border-box height
+    let final_height = match css_height.clone().unwrap_or_default() {
+        LayoutHeight::Auto if !is_replaced_atomic => atomic_inline_auto_height(
+            tree.get(LayoutNodeId::new(child_index))
+                .map(|n| n.formatting_context),
+            tree.get(LayoutNodeId::new(child_index))
+                .and_then(|n| n.used_size)
+                .map(|s| s.height),
+            layout_result.output.overflow_size.height,
+            box_props.padding.main_sum(writing_mode) + box_props.border.main_sum(writing_mode),
+        ),
+        // Explicit height (calculate_used_size_for_node gave the border-box
+        // height), OR a replaced element's auto height (intrinsic/CSS-resolved).
+        _ => tentative_size.height,
+    };
+
+    debug_info!(
+        ctx,
+        "[measure_atomic_inline] Inline-block NodeId({:?}): layout_content_height={}, \
+         css_height={:?}, final_border_box_height={}",
+        dom_id,
+        layout_result.output.overflow_size.height,
+        css_height,
+        final_height
+    );
+
+    let final_size = LogicalSize::new(tentative_size.width, final_height);
+
+    // Update the node in the tree with its now-known used size.
+    if let Some(node) = tree.get_mut(LayoutNodeId::new(child_index)) {
+        node.used_size = Some(final_size);
+    }
+
+    // CSS 2.2 s 10.8.1, via `atomic_inline_baseline_offset`.
+    let overflow_x = get_overflow_x(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+    let overflow_y = get_overflow_y(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+    let overflow_is_visible = matches!(
+        (overflow_x, overflow_y),
+        (LayoutOverflow::Visible, LayoutOverflow::Visible)
+    );
+    let baseline_from_top = layout_result.output.baseline;
+    let baseline_offset = atomic_inline_baseline_offset(
+        baseline_from_top,
+        final_height,
+        box_props.padding.top + box_props.border.top,
+        box_props.margin.bottom,
+        overflow_is_visible,
+    );
+
+    debug_info!(
+        ctx,
+        "[measure_atomic_inline] Inline-block NodeId({:?}): baseline_from_top={:?}, \
+         final_height={}, baseline_offset_from_bottom={}",
+        dom_id,
+        baseline_from_top,
+        final_height,
+        baseline_offset
+    );
+
+    // +spec:box-model:66ad24 - inline-axis margins, borders, padding respected for
+    // inline-level boxes (no collapsing). "The box used for alignment is the
+    // margin box": text3 positions the margin box, so the spacing is kept.
+    let margin = &box_props.margin;
+    let margin_box_width = final_size.width + margin.left + margin.right;
+    let margin_box_height = final_size.height + margin.top + margin.bottom;
+
+    Ok(InlineShape {
+        shape_def: ShapeDefinition::Rectangle {
+            size: crate::text3::cache::Size {
+                // Use margin-box size for positioning in inline flow
+                width: margin_box_width,
+                height: margin_box_height,
+            },
+            corner_radius: None,
+        },
+        fill: None,
+        stroke: None,
+        // Already measured from the margin box's bottom edge.
+        baseline_offset,
+        alignment: crate::solver3::getters::get_vertical_align_for_node(ctx.styled_dom, dom_id),
+        source_node_id: Some(dom_id),
+    })
+}
+
 fn collect_and_measure_inline_content<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     text_cache: &mut TextLayoutCache,
@@ -10444,143 +10642,27 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 );
                 collect_inline_span_recursive(
                     ctx,
+                    text_cache,
                     tree,
                     dom_id,
                     &span_style,
                     content,
+                    child_map,
                     &children,
                     constraints,
                 )?;
             } else {
                 // +spec:display-property:a37a9a - atomic inline-level boxes treated as neutral
                 // characters in bidi reordering This is an atomic inline-level box
-                // (e.g., inline-block, image). We must determine its size and
-                // baseline before passing it to text3.
-
-                // The intrinsic sizing pass has already calculated its preferred size.
-                let intrinsic_size = tree
-                    .warm(LayoutNodeId::new(child_index))
-                    .and_then(|w| w.intrinsic_sizes)
-                    .unwrap_or_default();
-                let box_props = child_node.box_props.unpack();
-
-                let styled_node_state = ctx
-                    .styled_dom
-                    .styled_nodes
-                    .as_container()
-                    .get(dom_id)
-                    .map(|n| n.styled_node_state)
-                    .unwrap_or_default();
-
-                // Calculate tentative border-box size based on CSS properties
-                let tentative_size = crate::solver3::sizing::calculate_used_size_for_node(
-                    ctx.styled_dom,
-                    Some(dom_id),
-                    &CBTY::from_flattened_with_width_type(
-                        constraints.containing_block_size,
-                        constraints.available_width_type,
-                    ),
-                    intrinsic_size,
-                    &box_props,
-                    &ctx.viewport_size,
-                )?;
-
-                let writing_mode = get_writing_mode(ctx.styled_dom, dom_id, &styled_node_state)
-                    .unwrap_or_default();
-
-                // Determine content-box size for laying out children
-                let content_box_size = box_props.inner_size(tentative_size, writing_mode);
-
-                // To find its height and baseline, we must lay out its contents.
-                let child_wm_ctx = super::geometry::WritingModeContext::new(
-                    writing_mode,
-                    get_direction_property(ctx.styled_dom, dom_id, &styled_node_state)
-                        .unwrap_or_default(),
-                    get_text_orientation_property(ctx.styled_dom, dom_id, &styled_node_state)
-                        .unwrap_or_default(),
-                );
-                let child_constraints = LayoutConstraints {
-                    available_size: LogicalSize::new(content_box_size.width, f32::INFINITY),
-                    writing_mode,
-                    writing_mode_ctx: child_wm_ctx,
-                    bfc_state: None,
-                    text_align: TextAlign::Start,
-                    containing_block_size: atomic_inline_containing_block(constraints),
-                    available_width_type: Text3AvailableSpace::Definite(content_box_size.width),
-                    fragmentainer: None,
-                    column_flow: None,
-                };
-
-                // Drop the immutable borrow before calling layout_formatting_context
-                drop(child_node);
-
-                // Recursively lay out the inline-block to get its final height and baseline.
-                let mut empty_float_cache = HashMap::new();
-                let layout_result = layout_formatting_context(
+                // (e.g., inline-block, image): its size and baseline go to text3 with it.
+                let shape = measure_atomic_inline(
                     ctx,
                     tree,
                     text_cache,
                     child_index,
-                    &child_constraints,
-                    &mut empty_float_cache,
+                    dom_id,
+                    constraints,
                 )?;
-
-                publish_interior_positions(tree, &layout_result.output);
-                let css_height = get_css_height(ctx.styled_dom, dom_id, &styled_node_state);
-
-                // Replaced elements (image / VirtualView) have no flow content, so the
-                // measured content_height is 0 — treat their auto height like an
-                // explicit height (CSS/intrinsic-resolved tentative_size).
-                let is_replaced_atomic = {
-                    let nd = &ctx.styled_dom.node_data.as_container()[dom_id];
-                    matches!(nd.get_node_type(), NodeType::Image(_)) || nd.is_virtual_view_node()
-                };
-                // Determine final border-box height
-                let final_height = match css_height.unwrap_or_default() {
-                    LayoutHeight::Auto if !is_replaced_atomic => atomic_inline_auto_height(
-                        tree.get(LayoutNodeId::new(child_index))
-                            .map(|n| n.formatting_context),
-                        tree.get(LayoutNodeId::new(child_index))
-                            .and_then(|n| n.used_size)
-                            .map(|s| s.height),
-                        layout_result.output.overflow_size.height,
-                        box_props.padding.main_sum(writing_mode)
-                            + box_props.border.main_sum(writing_mode),
-                    ),
-                    _ => tentative_size.height,
-                };
-
-                let final_size = LogicalSize::new(tentative_size.width, final_height);
-
-                // Update the node in the tree with its now-known used size.
-                tree.get_mut(LayoutNodeId::new(child_index))
-                    .unwrap()
-                    .used_size = Some(final_size);
-
-                // CSS 2.2 s 10.8.1, via `atomic_inline_baseline_offset`.
-                let overflow_x =
-                    get_overflow_x(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
-                let overflow_y =
-                    get_overflow_y(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
-                let overflow_is_visible = matches!(
-                    (overflow_x, overflow_y),
-                    (LayoutOverflow::Visible, LayoutOverflow::Visible)
-                );
-                let baseline_offset = atomic_inline_baseline_offset(
-                    layout_result.output.baseline,
-                    final_height,
-                    box_props.padding.top + box_props.border.top,
-                    box_props.margin.bottom,
-                    overflow_is_visible,
-                );
-
-                // +spec:box-model:66ad24 - inline-axis margins, borders, padding respected for
-                // inline-level boxes (no collapsing) The margin-box size is used so
-                // text3 positions inline-blocks with proper spacing
-                let margin = &box_props.margin;
-                let margin_box_width = final_size.width + margin.left + margin.right;
-                let margin_box_height = final_size.height + margin.top + margin.bottom;
-
                 // For inline-block shapes, text3 uses the content array index as run_index
                 // and always item_index=0 for objects. We must match this when inserting into
                 // child_map.
@@ -10588,25 +10670,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     run_index: content.len() as u32,
                     item_index: 0,
                 };
-                content.push(InlineContent::Shape(InlineShape {
-                    shape_def: ShapeDefinition::Rectangle {
-                        size: crate::text3::cache::Size {
-                            // Use margin-box size for positioning in inline flow
-                            width: margin_box_width,
-                            height: margin_box_height,
-                        },
-                        corner_radius: None,
-                    },
-                    fill: None,
-                    stroke: None,
-                    // Already measured from the margin box's bottom edge.
-                    baseline_offset,
-                    alignment: crate::solver3::getters::get_vertical_align_for_node(
-                        ctx.styled_dom,
-                        dom_id,
-                    ),
-                    source_node_id: Some(dom_id),
-                }));
+                content.push(InlineContent::Shape(shape));
                 child_map.insert(shape_content_index, child_index);
             }
         }
@@ -10979,170 +11043,16 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 
         let display = get_display_property(ctx.styled_dom, Some(dom_id)).unwrap_or_default();
         if display != LayoutDisplay::Inline {
-            // This is an atomic inline-level box (e.g., inline-block, image).
-            // We must determine its size and baseline before passing it to text3.
-
-            // The intrinsic sizing pass has already calculated its preferred size.
-            let intrinsic_size = tree
-                .warm(LayoutNodeId::new(child_index))
-                .and_then(|w| w.intrinsic_sizes)
-                .unwrap_or_default();
-            let box_props = child_node.box_props.unpack();
-
-            let styled_node_state = ctx
-                .styled_dom
-                .styled_nodes
-                .as_container()
-                .get(dom_id)
-                .map(|n| n.styled_node_state)
-                .unwrap_or_default();
-
-            // Calculate tentative border-box size based on CSS properties
-            // This correctly handles explicit width/height, box-sizing, and constraints
-            let tentative_size = crate::solver3::sizing::calculate_used_size_for_node(
-                ctx.styled_dom,
-                Some(dom_id),
-                &CBTY::from_flattened_with_width_type(
-                    atomic_inline_containing_block(constraints),
-                    constraints.available_width_type,
-                ),
-                intrinsic_size,
-                &box_props,
-                &ctx.viewport_size,
-            )?;
-
-            let writing_mode =
-                get_writing_mode(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
-
-            // Determine content-box size for laying out children
-            let content_box_size = box_props.inner_size(tentative_size, writing_mode);
-
-            debug_info!(
-                ctx,
-                "[collect_and_measure_inline_content] Inline-block NodeId({:?}): \
-                 tentative_border_box={:?}, content_box={:?}",
-                dom_id,
-                tentative_size,
-                content_box_size
-            );
-
-            // To find its height and baseline, we must lay out its contents.
-            let child_wm_ctx = super::geometry::WritingModeContext::new(
-                writing_mode,
-                get_direction_property(ctx.styled_dom, dom_id, &styled_node_state)
-                    .unwrap_or_default(),
-                get_text_orientation_property(ctx.styled_dom, dom_id, &styled_node_state)
-                    .unwrap_or_default(),
-            );
-            let child_constraints = LayoutConstraints {
-                available_size: LogicalSize::new(content_box_size.width, f32::INFINITY),
-                writing_mode,
-                writing_mode_ctx: child_wm_ctx,
-                // Inline-blocks establish a new BFC, so no state is passed in.
-                bfc_state: None,
-                // Does not affect size/baseline of the container.
-                text_align: TextAlign::Start,
-                containing_block_size: atomic_inline_containing_block(constraints),
-                available_width_type: Text3AvailableSpace::Definite(content_box_size.width),
-                fragmentainer: None,
-                column_flow: None,
-            };
-
-            // Drop the immutable borrow before calling layout_formatting_context
-            drop(child_node);
-
-            // Recursively lay out the inline-block to get its final height and baseline.
-            // Note: This does not affect its final position, only its dimensions.
-            let mut empty_float_cache = HashMap::new();
-            let layout_result = layout_formatting_context(
+            // This is an atomic inline-level box (e.g., inline-block, image):
+            // its size and baseline go to text3 with it.
+            let shape = measure_atomic_inline(
                 ctx,
                 tree,
                 text_cache,
                 child_index,
-                &child_constraints,
-                &mut empty_float_cache,
+                dom_id,
+                constraints,
             )?;
-
-            publish_interior_positions(tree, &layout_result.output);
-            let css_height = get_css_height(ctx.styled_dom, dom_id, &styled_node_state);
-
-            // Replaced elements (image / VirtualView) have no flow content, so the
-            // measured content_height is 0 — treat their auto height like an explicit
-            // height (use the CSS/intrinsic-resolved tentative_size). Fixes 0-height
-            // images / VirtualViews laid out as atomic inline-blocks.
-            let is_replaced_atomic = {
-                let nd = &ctx.styled_dom.node_data.as_container()[dom_id];
-                matches!(nd.get_node_type(), NodeType::Image(_)) || nd.is_virtual_view_node()
-            };
-            // Determine final border-box height
-            let final_height = match css_height.clone().unwrap_or_default() {
-                LayoutHeight::Auto if !is_replaced_atomic => atomic_inline_auto_height(
-                    tree.get(LayoutNodeId::new(child_index))
-                        .map(|n| n.formatting_context),
-                    tree.get(LayoutNodeId::new(child_index))
-                        .and_then(|n| n.used_size)
-                        .map(|s| s.height),
-                    layout_result.output.overflow_size.height,
-                    box_props.padding.main_sum(writing_mode)
-                        + box_props.border.main_sum(writing_mode),
-                ),
-                // Explicit height (calculate_used_size_for_node gave the border-box
-                // height), OR a replaced element's auto height (intrinsic/CSS-resolved).
-                _ => tentative_size.height,
-            };
-
-            debug_info!(
-                ctx,
-                "[collect_and_measure_inline_content] Inline-block NodeId({:?}): \
-                 layout_content_height={}, css_height={:?}, final_border_box_height={}",
-                dom_id,
-                layout_result.output.overflow_size.height,
-                css_height,
-                final_height
-            );
-
-            let final_size = LogicalSize::new(tentative_size.width, final_height);
-
-            // Update the node in the tree with its now-known used size.
-            tree.get_mut(LayoutNodeId::new(child_index))
-                .unwrap()
-                .used_size = Some(final_size);
-
-            // CSS 2.2 s 10.8.1, via `atomic_inline_baseline_offset`.
-            let overflow_x =
-                get_overflow_x(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
-            let overflow_y =
-                get_overflow_y(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
-            let overflow_is_visible = matches!(
-                (overflow_x, overflow_y),
-                (LayoutOverflow::Visible, LayoutOverflow::Visible)
-            );
-            let baseline_from_top = layout_result.output.baseline;
-            let baseline_offset = atomic_inline_baseline_offset(
-                baseline_from_top,
-                final_height,
-                box_props.padding.top + box_props.border.top,
-                box_props.margin.bottom,
-                overflow_is_visible,
-            );
-
-            debug_info!(
-                ctx,
-                "[collect_and_measure_inline_content] Inline-block NodeId({:?}): \
-                 baseline_from_top={:?}, final_height={}, baseline_offset_from_bottom={}",
-                dom_id,
-                baseline_from_top,
-                final_height,
-                baseline_offset
-            );
-
-            // Get margins for inline-block positioning
-            // For inline-blocks, we need to include margins in the shape size
-            // so that text3 positions them correctly with spacing
-            let margin = &box_props.margin;
-            let margin_box_width = final_size.width + margin.left + margin.right;
-            let margin_box_height = final_size.height + margin.top + margin.bottom;
-
             // For inline-block shapes, text3 uses the content array index as run_index
             // and always item_index=0 for objects. We must match this when inserting into
             // child_map.
@@ -11150,26 +11060,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 run_index: content.len() as u32,
                 item_index: 0,
             };
-            // the box used for alignment is the margin box" - using margin_box_width/height here
-            content.push(InlineContent::Shape(InlineShape {
-                shape_def: ShapeDefinition::Rectangle {
-                    size: crate::text3::cache::Size {
-                        // Use margin-box size for positioning in inline flow
-                        width: margin_box_width,
-                        height: margin_box_height,
-                    },
-                    corner_radius: None,
-                },
-                fill: None,
-                stroke: None,
-                // Already measured from the margin box's bottom edge.
-                baseline_offset,
-                alignment: crate::solver3::getters::get_vertical_align_for_node(
-                    ctx.styled_dom,
-                    dom_id,
-                ),
-                source_node_id: Some(dom_id),
-            }));
+            content.push(InlineContent::Shape(shape));
             child_map.insert(shape_content_index, child_index);
         } else if matches!(
             ctx.styled_dom.node_data.as_container()[dom_id].get_node_type(),
@@ -11288,10 +11179,12 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             );
             collect_inline_span_recursive(
                 ctx,
+                text_cache,
                 tree,
                 dom_id,
                 &span_style,
                 content,
+                child_map,
                 &children,
                 constraints,
             )?;
@@ -11324,12 +11217,15 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 /// - Inline-blocks, images: measured and added as shapes
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
                                  // (one branch per case)
+#[allow(clippy::too_many_arguments)] // the IFC collection's whole state, threaded down
 fn collect_inline_span_recursive<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
+    text_cache: &mut TextLayoutCache,
     tree: &mut LayoutTree,
     span_dom_id: NodeId,
     span_style: &StyleProperties,
     content: &mut Vec<InlineContent>,
+    child_map: &mut HashMap<ContentIndex, usize>,
     parent_children: &[usize], // Layout tree children of parent IFC
     constraints: &LayoutConstraints<'_>,
 ) -> Result<()> {
@@ -11528,16 +11424,22 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                 );
                 collect_inline_span_recursive(
                     ctx,
+                    text_cache,
                     tree,
                     child_dom_id,
                     &child_style,
                     content,
+                    child_map,
                     parent_children,
                     constraints,
                 )?;
             }
             LayoutDisplay::InlineBlock => {
-                // Inline-block inside span - measure and add as shape
+                // An inline-block inside the span is the same atomic inline as
+                // a direct child of the IFC root (an inline box is a
+                // transparent wrapper): its layout node is one of the root's
+                // children, so it is measured and mapped for positioning
+                // exactly like one.
                 let Some(child_index) = child_index else {
                     debug_info!(
                         ctx,
@@ -11547,109 +11449,23 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     );
                     continue;
                 };
-
-                let child_node = tree
-                    .get(LayoutNodeId::new(child_index))
-                    .ok_or(LayoutError::InvalidTree)?;
-                let intrinsic_size = tree
-                    .warm(LayoutNodeId::new(child_index))
-                    .and_then(|w| w.intrinsic_sizes)
-                    .unwrap_or_default();
-                let width = intrinsic_size.max_content_width;
-
-                let styled_node_state = ctx
-                    .styled_dom
-                    .styled_nodes
-                    .as_container()
-                    .get(child_dom_id)
-                    .map(|n| n.styled_node_state)
-                    .unwrap_or_default();
-                let writing_mode =
-                    get_writing_mode(ctx.styled_dom, child_dom_id, &styled_node_state)
-                        .unwrap_or_default();
-                let child_wm_ctx = super::geometry::WritingModeContext::new(
-                    writing_mode,
-                    get_direction_property(ctx.styled_dom, child_dom_id, &styled_node_state)
-                        .unwrap_or_default(),
-                    get_text_orientation_property(ctx.styled_dom, child_dom_id, &styled_node_state)
-                        .unwrap_or_default(),
-                );
-                let child_constraints = LayoutConstraints {
-                    available_size: LogicalSize::new(width, f32::INFINITY),
-                    writing_mode,
-                    writing_mode_ctx: child_wm_ctx,
-                    bfc_state: None,
-                    text_align: TextAlign::Start,
-                    containing_block_size: atomic_inline_containing_block(constraints),
-                    available_width_type: Text3AvailableSpace::Definite(width),
-                    fragmentainer: None,
-                    column_flow: None,
-                };
-
-                drop(child_node);
-
-                let mut empty_float_cache = HashMap::new();
-                let layout_result = layout_formatting_context(
+                let shape = measure_atomic_inline(
                     ctx,
                     tree,
-                    &mut TextLayoutCache::default(),
+                    text_cache,
                     child_index,
-                    &child_constraints,
-                    &mut empty_float_cache,
+                    child_dom_id,
+                    constraints,
                 )?;
-                let final_height = layout_result.output.overflow_size.height;
-                let final_size = LogicalSize::new(width, final_height);
-
-                tree.get_mut(LayoutNodeId::new(child_index))
-                    .unwrap()
-                    .used_size = Some(final_size);
-
-                // CSS 2.2 s 10.8.1, via `atomic_inline_baseline_offset`. This
-                // path measures the box from its intrinsic width and content
-                // height alone (no box_props are resolved for it here), so its
-                // content box and border box coincide and it has no margins to
-                // account for.
-                let overflow_x = get_overflow_x(ctx.styled_dom, child_dom_id, &styled_node_state)
-                    .unwrap_or_default();
-                let overflow_y = get_overflow_y(ctx.styled_dom, child_dom_id, &styled_node_state)
-                    .unwrap_or_default();
-                let overflow_is_visible = matches!(
-                    (overflow_x, overflow_y),
-                    (LayoutOverflow::Visible, LayoutOverflow::Visible)
-                );
-                let baseline_offset = atomic_inline_baseline_offset(
-                    layout_result.output.baseline,
-                    final_height,
-                    0.0,
-                    0.0,
-                    overflow_is_visible,
-                );
-
-                content.push(InlineContent::Shape(InlineShape {
-                    shape_def: ShapeDefinition::Rectangle {
-                        size: crate::text3::cache::Size {
-                            width,
-                            height: final_height,
-                        },
-                        corner_radius: None,
-                    },
-                    fill: None,
-                    stroke: None,
-                    baseline_offset,
-                    alignment: crate::solver3::getters::get_vertical_align_for_node(
-                        ctx.styled_dom,
-                        child_dom_id,
-                    ),
-                    source_node_id: Some(child_dom_id),
-                }));
-
-                // Note: We don't add to child_map here because this is inside a span
-                debug_info!(
-                    ctx,
-                    "[collect_inline_span_recursive] Added inline-block shape {}x{}",
-                    width,
-                    final_height
-                );
+                // For inline-block shapes, text3 uses the content array index as run_index
+                // and always item_index=0 for objects. We must match this when inserting into
+                // child_map.
+                let shape_content_index = ContentIndex {
+                    run_index: content.len() as u32,
+                    item_index: 0,
+                };
+                content.push(InlineContent::Shape(shape));
+                child_map.insert(shape_content_index, child_index);
             }
             _ => {
                 // +spec:display-property:0684c4 - block box inlinified: inner display becomes
@@ -11672,10 +11488,12 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                 );
                 collect_inline_span_recursive(
                     ctx,
+                    text_cache,
                     tree,
                     child_dom_id,
                     &child_style,
                     content,
+                    child_map,
                     parent_children,
                     constraints,
                 )?;
