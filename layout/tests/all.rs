@@ -740,3 +740,5 @@ mod a_rows_stray_child_sits_in_an_anonymous_cell;
 mod an_inline_block_contributes_its_clamped_padded_width;
 #[path = "a_cells_vertical_align_counts_its_last_childs_bottom_margin.rs"]
 mod a_cells_vertical_align_counts_its_last_childs_bottom_margin;
+#[path = "a_line_break_ends_a_line_in_the_max_content.rs"]
+mod a_line_break_ends_a_line_in_the_max_content;
