@@ -736,3 +736,5 @@ mod a_line_height_in_points_sets_the_line_pitch;
 mod an_auto_height_block_stops_growing_at_its_max_height;
 #[path = "a_gmail_quote_is_indented_by_its_ex_margin.rs"]
 mod a_gmail_quote_is_indented_by_its_ex_margin;
+#[path = "an_unresolved_img_from_markup_takes_no_space.rs"]
+mod an_unresolved_img_from_markup_takes_no_space;
