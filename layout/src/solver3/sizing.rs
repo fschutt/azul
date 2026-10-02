@@ -1363,7 +1363,12 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // The `<col>` / `<colgroup>` widths of the columns the cells made.
         for (accumulator, width) in columns
             .iter_mut()
-            .zip(column_element_widths(self.ctx.styled_dom, tree, node_index))
+            .zip(column_element_widths(
+                self.ctx.styled_dom,
+                tree,
+                &grid.column_boxes,
+                grid.columns.len(),
+            ))
         {
             accumulator.add_width(width);
         }

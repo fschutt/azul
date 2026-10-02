@@ -21,10 +21,7 @@
 //! - the min-content of a column is its cells' min-content - a `width` does not raise it (only
 //!   `min-width` does, through the cell's own intrinsic sizes).
 
-use azul_core::{
-    dom::{FormattingContext, NodeId},
-    styled_dom::StyledDom,
-};
+use azul_core::{dom::NodeId, styled_dom::StyledDom};
 use azul_css::props::layout::{dimensions::LayoutWidth, LayoutBoxSizing};
 
 use crate::solver3::{
@@ -93,14 +90,17 @@ pub fn specified_width(styled_dom: &StyledDom, dom_id: NodeId, h_extras: f32) ->
 }
 
 /// The widths the table's `<colgroup>` / `<col>` elements give its columns,
-/// by column index, in document order (`Auto` where none is given): a
-/// `<col>`'s own `width`, else its group's; a group without `<col>`s is one
-/// column. (`span` is not read: one column per element.)
+/// by grid column (`Auto` where none is given): a `<col>`'s own `width`, else
+/// its group's; a group without `<col>`s stands for its columns itself. The
+/// column boxes are the grid's (`fc::analyze_table_structure`), so a bare
+/// `<col>` straight under the table and a `span` count like everywhere else
+/// the grid is read.
 #[must_use]
 pub fn column_element_widths(
     styled_dom: &StyledDom,
     tree: &LayoutTree,
-    table_index: usize,
+    column_boxes: &[crate::solver3::fc::TableColumnBox],
+    num_columns: usize,
 ) -> Vec<SpecifiedWidth> {
     let width_of = |index: usize| {
         tree.get(LayoutNodeId::new(index))
@@ -109,26 +109,18 @@ pub fn column_element_widths(
                 specified_width(styled_dom, dom, 0.0)
             })
     };
-    let mut out = Vec::new();
-    for &child in tree.children(table_index) {
-        let is_group = tree
-            .get(LayoutNodeId::new(child))
-            .is_some_and(|n| matches!(n.formatting_context, FormattingContext::TableColumnGroup));
-        if !is_group {
-            continue;
-        }
-        let group = width_of(child);
-        let cols = tree.children(child);
-        if cols.is_empty() {
-            out.push(group);
-        }
-        for &col in cols {
-            let own = width_of(col);
-            out.push(if own == SpecifiedWidth::Auto {
-                group
-            } else {
-                own
-            });
+    let mut out = vec![SpecifiedWidth::Auto; num_columns];
+    for column_box in column_boxes {
+        let own = width_of(column_box.node_index);
+        let width = match (own, column_box.group) {
+            (SpecifiedWidth::Auto, Some(group)) if group != column_box.node_index => {
+                width_of(group)
+            }
+            _ => own,
+        };
+        let end = (column_box.start + column_box.span).min(num_columns);
+        for slot in out.iter_mut().take(end).skip(column_box.start) {
+            *slot = width;
         }
     }
     out

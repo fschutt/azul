@@ -7764,14 +7764,24 @@ fn calculate_column_widths_fixed<T: ParsedFontTrait>(
         return;
     }
 
-    // Step 1: a `<col>` with a width sets its column.
-    let mut widths: Vec<Option<f32>> = column_box_widths(
+    // Step 1: a `<col>` with a width sets its column (a column box has no
+    // padding and, for its width, no border).
+    let mut widths: Vec<Option<f32>> = crate::solver3::table_width::column_element_widths(
         ctx.styled_dom,
         tree,
-        table_ctx,
-        ctx.viewport_size,
-        Some(available_width),
-    );
+        &table_ctx.column_boxes,
+        num_cols,
+    )
+    .into_iter()
+    .enumerate()
+    .map(|(c, width)| {
+        let dom_id = table_ctx
+            .column_box_at(c)
+            .and_then(|b| tree.get(LayoutNodeId::new(b.node_index)))
+            .and_then(|n| n.dom_node_id)?;
+        fixed_layout_width(ctx.styled_dom, dom_id, width, 0.0, available_width)
+    })
+    .collect();
 
     // Step 2: otherwise a first-row cell with a width sets its column(s) -
     // its width plus its horizontal padding and border; a spanning cell's
@@ -7787,12 +7797,14 @@ fn calculate_column_widths_fixed<T: ParsedFontTrait>(
         let Some(dom_id) = cell.dom_node_id else {
             continue;
         };
+        let bp = cell.box_props.unpack();
+        let h_extras = bp.padding.left + bp.padding.right + bp.border.left + bp.border.right;
         let Some(w) = fixed_layout_width(
             ctx.styled_dom,
             dom_id,
-            &cell.box_props.unpack(),
+            crate::solver3::table_width::specified_width(ctx.styled_dom, dom_id, h_extras),
+            h_extras,
             available_width,
-            ctx.viewport_size,
         ) else {
             continue;
         };
@@ -7856,72 +7868,36 @@ fn calculate_column_widths_fixed<T: ParsedFontTrait>(
 }
 
 /// A cell's (or a `<col>`'s) width for the fixed table layout, as a border
-/// box: a length as [`cell_specified_border_box_width`] reads it, a
-/// percentage of the columns' share of the table as the content width plus
-/// the padding and border (WPT fixed-table-layout-025/026). `None` for
-/// `auto` and the intrinsic keywords.
+/// box, from its `width` as `table_width::specified_width` read it: a length
+/// is that border box; a percentage of the columns' share of the table is the
+/// CONTENT width, plus `h_extras` (the padding and border - WPT
+/// fixed-table-layout-025/026), or under `box-sizing: border-box` the whole
+/// border box. `None` for `auto`.
 fn fixed_layout_width(
     styled_dom: &StyledDom,
     dom_id: NodeId,
-    bp: &BoxProps,
+    width: crate::solver3::table_width::SpecifiedWidth,
+    h_extras: f32,
     columns_width: f32,
-    viewport: LogicalSize,
 ) -> Option<f32> {
-    if let Some(w) = cell_specified_border_box_width(styled_dom, dom_id, bp, viewport) {
-        return Some(w);
-    }
-    let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-    let MultiValue::Exact(LayoutWidth::Px(px)) = get_css_width(styled_dom, dom_id, node_state)
-    else {
-        return None;
-    };
-    if px.metric != SizeMetric::Percent {
-        return None;
-    }
-    let w = px.number.get() / 100.0 * columns_width;
-    if !w.is_finite() {
-        return None;
-    }
-    let extras = bp.padding.left + bp.padding.right + bp.border.left + bp.border.right;
-    Some(match get_css_box_sizing(styled_dom, dom_id, node_state) {
-        MultiValue::Exact(azul_css::props::layout::LayoutBoxSizing::BorderBox) => w.max(extras),
-        _ => w.max(0.0) + extras,
-    })
-}
-
-/// The width each grid column takes from its `<col>` box (a column group
-/// without columns counts as its columns' box): a border-box length, a
-/// percentage of `columns_width` when one is given, `None` where no column
-/// box sets one. A column box has no padding and, for its width, no border.
-fn column_box_widths(
-    styled_dom: &StyledDom,
-    tree: &LayoutTree,
-    table_ctx: &TableLayoutContext,
-    viewport: LogicalSize,
-    columns_width: Option<f32>,
-) -> Vec<Option<f32>> {
-    let mut out: Vec<Option<f32>> = vec![None; table_ctx.columns.len()];
-    let no_box = BoxProps::default();
-    for column_box in &table_ctx.column_boxes {
-        let Some(dom_id) = tree
-            .get(LayoutNodeId::new(column_box.node_index))
-            .and_then(|n| n.dom_node_id)
-        else {
-            continue;
-        };
-        let width = match columns_width {
-            Some(base) => fixed_layout_width(styled_dom, dom_id, &no_box, base, viewport),
-            None => cell_specified_border_box_width(styled_dom, dom_id, &no_box, viewport),
-        };
-        let Some(width) = width else {
-            continue;
-        };
-        let end = (column_box.start + column_box.span).min(out.len());
-        for slot in out.iter_mut().take(end).skip(column_box.start) {
-            *slot = Some(width);
+    use crate::solver3::table_width::SpecifiedWidth;
+    match width {
+        SpecifiedWidth::Auto => None,
+        SpecifiedWidth::Fixed(w) => Some(w),
+        SpecifiedWidth::Percent(percent) => {
+            let w = percent / 100.0 * columns_width;
+            if !w.is_finite() {
+                return None;
+            }
+            let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+            Some(match get_css_box_sizing(styled_dom, dom_id, node_state) {
+                MultiValue::Exact(azul_css::props::layout::LayoutBoxSizing::BorderBox) => {
+                    w.max(h_extras)
+                }
+                _ => w.max(0.0) + h_extras,
+            })
         }
     }
-    out
 }
 
 /// Recursively clear the layout cache for every node in a subtree.
@@ -8242,15 +8218,6 @@ fn calculate_column_widths_auto_with_width<T: ParsedFontTrait>(
             spanning.push((cell_info, min_width, max_width));
         }
     }
-    // A `<col>` with a definite width is its column's width (CSS 2.2
-    // 17.5.2.2 step 2), never below what the column's own cells need.
-    let col_widths = column_box_widths(ctx.styled_dom, tree, table_ctx, ctx.viewport_size, None);
-    for (col, width) in table_ctx.columns.iter_mut().zip(col_widths) {
-        if let Some(w) = width {
-            col.min_width = col.min_width.max(w);
-            col.max_width = col.min_width;
-        }
-    }
     spanning.sort_by_key(|(cell, _, _)| cell.colspan);
     for (cell_info, min_width, max_width) in spanning {
         distribute_cell_width_across_columns(
@@ -8298,17 +8265,13 @@ fn calculate_column_widths_auto_with_width<T: ParsedFontTrait>(
             h_extras,
         ));
     }
-    if let Some(table_index) = table_ctx
-        .row_node_indices
-        .first()
-        .and_then(|&row| enclosing_table(tree, row))
-    {
-        for (accumulator, width) in accumulators
-            .iter_mut()
-            .zip(tw::column_element_widths(ctx.styled_dom, tree, table_index))
-        {
-            accumulator.add_width(width);
-        }
+    for (accumulator, width) in accumulators.iter_mut().zip(tw::column_element_widths(
+        ctx.styled_dom,
+        tree,
+        &table_ctx.column_boxes,
+        num_cols,
+    )) {
+        accumulator.add_width(width);
     }
 
     let mut column_constraints: Vec<tw::ColumnConstraint> = table_ctx
@@ -8344,20 +8307,6 @@ fn calculate_column_widths_auto_with_width<T: ParsedFontTrait>(
     }
 
     Ok(())
-}
-
-/// The table a row belongs to: its parent, or its row group's parent.
-fn enclosing_table(tree: &LayoutTree, row_index: usize) -> Option<usize> {
-    let mut current = tree.get(LayoutNodeId::new(row_index))?.parent;
-    for _ in 0..2 {
-        let index = current?;
-        let node = tree.get(LayoutNodeId::new(index))?;
-        if matches!(node.formatting_context, FormattingContext::Table) {
-            return Some(index);
-        }
-        current = node.parent;
-    }
-    None
 }
 
 /// Distribute a spanning cell's widths over the columns it spans (CSS 2.2
