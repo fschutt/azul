@@ -29,9 +29,7 @@ FAIL css/CSS2/lists/counter-reset-055.xht E-OL # match pass-if-number-0-30px.xht
 FAIL css/CSS2/lists/increment-counter-001.xht E-OL # match pass_if_number_5.xht: maxdiff 191 pixels 3815
 FAIL css/CSS2/lists/list-style-type-applies-to-010.xht E-OL # match single_square_list_marker.xht: maxdiff 23 pixels 4052
 FAIL css/CSS2/lists/reset-counter-001.xht E-OL # match pass_if_number_5.xht: maxdiff 191 pixels 3815
-FAIL css/CSS2/tables/border-collapse-offset-002.xht E-TABLE-BC # match border-collapse-offset-002-ref.xht: maxdiff 255 pixels 592
 FAIL css/CSS2/tables/border-spacing-095.html E-TABLE # match ref-filled-green-100px-square.xht: maxdiff 255 pixels 15217
-FAIL css/CSS2/tables/separated-border-model-003b.xht E-TABLE # match separated-border-model-003b-ref.xht: maxdiff 255 pixels 110667
 FAIL css/CSS2/tables/separated-border-model-004a.xht E-TABLE # match ref-filled-green-100px-square.xht: maxdiff 255 pixels 27816
 FAIL css/CSS2/tables/separated-border-model-004b.xht E-TABLE # match ref-filled-green-100px-square.xht: maxdiff 255 pixels 28116
 FAIL css/CSS2/tables/separated-border-model-007.xht E-TABLE # match separated-border-model-007-ref.xht: maxdiff 8 pixels 1
@@ -81,7 +79,6 @@ FAIL css/css-lists/li-list-item-counter-002.html E-OL # match li-list-item-count
 FAIL css/css-lists/list-marker-alignment.html E-OL # match list-marker-alignment-ref.html: maxdiff 121 pixels 116
 FAIL css/css-lists/list-style-position-001.html E-OL # match list-style-position-001-ref.html: maxdiff 0 pixels 0; mismatch list-style-positio...
 FAIL css/css-tables/anonymous-table-ws-001.html E-TABLE # match anonymous-table-ws-001-ref.html: maxdiff 23 pixels 142
-FAIL css/css-tables/colspan-004.html E-TABLE # match ref-filled-green-100px-square.xht: maxdiff 255 pixels 25355
 FAIL css/css-tables/empty-table-height.html E-TABLE # match min-height-table-ref.html: maxdiff 255 pixels 118614
 FAIL css/css-tables/table-cell-width-0.html E-TABLE # match table-cell-width-0-ref.html: maxdiff 255 pixels 75893
 FAIL css/css-tables/table-intrinsic-size-001.html E-TABLE # match ref-filled-green-100px-square-only.html: maxdiff 255 pixels 10000
