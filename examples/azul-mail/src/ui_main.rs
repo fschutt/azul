@@ -400,7 +400,7 @@ extern "C" fn on_action(mut data: RefAny, mut info: CallbackInfo) -> Update {
 /// The UIDs of the selected messages.
 fn selected_uids(s: &MailApp) -> Vec<u32> {
     s.selection
-        .rows
+        .keys
         .as_ref()
         .iter()
         .filter_map(|&i| match s.rows.get(i as usize) {
@@ -925,7 +925,7 @@ fn message_list(s: &MailApp, app: &RefAny) -> Dom {
                         .with_icon(icon)
                         .with_unread(!read)
                         .with_flagged(s.flags.is_flagged(entry))
-                        .with_selected(s.selection.contains((first + offset) as u32)),
+                        .with_selected(s.selection.contains((first + offset) as u64)),
                 )
             }
         })
@@ -989,7 +989,7 @@ extern "C" fn on_list_event(mut data: RefAny, mut info: CallbackInfo, event: Mes
                 s.selection = s
                     .selection
                     .clone()
-                    .apply(index as u32, event.shift, event.ctrl);
+                    .apply(index as u64, event.shift, event.ctrl);
                 if !event.shift && !event.ctrl {
                     if let Some(flags) = s.open_message(uid) {
                         crate::save_flags(s, &mut info, app.clone(), flags);
@@ -1028,7 +1028,7 @@ extern "C" fn on_list_event(mut data: RefAny, mut info: CallbackInfo, event: Mes
             MessageListEventKind::Search => {
                 s.search = event.text.as_str().to_string();
                 s.first_row = 0;
-                s.selection = azul::widgets::MessageListSelection::create();
+                s.selection = azul::widgets::ListSelection::create();
                 s.rebuild_view();
             }
             MessageListEventKind::Scope => {

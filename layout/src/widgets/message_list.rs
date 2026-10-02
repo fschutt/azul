@@ -17,9 +17,11 @@
 //!
 //! THE APP OWNS THE SELECTION: a row carries [`MessageRow::selected`], a
 //! click or an arrow reports [`MessageListEventKind::Select`] with the
-//! modifiers held, and [`MessageListSelection::apply`] turns that into the
-//! next selection (plain: this row; Ctrl: toggle it; Shift: the range from
-//! the anchor). The app stores it and rebuilds.
+//! modifiers held, and the shared list selection model
+//! ([`crate::widgets::list_selection::ListSelection::select`], keyed by the
+//! row's index in the whole list)
+//! turns that into the next selection (plain: this row; Ctrl: toggle it;
+//! Shift: the range from the anchor). The app stores it and rebuilds.
 //!
 //! KEYBOARD (WAI-ARIA APG listbox): the message rows are ONE Tab stop - the
 //! selected row, or the first. Up / Down move to the neighbouring message
@@ -29,8 +31,8 @@
 //! focus alone). Enter opens the row, Delete deletes it, the flag button
 //! flags it.
 //!
-//! Key types: [`MessageList`], [`MessageRow`], [`MessageListEvent`],
-//! [`MessageListSelection`].
+//! Key types: [`MessageList`], [`MessageRow`], [`MessageListEvent`];
+//! the selection is a [`crate::widgets::list_selection::ListSelection`].
 
 use alloc::vec::Vec;
 
@@ -45,7 +47,6 @@ use azul_core::{
     window::VirtualKeyCode,
 };
 use azul_css::{
-    corety::U32Vec,
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
     props::{
@@ -152,7 +153,8 @@ static FLAG_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
 pub enum MessageListEventKind {
     /// A row was clicked or reached with the keyboard: `index`, `id`, and
     /// the modifiers held (`shift` extends the selection from the anchor,
-    /// `ctrl` toggles the row) - see [`MessageListSelection::apply`].
+    /// `ctrl` toggles the row) - see
+    /// [`crate::widgets::list_selection::ListSelection::select`].
     Select,
     /// A row was double-clicked or Enter was pressed on it: open it.
     Open,
@@ -414,90 +416,6 @@ impl_vec!(
 impl_vec_clone!(MessageRow, MessageRowVec, MessageRowVecDestructor);
 impl_vec_debug!(MessageRow, MessageRowVec);
 impl_vec_mut!(MessageRow, MessageRowVec);
-
-/// The selected rows of a list, as indices into the whole list, and the
-/// ANCHOR a Shift-range extends from. The app keeps one, feeds every
-/// `Select` event through [`Self::apply`] and marks the rows it renders.
-#[repr(C)]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MessageListSelection {
-    /// The selected rows, ascending, no duplicates.
-    pub rows: U32Vec,
-    /// The row the last plain or Ctrl selection landed on: where a Shift
-    /// range starts.
-    pub anchor: u32,
-}
-
-impl MessageListSelection {
-    /// Nothing selected, the anchor on the first row.
-    #[must_use]
-    pub fn create() -> Self {
-        Self {
-            rows: U32Vec::from_const_slice(&[]),
-            anchor: 0,
-        }
-    }
-
-    /// The selection after a `Select` on row `index` with the modifiers
-    /// held: plain - this row alone, the anchor here; Ctrl - this row
-    /// toggled, the anchor here; Shift - every row from the anchor to this
-    /// one (the anchor stays), as every desktop list does it.
-    #[must_use]
-    pub fn apply(self, index: u32, shift: bool, ctrl: bool) -> Self {
-        let mut rows: Vec<u32> = self.rows.as_ref().to_vec();
-        let anchor = if shift {
-            let (a, b) = if self.anchor <= index {
-                (self.anchor, index)
-            } else {
-                (index, self.anchor)
-            };
-            rows = (a..=b).collect();
-            self.anchor
-        } else if ctrl {
-            match rows.iter().position(|r| *r == index) {
-                Some(at) => {
-                    rows.remove(at);
-                }
-                None => {
-                    rows.push(index);
-                    rows.sort_unstable();
-                }
-            }
-            index
-        } else {
-            rows = alloc::vec![index];
-            index
-        };
-        Self {
-            rows: U32Vec::from_vec(rows),
-            anchor,
-        }
-    }
-
-    /// Whether row `index` is selected.
-    #[must_use]
-    pub fn contains(&self, index: u32) -> bool {
-        self.rows.as_ref().contains(&index)
-    }
-
-    /// How many rows are selected.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.rows.as_ref().len()
-    }
-
-    /// Whether nothing is selected.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.rows.as_ref().is_empty()
-    }
-}
-
-impl Default for MessageListSelection {
-    fn default() -> Self {
-        Self::create()
-    }
-}
 
 /// The message list: a search row, the sort header and the rows in view.
 #[repr(C)]
@@ -2079,30 +1997,31 @@ mod message_list_tests {
         assert_eq!(events[1].0, MessageListEventKind::SortDirection);
     }
 
+    /// The list's `Select` event (index + Shift / Ctrl) goes through the
+    /// shared [`ListSelection`], keyed by the row's index in the whole list.
     #[test]
-    fn the_selection_helper_applies_plain_ctrl_and_shift_selections() {
-        let s = MessageListSelection::create();
+    fn a_select_event_applies_through_the_shared_list_selection() {
+        use crate::widgets::list_selection::ListSelection;
+        let rows = |s: &ListSelection| s.keys.as_slice().to_vec();
+        let s = ListSelection::create();
         assert!(s.is_empty());
         let s = s.apply(4, false, false);
-        assert_eq!(s.rows.as_ref(), &[4]);
-        assert_eq!(s.anchor, 4);
+        assert_eq!(rows(&s), vec![4]);
         let s = s.apply(7, false, true);
-        assert_eq!(s.rows.as_ref(), &[4, 7], "Ctrl adds");
-        assert_eq!(s.anchor, 7);
+        assert_eq!(rows(&s), vec![4, 7], "Ctrl adds");
         let s = s.apply(4, false, true);
-        assert_eq!(s.rows.as_ref(), &[7], "Ctrl again removes");
+        assert_eq!(rows(&s), vec![7], "Ctrl again removes");
         // As in Explorer and Outlook, a Ctrl+click moves the anchor even when
         // it deselects: the next Shift+click ranges from the row last clicked.
-        assert_eq!(s.anchor, 4);
+        assert_eq!(s.anchor, azul_css::corety::OptionU64::Some(4));
         let s = s.apply(9, true, false);
-        assert_eq!(s.rows.as_ref(), &[4, 5, 6, 7, 8, 9], "Shift: the range from the anchor");
-        assert_eq!(s.anchor, 4, "the anchor stays");
+        assert_eq!(rows(&s), vec![4, 5, 6, 7, 8, 9], "Shift: the range from the anchor");
         assert!(s.contains(5));
         assert_eq!(s.len(), 6);
         let s = s.apply(2, true, false);
-        assert_eq!(s.rows.as_ref(), &[2, 3, 4], "Shift again: the range flips around the anchor");
+        assert_eq!(rows(&s), vec![2, 3, 4], "Shift again: the range flips around the anchor");
         let s = s.apply(9, false, false);
-        assert_eq!(s.rows.as_ref(), &[9], "a plain click starts over");
+        assert_eq!(rows(&s), vec![9], "a plain click starts over");
     }
 
     #[test]

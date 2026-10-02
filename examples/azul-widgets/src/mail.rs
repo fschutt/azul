@@ -63,7 +63,7 @@ const WINDOW_CSS: &str = "display: flex; flex-direction: row; gap: 12px; align-i
 pub(crate) struct MailDemo {
     /// The list's selection (indices into the flat list, group rows
     /// included).
-    selection: MessageListSelection,
+    selection: ListSelection,
     /// Which messages are flagged, per `INBOX` entry.
     flagged: Vec<bool>,
     /// Which messages are read, per `INBOX` entry.
@@ -95,7 +95,7 @@ pub(crate) struct MailDemo {
 impl MailDemo {
     pub(crate) fn create() -> Self {
         Self {
-            selection: MessageListSelection::create().apply(1, false, false),
+            selection: ListSelection::create().apply(1, false, false),
             flagged: vec![true, false, false, false],
             read: vec![false, true, true, false],
             search: "".into(),
@@ -127,7 +127,7 @@ impl MailDemo {
             if self.scope == 1 && !unread {
                 continue;
             }
-            let index = rows.len() as u32;
+            let index = rows.len() as u64;
             rows.push(
                 MessageRow::create(*id, AzString::from(*from), AzString::from(*subject))
                     .with_preview(AzString::from(*preview))
@@ -191,7 +191,7 @@ pub(crate) fn mail_section(data: &RefAny, m: &MailDemo, theme: UiTheme) -> Dom {
 
     let open = m
         .selection
-        .rows
+        .keys
         .as_ref()
         .first()
         .and_then(|row| m.rows().get(*row as usize).map(|r| r.id))
@@ -354,7 +354,7 @@ extern "C" fn on_list(mut data: RefAny, _: CallbackInfo, event: MessageListEvent
         let text = event.text.as_str().to_string();
         m.status = match event.kind {
             MessageListEventKind::Select => {
-                m.selection = m.selection.clone().apply(event.index as u32, event.shift, event.ctrl);
+                m.selection = m.selection.clone().apply(event.index as u64, event.shift, event.ctrl);
                 format!("Zeile {} ausgewaehlt (id {})", event.index, event.id)
             }
             MessageListEventKind::Open => format!("Nachricht {} geoeffnet", event.id),

@@ -64,7 +64,7 @@ use azul::{
     option::{OptionDarkLightMode, OptionKeyringResult, OptionThreadSendMsg},
     prelude::*,
     str::String as AzString,
-    widgets::MessageListSelection,
+    widgets::ListSelection,
     window::WindowDecorations,
 };
 use listing::{FolderInfo, ListRow, LocalFlags};
@@ -116,7 +116,7 @@ pub(crate) struct MailApp {
     pub(crate) rows: Vec<ListRow>,
     /// The first row rendered (the list is virtualised).
     pub(crate) first_row: usize,
-    pub(crate) selection: MessageListSelection,
+    pub(crate) selection: ListSelection,
     pub(crate) search: String,
     /// 0: all mail, 1: unread.
     pub(crate) scope: usize,
@@ -214,7 +214,7 @@ impl MailApp {
             view: Vec::new(),
             rows: Vec::new(),
             first_row: 0,
-            selection: MessageListSelection::create(),
+            selection: ListSelection::create(),
             search: String::new(),
             scope: 0,
             newest_first: true,
@@ -275,7 +275,7 @@ impl MailApp {
                     .map(|f| f.key.clone())
             });
             self.first_row = 0;
-            self.selection = MessageListSelection::create();
+            self.selection = ListSelection::create();
         }
     }
 
@@ -347,7 +347,7 @@ impl MailApp {
         }
         self.folder = Some(key.to_string());
         self.first_row = 0;
-        self.selection = MessageListSelection::create();
+        self.selection = ListSelection::create();
         self.open = None;
         self.reload_messages();
     }
