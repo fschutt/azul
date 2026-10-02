@@ -2240,7 +2240,7 @@ mod tests {
             let mut data = cb.refany.clone();
             if let Some(w) = data.downcast_ref::<crate::widgets::slider::SliderStateWrapper>() {
                 return Some(w.inner);
-            }
+            };
         }
         dom.children.as_ref().iter().find_map(slider_state)
     }

@@ -4933,6 +4933,7 @@ mod seat_dedup_tests {
     /// is not Save; elsewhere the Win key is not Ctrl (DEDUP_WIDGETS_API F9).
     #[test]
     fn the_primary_modifier_is_cmd_on_a_mac_and_ctrl_elsewhere() {
+        use crate::window::{KeyboardState, VirtualKeyCode, VirtualKeyCodeVec};
         let ctrl = KeyModifiers::default().with_ctrl();
         let meta = KeyModifiers::default().with_meta();
         assert!(meta.primary_down_for(true), "Cmd is primary on a Mac");
