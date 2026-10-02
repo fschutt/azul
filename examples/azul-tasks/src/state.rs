@@ -790,3 +790,37 @@ impl Tasks {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use azul_pim::testing::TempDir;
+    use azul_storage::LocalDrive;
+
+    use super::*;
+
+    #[test]
+    fn a_task_azcalendars_old_to_do_bar_wrote_is_written_back_in_the_shared_format() {
+        // DEDUP_EDITORS B12: AzTasks and AzCalendar share one store; a file of the old
+        // `azcalendar.task` format in it is read and rewritten as an AzTasks task.
+        let dir = TempDir::create();
+        let drive = LocalDrive::new(&dir.0);
+        let id = "0b0f6f2e-5b8e-4c43-9a57-3f1f0d6f4b1a";
+        let key = model::task_key("default", id);
+        let old = format!(
+            "{{\"format\": \"azcalendar.task\", \"version\": 1, \"id\": \"{id}\", \
+             \"title\": \"Book the room\", \"done\": false}}"
+        );
+        drive.put(&key, old.as_bytes()).unwrap();
+        let loaded = store::load_all(&drive).unwrap();
+        let mut s = Tasks::new(
+            Arc::new(LocalDrive::new(&dir.0)),
+            dir.0.clone(),
+            View::Smart(Smart::Today),
+        );
+        s.take_loaded(loaded, now());
+        assert_eq!(s.tasks.len(), 1);
+        assert_eq!(s.tasks[0].title, "Book the room");
+        let batch = s.queue.take().expect("the old file is queued for a rewrite");
+        assert!(batch.iter().any(|w| w.key() == key), "{batch:?}");
+    }
+}
