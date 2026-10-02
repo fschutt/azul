@@ -5,14 +5,13 @@ edition = "2021"
 authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = """
-    AzCalendar - a small calendar on the public azul API that makes AzMeet
-    links, online or not. A week view (the whole day, scrolling and zooming)
-    lists the events of the shown week; a click or a drag, or "New event",
-    saves one JSON file per event (<data dir>/events/<id>.json, the same
-    layout as an object store's keys) and, with "Add AzMeet link", a link
-    made in the app, registered with the meeting server (the `meet` Worker,
-    Settings > Meeting server) as soon as it answers. "Join meeting" opens
-    AzMeet with AZMEET_JOIN=<link>.
+    AzCalendar - a calendar like Outlook 2010's on the public azul API: the Office
+    scaffold (ribbon, backstage, navigation pane with the date navigator and
+    "My calendars", To-Do bar, status bar), Day / Work Week / Week / Month /
+    Schedule / List views, an event editor window (repeat rules, reminders,
+    attendees, AzMeet links made offline), .ics import and export. Events,
+    calendars and tasks are JSON files under <data dir>/events, /calendars and
+    /tasks (the same layout as an object store's keys).
 """
 publish = false
 
