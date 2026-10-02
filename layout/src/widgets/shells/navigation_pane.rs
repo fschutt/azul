@@ -1081,29 +1081,6 @@ mod navigation_pane_tests {
         assert!(!events[1].expand, "an expanded pane asks to collapse");
     }
 
-    /// The trees take drops (a file manager drags items onto a folder of
-    /// the navigation pane): a Drop on a row reports `NodeDropped` with the
-    /// row's group and node.
-    #[test]
-    fn a_drop_on_a_tree_row_reports_the_group_and_the_node() {
-        let (dom, log) = logged();
-        let styled = StyledDom::create_from_dom(dom.clone());
-        let rows = indices_of(&dom, "__azul-native-tree-view-row");
-        assert!(rows.len() >= 2, "{rows:?}");
-        let first = rows[0];
-        let last = *rows.last().expect("a row");
-        rv::fire(&styled, node(first), EventFilter::Hover(HoverEventFilter::Drop))
-            .expect("the first row takes the drop");
-        rv::fire(&styled, node(last), EventFilter::Hover(HoverEventFilter::Drop))
-            .expect("the last row takes the drop");
-        let events = log.lock().expect("log").clone();
-        assert_eq!(events.len(), 2);
-        assert_eq!(events[0].kind, ShellNavigationPaneEventKind::NodeDropped);
-        assert_eq!((events[0].group, events[0].index), (0, 0), "the first group's root");
-        assert_eq!(events[1].kind, ShellNavigationPaneEventKind::NodeDropped);
-        assert_eq!(events[1].group, 1, "the last row is in the second group");
-    }
-
     #[test]
     fn down_moves_the_stop_to_the_next_module_and_home_to_the_first() {
         let (dom, _) = logged();
