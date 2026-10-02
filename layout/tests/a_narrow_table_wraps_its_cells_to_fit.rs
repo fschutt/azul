@@ -16,113 +16,119 @@
 //!
 //! CSS 2.2 17.5.2.2 (automatic table layout): a column's minimum is the
 //! largest minimum content width of its cells; a spanning cell's widths are
-//! spread over the columns it spans.
+//! spread over the columns it spans. CSS Tables 3 3.9.3: between the
+//! min-content and the max-content guess, every (auto) column gets its
+//! min-content plus a share of the rest in proportion to what its
+//! max-content wants beyond its min-content.
 //!
-//! Not compiled by the author (house rule); expected RED before the fix.
+//! TABLES (wave 5, DEDUP_WIDGETS_API F23): 407cc8c98 loosened the first
+//! test to ">= 2 distinct baselines over BOTH cells", which a wrong split
+//! passes (one cell left on one line, the other squeezed onto several). The
+//! assertion is per cell again: each cell on exactly two baselines, the two
+//! cells on the same two, and the columns where the 3.9.3 split puts them -
+//! with each cell's min- and max-content measured in the same page (one-cell
+//! tables: `width: 1px` is floored at the cell's min-content, `auto` is its
+//! max-content), so no number depends on the machine's fonts. Each cell
+//! holds two words: whatever the face, a column between the cell's
+//! min-content (the longer word) and its max-content (both words) puts
+//! exactly one word on each line. Chrome 154 lays this page out as asserted
+//! (Times 16px: columns 131.5 / 82.5; Arial: 129.1 / 84.9).
 
-use azul_core::{
-    dom::{DomId, DomNodeId, IdOrClass, NodeData, NodeId},
-    geom::LogicalSize,
-    resources::RendererResources,
-    styled_dom::{NodeHierarchyItemId, StyledDom},
-};
-use azul_layout::{
-    callbacks::ExternalSystemCallbacks, solver3::display_list::DisplayListItem,
-    window::LayoutWindow, window_state::FullWindowState,
-};
-use rust_fontconfig::FcFontCache;
+use crate::table_markup::{glyph_runs, laid_out, node, rect, right};
 
-fn laid_out(markup: &str) -> LayoutWindow {
-    let parsed = azul_layout::xml::parse_xml(markup).expect("the mail parses");
-    let styled = StyledDom::create_from_dom(azul_layout::xml::dom_from_parsed_xml(parsed));
-    let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
-    let mut ws = FullWindowState::default();
-    ws.size.dimensions = LogicalSize::new(760.0, 400.0);
-    lw.current_window_state = ws.clone();
-    let rr = RendererResources::default();
-    let sc = ExternalSystemCallbacks::rust_internal();
-    let mut dbg = Some(Vec::new());
-    lw.layout_and_generate_display_list(styled, &ws, &rr, &sc, &mut dbg)
-        .expect("the mail lays out");
-    lw
-}
-
-/// Every text run's glyph pens `(x, y)`.
-fn runs(lw: &LayoutWindow) -> Vec<Vec<(f32, f32)>> {
-    lw.get_layout_result(&DomId::ROOT_ID)
-        .expect("laid out")
-        .display_list
-        .items
-        .iter()
-        .filter_map(|item| match item {
-            DisplayListItem::Text { glyphs, .. } if !glyphs.is_empty() => {
-                Some(glyphs.iter().map(|g| (g.point.x, g.point.y)).collect())
-            }
-            _ => None,
-        })
-        .collect()
-}
-
-fn node(lw: &LayoutWindow, id: &str) -> DomNodeId {
-    let sd = &lw
-        .get_layout_result(&DomId::ROOT_ID)
-        .expect("laid out")
-        .styled_dom;
-    let n = sd
-        .node_data
-        .as_ref()
-        .iter()
-        .position(|nd: &NodeData| {
-            nd.get_ids_and_classes()
-                .iter()
-                .any(|c| matches!(c, IdOrClass::Id(s) if s.as_str() == id))
-        })
-        .unwrap_or_else(|| panic!("no element with id {id}"));
-    DomNodeId {
-        dom: DomId::ROOT_ID,
-        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(n))),
-    }
-}
+const CELL_A: &str = "magnificent architecture";
+const CELL_B: &str = "quiet harbours";
 
 #[test]
 fn prose_cells_wrap_inside_a_220px_table() {
     let lw = laid_out(
-        "<html><head></head><body style=\"margin: 0\">\
-         <table id=\"t\" style=\"width: 220px\"><tr>\
-         <td>alpha beta gamma delta epsilon</td><td>zeta eta theta iota kappa</td>\
-         </tr></table></body></html>",
+        &format!(
+            "<html><head></head><body style=\"margin: 0\">\
+             <table id=\"t\" style=\"width: 220px\"><tr>\
+             <td id=\"a\">{CELL_A}</td><td id=\"b\">{CELL_B}</td></tr></table>\
+             <table style=\"width: 1px\"><tr><td id=\"a-min\">{CELL_A}</td></tr></table>\
+             <table style=\"width: 1px\"><tr><td id=\"b-min\">{CELL_B}</td></tr></table>\
+             <table><tr><td id=\"a-max\">{CELL_A}</td></tr></table>\
+             <table><tr><td id=\"b-max\">{CELL_B}</td></tr></table>\
+             </body></html>"
+        ),
+        760.0,
+        400.0,
     );
-    let t = node(&lw, "t");
-    let left = lw.get_node_position(t).expect("the table is placed").x;
-    let width = lw.get_node_size(t).expect("the table has a size").width;
+    let t = rect(&lw, "t");
     assert!(
-        (width - 220.0).abs() < 1.0,
-        "the table keeps its 220px: {width}"
+        (t.size.width - 220.0).abs() < 1.0,
+        "the table keeps its 220px: {}",
+        t.size.width
     );
-    let runs = runs(&lw);
-    let pens: Vec<(f32, f32)> = runs.iter().flatten().copied().collect();
-    assert!(!pens.is_empty(), "the cells paint");
-    for (x, _) in &pens {
+
+    // The cells' border-box min- and max-content, each measured alone.
+    let min = [rect(&lw, "a-min").size.width, rect(&lw, "b-min").size.width];
+    let max = [rect(&lw, "a-max").size.width, rect(&lw, "b-max").size.width];
+    // The UA spacing (2px) once per gutter, the outer two included.
+    let target = 220.0 - 3.0 * 2.0;
+    let (sum_min, sum_max) = (min[0] + min[1], max[0] + max[1]);
+    assert!(
+        sum_min < target && target < sum_max,
+        "the page tests the band between the two guesses: min {min:?}, max {max:?}"
+    );
+    let share = (target - sum_min) / (sum_max - sum_min);
+    let a = rect(&lw, "a");
+    let b = rect(&lw, "b");
+    for (cell, i, name) in [(&a, 0, "a"), (&b, 1, "b")] {
+        let expected = min[i] + share * (max[i] - min[i]);
         assert!(
-            *x < left + width,
-            "every word starts inside the 220px table (the columns shrink to their \
-             min-content and the text wraps): a pen at x={x}, table {left}..{}",
-            left + width
+            (cell.size.width - expected).abs() < 1.5,
+            "cell {name} takes its min-content plus its share of the rest (CSS Tables 3 \
+             3.9.3): {} vs {expected} (min {min:?}, max {max:?})",
+            cell.size.width
         );
     }
-    // Unwrapped, each cell is one line and both lines share a baseline. At
-    // the default serif face (Times, 16px) the columns come out as Chrome
-    // makes them - each its min-content plus a share of what its max-content
-    // wants beyond it (CSS Tables 3 3.9.3): ~120.5 and ~93.5px of the 214px
-    // between the spacing - and each cell wraps onto TWO lines ("alpha beta
-    // gamma" / "delta epsilon", "zeta eta theta" / "iota kappa"); a wider
-    // face wraps onto more.
-    let mut lines: Vec<i32> = pens.iter().map(|(_, y)| y.round() as i32).collect();
-    lines.sort_unstable();
-    lines.dedup();
-    assert!(
-        lines.len() >= 2,
-        "the prose wraps onto several lines: {lines:?}"
+
+    // Each cell's glyph pens: inside its own box, on exactly two baselines,
+    // the same two for both cells.
+    let pens: Vec<(f32, f32)> = glyph_runs(&lw)
+        .into_iter()
+        .flatten()
+        .filter(|&(_, y)| y > t.origin.y && y < t.origin.y + t.size.height)
+        .collect();
+    let lines_in = |cell: &azul_core::geom::LogicalRect, name: &str| {
+        let own: Vec<(f32, f32)> = pens
+            .iter()
+            .copied()
+            .filter(|&(x, _)| x >= cell.origin.x && x < right(cell))
+            .collect();
+        assert!(!own.is_empty(), "cell {name} paints its text");
+        let mut lines: Vec<i32> = own.iter().map(|&(_, y)| y.round() as i32).collect();
+        lines.sort_unstable();
+        lines.dedup();
+        lines
+    };
+    for &(x, _) in &pens {
+        assert!(
+            (x >= a.origin.x && x < right(&a)) || (x >= b.origin.x && x < right(&b)),
+            "every word starts inside its own cell: a pen at x={x}, cells {}..{} and {}..{}",
+            a.origin.x,
+            right(&a),
+            b.origin.x,
+            right(&b)
+        );
+    }
+    let a_lines = lines_in(&a, "a");
+    let b_lines = lines_in(&b, "b");
+    assert_eq!(
+        a_lines.len(),
+        2,
+        "cell a wraps once, one word per line: baselines {a_lines:?}"
+    );
+    assert_eq!(
+        b_lines.len(),
+        2,
+        "cell b wraps once, one word per line: baselines {b_lines:?}"
+    );
+    assert_eq!(
+        a_lines, b_lines,
+        "the two cells of one row share their baselines"
     );
 }
 
@@ -134,8 +140,10 @@ fn a_spanning_header_widens_the_columns_it_spans_not_only_the_first() {
          <tr><td colspan=\"2\">a spanning header wider than both columns together</td></tr>\
          <tr><td>left cell</td><td>right cell</td></tr>\
          </table></div></body></html>",
+        760.0,
+        400.0,
     );
-    let runs = runs(&lw);
+    let runs = glyph_runs(&lw);
     let header = runs
         .iter()
         .find(|r| r.len() == "a spanning header wider than both columns together".len())
