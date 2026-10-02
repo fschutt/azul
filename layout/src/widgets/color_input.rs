@@ -581,44 +581,20 @@ impl Hsv {
     }
 }
 
-/// `#rrggbb`, or `#rrggbbaa` when the colour is not fully opaque.
+/// `#rrggbb`, or `#rrggbbaa` when the colour is not fully opaque:
+/// [`ColorU::to_hex`] (the one formatter; this name stays for its callers).
 #[must_use]
 pub fn color_to_hex(c: ColorU) -> String {
-    if c.a == 255 {
-        format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b)
-    } else {
-        format!("#{:02x}{:02x}{:02x}{:02x}", c.r, c.g, c.b, c.a)
-    }
+    c.to_hex()
 }
 
 /// Parse `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa` (the `#` optional,
 /// case-insensitive, surrounding whitespace ignored). A missing alpha is
-/// opaque.
+/// opaque: [`ColorU::parse_hex`] (the one parser; this name stays for its
+/// callers).
 #[must_use]
-#[allow(clippy::many_single_char_names)] // r, g, b, a: the channels
 pub fn color_from_hex(text: &str) -> Option<ColorU> {
-    let t = text.trim().trim_start_matches('#');
-    let nib = |ch: u8| -> Option<u8> { char::from(ch).to_digit(16).map(|d| d as u8) };
-    let bytes = t.as_bytes();
-    let pair = |i: usize| -> Option<u8> { Some(nib(bytes[i])? * 16 + nib(bytes[i + 1])?) };
-    let (r, g, b, a) = match bytes.len() {
-        3 => (
-            nib(bytes[0])? * 17,
-            nib(bytes[1])? * 17,
-            nib(bytes[2])? * 17,
-            255,
-        ),
-        4 => (
-            nib(bytes[0])? * 17,
-            nib(bytes[1])? * 17,
-            nib(bytes[2])? * 17,
-            nib(bytes[3])? * 17,
-        ),
-        6 => (pair(0)?, pair(2)?, pair(4)?, 255),
-        8 => (pair(0)?, pair(2)?, pair(4)?, pair(6)?),
-        _ => return None,
-    };
-    Some(ColorU { r, g, b, a })
+    ColorU::parse_hex(text)
 }
 
 // ---------------------------------------------------------------------------

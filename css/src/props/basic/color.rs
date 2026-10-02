@@ -885,9 +885,66 @@ impl ColorU {
     }
 
     /// Format the color as an 8-digit lowercase hex string (e.g. `#ff0000ff`).
+    /// [`Self::to_hex`] writes the shortest exact form.
     #[must_use]
     pub fn to_hash(&self) -> String {
         format!("#{:02x}{:02x}{:02x}{:02x}", self.r, self.g, self.b, self.a)
+    }
+
+    /// The colour as CSS writes it, lower case: `#rrggbb`, or `#rrggbbaa`
+    /// when it is not fully opaque. [`Self::parse_hex`] reads it back.
+    #[must_use]
+    pub fn to_hex(&self) -> String {
+        if self.a == Self::ALPHA_OPAQUE {
+            format!("#{:02x}{:02x}{:02x}", self.r, self.g, self.b)
+        } else {
+            format!("#{:02x}{:02x}{:02x}{:02x}", self.r, self.g, self.b, self.a)
+        }
+    }
+
+    /// Reads a hex colour: `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa` - the
+    /// `#` optional, any case, surrounding whitespace ignored; a missing
+    /// alpha is opaque. `None` for any other text.
+    #[must_use]
+    #[allow(clippy::many_single_char_names)] // r, g, b, a: the channels
+    pub fn parse_hex(text: &str) -> Option<Self> {
+        let t = text.trim();
+        let t = t.strip_prefix('#').unwrap_or(t);
+        let bytes = t.as_bytes();
+        let nib = |ch: u8| -> Option<u8> {
+            char::from(ch)
+                .to_digit(16)
+                .and_then(|d| u8::try_from(d).ok())
+        };
+        let pair = |i: usize| -> Option<u8> { Some(nib(bytes[i])? * 16 + nib(bytes[i + 1])?) };
+        let (r, g, b, a) = match bytes.len() {
+            3 => (
+                nib(bytes[0])? * 17,
+                nib(bytes[1])? * 17,
+                nib(bytes[2])? * 17,
+                Self::ALPHA_OPAQUE,
+            ),
+            4 => (
+                nib(bytes[0])? * 17,
+                nib(bytes[1])? * 17,
+                nib(bytes[2])? * 17,
+                nib(bytes[3])? * 17,
+            ),
+            6 => (pair(0)?, pair(2)?, pair(4)?, Self::ALPHA_OPAQUE),
+            8 => (pair(0)?, pair(2)?, pair(4)?, pair(6)?),
+            _ => return None,
+        };
+        Some(Self { r, g, b, a })
+    }
+
+    /// Reads any CSS colour value - a keyword (`red`), a hex colour
+    /// (`#f53`), `rgb(..)`, `hsl(..)`, ... `None` when the text is no
+    /// colour; api.json's `ColorU::from_str` answers black instead, so a
+    /// caller cannot tell `"black"` from a typo.
+    #[cfg(feature = "parser")]
+    #[must_use]
+    pub fn parse_css(text: &str) -> Option<Self> {
+        parse_css_color(text).ok()
     }
 
     // ============================================================

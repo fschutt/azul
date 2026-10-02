@@ -137,15 +137,6 @@ impl ShellThemeAccent {
     }
 }
 
-/// `#rrggbb` (or `#rrggbbaa` when not opaque) for a custom property's value.
-fn hex(c: ColorU) -> AzString {
-    if c.a == 255 {
-        AzString::from(alloc::format!("#{:02X}{:02X}{:02X}", c.r, c.g, c.b))
-    } else {
-        AzString::from(alloc::format!("#{:02X}{:02X}{:02X}{:02X}", c.r, c.g, c.b, c.a))
-    }
-}
-
 /// The custom properties an accent publishes on the scope's root, in one
 /// mode: `--az-accent`, `--az-accent-deep`, `--az-accent-soft`,
 /// `--az-accent-glow`, `--az-on-accent`.
@@ -161,7 +152,7 @@ fn accent_declarations(colors: ShellThemeAccentColors) -> Vec<CssDeclaration> {
     .map(|(name, color)| {
         CssDeclaration::CustomProperty(CssCustomProperty {
             name: AzString::from_const_str(name),
-            value: hex(color),
+            value: AzString::from(color.to_hex()),
         })
     })
     .collect()
@@ -345,7 +336,7 @@ mod theme_scope_tests {
             CssDeclaration::CustomProperty(c) => c.value.as_str().to_string(),
             other => panic!("{other:?}"),
         };
-        assert_eq!(first, "#44684F");
+        assert_eq!(first, "#44684f");
         assert_eq!(dom.children.as_ref().len(), 1, "the content, as it is");
     }
 
