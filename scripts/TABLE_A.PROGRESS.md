@@ -39,7 +39,8 @@ Brief: scratchpad `TABLE_A_go.md` (widths, row groups, presentational attributes
     hold). ROOT CAUSE upstream: the intrinsic min-content of inline-blocks separated by
     whitespace-only text = SUM of the boxes (spaces give no break and no width) - an inline
     intrinsic bug, reported, not fixed here. Tests now measure prose (`table_markup::prose`).
-  - NEXT: report section "Parent run 2026-10-01: the five failures" + engine findings; commit.
+  - Report section 9 (the five failures + engine findings) written.
+- NEXT: nothing; parent re-runs `cargo test --release -p azul-layout --test all` (the 5 tests).
 
 ## NEXT
 - parent: compile, run section 5 of the report, bless the WPT lists, send mail_boxes numbers.
