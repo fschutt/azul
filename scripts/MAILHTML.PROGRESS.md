@@ -9,14 +9,17 @@ Branch `wt/mailhtml` from `2e92c759b`. Task brief: scratchpad/wave5/MAILHTML.md.
 - only <a href> underlined: RED f8a8e92c7, FIX 14da95e75 (postmark invoice "support team")
 - unresolved markup <img> 0x0 (DEDUP A3.8): RED 75e791812, FIX 13cfea16c
 - B20 sanitizer on Xml::create_from_html: RED 5ee033b34, REFACTOR 1ff01f689 (~360 lines gone)
+- !important no longer invalidates a declaration: RED f6a9d6aff, FIX bbeafd052
+- strut from the first available font (A, D, gap/2 each): RED 79a8cda4a, FIX f3112215b (gmail/apple blank lines)
 
 ## IN PROGRESS
-- deciding: strut metrics / percentage heights
+- legacy presentational attributes (engine presentational hints vs sanitizer mapping) - investigating
 
 ## NEXT
 - per mail: first diverging box -> root cause -> RED test in layout/tests/<sentence>.rs -> fix
-- strut from the real first-available font (gmail/apple `<div><br></div>` 16 vs 18 px)
-- percentage height under auto-height parent (decide)
+- percentage height under auto-height parent: DECIDED not to change this wave (49 app/widget sites,
+  cannot verify without compiling); documented for the report / wave 6
+- then: the report scripts/MAILHTML_2026_10_02.md
 
 ## Decisions
 - percentage height under an auto-height parent: azul resolves it against the inherited available
