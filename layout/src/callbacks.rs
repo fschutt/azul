@@ -2048,6 +2048,17 @@ impl CallbackInfo {
         self.push_change(CallbackChange::ModifyWindowState { state });
     }
 
+    /// Vetoes the window close this pass is processing: called from a
+    /// `WindowEventFilter::CloseRequested` callback, the window stays open
+    /// (unsaved work, a "Save changes?" question - see
+    /// `widgets::close_guard::CloseGuard`). Every backend reads a cleared
+    /// `flags.close_requested` after the pass as "stay open"; this clears it
+    /// on the window state the callback queued last (or the current one), so
+    /// what the callback changed before it is kept. Call it last.
+    pub fn prevent_window_close(&mut self) {
+        todo!("GREEN")
+    }
+
     /// Request the compositor to begin an interactive window move.
     ///
     /// On Wayland: calls `xdg_toplevel_move(toplevel, seat, serial)` which lets

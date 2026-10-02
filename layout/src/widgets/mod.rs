@@ -457,6 +457,13 @@ pub mod cell_grid;
 /// arrows, select all / none / invert - Explorer's rules written once; see
 /// `list_selection.rs`.
 pub mod list_selection;
+/// Close guard.
+///
+/// "Save changes?" before a window with unsaved work closes: the close
+/// request is held while the app's document is dirty, the standard
+/// question (a message box in a modal) asks, the answer comes back as one
+/// event; see `close_guard.rs`.
+pub mod close_guard;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
