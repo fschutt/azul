@@ -163,8 +163,12 @@ pub fn parse_view(bytes: &[u8]) -> Option<MessageView> {
             .as_text_list()
             .map(|ids| ids.iter().map(|id| id.trim().to_string()).collect())
             .unwrap_or_default(),
-        bcc: String::new(),
-        in_reply_to: String::new(),
+        bcc: addresses(message.bcc()),
+        in_reply_to: message
+            .in_reply_to()
+            .as_text()
+            .map(|id| id.trim().to_string())
+            .unwrap_or_default(),
     })
 }
 

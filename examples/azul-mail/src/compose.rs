@@ -232,8 +232,14 @@ pub fn forward_fields(original: &MessageView) -> StartFields {
 /// A saved draft reopened: its own To / Cc / Bcc / Subject and the thread it continues (its
 /// In-Reply-To and References as saved; its own Message-ID is not part of the thread).
 pub fn draft_fields(draft: &MessageView) -> StartFields {
-    let _ = draft;
-    StartFields::default()
+    StartFields {
+        to: draft.to.clone(),
+        cc: draft.cc.clone(),
+        bcc: draft.bcc.clone(),
+        subject: draft.subject.clone(),
+        in_reply_to: Some(draft.in_reply_to.clone()).filter(|id| !id.is_empty()),
+        references: draft.references.clone(),
+    }
 }
 
 /// A run of text in one style.
