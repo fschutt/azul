@@ -14,7 +14,7 @@ details panes, a Properties dialog, Settings on ShellSettingsLayout, and a headl
   AddressBar recent chevron + dimmed arrows, BrowserShell `tree_visible`.
 
 ## IN PROGRESS
-- Last commit: `752edbdf4` (tree_view.rs + navigation_pane.rs = wt/tasks 9205c10f3 byte for byte;
+- Last code commit: `f5aacb1f0` (sample sound length an integer). Before: `752edbdf4` (tree_view.rs + navigation_pane.rs = wt/tasks 9205c10f3 byte for byte;
   the twin drop hook is gone); report updated for it.
 - NOW: a read-only review agent checks `a25c10912..HEAD` (thumbnails, PDF, WAV, copies,
   image_scale; tree files skipped) for compile errors.
