@@ -781,6 +781,16 @@ pub fn api_candidate_methods<'a>(
         .iter()
         .copied()
         .filter(|m| m.is_public && !m.is_non_api_trait_impl())
+        // A renamed `new` / `new_x` yields to a real method of that API name:
+        // the type's own `create` is the FFI-shaped constructor, its `new` a
+        // Rust convenience (`RichBlock::new(kind, Vec<RichRun>)`).
+        .filter(|m| {
+            let api_name = api_name_of(m);
+            api_name == m.name
+                || !methods
+                    .iter()
+                    .any(|o| o.is_public && !o.is_non_api_trait_impl() && o.name == api_name)
+        })
         .filter(|m| spec == "*" || m.name == spec || api_name_of(m) == spec)
         .filter(|m| {
             let api_name = api_name_of(m);
@@ -1733,6 +1743,29 @@ mod tests {
 
         let one = api_candidate_methods("T", &refs, "with_label", Some(&class));
         assert_eq!(one.len(), 1);
+    }
+
+    /// A type with its own `create` (the FFI-shaped constructor, taking a
+    /// `FooVec`) and a Rust-convenience `new` (taking a `Vec`): the API entry
+    /// `create` is the real `create`. Renaming `new` to `create` shadowed it
+    /// (`RichBlock::create` went out as `new(kind, runs: Vec<RichRun>)`, a
+    /// critical FFI error, 2026-10-02).
+    #[test]
+    fn a_real_create_is_not_shadowed_by_a_renamed_new() {
+        let ms: Vec<MethodDef> = methods(
+            r#"
+            impl T {
+                pub fn create(kind: Kind, runs: RunVec) -> Self { todo!() }
+                pub fn new(kind: Kind, runs: Vec<Run>) -> Self { todo!() }
+            }
+        "#,
+        )
+        .into_values()
+        .collect();
+        let refs: Vec<&MethodDef> = ms.iter().collect();
+        let fresh = api_candidate_methods("T", &refs, "*", None);
+        let rust: Vec<&str> = fresh.iter().map(|m| m.name.as_str()).collect();
+        assert_eq!(rust, vec!["create"], "only the real create: {rust:?}");
     }
 
     const SOURCE: &str = r#"
