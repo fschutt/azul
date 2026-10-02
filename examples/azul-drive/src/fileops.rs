@@ -1161,6 +1161,20 @@ mod tests {
         inner: LocalDrive,
         gets: AtomicU32,
         copies: AtomicU32,
+        /// Whether it says where its files are (a folder on disk) or not (as
+        /// a bucket).
+        on_disk: bool,
+    }
+
+    impl Counting {
+        fn new(tmp: &TempDir, on_disk: bool) -> Self {
+            Self {
+                inner: LocalDrive::new(tmp.path().join("home")),
+                gets: AtomicU32::new(0),
+                copies: AtomicU32::new(0),
+                on_disk,
+            }
+        }
     }
 
     impl Drive for Counting {
@@ -1199,7 +1213,7 @@ mod tests {
             self.inner.create_folder(prefix)
         }
         fn local_path(&self, key: &str) -> Option<PathBuf> {
-            self.inner.local_path(key)
+            self.inner.local_path(key).filter(|_| self.on_disk)
         }
     }
 
@@ -1209,11 +1223,8 @@ mod tests {
     fn a_copy_within_one_drive_is_the_drives_own_copy() {
         let tmp = TempDir::new("own-copy");
         seeded(&tmp);
-        let drive = Counting {
-            inner: LocalDrive::new(tmp.path().join("home")),
-            gets: AtomicU32::new(0),
-            copies: AtomicU32::new(0),
-        };
+        // A drive with no local path, as a bucket.
+        let drive = Counting::new(&tmp, false);
         drive.create_folder("backup/").unwrap();
         let plan = plan_transfer(
             &drive,
@@ -1242,5 +1253,52 @@ mod tests {
             "no byte through the app"
         );
         assert_eq!(drive.get("backup/docs/sub/b.txt").unwrap(), b"beta");
+    }
+
+    /// On disk a copy within the drive keeps Explorer's progress: the file
+    /// goes megabyte by megabyte, and the status bar hears each one.
+    #[test]
+    fn a_copy_on_disk_reports_its_progress_megabyte_by_megabyte() {
+        let tmp = TempDir::new("disk-progress");
+        let drive = Counting::new(&tmp, true);
+        let big = vec![7u8; 3 * 1024 * 1024 + 5];
+        drive.put("big.bin", &big).unwrap();
+        drive.create_folder("backup/").unwrap();
+        let plan = plan_transfer(
+            &drive,
+            &[SourceItem {
+                key: String::from("big.bin"),
+                is_folder: false,
+                size: Some(big.len() as u64),
+            }],
+            &drive,
+            "backup/",
+            true,
+            TransferKind::Copy,
+        )
+        .unwrap();
+        let mut seen = Vec::new();
+        let report = run_transfer(
+            &plan,
+            &drive,
+            &drive,
+            TransferKind::Copy,
+            &never_cancel(),
+            &mut |p| {
+                seen.push(p.bytes_done);
+            },
+        );
+        assert!(report.failed.is_empty(), "{:?}", report.failed);
+        assert_eq!(drive.get("backup/big.bin").unwrap().len(), big.len());
+        let distinct: std::collections::BTreeSet<u64> = seen.iter().copied().collect();
+        assert!(
+            distinct.len() >= 4,
+            "progress after every megabyte: {seen:?}"
+        );
+        assert_eq!(
+            drive.copies.load(Ordering::SeqCst),
+            0,
+            "the chunked copy, not fs::copy"
+        );
     }
 }
