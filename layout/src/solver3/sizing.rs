@@ -494,6 +494,38 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                         intrinsic.max_content_height = h;
                     }
                 }
+                // `max-width` caps the box's min- and max-content contribution
+                // (css-sizing-3 5.2; the `min-width` floor below wins), as the
+                // `width` above sets it: the stored sizes are what the box
+                // offers its parent - a block's, an inline formatting
+                // context's (`atomic_inline_width_contributions`), a table
+                // cell's. A `max-width: 330px` column of long text offered its
+                // whole line, and the cerberus newsletter's table grew to it.
+                // Not a table's or a cell's: their widths are the column
+                // algorithm's (a table is never narrower than its columns).
+                if !is_table_cell && !is_table {
+                    if let MultiValue::Exact(mw) = crate::solver3::getters::get_css_max_width(
+                        self.ctx.styled_dom,
+                        dom_id,
+                        node_state,
+                    ) {
+                        if let Some(mut cap) =
+                            super::calc::resolve_pixel_value_no_percent(&mw.inner, em, rem)
+                                .filter(|v| v.is_finite() && *v < f32::MAX / 2.0)
+                        {
+                            if box_sizing == LayoutBoxSizing::BorderBox {
+                                cap = (cap
+                                    - bp.border.left
+                                    - bp.border.right
+                                    - bp.padding.left
+                                    - bp.padding.right)
+                                    .max(0.0);
+                            }
+                            intrinsic.min_content_width = intrinsic.min_content_width.min(cap);
+                            intrinsic.max_content_width = intrinsic.max_content_width.min(cap);
+                        }
+                    }
+                }
             }
 
             if let MultiValue::Exact(mw) =
@@ -862,9 +894,20 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // out-param and returning `Result<()>` (register-returned, NO sret-of-Vec) lifts
         // cleanly — the established M12.7 "a pointer arg lifts cleanly" pattern. 0x60760 should now
         // =1.
+        // Every atomic inline goes in at its max-content contribution; the
+        // ones whose min-content contribution differs are listed in
+        // `shape_min_widths` for the min-content measurement below.
+        let mut inline_content: Vec<InlineContent> = Vec::new();
+        let mut shape_min_widths: Vec<(usize, f32)> = Vec::new();
         let collect_result = {
             let _p = crate::probe::Probe::span("intrinsic_collect_inline");
-            collect_inline_content(self.ctx, tree, node_index)
+            collect_inline_content_for_sizing(
+                self.ctx,
+                tree,
+                node_index,
+                &mut inline_content,
+                &mut shape_min_widths,
+            )
         };
         #[cfg(feature = "web_lift")]
         unsafe {
@@ -877,7 +920,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 }) as u32,
             );
         }
-        let inline_content: Vec<InlineContent> = collect_result?;
+        collect_result?;
 
         if inline_content.is_empty() {
             return Ok(IntrinsicSizes::default());
@@ -975,8 +1018,37 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             });
         };
 
-        let min_width = intrinsic_text.min_content_width;
+        let mut min_width = intrinsic_text.min_content_width;
         let max_width = intrinsic_text.max_content_width;
+
+        // The min-content constraint asks every atomic inline for its
+        // min-content contribution (css-sizing-3 5.1): measure the same
+        // content again with those widths. The max-content scan above saw
+        // each inline-block at its max-content, so a cell holding one never
+        // came out narrower than the inline-block's longest line. Text
+        // items are shared and their shaping is cached: the second scan
+        // costs the scan.
+        if !shape_min_widths.is_empty() {
+            let mut min_content = inline_content.clone();
+            for &(index, width) in &shape_min_widths {
+                if let Some(InlineContent::Shape(shape)) = min_content.get_mut(index) {
+                    if let ShapeDefinition::Rectangle { size, .. } = &mut shape.shape_def {
+                        size.width = width;
+                    }
+                }
+            }
+            if let Ok(min_text) = self.text_cache.measure_intrinsic_widths(
+                &min_content,
+                &[],
+                &constraints,
+                &self.ctx.font_manager.font_chain_cache,
+                &self.ctx.font_manager.fc_cache,
+                &loaded_fonts,
+                self.ctx.debug_messages,
+            ) {
+                min_width = min_text.min_content_width.min(max_width);
+            }
+        }
 
         // +spec:display-property:c587fd - min-content block size equals max-content block size for
         // block containers, tables, inline boxes +spec:intrinsic-sizing:02eedc -
@@ -1472,6 +1544,7 @@ fn collect_inline_content_for_sizing<T: ParsedFontTrait>(
     tree: &LayoutTree,
     ifc_root_index: usize,
     out: &mut Vec<InlineContent>,
+    min_widths: &mut Vec<(usize, f32)>,
 ) -> Result<()> {
     debug_log!(
         ctx,
@@ -1481,7 +1554,7 @@ fn collect_inline_content_for_sizing<T: ParsedFontTrait>(
 
     // [g78] fill the caller's out-param (was a local Vec returned by value → Ok→Err mis-lift).
     // Recursively collect inline content from this node and its inline descendants
-    collect_inline_content_recursive(ctx, tree, ifc_root_index, out)?;
+    collect_inline_content_recursive(ctx, tree, ifc_root_index, out, min_widths)?;
     // [g73] B8 = top-level recursion returned Ok (collect_inline_content complete).
     unsafe {
         crate::az_mark(0x6071C_u32, (0xB8u32));
@@ -1513,6 +1586,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
     tree: &LayoutTree,
     node_index: usize,
     content: &mut Vec<InlineContent>,
+    min_widths: &mut Vec<(usize, f32)>,
 ) -> Result<()> {
     // [g75] capture node_index of EVERY recursion entry (0x60754) and mark the entry-tree.get
     // FAILURE distinctly (inline-phase=0xBAD) so a node_index that fails HERE (before B1) is
@@ -1532,7 +1606,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
     // We need to check the DOM children for text content.
     let Some(dom_id) = node.dom_node_id else {
         // No DOM ID means this is a synthetic node, skip text extraction
-        return process_layout_children(ctx, tree, node_index, content);
+        return process_layout_children(ctx, tree, node_index, content, min_widths);
     };
 
     // First check if THIS node is a text node
@@ -1597,10 +1671,16 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
         crate::az_mark(0x6071C_u32, (0xB6u32));
     }
 
-    process_layout_children(ctx, tree, node_index, content)
+    process_layout_children(ctx, tree, node_index, content, min_widths)
 }
 
-/// Helper to process layout tree children for inline content collection
+/// Helper to process layout tree children for inline content collection.
+///
+/// An atomic inline child goes in as a rectangle of its MAX-content
+/// contribution; when its MIN-content contribution differs, that one is
+/// recorded in `min_widths` as `(index into content, width)`, for the
+/// min-content measurement of the IFC
+/// ([`atomic_inline_width_contributions`]).
 #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
                                   // (or cross-type bindings that can't merge)
@@ -1609,9 +1689,8 @@ fn process_layout_children<T: ParsedFontTrait>(
     tree: &LayoutTree,
     node_index: usize,
     content: &mut Vec<InlineContent>,
+    min_widths: &mut Vec<(usize, f32)>,
 ) -> Result<()> {
-    use azul_css::props::layout::{LayoutHeight, LayoutWidth};
-
     // [g73] PLC entry: 0x60708 = 0xC0<<24 | node_index (which node's children we process).
     unsafe {
         crate::az_mark(
@@ -1645,7 +1724,7 @@ fn process_layout_children<T: ParsedFontTrait>(
             // Recursively collect content from inline children
             // This is CRITICAL for proper intrinsic width calculation!
             debug_log!(ctx, "Recursing into inline child at node {}", child_index);
-            collect_inline_content_recursive(ctx, tree, child_index, content)?;
+            collect_inline_content_recursive(ctx, tree, child_index, content, min_widths)?;
         } else {
             // Non-inline children are treated as atomic inline-level boxes
             // (e.g., inline-block, images, floats)
@@ -1662,36 +1741,20 @@ fn process_layout_children<T: ParsedFontTrait>(
             let css_width = get_css_width(ctx.styled_dom, child_dom_id, node_state);
             let css_height = get_css_height(ctx.styled_dom, child_dom_id, node_state);
 
-            // Resolve CSS width - use explicit value if set, otherwise fall back to intrinsic
-            let used_width = match css_width {
-                MultiValue::Exact(LayoutWidth::Px(px)) => {
-                    // +spec:containing-block:495930 - percentages in intrinsic sizing fall back to
-                    // intrinsic contribution (css-sizing-3 §5.2.1)
-                    // +spec:containing-block:5246c0 - cyclic percentage: when containing block size
-                    // depends on this box's intrinsic contribution, percentages fall back to
-                    // intrinsic size +spec:containing-block:598124 - cyclic
-                    // percentage contributions use intrinsic size
-                    // +spec:height-calculation:ca9f19 - percentage-sized boxes use intrinsic size
-                    // as contribution during intrinsic sizing
-                    // +spec:width-calculation:7a384a - percentage-sized boxes behave as width:auto
-                    // for intrinsic contributions (cyclic percentage)
-                    // Resolve em/rem against the element's OWN font-size and the root
-                    // font-size, NOT a hard-coded 16px — otherwise `width: 5em` on a
-                    // font-size:24px inline-block sizes to 80px instead of 120px.
-                    let em = get_element_font_size(ctx.styled_dom, child_dom_id, node_state);
-                    let rem = super::getters::get_root_font_size(ctx.styled_dom, node_state);
-                    super::calc::resolve_pixel_value_no_percent(&px, em, rem)
-                        .unwrap_or(intrinsic_sizes.max_content_width)
-                }
-                MultiValue::Exact(LayoutWidth::MinContent) => intrinsic_sizes.min_content_width,
-                MultiValue::Exact(LayoutWidth::MaxContent) => intrinsic_sizes.max_content_width,
-                MultiValue::Exact(LayoutWidth::FitContent(_)) => {
-                    // During intrinsic sizing, fit-content resolves to max-content
-                    intrinsic_sizes.max_content_width
-                }
-                // For Auto or other values, use intrinsic size
-                _ => intrinsic_sizes.max_content_width,
-            };
+            // Its min- and max-content contributions: the margin box under
+            // each constraint (the stored intrinsic sizes already carry a
+            // definite `width` and the `min-width` / `max-width` clamp; a
+            // percentage width behaves as auto here, css-sizing-3 5.2.1).
+            // The shape is the max-content one; the min-content one, when
+            // it differs, is kept for the IFC's min-content measurement.
+            let (min_contribution, used_width) = atomic_inline_width_contributions(
+                &css_width,
+                &intrinsic_sizes,
+                &child_node.box_props.unpack(),
+            );
+            if (used_width - min_contribution).abs() > 0.01 {
+                min_widths.push((content.len(), min_contribution));
+            }
 
             // +spec:containing-block:5145c5 - percentage block-size ignored in content-sized
             // containing blocks during intrinsic sizing Resolve CSS height - use
@@ -1763,8 +1826,53 @@ pub fn collect_inline_content<T: ParsedFontTrait>(
     ifc_root_index: usize,
 ) -> Result<Vec<InlineContent>> {
     let mut out = Vec::new();
-    collect_inline_content_for_sizing(ctx, tree, ifc_root_index, &mut out)?;
+    let mut min_widths = Vec::new();
+    collect_inline_content_for_sizing(ctx, tree, ifc_root_index, &mut out, &mut min_widths)?;
     Ok(out)
+}
+
+/// An atomic inline-level box's (inline-block, inline-table, image, ...)
+/// OUTER inline-size contributions `(min, max)` to the inline formatting
+/// context it sits in (css-sizing-3 5.1 / 5.2, CSS 2.2 10.3.9): its
+/// min-content contribution under the min-content constraint, its
+/// max-content one under the max-content constraint, both as margin boxes.
+///
+/// `intrinsic` are the box's stored CONTENT-box intrinsic sizes, which
+/// already carry a definite `width` (as `min = max = width`), the
+/// `max-width` clamp and the `min-width` floor
+/// (`IntrinsicSizeCalculator::calculate_intrinsic_recursive`); `width:
+/// min-content` / `max-content` pick one of the two. Before, the box went
+/// into the IFC's measurement at its content max-content alone - no
+/// padding, border or margin, no `max-width`, and its max-content under
+/// the min-content constraint too: a cell of an inline-block never shrank
+/// below the inline-block's longest line.
+fn atomic_inline_width_contributions(
+    css_width: &MultiValue<LayoutWidth>,
+    intrinsic: &IntrinsicSizes,
+    bp: &BoxProps,
+) -> (f32, f32) {
+    let min = if intrinsic.min_content_width.is_finite() {
+        intrinsic.min_content_width.max(0.0)
+    } else {
+        0.0
+    };
+    let max = if intrinsic.max_content_width.is_finite() {
+        intrinsic.max_content_width.max(min)
+    } else {
+        min
+    };
+    let (min, max) = match css_width {
+        MultiValue::Exact(LayoutWidth::MinContent) => (min, min),
+        MultiValue::Exact(LayoutWidth::MaxContent) => (max, max),
+        _ => (min, max),
+    };
+    let outer = bp.margin.left
+        + bp.margin.right
+        + bp.border.left
+        + bp.border.right
+        + bp.padding.left
+        + bp.padding.right;
+    ((min + outer).max(0.0), (max + outer).max(0.0))
 }
 
 // +spec:height-calculation:1c899b - width and height properties specify the preferred size of the
