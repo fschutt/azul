@@ -41,6 +41,7 @@ tested: AzSetup              # dll_tests (the steps, the components, the simulat
 tested: AzNotes              # dll_tests (the note model, Markdown round trip, front matter, storage jobs)
 tested: AzVideoCut           # dll_tests (edits + undo, compositor, export, decode plan, storage, switches)
 tested: AzShow               # dll_tests (the deck model: layouts, z-order, groups, the show, deck.json)
+tested: AzPhoto              # dll_tests (the raster core: blend modes, tiles, brush, selections, undo; the view, the tools, files, args)
 
 # ── members with genuinely no tests. The script verifies the claim by grepping
 #    for #[test]; if any of these grows one, it fails until it is moved up and
