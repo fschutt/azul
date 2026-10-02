@@ -87,22 +87,24 @@ pub(crate) extern "C" fn layout_main(mut data: RefAny, info: LayoutCallbackInfo)
     let s = &*guard;
     let shell = match s.backstage {
         Some(page) => PimShell::create(Dom::create_div(), Dom::create_div(), Dom::create_div())
+            .office_shell()
             .with_backstage(backstage(s, &app, page)),
         None => {
-            let mut shell = PimShell::create(
+            let mut pim = PimShell::create(
                 navigation_pane(s, &app),
                 message_list(s, &app),
                 reading_pane(s, &app),
             )
-            .with_ribbon(ribbon(s, &app))
-            .with_status_bar(status_bar(s, &app))
             .with_list_label("Message list")
             .with_navigation_ratio(0.2)
             .with_list_ratio(0.42);
             if s.show_todo {
-                shell = shell.with_todo_bar(todo_bar(s, &app));
+                pim = pim.with_todo_bar(todo_bar(s, &app));
             }
-            shell
+            // The chrome is the OfficeShell's.
+            pim.office_shell()
+                .with_ribbon(ribbon(s, &app))
+                .with_status_bar(status_bar(s, &app))
         }
     };
     let column = Dom::create_div()

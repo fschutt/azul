@@ -160,10 +160,11 @@ fn notes_screen(s: &AppState, app: &RefAny, look: &Look) -> Dom {
             .dom();
     }
     PimShell::create(navigation_pane(s, app), note_list(s, app), reading_pane(s, app, look))
-        .with_status_bar(status_bar(s))
         .with_list_label("Notes")
         .with_navigation_ratio(s.nav.navigation_ratio)
         .with_list_ratio(s.nav.list_ratio)
+        .office_shell()
+        .with_status_bar(status_bar(s))
         .with_on_pane_resize(app.clone(), on_pane_resize as ShellOnPaneResizeCallbackType)
         .dom()
 }

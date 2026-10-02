@@ -93,6 +93,7 @@ fn editor_window(app: &RefAny, st: &AppState, w: f32, h: f32, theme: &str) -> Do
     let title = title_row(st, "");
     if st.screen == Screen::Backstage {
         return DocumentShell::create(Dom::create_div())
+            .office_shell()
             .with_title_row(title)
             .with_backstage(backstage::backstage(app, st, theme, st.mode_choice))
             .dom();
@@ -111,6 +112,7 @@ fn editor_window(app: &RefAny, st: &AppState, w: f32, h: f32, theme: &str) -> Do
             )
             .dom();
         return DocumentShell::create(empty)
+            .office_shell()
             .with_title_row(title)
             .with_ribbon(ribbon)
             .with_status_bar(status)
@@ -136,9 +138,6 @@ fn editor_window(app: &RefAny, st: &AppState, w: f32, h: f32, theme: &str) -> Do
         ),
     };
     let mut shell = DocumentShell::create(document)
-        .with_title_row(title)
-        .with_ribbon(ribbon)
-        .with_status_bar(status)
         .with_navigation_ratio(NAVIGATION_RATIO)
         .with_document_ratio(DOCUMENT_RATIO);
     if let Some(nav) = navigation {
@@ -147,7 +146,13 @@ fn editor_window(app: &RefAny, st: &AppState, w: f32, h: f32, theme: &str) -> Do
     if let Some(side) = side {
         shell = shell.with_side_pane(side);
     }
-    shell.dom()
+    // The chrome is the OfficeShell's.
+    shell
+        .office_shell()
+        .with_title_row(title)
+        .with_ribbon(ribbon)
+        .with_status_bar(status)
+        .dom()
 }
 
 /// The main window's layout.

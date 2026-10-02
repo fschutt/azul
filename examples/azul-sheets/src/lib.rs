@@ -1958,6 +1958,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let s = &*guard;
     let shell = if s.screen == Screen::Backstage {
         DocumentShell::create(Dom::create_div())
+            .office_shell()
             .with_title_row(title_row(s))
             .with_backstage(backstage(s, &app))
     } else {
@@ -1974,6 +1975,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             .with_child(middle)
             .with_child(sheet_tabs(s, &app));
         DocumentShell::create(document)
+            .office_shell()
             .with_title_row(title_row(s))
             .with_ribbon(ribbon(s, &app))
             .with_status_bar(status_bar(s, &app))

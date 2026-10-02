@@ -332,6 +332,7 @@ pub(crate) extern "C" fn layout_compose(mut data: RefAny, info: LayoutCallbackIn
     }
     document.add_child(editor_dom(c, &app));
     let shell = DocumentShell::create(document)
+        .office_shell()
         .with_ribbon(compose_ribbon(c, &app))
         .with_status_bar(status_bar(c));
     let column = Dom::create_div()
