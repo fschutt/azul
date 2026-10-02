@@ -15,12 +15,14 @@ Resume: read this, then `git status`, `git log -3`, continue at NEXT.
   autocomplete); f886e0159 model.rs (fetch spans, fill targets, decimals, status numbers, tsv_of);
   lib.rs: 3af90670c state/cache/mapping, 13d2d8db2 engine plumbing + storage jobs, c41fc5c14 layout,
   0fe3d3bc6 callbacks/startup, 741658fe8 lib tests; 6253de85d workspace/test-members/CI registration.
+- 8f04bc90e scripts/azsheets_e2e.py; 907422920 report; later fixes: 5c714f409 auto ink via ColorU::best_contrast_text,
+  4f9804fe6 Options page (ShellSettingsLayout), 09b635019 lint fixture without app colours, 400dbd4ae / efb1630b2 /
+  bbdafa887 (XVec::from_vec) / ae2e79d54 (no attributes on expressions) / b5abe1e84 compile-safety fixes,
+  ed27f0c5d E2E re-focus.
 
 ## NEXT (precise)
-1. scripts/azsheets_e2e.py (model: examples/azul-shells/scripts/shells_e2e.py): type numbers + =SUM, check the
-   AZSHEETS_CELL / AZSHEETS_STATS lines and the status bar, sort a range, freeze a pane, save and reopen.
-2. Report scripts/SHEETS_2026_10_01.md (api.json list for CellGrid + the a11y fields, least-sure list incl.
-   the engine fork's scripts/SHEETS_ENGINE_REPORT.md, test commands). Commit.
+- Nothing left in the task: the report (scripts/SHEETS_2026_10_01.md) is committed; the parent runs autofix,
+  the build, the suites and the E2E.
 
 ## Design decisions (taken, unattended)
 - IronCalc pinned to =0.8.3 (crates.io max_stable_version on 2026-10-01, same as the engine study).
