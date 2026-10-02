@@ -38,11 +38,14 @@ A16; DEDUP_WIDGETS_API F2, F6, F29.
 - f3b516785 RED CloseGuard + prevent_window_close ; b994e2617 GREEN
 - db3bba2bc Document+Pim ; 377d85810 Browser/Developer/Media/Records/Timeline ; 28806100b Canvas+Call office_shell()
 - 15a0ef180 shells fixtures ; bca3dddf0 apps set chrome after office_shell()
+- 5dbba28b8 / 6bd07653b / b006cda93 report scripts/BLOCKS_2026_10_02.md
 
 ## IN PROGRESS
 
 ## NEXT
-- (A selection model, B undo, C switcher, D close guard, E presets: DONE)
-- F report scripts/BLOCKS_2026_10_02.md (api.json list, least-sure spots, test commands, wave 6).
+- Nothing: all five items and the report are committed. The parent: autofix api.json (list in the
+  report), regenerate css/src/codegen/lower_types.rs, build, run the report's test commands.
 
 ## Open questions for the user
+- `FullWindowState::close_callback` is never invoked by any backend: remove it or wire it?
+- MessageList rename (waits for the user, untouched).
