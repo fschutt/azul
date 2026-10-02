@@ -752,3 +752,5 @@ mod an_inline_tables_baseline_is_its_first_rows;
 mod a_captions_own_caption_side_places_it;
 #[path = "a_spanning_cells_percentage_is_shared_by_its_columns.rs"]
 mod a_spanning_cells_percentage_is_shared_by_its_columns;
+#[path = "a_right_to_left_tables_columns_run_from_the_right.rs"]
+mod a_right_to_left_tables_columns_run_from_the_right;
