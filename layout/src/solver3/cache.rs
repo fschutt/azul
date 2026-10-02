@@ -3560,7 +3560,10 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
             // preheader stood as tall as its text. Not for the table boxes:
             // min/max-height on tables, rows, row groups and cells is
             // undefined in CSS 2.2 (17.5.3), and Chrome ignores max-height
-            // there; nor for an inline box, which has no height property.
+            // there; nor for an inline box, which has no height property
+            // (by its `display`: `FormattingContext::Inline` is also a BLOCK
+            // that establishes an inline formatting context - the preheader
+            // div itself).
             let clamps = tree.get(LayoutNodeId::new(node_index)).is_some_and(|n| {
                 !matches!(
                     n.formatting_context,
@@ -3569,10 +3572,15 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                         | FormattingContext::TableRow
                         | FormattingContext::TableCell
                         | FormattingContext::TableColumnGroup
-                        | FormattingContext::Inline
                 )
             });
-            if let (true, Some(id)) = (clamps, dom_id) {
+            let inline_box = dom_id.is_some_and(|id| {
+                matches!(
+                    get_display_property(ctx.styled_dom, Some(id)),
+                    MultiValue::Exact(LayoutDisplay::Inline)
+                )
+            });
+            if let (true, false, Some(id)) = (clamps, inline_box, dom_id) {
                 let horizontal = matches!(writing_mode, LayoutWritingMode::HorizontalTb);
                 let cb_extent = if horizontal {
                     cb.height.definite()
