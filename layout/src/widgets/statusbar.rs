@@ -2147,6 +2147,45 @@ mod tests {
         assert_eq!(zoom_dom.children.as_ref().len(), 3);
     }
 
+    /// The state of the first slider in `dom` (the zoom cluster's).
+    fn slider_state(dom: &Dom) -> Option<crate::widgets::slider::SliderState> {
+        for cb in dom.root.callbacks.as_ref() {
+            let mut data = cb.refany.clone();
+            if let Some(w) = data.downcast_ref::<crate::widgets::slider::SliderStateWrapper>() {
+                return Some(w.inner);
+            }
+        }
+        dom.children.as_ref().iter().find_map(slider_state)
+    }
+
+    /// AzShow and AzSheets zoom to 400 %, but the cluster's slider window was
+    /// fixed at 10..190: the thumb sat pinned at the end and the first drag
+    /// snapped the zoom back below 190 % (DEDUP_OFFICE D28). The app gives
+    /// the window, and the slider spans it.
+    #[test]
+    fn the_zoom_slider_spans_the_range_the_app_gives() {
+        let zoom = StatusBarZoom::create(300.0, 10.0, 400.0);
+        assert_eq!((zoom.percent, zoom.min, zoom.max), (300.0, 10.0, 400.0));
+        let dom = StatusBar::new(segs(0)).with_zoom(zoom).dom();
+        let state = slider_state(&dom).expect("the zoom cluster holds a slider");
+        assert_eq!((state.min, state.max), (10.0, 400.0));
+        assert!((state.value - 300.0).abs() < 1e-3, "{state:?}");
+
+        let zoom = StatusBarZoom::office_2013()
+            .with_range(10.0, 400.0)
+            .with_percent(400.0);
+        let dom = StatusBar::new(segs(0)).with_zoom(zoom).dom();
+        let state = slider_state(&dom).expect("a slider");
+        assert!(
+            (state.value - 400.0).abs() < 1e-3,
+            "400 % rests at the end of a 10..400 window, not past a 190 one: {state:?}"
+        );
+
+        // A reversed range is the same window.
+        let zoom = StatusBarZoom::office_2013().with_range(400.0, 10.0);
+        assert_eq!((zoom.min, zoom.max), (10.0, 400.0));
+    }
+
     #[test]
     fn zoom_track_host_layers_rail_tick_and_slider() {
         let dom = StatusBar::new(segs(0))
