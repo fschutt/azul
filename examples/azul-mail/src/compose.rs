@@ -2,12 +2,13 @@
 //! Reply All / Forward start from, the address lines, the mail handed to sending
 //! (`send::OutgoingMail`), and a draft as an `.eml` file in the Drafts folder.
 //!
-//! The body is a [`MailDoc`]: a flat list of blocks, each with a quote depth, a kind (paragraph,
-//! bullet, numbered item) and runs of text with bold / italic / underline / a link (the
-//! exploration's design, `scripts/ideas/AZMAIL_EXPLORATION_2026_09_30.md` 5.3). The compose
-//! window renders it into its editor and reads it back (`editor.rs`); here it becomes the two
-//! parts of the mail: `text/plain` with `> ` quoting and `text/html` with the quotes nested as
-//! `<blockquote type="cite">` - the form Gmail and Thunderbird write and read.
+//! The body is azul's `RichTextDoc`, the document of the shared rich-text editor the compose
+//! window edits (the one AzNotes and AzWriter use): blocks with a quote depth, a kind and runs of
+//! formatted text and links. Here it becomes the two parts of the mail: `text/plain` with `> `
+//! quoting (`RichTextDoc::to_plain_text`) and `text/html` with the quotes nested as
+//! `<blockquote type="cite">` (`RichTextDoc::to_html`) - the form Gmail and Thunderbird write and
+//! read. A reopened draft reads its HTML part back (`RichTextDoc::from_html`), so its bold,
+//! italic and links come back with it.
 //!
 //! A reply starts with an empty line for the caret, then "On <date>, <sender> wrote:" and the
 //! original one quote level deeper; a forward with the original's header block and its text.
@@ -19,6 +20,11 @@
 //! the folder is local only until a sync adopts it (`sync::plan_folder`).
 
 use std::path::Path;
+
+use azul::{
+    vec::RichBlockVec,
+    widgets::{RichBlock, RichTextDoc},
+};
 
 use crate::{
     message::MessageView,
@@ -242,205 +248,67 @@ pub fn draft_fields(draft: &MessageView) -> StartFields {
     }
 }
 
-/// A run of text in one style.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Run {
-    pub text: String,
-    pub bold: bool,
-    pub italic: bool,
-    pub underline: bool,
-    /// The link's address (`https:`, `http:`, `mailto:`).
-    pub link: Option<String>,
+/// A paragraph of plain `text` at quote depth `depth`.
+fn paragraph(depth: u8, text: &str) -> RichBlock {
+    RichBlock::create_paragraph(text).with_quote_depth(depth)
 }
 
-impl Run {
-    pub fn plain(text: &str) -> Run {
-        Run {
-            text: text.to_string(),
-            ..Run::default()
-        }
+/// The blocks of plain `text`, one paragraph per line, `>` marks as quote depth plus `extra`;
+/// none for no text.
+fn quoted_blocks(text: &str, extra: u8) -> Vec<RichBlock> {
+    if text.strip_suffix('\n').unwrap_or(text).is_empty() {
+        return Vec::new();
+    }
+    RichTextDoc::from_plain_text(text, extra).blocks.iter().cloned().collect()
+}
+
+/// A body of `blocks`.
+fn body_of(blocks: Vec<RichBlock>) -> RichTextDoc {
+    RichTextDoc::create_from_blocks(RichBlockVec::from_vec(blocks))
+}
+
+/// A reply's body: an empty paragraph (the caret's), the quote header, and the original's text
+/// one level deeper.
+pub fn reply_quote(original: &MessageView, header: &str) -> RichTextDoc {
+    let mut blocks = vec![paragraph(0, ""), paragraph(0, header)];
+    blocks.extend(quoted_blocks(&original.text, 1));
+    body_of(blocks)
+}
+
+/// A forward's body: an empty paragraph, the forwarded header block (From, Date, Subject, To,
+/// Cc), an empty line and the original's text.
+pub fn forward_quote(original: &MessageView, date: &str) -> RichTextDoc {
+    let mut blocks = vec![
+        paragraph(0, ""),
+        paragraph(0, "---------- Forwarded message ----------"),
+        paragraph(0, &format!("From: {}", original.from)),
+    ];
+    if !date.is_empty() {
+        blocks.push(paragraph(0, &format!("Date: {date}")));
+    }
+    blocks.push(paragraph(0, &format!("Subject: {}", original.subject)));
+    if !original.to.is_empty() {
+        blocks.push(paragraph(0, &format!("To: {}", original.to)));
+    }
+    if !original.cc.is_empty() {
+        blocks.push(paragraph(0, &format!("Cc: {}", original.cc)));
+    }
+    blocks.push(paragraph(0, ""));
+    blocks.extend(quoted_blocks(&original.text, 0));
+    body_of(blocks)
+}
+
+/// A reopened draft's body: its HTML part (formats and links kept), else its text.
+pub fn draft_body(draft: &MessageView) -> RichTextDoc {
+    match draft.html.as_deref().filter(|h| !h.trim().is_empty()) {
+        Some(html) => RichTextDoc::from_html(html),
+        None => RichTextDoc::from_plain_text(draft.text.as_str(), 0),
     }
 }
 
-/// What a block is.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum BlockKind {
-    #[default]
-    Paragraph,
-    Bullet,
-    Numbered,
-}
-
-/// One block of the body: its quote depth (0 = the writer's own text), its kind, its runs.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Block {
-    pub quote: u8,
-    pub kind: BlockKind,
-    pub runs: Vec<Run>,
-}
-
-impl Block {
-    /// A paragraph of plain `text` at quote depth `quote`.
-    pub fn paragraph(quote: u8, text: &str) -> Block {
-        Block {
-            quote,
-            kind: BlockKind::Paragraph,
-            runs: if text.is_empty() {
-                Vec::new()
-            } else {
-                vec![Run::plain(text)]
-            },
-        }
-    }
-
-    /// The block's text, every run's text joined.
-    pub fn text(&self) -> String {
-        self.runs.iter().map(|r| r.text.as_str()).collect()
-    }
-}
-
-/// The body of a mail being written.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct MailDoc {
-    pub blocks: Vec<Block>,
-}
-
-impl MailDoc {
-    /// One empty paragraph: where the caret starts in a new mail.
-    pub fn empty() -> MailDoc {
-        MailDoc {
-            blocks: vec![Block::paragraph(0, "")],
-        }
-    }
-
-    /// Plain text as paragraphs, one per line, `>` quotes as depth (plus `extra_quote`).
-    pub fn from_plain(text: &str, extra_quote: u8) -> MailDoc {
-        let blocks = quoted_blocks(text, extra_quote);
-        if blocks.is_empty() {
-            MailDoc::empty()
-        } else {
-            MailDoc { blocks }
-        }
-    }
-
-    /// A reply's body: an empty paragraph (the caret's), the quote header, and the original's
-    /// text one level deeper.
-    pub fn reply_quote(original: &MessageView, header: &str) -> MailDoc {
-        let mut blocks = vec![Block::paragraph(0, ""), Block::paragraph(0, header)];
-        blocks.extend(quoted_blocks(&original.text, 1));
-        MailDoc { blocks }
-    }
-
-    /// A forward's body: an empty paragraph, the forwarded header block (From, Date, Subject,
-    /// To, Cc), an empty line and the original's text.
-    pub fn forward_quote(original: &MessageView, date: &str) -> MailDoc {
-        let mut blocks = vec![
-            Block::paragraph(0, ""),
-            Block::paragraph(0, "---------- Forwarded message ----------"),
-            Block::paragraph(0, &format!("From: {}", original.from)),
-        ];
-        if !date.is_empty() {
-            blocks.push(Block::paragraph(0, &format!("Date: {date}")));
-        }
-        blocks.push(Block::paragraph(0, &format!("Subject: {}", original.subject)));
-        if !original.to.is_empty() {
-            blocks.push(Block::paragraph(0, &format!("To: {}", original.to)));
-        }
-        if !original.cc.is_empty() {
-            blocks.push(Block::paragraph(0, &format!("Cc: {}", original.cc)));
-        }
-        blocks.push(Block::paragraph(0, ""));
-        blocks.extend(quoted_blocks(&original.text, 0));
-        MailDoc { blocks }
-    }
-
-    /// Whether there is no text at all.
-    pub fn is_blank(&self) -> bool {
-        self.blocks.iter().all(|b| b.text().trim().is_empty())
-    }
-
-    /// The `text/plain` part: a line per block, `> ` per quote level, `- ` before a bullet,
-    /// `1. ` (counting) before a numbered item, a link as `text <address>` (just the address
-    /// when the text is the address). Lines end in `\n`.
-    pub fn to_plain(&self) -> String {
-        let mut out = String::new();
-        let mut number = 0usize;
-        let mut last_numbered_depth: Option<u8> = None;
-        for block in &self.blocks {
-            let prefix = match block.kind {
-                BlockKind::Paragraph => {
-                    last_numbered_depth = None;
-                    String::new()
-                }
-                BlockKind::Bullet => {
-                    last_numbered_depth = None;
-                    String::from("- ")
-                }
-                BlockKind::Numbered => {
-                    if last_numbered_depth != Some(block.quote) {
-                        number = 0;
-                    }
-                    number += 1;
-                    last_numbered_depth = Some(block.quote);
-                    format!("{number}. ")
-                }
-            };
-            let text: String = block.runs.iter().map(plain_run).collect();
-            let marks = "> ".repeat(usize::from(block.quote));
-            let line = format!("{marks}{prefix}{text}");
-            out.push_str(line.trim_end_matches(' ').trim_end_matches('\t'));
-            out.push('\n');
-        }
-        out
-    }
-
-    /// The `text/html` part: `<html><body>` with a `<div>` per paragraph (`<div><br></div>`
-    /// for an empty one), bullets and numbered items in `<ul>` / `<ol>`, quote levels nested as
-    /// `<blockquote type="cite">`, runs as `<b>` `<i>` `<u>` `<a href>`; text escaped.
-    pub fn to_html(&self) -> String {
-        let mut out = String::from("<html><body>");
-        let mut depth: u8 = 0;
-        let mut list: Option<BlockKind> = None;
-        for block in &self.blocks {
-            let list_kind = (block.kind != BlockKind::Paragraph).then_some(block.kind);
-            if list.is_some() && (list != list_kind || block.quote != depth) {
-                out.push_str(close_list(list));
-                list = None;
-            }
-            while depth > block.quote {
-                out.push_str("</blockquote>");
-                depth -= 1;
-            }
-            while depth < block.quote {
-                out.push_str("<blockquote type=\"cite\">");
-                depth += 1;
-            }
-            let inner: String = block.runs.iter().map(html_run).collect();
-            match block.kind {
-                BlockKind::Paragraph if inner.is_empty() => out.push_str("<div><br></div>"),
-                BlockKind::Paragraph => {
-                    out.push_str("<div>");
-                    out.push_str(&inner);
-                    out.push_str("</div>");
-                }
-                BlockKind::Bullet | BlockKind::Numbered => {
-                    if list.is_none() {
-                        out.push_str(if block.kind == BlockKind::Bullet { "<ul>" } else { "<ol>" });
-                        list = list_kind;
-                    }
-                    out.push_str("<li>");
-                    out.push_str(&inner);
-                    out.push_str("</li>");
-                }
-            }
-        }
-        out.push_str(close_list(list));
-        for _ in 0..depth {
-            out.push_str("</blockquote>");
-        }
-        out.push_str("</body></html>");
-        out
-    }
+/// The `text/html` part of `body`: its HTML in `<html><body>`.
+pub fn html_part(body: &RichTextDoc) -> String {
+    format!("<html><body>{}</body></html>", body.to_html().as_str())
 }
 
 /// The line before a reply's quote: `On Wed, 30 Sep 2026 at 10:42, Ada <ada@example.org>
@@ -486,7 +354,7 @@ impl std::fmt::Display for ComposeError {
 }
 
 /// What the compose window holds when Send or Save is pressed.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ComposeFields {
     /// The account's address (`Name <address>` or `address`).
     pub from: String,
@@ -495,7 +363,7 @@ pub struct ComposeFields {
     pub cc: String,
     pub bcc: String,
     pub subject: String,
-    pub body: MailDoc,
+    pub body: RichTextDoc,
     pub in_reply_to: Option<String>,
     pub references: Vec<String>,
 }
@@ -517,8 +385,8 @@ pub fn outgoing(fields: &ComposeFields, attachments: Vec<Attachment>) -> Result<
         cc,
         bcc,
         subject: fields.subject.clone(),
-        text_body: fields.body.to_plain(),
-        html_body: Some(fields.body.to_html()),
+        text_body: fields.body.to_plain_text().as_str().to_string(),
+        html_body: Some(html_part(&fields.body)),
         in_reply_to: fields.in_reply_to.clone(),
         references: fields.references.clone(),
         attachments,
@@ -534,8 +402,8 @@ pub fn draft_mail(fields: &ComposeFields, attachments: Vec<Attachment>) -> Outgo
         cc: split_addresses(&fields.cc),
         bcc: split_addresses(&fields.bcc),
         subject: fields.subject.clone(),
-        text_body: fields.body.to_plain(),
-        html_body: Some(fields.body.to_html()),
+        text_body: fields.body.to_plain_text().as_str().to_string(),
+        html_body: Some(html_part(&fields.body)),
         in_reply_to: fields.in_reply_to.clone(),
         references: fields.references.clone(),
         attachments,
@@ -661,77 +529,6 @@ fn thread_of(original: &MessageView) -> (Option<String>, Vec<String>) {
     (Some(id.to_string()), references)
 }
 
-/// Plain text as paragraphs, `>` quotes as depth plus `extra`; no blocks for no text.
-fn quoted_blocks(text: &str, extra: u8) -> Vec<Block> {
-    crate::message::quote_lines(text)
-        .into_iter()
-        .map(|line| {
-            let depth = u8::try_from(line.level).unwrap_or(u8::MAX).saturating_add(extra);
-            Block::paragraph(depth, &line.text)
-        })
-        .collect()
-}
-
-/// A run in the text part: its text, a link as `text <address>`.
-fn plain_run(run: &Run) -> String {
-    match run.link.as_deref() {
-        Some(link) if run.text.trim().is_empty() || run.text.trim() == link => link.to_string(),
-        Some(link) => format!("{} <{link}>", run.text),
-        None => run.text.clone(),
-    }
-}
-
-/// Whether a link may go into the HTML part: web and mail addresses only.
-fn safe_link(link: &str) -> bool {
-    let lower = link.trim().to_ascii_lowercase();
-    ["https://", "http://", "mailto:"]
-        .iter()
-        .any(|scheme| lower.starts_with(scheme))
-}
-
-/// `text` escaped for HTML (`&`, `<`, `>`, and `"` for attribute values).
-fn escape_html(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for c in text.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            _ => out.push(c),
-        }
-    }
-    out
-}
-
-/// A run in the HTML part: escaped, then `<u>`, `<i>`, `<b>` and the link around it, inside
-/// out.
-fn html_run(run: &Run) -> String {
-    let mut html = escape_html(&run.text);
-    if run.underline {
-        html = format!("<u>{html}</u>");
-    }
-    if run.italic {
-        html = format!("<i>{html}</i>");
-    }
-    if run.bold {
-        html = format!("<b>{html}</b>");
-    }
-    if let Some(link) = run.link.as_deref().filter(|l| safe_link(l)) {
-        html = format!("<a href=\"{}\">{html}</a>", escape_html(link.trim()));
-    }
-    html
-}
-
-/// The end tag of an open list.
-fn close_list(list: Option<BlockKind>) -> &'static str {
-    match list {
-        Some(BlockKind::Bullet) => "</ul>",
-        Some(BlockKind::Numbered) => "</ol>",
-        _ => "",
-    }
-}
-
 /// An address line split, every entry checked.
 fn checked_line(line: &str) -> Result<Vec<String>, ComposeError> {
     let entries = split_addresses(line);
@@ -825,8 +622,11 @@ mod tests {
         assert_eq!(draft_fields(&fresh).in_reply_to, None, "a new mail answers nothing");
     }
 
-    fn runs(doc: &MailDoc) -> Vec<(u8, String)> {
-        doc.blocks.iter().map(|b| (b.quote, b.text())).collect()
+    fn runs(doc: &RichTextDoc) -> Vec<(u8, String)> {
+        doc.blocks
+            .iter()
+            .map(|b| (b.quote_depth, b.get_text().as_str().to_string()))
+            .collect()
     }
 
     #[test]
@@ -908,7 +708,7 @@ mod tests {
         let header = quote_header("Wed, 30 Sep 2026 at 10:42", "Ben Okafor <ben@example.org>");
         assert_eq!(header, "On Wed, 30 Sep 2026 at 10:42, Ben Okafor <ben@example.org> wrote:");
         assert_eq!(quote_header("", "Ben"), "Ben wrote:");
-        let doc = MailDoc::reply_quote(&original(), &header);
+        let doc = reply_quote(&original(), &header);
         assert_eq!(
             runs(&doc),
             vec![
@@ -932,7 +732,7 @@ mod tests {
 
     #[test]
     fn a_forward_carries_the_header_block_and_the_text_unquoted() {
-        let doc = MailDoc::forward_quote(&original(), "Wed, 30 Sep 2026 at 10:42");
+        let doc = forward_quote(&original(), "Wed, 30 Sep 2026 at 10:42");
         let lines = runs(&doc);
         assert_eq!(lines[0], (0, String::new()));
         assert_eq!(lines[1], (0, String::from("---------- Forwarded message ----------")));
@@ -944,120 +744,66 @@ mod tests {
         assert!(lines.contains(&(1, String::from("Last year it came early."))));
     }
 
-    fn sample_doc() -> MailDoc {
-        MailDoc {
-            blocks: vec![
-                Block {
-                    quote: 0,
-                    kind: BlockKind::Paragraph,
-                    runs: vec![
-                        Run::plain("Thanks, "),
-                        Run {
-                            text: String::from("bold"),
-                            bold: true,
-                            ..Run::default()
-                        },
-                        Run::plain(" & "),
-                        Run {
-                            text: String::from("the list"),
-                            link: Some(String::from("https://example.org/a?b=1&c=2")),
-                            ..Run::default()
-                        },
-                    ],
-                },
-                Block {
-                    quote: 0,
-                    kind: BlockKind::Bullet,
-                    runs: vec![Run::plain("bulbs")],
-                },
-                Block {
-                    quote: 0,
-                    kind: BlockKind::Bullet,
-                    runs: vec![Run {
-                        text: String::from("gloves"),
-                        italic: true,
-                        underline: true,
-                        ..Run::default()
-                    }],
-                },
-                Block::paragraph(0, ""),
-                Block::paragraph(1, "Bring <gloves>."),
-                Block::paragraph(2, "Deeper."),
-                Block::paragraph(1, "Back up."),
-                Block {
-                    quote: 0,
-                    kind: BlockKind::Numbered,
-                    runs: vec![Run::plain("one")],
-                },
-                Block {
-                    quote: 0,
-                    kind: BlockKind::Numbered,
-                    runs: vec![Run::plain("two")],
-                },
-            ],
-        }
+    /// A body with bold, a link, a list and a quote.
+    fn formatted_body() -> RichTextDoc {
+        RichTextDoc::from_html(
+            "<div>Thanks, <b>bold</b> &amp; <a href=\"https://example.org/plan\">the plan</a></div>\
+             <ul><li>bulbs</li></ul><blockquote type=\"cite\"><div>Bring gloves.</div></blockquote>",
+        )
     }
 
     #[test]
-    fn the_text_part_quotes_with_marks_and_writes_lists_and_links_readably() {
+    fn the_mail_parts_are_the_shared_writers_text_and_html() {
+        let body = formatted_body();
+        let mail = outgoing(
+            &ComposeFields {
+                body: body.clone(),
+                ..fields()
+            },
+            Vec::new(),
+        )
+        .unwrap();
+        assert_eq!(mail.text_body, body.to_plain_text().as_str());
         assert_eq!(
-            sample_doc().to_plain(),
-            "Thanks, bold & the list <https://example.org/a?b=1&c=2>\n\
-             - bulbs\n\
-             - gloves\n\
-             \n\
-             > Bring <gloves>.\n\
-             > > Deeper.\n\
-             > Back up.\n\
-             1. one\n\
-             2. two\n"
+            mail.text_body,
+            "Thanks, bold & the plan <https://example.org/plan>\n- bulbs\n> Bring gloves.\n"
         );
-        let link_is_text = MailDoc {
-            blocks: vec![Block {
-                runs: vec![Run {
-                    text: String::from("https://example.org"),
-                    link: Some(String::from("https://example.org")),
-                    ..Run::default()
-                }],
-                ..Block::default()
-            }],
+        let html = mail.html_body.unwrap_or_default();
+        assert!(html.starts_with("<html><body>") && html.ends_with("</body></html>"), "{html}");
+        assert!(
+            html.contains("<div>Thanks, <b>bold</b> &amp; <a href=\"https://example.org/plan\">the plan</a></div>"),
+            "{html}"
+        );
+        assert!(
+            html.contains("<blockquote type=\"cite\"><div>Bring gloves.</div></blockquote>"),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn a_reopened_draft_keeps_its_bold_its_link_and_its_quote() {
+        // A draft came back from its text/plain part and lost its formats
+        // (DEDUP_EDITORS F3).
+        let body = formatted_body();
+        let mail = draft_mail(
+            &ComposeFields {
+                body: body.clone(),
+                ..fields()
+            },
+            Vec::new(),
+        );
+        let bytes = draft_bytes(&mail, 1_790_757_720);
+        let view = crate::message::parse_view(&bytes).unwrap();
+        assert_eq!(draft_body(&view), body);
+        let plain_only = MessageView {
+            html: None,
+            ..view
         };
-        assert_eq!(link_is_text.to_plain(), "https://example.org\n");
-    }
-
-    #[test]
-    fn the_html_part_nests_quotes_and_lists_and_escapes_text() {
-        let html = sample_doc().to_html();
-        assert!(html.starts_with("<html><body>"), "{html}");
-        assert!(html.ends_with("</body></html>"), "{html}");
-        assert!(
-            html.contains(
-                "<div>Thanks, <b>bold</b> &amp; <a href=\"https://example.org/a?b=1&amp;c=2\">the list</a></div>"
-            ),
-            "{html}"
-        );
-        assert!(html.contains("<ul><li>bulbs</li><li><i><u>gloves</u></i></li></ul>"), "{html}");
-        assert!(html.contains("<div><br></div>"), "an empty line: {html}");
-        assert!(
-            html.contains(
-                "<blockquote type=\"cite\"><div>Bring &lt;gloves&gt;.</div><blockquote type=\"cite\"><div>Deeper.</div></blockquote><div>Back up.</div></blockquote>"
-            ),
-            "{html}"
-        );
-        assert!(html.contains("<ol><li>one</li><li>two</li></ol>"), "{html}");
-    }
-
-    #[test]
-    fn plain_text_becomes_paragraphs_with_quote_depths() {
-        let doc = MailDoc::from_plain("Hi\n> quoted\n>> deeper\n", 1);
         assert_eq!(
-            runs(&doc),
-            vec![(1, String::from("Hi")), (2, String::from("quoted")), (3, String::from("deeper"))]
+            runs(&draft_body(&plain_only))[0].1,
+            "Thanks, bold & the plan <https://example.org/plan>",
+            "without an HTML part: the text"
         );
-        assert!(MailDoc::empty().is_blank());
-        assert_eq!(MailDoc::empty().blocks.len(), 1);
-        assert!(!doc.is_blank());
-        assert_eq!(MailDoc::from_plain("", 0), MailDoc::empty(), "no text is one empty line");
     }
 
     fn fields() -> ComposeFields {
@@ -1067,7 +813,7 @@ mod tests {
             cc: String::new(),
             bcc: String::from("dan@example.org"),
             subject: String::from("Re: Garden plan"),
-            body: MailDoc::from_plain("See you.", 0),
+            body: RichTextDoc::from_plain_text("See you.", 0),
             in_reply_to: Some(String::from("garden-1@example.org")),
             references: vec![String::from("garden-1@example.org")],
         }

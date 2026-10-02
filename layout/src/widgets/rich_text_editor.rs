@@ -794,7 +794,8 @@ fn host_dom(editor: &RichTextEditor, data: Option<&RefAny>) -> Dom {
         .with_class(AzString::from_const_str(RICH_TEXT_HOST_CLASS))
         .with_accessibility_name(editor.accessibility_name.clone())
         .with_css(&format!(
-            "display: block; padding: 10px 14px 40px 14px; font-size: {}px; cursor: text;",
+            "display: block; flex-grow: 1; padding: 10px 14px 40px 14px; font-size: {}px; \
+             cursor: text;",
             ctx.font_px
         ));
     if data.is_some() {

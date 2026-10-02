@@ -13,7 +13,7 @@
 //!   (the mail on paper, pictures only after "download pictures"), the To-Do bar and the status
 //!   bar (`ui_main.rs`).
 //! - **New / Reply / Reply All / Forward** open a second window (`ui_compose.rs`): From, To / Cc
-//!   / Bcc, Subject, a formatting ribbon, the rich editor (`editor.rs`), attachments; Save writes
+//!   / Bcc, Subject, a formatting ribbon, azul's shared rich-text editor, attachments; Save writes
 //!   a draft into the Drafts folder, Send hands the mail to `send::send_mail` on a `Thread` and
 //!   closes the window once it is sent (it is then in Sent Items).
 //!
@@ -34,7 +34,6 @@ pub mod account;
 pub mod args;
 pub mod auth;
 pub mod compose;
-pub mod editor;
 pub mod folders;
 pub mod html;
 pub mod imap_client;
