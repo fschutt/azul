@@ -2205,3 +2205,125 @@ mod app_theme_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod disabled_and_toggled_tests {
+    use azul_core::{
+        a11y::AccessibilityState,
+        dom::{EventFilter, HoverEventFilter, TabIndex},
+    };
+    use azul_css::{
+        dynamic_selector::{DynamicSelector, PseudoStateType},
+        props::property::CssProperty,
+    };
+
+    use super::*;
+    use crate::widgets::themes::UiTheme;
+
+    extern "C" fn app_click(_: RefAny, _: CallbackInfo) -> Update {
+        Update::RefreshDom
+    }
+
+    fn has_class(dom: &Dom, class: &str) -> bool {
+        dom.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == class))
+    }
+
+    fn states(dom: &Dom) -> Vec<AccessibilityState> {
+        dom.root
+            .get_accessibility_info()
+            .map(|a| a.states.as_ref().to_vec())
+            .unwrap_or_default()
+    }
+
+    /// A command that cannot run now (Calculator's dimmed key, a dialog's
+    /// greyed OK) is a DISABLED button, not a dimmed div: it keeps its place
+    /// and its keyboard stop, never runs its click, drops the hover / pressed
+    /// paint, is dimmed, is announced unavailable with the reason as its
+    /// description and shows the reason on hover and click - in both themes,
+    /// as RibbonButton's disabled state does (DEDUP_OFFICE A11).
+    #[test]
+    fn a_disabled_button_is_dimmed_inert_and_says_why_in_both_themes() {
+        let reason = "Select a file to delete";
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let button = Button::with_type(AzString::from("Delete"), ButtonType::Danger)
+                .with_on_click(RefAny::new(7u32), app_click as ButtonOnClickCallbackType)
+                .with_disabled(AzString::from(reason));
+            assert!(button.is_disabled());
+            let dom = button.with_theme(theme).dom();
+
+            assert!(has_class(&dom, BUTTON_DISABLED_CLASS), "{theme:?}");
+            assert_eq!(dom.root.get_tab_index(), Some(TabIndex::Auto), "{theme:?}: still a stop");
+            assert!(states(&dom).contains(&AccessibilityState::Unavailable), "{theme:?}");
+            assert_eq!(
+                dom.root
+                    .get_accessibility_info()
+                    .and_then(|a| a.description.as_ref().map(|d| d.as_str().to_string())),
+                Some(String::from(reason)),
+                "{theme:?}: the reason is the description"
+            );
+
+            let mut dimmed = false;
+            for (prop, conditions) in dom.root.style.iter_inline_properties() {
+                let pressed = conditions.as_ref().iter().any(|c| {
+                    matches!(
+                        c,
+                        DynamicSelector::PseudoState(PseudoStateType::Hover | PseudoStateType::Active)
+                    )
+                });
+                assert!(!pressed, "{theme:?}: a disabled button has no hover / pressed paint: {prop:?}");
+                if let CssProperty::Opacity(o) = prop {
+                    if o.get_property().map_or(false, |o| o.inner.normalized() < 0.75) {
+                        dimmed = true;
+                    }
+                }
+            }
+            assert!(dimmed, "{theme:?}: a disabled button is dimmed");
+
+            let callbacks = dom.root.get_callbacks().as_ref();
+            for cb in callbacks {
+                let mut data = cb.refany.clone();
+                assert!(data.downcast_ref::<u32>().is_none(), "{theme:?}: the app's click is gone");
+            }
+            let events: Vec<EventFilter> = callbacks.iter().map(|cb| cb.event).collect();
+            for wanted in [
+                EventFilter::Hover(HoverEventFilter::MouseEnter),
+                EventFilter::Hover(HoverEventFilter::MouseLeave),
+                EventFilter::Hover(HoverEventFilter::Click),
+            ] {
+                assert!(events.contains(&wanted), "{theme:?}: {wanted:?} shows the reason");
+            }
+        }
+        let enabled = Button::create(AzString::from("Delete")).with_disabled(AzString::from(""));
+        assert!(!enabled.is_disabled(), "an empty reason enables it");
+    }
+
+    /// A toggle button (Bold, a calculator mode key) is announced pressed or
+    /// not pressed (`aria-pressed`) and shows the pressed face while on - in
+    /// both themes; switched off it looks like a plain button
+    /// (DEDUP_OFFICE A11).
+    #[test]
+    fn a_toggled_button_is_announced_pressed_and_shows_the_pressed_face_in_both_themes() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            for ty in [ButtonType::Default, ButtonType::Primary] {
+                let make = || Button::with_type(AzString::from("Bold"), ty).with_theme(theme);
+                let on = make().with_toggled(true).dom();
+                let off = make().with_toggled(false).dom();
+                let plain = make().dom();
+                assert!(states(&on).contains(&AccessibilityState::CheckedTrue), "{theme:?} {ty:?}");
+                assert!(states(&off).contains(&AccessibilityState::CheckedFalse), "{theme:?} {ty:?}");
+                assert!(
+                    !states(&plain)
+                        .iter()
+                        .any(|s| matches!(s, AccessibilityState::CheckedTrue | AccessibilityState::CheckedFalse)),
+                    "{theme:?} {ty:?}: a plain button is no toggle"
+                );
+                assert_ne!(on.root.get_style(), off.root.get_style(), "{theme:?} {ty:?}: on is pressed in");
+                assert_eq!(off.root.get_style(), plain.root.get_style(), "{theme:?} {ty:?}: off is the plain face");
+            }
+        }
+    }
+}
