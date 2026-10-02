@@ -34,8 +34,32 @@ just to make the one layout work".
   reach text3 for an IFC root, which the div (block children) is not -> column-count ignored.
   (scratchpad helv.py has the computation.)
 
+## Item 1 design (decided)
+- NOT the K30b fragmentainer/token path: it re-lays per fragmentainer and a node split across two
+  columns would need two positions in ONE display list (the position model is one per node; the
+  page loop gets away with it because every page is its own display list). Fragment passes also
+  never split IFCs (v1).
+- Instead (azul's own pagination model, "continuous layout, then break analysis"): the multicol
+  BFC lays its children out ONCE as a single column of width W (Pass 1/2 unchanged, only the
+  children's containing block = W), then `multicol::plan_columns` (pure, unit-tested) picks the
+  column breaks (between siblings, or between the LINES of a plain IFC child) with column-fill:
+  balance (binary search on the column height, capped by a definite container height; overflow
+  columns continue in the inline direction), and the children move to (column x, y - column start).
+- An IFC child that straddles a break is re-laid with `LayoutConstraints.column_flow` ->
+  `UnifiedConstraints.column_flow: Option<text3::cache::ColumnFlow { breaks: line indices,
+  advance, column_top }>`: text3 starts a new column at those line indices (index-based, exact).
+  Its used_size becomes its first fragment. Children that establish a BFC / replaced / tables move
+  whole.
+- Files: new layout/src/solver3/multicol.rs (ColumnGeometry resolver shared with
+  translate_to_text3_constraints = the refactor-first step; plan_columns), fc.rs (layout_bfc hook,
+  establishes_new_bfc: multicol container establishes a BFC, LayoutConstraints.column_flow),
+  text3/cache.rs (ColumnFlow), cache.rs promote_layout_roots_to_containers (a layout root inside a
+  multicol flow is laid out by the multicol container, like flex items).
+- Limits: horizontal writing modes only; not inside K30b fragment passes (constraints.fragmentainer
+  Some -> no columns); orphans/widows not honoured in columns; a split box paints its
+  background/border on its first fragment only.
+
 ## NEXT
-- design multicol for block containers (refactor first: one column-geometry helper shared by the
-  IFC path and the BFC path)
+- RED: layout/tests/a_multicol_block_flows_its_children_through_its_columns.rs
 
 ## Open questions / decisions
