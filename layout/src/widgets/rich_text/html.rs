@@ -57,6 +57,9 @@ pub const NUMBERED_CLASS: &str = "__azul-rte-numbered";
 pub const CHECK_CLASS: &str = "__azul-rte-check";
 /// A ticked check item.
 pub const CHECKED_CLASS: &str = "__azul-rte-checked";
+/// An element of the editor that is not text (a check item's box, an
+/// image): `contenteditable=false`, skipped when content is read back.
+pub const ISLAND_CLASS: &str = "__azul-rte-island";
 
 /// The class of a list item at `indent`.
 #[must_use]
@@ -515,6 +518,9 @@ impl Collector {
 
     #[allow(clippy::too_many_lines)]
     fn node(&mut self, dom: &Dom, style: &Inline) {
+        if dom.root.has_class(ISLAND_CLASS) {
+            return;
+        }
         let mut style = style.clone();
         // The editor's own run classes (a clone of a run of the editor).
         for (class, format) in [
