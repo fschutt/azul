@@ -2044,6 +2044,7 @@ fn new_from_str_inner<'a>(
                         paths: parent_paths,
                         declarations: Default::default(),
                         depth: block_nesting,
+                        invalid: false,
                     });
                 }
             }
