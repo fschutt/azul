@@ -15,6 +15,7 @@
 //!
 //! Key types: [`PathInput`].
 
+use azul_css::impl_option_inner;
 use azul_core::{
     callbacks::Update,
     dom::{Dom, DomVec},

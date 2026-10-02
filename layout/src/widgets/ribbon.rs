@@ -5242,7 +5242,7 @@ mod tests {
         }
         let reason = "Nothing to paste: copy or cut something first";
         let rb = small_btn("content_paste", "Paste")
-            .with_on_click(RefAny::new(7u32), app_click)
+            .with_on_click(RefAny::new(7u32), app_click as crate::widgets::button::ButtonOnClickCallbackType)
             .with_disabled(AzString::from(reason));
         assert!(rb.is_disabled());
         assert_eq!(rb.disabled_reason.as_str(), reason);

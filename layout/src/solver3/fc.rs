@@ -6795,7 +6795,8 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
             } else {
                 (table_ctx.num_rows + 1).saturating_sub(table_ctx.hidden_empty_rows.len()) as f32
             };
-            stretch_rows_to(&mut table_ctx, content_h - table_ctx.v_spacing * spacings);
+            let target = content_h - table_ctx.v_spacing * spacings;
+            stretch_rows_to(&mut table_ctx, target);
         }
     }
 

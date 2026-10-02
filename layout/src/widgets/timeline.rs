@@ -1587,22 +1587,24 @@ const fn no_shrink() -> P {
     }))
 }
 
-const fn flex(direction: LayoutFlexDirection) -> [P; 2] {
-    [
-        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        P::simple(CssProperty::const_flex_direction(direction)),
-    ]
+const fn display_flex() -> P {
+    P::simple(CssProperty::const_display(LayoutDisplay::Flex))
+}
+
+const fn flex_direction(direction: LayoutFlexDirection) -> P {
+    P::simple(CssProperty::const_flex_direction(direction))
 }
 
 const fn position(p: LayoutPosition) -> P {
     P::simple(CssProperty::const_position(p))
 }
 
-const fn clip_overflow() -> [P; 2] {
-    [
-        P::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
-        P::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
-    ]
+const fn overflow_x_hidden() -> P {
+    P::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden))
+}
+
+const fn overflow_y_hidden() -> P {
+    P::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden))
 }
 
 const fn nowrap() -> P {
@@ -1611,31 +1613,31 @@ const fn nowrap() -> P {
 
 /// The widget: a column that fills its host, chrome text not selectable.
 pub(crate) static TIMELINE_BASE: &[P] = &[
-    flex(LayoutFlexDirection::Column)[0],
-    flex(LayoutFlexDirection::Column)[1],
+    display_flex(),
+    flex_direction(LayoutFlexDirection::Column),
     grow(1),
     P::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(0))),
     P::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
-    clip_overflow()[0],
-    clip_overflow()[1],
+    overflow_x_hidden(),
+    overflow_y_hidden(),
     P::simple(CssProperty::user_select(StyleUserSelect::None)),
 ];
 
 /// The ruler row: the corner, then the ruler.
 pub(crate) static TIMELINE_HEAD_BASE: &[P] = &[
-    flex(LayoutFlexDirection::Row)[0],
-    flex(LayoutFlexDirection::Row)[1],
+    display_flex(),
+    flex_direction(LayoutFlexDirection::Row),
     no_shrink(),
 ];
 
 /// The corner: its timecode on the midline.
 pub(crate) static TIMELINE_CORNER_BASE: &[P] = &[
-    flex(LayoutFlexDirection::Row)[0],
-    flex(LayoutFlexDirection::Row)[1],
+    display_flex(),
+    flex_direction(LayoutFlexDirection::Row),
     P::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
     no_shrink(),
-    clip_overflow()[0],
-    clip_overflow()[1],
+    overflow_x_hidden(),
+    overflow_y_hidden(),
 ];
 
 /// The ruler: the ticks are placed in it.
@@ -1643,8 +1645,8 @@ pub(crate) static TIMELINE_RULER_BASE: &[P] = &[
     position(LayoutPosition::Relative),
     grow(1),
     P::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
-    clip_overflow()[0],
-    clip_overflow()[1],
+    overflow_x_hidden(),
+    overflow_y_hidden(),
 ];
 
 /// A tick, a ruler head, the playhead: a line placed at its time.
@@ -1655,29 +1657,29 @@ pub(crate) static TIMELINE_TICK_LABEL_BASE: &[P] = &[position(LayoutPosition::Ab
 
 /// The headers and the lanes, side by side.
 pub(crate) static TIMELINE_BODY_BASE: &[P] = &[
-    flex(LayoutFlexDirection::Row)[0],
-    flex(LayoutFlexDirection::Row)[1],
+    display_flex(),
+    flex_direction(LayoutFlexDirection::Row),
     grow(1),
     P::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(0))),
-    clip_overflow()[0],
-    clip_overflow()[1],
+    overflow_x_hidden(),
+    overflow_y_hidden(),
 ];
 
 /// The column of headers.
 pub(crate) static TIMELINE_HEADERS_BASE: &[P] = &[
-    flex(LayoutFlexDirection::Column)[0],
-    flex(LayoutFlexDirection::Column)[1],
+    display_flex(),
+    flex_direction(LayoutFlexDirection::Column),
     no_shrink(),
 ];
 
 /// A header: the name, then the toggles, on one midline.
 pub(crate) static TIMELINE_HEADER_BASE: &[P] = &[
-    flex(LayoutFlexDirection::Row)[0],
-    flex(LayoutFlexDirection::Row)[1],
+    display_flex(),
+    flex_direction(LayoutFlexDirection::Row),
     P::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
     no_shrink(),
-    clip_overflow()[0],
-    clip_overflow()[1],
+    overflow_x_hidden(),
+    overflow_y_hidden(),
 ];
 
 /// A header's name takes the room the toggles leave.
@@ -1690,12 +1692,12 @@ pub(crate) static TIMELINE_TRACK_NAME_BASE: &[P] = &[
 /// The lanes: a column of lanes, the playhead placed over them.
 pub(crate) static TIMELINE_LANES_BASE: &[P] = &[
     position(LayoutPosition::Relative),
-    flex(LayoutFlexDirection::Column)[0],
-    flex(LayoutFlexDirection::Column)[1],
+    display_flex(),
+    flex_direction(LayoutFlexDirection::Column),
     grow(1),
     P::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
-    clip_overflow()[0],
-    clip_overflow()[1],
+    overflow_x_hidden(),
+    overflow_y_hidden(),
 ];
 
 /// A lane: its clips are placed in it (and may be dragged out of it).
@@ -1704,11 +1706,11 @@ pub(crate) static TIMELINE_LANE_BASE: &[P] = &[position(LayoutPosition::Relative
 /// A clip: a block at its time, its thumbnail and lines in a row.
 pub(crate) static TIMELINE_CLIP_BASE: &[P] = &[
     position(LayoutPosition::Absolute),
-    flex(LayoutFlexDirection::Row)[0],
-    flex(LayoutFlexDirection::Row)[1],
+    display_flex(),
+    flex_direction(LayoutFlexDirection::Row),
     P::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-    clip_overflow()[0],
-    clip_overflow()[1],
+    overflow_x_hidden(),
+    overflow_y_hidden(),
 ];
 
 /// A clip's thumbnail keeps its size.
@@ -1718,14 +1720,14 @@ pub(crate) static TIMELINE_CLIP_THUMB_BASE: &[P] = &[no_shrink()];
 pub(crate) static TIMELINE_CLIP_TEXT_BASE: &[P] = &[
     P::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
     nowrap(),
-    clip_overflow()[0],
-    clip_overflow()[1],
+    overflow_x_hidden(),
+    overflow_y_hidden(),
 ];
 
 /// The scroll bar row: a spacer under the headers, then the track.
 pub(crate) static TIMELINE_SCROLL_BASE: &[P] = &[
-    flex(LayoutFlexDirection::Row)[0],
-    flex(LayoutFlexDirection::Row)[1],
+    display_flex(),
+    flex_direction(LayoutFlexDirection::Row),
     no_shrink(),
 ];
 
@@ -1761,11 +1763,8 @@ fn px_top(v: f32) -> P {
     P::simple(CssProperty::top(LayoutTop::px(v)))
 }
 
-fn top_bottom(top: f32, bottom: f32) -> [P; 2] {
-    [
-        P::simple(CssProperty::top(LayoutTop::px(top))),
-        P::simple(CssProperty::bottom(azul_css::props::layout::LayoutInsetBottom::px(bottom))),
-    ]
+fn px_bottom(v: f32) -> P {
+    P::simple(CssProperty::bottom(azul_css::props::layout::LayoutInsetBottom::px(v)))
 }
 
 /// A ruler label: `M:SS` steps of seconds, `MM:SS:FF` steps of frames,
@@ -1884,7 +1883,7 @@ pub(crate) fn build(t: Timeline, look: &TimelineLook) -> Dom {
                 .with_css_props(part(
                     TIMELINE_MARK_BASE,
                     &look.tick,
-                    &[px_left(x), top_bottom(0.0, 0.0)[0], top_bottom(0.0, 0.0)[1]],
+                    &[px_left(x), px_top(0.0), px_bottom(0.0)],
                 )),
         );
         ticks.push(
@@ -1903,8 +1902,8 @@ pub(crate) fn build(t: Timeline, look: &TimelineLook) -> Dom {
                             &look.tick_minor,
                             &[
                                 px_left(x_of(m, view_start, pps)),
-                                top_bottom(RULER_HEIGHT * 0.65, 0.0)[0],
-                                top_bottom(RULER_HEIGHT * 0.65, 0.0)[1],
+                                px_top(RULER_HEIGHT * 0.65),
+                                px_bottom(0.0),
                             ],
                         )),
                 );
@@ -1919,7 +1918,7 @@ pub(crate) fn build(t: Timeline, look: &TimelineLook) -> Dom {
             .with_css_props(part(
                 TIMELINE_MARK_BASE,
                 &look.ruler_head,
-                &[px_left(playhead_x - 1.0), top_bottom(0.0, 0.0)[0], top_bottom(0.0, 0.0)[1]],
+                &[px_left(playhead_x - 1.0), px_top(0.0), px_bottom(0.0)],
             )),
     );
     let ruler = Dom::create_div()
@@ -2062,8 +2061,8 @@ pub(crate) fn build(t: Timeline, look: &TimelineLook) -> Dom {
                         &[
                             px_left(left),
                             px_width(width),
-                            top_bottom(CLIP_INSET, CLIP_INSET)[0],
-                            top_bottom(CLIP_INSET, CLIP_INSET)[1],
+                            px_top(CLIP_INSET),
+                            px_bottom(CLIP_INSET),
                         ],
                     ))
                     .with_accessibility_info(AccessibilityInfo {
@@ -2109,7 +2108,7 @@ pub(crate) fn build(t: Timeline, look: &TimelineLook) -> Dom {
             .with_css_props(part(
                 TIMELINE_MARK_BASE,
                 &look.playhead,
-                &[px_left(playhead_x - 1.0), top_bottom(0.0, 0.0)[0], top_bottom(0.0, 0.0)[1]],
+                &[px_left(playhead_x - 1.0), px_top(0.0), px_bottom(0.0)],
             )),
     );
     let headers = Dom::create_div()
@@ -2157,8 +2156,8 @@ pub(crate) fn build(t: Timeline, look: &TimelineLook) -> Dom {
                 P::simple(CssProperty::width(LayoutWidth::Px(PixelValue::percent(
                     (thumb_width * 100.0).max(1.0),
                 )))),
-                top_bottom(2.0, 2.0)[0],
-                top_bottom(2.0, 2.0)[1],
+                px_top(2.0),
+                px_bottom(2.0),
             ],
         ));
     let scroll_track = Dom::create_div()

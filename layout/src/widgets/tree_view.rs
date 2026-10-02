@@ -3253,7 +3253,10 @@ mod autotest_generated {
     fn a_drop_on_a_row_reports_its_node_when_the_app_listens_for_drops() {
         let log = new_log();
         let tv = TreeView::new(drives_tree())
-            .with_on_node_drop(RefAny::new(log.clone()), cb(record_click));
+            .with_on_node_drop(
+                RefAny::new(log.clone()),
+                record_click as TreeViewOnNodeDropCallbackType,
+            );
         assert!(tv.on_node_drop.is_some());
         let styled = tree_page(tv);
         let (update, changes) = rv::fire(
