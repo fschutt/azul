@@ -27,10 +27,10 @@ use alloc::{string::String, vec::Vec};
 
 use azul_core::{
     a11y::{AccessibilityInfo, AccessibilityRole, AccessibilityState, AccessibilityStateVec},
-    callbacks::{CoreCallback, CoreCallbackData, FocusTarget, Update},
+    callbacks::{CoreCallbackData, FocusTarget, Update},
     dom::{Dom, DomVec, EventFilter, HoverEventFilter},
     events::FocusEventFilter,
-    refany::{OptionRefAny, RefAny},
+    refany::RefAny,
     window::VirtualKeyCode,
 };
 use azul_css::{
@@ -618,17 +618,6 @@ extern "C" fn on_row_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
 // The build
 // ---------------------------------------------------------------------------
 
-fn hook(event: EventFilter, cb: usize, refany: RefAny) -> CoreCallbackData {
-    CoreCallbackData {
-        event,
-        callback: CoreCallback {
-            cb,
-            ctx: OptionRefAny::None,
-        },
-        refany,
-    }
-}
-
 /// One result row: row `row_index` of the list, for command `index` of the
 /// table; the first row is the selected one and the list's one Tab stop.
 fn row(
@@ -682,15 +671,15 @@ fn row(
         })
         .with_callbacks(
             alloc::vec![
-                hook(
+                CoreCallbackData::create(
                     EventFilter::Hover(HoverEventFilter::Click),
-                    on_row_click as usize,
-                    row_ref.clone()
+                    row_ref.clone(),
+                    on_row_click as usize
                 ),
-                hook(
+                CoreCallbackData::create(
                     EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
-                    on_row_key as usize,
-                    row_ref
+                    row_ref,
+                    on_row_key as usize
                 ),
             ]
             .into(),
@@ -767,10 +756,10 @@ pub(crate) fn build(palette: ShellCommandPalette, look: &ShellLook) -> Dom {
         .with_css_props(part(super::COLUMN_BASE, &look.palette_panel))
         .with_accessibility_info(AccessibilityInfo::named("Command palette", AccessibilityRole::Dialog))
         .with_callbacks(
-            alloc::vec![hook(
+            alloc::vec![CoreCallbackData::create(
                 EventFilter::Hover(HoverEventFilter::Click),
-                on_panel_click as usize,
-                shared.clone()
+                shared.clone(),
+                on_panel_click as usize
             )]
             .into(),
         )
@@ -780,10 +769,10 @@ pub(crate) fn build(palette: ShellCommandPalette, look: &ShellLook) -> Dom {
         .with_ids_and_classes(root_classes(PALETTE_CLASS, look))
         .with_css_props(part(OVERLAY_BASE, &look.palette_backdrop))
         .with_callbacks(
-            alloc::vec![hook(
+            alloc::vec![CoreCallbackData::create(
                 EventFilter::Hover(HoverEventFilter::Click),
-                on_backdrop_click as usize,
-                shared
+                shared,
+                on_backdrop_click as usize
             )]
             .into(),
         )

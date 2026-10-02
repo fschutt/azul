@@ -37,10 +37,10 @@
 use alloc::vec::Vec;
 
 use azul_core::{
-    callbacks::{CoreCallback, CoreCallbackData, Update},
+    callbacks::{CoreCallbackData, Update},
     dom::{AttributeType, Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec},
     events::FocusEventFilter,
-    refany::{OptionRefAny, RefAny},
+    refany::RefAny,
     window::VirtualKeyCode,
 };
 use azul_css::{
@@ -605,17 +605,6 @@ struct ItemData {
     shared: RefAny,
 }
 
-fn hook(event: EventFilter, data: &RefAny, cb: usize) -> CoreCallbackData {
-    CoreCallbackData {
-        event,
-        callback: CoreCallback {
-            cb,
-            ctx: OptionRefAny::None,
-        },
-        refany: data.clone(),
-    }
-}
-
 /// The strip's DOM in `look`: [header?, item].. for the items shown.
 pub(crate) fn build(strip: ThumbnailStrip, look: &ThumbnailStripLook) -> Dom {
     use azul_core::a11y::{AccessibilityInfo, AccessibilityRole, AccessibilityState, AccessibilityStateVec};
@@ -686,9 +675,9 @@ pub(crate) fn build(strip: ThumbnailStrip, look: &ThumbnailStripLook) -> Dom {
                         ..Default::default()
                     })
                     .with_callbacks(
-                        alloc::vec![hook(
+                        alloc::vec![CoreCallbackData::create(
                             EventFilter::Hover(HoverEventFilter::Click),
-                            &data,
+                            data.clone(),
                             on_section_click as usize,
                         )]
                         .into(),
@@ -758,12 +747,12 @@ pub(crate) fn build(strip: ThumbnailStrip, look: &ThumbnailStripLook) -> Dom {
             shared: shared.clone(),
         });
         let callbacks = alloc::vec![
-            hook(EventFilter::Hover(HoverEventFilter::Click), &data, on_item_click as usize),
-            hook(EventFilter::Hover(HoverEventFilter::DoubleClick), &data, on_item_double_click as usize),
-            hook(EventFilter::Hover(HoverEventFilter::DragStart), &data, on_item_drag_start as usize),
-            hook(EventFilter::Hover(HoverEventFilter::DragOver), &data, on_item_drag_over as usize),
-            hook(EventFilter::Hover(HoverEventFilter::Drop), &data, on_item_drop as usize),
-            hook(EventFilter::Focus(FocusEventFilter::VirtualKeyDown), &data, on_item_key as usize),
+            CoreCallbackData::create(EventFilter::Hover(HoverEventFilter::Click), data.clone(), on_item_click as usize),
+            CoreCallbackData::create(EventFilter::Hover(HoverEventFilter::DoubleClick), data.clone(), on_item_double_click as usize),
+            CoreCallbackData::create(EventFilter::Hover(HoverEventFilter::DragStart), data.clone(), on_item_drag_start as usize),
+            CoreCallbackData::create(EventFilter::Hover(HoverEventFilter::DragOver), data.clone(), on_item_drag_over as usize),
+            CoreCallbackData::create(EventFilter::Hover(HoverEventFilter::Drop), data.clone(), on_item_drop as usize),
+            CoreCallbackData::create(EventFilter::Focus(FocusEventFilter::VirtualKeyDown), data.clone(), on_item_key as usize),
         ];
         let parts = if grid {
             alloc::vec![thumb, number]

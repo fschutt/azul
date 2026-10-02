@@ -3632,15 +3632,10 @@ impl NodeData {
         data: RefAny,
         callback: C,
     ) {
-        let callback = callback.into();
         let mut v: CoreCallbackDataVec = Vec::new().into();
         mem::swap(&mut v, &mut self.callbacks);
         let mut v = v.into_library_owned_vec();
-        v.push(CoreCallbackData {
-            event,
-            refany: data,
-            callback,
-        });
+        v.push(CoreCallbackData::create(event, data, callback));
         self.callbacks = v.into();
     }
 

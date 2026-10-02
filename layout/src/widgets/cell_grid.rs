@@ -52,10 +52,10 @@
 use alloc::{string::String, vec::Vec};
 
 use azul_core::{
-    callbacks::{CoreCallback, CoreCallbackData, Update},
+    callbacks::{CoreCallbackData, Update},
     dom::{Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec},
     events::FocusEventFilter,
-    refany::{OptionRefAny, RefAny},
+    refany::RefAny,
     window::VirtualKeyCode,
 };
 use azul_css::{
@@ -2656,61 +2656,46 @@ pub(crate) struct GridShared {
     pub geo: Geometry,
 }
 
-fn hook(
-    event: EventFilter,
-    cb: extern "C" fn(RefAny, CallbackInfo) -> Update,
-    data: &RefAny,
-) -> CoreCallbackData {
-    CoreCallbackData {
-        event,
-        callback: CoreCallback {
-            cb: cb as usize,
-            ctx: OptionRefAny::None,
-        },
-        refany: data.clone(),
-    }
-}
-
 /// The grid node's handlers.
 pub(crate) fn grid_callbacks(shared: &RefAny) -> Vec<CoreCallbackData> {
     alloc::vec![
-        hook(
+        CoreCallbackData::create(
             EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
-            on_grid_key,
-            shared
+            shared.clone(),
+            on_grid_key as usize
         ),
-        hook(
+        CoreCallbackData::create(
             EventFilter::Focus(FocusEventFilter::TextInput),
-            on_grid_text,
-            shared
+            shared.clone(),
+            on_grid_text as usize
         ),
-        hook(EventFilter::Focus(FocusEventFilter::Copy), on_grid_copy, shared),
-        hook(EventFilter::Focus(FocusEventFilter::Cut), on_grid_cut, shared),
-        hook(EventFilter::Focus(FocusEventFilter::Paste), on_grid_paste, shared),
-        hook(
+        CoreCallbackData::create(EventFilter::Focus(FocusEventFilter::Copy), shared.clone(), on_grid_copy as usize),
+        CoreCallbackData::create(EventFilter::Focus(FocusEventFilter::Cut), shared.clone(), on_grid_cut as usize),
+        CoreCallbackData::create(EventFilter::Focus(FocusEventFilter::Paste), shared.clone(), on_grid_paste as usize),
+        CoreCallbackData::create(
             EventFilter::Hover(HoverEventFilter::LeftMouseDown),
-            on_grid_mouse_down,
-            shared
+            shared.clone(),
+            on_grid_mouse_down as usize
         ),
-        hook(
+        CoreCallbackData::create(
             EventFilter::Hover(HoverEventFilter::MouseMove),
-            on_grid_mouse_move,
-            shared
+            shared.clone(),
+            on_grid_mouse_move as usize
         ),
-        hook(
+        CoreCallbackData::create(
             EventFilter::Hover(HoverEventFilter::MouseUp),
-            on_grid_mouse_up,
-            shared
+            shared.clone(),
+            on_grid_mouse_up as usize
         ),
-        hook(
+        CoreCallbackData::create(
             EventFilter::Hover(HoverEventFilter::DoubleClick),
-            on_grid_double_click,
-            shared
+            shared.clone(),
+            on_grid_double_click as usize
         ),
-        hook(
+        CoreCallbackData::create(
             EventFilter::Hover(HoverEventFilter::Scroll),
-            on_grid_wheel,
-            shared
+            shared.clone(),
+            on_grid_wheel as usize
         ),
     ]
 }

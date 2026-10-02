@@ -418,13 +418,15 @@ impl From<Tile> for Dom {
 
 /// A click hook as the engine wires it on the tile's root.
 fn hook(event: EventFilter, on: OptionTileOnClick) -> Option<CoreCallbackData> {
-    on.into_option().map(|TileOnClick { refany, callback }| CoreCallbackData {
-        event,
-        callback: CoreCallback {
-            cb: callback.cb as *const () as usize,
-            ctx: callback.ctx,
-        },
-        refany,
+    on.into_option().map(|TileOnClick { refany, callback }| {
+        CoreCallbackData::create(
+            event,
+            refany,
+            CoreCallback {
+                cb: callback.cb as *const () as usize,
+                ctx: callback.ctx,
+            },
+        )
     })
 }
 

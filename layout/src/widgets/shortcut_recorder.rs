@@ -19,11 +19,11 @@
 
 use azul_core::{
     a11y::{AccessibilityInfo, AccessibilityRole, AccessibilityState, AccessibilityStateVec},
-    callbacks::{CoreCallback, CoreCallbackData, Update},
+    callbacks::{CoreCallbackData, Update},
     dom::{Dom, EventFilter, HoverEventFilter, TabIndex},
     events::FocusEventFilter,
     global_hotkey::{key_display_name, GlobalHotkey, HotkeyModifiers},
-    refany::{OptionRefAny, RefAny},
+    refany::RefAny,
     window::VirtualKeyCode,
 };
 use azul_css::AzString;
@@ -428,17 +428,6 @@ extern "C" fn on_blur(mut data: RefAny, info: CallbackInfo) -> Update {
 // The build
 // ---------------------------------------------------------------------------
 
-fn hook(event: EventFilter, cb: usize, refany: RefAny) -> CoreCallbackData {
-    CoreCallbackData {
-        event,
-        callback: CoreCallback {
-            cb,
-            ctx: OptionRefAny::None,
-        },
-        refany,
-    }
-}
-
 /// The field's DOM in `look`: field [text].
 pub(crate) fn build(recorder: ShortcutRecorder, look: &DialogKitLook) -> Dom {
     let text = recorder.display_text();
@@ -492,20 +481,20 @@ pub(crate) fn build(recorder: ShortcutRecorder, look: &DialogKitLook) -> Dom {
         })
         .with_callbacks(
             alloc::vec![
-                hook(
+                CoreCallbackData::create(
                     EventFilter::Hover(HoverEventFilter::Click),
-                    on_click as usize,
-                    shared.clone()
+                    shared.clone(),
+                    on_click as usize
                 ),
-                hook(
+                CoreCallbackData::create(
                     EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
-                    on_key as usize,
-                    shared.clone()
+                    shared.clone(),
+                    on_key as usize
                 ),
-                hook(
+                CoreCallbackData::create(
                     EventFilter::Focus(FocusEventFilter::FocusLost),
-                    on_blur as usize,
-                    shared
+                    shared,
+                    on_blur as usize
                 ),
             ]
             .into(),
