@@ -8,6 +8,12 @@ just to make the one layout work".
 
 ## DONE
 - e4b8b3b7f progress file
+- item 2: 7488a015b RED (display_list unit tests + layout/tests/content_clipped_by_an_overflow_hidden_box_adds_no_pages.rs,
+  pagination_dom_breaks::paginate made pub(crate) for reuse), 06b3b986b GREEN
+  (calculate_display_list_height walks the clip stack; intersect_rects helper, intersect_or delegates).
+  Root cause NOT in page_breaks.rs (it calls display_list::calculate_display_list_height).
+  Twins seen (report them): cpurender/pixmap.rs rect_intersection, cpurender/compositor.rs
+  intersect_logical_rects, managers/focus_cursor.rs intersect, display_list.rs intersect_rects.
 
 ## IN PROGRESS
 - item 1 design
