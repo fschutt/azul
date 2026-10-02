@@ -67,10 +67,15 @@ just to make the one layout work".
 - 0aa475d5c guard test (loose text / anonymous box), 81a24e9d0 fix: anonymous IFC root takes no
   columns from its container (translate_to_text3_constraints gets `anonymous`)
 
+- 4ca187646 multicol::plan_columns + unit tests
+- 7f6d11759 establishes_new_bfc: multicol container -> BFC (is_multicol_container)
+- 26129366b GREEN: layout_bfc multicol (block_columns, distribute_into_columns,
+  splittable_lines, split_into_columns in fc.rs), promotion (cache.rs lift_to_slot_container +
+  multicol lift; mod.rs caller), multicol::is_multicol_box
+
 ## NEXT
-- multicol::plan_columns (+unit tests) in layout/src/solver3/multicol.rs
-- then establishes_new_bfc (multicol container -> BFC), layout_bfc hook (column-width CB, Pass-2
-  cross size, distribution + split re-lay), promotion in cache.rs promote_layout_roots_to_containers.
+- self-review pass over the GREEN code (compile-risk spots), then the report
+  scripts/PDFFIX_2026_10_02.md
 - NOTE: commit messages ALWAYS via -F file (backticks in -m got shell-evaluated once).
 
 ## Open questions / decisions
