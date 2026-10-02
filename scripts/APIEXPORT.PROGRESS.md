@@ -20,6 +20,10 @@
 - 2944230c4 RED attributes; 9f25d3ffd NodeData::get_attribute/get_attributes (CallbackInfo::get_node_attribute
   delegates); ca8319fd4 AzMail href in attribute (LINK_CLASS_PREFIX gone)
 - e5f0fc51a NodeType::get_text (+test); 3a11557b3 box_str x3 gone (Writer/Notes/Mail)
+- 19f900e92 TextAreaState.get_text adoption (Tasks, Calendar, Contacts, Show, Widgets)
+- 6a6c5fc3e RED DatePicker week start; 4a4b30026 DatePickerWeekStart + with_week_start; 12c50f0d1 AzCalendar navigator
+- 2b5e9fa6a RED GlobalHotkey.matches; 458402b05 GlobalHotkey::matches
+- 34ac7c700 reborrow_info x3 -> *info
 
 ## api.json list (accumulating; for the report)
 - KeyModifiers.primary_down (dom; self ref -> bool)
@@ -37,14 +41,15 @@
   set_disabled / with_disabled(reason: String) / is_disabled / set_toggled / with_toggled(bool)
 - NodeData.get_attribute(name: String) -> OptionString, NodeData.get_attributes() -> AttributeTypeVec (dom)
 - NodeType.get_text() -> OptionString (dom)
+- TextAreaState.get_text() -> String (widgets)
+- DatePickerWeekStart (enum, widgets); DatePicker field week_start (after mode); set_week_start / with_week_start
+- GlobalHotkey.matches(keyboard: KeyboardState ref) -> bool (app)
 
 ## IN PROGRESS
-- item 4: TextAreaState.get_text
+- self-review pass over the diff (compile risks), then the report
 
 ## NEXT
-4. TextAreaState.get_text (+5 app copies); DatePicker.with_week_start (RED); GlobalHotkey.matches (RED)
-5. reborrow_info -> *info
-6. report scripts/APIEXPORT_2026_10_02.md
+6. report scripts/APIEXPORT_2026_10_02.md (+ commit)
 
 ## Decisions
 - No CallbackInfo convenience for the primary modifier: `info.get_key_modifiers().primary_down()` is one call;
