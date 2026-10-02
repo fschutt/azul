@@ -63,13 +63,14 @@ just to make the one layout work".
   41e7b532c refactor (solver3/multicol.rs: column_style + ColumnStyle::geometry + column_x/advance;
   translate_to_text3_constraints uses it)
 
+- e66fddccb text3 ColumnFlow + LayoutConstraints.column_flow plumbing (None everywhere)
+- 0aa475d5c guard test (loose text / anonymous box), 81a24e9d0 fix: anonymous IFC root takes no
+  columns from its container (translate_to_text3_constraints gets `anonymous`)
+
 ## NEXT
-- text3: UnifiedConstraints.column_flow: Option<ColumnFlow { breaks: Vec<usize> line indices,
-  advance, column_top }> (+Hash/PartialEq/Default None); perform_fragment_layout honours it when
-  columns == 1 (flow_line_index counter; column j at x += j*advance, lines start at column_top).
-- then LayoutConstraints.column_flow (12 literal sites: add `column_flow: None` next to
-  `fragmentainer:`), translate passes it (columns==1 only), layout_ifc content hash folds it.
-- then anonymous IFC wrappers: no columns from the parent (RED pin test first).
-- then multicol::plan_columns (+unit tests), establishes_new_bfc, layout_bfc hook, promotion.
+- multicol::plan_columns (+unit tests) in layout/src/solver3/multicol.rs
+- then establishes_new_bfc (multicol container -> BFC), layout_bfc hook (column-width CB, Pass-2
+  cross size, distribution + split re-lay), promotion in cache.rs promote_layout_roots_to_containers.
+- NOTE: commit messages ALWAYS via -F file (backticks in -m got shell-evaluated once).
 
 ## Open questions / decisions
