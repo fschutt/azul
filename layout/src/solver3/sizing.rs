@@ -1758,10 +1758,21 @@ fn process_layout_children<T: ParsedFontTrait>(
             let css_width = get_css_width(ctx.styled_dom, child_dom_id, node_state);
             let css_height = get_css_height(ctx.styled_dom, child_dom_id, node_state);
 
+            // +spec:containing-block:495930 - percentages in intrinsic sizing fall back to
+            // intrinsic contribution (css-sizing-3 §5.2.1)
+            // +spec:containing-block:5246c0 - cyclic percentage: when containing block size
+            // depends on this box's intrinsic contribution, percentages fall back to
+            // intrinsic size +spec:containing-block:598124 - cyclic
+            // percentage contributions use intrinsic size
+            // +spec:height-calculation:ca9f19 - percentage-sized boxes use intrinsic size
+            // as contribution during intrinsic sizing
+            // +spec:width-calculation:7a384a - percentage-sized boxes behave as width:auto
+            // for intrinsic contributions (cyclic percentage)
             // Its min- and max-content contributions: the margin box under
             // each constraint (the stored intrinsic sizes already carry a
-            // definite `width` and the `min-width` / `max-width` clamp; a
-            // percentage width behaves as auto here, css-sizing-3 5.2.1).
+            // definite `width` - em/rem resolved against the element's own
+            // and the root font-size - and the `min-width` / `max-width`
+            // clamp; a percentage width behaves as auto here).
             // The shape is the max-content one; the min-content one, when
             // it differs, is kept for the IFC's min-content measurement.
             let (min_contribution, used_width) = atomic_inline_width_contributions(
