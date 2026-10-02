@@ -10,13 +10,13 @@ Branch `wt/rte` from `2e92c759b`. Worktree `.claude/worktrees/agent-ac6805ca5f7c
 - 889e451b4 rich_text/markdown.rs (reader/writer, quotes, tables, page breaks) + tests
 - 26d71d81e rich_text/html.rs (HTML + plain writers, from_plain_text, from_html via paste sanitizer, DOM collector) + tests
 - e34472bac RED layout/tests/a_rich_text_editor_keeps_one_model_and_one_history.rs (registered in all.rs)
+- 2ec6f7dd5 widget part A+B (types, builder, rendering); 4f15c93d6 part C (engine glue, keys, commands, callbacks)
+- 8b0e4e8eb registered rich_text + rich_text_editor in widgets/mod.rs, flat/flora looks, manifest (CONTAINERS), widget tests
+- 54b5ef81b / 44d39f080 small fixes: split_off, AzString returns, FFI field order
 
 ## IN PROGRESS
-- step 7: layout/src/widgets/rich_text_editor.rs (state, callbacks, dom, sync, structural, keys, toolbar, commands)
-  API the RED test fixes: RichTextEditor::create(RichTextEditorState).with_on_change(RefAny, cb).dom();
-  RichTextEditorState::create(doc), .doc, .history, .apply_command(CallbackInfo, RichTextCommand) -> Update;
-  RichTextCommand::{Undo, Redo, ...}; RichTextEditorOnChangeCallbackType; DEFAULT_HOST_ID.
-  Module NOT yet registered in widgets/mod.rs (register with the widget commit: rich_text + rich_text_editor).
+- step 8: AzNotes adoption (examples/azul-notes): note.doc -> azul::widgets::RichTextDoc via the editor state;
+  editor.rs shrinks to the glue; doc.rs and the Markdown body half of markdown.rs go (front matter stays).
 
 ## NEXT (in order; commit after every unit)
 1. layout/Cargo.toml: `pulldown-cmark` optional, feature `rich_text_markdown` (in `widgets`); justification lines.
