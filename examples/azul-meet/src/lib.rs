@@ -2718,14 +2718,6 @@ fn arrangement(s: &MeetState) -> tiles::Arrangement {
     )
 }
 
-/// The peer on the stage, when the stage shows a camera (the speaker view).
-fn stage_key(s: &MeetState) -> Option<u64> {
-    arrangement(s)
-        .stage
-        .filter(|tile| tile.kind == tiles::TileKind::Camera)
-        .map(|tile| tile.key)
-}
-
 /// A tile's role in the arrangement and the height of its box until it is laid out; `None` for
 /// a picture the view does not show (a screen nobody shares).
 fn tile_role(arr: &tiles::Arrangement, tile: tiles::Tile) -> Option<(IrohTileRole, f32)> {
