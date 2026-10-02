@@ -1,14 +1,16 @@
 //! The editing session over a deck: the current slide and the rail's
 //! selection, the selected elements and the one whose text is edited, the
 //! undo history (deck snapshots, one per committed edit), the clipboard. All
-//! the ribbon's and the canvas's commands are methods here, without azul
-//! types, so they are tested without a window.
+//! the ribbon's and the canvas's commands are methods here, without window
+//! types (the two selections are azul's `ListSelection`), so they are tested
+//! without a window.
 
 use crate::model::{
     Align, Animation, AnimationEffect, Background, ChartKind, Color, Deck, Element, ElementKind,
     Frame, ImageFit, LayoutKind, ShapeKind, Slide, SlideSize, TextBody, Theme, TransitionKind,
     VAlign, ZOrder,
 };
+use azul::widgets::ListSelection;
 
 /// The most undo steps kept.
 pub const UNDO_DEPTH: usize = 100;
@@ -21,12 +23,11 @@ pub struct Editor {
     pub deck: Deck,
     /// The slide on the canvas.
     pub current: usize,
-    /// The slides selected in the rail (ascending; holds `current`).
-    pub selected_slides: Vec<usize>,
-    /// Where a Shift range in the rail starts.
-    pub anchor: usize,
+    /// The slides selected in the rail, by index: azul's list selection,
+    /// which always keeps one slide and anchors the Shift range.
+    pub rail: ListSelection,
     /// The selected elements of the current slide, by id.
-    pub selection: Vec<u64>,
+    pub selection: ListSelection,
     /// The element whose text is being edited.
     pub editing: Option<u64>,
     /// The slides (by id) whose section is folded in the rail.
@@ -42,15 +43,22 @@ pub struct Editor {
     transforming: bool,
 }
 
+/// A rail selection of slide `index` alone; the rail always keeps one
+/// slide selected.
+fn rail_at(index: usize) -> ListSelection {
+    ListSelection::create()
+        .with_keep_one(true)
+        .apply(index as u64, false, false)
+}
+
 impl Editor {
     #[must_use]
     pub fn new(deck: Deck) -> Self {
         Self {
             deck,
             current: 0,
-            selected_slides: vec![0],
-            anchor: 0,
-            selection: Vec::new(),
+            rail: rail_at(0),
+            selection: ListSelection::create(),
             editing: None,
             folded: Vec::new(),
             dirty: false,
@@ -94,10 +102,9 @@ impl Editor {
 
     fn after_history(&mut self) {
         self.current = self.current.min(self.deck.slides.len().saturating_sub(1));
-        self.selected_slides = vec![self.current];
-        self.anchor = self.current;
+        self.rail = rail_at(self.current);
         let ids: Vec<u64> = self.slide().elements.iter().map(|e| e.id).collect();
-        self.selection.retain(|id| ids.contains(id));
+        self.selection.retain_in(ids);
         self.editing = None;
         self.transforming = false;
         self.dirty = true;
@@ -121,13 +128,24 @@ impl Editor {
         true
     }
 
+    /// The slides selected in the rail, ascending.
+    #[must_use]
+    pub fn selected_slides(&self) -> Vec<usize> {
+        self.rail.keys.as_ref().iter().map(|&k| k as usize).collect()
+    }
+
+    /// The selected elements' ids, ascending.
+    #[must_use]
+    pub fn selected_ids(&self) -> Vec<u64> {
+        self.selection.keys.as_ref().to_vec()
+    }
+
     // ==== Slides ====
 
     /// Slide `index` on the canvas, alone selected in the rail.
     pub fn go_to(&mut self, index: usize) {
         self.current = index.min(self.deck.slides.len().saturating_sub(1));
-        self.selected_slides = vec![self.current];
-        self.anchor = self.current;
+        self.rail = rail_at(self.current);
         self.selection.clear();
         self.editing = None;
     }
@@ -136,35 +154,20 @@ impl Editor {
     /// range from the anchor, Ctrl / Cmd toggles it, else it alone.
     pub fn rail_select(&mut self, index: usize, shift: bool, ctrl: bool) {
         let index = index.min(self.deck.slides.len().saturating_sub(1));
-        if shift {
-            let (a, b) = if self.anchor <= index {
-                (self.anchor, index)
-            } else {
-                (index, self.anchor)
-            };
-            self.selected_slides = (a..=b).collect();
-            self.current = index;
-            self.selection.clear();
-            self.editing = None;
-        } else if ctrl {
-            if let Some(at) = self.selected_slides.iter().position(|&s| s == index) {
-                if self.selected_slides.len() > 1 {
-                    self.selected_slides.remove(at);
-                    if self.current == index {
-                        self.current = self.selected_slides[0];
-                    }
-                }
-            } else {
-                self.selected_slides.push(index);
-                self.selected_slides.sort_unstable();
-                self.current = index;
-                self.anchor = index;
-            }
-            self.selection.clear();
-            self.editing = None;
-        } else {
+        if !shift && !ctrl {
             self.go_to(index);
+            return;
         }
+        self.rail.select(index as u64, shift, ctrl);
+        // The canvas shows the slide clicked; a toggled-out current slide
+        // hands over to the first one still selected.
+        if self.rail.contains(index as u64) {
+            self.current = index;
+        } else if !self.rail.contains(self.current as u64) {
+            self.current = self.selected_slides().first().copied().unwrap_or(index);
+        }
+        self.selection.clear();
+        self.editing = None;
     }
 
     /// A new slide of `layout` after the current one, on the canvas.
@@ -177,9 +180,7 @@ impl Editor {
     /// Copies of the selected slides after the last of them.
     pub fn duplicate_slides(&mut self) {
         self.checkpoint();
-        let mut picked = self.selected_slides.clone();
-        picked.sort_unstable();
-        picked.dedup();
+        let picked = self.selected_slides();
         // From the back, so every index still names its slide; each copy
         // lands right after its original.
         for &i in picked.iter().rev() {
@@ -192,8 +193,8 @@ impl Editor {
     /// Deletes the selected slides (the deck keeps one).
     pub fn delete_slides(&mut self) {
         self.checkpoint();
-        let first = self.selected_slides.first().copied().unwrap_or(self.current);
-        let picked = self.selected_slides.clone();
+        let picked = self.selected_slides();
+        let first = picked.first().copied().unwrap_or(self.current);
         self.deck.delete_slides(&picked);
         self.go_to(first.min(self.deck.slides.len().saturating_sub(1)));
     }
@@ -201,8 +202,8 @@ impl Editor {
     /// The rail's Move: slide `dragged` - and the other selected slides when
     /// it is one of them - to stand before the slide at `target`.
     pub fn move_slides(&mut self, dragged: usize, target: usize) {
-        let moving: Vec<usize> = if self.selected_slides.contains(&dragged) {
-            self.selected_slides.clone()
+        let moving: Vec<usize> = if self.rail.contains(dragged as u64) {
+            self.selected_slides()
         } else {
             vec![dragged]
         };
@@ -212,11 +213,12 @@ impl Editor {
         if now.is_empty() {
             return;
         }
-        self.selected_slides = now.clone();
         self.current = current_id
             .and_then(|id| self.deck.slides.iter().position(|s| s.id == id))
             .unwrap_or(now[0]);
-        self.anchor = self.current;
+        // The moved slides stay selected.
+        self.rail
+            .select_keys(now.iter().map(|&i| i as u64).collect::<Vec<u64>>());
         self.selection.clear();
         self.editing = None;
     }
@@ -257,7 +259,7 @@ impl Editor {
     pub fn toggle_hidden(&mut self) {
         self.checkpoint();
         let hide = !self.slide().hidden;
-        for &i in &self.selected_slides.clone() {
+        for i in self.selected_slides() {
             if let Some(s) = self.deck.slides.get_mut(i) {
                 s.hidden = hide;
             }
@@ -273,7 +275,7 @@ impl Editor {
             .elements
             .iter()
             .enumerate()
-            .filter(|(_, e)| self.selection.contains(&e.id))
+            .filter(|(_, e)| self.selection.contains(e.id))
             .map(|(i, _)| i)
             .collect()
     }
@@ -283,16 +285,14 @@ impl Editor {
         let Some(id) = self.slide().elements.get(index).map(|e| e.id) else {
             return;
         };
+        // A canvas has no order to range over: Shift toggles like Ctrl
+        // (PowerPoint).
         if shift || ctrl {
-            if let Some(at) = self.selection.iter().position(|&s| s == id) {
-                self.selection.remove(at);
-            } else {
-                self.selection.push(id);
-            }
+            self.selection.toggle(id);
         } else {
-            self.selection = vec![id];
+            self.selection.click(id);
         }
-        if self.editing.is_some_and(|e| !self.selection.contains(&e) || self.selection.len() > 1) {
+        if self.editing.is_some_and(|e| !self.selection.contains(e) || self.selection.len() > 1) {
             self.editing = None;
         }
     }
@@ -303,7 +303,7 @@ impl Editor {
             .iter()
             .filter_map(|&i| self.slide().elements.get(i).map(|e| e.id))
             .collect();
-        self.selection = ids;
+        self.selection.select_keys(ids);
         self.editing = None;
     }
 
@@ -348,7 +348,7 @@ impl Editor {
         if body.size <= 0.0 {
             body.size = 32.0;
         }
-        self.selection = vec![id];
+        self.selection.click(id);
         self.editing = Some(id);
         true
     }
@@ -363,7 +363,7 @@ impl Editor {
         self.checkpoint();
         let id = self.deck.mint();
         self.slide_mut().elements.push(Element::new(id, frame, kind));
-        self.selection = vec![id];
+        self.selection.click(id);
         self.editing = None;
         id
     }
@@ -482,7 +482,7 @@ impl Editor {
             return;
         }
         self.checkpoint();
-        let ids = self.selection.clone();
+        let ids = self.selected_ids();
         self.slide_mut().remove(&ids);
         self.clear_selection();
     }
@@ -493,7 +493,7 @@ impl Editor {
             .slide()
             .elements
             .iter()
-            .filter(|e| self.selection.contains(&e.id))
+            .filter(|e| self.selection.contains(e.id))
             .cloned()
             .collect();
         if !picked.is_empty() {
@@ -524,7 +524,7 @@ impl Editor {
             ids.push(copy.id);
             self.slide_mut().elements.push(copy);
         }
-        self.selection = ids;
+        self.selection.select_keys(ids);
         self.editing = None;
     }
 
@@ -535,7 +535,7 @@ impl Editor {
             .slide()
             .elements
             .iter()
-            .filter(|e| self.selection.contains(&e.id))
+            .filter(|e| self.selection.contains(e.id))
             .cloned()
             .collect();
         if picked.is_empty() {
@@ -550,7 +550,7 @@ impl Editor {
             ids.push(copy.id);
             self.slide_mut().elements.push(copy);
         }
-        self.selection = ids;
+        self.selection.select_keys(ids);
     }
 
     pub fn arrange(&mut self, how: ZOrder) {
@@ -558,7 +558,7 @@ impl Editor {
             return;
         }
         self.checkpoint();
-        let ids = self.selection.clone();
+        let ids = self.selected_ids();
         self.slide_mut().reorder(&ids, how);
     }
 
@@ -568,9 +568,9 @@ impl Editor {
         }
         self.checkpoint();
         let gid = self.deck.mint();
-        let ids = self.selection.clone();
+        let ids = self.selected_ids();
         if let Some(g) = self.slide_mut().group(&ids, gid) {
-            self.selection = vec![g];
+            self.selection.click(g);
         }
     }
 
@@ -579,7 +579,7 @@ impl Editor {
             .slide()
             .elements
             .iter()
-            .filter(|e| self.selection.contains(&e.id) && matches!(e.kind, ElementKind::Group { .. }))
+            .filter(|e| self.selection.contains(e.id) && matches!(e.kind, ElementKind::Group { .. }))
             .map(|e| e.id)
             .collect();
         if groups.is_empty() {
@@ -590,7 +590,7 @@ impl Editor {
         for g in groups {
             ids.extend(self.slide_mut().ungroup(g));
         }
-        self.selection = ids;
+        self.selection.select_keys(ids);
     }
 
     /// Applies `f` to every selected element's text body (one undo step).
@@ -599,7 +599,7 @@ impl Editor {
             return;
         }
         self.checkpoint();
-        let ids = self.selection.clone();
+        let ids = self.selected_ids();
         for e in self.slide_mut().elements.iter_mut().filter(|e| ids.contains(&e.id)) {
             if let Some(body) = e.body_mut() {
                 f(body);
@@ -664,7 +664,7 @@ impl Editor {
             return;
         }
         self.checkpoint();
-        let ids = self.selection.clone();
+        let ids = self.selected_ids();
         for e in self.slide_mut().elements.iter_mut().filter(|e| ids.contains(&e.id)) {
             if let ElementKind::Shape {
                 fill,
@@ -682,7 +682,7 @@ impl Editor {
 
     pub fn set_transition(&mut self, kind: TransitionKind) {
         self.checkpoint();
-        for &i in &self.selected_slides.clone() {
+        for i in self.selected_slides() {
             if let Some(s) = self.deck.slides.get_mut(i) {
                 s.transition.kind = kind;
             }
@@ -711,7 +711,7 @@ impl Editor {
             return;
         }
         self.checkpoint();
-        let ids = self.selection.clone();
+        let ids = self.selected_ids();
         let slide = self.slide_mut();
         let mut next = slide
             .elements
@@ -739,7 +739,7 @@ impl Editor {
     /// Moves the selected element's build one click earlier (`delta` < 0)
     /// or later.
     pub fn move_animation(&mut self, delta: i32) {
-        let Some(&id) = self.selection.first() else {
+        let Some(&id) = self.selection.keys.as_ref().first() else {
             return;
         };
         let steps = self.slide().build_steps();
@@ -855,12 +855,12 @@ mod tests {
         let mut ed = editor();
         ed.rail_select(2, false, false);
         ed.rail_select(4, true, false);
-        assert_eq!(ed.selected_slides, vec![2, 3, 4]);
+        assert_eq!(ed.selected_slides(), vec![2, 3, 4]);
         assert_eq!(ed.current, 4);
         ed.rail_select(3, false, true);
-        assert_eq!(ed.selected_slides, vec![2, 4]);
+        assert_eq!(ed.selected_slides(), vec![2, 4]);
         ed.rail_select(7, false, true);
-        assert_eq!(ed.selected_slides, vec![2, 4, 7]);
+        assert_eq!(ed.selected_slides(), vec![2, 4, 7]);
         assert_eq!(ed.current, 7);
     }
 
@@ -873,7 +873,7 @@ mod tests {
         ed.move_slides(2, 6);
         let now: Vec<u64> = ed.deck.slides.iter().map(|s| s.id).collect();
         assert_eq!(&now[..6], &[ids[0], ids[3], ids[4], ids[5], ids[1], ids[2]]);
-        assert_eq!(ed.selected_slides, vec![4, 5]);
+        assert_eq!(ed.selected_slides(), vec![4, 5]);
         assert_eq!(ed.current, 5, "the dragged slide stays current");
         // A slide outside the selection moves alone.
         ed.move_slides(0, 2);
@@ -907,7 +907,7 @@ mod tests {
         let second = &ed.slide().elements[n - 1];
         assert_eq!(second.frame, original.frame.translated(40.0, 40.0));
         assert_ne!(second.id, original.id);
-        assert_eq!(ed.selection, vec![second.id]);
+        assert_eq!(ed.selected_ids(), vec![second.id]);
     }
 
     #[test]
@@ -916,15 +916,15 @@ mod tests {
         ed.go_to(5);
         ed.select_element(1, false, false);
         ed.select_element(2, true, false);
-        let members = ed.selection.clone();
+        let members = ed.selected_ids();
         ed.group();
         assert_eq!(ed.selection.len(), 1);
         assert!(matches!(
-            ed.slide().element(ed.selection[0]).map(|e| &e.kind),
+            ed.slide().element(ed.selected_ids()[0]).map(|e| &e.kind),
             Some(ElementKind::Group { .. })
         ));
         ed.ungroup();
-        let mut back = ed.selection.clone();
+        let mut back = ed.selected_ids();
         back.sort_unstable();
         let mut want = members;
         want.sort_unstable();
@@ -937,7 +937,7 @@ mod tests {
         let id = ed.insert_shape(ShapeKind::Ellipse);
         let e = ed.slide().element(id).expect("the shape");
         assert_eq!(e.frame, Frame::new(760.0, 390.0, 400.0, 300.0));
-        assert_eq!(ed.selection, vec![id]);
+        assert_eq!(ed.selected_ids(), vec![id]);
         let tb = ed.insert_text_box();
         assert_eq!(ed.editing, Some(tb), "a new text box is typed into at once");
     }

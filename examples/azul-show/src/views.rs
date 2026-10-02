@@ -75,7 +75,7 @@ pub fn strip(app: &RefAny, st: &AppState, ed: &Editor, layout: ThumbnailStripLay
             ""
         };
         let mut item = ThumbnailItem::create(preview(&ed.deck, slide, width, st), s(&format!("{}", i + 1)), s(&name))
-            .with_selected(ed.selected_slides.contains(&i))
+            .with_selected(ed.rail.contains(i as u64))
             .with_hidden(slide.hidden)
             .with_badge(s(badge));
         if let Some(section) = &slide.section {
@@ -159,7 +159,7 @@ pub fn canvas(app: &RefAny, st: &AppState, ed: &Editor, scale: f32) -> Dom {
                 height: e.frame.h,
                 rotation: e.frame.rotation,
             },
-            selected: ed.selection.contains(&e.id),
+            selected: ed.selection.contains(e.id),
         })
         .collect();
     let mut adorner = SelectionAdorner::create(content, deck.size.width(), deck.size.height())
@@ -630,7 +630,7 @@ pub fn format_pane(app: &RefAny, ed: &Editor) -> Dom {
         for id in step {
             if let Some(e) = slide.element(*id) {
                 let effect = e.animation.map_or("", |a| a.effect.label());
-                let selected = ed.selection.contains(id);
+                let selected = ed.selection.contains(*id);
                 pane.add_child(Dom::create_p_with_text(format!("{}  {effect}  {}", n + 1, e.name())).with_css(format!(
                     "margin: 0px 0px 2px 0px; padding: 2px 4px; {}",
                     if selected {
