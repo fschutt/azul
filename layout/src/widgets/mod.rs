@@ -53,6 +53,23 @@ macro_rules! impl_widget_callback {
             }
         }
 
+        impl $callback_wrapper {
+            /// The hook a widget stores: `callback`, called with `refany`.
+            /// What the widgets' `with_on_*(data, callback)` setters build,
+            /// for a field that takes a ready hook (a `StatusBarZoom`
+            /// button, a `RibbonGroup` launcher) - no caller needs to fill
+            /// the callback's foreign-callable slot by hand.
+            pub fn create<I: Into<$callback_value>>(
+                refany: azul_core::refany::RefAny,
+                callback: I,
+            ) -> $callback_wrapper {
+                $callback_wrapper {
+                    refany,
+                    callback: callback.into(),
+                }
+            }
+        }
+
         impl ::core::fmt::Display for $callback_value {
             fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 write!(f, "{:?}", self)

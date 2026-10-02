@@ -661,11 +661,7 @@ impl Button {
 
     #[inline]
     pub fn set_on_click<C: Into<ButtonOnClickCallback>>(&mut self, data: RefAny, on_click: C) {
-        self.on_click = Some(ButtonOnClick {
-            refany: data,
-            callback: on_click.into(),
-        })
-        .into();
+        self.on_click = Some(ButtonOnClick::create(data, on_click)).into();
     }
 
     #[inline]
@@ -1764,6 +1760,23 @@ mod autotest_generated {
             1,
             "a re-set callback was appended instead of replaced"
         );
+    }
+
+    /// `ButtonOnClick::create` builds the hook `with_on_click` stores, so an
+    /// app that hands a widget a ready hook (a status bar's zoom buttons)
+    /// writes no struct literal (DEDUP_WIDGETS_API F15, DEDUP_OFFICE D28).
+    #[test]
+    fn a_hook_made_with_create_is_the_one_with_on_click_stores() {
+        let made = ButtonOnClick::create(RefAny::new(7u32), test_click as ButtonOnClickCallbackType);
+        let stored = btn("Zoom", ButtonType::Primary)
+            .with_on_click(RefAny::new(7u32), test_click as ButtonOnClickCallbackType)
+            .on_click
+            .into_option()
+            .expect("with_on_click stores a hook");
+        assert_eq!(made.callback, stored.callback);
+        assert!(matches!(made.callback.ctx, azul_core::refany::OptionRefAny::None));
+        let mut data = made.refany.clone();
+        assert_eq!(data.downcast_ref::<u32>().map(|v| *v), Some(7));
     }
 
     #[test]
