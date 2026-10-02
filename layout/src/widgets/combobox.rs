@@ -1481,7 +1481,7 @@ fn show_active_option(
     options: &[azul_core::dom::DomNodeId],
     active: usize,
 ) {
-    use crate::widgets::themes::{flat, flora, style_kit};
+    use crate::widgets::themes::{decl, flat, flora, style_kit};
 
     let theme = style_kit::theme_of_classes(info.get_node_classes(list).as_ref());
     // THE mode decision (`get_resolved_mode`: the AZ_MODE pin, the app's
@@ -1505,7 +1505,7 @@ fn show_active_option(
         info.set_node_ids_and_classes(option.dom, node, IdOrClassVec::from_vec(classes));
         info.set_css_property(
             *option,
-            style_kit::bg(if is_active { fill } else { ColorU::TRANSPARENT }),
+            decl::fill(if is_active { fill } else { ColorU::TRANSPARENT }),
         );
     }
     crate::widgets::roving::announce_chosen(

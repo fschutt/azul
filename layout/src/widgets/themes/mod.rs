@@ -3,11 +3,13 @@ use azul_css::impl_option;
 pub mod flat;
 pub mod flora;
 pub mod system_palette;
-/// Declaration builders the theme modules share (fills, inks, borders,
-/// focus rings, each light value paired with its dark twin).
+/// Declaration builders the theme modules and widgets share (fills, inks,
+/// borders, focus rings, shadows - each light value paired with its dark
+/// twin - and the one-property layout declarations of the widget bases).
+/// The one style-builder module: `style_kit`'s twins moved here.
 pub(crate) mod decl;
 
-// ==== W3b: shared style builders + the theme marker, and their test helpers ====
+// ==== W3b: the theme marker (its style builders moved to `decl`) ====
 pub mod style_kit;
 /// Widgets that follow the app theme: every theme's `@theme(<name>)` block
 /// in one DOM - the one merge (`follow_app_theme`, `follow_dom`,

@@ -4322,7 +4322,7 @@ mod theme_tests {
     };
 
     use super::*;
-    use crate::widgets::themes::{flora, style_kit, theme_checks as tc, OptionUiTheme, UiTheme};
+    use crate::widgets::themes::{decl, flora, theme_checks as tc, OptionUiTheme, UiTheme};
 
     const FLORA: &str = "__azul-theme-flora";
 
@@ -4488,7 +4488,7 @@ mod theme_tests {
                 ] {
                     assert_eq!(
                         tc::background(&dom, dark).map(|p| tc::bg_layers(&p)),
-                        Some(vec![style_kit::face(top, foot)]),
+                        Some(vec![decl::face(top, foot)]),
                         "{name} {shape} dark={dark}: the chrome band"
                     );
                     assert_eq!(
