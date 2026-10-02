@@ -233,8 +233,9 @@ fn encode_into(out: &mut String, s: &str, quotes: bool) {
             '>' => out.push_str("&gt;"),
             '"' if quotes => out.push_str("&quot;"),
             '\'' if quotes => out.push_str("&apos;"),
-            '\t' | '\n' | '\r' => out.push(c),
-            '\u{0}'..='\u{1f}' | '\u{fffe}' | '\u{ffff}' => {}
+            // XML 1.0 cannot carry these, not even as a reference (tab, line
+            // feed and carriage return - 0x09, 0x0A, 0x0D - it can).
+            '\u{0}'..='\u{8}' | '\u{b}' | '\u{c}' | '\u{e}'..='\u{1f}' | '\u{fffe}' | '\u{ffff}' => {}
             c => out.push(c),
         }
     }

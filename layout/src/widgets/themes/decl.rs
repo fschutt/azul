@@ -18,7 +18,7 @@
 //!   shadow, for a node without one - it moves nothing).
 //!
 //! One name per meaning (this module absorbed `style_kit`'s twins,
-//! DEDUP_WIDGETS_API F4): [`fill`] is a background paint (`themed_fill`,
+//! `DEDUP_WIDGETS_API` F4): [`fill`] is a background paint (`themed_fill`,
 //! `hover_fill`, `active_fill` its states), [`fill_box`] is `width/height:
 //! 100%`. A shadow helper names its slot: the plain ones ([`shadow`],
 //! [`themed_shadow`], [`focus_halo`], [`focus_halo_inset`]) share the bottom

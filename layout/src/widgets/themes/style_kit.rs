@@ -3,7 +3,7 @@
 //!
 //! The style builders that used to live here (`bg`, `themed_bg`, `border`,
 //! `focus_shadow_ring`, ...) were twins of `themes::decl`'s and moved there,
-//! one name per meaning (DEDUP_WIDGETS_API F4): `bg` -> `decl::fill`,
+//! one name per meaning (`DEDUP_WIDGETS_API` F4): `bg` -> `decl::fill`,
 //! `themed_bg` / `hover_bg` / `active_bg` -> `decl::themed_fill` /
 //! `hover_fill` / `active_fill`, `fill` -> `decl::fill_box`, `border` ->
 //! `decl::themed_border`, `hover_border` -> `decl::hover_border_color`,

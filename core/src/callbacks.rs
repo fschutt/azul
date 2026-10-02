@@ -2129,7 +2129,7 @@ impl CoreCallbackData {
     /// `extern "C" fn` address (`on_click as usize`, no foreign `ctx` - the
     /// native case) or a whole `CoreCallback` (keeping its `ctx`). The one
     /// builder the widgets share instead of a private `hook()` each
-    /// (DEDUP_WIDGETS_API F3).
+    /// (`DEDUP_WIDGETS_API` F3).
     #[inline]
     #[must_use]
     pub fn create<C: Into<CoreCallback>>(event: EventFilter, refany: RefAny, callback: C) -> Self {
