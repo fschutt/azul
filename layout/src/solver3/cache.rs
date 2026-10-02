@@ -2322,14 +2322,32 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
     // This size is based on the node's CSS properties (width, height, etc.) and
     // its containing block. If height is 'auto', this is a temporary value.
     let intrinsic = warm.intrinsic_sizes.unwrap_or_default();
-    let final_used_size = calculate_used_size_for_node(
-        ctx.styled_dom,
-        dom_id, // Now Option<NodeId>
-        cb,
-        intrinsic,
-        &node.box_props.unpack(),
-        &ctx.viewport_size,
-    )?;
+    // A TABLE CELL's size is the table's to decide: its final layout
+    // (`fc::layout_cell_for_height`) writes the column width into `used_size`
+    // before laying the cell out, and a measurement clears it first. Re-
+    // deriving it here gave the cell its intrinsic max-content width
+    // (`calculate_used_size_for_node`'s TableCell arm), and that became its
+    // children's available width: a 600px table in an 800px cell had 600px
+    // to be centred in (`<td align="center">`, `margin: 0 auto`) and stayed
+    // at the cell's left edge.
+    let table_cell_size = node
+        .used_size
+        .filter(|s| {
+            matches!(node.formatting_context, FormattingContext::TableCell)
+                && s.width.is_finite()
+                && s.height.is_finite()
+        });
+    let final_used_size = match table_cell_size {
+        Some(size) => size,
+        None => calculate_used_size_for_node(
+            ctx.styled_dom,
+            dom_id, // Now Option<NodeId>
+            cb,
+            intrinsic,
+            &node.box_props.unpack(),
+            &ctx.viewport_size,
+        )?,
+    };
 
     // Phase 2: Layout children using a formatting context
     // Use pre-computed styles from LayoutNodeWarm instead of repeated lookups

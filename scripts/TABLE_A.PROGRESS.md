@@ -29,8 +29,13 @@ Brief: scratchpad `TABLE_A_go.md` (widths, row groups, presentational attributes
     the ANONYMOUS inline wrapper reconcile builds around `<i>` beside the nested table has no DOM
     node -> (0, 0): the cell's intrinsic width lost the 100px box (cell came out 12 + 2x6 = 24).
     FIX: measure an anonymous inline wrapper like an IFC root (commit "anonymous inline wrapper").
-  - NEXT: #4 (a cell's children
-    get the cell's intrinsic width as available space: prepare_layout_context), #1/#2 (test premise:
+  - #4 align_center_on_a_cell_centers_the_table_inside_it: ROOT CAUSE cache.rs
+    prepare_layout_context re-derived a TABLE CELL's used size with calculate_used_size_for_node
+    (TableCell arm: its intrinsic max-content, 600) instead of the column width the table wrote
+    into used_size (800); layout_bfc takes `available_cross` from those constraints, so the 600px
+    table had 0px to be centred in. FIX: a cell's table-given used_size is its used size there
+    (commit "a table cell's children get the column").
+  - NEXT: #1/#2 (test premise:
     whitespace between inline-blocks), then report section.
 
 ## NEXT
