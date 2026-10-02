@@ -1129,7 +1129,9 @@ fn module_from_external_path(path: &str) -> Option<String> {
     if path.starts_with("azul_dll::unified::pdf::") {
         return Some("pdf".to_string());
     }
-    if path.starts_with("azul_dll::unified::video_codec::") {
+    if path.starts_with("azul_dll::unified::video_codec::")
+        || path.starts_with("azul_dll::desktop::extra::video_codec::")
+    {
         return Some("video".to_string());
     }
     if path.starts_with("azul_dll::unified::webtransport::") {

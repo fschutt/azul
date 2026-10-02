@@ -1193,12 +1193,149 @@ fn is_wasm32_only(attrs: &[syn::Attribute]) -> bool {
     })
 }
 
+/// Expands the file's own single-arm `macro_rules!` that write items, so the
+/// methods they generate are seen like any other inherent method: the
+/// wizard pages' `dom` / `with_theme` (`page_theme_and_dom!`) and the
+/// standard dialogs' `with_on_event` were invisible to `autofix add` and the
+/// apps could not call them (2026-10-02). Only the simple, common shape is
+/// expanded - one arm whose pattern is `$name:fragment` parameters separated
+/// by commas; anything else is left as it is. The expansion is appended
+/// after the invocation (the invocation itself stays); only inherent impls.
+fn expand_local_item_macros(file: &mut File) {
+    use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
+
+    fn single_arm(tokens: TokenStream) -> Option<(Vec<String>, TokenStream)> {
+        let tt: Vec<TokenTree> = tokens.into_iter().collect();
+        let (pattern, body) = match tt.as_slice() {
+            [TokenTree::Group(p), TokenTree::Punct(eq), TokenTree::Punct(gt), TokenTree::Group(b)]
+            | [TokenTree::Group(p), TokenTree::Punct(eq), TokenTree::Punct(gt), TokenTree::Group(b), TokenTree::Punct(_)]
+                if eq.as_char() == '=' && gt.as_char() == '>' =>
+            {
+                (p.stream(), b.stream())
+            }
+            _ => return None,
+        };
+        let mut params = Vec::new();
+        let toks: Vec<TokenTree> = pattern.into_iter().collect();
+        let mut i = 0;
+        while i < toks.len() {
+            match (&toks[i], toks.get(i + 1), toks.get(i + 2), toks.get(i + 3)) {
+                (
+                    TokenTree::Punct(d),
+                    Some(TokenTree::Ident(name)),
+                    Some(TokenTree::Punct(colon)),
+                    Some(TokenTree::Ident(_frag)),
+                ) if d.as_char() == '$' && colon.as_char() == ':' => {
+                    params.push(name.to_string());
+                    i += 4;
+                    match toks.get(i) {
+                        None => {}
+                        Some(TokenTree::Punct(c)) if c.as_char() == ',' => i += 1,
+                        Some(_) => return None,
+                    }
+                }
+                _ => return None,
+            }
+        }
+        Some((params, body))
+    }
+
+    fn split_args(tokens: TokenStream) -> Vec<TokenStream> {
+        let mut args = vec![TokenStream::new()];
+        for t in tokens {
+            match &t {
+                TokenTree::Punct(c) if c.as_char() == ',' => args.push(TokenStream::new()),
+                _ => args.last_mut().expect("one arg at least").extend([t]),
+            }
+        }
+        if args.last().is_some_and(|a| a.is_empty()) {
+            args.pop();
+        }
+        args
+    }
+
+    fn substitute(body: TokenStream, params: &[String], args: &[TokenStream]) -> TokenStream {
+        let toks: Vec<TokenTree> = body.into_iter().collect();
+        let mut out = TokenStream::new();
+        let mut i = 0;
+        while i < toks.len() {
+            if let (TokenTree::Punct(d), Some(TokenTree::Ident(name))) = (&toks[i], toks.get(i + 1)) {
+                if d.as_char() == '$' {
+                    if let Some(k) = params.iter().position(|p| *p == name.to_string()) {
+                        let arg: Vec<TokenTree> = args[k].clone().into_iter().collect();
+                        if let [single @ TokenTree::Ident(_)] = arg.as_slice() {
+                            // An identifier (a type, a fn name) goes in as itself.
+                            out.extend([single.clone()]);
+                        } else {
+                            // A None-delimited group keeps an `expr` argument one expression.
+                            out.extend([TokenTree::Group(Group::new(Delimiter::None, args[k].clone()))]);
+                        }
+                        i += 2;
+                        continue;
+                    }
+                }
+            }
+            match &toks[i] {
+                TokenTree::Group(g) => {
+                    let mut ng = Group::new(g.delimiter(), substitute(g.stream(), params, args));
+                    ng.set_span(g.span());
+                    out.extend([TokenTree::Group(ng)]);
+                }
+                t => out.extend([t.clone()]),
+            }
+            i += 1;
+        }
+        out
+    }
+
+    let mut macros: BTreeMap<String, (Vec<String>, TokenStream)> = BTreeMap::new();
+    for item in &file.items {
+        if let Item::Macro(m) = item {
+            if m.mac.path.is_ident("macro_rules") {
+                if let (Some(ident), Some(def)) = (&m.ident, single_arm(m.mac.tokens.clone())) {
+                    macros.insert(ident.to_string(), def);
+                }
+            }
+        }
+    }
+    if macros.is_empty() {
+        return;
+    }
+    let mut expanded = Vec::new();
+    for item in &file.items {
+        let Item::Macro(m) = item else { continue };
+        if m.ident.is_some() {
+            continue;
+        }
+        let Some(name) = m.mac.path.get_ident().map(ToString::to_string) else { continue };
+        let Some((params, body)) = macros.get(&name) else { continue };
+        let args = split_args(m.mac.tokens.clone());
+        if args.len() != params.len() {
+            continue;
+        }
+        if let Ok(f) = syn::parse2::<File>(substitute(body.clone(), params, &args)) {
+            // Only the inherent impls: the methods are what the API tool was
+            // missing. Types a macro defines are indexed by their own rules
+            // (`extract_macro_generated_types`; defining them twice reported
+            // every css property as duplicated) and trait impls would turn
+            // into custom_impls changes of unrelated types.
+            expanded.extend(
+                f.items
+                    .into_iter()
+                    .filter(|i| matches!(i, Item::Impl(imp) if imp.trait_.is_none())),
+            );
+        }
+    }
+    file.items.extend(expanded);
+}
+
 fn parse_file_for_types(crate_name: &str, file_path: &Path) -> Result<Vec<TypeDefinition>, String> {
     let content = fs::read_to_string(file_path)
         .map_err(|e| format!("Failed to read {}: {}", file_path.display(), e))?;
 
-    let syntax_tree: File = syn::parse_file(&content)
+    let mut syntax_tree: File = syn::parse_file(&content)
         .map_err(|e| format!("Failed to parse {}: {}", file_path.display(), e))?;
+    expand_local_item_macros(&mut syntax_tree);
 
     let module_path = infer_module_path(crate_name, file_path);
     let mut types = Vec::new();
@@ -1298,8 +1435,9 @@ fn parse_file_for_cross_file_methods(
     let content = fs::read_to_string(file_path)
         .map_err(|e| format!("Failed to read {}: {}", file_path.display(), e))?;
 
-    let syntax_tree: File = syn::parse_file(&content)
+    let mut syntax_tree: File = syn::parse_file(&content)
         .map_err(|e| format!("Failed to parse {}: {}", file_path.display(), e))?;
+    expand_local_item_macros(&mut syntax_tree);
 
     let mut all_methods: BTreeMap<String, Vec<MethodDef>> = BTreeMap::new();
 
@@ -3620,6 +3758,32 @@ mod tests {
         assert!(from.contains(&("create".to_string(), None)));
         assert!(from.contains(&("default".to_string(), Some("Default".to_string()))));
         assert!(from.contains(&("clone".to_string(), Some("Clone".to_string()))));
+    }
+
+    /// Methods a file's own `macro_rules!` write are methods of the type
+    /// (the wizard pages' `dom`, the dialogs' `with_on_event`).
+    #[test]
+    fn methods_written_by_a_local_macro_are_seen() {
+        let source = r#"
+            pub struct Page { pub theme: u8 }
+            macro_rules! theme_and_dom {
+                ($page:ident, $default:expr) => {
+                    impl $page {
+                        pub fn with_theme(mut self, theme: u8) -> Self { self.theme = theme; self }
+                        pub fn dom(self) -> Dom { todo!() }
+                    }
+                    impl Default for $page { fn default() -> Self { $default } }
+                };
+            }
+            theme_and_dom!(Page, Page { theme: 0 });
+        "#;
+        let mut file: File = syn::parse_file(source).expect("parses");
+        expand_local_item_macros(&mut file);
+        let methods = extract_inherent_methods_from_items(&file.items);
+        let names: Vec<String> = methods.get("Page").expect("Page").iter().map(|m| m.name.clone()).collect();
+        assert!(names.contains(&"with_theme".to_string()) && names.contains(&"dom".to_string()), "{names:?}");
+        let traits = extract_trait_impl_methods_from_items(&file.items);
+        assert!(traits.get("Page").is_none(), "trait impls are not expanded");
     }
 
     fn extract_types_from_source(source: &str) -> Vec<TypeDefinition> {
