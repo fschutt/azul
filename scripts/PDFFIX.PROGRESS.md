@@ -73,9 +73,12 @@ just to make the one layout work".
   splittable_lines, split_into_columns in fc.rs), promotion (cache.rs lift_to_slot_container +
   multicol lift; mod.rs caller), multicol::is_multicol_box
 
+- 60ccc01c2 RED + cf4ab81b2 fix: paged TextLayout of a split paragraph (lines above its box)
+  keeps them inside its bounds (display_list.rs paint_inline_content, `lines_above`)
+
 ## NEXT
-- self-review pass over the GREEN code (compile-risk spots), then the report
-  scripts/PDFFIX_2026_10_02.md
+- report scripts/PDFFIX_2026_10_02.md (self-review of compile-risk spots done: LayoutConstraints
+  13 literals / 13 column_flow; UnifiedConstraints only fc.rs literal is exhaustive)
 - NOTE: commit messages ALWAYS via -F file (backticks in -m got shell-evaluated once).
 
 ## Open questions / decisions
