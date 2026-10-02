@@ -382,7 +382,7 @@ extern "C" fn on_picture_picked(mut data: RefAny, mut info: CallbackInfo, result
     let Some(path) = picked.path.into_option() else {
         return Update::DoNothing;
     };
-    let path = std::path::PathBuf::from(path.as_str());
+    let path = std::path::PathBuf::from(path.as_string().as_str());
     let handle = data.clone();
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;

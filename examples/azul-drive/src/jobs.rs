@@ -292,7 +292,7 @@ fn pdf_first_page(bytes: &[u8]) -> PreviewContent {
         option::OptionColorU,
         svg::{ParsedSvg, SvgFitTo, SvgParseOptions, SvgRenderOptions},
     };
-    let pages = azul::pdf::Pdf::create().to_svg_pages(bytes.to_vec());
+    let pages = azul::pdf::Pdf::create().to_svg_pages(azul::vec::U8VecRef::from(&bytes[..]));
     let Some(svg) = pages.as_slice().first().map(|s| s.as_str().to_string()) else {
         return PreviewContent::Message(String::from(
             "No preview: azul could not read this PDF.",

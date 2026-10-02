@@ -483,6 +483,8 @@ extern "C" fn on_nav_event(mut data: RefAny, mut info: CallbackInfo, event: Shel
             }
             ShellNavigationPaneEventKind::CollapseToggled => s.nav.collapsed = !event.expand,
             ShellNavigationPaneEventKind::ModuleSelected => {}
+            // Dropping a note on a notebook is not wired yet.
+            ShellNavigationPaneEventKind::NodeDropped => {}
         }
         Update::RefreshDom
     })

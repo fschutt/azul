@@ -856,6 +856,8 @@ extern "C" fn on_nav_event(mut data: RefAny, _info: CallbackInfo, event: ShellNa
                 s.module = 0;
             }
             ShellNavigationPaneEventKind::NodeToggled => return Update::DoNothing,
+            // Drag and drop onto folders is not wired yet (messages stay put).
+            ShellNavigationPaneEventKind::NodeDropped => return Update::DoNothing,
             ShellNavigationPaneEventKind::ModuleSelected => s.module = event.index,
             ShellNavigationPaneEventKind::CollapseToggled => s.nav_collapsed = !event.expand,
         }

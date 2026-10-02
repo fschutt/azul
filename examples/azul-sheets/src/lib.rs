@@ -59,7 +59,7 @@ use azul::{
     },
     css::{DarkLightMode, HoverEventFilter},
     dialog::{FileDialog, FileOpenResult},
-    dom::ButtonOnClickCallback,
+    dom::{ButtonOnClickCallback, VirtualKeyCode},
     file::FilePath,
     option::{OptionColorU, OptionDarkLightMode, OptionFileTypeList, OptionRefAny, OptionString},
     pdf::Pdf,

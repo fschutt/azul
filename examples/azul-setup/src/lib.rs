@@ -271,7 +271,7 @@ fn settings_dialog(theme: &str) -> ShellSettingsDialog {
             s("Accent colour"),
             2,
             s("Colours"),
-            ShellSettingValue::Color(ColorU::new(47, 74, 133, 255)),
+            ShellSettingValue::Color(ColorU::rgba(47, 74, 133, 255)),
         ),
         ShellSetting::create(
             s("appearance.zoom"),

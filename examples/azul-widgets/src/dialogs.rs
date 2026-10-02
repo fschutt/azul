@@ -52,17 +52,17 @@ pub(crate) struct DialogsDemo {
 impl DialogsDemo {
     pub(crate) fn create() -> Self {
         let components = WizardComponentsPage::create(WizardComponentVec::from_vec(vec![
-            WizardComponent::create("AzOffice core".into(), 180 * MB).with_required(true),
-            WizardComponent::create("Applications".into(), 0),
-            WizardComponent::create("AzWriter".into(), 120 * MB).with_depth(1),
-            WizardComponent::create("AzSheets".into(), 90 * MB).with_depth(1),
-            WizardComponent::create("Templates".into(), 45 * MB)
+            WizardComponent::create("AzOffice core", 180 * MB).with_required(true),
+            WizardComponent::create("Applications", 0),
+            WizardComponent::create("AzWriter", 120 * MB).with_depth(1),
+            WizardComponent::create("AzSheets", 90 * MB).with_depth(1),
+            WizardComponent::create("Templates", 45 * MB)
                 .with_description("Invoices, CVs, calendars".into()),
         ]));
         let options = WizardOptionsPage::create(WizardOptionVec::from_vec(vec![
-            WizardOption::create("Create a desktop shortcut".into(), true),
-            WizardOption::create("Just for me".into(), true).with_group(1),
-            WizardOption::create("For everyone".into(), false).with_group(1),
+            WizardOption::create("Create a desktop shortcut", true),
+            WizardOption::create("Just for me", true).with_group(1),
+            WizardOption::create("For everyone", false).with_group(1),
         ]));
         let recorder = ShortcutRecorder::create()
             .with_accessibility_name("Command palette".into())
