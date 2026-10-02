@@ -696,7 +696,10 @@ impl VideoEncoder {
     /// rate control spends bits by the time between the stamps, so a frame
     /// [`encode`](Self::encode) stamps with the wall clock would get a
     /// fraction of the bitrate. Stamps must rise; one encoder takes one kind
-    /// of stamp. Otherwise as [`encode`](Self::encode).
+    /// of stamp. Otherwise as [`encode`](Self::encode), except that it WAITS
+    /// for room when the encoder thread is behind: an export must not lose a
+    /// frame, and it has no deadline to drop one for. `false` only when the
+    /// encoder is not open (or its thread is gone).
     pub fn encode_at(&self, frame: VideoFrame, timestamp_us: u64, force_keyframe: bool) -> bool {
         self.submit(
             frame,
@@ -711,9 +714,14 @@ impl VideoEncoder {
         let Some(inner) = (unsafe { (self.ptr as *mut EncoderInner).as_mut() }) else {
             return false;
         };
-        let taken = inner
-            .thread
-            .offer(EncodeJob::Frame(frame, force_keyframe, micros));
+        // A stamped frame is an export's: wait for room. A wall-clock frame
+        // is a live call's: drop it rather than queue latency.
+        let job = EncodeJob::Frame(frame, force_keyframe, micros);
+        let taken = if micros.is_some() {
+            inner.thread.queue(job)
+        } else {
+            inner.thread.offer(job)
+        };
         if taken {
             inner.frames_encoded = inner.frames_encoded.wrapping_add(1);
         }

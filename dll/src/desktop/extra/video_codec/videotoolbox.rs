@@ -2012,7 +2012,12 @@ mod vt_tests {
             eprintln!("VideoToolbox unavailable — skipping");
             return;
         }
-        let (w, h, kbps) = (320u32, 240u32, 1000u32);
+        // A bitrate the rate control can actually bind at: at 1000 kbps these
+        // incompressible noise frames sit on the quality floor (~450 KB for
+        // either stamping, both far over the 250 KB that two seconds would
+        // get), so the stamps could not show. At 8000 kbps two seconds are
+        // 2 MB, the floor is what the wall-clock run gets.
+        let (w, h, kbps) = (320u32, 240u32, 8000u32);
         let mut live = VtEncoder::open(w, h, kbps).expect("encoder open");
         let mut offline = VtEncoder::open(w, h, kbps).expect("encoder open");
         let (mut live_bytes, mut offline_bytes) = (0usize, 0usize);
@@ -2025,10 +2030,14 @@ mod vt_tests {
         }
         eprintln!("60 noise frames at {kbps} kbps: wall clock {live_bytes} B, own times {offline_bytes} B");
         assert!(offline_bytes > 0 && live_bytes > 0);
+        // What the stamps promise: two seconds of video get two seconds'
+        // bits. (The wall-clock run gets whatever this machine's encoding
+        // time is worth - about half here - so it is printed, not compared.)
+        let budget = 2 * kbps as usize * 1000 / 8;
         assert!(
-            offline_bytes >= 2 * live_bytes,
-            "frames 1/30 s apart must get their duration's bits: {offline_bytes} B vs {live_bytes} B \
-             stamped with the wall clock"
+            offline_bytes * 10 >= budget * 8 && offline_bytes * 10 <= budget * 12,
+            "frames 1/30 s apart must get their duration's bits ({budget} B): {offline_bytes} B \
+             ({live_bytes} B stamped with the wall clock)"
         );
     }
 
