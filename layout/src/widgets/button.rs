@@ -151,6 +151,12 @@ pub struct Button {
     pub trailing_icon_style: OptionCssPropertyWithConditionsVec,
     /// Optional: Function to call when the button is clicked
     pub on_click: OptionButtonOnClick,
+    /// Why the command cannot run now ("Select a file to delete"); empty =
+    /// enabled. A disabled button keeps its place and its keyboard stop, is
+    /// dimmed without hover / pressed paint, never runs `on_click` (nor its
+    /// form action), is announced unavailable with this reason as its
+    /// description, and shows the reason as a tooltip on hover and on click.
+    pub disabled_reason: AzString,
     /// The semantic type of this button (Primary, Success, Danger, etc.)
     /// With the other 4-byte fields at the end: no padding.
     pub button_type: ButtonType,
@@ -159,6 +165,10 @@ pub struct Button {
     /// nothing, submit it or reset it (HTML `type=button|submit|reset`). It
     /// runs in addition to [`Self::on_click`].
     pub form_action: ButtonFormAction,
+    /// `Some`: a toggle button (Bold, a mode key), announced pressed or not
+    /// pressed (`aria-pressed`); `Some(true)` rests on the theme's pressed
+    /// face. `None`: an ordinary button.
+    pub toggled: OptionBool,
 }
 
 /// What a button does to the form it sits in - HTML's `<button type>`.
@@ -526,7 +536,40 @@ impl Button {
             theme: crate::widgets::themes::OptionUiTheme::None,
             icon_style: OptionCssPropertyWithConditionsVec::None,
             trailing_icon_style: OptionCssPropertyWithConditionsVec::None,
+            disabled_reason: AzString::from_const_str(""),
+            toggled: OptionBool::None,
         }
+    }
+
+    /// Disables the button: `reason` says why the command cannot run now
+    /// (an empty reason enables it again). See [`Self::disabled_reason`].
+    pub fn set_disabled(&mut self, reason: AzString) {
+        self.disabled_reason = reason;
+    }
+
+    /// Builder method: disables the button with `reason`.
+    #[must_use]
+    pub fn with_disabled(mut self, reason: AzString) -> Self {
+        self.set_disabled(reason);
+        self
+    }
+
+    /// Whether the button is disabled (it has a reason).
+    #[must_use]
+    pub fn is_disabled(&self) -> bool {
+        !self.disabled_reason.as_str().is_empty()
+    }
+
+    /// Makes this a toggle button, on or off (see [`Self::toggled`]).
+    pub fn set_toggled(&mut self, toggled: bool) {
+        self.toggled = OptionBool::Some(toggled);
+    }
+
+    /// Builder method: makes this a toggle button, on or off.
+    #[must_use]
+    pub fn with_toggled(mut self, toggled: bool) -> Self {
+        self.set_toggled(toggled);
+        self
     }
 
     /// The container CSS this button renders with.
@@ -677,7 +720,7 @@ impl Button {
 
     #[inline]
     #[must_use]
-    pub fn dom(self) -> Dom {
+    pub fn dom(mut self) -> Dom {
         // Rendering lives in the theme modules, where the palette is in scope:
         // the dark-mode colours, the interactive states and (for flora) the
         // raised face are all appended there. This used to build its own copy of
@@ -686,6 +729,15 @@ impl Button {
         //
         // A pinned theme (`with_theme`) is that look; no theme follows the
         // app theme (flat unless the app chose another), like every widget.
+        // A disabled button runs nothing: not the app's click, not its form
+        // action. The themes drop its hover / pressed paint and dim it;
+        // `mark_disabled` below names it unavailable and says why.
+        let disabled_reason = self.is_disabled().then(|| self.disabled_reason.clone());
+        if disabled_reason.is_some() {
+            self.on_click = OptionButtonOnClick::None;
+            self.form_action = ButtonFormAction::None;
+        }
+        let toggled = self.toggled;
         let form_action = self.form_action;
         let has_image = self.image.is_some();
         let alt = self.alt.clone();
@@ -704,8 +756,111 @@ impl Button {
                 crate::widgets::themes::flora::button,
             ),
         };
-        with_form_semantics(dom, form_action, has_image, alt)
+        let mut dom = with_form_semantics(dom, form_action, has_image, alt);
+        if let Some(on) = toggled.into_option() {
+            add_accessibility_state(
+                &mut dom,
+                if on {
+                    azul_core::a11y::AccessibilityState::CheckedTrue
+                } else {
+                    azul_core::a11y::AccessibilityState::CheckedFalse
+                },
+            );
+        }
+        if let Some(reason) = disabled_reason {
+            mark_disabled(&mut dom, reason);
+        }
+        dom
     }
+}
+
+/// Added to a disabled button ([`Button::disabled_reason`]).
+pub const BUTTON_DISABLED_CLASS: &str = "__azul-native-button-disabled";
+
+/// What a disabled button's callbacks carry: why it cannot run.
+#[derive(Debug, Clone)]
+pub(crate) struct DisabledReason(pub(crate) AzString);
+
+/// The pointer rests on a disabled button, or it was clicked: say why.
+extern "C" fn show_disabled_reason(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let reason = data.downcast_ref::<DisabledReason>().map(|r| r.0.clone());
+    if let Some(reason) = reason {
+        info.show_tooltip(reason);
+    }
+    Update::DoNothing
+}
+
+/// The pointer left a disabled button.
+extern "C" fn hide_disabled_reason(_data: RefAny, mut info: CallbackInfo) -> Update {
+    info.hide_tooltip();
+    Update::DoNothing
+}
+
+/// A disabled button's face: `container` without its hover / pressed
+/// paint, dimmed. The focus ring stays: a disabled command keeps its
+/// keyboard stop. Both themes apply it to the container they build, the
+/// caller's (a ribbon button's) included.
+pub(crate) fn disabled_style(container: &[CssPropertyWithConditions]) -> Vec<CssPropertyWithConditions> {
+    use azul_css::dynamic_selector::PseudoStateType;
+    let mut out: Vec<CssPropertyWithConditions> = container
+        .iter()
+        .filter(|c| {
+            let states = c.pseudo_state_conditions();
+            !states.contains(&PseudoStateType::Hover) && !states.contains(&PseudoStateType::Active)
+        })
+        .cloned()
+        .collect();
+    out.push(CssPropertyWithConditions::simple(CssProperty::const_opacity(
+        StyleOpacity {
+            inner: PercentageValue::const_new(40),
+        },
+    )));
+    out
+}
+
+/// Adds `state` to the accessibility states of `dom`'s root.
+fn add_accessibility_state(dom: &mut Dom, state: azul_core::a11y::AccessibilityState) {
+    use azul_core::a11y::{AccessibilityInfo, AccessibilityStateVec};
+    let mut a11y: AccessibilityInfo = dom.root.get_accessibility_info().cloned().unwrap_or_default();
+    let mut states = a11y.states.clone().into_library_owned_vec();
+    if !states.contains(&state) {
+        states.push(state);
+    }
+    a11y.states = AccessibilityStateVec::from_vec(states);
+    dom.root.set_accessibility_info(a11y);
+}
+
+/// Marks a built button disabled: [`BUTTON_DISABLED_CLASS`], the
+/// unavailable state with `reason` as its description, and the callbacks
+/// that show the reason on hover and click.
+pub(crate) fn mark_disabled(dom: &mut Dom, reason: AzString) {
+    use azul_core::{
+        callbacks::CoreCallback,
+        dom::{EventFilter, HoverEventFilter},
+        refany::OptionRefAny,
+    };
+    dom.root.add_class(AzString::from_const_str(BUTTON_DISABLED_CLASS));
+    add_accessibility_state(dom, azul_core::a11y::AccessibilityState::Unavailable);
+    if let Some(mut a11y) = dom.root.get_accessibility_info().cloned() {
+        a11y.description = azul_css::OptionString::Some(reason.clone());
+        dom.root.set_accessibility_info(a11y);
+    }
+    let mut callbacks = dom.root.get_callbacks().clone().into_library_owned_vec();
+    for (event, cb) in [
+        (HoverEventFilter::MouseEnter, show_disabled_reason as usize),
+        (HoverEventFilter::Click, show_disabled_reason as usize),
+        (HoverEventFilter::MouseLeave, hide_disabled_reason as usize),
+    ] {
+        callbacks.push(CoreCallbackData {
+            event: EventFilter::Hover(event),
+            callback: CoreCallback {
+                cb,
+                ctx: OptionRefAny::None,
+            },
+            refany: RefAny::new(DisabledReason(reason.clone())),
+        });
+    }
+    dom.root.set_callbacks(callbacks.into());
 }
 
 /// What a submit / reset / image button adds on top of the themed button, in

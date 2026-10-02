@@ -3751,6 +3751,7 @@ fn styled_button(
     label_style: CssPropertyWithConditionsVec,
     trailing_icon_style: CssPropertyWithConditionsVec,
     on_click: OptionButtonOnClick,
+    disabled_reason: AzString,
     theme: UiTheme,
 ) -> Dom {
     let mut b = Button::create(label);
@@ -3761,92 +3762,16 @@ fn styled_button(
     b.label_style = OptionCssPropertyWithConditionsVec::Some(label_style);
     b.trailing_icon_style = OptionCssPropertyWithConditionsVec::Some(trailing_icon_style);
     b.on_click = on_click;
+    b.disabled_reason = disabled_reason;
     b.set_theme(theme);
     b.dom()
 }
 
-/// Added to a disabled ribbon button ([`RibbonButton::disabled_reason`]).
+/// Added to a disabled ribbon button ([`RibbonButton::disabled_reason`]),
+/// next to the Button's own `BUTTON_DISABLED_CLASS`: the disabled state
+/// itself (dimmed, inert, unavailable, the reason as tooltip) is the
+/// Button's (`Button::with_disabled`).
 pub const RIBBON_DISABLED_CLASS: &str = "__azul-native-ribbon-button-disabled";
-
-/// What a disabled button's callbacks carry: why it cannot run.
-#[derive(Debug, Clone)]
-struct DisabledReason(AzString);
-
-/// The pointer rests on a disabled button, or it was clicked: say why.
-extern "C" fn show_disabled_reason(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let reason = data.downcast_ref::<DisabledReason>().map(|r| r.0.clone());
-    if let Some(reason) = reason {
-        info.show_tooltip(reason);
-    }
-    Update::DoNothing
-}
-
-/// The pointer left a disabled button.
-extern "C" fn hide_disabled_reason(_data: RefAny, mut info: CallbackInfo) -> Update {
-    info.hide_tooltip();
-    Update::DoNothing
-}
-
-/// A disabled button's face: the resting style without its hover / pressed
-/// states, dimmed.
-fn disabled_style(container: &CssPropertyWithConditionsVec) -> CssPropertyWithConditionsVec {
-    use azul_css::dynamic_selector::PseudoStateType;
-    let resting: Vec<Cond> = container
-        .as_ref()
-        .iter()
-        .filter(|c| {
-            let states = c.pseudo_state_conditions();
-            !states.contains(&PseudoStateType::Hover) && !states.contains(&PseudoStateType::Active)
-        })
-        .cloned()
-        .collect();
-    let dimmed = CssPropertyWithConditionsVec::from_vec(vec![Cond::simple(P::const_opacity(
-        StyleOpacity {
-            inner: PercentageValue::const_new(40),
-        },
-    ))]);
-    merged_style(&CssPropertyWithConditionsVec::from_vec(resting), &dimmed)
-}
-
-/// Marks a built button disabled: the class, the unavailable state with the
-/// reason as its description, and the callbacks that show the reason.
-fn mark_disabled(dom: &mut Dom, reason: AzString) {
-    use azul_core::{
-        a11y::{AccessibilityInfo, AccessibilityState, AccessibilityStateVec},
-        callbacks::{CoreCallback, CoreCallbackData},
-        refany::OptionRefAny,
-    };
-    dom.root
-        .add_class(AzString::from_const_str(RIBBON_DISABLED_CLASS));
-    let mut a11y: AccessibilityInfo = dom
-        .root
-        .get_accessibility_info()
-        .cloned()
-        .unwrap_or_default();
-    let mut states = a11y.states.clone().into_library_owned_vec();
-    if !states.contains(&AccessibilityState::Unavailable) {
-        states.push(AccessibilityState::Unavailable);
-    }
-    a11y.states = AccessibilityStateVec::from_vec(states);
-    a11y.description = azul_css::OptionString::Some(reason.clone());
-    dom.root.set_accessibility_info(a11y);
-    let mut callbacks = dom.root.get_callbacks().clone().into_library_owned_vec();
-    for (event, cb) in [
-        (HoverEventFilter::MouseEnter, show_disabled_reason as usize),
-        (HoverEventFilter::Click, show_disabled_reason as usize),
-        (HoverEventFilter::MouseLeave, hide_disabled_reason as usize),
-    ] {
-        callbacks.push(CoreCallbackData {
-            event: EventFilter::Hover(event),
-            callback: CoreCallback {
-                cb,
-                ctx: OptionRefAny::None,
-            },
-            refany: RefAny::new(DisabledReason(reason.clone())),
-        });
-    }
-    dom.root.set_callbacks(callbacks.into());
-}
 
 fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: UiTheme) -> Dom {
     let disabled = rb.is_disabled();
@@ -3859,11 +3784,6 @@ fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: U
         merged_style(base, &s.resolved_checked_style())
     } else {
         base.clone()
-    };
-    let container = if disabled {
-        disabled_style(&container)
-    } else {
-        container
     };
     let trailing = match rb.arrow {
         RibbonArrow::None => AzString::from_const_str(""),
@@ -3880,12 +3800,7 @@ fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: U
             s.resolved_small_label_style(),
         )
     };
-    // A disabled button never runs the app's callback.
-    let on_click = if disabled {
-        OptionButtonOnClick::None
-    } else {
-        rb.on_click
-    };
+    // The Button drops a disabled command's click, dims it and says why.
     let mut dom = styled_button(
         rb.icon,
         rb.label,
@@ -3894,11 +3809,12 @@ fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: U
         icon_style,
         label_style,
         s.resolved_arrow_icon_style(),
-        on_click,
+        rb.on_click,
+        rb.disabled_reason,
         theme,
     );
     if disabled {
-        mark_disabled(&mut dom, rb.disabled_reason);
+        dom.root.add_class(AzString::from_const_str(RIBBON_DISABLED_CLASS));
     }
     dom
 }
@@ -4017,6 +3933,7 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior, theme: UiTh
             s.resolved_small_label_style(),
             s.resolved_arrow_icon_style(),
             Some(l).into(),
+            AzString::from_const_str(""),
             theme,
         ));
     }
@@ -4120,6 +4037,7 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior, theme
                 s.resolved_small_label_style(),
                 s.resolved_arrow_icon_style(),
                 OptionButtonOnClick::None,
+                AzString::from_const_str(""),
                 theme,
             );
             // The third button is "More": it expands the panel.
@@ -5355,7 +5273,7 @@ mod tests {
                 "the app's click data is not attached to a disabled button"
             );
             assert!(
-                data.downcast_ref::<DisabledReason>().is_some(),
+                data.downcast_ref::<crate::widgets::button::DisabledReason>().is_some(),
                 "every callback of a disabled button carries its reason"
             );
         }
