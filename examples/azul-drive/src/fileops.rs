@@ -212,8 +212,9 @@ pub struct Plan {
     pub source_folders: Vec<String>,
     /// The items the transfer makes at the target (what to select after).
     pub tops: Vec<String>,
-    /// Source and target are one drive: a file goes by the drive's own copy
-    /// (a file copy on disk, a CopyObject in a bucket).
+    /// Source and target are one drive. In a bucket a file then goes by the
+    /// drive's own copy (CopyObject, no byte through AzDrive); on disk by the
+    /// chunked file copy, which reports its progress megabyte by megabyte.
     pub same_drive: bool,
     /// The target keys that are taken (for "Keep both" names).
     taken: HashSet<String>,
@@ -508,8 +509,9 @@ pub fn run_transfer(
                 // Out of the way first: a rename over a file fails on Windows.
                 let _ = target.delete(&file.target_key);
             }
-            let result = if plan.same_drive {
-                // The drive copies (on disk, or in the bucket): no byte here.
+            let server_side = plan.same_drive && source.local_path(&file.source_key).is_none();
+            let result = if server_side {
+                // The bucket copies (CopyObject): no byte passes through here.
                 source
                     .copy(&file.source_key, &file.target_key)
                     .map(|()| file.size.unwrap_or(0))
@@ -1217,10 +1219,10 @@ mod tests {
         }
     }
 
-    /// Within one drive a copy is the drive's own copy (a file copy on
-    /// disk, a CopyObject in a bucket): the bytes never pass through AzDrive.
+    /// Within one bucket a copy is the bucket's own copy (CopyObject): the
+    /// bytes never pass through AzDrive.
     #[test]
-    fn a_copy_within_one_drive_is_the_drives_own_copy() {
+    fn a_copy_within_one_bucket_is_the_buckets_own_copy() {
         let tmp = TempDir::new("own-copy");
         seeded(&tmp);
         // A drive with no local path, as a bucket.
