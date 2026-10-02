@@ -19,12 +19,15 @@ Branch `wt/texteng` from `2e92c759b`. Brief: scratchpad wave5/TEXTENG.md. House 
 - e9aa6acc7 GREEN item 3b: nested boxes looked up among the span's own layout children (tree builder puts
   them under the span's node; the old lookup in the root's children never found them)
 
+- 0594c94b6 RED item 4 (a_text_edit_reports_the_formats_of_its_text.rs, compile-RED)
+- 6c892ca71 GREEN item 4: DocumentTextEdit.runs, TextFormatSet/TextFormatSpan, typing_formats
+- report scripts/TEXTENG_2026_10_02.md
+
 ## IN PROGRESS
-- 4 text-edit report carries formats + pending format (DocumentTextEdit, core/src/selection.rs)
+- final review pass
 
 ## NEXT
-- 4 design + RED (layout/tests) + GREEN
-- report scripts/TEXTENG_2026_10_02.md
+- done unless the review finds something
 
 ## Decisions
 - Item 1 root cause: synthetic 0.8/0.2 strut vs real glyph A/D; the union of the two half-leading boxes is
