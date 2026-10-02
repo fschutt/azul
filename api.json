@@ -82391,6 +82391,36 @@
                                 "Large": {}
                             }
                         ],
+                        "functions": {
+                            "width": {
+                                "doc": [
+                                    "The width in logical pixels (0 for `Fill`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f32"
+                                },
+                                "fn_body": "object.width()"
+                            },
+                            "height": {
+                                "doc": [
+                                    "The height in logical pixels (0 for `Fill`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f32"
+                                },
+                                "fn_body": "object.height()"
+                            }
+                        },
                         "repr": "C"
                     },
                     "WizardLayoutStyle": {
@@ -166043,6 +166073,40 @@
                                     }
                                 ],
                                 "fn_body": "object.set_output_format(format)"
+                            },
+                            "next_frame": {
+                                "doc": [
+                                    "Pull the next already-decoded frame without feeding more input. Several",
+                                    "may be waiting (pipelining + B-frame reordering, or the decoder's",
+                                    "thread got ahead of the caller); loop `next_frame` until it returns",
+                                    "`None`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionVideoFrame"
+                                },
+                                "fn_body": "object.next_frame()"
+                            },
+                            "flush": {
+                                "doc": [
+                                    "Flush the decoder at end-of-stream: waits until every chunk handed to",
+                                    "[`decode`](Self::decode) is decoded and the frames held back for",
+                                    "reordering are out, and returns the first frame not pulled yet (drain",
+                                    "the rest with [`next_frame`](Self::next_frame))."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionVideoFrame"
+                                },
+                                "fn_body": "object.flush()"
                             }
                         },
                         "repr": "C"
@@ -168026,6 +168090,21 @@
                                     "type": "OptionDiskSpace"
                                 },
                                 "fn_body": "object.disk_space().into()"
+                            },
+                            "disk_space_for_new": {
+                                "doc": [
+                                    "The size and free space of the volume this path WOULD be created on",
+                                    "(its nearest existing ancestor's). See [`disk_space_for_new`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionDiskSpace"
+                                },
+                                "fn_body": "object.disk_space_for_new().into()"
                             }
                         },
                         "repr": "C"
@@ -178984,6 +179063,16 @@
                                 "ApplyButton": {}
                             }
                         ],
+                        "constructors": {
+                            "platform": {
+                                "doc": [
+                                    "The host platform's convention: `Instant` on macOS, `ApplyButton`",
+                                    "elsewhere."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::shells::settings_dialog::ShellSettingsApplyMode::platform()"
+                            }
+                        },
                         "repr": "C"
                     },
                     "ShellSettingsEventKind": {
