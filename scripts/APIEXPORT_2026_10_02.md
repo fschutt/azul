@@ -69,3 +69,43 @@ exports through the generated `azul` crate); core / css / layout / their tests d
      (that is the CommandTable work, wave 6).
 5. **reborrow_info** (DEDUP_OFFICE D8, DEDUP_WIDGETS_API F13): the three copies (AzWriter, AzNotes, AzSheets)
    are `*info`.
+
+## api.json - for the parent's autofix (never edited by hand here)
+
+Run `azul-doc autofix add <Type.method>` for each line (module in brackets is where the class lives / should
+land). Rust signatures are idiomatic; autofix's rules turn `&str` into `String` + `.as_str()`, `Option<T>`
+returns into `OptionT` + `.into()`, `String` returns into `String` + `.into()`, `&T` args into a re-borrowed
+pointer, and `C: Into<XCallback>` widget-callback args into `XCallback` (the generated binding takes the
+`XCallbackType` fn pointer, like `Button.with_on_click`).
+
+| Add | Module | Rust signature (source) |
+|---|---|---|
+| `KeyModifiers.primary_down` | dom | `fn primary_down(&self) -> bool` (core/src/events.rs) |
+| `KeyboardState.primary_down`, `.shift_down`, `.ctrl_down`, `.alt_down`, `.super_down` | dom | `fn x(&self) -> bool` (core/src/window.rs) |
+| `KeyboardState.is_key_down` | dom | `fn is_key_down(&self, key: VirtualKeyCode) -> bool` |
+| `ShellThemeAccent.colors` (pulls in the struct `ShellThemeAccentColors`: accent, deep, soft, glow, on_accent: ColorU, repr C) | shells | `const fn colors(self, dark: bool) -> ShellThemeAccentColors` (theme_scope.rs) |
+| `ButtonOnClick.create` (constructor) | widgets | `fn create<I: Into<ButtonOnClickCallback>>(refany: RefAny, callback: I) -> ButtonOnClick` (macro, widgets/mod.rs) |
+| `SliderOnValueChange.create` (constructor) | widgets | same shape, `SliderOnValueChangeCallback` |
+| `StatusBarZoom.create` (constructor) | widgets | `fn create(percent: f32, min: f32, max: f32) -> Self` (statusbar.rs) |
+| `StatusBarZoom.set_percent`, `.set_range`, `.with_range` | widgets | `(&mut self, percent: f32)`, `(&mut self, min: f32, max: f32)`, `(self, min, max) -> Self` |
+| `StatusBarZoom.set_on_zoom_out`, `.with_on_zoom_out`, `.set_on_zoom_in`, `.with_on_zoom_in` | widgets | `(data: RefAny, callback: C: Into<ButtonOnClickCallback>)` |
+| `StatusBarZoom.set_on_slider_change`, `.with_on_slider_change` | widgets | `(data: RefAny, callback: C: Into<SliderOnValueChangeCallback>)` |
+| `StatusBarZoom.set_show_label`, `.with_show_label` | widgets | `(show_label: bool)` |
+| `RibbonGroup.add_items`, `.with_items`; `RibbonColumn.add_items`, `.with_items`; `RibbonRow.add_items`, `.with_items` | widgets | `(items: RibbonItemVec)` (ribbon.rs) |
+| `RibbonTab.add_groups`, `.with_groups` | widgets | `(groups: RibbonGroupVec)` |
+| `ColorU.to_hex` | css | `fn to_hex(&self) -> String` (css/src/props/basic/color.rs) |
+| `ColorU.parse_hex`, `ColorU.parse_css` (statics returning `OptionColorU`) | css | `fn parse_hex(text: &str) -> Option<ColorU>`; `parse_css` behind the `parser` feature |
+| `RawImage.create_rgba8` (constructor) | image | `fn create_rgba8(width: u32, height: u32, pixels: U8Vec, premultiplied_alpha: bool) -> Self` (core/src/resources.rs) |
+| `RawImage.resized` | image | `fn resized(&self, width: u32, height: u32) -> Option<RawImage>` |
+| `DiskSpace.format_bytes` (static) | file | `fn format_bytes(bytes: u64) -> String` (layout/src/file.rs) |
+| `Button.set_disabled`, `.with_disabled`, `.is_disabled`, `.set_toggled`, `.with_toggled` | widgets | `(reason: AzString)`, `-> bool`, `(toggled: bool)` (button.rs) |
+| `Button` struct_fields refresh | widgets | NEW fields `disabled_reason: AzString` (after `on_click`) and `toggled: OptionBool` (last) - the dll's ABI size checks fail until api.json has them |
+| `NodeData.get_attribute`, `NodeData.get_attributes` | dom | `fn get_attribute(&self, name: &str) -> Option<AzString>`; `fn get_attributes(&self) -> AttributeTypeVec` (core/src/dom.rs) |
+| `NodeType.get_text` | dom | `fn get_text(&self) -> Option<AzString>` |
+| `TextAreaState.get_text` | widgets | `fn get_text(&self) -> String` (text_area.rs, existed) |
+| `DatePickerWeekStart` (enum Sunday, Monday; repr C) | widgets | date_picker.rs |
+| `DatePicker` struct_fields refresh + `DatePicker.set_week_start`, `.with_week_start` | widgets | NEW field `week_start: DatePickerWeekStart` (after `mode`); `(week_start: DatePickerWeekStart)` |
+| `GlobalHotkey.matches` | app | `fn matches(&self, keyboard: &KeyboardState) -> bool` (core/src/global_hotkey.rs) |
+
+Rust-only on purpose: `KeyModifiers::primary_down_for(mac)`, `BUTTON_DISABLED_CLASS`,
+`button::{disabled_style, mark_disabled, DisabledReason}` (pub(crate)), `image_scale::resized`.
