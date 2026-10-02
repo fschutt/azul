@@ -27,6 +27,7 @@ use azul::{
     vec::StringVec,
     widgets::{
         Backstage, BackstageNavItem, ButtonType, CheckBoxState, DatePicker, DatePickerState,
+        DatePickerWeekStart,
         OnTextInputReturn, Ribbon, RibbonAppButton, RibbonButton, RibbonGroup, RibbonItem,
         RibbonTab, StatusBar, StatusBarSegment, StatusBarSync, StatusBarSyncKind, TextInputState,
         TextInputValid, Titlebar, ToDoBar, ToDoBarEvent, ToDoBarEventKind, ToDoTask,
@@ -235,6 +236,8 @@ fn date_navigator(s: &CalState, app: &RefAny) -> Dom {
     let (first, last) = views::visible_range(s.view, s.anchor);
     DatePicker::create(year.max(1) as u32, month, day)
         .with_inline(true)
+        // The calendar's weeks run Monday to Sunday: so do the navigator's rows.
+        .with_week_start(DatePickerWeekStart::Monday)
         .with_today(s.today.year().max(1) as u32, s.today.month(), s.today.day())
         .with_range(state(first), state(last))
         .with_accessibility_name("Date navigator")
