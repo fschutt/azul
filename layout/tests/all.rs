@@ -748,3 +748,5 @@ mod a_gmail_quote_is_indented_by_its_ex_margin;
 mod an_unresolved_img_from_markup_takes_no_space;
 #[path = "a_blank_line_is_as_tall_as_a_line_of_text.rs"]
 mod a_blank_line_is_as_tall_as_a_line_of_text;
+#[path = "a_rich_text_editor_keeps_one_model_and_one_history.rs"]
+mod a_rich_text_editor_keeps_one_model_and_one_history;

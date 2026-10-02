@@ -30,15 +30,15 @@ use azul::{
     vec::{MessageRowVec, StringVec},
     widgets::{
         Button, ButtonType, Chip, ChipState, MessageList, MessageListEvent,
-        MessageListEventKind, MessageListMark, MessageRow, OnTextInputReturn, Segmented,
-        SegmentedState, StatusBar, StatusBarSegment, StatusBarSync, StatusBarSyncKind,
-        TextInput, TextInputState, TextInputValid, Titlebar, TreeViewNode,
+        MessageListEventKind, MessageListMark, MessageRow, OnTextInputReturn, RichBlockKind,
+        RichCheck, RichFormat, RichTextCommand, Segmented, SegmentedState, StatusBar,
+        StatusBarSegment, StatusBarSync, StatusBarSyncKind, TextInput, TextInputState,
+        TextInputValid, Titlebar, TreeViewNode,
     },
     window::WindowEventFilter,
 };
 
 use crate::{
-    doc::{BlockKind, Format},
     editor, jobs,
     look::{self, Look, TextSize},
     model::{self, ListRow, NotebookNode, Scope, SortKey},
@@ -543,13 +543,13 @@ fn row_detail(note: &model::Note) -> String {
 fn row_icon(note: &model::Note) -> &'static str {
     if !note.doc.image_srcs().is_empty() {
         "image"
-    } else if note.doc.checklist().1 > 0 {
+    } else if note.doc.checklist_total() > 0 {
         "checklist"
     } else if note
         .doc
         .blocks
         .iter()
-        .any(|b| matches!(b.kind, BlockKind::Code { .. }))
+        .any(|b| matches!(b.kind, RichBlockKind::Code(_)))
     {
         "code"
     } else {
@@ -789,14 +789,11 @@ pub fn delete_forever(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, i
 
 // ==== The editor pane ====
 
-/// A toolbar command.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A toolbar button: an editor command, or the link sheet.
+#[derive(Clone)]
 enum Tool {
-    Kind(BlockKind),
-    Format(Format),
-    Indent(i8),
+    Command(RichTextCommand),
     Link,
-    Rule,
 }
 
 /// The payload of a toolbar button.
@@ -808,50 +805,47 @@ struct ToolRef {
 /// The toolbar's buttons: `(id, icon, label, name, tool)`; a label shows as
 /// text when there is no icon.
 fn tools() -> Vec<(&'static str, &'static str, &'static str, &'static str, Tool)> {
+    let kind = |kind: RichBlockKind| Tool::Command(RichTextCommand::ToggleKind(kind));
+    let format = |format: RichFormat| Tool::Command(RichTextCommand::ToggleFormat(format));
     vec![
-        ("tool-h1", "", "H1", "Heading 1", Tool::Kind(BlockKind::Heading(1))),
-        ("tool-h2", "", "H2", "Heading 2", Tool::Kind(BlockKind::Heading(2))),
-        ("tool-h3", "", "H3", "Heading 3", Tool::Kind(BlockKind::Heading(3))),
-        ("tool-bold", "format_bold", "", "Bold", Tool::Format(Format::Bold)),
-        ("tool-italic", "format_italic", "", "Italic", Tool::Format(Format::Italic)),
-        ("tool-underline", "format_underlined", "", "Underline", Tool::Format(Format::Underline)),
-        ("tool-strike", "format_strikethrough", "", "Strikethrough", Tool::Format(Format::Strike)),
-        ("tool-code", "code", "", "Inline code", Tool::Format(Format::Code)),
-        ("tool-bullets", "format_list_bulleted", "", "Bulleted list", Tool::Kind(BlockKind::Bullet(0))),
-        ("tool-numbers", "format_list_numbered", "", "Numbered list", Tool::Kind(BlockKind::Numbered(0))),
+        ("tool-h1", "", "H1", "Heading 1", kind(RichBlockKind::Heading(1))),
+        ("tool-h2", "", "H2", "Heading 2", kind(RichBlockKind::Heading(2))),
+        ("tool-h3", "", "H3", "Heading 3", kind(RichBlockKind::Heading(3))),
+        ("tool-bold", "format_bold", "", "Bold", format(RichFormat::Bold)),
+        ("tool-italic", "format_italic", "", "Italic", format(RichFormat::Italic)),
+        ("tool-underline", "format_underlined", "", "Underline", format(RichFormat::Underline)),
+        ("tool-strike", "format_strikethrough", "", "Strikethrough", format(RichFormat::Strike)),
+        ("tool-code", "code", "", "Inline code", format(RichFormat::Code)),
+        ("tool-bullets", "format_list_bulleted", "", "Bulleted list", kind(RichBlockKind::Bullet(0))),
+        ("tool-numbers", "format_list_numbered", "", "Numbered list", kind(RichBlockKind::Numbered(0))),
         (
             "tool-checklist",
             "checklist",
             "",
             "Checklist",
-            Tool::Kind(BlockKind::Check {
+            kind(RichBlockKind::Check(RichCheck {
                 indent: 0,
                 checked: false,
-            }),
+            })),
         ),
-        ("tool-outdent", "format_indent_decrease", "", "Outdent", Tool::Indent(-1)),
-        ("tool-indent", "format_indent_increase", "", "Indent", Tool::Indent(1)),
-        ("tool-quote", "format_quote", "", "Quote", Tool::Kind(BlockKind::Quote)),
+        ("tool-outdent", "format_indent_decrease", "", "Outdent", Tool::Command(RichTextCommand::Outdent)),
+        ("tool-indent", "format_indent_increase", "", "Indent", Tool::Command(RichTextCommand::Indent)),
+        ("tool-quote", "format_quote", "", "Quote", Tool::Command(RichTextCommand::ToggleQuote)),
         (
             "tool-codeblock",
             "data_object",
             "",
             "Code block",
-            Tool::Kind(BlockKind::Code {
-                lang: String::new(),
-            }),
+            kind(RichBlockKind::Code(AzString::from(""))),
         ),
         ("tool-link", "link", "", "Link", Tool::Link),
-        ("tool-rule", "horizontal_rule", "", "Horizontal rule", Tool::Rule),
+        ("tool-rule", "horizontal_rule", "", "Horizontal rule", Tool::Command(RichTextCommand::InsertRule)),
     ]
 }
 
-/// The formatting toolbar; the block kind the caret is in shows pressed.
+/// The formatting toolbar; the block kind and the formats at the caret
+/// show pressed.
 fn toolbar(s: &AppState, app: &RefAny, look: &Look) -> Dom {
-    let current = s
-        .open_note()
-        .and_then(|n| n.doc.blocks.get(s.editor.caret_block))
-        .map(|b| b.kind.clone());
     let mut row = Dom::create_div()
         .with_id("format-toolbar")
         .with_accessibility_name("Formatting")
@@ -861,8 +855,12 @@ fn toolbar(s: &AppState, app: &RefAny, look: &Look) -> Dom {
             look.line
         ));
     for (id, icon, label, name, tool) in tools() {
-        let pressed = match (&tool, &current) {
-            (Tool::Kind(kind), Some(c)) => kind.same_family(c),
+        let pressed = match &tool {
+            Tool::Command(RichTextCommand::ToggleKind(kind)) => s.editor.is_current_kind(kind.clone()),
+            Tool::Command(RichTextCommand::ToggleFormat(format)) => {
+                s.editor.is_current_format(format.clone())
+            }
+            Tool::Command(RichTextCommand::ToggleQuote) => s.editor.is_current_quoted(),
             _ => false,
         };
         let mut button = Button::create(label).with_on_click(
@@ -904,14 +902,10 @@ extern "C" fn on_tool(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     let s = &mut *guard;
-    let _ = editor::sync_text(s, &mut info, false);
     let update = match tool {
-        Tool::Kind(kind) => editor::toggle_kind(s, &mut info, kind),
-        Tool::Format(format) => editor::toggle_format(s, &mut info, format, true),
-        Tool::Indent(delta) => editor::indent(s, &mut info, delta),
-        Tool::Rule => editor::insert_rule(s, &mut info),
+        Tool::Command(command) => editor::run(s, &mut info, command),
         Tool::Link => {
-            open_link_sheet(s, &info);
+            open_link_sheet(s, &mut info);
             Update::RefreshDom
         }
     };
@@ -1065,19 +1059,11 @@ fn reading_pane(s: &AppState, app: &RefAny, look: &Look) -> Dom {
     pane.add_child(toolbar(s, app, look));
 
     // The text, scrolling.
-    let view = editor::View {
-        doc: &note.doc,
-        notebook: &note.notebook,
-        images: &s.images,
-        look,
-        font_px: s.settings.text_size.px(),
-        interactive: true,
-    };
     pane.add_child(
         Dom::create_div()
             .with_id("note-scroll")
             .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; overflow-y: auto; padding: 8px 32px 0px 32px;")
-            .with_child(editor::host_dom(&view, app)),
+            .with_child(editor::editor_dom(s, app, note)),
     );
     pane
 }
@@ -1117,7 +1103,7 @@ fn commit_tag(s: &mut AppState, info: &mut CallbackInfo) -> bool {
     let draft = s.tag_draft.trim().trim_matches(',').to_string();
     s.tag_draft.clear();
     // The editor's typing first: the acknowledgment covers every editor.
-    let _ = editor::sync_text(s, info, false);
+    let _ = editor::sync(s, info);
     info.mark_text_revision_synced(info.get_document_text_revision());
     if draft.is_empty() {
         return false;
@@ -1175,7 +1161,7 @@ extern "C" fn on_tag_remove(mut data: RefAny, mut info: CallbackInfo, _chip: Chi
         return Update::DoNothing;
     };
     let s = &mut *guard;
-    let _ = editor::sync_text(s, &mut info, false);
+    let _ = editor::sync(s, &mut info);
     let removed = s.open_note_mut().is_some_and(|n| n.remove_tag(&tag));
     if removed {
         s.edited();
@@ -1240,27 +1226,21 @@ extern "C" fn on_export_pdf(mut data: RefAny, mut info: CallbackInfo) -> Update 
 /// The open note as a PDF (A4 at 96 dpi), through azul's paged pipeline;
 /// the state is let go before the render.
 fn export_pdf(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-    let app = data.clone();
     let (name, dom) = {
         let Some(mut guard) = data.downcast_mut::<AppState>() else {
             return Update::DoNothing;
         };
         let s = &mut *guard;
-        let _ = editor::sync_text(s, info, false);
+        let _ = editor::sync(s, info);
         let Some(note) = s.open_note() else {
             return Update::DoNothing;
         };
-        let view = editor::View {
-            doc: &note.doc,
-            notebook: &note.notebook,
-            images: &s.images,
-            look: &look::LIGHT,
-            font_px: 15.0,
-            interactive: false,
-        };
         let page = Dom::create_body()
-            .with_css("margin: 0px; padding: 72px; background: white; font-family: sans-serif;")
-            .with_child(editor::print_dom(&view, note.display_title(), &app));
+            .with_css(format!(
+                "margin: 0px; padding: 72px; background: white; color: {}; font-family: sans-serif;",
+                look::LIGHT.text
+            ))
+            .with_child(editor::print_dom(s, note, &note.doc, note.display_title(), 15.0));
         (export_name(note.display_title(), "pdf"), page)
     };
     let bytes = azul::pdf::Pdf::create()
@@ -1285,7 +1265,7 @@ extern "C" fn on_export_markdown(mut data: RefAny, mut info: CallbackInfo) -> Up
 /// The open note's file as it is on disk (front matter and Markdown).
 fn export_markdown(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
     with_state(data, info, |s, info, _| {
-        let _ = editor::sync_text(s, info, false);
+        let _ = editor::sync(s, info);
         let Some(note) = s.open_note() else {
             return Update::DoNothing;
         };
@@ -1412,35 +1392,33 @@ fn overlay_dom(s: &AppState, app: &RefAny, look: &Look) -> Dom {
 }
 
 /// Opens the link sheet for the editor's selection (taken now: the sheet's
-/// field takes the focus).
-pub fn open_link_sheet(s: &mut AppState, info: &CallbackInfo) {
-    let (spans, block) = match editor::host_node(info, editor::root_dom()) {
-        Some(host) => (
-            editor::selection(info, host),
-            editor::caret(info, host).map_or(s.editor.caret_block, |(b, _)| b),
-        ),
-        None => (Vec::new(), s.editor.caret_block),
-    };
+/// field takes the focus); its address field starts with the link the
+/// selection (or the caret) is on.
+pub fn open_link_sheet(s: &mut AppState, info: &mut CallbackInfo) {
+    let _ = editor::sync(s, info);
+    let spans = editor::selection(s, info);
+    let (block, at) = spans
+        .first()
+        .map_or((s.editor.caret_block, s.editor.caret_byte), |(b, start, _)| (*b, *start));
     let url = s
-        .open_note()
-        .and_then(|n| {
-            spans.first().and_then(|(b, start, _)| {
-                n.doc.blocks.get(*b).and_then(|blk| {
-                    let mut at = 0usize;
-                    blk.runs.iter().find_map(|r| {
-                        let hit = at <= *start && *start < at + r.text.len();
-                        at += r.text.len();
-                        if hit {
-                            r.link.clone()
-                        } else {
-                            None
-                        }
-                    })
-                })
+        .editor
+        .doc
+        .blocks
+        .get(block)
+        .and_then(|blk| {
+            let mut offset = 0usize;
+            blk.runs.iter().find_map(|r| {
+                let len = r.text.as_str().len();
+                let hit = offset <= at && at < offset + len.max(1);
+                offset += len;
+                match &r.link {
+                    azul::option::OptionString::Some(link) if hit => Some(link.as_str().to_string()),
+                    _ => None,
+                }
             })
         })
         .unwrap_or_default();
-    s.overlay = Overlay::Link { url, spans, block };
+    s.overlay = Overlay::Link { url, spans };
 }
 
 extern "C" fn on_sheet_text(mut data: RefAny, mut info: CallbackInfo, field: TextInputState) -> OnTextInputReturn {
@@ -1504,7 +1482,7 @@ extern "C" fn on_link_remove(mut data: RefAny, mut info: CallbackInfo) -> Update
         if let Overlay::Link { url, .. } = &mut s.overlay {
             url.clear();
         }
-        apply_link(s, None);
+        apply_link(s, info, None);
         s.overlay = Overlay::None;
         editor::focus_editor(info);
         Update::RefreshDom
@@ -1512,32 +1490,12 @@ extern "C" fn on_link_remove(mut data: RefAny, mut info: CallbackInfo) -> Update
 }
 
 /// Links the sheet's selection to `url` (`None`: unlinks it); with nothing
-/// selected, the address is added at the end of the caret's block as its
-/// own linked text.
-fn apply_link(s: &mut AppState, url: Option<String>) {
-    let Overlay::Link { spans, block, .. } = s.overlay.clone() else {
+/// selected, the address goes in at the caret as its own linked text.
+fn apply_link(s: &mut AppState, info: &mut CallbackInfo, url: Option<String>) {
+    let Overlay::Link { spans, .. } = s.overlay.clone() else {
         return;
     };
-    let Some(note) = s.open_note_mut() else {
-        return;
-    };
-    let mut changed = false;
-    if spans.is_empty() {
-        if let (Some(url), Some(b)) = (url, note.doc.blocks.get_mut(block)) {
-            if b.kind.has_text() && !matches!(b.kind, BlockKind::Code { .. }) {
-                b.runs.push(crate::doc::Run::plain(url.clone()).linked(url));
-                changed = true;
-            }
-        }
-    } else {
-        for (b, start, end) in spans {
-            changed |= note.doc.set_link(b, start, end, url.clone());
-        }
-    }
-    if changed {
-        note.doc.normalize();
-        s.edited();
-    }
+    let _ = editor::link(s, info, &spans, url);
 }
 
 /// The sheet's main button (or Enter in its field).
@@ -1574,7 +1532,7 @@ fn sheet_ok(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState) -> Update {
         },
         Overlay::Link { url, .. } => {
             let url = url.trim().to_string();
-            apply_link(s, if url.is_empty() { None } else { Some(url) });
+            apply_link(s, info, if url.is_empty() { None } else { Some(url) });
             s.overlay = Overlay::None;
             editor::focus_editor(info);
             Update::RefreshDom
@@ -2182,23 +2140,17 @@ fn history_screen(s: &AppState, app: &RefAny, look: &Look) -> Dom {
         )),
         Some(text) => {
             let (meta, doc) = crate::markdown::parse_note(text, 0);
-            let view_doc = editor::View {
-                doc: &doc,
-                notebook: &note.notebook,
-                images: &s.images,
-                look,
-                font_px: s.settings.text_size.px(),
-                interactive: false,
-            };
             let title = if meta.title.trim().is_empty() {
                 model::UNTITLED
             } else {
                 meta.title.as_str()
             };
-            detail.add_child(editor::print_dom(&view_doc, title, app).with_id("history-version"));
-            let then = crate::markdown::body_to_markdown(&doc);
-            let now = crate::markdown::body_to_markdown(&note.doc);
-            if let Some(diff) = model::line_diff(&then, &now) {
+            detail.add_child(
+                editor::print_dom(s, note, &doc, title, s.settings.text_size.px()).with_id("history-version"),
+            );
+            let then = doc.to_markdown();
+            let now = note.doc.to_markdown();
+            if let Some(diff) = model::line_diff(then.as_str(), now.as_str()) {
                 let mut changes = Dom::create_div().with_id("history-changes").with_css(format!(
                     "display: flex; flex-direction: column; margin-top: 18px; padding-top: 8px; \
                      border-top: 1px solid {}; font-family: monospace; font-size: 12px;",
@@ -2286,6 +2238,7 @@ extern "C" fn on_restore_version(mut data: RefAny, mut info: CallbackInfo) -> Up
         if let Some(host) = editor::host_node(info, editor::root_dom()) {
             info.reset_editor_content(host, false);
         }
+        s.editor = editor::state_for(&doc);
         if let Some(note) = s.library.get_mut(&id) {
             note.meta.title = meta.title;
             note.meta.tags = meta.tags;
@@ -2294,7 +2247,6 @@ extern "C" fn on_restore_version(mut data: RefAny, mut info: CallbackInfo) -> Up
             note.touch(now + 1);
             note.refresh();
         }
-        s.editor = editor::EditorState::default();
         s.screen = Screen::Notes;
         s.history = None;
         println!("AZNOTES_RESTORED {id}");

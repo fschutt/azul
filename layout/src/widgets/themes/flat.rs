@@ -6231,3 +6231,31 @@ pub fn button_toggled_face(
     };
     CssPropertyWithConditions::themed(bg(active), bg(dark_active)).to_vec()
 }
+
+// ==== rich_text_editor ====
+//
+// The flat rich-text editor is the mail panes' sheet (the page colour, the
+// ink, the UI face) in a hairline frame, under a toolbar strip of the
+// window surface closed by a hairline. The document on the sheet is the
+// user's content: the mode's system colours, the same in every theme.
+
+/// Flat's rich-text editor look.
+#[must_use]
+pub(crate) fn rich_text_editor_look() -> crate::widgets::rich_text_editor::RichTextEditorLook {
+    use super::decl;
+    let mut frame = decl::border(1).to_vec();
+    frame.extend(decl::themed_border_color(LIGHT_BD, DARK_BD));
+    let mut toolbar = decl::padding(2, 4, 2, 4).to_vec();
+    toolbar.extend(flat_strip_below());
+    crate::widgets::rich_text_editor::RichTextEditorLook {
+        frame,
+        toolbar,
+        page: flat_sheet(),
+    }
+}
+
+/// The flat rich-text editor's chrome (frame, toolbar strip, page).
+#[must_use]
+pub fn rich_text_editor(chrome: crate::widgets::rich_text_editor::RichTextEditorChrome) -> Dom {
+    crate::widgets::rich_text_editor::build_chrome(chrome, &rich_text_editor_look())
+}

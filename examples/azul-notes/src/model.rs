@@ -12,14 +12,24 @@
 //! ```
 //!
 //! A notebook is a `/` path (`Work/Offsite`): nested notebooks are nested
-//! folders. Nothing here knows azul.
+//! folders. The note's body is azul's `RichTextDoc` (the shared rich-text
+//! editor's document); nothing else here knows azul.
 
 use std::collections::BTreeSet;
 
-use crate::{
-    doc::{truncate_chars, Doc},
-    markdown::{self, Meta},
-};
+use azul::widgets::RichTextDoc;
+
+use crate::markdown::{self, Meta};
+
+/// `text` cut to `max` characters, with an ellipsis when cut.
+#[must_use]
+pub fn truncate_chars(text: &str, max: usize) -> String {
+    let mut out: String = text.chars().take(max).collect();
+    if text.chars().count() > max {
+        out.push('\u{2026}');
+    }
+    out
+}
 
 /// Every key of the app starts here.
 pub const NOTES_ROOT: &str = "notes/";
@@ -43,7 +53,7 @@ pub struct Note {
     /// `Work/Offsite`; a trashed note's starts with `.trash/`.
     pub notebook: String,
     pub meta: Meta,
-    pub doc: Doc,
+    pub doc: RichTextDoc,
     /// The file as last read or written: an identical save is skipped, a
     /// different file on disk is an edit made elsewhere.
     pub saved: String,
@@ -76,7 +86,7 @@ impl Note {
                 modified: now,
                 ..Meta::default()
             },
-            doc: Doc::new(),
+            doc: RichTextDoc::create(),
             saved: String::new(),
             moved_from: None,
             dirty: true,
@@ -159,7 +169,7 @@ impl Note {
         let mut hay = String::new();
         hay.push_str(&self.meta.title);
         hay.push('\n');
-        hay.push_str(&self.doc.plain_text());
+        hay.push_str(self.doc.plain_text().as_str());
         hay.push('\n');
         for tag in &self.meta.tags {
             hay.push('#');
@@ -169,7 +179,7 @@ impl Note {
         hay.push('\n');
         hay.push_str(self.home_notebook());
         self.haystack = hay.to_lowercase();
-        self.preview = self.doc.preview(&self.meta.title);
+        self.preview = self.doc.preview(self.meta.title.as_str()).as_str().to_string();
     }
 
     /// Marks the note as needing a save (without a new modified date: a
@@ -776,7 +786,7 @@ pub fn long_date(then: u64, offset: i64) -> String {
 #[must_use]
 pub fn status_text(note: &Note) -> String {
     let words = note.doc.word_count();
-    let (done, total) = note.doc.checklist();
+    let (done, total) = (note.doc.checklist_done(), note.doc.checklist_total());
     let mut out = format!("{words} word{}", if words == 1 { "" } else { "s" });
     if total > 0 {
         out.push_str(&format!(" | {done} of {total} done"));
@@ -854,7 +864,6 @@ pub fn row_preview(note: &Note) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::doc::{Block, BlockKind};
 
     const DAY: u64 = 86_400;
     /// 2026-09-30 12:00 UTC.
@@ -872,10 +881,7 @@ mod tests {
         let mut offsite = note("a", "Work/Offsite", "Offsite agenda", NOW - 3600);
         offsite.meta.pinned = true;
         offsite.meta.tags = vec!["planning".to_string()];
-        offsite.doc = Doc::from_blocks(vec![
-            Block::text(BlockKind::Heading(1), "Offsite agenda"),
-            Block::text(BlockKind::Bullet(0), "Bring laptops"),
-        ]);
+        offsite.doc = RichTextDoc::create_from_markdown("# Offsite agenda\n\n- Bring laptops\n");
         offsite.refresh();
         let mut standup = note("b", "Work/Meetings", "Standup notes", NOW - 600);
         standup.meta.tags = vec!["Planning".to_string(), "daily".to_string()];
@@ -1067,7 +1073,7 @@ mod tests {
     fn a_note_file_reads_back_into_the_same_note() {
         let mut n = note("a", "Work", "Offsite", NOW);
         n.meta.tags = vec!["work".to_string()];
-        n.doc = crate::markdown::markdown_to_doc("- [ ] book the room\n");
+        n.doc = RichTextDoc::create_from_markdown("- [ ] book the room\n");
         let file = n.to_file();
         let back = Note::from_file("notes/Work/a.md", &file, 0).expect("a note key");
         assert_eq!(back.meta, n.meta);

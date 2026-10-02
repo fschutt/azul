@@ -3,7 +3,8 @@
 //! Outlook 2010's message window, as a window of its own (`CallbackInfo::create_window`): the
 //! title row, a ribbon (Basic Text: Bold, Italic, Underline, Bullets, Numbering; Include: Attach
 //! File, Link; Save: Save, Discard), the header block (Send beside From, To, Cc, Bcc, Subject),
-//! the attachments, and the rich editor (`editor.rs`) on paper. Every compose window shares the
+//! the attachments, and azul's shared rich-text editor (`RichTextEditor`, the one AzNotes and
+//! AzWriter use) on paper. Every compose window shares the
 //! app's state; its layout callback finds ITS compose by the key it carries in the callback's
 //! context (`LayoutCallback::ctx`, read with `LayoutCallbackInfo::get_ctx`).
 //!
@@ -19,28 +20,30 @@ use std::path::PathBuf;
 
 use azul::{
     callbacks::{
-        ButtonOnClickCallbackType, ResumeCallbackType, TextInputOnTextInputCallbackType,
-        TimerCallbackInfo, TimerCallbackReturn,
+        ButtonOnClickCallbackType, ResumeCallbackType, RichTextEditorOnChangeCallbackType,
+        TextInputOnTextInputCallbackType, TimerCallbackInfo, TimerCallbackReturn,
     },
     dialog::{FileDialog, FileOpenMultiResult},
-    dom::{DomId, FocusTarget, TextFormat, VirtualKeyCode},
+    dom::{DomId, FocusTarget, VirtualKeyCode},
     option::{OptionFileTypeList, OptionString},
     prelude::*,
     shells::{DocumentShell, ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
     task::{TimerId, Timer},
     time::{Duration, SystemTimeDiff},
+    vec::RichTextSpanVec,
     widgets::{
         AlertKind, ButtonType, InfoBar, OnTextInputReturn, Ribbon, RibbonButton, RibbonGroup,
-        RibbonItem, RibbonTab, StatusBar, StatusBarSegment, TextInputState, TextInputValid,
-        Titlebar,
+        RibbonItem, RibbonTab, RichBlockKind, RichFormat, RichTextCommand, RichTextDoc,
+        RichTextEditor, RichTextEditorState, StatusBar, StatusBarSegment, TextInputState,
+        TextInputValid, Titlebar,
     },
     window::WindowDecorations,
 };
 
 use crate::{
-    compose::{self, ComposeFields, ComposeKind, MailDoc, StartFields},
-    editor, message, send,
+    compose::{self, ComposeFields, ComposeKind, StartFields},
+    message, send,
     store::LocalFolder,
     with_app, MailApp,
 };
@@ -59,8 +62,9 @@ pub(crate) struct Compose {
     pub(crate) cc: String,
     pub(crate) bcc: String,
     pub(crate) subject: String,
-    /// The editor's model: the contenteditable host with its blocks (`editor.rs`).
-    pub(crate) body: Dom,
+    /// The body: the shared rich-text editor's state (its document, its ONE undo history, the
+    /// caret), as its `on_change` last handed it over.
+    pub(crate) body: RichTextEditorState,
     pub(crate) in_reply_to: Option<String>,
     pub(crate) references: Vec<String>,
     pub(crate) attachments: Vec<AttachedFile>,
@@ -70,6 +74,8 @@ pub(crate) struct Compose {
     /// The Insert Link field is shown, and its text.
     pub(crate) show_link: bool,
     pub(crate) link: String,
+    /// The body's selection when the Insert Link field opened (the field takes the focus).
+    pub(crate) link_spans: RichTextSpanVec,
     /// Changed since the window opened or the draft was last saved.
     pub(crate) edited: bool,
     /// The window's close was held back: the "Save changes?" bar is shown.
@@ -143,7 +149,7 @@ impl Compose {
             cc: self.cc.clone(),
             bcc: self.bcc.clone(),
             subject: self.subject.clone(),
-            body: editor::host_to_doc(&self.body),
+            body: self.body.doc.clone(),
             in_reply_to: self.in_reply_to.clone(),
             references: self.references.clone(),
         }
@@ -162,6 +168,17 @@ impl Compose {
             ComposeStatus::Sending | ComposeStatus::Saving | ComposeStatus::Queued(_)
         )
     }
+}
+
+/// The editor host's DOM id (scripts focus it as `#compose-body`; its blocks are
+/// `#compose-body-<index>`).
+pub const HOST_ID: &str = "compose-body";
+
+/// The editor state of a body that is starting.
+fn body_state(doc: RichTextDoc) -> RichTextEditorState {
+    let mut state = RichTextEditorState::create(doc);
+    state.host_id = AzString::from(HOST_ID);
+    state
 }
 
 /// The key a compose window's layout callback carries in its context.
@@ -207,16 +224,15 @@ pub(crate) fn open_compose(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny
         (ComposeKind::Reply | ComposeKind::ReplyAll, Some(view)) => {
             let fields = compose::reply_fields(view, &account.email, kind == ComposeKind::ReplyAll);
             let header = compose::quote_header(&header_date(&view.date), &view.from);
-            (fields, MailDoc::reply_quote(view, &header))
+            (fields, compose::reply_quote(view, &header))
         }
         (ComposeKind::Forward, Some(view)) => (
             compose::forward_fields(view),
-            MailDoc::forward_quote(view, &header_date(&view.date)),
+            compose::forward_quote(view, &header_date(&view.date)),
         ),
-        (ComposeKind::Draft, Some(view)) => {
-            (compose::draft_fields(view), MailDoc::from_plain(&view.text, 0))
-        }
-        _ => (StartFields::default(), MailDoc::empty()),
+        // A draft opens with its HTML part: its formats and links come back with it.
+        (ComposeKind::Draft, Some(view)) => (compose::draft_fields(view), compose::draft_body(view)),
+        _ => (StartFields::default(), RichTextDoc::create()),
     };
     let id = s.next_compose;
     s.next_compose += 1;
@@ -232,7 +248,7 @@ pub(crate) fn open_compose(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny
         cc: start.cc,
         bcc: start.bcc,
         subject: start.subject,
-        body: editor::doc_to_host(&body),
+        body: body_state(body),
         in_reply_to: start.in_reply_to,
         references: start.references,
         attachments: carried,
@@ -240,6 +256,7 @@ pub(crate) fn open_compose(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny
         status: ComposeStatus::Editing,
         show_link: false,
         link: String::new(),
+        link_spans: RichTextSpanVec::from_vec(Vec::new()),
         edited: false,
         asking_close: false,
         close_after_save: false,
@@ -280,7 +297,7 @@ extern "C" fn on_compose_created(mut data: RefAny, mut info: CallbackInfo) -> Up
 extern "C" fn on_caret_timer(_data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
     let mut callback_info = info.callback_info;
     let dom = DomId { inner: 0 };
-    let node = callback_info.get_node_id_by_id_attribute(dom, editor::HOST_ID);
+    let node = callback_info.get_node_id_by_id_attribute(dom, HOST_ID);
     if node.into_raw() == 0 {
         return if info.call_count > 50 {
             TimerCallbackReturn::terminate_unchanged()
@@ -409,14 +426,44 @@ fn compose_ribbon(c: &Compose, app: &RefAny) -> Dom {
     let small = |icon: &str, label: &str, action: ComposeAction| {
         RibbonItem::SmallButton(button(icon, label, action))
     };
+    // Pressed: what the caret's text and block are.
+    let toggle = |icon: &str, label: &str, action: ComposeAction, on: bool| {
+        RibbonItem::SmallButton(button(icon, label, action).with_toggled(on))
+    };
+    let body = &c.body;
     let message = RibbonTab::create("Message")
         .with_group(
             RibbonGroup::create("Basic Text")
-                .with_item(small("format_bold", "Bold", ComposeAction::Bold))
-                .with_item(small("format_italic", "Italic", ComposeAction::Italic))
-                .with_item(small("format_underlined", "Underline", ComposeAction::Underline))
-                .with_item(small("format_list_bulleted", "Bullets", ComposeAction::Bullets))
-                .with_item(small("format_list_numbered", "Numbering", ComposeAction::Numbering)),
+                .with_item(toggle(
+                    "format_bold",
+                    "Bold",
+                    ComposeAction::Bold,
+                    body.is_current_format(RichFormat::Bold),
+                ))
+                .with_item(toggle(
+                    "format_italic",
+                    "Italic",
+                    ComposeAction::Italic,
+                    body.is_current_format(RichFormat::Italic),
+                ))
+                .with_item(toggle(
+                    "format_underlined",
+                    "Underline",
+                    ComposeAction::Underline,
+                    body.is_current_format(RichFormat::Underline),
+                ))
+                .with_item(toggle(
+                    "format_list_bulleted",
+                    "Bullets",
+                    ComposeAction::Bullets,
+                    body.is_current_kind(RichBlockKind::Bullet(0)),
+                ))
+                .with_item(toggle(
+                    "format_list_numbered",
+                    "Numbering",
+                    ComposeAction::Numbering,
+                    body.is_current_kind(RichBlockKind::Numbered(0)),
+                )),
         )
         .with_group(
             RibbonGroup::create("Include")
@@ -595,27 +642,29 @@ fn attachments_row(c: &Compose, app: &RefAny) -> Dom {
     row
 }
 
-/// The editor: the model's host, with the engine's edit events.
+/// The editor: the shared rich-text editor on white paper (a mail body, whatever the app's
+/// mode); every change comes back through `on_compose_body_change`.
 fn editor_dom(c: &Compose, app: &RefAny) -> Dom {
-    let host = c
-        .body
-        .clone()
-        .with_callback(
-            EventFilter::Focus(FocusEventFilter::TextChanged),
+    let editor = RichTextEditor::create(c.body.clone())
+        .with_id(HOST_ID)
+        .with_accessibility_name("Message body")
+        .with_paragraph_spacing(0.0)
+        .with_on_change(
             compose_ref(app, c.id),
-            on_compose_text_changed,
-        )
-        .with_callback(
-            EventFilter::Focus(FocusEventFilter::DocumentEdit),
-            compose_ref(app, c.id),
-            on_compose_document_edit,
+            on_compose_body_change as RichTextEditorOnChangeCallbackType,
         );
+    let paper = Dom::create_div()
+        .with_css(
+            "display: flex; flex-direction: column; flex-grow: 1; min-height: 160px; \
+             background: #ffffff; color: #1a1a1a; font-family: sans-serif; overflow-y: auto;",
+        )
+        .with_child(editor.content_dom());
     Dom::create_div()
         .with_css(
             "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; padding: 0px \
              14px 14px 14px;",
         )
-        .with_child(host)
+        .with_child(paper)
 }
 
 /// The status line: what Save / Send did.
@@ -685,45 +734,25 @@ extern "C" fn on_compose_field(mut data: RefAny, _info: CallbackInfo, state: Tex
     }
 }
 
-/// Typing in the editor: the text goes into the model (no rebuild).
-extern "C" fn on_compose_text_changed(mut data: RefAny, mut info: CallbackInfo) -> Update {
+/// The editor's new state (typing, Enter, a paste, a format, an undo): the compose keeps it.
+extern "C" fn on_compose_body_change(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: RichTextEditorState,
+) -> Update {
     let Some((mut app, id)) = target_of(&mut data) else {
-        return Update::DoNothing;
-    };
-    let Some(host) = editor::host_node(&info) else {
         return Update::DoNothing;
     };
     let _ = with_compose(&mut app, id, |s, at, _| {
         let c = &mut s.composes[at];
-        c.edited = true;
-        editor::sync_text(&mut c.body, &mut info, host);
+        c.edited |= c.body.doc != state.doc;
+        c.body = state;
     });
     Update::DoNothing
 }
 
-/// Enter, Backspace / Delete across blocks, a paste: the engine's structural edit goes into the
-/// model, and the window rebuilds from it.
-extern "C" fn on_compose_document_edit(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some((mut app, id)) = target_of(&mut data) else {
-        return Update::DoNothing;
-    };
-    let Some(host) = editor::host_node(&info) else {
-        return Update::DoNothing;
-    };
-    with_compose(&mut app, id, |s, at, _| {
-        s.composes[at].edited = true;
-        let body = &mut s.composes[at].body;
-        editor::sync_text(body, &mut info, host);
-        if editor::apply_structural_edit(body, &mut info, host) {
-            Update::RefreshDom
-        } else {
-            Update::DoNothing
-        }
-    })
-    .unwrap_or(Update::DoNothing)
-}
-
-/// Ctrl/Cmd+Enter sends, Ctrl/Cmd+S saves the draft (Ctrl/Cmd+B / I / U are the editor's own).
+/// Ctrl/Cmd+Enter sends, Ctrl/Cmd+S saves the draft (Ctrl/Cmd+B / I / U - at a caret and over
+/// a selection - are the editor's own).
 extern "C" fn on_compose_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((mut app, id)) = target_of(&mut data) else {
         return Update::DoNothing;
@@ -779,69 +808,49 @@ extern "C" fn on_compose_action(mut data: RefAny, mut info: CallbackInfo) -> Upd
     run_compose_action(&mut app, &mut info, id, action)
 }
 
-/// The editor's model brought up to date with what was typed, then `f` on it; when `f`
-/// changed the model, the editor takes it (`reset_editor_content`: the engine's typing gives
-/// way to the new content, the caret goes to the end) and the window rebuilds.
-fn edit_model(
-    s: &mut MailApp,
-    at: usize,
-    info: &mut CallbackInfo,
-    f: impl FnOnce(&mut Dom, &CallbackInfo, azul::dom::DomNodeId) -> bool,
-) -> Update {
-    let Some(host) = editor::host_node(info) else {
-        return Update::DoNothing;
-    };
-    let body = &mut s.composes[at].body;
-    editor::sync_text(body, info, host);
-    if f(body, info, host) {
-        info.reset_editor_content(host, true);
-        Update::RefreshDom
-    } else {
-        Update::DoNothing
-    }
+/// Runs `command` on the body (after what was typed is folded in); a change marks the message
+/// edited.
+fn edit_body(s: &mut MailApp, at: usize, info: &mut CallbackInfo, command: RichTextCommand) -> Update {
+    let c = &mut s.composes[at];
+    let before = c.body.revision;
+    let update = c.body.apply_command(*info, command);
+    c.edited |= c.body.revision != before;
+    c.body.focus(*info);
+    update
 }
 
 fn run_compose_action(app: &mut RefAny, info: &mut CallbackInfo, id: u64, action: ComposeAction) -> Update {
     with_compose(app, id, |s, at, app| {
-        if matches!(
-            action,
-            ComposeAction::Bold
-                | ComposeAction::Italic
-                | ComposeAction::Underline
-                | ComposeAction::Bullets
-                | ComposeAction::Numbering
-                | ComposeAction::InsertLink
-                | ComposeAction::RemoveAttachment(_)
-        ) {
+        if matches!(action, ComposeAction::RemoveAttachment(_)) {
             s.composes[at].edited = true;
         }
         match action {
             ComposeAction::Bold | ComposeAction::Italic | ComposeAction::Underline => {
-                let (wrapper, format) = match action {
-                    ComposeAction::Bold => (Dom::create_b(), TextFormat::Bold),
-                    ComposeAction::Italic => (Dom::create_i(), TextFormat::Italic),
-                    _ => (Dom::create_u(), TextFormat::Underline),
+                // Over a selection: set, or off again when it is all set (Bold twice is plain
+                // again); at a caret: what is typed next.
+                let format = match action {
+                    ComposeAction::Bold => RichFormat::Bold,
+                    ComposeAction::Italic => RichFormat::Italic,
+                    _ => RichFormat::Underline,
                 };
-                let wrapped = edit_model(s, at, info, |body, info, host| {
-                    editor::wrap_selection(body, info, host, &wrapper)
-                });
-                if wrapped == Update::DoNothing {
-                    // No selection: the format applies to what is typed next.
-                    if let Some(host) = editor::host_node(info) {
-                        info.toggle_text_format(host, format);
-                    }
-                }
-                wrapped
+                edit_body(s, at, info, RichTextCommand::ToggleFormat(format))
             }
             ComposeAction::Bullets | ComposeAction::Numbering => {
-                let ordered = action == ComposeAction::Numbering;
-                edit_model(s, at, info, |body, info, host| {
-                    editor::toggle_list(body, info, host, ordered)
-                })
+                let kind = if action == ComposeAction::Numbering {
+                    RichBlockKind::Numbered(0)
+                } else {
+                    RichBlockKind::Bullet(0)
+                };
+                edit_body(s, at, info, RichTextCommand::ToggleKind(kind))
             }
             ComposeAction::ToggleLink => {
                 let c = &mut s.composes[at];
                 c.show_link = !c.show_link;
+                // The address field takes the focus: the selection to link is kept now.
+                if c.show_link {
+                    let _ = c.body.sync(*info);
+                    c.link_spans = c.body.get_selection(*info);
+                }
                 Update::RefreshDom
             }
             ComposeAction::InsertLink => {
@@ -856,17 +865,15 @@ fn run_compose_action(app: &mut RefAny, info: &mut CallbackInfo, id: u64, action
                 } else {
                     format!("https://{href}")
                 };
-                let update = edit_model(s, at, info, |body, info, host| {
-                    editor::insert_link(body, info, host, &href, "")
-                });
                 let c = &mut s.composes[at];
+                let spans = core::mem::replace(&mut c.link_spans, RichTextSpanVec::from_vec(Vec::new()));
+                let before = c.body.revision;
+                let _ = c.body.set_link_on(*info, spans, href);
+                c.edited |= c.body.revision != before;
                 c.show_link = false;
                 c.link.clear();
-                if update == Update::DoNothing {
-                    Update::RefreshDom
-                } else {
-                    update
-                }
+                c.body.focus(*info);
+                Update::RefreshDom
             }
             ComposeAction::AttachFile => {
                 let _request = FileDialog::open_multiple_files(
@@ -898,8 +905,8 @@ fn run_compose_action(app: &mut RefAny, info: &mut CallbackInfo, id: u64, action
                     c.asking_close = false;
                     c.close_after_save = true;
                 }
-                if let Some(host) = editor::host_node(info) {
-                    editor::sync_text(&mut s.composes[at].body, info, host);
+                if s.composes[at].body.sync(*info) {
+                    s.composes[at].edited = true;
                 }
                 let send = action == ComposeAction::Send;
                 let fields = s.composes[at].fields();
@@ -1169,7 +1176,7 @@ mod tests {
             cc: String::new(),
             bcc: String::new(),
             subject: String::from("Re: Garden"),
-            body: Dom::create_div(),
+            body: body_state(RichTextDoc::create()),
             in_reply_to: None,
             references: Vec::new(),
             attachments: Vec::new(),
@@ -1177,6 +1184,7 @@ mod tests {
             status: ComposeStatus::Editing,
             show_link: false,
             link: String::new(),
+            link_spans: RichTextSpanVec::from_vec(Vec::new()),
             edited: false,
             asking_close: false,
             close_after_save: false,

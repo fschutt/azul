@@ -7808,3 +7808,31 @@ pub fn button_toggled_face(
     };
     CssPropertyWithConditions::themed(layers(light), layers(dark)).to_vec()
 }
+
+// ==== rich_text_editor ====
+//
+// A flora rich-text editor is the leaf (--fl-sur, --fl-ink) in a --fl-bd
+// hairline frame, under a toolbar strip (--fl-strip) closed by a hairline.
+// The document on the leaf is the user's content: the mode's system
+// colours, the same in every theme.
+
+/// Flora's rich-text editor look.
+#[must_use]
+pub(crate) fn rich_text_editor_look() -> crate::widgets::rich_text_editor::RichTextEditorLook {
+    use super::decl;
+    let mut frame = decl::border(1).to_vec();
+    frame.extend(decl::themed_border_color(LIGHT_BD, DARK_BD));
+    let mut toolbar = decl::padding(2, 4, 2, 4).to_vec();
+    toolbar.extend(flora_strip_below());
+    crate::widgets::rich_text_editor::RichTextEditorLook {
+        frame,
+        toolbar,
+        page: flora_leaf(),
+    }
+}
+
+/// The flora rich-text editor's chrome (frame, toolbar strip, page).
+#[must_use]
+pub fn rich_text_editor(chrome: crate::widgets::rich_text_editor::RichTextEditorChrome) -> Dom {
+    crate::widgets::rich_text_editor::build_chrome(chrome, &rich_text_editor_look())
+}
