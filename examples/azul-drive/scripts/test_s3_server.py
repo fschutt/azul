@@ -250,6 +250,28 @@ class Objects(ServerTest):
         status, _, _ = self.client.request("DELETE", BUCKET, "docs/a b.txt")
         self.assertEqual(status, 204)
 
+    def test_a_copy_source_header_copies_the_object_inside_the_bucket(self):
+        status, _, body = self.client.request(
+            "PUT", BUCKET, "backup/digits copy.txt",
+            headers={"x-amz-copy-source": "/%s/digits.txt" % BUCKET})
+        self.assertEqual(status, 200)
+        self.assertEqual(local_name(ET.fromstring(body).tag), "CopyObjectResult")
+        self.assertEqual(self.get("backup/digits copy.txt")[2], b"0123456789")
+        self.assertEqual(self.get("digits.txt")[2], b"0123456789", "the source stays")
+        # The source is URL-encoded, with or without the leading slash.
+        self.seed("a b.txt", b"spaced")
+        status, _, _ = self.client.request(
+            "PUT", BUCKET, "c.txt", headers={"x-amz-copy-source": "%s/a%%20b.txt" % BUCKET})
+        self.assertEqual(status, 200)
+        self.assertEqual(self.get("c.txt")[2], b"spaced")
+
+    def test_a_copy_of_a_missing_source_is_404_and_writes_nothing(self):
+        status, _, body = self.client.request(
+            "PUT", BUCKET, "x.txt", headers={"x-amz-copy-source": "/%s/nope.txt" % BUCKET})
+        self.assertEqual(status, 404)
+        self.assertEqual(xml_code(body), "NoSuchKey")
+        self.assertFalse(os.path.exists(os.path.join(self.root, BUCKET, "x.txt")))
+
     def test_a_missing_key_is_404_no_such_key_and_head_has_no_body(self):
         status, _, body = self.get("nope.txt")
         self.assertEqual(status, 404)

@@ -561,3 +561,15 @@ fn a_copy_error_inside_a_200_answer_fails() {
         Err(DriveError::NotFound { .. })
     ));
 }
+
+#[test]
+fn a_copy_the_service_does_not_confirm_fails() {
+    // A 200 without a CopyObjectResult is no copy (a server that ignored
+    // `x-amz-copy-source` wrote an empty object).
+    let fake = Fake::default();
+    fake.answer(200, &[], "");
+    assert!(matches!(
+        local_drive(&fake).copy("a.txt", "b.txt"),
+        Err(DriveError::Protocol(_))
+    ));
+}
