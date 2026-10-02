@@ -888,4 +888,784 @@ pub struct PastedBlock {
     pub runs: Vec<RichRun>,
 }
 
-// RTE-DOC-EDITS: the document's edits follow (next commit).
+// ==== The document's edits ====
+
+impl RichTextDoc {
+    /// One empty paragraph: the caret's anchor in a new document.
+    #[must_use]
+    pub fn create() -> Self {
+        Self {
+            blocks: RichBlockVec::from_vec(vec![RichBlock::paragraph("")]),
+        }
+    }
+
+    /// `blocks`, normalized ([`Self::normalize`]).
+    #[must_use]
+    pub fn create_from_blocks(blocks: RichBlockVec) -> Self {
+        let mut doc = Self { blocks };
+        doc.normalize();
+        doc
+    }
+
+    /// `blocks`, normalized (Rust convenience).
+    #[must_use]
+    pub fn from_blocks(blocks: Vec<RichBlock>) -> Self {
+        Self::create_from_blocks(RichBlockVec::from_vec(blocks))
+    }
+
+    /// The blocks, as a slice.
+    #[must_use]
+    pub fn blocks(&self) -> &[RichBlock] {
+        self.blocks.as_ref()
+    }
+
+    /// How many blocks the document has.
+    #[must_use]
+    pub fn block_count(&self) -> usize {
+        self.blocks.as_ref().len()
+    }
+
+    /// Block `index`, if there is one.
+    #[must_use]
+    pub fn block(&self, index: usize) -> Option<&RichBlock> {
+        self.blocks.as_ref().get(index)
+    }
+
+    /// Block `index`, mutable.
+    pub fn block_mut(&mut self, index: usize) -> Option<&mut RichBlock> {
+        self.blocks.as_mut().get_mut(index)
+    }
+
+    /// The blocks as a plain vector (the document is left empty: put them
+    /// back with [`Self::put_blocks`]).
+    pub fn take_blocks(&mut self) -> Vec<RichBlock> {
+        core::mem::take(&mut self.blocks).into_library_owned_vec()
+    }
+
+    /// Puts `blocks` in as the document's blocks.
+    pub fn put_blocks(&mut self, blocks: Vec<RichBlock>) {
+        self.blocks = RichBlockVec::from_vec(blocks);
+    }
+
+    /// The canonical form: at least one block; runs merged; a block without
+    /// text without runs; a code block one plain run; headings 1..=6; a list
+    /// item at most one level deeper than the list item before it.
+    pub fn normalize(&mut self) {
+        let mut blocks = self.take_blocks();
+        if blocks.is_empty() {
+            blocks.push(RichBlock::paragraph(""));
+        }
+        let mut prev_indent: Option<u8> = None;
+        for block in &mut blocks {
+            let mut runs = block.runs_vec();
+            match &mut block.kind {
+                RichBlockKind::Heading(level) => *level = (*level).clamp(1, 6),
+                RichBlockKind::Code(_) => {
+                    let text = flatten(&runs);
+                    runs = if text.is_empty() {
+                        Vec::new()
+                    } else {
+                        vec![RichRun::plain(&text)]
+                    };
+                }
+                RichBlockKind::Rule
+                | RichBlockKind::Image(_)
+                | RichBlockKind::PageBreak
+                | RichBlockKind::Table(_) => runs.clear(),
+                _ => {}
+            }
+            if block.kind.is_list() {
+                let max = prev_indent.map_or(0, |p| p.saturating_add(1));
+                let indent = block.kind.indent().min(max);
+                block.kind = block.kind.with_indent(indent);
+                prev_indent = Some(indent);
+            } else {
+                prev_indent = None;
+            }
+            normalize_runs(&mut runs);
+            block.set_runs(runs);
+        }
+        self.put_blocks(blocks);
+    }
+
+    /// Every block's text, one line per block (search, word count, a
+    /// preview): an image as its text alternative, a table's cells split by
+    /// tabs and its rows by line breaks.
+    #[must_use]
+    pub fn plain_text(&self) -> String {
+        let mut out = String::new();
+        for (i, block) in self.blocks().iter().enumerate() {
+            if i > 0 {
+                out.push('\n');
+            }
+            match &block.kind {
+                RichBlockKind::Image(image) => out.push_str(image.alt.as_str()),
+                RichBlockKind::Table(table) => {
+                    for (r, row) in table.rows.as_ref().iter().enumerate() {
+                        if r > 0 {
+                            out.push('\n');
+                        }
+                        let cells: Vec<&str> =
+                            row.cells.as_ref().iter().map(AzString::as_str).collect();
+                        out.push_str(&cells.join("\t"));
+                    }
+                }
+                _ => out.push_str(&block.flat()),
+            }
+        }
+        out
+    }
+
+    /// How many words the document holds.
+    #[must_use]
+    pub fn word_count(&self) -> usize {
+        self.plain_text().split_whitespace().count()
+    }
+
+    /// No text at all (only whitespace, rules, page breaks).
+    #[must_use]
+    pub fn is_blank(&self) -> bool {
+        self.plain_text().trim().is_empty() && self.image_srcs().as_ref().is_empty()
+    }
+
+    /// The first line of text that is not `title` (a list's preview line),
+    /// at most 120 characters.
+    #[must_use]
+    pub fn preview(&self, title: &str) -> String {
+        for block in self.blocks() {
+            if !block.kind.has_text() {
+                continue;
+            }
+            let text = block.flat();
+            let line = text.lines().map(str::trim).find(|l| !l.is_empty());
+            let Some(line) = line else { continue };
+            if line == title.trim() {
+                continue;
+            }
+            return truncate_chars(line, 120);
+        }
+        String::new()
+    }
+
+    /// `(done, total)` of the checklist items.
+    #[must_use]
+    pub fn checklist(&self) -> (usize, usize) {
+        let mut done = 0;
+        let mut total = 0;
+        for block in self.blocks() {
+            if let RichBlockKind::Check(check) = &block.kind {
+                total += 1;
+                if check.checked {
+                    done += 1;
+                }
+            }
+        }
+        (done, total)
+    }
+
+    /// The ticked checklist items.
+    #[must_use]
+    pub fn checklist_done(&self) -> usize {
+        self.checklist().0
+    }
+
+    /// All checklist items.
+    #[must_use]
+    pub fn checklist_total(&self) -> usize {
+        self.checklist().1
+    }
+
+    /// The `src` of every image block, in order.
+    #[must_use]
+    pub fn image_srcs(&self) -> StringVec {
+        let srcs: Vec<AzString> = self
+            .blocks()
+            .iter()
+            .filter_map(|b| match &b.kind {
+                RichBlockKind::Image(image) => Some(image.src.clone()),
+                _ => None,
+            })
+            .collect();
+        StringVec::from_vec(srcs)
+    }
+
+    /// The number a numbered item shows: 1 + the numbered items at the same
+    /// indent (and quote depth) right before it (deeper items between them
+    /// do not break the count; anything else does).
+    #[must_use]
+    pub fn number_of(&self, index: usize) -> usize {
+        let blocks = self.blocks();
+        let Some(block) = blocks.get(index) else {
+            return 1;
+        };
+        let RichBlockKind::Numbered(indent) = block.kind else {
+            return 1;
+        };
+        let mut n = 1;
+        for prev in blocks[..index].iter().rev() {
+            if prev.quote_depth != block.quote_depth {
+                break;
+            }
+            match prev.kind {
+                RichBlockKind::Numbered(i) if i == indent => n += 1,
+                ref k if k.is_list() && k.indent() > indent => {}
+                _ => break,
+            }
+        }
+        n
+    }
+
+    /// The edited text of block `index` folded into its runs: the unchanged
+    /// prefix and suffix keep their formats, the new middle takes the format
+    /// of the run it was typed into - the run BEFORE the caret at a run
+    /// boundary (the browser rule: typing continues the format on the left)
+    /// - or `typing`, the typing style, when the edit inserted text at the
+    /// caret the style was set at. Returns whether anything changed.
+    pub fn sync_block_text(
+        &mut self,
+        index: usize,
+        new_text: &str,
+        typing: Option<RichFormats>,
+    ) -> bool {
+        let Some(block) = self.block_mut(index) else {
+            return false;
+        };
+        let old = block.flat();
+        if old == new_text {
+            return false;
+        }
+        if block.kind.is_code() {
+            let runs = if new_text.is_empty() {
+                Vec::new()
+            } else {
+                vec![RichRun::plain(new_text)]
+            };
+            block.set_runs(runs);
+            return true;
+        }
+        if !block.kind.has_text() {
+            return false;
+        }
+        let mut runs = block.runs_vec();
+        let (prefix, suffix) = text_diff(&old, new_text);
+        let middle = &new_text[prefix..new_text.len() - suffix];
+        let covered = isolate(&mut runs, prefix, old.len() - suffix);
+        // The format typed text takes: the run it replaced, else the run
+        // before the caret (typing continues the format on the left), else
+        // the run after it.
+        let mut template = runs
+            .get(covered.start)
+            .filter(|_| !covered.is_empty())
+            .or_else(|| covered.start.checked_sub(1).and_then(|i| runs.get(i)))
+            .or_else(|| runs.get(covered.start))
+            .cloned()
+            .unwrap_or_default();
+        if let Some(style) = typing {
+            template.formats = style;
+        }
+        let replacement: Vec<RichRun> = if middle.is_empty() {
+            Vec::new()
+        } else {
+            vec![template.with_text(middle)]
+        };
+        runs.splice(covered, replacement).for_each(drop);
+        normalize_runs(&mut runs);
+        block.set_runs(runs);
+        true
+    }
+
+    /// Sets the text of cell `column` of row `row` of table block `index`
+    /// (typing into a cell). Returns whether anything changed.
+    pub fn set_table_cell(&mut self, index: usize, row: usize, column: usize, text: &str) -> bool {
+        let Some(block) = self.block_mut(index) else {
+            return false;
+        };
+        let RichBlockKind::Table(table) = &mut block.kind else {
+            return false;
+        };
+        let Some(r) = table.rows.as_mut().get_mut(row) else {
+            return false;
+        };
+        let mut cells = r.cells.as_ref().to_vec();
+        if column >= cells.len() {
+            cells.resize(column + 1, AzString::from_const_str(""));
+        }
+        if cells[column].as_str() == text {
+            return false;
+        }
+        cells[column] = AzString::from(text);
+        r.cells = StringVec::from_vec(cells);
+        true
+    }
+
+    /// Splits block `index` at byte `at` of its text (Enter): the head stays,
+    /// the tail becomes a new block right after it, at the same quote depth
+    /// and alignment. A heading split at its end continues as a paragraph, a
+    /// list as a list item (a check item unchecked). The runs are cut, not
+    /// merged, so a run index stays the child index the engine resumes at.
+    /// A block without text gets an empty paragraph after it. Returns the
+    /// new block's index.
+    pub fn split_block(&mut self, index: usize, at: usize) -> Option<usize> {
+        if index >= self.block_count() {
+            return None;
+        }
+        let mut blocks = self.take_blocks();
+        let block = &mut blocks[index];
+        let (quote_depth, align) = (block.quote_depth, block.align);
+        if !block.kind.has_text() {
+            let next = RichBlock::paragraph("").with_quote_depth(quote_depth);
+            blocks.insert(index + 1, next);
+            self.put_blocks(blocks);
+            return Some(index + 1);
+        }
+        let len = block.len();
+        let flat = block.flat();
+        let at = floor_char_boundary(&flat, at.min(len));
+        let mut head = block.runs_vec();
+        let tail = split_runs(&mut head, at);
+        block.set_runs(head);
+        let kind = if at >= len {
+            block.kind.continuation()
+        } else {
+            match &block.kind {
+                RichBlockKind::Check(c) => RichBlockKind::Check(RichCheck {
+                    indent: c.indent,
+                    checked: false,
+                }),
+                other => other.clone(),
+            }
+        };
+        let next = RichBlock::new(kind, tail)
+            .with_quote_depth(quote_depth)
+            .with_align(align);
+        blocks.insert(index + 1, next);
+        self.put_blocks(blocks);
+        Some(index + 1)
+    }
+
+    /// Merges block `index` into the block before it (Backspace at a block's
+    /// start). A block without text before it (a rule, an image, a page
+    /// break, a table) is removed instead. `join_in_text` says the engine
+    /// resumes inside the first block's last text (the seam runs merge) or
+    /// before the second's first child (they stay apart). Returns the
+    /// surviving block's index.
+    pub fn merge_into_previous(&mut self, index: usize, join_in_text: bool) -> Option<usize> {
+        if index == 0 || index >= self.block_count() {
+            return None;
+        }
+        let mut blocks = self.take_blocks();
+        if !blocks[index - 1].kind.has_text() {
+            blocks.remove(index - 1);
+            self.put_blocks(blocks);
+            return Some(index - 1);
+        }
+        if !blocks[index].kind.has_text() {
+            // An image merged up: nothing to join; it stays after the text.
+            self.put_blocks(blocks);
+            return Some(index - 1);
+        }
+        let second = blocks.remove(index);
+        let first = &mut blocks[index - 1];
+        let mut runs = first.runs_vec();
+        if join_in_text {
+            for run in second.runs_vec() {
+                push_run(&mut runs, run);
+            }
+        } else {
+            runs.extend(
+                second
+                    .runs_vec()
+                    .into_iter()
+                    .filter(|r| !r.text.as_str().is_empty()),
+            );
+        }
+        first.set_runs(runs);
+        self.put_blocks(blocks);
+        Some(index - 1)
+    }
+
+    /// Replaces blocks `start..end` with ONE block whose text is `joined`
+    /// (a delete or a type-over across blocks): the kind, quote depth and
+    /// alignment and the formats of the kept head come from block `start`,
+    /// the kept tail's formats from block `end - 1`; typed text in between
+    /// takes the head's format.
+    pub fn replace_blocks(&mut self, start: usize, end: usize, joined: &str) -> bool {
+        if start >= end || end > self.block_count() {
+            return false;
+        }
+        let first = self.blocks()[start].clone();
+        let last = self.blocks()[end - 1].clone();
+        let first_text = first.flat();
+        let last_text = last.flat();
+        let first_runs = first.runs_vec();
+        let last_runs = last.runs_vec();
+        let (head, _) = text_diff(&first_text, joined);
+        let rest = &joined[head..];
+        let (_, tail) = text_diff(&last_text, rest);
+        let tail = tail.min(last_text.len());
+        let mut runs = slice_runs(&first_runs, 0, head);
+        let middle = &rest[..rest.len() - tail];
+        if !middle.is_empty() {
+            let template = first_runs.last().cloned().unwrap_or_default();
+            push_run(&mut runs, template.with_text(middle));
+        }
+        for run in slice_runs(&last_runs, last_text.len() - tail, last_text.len()) {
+            push_run(&mut runs, run);
+        }
+        let kind = if first.kind.has_text() {
+            first.kind.clone()
+        } else {
+            RichBlockKind::Paragraph
+        };
+        let merged = RichBlock::new(kind, runs)
+            .with_quote_depth(first.quote_depth)
+            .with_align(first.align);
+        let mut all = self.take_blocks();
+        all.splice(start..end, [merged]).for_each(drop);
+        self.put_blocks(all);
+        true
+    }
+
+    /// Replaces blocks `start..end` with `parts` (a paste of several blocks
+    /// over a selection): the first part keeps block `start`'s kind and the
+    /// formats of what it kept of it, the last part the formats of what it
+    /// kept of block `end - 1`; the parts between keep their own kind (a
+    /// paragraph when they name none) and runs. Every part is quoted at
+    /// least as deep as block `start`.
+    pub fn replace_with(&mut self, start: usize, end: usize, parts: Vec<PastedBlock>) -> bool {
+        if start >= end || end > self.block_count() || parts.is_empty() {
+            return false;
+        }
+        let first = self.blocks()[start].clone();
+        let last = self.blocks()[end - 1].clone();
+        let first_runs = first.runs_vec();
+        let last_runs = last.runs_vec();
+        let count = parts.len();
+        let mut out = Vec::with_capacity(count);
+        for (i, part) in parts.into_iter().enumerate() {
+            let PastedBlock {
+                kind,
+                quote_depth,
+                runs,
+            } = part;
+            let mut runs = runs;
+            if i == 0 {
+                let text = flatten(&runs);
+                let (head, _) = text_diff(&first.flat(), &text);
+                let mut merged = slice_runs(&first_runs, 0, head);
+                for run in slice_runs(&runs, head, text.len()) {
+                    push_run(&mut merged, run);
+                }
+                runs = merged;
+            }
+            if i + 1 == count {
+                let text = flatten(&runs);
+                let last_text = last.flat();
+                let (_, tail) = text_diff(&last_text, &text);
+                let mut merged = slice_runs(&runs, 0, text.len() - tail);
+                for run in slice_runs(&last_runs, last_text.len() - tail, last_text.len()) {
+                    push_run(&mut merged, run);
+                }
+                runs = merged;
+            }
+            let kind = if i == 0 && first.kind.has_text() {
+                first.kind.clone()
+            } else {
+                kind.filter(RichBlockKind::has_text)
+                    .unwrap_or(RichBlockKind::Paragraph)
+            };
+            normalize_runs(&mut runs);
+            let depth = if i == 0 {
+                first.quote_depth
+            } else {
+                first.quote_depth.saturating_add(quote_depth)
+            };
+            out.push(
+                RichBlock::new(kind, runs)
+                    .with_quote_depth(depth)
+                    .with_align(first.align),
+            );
+        }
+        let mut all = self.take_blocks();
+        all.splice(start..end, out).for_each(drop);
+        self.put_blocks(all);
+        true
+    }
+
+    /// Sets block `index`'s kind (its text stays; a code block's runs lose
+    /// their formats). A text block never becomes a block without text.
+    /// Returns whether it changed.
+    pub fn set_kind(&mut self, index: usize, kind: RichBlockKind) -> bool {
+        let Some(block) = self.block_mut(index) else {
+            return false;
+        };
+        if block.kind == kind || !kind.has_text() || !block.kind.has_text() {
+            return false;
+        }
+        block.kind = kind;
+        if block.kind.is_code() {
+            let text = block.flat();
+            let runs = if text.is_empty() {
+                Vec::new()
+            } else {
+                vec![RichRun::plain(&text)]
+            };
+            block.set_runs(runs);
+        }
+        true
+    }
+
+    /// The toolbar's block buttons: block `index` becomes `kind`, or a
+    /// paragraph again when it already is of that family. A list item keeps
+    /// its indent when it changes list kind.
+    pub fn toggle_kind(&mut self, index: usize, kind: RichBlockKind) -> bool {
+        let Some(block) = self.block(index) else {
+            return false;
+        };
+        let next = if block.kind.same_family(&kind) {
+            RichBlockKind::Paragraph
+        } else if block.kind.is_list() && kind.is_list() {
+            kind.with_indent(block.kind.indent())
+        } else {
+            kind
+        };
+        self.set_kind(index, next)
+    }
+
+    /// Applies a Markdown shortcut typed at the start of block `index`: the
+    /// trigger goes, the kind changes (or, `> `, the quote deepens). Returns
+    /// whether it applied.
+    pub fn apply_shortcut(&mut self, index: usize, shortcut: &RichShortcut) -> bool {
+        let Some(block) = self.block_mut(index) else {
+            return false;
+        };
+        let mut runs = block.runs_vec();
+        // `split_runs` leaves the trigger in `runs` and returns the rest,
+        // which the block keeps.
+        let mut rest = split_runs(&mut runs, shortcut.strip);
+        match &shortcut.kind {
+            Some(kind) => block.kind = kind.clone(),
+            None => block.quote_depth = block.quote_depth.saturating_add(1),
+        }
+        if block.kind.is_code() {
+            let text = flatten(&rest);
+            rest = if text.is_empty() {
+                Vec::new()
+            } else {
+                vec![RichRun::plain(&text)]
+            };
+        }
+        normalize_runs(&mut rest);
+        block.set_runs(rest);
+        true
+    }
+
+    /// Sets (`on`) or clears `format` over bytes `start..end` of block
+    /// `index`. Returns whether anything changed.
+    pub fn set_format(
+        &mut self,
+        index: usize,
+        start: usize,
+        end: usize,
+        format: RichFormat,
+        on: bool,
+    ) -> bool {
+        let Some(block) = self.block_mut(index) else {
+            return false;
+        };
+        if start >= end || block.kind.is_code() || !block.kind.has_text() {
+            return false;
+        }
+        let flat = block.flat();
+        let start = floor_char_boundary(&flat, start);
+        let end = floor_char_boundary(&flat, end).max(start);
+        if start == end {
+            return false;
+        }
+        let mut runs = block.runs_vec();
+        let covered = isolate(&mut runs, start, end);
+        if covered.is_empty() {
+            return false;
+        }
+        if runs[covered.clone()].iter().all(|r| r.has(format) == on) {
+            return false;
+        }
+        for run in &mut runs[covered] {
+            run.set(format, on);
+        }
+        normalize_runs(&mut runs);
+        block.set_runs(runs);
+        true
+    }
+
+    /// Toggles `format` over bytes `start..end` of block `index`: set on
+    /// every run when one of them lacks it, else cleared (Bold pressed twice
+    /// is plain again). Returns whether anything changed.
+    pub fn toggle_format(&mut self, index: usize, start: usize, end: usize, format: RichFormat) -> bool {
+        let on = !self.has_format(index, start, end, format);
+        self.set_format(index, start, end, format, on)
+    }
+
+    /// Whether every run over `start..end` of block `index` carries
+    /// `format` (a collapsed range asks the run before it).
+    #[must_use]
+    pub fn has_format(&self, index: usize, start: usize, end: usize, format: RichFormat) -> bool {
+        let Some(block) = self.block(index) else {
+            return false;
+        };
+        if start >= end {
+            return self.formats_at(index, start).has(format);
+        }
+        let runs = slice_runs(block.runs.as_ref(), start, end);
+        !runs.is_empty() && runs.iter().all(|r| r.has(format))
+    }
+
+    /// The formats text typed at byte `at` of block `index` takes without a
+    /// typing style: the run before the caret's (the run after it at a
+    /// block's start).
+    #[must_use]
+    pub fn formats_at(&self, index: usize, at: usize) -> RichFormats {
+        self.run_at(index, at)
+            .map_or(RichFormats::create(), |r| r.formats)
+    }
+
+    /// The link under byte `at` of block `index` (the run before the caret).
+    #[must_use]
+    pub fn link_at(&self, index: usize, at: usize) -> Option<String> {
+        self.run_at(index, at)
+            .and_then(|r| r.link_str().map(ToString::to_string))
+    }
+
+    /// The run the caret at byte `at` of block `index` continues.
+    fn run_at(&self, index: usize, at: usize) -> Option<&RichRun> {
+        let block = self.block(index)?;
+        let mut acc = 0usize;
+        let mut before: Option<&RichRun> = None;
+        for run in block.runs.as_ref() {
+            if acc >= at && acc > 0 {
+                break;
+            }
+            before = Some(run);
+            acc += run.text.as_str().len();
+        }
+        before
+    }
+
+    /// Links (or, `None`, unlinks) bytes `start..end` of block `index`.
+    pub fn set_link(&mut self, index: usize, start: usize, end: usize, url: Option<&str>) -> bool {
+        let Some(block) = self.block_mut(index) else {
+            return false;
+        };
+        if start >= end || !block.kind.has_text() || block.kind.is_code() {
+            return false;
+        }
+        let mut runs = block.runs_vec();
+        let covered = isolate(&mut runs, start, end);
+        if covered.is_empty() {
+            return false;
+        }
+        let link: OptionString = url.map(AzString::from).into();
+        for run in &mut runs[covered] {
+            run.link = link.clone();
+        }
+        normalize_runs(&mut runs);
+        block.set_runs(runs);
+        true
+    }
+
+    /// Indents (`delta > 0`) or outdents a list item; an outdent at level
+    /// 0 turns it into a paragraph. Returns whether it changed.
+    pub fn indent(&mut self, index: usize, delta: i8) -> bool {
+        let Some(block) = self.block(index) else {
+            return false;
+        };
+        if !block.kind.is_list() {
+            return false;
+        }
+        let indent = block.kind.indent();
+        if delta < 0 && indent == 0 {
+            return self.set_kind(index, RichBlockKind::Paragraph);
+        }
+        let max = match index
+            .checked_sub(1)
+            .and_then(|i| self.block(i))
+            .filter(|b| b.kind.is_list())
+        {
+            Some(prev) => prev.kind.indent().saturating_add(1),
+            None => 0,
+        };
+        let next = if delta > 0 {
+            indent.saturating_add(1).min(max)
+        } else {
+            indent - 1
+        };
+        if next == indent {
+            return false;
+        }
+        let kind = block.kind.with_indent(next);
+        if let Some(block) = self.block_mut(index) {
+            block.kind = kind;
+        }
+        true
+    }
+
+    /// Ticks or unticks check item `index`.
+    pub fn toggle_check(&mut self, index: usize) -> bool {
+        match self.block_mut(index).map(|b| &mut b.kind) {
+            Some(RichBlockKind::Check(check)) => {
+                check.checked = !check.checked;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Sets block `index`'s quote depth. Returns whether it changed.
+    pub fn set_quote_depth(&mut self, index: usize, depth: u8) -> bool {
+        match self.block_mut(index) {
+            Some(block) if block.quote_depth != depth => {
+                block.quote_depth = depth;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Sets block `index`'s alignment. Returns whether it changed.
+    pub fn set_align(&mut self, index: usize, align: RichAlign) -> bool {
+        match self.block_mut(index) {
+            Some(block) if block.align != align => {
+                block.align = align;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Inserts `block` after block `index` (at the end when out of range);
+    /// returns its index.
+    pub fn insert_after(&mut self, index: usize, block: RichBlock) -> usize {
+        let mut blocks = self.take_blocks();
+        let at = (index + 1).min(blocks.len());
+        blocks.insert(at, block);
+        self.put_blocks(blocks);
+        at
+    }
+
+    /// Removes block `index` (the document keeps one empty paragraph at
+    /// least). Returns whether there was one.
+    pub fn remove_block(&mut self, index: usize) -> bool {
+        let mut blocks = self.take_blocks();
+        let removed = index < blocks.len();
+        if removed {
+            blocks.remove(index);
+        }
+        if blocks.is_empty() {
+            blocks.push(RichBlock::paragraph(""));
+        }
+        self.put_blocks(blocks);
+        removed
+    }
+}
+
+// RTE-DOC-TESTS: the model's tests follow (next commit).
