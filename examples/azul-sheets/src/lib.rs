@@ -3167,7 +3167,7 @@ mod tests {
         let style = &cache.styles[1];
         assert!(style.bold);
         assert_eq!(style.align, CellGridHorizontalAlign::Right);
-        match style.fill {
+        match &style.fill {
             OptionColorU::Some(c) => assert_eq!((c.r, c.g, c.b), (255, 255, 0)),
             OptionColorU::None => panic!("the fill is mapped"),
         }
