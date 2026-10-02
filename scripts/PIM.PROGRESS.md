@@ -10,12 +10,15 @@ mail addresses, search, initials, one task store) + move AzCalendar / AzTasks / 
 - 4df836f84 RED / bea800bf3 GREEN: `mail_address`; AzCalendar attendees `"Lovelace, Ada" <..>` (B14, E4)
 - e77e7dcbb RED / 0d90994a8 GREEN: AzContacts form refuses `a@b@example.org`
 - c7b60675f AzMail compose.rs / account.rs re-export the shared address helpers
+- 4b4e9542e `content_line`; 6f3c26d67 AzContacts vcard.rs + AzCalendar ics.rs adopt it (B15)
+- 8425c80ad `task` + `task_store` + `testing::TempDir` (AzTasks model.rs / store load / order helpers moved;
+  AzTasks re-exports; Task::complete; default_list; DEFAULT_LIST "default" shows as "Tasks")
 
 ## IN PROGRESS
-- content_line module (pim) from AzContacts vcard.rs Property + AzCalendar ics.rs ContentLine
+- RED: pim task_store migration of azcalendar.task files (in place: Loaded.migrated; folder move:
+  migrate_calendar_tasks) + AzCalendar tasks.rs tests (reads/writes aztasks files, tasks_root)
 
 ## NEXT (in order)
-2. content_line module (vCard Property shape) + AzContacts vcard.rs / AzCalendar ics.rs adopt
 3. task + task_store (AzTasks model.rs + store load move; legacy azcalendar.task migration; RED first);
    AzCalendar To-Do bar on the shared store (root: Azlin root unless --data/AZCAL_DATA)
 4. search (fold + Query) + initials; Contacts/Tasks/Mail adopt

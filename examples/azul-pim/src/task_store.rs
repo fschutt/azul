@@ -8,6 +8,7 @@
 //! queues its writes, a To-Do bar puts one file at a time.
 
 use azul_storage::{Drive, DriveError, ListRequest};
+use chrono::NaiveDateTime;
 
 use crate::task::{
     self, list_from_json, settings_from_json, task_from_json, unnamed_list_name, KeyKind, Settings,
@@ -32,6 +33,9 @@ pub struct Loaded {
     pub tasks: Vec<Task>,
     pub settings: Option<Settings>,
     pub skipped: Vec<Skipped>,
+    /// The keys of task files read from an older format (AzCalendar's `azcalendar.task`): the
+    /// app that loaded them writes them back in the shared one.
+    pub migrated: Vec<String>,
 }
 
 /// Every key under `prefix`, `page` keys per listing call.
@@ -118,6 +122,19 @@ pub fn load_all_paged(drive: &dyn Drive, page: u32) -> Result<Loaded, DriveError
     out.lists
         .sort_by(|a, b| (a.order, a.name.to_lowercase()).cmp(&(b.order, b.name.to_lowercase())));
     Ok(out)
+}
+
+/// Moves the task files AzCalendar's To-Do bar wrote into its own data folder (`old`:
+/// `tasks/default/<uuid>.json`, format `azcalendar.task`) into the store (`store`), in the
+/// shared format and the list [`crate::task::DEFAULT_LIST`], and removes them from `old`. A task
+/// the store already has (the same id) is kept as it is. Returns how many moved.
+pub fn migrate_calendar_tasks(
+    old: &dyn Drive,
+    store: &dyn Drive,
+    now: NaiveDateTime,
+) -> Result<usize, DriveError> {
+    let _ = (old, store, now);
+    Ok(0)
 }
 
 #[cfg(test)]
@@ -258,5 +275,114 @@ mod tests {
         let loaded = load_all_paged(&drive, 2).unwrap();
         assert_eq!(loaded.tasks.len(), 7);
         assert_eq!(all_keys(&drive, "tasks/", 3).unwrap().len(), 8);
+    }
+
+    /// A task file as AzCalendar's To-Do bar wrote it.
+    fn calendar_file(id: &str, title: &str, done: bool) -> String {
+        format!(
+            "{{\n  \"format\": \"azcalendar.task\",\n  \"version\": 1,\n  \"id\": \"{id}\",\n  \
+             \"title\": \"{title}\",\n  \"done\": {done}\n}}\n"
+        )
+    }
+
+    const OLD_A: &str = "0b0f6f2e-5b8e-4c43-9a57-3f1f0d6f4b1a";
+    const OLD_B: &str = "11111111-2222-4333-8444-555555555555";
+
+    #[test]
+    fn a_task_file_azcalendar_wrote_loads_into_its_list_and_is_named_for_a_rewrite() {
+        let dir = TempDir::create();
+        let drive = LocalDrive::new(&dir.0);
+        let a = task_key("default", OLD_A);
+        let b = task_key("default", OLD_B);
+        drive
+            .put(&a, calendar_file(OLD_A, "Book the room", false).as_bytes())
+            .unwrap();
+        drive
+            .put(&b, calendar_file(OLD_B, "Agenda", true).as_bytes())
+            .unwrap();
+        put_all(&drive, &[], &[task("t1", WORK, 1)]);
+        let loaded = load_all(&drive).unwrap();
+        assert!(loaded.skipped.is_empty(), "{:?}", loaded.skipped);
+        let mut got: Vec<(&str, &str, &str, bool)> = loaded
+            .tasks
+            .iter()
+            .map(|t| {
+                (
+                    t.id.as_str(),
+                    t.list.as_str(),
+                    t.title.as_str(),
+                    t.is_done(),
+                )
+            })
+            .collect();
+        got.sort();
+        assert_eq!(
+            got,
+            vec![
+                (OLD_A, "default", "Book the room", false),
+                (OLD_B, "default", "Agenda", true),
+                ("t1", WORK, "task t1", false),
+            ]
+        );
+        let mut migrated = loaded.migrated.clone();
+        migrated.sort();
+        assert_eq!(migrated, vec![a, b]);
+        assert!(loaded
+            .lists
+            .iter()
+            .any(|l| l.id == "default" && l.name == "Tasks"));
+    }
+
+    #[test]
+    fn azcalendars_old_task_folder_moves_into_the_store_once() {
+        let dir = TempDir::create();
+        let old = LocalDrive::new(dir.0.join("AzCalendar"));
+        let store = LocalDrive::new(dir.0.join("Azlin"));
+        old.put(
+            &task_key("default", OLD_A),
+            calendar_file(OLD_A, "Book the room", true).as_bytes(),
+        )
+        .unwrap();
+        old.put(
+            &task_key("default", OLD_B),
+            calendar_file(OLD_B, "Agenda", false).as_bytes(),
+        )
+        .unwrap();
+        old.put("tasks/default/notes.txt", b"not a task").unwrap();
+        // The store already has OLD_B (AzTasks edited it after an earlier move): it stays.
+        let mut kept = task(OLD_B, "default", 1);
+        kept.title = "Agenda for Monday".into();
+        put_all(&store, &[], &[kept.clone()]);
+
+        assert_eq!(migrate_calendar_tasks(&old, &store, now()).unwrap(), 1);
+        let a = task_from_json(
+            &String::from_utf8(store.get(&task_key("default", OLD_A)).unwrap()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(a.title, "Book the room");
+        assert_eq!(a.list, "default");
+        assert!(a.is_done());
+        assert_eq!(a.created, now());
+        let b = task_from_json(
+            &String::from_utf8(store.get(&task_key("default", OLD_B)).unwrap()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(b, kept, "the store's copy wins");
+        assert!(
+            old.get(&task_key("default", OLD_A)).is_err(),
+            "moved, not copied"
+        );
+        assert!(old.get(&task_key("default", OLD_B)).is_err());
+        assert!(
+            old.get("tasks/default/notes.txt").is_ok(),
+            "not a task file: left alone"
+        );
+        assert_eq!(
+            migrate_calendar_tasks(&old, &store, now()).unwrap(),
+            0,
+            "once"
+        );
+        let empty = LocalDrive::new(dir.0.join("nothing"));
+        assert_eq!(migrate_calendar_tasks(&empty, &store, now()).unwrap(), 0);
     }
 }

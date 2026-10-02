@@ -127,6 +127,17 @@ pub fn load_all(data_dir: &Path) -> Vec<Task> {
     tasks
 }
 
+/// Where the To-Do bar's tasks live (not yet: the calendar's own folder).
+#[must_use]
+pub fn tasks_root(
+    named_data_dir: Option<&Path>,
+    tasks_var: Option<&str>,
+    user_data: Option<PathBuf>,
+) -> PathBuf {
+    let _ = (tasks_var, user_data);
+    named_data_dir.map(Path::to_path_buf).unwrap_or_default()
+}
+
 /// Open tasks first, then done ones, each by title.
 pub fn sort(tasks: &mut [Task]) {
     tasks.sort_by(|a, b| {
@@ -172,5 +183,86 @@ mod tests {
         .unwrap();
         assert!(load_all(&dir.0).is_empty());
         assert!(load_all(&dir.0.join("none")).is_empty());
+    }
+
+    const SHARED_ID: &str = "0b0f6f2e-5b8e-4c43-9a57-3f1f0d6f4b1a";
+
+    fn noon() -> chrono::NaiveDateTime {
+        chrono::NaiveDate::from_ymd_opt(2026, 10, 2)
+            .unwrap()
+            .and_hms_opt(12, 0, 0)
+            .unwrap()
+    }
+
+    #[test]
+    fn the_to_do_bar_reads_and_writes_the_task_files_aztasks_does() {
+        // DEDUP_EDITORS B12: one task store, tasks/<list>/<task-uuid>.json in AzTasks' format.
+        let dir = TempDir::create();
+        let folder = dir.0.join("tasks").join("inbox");
+        std::fs::create_dir_all(&folder).unwrap();
+        let file = folder.join(format!("{SHARED_ID}.json"));
+        let written = azul_pim::task::Task::new(
+            SHARED_ID.into(),
+            "inbox".into(),
+            "Pay rent".into(),
+            noon(),
+        );
+        std::fs::write(&file, azul_pim::task::task_to_json(&written)).unwrap();
+        let mut tasks = load_all(&dir.0);
+        assert_eq!(tasks.len(), 1, "AzTasks' task shows in the To-Do bar");
+        let mut first = tasks.remove(0);
+        assert_eq!(first.title, "Pay rent");
+        first.title = String::from("Pay the rent");
+        save(&dir.0, &first).unwrap();
+        let back = azul_pim::task::task_from_json(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        assert_eq!(back.title, "Pay the rent", "AzTasks reads what the To-Do bar wrote");
+        assert_eq!(back.list, "inbox");
+    }
+
+    #[test]
+    fn a_task_the_old_to_do_bar_wrote_is_read_and_rewritten_in_the_shared_format() {
+        let dir = TempDir::create();
+        let folder = dir.0.join("tasks").join("default");
+        std::fs::create_dir_all(&folder).unwrap();
+        let file = folder.join(format!("{SHARED_ID}.json"));
+        std::fs::write(
+            &file,
+            format!(
+                "{{\"format\": \"azcalendar.task\", \"version\": 1, \"id\": \"{SHARED_ID}\", \
+                 \"title\": \"Book the room\", \"done\": true}}"
+            ),
+        )
+        .unwrap();
+        let tasks = load_all(&dir.0);
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].title, "Book the room");
+        let back = azul_pim::task::task_from_json(&std::fs::read_to_string(&file).unwrap())
+            .expect("rewritten as a task AzTasks reads");
+        assert_eq!(back.title, "Book the room");
+        assert!(back.is_done());
+    }
+
+    #[test]
+    fn the_tasks_live_with_aztasks_unless_a_data_folder_is_named() {
+        let user = Some(PathBuf::from("/home/ada/.local/share"));
+        assert_eq!(
+            tasks_root(Some(Path::new("/tmp/cal")), Some("/srv/tasks"), user.clone()),
+            PathBuf::from("/tmp/cal"),
+            "a named folder holds everything (the tests, the E2E)"
+        );
+        assert_eq!(
+            tasks_root(None, Some(" /srv/tasks "), user.clone()),
+            PathBuf::from("/srv/tasks"),
+            "AzTasks' AZTASKS_DATA"
+        );
+        assert_eq!(
+            tasks_root(None, Some("  "), user.clone()),
+            PathBuf::from("/home/ada/.local/share/Azlin")
+        );
+        assert_eq!(
+            tasks_root(None, None, user),
+            PathBuf::from("/home/ada/.local/share/Azlin")
+        );
+        assert_eq!(tasks_root(None, None, None), PathBuf::from("Azlin"));
     }
 }
