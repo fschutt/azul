@@ -728,10 +728,58 @@ fn test_line_height_px_in_compact_cache() {
     let s = styled_div_with_css(".t { line-height: 24px; }");
     let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
     let lh = cc.tier2b_text[2].line_height;
-    // line-height: 24px — needs to check how px line-height is encoded
-    // The compact encoder uses: (lh.inner.normalized() * 1000.0).round() as i32
-    // For 24px: normalized() returns 24.0 / DEFAULT_FONT_SIZE... this depends on implementation
-    assert_ne!(lh, 0, "line-height 24px should not be 0, got {lh}");
+    // An absolute line-height is stored as -px x 100.
+    assert_eq!(lh, -2400, "line-height 24px should encode as -2400, got {lh}");
+}
+
+/// `line-height: 2em` computes to a length against the font size of the
+/// element that declares it (20px at 10px), and the descendants inherit that
+/// length, not the factor - in the compact cache and in the cascade the
+/// other pseudo-states read.
+#[test]
+fn test_line_height_em_computes_to_a_length_the_children_inherit() {
+    use azul_core::dom::IdOrClass;
+    let dom = Dom::create_html().with_child(
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("t".into())].into())
+                .with_child(
+                    Dom::create_div()
+                        .with_ids_and_classes(vec![IdOrClass::Class("c".into())].into()),
+                ),
+        ),
+    );
+    let s = styled(
+        dom,
+        ".t { font-size: 10px; line-height: 2em; } .c { font-size: 20px; }",
+    );
+    let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+    assert_eq!(
+        cc.tier2b_text[2].line_height, -2000,
+        "2em at 10px is 20px (-px x 100)"
+    );
+    assert_eq!(
+        cc.tier2b_text[3].line_height, -2000,
+        "the 20px child inherits 20px, not 2em"
+    );
+
+    let child = azul_core::dom::NodeId::new(3);
+    let lh = s
+        .css_property_cache
+        .ptr
+        .get_line_height(
+            &s.node_data.as_ref()[3],
+            &child,
+            &azul_core::styled_dom::StyledNodeState::default(),
+        )
+        .and_then(|v| v.get_property().copied());
+    assert_eq!(
+        lh,
+        Some(azul_css::props::style::text::StyleLineHeight::Length(
+            azul_css::props::basic::pixel::PixelValue::px(20.0)
+        )),
+        "the cascade hands the child the computed length"
+    );
 }
 
 #[test]

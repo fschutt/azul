@@ -1852,13 +1852,13 @@ pub enum DisplayListItem {
 /// means the extent was computed wrongly, and in that case damaging too
 /// much is recoverable while damaging nothing leaves stale pixels.
 /// The caret of an editable that has no text yet, in the node's CONTENT-BOX
-/// space: at the origin, one line-height tall (`font-size × line-height`,
-/// the `normal` 1.2 when unset), one pixel wide — the line box the first
-/// character will create. Height is floored at 1 px so a zero font never
-/// produces an invisible caret.
+/// space: at the origin, one used line-height tall (`line_height_px`, from
+/// `getters::get_used_line_height`, `normal` as 1.2em), one pixel wide - the
+/// line box the first character will create. Height is floored at 1 px so a
+/// zero font never produces an invisible caret.
 #[must_use]
-pub fn empty_editable_caret_rect(font_size_px: f32, line_height: f32) -> LogicalRect {
-    let height = (font_size_px * line_height).max(1.0);
+pub fn empty_editable_caret_rect(line_height_px: f32) -> LogicalRect {
+    let height = line_height_px.max(1.0);
     let height = if height.is_finite() { height } else { 1.0 };
     LogicalRect {
         origin: LogicalPosition::zero(),
@@ -4602,13 +4602,18 @@ where
                         dom_id,
                         node_state,
                     );
-                    let line_height = super::getters::get_line_height_value(
+                    let line_height = super::getters::get_used_line_height(
                         self.ctx.styled_dom,
                         dom_id,
                         node_state,
+                        font_size,
+                        azul_css::props::basic::PhysicalSize::new(
+                            self.ctx.viewport_size.width,
+                            self.ctx.viewport_size.height,
+                        ),
                     )
-                    .map_or(1.2, |lh| lh.inner.normalized());
-                    empty_editable_caret_rect(font_size, line_height)
+                    .resolve(font_size, 0.0, 0.0, 0.0, 0);
+                    empty_editable_caret_rect(line_height)
                 }
                 None => continue,
             };

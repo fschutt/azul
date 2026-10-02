@@ -4019,11 +4019,18 @@ fn editing_host_strut_height<T: ParsedFontTrait>(
     }
     let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
     let font_size = get_element_font_size(ctx.styled_dom, dom_id, node_state);
-    let line_height =
-        crate::solver3::getters::get_line_height_value(ctx.styled_dom, dom_id, node_state)
-            .map_or(1.2, |lh| lh.inner.normalized());
+    // `normal` as 1.2em. (This read `normalized()` as a factor, so an absolute
+    // line-height - stored negative - gave a 1px strut.)
+    let line_height = crate::solver3::getters::get_used_line_height(
+        ctx.styled_dom,
+        dom_id,
+        node_state,
+        font_size,
+        PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+    )
+    .resolve(font_size, 0.0, 0.0, 0.0, 0);
     Some(
-        crate::solver3::display_list::empty_editable_caret_rect(font_size, line_height)
+        crate::solver3::display_list::empty_editable_caret_rect(line_height)
             .size
             .height,
     )
@@ -11350,15 +11357,13 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
         let node_state = &ctx.styled_dom.styled_nodes.as_container()[span_dom_id].styled_node_state;
         let font_size = get_element_font_size(ctx.styled_dom, span_dom_id, node_state);
 
-        let line_height_value =
-            crate::solver3::getters::get_line_height_value(ctx.styled_dom, span_dom_id, node_state);
-        let line_height = line_height_value.map_or(text3::cache::LineHeight::Normal, |v| {
-            // Absolute px line-heights are stored as a negative normalized
-            // value; a positive value is a unitless multiplier of font-size.
-            let n = v.inner.normalized();
-            let px = if n < 0.0 { -n } else { n * font_size };
-            text3::cache::LineHeight::Px(px)
-        });
+        let line_height = crate::solver3::getters::get_used_line_height(
+            ctx.styled_dom,
+            span_dom_id,
+            node_state,
+            font_size,
+            PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+        );
 
         let cb_width = constraints
             .containing_block_size

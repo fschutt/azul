@@ -1287,6 +1287,65 @@ pub fn decode_resolved_px_i16(v: i16) -> Option<f32> {
     Some(f32::from(v) / 10.0)
 }
 
+/// What a node's compact `line_height` slot ([`CompactTextProps::line_height`])
+/// holds.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum CompactLineHeight {
+    /// `normal`, or nothing declared or inherited.
+    Normal,
+    /// A `<number>`: this factor times the node's own font size.
+    Factor(f32),
+    /// An absolute line-height in px: a length, or an `em` / percentage
+    /// already computed against the font size of the node that declared it
+    /// (that length is what its descendants inherit).
+    Px(f32),
+    /// A value the slot cannot hold (the viewport units, or out of range):
+    /// read the cascade.
+    Uncached,
+}
+
+/// Encode a `<number>` line-height: the factor x 1000, positive (up to
+/// 32.763); `I16_AUTO` (read the cascade) beyond.
+#[inline]
+#[must_use]
+pub fn encode_line_height_factor(factor: f32) -> i16 {
+    let scaled = crate::cast::f32_to_i32((factor * 1000.0).round());
+    if scaled < 0 || scaled >= i32::from(I16_SENTINEL_THRESHOLD) {
+        return I16_AUTO;
+    }
+    i16::try_from(scaled).unwrap_or(I16_AUTO)
+}
+
+/// Encode an absolute line-height in px: -px x 100, so to the hundredth of a
+/// pixel (tenths pitched `line-height: 14pt` lines 18.7px apart instead of
+/// 18.67px) up to 327.68px; `I16_AUTO` (read the cascade) beyond.
+#[inline]
+#[must_use]
+pub fn encode_line_height_px(px: f32) -> i16 {
+    let scaled = crate::cast::f32_to_i32((-px * 100.0).round());
+    if scaled > 0 || scaled < -32768 {
+        return I16_AUTO;
+    }
+    i16::try_from(scaled).unwrap_or(I16_AUTO)
+}
+
+/// Decode a compact `line_height` slot: `I16_SENTINEL` is `normal`, any
+/// other sentinel "read the cascade", a positive value a factor x 1000 and
+/// zero or a negative value -px x 100.
+#[inline]
+#[must_use]
+pub fn decode_line_height(v: i16) -> CompactLineHeight {
+    if v == I16_SENTINEL {
+        CompactLineHeight::Normal
+    } else if v >= I16_SENTINEL_THRESHOLD {
+        CompactLineHeight::Uncached
+    } else if v > 0 {
+        CompactLineHeight::Factor(f32::from(v) / 1000.0)
+    } else {
+        CompactLineHeight::Px(f32::from(v).abs() / 100.0)
+    }
+}
+
 /// Encode a u16 flex value (×100). Returns `U16_SENTINEL` if out of range.
 /// Range: 0.00 ..= 655.27 at 0.01 precision.
 #[inline]
@@ -1598,10 +1657,13 @@ impl Default for CompactNodePropsCold {
 pub struct CompactTextProps {
     pub text_color: u32,       // RGBA as 0xRRGGBBAA (0 = transparent/unset)
     pub font_family_hash: u64, // FxHash of font-family list (0 = sentinel/unset)
-    /// Split scale by SIGN (parser convention: negative normalized =
-    /// absolute px): negative = -px x 10 (line-height: 40px -> -400),
-    /// positive = unitless multiple x 1000 (1.2 / 120% -> 1200).
-    /// `I16_SENTINEL` = unset ("normal").
+    /// Split scale by SIGN, see [`decode_line_height`]: zero or negative =
+    /// absolute px x -100 (line-height: 40px -> -4000; an `em` or a
+    /// percentage is computed to px against the declaring node's font size
+    /// first, so its descendants inherit the length), positive = a
+    /// `<number>` x 1000 (1.2 -> 1200, inherited as the number).
+    /// `I16_SENTINEL` = unset ("normal"), `I16_AUTO` = not encodable here
+    /// (viewport units, out of range): read the cascade.
     pub line_height: i16,
     pub letter_spacing: i16, // px × 10
     pub word_spacing: i16,   // px × 10
@@ -2416,8 +2478,8 @@ impl CompactLayoutCache {
 
     #[inline]
     #[must_use]
-    pub fn get_line_height(&self, node_idx: usize) -> Option<f32> {
-        decode_resolved_px_i16(self.tier2b_text[node_idx].line_height)
+    pub fn get_line_height(&self, node_idx: usize) -> CompactLineHeight {
+        decode_line_height(self.tier2b_text[node_idx].line_height)
     }
 
     #[inline]
@@ -4672,7 +4734,7 @@ mod autotest_generated {
             // Text tier.
             assert_eq!(c.get_text_color_raw(i), 0);
             assert_eq!(c.get_font_family_hash(i), 0);
-            assert_eq!(c.get_line_height(i), None); // "normal" → slow path
+            assert_eq!(c.get_line_height(i), CompactLineHeight::Normal);
             assert_eq!(c.get_letter_spacing(i), Some(0.0));
             assert_eq!(c.get_word_spacing(i), Some(0.0));
             assert_eq!(c.get_text_indent(i), Some(0.0));

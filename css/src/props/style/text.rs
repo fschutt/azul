@@ -14,7 +14,10 @@ use crate::{
     props::{
         basic::{
             error::{InvalidValueErr, InvalidValueErrOwned},
-            length::{PercentageParseError, PercentageParseErrorOwned, PercentageValue},
+            length::{
+                FloatValue, PercentageParseError, PercentageParseErrorOwned, PercentageValue,
+                SizeMetric,
+            },
             pixel::{CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue},
             ColorU, CssDuration,
         },
@@ -157,23 +160,127 @@ impl PrintAsCssValue for StyleWordSpacing {
 
 // -- StyleLineHeight --
 
-/// Represents a `line-height` attribute
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub struct StyleLineHeight {
-    pub inner: PercentageValue,
+/// Represents a `line-height` attribute (CSS 2.2 s10.8.1, CSS Inline 3 s4.2).
+///
+/// The unit survives the parse because it decides what the descendants
+/// inherit: a `<number>` is inherited as the number (every descendant
+/// multiplies its OWN font size), while a `<length>` or a `<percentage>`
+/// computes to an absolute length - `em` and `%` against the element's own
+/// font size, see [`StyleLineHeight::computed`] - and that length is what is
+/// inherited. `rem` and the viewport units resolve against the root font
+/// size and the viewport, where layout knows them
+/// ([`StyleLineHeight::resolve_px`]).
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C, u8)]
+pub enum StyleLineHeight {
+    /// `normal`, the initial value: the font's own ascent + descent + line gap.
+    #[default]
+    Normal,
+    /// A `<number>`: this factor times the element's font size.
+    Number(FloatValue),
+    /// A `<length>`: px, pt, in, cm, mm, em, rem, vw, vh, vmin or vmax.
+    Length(PixelValue),
+    /// A `<percentage>` of the element's font size.
+    Percentage(PercentageValue),
 }
-impl Default for StyleLineHeight {
-    fn default() -> Self {
-        Self {
-            inner: PercentageValue::const_new(120),
+
+impl StyleLineHeight {
+    /// The value as computed for an element whose font size is
+    /// `font_size_px`: an `em` or a percentage becomes the absolute px
+    /// length the descendants inherit (CSS 2.2 s10.8.1). A number, `normal`
+    /// and every other length are their own computed value (`rem` and the
+    /// viewport units name the same length on every element).
+    #[must_use]
+    pub fn computed(&self, font_size_px: f32) -> Self {
+        match self {
+            Self::Percentage(p) => Self::Length(PixelValue::px(p.normalized() * font_size_px)),
+            Self::Length(l) if l.metric == SizeMetric::Em => {
+                Self::Length(PixelValue::px(l.number.get() * font_size_px))
+            }
+            Self::Length(l) if l.metric == SizeMetric::Percent => {
+                Self::Length(PixelValue::px(l.number.get() / 100.0 * font_size_px))
+            }
+            other => *other,
+        }
+    }
+
+    /// Whether this value is relative to the font size of the element that
+    /// declares it (`em`, `%`): [`StyleLineHeight::computed`] changes it,
+    /// and its descendants inherit the computed length, not the value.
+    #[must_use]
+    pub const fn is_font_relative_length(&self) -> bool {
+        match self {
+            Self::Percentage(_) => true,
+            Self::Length(l) => matches!(l.metric, SizeMetric::Em | SizeMetric::Percent),
+            Self::Normal | Self::Number(_) => false,
+        }
+    }
+
+    /// The used line-height in px of an element whose font size is
+    /// `font_size_px`, or `None` for `normal` (the font's own metrics decide
+    /// it). `rem` resolves against `root_font_size_px`, the viewport units
+    /// against `viewport_width` x `viewport_height`.
+    #[must_use]
+    pub fn resolve_px(
+        &self,
+        font_size_px: f32,
+        root_font_size_px: f32,
+        viewport_width: f32,
+        viewport_height: f32,
+    ) -> Option<f32> {
+        match self {
+            Self::Normal => None,
+            Self::Number(n) => Some(n.get() * font_size_px),
+            Self::Percentage(p) => Some(p.normalized() * font_size_px),
+            Self::Length(l) => Some(match l.metric {
+                SizeMetric::Vw => l.number.get() * viewport_width / 100.0,
+                SizeMetric::Vh => l.number.get() * viewport_height / 100.0,
+                SizeMetric::Vmin => l.number.get() * viewport_width.min(viewport_height) / 100.0,
+                SizeMetric::Vmax => l.number.get() * viewport_width.max(viewport_height) / 100.0,
+                _ => l.to_pixels_internal(font_size_px, font_size_px, root_font_size_px),
+            }),
+        }
+    }
+
+    /// Interpolate for a transition: two values of the same kind blend,
+    /// anything else (`normal`, a number against a length) flips half way.
+    #[must_use]
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        match (self, other) {
+            (Self::Number(a), Self::Number(b)) => Self::Number(a.interpolate(b, t)),
+            (Self::Length(a), Self::Length(b)) => Self::Length(a.interpolate(b, t)),
+            (Self::Percentage(a), Self::Percentage(b)) => Self::Percentage(a.interpolate(b, t)),
+            _ => {
+                if t < 0.5 {
+                    *self
+                } else {
+                    *other
+                }
+            }
         }
     }
 }
-impl_percentage_value!(StyleLineHeight);
+
+impl fmt::Display for StyleLineHeight {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Normal => write!(f, "normal"),
+            Self::Number(n) => write!(f, "{n}"),
+            Self::Length(l) => write!(f, "{l}"),
+            Self::Percentage(p) => write!(f, "{p}"),
+        }
+    }
+}
+
+impl fmt::Debug for StyleLineHeight {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self}")
+    }
+}
+
 impl PrintAsCssValue for StyleLineHeight {
     fn print_as_css_value(&self) -> String {
-        format!("{}", self.inner)
+        self.to_string()
     }
 }
 
@@ -1697,39 +1804,40 @@ impl StyleLineHeightParseErrorOwned {
 ///
 /// Returns an error if `input` is not a valid CSS `line-height` value.
 pub fn parse_style_line_height(input: &str) -> Result<StyleLineHeight, StyleLineHeightParseError> {
-    // Try <number> or <percentage> first (multiplier of font-size)
-    if let Ok(inner) = crate::props::basic::length::parse_percentage_value(input) {
-        return Ok(StyleLineHeight { inner });
+    let input = input.trim();
+    let invalid = || {
+        StyleLineHeightParseError::Percentage(PercentageParseError::InvalidUnit(
+            input.to_string().into(),
+        ))
+    };
+    if input.eq_ignore_ascii_case("normal") {
+        return Ok(StyleLineHeight::Normal);
     }
-    // Try <length> (e.g., "50px") — store as NEGATIVE PercentageValue to signal absolute px.
-    // Convention: negative normalized() = absolute pixel value (CSS line-height can't be negative).
-    // Resolved at layout time in fc.rs where font_size is known.
-    //
-    // Every ABSOLUTE unit is a pixel count already (pt, in, cm, mm - html2pdf writes
-    // `line-height: 14pt`, and a px-only check dropped it). `em` is the element's own
-    // font size: the multiplier a number is (inherited as a factor, like a percentage
-    // stored here - CSS would inherit the computed length). rem and viewport units
-    // need context this representation cannot carry; they stay rejected.
-    if let Ok(len) = crate::props::basic::pixel::parse_pixel_value(input) {
-        use crate::props::basic::length::SizeMetric as M;
-        match len.metric {
-            M::Px | M::Pt | M::In | M::Cm | M::Mm => {
-                let px_val = len.to_pixels_internal(0.0, 0.0, 0.0);
-                return Ok(StyleLineHeight {
-                    inner: PercentageValue::new(-px_val * 100.0),
-                });
-            }
-            M::Em => {
-                return Ok(StyleLineHeight {
-                    inner: PercentageValue::new(len.number.get() * 100.0),
-                });
-            }
-            _ => {}
+    // A <number> or a <percentage>: `parse_percentage_value` takes both (a
+    // bare number stored x100), the `%` sign tells them apart. The unit is
+    // kept - a number is inherited as the number, a percentage as the length
+    // it computes to. A negative line-height is invalid.
+    if let Ok(p) = crate::props::basic::length::parse_percentage_value(input) {
+        if p.normalized() < 0.0 {
+            return Err(invalid());
         }
+        return Ok(if input.ends_with('%') {
+            StyleLineHeight::Percentage(p)
+        } else {
+            StyleLineHeight::Number(FloatValue::new(p.normalized()))
+        });
     }
-    Err(StyleLineHeightParseError::Percentage(
-        PercentageParseError::InvalidUnit(String::new().into()),
-    ))
+    // A <length> in any unit: absolute ones, `em` (the element's own font
+    // size, computed to a length the descendants inherit), `rem` and the
+    // viewport units (resolved where layout knows the root font size and
+    // the viewport).
+    if let Ok(len) = crate::props::basic::pixel::parse_pixel_value(input) {
+        if len.number.get() < 0.0 {
+            return Err(invalid());
+        }
+        return Ok(StyleLineHeight::Length(len));
+    }
+    Err(invalid())
 }
 
 #[cfg(feature = "parser")]
@@ -2701,45 +2809,75 @@ mod tests {
     #[test]
     fn test_parse_line_height() {
         assert_eq!(
-            parse_style_line_height("1.5").unwrap().inner,
-            PercentageValue::new(150.0)
+            parse_style_line_height("1.5").unwrap(),
+            StyleLineHeight::Number(FloatValue::new(1.5))
         );
         assert_eq!(
-            parse_style_line_height("120%").unwrap().inner,
-            PercentageValue::new(120.0)
+            parse_style_line_height("120%").unwrap(),
+            StyleLineHeight::Percentage(PercentageValue::new(120.0))
         );
-        // px values stored as negative PercentageValue (convention: negative = absolute px)
         assert_eq!(
-            parse_style_line_height("20px").unwrap().inner,
-            PercentageValue::new(-20.0 * 100.0)
+            parse_style_line_height("20px").unwrap(),
+            StyleLineHeight::Length(PixelValue::px(20.0))
+        );
+        assert_eq!(
+            parse_style_line_height("normal").unwrap(),
+            StyleLineHeight::Normal
         );
     }
 
-    /// Every absolute length is a pixel count at parse time (pdfocr's
-    /// html2pdf writes `line-height: 14pt`: it was rejected and the
-    /// declaration dropped); `em` is the element's own font size, the
-    /// multiplier a number is.
+    /// Every absolute length is its pixel count (pdfocr's html2pdf writes
+    /// `line-height: 14pt`: it was rejected and the declaration dropped);
+    /// `em` and `%` are the element's own font size, `rem` the root's, the
+    /// viewport units the viewport's.
     #[test]
-    fn test_parse_line_height_in_any_absolute_unit_and_em() {
+    fn test_parse_line_height_in_any_unit_resolves_to_px() {
+        // font size 10px, root font size 20px, viewport 800 x 600
         for (input, px) in [
             ("14pt", 14.0 * 96.0 / 72.0),
             ("1in", 96.0),
             ("2.54cm", 96.0),
             ("25.4mm", 96.0),
+            ("1.5em", 15.0),
+            ("150%", 15.0),
+            ("1.5", 15.0),
+            ("2rem", 40.0),
+            ("5vh", 30.0),
+            ("5vw", 40.0),
+            ("5vmin", 30.0),
+            ("5vmax", 40.0),
         ] {
-            let inner = parse_style_line_height(input)
-                .unwrap_or_else(|e| panic!("{input} parses: {e:?}"))
-                .inner;
-            assert!(
-                (inner.normalized() + px).abs() < 0.01,
-                "{input} is {px} absolute px (stored negative): {}",
-                inner.normalized()
-            );
+            let lh = parse_style_line_height(input)
+                .unwrap_or_else(|e| panic!("{input} parses: {e:?}"));
+            let got = lh.resolve_px(10.0, 20.0, 800.0, 600.0).expect("not normal");
+            assert!((got - px).abs() < 0.01, "{input} is {px}px: {got}");
         }
         assert_eq!(
-            parse_style_line_height("1.5em").unwrap().inner,
-            PercentageValue::new(150.0)
+            parse_style_line_height("normal")
+                .unwrap()
+                .resolve_px(10.0, 20.0, 800.0, 600.0),
+            None
         );
+    }
+
+    /// An `em` or a percentage computes to the px length the descendants
+    /// inherit; a number stays the number.
+    #[test]
+    fn test_line_height_em_and_percent_compute_to_a_length() {
+        for input in ["2em", "200%"] {
+            let lh = parse_style_line_height(input).unwrap();
+            assert!(lh.is_font_relative_length(), "{input}");
+            assert_eq!(
+                lh.computed(10.0),
+                StyleLineHeight::Length(PixelValue::px(20.0)),
+                "{input} at 10px"
+            );
+        }
+        for input in ["2", "20px", "2rem", "5vh", "normal"] {
+            let lh = parse_style_line_height(input).unwrap();
+            assert!(!lh.is_font_relative_length(), "{input}");
+            assert_eq!(lh.computed(10.0), lh, "{input} is its own computed value");
+        }
     }
 
     /// `line-height` keeps its unit until it is computed: an `em` or a
@@ -4953,17 +5091,16 @@ mod autotest_generated {
         #[test]
         fn line_height_parses_numbers_percentages_and_px() {
             assert_eq!(
-                parse_style_line_height("1.5").unwrap().inner,
-                PercentageValue::new(150.0)
+                parse_style_line_height("1.5").unwrap(),
+                StyleLineHeight::Number(FloatValue::new(1.5))
             );
             assert_eq!(
-                parse_style_line_height("120%").unwrap().inner,
-                PercentageValue::new(120.0)
+                parse_style_line_height("120%").unwrap(),
+                StyleLineHeight::Percentage(PercentageValue::new(120.0))
             );
-            // px lengths are encoded as a *negative* percentage (documented convention).
             assert_eq!(
-                parse_style_line_height("20px").unwrap().inner,
-                PercentageValue::new(-2000.0)
+                parse_style_line_height("20px").unwrap(),
+                StyleLineHeight::Length(PixelValue::px(20.0))
             );
             assert!(parse_style_line_height("").is_err());
             assert!(parse_style_line_height("   ").is_err());
@@ -4978,30 +5115,35 @@ mod autotest_generated {
         }
 
         #[test]
-        fn line_height_negative_numbers_alias_absolute_px_lengths() {
-            // BUG: negative values are the internal marker for "absolute px", but the number
-            // branch happily parses a negative <number>, so `line-height: -1` and
-            // `line-height: 1px` produce the *same* value and are indistinguishable
-            // downstream. A negative line-height is invalid CSS and should be Err.
-            assert_eq!(
-                parse_style_line_height("-1").unwrap(),
-                parse_style_line_height("1px").unwrap()
-            );
-            assert_eq!(
-                parse_style_line_height("-100%").unwrap(),
+        fn line_height_rejects_negative_values() {
+            // A negative line-height is invalid CSS. (Negative values were the
+            // internal marker for "absolute px", so `-1` aliased `1px`.)
+            for input in ["-1", "-100%", "-1px", "-0.5em"] {
+                assert!(parse_style_line_height(input).is_err(), "{input}");
+            }
+            assert_ne!(
+                parse_style_line_height("1").unwrap(),
                 parse_style_line_height("1px").unwrap()
             );
         }
 
         #[test]
-        fn line_height_takes_absolute_units_and_em_but_not_rem() {
-            // Every absolute unit and `em` parse (the px-only length branch dropped
-            // html2pdf's `line-height: 14pt`); `rem` and viewport units need context
-            // the stored PercentageValue cannot carry and stay rejected.
-            assert!(parse_style_line_height("1.5em").is_ok());
-            assert!(parse_style_line_height("12pt").is_ok());
-            assert!(parse_style_line_height("2rem").is_err());
-            assert!(parse_style_line_height("10vh").is_err());
+        fn line_height_takes_every_length_unit() {
+            // Every absolute unit, `em`, `rem` and the viewport units parse and
+            // keep their unit (the px-only length branch dropped html2pdf's
+            // `line-height: 14pt`; `rem` and `vh` were rejected).
+            for (input, metric) in [
+                ("1.5em", SizeMetric::Em),
+                ("12pt", SizeMetric::Pt),
+                ("2rem", SizeMetric::Rem),
+                ("10vh", SizeMetric::Vh),
+                ("10vw", SizeMetric::Vw),
+            ] {
+                match parse_style_line_height(input) {
+                    Ok(StyleLineHeight::Length(l)) => assert_eq!(l.metric, metric, "{input}"),
+                    other => panic!("{input} is a length: {other:?}"),
+                }
+            }
         }
 
         #[test]
@@ -5107,7 +5249,7 @@ mod autotest_generated {
             assert_error_round_trip!(parse_style_word_spacing, "", "abcem", "em", "zz");
             assert_error_round_trip!(parse_style_text_indent, "abcpx", "zz");
             assert_error_round_trip!(parse_style_tab_size, "", "abcpx", "zz");
-            assert_error_round_trip!(parse_style_line_height, "", "abc", "2rem");
+            assert_error_round_trip!(parse_style_line_height, "", "abc", "-2px");
             assert_error_round_trip!(parse_style_initial_letter, "", "x", "0", "3 x");
             assert_error_round_trip!(parse_style_line_clamp, "", "x", "0");
             assert_error_round_trip!(
