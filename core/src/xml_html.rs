@@ -199,16 +199,45 @@ pub fn decode_character_references(s: &str, mode: CharRefMode) -> Cow<'_, str> {
     Cow::Owned(out)
 }
 
-/// `s` as the text content of an HTML / XML element (RED stub: no encoding yet).
+/// `s` as the text content of an HTML / XML element: `&`, `<` and `>` as
+/// references (quotes are plain text between tags), the characters XML 1.0
+/// cannot carry left out (see [`encode_attribute`]). The inverse of
+/// [`decode_character_references`] in every [`CharRefMode`] - THE encoder
+/// for every writer of markup (clipboard HTML, the e2e builder, toasts,
+/// the web renderer).
 #[must_use]
 pub fn encode_text(s: &str) -> String {
-    String::from(s)
+    let mut out = String::with_capacity(s.len());
+    encode_into(&mut out, s, false);
+    out
 }
 
-/// `s` as an attribute value (RED stub: no encoding yet).
+/// `s` as an attribute value: [`encode_text`] plus both quotes (`&quot;`,
+/// `&apos;`), so it is safe between `"..."` and `'...'` alike. Left out, as
+/// in text: the C0 controls other than tab, line feed and carriage return,
+/// and U+FFFE / U+FFFF - XML 1.0 has no way to write them, not even as a
+/// reference, and a strict reader rejects the document that has them.
 #[must_use]
 pub fn encode_attribute(s: &str) -> String {
-    String::from(s)
+    let mut out = String::with_capacity(s.len());
+    encode_into(&mut out, s, true);
+    out
+}
+
+/// [`encode_text`] / [`encode_attribute`] (`quotes`) appended to `out`.
+fn encode_into(out: &mut String, s: &str, quotes: bool) {
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' if quotes => out.push_str("&quot;"),
+            '\'' if quotes => out.push_str("&apos;"),
+            '\t' | '\n' | '\r' => out.push(c),
+            '\u{0}'..='\u{1f}' | '\u{fffe}' | '\u{ffff}' => {}
+            c => out.push(c),
+        }
+    }
 }
 
 // ============================================================================
