@@ -23782,25 +23782,6 @@
                             }
                         }
                     },
-                    "ModuleSwitcherOnCollapseCallbackType": {
-                        "external": "azul_layout::widgets::module_switcher::ModuleSwitcherOnCollapseCallbackType",
-                        "callback_typedef": {
-                            "fn_args": [
-                                {
-                                    "type": "RefAny"
-                                },
-                                {
-                                    "type": "CallbackInfo"
-                                },
-                                {
-                                    "type": "bool"
-                                }
-                            ],
-                            "returns": {
-                                "type": "Update"
-                            }
-                        }
-                    },
                     "ShellOnPaneFocusCallbackType": {
                         "external": "azul_layout::widgets::shells::office_shell::ShellOnPaneFocusCallbackType",
                         "callback_typedef": {
@@ -23879,25 +23860,6 @@
                     },
                     "ShellCommandPaletteOnRunCallbackType": {
                         "external": "azul_layout::widgets::shells::command_palette::ShellCommandPaletteOnRunCallbackType",
-                        "callback_typedef": {
-                            "fn_args": [
-                                {
-                                    "type": "RefAny"
-                                },
-                                {
-                                    "type": "CallbackInfo"
-                                },
-                                {
-                                    "type": "usize"
-                                }
-                            ],
-                            "returns": {
-                                "type": "Update"
-                            }
-                        }
-                    },
-                    "ModuleSwitcherOnSelectCallbackType": {
-                        "external": "azul_layout::widgets::module_switcher::ModuleSwitcherOnSelectCallbackType",
                         "callback_typedef": {
                             "fn_args": [
                                 {
@@ -34415,58 +34377,6 @@
                         ],
                         "repr": "C"
                     },
-                    "OutputNodeAndIndexVecSlice": {
-                        "external": "azul_layout::widgets::node_graph::OutputNodeAndIndexVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "OutputNodeAndIndex",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "InputNodeAndIndexVecSlice": {
-                        "external": "azul_layout::widgets::node_graph::InputNodeAndIndexVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "InputNodeAndIndex",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "MeasureDomMode": {
                         "external": "azul_core::callbacks::MeasureDomMode",
                         "derive": [
@@ -34481,162 +34391,6 @@
                             {
                                 "Extent": {},
                                 "ShrinkToFit": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "InputOutputTypeIdVecSlice": {
-                        "external": "azul_layout::widgets::node_graph::InputOutputTypeIdVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "InputOutputTypeId",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "NodeTypeIdInfoMapVecSlice": {
-                        "external": "azul_layout::widgets::node_graph::NodeTypeIdInfoMapVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "NodeTypeIdInfoMap",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "NodeTypeFieldVecSlice": {
-                        "external": "azul_layout::widgets::node_graph::NodeTypeFieldVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "NodeTypeField",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "InputConnectionVecSlice": {
-                        "external": "azul_layout::widgets::node_graph::InputConnectionVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "InputConnection",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "NodeIdNodeMapVecSlice": {
-                        "external": "azul_layout::widgets::node_graph::NodeIdNodeMapVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "NodeIdNodeMap",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "InputOutputTypeIdInfoMapVecSlice": {
-                        "external": "azul_layout::widgets::node_graph::InputOutputTypeIdInfoMapVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "InputOutputTypeIdInfoMap",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
                             }
                         ],
                         "repr": "C"
@@ -35767,38 +35521,6 @@
                         ],
                         "repr": "C"
                     },
-                    "ModuleSwitcherOnCollapseCallback": {
-                        "external": "azul_layout::widgets::module_switcher::ModuleSwitcherOnCollapseCallback",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "Eq",
-                            "Hash",
-                            "Ord",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "derive": [
-                            "Clone",
-                            "Debug",
-                            "Hash",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord"
-                        ],
-                        "struct_fields": [
-                            {
-                                "cb": {
-                                    "type": "ModuleSwitcherOnCollapseCallbackType"
-                                },
-                                "callable": {
-                                    "type": "OptionRefAny"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "ReadingPaneOnEventCallback": {
                         "external": "azul_layout::widgets::reading_pane::ReadingPaneOnEventCallback",
                         "custom_impls": [
@@ -35855,38 +35577,6 @@
                             {
                                 "cb": {
                                     "type": "ShellCommandPaletteOnQueryCallbackType"
-                                },
-                                "callable": {
-                                    "type": "OptionRefAny"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "ModuleSwitcherOnSelectCallback": {
-                        "external": "azul_layout::widgets::module_switcher::ModuleSwitcherOnSelectCallback",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "Eq",
-                            "Hash",
-                            "Ord",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "derive": [
-                            "Clone",
-                            "Debug",
-                            "Hash",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord"
-                        ],
-                        "struct_fields": [
-                            {
-                                "cb": {
-                                    "type": "ModuleSwitcherOnSelectCallbackType"
                                 },
                                 "callable": {
                                     "type": "OptionRefAny"
@@ -43799,7 +43489,8 @@
                         ],
                         "external": "azul_css::props::style::text::StyleLineHeight",
                         "custom_impls": [
-                            "Default"
+                            "Debug",
+                            "Display"
                         ],
                         "derive": [
                             "Copy",
@@ -43808,16 +43499,24 @@
                             "Eq",
                             "Hash",
                             "Clone",
-                            "PartialOrd"
+                            "PartialOrd",
+                            "Default"
                         ],
-                        "struct_fields": [
+                        "enum_fields": [
                             {
-                                "inner": {
+                                "Normal": {},
+                                "Number": {
+                                    "type": "FloatValue"
+                                },
+                                "Length": {
+                                    "type": "PixelValue"
+                                },
+                                "Percentage": {
                                     "type": "PercentageValue"
                                 }
                             }
                         ],
-                        "repr": "C"
+                        "repr": "C, u8"
                     },
                     "StyleOpacity": {
                         "doc": [
@@ -57189,6 +56888,9 @@
                                 },
                                 "revision": {
                                     "type": "u64"
+                                },
+                                "runs": {
+                                    "type": "TextFormatSpanVec"
                                 }
                             }
                         ],
@@ -57775,60 +57477,66 @@
                         ],
                         "repr": "C"
                     },
-                    "CellGridRangeVecSlice": {
-                        "external": "azul_layout::widgets::cell_grid::CellGridRangeVecSlice",
+                    "TextFormatSet": {
+                        "external": "azul_core::events::TextFormatSet",
                         "derive": [
                             "Debug",
                             "Clone",
-                            "Copy"
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "PartialOrd",
+                            "Ord",
+                            "Default"
                         ],
                         "struct_fields": [
                             {
-                                "ptr": {
-                                    "type": "CellGridRange",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
+                                "bold": {
+                                    "type": "bool"
                                 },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
+                                "italic": {
+                                    "type": "bool"
+                                },
+                                "underline": {
+                                    "type": "bool"
+                                },
+                                "strikethrough": {
+                                    "type": "bool"
                                 }
                             }
                         ],
                         "repr": "C"
                     },
-                    "TimelineClipVecSlice": {
-                        "external": "azul_layout::widgets::timeline::TimelineClipVecSlice",
+                    "TextFormatSpan": {
+                        "external": "azul_core::selection::TextFormatSpan",
                         "derive": [
                             "Debug",
                             "Clone",
-                            "Copy"
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "PartialOrd",
+                            "Ord"
                         ],
                         "struct_fields": [
                             {
-                                "ptr": {
-                                    "type": "TimelineClip",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
+                                "start": {
+                                    "type": "u32"
                                 },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
+                                "end": {
+                                    "type": "u32"
+                                },
+                                "formats": {
+                                    "type": "TextFormatSet"
                                 }
                             }
                         ],
                         "repr": "C"
                     },
-                    "CellGridSizeVecSlice": {
-                        "external": "azul_layout::widgets::cell_grid::CellGridSizeVecSlice",
+                    "TextFormatSpanVecSlice": {
+                        "external": "azul_core::selection::TextFormatSpanVecSlice",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -57837,7 +57545,7 @@
                         "struct_fields": [
                             {
                                 "ptr": {
-                                    "type": "CellGridSize",
+                                    "type": "TextFormatSpan",
                                     "ref_kind": "constptr",
                                     "doc": [
                                         "Pointer to the slice data"
@@ -57955,6 +57663,9 @@
                                 "on_click": {
                                     "type": "OptionButtonOnClick"
                                 },
+                                "disabled_reason": {
+                                    "type": "String"
+                                },
                                 "button_type": {
                                     "type": "ButtonType"
                                 },
@@ -57963,6 +57674,9 @@
                                 },
                                 "form_action": {
                                     "type": "ButtonFormAction"
+                                },
+                                "toggled": {
+                                    "type": "OptionBool"
                                 }
                             }
                         ],
@@ -70274,6 +69988,9 @@
                                 "mode": {
                                     "type": "DatePickerMode"
                                 },
+                                "week_start": {
+                                    "type": "DatePickerWeekStart"
+                                },
                                 "theme": {
                                     "type": "OptionUiTheme"
                                 },
@@ -78757,111 +78474,6 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "MessageListSelection": {
-                        "external": "azul_layout::widgets::message_list::MessageListSelection",
-                        "custom_impls": [
-                            "Default"
-                        ],
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq",
-                            "Eq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "rows": {
-                                    "type": "U32Vec"
-                                },
-                                "anchor": {
-                                    "type": "u32"
-                                }
-                            }
-                        ],
-                        "constructors": {
-                            "create": {
-                                "doc": [
-                                    "Nothing selected, the anchor on the first row."
-                                ],
-                                "fn_args": [],
-                                "fn_body": "azul_layout::widgets::message_list::MessageListSelection::create()"
-                            }
-                        },
-                        "functions": {
-                            "apply": {
-                                "doc": [
-                                    "The selection after a `Select` on row `index` with the modifiers",
-                                    "held: plain - this row alone, the anchor here; Ctrl - this row",
-                                    "toggled, the anchor here; Shift - every row from the anchor to this",
-                                    "one (the anchor stays), as every desktop list does it."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "index": "u32"
-                                    },
-                                    {
-                                        "shift": "bool"
-                                    },
-                                    {
-                                        "ctrl": "bool"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "MessageListSelection"
-                                },
-                                "fn_body": "object.apply(index, shift, ctrl)"
-                            },
-                            "contains": {
-                                "doc": [
-                                    "Whether row `index` is selected."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "index": "u32"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "object.contains(index)"
-                            },
-                            "len": {
-                                "doc": [
-                                    "How many rows are selected."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "object.len()"
-                            },
-                            "is_empty": {
-                                "doc": [
-                                    "Whether nothing is selected."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "object.is_empty()"
-                            }
-                        },
-                        "repr": "C"
-                    },
                     "MessageRowKind": {
                         "external": "azul_layout::widgets::message_list::MessageRowKind",
                         "derive": [
@@ -80195,42 +79807,6 @@
                         },
                         "repr": "C"
                     },
-                    "SwitcherModule": {
-                        "external": "azul_layout::widgets::module_switcher::SwitcherModule",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq",
-                            "Eq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "label": {
-                                    "type": "String"
-                                },
-                                "icon": {
-                                    "type": "String"
-                                }
-                            }
-                        ],
-                        "constructors": {
-                            "create": {
-                                "doc": [
-                                    "A module labelled `label` with the glyph `icon`."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "label": "String"
-                                    },
-                                    {
-                                        "icon": "String"
-                                    }
-                                ],
-                                "fn_body": "azul_layout::widgets::module_switcher::SwitcherModule::create(label, icon)"
-                            }
-                        },
-                        "repr": "C"
-                    },
                     "WizardOnEvent": {
                         "external": "azul_layout::widgets::wizard_layout::WizardOnEvent",
                         "custom_impls": [
@@ -80986,285 +80562,6 @@
                                     "type": "MessageList"
                                 },
                                 "fn_body": "object.with_mark(mark)"
-                            }
-                        },
-                        "repr": "C"
-                    },
-                    "ModuleSwitcherOnSelect": {
-                        "external": "azul_layout::widgets::module_switcher::ModuleSwitcherOnSelect",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "Eq",
-                            "Hash",
-                            "Ord",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "derive": [
-                            "Clone",
-                            "Debug",
-                            "Hash",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord"
-                        ],
-                        "struct_fields": [
-                            {
-                                "data": {
-                                    "type": "RefAny"
-                                },
-                                "callback": {
-                                    "type": "ModuleSwitcherOnSelectCallback"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "ModuleSwitcher": {
-                        "external": "azul_layout::widgets::module_switcher::ModuleSwitcher",
-                        "custom_impls": [
-                            "Default"
-                        ],
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "modules": {
-                                    "type": "SwitcherModuleVec"
-                                },
-                                "on_select": {
-                                    "type": "OptionModuleSwitcherOnSelect"
-                                },
-                                "on_collapse": {
-                                    "type": "OptionModuleSwitcherOnCollapse"
-                                },
-                                "active": {
-                                    "type": "usize"
-                                },
-                                "theme": {
-                                    "type": "OptionUiTheme"
-                                },
-                                "collapsed": {
-                                    "type": "bool"
-                                }
-                            }
-                        ],
-                        "constructors": {
-                            "create": {
-                                "doc": [
-                                    "A switcher of `modules`, the first active, expanded."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "modules": "SwitcherModuleVec"
-                                    }
-                                ],
-                                "fn_body": "azul_layout::widgets::module_switcher::ModuleSwitcher::create(modules)"
-                            }
-                        },
-                        "functions": {
-                            "set_active": {
-                                "doc": [
-                                    "The active module."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "active": "usize"
-                                    }
-                                ],
-                                "fn_body": "object.set_active(active)"
-                            },
-                            "with_active": {
-                                "doc": [
-                                    "[`Self::set_active`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "active": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ModuleSwitcher"
-                                },
-                                "fn_body": "object.with_active(active)"
-                            },
-                            "set_collapsed": {
-                                "doc": [
-                                    "Collapsed to a strip of glyphs."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "collapsed": "bool"
-                                    }
-                                ],
-                                "fn_body": "object.set_collapsed(collapsed)"
-                            },
-                            "with_collapsed": {
-                                "doc": [
-                                    "[`Self::set_collapsed`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "collapsed": "bool"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ModuleSwitcher"
-                                },
-                                "fn_body": "object.with_collapsed(collapsed)"
-                            },
-                            "set_theme": {
-                                "doc": [
-                                    "Pin the widget theme; unset, the switcher follows the app theme."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "theme": "UiTheme"
-                                    }
-                                ],
-                                "fn_body": "object.set_theme(theme)"
-                            },
-                            "with_theme": {
-                                "doc": [
-                                    "[`Self::set_theme`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "theme": "UiTheme"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ModuleSwitcher"
-                                },
-                                "fn_body": "object.with_theme(theme)"
-                            },
-                            "set_on_select": {
-                                "doc": [
-                                    "A module was clicked."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "cb": "ModuleSwitcherOnSelectCallback"
-                                    }
-                                ],
-                                "fn_body": "object.set_on_select(data, cb)"
-                            },
-                            "with_on_select": {
-                                "doc": [
-                                    "[`Self::set_on_select`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "cb": "ModuleSwitcherOnSelectCallback"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ModuleSwitcher"
-                                },
-                                "fn_body": "object.with_on_select(data, cb)"
-                            },
-                            "set_on_collapse": {
-                                "doc": [
-                                    "The chevron was clicked."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "cb": "ModuleSwitcherOnCollapseCallback"
-                                    }
-                                ],
-                                "fn_body": "object.set_on_collapse(data, cb)"
-                            },
-                            "with_on_collapse": {
-                                "doc": [
-                                    "[`Self::set_on_collapse`] for the builder chain."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "cb": "ModuleSwitcherOnCollapseCallback"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ModuleSwitcher"
-                                },
-                                "fn_body": "object.with_on_collapse(data, cb)"
-                            },
-                            "swap_with_default": {
-                                "doc": [
-                                    "Replaces `self` with an empty switcher and returns the original."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ModuleSwitcher"
-                                },
-                                "fn_body": "object.swap_with_default()"
-                            },
-                            "dom": {
-                                "doc": [
-                                    "The switcher's DOM. The look comes from the theme module",
-                                    "(`themes::flat::module_switcher` / `themes::flora::module_switcher`);",
-                                    "`None` carries both looks, each in its `@theme(<name>)` block, and",
-                                    "the app theme picks."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "Dom"
-                                },
-                                "fn_body": "object.dom()"
                             }
                         },
                         "repr": "C"
@@ -82038,38 +81335,6 @@
                         ],
                         "repr": "C"
                     },
-                    "ModuleSwitcherOnCollapse": {
-                        "external": "azul_layout::widgets::module_switcher::ModuleSwitcherOnCollapse",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "Eq",
-                            "Hash",
-                            "Ord",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "derive": [
-                            "Clone",
-                            "Debug",
-                            "Hash",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord"
-                        ],
-                        "struct_fields": [
-                            {
-                                "data": {
-                                    "type": "RefAny"
-                                },
-                                "callback": {
-                                    "type": "ModuleSwitcherOnCollapseCallback"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "WizardEvent": {
                         "external": "azul_layout::widgets::wizard_layout::WizardEvent",
                         "derive": [
@@ -82293,32 +81558,6 @@
                                 "fn_body": "azul_layout::widgets::message_list::MessageListEvent::create(kind, index, id)"
                             }
                         },
-                        "repr": "C"
-                    },
-                    "SwitcherModuleVecSlice": {
-                        "external": "azul_layout::widgets::module_switcher::SwitcherModuleVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "SwitcherModule",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
                         "repr": "C"
                     },
                     "MessageRowVecSlice": {
@@ -91113,6 +90352,391 @@
                             {
                                 "ptr": {
                                     "type": "AdornerFrame",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "InputConnectionVecSlice": {
+                        "external": "azul_layout::widgets::node_graph::InputConnectionVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "InputConnection",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DatePickerWeekStart": {
+                        "external": "azul_layout::widgets::date_picker::DatePickerWeekStart",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Sunday": {},
+                                "Monday": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "InputOutputTypeIdVecSlice": {
+                        "external": "azul_layout::widgets::node_graph::InputOutputTypeIdVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "InputOutputTypeId",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "CellGridSizeVecSlice": {
+                        "external": "azul_layout::widgets::cell_grid::CellGridSizeVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "CellGridSize",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NodeTypeIdInfoMapVecSlice": {
+                        "external": "azul_layout::widgets::node_graph::NodeTypeIdInfoMapVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "NodeTypeIdInfoMap",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TimelineClipVecSlice": {
+                        "external": "azul_layout::widgets::timeline::TimelineClipVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "TimelineClip",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "InputOutputTypeIdInfoMapVecSlice": {
+                        "external": "azul_layout::widgets::node_graph::InputOutputTypeIdInfoMapVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "InputOutputTypeIdInfoMap",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "CellGridRangeVecSlice": {
+                        "external": "azul_layout::widgets::cell_grid::CellGridRangeVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "CellGridRange",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "InputNodeAndIndexVecSlice": {
+                        "external": "azul_layout::widgets::node_graph::InputNodeAndIndexVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "InputNodeAndIndex",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NodeIdNodeMapVecSlice": {
+                        "external": "azul_layout::widgets::node_graph::NodeIdNodeMapVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "NodeIdNodeMap",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NodeTypeFieldVecSlice": {
+                        "external": "azul_layout::widgets::node_graph::NodeTypeFieldVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "NodeTypeField",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ToDoTaskVecSlice": {
+                        "external": "azul_layout::widgets::todo_bar::ToDoTaskVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "ToDoTask",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OutputNodeAndIndexVecSlice": {
+                        "external": "azul_layout::widgets::node_graph::OutputNodeAndIndexVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "OutputNodeAndIndex",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "WizardOptionVecSlice": {
+                        "external": "azul_layout::widgets::wizard_pages::WizardOptionVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "WizardOption",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "WizardComponentVecSlice": {
+                        "external": "azul_layout::widgets::wizard_pages::WizardComponentVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "WizardComponent",
                                     "ref_kind": "constptr",
                                     "doc": [
                                         "Pointer to the slice data"
@@ -140852,19 +140476,6 @@
                             "returns": null
                         }
                     },
-                    "SwitcherModuleVecDestructorType": {
-                        "external": "azul_layout::widgets::module_switcher::SwitcherModuleVecDestructorType",
-                        "callback_typedef": {
-                            "fn_args": [
-                                {
-                                    "name": "ptr",
-                                    "type": "SwitcherModuleVec",
-                                    "ref_kind": "mutptr"
-                                }
-                            ],
-                            "returns": null
-                        }
-                    },
                     "ShellPaneVec": {
                         "external": "azul_layout::widgets::shells::office_shell::ShellPaneVec",
                         "custom_impls": [
@@ -141063,188 +140674,6 @@
                             }
                         ],
                         "repr": "C, u8"
-                    },
-                    "SwitcherModuleVec": {
-                        "external": "azul_layout::widgets::module_switcher::SwitcherModuleVec",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "PartialEq"
-                        ],
-                        "derive": [
-                            "Debug"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "SwitcherModule",
-                                    "ref_kind": "constptr"
-                                },
-                                "len": {
-                                    "type": "usize"
-                                },
-                                "cap": {
-                                    "type": "usize"
-                                },
-                                "destructor": {
-                                    "type": "SwitcherModuleVecDestructor"
-                                },
-                                "flags": {
-                                    "type": "u8"
-                                }
-                            }
-                        ],
-                        "functions": {
-                            "create": {
-                                "doc": [
-                                    "Creates an empty `SwitcherModuleVec`"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "SwitcherModuleVec"
-                                },
-                                "fn_body": "Self::new()"
-                            },
-                            "with_capacity": {
-                                "doc": [
-                                    "Creates a `SwitcherModuleVec` with a given capacity"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "cap": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "SwitcherModuleVec"
-                                },
-                                "fn_body": "Self::with_capacity(cap)"
-                            },
-                            "len": {
-                                "doc": [
-                                    "Returns the number of elements in the Vec"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "switcher_module_vec.len()"
-                            },
-                            "capacity": {
-                                "doc": [
-                                    "Returns the capacity of the Vec"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "switcher_module_vec.capacity()"
-                            },
-                            "is_empty": {
-                                "doc": [
-                                    "Returns whether the Vec is empty"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "switcher_module_vec.is_empty()"
-                            },
-                            "from_item": {
-                                "doc": [
-                                    "Creates a `SwitcherModuleVec` containing a single element"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "item": "SwitcherModule"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "SwitcherModuleVec"
-                                },
-                                "fn_body": "Self::from_item(item)"
-                            },
-                            "copy_from_ptr": {
-                                "doc": [
-                                    "Copies elements from a C array into a `SwitcherModuleVec`. The array must be valid for `len` elements."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "ptr": "*const SwitcherModule"
-                                    },
-                                    {
-                                        "len": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "SwitcherModuleVec"
-                                },
-                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
-                            },
-                            "c_get": {
-                                "doc": [
-                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "index": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "OptionSwitcherModule"
-                                },
-                                "fn_body": "switcher_module_vec.c_get(index).into()"
-                            },
-                            "as_c_slice": {
-                                "doc": [
-                                    "Returns a C-compatible slice of the entire Vec as a `SwitcherModuleVecSlice`."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "SwitcherModuleVecSlice"
-                                },
-                                "fn_body": "switcher_module_vec.as_c_slice()"
-                            },
-                            "as_c_slice_range": {
-                                "doc": [
-                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "start": "usize"
-                                    },
-                                    {
-                                        "end": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "SwitcherModuleVecSlice"
-                                },
-                                "fn_body": "switcher_module_vec.as_c_slice_range(start, end)"
-                            }
-                        },
-                        "repr": "C"
                     },
                     "ShellNavigationModuleVecDestructorType": {
                         "external": "azul_layout::widgets::shells::navigation_pane::ShellNavigationModuleVecDestructorType",
@@ -141487,23 +140916,6 @@
                             }
                         },
                         "repr": "C"
-                    },
-                    "SwitcherModuleVecDestructor": {
-                        "external": "azul_layout::widgets::module_switcher::SwitcherModuleVecDestructor",
-                        "derive": [
-                            "Debug"
-                        ],
-                        "enum_fields": [
-                            {
-                                "DefaultRust": {},
-                                "NoDestructor": {},
-                                "External": {
-                                    "type": "SwitcherModuleVecDestructorType"
-                                },
-                                "AlreadyDestroyed": {}
-                            }
-                        ],
-                        "repr": "C, u8"
                     },
                     "ShellBottomTabVecDestructorType": {
                         "external": "azul_layout::widgets::shells::mobile_shell::ShellBottomTabVecDestructorType",
@@ -144680,6 +144092,223 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "TextFormatSpanVecDestructor": {
+                        "external": "azul_core::selection::TextFormatSpanVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "TextFormatSpanVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "TextFormatSpanVec": {
+                        "external": "azul_core::selection::TextFormatSpanVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "TextFormatSpan",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "TextFormatSpanVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `TextFormatSpanVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "TextFormatSpanVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `TextFormatSpanVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextFormatSpanVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "text_format_span_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "text_format_span_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "text_format_span_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `TextFormatSpanVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "TextFormatSpan"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextFormatSpanVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `TextFormatSpanVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const TextFormatSpan"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextFormatSpanVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionTextFormatSpan"
+                                },
+                                "fn_body": "text_format_span_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `TextFormatSpanVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextFormatSpanVecSlice"
+                                },
+                                "fn_body": "text_format_span_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextFormatSpanVecSlice"
+                                },
+                                "fn_body": "text_format_span_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "TextFormatSpanVecDestructorType": {
+                        "external": "azul_core::selection::TextFormatSpanVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "TextFormatSpanVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -152585,36 +152214,6 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "OptionModuleSwitcherOnCollapse": {
-                        "external": "azul_layout::widgets::module_switcher::OptionModuleSwitcherOnCollapse",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "Eq",
-                            "Hash",
-                            "Ord",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "derive": [
-                            "Clone",
-                            "Debug",
-                            "Hash",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord"
-                        ],
-                        "enum_fields": [
-                            {
-                                "None": {},
-                                "Some": {
-                                    "type": "ModuleSwitcherOnCollapse"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
                     "OptionShellSettingsLayoutOnCategory": {
                         "external": "azul_layout::widgets::shells::settings_layout::OptionShellSettingsLayoutOnCategory",
                         "custom_impls": [
@@ -152842,36 +152441,6 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "OptionModuleSwitcherOnSelect": {
-                        "external": "azul_layout::widgets::module_switcher::OptionModuleSwitcherOnSelect",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "Eq",
-                            "Hash",
-                            "Ord",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "derive": [
-                            "Clone",
-                            "Debug",
-                            "Hash",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord"
-                        ],
-                        "enum_fields": [
-                            {
-                                "None": {},
-                                "Some": {
-                                    "type": "ModuleSwitcherOnSelect"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
                     "OptionToDoBarOnEvent": {
                         "external": "azul_layout::widgets::todo_bar::OptionToDoBarOnEvent",
                         "custom_impls": [
@@ -153077,31 +152646,6 @@
                                     "type": "ShellNavigationGroup",
                                     "doc": [
                                         "Some value of type ShellNavigationGroup"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
-                    "OptionSwitcherModule": {
-                        "external": "azul_layout::widgets::module_switcher::OptionSwitcherModule",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Eq",
-                            "PartialEq"
-                        ],
-                        "enum_fields": [
-                            {
-                                "None": {
-                                    "doc": [
-                                        "No value"
-                                    ]
-                                },
-                                "Some": {
-                                    "type": "SwitcherModule",
-                                    "doc": [
-                                        "Some value of type SwitcherModule"
                                     ]
                                 }
                             }
@@ -153886,31 +153430,34 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "WizardOptionVecSlice": {
-                        "external": "azul_layout::widgets::wizard_pages::WizardOptionVecSlice",
+                    "OptionTextFormatSpan": {
+                        "external": "azul_core::selection::OptionTextFormatSpan",
                         "derive": [
                             "Debug",
                             "Clone",
-                            "Copy"
+                            "Copy",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
                         ],
-                        "struct_fields": [
+                        "enum_fields": [
                             {
-                                "ptr": {
-                                    "type": "WizardOption",
-                                    "ref_kind": "constptr",
+                                "None": {
                                     "doc": [
-                                        "Pointer to the slice data"
+                                        "No value"
                                     ]
                                 },
-                                "len": {
-                                    "type": "usize",
+                                "Some": {
+                                    "type": "TextFormatSpan",
                                     "doc": [
-                                        "Number of elements in the slice"
+                                        "Some value of type TextFormatSpan"
                                     ]
                                 }
                             }
                         ],
-                        "repr": "C"
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -158522,32 +158069,6 @@
                             }
                         },
                         "repr": "C"
-                    },
-                    "ToDoTaskVecSlice": {
-                        "external": "azul_layout::widgets::todo_bar::ToDoTaskVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "ToDoTask",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
                     }
                 }
             },
@@ -160441,32 +159962,6 @@
                             }
                         ],
                         "repr": "C, u8"
-                    },
-                    "WizardComponentVecSlice": {
-                        "external": "azul_layout::widgets::wizard_pages::WizardComponentVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "WizardComponent",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
                     }
                 }
             },
@@ -170851,9 +170346,6 @@
                         ],
                         "struct_fields": [
                             {
-                                "title_row": {
-                                    "type": "OptionDom"
-                                },
                                 "sidebar": {
                                     "type": "OptionDom"
                                 },
@@ -170863,17 +170355,8 @@
                                 "now_playing": {
                                     "type": "Dom"
                                 },
-                                "on_pane_focus": {
-                                    "type": "OptionShellOnPaneFocus"
-                                },
-                                "on_pane_resize": {
-                                    "type": "OptionShellOnPaneResize"
-                                },
                                 "sidebar_ratio": {
                                     "type": "f32"
-                                },
-                                "theme": {
-                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -171279,13 +170762,7 @@
                         ],
                         "struct_fields": [
                             {
-                                "title_row": {
-                                    "type": "OptionDom"
-                                },
                                 "ribbon": {
-                                    "type": "OptionDom"
-                                },
-                                "backstage": {
                                     "type": "OptionDom"
                                 },
                                 "address_bar": {
@@ -171303,15 +170780,6 @@
                                 "details": {
                                     "type": "OptionDom"
                                 },
-                                "status_bar": {
-                                    "type": "OptionDom"
-                                },
-                                "on_pane_focus": {
-                                    "type": "OptionShellOnPaneFocus"
-                                },
-                                "on_pane_resize": {
-                                    "type": "OptionShellOnPaneResize"
-                                },
                                 "tree_ratio": {
                                     "type": "f32"
                                 },
@@ -171320,9 +170788,6 @@
                                 },
                                 "details_ratio": {
                                     "type": "f32"
-                                },
-                                "theme": {
-                                    "type": "OptionUiTheme"
                                 },
                                 "tree_visible": {
                                     "type": "bool"
@@ -172008,12 +171473,6 @@
                                 },
                                 "controls": {
                                     "type": "Dom"
-                                },
-                                "on_pane_focus": {
-                                    "type": "OptionShellOnPaneFocus"
-                                },
-                                "on_pane_resize": {
-                                    "type": "OptionShellOnPaneResize"
                                 },
                                 "stage": {
                                     "type": "OptionDom"
@@ -174470,9 +173929,6 @@
                         ],
                         "struct_fields": [
                             {
-                                "title_row": {
-                                    "type": "OptionDom"
-                                },
                                 "activity_bar": {
                                     "type": "Dom"
                                 },
@@ -174485,23 +173941,11 @@
                                 "panel": {
                                     "type": "OptionDom"
                                 },
-                                "status_bar": {
-                                    "type": "OptionDom"
-                                },
-                                "on_pane_focus": {
-                                    "type": "OptionShellOnPaneFocus"
-                                },
-                                "on_pane_resize": {
-                                    "type": "OptionShellOnPaneResize"
-                                },
                                 "side_bar_ratio": {
                                     "type": "f32"
                                 },
                                 "panel_ratio": {
                                     "type": "f32"
-                                },
-                                "theme": {
-                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -175329,15 +174773,6 @@
                         ],
                         "struct_fields": [
                             {
-                                "title_row": {
-                                    "type": "OptionDom"
-                                },
-                                "ribbon": {
-                                    "type": "OptionDom"
-                                },
-                                "backstage": {
-                                    "type": "OptionDom"
-                                },
                                 "navigation": {
                                     "type": "Dom"
                                 },
@@ -175350,15 +174785,6 @@
                                 "todo_bar": {
                                     "type": "OptionDom"
                                 },
-                                "status_bar": {
-                                    "type": "OptionDom"
-                                },
-                                "on_pane_focus": {
-                                    "type": "OptionShellOnPaneFocus"
-                                },
-                                "on_pane_resize": {
-                                    "type": "OptionShellOnPaneResize"
-                                },
                                 "list_label": {
                                     "type": "String"
                                 },
@@ -175367,9 +174793,6 @@
                                 },
                                 "list_ratio": {
                                     "type": "f32"
-                                },
-                                "theme": {
-                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -175800,15 +175223,6 @@
                         ],
                         "struct_fields": [
                             {
-                                "title_row": {
-                                    "type": "OptionDom"
-                                },
-                                "ribbon": {
-                                    "type": "OptionDom"
-                                },
-                                "backstage": {
-                                    "type": "OptionDom"
-                                },
                                 "navigation": {
                                     "type": "OptionDom"
                                 },
@@ -175818,23 +175232,11 @@
                                 "side_pane": {
                                     "type": "OptionDom"
                                 },
-                                "status_bar": {
-                                    "type": "OptionDom"
-                                },
-                                "on_pane_focus": {
-                                    "type": "OptionShellOnPaneFocus"
-                                },
-                                "on_pane_resize": {
-                                    "type": "OptionShellOnPaneResize"
-                                },
                                 "navigation_ratio": {
                                     "type": "f32"
                                 },
                                 "document_ratio": {
                                     "type": "f32"
-                                },
-                                "theme": {
-                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -176329,9 +175731,6 @@
                         ],
                         "struct_fields": [
                             {
-                                "title_row": {
-                                    "type": "OptionDom"
-                                },
                                 "tabs": {
                                     "type": "Dom"
                                 },
@@ -176344,20 +175743,8 @@
                                 "form": {
                                     "type": "OptionDom"
                                 },
-                                "status_bar": {
-                                    "type": "OptionDom"
-                                },
-                                "on_pane_focus": {
-                                    "type": "OptionShellOnPaneFocus"
-                                },
-                                "on_pane_resize": {
-                                    "type": "OptionShellOnPaneResize"
-                                },
                                 "table_ratio": {
                                     "type": "f32"
-                                },
-                                "theme": {
-                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -176873,17 +176260,8 @@
                                 "meters": {
                                     "type": "OptionDom"
                                 },
-                                "on_pane_focus": {
-                                    "type": "OptionShellOnPaneFocus"
-                                },
-                                "on_pane_resize": {
-                                    "type": "OptionShellOnPaneResize"
-                                },
                                 "timeline_ratio": {
                                     "type": "f32"
-                                },
-                                "theme": {
-                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -177320,15 +176698,6 @@
                                 },
                                 "drawer": {
                                     "type": "OptionDom"
-                                },
-                                "status_bar": {
-                                    "type": "OptionDom"
-                                },
-                                "on_pane_focus": {
-                                    "type": "OptionShellOnPaneFocus"
-                                },
-                                "on_pane_resize": {
-                                    "type": "OptionShellOnPaneResize"
                                 },
                                 "canvas_ratio": {
                                     "type": "f32"
