@@ -192,7 +192,14 @@ class App:
             time.sleep(interval)
         raise Failure("timed out waiting for %s%s" % (what, " (last error: %s)" % last if last else ""))
 
-    def key(self, key, shift=False, ctrl=False, meta=False):
+    def key(self, key, shift=False, ctrl=False, meta=False, primary=False):
+        # `primary`: the platform's shortcut modifier, as the apps read it
+        # (KeyModifiers::primary_down) - Cmd on macOS, Ctrl elsewhere.
+        if primary:
+            if sys.platform == "darwin":
+                meta = True
+            else:
+                ctrl = True
         mods = {"shift": shift, "ctrl": ctrl, "alt": False, "meta": meta}
         self.must("key_down", key=key, modifiers=mods)
         self.must("key_up", key=key, modifiers=mods)
@@ -305,7 +312,7 @@ def first_session(app, data, out):
     log("search finds and filters")
 
     # The command palette.
-    app.key("k", ctrl=True)
+    app.key("k", primary=True)
     app.until("the command palette", lambda: "__azul-native-command-palette-panel" in app.classes())
     app.screenshot(os.path.join(out, "palette.png"))
     app.key("escape")

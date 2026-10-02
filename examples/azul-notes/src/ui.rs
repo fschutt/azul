@@ -208,7 +208,7 @@ extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update 
         return Update::DoNothing;
     };
     let modifiers = info.get_key_modifiers();
-    let primary = modifiers.ctrl || modifiers.meta;
+    let primary = modifiers.primary_down();
     let shift = modifiers.shift;
     with_state(&mut data, &mut info, |s, info, app| match (key, primary, shift) {
         (VirtualKeyCode::N, true, false) => {

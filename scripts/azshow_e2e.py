@@ -208,7 +208,14 @@ class App:
         self.must("click", text=text)
         self.frame(2)
 
-    def key(self, key, shift=False, ctrl=False, meta=False):
+    def key(self, key, shift=False, ctrl=False, meta=False, primary=False):
+        # `primary`: the platform's shortcut modifier, as the apps read it
+        # (KeyModifiers::primary_down) - Cmd on macOS, Ctrl elsewhere.
+        if primary:
+            if sys.platform == "darwin":
+                meta = True
+            else:
+                ctrl = True
         mods = {"shift": shift, "ctrl": ctrl, "alt": False, "meta": meta}
         self.must("key_down", key=key, modifiers=mods)
         self.must("key_up", key=key, modifiers=mods)
@@ -342,7 +349,7 @@ def run(args, logs, out):
             log("NOTE: no drop arrived headlessly; reordering with Ctrl+Down on the thumbnail")
             app.must("click", x=x1, y=y1)
             app.frame(2)
-            app.key("down", ctrl=True)
+            app.key("down", primary=True)
             order = app.until("the keyboard move", lambda: app.printed("AZSHOW_ORDER", r".+")[before:])
             log("Ctrl+Down reordered the slides: %s" % order[-1])
         shot("06-reordered")
@@ -352,7 +359,7 @@ def run(args, logs, out):
 
         # ---- save ----
         before = len(app.printed("AZSHOW_SAVED", r"\S+"))
-        app.key("s", ctrl=True, meta=sys.platform == "darwin")
+        app.key("s", primary=True)
         app.until("the save", lambda: app.printed("AZSHOW_SAVED", r"\S+")[before:])
         path = os.path.join(data_root, "show", deck_id, "deck.json")
         with open(path, "r", encoding="utf-8") as f:

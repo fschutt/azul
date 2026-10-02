@@ -276,7 +276,7 @@ extern "C" fn on_nav_event(
     event: ShellNavigationPaneEvent,
 ) -> Update {
     let mods = info.get_key_modifiers();
-    let copy = mods.ctrl || mods.meta;
+    let copy = mods.primary_down();
     with_state(&mut data, &mut info, |info, app, s| {
         let group = event.group.min(1);
         match event.kind {

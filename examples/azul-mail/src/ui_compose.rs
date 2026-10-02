@@ -729,7 +729,7 @@ extern "C" fn on_compose_key(mut data: RefAny, mut info: CallbackInfo) -> Update
     };
     let keyboard = info.get_current_keyboard_state();
     let modifiers = info.get_key_modifiers();
-    if !(modifiers.ctrl || modifiers.meta) {
+    if !modifiers.primary_down() {
         return Update::DoNothing;
     }
     let action = match keyboard.current_virtual_keycode.into_option() {

@@ -159,7 +159,7 @@ fn mods(info: &CallbackInfo) -> Mods {
     Mods {
         shift: k.shift,
         alt: k.alt,
-        cmd: k.ctrl || k.meta,
+        cmd: k.primary_down(),
     }
 }
 

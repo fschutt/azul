@@ -551,7 +551,7 @@ fn row(s: &Tasks, app: &RefAny, t: &Task, now: NaiveDateTime, show_list: bool) -
 extern "C" fn on_row_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let mods = info.get_key_modifiers();
     with_row(&mut data, &mut info, |_info, _app, s, id| {
-        s.select(id, mods.shift, mods.ctrl || mods.meta);
+        s.select(id, mods.shift, mods.primary_down());
         s.sync_drafts();
     })
 }

@@ -2294,7 +2294,7 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     let m = info.get_key_modifiers();
-    let command = m.ctrl || m.meta;
+    let command = m.primary_down();
     use azul::dom::VirtualKeyCode as K;
     match (key, command, m.shift) {
         (K::N, true, _) => {

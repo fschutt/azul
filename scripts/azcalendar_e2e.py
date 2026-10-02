@@ -87,7 +87,14 @@ class Window(wi.Debug):
     def op(self, body):
         return super().op(dict(body, window_id=self.window))
 
-    def key(self, key, ctrl=False, alt=False, shift=False, meta=False):
+    def key(self, key, ctrl=False, alt=False, shift=False, meta=False, primary=False):
+        # `primary`: the platform's shortcut modifier, as the apps read it
+        # (KeyModifiers::primary_down) - Cmd on macOS, Ctrl elsewhere.
+        if primary:
+            if sys.platform == "darwin":
+                meta = True
+            else:
+                ctrl = True
         mods = {"shift": shift, "ctrl": ctrl, "alt": alt, "meta": meta}
         self.must({"op": "key_down", "key": key, "modifiers": mods})
         self.must({"op": "key_up", "key": key, "modifiers": mods})
@@ -197,7 +204,7 @@ def stage_views(app, ctx):
     w = app.main
     for key, name, columns in VIEWS:
         seen = len(app.printed("AZCAL_VIEW"))
-        w.key(key, ctrl=True, alt=True)
+        w.key(key, primary=True, alt=True)
         w.wait_for(f"#view-{name}")
         line = w.until(
             f"AZCAL_VIEW {name}",
@@ -212,12 +219,12 @@ def stage_views(app, ctx):
         if name == "schedule":
             w.wait_for("#schedule")
     # The ribbon does the same.
-    w.key("3", ctrl=True, alt=True)
+    w.key("3", primary=True, alt=True)
     w.click(text="Month")
     w.wait_for("#view-month")
     w.click(text="Schedule View")
     w.wait_for("#view-schedule")
-    w.key("3", ctrl=True, alt=True)
+    w.key("3", primary=True, alt=True)
     w.wait_for("#view-week")
     # FILE opens the backstage over the window; Escape closes it.
     w.click(text="FILE")
@@ -317,7 +324,7 @@ def stage_import(app, ctx):
     ctx["standup"] = (event["id"], wed, skip)
     # The import closes the backstage and shows the first imported day.
     w.wait_gone("#shell-backstage")
-    w.key("3", ctrl=True, alt=True)
+    w.key("3", primary=True, alt=True)
     w.wait_for(f"#event-{event['id']}-{ymd(wed)}")
     return f"3 events from {os.path.basename(path)}, the weekly one shown on {wed}"
 
@@ -346,7 +353,7 @@ def stage_editor(app, ctx):
     w = app.main
     opened = len(app.printed("AZCAL_EDITOR"))
     before = set(wi.event_files(app.data))
-    w.key("n", ctrl=True)
+    w.key("n", primary=True)
     w.until(
         "AZCAL_EDITOR open",
         lambda: "open" in app.printed("AZCAL_EDITOR")[opened:],
@@ -379,7 +386,7 @@ def stage_editor(app, ctx):
 
 def show_week_of(w, day):
     """Puts the Week view on the week of `day` (Today, then Forward / Back)."""
-    w.key("3", ctrl=True, alt=True)
+    w.key("3", primary=True, alt=True)
     w.click(selector="#view-today")
     weeks = (day - monday()).days // 7
     for _ in range(abs(weeks)):
@@ -492,7 +499,7 @@ def stage_contrast(app, ctx):
             base = (255.0, 255.0, 255.0) if mode == "light" else (30.0, 30.0, 30.0)
             screens = [("week", "3"), ("month", "4"), ("agenda", "6")]
             for name, key in screens:
-                w.key(key, ctrl=True, alt=True)
+                w.key(key, primary=True, alt=True)
                 w.wait_for(f"#view-{name}")
                 w.frames(3)
                 items = (w.value({"op": "get_display_list"}) or {}).get("items", [])

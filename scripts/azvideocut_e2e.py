@@ -169,7 +169,14 @@ class App:
         value = self.value("get_node_layout", selector=selector)
         return value.get("node_id"), value.get("rect") or {}
 
-    def key(self, key, shift=False, ctrl=False, meta=False):
+    def key(self, key, shift=False, ctrl=False, meta=False, primary=False):
+        # `primary`: the platform's shortcut modifier, as the apps read it
+        # (KeyModifiers::primary_down) - Cmd on macOS, Ctrl elsewhere.
+        if primary:
+            if sys.platform == "darwin":
+                meta = True
+            else:
+                ctrl = True
         mods = {"shift": shift, "ctrl": ctrl, "alt": False, "meta": meta}
         self.must("key_down", key=key, modifiers=mods)
         self.must("key_up", key=key, modifiers=mods)
@@ -302,7 +309,7 @@ def run(args, logs, out, data_root):
             raise Failure("the playhead is at %d, not 50" % at)
 
         # 4. Cuts: the razor on every track at the playhead, then the razor tool.
-        clips, frames = edit(app, "Razor", lambda: app.key("k", ctrl=True), "Ctrl+K at frame 50")
+        clips, frames = edit(app, "Razor", lambda: app.key("k", primary=True), "Ctrl+K at frame 50")
         if (clips, frames) != (6, 200):
             raise Failure("after Ctrl+K: %d clips, %d frames (want 6, 200)" % (clips, frames))
         app.key("c")
@@ -320,7 +327,7 @@ def run(args, logs, out, data_root):
         clips, short = edit(app, "Ripple_delete", lambda: app.key("delete", shift=True), "Shift+Delete")
         if clips != 6 or short >= 200:
             raise Failure("the ripple delete left %d clips and %d frames" % (clips, short))
-        clips, frames = edit(app, "Undo_Ripple_delete", lambda: app.key("z", ctrl=True), "Ctrl+Z")
+        clips, frames = edit(app, "Undo_Ripple_delete", lambda: app.key("z", primary=True), "Ctrl+Z")
         if (clips, frames) != (7, 200):
             raise Failure("undo left %d clips and %d frames, not 7 and 200" % (clips, frames))
 
@@ -332,7 +339,7 @@ def run(args, logs, out, data_root):
             raise Failure("Right moved the playhead to %d" % at)
 
         # 6. Export the first second.
-        app.key("e", ctrl=True)
+        app.key("e", primary=True)
         app.until("the export dialog", lambda: any("First second" in t for t in app.texts()))
         app.click(text="First second")
         wait = app.next_line("EXPORTED", r"\S+ \d+ \w+", "the export")

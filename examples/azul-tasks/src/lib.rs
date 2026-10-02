@@ -190,7 +190,7 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     let mods = info.get_key_modifiers();
-    let cmd = mods.ctrl || mods.meta;
+    let cmd = mods.primary_down();
     let focus = match info.get_focused_node().into_option() {
         None => Focus::Free,
         Some(node) => {

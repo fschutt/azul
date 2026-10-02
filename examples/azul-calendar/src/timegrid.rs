@@ -623,7 +623,7 @@ extern "C" fn on_save_zoom(mut data: RefAny, _info: TimerCallbackInfo) -> TimerC
 /// well); without, they scroll as any scroll area does.
 extern "C" fn on_week_wheel(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let modifiers = info.get_key_modifiers();
-    if !(modifiers.ctrl || modifiers.meta) {
+    if !modifiers.primary_down() {
         return Update::DoNothing;
     }
     let hit = info.get_hit_node();

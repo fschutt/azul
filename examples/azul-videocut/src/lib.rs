@@ -1963,7 +1963,7 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     let m = info.get_key_modifiers();
-    let cmd = m.ctrl || m.meta;
+    let cmd = m.primary_down();
     // A text field keeps its letters, the focused timeline its own keys.
     if focus_has_class(&info, "text-input") || focus_has_class(&info, "number-input") {
         return Update::DoNothing;
@@ -2286,7 +2286,7 @@ extern "C" fn on_timeline_wheel(mut data: RefAny, mut info: CallbackInfo) -> Upd
         return Update::DoNothing;
     }
     info.prevent_default();
-    if m.ctrl || m.meta {
+    if m.primary_down() {
         let anchor = app.seconds(app.playhead);
         zoom_about(&mut app, if delta.y < 0.0 { 1.15 } else { 1.0 / 1.15 }, anchor);
     } else {

@@ -570,7 +570,7 @@ pub(crate) extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -
     let m = info.get_key_modifiers();
     let mods = Mods {
         shift: m.shift,
-        ctrl: m.ctrl || m.meta,
+        ctrl: m.primary_down(),
         alt: m.alt,
     };
     if in_text_field(&info) {

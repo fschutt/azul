@@ -2964,7 +2964,7 @@ extern "C" fn on_picked(mut data: RefAny, mut info: CallbackInfo, result: RefAny
 extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let key = info.get_current_keyboard_state().current_virtual_keycode.into_option();
     let modifiers = info.get_key_modifiers();
-    let command = modifiers.ctrl || modifiers.meta;
+    let command = modifiers.primary_down();
     let action = match key {
         Some(VirtualKeyCode::S) if command => Some(Action::Save),
         Some(VirtualKeyCode::Z) if command && modifiers.shift => Some(Action::Redo),

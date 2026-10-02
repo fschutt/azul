@@ -205,7 +205,14 @@ class App:
             time.sleep(interval)
         raise Failure("timed out waiting for %s%s" % (what, " (last error: %s)" % last if last else ""))
 
-    def key(self, key, shift=False, ctrl=False, meta=False):
+    def key(self, key, shift=False, ctrl=False, meta=False, primary=False):
+        # `primary`: the platform's shortcut modifier, as the apps read it
+        # (KeyModifiers::primary_down) - Cmd on macOS, Ctrl elsewhere.
+        if primary:
+            if sys.platform == "darwin":
+                meta = True
+            else:
+                ctrl = True
         mods = {"shift": shift, "ctrl": ctrl, "alt": False, "meta": meta}
         self.must("key_down", key=key, modifiers=mods)
         self.must("key_up", key=key, modifiers=mods)
@@ -246,7 +253,7 @@ class App:
     def home(self, right=0, down=0, shift_down=0):
         """Ctrl+Home, then arrows: the grid's own keyboard navigation."""
         self.focus_grid()
-        self.key("home", ctrl=True)
+        self.key("home", primary=True)
         for _ in range(right):
             self.key("right")
         for _ in range(down):
@@ -331,7 +338,7 @@ def first_session(binary, args, data_dir, logs, out):
 
         # 6. Save.
         app.focus_grid()
-        app.key("s", ctrl=True)
+        app.key("s", primary=True)
         saved = app.until("the save", lambda: app.printed("AZSHEETS_SAVED", r"[0-9a-f-]+"))
         doc_id = saved[-1]
         for ext in ("xlsx", "json"):

@@ -437,7 +437,7 @@ pub fn handle_key(kit_ref: &RefAny, info: &mut CallbackInfo) -> Option<Update> {
         .current_virtual_keycode
         .into_option()?;
     let modifiers = info.get_key_modifiers();
-    let command = modifiers.ctrl || modifiers.meta;
+    let command = modifiers.primary_down();
     match key {
         VirtualKeyCode::Comma if command => {
             open_settings(kit_ref, None);

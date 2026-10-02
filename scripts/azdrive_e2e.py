@@ -51,6 +51,9 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, ".."))
+# The key of the platform's shortcut modifier (KeyModifiers::primary_down):
+# Cmd on macOS, Ctrl elsewhere.
+PRIMARY = "meta" if sys.platform == "darwin" else "ctrl"
 
 
 def log(line):
@@ -210,8 +213,16 @@ class App:
         rect = value.get("rect") or {}
         return rect.get("width", 0) > 0 and rect.get("height", 0) > 0
 
-    def key(self, key, shift=False, ctrl=False, alt=False):
-        mods = {"shift": shift, "ctrl": ctrl, "alt": alt, "meta": False}
+    def key(self, key, shift=False, ctrl=False, alt=False, primary=False):
+        meta = False
+        # `primary`: the platform's shortcut modifier, as the apps read it
+        # (KeyModifiers::primary_down) - Cmd on macOS, Ctrl elsewhere.
+        if primary:
+            if sys.platform == "darwin":
+                meta = True
+            else:
+                ctrl = True
+        mods = {"shift": shift, "ctrl": ctrl, "alt": alt, "meta": meta}
         self.must("key_down", key=key, modifiers=mods)
         self.must("key_up", key=key, modifiers=mods)
         self.frame()
@@ -340,7 +351,7 @@ def run(args, logs):
         # 3. Every layout (Ctrl+Shift+1..8), and one through the ribbon's gallery.
         for digit, name in LAYOUTS:
             app.after("the layout %s" % name, "AZDRIVE_LAYOUT", re.escape(name),
-                      lambda: app.key(digit, ctrl=True, shift=True))
+                      lambda: app.key(digit, primary=True, shift=True))
             app.until("the %s view" % name, lambda: "azdrive-layout-%s" % name in app.classes())
             app.until("the items of %s" % name, lambda: len(app.nodes_with_class("azdrive-item")) >= 5)
             if name in ("large_icons", "tiles"):
@@ -349,7 +360,7 @@ def run(args, logs):
         app.after("Large icons from the gallery", "AZDRIVE_LAYOUT", r"large_icons",
                   lambda: app.click_exact("Large icons"))
         app.after("Details from the status bar's switch", "AZDRIVE_LAYOUT", r"details",
-                  lambda: app.key("6", ctrl=True, shift=True))
+                  lambda: app.key("6", primary=True, shift=True))
         log("3. all eight layouts render the folder (keys and the ribbon's gallery)")
 
         # 4. Sort by the Name header (twice: descending), then by Size.
@@ -377,15 +388,15 @@ def run(args, logs):
         app.after("one selected", "AZDRIVE_SELECTED", r"1 Documents/notes\.txt",
                   lambda: app.click_exact("notes.txt"))
         app.after("Ctrl+click", "AZDRIVE_SELECTED", r"2 .*", lambda: (
-            app.op("key_down", key="ctrl", modifiers={"ctrl": True}),
+            app.op("key_down", key=PRIMARY, modifiers={PRIMARY: True}),
             app.click_exact("report.md"),
-            app.op("key_up", key="ctrl", modifiers={"ctrl": False})))
+            app.op("key_up", key=PRIMARY, modifiers={PRIMARY: False})))
         app.after("Shift+click", "AZDRIVE_SELECTED", r"3 .*", lambda: (
             app.op("key_down", key="shift", modifiers={"shift": True}),
             app.click_exact("data.csv"),
             app.op("key_up", key="shift", modifiers={"shift": False})))
         app.after("Escape", "AZDRIVE_SELECTED", r"0 -", lambda: app.key("escape"))
-        app.after("Ctrl+A", "AZDRIVE_SELECTED", r"3 .*", lambda: app.key("a", ctrl=True))
+        app.after("Ctrl+A", "AZDRIVE_SELECTED", r"3 .*", lambda: app.key("a", primary=True))
         app.after("Escape", "AZDRIVE_SELECTED", r"0 -", lambda: app.key("escape"))
         log("5. click, Ctrl+click, Shift+click, Ctrl+A and Escape select as Explorer does")
 
@@ -412,14 +423,14 @@ def run(args, logs):
         app.until("todo.txt on disk", lambda: os.path.isfile(os.path.join(docs, "todo.txt")))
         if os.path.exists(os.path.join(docs, "notes.txt")):
             raise Failure("notes.txt is still there after the rename")
-        app.key("z", ctrl=True)
+        app.key("z", primary=True)
         app.until("notes.txt back on disk (Ctrl+Z)",
                   lambda: os.path.isfile(os.path.join(docs, "notes.txt")))
         log("7. F2 renamed notes.txt to todo.txt on disk; Ctrl+Z renamed it back")
 
         # 8. A new folder.
         app.after("a new folder", "AZDRIVE_DONE", r"created Documents/New folder/",
-                  lambda: app.key("n", ctrl=True, shift=True))
+                  lambda: app.key("n", primary=True, shift=True))
         app.until("the new folder on disk", lambda: os.path.isdir(os.path.join(docs, "New folder")))
         app.until("its rename field", lambda: app.has("#rename-field"))
         app.key("escape")
@@ -429,14 +440,14 @@ def run(args, logs):
         # 9. Copy / paste; a conflict; Keep both.
         app.after("notes.txt selected", "AZDRIVE_SELECTED", r"1 Documents/notes\.txt",
                   lambda: app.click_exact("notes.txt"))
-        app.after("Ctrl+C", "AZDRIVE_CLIPBOARD", r"copy 1", lambda: app.key("c", ctrl=True))
+        app.after("Ctrl+C", "AZDRIVE_CLIPBOARD", r"copy 1", lambda: app.key("c", primary=True))
         app.after("into New folder", "AZDRIVE_LISTED", r"home Documents/New folder/ \d+",
                   lambda: app.click_exact("New folder", double=True))
         target = os.path.join(docs, "New folder")
-        app.after("the paste", "AZDRIVE_TRANSFER", r"\d+ done 1", lambda: app.key("v", ctrl=True))
+        app.after("the paste", "AZDRIVE_TRANSFER", r"\d+ done 1", lambda: app.key("v", primary=True))
         app.until("the copy on disk", lambda: os.path.isfile(os.path.join(target, "notes.txt")))
         app.after("the conflict", "AZDRIVE_TRANSFER", r"\d+ conflict 1",
-                  lambda: app.key("v", ctrl=True))
+                  lambda: app.key("v", primary=True))
         app.until("the conflict dialog", lambda: app.has("#conflict"))
         app.screenshot(os.path.join(out, "09-conflict.png"))
         app.after("keep both", "AZDRIVE_TRANSFER", r"\d+ done 1",
@@ -452,7 +463,7 @@ def run(args, logs):
         trashed = glob.glob(os.path.join(home, ".azdrive-trash", "*", "Documents", "New folder", "notes (2).txt"))
         if not trashed:
             raise Failure("the deleted file is not in the trash folder")
-        app.key("z", ctrl=True)
+        app.key("z", primary=True)
         app.until("notes (2).txt back (Ctrl+Z)",
                   lambda: os.path.isfile(os.path.join(target, "notes (2).txt")))
         log("10. Delete moved the file into .azdrive-trash; Ctrl+Z brought it back")
@@ -482,11 +493,11 @@ def run(args, logs):
         app.screenshot(os.path.join(out, "12-preview.png"))
         # Large icons show the picture as a thumbnail.
         app.after("a thumbnail", "AZDRIVE_THUMBNAIL", r"Pictures/gradient\.png",
-                  lambda: app.key("2", ctrl=True, shift=True))
+                  lambda: app.key("2", primary=True, shift=True))
         app.until("the thumbnail drawn", lambda: "azdrive-thumbnail" in app.classes())
         app.screenshot(os.path.join(out, "12-thumbnails.png"))
         app.after("back to Details", "AZDRIVE_LAYOUT", r"details",
-                  lambda: app.key("6", ctrl=True, shift=True))
+                  lambda: app.key("6", primary=True, shift=True))
         app.after("the navigation pane off", "AZDRIVE_PANES", r"false true true",
                   lambda: app.click_exact("Navigation pane"))
         app.until("no tree", lambda: not app.has("#shell-tree"))

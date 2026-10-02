@@ -113,7 +113,7 @@ pub fn open_url(url: &str) -> bool {
 /// Ctrl / Cmd + click on a link in the text opens it.
 extern "C" fn on_link_click(mut data: RefAny, info: CallbackInfo) -> Update {
     let modifiers = info.get_key_modifiers();
-    if !(modifiers.ctrl || modifiers.meta) {
+    if !modifiers.primary_down() {
         return Update::DoNothing;
     }
     let Some(url) = data.downcast_ref::<LinkRef>().map(|l| l.url.clone()) else {
@@ -885,7 +885,7 @@ pub extern "C" fn on_editor_key(mut data: RefAny, mut info: CallbackInfo) -> Upd
         return Update::DoNothing;
     };
     let modifiers = info.get_key_modifiers();
-    let primary = modifiers.ctrl || modifiers.meta;
+    let primary = modifiers.primary_down();
     let shift = modifiers.shift;
     let Some(mut guard) = data.downcast_mut::<crate::AppState>() else {
         return Update::DoNothing;

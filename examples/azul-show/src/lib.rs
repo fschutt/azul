@@ -423,7 +423,7 @@ extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update 
         return Update::DoNothing;
     };
     let mods = info.get_key_modifiers();
-    let primary = mods.ctrl || mods.meta;
+    let primary = mods.primary_down();
     let cmd = {
         let Some(mut st) = data.downcast_mut::<AppState>() else {
             return Update::DoNothing;

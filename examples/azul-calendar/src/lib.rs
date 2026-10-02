@@ -564,7 +564,7 @@ extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update 
         .current_virtual_keycode
         .into_option();
     let m = info.get_key_modifiers();
-    let command = m.ctrl || m.meta;
+    let command = m.primary_down();
     let Some(key) = key else {
         return Update::DoNothing;
     };

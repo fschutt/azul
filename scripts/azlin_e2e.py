@@ -175,7 +175,14 @@ class App:
             self.must("click", text=text)
         self.frame(frames)
 
-    def key(self, key, shift=False, ctrl=False, alt=False, meta=False, frames=2):
+    def key(self, key, shift=False, ctrl=False, alt=False, meta=False, frames=2, primary=False):
+        # `primary`: the platform's shortcut modifier, as the apps read it
+        # (KeyModifiers::primary_down) - Cmd on macOS, Ctrl elsewhere.
+        if primary:
+            if sys.platform == "darwin":
+                meta = True
+            else:
+                ctrl = True
         mods = {"shift": shift, "ctrl": ctrl, "alt": alt, "meta": meta}
         self.must("key_down", key=key, modifiers=mods)
         self.must("key_up", key=key, modifiers=mods)

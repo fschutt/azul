@@ -193,7 +193,7 @@ extern "C" fn on_background_drop(mut data: RefAny, mut info: CallbackInfo) -> Up
     let Some(mut app) = background_app(&mut data) else {
         return Update::DoNothing;
     };
-    let copy = info.get_key_modifiers().ctrl || info.get_key_modifiers().meta;
+    let copy = info.get_key_modifiers().primary_down();
     with_state(&mut app, &mut info, |info, app, s| {
         let prefix = s.prefix().to_string();
         actions::drop_on_folder(info, app, s, &prefix, copy);
@@ -494,7 +494,7 @@ extern "C" fn on_item_click(mut data: RefAny, mut info: CallbackInfo) -> Update 
     };
     info.stop_propagation();
     let mods = info.get_key_modifiers();
-    let toggle = mods.ctrl || mods.meta;
+    let toggle = mods.primary_down();
     let range = mods.shift;
     with_state(&mut app, &mut info, |info, app, s| {
         if s.renaming.as_ref().is_some_and(|r| r.key == key) {
@@ -566,7 +566,7 @@ extern "C" fn on_item_drop(mut data: RefAny, mut info: CallbackInfo) -> Update {
     }
     info.stop_propagation();
     let mods = info.get_key_modifiers();
-    let copy = mods.ctrl || mods.meta;
+    let copy = mods.primary_down();
     with_state(&mut app, &mut info, |info, app, s| {
         actions::drop_on_folder(info, app, s, &key, copy);
     })

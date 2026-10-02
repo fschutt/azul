@@ -1009,7 +1009,7 @@ extern "C" fn on_editor_key(mut data: RefAny, mut info: CallbackInfo) -> Update 
         .current_virtual_keycode
         .into_option();
     let m = info.get_key_modifiers();
-    if (m.ctrl || m.meta)
+    if m.primary_down()
         && matches!(
             key,
             Some(VirtualKeyCode::S | VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter)

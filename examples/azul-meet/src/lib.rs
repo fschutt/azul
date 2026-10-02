@@ -4602,7 +4602,7 @@ extern "C" fn on_key(mut data: RefAny, info: CallbackInfo) -> Update {
         .current_virtual_keycode
         .into_option();
     let modifiers = info.get_key_modifiers();
-    let command = modifiers.ctrl || modifiers.meta;
+    let command = modifiers.primary_down();
     match key {
         Some(VirtualKeyCode::D) if command => mic_toggle(data, info),
         Some(VirtualKeyCode::E) if command => cam_toggle(data, info),
