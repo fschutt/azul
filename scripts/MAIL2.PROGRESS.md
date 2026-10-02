@@ -34,7 +34,10 @@ Branch `wt/mail2` from `39092feee`. Worktree
   (`ad1e4078b`/`86d6846e3`).
 - Debug server routing RED/GREEN (`7c027543e`/`6720b7c24`), runtime windows get the debug
   timer (`aa05c82dd`: headless, macOS x2, Windows, X11, Wayland).
-- NEXT: step 5 E2E
+- Step 5: `scripts/azmail_e2e.py` (`750c6a05b`).
+- NEXT: update MAIL1's `examples/azul-mail/scripts/sync_e2e.py` to the wizard + new window
+  texts; CI/workspace registration check (AzMail tests step); a review pass over the app for
+  compile risks (from_vec now exists for every Vec); then the report. Earlier plan item:
   (`scripts/azmail_e2e.py`, sink = SEND's `scripts/azmail_smtp_sink.py <port> <out_dir>`,
   prints `AZMAIL_SINK_READY <port>`, writes `<nnnn>.eml` + `.json`), then update MAIL1's
   `examples/azul-mail/scripts/sync_e2e.py` to the wizard, then the report.
