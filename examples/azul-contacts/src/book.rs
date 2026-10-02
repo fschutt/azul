@@ -41,41 +41,9 @@ pub const ALPHABET: [char; 27] = [
     'W', 'X', 'Y', 'Z', '#',
 ];
 
-/// Lower-case without the common Latin diacritics: `Krüger` -> `kruger`.
-#[must_use]
-pub fn fold(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for c in text.chars().flat_map(char::to_lowercase) {
-        let mapped: &str = match c {
-            'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'ā' | 'ă' | 'ą' => "a",
-            'æ' => "ae",
-            'ç' | 'ć' | 'č' | 'ĉ' | 'ċ' => "c",
-            'ď' | 'đ' | 'ð' => "d",
-            'è' | 'é' | 'ê' | 'ë' | 'ē' | 'ė' | 'ę' | 'ě' => "e",
-            'ğ' | 'ģ' => "g",
-            'ì' | 'í' | 'î' | 'ï' | 'ī' | 'į' | 'ı' => "i",
-            'ķ' => "k",
-            'ł' | 'ľ' | 'ļ' | 'ĺ' => "l",
-            'ñ' | 'ń' | 'ň' | 'ņ' => "n",
-            'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' | 'ō' | 'ő' => "o",
-            'œ' => "oe",
-            'ŕ' | 'ř' => "r",
-            'ś' | 'š' | 'ş' | 'ș' => "s",
-            'ß' => "ss",
-            'ť' | 'ţ' | 'ț' => "t",
-            'ù' | 'ú' | 'û' | 'ü' | 'ū' | 'ů' | 'ű' | 'ų' => "u",
-            'ý' | 'ÿ' => "y",
-            'ź' | 'ż' | 'ž' => "z",
-            'þ' => "th",
-            _ => {
-                out.push(c);
-                continue;
-            }
-        };
-        out.push_str(mapped);
-    }
-    out
-}
+/// Lower case without the common Latin diacritics (`Krüger` -> `kruger`): the PIM apps' search
+/// fold, `azul_pim::search::fold` (it began here).
+pub use azul_pim::search::fold;
 
 /// The sort key: first name first or last name first; a company by its name.
 #[must_use]
@@ -103,26 +71,12 @@ pub fn letter(c: &Contact, by: SortBy) -> char {
 
 /// The avatar's initials: first and last name (`RW`), a company's first two
 /// words (`NG`), a single name's first letter (`M`), or the display name's
-/// first character (`王`).
+/// first character (`王`) - `azul_pim::initials`, the rule every PIM app shows.
 #[must_use]
 pub fn initials(c: &Contact) -> String {
-    let first = |s: &str| s.trim().chars().next().map(|ch| ch.to_uppercase().collect::<String>());
-    match (first(&c.given), first(&c.family)) {
-        (Some(g), Some(f)) => return format!("{g}{f}"),
-        (Some(g), None) => return g,
-        (None, Some(f)) => return f,
-        (None, None) => {}
-    }
     let name = c.display_name();
-    if name == "(no name)" {
-        return "?".to_string();
-    }
-    let words: Vec<&str> = name.split_whitespace().collect();
-    match words.as_slice() {
-        [] => "?".to_string(),
-        [one] => first(one).unwrap_or_default(),
-        [a, b, ..] => format!("{}{}", first(a).unwrap_or_default(), first(b).unwrap_or_default()),
-    }
+    let display = if name == "(no name)" { "" } else { name.as_str() };
+    azul_pim::initials::person_initials(&c.given, &c.family, display)
 }
 
 fn digits(s: &str) -> String {
@@ -135,7 +89,8 @@ fn digits(s: &str) -> String {
 /// digits (`+49`, `0004`), in a phone number's digits.
 #[must_use]
 pub fn matches(c: &Contact, query: &str) -> bool {
-    let words: Vec<String> = query.split_whitespace().map(fold).collect();
+    let query = azul_pim::search::Query::parse(query);
+    let words = query.words();
     if words.is_empty() {
         return true;
     }

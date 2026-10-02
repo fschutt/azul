@@ -231,7 +231,8 @@ pub fn tags(tasks: &[Task]) -> Vec<(String, usize)> {
     seen.into_values().collect()
 }
 
-/// Whether every word of `query` is in the task's title, notes, tags or steps (any case).
+/// Whether every word of `query` is in the task's title, notes, tags or steps (any case,
+/// diacritics folded).
 #[must_use]
 pub fn search_matches(t: &Task, query: &str) -> bool {
     let haystack = format!(
@@ -244,10 +245,11 @@ pub fn search_matches(t: &Task, query: &str) -> bool {
             .map(|s| s.title.as_str())
             .collect::<Vec<_>>()
             .join(" ")
-    )
-    .to_lowercase();
-    let mut words = query.split_whitespace().peekable();
-    words.peek().is_some() && words.all(|w| haystack.contains(&w.trim_start_matches('#').to_lowercase()))
+    );
+    // The PIM apps' search (any case, diacritics folded, a tag's `#` dropped); an empty search
+    // shows nothing here - the search page asks for words.
+    let query = azul_pim::search::Query::parse(query);
+    !query.is_empty() && query.matches(&haystack)
 }
 
 /// Orders `idx` by `mode`; ties by the manual order, then creation.

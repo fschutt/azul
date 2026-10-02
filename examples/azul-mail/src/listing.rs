@@ -200,12 +200,11 @@ pub fn unread_count(entries: &[IndexEntry], flags: &LocalFlags) -> usize {
 }
 
 /// Whether `entry` matches the search box: every word of `query` is in its sender, recipients
-/// or subject, ignoring case. An empty query matches everything.
+/// or subject, ignoring case and diacritics (the PIM apps' rule, `azul_pim::search`). An empty
+/// query matches everything.
 pub fn matches_search(entry: &IndexEntry, query: &str) -> bool {
-    let haystack = format!("{} {} {}", entry.from, entry.to, entry.subject).to_lowercase();
-    query
-        .split_whitespace()
-        .all(|word| haystack.contains(&word.to_lowercase()))
+    azul_pim::search::Query::parse(query)
+        .matches(&format!("{} {} {}", entry.from, entry.to, entry.subject))
 }
 
 /// `entries` by date (RFC 3339 sorts as text), newest first unless `newest_first` is false;

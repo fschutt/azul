@@ -1103,12 +1103,8 @@ fn reading_pane(s: &MailApp, app: &RefAny) -> Dom {
         pane = pane.with_attachments(names);
     }
     let name = display_name(&sender);
-    let initials: String = name
-        .split_whitespace()
-        .filter_map(|word| word.chars().next())
-        .take(2)
-        .collect::<String>()
-        .to_uppercase();
+    // The PIM apps' avatar initials (DEDUP_EDITORS B24).
+    let initials = azul_pim::initials::initials(&name);
     pane = pane.with_people(vec![AzString::from(initials)], format!("More about: {name}"));
     let html = open.sanitized.as_ref().filter(|_| !s.plain_text);
     if let Some(sanitized) = html {
