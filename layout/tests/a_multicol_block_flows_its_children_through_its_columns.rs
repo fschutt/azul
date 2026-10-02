@@ -274,3 +274,21 @@ fn loose_text_beside_a_block_gets_no_columns_of_its_own() {
         "and stay out of the gap between the columns: {pens:?}"
     );
 }
+
+#[test]
+fn a_paragraph_split_over_the_columns_stays_on_its_page() {
+    // On paper (printpdf's path): 80px columns on a 100px page. The lines
+    // continuing at the top of the second column sit ABOVE the paragraph's
+    // box; the PDF text block must still end where the columns end, not a
+    // paragraph's height below the paragraph's top.
+    let html = "<html><head><style>* { margin: 0; padding: 0; } \
+                .cols { column-count: 2; column-gap: 20px; width: 420px; line-height: 20px } \
+                #a { height: 40px }</style></head><body><div class=\"cols\"><div id=\"a\"></div>\
+                <p>ab<br/>cd<br/>ef<br/>gh<br/>ij<br/>kl</p></div></body></html>";
+    let (_cache, _dom, pagination) = crate::pagination_dom_breaks::paginate(html, 800.0, 100.0);
+    assert_eq!(
+        pagination.page_count, 1,
+        "the 80px columns fit one 100px page: {} pages, content {}px tall",
+        pagination.page_count, pagination.total_content_height
+    );
+}
