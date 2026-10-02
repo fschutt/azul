@@ -34,21 +34,14 @@ Branch `wt/mail2` from `39092feee`. Worktree
   (`ad1e4078b`/`86d6846e3`).
 - Debug server routing RED/GREEN (`7c027543e`/`6720b7c24`), runtime windows get the debug
   timer (`aa05c82dd`: headless, macOS x2, Windows, X11, Wayland).
-- Step 5: `scripts/azmail_e2e.py` (`750c6a05b`).
-- NEXT: update MAIL1's `examples/azul-mail/scripts/sync_e2e.py` to the wizard + new window
-  texts; CI/workspace registration check (AzMail tests step); a review pass over the app for
-  compile risks (from_vec now exists for every Vec); then the report. Earlier plan item:
-  (`scripts/azmail_e2e.py`, sink = SEND's `scripts/azmail_smtp_sink.py <port> <out_dir>`,
-  prints `AZMAIL_SINK_READY <port>`, writes `<nnnn>.eml` + `.json`), then update MAIL1's
-  `examples/azul-mail/scripts/sync_e2e.py` to the wizard, then the report.
-  a. compose.rs `draft_mail` (lenient OutgoingMail for drafts) RED + GREEN
-  b. args.rs (`--screen --theme --mode --sample --size`) + tests
-  c. editor.rs (MailDoc <-> Dom for the Path-2 editor; text sync; structural edit apply)
-  d. lib.rs state skeleton (MailApp, Compose, IO thread), keeping MAIL1's sync + keyring code
-  e. ui_main.rs (ribbon, nav pane, message list, reading pane, to-do bar, status bar, backstage)
-  f. ui_account.rs (Add-account wizard, account settings incl. Sending)
-  g. ui_compose.rs (compose window, toolbar, attachments, draft + send threads)
-  h. sample.rs (`--sample` data)
+- Step 5: `scripts/azmail_e2e.py` (`750c6a05b`); MAIL1's sync E2E on the wizard (`74aad2950`).
+- After the E2E: a reopened draft keeps Bcc + In-Reply-To RED/GREEN (`a4478ac0b`/`107a0daf3`);
+  Forward and a reopened draft carry the attachments RED/GREEN (`7c6cf859a`/`78bdd1f22`);
+  "Save changes?" on closing an edited compose window RED/GREEN (`994b2d355`/`e59adddd2`).
+- Step 6: report `scripts/MAIL2_2026_10_01.md` (`cddea66c8`, `c5810654d`, `82f107382`,
+  `a1f145739`).
+
+## STATE: DONE. Nothing in progress. If resumed: only keep the report's commit list current.
 
 ## NEXT (in order)
 
