@@ -391,6 +391,30 @@ impl KeyModifiers {
     pub const fn is_empty(&self) -> bool {
         !self.shift && !self.ctrl && !self.alt && !self.meta
     }
+
+    /// Is the platform's PRIMARY shortcut modifier held? Cmd (`meta`) on
+    /// macOS, Ctrl everywhere else - the modifier of Copy, Save, Undo and of
+    /// a list's toggle-click.
+    ///
+    /// Test this, never `ctrl || meta`: on a Mac Ctrl+click is the secondary
+    /// click and Ctrl+S is not Save, and elsewhere the Win key is not Ctrl.
+    /// "macOS" means [`crate::window::mac_shortcut_conventions`]: an X11
+    /// window on a Mac follows the Linux rule.
+    #[must_use]
+    pub fn primary_down(&self) -> bool {
+        self.primary_down_for(crate::window::mac_shortcut_conventions())
+    }
+
+    /// [`Self::primary_down`] under the given platform convention: `meta`
+    /// when `mac`, `ctrl` otherwise.
+    #[must_use]
+    pub const fn primary_down_for(&self, mac: bool) -> bool {
+        if mac {
+            self.meta
+        } else {
+            self.ctrl
+        }
+    }
 }
 
 /// What kind of device produced a pointer event.
