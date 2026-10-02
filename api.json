@@ -30464,6 +30464,28 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "object.alt_down()"
+                            },
+                            "primary_down": {
+                                "doc": [
+                                    "The platform's PRIMARY shortcut modifier: Cmd (super) on macOS, Ctrl",
+                                    "everywhere else (MWA-A2). Every standard editing shortcut",
+                                    "(copy / cut / paste / select-all / undo / redo) keys off this -",
+                                    "hardcoding `ctrl_down()` made Cmd+C/X/V/A/Z dead on macOS, where Cmd",
+                                    "arrives as LWin/super. \"macOS\" means [`mac_shortcut_conventions`]: an",
+                                    "X11 window on a Mac follows the Linux rule.",
+                                    "",
+                                    "Test this, never `ctrl_down() || super_down()` (the rule lives in",
+                                    "[`crate::events::KeyModifiers::primary_down_for`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.primary_down()"
                             }
                         },
                         "repr": "C"
@@ -73924,6 +73946,43 @@
                                     }
                                 ],
                                 "fn_body": "object.set_show_label(show_label)"
+                            },
+                            "set_on_zoom_out": {
+                                "doc": [
+                                    "Sets the - (zoom out) button's callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "ButtonOnClickCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_zoom_out(data, callback)"
+                            },
+                            "with_on_zoom_out": {
+                                "doc": [
+                                    "Builder method: sets the - (zoom out) button's callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "ButtonOnClickCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StatusBarZoom"
+                                },
+                                "fn_body": "object.with_on_zoom_out(data, callback)"
                             }
                         },
                         "repr": "C"
@@ -177421,6 +177480,22 @@
                                     "type": "CallShell"
                                 },
                                 "fn_body": "object.with_stage(stage)"
+                            },
+                            "office_shell": {
+                                "doc": [
+                                    "The [`OfficeShell`] this shell is, its own parts (the tiles, the",
+                                    "controls row, the devices) built in the shell's theme. The chrome",
+                                    "the presets share (the F6 / splitter hooks) is set on it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OfficeShell"
+                                },
+                                "fn_body": "object.office_shell()"
                             }
                         },
                         "repr": "C"
@@ -181756,6 +181831,22 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "office_shell": {
+                                "doc": [
+                                    "The [`OfficeShell`] this shell is, its own rows (the tool options)",
+                                    "built in the shell's theme. The chrome the presets share (the status",
+                                    "bar, the F6 / splitter hooks) is set on it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OfficeShell"
+                                },
+                                "fn_body": "object.office_shell()"
                             }
                         },
                         "repr": "C"
