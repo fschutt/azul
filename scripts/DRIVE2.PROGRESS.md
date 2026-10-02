@@ -14,14 +14,14 @@ details panes, a Properties dialog, Settings on ShellSettingsLayout, and a headl
   AddressBar recent chevron + dimmed arrows, BrowserShell `tree_visible`.
 
 ## IN PROGRESS
-- Last code commit: `f5aacb1f0` (sample sound length an integer). Before: `752edbdf4` (tree_view.rs + navigation_pane.rs = wt/tasks 9205c10f3 byte for byte;
-  the twin drop hook is gone); report updated for it.
-- NOW: a read-only review agent checks `a25c10912..HEAD` (thumbnails, PDF, WAV, copies,
-  image_scale; tree files skipped) for compile errors.
-- NEXT STEP: apply its findings as fix commits; final report touch; final progress.
+- (none) - the task is complete; the report is committed.
+- Last code commit: `43a66b0e6` (the third review's fixes). The review round: `3361e94cb` /
+  `4ce4de725` (S3 server copies, CopyObjectResult required), `4e121bf99` / `24da2ab1b` (disk
+  copy progress), `43a66b0e6` (audio / WAV walk / docs). `752edbdf4`: tree drop hook = TASKS's.
 
 ## NEXT
-- done after that.
+- For the parent: autofix add the api.json list (report section 4), regenerate, then the test
+  commands of report section 6 (cargo is not run by this agent).
 
 ## Decisions (unattended run)
 - Details view: ListView is single-select with fixed column widths and the table code belongs to
