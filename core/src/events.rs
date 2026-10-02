@@ -5213,6 +5213,13 @@ fn handle_key_down(
         let (direction, step) = arrow.to_selection(word_mod);
         SelectionOp::new(direction, step, mode_for_shift)
     } else {
+        // Backspace / Delete edit TEXT, so they too belong to a text-editing
+        // focus only, like the arrows above: claimed anywhere (a focused
+        // button) they were swallowed before the app's key handler ran -
+        // AzCalculator's Backspace after a mouse click on its "=" key.
+        if !focus_is_editable && matches!(vk, VirtualKeyCode::Back | VirtualKeyCode::Delete) {
+            return None;
+        }
         match vk {
             // Backspace/Delete = Delete mode (word modifier upgrades to
             // Word: Option+Backspace on macOS, Ctrl+Backspace elsewhere)
