@@ -2094,6 +2094,29 @@ mod autotest_generated {
 /// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
 /// section 4).
 #[cfg(test)]
+mod link_focus_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_checks::has_focus_ring, UiTheme};
+
+    /// A link button is a keyboard stop like every button, so it shows
+    /// focus in both themes and both modes (an icon-only link - a timeline
+    /// track's mute toggle - had no visible focus at all).
+    #[test]
+    fn a_link_button_shows_where_the_keyboard_focus_is() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            for label in ["", "Open"] {
+                let dom = Button::with_type(AzString::from(label), ButtonType::Link)
+                    .with_icon(AzString::from("volume_up"))
+                    .with_theme(theme)
+                    .dom();
+                assert!(has_focus_ring(&dom, false), "{theme:?} {label:?}: no light focus ring");
+                assert!(has_focus_ring(&dom, true), "{theme:?} {label:?}: no dark focus ring");
+            }
+        }
+    }
+}
+
+#[cfg(test)]
 mod app_theme_tests {
     use super::*;
     use crate::widgets::themes::{theme_blocks::checks, UiTheme};

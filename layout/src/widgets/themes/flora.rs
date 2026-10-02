@@ -2387,7 +2387,7 @@ pub fn button_states(
     use crate::widgets::button::ButtonType;
 
     if button_type == ButtonType::Link {
-        return alloc::vec![
+        let mut out = alloc::vec![
             CssPropertyWithConditions::on_hover(CssProperty::TextDecoration(
                 StyleTextDecoration::Underline.into(),
             )),
@@ -2395,6 +2395,10 @@ pub fn button_states(
                 StyleTextDecoration::Underline.into(),
             )),
         ];
+        // A link is a keyboard stop too: it shows focus as a halo, which
+        // takes no room, so nothing moves when it is focused.
+        out.extend(super::decl::focus_halo(LIGHT_ACC, DARK_GLOW));
+        return out;
     }
 
     let (_, bg_hover, bg_active) = crate::widgets::button::get_button_colors(button_type);
