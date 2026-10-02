@@ -768,6 +768,36 @@ mod tests {
         assert!(thumbnail(&hdr, 2, 2).is_none(), "a float image is not sampled");
     }
 
+    /// `RawImage::create_rgba8` is the RGBA8 image four apps spelled out
+    /// field by field, and `RawImage::resized` scales one to an exact size,
+    /// up or down - AzVideoCut's monitor and bin had their own nearest
+    /// sampler for it (DEDUP_OFFICE D15 / A7).
+    #[test]
+    fn an_rgba8_image_resizes_to_exactly_the_size_asked_for() {
+        use crate::resources::{RawImage, RawImageData};
+        use azul_css::U8Vec;
+
+        let green = RawImage::create_rgba8(4, 2, U8Vec::from_vec([0u8, 200, 0, 255].repeat(8)), false);
+        assert_eq!((green.width, green.height), (4, 2));
+        assert_eq!(green.data_format, RawImageFormat::RGBA8);
+        assert!(!green.premultiplied_alpha);
+
+        let down = green.resized(2, 2).expect("an RGBA8 source scales");
+        assert_eq!((down.width, down.height), (2, 2), "the exact size, aspect not kept");
+        let up = green.resized(8, 6).expect("and enlarges");
+        assert_eq!((up.width, up.height), (8, 6));
+        match &up.pixels {
+            RawImageData::U8(bytes) => {
+                assert_eq!(bytes.as_ref().len(), 8 * 6 * 4);
+                assert_eq!(&bytes.as_ref()[..4], &[0, 200, 0, 255]);
+            }
+            other => panic!("not 8-bit pixels: {other:?}"),
+        }
+        assert!(green.resized(0, 4).is_none(), "no pixels to make");
+        let empty = RawImage::create_rgba8(0, 0, U8Vec::from_vec(Vec::new()), false);
+        assert!(empty.resized(4, 4).is_none(), "nothing to sample");
+    }
+
     // --- consumers ---------------------------------------------------------
 
     #[test]
