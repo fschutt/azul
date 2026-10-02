@@ -3052,25 +3052,34 @@ impl LayoutWindow {
         self.acked_text_revision = self.acked_text_revision.max(clamped);
     }
 
-    /// Every text edit the app has NOT yet acked: `(node, flattened text,
-    /// revision)`. One call inside a layout/VirtualView callback lets a
-    /// document app fold live typing back into its model, then ack the
-    /// highest revision it saw — closing the loop that previously did not
-    /// exist for character-level edits (the app model never heard typing).
+    /// Every text edit the app has NOT yet acked: the block element, its
+    /// flattened text, the revision and the inline formats of the text
+    /// (`DocumentTextEdit::runs`, over the element's own style). One call
+    /// inside a layout/VirtualView callback lets a document app fold live
+    /// typing back into its model, then ack the highest revision it saw —
+    /// closing the loop that previously did not exist for character-level
+    /// edits (the app model never heard typing). The formats are what the
+    /// text pipeline formats without the app - typing after a format toggle
+    /// at the caret, an inline formatted paste, typing into formatted text -
+    /// which the report flattened away: the apps lost that bold on their
+    /// next rebuild (DEDUP_EDITORS D1).
     #[must_use]
-    pub fn unsynced_text_edits(&self) -> Vec<(DomNodeId, String, u64)> {
+    pub fn unsynced_text_edits(&self) -> Vec<azul_core::selection::DocumentTextEdit> {
         self.content_overlay
             .iter_text()
             .filter(|(_, dirty)| dirty.revision > self.acked_text_revision)
-            .map(|(&(dom, node), dirty)| {
-                (
-                    DomNodeId {
-                        dom,
-                        node: NodeHierarchyItemId::from_crate_internal(Some(node)),
-                    },
-                    crate::overlay::flatten_inline_content(&dirty.content),
-                    dirty.revision,
+            .map(|(&(dom, node), dirty)| azul_core::selection::DocumentTextEdit {
+                node: DomNodeId {
+                    dom,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+                },
+                text: crate::overlay::flatten_inline_content(&dirty.content).into(),
+                revision: dirty.revision,
+                runs: crate::overlay::inline_content_formats(
+                    &dirty.content,
+                    &self.get_text_style_for_node(dom, node),
                 )
+                .into(),
             })
             .collect()
     }
@@ -12568,58 +12577,12 @@ impl LayoutWindow {
         target: DomNodeId,
         format: azul_core::events::TextFormat,
     ) -> bool {
-        use crate::{
-            block_content::BlockContent, managers::text_edit::TypingStyle,
-            text3::edit::FormatOverrides,
-        };
+        use crate::{managers::text_edit::TypingStyle, text3::edit::FormatOverrides};
 
-        if self.text_edit_manager.get_cross_block_selection().is_some() {
-            return false;
-        }
-        let Some(target_node) = target.node.into_crate_internal() else {
+        let Some((block, caret, base, _)) = self.caret_run_style(target) else {
             return false;
         };
-        let Some(mc) = self.text_edit_manager.multi_cursor.as_ref() else {
-            return false;
-        };
-        let block = mc.block;
-        if mc.local_len() != 1
-            || block.dom() != target.dom
-            || !self.node_is_self_or_descendant(target.dom, block.first_node(), target_node)
-        {
-            return false;
-        }
-        let Some(selection) = mc.get_primary().map(|p| p.selection) else {
-            return false;
-        };
-        let Some(element) = block.element() else {
-            return false;
-        };
-        let (items, generated) = self.element_content(block.dom(), element).into_parts();
-        let caret = match selection {
-            Selection::Cursor(c) => c,
-            Selection::Range(r) => {
-                match crate::text3::edit::collapsed_range_caret(&items, &r) {
-                    Some(c) => c,
-                    None => return false,
-                }
-            }
-        };
-        let at = BlockContent::past_generated(caret, generated);
-        // The style the typed text goes into: the caret's run's - or, in a
-        // block with no text yet, the one its first keystroke is seeded with.
-        let base = match items.get(at.cluster_id.source_run as usize) {
-            Some(InlineContent::Text(run)) => run.style.clone(),
-            _ => {
-                let style_node = self.seed_style_node(block.dom(), element).unwrap_or(element);
-                self.get_text_style_for_node(block.dom(), style_node)
-            }
-        };
-        let mut formats = self
-            .text_edit_manager
-            .typing_style
-            .filter(|ts| ts.block == block && self.same_caret_position(block, ts.caret, caret))
-            .map_or_else(FormatOverrides::default, |ts| ts.formats);
+        let mut formats = self.typing_overrides_at(block, caret);
         let has = FormatOverrides::style_has(&base, format);
         let now = !formats.get(format).unwrap_or(has);
         formats.set(format, (now != has).then_some(now));
@@ -12629,6 +12592,80 @@ impl LayoutWindow {
             formats,
         });
         true
+    }
+
+    /// The formats the text typed next at the editing session's caret in
+    /// `target`'s host takes, OVER the block element's own style: the run
+    /// under the caret's, with the session's typing style (a format toggled
+    /// at the caret, [`Self::toggle_text_format`]) on top. The caret's
+    /// PENDING format - what a toolbar shows as pressed (Ctrl+B at a caret
+    /// in plain text: bold; inside bold text: not bold). `None` without a
+    /// session of one caret (or a collapsed range) in the host, and over a
+    /// document selection.
+    #[must_use]
+    pub fn typing_formats(&self, target: DomNodeId) -> Option<azul_core::events::TextFormatSet> {
+        use crate::text3::edit::FormatOverrides;
+
+        let (block, caret, run_style, element) = self.caret_run_style(target)?;
+        let typed = self.typing_overrides_at(block, caret).apply_to(&run_style);
+        Some(FormatOverrides::formats_over(
+            &typed,
+            &self.get_text_style_for_node(block.dom(), element),
+        ))
+    }
+
+    /// The editing session's caret in `target`'s host and the style the text
+    /// typed there goes into - the caret's run's, or, in a block with no
+    /// text yet, the one its first keystroke is seeded with - with the block
+    /// and its element: `(block, caret, style, element)`. `None` without a
+    /// session of one local caret (or a collapsed range) in the host, and
+    /// over a document selection. Shared by the format toggle and the
+    /// pending-format read, so the two agree on the run.
+    fn caret_run_style(
+        &self,
+        target: DomNodeId,
+    ) -> Option<(TextBlock, TextCursor, Arc<StyleProperties>, NodeId)> {
+        if self.text_edit_manager.get_cross_block_selection().is_some() {
+            return None;
+        }
+        let target_node = target.node.into_crate_internal()?;
+        let mc = self.text_edit_manager.multi_cursor.as_ref()?;
+        let block = mc.block;
+        if mc.local_len() != 1
+            || block.dom() != target.dom
+            || !self.node_is_self_or_descendant(target.dom, block.first_node(), target_node)
+        {
+            return None;
+        }
+        let selection = mc.get_primary().map(|p| p.selection)?;
+        let element = block.element()?;
+        let (items, generated) = self.element_content(block.dom(), element).into_parts();
+        let caret = match selection {
+            Selection::Cursor(c) => c,
+            Selection::Range(r) => crate::text3::edit::collapsed_range_caret(&items, &r)?,
+        };
+        let at = crate::block_content::BlockContent::past_generated(caret, generated);
+        let style = match items.get(at.cluster_id.source_run as usize) {
+            Some(InlineContent::Text(run)) => run.style.clone(),
+            _ => {
+                let style_node = self.seed_style_node(block.dom(), element).unwrap_or(element);
+                self.get_text_style_for_node(block.dom(), style_node)
+            }
+        };
+        Some((block, caret, style, element))
+    }
+
+    /// The session's typing style at `caret` in `block`: the formats toggled
+    /// at that caret, none when they were toggled elsewhere or not at all.
+    fn typing_overrides_at(
+        &self,
+        block: TextBlock,
+        caret: TextCursor,
+    ) -> crate::text3::edit::FormatOverrides {
+        self.text_edit_manager
+            .typing_style
+            .filter(|ts| ts.block == block && self.same_caret_position(block, ts.caret, caret))
+            .map_or_else(crate::text3::edit::FormatOverrides::default, |ts| ts.formats)
     }
 
     /// The typing style the insertion at `selections` - the session's, in

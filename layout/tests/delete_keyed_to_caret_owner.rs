@@ -131,13 +131,13 @@ fn backspace_is_keyed_to_the_paragraph_like_typing() {
     let unsynced = lw.unsynced_text_edits();
     assert_eq!(unsynced.len(), 1);
     assert_eq!(
-        unsynced[0].0.node.into_crate_internal(),
+        unsynced[0].node.node.into_crate_internal(),
         Some(PARAGRAPH),
         "the app maps the edit to its block through the paragraph"
     );
-    assert_eq!(unsynced[0].1, "hell");
+    assert_eq!(unsynced[0].text.as_str(), "hell");
     assert_eq!(
-        lw.node_child_index_path(host_id(), unsynced[0].0),
+        lw.node_child_index_path(host_id(), unsynced[0].node),
         Some(vec![0]),
         "the edit node is reachable from the host by child-index path"
     );
@@ -173,5 +173,5 @@ fn typing_then_deleting_share_one_overlay_entry() {
     );
     let unsynced = lw.unsynced_text_edits();
     assert_eq!(unsynced.len(), 1, "same node = one unsynced edit, not two");
-    assert_eq!(unsynced[0].2, 2, "two commits = revision 2");
+    assert_eq!(unsynced[0].revision, 2, "two commits = revision 2");
 }

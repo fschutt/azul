@@ -1575,6 +1575,79 @@ pub enum TextFormat {
     Strikethrough,
 }
 
+impl TextFormat {
+    /// Every format, in declaration order.
+    pub const ALL: [Self; 4] = [
+        Self::Bold,
+        Self::Italic,
+        Self::Underline,
+        Self::Strikethrough,
+    ];
+}
+
+/// A set of [`TextFormat`]s: the inline formats a stretch of text carries
+/// over the style of the block it is in (`DocumentTextEdit::runs`), or the
+/// formats the text typed next at a caret takes
+/// (`CallbackInfo::get_typing_formats` - what a toolbar shows as pressed).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+#[repr(C)]
+pub struct TextFormatSet {
+    /// `font-weight: bold` (`<b>`).
+    pub bold: bool,
+    /// `font-style: italic` (`<i>`).
+    pub italic: bool,
+    /// `text-decoration: underline` (`<u>`).
+    pub underline: bool,
+    /// `text-decoration: line-through` (`<s>`).
+    pub strikethrough: bool,
+}
+
+impl TextFormatSet {
+    /// No format at all.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        !(self.bold || self.italic || self.underline || self.strikethrough)
+    }
+
+    /// Whether `format` is in the set.
+    #[must_use]
+    pub const fn has(&self, format: TextFormat) -> bool {
+        match format {
+            TextFormat::Bold => self.bold,
+            TextFormat::Italic => self.italic,
+            TextFormat::Underline => self.underline,
+            TextFormat::Strikethrough => self.strikethrough,
+        }
+    }
+
+    /// Put `format` in the set (`on`) or take it out.
+    pub fn set(&mut self, format: TextFormat, on: bool) {
+        match format {
+            TextFormat::Bold => self.bold = on,
+            TextFormat::Italic => self.italic = on,
+            TextFormat::Underline => self.underline = on,
+            TextFormat::Strikethrough => self.strikethrough = on,
+        }
+    }
+
+    /// The formats both sets have.
+    #[must_use]
+    pub const fn intersection(self, other: Self) -> Self {
+        Self {
+            bold: self.bold && other.bold,
+            italic: self.italic && other.italic,
+            underline: self.underline && other.underline,
+            strikethrough: self.strikethrough && other.strikethrough,
+        }
+    }
+}
+
+azul_css::impl_option!(
+    TextFormatSet,
+    OptionTextFormatSet,
+    [Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord]
+);
+
 /// Amount to scroll for keyboard-based scrolling
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(C)]

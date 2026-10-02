@@ -70,6 +70,25 @@ impl FormatOverrides {
         }
     }
 
+    /// The formats `style` carries OVER `base`: each one `style` has and
+    /// `base` - the block element's own style - does not. What a run of the
+    /// block is formatted with in an app's terms (a heading's bold is the
+    /// heading's, not a format of its text).
+    #[must_use]
+    pub fn formats_over(
+        style: &StyleProperties,
+        base: &StyleProperties,
+    ) -> azul_core::events::TextFormatSet {
+        let mut out = azul_core::events::TextFormatSet::default();
+        for format in azul_core::events::TextFormat::ALL {
+            out.set(
+                format,
+                Self::style_has(style, format) && !Self::style_has(base, format),
+            );
+        }
+        out
+    }
+
     /// `style` with the overrides applied.
     #[must_use]
     pub fn apply_to(&self, style: &StyleProperties) -> StyleProperties {

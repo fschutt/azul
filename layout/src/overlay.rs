@@ -126,6 +126,77 @@ pub fn flatten_inline_content(content: &[InlineContent]) -> String {
     result
 }
 
+/// The inline formats of `content`'s text, as byte spans of its
+/// [`flatten_inline_content`] string - the two walk the items alike, so the
+/// spans index exactly the text an edit report carries. Each span is a
+/// maximal stretch whose runs carry the same formats OVER `base` (the block
+/// element's own style, `FormatOverrides::formats_over`); plain text is in
+/// no span. Spans are ordered and disjoint.
+///
+/// A space or a line break has no style of its own: it carries the formats
+/// its two neighbours share, so `bold text` is one bold span and the space
+/// between bold and plain text is plain.
+#[must_use]
+pub fn inline_content_formats(
+    content: &[InlineContent],
+    base: &crate::text3::cache::StyleProperties,
+) -> Vec<azul_core::selection::TextFormatSpan> {
+    use azul_core::{events::TextFormatSet, selection::TextFormatSpan};
+
+    // (byte length in the flattened text, formats; `None`: no style of its own)
+    fn collect(
+        content: &[InlineContent],
+        base: &crate::text3::cache::StyleProperties,
+        out: &mut Vec<(usize, Option<TextFormatSet>)>,
+    ) {
+        use crate::text3::edit::FormatOverrides;
+        for item in content {
+            match item {
+                InlineContent::Text(run) | InlineContent::Marker { run, .. } => out.push((
+                    run.text.len(),
+                    Some(FormatOverrides::formats_over(&run.style, base)),
+                )),
+                InlineContent::Tab { style } => {
+                    out.push((1, Some(FormatOverrides::formats_over(style, base))));
+                }
+                InlineContent::Space(_) | InlineContent::LineBreak(_) => out.push((1, None)),
+                InlineContent::Ruby { base: ruby_base, .. } => collect(ruby_base, base, out),
+                InlineContent::Image(_) | InlineContent::Shape(_) => {}
+            }
+        }
+    }
+
+    let mut items = Vec::new();
+    collect(content, base, &mut items);
+
+    let mut spans: Vec<TextFormatSpan> = Vec::new();
+    let mut at = 0_usize;
+    for (i, &(len, formats)) in items.iter().enumerate() {
+        let formats = formats.unwrap_or_else(|| {
+            let before = items[..i].iter().rev().find_map(|(_, f)| *f);
+            let after = items[i + 1..].iter().find_map(|(_, f)| *f);
+            match (before, after) {
+                (Some(b), Some(a)) => b.intersection(a),
+                _ => TextFormatSet::default(),
+            }
+        });
+        if len > 0 && !formats.is_empty() {
+            let start = u32::try_from(at).unwrap_or(u32::MAX);
+            let end = u32::try_from(at + len).unwrap_or(u32::MAX);
+            match spans.last_mut() {
+                Some(last) if last.end == start && last.formats == formats => last.end = end,
+                _ => spans.push(TextFormatSpan {
+                    start,
+                    end,
+                    formats,
+                }),
+            }
+        }
+        at += len;
+    }
+    spans
+}
+
 /// How many PRESENTED frames of history the journal keeps.
 ///
 /// A backend re-presenting a not-fully-redrawn buffer composed `k` frames
