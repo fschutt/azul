@@ -78,12 +78,10 @@ FAIL css/css-lists/li-list-item-counter-001.html E-OL # match li-list-item-count
 FAIL css/css-lists/li-list-item-counter-002.html E-OL # match li-list-item-counter-002-ref.html: maxdiff 255 pixels 786
 FAIL css/css-lists/list-marker-alignment.html E-OL # match list-marker-alignment-ref.html: maxdiff 121 pixels 116
 FAIL css/css-lists/list-style-position-001.html E-OL # match list-style-position-001-ref.html: maxdiff 0 pixels 0; mismatch list-style-positio...
-FAIL css/css-tables/anonymous-table-ws-001.html E-TABLE # match anonymous-table-ws-001-ref.html: maxdiff 23 pixels 142
 FAIL css/css-tables/empty-table-height.html E-TABLE # match min-height-table-ref.html: maxdiff 255 pixels 118614
 FAIL css/css-tables/table-cell-width-0.html E-TABLE # match table-cell-width-0-ref.html: maxdiff 255 pixels 75893
 FAIL css/css-tables/table-intrinsic-size-001.html E-TABLE # match ref-filled-green-100px-square-only.html: maxdiff 255 pixels 10000
 FAIL css/css-tables/table_grid_size_col_colspan.html E-TABLE # match table_grid_size_col_colspan-ref.html: maxdiff 255 pixels 29500
-FAIL css/css-tables/whitespace-001.html E-TABLE # match whitespace-001-ref.html: maxdiff 255 pixels 20976
 FAIL css/css-text-decor/text-decoration-color.html E-DECOR # match text-decoration-color-ref.html: maxdiff 210 pixels 11946
 FAIL css/css-text-decor/text-decoration-subelements-002.html E-DECOR # match text-decoration-subelements-002-ref.html: maxdiff 23 pixels 6501
 FAIL css/css-text-decor/text-decoration-subelements-003.html E-DECOR # match text-decoration-subelements-003-ref.html: maxdiff 232 pixels 808

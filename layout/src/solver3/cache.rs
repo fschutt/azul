@@ -2071,25 +2071,21 @@ pub fn reconcile_recursive(
     // CSS 2.2 §17.2.1: Filter whitespace-only text nodes from table structural elements
     // (table, row-group, row). Without this, the reconciler sees them as "inline" children
     // mixed with block-level <td>/<th>, triggering incorrect anonymous IFC wrapping.
-    // The layout tree builder already does this via should_skip_for_table_structure().
+    // The layout tree builder applies the same rule (`table_relevant_children`).
     {
         use super::getters::{get_display_property, MultiValue};
         let parent_display = match get_display_property(styled_dom, Some(new_dom_id)) {
             MultiValue::Exact(d) => d,
             _ => LayoutDisplay::Block,
         };
-        if matches!(
+        // Only whitespace BETWEEN table-internal boxes is irrelevant; beside
+        // an inline-level child it is a space of the anonymous cell that
+        // wraps them (`reconcile_table_children`).
+        new_children_dom_ids = super::layout_tree::table_relevant_children(
+            styled_dom,
             parent_display,
-            LayoutDisplay::Table
-                | LayoutDisplay::InlineTable
-                | LayoutDisplay::TableRowGroup
-                | LayoutDisplay::TableHeaderGroup
-                | LayoutDisplay::TableFooterGroup
-                | LayoutDisplay::TableRow
-        ) {
-            new_children_dom_ids
-                .retain(|&id| !super::layout_tree::is_whitespace_only_text(styled_dom, id));
-        }
+            new_children_dom_ids,
+        );
     }
 
     // Compute both positional and DOM-keyed lookups for the old
