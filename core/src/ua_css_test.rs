@@ -816,9 +816,12 @@ mod autotest_generated {
 
     #[test]
     fn inline_emphasis_and_link_defaults() {
+        // The ELEMENT row of `<a>` carries no underline: only a link
+        // (`<a href>`) is underlined, through `get_ua_link_property`
+        // (`only_an_a_with_an_href_is_underlined`).
         assert_eq!(
             get_ua_property(&NodeType::A, CssPropertyType::TextDecoration),
-            Some(&TEXT_DECORATION_UNDERLINE)
+            None
         );
         assert_eq!(
             get_ua_property(&NodeType::U, CssPropertyType::TextDecoration),
