@@ -26,14 +26,15 @@ Branch `wt/tables` from `2e92c759b`. Brief: scratchpad/wave5/TABLES.md. Report: 
 - b998b2bb0 RED / 03ba7769c FIX: whitespace beside a table's inline children kept
   (layout_tree::table_relevant_children, both builders); WPT whitespace-001, anonymous-table-ws-001 out.
 - 5e81932cd RED / 66af7e730 FIX: table baseline of a row w/o baseline cells; caption's own caption-side.
+- bd6869d05 RED / 0629c73e3 FIX: spanning cell percentage shared by its columns.
+- aaf51a70c RED / 5f2ed28c3 FIX: rtl tables run columns from the right (layout + painter lines).
+- 6682d77eb: +spec markers kept. Report scripts/TABLES_2026_10_02.md written (0053e9666, 633fd5789).
 
 ## IN PROGRESS
-- more feature probes (height attr, align attr floats, nowrap, % nested).
+- (none) - task complete; report committed.
 
 ## NEXT
-1. Look at 01_newsletter azr-31 and leemunroe azr-18 (table width too narrow), 04_receipt azr-6.
-2. WPT expectations (tests/wpt/reftest_expectations.txt, css/CSS2/tables) - anything my fixes should flip.
-3. Report scripts/TABLES_2026_10_02.md.
+- Parent: compile, run report section 5, re-measure mail_boxes. Wave 6: see report section 8.
 
 ## Decisions
 - F23 test uses two-word cells (font-robust "exactly two baselines").
