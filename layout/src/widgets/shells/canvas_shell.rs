@@ -28,17 +28,12 @@
 use azul_core::{
     a11y::{AccessibilityInfo, AccessibilityRole},
     dom::{Dom, DomVec, OptionDom},
-    refany::RefAny,
 };
 use azul_css::AzString;
 
 use super::{
     id_and_class, look_for,
-    office_shell::{
-        self, OfficeShell, OptionShellOnPaneFocus, OptionShellOnPaneResize, ShellOnPaneFocus,
-        ShellOnPaneFocusCallback, ShellOnPaneResize, ShellOnPaneResizeCallback, ShellPane,
-        ShellPaneKind,
-    },
+    office_shell::{self, OfficeShell, ShellPane, ShellPaneKind},
     part, ShellLook, CHROME_ROW_BASE, GROW_COLUMN_BASE,
 };
 use crate::widgets::themes::{OptionUiTheme, UiTheme};
@@ -83,12 +78,6 @@ pub struct CanvasShell {
     pub panels: OptionDom,
     /// The drawer under the row (the node graph).
     pub drawer: OptionDom,
-    /// The status bar.
-    pub status_bar: OptionDom,
-    /// F6 moved the focus to a pane.
-    pub on_pane_focus: OptionShellOnPaneFocus,
-    /// A splitter moved.
-    pub on_pane_resize: OptionShellOnPaneResize,
     /// The canvas's share beside the panels (default 0.75).
     pub canvas_ratio: f32,
     /// The drawer's share of the height (default 0.3).
@@ -110,9 +99,6 @@ impl CanvasShell {
             canvas,
             panels: OptionDom::None,
             drawer: OptionDom::None,
-            status_bar: OptionDom::None,
-            on_pane_focus: None.into(),
-            on_pane_resize: None.into(),
             canvas_ratio: 0.75,
             drawer_ratio: 0.3,
             theme: OptionUiTheme::None,
@@ -191,18 +177,6 @@ impl CanvasShell {
         self
     }
 
-    /// The status bar.
-    pub fn set_status_bar(&mut self, status_bar: Dom) {
-        self.status_bar = OptionDom::Some(status_bar);
-    }
-
-    /// [`Self::set_status_bar`] for the builder chain.
-    #[must_use]
-    pub fn with_status_bar(mut self, status_bar: Dom) -> Self {
-        self.set_status_bar(status_bar);
-        self
-    }
-
     /// The canvas's share beside the panels.
     pub const fn set_canvas_ratio(&mut self, ratio: f32) {
         self.canvas_ratio = ratio;
@@ -227,38 +201,6 @@ impl CanvasShell {
         self
     }
 
-    /// F6 moved the focus to a pane.
-    pub fn set_on_pane_focus<C: Into<ShellOnPaneFocusCallback>>(&mut self, data: RefAny, callback: C) {
-        self.on_pane_focus = Some(ShellOnPaneFocus {
-            callback: callback.into(),
-            refany: data,
-        })
-        .into();
-    }
-
-    /// [`Self::set_on_pane_focus`] for the builder chain.
-    #[must_use]
-    pub fn with_on_pane_focus<C: Into<ShellOnPaneFocusCallback>>(mut self, data: RefAny, callback: C) -> Self {
-        self.set_on_pane_focus(data, callback);
-        self
-    }
-
-    /// A splitter moved.
-    pub fn set_on_pane_resize<C: Into<ShellOnPaneResizeCallback>>(&mut self, data: RefAny, callback: C) {
-        self.on_pane_resize = Some(ShellOnPaneResize {
-            callback: callback.into(),
-            refany: data,
-        })
-        .into();
-    }
-
-    /// [`Self::set_on_pane_resize`] for the builder chain.
-    #[must_use]
-    pub fn with_on_pane_resize<C: Into<ShellOnPaneResizeCallback>>(mut self, data: RefAny, callback: C) -> Self {
-        self.set_on_pane_resize(data, callback);
-        self
-    }
-
     /// Pin the widget theme; unset, the shell follows the app theme.
     pub const fn set_theme(&mut self, theme: UiTheme) {
         self.theme = OptionUiTheme::Some(theme);
@@ -279,11 +221,20 @@ impl CanvasShell {
         s
     }
 
+    /// The [`OfficeShell`] this shell is, its own rows (the tool options)
+    /// built in the shell's theme. The chrome the presets share (the status
+    /// bar, the F6 / splitter hooks) is set on it.
+    #[must_use]
+    pub fn office_shell(self) -> OfficeShell {
+        let look = look_for(self.theme);
+        office_shell_in(self, &look)
+    }
+
     /// The shell's DOM.
     #[must_use]
     pub fn dom(self) -> Dom {
         let look = look_for(self.theme);
-        build(self, &look)
+        office_shell::build(office_shell_in(self, &look), &look)
     }
 }
 
@@ -293,8 +244,8 @@ impl From<CanvasShell> for Dom {
     }
 }
 
-/// The [`OfficeShell`] this shell is, in `look`, built once.
-pub(crate) fn build(shell: CanvasShell, look: &ShellLook) -> Dom {
+/// The [`OfficeShell`] this shell is, in `look`.
+fn office_shell_in(shell: CanvasShell, look: &ShellLook) -> OfficeShell {
     let CanvasShell {
         menu_bar,
         tool_options,
@@ -303,9 +254,6 @@ pub(crate) fn build(shell: CanvasShell, look: &ShellLook) -> Dom {
         canvas,
         panels,
         drawer,
-        status_bar,
-        on_pane_focus,
-        on_pane_resize,
         canvas_ratio,
         drawer_ratio,
         theme,
@@ -337,9 +285,6 @@ pub(crate) fn build(shell: CanvasShell, look: &ShellLook) -> Dom {
     let mut office = OfficeShell {
         title_row: menu_bar,
         ribbon: ribbon.into(),
-        status_bar,
-        on_pane_focus,
-        on_pane_resize,
         theme,
         ..OfficeShell::create()
     };
@@ -370,7 +315,7 @@ pub(crate) fn build(shell: CanvasShell, look: &ShellLook) -> Dom {
                 .with_ratio(drawer_ratio),
         );
     }
-    office_shell::build(office, look)
+    office
 }
 
 #[cfg(test)]
@@ -391,12 +336,16 @@ mod canvas_shell_tests {
             .with_document_tabs(slot())
             .with_panels(slot())
             .with_drawer(slot())
-            .with_status_bar(slot())
+    }
+
+    /// `shell` converted, with the status bar the OfficeShell holds.
+    fn chrome(shell: CanvasShell) -> OfficeShell {
+        shell.office_shell().with_status_bar(slot())
     }
 
     #[test]
     fn s2_is_tool_options_a_tool_rail_tabs_over_the_canvas_panels_and_a_drawer() {
-        let dom = full().with_theme(UiTheme::Flat).dom();
+        let dom = chrome(full().with_theme(UiTheme::Flat)).dom();
         let ids: Vec<String> = tc::nodes(&dom)
             .into_iter()
             .filter_map(|(_, n)| {
@@ -432,8 +381,8 @@ mod canvas_shell_tests {
     fn s2_without_a_theme_follows_the_app_theme() {
         checks::assert_follows_the_app_theme(
             "canvas_shell",
-            || full().dom(),
-            |t: UiTheme| full().with_theme(t).dom(),
+            || chrome(full()).dom(),
+            |t: UiTheme| chrome(full().with_theme(t)).dom(),
         );
     }
 }
