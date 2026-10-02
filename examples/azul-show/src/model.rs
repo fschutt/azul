@@ -52,31 +52,27 @@ impl Color {
     /// `#rrggbb`, or `#rrggbbaa` when not opaque.
     #[must_use]
     pub fn hex(&self) -> String {
-        if self.a == 255 {
-            format!("#{:02x}{:02x}{:02x}", self.r, self.g, self.b)
-        } else {
-            format!("#{:02x}{:02x}{:02x}{:02x}", self.r, self.g, self.b, self.a)
+        azul::css::ColorU {
+            r: self.r,
+            g: self.g,
+            b: self.b,
+            a: self.a,
         }
+        .to_hex()
+        .to_string()
     }
 
-    /// Reads `#rgb`, `#rrggbb` or `#rrggbbaa`.
+    /// Reads `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa` (a deck writes the
+    /// `#`, so a text without it is no colour).
     #[must_use]
     pub fn parse(text: &str) -> Option<Self> {
-        let hex = text.trim().strip_prefix('#')?;
-        let byte = |i: usize| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok();
-        match hex.len() {
-            3 => {
-                let nibble = |i: usize| {
-                    u8::from_str_radix(hex.get(i..i + 1)?, 16)
-                        .ok()
-                        .map(|v| v * 17)
-                };
-                Some(Self::rgb(nibble(0)?, nibble(1)?, nibble(2)?))
-            }
-            6 => Some(Self::rgb(byte(0)?, byte(2)?, byte(4)?)),
-            8 => Some(Self::rgba(byte(0)?, byte(2)?, byte(4)?, byte(6)?)),
-            _ => None,
+        let text = text.trim();
+        if !text.starts_with('#') {
+            return None;
         }
+        azul::css::ColorU::parse_hex(text)
+            .into_option()
+            .map(|c| Self::rgba(c.r, c.g, c.b, c.a))
     }
 
     /// The colour as a CSS value (`#rrggbb` / `#rrggbbaa`).

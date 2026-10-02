@@ -179,17 +179,6 @@ pub fn stats_segments(stats: &SelectionStats) -> Vec<String> {
     out
 }
 
-/// "#RRGGBB" as its three channels.
-#[must_use]
-pub fn parse_hex(color: &str) -> Option<(u8, u8, u8)> {
-    let hex = color.strip_prefix('#')?;
-    if hex.len() != 6 || !hex.is_ascii() {
-        return None;
-    }
-    let channel = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).ok();
-    Some((channel(0)?, channel(2)?, channel(4)?))
-}
-
 /// The width that fits the widest of `texts` at `font_px` (an estimate
 /// from the character count: the engine has no autofit and the grid's text
 /// is measured only at layout), clamped to 30..=600 px.
@@ -298,9 +287,8 @@ mod tests {
 
     #[test]
     fn colours_widths_tsv_and_titles() {
-        assert_eq!(parse_hex("#FF8000"), Some((255, 128, 0)));
-        assert_eq!(parse_hex("FF8000"), None);
-        assert_eq!(parse_hex("#FF80"), None);
+        // The engine's "#RRGGBB" colours are read by `ColorU::parse_hex`
+        // (azul-css's tests).
         assert!((autofit_px(["ab", "abcdefghij"].into_iter(), 12.0) - 84.0).abs() < 0.01);
         assert!((autofit_px(std::iter::empty(), 12.0) - 30.0).abs() < 0.01);
         assert_eq!(

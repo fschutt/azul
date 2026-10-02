@@ -454,10 +454,7 @@ pub fn parse_reference(text: &str, sheets: &[SheetInfo], current: u32) -> Option
 
 /// An engine colour ("#RRGGBB") as the grid's.
 fn color_of(hex: &Option<String>) -> OptionColorU {
-    match hex.as_deref().and_then(model::parse_hex) {
-        Some((r, g, b)) => OptionColorU::Some(ColorU { r, g, b, a: 255 }),
-        None => OptionColorU::None,
-    }
+    hex.as_deref().map_or(OptionColorU::None, |h| ColorU::parse_hex(h))
 }
 
 /// An engine style in the grid's terms.
@@ -1603,9 +1600,9 @@ fn sheet_tabs(s: &AppState, app: &RefAny) -> Dom {
         let underline = info
             .color
             .as_deref()
-            .and_then(model::parse_hex)
-            .map_or_else(String::new, |(r, g, b)| {
-                format!("border-bottom: 3px solid rgb({r}, {g}, {b});")
+            .and_then(|h| ColorU::parse_hex(h).into_option())
+            .map_or_else(String::new, |c| {
+                format!("border-bottom: 3px solid rgb({}, {}, {});", c.r, c.g, c.b)
             });
         if let Some((renaming, text)) = &s.renaming {
             if *renaming == sheet {

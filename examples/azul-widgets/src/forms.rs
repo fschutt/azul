@@ -346,9 +346,9 @@ fn food_label(n: usize) -> &'static str {
         .unwrap_or("")
 }
 
-/// `#rrggbb`, as `<input type=color>` submits it.
+/// `#rrggbb`, as `<input type=color>` submits it (no alpha).
 fn hex(c: ColorU) -> String {
-    format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b)
+    ColorU { a: 255, ..c }.to_hex().to_string()
 }
 
 // ---------------------------------------------------------------------------
