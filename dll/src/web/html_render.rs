@@ -18,6 +18,7 @@ use azul_core::{
     refany::RefAny,
     resources::{ImageCache, ImageRef, RouteMatch},
     styled_dom::StyledDom,
+    xml::html::{encode_attribute, encode_text},
 };
 use azul_css::{
     dynamic_selector::{PseudoStateType, ResolveSystemColors},
@@ -179,7 +180,7 @@ pub fn render_initial_page(
         let font_id = ctx.fonts.len();
         ctx.font_face_rules.push(format!(
             "@font-face {{ font-family: \"{}\"; src: url(\"/az/font/{}\"); }}",
-            html_escape_attr(named_font.name.as_str()),
+            encode_attribute(named_font.name.as_str()),
             font_id,
         ));
         ctx.fonts.push(CollectedFont {
@@ -246,8 +247,8 @@ pub fn render_initial_page(
     // Honor document metadata from the DOM (`<html lang>` / `<title>`); fall back
     // to sensible defaults when the app's DOM doesn't carry a <head>/<title>.
     let (dom_title, dom_lang) = extract_head_meta(&styled_dom);
-    let page_title_esc = html_escape(dom_title.as_deref().unwrap_or("Azul Web App"));
-    let page_lang_esc = html_escape_attr(dom_lang.as_deref().unwrap_or("en"));
+    let page_title_esc = encode_text(dom_title.as_deref().unwrap_or("Azul Web App"));
+    let page_lang_esc = encode_attribute(dom_lang.as_deref().unwrap_or("en"));
 
     let html = format!(
         r#"<!DOCTYPE html>
@@ -369,7 +370,7 @@ impl RenderContext {
         self.node_counter += 1;
 
         if let NodeType::Text(ref text) = nd.node_type {
-            return html_escape(text.as_str());
+            return encode_text(text.as_str());
         }
 
         let tag = match &nd.node_type {
@@ -401,18 +402,18 @@ impl RenderContext {
             let name = attr.name();
             if name == "id" {
                 if let Some(id) = attr.as_id() {
-                    html_attrs.push(format!("data-az-id=\"{}\"", html_escape_attr(id)));
+                    html_attrs.push(format!("data-az-id=\"{}\"", encode_attribute(id)));
                 }
             } else if name == "class" {
                 if let Some(class) = attr.as_class() {
-                    classes.push(html_escape_attr(class));
+                    classes.push(encode_attribute(class));
                 }
             } else if attr.is_boolean() {
                 html_attrs.push(name.to_string());
             } else {
                 let value = attr.value();
                 if !value.as_str().is_empty() {
-                    html_attrs.push(format!("{}=\"{}\"", name, html_escape_attr(value.as_str())));
+                    html_attrs.push(format!("{}=\"{}\"", name, encode_attribute(value.as_str())));
                 }
             }
         }
@@ -548,7 +549,7 @@ impl RenderContext {
         let mut children_html = String::new();
 
         if let Some(text) = node_type_inline_text(&nd.node_type) {
-            children_html.push_str(&html_escape(text));
+            children_html.push_str(&encode_text(text));
         }
 
         if let Some(first_child) = hierarchy.get(idx).and_then(|h| h.first_child_id(node_id)) {
@@ -1087,32 +1088,6 @@ fn event_filter_to_js_name(event: &azul_core::events::EventFilter) -> &'static s
     }
 }
 
-fn html_escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            _ => out.push(c),
-        }
-    }
-    out
-}
-
-fn html_escape_attr(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '"' => out.push_str("&quot;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            _ => out.push(c),
-        }
-    }
-    out
-}
 
 const RESET_CSS: &str = r#"
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

@@ -1851,20 +1851,6 @@ pub(crate) fn cells_to_tsv(rows: &[Vec<String>]) -> String {
     out
 }
 
-fn html_escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            _ => out.push(c),
-        }
-    }
-    out
-}
-
 /// Rows of cells as an HTML table (the rich flavour a word processor or a
 /// mail pastes as a table).
 pub(crate) fn cells_to_html(rows: &[Vec<String>]) -> String {
@@ -1873,7 +1859,7 @@ pub(crate) fn cells_to_html(rows: &[Vec<String>]) -> String {
         out.push_str("<tr>");
         for cell in row {
             out.push_str("<td>");
-            out.push_str(&html_escape(cell));
+            out.push_str(&azul_core::xml::html::encode_text(cell));
             out.push_str("</td>");
         }
         out.push_str("</tr>");

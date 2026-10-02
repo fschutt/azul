@@ -1198,23 +1198,6 @@ mod autotest_generated {
         }
     }
 
-    /// Minimal XML escaper — the inverse of `decode_xml_entities`.
-    #[cfg(feature = "xml")]
-    fn escape(s: &str) -> String {
-        let mut out = String::with_capacity(s.len());
-        for c in s.chars() {
-            match c {
-                '&' => out.push_str("&amp;"),
-                '<' => out.push_str("&lt;"),
-                '>' => out.push_str("&gt;"),
-                '"' => out.push_str("&quot;"),
-                '\'' => out.push_str("&apos;"),
-                _ => out.push(c),
-            }
-        }
-        out
-    }
-
     /// Non-grammar / hostile fragments. All ASCII on purpose so they exercise
     /// the tokenizer rather than the `xml[..9]` slice.
     const GARBAGE: &[&str] = &[
@@ -1562,7 +1545,7 @@ mod autotest_generated {
             "日本語 🙂 combining e\u{301}",
             "1 < 2 > 0 && true",
         ] {
-            let src = doc(&escape(raw));
+            let src = doc(&azul_core::xml::html::encode_text(raw));
             let parsed =
                 parse_xml_string(&src).unwrap_or_else(|e| panic!("{src:?} should parse, got {e}"));
             let html = elements(&parsed);

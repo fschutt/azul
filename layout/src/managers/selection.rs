@@ -270,14 +270,7 @@ impl ClipboardContent {
             }
 
             html.push_str("\">");
-            // Escape HTML entities
-            let escaped = run
-                .text
-                .as_str()
-                .replace('&', "&amp;")
-                .replace('<', "&lt;")
-                .replace('>', "&gt;");
-            html.push_str(&escaped);
+            html.push_str(&azul_core::xml::html::encode_text(run.text.as_str()));
             html.push_str("</span>");
         }
 
@@ -332,12 +325,13 @@ mod autotest_generated {
         }
     }
 
-    /// Inverse of the escaping pass in `to_html` (entities undone in reverse
-    /// order, so `&amp;` is restored last).
+    /// Inverse of the escaping pass in `to_html`: the one decoder.
     fn unescape(s: &str) -> String {
-        s.replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .replace("&amp;", "&")
+        azul_core::xml::html::decode_character_references(
+            s,
+            azul_core::xml::html::CharRefMode::Xml,
+        )
+        .into_owned()
     }
 
     // ---------------------------------------------------------------------
