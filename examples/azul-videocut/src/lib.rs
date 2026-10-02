@@ -67,7 +67,10 @@ use azul::{
     str::String as AzString,
     time::SystemTimeDiff,
     uuid::Uuid,
-    vec::{StringVec, TimelineClipVec, TimelineTrackVec, U8Vec, U8VecRef},
+    vec::{
+        ShellSettingsSectionVec, StatusBarSegmentVec, StringVec, TimelineClipVec, TimelineTrackVec,
+        U8Vec, U8VecRef,
+    },
     video::{VideoDecoder, VideoEncoder},
     widgets::{
         ButtonType, Dialog, DialogState, NumberInputState, ProgressBar, Segmented,
@@ -714,7 +717,7 @@ extern "C" fn on_job_done(mut data: RefAny, mut msg: RefAny, mut info: CallbackI
 /// A picture as an image for an image node (opaque RGBA8).
 fn image_of(c: &Canvas) -> Option<ImageRef> {
     let raw = RawImage {
-        pixels: RawImageData::U8(U8Vec::from(c.rgba.clone())),
+        pixels: RawImageData::U8(U8Vec::from_vec(c.rgba.clone())),
         width: c.width as usize,
         height: c.height as usize,
         premultiplied_alpha: true,
@@ -1210,7 +1213,7 @@ fn menu_row(app: &VideoCut, app_ref: &RefAny) -> Dom {
     let toolbar = Dom::create_div()
         .with_css(TOOLBAR_CSS)
         .with_child(
-            Segmented::create(StringVec::from(tools))
+            Segmented::create(StringVec::from_vec(tools))
                 .with_selected_index(app.tool.index())
                 .with_on_change(app_ref.clone(), on_tool as SegmentedOnChangeCallbackType)
                 .dom()
@@ -1480,7 +1483,7 @@ fn inspector_pane(app: &VideoCut, app_ref: &RefAny) -> Dom {
     let frames = clip.transition.map_or(12, |t| t.frames) as f32;
     content.push(text("Transition at the clip's head", FIELD_LABEL_CSS));
     content.push(
-        Segmented::create(StringVec::from(vec![
+        Segmented::create(StringVec::from_vec(vec![
             AzString::from("None"),
             AzString::from("Cross dissolve"),
             AzString::from("Dip to black"),
@@ -1544,13 +1547,13 @@ fn timeline_pane(app: &VideoCut, app_ref: &RefAny) -> Dom {
                 })
                 .collect();
             TimelineTrack::create(t.id, t.name.as_str(), kind)
-                .with_clips(TimelineClipVec::from(clips))
+                .with_clips(TimelineClipVec::from_vec(clips))
                 .with_muted(t.hidden)
                 .with_locked(t.locked)
         })
         .collect();
     let duration = (app.seconds(project.sequence.end()) + 10.0).max(30.0);
-    let timeline = Timeline::create(TimelineTrackVec::from(tracks), duration)
+    let timeline = Timeline::create(TimelineTrackVec::from_vec(tracks), duration)
         .with_playhead(app.seconds(app.playhead))
         .with_view(app.view_start, app.pps)
         .with_view_width((app.window_width - 180.0).max(400.0))
@@ -1590,13 +1593,13 @@ fn status_bar(app: &VideoCut) -> Dom {
     let format = app.project.as_ref().map_or_else(String::new, |p| {
         format!("{} x {} at {} fps", p.sequence.width, p.sequence.height, p.sequence.fps)
     });
-    StatusBar::create(vec![
+    StatusBar::create(StatusBarSegmentVec::from_vec(vec![
         StatusBarSegment::create(app.status.as_str()),
         StatusBarSegment::create(format!("Tool: {}", app.tool.label()).as_str()),
         StatusBarSegment::create(if app.snapping { "Snapping on" } else { "Snapping off" }),
         StatusBarSegment::create(format.as_str()),
         StatusBarSegment::create(format!("Encoder: {}", app.encoder).as_str()),
-    ])
+    ]))
     .dom()
 }
 
@@ -1617,7 +1620,7 @@ fn export_dialog(app: &VideoCut, app_ref: &RefAny) -> Dom {
             _ => format!("{} of {} frames - {}", p.done, p.total, p.how),
         },
     );
-    let labels = |items: &[&str]| StringVec::from(items.iter().map(|s| AzString::from(*s)).collect::<Vec<_>>());
+    let labels = |items: &[&str]| StringVec::from_vec(items.iter().map(|s| AzString::from(*s)).collect::<Vec<_>>());
     let body = Dom::create_div()
         .with_css(DIALOG_BODY_CSS)
         .with_child(text(
@@ -1702,13 +1705,13 @@ fn settings_dialog(app: &VideoCut, app_ref: &RefAny) -> Dom {
             ]),
         ),
     ];
-    let layout = ShellSettingsLayout::create(StringVec::from(vec![
+    let layout = ShellSettingsLayout::create(StringVec::from_vec(vec![
         AzString::from("Playback"),
         AzString::from("Export"),
         AzString::from("Storage"),
         AzString::from("About"),
     ]))
-    .with_sections(sections)
+    .with_sections(ShellSettingsSectionVec::from_vec(sections))
     .dom();
     Dialog::create(Dom::create_div().with_css(DIALOG_BODY_CSS).with_child(layout))
         .with_title("Settings")
@@ -2326,7 +2329,7 @@ extern "C" fn on_redo(mut data: RefAny, mut info: CallbackInfo) -> Update {
 
 extern "C" fn on_import(data: RefAny, _info: CallbackInfo) -> Update {
     let filter = OptionFileTypeList::Some(FileTypeList {
-        document_types: StringVec::from(vec![
+        document_types: StringVec::from_vec(vec![
             AzString::from("mp4"),
             AzString::from("m4v"),
             AzString::from("mov"),

@@ -126,7 +126,7 @@ impl ClipReader {
     /// A reader of the MP4 in `bytes` handing frames out at `width` x
     /// `height` (0 x 0: the stream's size; the decoder scales).
     pub fn open(bytes: &[u8], width: u32, height: u32) -> Result<Self, String> {
-        let demuxer = Mp4Demuxer::create(U8Vec::from(bytes.to_vec()));
+        let demuxer = Mp4Demuxer::create(U8Vec::from_vec(bytes.to_vec()));
         if !demuxer.is_open() {
             return Err(format!("not a readable MP4: {}", demuxer.error().as_str()));
         }
@@ -278,7 +278,7 @@ pub struct Probe {
 /// Opens `bytes` as an MP4 and reads its first frame at `thumb_w` x
 /// `thumb_h` for the bin.
 pub fn probe(bytes: &[u8], thumb_w: u32, thumb_h: u32) -> Result<Probe, String> {
-    let demuxer = Mp4Demuxer::create(U8Vec::from(bytes.to_vec()));
+    let demuxer = Mp4Demuxer::create(U8Vec::from_vec(bytes.to_vec()));
     if !demuxer.is_open() {
         return Err(format!("not a readable MP4: {}", demuxer.error().as_str()));
     }

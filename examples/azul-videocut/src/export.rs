@@ -299,7 +299,7 @@ pub fn run_export(
         let frame = VideoFrame {
             width: w,
             height: h,
-            bytes: U8Vec::from(picture.rgba),
+            bytes: U8Vec::from_vec(picture.rgba),
             format: RawImageFormat::RGBA8,
         };
         if !encoder.encode_at(frame, timestamp_us(index, fps), is_keyframe(index, fps)) {
