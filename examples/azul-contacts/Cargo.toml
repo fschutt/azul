@@ -22,6 +22,8 @@ azul = { path = "../../dll", package = "azul-dll", default-features = false, fea
 azul-appkit = { path = "../azul-appkit", features = ["azul"] }
 # The PIM logic the Azlin apps share: addresses, vCard content lines, search, initials (plain Rust).
 azul-pim = { path = "../azul-pim" }
+# The seed of the ids that name files (azul_storage::ids::random_seed).
+azul-storage = { path = "../azul-storage" }
 
 [lib]
 name = "azcontacts"

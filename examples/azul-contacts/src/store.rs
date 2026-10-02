@@ -47,10 +47,20 @@ pub fn uid_of_key(key: &str) -> Option<String> {
     is_safe_uid(uid).then(|| uid.to_string())
 }
 
+/// A new contact UID, which names the contact's file: a random version 4 UUID from the mint
+/// every Azlin app names its files with (house rule 2026-10-02: `Uuid::from_seed` of
+/// `azul_storage::ids::random_seed`).
+#[must_use]
+pub fn new_uid() -> String {
+    azul::uuid::Uuid::from_seed(azul_storage::ids::random_seed())
+        .as_str()
+        .to_string()
+}
+
 /// Gives a contact a new UID if it has none that can name a file.
 pub fn ensure_uid(c: &mut Contact) {
     if !is_safe_uid(&c.uid) {
-        c.uid = azul_appkit::data::new_uuid();
+        c.uid = new_uid();
     }
 }
 
@@ -135,7 +145,7 @@ pub fn import_preview(text: &str, existing: &[Contact]) -> (Vec<ImportRow>, Vec<
         };
         // Two cards of one file with one UID: the second gets its own.
         if rows.iter().any(|r| r.contact.uid == c.uid) {
-            c.uid = azul_appkit::data::new_uuid();
+            c.uid = new_uid();
         }
         let selected = status == ImportStatus::New;
         rows.push(ImportRow {

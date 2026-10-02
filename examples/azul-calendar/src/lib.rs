@@ -472,13 +472,11 @@ pub(crate) fn drop_down(
     .with_css("margin-right: 8px;")
 }
 
-/// Three 64-bit draws of `event::random_seed` for a room id (130 of the bits are used).
+/// Three 64-bit draws of `azul_storage::ids::random_seed` for a room id (130 of the bits are
+/// used).
 pub(crate) fn room_entropy() -> [u64; 3] {
-    [
-        event::random_seed(),
-        event::random_seed(),
-        event::random_seed(),
-    ]
+    use azul_storage::ids::random_seed;
+    [random_seed(), random_seed(), random_seed()]
 }
 
 /// A new meeting link for an event: made here, pending until the meeting server has its room.

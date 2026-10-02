@@ -675,33 +675,14 @@ pub fn load_all(data_dir: &Path) -> (Vec<Event>, Vec<Skipped>) {
 /// sequence in every process), fine for DOM markers and wrong for a file
 /// name that other devices and an S3 bucket share. `Uuid::from_seed` is a
 /// pure function of its seed, so the id is exactly as random as the seed.
+///
+/// The seed is `azul_storage::ids::random_seed`, the one every Azlin app mints file ids from
+/// (this file had its own copy, as AzTasks had - DEDUP_EDITORS B1).
 #[must_use]
 pub fn new_event_id() -> String {
-    azul::uuid::Uuid::from_seed(random_seed())
+    azul::uuid::Uuid::from_seed(azul_storage::ids::random_seed())
         .as_str()
         .to_string()
-}
-
-/// 64 random bits: `std`'s `RandomState` (SipHash keys the OS seeds per
-/// thread, stepped on every call) hashed with the time, the process id and a
-/// counter; no extra dependency.
-pub(crate) fn random_seed() -> u64 {
-    use std::{
-        collections::hash_map::RandomState,
-        hash::{BuildHasher, Hasher},
-        sync::atomic::{AtomicU64, Ordering},
-        time::{SystemTime, UNIX_EPOCH},
-    };
-    static MINTED: AtomicU64 = AtomicU64::new(0);
-    let mut h = RandomState::new().build_hasher();
-    h.write_u64(MINTED.fetch_add(1, Ordering::Relaxed));
-    h.write_u128(
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_nanos()),
-    );
-    h.write_u32(std::process::id());
-    h.finish()
 }
 
 #[cfg(test)]
