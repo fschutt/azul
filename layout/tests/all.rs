@@ -746,3 +746,7 @@ mod a_line_break_ends_a_line_in_the_max_content;
 mod an_inline_block_in_a_cell_sits_where_its_line_puts_it;
 #[path = "a_space_between_a_tables_inline_children_is_kept.rs"]
 mod a_space_between_a_tables_inline_children_is_kept;
+#[path = "an_inline_tables_baseline_is_its_first_rows.rs"]
+mod an_inline_tables_baseline_is_its_first_rows;
+#[path = "a_captions_own_caption_side_places_it.rs"]
+mod a_captions_own_caption_side_places_it;
