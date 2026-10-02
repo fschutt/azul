@@ -5148,6 +5148,83 @@ mod tests {
         );
     }
 
+    /// What `get_key_modifiers().shift` returned in the last
+    /// `record_shift_after_a_tap` call: 0 = never called, 1 = no Shift, 2 = Shift.
+    static SHIFT_AFTER_TAP: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+    extern "C" fn record_shift_after_a_tap(_data: RefAny, info: CallbackInfo) -> Update {
+        let seen = if info.get_key_modifiers().shift { 2 } else { 1 };
+        SHIFT_AFTER_TAP.store(seen, std::sync::atomic::Ordering::SeqCst);
+        Update::DoNothing
+    }
+
+    /// AzCalculator E2E (2026-10-02), after the sync fix: `7 Shift+8 6 Enter`
+    /// gave `7 x 7 = 49`. A script's Shift+8 tap is `key_down 8 {shift}` +
+    /// `key_up 8 {shift}`; the key_up keeps Shift down (its modifiers are the
+    /// state at release) and the next `key_down 6 {}` only ever ADDED
+    /// modifiers, so 6 typed with Shift still held - `^`, not 6.
+    #[test]
+    fn a_key_down_without_shift_releases_a_shift_an_earlier_op_held() {
+        let mut runner = editor_runner("ab", false, Some(record_shift_after_a_tap));
+        let mut session = E2eSession::new();
+        let mut app_data = RefAny::new(());
+        let component_map = Arc::new(Mutex::new(ComponentMap::with_builtin()));
+        let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
+        let mut op = |runner: &mut Runner, event: DebugEvent| {
+            let (tx, _rx) = std::sync::mpsc::channel();
+            let request = DebugRequest {
+                request_id: 1,
+                event,
+                window_id: None,
+                wait_for_render: false,
+                dom_id: None,
+                response_tx: tx,
+            };
+            let needs_update = runner.with_callback_info(&changes, |ci| {
+                process_debug_event(&request, ci, &mut app_data, &component_map, &mut session)
+            });
+            runner.service(&changes, needs_update);
+        };
+        let shift = || super::super::full::Modifiers {
+            shift: true,
+            ..Default::default()
+        };
+        let key = |key: &str, down: bool, modifiers: super::super::full::Modifiers| {
+            if down {
+                DebugEvent::KeyDown {
+                    key: key.into(),
+                    modifiers,
+                    text: None,
+                    seat: 0,
+                }
+            } else {
+                DebugEvent::KeyUp {
+                    key: key.into(),
+                    modifiers,
+                    seat: 0,
+                }
+            }
+        };
+
+        op(&mut runner, key("8", true, shift()));
+        op(&mut runner, key("8", false, shift()));
+        op(&mut runner, key("6", true, Default::default()));
+        assert_eq!(
+            SHIFT_AFTER_TAP.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the 6 comes without Shift: the op says Shift is not held (1 = no Shift, 2 = Shift)"
+        );
+        assert!(!runner.window_state.keyboard_state.is_key_down(VirtualKeyCode::LShift));
+
+        // A modifier pressed as the key itself stays down.
+        op(&mut runner, key("6", false, Default::default()));
+        op(&mut runner, key("LShift", true, Default::default()));
+        assert!(
+            runner.window_state.keyboard_state.is_key_down(VirtualKeyCode::LShift),
+            "key_down LShift presses Shift even without a shift modifier"
+        );
+    }
+
     #[test]
     fn a_keydown_veto_kills_the_recorded_text() {
         let mut runner = editor_runner("ab", false, Some(veto_key_down));
