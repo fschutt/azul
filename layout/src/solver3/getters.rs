@@ -3012,23 +3012,17 @@ pub fn get_vertical_align_for_node(
         // = baseline
         StyleVerticalAlign::Percentage(p) => {
             let font_size = get_element_font_size(styled_dom, dom_id, node_state);
-            // Line-height uses the parser convention (see `get_line_height_value` /
-            // the LineHeight::Px path): a NEGATIVE normalized value is an absolute
-            // px length, a positive one is a unitless multiple of font-size. The
-            // old `normalized() * font_size` scaled (and sign-flipped) absolute
-            // line-heights — e.g. `line-height: 30px` + `vertical-align: 50%` gave
-            // -240px instead of +15px.
-            let line_height = get_line_height_value(styled_dom, dom_id, node_state).map_or(
-                font_size * 1.2,
-                |lh| {
-                    let n = lh.inner.normalized();
-                    if n < 0.0 {
-                        -n
-                    } else {
-                        n * font_size
-                    }
-                },
-            );
+            // The element's used line-height (`normal` as 1.2em). No viewport
+            // reaches this getter (see the <length> arm's TODO), so a
+            // viewport-unit line-height counts as 0 here.
+            let line_height = get_used_line_height(
+                styled_dom,
+                dom_id,
+                node_state,
+                font_size,
+                PhysicalSize::new(0.0, 0.0),
+            )
+            .resolve(font_size, 0.0, 0.0, 0.0, 0);
             crate::text3::cache::VerticalAlign::Offset(p.normalized() * line_height)
         }
         // §10.8.1: <length> is absolute offset from baseline
@@ -3315,55 +3309,7 @@ pub fn get_style_properties_for_state(
     let color = system_colors_resolved(styled_dom, color);
 
     // +spec:font-metrics:e480da - line-height: normal/number/length/percentage resolution
-    let line_height = {
-        // FAST PATH: compact cache for line-height (stored as normalized × 1000 i16).
-        // When the cache returns Some → we have a resolved value.
-        // When it returns None AND node_state is normal → the compact cache stored
-        // the sentinel, which means "line-height: normal" (the spec default).
-        // Previously we fell through to a cascade walk here — but the default
-        // has already been authoritatively decided by the builder, so the walk
-        // would only ever re-confirm "no value, normal". 1600 pure-waste walks
-        // per cold excel.html layout. Short-circuit to Normal directly.
-        let mut fast_lh = None;
-        let mut sentinel_normal = false;
-        if node_state.is_normal() {
-            if let Some(ref cc) = cache.compact_cache {
-                if let Some(decoded) = cc.get_line_height(dom_id.index()) {
-                    // get_line_height returns stored/10. The builder's split
-                    // scale (see core/src/compact.rs): NEGATIVE = absolute px
-                    // stored as -px x 10, so decoded == -px directly;
-                    // positive = multiple x 1000, so decoded == multiple x 100.
-                    fast_lh = Some(crate::text3::cache::LineHeight::Px(if decoded < 0.0 {
-                        -decoded
-                    } else {
-                        (decoded / 100.0) * font_size
-                    }));
-                } else {
-                    // Sentinel in compact cache = "normal" (CSS default).
-                    sentinel_normal = true;
-                }
-            }
-        }
-        if sentinel_normal {
-            crate::text3::cache::LineHeight::Normal
-        } else {
-            fast_lh.unwrap_or_else(|| {
-                cache
-                    .get_line_height(node_data, &dom_id, node_state)
-                    .and_then(|v| v.get_property().copied())
-                    .map_or(crate::text3::cache::LineHeight::Normal, |v| {
-                        // Negative normalized() = absolute px value (parser convention
-                        // for "50px" etc.); positive = multiple of font-size.
-                        let n = v.inner.normalized();
-                        crate::text3::cache::LineHeight::Px(if n < 0.0 {
-                            -n
-                        } else {
-                            n * font_size
-                        })
-                    })
-            })
-        }
-    };
+    let line_height = get_used_line_height(styled_dom, dom_id, node_state, font_size, viewport_size);
 
     // Get background color for INLINE elements only
     // CSS background-color is NOT inherited. For block-level elements (th, td, div, etc.),
@@ -6645,20 +6591,56 @@ pub fn get_shape_outside(
         .cloned()
 }
 
-/// Get line-height as the full `StyleLineHeight` value for caller resolution.
+/// The used `line-height` of `dom_id` in `node_state`, as text3 takes it -
+/// THE one reader every consumer goes through (each run's style, the IFC
+/// root's strut through its style, an empty inline box, the editing-host
+/// strut and caret, `vertical-align: <percentage>`).
+///
+/// `normal` stays [`LineHeight::Normal`](crate::text3::cache::LineHeight)
+/// (the font's own metrics decide it); everything else is px: a number
+/// times `font_size_px`, a length against `font_size_px` (`em`), the root's
+/// font size (`rem`) and `viewport` (vw / vh / vmin / vmax). An `em` or a
+/// percentage the node INHERITED arrives already computed to the length of
+/// the element that declared it (the cascade and the compact builder compute
+/// it there), so it is not re-resolved against this node's font size. The
+/// compact cache answers for the resting state, the cascade for the other
+/// states and for what the cache cannot hold (the viewport units).
 #[must_use]
-pub fn get_line_height_value(
+pub fn get_used_line_height(
     styled_dom: &StyledDom,
-    node_id: NodeId,
+    dom_id: NodeId,
     node_state: &StyledNodeState,
-) -> Option<azul_css::props::style::text::StyleLineHeight> {
-    let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom
-        .css_property_cache
-        .ptr
-        .get_line_height(node_data, &node_id, node_state)
-        .and_then(|v| v.get_property())
-        .copied()
+    font_size_px: f32,
+    viewport: PhysicalSize,
+) -> crate::text3::cache::LineHeight {
+    use azul_css::compact_cache::CompactLineHeight;
+
+    use crate::text3::cache::LineHeight;
+
+    let cache = &styled_dom.css_property_cache.ptr;
+    if node_state.is_normal() {
+        if let Some(ref cc) = cache.compact_cache {
+            match cc.get_line_height(dom_id.index()) {
+                CompactLineHeight::Normal => return LineHeight::Normal,
+                CompactLineHeight::Factor(factor) => return LineHeight::Px(factor * font_size_px),
+                CompactLineHeight::Px(px) => return LineHeight::Px(px),
+                CompactLineHeight::Uncached => {}
+            }
+        }
+    }
+    let node_data = &styled_dom.node_data.as_container()[dom_id];
+    cache
+        .get_line_height(node_data, &dom_id, node_state)
+        .and_then(|v| v.get_property().copied())
+        .and_then(|lh| {
+            lh.resolve_px(
+                font_size_px,
+                get_root_font_size(styled_dom, node_state),
+                viewport.width,
+                viewport.height,
+            )
+        })
+        .map_or(LineHeight::Normal, LineHeight::Px)
 }
 
 /// Get text-indent as the full `StyleTextIndent` value for caller resolution.
@@ -9584,7 +9566,7 @@ mod autotest_generated {
             let _ = get_border_info(&sd, id, &st);
             let _ = get_border_spacing(&sd, id, &st);
             let _ = get_height_value(&sd, id, &st);
-            let _ = get_line_height_value(&sd, id, &st);
+            let _ = get_used_line_height(&sd, id, &st, 16.0, PhysicalSize::new(800.0, 600.0));
             let _ = get_text_indent_value(&sd, id, &st);
         }
 

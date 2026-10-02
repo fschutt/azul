@@ -1570,18 +1570,63 @@ impl_vec_clone!(
 impl_vec_partialeq!(DocumentSelectionSpan, DocumentSelectionSpanVec);
 impl_vec_partialord!(DocumentSelectionSpan, DocumentSelectionSpanVec);
 
+/// Bytes `start..end` of a [`DocumentTextEdit`]'s `text` and the inline
+/// formats they carry over the style of the block element the edit names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)]
+pub struct TextFormatSpan {
+    pub start: u32,
+    pub end: u32,
+    pub formats: crate::events::TextFormatSet,
+}
+
+impl_option!(
+    TextFormatSpan,
+    OptionTextFormatSpan,
+    [Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord]
+);
+
+impl_vec!(
+    TextFormatSpan,
+    TextFormatSpanVec,
+    TextFormatSpanVecDestructor,
+    TextFormatSpanVecDestructorType,
+    TextFormatSpanVecSlice,
+    OptionTextFormatSpan
+);
+impl_vec_debug!(TextFormatSpan, TextFormatSpanVec);
+impl_vec_clone!(
+    TextFormatSpan,
+    TextFormatSpanVec,
+    TextFormatSpanVecDestructor
+);
+impl_vec_partialeq!(TextFormatSpan, TextFormatSpanVec);
+impl_vec_eq!(TextFormatSpan, TextFormatSpanVec);
+impl_vec_partialord!(TextFormatSpan, TextFormatSpanVec);
+impl_vec_ord!(TextFormatSpan, TextFormatSpanVec);
+impl_vec_hash!(TextFormatSpan, TextFormatSpanVec);
+
 /// One un-synced character-level edit: `node`'s effective text is now
-/// `text` (revision-stamped).
+/// `text` (revision-stamped), formatted as `runs` say.
 ///
 /// The app folds it into its model and acks the highest revision it saw via
 /// `CallbackInfo::mark_text_revision_synced` — the character-path counterpart
 /// of the structural `DocumentEdit` loop.
+///
+/// `runs` are the inline formats of `text` as the user sees it: ordered,
+/// disjoint byte spans, each with the formats it carries OVER `node`'s own
+/// style (a heading's bold is the heading's, not a format of its text).
+/// Text in no span is plain. They cover what the text pipeline formats
+/// without the app: what was typed after a format toggle at a collapsed
+/// caret, an inline formatted paste, and typing into formatted text - so a
+/// model that replaces the block's runs from them keeps every format.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
 pub struct DocumentTextEdit {
     pub node: DomNodeId,
     pub text: azul_css::corety::AzString,
     pub revision: u64,
+    pub runs: TextFormatSpanVec,
 }
 
 impl_option!(

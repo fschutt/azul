@@ -1440,18 +1440,21 @@ fn logical_overflow_properties_map_onto_physical_axes() {
 /// CSS Inline 3 §6: text-box-edge selects the metric text-box-trim cuts to.
 /// `cap alphabetic` must trim MORE than the default text edges: the over
 /// side additionally removes (ascent - cap-height), the under side the full
-/// descent. With font-size 20 / line-height 30 and the strut approximations
-/// (ascent .8em, cap .7em, descent .2em): text-edge trim-both removes
-/// 2 x 5px of half-leading; cap/alphabetic removes 10 + (16-14) + 4 = 16px.
+/// descent. The strut takes its ascent and descent from the container's
+/// first available font, so the arithmetic needs a font with known ones:
+/// `Azul Mock Mono` (ascent .8em, descent .2em; cap-height is still the
+/// .7em approximation). With font-size 20 / line-height 30: text-edge
+/// trim-both removes 2 x 5px of half-leading; cap/alphabetic removes
+/// 10 + (16-14) + 4 = 16px.
 #[test]
 fn text_box_edge_cap_alphabetic_trims_to_the_metrics() {
     const CSS_TEXT: &str = r#"
         body { display: flex; flex-direction: column; }
-        .t { font-size: 20px; line-height: 30px; text-box: trim-both text; }
+        .t { font-family: "Azul Mock Mono"; font-size: 20px; line-height: 30px; text-box: trim-both text; }
     "#;
     const CSS_CAP: &str = r#"
         body { display: flex; flex-direction: column; }
-        .t { font-size: 20px; line-height: 30px; text-box: trim-both cap alphabetic; }
+        .t { font-family: "Azul Mock Mono"; font-size: 20px; line-height: 30px; text-box: trim-both cap alphabetic; }
     "#;
     let build = || {
         Dom::create_body().with_child(

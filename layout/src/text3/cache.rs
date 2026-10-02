@@ -1916,6 +1916,28 @@ impl<T: ParsedFontTrait> FontManager<T> {
         out
     }
 
+    /// The metrics of `font_stack`'s FIRST AVAILABLE FONT (CSS Fonts 4 §5.5:
+    /// the first face of the family list that covers U+0020 SPACE), in font
+    /// units - the face the strut of a block container's line boxes takes
+    /// its ascent and descent from (CSS 2.2 §10.8.1), resolved through the
+    /// same chain the shaper resolves the container's text with. `None`
+    /// while the stack's chain is unresolved or the face is not loaded yet.
+    #[must_use]
+    pub fn first_available_font_metrics(&self, font_stack: &FontStack) -> Option<LayoutFontMetrics> {
+        match font_stack {
+            FontStack::Ref(font_ref) => Some(font_ref.get_font_metrics()),
+            FontStack::Stack(selectors) => {
+                let chain = self
+                    .font_chain_cache
+                    .get(&FontChainKey::from_selectors(selectors))?;
+                let id = covering_font(chain, ' ')
+                    .or_else(|| chain.resolve_codepoint(u32::from(' ')).map(|(id, _)| id))?;
+                let parsed = self.parsed_fonts.lock().ok()?;
+                parsed.get(&id).map(ParsedFontTrait::get_font_metrics)
+            }
+        }
+    }
+
     /// Insert a loaded font into the cache
     ///
     /// Returns the old font if one was already present for this `FontId`.

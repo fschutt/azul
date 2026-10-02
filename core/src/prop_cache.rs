@@ -1514,6 +1514,23 @@ fn is_resolved_parent_inherited(prop_type: CssPropertyType) -> bool {
     prop_type == CssPropertyType::FontSize
 }
 
+/// A declaration the descendants must NOT receive raw through
+/// `cascaded_props`, because it computes to a length against the font size
+/// of the element that declares it: `line-height` in `em` / `%` (CSS 2.2
+/// s10.8.1). They inherit the computed length through `computed_values`
+/// instead ([`CssPropertyCache::compute_inherited_values`]) - the raw `1.5em`
+/// would be re-resolved against each descendant's own font size. A number,
+/// `normal` and every other length are inherited as written. (`font-size`
+/// takes the same road for every value: [`is_resolved_parent_inherited`].)
+fn inherits_its_computed_length(p: &CssProperty) -> bool {
+    match p {
+        CssProperty::LineHeight(v) => v
+            .get_property()
+            .is_some_and(|lh| lh.is_font_relative_length()),
+        _ => false,
+    }
+}
+
 fn clone_inheritable_property(p: &CssProperty) -> CssProperty {
     use azul_css::props::property::CssProperty;
     if let CssProperty::FontFamily(v) = p {
@@ -2066,13 +2083,28 @@ impl CssPropertyCache {
                     continue;
                 }
 
+                // The parent's winning value per type: the first offered wins
+                // (inline, then stylesheet, then what it inherited itself). A
+                // winner that computes to a length against the PARENT's font
+                // size (`line-height: 1.5em`) is dropped - its children inherit
+                // the computed length through `computed_values` - and dropping
+                // the WINNER, not the entry, keeps a lower-priority value of the
+                // same type from standing in for it.
+                let mut offered: Vec<&(CssPropertyType, CssProperty)> = Vec::new();
+                for entry in parent_inheritable_inline
+                    .iter()
+                    .chain(parent_inheritable_css.iter())
+                    .chain(parent_inheritable_cascaded.iter())
+                {
+                    if !offered.iter().any(|(t, _)| *t == entry.0) {
+                        offered.push(entry);
+                    }
+                }
+                offered.retain(|(_, v)| !inherits_its_computed_length(v));
+
                 for child_id in parent_id.az_children(&node_hierarchy.as_container()) {
                     let child_vec = self.cascaded_props.build_mut(child_id.index());
-                    for (prop_type, prop_value) in parent_inheritable_inline
-                        .iter()
-                        .chain(parent_inheritable_css.iter())
-                        .chain(parent_inheritable_cascaded.iter())
-                    {
+                    for (prop_type, prop_value) in offered.iter().copied() {
                         // or_insert: only insert if child doesn't already have this (state,
                         // prop_type)
                         if !child_vec
@@ -5261,6 +5293,10 @@ impl CssPropertyCache {
                     node_index,
                 );
 
+                // Step 6: a `line-height` in `em` / `%` computes to a length
+                // against the node's own font size, final only now.
+                Self::compute_font_relative_line_height(&mut ctx);
+
                 // Check for changes and store
                 let changed = self.store_if_changed(&ctx, &previous);
                 changed.then_some(node_id)
@@ -5416,6 +5452,46 @@ impl CssPropertyCache {
             Ok(idx) => ctx.computed_values[idx] = entry,
             Err(idx) => ctx.computed_values.insert(idx, entry),
         }
+    }
+
+    /// A `line-height` in `em` / `%` computes to an absolute length against
+    /// the node's OWN font size (CSS 2.2 s10.8.1) - known only once every
+    /// cascade tier has run, so a `font-size` declared after it counts - and
+    /// that length is what the descendants inherit from here (the raw value
+    /// is kept out of their `cascaded_props`, see
+    /// `inherits_its_computed_length`).
+    fn compute_font_relative_line_height(ctx: &mut InheritanceContext) {
+        use azul_css::{css::CssPropertyValue, props::basic::length::SizeMetric};
+
+        let Ok(lh_idx) = ctx
+            .computed_values
+            .binary_search_by_key(&CssPropertyType::LineHeight, |(k, _)| *k)
+        else {
+            return;
+        };
+        let line_height = match &ctx.computed_values[lh_idx].1.property {
+            CssProperty::LineHeight(CssPropertyValue::Exact(lh))
+                if lh.is_font_relative_length() =>
+            {
+                *lh
+            }
+            _ => return,
+        };
+        let font_size_px = ctx
+            .computed_values
+            .binary_search_by_key(&CssPropertyType::FontSize, |(k, _)| *k)
+            .ok()
+            .and_then(|idx| match &ctx.computed_values[idx].1.property {
+                CssProperty::FontSize(v) => v
+                    .get_property()
+                    .filter(|fs| fs.inner.metric == SizeMetric::Px)
+                    .map(|fs| fs.inner.number.get()),
+                _ => None,
+            })
+            .unwrap_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE);
+        ctx.computed_values[lh_idx].1.property = CssProperty::LineHeight(
+            CssPropertyValue::Exact(line_height.computed(font_size_px)),
+        );
     }
 
     /// Resolve font-size property (uses parent's font-size as reference)

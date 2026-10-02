@@ -456,7 +456,18 @@ macro_rules! impl_percentage_value_fmt {
     };
 }
 
-impl_percentage_value_fmt!(StyleLineHeight);
+impl FormatAsRustCode for StyleLineHeight {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            Self::Normal => "StyleLineHeight::Normal".to_string(),
+            Self::Number(n) => format!("StyleLineHeight::Number({})", format_float_value(n)),
+            Self::Length(l) => format!("StyleLineHeight::Length({})", format_pixel_value(l)),
+            Self::Percentage(p) => {
+                format!("StyleLineHeight::Percentage({})", format_percentage_value(p))
+            }
+        }
+    }
+}
 impl_percentage_value_fmt!(StyleOpacity);
 
 macro_rules! impl_pixel_value_fmt {

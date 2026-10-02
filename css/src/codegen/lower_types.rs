@@ -6626,12 +6626,12 @@ impl Lower for crate::props::style::text::StyleLineFitEdge {
 
 impl Lower for crate::props::style::text::StyleLineHeight {
     fn lower(&self) -> Expr {
-        Expr::strukt(
-            "StyleLineHeight",
-            vec![
-                ("inner", self.inner.lower()),
-            ],
-        )
+        match self {
+            Self::Normal => Expr::unit("StyleLineHeight", EnumShape::Tagged, "Normal"),
+            Self::Number(v) => Expr::variant("StyleLineHeight", EnumShape::Tagged, "Number", vec![v.lower()]),
+            Self::Length(v) => Expr::variant("StyleLineHeight", EnumShape::Tagged, "Length", vec![v.lower()]),
+            Self::Percentage(v) => Expr::variant("StyleLineHeight", EnumShape::Tagged, "Percentage", vec![v.lower()]),
+        }
     }
 }
 

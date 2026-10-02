@@ -2953,27 +2953,28 @@ impl CallbackInfo {
     }
 
     /// Every character-level edit the app has NOT yet folded into its own
-    /// model: `(node, effective text, revision)` — the node's text content
-    /// as the user now sees it (typing, IME commits, deletions). Fold them
-    /// in, then ack the highest revision with
+    /// model: the block element, its text content as the user now sees it
+    /// (typing, IME commits, deletions, pastes), the revision, and `runs` -
+    /// the inline formats of that text over the element's own style (bold
+    /// typed after Ctrl+B at a caret, a pasted bold, typing into formatted
+    /// text). Fold them in - replacing the block's runs from `runs` keeps
+    /// every format - then ack the highest revision with
     /// [`Self::mark_text_revision_synced`]; the engine drops converged
     /// overlay entries at the next layout tail. The character-path
     /// counterpart of `get_document_edit_clone`.
     #[must_use]
     pub fn get_unsynced_text_edits(&self) -> azul_core::selection::DocumentTextEditVec {
-        let edits: Vec<azul_core::selection::DocumentTextEdit> = self
-            .get_layout_window()
-            .unsynced_text_edits()
-            .into_iter()
-            .map(
-                |(node, text, revision)| azul_core::selection::DocumentTextEdit {
-                    node,
-                    text: text.into(),
-                    revision,
-                },
-            )
-            .collect();
-        edits.into()
+        self.get_layout_window().unsynced_text_edits().into()
+    }
+
+    /// The formats the text typed next at the caret in `node`'s editing
+    /// host takes, over the block's own style - the caret's PENDING format:
+    /// the run under the caret's, with a format toggled at the caret
+    /// (Ctrl/Cmd+B / I / U, [`Self::toggle_text_format`]) on top. What a
+    /// toolbar shows as pressed. `None` without one caret in the host.
+    #[must_use]
+    pub fn get_typing_formats(&self, node: DomNodeId) -> azul_core::events::OptionTextFormatSet {
+        self.get_layout_window().typing_formats(node).into()
     }
 
     /// Ack the character-path sync: the app's model holds every text edit
