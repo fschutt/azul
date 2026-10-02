@@ -4,16 +4,17 @@
 1. starts imap_server.py over a copy of sample_mail/ (plain TCP, or implicit TLS with --tls);
 2. starts AzMail headless (AZ_BACKEND=headless, AZ_DEBUG=<port>) with an empty AZMAIL_DATA and
    the server's password in AZMAIL_TEST_PASSWORD (a headless run never touches the keyring);
-3. through AzMail's debug server: types the address, the IMAP host and port, ticks
-   "Unencrypted connection" (without --tls) and clicks "Save and sync";
+3. through AzMail's debug server, File > Add Account (the wizard): types the address, Next,
+   the IMAP host and port, ticks "Unencrypted connection" (without --tls), Next, Next (direct
+   delivery), Finish;
 4. waits for AZMAIL_SYNC_DONE and checks the files: account.json without the password, every
    message as mail/<folder>/<yyyy>/<mm>/<uid>.eml with the server's exact bytes, one index.jsonl
    line per message, state.json with UIDVALIDITY and the last UID, spam in mail/spam, and the
    password in no file at all;
 5. checks the window: the folders, the messages, the plain text of a reply with its quotes,
-   and the HTML part of a newsletter (its text, no image);
-6. clicks "Sync now" again: nothing is fetched (AZMAIL_SYNC_DONE fetched=0, no body fetch in the
-   server's log);
+   and the HTML part of a newsletter (its text, no image, the "download pictures" bar);
+6. clicks "Send/Receive All Folders" again: nothing is fetched (AZMAIL_SYNC_DONE fetched=0, no
+   body fetch in the server's log);
 7. drops a new message into the server's INBOX and syncs once more: only that one is fetched.
 
 Usage (from the azul repository, after building AzMail and libazul with the debug server):
@@ -326,14 +327,20 @@ class Run:
         log(f'IMAP server on 127.0.0.1:{self.port}' + (' (TLS)' if self.args.tls else ''))
 
         self.start('azmail', [binary], env)
-        self.until('the setup form', lambda: self.shows('Add your mail account'))
+        self.until('the Add Account wizard', lambda: self.shows('Add Account'))
         self.type_into('#acct-email', USER)
+        self.click('Next >')
+        self.until('the incoming server page', lambda: self.shows('Incoming mail server'))
         self.type_into('#acct-imap-host', '127.0.0.1')
         self.type_into('#acct-imap-port', str(self.port))
         if not self.args.tls:
             self.click('Unencrypted connection')
             time.sleep(0.3)
-        self.click('Save and sync')
+        self.click('Next >')
+        self.until('the sending page', lambda: self.shows('Send mail:'))
+        self.click('Next >')
+        self.until('the last page', lambda: self.shows('Finish adds the account'))
+        self.click('Finish')
 
         first = self.wait_sync(1)
         expected = self.expected()
@@ -348,23 +355,21 @@ class Run:
         log(f'{len(expected)} messages in {len(FOLDERS)} folders, byte for byte, spam in mail/spam')
 
         # The window: folders, messages, a reply's quotes, a newsletter's HTML part.
-        for text in ('Inbox', 'Spam', 'Garden Weekly: bulbs, frost and a sale'):
+        for text in ('Inbox', 'Junk E-mail', 'Garden Weekly: bulbs, frost and a sale'):
             self.until(f'the window to show "{text}"', lambda: self.shows(text))
         self.click('Re: Garden plan for October')
         self.until('the reply\'s body', lambda: self.shows('I can bring the tulip bulbs'))
         self.until('its quoted lines', lambda: self.shows('Last year it came early.'))
         self.click('Garden Weekly: bulbs, frost and a sale')
-        self.until('the newsletter\'s plain text', lambda: self.shows('GARDEN WEEKLY'))
-        self.click('HTML')
-        self.until('the newsletter\'s HTML part', lambda: self.shows('Remote images are off'))
-        self.until('the HTML part\'s own text', lambda: self.shows('See the sale'))
+        self.until('the newsletter\'s HTML part', lambda: self.shows('See the sale'))
+        self.until('the pictures bar', lambda: self.shows('Click here to download pictures'))
         if self.shows('document.write') or self.shows('Sign in'):
             raise Failure('the HTML view shows a script or a form')
         log('the window lists the folders and shows the reply and the newsletter\'s HTML')
 
         # Again: nothing is fetched twice.
         before = len(self.body_fetches())
-        self.click('Sync now')
+        self.click('Send/Receive All Folders')
         second = self.wait_sync(2)
         log(f'second sync: {second}')
         if int(second.get('fetched', -1)) != 0 or len(self.body_fetches()) != before:
@@ -375,7 +380,7 @@ class Run:
         imap_server_inbox = os.path.join(self.server_root, 'INBOX')
         with open(os.path.join(imap_server_inbox, '0005-late.eml'), 'w', newline='\n') as f:
             f.write(NEW_MESSAGE)
-        self.click('Sync now')
+        self.click('Send/Receive All Folders')
         third = self.wait_sync(3)
         log(f'third sync: {third}')
         new = self.body_fetches()[before:]
