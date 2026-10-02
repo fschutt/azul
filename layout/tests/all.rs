@@ -744,3 +744,5 @@ mod a_cells_vertical_align_counts_its_last_childs_bottom_margin;
 mod a_line_break_ends_a_line_in_the_max_content;
 #[path = "an_inline_block_in_a_cell_sits_where_its_line_puts_it.rs"]
 mod an_inline_block_in_a_cell_sits_where_its_line_puts_it;
+#[path = "a_space_between_a_tables_inline_children_is_kept.rs"]
+mod a_space_between_a_tables_inline_children_is_kept;
