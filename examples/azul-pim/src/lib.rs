@@ -23,6 +23,7 @@
 //!   uuid>.json` - every app reads and writes, through `azul-storage`'s
 //!   `Drive`, with the migration of AzCalendar's old To-Do bar files.
 
+pub mod content_line;
 pub mod dates;
 pub mod mail_address;
 pub mod repeat;
