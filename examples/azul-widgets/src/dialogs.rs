@@ -57,7 +57,7 @@ impl DialogsDemo {
             WizardComponent::create("AzWriter", 120 * MB).with_depth(1),
             WizardComponent::create("AzSheets", 90 * MB).with_depth(1),
             WizardComponent::create("Templates", 45 * MB)
-                .with_description("Invoices, CVs, calendars".into()),
+                .with_description("Invoices, CVs, calendars"),
         ]));
         let options = WizardOptionsPage::create(WizardOptionVec::from_vec(vec![
             WizardOption::create("Create a desktop shortcut", true),
@@ -65,7 +65,7 @@ impl DialogsDemo {
             WizardOption::create("For everyone", false).with_group(1),
         ]));
         let recorder = ShortcutRecorder::create()
-            .with_accessibility_name("Command palette".into())
+            .with_accessibility_name("Command palette")
             .with_hotkey(GlobalHotkey::create(
                 HotkeyModifiers {
                     ctrl: true,
@@ -80,20 +80,20 @@ impl DialogsDemo {
                 .with_category_icons(StringVec::from_vec(strs(&["tune", "palette"])))
                 .with_setting(
                     ShellSetting::create(
-                        "general.reopen".into(),
-                        "Reopen the last documents".into(),
+                        "general.reopen",
+                        "Reopen the last documents",
                         0,
-                        "Startup".into(),
+                        "Startup",
                         ShellSettingValue::Toggle(true),
                     )
-                    .with_help("Open what was open when the app closed.".into()),
+                    .with_help("Open what was open when the app closed."),
                 )
                 .with_setting(
                     ShellSetting::create(
-                        "general.language".into(),
-                        "Language".into(),
+                        "general.language",
+                        "Language",
                         0,
-                        "Region".into(),
+                        "Region",
                         ShellSettingValue::Choice(ShellSettingChoice::create(
                             StringVec::from_vec(strs(&["English", "Deutsch"])),
                             0,
@@ -102,19 +102,19 @@ impl DialogsDemo {
                     .with_requires_restart(true),
                 )
                 .with_setting(ShellSetting::create(
-                    "appearance.zoom".into(),
-                    "Interface zoom".into(),
+                    "appearance.zoom",
+                    "Interface zoom",
                     1,
-                    "Size".into(),
+                    "Size",
                     ShellSettingValue::Slider(
-                        ShellSettingNumber::create(100.0, 50.0, 200.0).with_unit("%".into()),
+                        ShellSettingNumber::create(100.0, 50.0, 200.0).with_unit("%"),
                     ),
                 ))
                 .with_setting(ShellSetting::create(
-                    "appearance.mode".into(),
-                    "Mode".into(),
+                    "appearance.mode",
+                    "Mode",
                     1,
-                    "Theme".into(),
+                    "Theme",
                     ShellSettingValue::Radio(ShellSettingChoice::create(
                         StringVec::from_vec(strs(&["Light", "Dark", "System"])),
                         2,
@@ -184,11 +184,11 @@ pub(crate) fn dialogs_section(data: &RefAny, d: &DialogsDemo, theme: UiTheme) ->
         .with_on_event(data.clone(), on_page)
         .with_theme(theme);
     let reason = destination.blocked_reason();
-    let banner = WizardLayout::create("AzOffice Setup".into(), steps.clone())
+    let banner = WizardLayout::create("AzOffice Setup", steps.clone())
         .with_current_step(2)
         .with_style(WizardLayoutStyle::Banner)
-        .with_subtitle("Where should AzOffice be installed?".into())
-        .with_icon("install_desktop".into())
+        .with_subtitle("Where should AzOffice be installed?")
+        .with_icon("install_desktop")
         .with_validation(reason)
         .with_page(destination.dom())
         .with_on_event(data.clone(), on_wizard)
@@ -197,16 +197,16 @@ pub(crate) fn dialogs_section(data: &RefAny, d: &DialogsDemo, theme: UiTheme) ->
 
     // The macOS installer's side panel around the license page.
     let license = WizardLicensePage::create(
-        "Permission is hereby granted, free of charge.\n\nThe software is provided as is.".into(),
+        "Permission is hereby granted, free of charge.\n\nThe software is provided as is.",
     )
     .with_accepted(d.accepted)
     .with_on_event(data.clone(), on_page)
     .with_theme(theme);
     let reason = license.blocked_reason();
-    let side = WizardLayout::create("AzOffice Setup".into(), steps)
+    let side = WizardLayout::create("AzOffice Setup", steps)
         .with_current_step(1)
         .with_style(WizardLayoutStyle::SidePanel)
-        .with_icon("install_desktop".into())
+        .with_icon("install_desktop")
         .with_validation(reason)
         .with_page(license.dom())
         .with_on_event(data.clone(), on_wizard)
@@ -226,16 +226,16 @@ pub(crate) fn dialogs_section(data: &RefAny, d: &DialogsDemo, theme: UiTheme) ->
         .with_theme(theme)
         .dom();
     let summary = WizardSummaryPage::create(StringPairVec::from_vec(Vec::new()))
-        .with_row("Destination folder".into(), d.path.clone())
+        .with_row("Destination folder", d.path.clone())
         .with_row(
-            "Components".into(),
-            "AzOffice core, AzWriter, AzSheets".into(),
+            "Components",
+            "AzOffice core, AzWriter, AzSheets",
         )
         .with_theme(theme)
         .dom();
     let progress = WizardProgressPage::create(64.0)
-        .with_status("Installing AzOffice...".into())
-        .with_current_item("Copying azwriter/part-07.bin".into())
+        .with_status("Installing AzOffice...")
+        .with_current_item("Copying azwriter/part-07.bin")
         .with_log(StringVec::from_vec(strs(&[
             "Created /opt/AzOffice",
             "Copied azcore/part-01.bin",
@@ -245,25 +245,25 @@ pub(crate) fn dialogs_section(data: &RefAny, d: &DialogsDemo, theme: UiTheme) ->
         .with_theme(theme)
         .dom();
     let welcome = WizardWelcomePage::create(
-        "Welcome to the AzOffice Setup Wizard".into(),
-        "This will install AzOffice on your computer.".into(),
+        "Welcome to the AzOffice Setup Wizard",
+        "This will install AzOffice on your computer.",
     )
-    .with_logo("install_desktop".into())
+    .with_logo("install_desktop")
     .with_theme(theme)
     .dom();
     let finish = WizardFinishPage::create(
-        "Completing the AzOffice Setup Wizard".into(),
-        "Setup has installed AzOffice.".into(),
+        "Completing the AzOffice Setup Wizard",
+        "Setup has installed AzOffice.",
     )
     .with_options(WizardOptionVec::from_vec(vec![WizardOption::create(
-        "Launch AzOffice now".into(),
+        "Launch AzOffice now",
         true,
     )]))
     .with_theme(theme)
     .dom();
 
     let path = PathInput::create(d.path.clone())
-        .with_accessibility_name("Destination folder".into())
+        .with_accessibility_name("Destination folder")
         .with_on_change(data.clone(), on_path)
         .with_theme(theme)
         .dom();
@@ -282,41 +282,41 @@ pub(crate) fn dialogs_section(data: &RefAny, d: &DialogsDemo, theme: UiTheme) ->
 
     let message = MessageBox::create(
         MessageBoxKind::Warning,
-        "Replace the existing file?".into(),
-        "A file named Report.docx already exists in this folder.".into(),
+        "Replace the existing file?",
+        "A file named Report.docx already exists in this folder.",
     )
     .with_buttons(
         StringVec::from_vec(strs(&["Replace", "Keep both", "Cancel"])),
         2,
     )
-    .with_dont_ask("Don't ask again".into(), d.dont_ask)
+    .with_dont_ask("Don't ask again", d.dont_ask)
     .with_on_event(data.clone(), on_message)
     .with_theme(theme)
     .dom();
-    let about = AboutDialog::create("AzOffice".into(), "Version 1.0.0".into())
-        .with_icon("apps".into())
-        .with_copyright("Copyright 2026 the azul contributors".into())
-        .with_credit("azul".into(), "MIT".into())
-        .with_credit("Material Icons".into(), "Apache-2.0".into())
+    let about = AboutDialog::create("AzOffice", "Version 1.0.0")
+        .with_icon("apps")
+        .with_copyright("Copyright 2026 the azul contributors")
+        .with_credit("azul", "MIT")
+        .with_credit("Material Icons", "Apache-2.0")
         .with_on_event(data.clone(), on_dialog)
         .with_theme(theme)
         .dom();
-    let copying = ProgressDialog::create("Copying 12 files".into(), 0.0)
+    let copying = ProgressDialog::create("Copying 12 files", 0.0)
         .with_indeterminate(true)
-        .with_detail("Counting the files...".into())
+        .with_detail("Counting the files...")
         .with_on_event(data.clone(), on_dialog)
         .with_theme(theme)
         .dom();
-    let login = LoginDialog::create("Sign in to AzOffice".into())
+    let login = LoginDialog::create("Sign in to AzOffice")
         .with_credentials(d.user.clone(), d.password.clone())
-        .with_remember("Remember me".into(), d.remember)
+        .with_remember("Remember me", d.remember)
         .with_on_event(data.clone(), on_login)
         .with_theme(theme)
         .dom();
     let find = FindReplaceDialog::create(d.find.clone())
-        .with_replace("Azul".into())
+        .with_replace("Azul")
         .with_options(d.match_case, d.whole_word)
-        .with_status("3 of 12".into())
+        .with_status("3 of 12")
         .with_on_event(data.clone(), on_find)
         .with_theme(theme)
         .dom();
