@@ -9,6 +9,7 @@
 
 use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 
+use azul::widgets::ListSelection;
 use azul_storage::Drive;
 use chrono::{Local, NaiveDate, NaiveDateTime, Timelike};
 
@@ -117,10 +118,9 @@ pub struct Tasks {
     pub sample_requested: bool,
     // ---- what is shown
     pub view: View,
-    /// Selected task ids, in selection order.
-    pub selection: Vec<String>,
-    /// Where a Shift range starts.
-    pub anchor: Option<String>,
+    /// The selected tasks, keyed by `ListSelection::key_of(id)` (azul's list
+    /// selection: the anchor of a Shift range and the row the keyboard is on).
+    pub selection: ListSelection,
     pub search: String,
     pub quick: QuickAdd,
     pub drafts: Drafts,
@@ -190,8 +190,7 @@ impl Tasks {
             files: FileWork::default(),
             sample_requested: false,
             view,
-            selection: Vec::new(),
-            anchor: None,
+            selection: ListSelection::create(),
             search: String::new(),
             quick: QuickAdd::default(),
             drafts: Drafts::default(),
@@ -240,16 +239,41 @@ impl Tasks {
     /// The selected task, when exactly one is selected.
     #[must_use]
     pub fn selected_one(&self) -> Option<usize> {
-        match self.selection.as_slice() {
-            [one] => self.index_of(one),
-            _ => None,
+        if self.selection.len() != 1 {
+            return None;
         }
+        self.selected().first().copied()
     }
 
     /// The selected tasks' indices.
     #[must_use]
     pub fn selected(&self) -> Vec<usize> {
-        self.selection.iter().filter_map(|id| self.index_of(id)).collect()
+        (0..self.tasks.len())
+            .filter(|&i| self.is_selected(&self.tasks[i].id))
+            .collect()
+    }
+
+    /// Whether task `id` is selected.
+    #[must_use]
+    pub fn is_selected(&self, id: &str) -> bool {
+        self.selection.contains(ListSelection::key_of(id))
+    }
+
+    /// The selected tasks' ids.
+    #[must_use]
+    pub fn selected_ids(&self) -> Vec<String> {
+        self.selected()
+            .into_iter()
+            .map(|i| self.tasks[i].id.clone())
+            .collect()
+    }
+
+    /// The selection keys of the tasks on screen, top to bottom.
+    fn shown_keys(&self) -> Vec<u64> {
+        self.visible_order(now())
+            .into_iter()
+            .map(|i| ListSelection::key_of(self.tasks[i].id.as_str()))
+            .collect()
     }
 
     /// What the task list shows now.
@@ -338,9 +362,8 @@ impl Tasks {
         self.view = view;
         self.editing_list = None;
         self.page = None;
-        let order = self.visible_order(now());
-        let visible: Vec<String> = order.iter().map(|&i| self.tasks[i].id.clone()).collect();
-        self.selection.retain(|id| visible.contains(id));
+        let shown = self.shown_keys();
+        self.selection.retain_in(shown);
         println!("AZTASKS_VIEW {}", self.view.name());
     }
 
@@ -349,54 +372,28 @@ impl Tasks {
     pub fn select(&mut self, id: &str, shift: bool, ctrl: bool) {
         self.commit_drafts();
         self.editing_list = None;
-        if shift {
-            let order: Vec<String> = self
-                .visible_order(now())
-                .into_iter()
-                .map(|i| self.tasks[i].id.clone())
-                .collect();
-            let anchor = self.anchor.clone().unwrap_or_else(|| id.to_string());
-            if let (Some(a), Some(b)) = (
-                order.iter().position(|x| *x == anchor),
-                order.iter().position(|x| x == id),
-            ) {
-                let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
-                self.selection = order[lo..=hi].to_vec();
-                return;
-            }
+        let shown = self.shown_keys();
+        self.selection
+            .select_in(shown, ListSelection::key_of(id), shift, ctrl);
+        if !shift {
+            println!("AZTASKS_SELECTED {id}");
         }
-        if ctrl {
-            if let Some(pos) = self.selection.iter().position(|x| x == id) {
-                self.selection.remove(pos);
-            } else {
-                self.selection.push(id.to_string());
-            }
-        } else {
-            self.selection = vec![id.to_string()];
-        }
-        self.anchor = Some(id.to_string());
-        println!("AZTASKS_SELECTED {id}");
     }
 
     /// Moves the selection one row up or down (`extend`: Shift held).
     pub fn step_selection(&mut self, down: bool, extend: bool) {
-        let order: Vec<String> = self
-            .visible_order(now())
-            .into_iter()
-            .map(|i| self.tasks[i].id.clone())
-            .collect();
-        if order.is_empty() {
+        self.commit_drafts();
+        self.editing_list = None;
+        let shown = self.shown_keys();
+        let delta = if down { 1 } else { -1 };
+        let Some(key) = self.selection.step_in(shown, delta, extend, false).into_option() else {
             return;
-        }
-        let current = self.selection.last().and_then(|id| order.iter().position(|x| x == id));
-        let next = match (current, down) {
-            (None, true) => 0,
-            (None, false) => order.len() - 1,
-            (Some(p), true) => (p + 1).min(order.len() - 1),
-            (Some(p), false) => p.saturating_sub(1),
         };
-        let id = order[next].clone();
-        self.select(&id, extend, false);
+        if !extend {
+            if let Some(t) = self.tasks.iter().find(|t| ListSelection::key_of(t.id.as_str()) == key) {
+                println!("AZTASKS_SELECTED {}", t.id);
+            }
+        }
     }
 
     // ==== Drafts ====
@@ -515,8 +512,7 @@ impl Tasks {
         self.tasks.push(t);
         let i = self.tasks.len() - 1;
         self.save_task(i);
-        self.selection = vec![id.clone()];
-        self.anchor = Some(id);
+        self.selection.click(ListSelection::key_of(id.as_str()));
         i
     }
 
@@ -582,7 +578,16 @@ impl Tasks {
             println!("AZTASKS_DELETED {}", t.id);
             undo.tasks.push(t);
         }
-        self.selection.retain(|id| !ids.contains(id));
+        let gone: Vec<u64> = ids.iter().map(|id| ListSelection::key_of(id.as_str())).collect();
+        let kept: Vec<u64> = self
+            .selection
+            .keys
+            .as_ref()
+            .iter()
+            .copied()
+            .filter(|k| !gone.contains(k))
+            .collect();
+        self.selection.retain_in(kept);
         self.banners.retain(|id| !ids.contains(id));
         let n = undo.tasks.len();
         self.notice = match n {
@@ -607,7 +612,7 @@ impl Tasks {
             self.tasks.push(t);
             let i = self.tasks.len() - 1;
             self.save_task(i);
-            self.selection = vec![id];
+            self.selection.click(ListSelection::key_of(id.as_str()));
         }
         self.notice.clear();
     }

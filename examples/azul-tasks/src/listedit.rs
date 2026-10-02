@@ -296,7 +296,7 @@ extern "C" fn on_bulk_move(mut data: RefAny, mut info: CallbackInfo, index: usiz
             return;
         };
         let list = s.lists[li].id.clone();
-        let ids = s.selection.clone();
+        let ids = s.selected_ids();
         let moves = s.move_tasks(&ids, &list);
         crate::jobs::move_files(info, app, s, moves);
     })
@@ -304,7 +304,7 @@ extern "C" fn on_bulk_move(mut data: RefAny, mut info: CallbackInfo, index: usiz
 
 extern "C" fn on_bulk_delete(mut data: RefAny, mut info: CallbackInfo) -> Update {
     crate::with_tasks(&mut data, &mut info, |info, app, s| {
-        let ids = s.selection.clone();
+        let ids = s.selected_ids();
         let gone = s.delete_tasks(&ids);
         crate::jobs::delete_files(info, app, s, gone);
     })

@@ -421,7 +421,7 @@ fn section_dom(s: &Tasks, app: &RefAny, section: &Section, now: NaiveDateTime) -
 /// One task's row.
 fn row(s: &Tasks, app: &RefAny, t: &Task, now: NaiveDateTime, show_list: bool) -> Dom {
     let today = now.date();
-    let selected = s.selection.iter().any(|id| *id == t.id);
+    let selected = s.is_selected(&t.id);
     let check = CheckBox::create(t.is_done())
         .with_accessibility_name(format!("Complete {}", t.title))
         .with_on_toggle(row_ref(app, &t.id), on_check as CheckBoxOnToggleCallbackType)

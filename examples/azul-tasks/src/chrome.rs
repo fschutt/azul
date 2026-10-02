@@ -227,7 +227,7 @@ pub fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut Tasks, command: Comman
             }
         }
         Command::Delete => {
-            let ids = s.selection.clone();
+            let ids = s.selected_ids();
             let gone = s.delete_tasks(&ids);
             crate::jobs::delete_files(info, app, s, gone);
         }
@@ -406,7 +406,7 @@ extern "C" fn on_ribbon_move(mut data: RefAny, mut info: CallbackInfo, index: us
             return;
         };
         let list = s.lists[li].id.clone();
-        let ids = s.selection.clone();
+        let ids = s.selected_ids();
         let moves = s.move_tasks(&ids, &list);
         crate::jobs::move_files(info, app, s, moves);
     })

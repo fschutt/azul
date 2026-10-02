@@ -226,8 +226,8 @@ fn dropped_tasks(s: &Tasks) -> Vec<String> {
     let Some(dragged) = s.drag.clone() else {
         return Vec::new();
     };
-    if s.selection.contains(&dragged) {
-        s.selection.clone()
+    if s.is_selected(&dragged) {
+        s.selected_ids()
     } else {
         vec![dragged]
     }
