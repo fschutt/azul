@@ -342,6 +342,18 @@ pub struct Xml {
 }
 
 impl Xml {
+    /// Parses real-world HTML the way a browser builds its tree - never
+    /// fails (unquoted attributes, `<br>` without a slash, implied end tags,
+    /// stray end tags, Word / Outlook markup, the HTML named references; see
+    /// [`html`]). A fragment is a document: `<html>`, `<head>` and `<body>`
+    /// are implied. The strict XML loaders stay strict.
+    #[must_use]
+    pub fn create_from_html(html: AzString) -> Self {
+        Self {
+            root: html::parse_html_nodes(html.as_str()).into(),
+        }
+    }
+
     /// Scan the XML/HTML document for external resource URLs.
     ///
     /// This function traverses the entire document tree and extracts URLs from:

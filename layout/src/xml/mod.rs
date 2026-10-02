@@ -875,9 +875,7 @@ pub fn parse_html_string(source: &str) -> Vec<XmlNodeChild> {
 /// [`parse_html_string`] as an [`Xml`] document (for [`dom_from_parsed_xml`]).
 #[must_use]
 pub fn parse_html(source: &str) -> Xml {
-    Xml {
-        root: parse_html_string(source).into(),
-    }
+    Xml::create_from_html(AzString::from(source))
 }
 
 // to_string(&self) -> String
