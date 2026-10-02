@@ -162,9 +162,9 @@ const SAMPLE_PNG: &[u8] = &[
 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
 fn chime_wav() -> Vec<u8> {
     const RATE: u32 = 8_000;
-    const SECONDS: f32 = 0.3;
-    let count = (RATE as f32 * SECONDS) as u32;
-    let data: Vec<u8> = (0..count)
+    const COUNT: u32 = RATE * 3 / 10;
+    const SECONDS: f32 = COUNT as f32 / RATE as f32;
+    let data: Vec<u8> = (0..COUNT)
         .flat_map(|i| {
             let t = i as f32 / RATE as f32;
             let fade = 1.0 - t / SECONDS;
