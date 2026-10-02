@@ -5,27 +5,19 @@ tiled raster core behind a `RasterEngine` trait; the engine piece it needs (part
 updates by dirty rect); tests; `scripts/azphoto_e2e.py`; report `scripts/PHOTO_2026_10_01.md`.
 
 ## DONE
-- 829b9a1a9 test(image): partial image uploads (RED): core union/clipped_to, overlay dirty,
-  layout/tests/a_partial_image_change_leaves_its_rect_for_the_renderer.rs, dll planner tests.
-- 8a344ccfd GREEN 1: core `ImageDirtyRect` methods, overlay `image_dirty` arm,
-  `apply_image_change(.., dirty_rect)` in window.rs.
-- 279bae778 GREEN 2: `CallbackChange::ChangeNodeImage { dirty_rect }`, `change_node_image_rect`.
-- GREEN 3: wr_translate2 planner item (slot, image, pending), `OverlayImageUpload.dirty`,
-  `translate_dirty_rect` (shared with translate_update_image), clear after upload.
+- Everything in the brief; see scripts/PHOTO_2026_10_01.md (the report: commits, api.json
+  entry, least-sure spots, test commands, what is left).
+- Engine: 829b9a1a9 (RED), 8a344ccfd, 279bae778, 383672264 (GREEN).
+- App: af9a50285 .. 3bb842788; E2E 80552f353; registration 15999013c.
+- Scratch checks: 78/78 raster+view+state tests run; the whole crate (lib + tests)
+  type-checks against the real generated bindings (0 errors).
 
 ## IN PROGRESS
-- the app crate (see NEXT)
+- (none)
 
-## NEXT
-- DONE (app): view 63795c3db, storage 84d7673b7, args 1be2d10a3, state 051a51d95+69ca8c842,
-  codec 45e77d5b3, lib+jobs d1c39ff03, canvas 1e24ff93f, commands 97f537f08,
-  ui e75b54765..15ec67f64 (menus, options, tools, panels, rulers, status, start, sheets, layout).
-- IN PROGRESS: scratch type check of the whole app against the REAL generated bindings
-  (scratchpad/photo/tc/azul_real.rs includes target/codegen/{dll_api_external,reexports}.rs;
-  build_azul_meta.sh under run_capped) - next: add `extern crate alloc;`, then a
-  check_app.sh that type-checks src/ with azul_storage + serde stubbed; fix what it finds.
-- then: registration (root Cargo.toml member, workspace_test_members.txt, rust.yml step),
-  scripts/azphoto_e2e.py, report scripts/PHOTO_2026_10_01.md.
+## NEXT (for the parent)
+- autofix the api.json entry `CallbackInfo::change_node_image_rect`, build, run the suites and
+  `scripts/azphoto_e2e.py` (commands in the report); look at the screenshots.
 
 ## Decisions (made unattended, noted here)
 - The canvas is ONE image node: a `RenderImageCallback` renders the VIEWPORT (the visible part
@@ -39,4 +31,5 @@ updates by dirty rect); tests; `scripts/azphoto_e2e.py`; report `scripts/PHOTO_2
 - Text tool: azul has no text-to-pixels API; see the report (engine gap).
 
 ## Open questions
-- (none yet)
+- Text tool: an azul text-to-pixels API (engine work) - shown disabled with the reason.
+- CPU backends still damage the whole image item on a partial change (follow-up).
