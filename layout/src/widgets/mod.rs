@@ -266,12 +266,6 @@ pub mod microphone;
 /// HTML `showModal()`: a titled panel over a dimmed backdrop covering the window, Escape closes
 /// it; a front-end over `dialog`; see `modal.rs`.
 pub mod modal;
-/// Module switcher widget.
-///
-/// The big Mail / Calendar / Contacts / Tasks buttons at the foot of a
-/// mail window's navigation pane, and their collapsed strip; see
-/// `module_switcher.rs`.
-pub mod module_switcher;
 /// Node graph widget
 pub mod node_graph;
 /// Same as text input, but only allows numeric input
@@ -1508,39 +1502,6 @@ mod label_convention {
                     .dom(),
             ),
             (
-                "module_switcher",
-                super::module_switcher::ModuleSwitcher::create(
-                    super::module_switcher::SwitcherModuleVec::from_vec(vec![
-                        super::module_switcher::SwitcherModule::create(
-                            AzString::from("Mail"),
-                            AzString::from("mail"),
-                        ),
-                        super::module_switcher::SwitcherModule::create(
-                            AzString::from("Calendar"),
-                            AzString::from("calendar_month"),
-                        ),
-                    ]),
-                )
-                .dom(),
-            ),
-            (
-                "module_switcher (collapsed)",
-                super::module_switcher::ModuleSwitcher::create(
-                    super::module_switcher::SwitcherModuleVec::from_vec(vec![
-                        super::module_switcher::SwitcherModule::create(
-                            AzString::from("Mail"),
-                            AzString::from("mail"),
-                        ),
-                        super::module_switcher::SwitcherModule::create(
-                            AzString::from("Calendar"),
-                            AzString::from("calendar_month"),
-                        ),
-                    ]),
-                )
-                .with_collapsed(true)
-                .dom(),
-            ),
-            (
                 "wizard_layout",
                 super::wizard_layout::WizardLayout::create(
                     AzString::from("Add account"),
@@ -2722,8 +2683,6 @@ mod theme_contrast {
         "titlebar",
         "tree_view",
         "message_list",
-        "module_switcher",
-        "module_switcher (collapsed)",
         // The app shells (`shells::fixtures::every_shell`): window chrome.
         "office_shell",
         "navigation_pane",
