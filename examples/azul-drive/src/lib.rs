@@ -418,6 +418,12 @@ pub(crate) struct DriveState {
 }
 
 impl DriveState {
+    /// No preview any more - and no sound from it.
+    pub fn clear_preview(&mut self) {
+        self.preview = None;
+        self.audio = None;
+    }
+
     pub fn slot_index(&self, drive_id: &str) -> Option<usize> {
         self.slots.iter().position(|s| s.entry.id == drive_id)
     }
@@ -765,8 +771,7 @@ pub(crate) fn go(
     s.next = None;
     s.selection = Selection::default();
     s.selected_pin = None;
-    s.preview = None;
-    s.audio = None;
+    s.clear_preview();
     s.thumbnails.clear();
     s.thumbnails_pending.clear();
     s.loading = false;

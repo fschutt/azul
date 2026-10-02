@@ -409,19 +409,22 @@ fn note(text: &str) -> Dom {
         .with_child(Dom::create_span_with_text(AzString::from(text)))
 }
 
-/// The preview pane: the selected file's picture, text or video.
-/// Play / Stop of a WAV preview: its samples into azul's AudioSink.
+/// Play / Stop of a WAV preview: its samples into azul's AudioSink. Play
+/// after the sound ended starts it again.
 extern "C" fn on_play_audio(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, |_info, _app, s| {
-        if let Some(mut sink) = s.audio.take() {
-            sink.close();
-            return;
-        }
         let Some(PreviewContent::Audio(wav)) =
             s.preview.as_ref().and_then(|p| p.content.clone())
         else {
             return;
         };
+        if let Some(mut sink) = s.audio.take() {
+            let ended = sink.frames_played() >= wav.frames();
+            sink.close();
+            if !ended {
+                return;
+            }
+        }
         let sink = AudioSink::open(AudioConfig {
             sample_rate: wav.sample_rate,
             channels: wav.channels,
@@ -445,6 +448,8 @@ extern "C" fn on_play_audio(mut data: RefAny, mut info: CallbackInfo) -> Update 
     })
 }
 
+/// The preview pane: the selected file's picture, text, PDF page, sound or
+/// video.
 pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
     let body = match &s.preview {
         None => note("Select a file to preview."),
@@ -489,7 +494,10 @@ pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
                         2 => String::from("stereo"),
                         n => format!("{n} channels"),
                     };
-                    let playing = s.audio.is_some();
+                    let playing = s
+                        .audio
+                        .as_ref()
+                        .is_some_and(|sink| sink.frames_played() < wav.frames());
                     Dom::create_div()
                         .with_id("preview-audio")
                         .with_css("display: flex; flex-direction: column; padding: 16px;")

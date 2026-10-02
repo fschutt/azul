@@ -1,7 +1,8 @@
 //! What the preview pane can show for a file: an image (decoded by azul), the
 //! first 64 KB of a text or code file, a PDF's first page (azul's PDF reader
-//! and SVG renderer), a video (azul's video widget), or why it cannot (azul
-//! has no audio decoder). No azul types.
+//! and SVG renderer), a WAV sound (read here, played by azul's AudioSink), a
+//! video (azul's video widget), or why it cannot (other audio: azul has no
+//! audio decoder). No azul types.
 
 use crate::browse;
 
@@ -17,7 +18,8 @@ pub enum PreviewKind {
     Pdf,
     /// azul's video widget (H.264 MP4; a cloud file is fetched first).
     Video,
-    /// azul plays raw PCM only, no decoder: the pane says so.
+    /// A sound: a WAV file plays (its samples are read here); azul has no
+    /// decoder for the other formats, so the pane says so for them.
     Audio,
     /// Nothing to show.
     None,
@@ -75,8 +77,9 @@ pub fn preview_kind(name: &str) -> PreviewKind {
 }
 
 /// Whether a file of `size` bytes is fetched for its preview: text always
-/// (its first 64 KB), an image or a video up to its limit, an unknown size
-/// never; PDF, audio and the rest have nothing to fetch.
+/// (its first 64 KB), an image, a PDF or a video up to its limit, an unknown
+/// size never. Audio is not fetched here: a WAV file has its own limit
+/// ([`AUDIO_PREVIEW_MAX_BYTES`], checked by the preview job).
 #[must_use]
 pub fn fits_preview(kind: PreviewKind, size: Option<u64>) -> bool {
     match kind {
@@ -123,6 +126,15 @@ pub struct WavSamples {
 impl WavSamples {
     /// How long the sound plays.
     #[must_use]
+    /// Frames (one sample per channel each).
+    #[must_use]
+    pub fn frames(&self) -> u64 {
+        if self.channels == 0 {
+            return 0;
+        }
+        (self.samples.len() / usize::from(self.channels)) as u64
+    }
+
     pub fn seconds(&self) -> f64 {
         if self.sample_rate == 0 || self.channels == 0 {
             return 0.0;
@@ -146,7 +158,7 @@ pub fn wav_samples(bytes: &[u8]) -> Result<WavSamples, &'static str> {
     }
     let mut at = 12usize;
     let mut format: Option<(u16, u16, u32, u16)> = None;
-    while at + 8 <= bytes.len() {
+    while bytes.len().saturating_sub(at) >= 8 {
         let id = &bytes[at..at + 4];
         let len = u32::from_le_bytes([bytes[at + 4], bytes[at + 5], bytes[at + 6], bytes[at + 7]])
             as usize;

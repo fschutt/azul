@@ -170,7 +170,7 @@ extern "C" fn on_background_click(mut data: RefAny, mut info: CallbackInfo) -> U
         if s.current_drive().is_some() && !s.selection.is_empty() {
             s.selection.clear();
             s.print_selection();
-            s.preview = None;
+            s.clear_preview();
         }
         s.selected_drive = None;
         s.selected_pin = None;

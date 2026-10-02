@@ -1840,11 +1840,11 @@ pub(crate) fn open_properties(
 /// and the details pane's metadata of a cloud file.
 pub(crate) fn request_preview(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     let Some(entry) = s.single_selected().cloned() else {
-        s.preview = None;
-        s.audio = None;
+        s.clear_preview();
         return;
     };
-    if s.preview.as_ref().is_some_and(|p| p.key != entry.key) {
+    if s.preview.as_ref().map(|p| p.key.as_str()) != Some(entry.key.as_str()) {
+        // Another file: the last one's sound stops.
         s.audio = None;
     }
     let local = s
@@ -2128,7 +2128,7 @@ fn toggle(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, which: Togg
             }
         }
         Toggle::PreviewPane => {
-            s.preview = None;
+            s.clear_preview();
             request_preview(info, app, s);
         }
         _ => {}
