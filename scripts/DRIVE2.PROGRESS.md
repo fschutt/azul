@@ -14,11 +14,11 @@ details panes, a Properties dialog, Settings on ShellSettingsLayout, and a headl
   AddressBar recent chevron + dimmed arrows, BrowserShell `tree_visible`.
 
 ## IN PROGRESS
-- Last commit: `1d6992947`. Done since: `23362a4d5`/`5af413502` Drive::copy (storage),
-  `211f455dd`/`2cc494582` AzDrive same-drive copies; report updated.
-- NOW: a third read-only review agent checks the delta `a25c10912..HEAD` (thumbnails, PDF, WAV,
-  copies, tree drop, image_scale) for compile errors.
-- NEXT STEP: apply its findings; final report touch (commit list), final progress.
+- Last commit: `752edbdf4` (tree_view.rs + navigation_pane.rs = wt/tasks 9205c10f3 byte for byte;
+  the twin drop hook is gone); report updated for it.
+- NOW: a read-only review agent checks `a25c10912..HEAD` (thumbnails, PDF, WAV, copies,
+  image_scale; tree files skipped) for compile errors.
+- NEXT STEP: apply its findings as fix commits; final report touch; final progress.
 
 ## NEXT
 - done after that.
@@ -29,6 +29,8 @@ details panes, a Properties dialog, Settings on ShellSettingsLayout, and a headl
   (examples/azul-drive/src/view.rs) from plain nodes; reported as a widget candidate.
 - Navigation pane: ShellNavigationPane groups "Quick access" and "This PC" (each a TreeView whose root
   is the place itself, as AzShells does with "Favorites").
+
+- Tree drop hook: TASKS built the same; its version replaced this branch's (`752edbdf4`).
 
 ## Open questions
 - (none yet)
