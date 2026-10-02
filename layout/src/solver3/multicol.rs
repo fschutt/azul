@@ -24,7 +24,7 @@ use azul_core::{
 use azul_css::{
     compact_cache::{DOM_HAS_COLUMN_COUNT, DOM_HAS_COLUMN_GAP, DOM_HAS_COLUMN_WIDTH},
     props::{
-        basic::{PhysicalSize, PropertyContext, ResolutionContext},
+        basic::{PhysicalSize, PixelValue, PropertyContext, ResolutionContext},
         layout::{ColumnCount, ColumnFill, ColumnWidth},
     },
 };
@@ -144,36 +144,19 @@ fn dom_declared_flags(styled_dom: &StyledDom) -> u32 {
         .map_or(!0u32, |cc| cc.dom_declared_flags)
 }
 
-/// The column declarations of `dom_id` when it is a multi-column container
-/// (a non-`auto` `column-count` or `column-width`), else `None`.
-///
-/// `column-count`, `column-width` and `column-gap` are not inherited: they
-/// are read from `dom_id` alone. An anonymous box has none of its own -
-/// its caller must not ask on its parent's behalf.
-#[must_use]
-pub fn column_style(
+/// The declared `column-count` and (unresolved) `column-width` of `dom_id`
+/// when it is a multi-column container - at least one of them not `auto`.
+fn declared_columns(
     styled_dom: &StyledDom,
     dom_id: NodeId,
     node_state: &StyledNodeState,
-    viewport_size: LogicalSize,
-) -> Option<ColumnStyle> {
+) -> Option<(Option<u32>, Option<PixelValue>)> {
     let declared = dom_declared_flags(styled_dom);
     if declared & (DOM_HAS_COLUMN_COUNT | DOM_HAS_COLUMN_WIDTH) == 0 {
         return None;
     }
     let cache = &styled_dom.css_property_cache.ptr;
     let node_data = &styled_dom.node_data.as_container()[dom_id];
-
-    let resolve_ctx = ResolutionContext {
-        vertical_writing_mode: false,
-        element_font_size: get_element_font_size(styled_dom, dom_id, node_state),
-        parent_font_size: get_parent_font_size(styled_dom, dom_id, node_state),
-        root_font_size: get_root_font_size(styled_dom, node_state),
-        containing_block_size: PhysicalSize::new(0.0, 0.0),
-        element_size: None,
-        viewport_size: PhysicalSize::new(viewport_size.width, viewport_size.height),
-    };
-
     let count = if declared & DOM_HAS_COLUMN_COUNT == 0 {
         None
     } else {
@@ -192,15 +175,54 @@ pub fn column_style(
             .get_column_width(node_data, &dom_id, node_state)
             .and_then(|v| v.get_property())
         {
-            Some(ColumnWidth::Length(px)) => {
-                Some(px.resolve_with_context(&resolve_ctx, PropertyContext::Other))
-            }
+            Some(ColumnWidth::Length(px)) => Some(*px),
             Some(ColumnWidth::Auto) | None => None,
         }
     };
-    if count.is_none() && width.is_none() {
-        return None;
-    }
+    (count.is_some() || width.is_some()).then_some((count, width))
+}
+
+/// Whether `dom_id` is a multi-column container (a non-`auto`
+/// `column-count` or `column-width`) - without resolving any length, for
+/// the hot paths that only need the yes or no.
+#[must_use]
+pub fn is_multicol_container(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    node_state: &StyledNodeState,
+) -> bool {
+    declared_columns(styled_dom, dom_id, node_state).is_some()
+}
+
+/// The column declarations of `dom_id` when it is a multi-column container
+/// (a non-`auto` `column-count` or `column-width`), else `None`.
+///
+/// `column-count`, `column-width` and `column-gap` are not inherited: they
+/// are read from `dom_id` alone. An anonymous box has none of its own -
+/// its caller must not ask on its parent's behalf.
+#[must_use]
+pub fn column_style(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    node_state: &StyledNodeState,
+    viewport_size: LogicalSize,
+) -> Option<ColumnStyle> {
+    let (count, declared_width) = declared_columns(styled_dom, dom_id, node_state)?;
+    let declared = dom_declared_flags(styled_dom);
+    let cache = &styled_dom.css_property_cache.ptr;
+    let node_data = &styled_dom.node_data.as_container()[dom_id];
+
+    let resolve_ctx = ResolutionContext {
+        vertical_writing_mode: false,
+        element_font_size: get_element_font_size(styled_dom, dom_id, node_state),
+        parent_font_size: get_parent_font_size(styled_dom, dom_id, node_state),
+        root_font_size: get_root_font_size(styled_dom, node_state),
+        containing_block_size: PhysicalSize::new(0.0, 0.0),
+        element_size: None,
+        viewport_size: PhysicalSize::new(viewport_size.width, viewport_size.height),
+    };
+    let width =
+        declared_width.map(|px| px.resolve_with_context(&resolve_ctx, PropertyContext::Other));
     // `column-gap: normal` is 1em in a multi-column container.
     let declared_gap = if declared & DOM_HAS_COLUMN_GAP == 0 {
         None

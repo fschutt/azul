@@ -4653,6 +4653,13 @@ fn establishes_new_bfc<T: ParsedFontTrait>(
         return true;
     }
 
+    // +spec:multi-column - a multi-column container establishes a new block
+    // formatting context (CSS Multicol 1 §2): its children's margins and
+    // floats stay inside it, column by column.
+    if crate::solver3::multicol::is_multicol_container(ctx.styled_dom, dom_id, node_state) {
+        return true;
+    }
+
     // 6. Table, Flex, and Grid containers establish BFC (via FormattingContext)
     // +spec:block-formatting-context:f15b87 - display:table participates in a BFC
     if matches!(
