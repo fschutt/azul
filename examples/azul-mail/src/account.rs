@@ -957,6 +957,7 @@ mod tests {
     fn typed_form_fields_override_the_defaults() {
         let form = AccountForm {
             email: String::from(" Ada@Example.org "),
+            name: String::from("Ada Lovelace"),
             username: String::from("ada"),
             imap_host: String::from(" 127.0.0.1 "),
             imap_port: String::from("1143"),
