@@ -601,21 +601,20 @@ fn grid(columns: usize, cells: Vec<Dom>, id: &str) -> Dom {
 }
 
 /// A keypad of `keys` in `columns` columns. A digit the base does not take
-/// is drawn dimmed and does nothing.
+/// is a disabled key: dimmed, inert, and it says why.
 fn keypad(app: &RefAny, keys: &[KeyDef], columns: usize, base: Option<Base>, id: &str) -> Dom {
     let cells: Vec<Dom> = keys
         .iter()
         .map(|k| {
-            let enabled = match (k.action, base) {
-                (Action::Blank, _) => false,
-                (Action::Calc(Cmd::Digit(d)), Some(b)) => b.accepts(d),
-                _ => true,
-            };
-            if !enabled {
+            if k.action == Action::Blank {
                 return Dom::create_div()
                     .with_css("display: flex; align-items: center; justify-content: center; opacity: 0.35; font-size: 14px;")
                     .with_child(Dom::create_span_with_text(k.label));
             }
+            let accepted = match (k.action, base) {
+                (Action::Calc(Cmd::Digit(d)), Some(b)) => b.accepts(d),
+                _ => true,
+            };
             let button = Button::create(k.label).with_on_click(
                 RefAny::new(KeyRef {
                     app: app.clone(),
@@ -623,6 +622,13 @@ fn keypad(app: &RefAny, keys: &[KeyDef], columns: usize, base: Option<Base>, id:
                 }),
                 on_key_button as ButtonOnClickCallbackType,
             );
+            // Not a dimmed div: a disabled Button keeps the key's place and
+            // tells a screen reader (and a hover) why it does nothing.
+            let button = if accepted {
+                button
+            } else {
+                button.with_disabled(AzString::from("Not a digit of the current base"))
+            };
             let button = if k.primary {
                 button.with_button_type(ButtonType::Primary)
             } else {
