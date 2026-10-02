@@ -292,6 +292,8 @@ pub enum Command {
     Duplicate,
     Delete,
     SelectAll,
+    /// Leaves the text being edited (Escape).
+    StopEditing,
     // ---- slides ----
     NewSlide(LayoutKind),
     Layout(LayoutKind),

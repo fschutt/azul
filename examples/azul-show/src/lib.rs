@@ -14,7 +14,7 @@
 //! `AZSHOW_ORDER <slide id,...>` (the rail / sorter moved slides),
 //! `AZSHOW_FRAME <element id> x y w h rotation` (a drag or nudge committed),
 //! `AZSHOW_VIEW <name>`, `AZSHOW_SHOW <slide> <step>` (the show moved),
-//! `AZSHOW_SHOW_ENDED`, `AZSHOW_SHOW_END`, `AZSHOW_SAVED <id>`,
+//! `AZSHOW_SHOW_ENDED` (past the last slide), `AZSHOW_SHOW_CLOSED` (the show is over), `AZSHOW_SAVED <id>`,
 //! `AZSHOW_OPENED <id>`, `AZSHOW_LISTED <n>`, `AZSHOW_EXPORTED <kind> <bytes>`.
 
 pub mod app;
@@ -383,9 +383,17 @@ fn canvas_has_focus(info: &CallbackInfo) -> bool {
 }
 
 /// The editor's shortcuts.
-fn editor_shortcut(key: VirtualKeyCode, primary: bool, shift: bool, slide_keys: bool, screen: Screen) -> Option<Command> {
+fn editor_shortcut(
+    key: VirtualKeyCode,
+    primary: bool,
+    shift: bool,
+    slide_keys: bool,
+    editing: bool,
+    screen: Screen,
+) -> Option<Command> {
     use VirtualKeyCode as K;
     Some(match key {
+        K::Escape if editing => Command::StopEditing,
         K::F5 if shift => Command::StartShow { from_current: true },
         K::F5 => Command::StartShow { from_current: false },
         K::S if primary => Command::Save,
@@ -428,7 +436,7 @@ extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update 
         } else {
             let editing = st.editor.as_ref().is_some_and(|e| e.editing.is_some());
             let slide_keys = !editing && canvas_has_focus(&info);
-            let cmd = editor_shortcut(key, primary, mods.shift, slide_keys, st.screen);
+            let cmd = editor_shortcut(key, primary, mods.shift, slide_keys, editing, st.screen);
             // Ctrl+B / I / U are the slide's while a text is edited (the
             // selection's format) or the canvas has the keys.
             match cmd {

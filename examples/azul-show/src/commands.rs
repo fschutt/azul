@@ -223,7 +223,7 @@ pub fn end_show(s: &mut AppState, info: &mut CallbackInfo) -> Update {
     ws.flags.frame = WindowFrame::Normal;
     ws.flags.prevent_system_sleep = false;
     info.modify_window_state(ws);
-    println!("AZSHOW_SHOW_END");
+    println!("AZSHOW_SHOW_CLOSED");
     Update::RefreshDomAllWindows
 }
 
@@ -545,6 +545,12 @@ pub fn apply(app: &RefAny, s: &mut AppState, cmd: Command, info: &mut CallbackIn
             s.view = v;
             s.screen = Screen::Editor;
             println!("AZSHOW_VIEW {}", v.label());
+            return Update::RefreshDom;
+        }
+        C::StopEditing => {
+            if let Some(ed) = s.editor.as_mut() {
+                ed.stop_editing();
+            }
             return Update::RefreshDom;
         }
         C::GoToSlide(i) => {
