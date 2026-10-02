@@ -806,6 +806,21 @@ mod tests {
     }
 
     #[test]
+    fn an_email_with_a_second_at_sign_or_brackets_is_refused() {
+        // DEDUP_EDITORS B14: the form split at the first `@`, so `a@b@example.org` passed.
+        let mut c = Contact::default();
+        c.given = "A".into();
+        c.emails = vec![
+            Labeled::new("work", "a@b@example.org"),
+            Labeled::new("home", "<a@example.org>"),
+            Labeled::new("other", "a.b+c@mail.example.org"),
+        ];
+        let p = c.problems(None);
+        assert_eq!(p.len(), 2, "{p:?}");
+        assert!(p[0].contains("a@b@example.org") && p[1].contains("<a@example.org>"), "{p:?}");
+    }
+
+    #[test]
     fn addresses_read_as_envelope_lines() {
         let a = &robin().addresses[0];
         assert_eq!(a.lines(), vec!["Musterweg 1", "10115 Berlin", "Germany"]);
