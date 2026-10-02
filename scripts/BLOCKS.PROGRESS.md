@@ -23,12 +23,20 @@ A16; DEDUP_WIDGETS_API F2, F6, F29.
   Save / Don't Save / Cancel) in a Modal while `asking`, one `on_event` (Asked / Save / Discard / Cancel).
 
 ## DONE (commit hashes)
+- 8a3857223 progress file
+- 33dde6146 U64Vec in css/src/corety.rs
+- b8e059b96 RED ListSelection tests (layout/src/widgets/list_selection.rs, registered in widgets/mod.rs)
+- c2a336835 GREEN ListSelection
+- 5c9a968a5 MessageListSelection removed; MessageList docs/test, AzMail, showcase use ListSelection
+- 567c5e175 ListSelection keyed orders take an owned U64Vec (FFI-friendly)
+- d552f5523 AzShow rail + canvas on ListSelection
+- 893610c1c AzTasks on ListSelection (key_of(task id))
+- 52d7636d2 AzDrive Selection = thin adapter over ListSelection
 
 ## IN PROGRESS
 
 ## NEXT
-- A1 U64Vec in css corety.rs; A2 RED list_selection.rs; A3 GREEN; A4 MessageListSelection -> ListSelection
-  (AzMail, showcase); A5 AzShow; A6 AzTasks; A7 AzDrive.
+- (A selection model: DONE)
 - B undo (appkit history.rs RED/GREEN, Photo, VideoCut, Show).
 - C switcher; D close guard; E presets; F report scripts/BLOCKS_2026_10_02.md.
 
