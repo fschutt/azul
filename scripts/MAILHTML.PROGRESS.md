@@ -8,9 +8,10 @@ Branch `wt/mailhtml` from `2e92c759b`. Task brief: scratchpad/wave5/MAILHTML.md.
 - Helvetica/Times/Courier browser ascent +15%: RED 2323e1fe0, FIX 2bdef8c6a (postmark x3 line heights)
 - only <a href> underlined: RED f8a8e92c7, FIX 14da95e75 (postmark invoice "support team")
 - unresolved markup <img> 0x0 (DEDUP A3.8): RED 75e791812, FIX 13cfea16c
+- B20 sanitizer on Xml::create_from_html: RED 5ee033b34, REFACTOR 1ff01f689 (~360 lines gone)
 
 ## IN PROGRESS
-- DEDUP_EDITORS B20: AzMail html.rs tokenizer -> Xml::create_from_html (RED sanitizer tests first)
+- deciding: strut metrics / percentage heights
 
 ## NEXT
 - per mail: first diverging box -> root cause -> RED test in layout/tests/<sentence>.rs -> fix
@@ -35,3 +36,6 @@ Branch `wt/mailhtml` from `2e92c759b`. Task brief: scratchpad/wave5/MAILHTML.md.
   (4) cerberus hybrid/responsive `width:100%` table 1081 wide in a 680 max-width div (min-content too big);
   (5) newsletter/leemunroe: auto table around an inline-block button is 43-48px too narrow (inline-block
   padding missing from the cell's max-content).
+- AzMail policy observation (not changed, for the user): the sanitizer drops `class`/`id` but keeps the
+  mail's class-based `<style>` rules (scoped) - they can never match. Keeping classes needs prefixing
+  (a mail must not reach the app's own class names). Decision for the user.
