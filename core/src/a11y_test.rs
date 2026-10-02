@@ -751,9 +751,13 @@ mod autotest_generated {
             }
         }
 
+        // New roles are appended AFTER `Unknown` (Grid, GridCell, 17baf3ce7) so
+        // no existing variant's discriminant moves under the C ABI; `Unknown`
+        // is therefore not the last role, only the last of the original set.
         assert_eq!(roles[0], AccessibilityRole::TitleBar);
-        assert_eq!(*roles.last().unwrap(), AccessibilityRole::Unknown);
+        assert_eq!(*roles.last().unwrap(), AccessibilityRole::GridCell);
         assert!(AccessibilityRole::TitleBar < AccessibilityRole::Unknown);
+        assert!(AccessibilityRole::Unknown < AccessibilityRole::Grid);
     }
 
     #[test]

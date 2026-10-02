@@ -3153,7 +3153,8 @@ mod autotest_generated {
     #[test]
     fn builtin_data_model_unknown_tag_is_empty() {
         assert!(builtin_data_model("").is_empty());
-        assert!(builtin_data_model("div").is_empty());
+        // not "div": div takes its presentational `align` (39813667c)
+        assert!(builtin_data_model("frobnicate").is_empty());
         assert!(builtin_data_model("\u{1F600}").is_empty());
         assert!(builtin_data_model(&"z".repeat(10_000)).is_empty());
     }
