@@ -31,8 +31,9 @@ use azul::{
     task::{TimerId, Timer},
     time::{Duration, SystemTimeDiff},
     widgets::{
-        ButtonType, OnTextInputReturn, Ribbon, RibbonButton, RibbonGroup, RibbonItem, RibbonTab,
-        StatusBar, StatusBarSegment, TextInputState, TextInputValid, Titlebar,
+        AlertKind, ButtonType, InfoBar, OnTextInputReturn, Ribbon, RibbonButton, RibbonGroup,
+        RibbonItem, RibbonTab, StatusBar, StatusBarSegment, TextInputState, TextInputValid,
+        Titlebar,
     },
     window::WindowDecorations,
 };
@@ -151,7 +152,7 @@ impl Compose {
     /// Closing the window asks "Save changes?": the mail was edited since it opened or was last
     /// saved, and it is not on its way out (being sent).
     fn close_asks(&self) -> bool {
-        false
+        self.edited && !matches!(self.status, ComposeStatus::Sending | ComposeStatus::Queued(_))
     }
 
     /// Sending, or sent to the Outbox: Send would send it twice.
@@ -318,8 +319,11 @@ pub(crate) extern "C" fn layout_compose(mut data: RefAny, info: LayoutCallbackIn
             .with_child(Dom::create_span_with_text("This message was closed."));
     };
     let mut document = Dom::create_div()
-        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
-        .with_child(header_block(c, &app));
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;");
+    if c.asking_close {
+        document.add_child(save_changes_bar(c, &app));
+    }
+    document.add_child(header_block(c, &app));
     if c.show_link {
         document.add_child(link_bar(c, &app));
     }
@@ -372,6 +376,12 @@ enum ComposeAction {
     ToggleLink,
     InsertLink,
     RemoveAttachment(usize),
+    /// The "Save changes?" bar: save the draft, then close.
+    CloseSave,
+    /// The "Save changes?" bar: close without saving.
+    CloseDiscard,
+    /// The "Save changes?" bar: keep the window open.
+    CloseCancel,
 }
 
 struct ComposeActionRef {
@@ -532,6 +542,34 @@ fn link_bar(c: &Compose, app: &RefAny) -> Dom {
 }
 
 /// The attached files, each with Remove.
+/// "Do you want to save changes?" when an edited message's window is closed.
+fn save_changes_bar(c: &Compose, app: &RefAny) -> Dom {
+    let choice = |label: &str, action: ComposeAction| {
+        Button::create(label)
+            .with_on_click(
+                action_ref(app, c.id, action),
+                on_compose_action as ButtonOnClickCallbackType,
+            )
+            .dom()
+            .with_css("margin-left: 8px;")
+    };
+    Dom::create_div()
+        .with_css(
+            "display: flex; flex-direction: row; align-items: center; padding: 6px 14px; \
+             flex-shrink: 0;",
+        )
+        .with_child(
+            InfoBar::create("Do you want to save changes to this message?")
+                .with_icon("help")
+                .with_kind(AlertKind::Warning)
+                .dom()
+                .with_css("flex-grow: 1;"),
+        )
+        .with_child(choice("Save", ComposeAction::CloseSave))
+        .with_child(choice("Don't Save", ComposeAction::CloseDiscard))
+        .with_child(choice("Cancel", ComposeAction::CloseCancel))
+}
+
 fn attachments_row(c: &Compose, app: &RefAny) -> Dom {
     let mut row = Dom::create_div().with_css(
         "display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; padding: 0px \
@@ -630,6 +668,7 @@ extern "C" fn on_compose_field(mut data: RefAny, _info: CallbackInfo, state: Tex
         let text = state.get_text().as_str().to_string();
         let _ = with_compose(&mut app, id, |s, at, _| {
             let c = &mut s.composes[at];
+            c.edited |= field != ComposeField::Link;
             match field {
                 ComposeField::To => c.to = text,
                 ComposeField::Cc => c.cc = text,
@@ -654,7 +693,9 @@ extern "C" fn on_compose_text_changed(mut data: RefAny, mut info: CallbackInfo) 
         return Update::DoNothing;
     };
     let _ = with_compose(&mut app, id, |s, at, _| {
-        editor::sync_text(&mut s.composes[at].body, &mut info, host);
+        let c = &mut s.composes[at];
+        c.edited = true;
+        editor::sync_text(&mut c.body, &mut info, host);
     });
     Update::DoNothing
 }
@@ -669,6 +710,7 @@ extern "C" fn on_compose_document_edit(mut data: RefAny, mut info: CallbackInfo)
         return Update::DoNothing;
     };
     with_compose(&mut app, id, |s, at, _| {
+        s.composes[at].edited = true;
         let body = &mut s.composes[at].body;
         editor::sync_text(body, &mut info, host);
         if editor::apply_structural_edit(body, &mut info, host) {
@@ -699,16 +741,31 @@ extern "C" fn on_compose_key(mut data: RefAny, mut info: CallbackInfo) -> Update
     run_compose_action(&mut app, &mut info, id, action)
 }
 
-/// The window is being closed (its close button): its compose goes.
-extern "C" fn on_compose_close_requested(mut data: RefAny, _info: CallbackInfo) -> Update {
+/// The window is being closed (its close button): an edited message holds the close back and
+/// asks "Save changes?"; otherwise its compose goes.
+extern "C" fn on_compose_close_requested(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((mut app, id)) = target_of(&mut data) else {
         return Update::DoNothing;
     };
-    let _ = with_compose(&mut app, id, |s, at, _| {
+    let held = with_compose(&mut app, id, |s, at, _| {
+        if s.composes[at].close_asks() {
+            s.composes[at].asking_close = true;
+            println!("AZMAIL_COMPOSE_ASK_SAVE {}", s.composes[at].window_id);
+            return true;
+        }
         let c = s.composes.remove(at);
         println!("AZMAIL_COMPOSE_CLOSED {}", c.window_id);
-    });
-    Update::DoNothing
+        false
+    })
+    .unwrap_or(false);
+    if !held {
+        return Update::DoNothing;
+    }
+    // A cleared flag is what every backend reads as "stay open".
+    let mut state = info.get_current_window_state();
+    state.flags.close_requested = false;
+    info.modify_window_state(state);
+    Update::RefreshDom
 }
 
 extern "C" fn on_compose_action(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -744,129 +801,152 @@ fn edit_model(
 }
 
 fn run_compose_action(app: &mut RefAny, info: &mut CallbackInfo, id: u64, action: ComposeAction) -> Update {
-    with_compose(app, id, |s, at, app| match action {
-        ComposeAction::Bold | ComposeAction::Italic | ComposeAction::Underline => {
-            let (wrapper, format) = match action {
-                ComposeAction::Bold => (Dom::create_b(), TextFormat::Bold),
-                ComposeAction::Italic => (Dom::create_i(), TextFormat::Italic),
-                _ => (Dom::create_u(), TextFormat::Underline),
-            };
-            let wrapped = edit_model(s, at, info, |body, info, host| {
-                editor::wrap_selection(body, info, host, &wrapper)
-            });
-            if wrapped == Update::DoNothing {
-                // No selection: the format applies to what is typed next.
-                if let Some(host) = editor::host_node(info) {
-                    info.toggle_text_format(host, format);
+    with_compose(app, id, |s, at, app| {
+        if matches!(
+            action,
+            ComposeAction::Bold
+                | ComposeAction::Italic
+                | ComposeAction::Underline
+                | ComposeAction::Bullets
+                | ComposeAction::Numbering
+                | ComposeAction::InsertLink
+                | ComposeAction::RemoveAttachment(_)
+        ) {
+            s.composes[at].edited = true;
+        }
+        match action {
+            ComposeAction::Bold | ComposeAction::Italic | ComposeAction::Underline => {
+                let (wrapper, format) = match action {
+                    ComposeAction::Bold => (Dom::create_b(), TextFormat::Bold),
+                    ComposeAction::Italic => (Dom::create_i(), TextFormat::Italic),
+                    _ => (Dom::create_u(), TextFormat::Underline),
+                };
+                let wrapped = edit_model(s, at, info, |body, info, host| {
+                    editor::wrap_selection(body, info, host, &wrapper)
+                });
+                if wrapped == Update::DoNothing {
+                    // No selection: the format applies to what is typed next.
+                    if let Some(host) = editor::host_node(info) {
+                        info.toggle_text_format(host, format);
+                    }
                 }
+                wrapped
             }
-            wrapped
-        }
-        ComposeAction::Bullets | ComposeAction::Numbering => {
-            let ordered = action == ComposeAction::Numbering;
-            edit_model(s, at, info, |body, info, host| {
-                editor::toggle_list(body, info, host, ordered)
-            })
-        }
-        ComposeAction::ToggleLink => {
-            let c = &mut s.composes[at];
-            c.show_link = !c.show_link;
-            Update::RefreshDom
-        }
-        ComposeAction::InsertLink => {
-            let href = s.composes[at].link.trim().to_string();
-            if href.is_empty() {
-                s.composes[at].status =
-                    ComposeStatus::Problem(String::from("Type the link's address first."));
-                return Update::RefreshDom;
+            ComposeAction::Bullets | ComposeAction::Numbering => {
+                let ordered = action == ComposeAction::Numbering;
+                edit_model(s, at, info, |body, info, host| {
+                    editor::toggle_list(body, info, host, ordered)
+                })
             }
-            let href = if href.contains("://") || href.starts_with("mailto:") {
-                href
-            } else {
-                format!("https://{href}")
-            };
-            let update = edit_model(s, at, info, |body, info, host| {
-                editor::insert_link(body, info, host, &href, "")
-            });
-            let c = &mut s.composes[at];
-            c.show_link = false;
-            c.link.clear();
-            if update == Update::DoNothing {
+            ComposeAction::ToggleLink => {
+                let c = &mut s.composes[at];
+                c.show_link = !c.show_link;
                 Update::RefreshDom
-            } else {
-                update
             }
-        }
-        ComposeAction::AttachFile => {
-            let _request = FileDialog::open_multiple_files(
-                "Attach File",
-                OptionString::None,
-                OptionFileTypeList::None,
-                compose_ref(&app, id),
-                on_files_picked as ResumeCallbackType,
-            );
-            Update::DoNothing
-        }
-        ComposeAction::RemoveAttachment(i) => {
-            let c = &mut s.composes[at];
-            if i < c.attachments.len() {
-                c.attachments.remove(i);
-            }
-            Update::RefreshDom
-        }
-        ComposeAction::Save | ComposeAction::Send => {
-            if s.composes[at].busy() {
-                return Update::DoNothing;
-            }
-            if let Some(host) = editor::host_node(info) {
-                editor::sync_text(&mut s.composes[at].body, info, host);
-            }
-            let send = action == ComposeAction::Send;
-            let fields = s.composes[at].fields();
-            if send {
-                // Refused before anything is written: no recipient, a bad address.
-                if let Err(e) = compose::outgoing(&fields, Vec::new()) {
-                    s.composes[at].status = ComposeStatus::Problem(e.to_string());
+            ComposeAction::InsertLink => {
+                let href = s.composes[at].link.trim().to_string();
+                if href.is_empty() {
+                    s.composes[at].status =
+                        ComposeStatus::Problem(String::from("Type the link's address first."));
                     return Update::RefreshDom;
                 }
+                let href = if href.contains("://") || href.starts_with("mailto:") {
+                    href
+                } else {
+                    format!("https://{href}")
+                };
+                let update = edit_model(s, at, info, |body, info, host| {
+                    editor::insert_link(body, info, host, &href, "")
+                });
+                let c = &mut s.composes[at];
+                c.show_link = false;
+                c.link.clear();
+                if update == Update::DoNothing {
+                    Update::RefreshDom
+                } else {
+                    update
+                }
             }
-            let Some(account) = s.accounts.iter().find(|a| a.id == s.composes[at].account_id).cloned()
-            else {
-                s.composes[at].status =
-                    ComposeStatus::Problem(String::from("The account is gone."));
-                return Update::RefreshDom;
-            };
-            let c = &mut s.composes[at];
-            c.status = if send {
-                ComposeStatus::Sending
-            } else {
-                ComposeStatus::Saving
-            };
-            if send {
-                println!("AZMAIL_SEND_START {}", c.window_id);
+            ComposeAction::AttachFile => {
+                let _request = FileDialog::open_multiple_files(
+                    "Attach File",
+                    OptionString::None,
+                    OptionFileTypeList::None,
+                    compose_ref(&app, id),
+                    on_files_picked as ResumeCallbackType,
+                );
+                Update::DoNothing
             }
-            let job = OutgoingJob {
-                compose_id: c.id,
-                window_id: c.window_id.clone(),
-                root: s.root.clone(),
-                account_id: account.id.clone(),
-                store_root: crate::account::mail_root(&s.root, &account),
-                fields,
-                attachments: c.attachments.clone(),
-                draft_uid: c.draft_uid,
-                send,
-            };
-            info.add_thread(
-                ThreadId::unique(),
-                Thread::create(RefAny::new(job), app, outgoing_thread),
-            );
-            Update::RefreshDom
-        }
-        ComposeAction::Discard => {
-            let c = s.composes.remove(at);
-            println!("AZMAIL_COMPOSE_CLOSED {}", c.window_id);
-            info.close_window();
-            Update::DoNothing
+            ComposeAction::RemoveAttachment(i) => {
+                let c = &mut s.composes[at];
+                if i < c.attachments.len() {
+                    c.attachments.remove(i);
+                }
+                Update::RefreshDom
+            }
+            ComposeAction::CloseCancel => {
+                s.composes[at].asking_close = false;
+                Update::RefreshDom
+            }
+            ComposeAction::Save | ComposeAction::Send | ComposeAction::CloseSave => {
+                if s.composes[at].busy() {
+                    return Update::DoNothing;
+                }
+                if action == ComposeAction::CloseSave {
+                    let c = &mut s.composes[at];
+                    c.asking_close = false;
+                    c.close_after_save = true;
+                }
+                if let Some(host) = editor::host_node(info) {
+                    editor::sync_text(&mut s.composes[at].body, info, host);
+                }
+                let send = action == ComposeAction::Send;
+                let fields = s.composes[at].fields();
+                if send {
+                    // Refused before anything is written: no recipient, a bad address.
+                    if let Err(e) = compose::outgoing(&fields, Vec::new()) {
+                        s.composes[at].status = ComposeStatus::Problem(e.to_string());
+                        return Update::RefreshDom;
+                    }
+                }
+                let Some(account) = s.accounts.iter().find(|a| a.id == s.composes[at].account_id).cloned()
+                else {
+                    s.composes[at].status =
+                        ComposeStatus::Problem(String::from("The account is gone."));
+                    return Update::RefreshDom;
+                };
+                let c = &mut s.composes[at];
+                c.status = if send {
+                    ComposeStatus::Sending
+                } else {
+                    ComposeStatus::Saving
+                };
+                if send {
+                    println!("AZMAIL_SEND_START {}", c.window_id);
+                }
+                let job = OutgoingJob {
+                    compose_id: c.id,
+                    window_id: c.window_id.clone(),
+                    root: s.root.clone(),
+                    account_id: account.id.clone(),
+                    store_root: crate::account::mail_root(&s.root, &account),
+                    fields,
+                    attachments: c.attachments.clone(),
+                    draft_uid: c.draft_uid,
+                    send,
+                };
+                info.add_thread(
+                    ThreadId::unique(),
+                    Thread::create(RefAny::new(job), app, outgoing_thread),
+                );
+                Update::RefreshDom
+            }
+            ComposeAction::Discard | ComposeAction::CloseDiscard => {
+                let c = s.composes.remove(at);
+                println!("AZMAIL_COMPOSE_CLOSED {}", c.window_id);
+                info.close_window();
+                Update::DoNothing
+            }
         }
     })
     .unwrap_or(Update::DoNothing)
@@ -899,6 +979,7 @@ extern "C" fn on_files_picked(mut data: RefAny, _info: CallbackInfo, result: Ref
         return Update::DoNothing;
     }
     with_compose(&mut app, id, |s, at, _| {
+        s.composes[at].edited = true;
         s.composes[at].attachments.extend(files);
         Update::RefreshDom
     })
@@ -1044,13 +1125,22 @@ extern "C" fn on_outgoing_done(mut app: RefAny, mut payload: RefAny, mut info: C
                 if let Some(at) = at {
                     let c = &mut s.composes[at];
                     c.draft_uid = Some(uid);
+                    c.edited = false;
                     c.status = ComposeStatus::Saved(chrono::Local::now().format("%H:%M").to_string());
+                    if c.close_after_save {
+                        // "Save" on the "Save changes?" bar: saved, so the window goes.
+                        let c = s.composes.remove(at);
+                        println!("AZMAIL_COMPOSE_CLOSED {}", c.window_id);
+                        info.close_window();
+                    }
                 }
                 Update::RefreshDomAllWindows
             }
             OutgoingDone::Problem(text) => {
                 if let Some(at) = at {
-                    s.composes[at].status = ComposeStatus::Problem(text);
+                    let c = &mut s.composes[at];
+                    c.status = ComposeStatus::Problem(text);
+                    c.close_after_save = false;
                 }
                 Update::RefreshDom
             }
