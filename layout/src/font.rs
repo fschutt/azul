@@ -364,6 +364,32 @@ pub mod parsed {
         }
     }
 
+    /// The ascent (font units) a face lays text out with, given its hhea
+    /// `ascent` and `descent` (either sign) and its PostScript name.
+    ///
+    /// Every browser on macOS adds 15% of ascent + descent to the ascent of
+    /// Apple's Times, Helvetica and Courier, "to closely match the vertical
+    /// metrics of their Microsoft counterparts that are the de facto web
+    /// standard" (WebKit `SimpleFontDataMac`, Blink
+    /// `FontMetrics::AscentDescentWithHacks`). Without it Helvetica's
+    /// `line-height: normal` is exactly 1em, and a mail written for
+    /// `Helvetica, Arial` - the usual mail stack - lost 2px on every 16px
+    /// line against Chrome. The faces are matched by their PostScript name:
+    /// the family is the part before the first `-` (`Times-Roman`,
+    /// `Helvetica-Bold`, `Courier`), so Helvetica Neue (`HelveticaNeue`),
+    /// Times New Roman and Courier New keep their own metrics.
+    #[must_use]
+    pub fn browser_compat_ascent(postscript_name: Option<&str>, ascent: f32, descent: f32) -> f32 {
+        let family = postscript_name
+            .map(|name| name.split('-').next().unwrap_or(name))
+            .unwrap_or_default();
+        if matches!(family, "Times" | "Helvetica" | "Courier") {
+            ascent + 0.15 * (ascent + descent.abs())
+        } else {
+            ascent
+        }
+    }
+
     /// Parsed font data with all required tables for text layout and PDF generation.
     ///
     /// This struct holds the parsed representation of a TrueType/OpenType font,
@@ -1218,7 +1244,11 @@ pub mod parsed {
                 } else {
                     head_table.units_per_em
                 },
-                ascent: f32::from(hhea_table.ascender),
+                ascent: browser_compat_ascent(
+                    font_name.as_deref(),
+                    f32::from(hhea_table.ascender),
+                    f32::from(hhea_table.descender),
+                ),
                 descent: f32::from(hhea_table.descender),
                 line_gap: f32::from(hhea_table.line_gap),
                 x_height: None, /* will be populated from OS/2 table via from_font_metrics if
