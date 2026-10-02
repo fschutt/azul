@@ -3525,10 +3525,18 @@ mod autotest_generated {
         let r = wrapper(&mut state).inner.ratio;
         assert!((r - 0.49).abs() < 1e-6, "Left: 0.5 -> {r}");
 
+        // The coarse step is the platform's PRIMARY modifier's (Cmd on a
+        // Mac, Ctrl elsewhere); the other command key is no modifier of the
+        // divider's (DEDUP_WIDGETS_API F9).
+        let (primary, other) = crate::widgets::roving::test_support::command_keys();
         let (_, _, mut state) =
-            press_key_on_divider(plain(SplitDirection::Horizontal), K::Right, &[K::LControl]);
+            press_key_on_divider(plain(SplitDirection::Horizontal), K::Right, &[primary]);
         let r = wrapper(&mut state).inner.ratio;
-        assert!((r - 0.6).abs() < 1e-6, "Ctrl+Right: 0.5 -> {r}");
+        assert!((r - 0.6).abs() < 1e-6, "{primary:?}+Right: 0.5 -> {r}");
+        let (_, _, mut state) =
+            press_key_on_divider(plain(SplitDirection::Horizontal), K::Right, &[other]);
+        let r = wrapper(&mut state).inner.ratio;
+        assert!((r - 0.51).abs() < 1e-6, "{other:?}+Right is a fine step: 0.5 -> {r}");
 
         let (_, _, mut state) =
             press_key_on_divider(plain(SplitDirection::Horizontal), K::Home, &[]);

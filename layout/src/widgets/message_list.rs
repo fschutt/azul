@@ -2007,8 +2007,9 @@ mod message_list_tests {
         let (_, changes) =
             rv::press(&styled, id(rows[0]), K::Down, &[K::LShift]).expect("a key handler");
         assert_eq!(rv::focus_request(&changes), Some(id(rows[1])));
+        let (primary, _) = rv::command_keys();
         let (_, changes) =
-            rv::press(&styled, id(rows[0]), K::Down, &[K::LControl]).expect("a key handler");
+            rv::press(&styled, id(rows[0]), K::Down, &[primary]).expect("a key handler");
         assert_eq!(rv::focus_request(&changes), Some(id(rows[1])));
         rv::press(&styled, id(rows[2]), K::Return, &[]).expect("a key handler");
         rv::press(&styled, id(rows[2]), K::Delete, &[]).expect("a key handler");
@@ -2050,6 +2051,29 @@ mod message_list_tests {
                 (MessageListEventKind::Select, 0),
                 (MessageListEventKind::Select, 999)
             ]
+        );
+    }
+
+    /// Primary+Down moves the focus and keeps the selection; the OTHER
+    /// command key is no modifier of the list's, so Down with it held is a
+    /// plain Down that selects. On a Mac Cmd is primary and Ctrl is not;
+    /// elsewhere Ctrl is primary and the Win key is not (DEDUP_WIDGETS_API F9).
+    #[test]
+    fn only_the_platforms_primary_modifier_moves_the_focus_without_selecting() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        let (primary, other) = rv::command_keys();
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let styled = StyledDom::create_from_dom(list(&log).with_theme(UiTheme::Flat).dom());
+        let rows = message_rows(&styled);
+        rv::press(&styled, id(rows[0]), K::Down, &[primary]).expect("a key handler");
+        assert!(log.lock().expect("log").is_empty(), "{primary:?}+Down selects nothing");
+        rv::press(&styled, id(rows[0]), K::Down, &[other]).expect("a key handler");
+        let events = log.lock().expect("log").clone();
+        assert_eq!(
+            events.iter().map(|e| (e.0, e.1, e.2, e.3, e.4)).collect::<Vec<_>>(),
+            vec![(MessageListEventKind::Select, 2, 12, false, false)],
+            "{other:?}+Down is a plain Down: it selects the next row, with no toggle modifier"
         );
     }
 

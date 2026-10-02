@@ -386,6 +386,19 @@ pub(crate) mod test_support {
         )
     }
 
+    /// `(primary, other)`: the key of the host's PRIMARY shortcut modifier
+    /// (Cmd = `LWin` under the Mac's conventions, `LControl` elsewhere) and
+    /// the other command key, which must NOT act as the primary one (Ctrl on
+    /// a Mac, the Win key elsewhere). A test that holds both covers the
+    /// convention of whichever host runs it.
+    pub(crate) fn command_keys() -> (VirtualKeyCode, VirtualKeyCode) {
+        if azul_core::window::mac_shortcut_conventions() {
+            (VirtualKeyCode::LWin, VirtualKeyCode::LControl)
+        } else {
+            (VirtualKeyCode::LControl, VirtualKeyCode::LWin)
+        }
+    }
+
     /// Presses `key` - holding the `held` modifier keys - as the WINDOW
     /// delivers it: runs the `Window(VirtualKeyDown)` handler the widget
     /// registered on `target` (a shell root's F6 hook, a backstage's

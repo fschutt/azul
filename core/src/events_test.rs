@@ -4926,4 +4926,36 @@ mod seat_dedup_tests {
         let out = deduplicate_synthetic_events(vec![press(7), press(7)]);
         assert_eq!(out.len(), 1);
     }
+
+    /// The primary shortcut modifier (Copy, Save, a list's toggle-click) is
+    /// Cmd under the Mac's conventions and Ctrl everywhere else - never
+    /// "Ctrl or Cmd": on a Mac Ctrl+click is the secondary click and Ctrl+S
+    /// is not Save; elsewhere the Win key is not Ctrl (DEDUP_WIDGETS_API F9).
+    #[test]
+    fn the_primary_modifier_is_cmd_on_a_mac_and_ctrl_elsewhere() {
+        let ctrl = KeyModifiers::default().with_ctrl();
+        let meta = KeyModifiers::default().with_meta();
+        assert!(meta.primary_down_for(true), "Cmd is primary on a Mac");
+        assert!(!ctrl.primary_down_for(true), "Ctrl is not primary on a Mac");
+        assert!(ctrl.primary_down_for(false), "Ctrl is primary elsewhere");
+        assert!(!meta.primary_down_for(false), "the Win key is not primary elsewhere");
+        assert!(!KeyModifiers::default().primary_down_for(true));
+        assert!(!KeyModifiers::default().primary_down_for(false));
+
+        // The host's rule, read from the pressed keys and from the modifier
+        // set alike.
+        let (primary, other) = if crate::window::mac_shortcut_conventions() {
+            (VirtualKeyCode::LWin, VirtualKeyCode::LControl)
+        } else {
+            (VirtualKeyCode::LControl, VirtualKeyCode::LWin)
+        };
+        for (key, expected) in [(primary, true), (other, false)] {
+            let ks = KeyboardState {
+                pressed_virtual_keycodes: VirtualKeyCodeVec::from_vec(vec![key]),
+                ..KeyboardState::default()
+            };
+            assert_eq!(ks.primary_down(), expected, "{key:?} held");
+            assert_eq!(ks.derived_modifiers().primary_down(), expected, "{key:?} held");
+        }
+    }
 }

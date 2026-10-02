@@ -1224,8 +1224,9 @@ mod thumbnail_strip_tests {
         assert_eq!(rv::focus_request(&changes), Some(id(items[2])));
         assert!(rv::prevented(&changes));
         rv::press(&styled, id(items[1]), K::Down, &[K::LShift]);
-        rv::press(&styled, id(items[1]), K::Down, &[K::LControl]);
-        rv::press(&styled, id(items[1]), K::Up, &[K::LControl]);
+        let (primary, _) = rv::command_keys();
+        rv::press(&styled, id(items[1]), K::Down, &[primary]);
+        rv::press(&styled, id(items[1]), K::Up, &[primary]);
         rv::press(&styled, id(items[1]), K::Return, &[]);
         rv::press(&styled, id(items[1]), K::Delete, &[]);
         rv::press(&styled, id(items[1]), K::Home, &[]);
