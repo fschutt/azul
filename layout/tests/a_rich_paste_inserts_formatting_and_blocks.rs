@@ -31,7 +31,7 @@ use crate::editing_harness::{markup_of_fragment, Editor};
 /// `body(0) > host(1) > p(2) > ...`
 const P: usize = 2;
 
-fn clipboard(html: &str, plain: &str) -> ClipboardContent {
+pub(crate) fn clipboard(html: &str, plain: &str) -> ClipboardContent {
     ClipboardContent {
         plain_text: plain.into(),
         styled_runs: StyledTextRunVec::from_const_slice(&[]),

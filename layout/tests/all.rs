@@ -738,3 +738,5 @@ mod an_absolute_line_height_is_the_exact_line_pitch;
 mod a_line_height_in_em_or_percent_inherits_as_a_length;
 #[path = "an_inline_block_inside_a_span_is_sized_by_its_own_css.rs"]
 mod an_inline_block_inside_a_span_is_sized_by_its_own_css;
+#[path = "a_text_edit_reports_the_formats_of_its_text.rs"]
+mod a_text_edit_reports_the_formats_of_its_text;
