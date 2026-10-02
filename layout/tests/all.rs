@@ -732,3 +732,5 @@ mod a_percent_wide_inline_image_takes_its_share_of_the_line_box_container;
 mod the_first_line_of_a_paragraph_starts_text_indent_further_in;
 #[path = "a_line_height_in_points_sets_the_line_pitch.rs"]
 mod a_line_height_in_points_sets_the_line_pitch;
+#[path = "a_rich_text_editor_keeps_one_model_and_one_history.rs"]
+mod a_rich_text_editor_keeps_one_model_and_one_history;
