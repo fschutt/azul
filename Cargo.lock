@@ -25,7 +25,10 @@ dependencies = [
 name = "AzCalendar"
 version = "0.1.0"
 dependencies = [
+ "azul-appkit",
  "azul-dll",
+ "azul-pim",
+ "azul-storage",
  "chrono",
  "serde",
  "serde_json",
@@ -37,6 +40,8 @@ version = "0.1.0"
 dependencies = [
  "azul-appkit",
  "azul-dll",
+ "azul-pim",
+ "azul-storage",
 ]
 
 [[package]]
@@ -55,6 +60,7 @@ name = "AzMail"
 version = "0.1.0"
 dependencies = [
  "azul-dll",
+ "azul-pim",
  "chrono",
  "imap",
  "imap-proto",
@@ -161,6 +167,7 @@ name = "AzTasks"
 version = "0.1.0"
 dependencies = [
  "azul-dll",
+ "azul-pim",
  "azul-storage",
  "chrono",
  "serde",
@@ -1127,6 +1134,16 @@ dependencies = [
  "xmlwriter",
  "zip 2.4.2",
  "zune-jpeg",
+]
+
+[[package]]
+name = "azul-pim"
+version = "0.1.0"
+dependencies = [
+ "azul-storage",
+ "chrono",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
