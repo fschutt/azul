@@ -574,6 +574,18 @@ mod autotest_generated {
         assert!(html.contains("\">abcd</span>"), "{html:?}");
     }
 
+    /// The font family is written into the `style="..."` attribute: a quote
+    /// in it must not end the attribute (and start a new one).
+    #[test]
+    fn to_html_a_font_family_with_a_quote_cannot_end_the_style_attribute() {
+        let html = content(vec![run("x", 10.0, Some("A\" onclick=\"b"))]).to_html();
+        assert!(!html.contains("onclick=\""), "{html}");
+        assert!(
+            html.contains("font-family: A&quot; onclick=&quot;b; "),
+            "{html}"
+        );
+    }
+
     #[test]
     fn to_html_large_text_does_not_panic() {
         let text = "&".repeat(100_000);
