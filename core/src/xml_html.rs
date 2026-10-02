@@ -199,6 +199,18 @@ pub fn decode_character_references(s: &str, mode: CharRefMode) -> Cow<'_, str> {
     Cow::Owned(out)
 }
 
+/// `s` as the text content of an HTML / XML element (RED stub: no encoding yet).
+#[must_use]
+pub fn encode_text(s: &str) -> String {
+    String::from(s)
+}
+
+/// `s` as an attribute value (RED stub: no encoding yet).
+#[must_use]
+pub fn encode_attribute(s: &str) -> String {
+    String::from(s)
+}
+
 // ============================================================================
 // The lenient tokenizer
 // ============================================================================
