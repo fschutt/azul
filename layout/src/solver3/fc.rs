@@ -8893,6 +8893,12 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
         };
 
         let output = layout_ifc(ctx, text_cache, tree, cell_index, &cell_constraints)?;
+        // Where the line put each atomic inline (an inline-block, an image):
+        // its relative position, which hit-testing, the positioning pass and
+        // the painting of its own content read. Dropped here, the box stayed
+        // at the cell's content origin while its line painted it in place -
+        // a centered button's label at the cell's left edge.
+        publish_interior_positions(tree, &output);
 
         // The cell now owns the authoritative IFC result. Clear any duplicate
         // inline_layout_result from text children that was set during the cell's
@@ -9670,6 +9676,25 @@ fn position_table_cells<T: ParsedFontTrait>(
                     // Vertical-align adjustment changed item positions
                     // within this cell's IFC — patched passes must re-emit.
                     ctx.reflowed_ifcs.insert(cell_info.node_index);
+                }
+            }
+            // The atomic inlines of the line move with it: their boxes were
+            // placed from the same layout (`layout_cell_for_height`).
+            let atomic_children: Vec<usize> = tree
+                .children(cell_info.node_index)
+                .iter()
+                .copied()
+                .filter(|&c| {
+                    tree.get(LayoutNodeId::new(c))
+                        .is_some_and(|n| !matches!(n.formatting_context, FormattingContext::Inline))
+                })
+                .collect();
+            for c in atomic_children {
+                if let Some(pos) = tree
+                    .warm_mut(LayoutNodeId::new(c))
+                    .and_then(|w| w.relative_position.as_mut())
+                {
+                    pos.y += y_offset;
                 }
             }
         }
