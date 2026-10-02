@@ -15,6 +15,13 @@ Branch `wt/tables` from `2e92c759b`. Brief: scratchpad/wave5/TABLES.md. Report: 
   3.9.3 widths from measured min/max; two-word cells so it holds for any face). Engine already right
   (probe: azul 131.8/82.2 vs Chrome 131.5/82.5 Times; Arial identical).
 
+- e4a6554a5 F24 RED (ignored, OPEN): text_beside_an_italic_or_bold_box_keeps_a_font (font bug, handed off).
+- d4dc39299 F24: width-cap tests back on fixed-size boxes (`words()` = non-italic span boxes).
+- c6530d7e4 RED a_rows_stray_child_sits_in_an_anonymous_cell (mailgun container td display:block).
+- (this) FIX anonymous table objects in cache::reconcile_recursive (reconcile_table_children),
+  builder agrees (process_anonymous_table_box_children, anon cell FC TableCell),
+  fc::layout_cell_for_height takes DOM-less cells.
+
 ## IN PROGRESS
 - F24 / E-INLINE: root cause is NOT table or intrinsic-sizing code. Probe matrix (prebuilt engine):
   - `<td><i ib/> <i ib/> <i ib/></td>` in a `width:1px` table: 306 wide (Chrome 106); spaces not painted.
@@ -32,7 +39,7 @@ Branch `wt/tables` from `2e92c759b`. Brief: scratchpad/wave5/TABLES.md. Report: 
   their original intent (fixed-size boxes, font-independent) with non-italic `<span>` boxes.
 
 ## NEXT
-1. Commit E-INLINE RED test file + table_markup words() with span boxes + restore the 2 tests.
+1. Newsletters end to end: cerberus (first diverging: div azr-1 height), postmark, 04_receipt, 02_gmail.
 2. Newsletters end to end (mail corpus, boxes.json in main checkout target/refci/mail-baseline-2e92c759b).
 
 ## Decisions

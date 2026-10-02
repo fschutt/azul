@@ -2827,12 +2827,14 @@ impl LayoutTreeBuilder {
             if is_expected_child(child_display) {
                 if !non_matching_children.is_empty() {
                     let anon_idx = self.create_anonymous_node(parent_idx, anon_type, anon_fc);
-                    #[allow(clippy::iter_with_drain)]
-                    // accumulator Vec reused across runs; drain(..) empties it while retaining the
-                    // allocation
-                    for np_id in non_matching_children.drain(..) {
-                        self.process_node(styled_dom, np_id, Some(anon_idx), debug_messages)?;
-                    }
+                    self.process_anonymous_table_box_children(
+                        styled_dom,
+                        &non_matching_children,
+                        anon_type,
+                        anon_idx,
+                        debug_messages,
+                    )?;
+                    non_matching_children.clear();
                 }
                 self.process_node(styled_dom, child_id, Some(parent_idx), debug_messages)?;
             } else {
@@ -2842,12 +2844,83 @@ impl LayoutTreeBuilder {
 
         if !non_matching_children.is_empty() {
             let anon_idx = self.create_anonymous_node(parent_idx, anon_type, anon_fc);
-            for np_id in non_matching_children {
-                self.process_node(styled_dom, np_id, Some(anon_idx), debug_messages)?;
-            }
+            self.process_anonymous_table_box_children(
+                styled_dom,
+                &non_matching_children,
+                anon_type,
+                anon_idx,
+                debug_messages,
+            )?;
         }
 
         Ok(())
+    }
+
+    /// The children of an anonymous table box made by
+    /// [`Self::process_table_level_children`] (CSS 2.2 17.2.1 rule 2), as
+    /// the reconciler (`cache::reconcile_table_children`) builds them: in an
+    /// anonymous ROW the cells as they are and every run of other boxes in an
+    /// anonymous cell; in an anonymous CELL, a block container, the
+    /// block-level children as they are and every inline run in an anonymous
+    /// inline wrapper.
+    fn process_anonymous_table_box_children(
+        &mut self,
+        styled_dom: &StyledDom,
+        children: &[NodeId],
+        anon_type: AnonymousBoxType,
+        anon_idx: usize,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) -> Result<()> {
+        if anon_type == AnonymousBoxType::TableRow {
+            let mut non_cells: Vec<NodeId> = Vec::new();
+            for &child_id in children {
+                if get_display_type(styled_dom, child_id) == LayoutDisplay::TableCell {
+                    if !non_cells.is_empty() {
+                        let cell_idx = self.create_anonymous_node(
+                            anon_idx,
+                            AnonymousBoxType::TableCell,
+                            FormattingContext::TableCell,
+                        );
+                        self.process_anonymous_table_box_children(
+                            styled_dom,
+                            &non_cells,
+                            AnonymousBoxType::TableCell,
+                            cell_idx,
+                            debug_messages,
+                        )?;
+                        non_cells.clear();
+                    }
+                    self.process_node(styled_dom, child_id, Some(anon_idx), debug_messages)?;
+                } else {
+                    non_cells.push(child_id);
+                }
+            }
+            if !non_cells.is_empty() {
+                let cell_idx = self.create_anonymous_node(
+                    anon_idx,
+                    AnonymousBoxType::TableCell,
+                    FormattingContext::TableCell,
+                );
+                self.process_anonymous_table_box_children(
+                    styled_dom,
+                    &non_cells,
+                    AnonymousBoxType::TableCell,
+                    cell_idx,
+                    debug_messages,
+                )?;
+            }
+            return Ok(());
+        }
+        let mut inline_run: Vec<NodeId> = Vec::new();
+        for &child_id in children {
+            if is_block_level(styled_dom, child_id) {
+                self.flush_inline_run(styled_dom, anon_idx, &mut inline_run, debug_messages)?;
+                self.process_node(styled_dom, child_id, Some(anon_idx), debug_messages)?;
+            } else {
+                inline_run.push(child_id);
+            }
+        }
+        self.flush_inline_run(styled_dom, anon_idx, &mut inline_run, debug_messages)
     }
 
     fn process_table_children(
@@ -2899,9 +2972,8 @@ impl LayoutTreeBuilder {
             parent_idx,
             |d| d == LayoutDisplay::TableCell,
             AnonymousBoxType::TableCell,
-            FormattingContext::Block {
-                establishes_new_context: true,
-            },
+            // A cell the grid (`fc::analyze_table_row`) counts as one.
+            FormattingContext::TableCell,
             debug_messages,
         )
     }
@@ -4563,7 +4635,7 @@ fn should_skip_for_table_structure(
 /// Returns true if the given display type is a "proper table child" of a table/inline-table box.
 /// Per CSS 2.2 §17.2.1, proper table children are: table-row-group, table-header-group,
 /// table-footer-group, table-row, table-column-group, table-column, table-caption.
-const fn is_proper_table_child(display: LayoutDisplay) -> bool {
+pub(crate) const fn is_proper_table_child(display: LayoutDisplay) -> bool {
     matches!(
         display,
         LayoutDisplay::TableRowGroup

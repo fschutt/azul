@@ -8807,7 +8807,11 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
     let cell_node = tree
         .get(LayoutNodeId::new(cell_index))
         .ok_or(LayoutError::InvalidTree)?;
-    let cell_dom_id = cell_node.dom_node_id.ok_or(LayoutError::InvalidTree)?;
+    // An ANONYMOUS cell (CSS 2.2 17.2.1: the reconciler wraps a row's stray
+    // children in one) has no DOM node: its inline runs sit in anonymous
+    // inline wrappers, so it is laid out by the block branch below. It used
+    // to fail the whole table with `InvalidTree`.
+    let cell_dom_id = cell_node.dom_node_id;
 
     // Check if cell has text content directly in DOM (not in LayoutTree)
     // Text nodes are intentionally not included in LayoutTree per CSS spec,
@@ -8830,7 +8834,8 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
     // container's). Laid out as one IFC, the block was not laid out and the
     // clearing below wiped its text. Only a cell whose children are ALL
     // inline-level establishes an inline formatting context (9.4.2).
-    let has_text_children = cell_is_inline_formatting_context(ctx.styled_dom, cell_dom_id);
+    let has_text_children = cell_dom_id
+        .is_some_and(|dom_id| cell_is_inline_formatting_context(ctx.styled_dom, dom_id));
 
     debug_table_layout!(
         ctx,

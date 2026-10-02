@@ -1503,6 +1503,234 @@ fn is_whitespace_only_inline_run(
     true // All nodes are whitespace-only text
 }
 
+// ==== TABLES: anonymous table objects (CSS 2.2 17.2.1) ====
+
+/// A table-structural parent, as CSS 2.2 17.2.1 sorts its children: the
+/// kind of box it takes as a child, everything else being wrapped in
+/// anonymous table boxes ([`reconcile_table_children`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TableParent {
+    /// `table` / `inline-table`: row groups, rows, columns, column groups
+    /// and captions.
+    Table,
+    /// `table-row-group` / `-header-group` / `-footer-group`: rows.
+    RowGroup,
+    /// `table-row`: cells.
+    Row,
+}
+
+impl TableParent {
+    fn of(display: LayoutDisplay) -> Option<Self> {
+        match display {
+            LayoutDisplay::Table | LayoutDisplay::InlineTable => Some(Self::Table),
+            LayoutDisplay::TableRowGroup
+            | LayoutDisplay::TableHeaderGroup
+            | LayoutDisplay::TableFooterGroup => Some(Self::RowGroup),
+            LayoutDisplay::TableRow => Some(Self::Row),
+            _ => None,
+        }
+    }
+
+    /// Is a child of this display one of the boxes this parent takes?
+    fn takes(self, child: LayoutDisplay) -> bool {
+        match self {
+            Self::Table => crate::solver3::layout_tree::is_proper_table_child(child),
+            Self::RowGroup => child == LayoutDisplay::TableRow,
+            Self::Row => child == LayoutDisplay::TableCell,
+        }
+    }
+}
+
+/// Reconcile the DOM child `child_dom_id` as a child of the layout node
+/// `parent_idx` (its old layout node found by DOM id anywhere in the old
+/// tree: an anonymous box above it has no DOM id to be matched by) and
+/// record its subtree hash.
+#[allow(clippy::too_many_arguments)] // reconcile_recursive's own state, passed through
+fn reconcile_child_under(
+    styled_dom: &StyledDom,
+    child_dom_id: NodeId,
+    parent_idx: usize,
+    old_children_by_dom: &BTreeMap<NodeId, usize>,
+    old_tree: Option<&LayoutTree>,
+    new_tree_builder: &mut LayoutTreeBuilder,
+    recon: &mut ReconciliationResult,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ancestor_style_changed: bool,
+    dom_diff_clean: Option<&[bool]>,
+    new_child_hashes: &mut Vec<u64>,
+) -> Result<usize> {
+    let old_child_idx = old_children_by_dom.get(&child_dom_id).copied().or_else(|| {
+        old_tree
+            .and_then(|t| t.dom_to_layout.get(&child_dom_id))
+            .and_then(|v| v.first().copied().map(LayoutNodeId::index))
+    });
+    let child_idx = reconcile_recursive(
+        styled_dom,
+        child_dom_id,
+        old_child_idx,
+        Some(parent_idx),
+        old_tree,
+        new_tree_builder,
+        recon,
+        debug_messages,
+        ancestor_style_changed,
+        dom_diff_clean,
+    )?;
+    if let Some(child_node) = new_tree_builder.get(child_idx) {
+        new_child_hashes.push(child_node.subtree_hash.0);
+    }
+    Ok(child_idx)
+}
+
+/// The children of a table-structural parent (`parent_idx`, DOM node
+/// `parent_dom_id`) that are not all of the kind it takes, with the
+/// anonymous table boxes CSS 2.2 17.2.1 rule 2 puts around the others:
+///
+/// - a run of consecutive children a table or row group does not take goes into an anonymous
+///   `table-row`;
+/// - inside a row (the real one or that anonymous one) a run of consecutive non-cells goes into
+///   an anonymous `table-cell`, a block container (its inline runs in anonymous inline wrappers,
+///   whitespace-only ones dropped, like any block container's).
+///
+/// Built by the reconciler only, the layout's tree builder, these were
+/// missing: a `display: block` `<td>` in a row (the mailgun "container")
+/// was a direct child of the row, the grid skipped it as no cell, and its
+/// whole subtree had no box.
+#[allow(clippy::too_many_arguments)] // reconcile_recursive's own state, passed through
+fn reconcile_table_children(
+    parent: TableParent,
+    children: &[NodeId],
+    styled_dom: &StyledDom,
+    parent_dom_id: NodeId,
+    parent_idx: usize,
+    old_children_by_dom: &BTreeMap<NodeId, usize>,
+    old_tree: Option<&LayoutTree>,
+    new_tree_builder: &mut LayoutTreeBuilder,
+    recon: &mut ReconciliationResult,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ancestor_style_changed: bool,
+    dom_diff_clean: Option<&[bool]>,
+    new_child_hashes: &mut Vec<u64>,
+) -> Result<()> {
+    let display_of = |id: NodeId| get_display_type(styled_dom, id);
+    let mut i = 0;
+    while i < children.len() {
+        if parent.takes(display_of(children[i])) {
+            reconcile_child_under(
+                styled_dom,
+                children[i],
+                parent_idx,
+                old_children_by_dom,
+                old_tree,
+                new_tree_builder,
+                recon,
+                debug_messages,
+                ancestor_style_changed,
+                dom_diff_clean,
+                new_child_hashes,
+            )?;
+            i += 1;
+            continue;
+        }
+        let run_start = i;
+        while i < children.len() && !parent.takes(display_of(children[i])) {
+            i += 1;
+        }
+        let run = &children[run_start..i];
+        let row_idx = match parent {
+            TableParent::Row => parent_idx,
+            TableParent::Table | TableParent::RowGroup => new_tree_builder.create_anonymous_node(
+                parent_idx,
+                AnonymousBoxType::TableRow,
+                FormattingContext::TableRow,
+            ),
+        };
+        let mut j = 0;
+        while j < run.len() {
+            if display_of(run[j]) == LayoutDisplay::TableCell {
+                reconcile_child_under(
+                    styled_dom,
+                    run[j],
+                    row_idx,
+                    old_children_by_dom,
+                    old_tree,
+                    new_tree_builder,
+                    recon,
+                    debug_messages,
+                    ancestor_style_changed,
+                    dom_diff_clean,
+                    new_child_hashes,
+                )?;
+                j += 1;
+                continue;
+            }
+            let cell_start = j;
+            while j < run.len() && display_of(run[j]) != LayoutDisplay::TableCell {
+                j += 1;
+            }
+            let cell_idx = new_tree_builder.create_anonymous_node(
+                row_idx,
+                AnonymousBoxType::TableCell,
+                FormattingContext::TableCell,
+            );
+            // The anonymous cell is a block container: its block-level
+            // children as they are, each run of inline-level ones in an
+            // anonymous inline wrapper (none for collapsible whitespace).
+            let content = &run[cell_start..j];
+            let mut k = 0;
+            while k < content.len() {
+                if is_block_level(styled_dom, content[k]) {
+                    reconcile_child_under(
+                        styled_dom,
+                        content[k],
+                        cell_idx,
+                        old_children_by_dom,
+                        old_tree,
+                        new_tree_builder,
+                        recon,
+                        debug_messages,
+                        ancestor_style_changed,
+                        dom_diff_clean,
+                        new_child_hashes,
+                    )?;
+                    k += 1;
+                    continue;
+                }
+                let inline_start = k;
+                while k < content.len() && !is_block_level(styled_dom, content[k]) {
+                    k += 1;
+                }
+                let inline_run: Vec<(usize, NodeId)> =
+                    (inline_start..k).map(|n| (n, content[n])).collect();
+                if is_whitespace_only_inline_run(styled_dom, &inline_run, parent_dom_id) {
+                    continue;
+                }
+                let wrapper_idx = new_tree_builder.create_anonymous_node(
+                    cell_idx,
+                    AnonymousBoxType::InlineWrapper,
+                    FormattingContext::Inline,
+                );
+                for &(_, inline_dom_id) in &inline_run {
+                    reconcile_child_under(
+                        styled_dom,
+                        inline_dom_id,
+                        wrapper_idx,
+                        old_children_by_dom,
+                        old_tree,
+                        new_tree_builder,
+                        recon,
+                        debug_messages,
+                        ancestor_style_changed,
+                        dom_diff_clean,
+                        new_child_hashes,
+                    )?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Ordinal-match a freshly created anonymous inline wrapper to the old
 /// parent's Nth anon wrapper and, when the run's children are IDENTICAL
 /// (same dom ids, same order), carry the warm caches forward.
@@ -1973,7 +2201,35 @@ pub fn reconcile_recursive(
             | LayoutDisplay::InlineGrid
     );
 
-    if !has_block_child || parent_is_flex_or_grid {
+    // CSS 2.2 17.2.1 rule 2: a table, row group or row with a child that is
+    // not of the kind it takes gets anonymous table boxes around such
+    // children - a block `<td>` in a row, a cell straight under a table.
+    let table_fixup = TableParent::of(get_display_type(styled_dom, new_dom_id)).filter(|parent| {
+        new_children_dom_ids
+            .iter()
+            .any(|&id| !parent.takes(get_display_type(styled_dom, id)))
+    });
+
+    if let Some(parent) = table_fixup {
+        reconcile_table_children(
+            parent,
+            &new_children_dom_ids,
+            styled_dom,
+            new_dom_id,
+            new_node_idx,
+            &old_children_by_dom,
+            old_tree,
+            new_tree_builder,
+            recon,
+            debug_messages,
+            subtree_style_changed,
+            dom_diff_clean,
+            &mut new_child_hashes,
+        )?;
+        // The anonymous boxes are made anew on every pass (they have no DOM
+        // id to be matched by): the parent's layout is redone.
+        children_are_different = true;
+    } else if !has_block_child || parent_is_flex_or_grid {
         // All children are inline (block container) OR the parent is a flex/grid
         // container (all children are direct items) — no anonymous boxes needed.
         // Process each child directly.
