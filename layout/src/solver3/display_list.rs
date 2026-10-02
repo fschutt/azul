@@ -11477,18 +11477,6 @@ fn rasterize_svg_stroke_to_r8(
     })
 }
 
-/// Rasterize an `SvgMultiPolygon` clip path into an R8 image mask at the given
-/// paint rect size.
-///
-/// Returns `None` if the rect has zero size.
-///
-/// Gated on `cpurender`, the feature that owns the `agg-rust` rasteriser this
-/// body is written against (`layout/Cargo.toml`: `cpurender = ["dep:agg-rust",
-/// ...]`), and the same gate its ONLY caller (`push_image_mask_clip`) already
-/// carries. Without `cpurender` a build has no vector rasteriser, so an SVG
-/// `clip-path` does not clip - the caller's `#[cfg(not(feature =
-/// "cpurender"))]` arm already says so on stderr, once.
-#[cfg(feature = "cpurender")]
 /// One mask image repeated across `area`, as a single image and the rect that
 /// holds it.
 ///
@@ -11599,6 +11587,18 @@ fn mask_pixels_r8(mask: &ImageRef) -> Option<(Vec<u8>, usize, usize)> {
     Some((out, w, h))
 }
 
+/// Rasterize an `SvgMultiPolygon` clip path into an R8 image mask at the given
+/// paint rect size.
+///
+/// Returns `None` if the rect has zero size.
+///
+/// Gated on `cpurender`, the feature that owns the `agg-rust` rasteriser this
+/// body is written against (`layout/Cargo.toml`: `cpurender = ["dep:agg-rust",
+/// ...]`), and the same gate its ONLY caller (`push_image_mask_clip`) already
+/// carries. Without `cpurender` a build has no vector rasteriser, so an SVG
+/// `clip-path` does not clip - the caller's `#[cfg(not(feature =
+/// "cpurender"))]` arm already says so on stderr, once.
+#[cfg(feature = "cpurender")]
 fn rasterize_svg_clip_to_r8(
     svg_clip: &azul_core::svg::SvgMultiPolygon,
     paint_rect: &LogicalRect,
