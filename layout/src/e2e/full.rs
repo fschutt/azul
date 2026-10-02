@@ -2647,6 +2647,9 @@ pub enum DebugEvent {
     },
 
     Close,
+    /// Write an instrumented build's PGO counters now (`crate::pgo`): a
+    /// profile written at process exit races the app's threads.
+    DumpProfile,
     DpiChanged {
         dpi: u32,
     },
@@ -15549,6 +15552,17 @@ pub fn process_debug_event(
             );
             callback_info.close_window();
             needs_update = true;
+            send_ok(request, None, None);
+        }
+
+        DebugEvent::DumpProfile => {
+            let written = crate::pgo::dump_profile();
+            log(
+                LogLevel::Info,
+                LogCategory::DebugServer,
+                format!("dump_profile: written = {written}"),
+                None,
+            );
             send_ok(request, None, None);
         }
 

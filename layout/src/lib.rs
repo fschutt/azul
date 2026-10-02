@@ -264,6 +264,7 @@ pub mod journal;
 pub mod managers;
 /// Optional probe instrumentation. With the `probe` feature off this
 /// is a tiny module of no-op stubs and pays zero cost.
+pub mod pgo;
 pub mod probe;
 pub mod resource_handles;
 /// CSS layout solver: block, inline, flex, grid, and table formatting.

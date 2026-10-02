@@ -208,13 +208,13 @@ fn run_e2e_dispatcher(dir: &str) {
             .collect(),
         Err(e) => {
             eprintln!("error: cannot read E2E directory '{}': {}", dir, e);
-            std::process::exit(1);
+            exit_dumping_profile(1);
         }
     };
     files.sort();
     if files.is_empty() {
         eprintln!("error: no *.json E2E files found in directory '{}'", dir);
-        std::process::exit(1);
+        exit_dumping_profile(1);
     }
 
     let total = files.len();
@@ -230,7 +230,7 @@ fn run_e2e_dispatcher(dir: &str) {
         Ok(exe) => exe,
         Err(e) => {
             eprintln!("error: cannot get current executable path for dispatcher: {}", e);
-            std::process::exit(1);
+            exit_dumping_profile(1);
         }
     };
 
@@ -342,9 +342,9 @@ fn run_e2e_dispatcher(dir: &str) {
         for (name, log_path) in failures {
             eprintln!("    {} (logs saved to {})", name, log_path.display());
         }
-        std::process::exit(1);
+        exit_dumping_profile(1);
     }
-    std::process::exit(0);
+    exit_dumping_profile(0);
 }
 
 /// Set up E2E test runner: read the JSON file (one test or an array, through
@@ -366,12 +366,12 @@ fn setup_e2e_runner(test_file: &str) {
         Ok(tests) => tests,
         Err(e) => {
             eprintln!("error: {e}");
-            std::process::exit(1);
+            exit_dumping_profile(1);
         }
     };
     if tests.is_empty() {
         eprintln!("error: no E2E tests to run from '{}'", test_file);
-        std::process::exit(1);
+        exit_dumping_profile(1);
     }
 
     // Kept BEFORE the tests are moved into the queue: the report pairs each
@@ -406,7 +406,7 @@ fn setup_e2e_runner(test_file: &str) {
                 Ok(r) => r,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     eprintln!("\nerror: E2E test timeout (600 s)");
-                    std::process::exit(1);
+                    exit_dumping_profile(1);
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                     eprintln!(
@@ -414,7 +414,7 @@ fn setup_e2e_runner(test_file: &str) {
                          (lost display connection, protocol error, or a panic in the event loop). \
                          This is NOT a timeout; nothing waited."
                     );
-                    std::process::exit(1);
+                    exit_dumping_profile(1);
                 }
             };
 
@@ -425,15 +425,15 @@ fn setup_e2e_runner(test_file: &str) {
                 } => r.results,
                 DebugResponseData::Ok { .. } => {
                     eprintln!("\nerror: unexpected response (no E2eResults)");
-                    std::process::exit(1);
+                    exit_dumping_profile(1);
                 }
                 DebugResponseData::Err(msg) => {
                     eprintln!("\nerror: {}", msg);
-                    std::process::exit(1);
+                    exit_dumping_profile(1);
                 }
                 DebugResponseData::PendingScreenshot(_) => {
                     eprintln!("\nerror: unexpected response (a screenshot, no E2eResults)");
-                    std::process::exit(1);
+                    exit_dumping_profile(1);
                 }
             };
 
@@ -443,7 +443,7 @@ fn setup_e2e_runner(test_file: &str) {
             // on which entry point ran it.
             let (report, verdict) = debug_server::render_report(&report_tests, &results);
             eprintln!("{report}");
-            std::process::exit(verdict.exit_code());
+            exit_dumping_profile(verdict.exit_code());
         })
         .expect("failed to spawn e2e-result-printer thread");
 }
@@ -570,7 +570,7 @@ fn setup_debug_and_e2e(
         if e2e_file.is_some() {
             if !config.remote_control.allow_e2e_tests {
                 eprintln!("error: AZ_E2E is disabled in AppConfig::remote_control.allow_e2e_tests");
-                std::process::exit(1);
+                exit_dumping_profile(1);
             }
             needs_debug = true;
             debug_port = None; // AZ_E2E overrides starting a localhost server
@@ -606,7 +606,7 @@ fn setup_debug_and_e2e(
         if let Some(ref test_file) = e2e_file {
             let meta = std::fs::metadata(test_file).unwrap_or_else(|e| {
                 eprintln!("error: cannot stat E2E path '{}': {}", test_file, e);
-                std::process::exit(1);
+                exit_dumping_profile(1);
             });
             if meta.is_dir() {
                 run_e2e_dispatcher(test_file);
@@ -639,7 +639,7 @@ fn setup_debug_and_e2e(
 /// The behavior when all windows are closed is controlled by `config.termination_behavior`:
 /// - `ReturnToMain`: Returns control to main() (if platform supports it)
 /// - `RunForever`: Keeps app running until explicitly quit (macOS standard behavior)
-/// - `EndProcess`: Calls std::process::exit(0) when last window closes (default)
+/// - `EndProcess`: Calls exit_dumping_profile(0) when last window closes (default)
 #[cfg(target_os = "macos")]
 pub fn run(
     app_data: RefAny,
@@ -1190,7 +1190,7 @@ pub fn run(
                                         LogCategory::EventLoop,
                                         "[macOS] All windows closed, terminating process"
                                     );
-                                    std::process::exit(0);
+                                    exit_dumping_profile(0);
                                 }
                                 AppTerminationBehavior::RunForever => unreachable!(),
                             }
@@ -2158,7 +2158,7 @@ pub fn run(
     // Handle termination behavior
     match config.termination_behavior {
         AppTerminationBehavior::EndProcess => {
-            std::process::exit(0);
+            exit_dumping_profile(0);
         }
         AppTerminationBehavior::ReturnToMain => {
             // Return normally to allow cleanup
@@ -2762,7 +2762,7 @@ fn run_linux_windows(
                 debug_server::LogCategory::EventLoop,
                 "[Linux] Terminating process"
             );
-            std::process::exit(0);
+            exit_dumping_profile(0);
         }
         AppTerminationBehavior::ReturnToMain => {
             log_info!(
@@ -3004,4 +3004,12 @@ pub fn run_tray_only(
     );
     unsafe { app.run() };
     Ok(())
+}
+
+/// `std::process::exit`, with an instrumented build's PGO counters written
+/// first (`azul_layout::pgo`): written by the exit handler they race the
+/// threads still running, and came out truncated.
+fn exit_dumping_profile(code: i32) -> ! {
+    let _ = azul_layout::pgo::dump_profile();
+    std::process::exit(code)
 }
