@@ -241,6 +241,15 @@ pub struct CachedInlineContent {
     /// collection in the first place). Visits now fold only the seven
     /// constraint-level container properties on top of this base.
     pub content_hash_base: u64,
+    /// What the collection's atomic inlines (`InlineShape`s) were measured
+    /// against: the IFC root's content box and its width type
+    /// (`fc::atomic_inline_containing_block`). `None` when it holds none.
+    ///
+    /// The subtree fingerprint does not see it: a viewport resize keeps the
+    /// tree, and with it a `width: 25%` image's measurement from the old
+    /// width. A collection with atomics is reused only against the same box.
+    pub atomics_measured_against:
+        Option<(LogicalSize, crate::text3::cache::AvailableSpace)>,
 }
 
 /// 3. **Final layout**: width = `Definite(actual_column_width)`

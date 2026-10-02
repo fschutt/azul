@@ -4207,6 +4207,10 @@ fn layout_ifc<T: ParsedFontTrait>(
         .warm(LayoutNodeId::new(node_index))
         .and_then(|w| w.inline_content_cache.as_ref())
         .filter(|c| c.subtree_fingerprint == subtree_fingerprint)
+        .filter(|c| {
+            c.atomics_measured_against
+                .is_none_or(|key| key == atomic_inline_measure_key(constraints))
+        })
         .map(|c| (c.content.clone(), c.child_map.clone(), c.content_hash_base));
 
     // Second precondition, checked HERE because this is the only place that can.
@@ -4266,6 +4270,10 @@ fn layout_ifc<T: ParsedFontTrait>(
                             child_map: child_map.clone(),
                             subtree_fingerprint,
                             content_hash_base: computed_base,
+                            atomics_measured_against: content
+                                .iter()
+                                .any(|c| matches!(c, InlineContent::Shape(_)))
+                                .then(|| atomic_inline_measure_key(constraints)),
                         }));
                 }
             }
@@ -9973,6 +9981,28 @@ fn place_table_grid_boxes(
 /// we can find its parent IFC's `inline_layout_result` via `ifc_membership.ifc_root_layout_index`.
 // +spec:display-property:63a38b - inline box boundaries and out-of-flow elements are ignored for
 // text adjacency (white space, line-breaking, text-transform)
+/// The containing block of an atomic inline-level box (an inline-block, an
+/// image) in the inline formatting context `constraints` lays out: the IFC
+/// root's CONTENT box - exactly what `layout_bfc` hands its block children
+/// (`children_containing_block_size`: the content width, and the containing
+/// block's height while the root's own height is auto).
+/// `constraints.containing_block_size` is the root's OWN containing block: a
+/// quarter of it made `body > img { width: 25% }` a quarter of the window.
+fn atomic_inline_containing_block(constraints: &LayoutConstraints<'_>) -> LogicalSize {
+    constraints.available_size
+}
+
+/// What an IFC's atomic inlines are measured against, as
+/// `CachedInlineContent::atomics_measured_against` records it.
+fn atomic_inline_measure_key(
+    constraints: &LayoutConstraints<'_>,
+) -> (LogicalSize, Text3AvailableSpace) {
+    (
+        atomic_inline_containing_block(constraints),
+        constraints.available_width_type,
+    )
+}
+
 /// Does every atomic inline-level child in a cached collection have a size in
 /// THIS tree?
 ///
@@ -10458,7 +10488,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     writing_mode_ctx: child_wm_ctx,
                     bfc_state: None,
                     text_align: TextAlign::Start,
-                    containing_block_size: constraints.containing_block_size,
+                    containing_block_size: atomic_inline_containing_block(constraints),
                     available_width_type: Text3AvailableSpace::Definite(content_box_size.width),
                     fragmentainer: None,
                     column_flow: None,
@@ -10956,7 +10986,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 ctx.styled_dom,
                 Some(dom_id),
                 &CBTY::from_flattened_with_width_type(
-                    constraints.containing_block_size,
+                    atomic_inline_containing_block(constraints),
                     constraints.available_width_type,
                 ),
                 intrinsic_size,
@@ -10995,7 +11025,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 bfc_state: None,
                 // Does not affect size/baseline of the container.
                 text_align: TextAlign::Start,
-                containing_block_size: constraints.containing_block_size,
+                containing_block_size: atomic_inline_containing_block(constraints),
                 available_width_type: Text3AvailableSpace::Definite(content_box_size.width),
                 fragmentainer: None,
                 column_flow: None,
@@ -11162,7 +11192,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 ctx.styled_dom,
                 Some(dom_id),
                 &CBTY::from_flattened_with_width_type(
-                    constraints.containing_block_size,
+                    atomic_inline_containing_block(constraints),
                     constraints.available_width_type,
                 ),
                 intrinsic_size,
@@ -11535,7 +11565,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     writing_mode_ctx: child_wm_ctx,
                     bfc_state: None,
                     text_align: TextAlign::Start,
-                    containing_block_size: constraints.containing_block_size,
+                    containing_block_size: atomic_inline_containing_block(constraints),
                     available_width_type: Text3AvailableSpace::Definite(width),
                     fragmentainer: None,
                     column_flow: None,
