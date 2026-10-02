@@ -11226,7 +11226,9 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
     span_style: &StyleProperties,
     content: &mut Vec<InlineContent>,
     child_map: &mut HashMap<ContentIndex, usize>,
-    parent_children: &[usize], // Layout tree children of parent IFC
+    // The layout children of the box this span sits in (the IFC root's, or
+    // the enclosing span's); the span's own box is one of them.
+    parent_children: &[usize],
     constraints: &LayoutConstraints<'_>,
 ) -> Result<()> {
     debug_info!(
@@ -11354,6 +11356,24 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
         return Ok(());
     }
 
+    // The layout children of THIS span's box. The tree builder processes an
+    // inline box's children under the inline box's own node, so an element
+    // nested in the span is a layout child of the span, not of the IFC root:
+    // looking it up among the root's children (`parent_children`) never found
+    // it, and an inline-block in a span was dropped from the line. A span the
+    // tree has no node for keeps looking where its parent looked.
+    let span_layout_children: Vec<usize> = parent_children
+        .iter()
+        .find(|&&idx| {
+            tree.get(LayoutNodeId::new(idx))
+                .and_then(|n| n.dom_node_id)
+                .is_some_and(|id| id == span_dom_id)
+        })
+        .map_or_else(
+            || parent_children.to_vec(),
+            |&span_index| tree.children(span_index).to_vec(),
+        );
+
     for &child_dom_id in &span_dom_children {
         let node_data = &ctx.styled_dom.node_data.as_container()[child_dom_id];
 
@@ -11398,8 +11418,8 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
         let child_display =
             get_display_property(ctx.styled_dom, Some(child_dom_id)).unwrap_or_default();
 
-        // Find the corresponding layout tree node
-        let child_index = parent_children
+        // Find the corresponding layout tree node: a layout child of the span.
+        let child_index = span_layout_children
             .iter()
             .find(|&&idx| {
                 tree.get(LayoutNodeId::new(idx))
@@ -11430,7 +11450,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     &child_style,
                     content,
                     child_map,
-                    parent_children,
+                    &span_layout_children,
                     constraints,
                 )?;
             }
@@ -11494,7 +11514,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     &child_style,
                     content,
                     child_map,
-                    parent_children,
+                    &span_layout_children,
                     constraints,
                 )?;
             }
