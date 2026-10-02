@@ -712,3 +712,5 @@ mod a_separated_table_spaces_its_cells_and_paints_its_own_border;
 mod a_rows_height_is_its_tallest_cell_or_its_own_height;
 #[path = "a_fixed_table_takes_its_column_widths_from_its_first_row.rs"]
 mod a_fixed_table_takes_its_column_widths_from_its_first_row;
+#[path = "a_spanning_cells_width_is_spread_over_the_columns_it_spans.rs"]
+mod a_spanning_cells_width_is_spread_over_the_columns_it_spans;
