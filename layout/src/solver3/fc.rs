@@ -5348,6 +5348,9 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     // Get font-size for resolving line-height
     // Use helper function which checks dependency chain first
     let font_size = get_element_font_size(styled_dom, id, node_state);
+    // The strut: the root's first available font (`first_available_font_strut`).
+    let strut = first_available_font_strut(ctx, dom_id, font_size)
+        .unwrap_or((font_size * 0.8, font_size * 0.2));
 
     let line_height_value = if dom_declared & DOM_HAS_LINE_HEIGHT != 0 {
         styled_dom
@@ -5964,18 +5967,12 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
                 }
             })
         },
-        // Strut metrics for the container's first available font, approximated as
-        // 80%/20%/50% of font_size (typical Latin ratios).
-        // TODO(superplan): use the resolved primary font's real OS/2 metrics
-        // (`ParsedFontTrait::get_font_metrics` → ascent/descent/x_height scaled by
-        // units_per_em) and `get_space_width` for `ch_width`. The font is not
-        // resolved here: picking the element's primary `ParsedFont` requires the
-        // font-chain machinery in `getters::resolve_font_chains` (font-family →
-        // fc_cache → loaded font), which isn't threaded into this function. The
-        // strut only sizes empty / whitespace-only lines — non-empty runs already
-        // use each run's real font metrics during shaping in text3.
-        strut_ascent: font_size * 0.8,
-        strut_descent: font_size * 0.2,
+        // Strut metrics: the container's first available font's ascent and
+        // descent (with half its line gap each, `first_available_font_strut`),
+        // or 80% / 20% of font_size while no face of its chain is loaded. The
+        // x-height, cap height and `ch` stay the 50% / 70% / 50% estimates.
+        strut_ascent: strut.0,
+        strut_descent: strut.1,
         strut_x_height: font_size * 0.5, // 0.5em fallback per CSS Inline 3 Appendix A
         // Typical Latin cap ratio, same approximation spirit as the rest of
         // the strut block (Appendix A.2's formal fallback is "ascent", which
@@ -6030,6 +6027,55 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             StyleLineBreak::Anywhere => text3::cache::LineBreakStrictness::Anywhere,
         },
     }
+}
+
+/// The strut of an inline formatting context (CSS 2.2 10.8.1): the ascent
+/// and descent, in px at `font_size`, of the root's FIRST AVAILABLE font - the
+/// first face of the root's font chain that is loaded - each with half the
+/// font's line gap.
+///
+/// With the gap shared out, the strut's `line-height: normal` (A + D, see
+/// `UnifiedConstraints::resolved_line_height`) is A + D + line gap: the
+/// normal line height of text in that font. A blank line (`<div><br></div>`,
+/// every blank line Gmail writes) is then as tall as a line of text, as in
+/// a browser, where the 0.8 / 0.2 em estimate made it 1em. An explicit line
+/// height sees only the half-leading around the strut, which the gap does
+/// not move. `None` when no face of the chain is loaded (the estimate stays).
+fn first_available_font_strut<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    dom_id: NodeId,
+    font_size: f32,
+) -> Option<(f32, f32)> {
+    if !(font_size.is_finite() && font_size > 0.0) {
+        return None;
+    }
+    let style = crate::solver3::getters::get_style_properties_cached(
+        &mut ctx.style_cache,
+        ctx.styled_dom,
+        dom_id,
+        ctx.system_style.as_ref(),
+        PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+    );
+    let metrics = match &style.font_stack {
+        text3::cache::FontStack::Ref(font_ref) => font_ref.get_font_metrics(),
+        text3::cache::FontStack::Stack(selectors) => {
+            let key = text3::cache::FontChainKey::from_selectors(selectors);
+            let chain = ctx.font_manager.font_chain_cache.get(&key)?;
+            let loaded = ctx.font_manager.parsed_fonts.lock().ok()?;
+            chain
+                .fonts()
+                .find_map(|m| loaded.get(&m.id).map(|font| font.get_font_metrics()))?
+        }
+    };
+    if metrics.units_per_em == 0 {
+        return None;
+    }
+    let scale = font_size / f32::from(metrics.units_per_em);
+    let half_gap = metrics.line_gap.max(0.0) / 2.0;
+    let ascent = (metrics.ascent + half_gap) * scale;
+    let descent = (metrics.descent.abs() + half_gap) * scale;
+    (ascent.is_finite() && descent.is_finite() && ascent > 0.0 && descent >= 0.0)
+        .then_some((ascent, descent))
 }
 
 // Table Formatting Context (CSS 2.2 § 17)
