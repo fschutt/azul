@@ -621,6 +621,21 @@ impl PhotoState {
         e
     }
 
+    /// A digit key (Photoshop's): `1`..`9` = 10 %..90 %, `0` = 100 % - the
+    /// paint opacity with a painting tool, the active layer's opacity with
+    /// any other tool.
+    pub fn digit_opacity(&mut self, digit: u8) -> Effects {
+        let value = if digit == 0 { 1.0 } else { f32::from(digit.min(9)) / 10.0 };
+        if matches!(self.tool, Tool::Brush | Tool::Pencil | Tool::Eraser | Tool::CloneStamp) {
+            self.opts.opacity = value;
+            return Effects::dom();
+        }
+        match self.engine.active_layer() {
+            Some(id) => self.apply(Op::SetOpacity(id, value)),
+            None => Effects::default(),
+        }
+    }
+
     /// The current brush-family tool's size.
     #[must_use]
     pub fn brush_size(&self) -> f32 {

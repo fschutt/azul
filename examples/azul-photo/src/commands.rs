@@ -90,6 +90,8 @@ pub enum Command {
     // Tools and colours
     Tool(Tool),
     BrushSize(bool),
+    /// A digit key: the paint or the layer opacity (`0` = 100 %).
+    Digit(u8),
     SwapColors,
     DefaultColors,
     Swatch(usize),
@@ -391,6 +393,15 @@ pub fn run(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo, comman
         }
         Command::Tool(t) => app.s.set_tool(t),
         Command::BrushSize(larger) => app.s.step_brush_size(larger),
+        Command::Digit(d) => {
+            let e = app.s.digit_opacity(d);
+            if let Some(id) = app.s.engine.active_layer() {
+                if let Some(l) = app.s.engine.document().layer(id) {
+                    say(&format!("AZPHOTO_OPACITY {id} {}", (l.opacity * 100.0).round()));
+                }
+            }
+            e
+        }
         Command::SwapColors => app.s.swap_colors(),
         Command::DefaultColors => app.s.default_colors(),
         Command::Swatch(i) => {

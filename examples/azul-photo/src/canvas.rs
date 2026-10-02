@@ -365,6 +365,16 @@ pub fn shortcut(key: VirtualKeyCode, m: Mods, current: Tool) -> Option<Command> 
         K::Escape => Some(Command::Escape),
         K::LBracket => Some(Command::BrushSize(false)),
         K::RBracket => Some(Command::BrushSize(true)),
+        K::Key0 => Some(Command::Digit(0)),
+        K::Key1 => Some(Command::Digit(1)),
+        K::Key2 => Some(Command::Digit(2)),
+        K::Key3 => Some(Command::Digit(3)),
+        K::Key4 => Some(Command::Digit(4)),
+        K::Key5 => Some(Command::Digit(5)),
+        K::Key6 => Some(Command::Digit(6)),
+        K::Key7 => Some(Command::Digit(7)),
+        K::Key8 => Some(Command::Digit(8)),
+        K::Key9 => Some(Command::Digit(9)),
         K::X => Some(Command::SwapColors),
         K::D => Some(Command::DefaultColors),
         other => letter(other)
@@ -386,6 +396,15 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     };
     let app = &mut *guard;
     if app.screen != AppScreen::Editor && !m.cmd {
+        return Update::DoNothing;
+    }
+    // Plain keys belong to a text field being typed into (a size, an
+    // opacity), not to the tools.
+    let typing = info
+        .get_focused_node()
+        .into_option()
+        .is_some_and(|node| info.get_node_cursor_position(node).into_option().is_some());
+    if typing && !m.cmd {
         return Update::DoNothing;
     }
     let Some(command) = shortcut(key, m, app.s.tool) else {
