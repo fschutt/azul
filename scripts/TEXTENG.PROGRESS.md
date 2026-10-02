@@ -12,12 +12,18 @@ Branch `wt/texteng` from `2e92c759b`. Brief: scratchpad wave5/TEXTENG.md. House 
   em/% (compute_font_relative_line_height + inherits_its_computed_length), getters::get_used_line_height
   = one reader; empty_editable_caret_rect takes px.
 
+- c71d2be9c RED item 3 (an_inline_block_inside_a_span_is_sized_by_its_own_css.rs)
+- 029462d39 GREEN item 3: fc.rs measure_atomic_inline = ONE helper for the anonymous-wrapper, IFC-root and
+  span branches (twins found: anonymous copy used constraints.containing_block_size); span collector takes
+  text_cache + child_map
+- e9aa6acc7 GREEN item 3b: nested boxes looked up among the span's own layout children (tree builder puts
+  them under the span's node; the old lookup in the root's children never found them)
+
 ## IN PROGRESS
-- review pass of item 2 for compile errors
+- 4 text-edit report carries formats + pending format (DocumentTextEdit, core/src/selection.rs)
 
 ## NEXT
-- 3 inline-block inside an inline span sized by its CSS width (fc.rs collect_inline_span_recursive)
-- 4 text-edit report carries formats + pending format (DocumentTextEdit, core/src/selection.rs)
+- 4 design + RED (layout/tests) + GREEN
 - report scripts/TEXTENG_2026_10_02.md
 
 ## Decisions
