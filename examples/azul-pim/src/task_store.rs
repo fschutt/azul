@@ -8,11 +8,11 @@
 //! queues its writes, a To-Do bar puts one file at a time.
 
 use azul_storage::{Drive, DriveError, ListRequest};
-use chrono::NaiveDateTime;
+use chrono::{NaiveDateTime, Timelike};
 
 use crate::task::{
-    self, list_from_json, settings_from_json, task_from_json, unnamed_list_name, KeyKind, Settings,
-    Task, TaskList,
+    self, list_from_json, settings_from_json, task_from_calendar_json, task_from_json,
+    task_to_json, unnamed_list_name, FileError, KeyKind, Settings, Task, TaskList, DEFAULT_LIST,
 };
 
 /// Keys per listing page.
@@ -64,6 +64,9 @@ pub fn load_all(drive: &dyn Drive) -> Result<Loaded, DriveError> {
 /// [`load_all`] with `page` keys per listing call.
 pub fn load_all_paged(drive: &dyn Drive, page: u32) -> Result<Loaded, DriveError> {
     let mut out = Loaded::default();
+    // A task migrated from AzCalendar's old file was made "now" (the old file had no dates).
+    let now = chrono::Local::now().naive_local();
+    let now = now.with_nanosecond(0).unwrap_or(now);
     let prefix = format!("{}/", task::TASKS_DIR);
     for key in all_keys(drive, &prefix, page)? {
         let kind = task::parse_key(&key);
@@ -100,6 +103,15 @@ pub fn load_all_paged(drive: &dyn Drive, page: u32) -> Result<Loaded, DriveError
                     out.tasks.push(t);
                 }
                 Ok(_) => skip(&mut out, key, "its id is not its file's name".into()),
+                // AzCalendar's old To-Do bar file: read, and named for a rewrite.
+                Err(FileError::WrongFormat) => match task_from_calendar_json(&text, &list, now) {
+                    Ok(t) if t.id == task => {
+                        out.migrated.push(key);
+                        out.tasks.push(t);
+                    }
+                    Ok(_) => skip(&mut out, key, "its id is not its file's name".into()),
+                    Err(_) => skip(&mut out, key, FileError::WrongFormat.to_string()),
+                },
                 Err(e) => skip(&mut out, key, e.to_string()),
             },
             KeyKind::Attachment { .. } | KeyKind::Other => {}
@@ -133,8 +145,28 @@ pub fn migrate_calendar_tasks(
     store: &dyn Drive,
     now: NaiveDateTime,
 ) -> Result<usize, DriveError> {
-    let _ = (old, store, now);
-    Ok(0)
+    let prefix = format!("{}/{DEFAULT_LIST}/", task::TASKS_DIR);
+    let mut moved = 0;
+    for key in all_keys(old, &prefix, PAGE_SIZE)? {
+        let KeyKind::Task { list, task: id } = task::parse_key(&key) else {
+            continue;
+        };
+        let text = String::from_utf8_lossy(&old.get(&key)?).into_owned();
+        // Anything but an old To-Do bar file is left where it is.
+        let Ok(t) = task_from_calendar_json(&text, &list, now) else {
+            continue;
+        };
+        if t.id != id {
+            continue;
+        }
+        let target = t.key();
+        if store.head(&target).is_err() {
+            store.put(&target, task_to_json(&t).as_bytes())?;
+            moved += 1;
+        }
+        old.delete(&key)?;
+    }
+    Ok(moved)
 }
 
 #[cfg(test)]

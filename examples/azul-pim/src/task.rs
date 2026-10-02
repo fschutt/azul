@@ -53,6 +53,9 @@ use crate::{
 
 /// The `format` of a task file.
 pub const TASK_FORMAT: &str = "aztasks.task";
+/// The `format` of a task file AzCalendar's To-Do bar wrote before the store was shared
+/// (`{"format": "azcalendar.task", "version": 1, "id", "title", "done"}`): read, never written.
+pub const CALENDAR_TASK_FORMAT: &str = "azcalendar.task";
 /// The `format` of a list file.
 pub const LIST_FORMAT: &str = "aztasks.list";
 /// The `format` of the settings file.
@@ -1041,6 +1044,38 @@ pub fn task_from_json(json: &str) -> Result<Task, FileError> {
     };
     for tag in &f.tags {
         task.add_tag(tag);
+    }
+    Ok(task)
+}
+
+/// A task from a file AzCalendar's To-Do bar wrote ([`CALENDAR_TASK_FORMAT`]): a task of `list`
+/// made at `now`, completed then when it was done. The file's id must be a task id and its title
+/// not empty, as AzCalendar checked them.
+pub fn task_from_calendar_json(
+    json: &str,
+    list: &str,
+    now: NaiveDateTime,
+) -> Result<Task, FileError> {
+    #[derive(Deserialize)]
+    struct CalendarTaskFile {
+        id: String,
+        title: String,
+        #[serde(default)]
+        done: bool,
+    }
+    header_of(json, CALENDAR_TASK_FORMAT)?;
+    let f: CalendarTaskFile =
+        serde_json::from_str(json).map_err(|e| FileError::Malformed(e.to_string()))?;
+    if !is_id(&f.id) {
+        return Err(FileError::Malformed(format!("id \"{}\"", f.id)));
+    }
+    let title = f.title.trim();
+    if title.is_empty() {
+        return Err(FileError::Malformed(String::from("the task has no title")));
+    }
+    let mut task = Task::new(f.id, list.to_string(), title.to_string(), now);
+    if f.done {
+        task.completed = Some(now);
     }
     Ok(task)
 }
