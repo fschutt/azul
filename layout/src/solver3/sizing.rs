@@ -1310,7 +1310,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // A one-column cell goes to its column with its `width`; a spanning
         // cell is spread over its columns once every one-column cell is in,
         // by increasing span (the layout's rule,
-        // `fc::distribute_cell_width_across_columns`).
+        // `table_width::distribute_spanning_cell`).
         let mut columns = vec![ColumnAccumulator::default(); grid.columns.len()];
         let mut spanning: Vec<(super::fc::TableCellInfo, f32, f32)> = Vec::new();
         let mut row_heights = vec![0.0f32; grid.num_rows];
@@ -1375,31 +1375,30 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
 
         let mut cons: Vec<_> = columns.into_iter().map(ColumnAccumulator::finish).collect();
         // Each spanning cell widens the columns it spans by what they lack
-        // together, inside the spacing between them, in proportion to their
-        // max-content - the layout's own rule, on the columns' min / max.
+        // together, inside the spacing between them, its own `width`
+        // included, the auto columns first - the layout's own rule.
         spanning.sort_by_key(|(cell, _, _)| cell.colspan);
-        let mut span_columns: Vec<super::fc::TableColumnInfo> = cons
-            .iter()
-            .map(|c| super::fc::TableColumnInfo {
-                min_width: c.min,
-                max_width: c.max,
-                computed_width: None,
-            })
-            .collect();
         for (cell, cell_min, cell_max) in spanning {
-            super::fc::distribute_cell_width_across_columns(
-                &mut span_columns,
+            let width = tree
+                .get(LayoutNodeId::new(cell.node_index))
+                .and_then(|cn| {
+                    let dom_id = cn.dom_node_id?;
+                    let bp = cn.box_props.unpack();
+                    let h_extras =
+                        bp.padding.left + bp.padding.right + bp.border.left + bp.border.right;
+                    Some(specified_width(self.ctx.styled_dom, dom_id, h_extras))
+                })
+                .unwrap_or(SpecifiedWidth::Auto);
+            super::table_width::distribute_spanning_cell(
+                &mut cons,
                 cell.column,
                 cell.colspan,
                 cell_min,
                 cell_max,
-                &grid.collapsed_columns,
+                width,
                 h_spacing,
+                &grid.collapsed_columns,
             );
-        }
-        for (c, spanned) in cons.iter_mut().zip(&span_columns) {
-            c.min = spanned.min_width;
-            c.max = spanned.max_width.max(spanned.min_width);
         }
         clamp_percentages(&mut cons);
 

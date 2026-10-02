@@ -187,6 +187,92 @@ impl ColumnAccumulator {
     }
 }
 
+/// Spread a spanning cell over the columns `start..start + span` (CSS 2.2
+/// 17.5.2.2, CSS Tables 3 3.8): the columns grow until, with the
+/// `inner_spacing` between them, they are as wide as the cell.
+///
+/// - The cell's min-content raises the columns' minimum, in proportion to
+///   their max-content (evenly when none has any).
+/// - The cell's max-content - its fixed `width` when it has one, never
+///   below its min-content - raises their max-content: the AUTO columns take
+///   it, in proportion to their max-content (evenly when all are empty); the
+///   constrained ones only when every spanned column is constrained.
+///
+/// Columns never shrink; the `skip` columns (`visibility: collapse`) take
+/// nothing. Spanning cells go in after every one-column cell, by increasing
+/// span - in the table's layout and in its intrinsic sizes alike.
+#[allow(clippy::too_many_arguments)] // one cell's measures and its place in the grid
+#[allow(clippy::cast_precision_loss)] // a span count
+pub fn distribute_spanning_cell(
+    columns: &mut [ColumnConstraint],
+    start: usize,
+    span: usize,
+    cell_min: f32,
+    cell_max: f32,
+    width: SpecifiedWidth,
+    inner_spacing: f32,
+    skip: &std::collections::HashSet<usize>,
+) {
+    let end = start.saturating_add(span);
+    if span == 0 || end > columns.len() {
+        return;
+    }
+    let visible: Vec<usize> = (start..end).filter(|c| !skip.contains(c)).collect();
+    if visible.is_empty() {
+        return;
+    }
+    let inner = if inner_spacing.is_finite() && inner_spacing > 0.0 {
+        inner_spacing * (visible.len() - 1) as f32
+    } else {
+        0.0
+    };
+    let cell_max = match width {
+        SpecifiedWidth::Fixed(w) if w.is_finite() => w.max(cell_min),
+        _ => cell_max,
+    };
+
+    let have_min: f32 = visible.iter().map(|&i| columns[i].min).sum();
+    let need_min = cell_min - inner;
+    if need_min > have_min {
+        spread_over(columns, &visible, need_min - have_min, true);
+    }
+
+    let have_max: f32 = visible.iter().map(|&i| columns[i].max).sum();
+    let need_max = cell_max - inner;
+    if need_max > have_max {
+        let auto: Vec<usize> = visible
+            .iter()
+            .copied()
+            .filter(|&i| !columns[i].constrained)
+            .collect();
+        let targets: &[usize] = if auto.is_empty() { &visible } else { &auto };
+        spread_over(columns, targets, need_max - have_max, false);
+    }
+    for &i in &visible {
+        columns[i].max = columns[i].max.max(columns[i].min);
+    }
+}
+
+/// Add `extra` to the min- (`to_min`) or max-content of `targets`, in
+/// proportion to their max-content (evenly when none has any).
+#[allow(clippy::cast_precision_loss)] // a column count
+fn spread_over(columns: &mut [ColumnConstraint], targets: &[usize], extra: f32, to_min: bool) {
+    let weights: Vec<f32> = targets.iter().map(|&i| columns[i].max.max(0.0)).collect();
+    let sum: f32 = weights.iter().sum();
+    for (k, &i) in targets.iter().enumerate() {
+        let share = if sum > 0.0 && sum.is_finite() {
+            weights[k] / sum
+        } else {
+            1.0 / targets.len() as f32
+        };
+        if to_min {
+            columns[i].min += extra * share;
+        } else {
+            columns[i].max += extra * share;
+        }
+    }
+}
+
 /// Cut the columns' percentages back so they sum to at most 100%, left to
 /// right: a column whose percentage would pass 100% keeps what is left.
 pub fn clamp_percentages(columns: &mut [ColumnConstraint]) {
@@ -379,6 +465,98 @@ mod tests {
     }
     fn close(a: &[f32], b: &[f32]) -> bool {
         a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 0.01)
+    }
+
+    // distribute_spanning_cell (moved from fc.rs's
+    // distribute_cell_width_across_columns tests, plus the auto-first rule)
+
+    fn none() -> std::collections::HashSet<usize> {
+        std::collections::HashSet::new()
+    }
+
+    #[test]
+    fn a_spanning_cell_spreads_the_deficit_evenly_over_equal_columns() {
+        let mut c = vec![auto(10.0, 20.0), auto(10.0, 20.0)];
+        distribute_spanning_cell(&mut c, 0, 2, 50.0, 30.0, SpecifiedWidth::Auto, 0.0, &none());
+        // min: 50 needed, 20 present -> +15 each; max 30 < 40 present, but
+        // never below the new min.
+        assert_eq!(c[0].min, 25.0);
+        assert_eq!(c[1].min, 25.0);
+        assert_eq!(c[0].max, 25.0);
+        assert_eq!(c[1].max, 25.0);
+    }
+
+    #[test]
+    fn a_span_past_the_columns_or_of_zero_changes_nothing() {
+        let mut c = vec![auto(10.0, 20.0), auto(10.0, 20.0)];
+        distribute_spanning_cell(&mut c, 1, 5, 500.0, 500.0, SpecifiedWidth::Auto, 0.0, &none());
+        distribute_spanning_cell(&mut c, 99, 1, 500.0, 500.0, SpecifiedWidth::Auto, 0.0, &none());
+        distribute_spanning_cell(&mut c, usize::MAX, 0, 500.0, 500.0, SpecifiedWidth::Auto, 0.0, &none());
+        distribute_spanning_cell(&mut c, 0, 0, 1000.0, 1000.0, SpecifiedWidth::Auto, 0.0, &none());
+        assert_eq!(c, vec![auto(10.0, 20.0), auto(10.0, 20.0)]);
+    }
+
+    #[test]
+    fn collapsed_columns_take_nothing() {
+        let mut c = vec![auto(10.0, 20.0), auto(10.0, 20.0)];
+        let both: std::collections::HashSet<usize> = [0, 1].into_iter().collect();
+        distribute_spanning_cell(&mut c, 0, 2, 1000.0, 1000.0, SpecifiedWidth::Auto, 0.0, &both);
+        assert_eq!(c[0].min, 10.0);
+        let first: std::collections::HashSet<usize> = [0].into_iter().collect();
+        distribute_spanning_cell(&mut c, 0, 2, 100.0, 0.0, SpecifiedWidth::Auto, 0.0, &first);
+        assert_eq!(c[0].min, 10.0, "the collapsed column is untouched");
+        assert_eq!(c[1].min, 100.0, "10 + (100 - 10)");
+    }
+
+    #[test]
+    fn nan_demand_changes_nothing_and_infinite_demand_saturates() {
+        let mut c = vec![auto(10.0, 20.0), auto(10.0, 20.0)];
+        distribute_spanning_cell(&mut c, 0, 2, f32::NAN, f32::NAN, SpecifiedWidth::Auto, 0.0, &none());
+        assert_eq!(c[0].min, 10.0);
+        assert_eq!(c[1].max, 20.0);
+        distribute_spanning_cell(
+            &mut c,
+            0,
+            2,
+            f32::INFINITY,
+            f32::INFINITY,
+            SpecifiedWidth::Auto,
+            0.0,
+            &none(),
+        );
+        assert!(c[0].min.is_infinite());
+        assert!(c[1].max.is_infinite());
+    }
+
+    #[test]
+    fn columns_never_shrink() {
+        let mut c = vec![auto(100.0, 200.0), auto(100.0, 200.0)];
+        distribute_spanning_cell(&mut c, 0, 2, 1.0, 1.0, SpecifiedWidth::Auto, 0.0, &none());
+        distribute_spanning_cell(&mut c, 0, 2, -1000.0, -1000.0, SpecifiedWidth::Auto, 0.0, &none());
+        assert_eq!(c, vec![auto(100.0, 200.0), auto(100.0, 200.0)]);
+    }
+
+    #[test]
+    fn the_spacing_between_the_spanned_columns_is_the_cells_own() {
+        let mut c = vec![auto(0.0, 0.0), auto(0.0, 0.0), auto(0.0, 0.0)];
+        // 100px over three columns with 20px between them: 60px for the columns.
+        distribute_spanning_cell(&mut c, 0, 3, 0.0, 100.0, SpecifiedWidth::Auto, 20.0, &none());
+        assert!(close(&[c[0].max, c[1].max, c[2].max], &[20.0, 20.0, 20.0]));
+    }
+
+    #[test]
+    fn a_spanning_cells_fixed_width_goes_to_the_auto_columns_first() {
+        let mut c = vec![fixed(0.0, 50.0), auto(20.0, 20.0)];
+        distribute_spanning_cell(&mut c, 0, 2, 0.0, 0.0, SpecifiedWidth::Fixed(200.0), 0.0, &none());
+        assert_eq!(c[0].max, 50.0, "the fixed column keeps its width");
+        assert_eq!(c[1].max, 150.0, "the auto column takes the rest");
+    }
+
+    #[test]
+    fn the_extra_follows_the_auto_columns_max_content() {
+        let mut c = vec![auto(10.0, 30.0), auto(10.0, 10.0)];
+        distribute_spanning_cell(&mut c, 0, 2, 0.0, 80.0, SpecifiedWidth::Auto, 0.0, &none());
+        assert!(close(&[c[0].max, c[1].max], &[60.0, 20.0]));
     }
 
     #[test]
