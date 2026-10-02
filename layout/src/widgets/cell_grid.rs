@@ -52,21 +52,24 @@
 use alloc::{string::String, vec::Vec};
 
 use azul_core::{
-    callbacks::{CoreCallback, CoreCallbackData, Update},
+    callbacks::{CoreCallbackData, Update},
     dom::{Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec},
     events::FocusEventFilter,
-    refany::{OptionRefAny, RefAny},
+    refany::RefAny,
     window::VirtualKeyCode,
 };
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
-    impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
+    impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
     impl_vec_partialeq,
     props::basic::color::{ColorU, OptionColorU},
     AzString,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
+use crate::widgets::themes::decl::{
+    px_height, px_left, px_min_width, px_top, px_width, simple,
+};
 
 // ---- the types the app sees ----
 
@@ -1848,20 +1851,6 @@ pub(crate) fn cells_to_tsv(rows: &[Vec<String>]) -> String {
     out
 }
 
-fn html_escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            _ => out.push(c),
-        }
-    }
-    out
-}
-
 /// Rows of cells as an HTML table (the rich flavour a word processor or a
 /// mail pastes as a table).
 pub(crate) fn cells_to_html(rows: &[Vec<String>]) -> String {
@@ -1870,7 +1859,7 @@ pub(crate) fn cells_to_html(rows: &[Vec<String>]) -> String {
         out.push_str("<tr>");
         for cell in row {
             out.push_str("<td>");
-            out.push_str(&html_escape(cell));
+            out.push_str(&azul_core::xml::html::encode_text(cell));
             out.push_str("</td>");
         }
         out.push_str("</tr>");
@@ -1977,10 +1966,6 @@ pub(crate) struct CellGridLook {
     pub caret: Vec<CssPropertyWithConditions>,
     /// The theme's marker class on the grid, if it has one.
     pub marker: Option<&'static str>,
-}
-
-const fn simple(p: CssProperty) -> CssPropertyWithConditions {
-    CssPropertyWithConditions::simple(p)
 }
 
 /// The grid: a column of rows that takes its pane, clips what does not fit,
@@ -2175,23 +2160,11 @@ pub(crate) fn auto_ink(fill: ColorU) -> ColorU {
     fill.best_contrast_text()
 }
 
-fn px_width(px: f32) -> CssPropertyWithConditions {
-    simple(CssProperty::const_width(LayoutWidth::px(px)))
-}
-
-fn px_height(px: f32) -> CssPropertyWithConditions {
-    simple(CssProperty::const_height(LayoutHeight::px(px)))
-}
-
-fn px_min_width(px: f32) -> CssPropertyWithConditions {
-    simple(CssProperty::const_min_width(LayoutMinWidth::px(px)))
-}
-
 /// `left` / `top` / `width` / `height` of an overlay.
 fn place(x: f32, y: f32, w: f32, h: f32) -> [CssPropertyWithConditions; 4] {
     [
-        simple(CssProperty::const_left(LayoutLeft::px(x))),
-        simple(CssProperty::const_top(LayoutTop::px(y))),
+        px_left(x),
+        px_top(y),
         px_width(w.max(0.0)),
         px_height(h.max(0.0)),
     ]
@@ -2656,61 +2629,46 @@ pub(crate) struct GridShared {
     pub geo: Geometry,
 }
 
-fn hook(
-    event: EventFilter,
-    cb: extern "C" fn(RefAny, CallbackInfo) -> Update,
-    data: &RefAny,
-) -> CoreCallbackData {
-    CoreCallbackData {
-        event,
-        callback: CoreCallback {
-            cb: cb as usize,
-            ctx: OptionRefAny::None,
-        },
-        refany: data.clone(),
-    }
-}
-
 /// The grid node's handlers.
 pub(crate) fn grid_callbacks(shared: &RefAny) -> Vec<CoreCallbackData> {
     alloc::vec![
-        hook(
+        CoreCallbackData::create(
             EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
-            on_grid_key,
-            shared
+            shared.clone(),
+            on_grid_key as usize
         ),
-        hook(
+        CoreCallbackData::create(
             EventFilter::Focus(FocusEventFilter::TextInput),
-            on_grid_text,
-            shared
+            shared.clone(),
+            on_grid_text as usize
         ),
-        hook(EventFilter::Focus(FocusEventFilter::Copy), on_grid_copy, shared),
-        hook(EventFilter::Focus(FocusEventFilter::Cut), on_grid_cut, shared),
-        hook(EventFilter::Focus(FocusEventFilter::Paste), on_grid_paste, shared),
-        hook(
+        CoreCallbackData::create(EventFilter::Focus(FocusEventFilter::Copy), shared.clone(), on_grid_copy as usize),
+        CoreCallbackData::create(EventFilter::Focus(FocusEventFilter::Cut), shared.clone(), on_grid_cut as usize),
+        CoreCallbackData::create(EventFilter::Focus(FocusEventFilter::Paste), shared.clone(), on_grid_paste as usize),
+        CoreCallbackData::create(
             EventFilter::Hover(HoverEventFilter::LeftMouseDown),
-            on_grid_mouse_down,
-            shared
+            shared.clone(),
+            on_grid_mouse_down as usize
         ),
-        hook(
+        CoreCallbackData::create(
             EventFilter::Hover(HoverEventFilter::MouseMove),
-            on_grid_mouse_move,
-            shared
+            shared.clone(),
+            on_grid_mouse_move as usize
         ),
-        hook(
+        CoreCallbackData::create(
             EventFilter::Hover(HoverEventFilter::MouseUp),
-            on_grid_mouse_up,
-            shared
+            shared.clone(),
+            on_grid_mouse_up as usize
         ),
-        hook(
+        CoreCallbackData::create(
             EventFilter::Hover(HoverEventFilter::DoubleClick),
-            on_grid_double_click,
-            shared
+            shared.clone(),
+            on_grid_double_click as usize
         ),
-        hook(
+        CoreCallbackData::create(
             EventFilter::Hover(HoverEventFilter::Scroll),
-            on_grid_wheel,
-            shared
+            shared.clone(),
+            on_grid_wheel as usize
         ),
     ]
 }
@@ -3854,7 +3812,8 @@ mod cell_grid_tests {
         assert_eq!(cells_to_tsv(&rows), "a\t\"b\tc\"\n\"\"\"q\"\"\"\t<1>");
         assert_eq!(
             cells_to_html(&rows),
-            "<table><tr><td>a</td><td>b\tc</td></tr><tr><td>&quot;q&quot;</td><td>&lt;1&gt;</td></tr></table>"
+            "<table><tr><td>a</td><td>b\tc</td></tr><tr><td>\"q\"</td><td>&lt;1&gt;</td></tr></table>",
+            "a cell is text: the one encoder escapes & < >, a quote is plain text there"
         );
         let mut view = CellGridView::create();
         view.ranges = CellGridRangeVec::from_vec(vec![CellGridRange::spanning(at(0, 0), at(999_999, 1))]);

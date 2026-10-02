@@ -23,7 +23,7 @@ use azul_core::{
     },
 };
 
-use azul_css::{impl_option, impl_option_inner};
+use azul_css::impl_option;
 
 use crate::callbacks::CallbackInfo;
 

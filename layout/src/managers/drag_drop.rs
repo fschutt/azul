@@ -17,7 +17,7 @@ use azul_core::{
     dom::{DomNodeId, OptionDomNodeId},
     drag::{ActiveDragType, DragContext},
 };
-use azul_css::{impl_option, impl_option_inner, OptionString};
+use azul_css::{impl_option, OptionString};
 
 /// Type of drag operation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

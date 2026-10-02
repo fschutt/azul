@@ -27,7 +27,7 @@ use azul_core::{
 };
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
-    impl_option, impl_option_inner,
+    impl_option,
     props::{
         basic::{length::FloatValue, pixel::PixelValue},
         layout::{
@@ -418,13 +418,15 @@ impl From<Tile> for Dom {
 
 /// A click hook as the engine wires it on the tile's root.
 fn hook(event: EventFilter, on: OptionTileOnClick) -> Option<CoreCallbackData> {
-    on.into_option().map(|TileOnClick { refany, callback }| CoreCallbackData {
-        event,
-        callback: CoreCallback {
-            cb: callback.cb as *const () as usize,
-            ctx: callback.ctx,
-        },
-        refany,
+    on.into_option().map(|TileOnClick { refany, callback }| {
+        CoreCallbackData::create(
+            event,
+            refany,
+            CoreCallback {
+                cb: callback.cb as *const () as usize,
+                ctx: callback.ctx,
+            },
+        )
     })
 }
 

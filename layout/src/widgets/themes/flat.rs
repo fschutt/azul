@@ -3413,17 +3413,17 @@ pub const fn hover_radius_pair(radius: PixelValue) -> [CssPropertyWithConditions
 /// Flat's dialog skin (also the modal's; the popover swaps in its panel).
 #[must_use]
 pub(crate) fn dialog_skin() -> crate::widgets::dialog::DialogSkin {
-    use super::style_kit as kit;
+    use super::decl;
     use crate::widgets::dialog as d;
 
     // Every part: the dialog's structure (R5), then flat's skin.
     let mut close = d::DIALOG_CLOSE_BASE.to_vec();
     close.extend_from_slice(d::DIALOG_CLOSE_STYLE);
-    close.extend(kit::radius(3));
-    close.extend(kit::ring_slot());
+    close.extend(decl::radius(3));
+    close.extend(decl::ring_slot());
     // States last: a resting dark twin matches in every state.
-    close.extend(kit::hover_ink(LIGHT_INK, system_palette::TEXT));
-    close.extend(kit::focus_ring(FIELD_RING, DARK_ACC));
+    close.extend(decl::hover_ink(LIGHT_INK, system_palette::TEXT));
+    close.extend(decl::focus_ring(FIELD_RING, DARK_ACC));
 
     d::DialogSkin {
         theme: super::UiTheme::Flat,
@@ -3507,7 +3507,7 @@ fn pagination_button(
     is_first: bool,
     is_last: bool,
 ) -> CssPropertyWithConditionsVec {
-    use super::style_kit as kit;
+    use super::decl;
     use crate::widgets::pagination::{button_style, PageFace};
 
     let mut v = button_style(
@@ -3518,15 +3518,15 @@ fn pagination_button(
     )
     .into_library_owned_vec();
     if face == PageFace::Neutral {
-        v.extend(kit::hover_bg(LIGHT_HT, DARK_HT));
-        v.extend(kit::active_bg(LIGHT_PT, DARK_PT));
+        v.extend(decl::hover_fill(LIGHT_HT, DARK_HT));
+        v.extend(decl::active_fill(LIGHT_PT, DARK_PT));
     }
     let (ring, ring_dark) = if face == PageFace::Current {
         (LIGHT_ON_ACC, DARK_ON_ACC)
     } else {
         (FIELD_RING, DARK_ACC)
     };
-    v.extend(kit::focus_shadow_ring(ring, ring_dark));
+    v.extend(decl::focus_halo_inset_stacked(ring, ring_dark));
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -3548,14 +3548,14 @@ pub fn pagination(p: crate::widgets::pagination::Pagination) -> Dom {
 /// Flat's radio-group skin for a group laid out `horizontal`ly or not.
 #[must_use]
 pub(crate) fn radio_group_skin(horizontal: bool) -> crate::widgets::radio_group::RadioGroupSkin {
-    use super::style_kit as kit;
+    use super::decl;
     use crate::widgets::radio_group as r;
 
     let mut row = r::build_row_style(horizontal).into_library_owned_vec();
-    row.extend(kit::padding(1, 4, 1, 2));
-    row.extend(kit::radius(3));
-    row.extend(kit::ring_slot());
-    row.extend(kit::focus_ring(FIELD_RING, DARK_ACC));
+    row.extend(decl::padding(1, 4, 1, 2));
+    row.extend(decl::radius(3));
+    row.extend(decl::ring_slot());
+    row.extend(decl::focus_ring(FIELD_RING, DARK_ACC));
 
     // The indicator: the widget's base (its structure, the same in every
     // theme), then flat's established skin.
@@ -3601,20 +3601,20 @@ pub(crate) fn segmented_skin() -> crate::widgets::segmented::SegmentedSkin {
 
 /// One flat segment: the established face and dark twins, then the states.
 fn segmented_segment(selected: bool, is_first: bool, is_last: bool) -> CssPropertyWithConditionsVec {
-    use super::style_kit as kit;
+    use super::decl;
 
     let mut v = crate::widgets::segmented::segment_style(selected, is_first, is_last)
         .into_library_owned_vec();
     if !selected {
-        v.extend(kit::hover_bg(LIGHT_HT, DARK_HT));
-        v.extend(kit::active_bg(LIGHT_PT, DARK_PT));
+        v.extend(decl::hover_fill(LIGHT_HT, DARK_HT));
+        v.extend(decl::active_fill(LIGHT_PT, DARK_PT));
     }
     let (ring, ring_dark) = if selected {
         (LIGHT_ON_ACC, DARK_ON_ACC)
     } else {
         (FIELD_RING, DARK_ACC)
     };
-    v.extend(kit::focus_shadow_ring(ring, ring_dark));
+    v.extend(decl::focus_halo_inset_stacked(ring, ring_dark));
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -3637,16 +3637,16 @@ pub fn segmented(s: crate::widgets::segmented::Segmented) -> Dom {
 pub(crate) fn split_pane_skin(
     direction: crate::widgets::split_pane::SplitDirection,
 ) -> crate::widgets::split_pane::SplitPaneSkin {
-    use super::style_kit as kit;
+    use super::decl;
     use crate::widgets::split_pane as s;
 
     let mut divider = s::divider_style(direction).into_library_owned_vec();
     // States last: the resting dark twin matches in every state.
     divider.extend(CssPropertyWithConditions::themed_on_focus(
-        kit::bg(FIELD_RING),
-        kit::bg(DARK_ACC),
+        decl::fill(FIELD_RING),
+        decl::fill(DARK_ACC),
     ));
-    divider.extend(kit::focus_shadow_ring(FIELD_RING, DARK_ACC));
+    divider.extend(decl::focus_halo_inset_stacked(FIELD_RING, DARK_ACC));
 
     s::SplitPaneSkin {
         theme: super::UiTheme::Flat,
@@ -3685,7 +3685,7 @@ pub(crate) fn stepper_skin() -> crate::widgets::stepper::StepperSkin {
 
 fn stepper_cell() -> CssPropertyWithConditionsVec {
     let mut v = crate::widgets::stepper::STEPPER_STEP_STYLE.to_vec();
-    v.extend(super::style_kit::focus_shadow_ring(FIELD_RING, DARK_ACC));
+    v.extend(super::decl::focus_halo_inset_stacked(FIELD_RING, DARK_ACC));
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -3723,23 +3723,23 @@ pub fn stepper(s: crate::widgets::stepper::Stepper) -> Dom {
 /// Flat's time picker skin.
 #[must_use]
 pub(crate) fn time_picker_skin() -> crate::widgets::time_picker::TimePickerSkin {
-    use super::style_kit as kit;
+    use super::decl;
     use crate::widgets::time_picker as t;
 
     // The column is the spin button: its base, then its focus ring.
     let mut spinner = t::SPINNER_STYLE.to_vec();
-    spinner.extend(kit::radius(3));
-    spinner.extend(kit::focus_shadow_ring(FIELD_RING, DARK_ACC));
+    spinner.extend(decl::radius(3));
+    spinner.extend(decl::focus_halo_inset_stacked(FIELD_RING, DARK_ACC));
 
     // Every part is the widget's base, then flat's established const skin.
     let mut arrow = on_base(t::CLICKABLE_BASE, t::ARROW_STYLE).into_library_owned_vec();
-    arrow.extend(kit::radius(3));
+    arrow.extend(decl::radius(3));
     // States last: the resting dark twin matches in every state.
-    arrow.extend(kit::hover_bg(LIGHT_HT, DARK_HT));
-    arrow.extend(kit::active_bg(LIGHT_PT, DARK_PT));
+    arrow.extend(decl::hover_fill(LIGHT_HT, DARK_HT));
+    arrow.extend(decl::active_fill(LIGHT_PT, DARK_PT));
 
     let mut ampm = on_base(t::CLICKABLE_BASE, t::AMPM_STYLE).into_library_owned_vec();
-    ampm.extend(kit::focus_shadow_ring(LIGHT_ON_ACC, DARK_ON_ACC));
+    ampm.extend(decl::focus_halo_inset_stacked(LIGHT_ON_ACC, DARK_ON_ACC));
 
     t::TimePickerSkin {
         theme: super::UiTheme::Flat,
@@ -3773,7 +3773,7 @@ pub(crate) fn toast_skin() -> crate::widgets::toast::ToastSkin {
     // The widget's close base, then flat's static; the card's base is laid by
     // `build_toast_style` itself.
     let mut close = on_base(t::TOAST_CLOSE_BASE, t::TOAST_CLOSE_STYLE).into_library_owned_vec();
-    close.extend(super::style_kit::focus_halo(FIELD_RING, DARK_ACC));
+    close.extend(super::decl::focus_halo_stacked(FIELD_RING, DARK_ACC));
 
     t::ToastSkin {
         theme: super::UiTheme::Flat,
@@ -3832,13 +3832,13 @@ pub fn tooltip(t: crate::widgets::tooltip::Tooltip) -> Dom {
 /// Flat's "no signal" poster.
 #[must_use]
 pub(crate) fn video_poster_style() -> CssPropertyWithConditionsVec {
-    use super::style_kit as kit;
+    use super::decl;
     const SCREEN: ColorU = ColorU::new(42, 42, 48, 255);
     const SCREEN_EDGE: ColorU = ColorU::new(68, 68, 76, 255);
 
-    let mut v = kit::fill().to_vec();
-    v.push(CssPropertyWithConditions::simple(kit::bg(SCREEN)));
-    v.extend(kit::border(kit::Edges::ALL, 1, SCREEN_EDGE, SCREEN_EDGE));
+    let mut v = decl::fill_box().to_vec();
+    v.push(CssPropertyWithConditions::simple(decl::fill(SCREEN)));
+    v.extend(decl::themed_border(decl::Edges::ALL, 1, SCREEN_EDGE, SCREEN_EDGE));
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -4447,14 +4447,14 @@ pub fn date_picker(d: crate::widgets::date_picker::DatePicker) -> Dom {
 /// Flat's combobox skin.
 #[must_use]
 pub(crate) fn combobox_skin() -> crate::widgets::combobox::ComboBoxSkin {
-    use super::style_kit as kit;
+    use super::decl;
     use crate::widgets::combobox as c;
 
     // The widget's structure first (R5), then flat's skin.
     let mut option = c::COMBOBOX_OPTION_BASE.to_vec();
     option.extend_from_slice(c::COMBOBOX_OPTION_STYLE);
     // States last: the hover wash (and its dark twin) is already declared.
-    option.extend(kit::focus_shadow_ring(FIELD_RING, DARK_ACC));
+    option.extend(decl::focus_halo_inset_stacked(FIELD_RING, DARK_ACC));
 
     c::ComboBoxSkin {
         theme: super::UiTheme::Flat,
@@ -5357,7 +5357,7 @@ fn flat_strip_above() -> Vec<CssPropertyWithConditions> {
 fn flat_sheet() -> Vec<CssPropertyWithConditions> {
     use super::decl;
     let mut v = vec![
-        super::style_kit::font_size(13),
+        super::decl::font_size(13),
         CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
     ];
     v.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
@@ -5379,12 +5379,12 @@ fn flat_sheet() -> Vec<CssPropertyWithConditions> {
 /// Flat's message-list look.
 #[must_use]
 pub(crate) fn message_list_look() -> crate::widgets::message_list::MessageListLook {
-    use super::{decl, style_kit as kit};
+    use super::decl;
 
     let mut toolbar = decl::padding(6, 8, 6, 8).to_vec();
     toolbar.extend(flat_strip_below());
 
-    let mut sort = vec![kit::font_size(12)];
+    let mut sort = vec![decl::font_size(12)];
     sort.extend(decl::padding(3, 8, 3, 8));
     sort.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
     sort.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
@@ -5397,25 +5397,25 @@ pub(crate) fn message_list_look() -> crate::widgets::message_list::MessageListLo
     row.extend(decl::hover_fill(LIGHT_ROW_HOVER, DARK_ROW_HOVER));
     row.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
 
-    let mut group = vec![kit::font_size(12), decl::semibold()];
+    let mut group = vec![decl::font_size(12), decl::semibold()];
     group.extend(decl::padding(3, 8, 3, 8));
     group.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
     group.extend(decl::themed_ink(LIGHT_INK2, DARK_INK2));
     group.extend(decl::border_bottom(1));
     group.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
 
-    let mut icon = vec![kit::font_size(18)];
+    let mut icon = vec![decl::font_size(18)];
     icon.extend(decl::margin(0, 8, 0, 0));
     icon.extend(decl::themed_ink(TILE_ICON_LIGHT, TILE_ICON_DARK));
 
-    let mut subject = vec![kit::font_size(12)];
+    let mut subject = vec![decl::font_size(12)];
     subject.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
-    let mut preview = vec![kit::font_size(12)];
+    let mut preview = vec![decl::font_size(12)];
     preview.extend(decl::themed_ink(LIGHT_SOFT2, DARK_SOFT2));
-    let mut date = vec![kit::font_size(12)];
+    let mut date = vec![decl::font_size(12)];
     date.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
     date.extend(decl::margin(0, 0, 2, 8));
-    let mut attachment = vec![kit::font_size(14)];
+    let mut attachment = vec![decl::font_size(14)];
     attachment.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
 
     crate::widgets::message_list::MessageListLook {
@@ -5458,20 +5458,20 @@ pub fn message_list(l: crate::widgets::message_list::MessageList) -> Dom {
 /// Flat's reading-pane look.
 #[must_use]
 pub(crate) fn reading_pane_look() -> crate::widgets::reading_pane::ReadingPaneLook {
-    use super::{decl, style_kit as kit};
+    use super::decl;
 
     let mut header = decl::padding(12, 16, 8, 16).to_vec();
     header.extend(decl::border_bottom(1));
     header.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
 
-    let mut subject = vec![kit::font_size(20), decl::semibold()];
+    let mut subject = vec![decl::font_size(20), decl::semibold()];
     subject.extend(decl::margin(0, 0, 4, 0));
 
-    let mut date = vec![kit::font_size(12)];
+    let mut date = vec![decl::font_size(12)];
     date.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
     date.extend(decl::margin(0, 0, 0, 12));
 
-    let mut fields = vec![kit::font_size(12)];
+    let mut fields = vec![decl::font_size(12)];
     fields.extend(decl::padding(8, 16, 8, 16));
     fields.extend(decl::border_bottom(1));
     fields.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
@@ -5486,7 +5486,7 @@ pub(crate) fn reading_pane_look() -> crate::widgets::reading_pane::ReadingPaneLo
     attachments.extend(decl::border_bottom(1));
     attachments.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
 
-    let mut footer = vec![kit::font_size(12)];
+    let mut footer = vec![decl::font_size(12)];
     footer.extend(decl::padding(8, 16, 8, 16));
     footer.extend(flat_strip_above());
 
@@ -5494,7 +5494,7 @@ pub(crate) fn reading_pane_look() -> crate::widgets::reading_pane::ReadingPaneLo
         pane: flat_sheet(),
         header,
         subject,
-        sender_line: vec![kit::font_size(12)],
+        sender_line: vec![decl::font_size(12)],
         date,
         notice: Vec::new(),
         fields,
@@ -5525,10 +5525,10 @@ pub fn reading_pane(p: crate::widgets::reading_pane::ReadingPane) -> Dom {
 /// Flat's To-Do bar look.
 #[must_use]
 pub(crate) fn todo_bar_look() -> crate::widgets::todo_bar::ToDoBarLook {
-    use super::{decl, style_kit as kit};
+    use super::decl;
 
     let mut bar = vec![
-        kit::font_size(13),
+        decl::font_size(13),
         CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
     ];
     bar.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
@@ -5541,7 +5541,7 @@ pub(crate) fn todo_bar_look() -> crate::widgets::todo_bar::ToDoBarLook {
     appointments.extend(decl::border_bottom(1));
     appointments.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
 
-    let mut empty = vec![kit::font_size(12)];
+    let mut empty = vec![decl::font_size(12)];
     empty.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
     empty.extend(decl::padding(4, 0, 4, 0));
 
@@ -5549,7 +5549,7 @@ pub(crate) fn todo_bar_look() -> crate::widgets::todo_bar::ToDoBarLook {
     task.extend(decl::border_bottom(1));
     task.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
 
-    let mut task_due = vec![kit::font_size(11)];
+    let mut task_due = vec![decl::font_size(11)];
     task_due.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
     task_due.extend(decl::margin(0, 0, 0, 6));
 
@@ -5587,10 +5587,10 @@ pub fn todo_bar(b: crate::widgets::todo_bar::ToDoBar) -> Dom {
 /// Flat's module-switcher look.
 #[must_use]
 pub(crate) fn module_switcher_look() -> crate::widgets::module_switcher::ModuleSwitcherLook {
-    use super::{decl, style_kit as kit};
+    use super::decl;
 
     let mut switcher = vec![
-        kit::font_size(14),
+        decl::font_size(14),
         CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
     ];
     switcher.extend(flat_strip_above());
@@ -5620,7 +5620,7 @@ pub(crate) fn module_switcher_look() -> crate::widgets::module_switcher::ModuleS
     module.extend(decl::hover_fill(LIGHT_ROW_HOVER, DARK_ROW_HOVER));
     module.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
 
-    let mut module_icon = vec![kit::font_size(20)];
+    let mut module_icon = vec![decl::font_size(20)];
     module_icon.extend(decl::margin(0, 8, 0, 0));
     module_icon.extend(decl::themed_ink(TILE_ICON_LIGHT, TILE_ICON_DARK));
 
@@ -5630,7 +5630,7 @@ pub(crate) fn module_switcher_look() -> crate::widgets::module_switcher::ModuleS
         chevron,
         module,
         module_active: decl::themed_fill(TILE_SELECTED_LIGHT, TILE_SELECTED_DARK).to_vec(),
-        module_label: vec![kit::font_size(14)],
+        module_label: vec![decl::font_size(14)],
         module_icon,
         marker: None,
     }
@@ -5652,12 +5652,12 @@ pub fn module_switcher(s: crate::widgets::module_switcher::ModuleSwitcher) -> Do
 /// Flat's wizard-layout look.
 #[must_use]
 pub(crate) fn wizard_layout_look() -> crate::widgets::wizard_layout::WizardLayoutLook {
-    use super::{decl, style_kit as kit};
+    use super::decl;
 
     let mut rail = decl::padding(12, 16, 12, 16).to_vec();
     rail.extend(flat_strip_below());
 
-    let mut title = vec![kit::font_size(18), decl::semibold()];
+    let mut title = vec![decl::font_size(18), decl::semibold()];
     title.extend(decl::margin(0, 0, 12, 0));
 
     let mut buttons = decl::padding(10, 16, 10, 16).to_vec();
@@ -5665,7 +5665,7 @@ pub(crate) fn wizard_layout_look() -> crate::widgets::wizard_layout::WizardLayou
 
     // The frames: a Windows installer's white banner over a hairline, the
     // macOS installer's side panel on the window surface.
-    let mut subtitle = vec![kit::font_size(12)];
+    let mut subtitle = vec![decl::font_size(12)];
     subtitle.extend(decl::themed_ink(LIGHT_INK2, DARK_INK2));
     subtitle.extend(decl::margin(2, 0, 8, 0));
 
@@ -5674,7 +5674,7 @@ pub(crate) fn wizard_layout_look() -> crate::widgets::wizard_layout::WizardLayou
     banner.extend(decl::border_bottom(1));
     banner.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
 
-    let mut banner_icon = vec![kit::font_size(32)];
+    let mut banner_icon = vec![decl::font_size(32)];
     banner_icon.extend(decl::margin(0, 0, 8, 12));
     banner_icon.extend(decl::themed_ink(TILE_ICON_LIGHT, TILE_ICON_DARK));
 
@@ -5686,11 +5686,11 @@ pub(crate) fn wizard_layout_look() -> crate::widgets::wizard_layout::WizardLayou
     side_panel.extend(shell_border_right());
     side_panel.extend(decl::themed_border_right_color(LIGHT_BD, DARK_BD));
 
-    let mut side_icon = vec![kit::font_size(40)];
+    let mut side_icon = vec![decl::font_size(40)];
     side_icon.extend(decl::margin(0, 0, 16, 0));
     side_icon.extend(decl::themed_ink(TILE_ICON_LIGHT, TILE_ICON_DARK));
 
-    let mut side_step = vec![kit::font_size(13)];
+    let mut side_step = vec![decl::font_size(13)];
     side_step.extend(decl::padding(4, 0, 4, 0));
     side_step.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
 
@@ -5698,7 +5698,7 @@ pub(crate) fn wizard_layout_look() -> crate::widgets::wizard_layout::WizardLayou
     side_step_current.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
 
     let warning = crate::widgets::alert::AlertKind::Warning;
-    let mut reason = vec![kit::font_size(12)];
+    let mut reason = vec![decl::font_size(12)];
     reason.extend(decl::margin(0, 12, 0, 12));
     reason.extend(decl::themed_ink(warning.colors().2, warning.dark_colors().2));
 
@@ -5711,7 +5711,7 @@ pub(crate) fn wizard_layout_look() -> crate::widgets::wizard_layout::WizardLayou
         button: decl::margin(0, 0, 0, 8).to_vec(),
         subtitle,
         banner,
-        banner_title: vec![kit::font_size(14), decl::semibold()],
+        banner_title: vec![decl::font_size(14), decl::semibold()],
         banner_icon,
         side_panel,
         side_icon,
@@ -5751,29 +5751,29 @@ const KIT_MARK_INK_DARK: ColorU = ColorU::new(255, 236, 179, 255);
 /// Flat's dialog-kit look.
 #[must_use]
 pub(crate) fn dialog_kit_look() -> crate::widgets::dialog_kit::DialogKitLook {
-    use super::{decl, style_kit as kit};
+    use super::decl;
     use crate::widgets::alert::AlertKind;
 
     let px = |p: CssProperty| CssPropertyWithConditions::simple(p);
     let soft = |size: isize| {
-        let mut v = vec![kit::font_size(size)];
+        let mut v = vec![decl::font_size(size)];
         v.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
         v
     };
     let glyph_of = |kind: AlertKind| {
-        let mut v = vec![kit::font_size(32)];
+        let mut v = vec![decl::font_size(32)];
         v.extend(decl::margin(0, 16, 0, 0));
         v.extend(decl::themed_ink(kind.colors().2, kind.dark_colors().2));
         v
     };
 
     let mut page = vec![
-        kit::font_size(13),
+        decl::font_size(13),
         CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
     ];
     page.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
 
-    let mut logo = vec![kit::font_size(48)];
+    let mut logo = vec![decl::font_size(48)];
     logo.extend(decl::themed_ink(LIGHT_ACC, DARK_ACC));
 
     let mut label = vec![decl::semibold()];
@@ -5799,7 +5799,7 @@ pub(crate) fn dialog_kit_look() -> crate::widgets::dialog_kit::DialogKitLook {
     let mut description = soft(12);
     description.extend(decl::margin(0, 0, 6, 28));
 
-    let mut summary_key = vec![kit::font_size(12), decl::semibold()];
+    let mut summary_key = vec![decl::font_size(12), decl::semibold()];
     summary_key.extend(decl::themed_ink(LIGHT_INK2, DARK_INK2));
 
     let mut field_row = decl::padding(8, 0, 8, 0).to_vec();
@@ -5815,7 +5815,7 @@ pub(crate) fn dialog_kit_look() -> crate::widgets::dialog_kit::DialogKitLook {
     let mut mark = decl::themed_fill(KIT_MARK_LIGHT, KIT_MARK_DARK).to_vec();
     mark.extend(decl::themed_ink(LIGHT_INK, KIT_MARK_INK_DARK));
 
-    let mut modified = vec![kit::font_size(12)];
+    let mut modified = vec![decl::font_size(12)];
     modified.extend(decl::margin(0, 6, 0, 0));
     modified.extend(decl::themed_ink(LIGHT_ACC, DARK_ACC));
 
@@ -5824,7 +5824,7 @@ pub(crate) fn dialog_kit_look() -> crate::widgets::dialog_kit::DialogKitLook {
 
     let mut recorder = vec![
         px(CssProperty::const_min_width(LayoutMinWidth::const_px(160))),
-        kit::font_size(13),
+        decl::font_size(13),
     ];
     recorder.extend(decl::border(1));
     recorder.extend(decl::themed_border_color(LIGHT_BD3, DARK_BD3));
@@ -5840,16 +5840,16 @@ pub(crate) fn dialog_kit_look() -> crate::widgets::dialog_kit::DialogKitLook {
     let mut dialog = vec![px(CssProperty::const_min_width(LayoutMinWidth::const_px(360)))];
     dialog.extend(decl::padding(16, 20, 16, 20));
 
-    let mut icon_question = vec![kit::font_size(32)];
+    let mut icon_question = vec![decl::font_size(32)];
     icon_question.extend(decl::margin(0, 16, 0, 0));
     icon_question.extend(decl::themed_ink(LIGHT_ACC, DARK_ACC));
 
     let warning = AlertKind::Warning;
-    let mut notice = vec![kit::font_size(12)];
+    let mut notice = vec![decl::font_size(12)];
     notice.extend(decl::margin(0, 12, 0, 12));
     notice.extend(decl::themed_ink(warning.colors().2, warning.dark_colors().2));
 
-    let mut category_icon = vec![kit::font_size(16)];
+    let mut category_icon = vec![decl::font_size(16)];
     category_icon.extend(decl::margin(0, 8, 0, 0));
     category_icon.extend(decl::themed_ink(TILE_ICON_LIGHT, TILE_ICON_DARK));
 
@@ -5858,8 +5858,8 @@ pub(crate) fn dialog_kit_look() -> crate::widgets::dialog_kit::DialogKitLook {
 
     crate::widgets::dialog_kit::DialogKitLook {
         page,
-        heading: vec![kit::font_size(18), decl::semibold()],
-        text: vec![kit::font_size(13)],
+        heading: vec![decl::font_size(18), decl::semibold()],
+        text: vec![decl::font_size(13)],
         hint: soft(12),
         logo,
         block: decl::margin(0, 0, 12, 0).to_vec(),
@@ -5952,23 +5952,23 @@ fn flat_timeline_clip(
 /// Flat's timeline look.
 #[must_use]
 pub(crate) fn timeline_look() -> crate::widgets::timeline::TimelineLook {
-    use super::{decl, style_kit as kit};
+    use super::decl;
 
-    let mut corner = vec![kit::font_size(12), decl::semibold()];
+    let mut corner = vec![decl::font_size(12), decl::semibold()];
     corner.extend(decl::padding(0, 8, 0, 8));
     corner.extend(decl::themed_ink(LIGHT_INK2, DARK_INK2));
 
     let mut ruler = decl::border_left(1).to_vec();
     ruler.extend(decl::themed_border_left_color(LIGHT_BD, DARK_BD));
 
-    let mut tick_label = vec![kit::font_size(10)];
+    let mut tick_label = vec![decl::font_size(10)];
     tick_label.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
 
     let mut header = decl::padding(0, 2, 0, 8).to_vec();
     header.extend(decl::border_bottom(1));
     header.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
 
-    let mut track_name = vec![kit::font_size(12), decl::semibold()];
+    let mut track_name = vec![decl::font_size(12), decl::semibold()];
     track_name.extend(decl::themed_ink(LIGHT_INK2, DARK_INK2));
 
     let mut lanes = decl::themed_fill(LIGHT_DESK, DARK_DESK).to_vec();
@@ -5988,8 +5988,8 @@ pub(crate) fn timeline_look() -> crate::widgets::timeline::TimelineLook {
     let mut clip_thumb = decl::margin(0, 5, 0, 0).to_vec();
     clip_thumb.extend(decl::radius(2));
 
-    let clip_label = vec![kit::font_size(11), decl::semibold()];
-    let mut clip_detail = vec![kit::font_size(10)];
+    let clip_label = vec![decl::font_size(11), decl::semibold()];
+    let mut clip_detail = vec![decl::font_size(10)];
     clip_detail.extend(decl::margin(0, 0, 0, 6));
 
     let mut scroll_track = decl::themed_fill(LIGHT_TRACK, DARK_TRACK).to_vec();
@@ -6101,32 +6101,32 @@ const THUMB_ITEM_SELECTED_DARK: ColorU = ColorU::new(0x4A, 0x30, 0x26, 255);
 /// Flat's thumbnail-strip look.
 #[must_use]
 pub(crate) fn thumbnail_strip_look() -> crate::widgets::thumbnail_strip::ThumbnailStripLook {
-    use super::{decl, style_kit as kit};
+    use super::decl;
 
     let mut strip = vec![
-        kit::font_size(12),
+        decl::font_size(12),
         CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
     ];
     strip.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
     strip.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
     strip.extend(decl::padding(6, 6, 6, 6));
 
-    let mut section = vec![kit::font_size(12), decl::semibold()];
+    let mut section = vec![decl::font_size(12), decl::semibold()];
     section.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
     section.extend(decl::padding(6, 4, 4, 2));
 
-    let mut section_icon = vec![kit::font_size(16)];
+    let mut section_icon = vec![decl::font_size(16)];
     section_icon.extend(decl::margin(0, 4, 0, 0));
     section_icon.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
 
     let mut item = decl::padding(4, 6, 4, 2).to_vec();
     item.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
 
-    let mut number = vec![kit::font_size(12)];
+    let mut number = vec![decl::font_size(12)];
     number.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
     number.extend(decl::margin(2, 6, 0, 0));
 
-    let mut badge = vec![kit::font_size(14)];
+    let mut badge = vec![decl::font_size(14)];
     badge.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
 
     let mut thumb = decl::border(2).to_vec();
@@ -6163,7 +6163,7 @@ pub(crate) fn thumbnail_strip_look() -> crate::widgets::thumbnail_strip::Thumbna
 /// Flat's cell-grid look.
 #[must_use]
 pub(crate) fn cell_grid_look() -> crate::widgets::cell_grid::CellGridLook {
-    use super::{decl, style_kit as kit};
+    use super::decl;
 
     let mut grid = alloc::vec![CssPropertyWithConditions::simple(
         CssProperty::const_font_family(SYSTEM_UI_FAMILY)
@@ -6171,7 +6171,7 @@ pub(crate) fn cell_grid_look() -> crate::widgets::cell_grid::CellGridLook {
     grid.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
     grid.extend(decl::themed_fill(LIGHT_PG, DARK_PG));
 
-    let mut header = alloc::vec![kit::font_size(11)];
+    let mut header = alloc::vec![decl::font_size(11)];
     header.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
     header.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
     header.extend(decl::border_right(1));

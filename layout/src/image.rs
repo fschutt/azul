@@ -9,7 +9,7 @@ pub mod decode {
     use core::fmt;
 
     use azul_core::resources::{RawImage, RawImageFormat};
-    use azul_css::{impl_option, impl_option_inner, impl_result, impl_result_inner, U8Vec};
+    use azul_css::{impl_option, impl_result, U8Vec};
     use image::{
         error::{ImageError, LimitError, LimitErrorKind},
         DynamicImage,
@@ -500,7 +500,7 @@ pub mod encode {
     use std::io::Cursor;
 
     use azul_core::resources::{RawImage, RawImageFormat};
-    use azul_css::{impl_result, impl_result_inner, U8Vec};
+    use azul_css::{impl_result, U8Vec};
     #[cfg(feature = "bmp")]
     use image::codecs::bmp::BmpEncoder;
     #[cfg(feature = "gif")]

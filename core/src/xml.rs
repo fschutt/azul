@@ -7240,99 +7240,6 @@ pub fn format_args_dynamic(input: &str, variables: &ComponentArgumentVec) -> Str
     combine_and_replace_dynamic_items(&dynamic_str_items, variables)
 }
 
-/// The character the HTML named character reference `name` (the part between
-/// `&` and `;`, e.g. `"copy"`) stands for, or `None` for an unknown name and
-/// for the 93 names that stand for two characters
-/// ([`html::named_character_reference`] has those).
-///
-/// THE one table (`xml_entities.rs`, the HTML Standard's 2231 names): every
-/// decoder looks names up through it - [`html::decode_character_references`]
-/// (both of `azul_layout::xml`'s strict loaders and the lenient one) and
-/// [`prepare_string`] here.
-#[must_use]
-pub fn html_named_entity(name: &str) -> Option<char> {
-    let chars = html::named_character_reference(name, true)?;
-    let mut iter = chars.chars();
-    let first = iter.next()?;
-    iter.next().is_none().then_some(first)
-}
-
-/// Decode a numeric character reference body (the part between `&` and `;`),
-/// e.g. `"#65"` -> `'A'`, `"#x41"` -> `'A'`. Returns `None` if it is not a valid
-/// numeric reference.
-fn decode_numeric_entity(entity: &str) -> Option<char> {
-    let num = entity.strip_prefix('#')?;
-    let code = if let Some(hex) = num.strip_prefix(['x', 'X']) {
-        u32::from_str_radix(hex, 16).ok()?
-    } else {
-        num.parse::<u32>().ok()?
-    };
-    char::from_u32(code)
-}
-
-/// Decode the common HTML/XML entities in a single left-to-right pass.
-///
-/// Handles `&lt;` `&gt;` `&amp;` `&quot;` `&apos;`, numeric references
-/// (`&#NN;` / `&#xHH;`) and the other HTML named references
-/// ([`html_named_entity`]). `&nbsp;` and any unrecognized `&...;` sequence are
-/// left verbatim. The single pass guarantees `&amp;` never double-decodes a following
-/// entity. See [`prepare_string`] for why `&nbsp;` is deliberately preserved.
-fn decode_entities(input: &str) -> String {
-    // Longest handled entity body is the longest HTML name
-    // (`CounterClockwiseContourIntegral`, 31 bytes); cap the `;` search window
-    // so a stray `&` far from a `;` stays cheap.
-    const MAX_ENTITY_BODY: usize = 32;
-
-    let mut out = String::with_capacity(input.len());
-    let bytes = input.as_bytes();
-    let mut i = 0;
-    while i < input.len() {
-        if bytes[i] == b'&' {
-            if let Some(semi_rel) = input[i + 1..].find(';') {
-                if semi_rel <= MAX_ENTITY_BODY {
-                    let body = &input[i + 1..i + 1 + semi_rel];
-                    let end = i + 1 + semi_rel; // index of ';'
-                                                // Leave &nbsp; for the per-line pass in
-                                                // prepare_string.
-                    if body.eq_ignore_ascii_case("nbsp") {
-                        out.push_str(&input[i..=end]);
-                        i = end + 1;
-                        continue;
-                    }
-                    let decoded = match body {
-                        "lt" => Some('<'),
-                        "gt" => Some('>'),
-                        "amp" => Some('&'),
-                        "quot" => Some('"'),
-                        "apos" => Some('\''),
-                        _ => decode_numeric_entity(body).or_else(|| html_named_entity(body)),
-                    };
-                    if let Some(c) = decoded {
-                        out.push(c);
-                        i = end + 1;
-                        continue;
-                    }
-                    // A name that stands for two characters (`&NotEqualTilde;`).
-                    if let Some(chars) = html::named_character_reference(body, true) {
-                        out.push_str(chars);
-                        i = end + 1;
-                        continue;
-                    }
-                }
-            }
-            // Not a recognized entity: emit the '&' literally.
-            out.push('&');
-            i += 1;
-        } else {
-            // Copy one whole UTF-8 char (i is always on a char boundary here).
-            let ch = input[i..].chars().next().unwrap_or('\u{FFFD}');
-            out.push(ch);
-            i += ch.len_utf8();
-        }
-    }
-    out
-}
-
 // NOTE: Two sequential returns count as a single return, while single returns get ignored.
 #[must_use]
 pub fn prepare_string(input: &str) -> String {
@@ -7345,14 +7252,15 @@ pub fn prepare_string(input: &str) -> String {
         return String::new();
     }
 
-    // AUDIT 2026-07-08: previously only `&lt;`/`&gt;` were decoded. Decode the full
-    // common named-entity set (`&lt;` `&gt;` `&amp;` `&quot;` `&apos;`) plus numeric
-    // references (`&#NN;` decimal and `&#xHH;` hex) in a single left-to-right pass.
-    // A single pass is used deliberately so `&amp;` cannot double-decode a following
-    // entity (e.g. "&amp;lt;" -> literal "&lt;", not "<"). `&nbsp;` is intentionally
-    // left untouched here so the per-line pass below (which runs AFTER trimming) can
-    // still turn it into a space that survives leading/trailing trim.
-    let input = decode_entities(input);
+    // The character references, decoded by THE decoder
+    // (`html::decode_character_references`, XML's rules with HTML's names) in
+    // one left-to-right pass, so `&amp;lt;` is the text `&lt;`, not `<`.
+    // `&nbsp;` is the exception: it stays `&nbsp;` here (written as `&amp;nbsp;`
+    // first, which the one pass turns back into `&nbsp;`) so the per-line pass
+    // below, which runs AFTER the trim, turns it into a space the trim keeps -
+    // decoded to U+00A0 now, `str::trim` would eat it.
+    let protected = input.replace("&nbsp;", "&amp;nbsp;");
+    let input = html::decode_character_references(&protected, html::CharRefMode::Xml);
 
     let input_len = input.len();
     let mut final_lines: Vec<String> = Vec::new();

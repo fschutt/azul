@@ -2122,6 +2122,25 @@ pub struct CoreCallbackData {
     pub refany: RefAny,
 }
 
+impl CoreCallbackData {
+    /// `event` calls `callback` with `refany`: the entry `Dom::add_callback`
+    /// pushes, as a value for a `CoreCallbackDataVec` built up front. The
+    /// arguments come in `add_callback`'s order. `callback` is an
+    /// `extern "C" fn` address (`on_click as usize`, no foreign `ctx` - the
+    /// native case) or a whole `CoreCallback` (keeping its `ctx`). The one
+    /// builder the widgets share instead of a private `hook()` each
+    /// (`DEDUP_WIDGETS_API` F3).
+    #[inline]
+    #[must_use]
+    pub fn create<C: Into<CoreCallback>>(event: EventFilter, refany: RefAny, callback: C) -> Self {
+        Self {
+            event,
+            callback: callback.into(),
+            refany,
+        }
+    }
+}
+
 impl_option!(
     CoreCallbackData,
     OptionCoreCallbackData,

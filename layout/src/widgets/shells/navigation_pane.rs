@@ -39,15 +39,15 @@ use alloc::vec::Vec;
 
 use azul_core::{
     a11y::{AccessibilityInfo, AccessibilityRole, AccessibilityState, AccessibilityStateVec},
-    callbacks::{CoreCallback, CoreCallbackData, Update},
+    callbacks::{CoreCallbackData, Update},
     dom::{Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClassVec, NodeType, OptionDom},
     events::FocusEventFilter,
-    refany::{OptionRefAny, RefAny},
+    refany::RefAny,
     window::VirtualKeyCode,
 };
 use azul_css::{
     corety::OptionUsize,
-    impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
+    impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
     impl_vec_partialeq,
     AzString,
 };
@@ -664,17 +664,6 @@ extern "C" fn on_module_key(_data: RefAny, mut info: CallbackInfo) -> Update {
 // The build
 // ---------------------------------------------------------------------------
 
-fn hook(event: EventFilter, cb: usize, refany: RefAny) -> CoreCallbackData {
-    CoreCallbackData {
-        event,
-        callback: CoreCallback {
-            cb,
-            ctx: OptionRefAny::None,
-        },
-        refany,
-    }
-}
-
 /// One module button: in the switcher (icon, label, badge) or in the strip
 /// (icon only, named by its label).
 #[allow(clippy::too_many_arguments)]
@@ -759,15 +748,15 @@ fn module_node(
         })
         .with_callbacks(
             alloc::vec![
-                hook(
+                CoreCallbackData::create(
                     EventFilter::Hover(HoverEventFilter::Click),
-                    on_module_click as usize,
                     part_ref.clone(),
+                    on_module_click as usize,
                 ),
-                hook(
+                CoreCallbackData::create(
                     EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
-                    on_module_key as usize,
                     part_ref,
+                    on_module_key as usize,
                 ),
             ]
             .into(),

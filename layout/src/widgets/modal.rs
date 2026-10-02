@@ -31,7 +31,7 @@ use azul_core::{
 };
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec},
-    impl_option_inner, AzString,
+    AzString,
 };
 
 use crate::{

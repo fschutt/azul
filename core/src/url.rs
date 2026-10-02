@@ -14,7 +14,7 @@ use alloc::string::String;
 use alloc::string::ToString;
 use core::fmt;
 
-use azul_css::{impl_result, impl_result_inner, AzString};
+use azul_css::{impl_result, AzString};
 
 /// A parsed URL
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]

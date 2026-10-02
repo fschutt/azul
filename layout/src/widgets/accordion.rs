@@ -35,7 +35,7 @@ use azul_core::{
 use azul_css::{
     corety::OptionUsize,
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
-    impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
+    impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
     impl_vec_partialeq,
     props::{
         basic::{

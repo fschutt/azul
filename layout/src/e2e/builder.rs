@@ -46,6 +46,7 @@ use azul_core::{
     id::NodeId,
     styled_dom::StyledDom,
     xml::{
+        html::{encode_attribute, encode_text},
         ComponentCodegen, ComponentDataField, ComponentDataFieldVec, ComponentDataModel,
         ComponentDef, ComponentDefVec, ComponentDefaultValue, ComponentFieldType, ComponentId,
         ComponentLibrary, ComponentLibraryVec, ComponentMap, ComponentSource,
@@ -931,11 +932,11 @@ impl BuilderDocument {
         let own = if self.stylesheet.trim().is_empty() {
             String::new()
         } else {
-            format!("<style>{}</style>", escape_xml(&self.stylesheet))
+            format!("<style>{}</style>", encode_text(&self.stylesheet))
         };
         format!(
             "<html><head><style>{}</style>{own}</head>{body}</html>",
-            escape_xml(&css)
+            encode_text(&css)
         )
     }
 }
@@ -1610,7 +1611,7 @@ impl<'m> XmlWriter<'m> {
     /// `mark`: this is a DOCUMENT node, give it its `azb-<uid>` class.
     fn write_node(&mut self, out: &mut String, node: &BuilderNode, mark: bool, depth: usize) {
         match &node.kind {
-            BuilderNodeKind::Text { text } => out.push_str(&escape_xml(text)),
+            BuilderNodeKind::Text { text } => out.push_str(&encode_text(text)),
             BuilderNodeKind::Element { tag } => {
                 write_open_tag(out, tag, &node.attrs, mark.then_some(node.uid));
                 if is_void(tag) {
@@ -1619,7 +1620,7 @@ impl<'m> XmlWriter<'m> {
                 }
                 out.push('>');
                 if let Some(t) = node.attrs.get("text") {
-                    out.push_str(&escape_xml(t));
+                    out.push_str(&encode_text(t));
                 }
                 for c in &node.children {
                     self.write_node(out, c, mark, depth);
@@ -1728,12 +1729,12 @@ fn write_open_tag(
         out.push(' ');
         out.push_str(k);
         out.push_str("=\"");
-        out.push_str(&escape_xml(v));
+        out.push_str(&encode_attribute(v));
         out.push('"');
     }
     if !class.is_empty() {
         out.push_str(" class=\"");
-        out.push_str(&escape_xml(&class));
+        out.push_str(&encode_attribute(&class));
         out.push('"');
     }
 }
@@ -1743,7 +1744,7 @@ fn write_placeholder(out: &mut String, marker: Option<u64>, message: &str) {
     attrs.insert("class".to_string(), "az-builder-placeholder".to_string());
     write_open_tag(out, "div", &attrs, marker);
     out.push('>');
-    out.push_str(&escape_xml(message));
+    out.push_str(&encode_text(message));
     out.push_str("</div>");
 }
 
@@ -2092,7 +2093,7 @@ pub fn substitute(template: &str, args: &BTreeMap<String, String>) -> String {
                 let name = &tail[1..end];
                 if is_param_name(name) {
                     if let Some(v) = args.get(name) {
-                        out.push_str(&escape_xml(v));
+                        out.push_str(&encode_attribute(v));
                         rest = &tail[end + 1..];
                         continue;
                     }
@@ -2207,7 +2208,7 @@ fn write_template(
     parent_tag: &str,
 ) {
     let lit = |s: &str, inferring: bool| {
-        let e = escape_xml(s);
+        let e = encode_attribute(s);
         if inferring {
             e.replace('{', "{{").replace('}', "}}")
         } else {
@@ -2727,21 +2728,6 @@ fn is_param_name(name: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
-/// Escape for XML text and attribute values (the parser decodes all five).
-fn escape_xml(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&apos;"),
-            _ => out.push(c),
-        }
-    }
-    out
-}
 
 /// `my-card` → `My Card`.
 fn title_case(name: &str) -> String {
@@ -3010,9 +2996,9 @@ mod tests {
         assert!(xml.contains("<body class=\"azb-0\">"), "{xml}");
         assert!(
             xml.contains(&format!(
-                "<p class=\"x azb-{p}\">a &lt; b &amp; &quot;c&quot;</p>"
+                "<p class=\"x azb-{p}\">a &lt; b &amp; \"c\"</p>"
             )),
-            "{xml}"
+            "text escapes & < > (the one encoder); a quote is plain text there: {xml}"
         );
         assert!(xml.contains("<br class=\"azb-2\"/>"), "{xml}");
     }

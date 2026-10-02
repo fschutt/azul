@@ -6,7 +6,7 @@ use alloc::{format, string::String, vec::Vec};
 use core::fmt;
 
 use azul_css::{
-    impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
+    impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
     impl_vec_partialeq, AzString, U8Vec,
 };
 
@@ -127,7 +127,7 @@ impl std::error::Error for HttpError {}
 pub type HttpResult<T> = Result<T, HttpError>;
 
 // FFI-safe Result types for HTTP operations
-use azul_css::{impl_result, impl_result_inner};
+use azul_css::impl_result;
 
 // Forward declaration - actual impl_result! calls are after HttpResponse definition
 

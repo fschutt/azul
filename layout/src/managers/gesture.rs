@@ -25,7 +25,7 @@ use azul_core::{
     task::{Duration as CoreDuration, Instant as CoreInstant},
     window::WindowPosition,
 };
-use azul_css::{impl_option, impl_option_inner, AzString};
+use azul_css::{impl_option, AzString};
 
 #[cfg(feature = "std")]
 static NEXT_EVENT_ID: AtomicU64 = AtomicU64::new(1);

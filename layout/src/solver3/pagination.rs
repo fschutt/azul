@@ -23,7 +23,7 @@
 
 pub use azul_core::paged::PageMargins;
 use azul_core::refany::{OptionRefAny, RefAny};
-use azul_css::{impl_option_inner, props::basic::ColorU, AzString, OptionString};
+use azul_css::{props::basic::ColorU, AzString, OptionString};
 
 /// Content that can appear in a page margin box.
 ///

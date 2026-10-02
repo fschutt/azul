@@ -33,15 +33,15 @@ use alloc::vec::Vec;
 
 use azul_core::{
     a11y::{AccessibilityInfo, AccessibilityRole, AccessibilityState, AccessibilityStateVec},
-    callbacks::{CoreCallback, CoreCallbackData, Update},
+    callbacks::{CoreCallbackData, Update},
     dom::{Dom, DomVec, EventFilter, HoverEventFilter, NodeType, OptionDom},
     events::FocusEventFilter,
-    refany::{OptionRefAny, RefAny},
+    refany::RefAny,
     window::VirtualKeyCode,
 };
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, DynamicSelector, MinMaxRange},
-    impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
+    impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
     impl_vec_partialeq,
     props::{
         basic::length::FloatValue,
@@ -475,17 +475,6 @@ extern "C" fn on_tab_key(_data: RefAny, mut info: CallbackInfo) -> Update {
 // The build
 // ---------------------------------------------------------------------------
 
-fn hook(event: EventFilter, cb: usize, refany: RefAny) -> CoreCallbackData {
-    CoreCallbackData {
-        event,
-        callback: CoreCallback {
-            cb,
-            ctx: OptionRefAny::None,
-        },
-        refany,
-    }
-}
-
 /// The app bar: a row of its parts, centred, that keeps its height.
 static APP_BAR_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
@@ -584,15 +573,15 @@ fn tab(
         })
         .with_callbacks(
             alloc::vec![
-                hook(
+                CoreCallbackData::create(
                     EventFilter::Hover(HoverEventFilter::Click),
-                    on_tab_click as usize,
-                    tab_ref.clone()
+                    tab_ref.clone(),
+                    on_tab_click as usize
                 ),
-                hook(
+                CoreCallbackData::create(
                     EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
-                    on_tab_key as usize,
-                    tab_ref
+                    tab_ref,
+                    on_tab_key as usize
                 ),
             ]
             .into(),

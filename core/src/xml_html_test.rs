@@ -462,3 +462,109 @@ fn elements_deeper_than_the_limit_become_siblings() {
     assert!(depth <= MAX_XML_NESTING_DEPTH + 1, "nested {depth} deep");
     drop(nodes);
 }
+
+// ============================================================================
+// The one encoder (DEDUP_WIDGETS_API F5): the inverse of
+// `decode_character_references`, for every writer of HTML / XML text.
+// ============================================================================
+
+/// Text content needs `&`, `<` and `>` escaped - nothing else: quotes are
+/// plain characters between tags.
+#[test]
+fn text_encoding_escapes_ampersand_and_angle_brackets_and_keeps_quotes() {
+    assert_eq!(
+        encode_text("a < b & c > d \"e\" 'f'"),
+        "a &lt; b &amp; c &gt; d \"e\" 'f'"
+    );
+    assert_eq!(
+        encode_text("&amp;"),
+        "&amp;amp;",
+        "an existing reference is text too"
+    );
+    assert_eq!(
+        encode_text("<script>a && b</script>"),
+        "&lt;script&gt;a &amp;&amp; b&lt;/script&gt;"
+    );
+}
+
+/// An attribute value also needs both quotes escaped, so it is safe inside
+/// `"..."` and `'...'` alike (and `<` / `>` for the XML loaders' sake).
+#[test]
+fn attribute_encoding_also_escapes_both_quotes() {
+    assert_eq!(
+        encode_attribute("x=\"1\" & y='2' <z>"),
+        "x=&quot;1&quot; &amp; y=&apos;2&apos; &lt;z&gt;"
+    );
+    assert_eq!(
+        encode_attribute("https://example.org/?a=1&b=2"),
+        "https://example.org/?a=1&amp;b=2"
+    );
+}
+
+/// XML 1.0 has no way to write the C0 controls other than tab, line feed
+/// and carriage return, nor U+FFFE / U+FFFF - not even as a reference - so
+/// the encoder leaves them out instead of writing a document a strict
+/// loader (or Windows' toast XML) rejects. DEL and the C1 controls are
+/// legal XML and stay.
+#[test]
+fn encoding_drops_the_characters_xml_cannot_carry_and_keeps_tab_and_line_breaks() {
+    let s = "a\u{0}b\u{8}c\td\ne\rf\u{b}g\u{c}h\u{1f}i\u{fffe}j\u{ffff}k\u{7f}l\u{85}m";
+    let kept = "abc\td\ne\rfghijk\u{7f}l\u{85}m";
+    assert_eq!(encode_text(s), kept);
+    assert_eq!(encode_attribute(s), kept);
+}
+
+/// Plain text comes back unchanged.
+#[test]
+fn encoding_plain_text_changes_nothing() {
+    for s in [
+        "",
+        "plain",
+        "\u{1F642} caf\u{e9} \u{65e5}\u{672c}",
+        "tab\tand\nlines",
+    ] {
+        assert_eq!(encode_text(s), s);
+        assert_eq!(encode_attribute(s), s);
+    }
+}
+
+/// What the encoder writes, the decoder reads back as the original - in
+/// every mode, so a writer never has to know which loader reads its output.
+#[test]
+fn an_encoded_string_decodes_back_to_itself_in_every_mode() {
+    for s in [
+        "",
+        "plain",
+        "a<b>&c\"d'e",
+        "&amp;lt;",
+        "&copy 2026 &copy; &#169; &#xA9;",
+        "\u{1F642}&\u{1F642}",
+        "?a=1&copy=2&lt=3",
+        "&",
+        "&;",
+        "&#",
+    ] {
+        let text = encode_text(s);
+        let attribute = encode_attribute(s);
+        assert_eq!(
+            decode_character_references(&text, CharRefMode::Xml),
+            s,
+            "{s:?} as XML text"
+        );
+        assert_eq!(
+            decode_character_references(&text, CharRefMode::HtmlText),
+            s,
+            "{s:?} as HTML text"
+        );
+        assert_eq!(
+            decode_character_references(&attribute, CharRefMode::HtmlAttribute),
+            s,
+            "{s:?} as an HTML attribute"
+        );
+        assert_eq!(
+            decode_character_references(&attribute, CharRefMode::Xml),
+            s,
+            "{s:?} as an XML attribute"
+        );
+    }
+}

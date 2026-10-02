@@ -33,14 +33,14 @@ use alloc::vec::Vec;
 
 use azul_core::{
     a11y::{AccessibilityInfo, AccessibilityRole, AccessibilityState, AccessibilityStateVec},
-    callbacks::{CoreCallback, CoreCallbackData, Update},
+    callbacks::{CoreCallbackData, Update},
     dom::{Dom, DomVec, EventFilter, HoverEventFilter, NodeType, OptionDom},
     events::FocusEventFilter,
-    refany::{OptionRefAny, RefAny},
+    refany::RefAny,
     window::VirtualKeyCode,
 };
 use azul_css::{
-    impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
+    impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
     impl_vec_partialeq,
     AzString, StringVec,
 };
@@ -500,17 +500,6 @@ extern "C" fn on_search_text(mut data: RefAny, info: CallbackInfo, state: TextIn
 // The build
 // ---------------------------------------------------------------------------
 
-fn hook(event: EventFilter, cb: usize, refany: RefAny) -> CoreCallbackData {
-    CoreCallbackData {
-        event,
-        callback: CoreCallback {
-            cb,
-            ctx: OptionRefAny::None,
-        },
-        refany,
-    }
-}
-
 /// One category: a tab of the list.
 #[allow(clippy::too_many_arguments)]
 fn category(
@@ -548,15 +537,15 @@ fn category(
         })
         .with_callbacks(
             alloc::vec![
-                hook(
+                CoreCallbackData::create(
                     EventFilter::Hover(HoverEventFilter::Click),
-                    on_category_click as usize,
-                    cat_ref.clone()
+                    cat_ref.clone(),
+                    on_category_click as usize
                 ),
-                hook(
+                CoreCallbackData::create(
                     EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
-                    on_category_key as usize,
-                    cat_ref
+                    cat_ref,
+                    on_category_key as usize
                 ),
             ]
             .into(),

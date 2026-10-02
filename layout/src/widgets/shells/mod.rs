@@ -102,7 +102,7 @@ use azul_css::{
     AzString,
 };
 
-use crate::widgets::themes::{OptionUiTheme, UiTheme};
+use crate::widgets::themes::{decl::simple, OptionUiTheme, UiTheme};
 
 /// What a theme decides about the shells: the SKIN of every part, laid over
 /// the part's base (its structure, the shells' own) by each shell's `build`;
@@ -431,10 +431,6 @@ pub(crate) const fn inner_theme(theme: OptionUiTheme) -> Option<UiTheme> {
 // ---------------------------------------------------------------------------
 // The bases: the shells' structure, the same in every theme (R5)
 // ---------------------------------------------------------------------------
-
-const fn simple(p: CssProperty) -> CssPropertyWithConditions {
-    CssPropertyWithConditions::simple(p)
-}
 
 /// A flex column.
 pub(crate) static COLUMN_BASE: &[CssPropertyWithConditions] = &[

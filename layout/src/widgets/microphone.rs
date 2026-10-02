@@ -25,7 +25,6 @@ use azul_core::{
     refany::{OptionRefAny, RefAny},
     task::{ThreadId, ThreadReceiver},
 };
-use azul_css::impl_option_inner; // for impl_widget_callback!'s impl_option!
 use azul_css::F32Vec;
 
 use super::capture_common::{

@@ -23,7 +23,7 @@
 //! published, because it also emits the matching RTF and the `CF_HTML`
 //! wrapper Windows needs. This stays as public FFI API.
 
-use azul_css::{impl_option, impl_option_inner, AzString, OptionString};
+use azul_css::{impl_option, AzString, OptionString};
 
 // Clipboard Content Extraction
 
@@ -251,7 +251,11 @@ impl ClipboardContent {
             html.push_str("<span style=\"");
 
             if let Some(font_family) = run.font_family.as_ref() {
-                let _ = write!(html, "font-family: {}; ", font_family.as_str());
+                let _ = write!(
+                    html,
+                    "font-family: {}; ",
+                    azul_core::xml::html::encode_attribute(font_family.as_str())
+                );
             }
             let _ = write!(html, "font-size: {}px; ", run.font_size_px);
             let _ = write!(
@@ -270,14 +274,7 @@ impl ClipboardContent {
             }
 
             html.push_str("\">");
-            // Escape HTML entities
-            let escaped = run
-                .text
-                .as_str()
-                .replace('&', "&amp;")
-                .replace('<', "&lt;")
-                .replace('>', "&gt;");
-            html.push_str(&escaped);
+            html.push_str(&azul_core::xml::html::encode_text(run.text.as_str()));
             html.push_str("</span>");
         }
 
@@ -332,12 +329,13 @@ mod autotest_generated {
         }
     }
 
-    /// Inverse of the escaping pass in `to_html` (entities undone in reverse
-    /// order, so `&amp;` is restored last).
+    /// Inverse of the escaping pass in `to_html`: the one decoder.
     fn unescape(s: &str) -> String {
-        s.replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .replace("&amp;", "&")
+        azul_core::xml::html::decode_character_references(
+            s,
+            azul_core::xml::html::CharRefMode::Xml,
+        )
+        .into_owned()
     }
 
     // ---------------------------------------------------------------------
@@ -560,7 +558,6 @@ mod autotest_generated {
             "😀👨‍👩‍👧‍👦",              // emoji + ZWJ sequence
             "مرحبا بالعالم",     // RTL
             "e\u{0301}\u{0327}", // combining marks
-            "a\u{0}b",           // interior NUL
             "line\nbreak\ttab",
             "\u{200B}\u{FEFF}", // zero-width space + BOM
             "\u{202E}reversed", // RTL override
@@ -569,6 +566,28 @@ mod autotest_generated {
             assert!(html.contains(text), "lost {text:?} in {html:?}");
             assert!(html.ends_with("</span></div>"), "{html:?}");
         }
+    }
+
+    /// A NUL (and every C0 control but tab / LF / CR) cannot be written in
+    /// XML and an HTML reader drops it (azul's own lenient loader too): the
+    /// one encoder leaves it out of the markup instead of handing a reader a
+    /// character it rejects.
+    #[test]
+    fn to_html_leaves_out_a_nul_and_the_other_c0_controls() {
+        let html = content(vec![run("a\u{0}b\u{1}c\u{1f}d", 10.0, None)]).to_html();
+        assert!(html.contains("\">abcd</span>"), "{html:?}");
+    }
+
+    /// The font family is written into the `style="..."` attribute: a quote
+    /// in it must not end the attribute (and start a new one).
+    #[test]
+    fn to_html_a_font_family_with_a_quote_cannot_end_the_style_attribute() {
+        let html = content(vec![run("x", 10.0, Some("A\" onclick=\"b"))]).to_html();
+        assert!(!html.contains("onclick=\""), "{html}");
+        assert!(
+            html.contains("font-family: A&quot; onclick=&quot;b; "),
+            "{html}"
+        );
     }
 
     #[test]

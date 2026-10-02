@@ -1089,7 +1089,7 @@ mod follow_tests {
     };
 
     use super::{follow_dom, follow_props};
-    use crate::widgets::themes::{style_kit, UiTheme};
+    use crate::widgets::themes::{decl, style_kit, UiTheme};
 
     const STATES: [Option<PseudoStateType>; 4] = [
         None,
@@ -1164,17 +1164,17 @@ mod follow_tests {
             P::simple(flex()),
             P::simple(pad(8)),
             P::on_hover(pad(4)),
-            P::simple(style_kit::bg(c(250))),
-            P::dark_mode(style_kit::bg(c(30))),
-            P::on_hover(style_kit::bg(c(240))),
-            P::dark_on_hover(style_kit::bg(c(40))),
+            P::simple(decl::fill(c(250))),
+            P::dark_mode(decl::fill(c(30))),
+            P::on_hover(decl::fill(c(240))),
+            P::dark_on_hover(decl::fill(c(40))),
         ];
         let flora = vec![
             P::simple(flex()),
             P::simple(pad(8)),
-            P::simple(style_kit::bg(c(200))),
-            P::dark_mode(style_kit::bg(c(60))),
-            P::on_focus(style_kit::bg(c(210))),
+            P::simple(decl::fill(c(200))),
+            P::dark_mode(decl::fill(c(60))),
+            P::on_focus(decl::fill(c(210))),
         ];
         (flat, flora)
     }

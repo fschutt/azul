@@ -1065,7 +1065,10 @@ mod gaps {
         let xml = wire::toast_xml(&n);
         assert!(xml.starts_with("<toast "), "{xml}");
         assert!(xml.contains("Tom &amp; &lt;Jerry&gt;"), "{xml}");
-        assert!(xml.contains("&quot;quoted&quot;"), "{xml}");
+        assert!(
+            xml.contains("<text>\"quoted\"</text>"),
+            "a quote is plain text in an element (the one encoder): {xml}"
+        );
         assert!(xml.contains("template=\"ToastGeneric\""), "{xml}");
         assert_eq!(
             xml.matches("<action ").count(),

@@ -616,25 +616,6 @@ pub mod wire {
         String::from_utf8(out).ok()
     }
 
-    /// Escape text for an XML attribute or element body.
-    fn xml_escape(s: &str) -> String {
-        let mut out = String::with_capacity(s.len());
-        for c in s.chars() {
-            match c {
-                '&' => out.push_str("&amp;"),
-                '<' => out.push_str("&lt;"),
-                '>' => out.push_str("&gt;"),
-                '"' => out.push_str("&quot;"),
-                '\'' => out.push_str("&apos;"),
-                // XML 1.0 has no escape for these; drop them rather than
-                // make `LoadXml` reject the whole toast.
-                c if (c as u32) < 0x20 && !matches!(c, '\t' | '\n' | '\r') => {}
-                c => out.push(c),
-            }
-        }
-        out
-    }
-
     // ---- freedesktop (org.freedesktop.Notifications) ----
 
     /// The action key a freedesktop server reports for a click on the
@@ -1298,19 +1279,19 @@ pub mod wire {
         let payload = notification.payload.as_str();
         let mut xml = format!(
             "<toast launch=\"{}\"><visual><binding template=\"ToastGeneric\"><text>{}</text>",
-            xml_escape(&toast_arguments(id, FREEDESKTOP_DEFAULT_ACTION, payload)),
-            xml_escape(notification.title.as_str())
+            azul_core::xml::html::encode_attribute(&toast_arguments(id, FREEDESKTOP_DEFAULT_ACTION, payload)),
+            azul_core::xml::html::encode_text(notification.title.as_str())
         );
         if !notification.body.as_str().is_empty() {
             xml.push_str(&format!(
                 "<text>{}</text>",
-                xml_escape(notification.body.as_str())
+                azul_core::xml::html::encode_text(notification.body.as_str())
             ));
         }
         if let Some(icon) = notification.icon.as_ref() {
             xml.push_str(&format!(
                 "<image placement=\"appLogoOverride\" src=\"{}\"/>",
-                xml_escape(&toast_image_src(icon.as_str()))
+                azul_core::xml::html::encode_attribute(&toast_image_src(icon.as_str()))
             ));
         }
         xml.push_str("</binding></visual>");
@@ -1328,8 +1309,8 @@ pub mod wire {
             for action in buttons {
                 xml.push_str(&format!(
                     "<action content=\"{}\" arguments=\"{}\" activationType=\"foreground\"/>",
-                    xml_escape(action.label.as_str()),
-                    xml_escape(&toast_arguments(id, action.id.as_str(), payload))
+                    azul_core::xml::html::encode_attribute(action.label.as_str()),
+                    azul_core::xml::html::encode_attribute(&toast_arguments(id, action.id.as_str(), payload))
                 ));
             }
             xml.push_str("</actions>");
@@ -1337,7 +1318,10 @@ pub mod wire {
         match &notification.sound {
             NotificationSound::Silent => xml.push_str("<audio silent=\"true\"/>"),
             NotificationSound::Named(name) if name.as_str().starts_with("ms-winsoundevent:") => {
-                xml.push_str(&format!("<audio src=\"{}\"/>", xml_escape(name.as_str())));
+                xml.push_str(&format!(
+                    "<audio src=\"{}\"/>",
+                    azul_core::xml::html::encode_attribute(name.as_str())
+                ));
             }
             NotificationSound::Default | NotificationSound::Named(_) => {}
         }

@@ -6,8 +6,8 @@
 //! panic hook persists a self-contained JSON crash dump per crash
 //! ([`super::queue::PingKind::Crash`]); this module drains those dumps into
 //! one email — the dump as a `.json` attachment, an optional USER MESSAGE as
-//! the body — over plain SMTP via `micromail` (EHLO/MAIL/RCPT/DATA, nothing
-//! more).
+//! the body — over SMTP via `micromail` (EHLO, STARTTLS when the MX offers
+//! it, MAIL/RCPT/DATA, nothing more).
 //!
 //! This is MANUAL by design: sending mail from a panic hook would block a
 //! dying process on the network, and mailing without the user seeing the
@@ -513,10 +513,10 @@ mod smtp_sink_tests {
     }
 
     /// Every real MX offers STARTTLS and the reporter asks for it by default.
-    /// Built without micromail's `tls` feature (layout/Cargo.toml depends on it
-    /// with `default-features = false`), `establish_tls` answers the server's
+    /// micromail 0.1, built without its `tls` feature, answered the server's
     /// `220` by carrying on in PLAINTEXT (`EHLO ...`), which a server that is
-    /// waiting for a ClientHello drops: the report is never delivered.
+    /// waiting for a ClientHello drops: the report was never delivered. 0.2
+    /// with `tls-rustcrypto` (layout/Cargo.toml) sends the handshake.
     #[test]
     fn a_crash_mail_never_speaks_plaintext_after_the_server_agreed_to_starttls() {
         let (port, rx) = spawn_sink(true);
@@ -534,8 +534,8 @@ mod smtp_sink_tests {
 
     /// Without `MIME-Version: 1.0` (RFC 2045 section 4) a mail client may show the
     /// multipart body as raw text instead of a message with a `.json`
-    /// attachment. micromail's `Mail::format` writes From, To, Subject, Date,
-    /// Message-ID and Content-Type only.
+    /// attachment. micromail 0.1's `Mail::format` wrote From, To, Subject,
+    /// Date, Message-ID and Content-Type only; 0.2 adds the version.
     #[test]
     fn a_crash_mail_declares_mime_version_1_0() {
         let (port, rx) = spawn_sink(false);
@@ -553,10 +553,10 @@ mod smtp_sink_tests {
     }
 
     /// RFC 5321 section 4.5.2: a client doubles the dot of every line that
-    /// starts with one, because the server removes it. micromail sends the
-    /// body as is, so a user message line `.config/azul was missing` arrives
-    /// as `config/azul was missing` (and a line holding only `.` ends DATA
-    /// early).
+    /// starts with one, because the server removes it. micromail 0.1 sent the
+    /// body as is, so a user message line `.config/azul was missing` arrived
+    /// as `config/azul was missing` (and a line holding only `.` ended DATA
+    /// early); 0.2 dot-stuffs.
     #[test]
     fn a_user_message_line_that_starts_with_a_dot_arrives_intact() {
         let (port, rx) = spawn_sink(false);
@@ -571,11 +571,11 @@ mod smtp_sink_tests {
         );
     }
 
-    /// The reporter dialog's text box yields `\n` line ends. micromail's
-    /// `ensure_crlf` converts only a body that contains NO `\r\n` at all, and
-    /// crash_mail's MIME framing always contains some, so the user's lines go
-    /// out with bare LFs, which strict servers reject (bare-LF / SMTP
-    /// smuggling defences).
+    /// The reporter dialog's text box yields `\n` line ends. micromail 0.1's
+    /// `ensure_crlf` converted only a body that contains NO `\r\n` at all, and
+    /// crash_mail's MIME framing always contains some, so the user's lines
+    /// went out with bare LFs, which strict servers reject (bare-LF / SMTP
+    /// smuggling defences); 0.2 normalizes every line end.
     #[test]
     fn a_multi_line_user_message_goes_out_with_crlf_line_ends() {
         let (port, rx) = spawn_sink(false);
