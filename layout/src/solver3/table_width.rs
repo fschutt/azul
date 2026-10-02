@@ -251,6 +251,32 @@ pub fn distribute_spanning_cell(
     for &i in &visible {
         columns[i].max = columns[i].max.max(columns[i].min);
     }
+
+    // A percentage `width` (CSS Tables 3 3.8): what the spanned columns' own
+    // percentages leave of it goes to the ones without one, in proportion
+    // to their max-content (equally when none has any). Dropped, `<td
+    // colspan="2" width="50%">` left its columns auto.
+    if let SpecifiedWidth::Percent(percent) = width {
+        let have: f32 = visible.iter().map(|&i| columns[i].percent).sum();
+        let rest = percent - have;
+        let without: Vec<usize> = visible
+            .iter()
+            .copied()
+            .filter(|&i| columns[i].percent <= 0.0)
+            .collect();
+        if rest > 0.0 && rest.is_finite() && !without.is_empty() {
+            let weights: Vec<f32> = without.iter().map(|&i| columns[i].max.max(0.0)).collect();
+            let sum: f32 = weights.iter().sum();
+            for (k, &i) in without.iter().enumerate() {
+                let share = if sum > 0.0 && sum.is_finite() {
+                    weights[k] / sum
+                } else {
+                    1.0 / without.len() as f32
+                };
+                columns[i].percent = rest * share;
+            }
+        }
+    }
 }
 
 /// Add `extra` to the min- (`to_min`) or max-content of `targets`, in
