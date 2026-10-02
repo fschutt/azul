@@ -2238,6 +2238,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
             containing_block_size: available_size,
             available_width_type,
             fragmentainer: None,
+            column_flow: None,
         };
 
         // A prior Taffy measurement pass (e.g. the min-content pass Taffy runs to

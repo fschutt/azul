@@ -2400,6 +2400,7 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
         containing_block_size,
         available_width_type: Text3AvailableSpace::Definite(available_size_for_children.width),
         fragmentainer: None,
+        column_flow: None,
     };
 
     Ok(PreparedLayoutContext {

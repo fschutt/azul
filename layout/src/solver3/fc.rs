@@ -196,6 +196,11 @@ pub struct LayoutConstraints<'a> {
     /// K30b fragmentation: `None` = continuous (screen) layout, identical
     /// to pre-token behavior. `Some` arms the fit checks in `layout_bfc`.
     pub fragmentainer: Option<FragmentainerSpace<'a>>,
+    /// The inline formatting context laid out is one piece of a
+    /// multi-column block container's flow, its lines continuing in the
+    /// next columns at these line indices (`solver3::multicol`). `None` =
+    /// not split, for every caller but the multi-column block layout.
+    pub column_flow: Option<crate::text3::cache::ColumnFlow>,
 }
 
 /// Manages all layout state for a single Block Formatting Context.
@@ -3109,6 +3114,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                 containing_block_size: constraints.containing_block_size,
                 available_width_type: Text3AvailableSpace::Definite(child_content_size.width),
                 fragmentainer: None,
+                column_flow: None,
             };
 
             // Re-layout the IFC with float awareness
@@ -3953,6 +3959,9 @@ fn layout_ifc<T: ParsedFontTrait>(
         text3_constraints.white_space_mode.hash(&mut h);
         text3_constraints.direction.hash(&mut h);
         text3_constraints.columns.hash(&mut h);
+        // A split into a multi-column flow moves the lines: a layout of the
+        // other split (or of none) must not be reused.
+        text3_constraints.column_flow.hash(&mut h);
         text3_constraints.text_indent.to_bits().hash(&mut h);
         match text3_constraints.line_height {
             text3::cache::LineHeight::Normal => 0u64.hash(&mut h),
@@ -5463,6 +5472,13 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         line_clamp,
         columns,
         column_gap,
+        // One piece of a multi-column block container's flow - unless this
+        // context has columns of its own, which split it instead.
+        column_flow: if columns == 1 {
+            constraints.column_flow.clone()
+        } else {
+            None
+        },
         hanging_punctuation,
         text_wrap,
         white_space_mode,
@@ -6838,6 +6854,7 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
             containing_block_size: constraints.containing_block_size,
             available_width_type: Text3AvailableSpace::Definite(table_width),
             fragmentainer: None,
+            column_flow: None,
         };
 
         // Layout the caption node as the block box it is: sized against the
@@ -7988,6 +8005,7 @@ fn measure_cell_content_width<T: ParsedFontTrait>(
         containing_block_size: constraints.containing_block_size,
         available_width_type: width_type,
         fragmentainer: None,
+        column_flow: None,
     };
 
     let mut temp_positions: super::PositionVec = Vec::new();
@@ -8474,6 +8492,7 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
             // This replaces any previous MinContent/MaxContent measurement.
             available_width_type: Text3AvailableSpace::Definite(content_width),
             fragmentainer: None,
+            column_flow: None,
         };
 
         let output = layout_ifc(ctx, text_cache, tree, cell_index, &cell_constraints)?;
@@ -8512,6 +8531,7 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
             // Use Definite width for final cell layout!
             available_width_type: Text3AvailableSpace::Definite(content_width),
             fragmentainer: None,
+            column_flow: None,
         };
 
         let mut temp_positions: super::PositionVec = Vec::new();
@@ -10057,6 +10077,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     containing_block_size: constraints.containing_block_size,
                     available_width_type: Text3AvailableSpace::Definite(content_box_size.width),
                     fragmentainer: None,
+                    column_flow: None,
                 };
 
                 // Drop the immutable borrow before calling layout_formatting_context
@@ -10593,6 +10614,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 containing_block_size: constraints.containing_block_size,
                 available_width_type: Text3AvailableSpace::Definite(content_box_size.width),
                 fragmentainer: None,
+                column_flow: None,
             };
 
             // Drop the immutable borrow before calling layout_formatting_context
@@ -11132,6 +11154,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     containing_block_size: constraints.containing_block_size,
                     available_width_type: Text3AvailableSpace::Definite(width),
                     fragmentainer: None,
+                    column_flow: None,
                 };
 
                 drop(child_node);
@@ -12465,6 +12488,7 @@ mod autotest_generated {
             containing_block_size: available,
             available_width_type: Text3AvailableSpace::Definite(available.width),
             fragmentainer: None,
+            column_flow: None,
         }
     }
 
