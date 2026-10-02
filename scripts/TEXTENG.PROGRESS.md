@@ -23,11 +23,13 @@ Branch `wt/texteng` from `2e92c759b`. Brief: scratchpad wave5/TEXTENG.md. House 
 - 6c892ca71 GREEN item 4: DocumentTextEdit.runs, TextFormatSet/TextFormatSpan, typing_formats
 - report scripts/TEXTENG_2026_10_02.md
 
+- 66a2f6858 report
+
 ## IN PROGRESS
-- final review pass
+- (none) - task complete; the parent compiles, regenerates api.json / lower_types / goldens, runs the suites
 
 ## NEXT
-- done unless the review finds something
+- wave 6 list in scripts/TEXTENG_2026_10_02.md ("Left for wave 6")
 
 ## Decisions
 - Item 1 root cause: synthetic 0.8/0.2 strut vs real glyph A/D; the union of the two half-leading boxes is
