@@ -1704,12 +1704,27 @@ pub fn parse_style_line_height(input: &str) -> Result<StyleLineHeight, StyleLine
     // Try <length> (e.g., "50px") — store as NEGATIVE PercentageValue to signal absolute px.
     // Convention: negative normalized() = absolute pixel value (CSS line-height can't be negative).
     // Resolved at layout time in fc.rs where font_size is known.
-    if let Ok(px) = crate::props::basic::pixel::parse_pixel_value(input) {
-        if px.metric == crate::props::basic::length::SizeMetric::Px {
-            let px_val = px.number.get();
-            return Ok(StyleLineHeight {
-                inner: PercentageValue::new(-px_val * 100.0),
-            });
+    //
+    // Every ABSOLUTE unit is a pixel count already (pt, in, cm, mm - html2pdf writes
+    // `line-height: 14pt`, and a px-only check dropped it). `em` is the element's own
+    // font size: the multiplier a number is (inherited as a factor, like a percentage
+    // stored here - CSS would inherit the computed length). rem and viewport units
+    // need context this representation cannot carry; they stay rejected.
+    if let Ok(len) = crate::props::basic::pixel::parse_pixel_value(input) {
+        use crate::props::basic::length::SizeMetric as M;
+        match len.metric {
+            M::Px | M::Pt | M::In | M::Cm | M::Mm => {
+                let px_val = len.to_pixels_internal(0.0, 0.0, 0.0);
+                return Ok(StyleLineHeight {
+                    inner: PercentageValue::new(-px_val * 100.0),
+                });
+            }
+            M::Em => {
+                return Ok(StyleLineHeight {
+                    inner: PercentageValue::new(len.number.get() * 100.0),
+                });
+            }
+            _ => {}
         }
     }
     Err(StyleLineHeightParseError::Percentage(
@@ -4955,12 +4970,14 @@ mod autotest_generated {
         }
 
         #[test]
-        fn line_height_rejects_em_and_other_length_units() {
-            // BUG: `line-height: 1.5em` (and rem/pt/...) is valid CSS but only Px survives
-            // the length branch, so every other unit is rejected. Pinned as-is.
-            assert!(parse_style_line_height("1.5em").is_err());
-            assert!(parse_style_line_height("12pt").is_err());
+        fn line_height_takes_absolute_units_and_em_but_not_rem() {
+            // Every absolute unit and `em` parse (the px-only length branch dropped
+            // html2pdf's `line-height: 14pt`); `rem` and viewport units need context
+            // the stored PercentageValue cannot carry and stay rejected.
+            assert!(parse_style_line_height("1.5em").is_ok());
+            assert!(parse_style_line_height("12pt").is_ok());
             assert!(parse_style_line_height("2rem").is_err());
+            assert!(parse_style_line_height("10vh").is_err());
         }
 
         #[test]
@@ -5066,7 +5083,7 @@ mod autotest_generated {
             assert_error_round_trip!(parse_style_word_spacing, "", "abcem", "em", "zz");
             assert_error_round_trip!(parse_style_text_indent, "abcpx", "zz");
             assert_error_round_trip!(parse_style_tab_size, "", "abcpx", "zz");
-            assert_error_round_trip!(parse_style_line_height, "", "abc", "1.5em");
+            assert_error_round_trip!(parse_style_line_height, "", "abc", "2rem");
             assert_error_round_trip!(parse_style_initial_letter, "", "x", "0", "3 x");
             assert_error_round_trip!(parse_style_line_clamp, "", "x", "0");
             assert_error_round_trip!(
