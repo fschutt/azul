@@ -13746,6 +13746,68 @@ mod autotest_generated {
         assert_eq!(h, 0.0);
     }
 
+    #[test]
+    fn calculate_display_list_height_ends_where_the_enclosing_clip_ends() {
+        // A 300px `overflow: hidden` box whose text runs on to y=900: what is
+        // painted ends at the clip, and so does the extent the page count is
+        // measured by. Content wholly below the clip adds nothing; content
+        // after the clip is closed counts again.
+        let bg = |y: f32, h: f32| DisplayListItem::Rect {
+            bounds: rect(0.0, y, 400.0, h).into(),
+            color: opaque(),
+            border_radius: BorderRadius::default(),
+        };
+        let clipped = list_of(vec![
+            bg(0.0, 300.0),
+            DisplayListItem::PushClip {
+                bounds: rect(0.0, 0.0, 400.0, 300.0).into(),
+                border_radius: BorderRadius::default(),
+            },
+            bg(200.0, 700.0),
+            bg(1000.0, 50.0),
+            DisplayListItem::PopClip,
+        ]);
+        assert_eq!(calculate_display_list_height(&clipped), 300.0);
+
+        let after = list_of(vec![
+            DisplayListItem::PushClip {
+                bounds: rect(0.0, 0.0, 400.0, 300.0).into(),
+                border_radius: BorderRadius::default(),
+            },
+            bg(200.0, 700.0),
+            DisplayListItem::PopClip,
+            bg(300.0, 100.0),
+        ]);
+        assert_eq!(calculate_display_list_height(&after), 400.0);
+    }
+
+    #[test]
+    fn calculate_display_list_height_clips_by_scroll_frames_and_nested_clips() {
+        // `overflow: hidden` with content to scroll opens a scroll frame
+        // instead of a plain clip; it clips just the same. Nested clips
+        // intersect: the inner one cannot reach past the outer one.
+        let text = |y: f32, h: f32| DisplayListItem::Rect {
+            bounds: rect(20.0, y, 200.0, h).into(),
+            color: opaque(),
+            border_radius: BorderRadius::default(),
+        };
+        let dl = list_of(vec![
+            DisplayListItem::PushScrollFrame {
+                clip_bounds: rect(0.0, 0.0, 400.0, 300.0).into(),
+                content_size: LogicalSize::new(400.0, 900.0),
+                scroll_id: 7,
+            },
+            DisplayListItem::PushClip {
+                bounds: rect(20.0, 200.0, 200.0, 500.0).into(),
+                border_radius: BorderRadius::default(),
+            },
+            text(200.0, 700.0),
+            DisplayListItem::PopClip,
+            DisplayListItem::PopScrollFrame,
+        ]);
+        assert_eq!(calculate_display_list_height(&dl), 300.0);
+    }
+
     // ---------------------------------------------------------------------
     // get_scroll_id
     // ---------------------------------------------------------------------

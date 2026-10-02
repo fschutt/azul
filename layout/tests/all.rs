@@ -722,3 +722,5 @@ mod a_chat_field_keeps_its_width_while_text_is_typed;
 mod a_partial_image_change_leaves_its_rect_for_the_renderer;
 #[path = "an_img_from_markup_shows_the_image_the_app_cached_under_its_src.rs"]
 mod an_img_from_markup_shows_the_image_the_app_cached_under_its_src;
+#[path = "content_clipped_by_an_overflow_hidden_box_adds_no_pages.rs"]
+mod content_clipped_by_an_overflow_hidden_box_adds_no_pages;
