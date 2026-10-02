@@ -2626,6 +2626,20 @@ mod tests {
         assert_eq!(resolved_concrete, ColorU::RED);
     }
 
+    /// `parse_css` reads any CSS colour and says when the text is none:
+    /// `from_str` (api.json) answers BLACK for a typo, so an app cannot
+    /// tell `"black"` from `"blck"` (DEDUP_OFFICE D11 / A6).
+    #[test]
+    fn parse_css_reports_a_text_that_is_no_colour() {
+        assert_eq!(ColorU::parse_css("red"), Some(ColorU::RED));
+        assert_eq!(ColorU::parse_css("black"), Some(ColorU::BLACK));
+        assert_eq!(ColorU::parse_css(" #f53 "), Some(ColorU::new_rgb(0xff, 0x55, 0x33)));
+        assert_eq!(ColorU::parse_css("rgb(1,2,3)"), Some(ColorU::new_rgb(1, 2, 3)));
+        assert_eq!(ColorU::parse_css("blck"), None);
+        assert_eq!(ColorU::parse_css(""), None);
+        assert_eq!(ColorU::parse_css("#ff573"), None);
+    }
+
     #[test]
     fn test_system_color_css_str() {
         assert_eq!(SystemColorRef::Accent.as_css_str(), "system:accent");
@@ -4468,5 +4482,40 @@ mod autotest_generated {
             parse_css_color("#zzz"),
             Err(CssColorParseError::InvalidColorComponent(b'z'))
         );
+    }
+
+    /// `to_hex` writes the shortest exact CSS form - 6 digits when opaque,
+    /// 8 when not - and `parse_hex` reads every hex form back; the eight
+    /// private copies in widgets and apps did one or the other
+    /// (DEDUP_OFFICE D11, DEDUP_WIDGETS_API F32).
+    #[test]
+    fn to_hex_and_parse_hex_round_trip() {
+        let opaque = ColorU::new_rgb(0xff, 0x57, 0x33);
+        assert_eq!(opaque.to_hex(), "#ff5733");
+        let translucent = ColorU {
+            r: 1,
+            g: 2,
+            b: 3,
+            a: 4,
+        };
+        assert_eq!(translucent.to_hex(), "#01020304");
+        for c in SAMPLES {
+            assert_eq!(ColorU::parse_hex(&c.to_hex()), Some(c), "{c:?}");
+        }
+        assert_eq!(ColorU::parse_hex("  FF5733 "), Some(opaque), "no '#', any case, trimmed");
+        assert_eq!(ColorU::parse_hex("#f53"), Some(opaque));
+        assert_eq!(
+            ColorU::parse_hex("#f538"),
+            Some(ColorU {
+                r: 0xff,
+                g: 0x55,
+                b: 0x33,
+                a: 0x88
+            })
+        );
+        assert_eq!(ColorU::parse_hex("#ff573"), None);
+        assert_eq!(ColorU::parse_hex("#gg5733"), None);
+        assert_eq!(ColorU::parse_hex("red"), None, "a keyword is no hex colour");
+        assert_eq!(ColorU::parse_hex(""), None);
     }
 }
