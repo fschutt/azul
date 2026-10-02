@@ -7,7 +7,7 @@ use chrono::{Duration, NaiveDate, NaiveDateTime, NaiveTime, Weekday};
 
 use crate::{
     model::{ListColor, Priority, Reminder, Subtask, Task, TaskList},
-    recur::{self, Repeat},
+    recur::Repeat,
     views::ORDER_STEP,
 };
 
@@ -170,7 +170,7 @@ pub fn sample(now: NaiveDateTime, new_id: &mut dyn FnMut() -> String) -> (Vec<Ta
 
 /// The 1st of next month.
 fn next_first(today: NaiveDate) -> NaiveDate {
-    recur::add_months(today, 1, 1)
+    azul_pim::dates::add_months_clamped(today, 1, 1)
 }
 
 #[cfg(test)]

@@ -36,7 +36,7 @@ use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Timelike, 
 
 use crate::{
     model::{self, Priority, Reminder, Subtask, Task},
-    recur::{self, Repeat, Unit},
+    recur::{Repeat, Unit},
     reminders::{self, Preset},
     state::{self, Tasks},
     views,
@@ -429,14 +429,14 @@ fn repeat(s: &Tasks, app: &RefAny, t: &Task, _today: NaiveDate) -> Dom {
                 let on = rule.weekdays.contains(day);
                 editor.add_child(
                     Button::with_type(
-                        recur::weekday_short(*day),
+                        azul_pim::dates::weekday_short(*day),
                         if on { ButtonType::Primary } else { ButtonType::Default },
                     )
                     .with_on_click(detail_ref(app, &t.id, n), on_repeat_day as ButtonOnClickCallbackType)
                     .dom()
                     .with_accessibility_name(format!(
                         "{} {}",
-                        recur::weekday_short(*day),
+                        azul_pim::dates::weekday_short(*day),
                         if on { "(on)" } else { "(off)" }
                     )),
                 );

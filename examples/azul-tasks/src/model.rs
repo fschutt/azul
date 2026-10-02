@@ -759,7 +759,7 @@ fn settings_file(s: &Settings) -> SettingsFile {
         format: SETTINGS_FORMAT.to_string(),
         version: VERSION,
         default_list: s.default_list.clone(),
-        week_start: recur::weekday_name(s.week_start).to_string(),
+        week_start: azul_pim::dates::weekday_key(s.week_start).to_string(),
         reminder_time: format_time(s.reminder_time),
         sounds: s.sounds,
         notifications: s.notifications,
@@ -830,7 +830,7 @@ fn repeat_file(r: &Repeat) -> RepeatFile {
         days: r
             .weekdays
             .iter()
-            .map(|d| recur::weekday_name(*d).to_string())
+            .map(|d| azul_pim::dates::weekday_key(*d).to_string())
             .collect(),
         day: r.month_day,
         from_completion: r.from_completion,
@@ -843,7 +843,7 @@ fn repeat_of(f: &RepeatFile) -> Result<Repeat, FileError> {
     let mut days = Vec::new();
     for d in &f.days {
         days.push(
-            recur::weekday_from_name(d)
+            azul_pim::dates::weekday_from_key(d)
                 .ok_or_else(|| FileError::Malformed(format!("repeat day \"{d}\"")))?,
         );
     }
@@ -1044,7 +1044,7 @@ pub fn settings_from_json(json: &str) -> Result<Settings, FileError> {
         } else {
             String::new()
         },
-        week_start: recur::weekday_from_name(&f.week_start).unwrap_or(defaults.week_start),
+        week_start: azul_pim::dates::weekday_from_key(&f.week_start).unwrap_or(defaults.week_start),
         reminder_time: NaiveTime::parse_from_str(&f.reminder_time, TIME_FORMAT)
             .unwrap_or(defaults.reminder_time),
         sounds: f.sounds,

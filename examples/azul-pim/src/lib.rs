@@ -24,4 +24,5 @@
 //!   `Drive`, with the migration of AzCalendar's old To-Do bar files.
 
 pub mod dates;
+pub mod repeat;
 pub mod rrule;

@@ -30,9 +30,11 @@
 
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Timelike, Weekday};
 
+use azul_pim::dates;
+
 use crate::{
     model::{self, Priority},
-    recur::{self, Repeat, Unit},
+    recur::{Repeat, Unit},
 };
 
 /// What the parser needs to know besides the line.
@@ -563,7 +565,7 @@ fn upcoming(today: NaiveDate, year: Option<i32>, month: u32, day: u32) -> Option
 /// The next date (from today on) whose day of the month is `day`.
 fn next_month_day(today: NaiveDate, day: u32) -> Option<NaiveDate> {
     (0..13).find_map(|m| {
-        let first = recur::add_months(today.with_day(1)?, m, 1);
+        let first = dates::add_months_clamped(today.with_day(1)?, m, 1);
         NaiveDate::from_ymd_opt(first.year(), first.month(), day).filter(|d| *d >= today)
     })
 }
@@ -633,7 +635,7 @@ fn date_at(words: &Words<'_>, i: usize, ctx: &Context<'_>) -> Option<(usize, Nai
         match next {
             "week" | "woche" => return Some((2, next_week_start(today, ctx.week_start), None)),
             "month" | "monat" => {
-                return Some((2, recur::add_months(today, 1, 1), None));
+                return Some((2, dates::add_months_clamped(today, 1, 1), None));
             }
             "year" | "jahr" => {
                 return NaiveDate::from_ymd_opt(today.year() + 1, 1, 1).map(|d| (2, d, None));
@@ -653,12 +655,12 @@ fn date_at(words: &Words<'_>, i: usize, ctx: &Context<'_>) -> Option<(usize, Nai
                 Span::Unit(Unit::Week) => (3, today + Duration::days(7 * n64), None),
                 Span::Unit(Unit::Month) => (
                     3,
-                    recur::add_months(today, i32::try_from(n).unwrap_or(1), today.day()),
+                    dates::add_months_clamped(today, i32::try_from(n).unwrap_or(1), today.day()),
                     None,
                 ),
                 Span::Unit(Unit::Year) => (
                     3,
-                    recur::ymd_clamped(today.year() + i32::try_from(n).unwrap_or(1), today.month(), today.day()),
+                    dates::ymd_clamped(today.year() + i32::try_from(n).unwrap_or(1), today.month(), today.day()),
                     None,
                 ),
                 Span::Hours | Span::Minutes => {
