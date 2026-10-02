@@ -726,3 +726,5 @@ mod an_img_from_markup_shows_the_image_the_app_cached_under_its_src;
 mod content_clipped_by_an_overflow_hidden_box_adds_no_pages;
 #[path = "a_multicol_block_flows_its_children_through_its_columns.rs"]
 mod a_multicol_block_flows_its_children_through_its_columns;
+#[path = "a_percent_wide_inline_image_takes_its_share_of_the_line_box_container.rs"]
+mod a_percent_wide_inline_image_takes_its_share_of_the_line_box_container;
