@@ -56,7 +56,7 @@ use azul_core::{
 };
 use azul_css::{
     dynamic_selector::CssPropertyWithConditions, impl_option, impl_option_inner, impl_vec,
-    impl_vec_clone, impl_vec_debug, impl_vec_mut, AzString,
+    impl_vec_clone, impl_vec_debug, impl_vec_eq, impl_vec_mut, impl_vec_partialeq, AzString,
 };
 
 use crate::{
@@ -177,6 +177,36 @@ pub struct RichTableSize {
     pub rows: usize,
     pub columns: usize,
 }
+
+/// A selected range of one block's text (bytes `start..end`): what
+/// [`RichTextEditorState::get_selection`] hands an app that acts on the
+/// selection after its own UI took the focus (a link sheet).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct RichTextSpan {
+    pub block: usize,
+    pub start: usize,
+    pub end: usize,
+}
+
+impl_option!(
+    RichTextSpan,
+    OptionRichTextSpan,
+    [Debug, Clone, Copy, PartialEq, Eq]
+);
+impl_vec!(
+    RichTextSpan,
+    RichTextSpanVec,
+    RichTextSpanVecDestructor,
+    RichTextSpanVecDestructorType,
+    RichTextSpanVecSlice,
+    OptionRichTextSpan
+);
+impl_vec_clone!(RichTextSpan, RichTextSpanVec, RichTextSpanVecDestructor);
+impl_vec_debug!(RichTextSpan, RichTextSpanVec);
+impl_vec_partialeq!(RichTextSpan, RichTextSpanVec);
+impl_vec_eq!(RichTextSpan, RichTextSpanVec);
+impl_vec_mut!(RichTextSpan, RichTextSpanVec);
 
 /// Which groups of buttons the built-in toolbar shows (none by default:
 /// apps with a ribbon or their own toolbar run [`RichTextCommand`]s).
@@ -680,14 +710,7 @@ impl RichTextEditor {
                 flora::rich_text_editor,
             ),
         };
-        let data = (!self.read_only).then(|| {
-            RefAny::new(EditorData {
-                state: self.state.clone(),
-                on_change: self.on_change.clone(),
-                on_link: self.on_link.clone(),
-                markdown_shortcuts: self.markdown_shortcuts,
-            })
-        });
+        let data = self.editor_data();
         let host = host_dom(&self, data.as_ref());
         let toolbar = if chrome.toolbar {
             data.as_ref()
@@ -712,6 +735,28 @@ impl RichTextEditor {
         }
         let _ = frame.fixup_children_estimated();
         frame
+    }
+}
+
+impl RichTextEditor {
+    /// The editing host alone: the document without the frame and the
+    /// toolbar (a print, a PDF export, an app that draws its own paper).
+    #[must_use]
+    pub fn content_dom(self) -> Dom {
+        let data = self.editor_data();
+        host_dom(&self, data.as_ref())
+    }
+
+    /// The data every callback of this editor shares (none read-only).
+    fn editor_data(&self) -> Option<RefAny> {
+        (!self.read_only).then(|| {
+            RefAny::new(EditorData {
+                state: self.state.clone(),
+                on_change: self.on_change.clone(),
+                on_link: self.on_link.clone(),
+                markdown_shortcuts: self.markdown_shortcuts,
+            })
+        })
     }
 }
 
@@ -1352,6 +1397,51 @@ impl RichTextEditorState {
         }
     }
 
+    /// The selection in the editor now, as spans of block text (empty for a
+    /// caret) - for an app that acts on it after its own UI takes the focus:
+    /// [`Self::set_link_on`].
+    #[must_use]
+    pub fn get_selection(&self, info: CallbackInfo) -> RichTextSpanVec {
+        let spans: Vec<RichTextSpan> = match self.host_node(&info) {
+            Some(host) => selection_in(&info, host)
+                .into_iter()
+                .map(|(block, start, end)| RichTextSpan { block, start, end })
+                .collect(),
+            None => Vec::new(),
+        };
+        RichTextSpanVec::from_vec(spans)
+    }
+
+    /// Links `spans` (taken earlier with [`Self::get_selection`]) to `url`,
+    /// or unlinks them when `url` is empty; with no span the address goes in
+    /// at the caret as its own linked text. Returns `RefreshDom` when the
+    /// document changed.
+    pub fn set_link_on(
+        &mut self,
+        mut info: CallbackInfo,
+        spans: RichTextSpanVec,
+        url: AzString,
+    ) -> Update {
+        if let Some(host) = self.host_node(&info) {
+            let _ = self.sync_text(&mut info, host, false);
+        }
+        let spans: Vec<(usize, usize, usize)> = spans
+            .as_ref()
+            .iter()
+            .map(|s| (s.block, s.start, s.end))
+            .collect();
+        let (block, byte) = (self.caret_block, self.caret_byte);
+        let url = url.as_str().trim();
+        let link = if url.is_empty() { None } else { Some(url) };
+        let before = self.doc.clone();
+        if !self.link_spans(&spans, block, byte, link) {
+            return Update::DoNothing;
+        }
+        self.history.record(&before, RichEditGroup::None);
+        self.revision += 1;
+        Update::RefreshDom
+    }
+
     /// Runs `command` (a ribbon's or a toolbar's) on the document, after
     /// folding in what was typed; returns `RefreshDom` when the document
     /// changed (the app rebuilds the editor from this state).
@@ -1665,6 +1755,35 @@ impl RichTextEditorState {
         }
     }
 
+    /// Links `spans` to `url` (`None`: unlinks them). With no span: a link
+    /// is inserted at the caret (`block`, `byte`) as its own text, an unlink
+    /// takes the link under the caret. Returns whether the document changed.
+    fn link_spans(
+        &mut self,
+        spans: &[(usize, usize, usize)],
+        block: usize,
+        byte: usize,
+        url: Option<&str>,
+    ) -> bool {
+        if spans.is_empty() {
+            return match url {
+                Some(url) => {
+                    let run = RichRun::plain(url).with_link(AzString::from(url));
+                    self.doc.insert_run(block, byte, run)
+                }
+                None => match self.doc.link_range_at(block, byte) {
+                    Some((s, e)) => self.doc.set_link(block, s, e, None),
+                    None => false,
+                },
+            };
+        }
+        let mut changed = false;
+        for (b, s, e) in spans {
+            changed |= self.doc.set_link(*b, *s, *e, url);
+        }
+        changed
+    }
+
     /// Runs `command`. `paint`: at a caret, a format also asks the engine to
     /// paint the typing style (a button; a key's default action does it
     /// itself). Returns `RefreshDom` when the document changed.
@@ -1809,33 +1928,9 @@ impl RichTextEditorState {
             }
             RichTextCommand::SetLink(url) => {
                 let url = url.as_str().trim();
-                if url.is_empty() {
-                    false
-                } else if spans.is_empty() {
-                    let run = RichRun::plain(url).with_link(AzString::from(url));
-                    self.doc.insert_run(block, byte, run)
-                } else {
-                    let mut changed = false;
-                    for (b, s, e) in &spans {
-                        changed |= self.doc.set_link(*b, *s, *e, Some(url));
-                    }
-                    changed
-                }
+                !url.is_empty() && self.link_spans(&spans, block, byte, Some(url))
             }
-            RichTextCommand::RemoveLink => {
-                if spans.is_empty() {
-                    match self.doc.link_range_at(block, byte) {
-                        Some((s, e)) => self.doc.set_link(block, s, e, None),
-                        None => false,
-                    }
-                } else {
-                    let mut changed = false;
-                    for (b, s, e) in &spans {
-                        changed |= self.doc.set_link(*b, *s, *e, None);
-                    }
-                    changed
-                }
-            }
+            RichTextCommand::RemoveLink => self.link_spans(&spans, block, byte, None),
             RichTextCommand::ToggleCheck => self.doc.toggle_check(block),
         };
         if !changed {
