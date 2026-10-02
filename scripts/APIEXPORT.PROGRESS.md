@@ -46,10 +46,10 @@
 - GlobalHotkey.matches(keyboard: KeyboardState ref) -> bool (app)
 
 ## IN PROGRESS
-- self-review pass over the diff (compile risks), then the report
+- nothing: DONE. Report committed: scripts/APIEXPORT_2026_10_02.md (786a8ffd7, b904379c6, 651b01170).
 
 ## NEXT
-6. report scripts/APIEXPORT_2026_10_02.md (+ commit)
+- (parent) autofix the api.json list in the report, compile, run the listed tests.
 
 ## Decisions
 - No CallbackInfo convenience for the primary modifier: `info.get_key_modifiers().primary_down()` is one call;
