@@ -29,7 +29,6 @@ use alloc::vec::Vec;
 use azul_core::{
     a11y::{AccessibilityInfo, AccessibilityRole},
     dom::{Dom, DomVec, OptionDom},
-    refany::RefAny,
 };
 use azul_css::{
     dynamic_selector::CssPropertyWithConditions,
@@ -47,11 +46,7 @@ use azul_css::{
 
 use super::{
     id_and_class, look_for,
-    office_shell::{
-        self, OfficeShell, OptionShellOnPaneFocus, OptionShellOnPaneResize, ShellOnPaneFocus,
-        ShellOnPaneFocusCallback, ShellOnPaneResize, ShellOnPaneResizeCallback, ShellPane,
-        ShellPaneKind,
-    },
+    office_shell::{self, OfficeShell, ShellPane, ShellPaneKind},
     part, ShellLook, CHROME_ROW_BASE, GROW_COLUMN_BASE, WRAP_ROW_BASE,
 };
 use crate::widgets::themes::{OptionUiTheme, UiTheme};
@@ -111,10 +106,6 @@ pub struct CallShell {
     pub devices: OptionDom,
     /// The controls bar.
     pub controls: Dom,
-    /// F6 moved the focus to a pane.
-    pub on_pane_focus: OptionShellOnPaneFocus,
-    /// A splitter moved.
-    pub on_pane_resize: OptionShellOnPaneResize,
     /// The stage (a shared screen, the active speaker), or nothing. With a
     /// stage the main pane shows it large over a filmstrip of the tiles
     /// (the speaker / presentation layout); without one the tiles are an
@@ -137,8 +128,6 @@ impl CallShell {
             side_panel: OptionDom::None,
             devices: OptionDom::None,
             controls,
-            on_pane_focus: None.into(),
-            on_pane_resize: None.into(),
             stage: OptionDom::None,
             tiles_ratio: 0.75,
             theme: OptionUiTheme::None,
@@ -219,38 +208,6 @@ impl CallShell {
         self
     }
 
-    /// F6 moved the focus to a pane.
-    pub fn set_on_pane_focus<C: Into<ShellOnPaneFocusCallback>>(&mut self, data: RefAny, callback: C) {
-        self.on_pane_focus = Some(ShellOnPaneFocus {
-            callback: callback.into(),
-            refany: data,
-        })
-        .into();
-    }
-
-    /// [`Self::set_on_pane_focus`] for the builder chain.
-    #[must_use]
-    pub fn with_on_pane_focus<C: Into<ShellOnPaneFocusCallback>>(mut self, data: RefAny, callback: C) -> Self {
-        self.set_on_pane_focus(data, callback);
-        self
-    }
-
-    /// A splitter moved.
-    pub fn set_on_pane_resize<C: Into<ShellOnPaneResizeCallback>>(&mut self, data: RefAny, callback: C) {
-        self.on_pane_resize = Some(ShellOnPaneResize {
-            callback: callback.into(),
-            refany: data,
-        })
-        .into();
-    }
-
-    /// [`Self::set_on_pane_resize`] for the builder chain.
-    #[must_use]
-    pub fn with_on_pane_resize<C: Into<ShellOnPaneResizeCallback>>(mut self, data: RefAny, callback: C) -> Self {
-        self.set_on_pane_resize(data, callback);
-        self
-    }
-
     /// Pin the widget theme; unset, the shell follows the app theme.
     pub const fn set_theme(&mut self, theme: UiTheme) {
         self.theme = OptionUiTheme::Some(theme);
@@ -271,11 +228,20 @@ impl CallShell {
         s
     }
 
+    /// The [`OfficeShell`] this shell is, its own parts (the tiles, the
+    /// controls row, the devices) built in the shell's theme. The chrome
+    /// the presets share (the F6 / splitter hooks) is set on it.
+    #[must_use]
+    pub fn office_shell(self) -> OfficeShell {
+        let look = look_for(self.theme);
+        office_shell_in(self, &look)
+    }
+
     /// The shell's DOM.
     #[must_use]
     pub fn dom(self) -> Dom {
         let look = look_for(self.theme);
-        build(self, &look)
+        office_shell::build(office_shell_in(self, &look), &look)
     }
 }
 
@@ -392,15 +358,14 @@ fn tile_cell(tile: Dom, width: LayoutWidth, look: &ShellLook) -> Dom {
 }
 
 /// The [`OfficeShell`] this shell is, in `look`, built once.
-pub(crate) fn build(shell: CallShell, look: &ShellLook) -> Dom {
+/// The [`OfficeShell`] this shell is, in `look`.
+fn office_shell_in(shell: CallShell, look: &ShellLook) -> OfficeShell {
     let CallShell {
         header,
         tiles,
         side_panel,
         devices,
         controls,
-        on_pane_focus,
-        on_pane_resize,
         stage,
         tiles_ratio,
         theme,
@@ -420,8 +385,6 @@ pub(crate) fn build(shell: CallShell, look: &ShellLook) -> Dom {
                 .with_accessibility_info(AccessibilityInfo::named("Call controls", AccessibilityRole::Toolbar))
                 .with_child(controls),
         ),
-        on_pane_focus,
-        on_pane_resize,
         theme,
         ..OfficeShell::create()
     }
@@ -462,7 +425,7 @@ pub(crate) fn build(shell: CallShell, look: &ShellLook) -> Dom {
             .with_label(AzString::from_const_str("Panel")),
         );
     }
-    office_shell::build(office, look)
+    office
 }
 
 #[cfg(test)]

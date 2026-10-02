@@ -20,18 +20,10 @@
 //!
 //! Key types: [`MediaShell`].
 
-use azul_core::{
-    dom::{Dom, OptionDom},
-    refany::RefAny,
-};
+use azul_core::dom::{Dom, OptionDom};
 use azul_css::AzString;
 
-use super::office_shell::{
-    OfficeShell, OptionShellOnPaneFocus, OptionShellOnPaneResize, ShellOnPaneFocus,
-    ShellOnPaneFocusCallback, ShellOnPaneResize, ShellOnPaneResizeCallback, ShellPane,
-    ShellPaneKind,
-};
-use crate::widgets::themes::{OptionUiTheme, UiTheme};
+use super::office_shell::{OfficeShell, ShellPane, ShellPaneKind};
 
 /// The sidebar's DOM id.
 pub const SIDEBAR_ID: &str = "shell-sidebar";
@@ -41,26 +33,21 @@ pub const CONTENT_ID: &str = "shell-content";
 pub const NOW_PLAYING_ID: &str = "shell-status";
 
 /// S7: sidebar | content, the now-playing bar under both.
+///
+/// The preset holds its panes and slots; the chrome (title row, the F6 / splitter hooks, the
+/// theme) is the [`OfficeShell`]'s:
+/// `MediaShell::create(sidebar, content, now_playing).office_shell().with_title_row(t)`.
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct MediaShell {
-    /// The app-drawn title row.
-    pub title_row: OptionDom,
     /// The sidebar (Home, Search, the library).
     pub sidebar: OptionDom,
     /// The content.
     pub content: Dom,
     /// The now-playing bar: media controls and the seek bar.
     pub now_playing: Dom,
-    /// F6 moved the focus to a pane.
-    pub on_pane_focus: OptionShellOnPaneFocus,
-    /// A splitter moved.
-    pub on_pane_resize: OptionShellOnPaneResize,
     /// The sidebar's share of the width (default 0.22).
     pub sidebar_ratio: f32,
-    /// The widget theme this shell is PINNED to (`with_theme`), or `None`
-    /// to follow the app theme.
-    pub theme: OptionUiTheme,
 }
 
 impl MediaShell {
@@ -68,14 +55,10 @@ impl MediaShell {
     #[must_use]
     pub fn create(sidebar: Dom, content: Dom, now_playing: Dom) -> Self {
         Self {
-            title_row: OptionDom::None,
             sidebar: OptionDom::Some(sidebar),
             content,
             now_playing,
-            on_pane_focus: None.into(),
-            on_pane_resize: None.into(),
             sidebar_ratio: 0.22,
-            theme: OptionUiTheme::None,
         }
     }
 
@@ -87,18 +70,6 @@ impl MediaShell {
         s
     }
 
-    /// The app-drawn title row.
-    pub fn set_title_row(&mut self, title_row: Dom) {
-        self.title_row = OptionDom::Some(title_row);
-    }
-
-    /// [`Self::set_title_row`] for the builder chain.
-    #[must_use]
-    pub fn with_title_row(mut self, title_row: Dom) -> Self {
-        self.set_title_row(title_row);
-        self
-    }
-
     /// The sidebar's share of the width.
     pub const fn set_sidebar_ratio(&mut self, ratio: f32) {
         self.sidebar_ratio = ratio;
@@ -108,50 +79,6 @@ impl MediaShell {
     #[must_use]
     pub const fn with_sidebar_ratio(mut self, ratio: f32) -> Self {
         self.set_sidebar_ratio(ratio);
-        self
-    }
-
-    /// F6 moved the focus to a pane.
-    pub fn set_on_pane_focus<C: Into<ShellOnPaneFocusCallback>>(&mut self, data: RefAny, callback: C) {
-        self.on_pane_focus = Some(ShellOnPaneFocus {
-            callback: callback.into(),
-            refany: data,
-        })
-        .into();
-    }
-
-    /// [`Self::set_on_pane_focus`] for the builder chain.
-    #[must_use]
-    pub fn with_on_pane_focus<C: Into<ShellOnPaneFocusCallback>>(mut self, data: RefAny, callback: C) -> Self {
-        self.set_on_pane_focus(data, callback);
-        self
-    }
-
-    /// A splitter moved.
-    pub fn set_on_pane_resize<C: Into<ShellOnPaneResizeCallback>>(&mut self, data: RefAny, callback: C) {
-        self.on_pane_resize = Some(ShellOnPaneResize {
-            callback: callback.into(),
-            refany: data,
-        })
-        .into();
-    }
-
-    /// [`Self::set_on_pane_resize`] for the builder chain.
-    #[must_use]
-    pub fn with_on_pane_resize<C: Into<ShellOnPaneResizeCallback>>(mut self, data: RefAny, callback: C) -> Self {
-        self.set_on_pane_resize(data, callback);
-        self
-    }
-
-    /// Pin the widget theme; unset, the shell follows the app theme.
-    pub const fn set_theme(&mut self, theme: UiTheme) {
-        self.theme = OptionUiTheme::Some(theme);
-    }
-
-    /// [`Self::set_theme`] for the builder chain.
-    #[must_use]
-    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
-        self.set_theme(theme);
         self
     }
 
@@ -168,21 +95,13 @@ impl MediaShell {
     #[must_use]
     pub fn office_shell(self) -> OfficeShell {
         let Self {
-            title_row,
             sidebar,
             content,
             now_playing,
-            on_pane_focus,
-            on_pane_resize,
             sidebar_ratio,
-            theme,
         } = self;
         let mut shell = OfficeShell {
-            title_row,
             status_bar: OptionDom::Some(now_playing),
-            on_pane_focus,
-            on_pane_resize,
-            theme,
             ..OfficeShell::create()
         };
         if let Some(s) = sidebar.into_option() {
@@ -239,6 +158,7 @@ mod media_shell_tests {
     #[test]
     fn s7_is_a_sidebar_beside_the_content_with_the_now_playing_bar_as_the_footer() {
         let dom = MediaShell::create(slot(), slot(), slot())
+            .office_shell()
             .with_title_row(slot())
             .with_theme(UiTheme::Flat)
             .dom();
@@ -246,7 +166,10 @@ mod media_shell_tests {
         let order: Vec<&str> = found.iter().map(|(id, _)| id.as_str()).collect();
         assert_eq!(order, vec!["shell-title", SIDEBAR_ID, CONTENT_ID, NOW_PLAYING_ID]);
         assert!(matches!(found[3].1, NodeType::Footer), "the bar is the window's footer");
-        let player = MediaShell::create_player(slot(), slot()).with_theme(UiTheme::Flat).dom();
+        let player = MediaShell::create_player(slot(), slot())
+            .office_shell()
+            .with_theme(UiTheme::Flat)
+            .dom();
         let order: Vec<String> = ids(&player).into_iter().map(|(id, _)| id).collect();
         assert_eq!(order, vec![CONTENT_ID, NOW_PLAYING_ID]);
     }
@@ -256,7 +179,12 @@ mod media_shell_tests {
         checks::assert_follows_the_app_theme(
             "media_shell",
             || MediaShell::create(slot(), slot(), slot()).dom(),
-            |t: UiTheme| MediaShell::create(slot(), slot(), slot()).with_theme(t).dom(),
+            |t: UiTheme| {
+                MediaShell::create(slot(), slot(), slot())
+                    .office_shell()
+                    .with_theme(t)
+                    .dom()
+            },
         );
     }
 }

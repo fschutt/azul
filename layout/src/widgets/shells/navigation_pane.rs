@@ -631,8 +631,9 @@ extern "C" fn on_collapse_click(mut data: RefAny, info: CallbackInfo) -> Update 
 }
 
 /// Up / Down / Home / End move the keyboard stop between the module
-/// buttons (the switcher is one Tab stop, APG "roving tabindex"); Enter and
-/// Space are the engine's synthetic click, which selects.
+/// buttons (the switcher is one Tab stop, APG "roving tabindex"), wrapping
+/// at the ends as APG tabs do; Enter and Space are the engine's synthetic
+/// click, which selects.
 extern "C" fn on_module_key(_data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(key) = roving::plain_key(&info.get_current_keyboard_state()) else {
         return Update::DoNothing;
@@ -652,7 +653,7 @@ extern "C" fn on_module_key(_data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(current) = items.iter().position(|n| *n == me) else {
         return Update::DoNothing;
     };
-    let Some(target) = roving::step_target(current, items.len(), step, false) else {
+    let Some(target) = roving::step_target(current, items.len(), step, true) else {
         return Update::DoNothing;
     };
     info.prevent_default();
@@ -1071,7 +1072,7 @@ mod navigation_pane_tests {
     }
 
     #[test]
-    fn down_moves_the_stop_to_the_next_module_and_home_to_the_first() {
+    fn down_moves_the_stop_to_the_next_module_home_to_the_first_and_both_ends_wrap() {
         let (dom, _) = logged();
         let styled = StyledDom::create_from_dom(dom.clone());
         let modules = indices_of(&dom, MODULE_CLASS);
@@ -1080,8 +1081,11 @@ mod navigation_pane_tests {
         assert!(rv::prevented(&changes));
         let (_, changes) = rv::press(&styled, node(modules[2]), VirtualKeyCode::Home, &[]).expect("keys");
         assert_eq!(rv::focus_request(&changes), Some(node(modules[0])));
+        // WAI-ARIA APG tabs: the module buttons wrap at the ends.
         let (_, changes) = rv::press(&styled, node(modules[2]), VirtualKeyCode::Down, &[]).expect("keys");
-        assert_eq!(rv::focus_request(&changes), Some(node(modules[2])), "the ends hold");
+        assert_eq!(rv::focus_request(&changes), Some(node(modules[0])), "Down on the last wraps to the first");
+        let (_, changes) = rv::press(&styled, node(modules[0]), VirtualKeyCode::Up, &[]).expect("keys");
+        assert_eq!(rv::focus_request(&changes), Some(node(modules[2])), "Up on the first wraps to the last");
         let (_, changes) =
             rv::press(&styled, node(modules[0]), VirtualKeyCode::Down, &[VirtualKeyCode::LControl]).expect("keys");
         assert!(rv::focus_request(&changes).is_none(), "Ctrl+Down is the app's");

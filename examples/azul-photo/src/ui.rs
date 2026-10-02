@@ -1045,8 +1045,9 @@ fn editor(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
         .with_tool_palette(tools_column(app, a, p))
         .with_document_tabs(doc_tab(app, a, p))
         .with_panels(panels(app, a, p))
-        .with_status_bar(status_bar(a))
         .with_canvas_ratio(0.76)
+        .office_shell()
+        .with_status_bar(status_bar(a))
         .dom()
 }
 

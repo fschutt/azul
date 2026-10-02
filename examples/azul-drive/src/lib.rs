@@ -1329,21 +1329,24 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     };
     let s = &*guard;
 
-    let mut shell = BrowserShell::create(
+    let mut browser = BrowserShell::create(
         ui_panes::address_bar(s, &app),
         ui_panes::navigation_pane(s, &app),
         ui_view::content(s, &app),
     )
-    .with_title_row(title_row(s))
     .with_ribbon(ui_ribbon::ribbon(s, &app))
-    .with_status_bar(ui_panes::status_bar(s, &app))
     .with_tree_visible(s.settings.navigation_pane);
     if s.settings.preview_pane {
-        shell = shell.with_preview(ui_panes::preview_pane(s, &app, dark));
+        browser = browser.with_preview(ui_panes::preview_pane(s, &app, dark));
     }
     if s.settings.details_pane {
-        shell = shell.with_details(ui_panes::details_pane(s));
+        browser = browser.with_details(ui_panes::details_pane(s));
     }
+    // The chrome is the OfficeShell's.
+    let mut shell = browser
+        .office_shell()
+        .with_title_row(title_row(s))
+        .with_status_bar(ui_panes::status_bar(s, &app));
     if let Some(page) = s.backstage {
         shell = shell.with_backstage(ui_dialogs::backstage(s, &app, page));
     }

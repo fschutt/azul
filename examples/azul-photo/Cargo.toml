@@ -21,6 +21,8 @@ publish = false
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
 # The Drive trait and LocalDrive only (no S3 transport yet): no `azul` feature needed.
 azul-storage = { path = "../azul-storage" }
+# The shared undo / redo stack (`azul_appkit::UndoHistory`); the plain modules only.
+azul-appkit = { path = "../azul-appkit" }
 # The same serde / serde_json the tree already has (azul-layout, AzCalendar, AzMail).
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

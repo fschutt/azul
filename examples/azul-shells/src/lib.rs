@@ -314,10 +314,11 @@ fn shell_dom(s: &Shells, app: &RefAny) -> Dom {
     let title = heading(&format!("{} - {}", info.pick, info.name));
     match s.pick {
         0 => DocumentShell::create(slot("Document", "description"))
-            .with_title_row(title)
-            .with_ribbon(ribbon(app))
             .with_navigation(slot("Navigation", "list"))
             .with_side_pane(slot("Side pane", "comment"))
+            .office_shell()
+            .with_title_row(title)
+            .with_ribbon(ribbon(app))
             .with_status_bar(status_bar("PAGE 1 OF 1"))
             .with_on_pane_focus(app.clone(), on_pane as ShellOnPaneFocusCallbackType)
             .dom(),
@@ -328,6 +329,7 @@ fn shell_dom(s: &Shells, app: &RefAny) -> Dom {
             .with_document_tabs(Segmented::create(strs(&["photo.graphite", "poster.graphite"])).dom())
             .with_panels(slot("Panels", "layers"))
             .with_drawer(slot("Node graph", "account_tree"))
+            .office_shell()
             .with_status_bar(status_bar("100% | 1920x1080 px | sRGB"))
             .with_on_pane_focus(app.clone(), on_pane as ShellOnPaneFocusCallbackType)
             .dom(),
@@ -340,6 +342,7 @@ fn shell_dom(s: &Shells, app: &RefAny) -> Dom {
         )
         .with_menu_bar(title)
         .with_meters(slot("Meters", "graphic_eq"))
+        .office_shell()
         .with_on_pane_focus(app.clone(), on_pane as ShellOnPaneFocusCallbackType)
         .dom(),
         3 => PimShell::create(
@@ -347,11 +350,12 @@ fn shell_dom(s: &Shells, app: &RefAny) -> Dom {
             slot("Message list", "inbox"),
             slot("Reading pane", "mail"),
         )
+        .with_todo_bar(slot("To-Do bar", "event"))
+        .with_list_label(AzString::from("Message list"))
+        .office_shell()
         .with_title_row(title)
         .with_ribbon(ribbon(app))
-        .with_todo_bar(slot("To-Do bar", "event"))
         .with_status_bar(status_bar("Synced 1 min ago"))
-        .with_list_label(AzString::from("Message list"))
         .with_on_pane_focus(app.clone(), on_pane as ShellOnPaneFocusCallbackType)
         .dom(),
         4 => BrowserShell::create(
@@ -359,7 +363,6 @@ fn shell_dom(s: &Shells, app: &RefAny) -> Dom {
             tree_view("This PC", &["Home", "Desktop", "Downloads"]),
             slot("Content", "folder"),
         )
-        .with_title_row(title)
         .with_ribbon(ribbon(app))
         .with_preview(slot("Preview", "image"))
         .with_details(
@@ -369,6 +372,8 @@ fn shell_dom(s: &Shells, app: &RefAny) -> Dom {
                 .with_property(AzString::from("Items"), AzString::from("6"))
                 .dom(),
         )
+        .office_shell()
+        .with_title_row(title)
         .with_status_bar(status_bar("6 items"))
         .with_on_pane_focus(app.clone(), on_pane as ShellOnPaneFocusCallbackType)
         .dom(),
@@ -376,9 +381,10 @@ fn shell_dom(s: &Shells, app: &RefAny) -> Dom {
             Segmented::create(strs(&["Processes", "Performance", "Services"])).dom(),
             slot("Table", "table_chart"),
         )
-        .with_title_row(title)
         .with_cards(bar(app, &["CPU 23%", "Memory 61%", "Disk 4 MB/s", "Net 1.2 Mb/s"]))
         .with_form(slot("Record", "edit_note"))
+        .office_shell()
+        .with_title_row(title)
         .with_status_bar(status_bar("214 processes"))
         .with_on_pane_focus(app.clone(), on_pane as ShellOnPaneFocusCallbackType)
         .dom(),
@@ -387,6 +393,7 @@ fn shell_dom(s: &Shells, app: &RefAny) -> Dom {
             slot("Albums", "album"),
             bar(app, &["Previous", "Play", "Next"]),
         )
+        .office_shell()
         .with_title_row(title)
         .with_on_pane_focus(app.clone(), on_pane as ShellOnPaneFocusCallbackType)
         .dom(),
@@ -395,8 +402,9 @@ fn shell_dom(s: &Shells, app: &RefAny) -> Dom {
             tree_view("azul-apps", &["apps", "planning", "Cargo.toml"]),
             slot("Editor", "code"),
         )
-        .with_title_row(title)
         .with_panel(slot("Terminal", "terminal"))
+        .office_shell()
+        .with_title_row(title)
         .with_status_bar(status_bar("main | Ln 4, Col 25 | Rust"))
         .with_on_pane_focus(app.clone(), on_pane as ShellOnPaneFocusCallbackType)
         .dom(),
@@ -412,6 +420,7 @@ fn shell_dom(s: &Shells, app: &RefAny) -> Dom {
         .with_header(title)
         .with_side_panel(slot("Participants", "group"))
         .with_devices(slot("Devices", "settings_voice"))
+        .office_shell()
         .with_on_pane_focus(app.clone(), on_pane as ShellOnPaneFocusCallbackType)
         .dom(),
         10 => MobileShell::create(AzString::from("Inbox"))

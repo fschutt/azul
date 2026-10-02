@@ -744,10 +744,11 @@ pub(crate) mod fixtures {
             (
                 "document_shell",
                 DocumentShell::create(slot())
-                    .with_title_row(slot())
-                    .with_ribbon(slot())
                     .with_navigation(slot())
                     .with_side_pane(slot())
+                    .office_shell()
+                    .with_title_row(slot())
+                    .with_ribbon(slot())
                     .with_status_bar(slot())
                     .dom()
             ),
@@ -760,6 +761,7 @@ pub(crate) mod fixtures {
                     .with_document_tabs(slot())
                     .with_panels(slot())
                     .with_drawer(slot())
+                    .office_shell()
                     .with_status_bar(slot())
                     .dom()
             ),
@@ -773,34 +775,38 @@ pub(crate) mod fixtures {
             (
                 "pim_shell",
                 PimShell::create(slot(), slot(), slot())
+                    .with_todo_bar(slot())
+                    .office_shell()
                     .with_title_row(slot())
                     .with_ribbon(slot())
-                    .with_todo_bar(slot())
                     .with_status_bar(slot())
                     .dom()
             ),
             (
                 "browser_shell",
                 BrowserShell::create(slot(), slot(), slot())
-                    .with_title_row(slot())
                     .with_ribbon(slot())
                     .with_details(slot())
                     .with_preview(slot())
+                    .office_shell()
+                    .with_title_row(slot())
                     .with_status_bar(slot())
                     .dom()
             ),
             (
                 "records_shell",
                 RecordsShell::create(slot(), slot())
-                    .with_title_row(slot())
                     .with_cards(slot())
                     .with_form(slot())
+                    .office_shell()
+                    .with_title_row(slot())
                     .with_status_bar(slot())
                     .dom()
             ),
             (
                 "media_shell",
                 MediaShell::create(slot(), slot(), slot())
+                    .office_shell()
                     .with_title_row(slot())
                     .dom()
             ),
@@ -808,6 +814,7 @@ pub(crate) mod fixtures {
                 "developer_shell",
                 DeveloperShell::create(slot(), slot(), slot())
                     .with_panel(slot())
+                    .office_shell()
                     .with_status_bar(slot())
                     .dom()
             ),

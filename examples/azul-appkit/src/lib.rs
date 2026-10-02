@@ -8,6 +8,7 @@
 //! - [`shortcuts`]: the keyboard-shortcut table, `Mod` = Cmd / Ctrl.
 //! - [`about`]: the About facts.
 //! - [`files`]: file jobs (put / get / get-all / delete) on an azul-storage drive.
+//! - [`history`]: undo / redo of whole-state snapshots ([`UndoHistory`]).
 //! - `ui` (feature `azul`): the settings page on azul's `ShellSettingsLayout`
 //!   (Appearance, Data, Shortcuts, About, plus the app's own sections), the
 //!   window's title row, the window options (`NoTitle`, `--size`), the app
@@ -21,6 +22,7 @@ pub mod about;
 pub mod args;
 pub mod data;
 pub mod files;
+pub mod history;
 pub mod settings;
 pub mod shortcuts;
 
@@ -30,5 +32,6 @@ pub mod ui;
 pub use about::AboutInfo;
 pub use args::{AppArgs, AppSpec, ModePref, Theme};
 pub use files::{FileJob, FileOutcome};
+pub use history::UndoHistory;
 pub use settings::AppSettings;
 pub use shortcuts::Shortcut;

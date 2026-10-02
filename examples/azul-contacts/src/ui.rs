@@ -1236,10 +1236,11 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         )
     } else {
         PimShell::create(navigation(s, &app), list_pane(s, &app), reading_pane(s, &app))
+            .with_list_label("Contacts")
+            .office_shell()
             .with_title_row(kit::title_row(SPEC.name))
             .with_ribbon(toolbar(&app))
             .with_status_bar(status_bar(s, &app))
-            .with_list_label("Contacts")
             .dom()
     };
     let root = column("flex-grow: 1; min-height: 0px;", vec![content]);

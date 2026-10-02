@@ -113,21 +113,24 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     }
     list_column.add_child(list::pane(s, &app, now));
 
-    let mut shell = PimShell::create(
+    let mut pim = PimShell::create(
         nav::pane(s, &app, now.date()),
         list_column,
         detail::pane(s, &app, now),
     )
-    .with_title_row(chrome::title_row())
-    .with_status_bar(chrome::status_bar(s, &app, now))
     .with_list_label("Tasks");
+    if s.show_todo_bar {
+        pim = pim.with_todo_bar(chrome::todo_bar(s, &app, now));
+    }
+    // The chrome is the OfficeShell's.
+    let mut shell = pim
+        .office_shell()
+        .with_title_row(chrome::title_row())
+        .with_status_bar(chrome::status_bar(s, &app, now));
     shell = match s.page {
         Some(page) => shell.with_backstage(backstage::backstage(s, &app, page, &theme, dark)),
         None => shell.with_ribbon(chrome::ribbon(s, &app, &theme, dark)),
     };
-    if s.show_todo_bar {
-        shell = shell.with_todo_bar(chrome::todo_bar(s, &app, now));
-    }
     let root = Dom::create_div()
         .with_css("position: relative; display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
         .with_child(shell.dom())

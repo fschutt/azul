@@ -283,12 +283,6 @@ pub mod microphone;
 /// HTML `showModal()`: a titled panel over a dimmed backdrop covering the window, Escape closes
 /// it; a front-end over `dialog`; see `modal.rs`.
 pub mod modal;
-/// Module switcher widget.
-///
-/// The big Mail / Calendar / Contacts / Tasks buttons at the foot of a
-/// mail window's navigation pane, and their collapsed strip; see
-/// `module_switcher.rs`.
-pub mod module_switcher;
 /// Node graph widget
 pub mod node_graph;
 /// Same as text input, but only allows numeric input
@@ -473,6 +467,20 @@ pub mod thumbnail_strip;
 /// content and looks asked from the app's data and style callbacks. See
 /// `cell_grid.rs`.
 pub mod cell_grid;
+/// List selection model.
+///
+/// The selected items of a list, a tile grid, a slide rail or a canvas with
+/// the anchor and the focus: click, Ctrl / Shift / Ctrl+Shift click, the
+/// arrows, select all / none / invert - Explorer's rules written once; see
+/// `list_selection.rs`.
+pub mod list_selection;
+/// Close guard.
+///
+/// "Save changes?" before a window with unsaved work closes: the close
+/// request is held while the app's document is dirty, the standard
+/// question (a message box in a modal) asks, the answer comes back as one
+/// event; see `close_guard.rs`.
+pub mod close_guard;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
@@ -1516,39 +1524,6 @@ mod label_convention {
                             .with_done(true),
                     ]))
                     .dom(),
-            ),
-            (
-                "module_switcher",
-                super::module_switcher::ModuleSwitcher::create(
-                    super::module_switcher::SwitcherModuleVec::from_vec(vec![
-                        super::module_switcher::SwitcherModule::create(
-                            AzString::from("Mail"),
-                            AzString::from("mail"),
-                        ),
-                        super::module_switcher::SwitcherModule::create(
-                            AzString::from("Calendar"),
-                            AzString::from("calendar_month"),
-                        ),
-                    ]),
-                )
-                .dom(),
-            ),
-            (
-                "module_switcher (collapsed)",
-                super::module_switcher::ModuleSwitcher::create(
-                    super::module_switcher::SwitcherModuleVec::from_vec(vec![
-                        super::module_switcher::SwitcherModule::create(
-                            AzString::from("Mail"),
-                            AzString::from("mail"),
-                        ),
-                        super::module_switcher::SwitcherModule::create(
-                            AzString::from("Calendar"),
-                            AzString::from("calendar_month"),
-                        ),
-                    ]),
-                )
-                .with_collapsed(true)
-                .dom(),
             ),
             (
                 "wizard_layout",
@@ -2732,8 +2707,6 @@ mod theme_contrast {
         "titlebar",
         "tree_view",
         "message_list",
-        "module_switcher",
-        "module_switcher (collapsed)",
         // The app shells (`shells::fixtures::every_shell`): window chrome.
         "office_shell",
         "navigation_pane",

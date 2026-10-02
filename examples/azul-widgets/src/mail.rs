@@ -1,6 +1,6 @@
 //! The "Mail" section: the widgets an Outlook-2010-style mail window is
 //! built from - the message list, the reading pane with its info bar, the
-//! To-Do bar, the module switcher, the status bar with its sync indicator
+//! To-Do bar, the module switcher (the navigation pane's), the status bar with its sync indicator
 //! and the account wizard's layout.
 //!
 //! Every value the cards show is the APP's (`MailDemo`): each widget is built
@@ -11,7 +11,16 @@
 //! few rows and reports the window a settled scroll asks for in the status
 //! line.
 
-use azul::{prelude::*, str::String as AzString, widgets::*};
+use azul::{
+    callbacks::ShellNavigationPaneOnEventCallbackType,
+    prelude::*,
+    shells::{
+        ShellNavigationModule, ShellNavigationPane, ShellNavigationPaneEvent,
+        ShellNavigationPaneEventKind,
+    },
+    str::String as AzString,
+    widgets::*,
+};
 
 use crate::{captioned, section, strs, Showcase};
 
@@ -63,7 +72,7 @@ const WINDOW_CSS: &str = "display: flex; flex-direction: row; gap: 12px; align-i
 pub(crate) struct MailDemo {
     /// The list's selection (indices into the flat list, group rows
     /// included).
-    selection: MessageListSelection,
+    selection: ListSelection,
     /// Which messages are flagged, per `INBOX` entry.
     flagged: Vec<bool>,
     /// Which messages are read, per `INBOX` entry.
@@ -95,7 +104,7 @@ pub(crate) struct MailDemo {
 impl MailDemo {
     pub(crate) fn create() -> Self {
         Self {
-            selection: MessageListSelection::create().apply(1, false, false),
+            selection: ListSelection::create().apply(1, false, false),
             flagged: vec![true, false, false, false],
             read: vec![false, true, true, false],
             search: "".into(),
@@ -127,7 +136,7 @@ impl MailDemo {
             if self.scope == 1 && !unread {
                 continue;
             }
-            let index = rows.len() as u32;
+            let index = rows.len() as u64;
             rows.push(
                 MessageRow::create(*id, AzString::from(*from), AzString::from(*subject))
                     .with_preview(AzString::from(*preview))
@@ -191,7 +200,7 @@ pub(crate) fn mail_section(data: &RefAny, m: &MailDemo, theme: UiTheme) -> Dom {
 
     let open = m
         .selection
-        .rows
+        .keys
         .as_ref()
         .first()
         .and_then(|row| m.rows().get(*row as usize).map(|r| r.id))
@@ -253,18 +262,19 @@ pub(crate) fn mail_section(data: &RefAny, m: &MailDemo, theme: UiTheme) -> Dom {
         .with_theme(theme)
         .dom();
 
-    let switcher = ModuleSwitcher::create(vec![
-        SwitcherModule::create("E-Mail", "mail"),
-        SwitcherModule::create("Kalender", "calendar_month"),
-        SwitcherModule::create("Kontakte", "contacts"),
-        SwitcherModule::create("Aufgaben", "task"),
-    ])
-    .with_active(m.module)
-    .with_collapsed(m.collapsed)
-    .with_on_select(data.clone(), on_module)
-    .with_on_collapse(data.clone(), on_collapse)
-    .with_theme(theme)
-    .dom();
+    // The module switcher is the navigation pane's (no groups here): the
+    // big module buttons, the badge, the collapse chevron.
+    let switcher = ShellNavigationPane::create()
+        .with_label("Module")
+        .with_module(ShellNavigationModule::create("E-Mail", "mail").with_badge("2"))
+        .with_module(ShellNavigationModule::create("Kalender", "calendar_month"))
+        .with_module(ShellNavigationModule::create("Kontakte", "contacts"))
+        .with_module(ShellNavigationModule::create("Aufgaben", "task"))
+        .with_active_module(m.module)
+        .with_collapsed(m.collapsed)
+        .with_on_event(data.clone(), on_navigation as ShellNavigationPaneOnEventCallbackType)
+        .with_theme(theme)
+        .dom();
 
     let status = StatusBar::create(vec![StatusBarSegment::create("Filter angewendet")])
         .with_sync(
@@ -331,7 +341,7 @@ pub(crate) fn mail_section(data: &RefAny, m: &MailDemo, theme: UiTheme) -> Dom {
                     ),
             ),
             captioned(
-                "ModuleSwitcher",
+                "ShellNavigationPane (module switcher)",
                 Dom::create_div()
                     .with_css("width: 220px;")
                     .with_child(switcher),
@@ -354,7 +364,7 @@ extern "C" fn on_list(mut data: RefAny, _: CallbackInfo, event: MessageListEvent
         let text = event.text.as_str().to_string();
         m.status = match event.kind {
             MessageListEventKind::Select => {
-                m.selection = m.selection.clone().apply(event.index as u32, event.shift, event.ctrl);
+                m.selection = m.selection.clone().apply(event.index as u64, event.shift, event.ctrl);
                 format!("Zeile {} ausgewaehlt (id {})", event.index, event.id)
             }
             MessageListEventKind::Open => format!("Nachricht {} geoeffnet", event.id),
@@ -435,22 +445,22 @@ extern "C" fn on_todo(mut data: RefAny, _: CallbackInfo, event: ToDoBarEvent) ->
     })
 }
 
-extern "C" fn on_module(mut data: RefAny, _: CallbackInfo, index: usize) -> Update {
-    keep(&mut data, |m| {
-        m.module = index;
-        m.status = format!("Modul {index}").as_str().into();
-    })
-}
-
-extern "C" fn on_collapse(mut data: RefAny, _: CallbackInfo, collapsed: bool) -> Update {
-    keep(&mut data, |m| {
-        m.collapsed = collapsed;
-        m.status = if collapsed {
-            "Navigationsbereich minimiert"
-        } else {
-            "Navigationsbereich erweitert"
+extern "C" fn on_navigation(mut data: RefAny, _: CallbackInfo, event: ShellNavigationPaneEvent) -> Update {
+    keep(&mut data, |m| match event.kind {
+        ShellNavigationPaneEventKind::ModuleSelected => {
+            m.module = event.index;
+            m.status = format!("Modul {}", event.index).as_str().into();
         }
-        .into();
+        ShellNavigationPaneEventKind::CollapseToggled => {
+            m.collapsed = !event.expand;
+            m.status = if m.collapsed {
+                "Navigationsbereich minimiert"
+            } else {
+                "Navigationsbereich erweitert"
+            }
+            .into();
+        }
+        _ => {}
     })
 }
 

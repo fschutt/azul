@@ -2085,7 +2085,12 @@ fn set_tool(app: &mut VideoCut, tool: Tool) -> Update {
 }
 
 fn undo(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut) -> Update {
-    let label = app.project.as_ref().and_then(Project::undo_label).unwrap_or("");
+    let label = app
+        .project
+        .as_ref()
+        .and_then(Project::undo_label)
+        .map(str::to_string)
+        .unwrap_or_default();
     let done = app.project.as_mut().is_some_and(Project::undo);
     if !done {
         app.status = String::from("Nothing to undo.");
@@ -2095,7 +2100,12 @@ fn undo(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut) -> Update
 }
 
 fn redo(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut) -> Update {
-    let label = app.project.as_ref().and_then(Project::redo_label).unwrap_or("");
+    let label = app
+        .project
+        .as_ref()
+        .and_then(Project::redo_label)
+        .map(str::to_string)
+        .unwrap_or_default();
     let done = app.project.as_mut().is_some_and(Project::redo);
     if !done {
         app.status = String::from("Nothing to redo.");

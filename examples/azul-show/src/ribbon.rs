@@ -174,6 +174,8 @@ fn swatch_cell(color: &str, label: &str) -> RibbonGalleryCell {
 fn home_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
     let body = ed.and_then(|e| {
         e.selection
+            .keys
+            .as_ref()
             .first()
             .and_then(|id| e.slide().element(*id))
             .and_then(|el| el.body())
@@ -449,7 +451,7 @@ fn transitions_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
 
 fn animations_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
     let current = ed
-        .and_then(|e| e.selection.first().and_then(|id| e.slide().element(*id)))
+        .and_then(|e| e.selection.keys.as_ref().first().and_then(|id| e.slide().element(*id)))
         .and_then(|el| el.animation);
     let selected = current
         .and_then(|a| AnimationEffect::ALL.iter().position(|x| *x == a.effect))
@@ -464,7 +466,7 @@ fn animations_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
         cells.push(swatch_cell(color, effect.label()));
     }
     let order = ed
-        .and_then(|e| e.selection.first().and_then(|id| e.slide().build_step_of(*id)))
+        .and_then(|e| e.selection.keys.as_ref().first().and_then(|id| e.slide().build_step_of(*id)))
         .map_or_else(|| String::from("Order: -"), |n| format!("Order: {}", n + 1));
     RibbonTab::create(s("ANIMATIONS"))
         .with_group(
@@ -539,6 +541,8 @@ fn format_tab(app: &RefAny, ed: &Editor) -> RibbonTab {
     let fills = [c.accent, c.accent2, c.accent3, c.title];
     let shapes = ed
         .selection
+        .keys
+        .as_ref()
         .iter()
         .filter_map(|id| ed.slide().element(*id))
         .any(|e| matches!(e.kind, ElementKind::Shape { .. }));

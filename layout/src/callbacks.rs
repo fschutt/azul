@@ -2048,6 +2048,46 @@ impl CallbackInfo {
         self.push_change(CallbackChange::ModifyWindowState { state });
     }
 
+    /// Vetoes the window close this pass is processing: called from a
+    /// `WindowEventFilter::CloseRequested` callback, the window stays open
+    /// (unsaved work, a "Save changes?" question - see
+    /// `widgets::close_guard::CloseGuard`). Every backend reads a cleared
+    /// `flags.close_requested` after the pass as "stay open"; this clears it
+    /// on the window state the callback queued last (or the current one), so
+    /// what the callback changed before it is kept. Call it last.
+    pub fn prevent_window_close(&mut self) {
+        let mut state = self
+            .last_queued_window_state()
+            .unwrap_or_else(|| self.get_current_window_state().clone());
+        state.flags.close_requested = false;
+        self.modify_window_state(state);
+    }
+
+    /// The window state the last `modify_window_state` of this callback
+    /// queued, if any.
+    #[cfg(feature = "std")]
+    fn last_queued_window_state(&self) -> Option<FullWindowState> {
+        // SAFETY: The pointer is valid for the lifetime of the callback
+        let changes = unsafe { (*self.changes).lock() }.ok()?;
+        let state = changes.iter().rev().find_map(|c| match c {
+            CallbackChange::ModifyWindowState { state } => Some(state.clone()),
+            _ => None,
+        });
+        state
+    }
+
+    /// The window state the last `modify_window_state` of this callback
+    /// queued, if any.
+    #[cfg(not(feature = "std"))]
+    fn last_queued_window_state(&self) -> Option<FullWindowState> {
+        // SAFETY: The pointer is valid for the lifetime of the callback
+        let changes = unsafe { &*self.changes };
+        changes.iter().rev().find_map(|c| match c {
+            CallbackChange::ModifyWindowState { state } => Some(state.clone()),
+            _ => None,
+        })
+    }
+
     /// Request the compositor to begin an interactive window move.
     ///
     /// On Wayland: calls `xdg_toplevel_move(toplevel, seat, serial)` which lets

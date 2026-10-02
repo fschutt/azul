@@ -1,9 +1,11 @@
 //! What AzDrive's folder view is, as plain data: Explorer's eight layouts,
 //! the groups ("Group by"), the columns of the Details layout and their
 //! widths, the multi-selection with its anchor and focus (click, Ctrl+click,
-//! Shift+click, the arrow keys), type-ahead, and the settings that persist.
-//! No azul types here, so all of it is tested without a window.
+//! Shift+click, the arrow keys - azul's `ListSelection`), type-ahead, and the
+//! settings that persist. No window types here, so all of it is tested
+//! without a window.
 
+use azul::widgets::ListSelection;
 use chrono::{DateTime, Datelike, Local, TimeDelta, TimeZone};
 use serde::{Deserialize, Serialize};
 
@@ -138,148 +140,159 @@ impl ViewLayout {
 // ==== Selection ====
 
 /// The selected items (their keys) with Explorer's anchor (where a
-/// Shift+click range starts) and focus (the item the keyboard is on).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// Shift+click range starts) and focus (the item the keyboard is on). The
+/// rules are azul's `ListSelection` over the items' keys
+/// (`ListSelection::key_of`); this keeps the names it met, so the selection
+/// reads back as keys, in the visible order.
+#[derive(Debug, Clone)]
 pub struct Selection {
-    keys: Vec<String>,
-    anchor: Option<String>,
-    focus: Option<String>,
+    inner: ListSelection,
+    /// Every name the selection met with its key: the latest visible order
+    /// first, then the names met outside it.
+    names: Vec<(u64, String)>,
 }
 
-/// The keys from `a` to `b` (either order) in `order`; `[b]` when `a` is
-/// not there.
-fn range(order: &[&str], a: &str, b: &str) -> Vec<String> {
-    let Some(j) = order.iter().position(|k| *k == b) else {
-        return Vec::new();
-    };
-    let i = order.iter().position(|k| *k == a).unwrap_or(j);
-    let (from, to) = if i <= j { (i, j) } else { (j, i) };
-    order[from..=to].iter().map(|k| (*k).to_string()).collect()
+impl Default for Selection {
+    fn default() -> Self {
+        Self {
+            inner: ListSelection::create(),
+            names: Vec::new(),
+        }
+    }
 }
 
 impl Selection {
+    /// Remembers `name`; its key.
+    fn learn(&mut self, name: &str) -> u64 {
+        let key = ListSelection::key_of(name);
+        if !self.names.iter().any(|(k, _)| *k == key) {
+            self.names.push((key, name.to_string()));
+        }
+        key
+    }
+
+    /// Remembers `order` as the visible order; its keys.
+    fn learn_order(&mut self, order: &[&str]) -> Vec<u64> {
+        let named: Vec<(u64, String)> = order
+            .iter()
+            .map(|name| (ListSelection::key_of(*name), (*name).to_string()))
+            .collect();
+        let keys: Vec<u64> = named.iter().map(|(k, _)| *k).collect();
+        let listed: std::collections::BTreeSet<u64> = keys.iter().copied().collect();
+        let rest: Vec<(u64, String)> = self
+            .names
+            .drain(..)
+            .filter(|(k, _)| !listed.contains(k))
+            .collect();
+        self.names = named;
+        self.names.extend(rest);
+        keys
+    }
+
+    /// The name of `key`.
+    fn name_of(&self, key: u64) -> Option<&str> {
+        self.names
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map(|(_, name)| name.as_str())
+    }
+
+    /// The selected keys, in the visible order.
     #[must_use]
-    pub fn keys(&self) -> &[String] {
-        &self.keys
+    pub fn keys(&self) -> Vec<String> {
+        self.names
+            .iter()
+            .filter(|(k, _)| self.inner.contains(*k))
+            .map(|(_, name)| name.clone())
+            .collect()
     }
 
     #[must_use]
     pub fn len(&self) -> usize {
-        self.keys.len()
+        self.inner.len()
     }
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.keys.is_empty()
+        self.inner.is_empty()
     }
 
     #[must_use]
     pub fn contains(&self, key: &str) -> bool {
-        self.keys.iter().any(|k| k == key)
+        self.inner.contains(ListSelection::key_of(key))
     }
 
     /// The item the keyboard is on.
     #[must_use]
     pub fn focus(&self) -> Option<&str> {
-        self.focus.as_deref()
+        self.inner
+            .focus
+            .clone()
+            .into_option()
+            .and_then(|k| self.name_of(k))
     }
 
     /// The one selected item, when exactly one is.
     #[must_use]
     pub fn single(&self) -> Option<&str> {
-        match self.keys.as_slice() {
-            [only] => Some(only.as_str()),
-            _ => None,
-        }
+        self.inner.single().into_option().and_then(|k| self.name_of(k))
     }
 
     /// A plain click: only `key`, which is the new anchor and focus.
     pub fn click(&mut self, key: &str) {
-        self.keys = vec![key.to_string()];
-        self.anchor = Some(key.to_string());
-        self.focus = Some(key.to_string());
+        let k = self.learn(key);
+        self.inner.click(k);
     }
 
     /// Ctrl+click: `key` in or out; it is the new anchor and focus.
     pub fn toggle(&mut self, key: &str) {
-        if self.contains(key) {
-            self.keys.retain(|k| k != key);
-        } else {
-            self.keys.push(key.to_string());
-        }
-        self.anchor = Some(key.to_string());
-        self.focus = Some(key.to_string());
+        let k = self.learn(key);
+        self.inner.toggle(k);
     }
 
     /// Shift+click: the items from the anchor to `key`, nothing else; the
     /// anchor stays.
     pub fn extend(&mut self, key: &str, order: &[&str]) {
-        let anchor = self.anchor.clone().unwrap_or_else(|| key.to_string());
-        self.keys = range(order, &anchor, key);
-        self.anchor = Some(anchor);
-        self.focus = Some(key.to_string());
+        let keys = self.learn_order(order);
+        let k = self.learn(key);
+        self.inner.extend_in(keys, k);
     }
 
-    /// Ctrl+Shift+click: the items from the anchor to `key` added; the
-    /// selection then follows the visible order.
+    /// Ctrl+Shift+click: the items from the anchor to `key` added.
     pub fn add_range(&mut self, key: &str, order: &[&str]) {
-        let anchor = self.anchor.clone().unwrap_or_else(|| key.to_string());
-        let added = range(order, &anchor, key);
-        let mut keys: Vec<String> = order
-            .iter()
-            .filter(|k| self.contains(k) || added.iter().any(|a| a == *k))
-            .map(|k| (*k).to_string())
-            .collect();
-        // Keys not in the order (none, normally) stay.
-        for k in &self.keys {
-            if !keys.contains(k) {
-                keys.push(k.clone());
-            }
-        }
-        self.keys = keys;
-        self.anchor = Some(anchor);
-        self.focus = Some(key.to_string());
+        let keys = self.learn_order(order);
+        let k = self.learn(key);
+        self.inner.add_range_in(keys, k);
     }
 
     /// Select all.
     pub fn select_all(&mut self, order: &[&str]) {
-        self.keys = order.iter().map(|k| (*k).to_string()).collect();
-        if self.focus.is_none() {
-            self.focus = order.first().map(|k| (*k).to_string());
-        }
+        let keys = self.learn_order(order);
+        self.inner.select_all_in(keys);
     }
 
     /// Select none (the focus stays).
     pub fn clear(&mut self) {
-        self.keys.clear();
+        self.inner.clear();
     }
 
     /// Invert selection.
     pub fn invert(&mut self, order: &[&str]) {
-        self.keys = order
-            .iter()
-            .filter(|k| !self.contains(k))
-            .map(|k| (*k).to_string())
-            .collect();
+        let keys = self.learn_order(order);
+        self.inner.invert_in(keys);
     }
 
     /// Keeps only the items still listed (after a listing or a search).
     pub fn retain(&mut self, order: &[&str]) {
-        self.keys.retain(|k| order.contains(&k.as_str()));
-        if self.focus.as_deref().is_some_and(|f| !order.contains(&f)) {
-            self.focus = None;
-        }
-        if self.anchor.as_deref().is_some_and(|a| !order.contains(&a)) {
-            self.anchor = None;
-        }
+        let keys = self.learn_order(order);
+        self.inner.retain_in(keys);
     }
 
     /// Selects exactly `keys` (what a paste or a new folder made), the last
     /// one focused.
     pub fn set(&mut self, keys: Vec<String>) {
-        self.anchor = keys.first().cloned();
-        self.focus = keys.last().cloned();
-        self.keys = keys;
+        let picked: Vec<u64> = keys.iter().map(|name| self.learn(name)).collect();
+        self.inner.select_keys(picked);
     }
 
     /// An arrow key: the focus moves `delta` items in `order` (clamped);
@@ -294,40 +307,17 @@ impl Selection {
         extend: bool,
         keep: bool,
     ) -> Option<String> {
-        if order.is_empty() {
-            return None;
-        }
-        let last = order.len() - 1;
-        let current = self
-            .focus
-            .as_deref()
-            .and_then(|f| order.iter().position(|k| *k == f));
-        let target = match current {
-            None if delta < 0 => last,
-            None => 0,
-            Some(i) => (i as isize).saturating_add(delta).clamp(0, last as isize) as usize,
-        };
-        let key = order[target].to_string();
-        self.focus = Some(key.clone());
-        if keep {
-            return Some(key);
-        }
-        if extend {
-            let anchor = self.anchor.clone().unwrap_or_else(|| key.clone());
-            self.keys = range(order, &anchor, &key);
-            self.anchor = Some(anchor);
-        } else {
-            self.keys = vec![key.clone()];
-            self.anchor = Some(key.clone());
-        }
-        Some(key)
+        let keys = self.learn_order(order);
+        let focused = self
+            .inner
+            .step_in(keys, delta as i64, extend, keep)
+            .into_option()?;
+        self.name_of(focused).map(str::to_string)
     }
 
     /// Ctrl+Space: the focused item in or out of the selection.
     pub fn toggle_focused(&mut self) {
-        if let Some(key) = self.focus.clone() {
-            self.toggle(&key);
-        }
+        self.inner.toggle_focused();
     }
 }
 
