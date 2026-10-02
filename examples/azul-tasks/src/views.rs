@@ -24,8 +24,12 @@ use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime};
 
 use crate::model::{self, SortMode, Task, TaskList};
 
-/// The spacing of the manual order: room for a task between two others without renumbering.
-pub const ORDER_STEP: i64 = 1024;
+/// The manual order's step, a new task's order, and the lists in the navigation's order (groups
+/// unfolded: what Cmd+7 .. Cmd+9 pick after the six smart lists) are the task store's, shared
+/// with every To-Do bar (DEDUP_EDITORS B12).
+pub use azul_pim::task::{
+    lists_in_nav_order, nav_entries, next_order, ordered_lists, NavEntry, ORDER_STEP,
+};
 
 /// A smart list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -244,63 +248,6 @@ pub fn search_matches(t: &Task, query: &str) -> bool {
     .to_lowercase();
     let mut words = query.split_whitespace().peekable();
     words.peek().is_some() && words.all(|w| haystack.contains(&w.trim_start_matches('#').to_lowercase()))
-}
-
-/// The lists in the navigation pane's order: by `order`, then name.
-#[must_use]
-pub fn ordered_lists(lists: &[TaskList]) -> Vec<usize> {
-    let mut idx: Vec<usize> = (0..lists.len()).collect();
-    idx.sort_by(|&a, &b| {
-        (lists[a].order, lists[a].name.to_lowercase()).cmp(&(lists[b].order, lists[b].name.to_lowercase()))
-    });
-    idx
-}
-
-/// An entry of the "My lists" tree.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum NavEntry {
-    /// A list outside any group (index into the lists).
-    List(usize),
-    /// A group and its lists, in order.
-    Group { name: String, lists: Vec<usize> },
-}
-
-/// The "My lists" tree: lists and groups in list order, a group where its first list is.
-#[must_use]
-pub fn nav_entries(lists: &[TaskList]) -> Vec<NavEntry> {
-    let mut out: Vec<NavEntry> = Vec::new();
-    for i in ordered_lists(lists) {
-        let group = lists[i].group.trim();
-        if group.is_empty() {
-            out.push(NavEntry::List(i));
-            continue;
-        }
-        let existing = out.iter_mut().find_map(|e| match e {
-            NavEntry::Group { name, lists } if name.eq_ignore_ascii_case(group) => Some(lists),
-            _ => None,
-        });
-        match existing {
-            Some(members) => members.push(i),
-            None => out.push(NavEntry::Group {
-                name: group.to_string(),
-                lists: vec![i],
-            }),
-        }
-    }
-    out
-}
-
-/// The lists in the order the navigation pane shows them (groups unfolded): what Cmd+7 ..
-/// Cmd+9 pick after the six smart lists.
-#[must_use]
-pub fn lists_in_nav_order(lists: &[TaskList]) -> Vec<usize> {
-    nav_entries(lists)
-        .into_iter()
-        .flat_map(|e| match e {
-            NavEntry::List(i) => vec![i],
-            NavEntry::Group { lists, .. } => lists,
-        })
-        .collect()
 }
 
 /// Orders `idx` by `mode`; ties by the manual order, then creation.
@@ -561,17 +508,6 @@ fn non_empty(sections: Vec<Section>) -> Vec<Section> {
 #[must_use]
 pub fn flat(sections: &[Section]) -> Vec<usize> {
     sections.iter().flat_map(|s| s.tasks.iter().copied()).collect()
-}
-
-/// The order a new task takes at the end of `list`.
-#[must_use]
-pub fn next_order(tasks: &[Task], list: &str) -> i64 {
-    tasks
-        .iter()
-        .filter(|t| t.list == list)
-        .map(|t| t.order)
-        .max()
-        .map_or(ORDER_STEP, |m| m + ORDER_STEP)
 }
 
 /// The open tasks of `list` in their manual order.

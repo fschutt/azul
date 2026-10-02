@@ -28,6 +28,10 @@ serde_json = "1"
 # The same features azul-layout and AzCalendar build chrono with (dates, the local time).
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 
+[dev-dependencies]
+# The shared temporary folder for tests (azul_pim::testing::TempDir).
+azul-pim = { path = "../azul-pim", features = ["test-util"] }
+
 [lib]
 name = "aztasks"
 path = "src/lib.rs"

@@ -28,3 +28,9 @@ pub mod dates;
 pub mod mail_address;
 pub mod repeat;
 pub mod rrule;
+pub mod task;
+pub mod task_store;
+
+/// A temporary folder for tests: this crate's, and the apps' through the `test-util` feature.
+#[cfg(any(test, feature = "test-util"))]
+pub mod testing;

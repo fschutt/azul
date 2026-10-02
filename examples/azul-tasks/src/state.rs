@@ -276,15 +276,11 @@ impl Tasks {
             .collect()
     }
 
-    /// The list new tasks go to outside a list: the settings' default, else the first.
+    /// The list new tasks go to outside a list: the settings' default, else the first - the
+    /// task store's rule, which every To-Do bar follows too.
     #[must_use]
     pub fn default_list(&self) -> Option<String> {
-        if self.list_index(&self.settings.default_list).is_some() {
-            return Some(self.settings.default_list.clone());
-        }
-        views::lists_in_nav_order(&self.lists)
-            .first()
-            .map(|&i| self.lists[i].id.clone())
+        model::default_list(&self.lists, &self.settings)
     }
 
     /// The parse context of the quick-add line now.
@@ -533,16 +529,16 @@ impl Tasks {
             self.save_task(i);
             return None;
         }
-        self.tasks[i].completed = Some(now);
+        // The task store's completion (shared with the To-Do bars): a repeating task hands its
+        // rule to the next occurrence.
+        let next = self.tasks[i].complete(new_id(), now);
         println!("AZTASKS_COMPLETED {}", self.tasks[i].id);
-        let next = self.tasks[i].spawn_next(new_id(), now.date(), now.date(), now);
         let spawned = next.map(|t| {
             println!(
                 "AZTASKS_SPAWNED {} {}",
                 t.id,
                 t.due.map_or_else(|| "-".to_string(), model::format_date)
             );
-            self.tasks[i].repeat = None;
             self.tasks.push(t);
             self.tasks.len() - 1
         });
