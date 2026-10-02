@@ -197,27 +197,13 @@ impl Drop for Secret {
 }
 
 /// The domain of an address, in lower case, if the address has the shape `local@domain`.
-pub fn email_domain(email: &str) -> Option<String> {
-    is_email(email).then(|| {
-        let email = email.trim();
-        email[email.rfind('@').unwrap_or(0) + 1..].to_ascii_lowercase()
-    })
-}
+pub use azul_pim::mail_address::email_domain;
 
-/// Whether `email` looks like an address: one `@`, something on both sides, a dot-free or
-/// dotted domain without spaces.
+/// Whether `email` looks like an account's address: one `@`, something on both sides, a
+/// dot-free (`x@localhost`, a test server) or dotted domain without blanks - the PIM apps'
+/// shared rule, `azul_pim::mail_address::is_email_any_host`.
 pub fn is_email(email: &str) -> bool {
-    let email = email.trim();
-    let mut parts = email.split('@');
-    let (Some(local), Some(domain), None) = (parts.next(), parts.next(), parts.next()) else {
-        return false;
-    };
-    !local.is_empty()
-        && !domain.is_empty()
-        && !email.chars().any(|c| c.is_whitespace() || c.is_control())
-        && !domain.starts_with('.')
-        && !domain.ends_with('.')
-        && !domain.contains("..")
+    azul_pim::mail_address::is_email_any_host(email)
 }
 
 /// The provider serving the address's domain, if AzMail knows it.

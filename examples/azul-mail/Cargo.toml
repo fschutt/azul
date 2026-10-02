@@ -20,6 +20,8 @@ publish = false
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# The PIM logic the Azlin apps share: address lines, search, initials (plain Rust, no new crates).
+azul-pim = { path = "../azul-pim" }
 # The same features azul-layout builds chrono with: UTC dates for the files, local dates for the list.
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 # A sync IMAP client over any Read + Write stream (it runs on an azul Thread). No TLS feature: the
