@@ -651,6 +651,24 @@ impl_vec_partialeq!(u32, U32Vec);
 impl_vec_eq!(u32, U32Vec);
 impl_vec_hash!(u32, U32Vec);
 
+// Vec<u64>: item ids (a list selection's keys, `widgets::list_selection`).
+impl_vec!(
+    u64,
+    U64Vec,
+    U64VecDestructor,
+    U64VecDestructorType,
+    U64VecSlice,
+    OptionU64
+);
+impl_vec_mut!(u64, U64Vec);
+impl_vec_debug!(u64, U64Vec);
+impl_vec_partialord!(u64, U64Vec);
+impl_vec_ord!(u64, U64Vec);
+impl_vec_clone!(u64, U64Vec, U64VecDestructor);
+impl_vec_partialeq!(u64, U64Vec);
+impl_vec_eq!(u64, U64Vec);
+impl_vec_hash!(u64, U64Vec);
+
 impl_vec!(
     AzString,
     StringVec,
