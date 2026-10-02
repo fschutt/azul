@@ -839,7 +839,7 @@ fn build_license(page: WizardLicensePage, look: &DialogKitLook) -> Dom {
         .as_str()
         .split("\n\n")
         .filter(|p| !p.trim().is_empty())
-        .map(|p| Dom::create_p_with_text(AzString::from(p.trim())))
+        .map(|p| crate::widgets::widget_p_with_text(AzString::from(p.trim())))
         .collect();
     children.push(
         Dom::create_div()
@@ -2245,10 +2245,11 @@ mod wizard_pages_tests {
                 tc::find(&dom, PROGRESS_LOG_CLASS).is_none(),
                 "the log starts hidden"
             );
+            // The bar is the ProgressBar widget: its role sits on the tree
+            // its VirtualView renders at layout time, so the page's own DOM
+            // carries the mount.
             let bar = tc::nodes(&dom).into_iter().any(|(_, n)| {
-                n.root
-                    .get_accessibility_info()
-                    .is_some_and(|i| i.role == AccessibilityRole::ProgressBar)
+                matches!(n.root.get_node_type(), azul_core::dom::NodeType::VirtualView)
             });
             assert!(bar, "{}: a progress bar", theme.name());
             let shown = page.clone().with_show_log(true).with_theme(theme).dom();
