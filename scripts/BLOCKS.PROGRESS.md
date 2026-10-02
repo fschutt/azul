@@ -32,12 +32,13 @@ A16; DEDUP_WIDGETS_API F2, F6, F29.
 - d552f5523 AzShow rail + canvas on ListSelection
 - 893610c1c AzTasks on ListSelection (key_of(task id))
 - 52d7636d2 AzDrive Selection = thin adapter over ListSelection
+- a06621bbc RED appkit history.rs (UndoHistory) ; a2567bbba GREEN
+- 7369b65ff AzPhoto on UndoHistory (raster/history.rs removed) ; 724b9a147 AzVideoCut ; fd3623512 AzShow
 
 ## IN PROGRESS
 
 ## NEXT
-- (A selection model: DONE)
-- B undo (appkit history.rs RED/GREEN, Photo, VideoCut, Show).
+- (A selection model: DONE) (B undo: DONE)
 - C switcher; D close guard; E presets; F report scripts/BLOCKS_2026_10_02.md.
 
 ## Open questions for the user
