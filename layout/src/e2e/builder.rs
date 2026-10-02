@@ -3010,9 +3010,9 @@ mod tests {
         assert!(xml.contains("<body class=\"azb-0\">"), "{xml}");
         assert!(
             xml.contains(&format!(
-                "<p class=\"x azb-{p}\">a &lt; b &amp; &quot;c&quot;</p>"
+                "<p class=\"x azb-{p}\">a &lt; b &amp; \"c\"</p>"
             )),
-            "{xml}"
+            "text escapes & < > (the one encoder); a quote is plain text there: {xml}"
         );
         assert!(xml.contains("<br class=\"azb-2\"/>"), "{xml}");
     }
