@@ -71,7 +71,7 @@ impl RichTextHistory {
         let limit = self.limit.max(1);
         if undo.len() > limit {
             let excess = undo.len() - limit;
-            undo.drain(..excess);
+            undo = undo.split_off(excess);
         }
         self.undo = RichTextDocVec::from_vec(undo);
         self.redo = RichTextDocVec::from_vec(alloc::vec::Vec::new());

@@ -47,7 +47,7 @@ use alloc::{
 
 use azul_core::{
     callbacks::{FocusTarget, Update},
-    dom::{AttributeType, Dom, DomId, DomNodeId, EventFilter, HoverEventFilter, NodeId},
+    dom::{AttributeType, Dom, DomId, DomNodeId, EventFilter, HoverEventFilter},
     events::{FocusEventFilter, TextFormat},
     refany::RefAny,
     resources::ImageRef,
@@ -710,7 +710,7 @@ impl RichTextEditor {
                 page.add_child(host);
             }
         }
-        frame.fixup_children_estimated();
+        let _ = frame.fixup_children_estimated();
         frame
     }
 }
