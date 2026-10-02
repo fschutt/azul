@@ -82740,6 +82740,102 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "object.can_submit()"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pin the widget theme; unset, the dialog follows the app theme."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "LoginDialog"
+                                },
+                                "fn_body": "object.with_theme(theme)"
+                            },
+                            "set_on_event": {
+                                "doc": [
+                                    "The callback that hears every request."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "StandardDialogOnEventCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_event(data, callback)"
+                            },
+                            "with_on_event": {
+                                "doc": [
+                                    "[`Self::set_on_event`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "StandardDialogOnEventCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "LoginDialog"
+                                },
+                                "fn_body": "object.with_on_event(data, callback)"
+                            },
+                            "swap_with_default": {
+                                "doc": [
+                                    "Replaces `self` with an empty dialog and returns the original."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "LoginDialog"
+                                },
+                                "fn_body": "object.swap_with_default()"
+                            },
+                            "dom": {
+                                "doc": [
+                                    "The dialog's body."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
                             }
                         },
                         "repr": "C"
@@ -83327,6 +83423,102 @@
                                     "type": "AboutDialog"
                                 },
                                 "fn_body": "object.with_labels(credits_label, close_label)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pin the widget theme; unset, the dialog follows the app theme."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AboutDialog"
+                                },
+                                "fn_body": "object.with_theme(theme)"
+                            },
+                            "set_on_event": {
+                                "doc": [
+                                    "The callback that hears every request."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "StandardDialogOnEventCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_event(data, callback)"
+                            },
+                            "with_on_event": {
+                                "doc": [
+                                    "[`Self::set_on_event`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "StandardDialogOnEventCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AboutDialog"
+                                },
+                                "fn_body": "object.with_on_event(data, callback)"
+                            },
+                            "swap_with_default": {
+                                "doc": [
+                                    "Replaces `self` with an empty dialog and returns the original."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AboutDialog"
+                                },
+                                "fn_body": "object.swap_with_default()"
+                            },
+                            "dom": {
+                                "doc": [
+                                    "The dialog's body."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
                             }
                         },
                         "repr": "C"
@@ -86424,6 +86616,65 @@
                                     }
                                 ],
                                 "fn_body": "object.choose(index, checked)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pin the widget theme; unset, the page follows the app theme."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "WizardFinishPage"
+                                },
+                                "fn_body": "object.with_theme(theme)"
+                            },
+                            "swap_with_default": {
+                                "doc": [
+                                    "Replaces `self` with an empty page and returns the original."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "WizardFinishPage"
+                                },
+                                "fn_body": "object.swap_with_default()"
+                            },
+                            "dom": {
+                                "doc": [
+                                    "The page's DOM."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
                             }
                         },
                         "repr": "C"
@@ -86580,6 +86831,65 @@
                                     }
                                 ],
                                 "fn_body": "object.choose(index, checked)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pin the widget theme; unset, the page follows the app theme."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "WizardOptionsPage"
+                                },
+                                "fn_body": "object.with_theme(theme)"
+                            },
+                            "swap_with_default": {
+                                "doc": [
+                                    "Replaces `self` with an empty page and returns the original."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "WizardOptionsPage"
+                                },
+                                "fn_body": "object.swap_with_default()"
+                            },
+                            "dom": {
+                                "doc": [
+                                    "The page's DOM."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
                             }
                         },
                         "repr": "C"
@@ -86749,6 +87059,102 @@
                                     "type": "MessageBox"
                                 },
                                 "fn_body": "object.with_dont_ask(label, checked)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pin the widget theme; unset, the dialog follows the app theme."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MessageBox"
+                                },
+                                "fn_body": "object.with_theme(theme)"
+                            },
+                            "set_on_event": {
+                                "doc": [
+                                    "The callback that hears every request."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "StandardDialogOnEventCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_event(data, callback)"
+                            },
+                            "with_on_event": {
+                                "doc": [
+                                    "[`Self::set_on_event`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "StandardDialogOnEventCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MessageBox"
+                                },
+                                "fn_body": "object.with_on_event(data, callback)"
+                            },
+                            "swap_with_default": {
+                                "doc": [
+                                    "Replaces `self` with an empty dialog and returns the original."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MessageBox"
+                                },
+                                "fn_body": "object.swap_with_default()"
+                            },
+                            "dom": {
+                                "doc": [
+                                    "The dialog's body."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
                             }
                         },
                         "repr": "C"
@@ -87043,6 +87449,65 @@
                                     "type": "String"
                                 },
                                 "fn_body": "object.blocked_reason().into()"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pin the widget theme; unset, the page follows the app theme."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "WizardDestinationPage"
+                                },
+                                "fn_body": "object.with_theme(theme)"
+                            },
+                            "swap_with_default": {
+                                "doc": [
+                                    "Replaces `self` with an empty page and returns the original."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "WizardDestinationPage"
+                                },
+                                "fn_body": "object.swap_with_default()"
+                            },
+                            "dom": {
+                                "doc": [
+                                    "The page's DOM."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
                             }
                         },
                         "repr": "C"
@@ -87688,6 +88153,102 @@
                                     "type": "ProgressDialog"
                                 },
                                 "fn_body": "object.with_cancel(label, can_cancel)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pin the widget theme; unset, the dialog follows the app theme."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ProgressDialog"
+                                },
+                                "fn_body": "object.with_theme(theme)"
+                            },
+                            "set_on_event": {
+                                "doc": [
+                                    "The callback that hears every request."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "StandardDialogOnEventCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_event(data, callback)"
+                            },
+                            "with_on_event": {
+                                "doc": [
+                                    "[`Self::set_on_event`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "StandardDialogOnEventCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ProgressDialog"
+                                },
+                                "fn_body": "object.with_on_event(data, callback)"
+                            },
+                            "swap_with_default": {
+                                "doc": [
+                                    "Replaces `self` with an empty dialog and returns the original."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ProgressDialog"
+                                },
+                                "fn_body": "object.swap_with_default()"
+                            },
+                            "dom": {
+                                "doc": [
+                                    "The dialog's body."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
                             }
                         },
                         "repr": "C"
@@ -87762,6 +88323,65 @@
                                     "type": "WizardWelcomePage"
                                 },
                                 "fn_body": "object.with_logo(logo)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pin the widget theme; unset, the page follows the app theme."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "WizardWelcomePage"
+                                },
+                                "fn_body": "object.with_theme(theme)"
+                            },
+                            "swap_with_default": {
+                                "doc": [
+                                    "Replaces `self` with an empty page and returns the original."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "WizardWelcomePage"
+                                },
+                                "fn_body": "object.swap_with_default()"
+                            },
+                            "dom": {
+                                "doc": [
+                                    "The page's DOM."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
                             }
                         },
                         "repr": "C"
@@ -88325,6 +88945,102 @@
                                     "type": "FindReplaceDialog"
                                 },
                                 "fn_body": "object.with_options(match_case, whole_word)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pin the widget theme; unset, the dialog follows the app theme."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FindReplaceDialog"
+                                },
+                                "fn_body": "object.with_theme(theme)"
+                            },
+                            "set_on_event": {
+                                "doc": [
+                                    "The callback that hears every request."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "StandardDialogOnEventCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_event(data, callback)"
+                            },
+                            "with_on_event": {
+                                "doc": [
+                                    "[`Self::set_on_event`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "StandardDialogOnEventCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FindReplaceDialog"
+                                },
+                                "fn_body": "object.with_on_event(data, callback)"
+                            },
+                            "swap_with_default": {
+                                "doc": [
+                                    "Replaces `self` with an empty dialog and returns the original."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FindReplaceDialog"
+                                },
+                                "fn_body": "object.swap_with_default()"
+                            },
+                            "dom": {
+                                "doc": [
+                                    "The dialog's body."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
                             }
                         },
                         "repr": "C"
@@ -88951,6 +89667,65 @@
                                     "type": "String"
                                 },
                                 "fn_body": "object.blocked_reason().into()"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pin the widget theme; unset, the page follows the app theme."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "WizardComponentsPage"
+                                },
+                                "fn_body": "object.with_theme(theme)"
+                            },
+                            "swap_with_default": {
+                                "doc": [
+                                    "Replaces `self` with an empty page and returns the original."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "WizardComponentsPage"
+                                },
+                                "fn_body": "object.swap_with_default()"
+                            },
+                            "dom": {
+                                "doc": [
+                                    "The page's DOM."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
                             }
                         },
                         "repr": "C"
@@ -89217,6 +89992,65 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "object.is_done()"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pin the widget theme; unset, the page follows the app theme."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "WizardProgressPage"
+                                },
+                                "fn_body": "object.with_theme(theme)"
+                            },
+                            "swap_with_default": {
+                                "doc": [
+                                    "Replaces `self` with an empty page and returns the original."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "WizardProgressPage"
+                                },
+                                "fn_body": "object.swap_with_default()"
+                            },
+                            "dom": {
+                                "doc": [
+                                    "The page's DOM."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
                             }
                         },
                         "repr": "C"
@@ -89436,6 +90270,65 @@
                                     "type": "String"
                                 },
                                 "fn_body": "object.blocked_reason().into()"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pin the widget theme; unset, the page follows the app theme."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "WizardLicensePage"
+                                },
+                                "fn_body": "object.with_theme(theme)"
+                            },
+                            "swap_with_default": {
+                                "doc": [
+                                    "Replaces `self` with an empty page and returns the original."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "WizardLicensePage"
+                                },
+                                "fn_body": "object.swap_with_default()"
+                            },
+                            "dom": {
+                                "doc": [
+                                    "The page's DOM."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
                             }
                         },
                         "repr": "C"
@@ -89573,6 +90466,65 @@
                                     "type": "WizardSummaryPage"
                                 },
                                 "fn_body": "object.with_intro(intro)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pin the widget theme; unset, the page follows the app theme."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "WizardSummaryPage"
+                                },
+                                "fn_body": "object.with_theme(theme)"
+                            },
+                            "swap_with_default": {
+                                "doc": [
+                                    "Replaces `self` with an empty page and returns the original."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "WizardSummaryPage"
+                                },
+                                "fn_body": "object.swap_with_default()"
+                            },
+                            "dom": {
+                                "doc": [
+                                    "The page's DOM."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
                             }
                         },
                         "repr": "C"
@@ -160248,339 +161200,6 @@
                             }
                         ],
                         "repr": "C"
-                    },
-                    "Mp4Demuxer": {
-                        "external": "azul_dll::desktop::extra::video_codec::container::Mp4Demuxer",
-                        "custom_impls": [
-                            "Clone",
-                            "Default",
-                            "Drop"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "c_void",
-                                    "ref_kind": "mutptr"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
-                                }
-                            }
-                        ],
-                        "constructors": {
-                            "create": {
-                                "doc": [
-                                    "Parse the MP4 file in `bytes` and take its H.264 track. On a file",
-                                    "that is not an MP4, has no H.264 track or no parameter sets (or a",
-                                    "build without `video-native`), the handle does not open and",
-                                    "[`error`](Self::error) says why."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "bytes": "U8Vec"
-                                    }
-                                ],
-                                "fn_body": "azul_dll::desktop::extra::video_codec::container::Mp4Demuxer::create(bytes)"
-                            }
-                        },
-                        "functions": {
-                            "is_open": {
-                                "doc": [
-                                    "Whether the file was demuxed."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "object.is_open()"
-                            },
-                            "error": {
-                                "doc": [
-                                    "Why the file did not open; empty when it did."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "String"
-                                },
-                                "fn_body": "object.error().into()"
-                            },
-                            "width": {
-                                "doc": [
-                                    "The coded width in pixels (0 when not open)."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "u32"
-                                },
-                                "fn_body": "object.width()"
-                            },
-                            "height": {
-                                "doc": [
-                                    "The coded height in pixels (0 when not open)."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "u32"
-                                },
-                                "fn_body": "object.height()"
-                            },
-                            "fps": {
-                                "doc": [
-                                    "Frames per second, from the presentation times."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "f32"
-                                },
-                                "fn_body": "object.fps()"
-                            },
-                            "duration_ms": {
-                                "doc": [
-                                    "The stream's length in milliseconds: to the end of the last frame."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "f64"
-                                },
-                                "fn_body": "object.duration_ms()"
-                            },
-                            "chunk_count": {
-                                "doc": [
-                                    "How many access units the track has."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "object.chunk_count()"
-                            },
-                            "chunk": {
-                                "doc": [
-                                    "Access unit `index` in decode order (a copy of its bytes), or `None`",
-                                    "past the end."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "index": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "OptionVideoChunk"
-                                },
-                                "fn_body": "object.chunk(index)"
-                            },
-                            "frame_at": {
-                                "doc": [
-                                    "The index of the access unit shown at `time_ms`: the latest one",
-                                    "whose presentation time has come (the first one before the start,",
-                                    "the last one past the end)."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "time_ms": "f64"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "object.frame_at(time_ms)"
-                            },
-                            "keyframe_before": {
-                                "doc": [
-                                    "The keyframe at or before access unit `index`: where a decoder",
-                                    "starts to show `index` (feed `keyframe_before(index)..=index`, keep",
-                                    "the last frame)."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "index": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "object.keyframe_before(index)"
-                            },
-                            "close": {
-                                "doc": [
-                                    "Release the demuxer and its bytes. (Drop does this too.)"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    }
-                                ],
-                                "fn_body": "object.close()"
-                            }
-                        },
-                        "repr": "C"
-                    },
-                    "Mp4Muxer": {
-                        "external": "azul_dll::desktop::extra::video_codec::container::Mp4Muxer",
-                        "custom_impls": [
-                            "Clone",
-                            "Default",
-                            "Drop"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "c_void",
-                                    "ref_kind": "mutptr"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
-                                }
-                            }
-                        ],
-                        "constructors": {
-                            "create": {
-                                "doc": [
-                                    "A muxer for an H.264 track of `width` x `height` at `fps` frames a",
-                                    "second. Does not open in a build without `video-native`."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "width": "u32"
-                                    },
-                                    {
-                                        "height": "u32"
-                                    },
-                                    {
-                                        "fps": "f32"
-                                    }
-                                ],
-                                "fn_body": "azul_dll::desktop::extra::video_codec::container::Mp4Muxer::create(width, height, fps)"
-                            }
-                        },
-                        "functions": {
-                            "is_open": {
-                                "doc": [
-                                    "Whether the muxer opened."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "object.is_open()"
-                            },
-                            "write_annexb": {
-                                "doc": [
-                                    "Append one access unit (Annex-B, one picture). `false` when it was",
-                                    "not written: no keyframe with parameter sets started the stream, the",
-                                    "unit holds no picture, or the file is finished ([`error`](Self::error)",
-                                    "says which)."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "data": "U8Vec"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "object.write_annexb(data)"
-                            },
-                            "samples_written": {
-                                "doc": [
-                                    "Access units written so far."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "u64"
-                                },
-                                "fn_body": "object.samples_written()"
-                            },
-                            "finish": {
-                                "doc": [
-                                    "Close the file and hand its bytes back (empty when nothing could be",
-                                    "written - [`error`](Self::error) says why). A second call is empty."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "U8Vec"
-                                },
-                                "fn_body": "object.finish()"
-                            },
-                            "error": {
-                                "doc": [
-                                    "The last failure; empty while all is well."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "String"
-                                },
-                                "fn_body": "object.error().into()"
-                            },
-                            "close": {
-                                "doc": [
-                                    "Release the muxer. (Drop does this too.)"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    }
-                                ],
-                                "fn_body": "object.close()"
-                            }
-                        },
-                        "repr": "C"
                     }
                 }
             },
@@ -165698,6 +166317,339 @@
                                 }
                             }
                         ],
+                        "repr": "C"
+                    },
+                    "Mp4Muxer": {
+                        "external": "azul_dll::desktop::extra::video_codec::container::Mp4Muxer",
+                        "custom_impls": [
+                            "Clone",
+                            "Default",
+                            "Drop"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A muxer for an H.264 track of `width` x `height` at `fps` frames a",
+                                    "second. Does not open in a build without `video-native`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "width": "u32"
+                                    },
+                                    {
+                                        "height": "u32"
+                                    },
+                                    {
+                                        "fps": "f32"
+                                    }
+                                ],
+                                "fn_body": "azul_dll::desktop::extra::video_codec::container::Mp4Muxer::create(width, height, fps)"
+                            }
+                        },
+                        "functions": {
+                            "is_open": {
+                                "doc": [
+                                    "Whether the muxer opened."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_open()"
+                            },
+                            "write_annexb": {
+                                "doc": [
+                                    "Append one access unit (Annex-B, one picture). `false` when it was",
+                                    "not written: no keyframe with parameter sets started the stream, the",
+                                    "unit holds no picture, or the file is finished ([`error`](Self::error)",
+                                    "says which)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "U8Vec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.write_annexb(data)"
+                            },
+                            "samples_written": {
+                                "doc": [
+                                    "Access units written so far."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "u64"
+                                },
+                                "fn_body": "object.samples_written()"
+                            },
+                            "finish": {
+                                "doc": [
+                                    "Close the file and hand its bytes back (empty when nothing could be",
+                                    "written - [`error`](Self::error) says why). A second call is empty."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "U8Vec"
+                                },
+                                "fn_body": "object.finish()"
+                            },
+                            "close": {
+                                "doc": [
+                                    "Release the muxer. (Drop does this too.)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.close()"
+                            },
+                            "last_error": {
+                                "doc": [
+                                    "The last failure; empty while all is well."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.last_error().into()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "Mp4Demuxer": {
+                        "external": "azul_dll::desktop::extra::video_codec::container::Mp4Demuxer",
+                        "custom_impls": [
+                            "Clone",
+                            "Default",
+                            "Drop"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "Parse the MP4 file in `bytes` and take its H.264 track. On a file",
+                                    "that is not an MP4, has no H.264 track or no parameter sets (or a",
+                                    "build without `video-native`), the handle does not open and",
+                                    "[`error`](Self::error) says why."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "bytes": "U8Vec"
+                                    }
+                                ],
+                                "fn_body": "azul_dll::desktop::extra::video_codec::container::Mp4Demuxer::create(bytes)"
+                            }
+                        },
+                        "functions": {
+                            "is_open": {
+                                "doc": [
+                                    "Whether the file was demuxed."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_open()"
+                            },
+                            "width": {
+                                "doc": [
+                                    "The coded width in pixels (0 when not open)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "u32"
+                                },
+                                "fn_body": "object.width()"
+                            },
+                            "height": {
+                                "doc": [
+                                    "The coded height in pixels (0 when not open)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "u32"
+                                },
+                                "fn_body": "object.height()"
+                            },
+                            "fps": {
+                                "doc": [
+                                    "Frames per second, from the presentation times."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f32"
+                                },
+                                "fn_body": "object.fps()"
+                            },
+                            "duration_ms": {
+                                "doc": [
+                                    "The stream's length in milliseconds: to the end of the last frame."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f64"
+                                },
+                                "fn_body": "object.duration_ms()"
+                            },
+                            "chunk_count": {
+                                "doc": [
+                                    "How many access units the track has."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.chunk_count()"
+                            },
+                            "chunk": {
+                                "doc": [
+                                    "Access unit `index` in decode order (a copy of its bytes), or `None`",
+                                    "past the end."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionVideoChunk"
+                                },
+                                "fn_body": "object.chunk(index)"
+                            },
+                            "frame_at": {
+                                "doc": [
+                                    "The index of the access unit shown at `time_ms`: the latest one",
+                                    "whose presentation time has come (the first one before the start,",
+                                    "the last one past the end)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "time_ms": "f64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.frame_at(time_ms)"
+                            },
+                            "keyframe_before": {
+                                "doc": [
+                                    "The keyframe at or before access unit `index`: where a decoder",
+                                    "starts to show `index` (feed `keyframe_before(index)..=index`, keep",
+                                    "the last frame)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.keyframe_before(index)"
+                            },
+                            "close": {
+                                "doc": [
+                                    "Release the demuxer and its bytes. (Drop does this too.)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.close()"
+                            },
+                            "open_error": {
+                                "doc": [
+                                    "Why the file did not open; empty when it did."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.open_error().into()"
+                            }
+                        },
                         "repr": "C"
                     }
                 }
