@@ -59,18 +59,8 @@ impl DateGroup {
     }
 }
 
-/// The English name of a day ("Monday").
-fn weekday_name(day: Weekday) -> &'static str {
-    match day {
-        Weekday::Mon => "Monday",
-        Weekday::Tue => "Tuesday",
-        Weekday::Wed => "Wednesday",
-        Weekday::Thu => "Thursday",
-        Weekday::Fri => "Friday",
-        Weekday::Sat => "Saturday",
-        Weekday::Sun => "Sunday",
-    }
-}
+// The English name of a day ("Monday"): the PIM apps' one (DEDUP_EDITORS B5).
+use azul_pim::dates::weekday_name;
 
 /// Whether the server set `flag` (`\Seen`, `\Flagged`) on the message, in any case.
 fn has_flag(entry: &IndexEntry, flag: &str) -> bool {

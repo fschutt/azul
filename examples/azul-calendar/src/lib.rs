@@ -60,7 +60,7 @@ pub use azul_pim::rrule;
 pub mod sample;
 pub mod settings;
 pub mod tasks;
-/// A temporary folder for tests (the one the PIM apps share).
+// A temporary folder for tests (the one the PIM apps share).
 #[cfg(test)]
 use azul_pim::testing as test_dir;
 pub mod views;
