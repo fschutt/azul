@@ -2532,18 +2532,6 @@ extern "C" fn on_action(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_app(&mut app, &mut info, |info, app, s| act(info, app, s, action))
 }
 
-/// A copy of the callback info for the PDF renderer, which takes it by
-/// value (the pattern AzWriter's PDF export uses).
-fn reborrow_info(info: &CallbackInfo) -> CallbackInfo {
-    CallbackInfo {
-        ref_data: info.ref_data,
-        hit_dom_node: info.hit_dom_node,
-        cursor_relative_to_item: info.cursor_relative_to_item,
-        cursor_in_viewport: info.cursor_in_viewport,
-        changes: info.changes,
-    }
-}
-
 /// The sheet's data as a plain table, rendered to PDF, written to
 /// `exports/<title>.pdf` from a worker thread.
 fn export_pdf(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState) {
@@ -2578,7 +2566,7 @@ fn export_pdf(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState) {
         )
         .with_child(table);
     let bytes = Pdf::create()
-        .from_dom_in_callback(reborrow_info(info), doc, 794.0, 1123.0)
+        .from_dom_in_callback(*info, doc, 794.0, 1123.0)
         .as_ref()
         .to_vec();
     if bytes.is_empty() {

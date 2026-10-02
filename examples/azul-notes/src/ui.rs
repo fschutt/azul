@@ -1232,18 +1232,6 @@ fn export_name(title: &str, extension: &str) -> String {
     format!("{}.{extension}", if base.is_empty() { "note" } else { base })
 }
 
-/// A second handle on the callback's info (the PDF render takes one by
-/// value; AzWriter's `reborrow_info` is the twin).
-fn reborrow_info(info: &CallbackInfo) -> CallbackInfo {
-    CallbackInfo {
-        ref_data: info.ref_data,
-        hit_dom_node: info.hit_dom_node,
-        cursor_relative_to_item: info.cursor_relative_to_item,
-        cursor_in_viewport: info.cursor_in_viewport,
-        changes: info.changes,
-    }
-}
-
 extern "C" fn on_export_pdf(mut data: RefAny, mut info: CallbackInfo) -> Update {
     export_pdf(&mut data, &mut info)
 }
@@ -1275,7 +1263,7 @@ fn export_pdf(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
         (export_name(note.display_title(), "pdf"), page)
     };
     let bytes = azul::pdf::Pdf::create()
-        .from_dom_in_callback(reborrow_info(info), dom, 794.0, 1123.0)
+        .from_dom_in_callback(*info, dom, 794.0, 1123.0)
         .as_ref()
         .to_vec();
     if bytes.is_empty() {

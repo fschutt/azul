@@ -627,16 +627,6 @@ pub extern "C" fn on_document_edit(mut data: RefAny, mut info: CallbackInfo) -> 
     Update::RefreshDom
 }
 
-fn reborrow_info(info: &CallbackInfo) -> CallbackInfo {
-    CallbackInfo {
-        ref_data: info.ref_data,
-        hit_dom_node: info.hit_dom_node,
-        cursor_relative_to_item: info.cursor_relative_to_item,
-        cursor_in_viewport: info.cursor_in_viewport,
-        changes: info.changes,
-    }
-}
-
 fn pdf_bytes(content: &Dom, info: &mut CallbackInfo) -> Vec<u8> {
     const A4_W_PX: f32 = 794.0;
     const A4_H_PX: f32 = 1123.0;
@@ -654,7 +644,8 @@ fn pdf_bytes(content: &Dom, info: &mut CallbackInfo) -> Vec<u8> {
     doc.add_child(content.clone());
 
     let pdf = Pdf::create();
-    pdf.from_dom_in_callback(reborrow_info(info), doc, A4_W_PX, A4_H_PX)
+    // `CallbackInfo` is `Copy`: the renderer gets its own handle.
+    pdf.from_dom_in_callback(*info, doc, A4_W_PX, A4_H_PX)
         .as_ref()
         .to_vec()
 }
