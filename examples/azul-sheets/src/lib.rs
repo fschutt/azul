@@ -59,9 +59,9 @@ use azul::{
     },
     css::{DarkLightMode, HoverEventFilter},
     dialog::{FileDialog, FileOpenResult},
-    dom::{ButtonOnClickCallback, VirtualKeyCode},
+    dom::VirtualKeyCode,
     file::FilePath,
-    option::{OptionColorU, OptionDarkLightMode, OptionFileTypeList, OptionRefAny, OptionString},
+    option::{OptionColorU, OptionDarkLightMode, OptionFileTypeList, OptionString},
     pdf::Pdf,
     prelude::*,
     shells::{
@@ -71,7 +71,7 @@ use azul::{
     str::String as AzString,
     vec::{BackstageNavItemVec, CellGridRangeVec, CellGridSizeVec, StringVec},
     widgets::{
-        Backstage, BackstageNavItem, Button, ButtonOnClick, CellGrid, CellGridCell,
+        Backstage, BackstageNavItem, Button, CellGrid, CellGridCell,
         CellGridCellKind, CellGridCellRef, CellGridCellStyle, CellGridEditMode, CellGridEvent,
         CellGridEventKind, CellGridHorizontalAlign, CellGridRange, CellGridSize,
         CellGridVerticalAlign, CellGridView, OnTextInputReturn, Ribbon, RibbonAppButton,
@@ -928,7 +928,7 @@ fn open_bytes(
         },
         dirty: imported,
     };
-    s.zoom = sidecar.zoom.clamp(10, 400);
+    s.zoom = sidecar.zoom.clamp(ZOOM_MIN, ZOOM_MAX);
     s.screen = Screen::Workbook;
     let active = to_cell(CellAddr::new(sidecar.sheet, sidecar.active.0.max(1), sidecar.active.1.max(1)));
     go_to(s, sidecar.sheet, CellGridRange { first: active, last: active });
@@ -1653,17 +1653,17 @@ fn sheet_tabs(s: &AppState, app: &RefAny) -> Dom {
 
 // ==== The status bar ====
 
-fn zoom_click(app: &RefAny, action: Action) -> ButtonOnClick {
-    ButtonOnClick {
-        data: RefAny::new(ActionRef {
-            app: app.clone(),
-            action,
-        }),
-        callback: ButtonOnClickCallback {
-            cb: on_action as ButtonOnClickCallbackType,
-            callable: OptionRefAny::None,
-        },
-    }
+/// The zoom range in percent: what the zoom buttons reach and what the
+/// status bar's slider spans.
+const ZOOM_MIN: u32 = 10;
+/// See [`ZOOM_MIN`].
+const ZOOM_MAX: u32 = 400;
+
+fn zoom_action(app: &RefAny, action: Action) -> RefAny {
+    RefAny::new(ActionRef {
+        app: app.clone(),
+        action,
+    })
 }
 
 fn status_bar(s: &AppState, app: &RefAny) -> Dom {
@@ -1675,9 +1675,11 @@ fn status_bar(s: &AppState, app: &RefAny) -> Dom {
     for text in model::stats_segments(&s.cache.snapshot.stats) {
         segments.push(StatusBarSegment::create(AzString::from(text)));
     }
-    let mut zoom = StatusBarZoom::office_2013().with_percent(s.zoom as f32);
-    zoom.on_zoom_out = Some(zoom_click(app, Action::ZoomOut)).into();
-    zoom.on_zoom_in = Some(zoom_click(app, Action::ZoomIn)).into();
+    // The slider spans the buttons' whole range: a fixed 10..190 window
+    // pinned a 400 % zoom's thumb to its end (DEDUP_OFFICE D28).
+    let zoom = StatusBarZoom::create(s.zoom as f32, ZOOM_MIN as f32, ZOOM_MAX as f32)
+        .with_on_zoom_out(zoom_action(app, Action::ZoomOut), on_action as ButtonOnClickCallbackType)
+        .with_on_zoom_in(zoom_action(app, Action::ZoomIn), on_action as ButtonOnClickCallbackType);
     StatusBar::create(segments).with_zoom(zoom).dom()
 }
 
@@ -2509,8 +2511,8 @@ fn act(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, action: Action) 
         Action::Headings => s.show_headers = !s.show_headers,
         Action::ZoomIn | Action::ZoomOut | Action::Zoom100 => {
             s.zoom = match action {
-                Action::ZoomIn => (s.zoom + 10).min(400),
-                Action::ZoomOut => s.zoom.saturating_sub(10).max(10),
+                Action::ZoomIn => (s.zoom + 10).min(ZOOM_MAX),
+                Action::ZoomOut => s.zoom.saturating_sub(10).max(ZOOM_MIN),
                 _ => 100,
             };
             fetch_if_needed(info, app, s);

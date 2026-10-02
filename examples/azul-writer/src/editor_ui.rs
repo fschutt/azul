@@ -1,17 +1,14 @@
 use azul::{
-    callbacks::{
-        ButtonOnClickCallbackType, RefAny, SliderOnValueChangeCallbackType,
-        VirtualViewCallbackInfo, VirtualViewReturn,
-    },
+    callbacks::{ButtonOnClickCallbackType, RefAny, VirtualViewCallbackInfo, VirtualViewReturn},
     component::ComponentEventFilter,
     css::{EventFilter, FocusEventFilter, LayoutSize, LogicalPosition, LogicalSize, SystemStyle},
-    dom::{Dom, IdOrClass, SliderOnValueChangeCallback},
-    option::{OptionDom, OptionRefAny},
+    dom::{Dom, IdOrClass},
+    option::OptionDom,
     str::String as AzString,
     svg::LogicalRect,
     widgets::{
-        ButtonOnClick, QuickAccessAction, QuickAccessBar, QuickAccessStyle, QuickAccessTheme,
-        SliderOnValueChange, StatusBar, StatusBarSegment, StatusBarViewSwitcher, StatusBarZoom,
+        QuickAccessAction, QuickAccessBar, QuickAccessStyle, QuickAccessTheme, StatusBar,
+        StatusBarSegment, StatusBarViewSwitcher, StatusBarZoom,
     },
 };
 
@@ -265,34 +262,16 @@ pub fn status_bar(
             crate::on_view_select,
         );
 
-    let mut zoom = StatusBarZoom::office_2013().with_percent(state.zoom_percent);
-    zoom.on_zoom_out = Some(button_click(data, crate::on_zoom_out)).into();
-    zoom.on_zoom_in = Some(button_click(data, crate::on_zoom_in)).into();
-    zoom.on_slider_change = Some(SliderOnValueChange {
-        data: data.clone(),
-        callback: SliderOnValueChangeCallback {
-            cb: crate::on_zoom_slider as SliderOnValueChangeCallbackType,
-            callable: OptionRefAny::None,
-        },
-    })
-    .into();
+    let zoom = StatusBarZoom::create(state.zoom_percent, crate::ZOOM_MIN, crate::ZOOM_MAX)
+        .with_on_zoom_out(data.clone(), crate::on_zoom_out)
+        .with_on_zoom_in(data.clone(), crate::on_zoom_in)
+        .with_on_slider_change(data.clone(), crate::on_zoom_slider);
 
     let mut bar = StatusBar::create(segments).with_views(views).with_zoom(zoom);
     bar.style = crate::palette::widgets::status_bar(pal, sys);
     let status_bar = bar.style.resolved_bar_style();
     crate::fonts::push_ui_font(&mut bar.style.bar_style, status_bar);
     bar.dom()
-}
-
-fn button_click(data: &RefAny, cb: ButtonOnClickCallbackType) -> ButtonOnClick {
-    use azul::dom::ButtonOnClickCallback;
-    ButtonOnClick {
-        data: data.clone(),
-        callback: ButtonOnClickCallback {
-            cb,
-            callable: OptionRefAny::None,
-        },
-    }
 }
 
 pub fn editor_screen(

@@ -566,7 +566,7 @@ pub fn apply(app: &RefAny, s: &mut AppState, cmd: Command, info: &mut CallbackIn
         C::Zoom(delta) => {
             let (w, h) = window_size(info);
             let now = s.zoom.unwrap_or_else(|| s.zoom_percent(w, h));
-            s.zoom = Some((now + delta as f32).clamp(10.0, 400.0));
+            s.zoom = Some((now + delta as f32).clamp(crate::app::ZOOM_MIN, crate::app::ZOOM_MAX));
             return Update::RefreshDom;
         }
         C::ZoomFit => {
