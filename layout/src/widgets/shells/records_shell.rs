@@ -20,22 +20,14 @@
 //!
 //! Key types: [`RecordsShell`].
 
-use azul_core::{
-    dom::{Dom, DomVec, OptionDom},
-    refany::RefAny,
-};
+use azul_core::dom::{Dom, DomVec, OptionDom};
 use azul_css::AzString;
 
 use super::{
     id_and_class,
-    office_shell::{
-        OfficeShell, OptionShellOnPaneFocus, OptionShellOnPaneResize, ShellOnPaneFocus,
-        ShellOnPaneFocusCallback, ShellOnPaneResize, ShellOnPaneResizeCallback, ShellPane,
-        ShellPaneKind,
-    },
+    office_shell::{OfficeShell, ShellPane, ShellPaneKind},
     part, CHROME_ROW_BASE, GROW_COLUMN_BASE,
 };
-use crate::widgets::themes::{OptionUiTheme, UiTheme};
 
 /// The table pane's DOM id.
 pub const TABLE_ID: &str = "shell-table";
@@ -49,11 +41,13 @@ pub const CARDS_CLASS: &str = "__azul-native-records-shell-cards";
 pub const MAIN_CLASS: &str = "__azul-native-records-shell-main";
 
 /// S6: tabs, a cards strip, the record table, an optional record form.
+///
+/// The preset holds its panes and slots; the chrome (title row, status bar, the F6 / splitter hooks, the
+/// theme) is the [`OfficeShell`]'s:
+/// `RecordsShell::create(tabs, table).office_shell().with_status_bar(s)`.
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct RecordsShell {
-    /// The app-drawn title row.
-    pub title_row: OptionDom,
     /// The tab row (a `TabHeader` and a filter field).
     pub tabs: Dom,
     /// The cards strip over the table (charts, sparklines, gauges).
@@ -62,17 +56,8 @@ pub struct RecordsShell {
     pub table: Dom,
     /// The record form beside the table.
     pub form: OptionDom,
-    /// The status bar.
-    pub status_bar: OptionDom,
-    /// F6 moved the focus to a pane.
-    pub on_pane_focus: OptionShellOnPaneFocus,
-    /// A splitter moved.
-    pub on_pane_resize: OptionShellOnPaneResize,
     /// The table's share beside the form (default 0.7).
     pub table_ratio: f32,
-    /// The widget theme this shell is PINNED to (`with_theme`), or `None`
-    /// to follow the app theme.
-    pub theme: OptionUiTheme,
 }
 
 impl RecordsShell {
@@ -80,29 +65,12 @@ impl RecordsShell {
     #[must_use]
     pub fn create(tabs: Dom, table: Dom) -> Self {
         Self {
-            title_row: OptionDom::None,
             tabs,
             cards: OptionDom::None,
             table,
             form: OptionDom::None,
-            status_bar: OptionDom::None,
-            on_pane_focus: None.into(),
-            on_pane_resize: None.into(),
             table_ratio: 0.7,
-            theme: OptionUiTheme::None,
         }
-    }
-
-    /// The app-drawn title row.
-    pub fn set_title_row(&mut self, title_row: Dom) {
-        self.title_row = OptionDom::Some(title_row);
-    }
-
-    /// [`Self::set_title_row`] for the builder chain.
-    #[must_use]
-    pub fn with_title_row(mut self, title_row: Dom) -> Self {
-        self.set_title_row(title_row);
-        self
     }
 
     /// The cards strip.
@@ -129,18 +97,6 @@ impl RecordsShell {
         self
     }
 
-    /// The status bar.
-    pub fn set_status_bar(&mut self, status_bar: Dom) {
-        self.status_bar = OptionDom::Some(status_bar);
-    }
-
-    /// [`Self::set_status_bar`] for the builder chain.
-    #[must_use]
-    pub fn with_status_bar(mut self, status_bar: Dom) -> Self {
-        self.set_status_bar(status_bar);
-        self
-    }
-
     /// The table's share beside the form.
     pub const fn set_table_ratio(&mut self, ratio: f32) {
         self.table_ratio = ratio;
@@ -150,50 +106,6 @@ impl RecordsShell {
     #[must_use]
     pub const fn with_table_ratio(mut self, ratio: f32) -> Self {
         self.set_table_ratio(ratio);
-        self
-    }
-
-    /// F6 moved the focus to a pane.
-    pub fn set_on_pane_focus<C: Into<ShellOnPaneFocusCallback>>(&mut self, data: RefAny, callback: C) {
-        self.on_pane_focus = Some(ShellOnPaneFocus {
-            callback: callback.into(),
-            refany: data,
-        })
-        .into();
-    }
-
-    /// [`Self::set_on_pane_focus`] for the builder chain.
-    #[must_use]
-    pub fn with_on_pane_focus<C: Into<ShellOnPaneFocusCallback>>(mut self, data: RefAny, callback: C) -> Self {
-        self.set_on_pane_focus(data, callback);
-        self
-    }
-
-    /// A splitter moved.
-    pub fn set_on_pane_resize<C: Into<ShellOnPaneResizeCallback>>(&mut self, data: RefAny, callback: C) {
-        self.on_pane_resize = Some(ShellOnPaneResize {
-            callback: callback.into(),
-            refany: data,
-        })
-        .into();
-    }
-
-    /// [`Self::set_on_pane_resize`] for the builder chain.
-    #[must_use]
-    pub fn with_on_pane_resize<C: Into<ShellOnPaneResizeCallback>>(mut self, data: RefAny, callback: C) -> Self {
-        self.set_on_pane_resize(data, callback);
-        self
-    }
-
-    /// Pin the widget theme; unset, the shell follows the app theme.
-    pub const fn set_theme(&mut self, theme: UiTheme) {
-        self.theme = OptionUiTheme::Some(theme);
-    }
-
-    /// [`Self::set_theme`] for the builder chain.
-    #[must_use]
-    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
-        self.set_theme(theme);
         self
     }
 
@@ -210,16 +122,11 @@ impl RecordsShell {
     #[must_use]
     pub fn office_shell(self) -> OfficeShell {
         let Self {
-            title_row,
             tabs,
             cards,
             table,
             form,
-            status_bar,
-            on_pane_focus,
-            on_pane_resize,
             table_ratio,
-            theme,
         } = self;
         let mut column: alloc::vec::Vec<Dom> = alloc::vec::Vec::with_capacity(2);
         if let Some(c) = cards.into_option() {
@@ -236,12 +143,7 @@ impl RecordsShell {
             .with_css_props(part(GROW_COLUMN_BASE, &[]))
             .with_children(DomVec::from_vec(column));
         let mut shell = OfficeShell {
-            title_row,
             ribbon: OptionDom::Some(tabs),
-            status_bar,
-            on_pane_focus,
-            on_pane_resize,
-            theme,
             ..OfficeShell::create()
         }
         .with_pane(
@@ -283,11 +185,13 @@ mod records_shell_tests {
         themes::{theme_blocks::checks, theme_checks as tc, UiTheme},
     };
 
-    fn full() -> RecordsShell {
+    /// S6 with every slot filled, the chrome set on the converted shell.
+    fn full() -> OfficeShell {
         RecordsShell::create(slot(), slot())
-            .with_title_row(slot())
             .with_cards(slot())
             .with_form(slot())
+            .office_shell()
+            .with_title_row(slot())
             .with_status_bar(slot())
     }
 
@@ -310,8 +214,11 @@ mod records_shell_tests {
             ids(&dom),
             vec!["shell-title", "shell-ribbon", TABLE_ID, CARDS_ID, FORM_ID, "shell-status"]
         );
-        assert_eq!(full().office_shell().cycle_ids().len(), 2);
-        let bare = RecordsShell::create(slot(), slot()).with_theme(UiTheme::Flat).dom();
+        assert_eq!(full().cycle_ids().len(), 2);
+        let bare = RecordsShell::create(slot(), slot())
+            .office_shell()
+            .with_theme(UiTheme::Flat)
+            .dom();
         assert_eq!(ids(&bare), vec!["shell-ribbon", TABLE_ID]);
     }
 

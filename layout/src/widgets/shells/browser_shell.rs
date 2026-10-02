@@ -24,22 +24,14 @@
 //!
 //! Key types: [`BrowserShell`].
 
-use azul_core::{
-    dom::{Dom, DomVec, OptionDom},
-    refany::RefAny,
-};
+use azul_core::dom::{Dom, DomVec, OptionDom};
 use azul_css::AzString;
 
 use super::{
     id_and_class,
-    office_shell::{
-        OfficeShell, OptionShellOnPaneFocus, OptionShellOnPaneResize, ShellOnPaneFocus,
-        ShellOnPaneFocusCallback, ShellOnPaneResize, ShellOnPaneResizeCallback, ShellPane,
-        ShellPaneKind,
-    },
+    office_shell::{OfficeShell, ShellPane, ShellPaneKind},
     part, CHROME_ROW_BASE, COLUMN_BASE,
 };
-use crate::widgets::themes::{OptionUiTheme, UiTheme};
 
 /// The tree pane's DOM id.
 pub const TREE_ID: &str = "shell-tree";
@@ -58,16 +50,16 @@ pub const RIBBON_ROW_CLASS: &str = "__azul-native-browser-shell-ribbon-row";
 
 /// S5: address bar + tree + content, an optional preview pane and details
 /// pane.
+///
+/// The preset holds the panes and the ribbon (which it stacks over the
+/// address bar); the rest of the chrome (title row, backstage, status bar,
+/// the F6 / splitter hooks, the theme) is the [`OfficeShell`]'s:
+/// `BrowserShell::create(bar, tree, content).office_shell().with_status_bar(s)`.
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct BrowserShell {
-    /// The app-drawn title row.
-    pub title_row: OptionDom,
     /// The ribbon (over the address bar).
     pub ribbon: OptionDom,
-    /// The backstage, shown in place of the ribbon, the address bar and
-    /// the panes.
-    pub backstage: OptionDom,
     /// The address bar (an `AddressBar`).
     pub address_bar: Dom,
     /// The navigation tree.
@@ -78,21 +70,12 @@ pub struct BrowserShell {
     pub preview: OptionDom,
     /// The details pane under the row.
     pub details: OptionDom,
-    /// The status bar.
-    pub status_bar: OptionDom,
-    /// F6 moved the focus to a pane.
-    pub on_pane_focus: OptionShellOnPaneFocus,
-    /// A splitter moved.
-    pub on_pane_resize: OptionShellOnPaneResize,
     /// The tree's share of the width (default 0.22).
     pub tree_ratio: f32,
     /// The content's share beside the preview pane (default 0.7).
     pub content_ratio: f32,
     /// The details pane's share of the height (default 0.22).
     pub details_ratio: f32,
-    /// The widget theme this shell is PINNED to (`with_theme`), or `None`
-    /// to follow the app theme.
-    pub theme: OptionUiTheme,
     /// Whether the navigation tree is shown (default); hidden, the content
     /// takes its place and F6 skips it (Explorer's View > Navigation pane).
     pub tree_visible: bool,
@@ -103,35 +86,17 @@ impl BrowserShell {
     #[must_use]
     pub fn create(address_bar: Dom, tree: Dom, content: Dom) -> Self {
         Self {
-            title_row: OptionDom::None,
             ribbon: OptionDom::None,
-            backstage: OptionDom::None,
             address_bar,
             tree,
             content,
             preview: OptionDom::None,
             details: OptionDom::None,
-            status_bar: OptionDom::None,
-            on_pane_focus: None.into(),
-            on_pane_resize: None.into(),
             tree_ratio: 0.22,
             content_ratio: 0.7,
             details_ratio: 0.22,
-            theme: OptionUiTheme::None,
             tree_visible: true,
         }
-    }
-
-    /// The app-drawn title row.
-    pub fn set_title_row(&mut self, title_row: Dom) {
-        self.title_row = OptionDom::Some(title_row);
-    }
-
-    /// [`Self::set_title_row`] for the builder chain.
-    #[must_use]
-    pub fn with_title_row(mut self, title_row: Dom) -> Self {
-        self.set_title_row(title_row);
-        self
     }
 
     /// The ribbon.
@@ -143,18 +108,6 @@ impl BrowserShell {
     #[must_use]
     pub fn with_ribbon(mut self, ribbon: Dom) -> Self {
         self.set_ribbon(ribbon);
-        self
-    }
-
-    /// The backstage.
-    pub fn set_backstage(&mut self, backstage: Dom) {
-        self.backstage = OptionDom::Some(backstage);
-    }
-
-    /// [`Self::set_backstage`] for the builder chain.
-    #[must_use]
-    pub fn with_backstage(mut self, backstage: Dom) -> Self {
-        self.set_backstage(backstage);
         self
     }
 
@@ -179,18 +132,6 @@ impl BrowserShell {
     #[must_use]
     pub fn with_details(mut self, details: Dom) -> Self {
         self.set_details(details);
-        self
-    }
-
-    /// The status bar.
-    pub fn set_status_bar(&mut self, status_bar: Dom) {
-        self.status_bar = OptionDom::Some(status_bar);
-    }
-
-    /// [`Self::set_status_bar`] for the builder chain.
-    #[must_use]
-    pub fn with_status_bar(mut self, status_bar: Dom) -> Self {
-        self.set_status_bar(status_bar);
         self
     }
 
@@ -242,50 +183,6 @@ impl BrowserShell {
         self
     }
 
-    /// F6 moved the focus to a pane.
-    pub fn set_on_pane_focus<C: Into<ShellOnPaneFocusCallback>>(&mut self, data: RefAny, callback: C) {
-        self.on_pane_focus = Some(ShellOnPaneFocus {
-            callback: callback.into(),
-            refany: data,
-        })
-        .into();
-    }
-
-    /// [`Self::set_on_pane_focus`] for the builder chain.
-    #[must_use]
-    pub fn with_on_pane_focus<C: Into<ShellOnPaneFocusCallback>>(mut self, data: RefAny, callback: C) -> Self {
-        self.set_on_pane_focus(data, callback);
-        self
-    }
-
-    /// A splitter moved.
-    pub fn set_on_pane_resize<C: Into<ShellOnPaneResizeCallback>>(&mut self, data: RefAny, callback: C) {
-        self.on_pane_resize = Some(ShellOnPaneResize {
-            callback: callback.into(),
-            refany: data,
-        })
-        .into();
-    }
-
-    /// [`Self::set_on_pane_resize`] for the builder chain.
-    #[must_use]
-    pub fn with_on_pane_resize<C: Into<ShellOnPaneResizeCallback>>(mut self, data: RefAny, callback: C) -> Self {
-        self.set_on_pane_resize(data, callback);
-        self
-    }
-
-    /// Pin the widget theme; unset, the shell follows the app theme.
-    pub const fn set_theme(&mut self, theme: UiTheme) {
-        self.theme = OptionUiTheme::Some(theme);
-    }
-
-    /// [`Self::set_theme`] for the builder chain.
-    #[must_use]
-    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
-        self.set_theme(theme);
-        self
-    }
-
     /// Replaces `self` with an empty shell and returns the original.
     #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
@@ -299,21 +196,15 @@ impl BrowserShell {
     #[must_use]
     pub fn office_shell(self) -> OfficeShell {
         let Self {
-            title_row,
             ribbon,
-            backstage,
             address_bar,
             tree,
             content,
             preview,
             details,
-            status_bar,
-            on_pane_focus,
-            on_pane_resize,
             tree_ratio,
             content_ratio,
             details_ratio,
-            theme,
             tree_visible,
         } = self;
         // The ribbon row: the ribbon (if any) over the address bar.
@@ -335,13 +226,7 @@ impl BrowserShell {
             .with_children(DomVec::from_vec(ribbon_row));
 
         let mut shell = OfficeShell {
-            title_row,
             ribbon: OptionDom::Some(ribbon_slot),
-            backstage,
-            status_bar,
-            on_pane_focus,
-            on_pane_resize,
-            theme,
             ..OfficeShell::create()
         }
         .with_pane(
@@ -399,10 +284,16 @@ mod browser_shell_tests {
 
     fn full() -> BrowserShell {
         BrowserShell::create(slot(), slot(), slot())
-            .with_title_row(slot())
             .with_ribbon(slot())
             .with_preview(slot())
             .with_details(slot())
+    }
+
+    /// `shell` converted, with the chrome the OfficeShell holds.
+    fn chrome(shell: BrowserShell) -> OfficeShell {
+        shell
+            .office_shell()
+            .with_title_row(slot())
             .with_status_bar(slot())
     }
 
@@ -420,7 +311,7 @@ mod browser_shell_tests {
 
     #[test]
     fn s5_puts_the_address_bar_under_the_ribbon_and_the_details_under_the_row() {
-        let dom = full().with_theme(UiTheme::Flat).dom();
+        let dom = chrome(full()).with_theme(UiTheme::Flat).dom();
         assert_eq!(
             ids(&dom),
             vec![
@@ -453,7 +344,7 @@ mod browser_shell_tests {
         assert!(BrowserShell::create(slot(), slot(), slot()).tree_visible);
         let hidden = full().with_tree_visible(false);
         assert!(!hidden.tree_visible);
-        let dom = hidden.clone().with_theme(UiTheme::Flat).dom();
+        let dom = chrome(hidden.clone()).with_theme(UiTheme::Flat).dom();
         assert_eq!(
             ids(&dom),
             vec![
@@ -480,6 +371,7 @@ mod browser_shell_tests {
     #[test]
     fn s5_without_a_ribbon_still_has_its_address_bar() {
         let dom = BrowserShell::create(slot(), slot(), slot())
+            .office_shell()
             .with_theme(UiTheme::Flat)
             .dom();
         assert_eq!(ids(&dom), vec!["shell-ribbon", ADDRESS_BAR_ID, TREE_ID, CONTENT_ID]);
@@ -489,8 +381,8 @@ mod browser_shell_tests {
     fn s5_without_a_theme_follows_the_app_theme() {
         checks::assert_follows_the_app_theme(
             "browser_shell",
-            || full().dom(),
-            |t: UiTheme| full().with_theme(t).dom(),
+            || chrome(full()).dom(),
+            |t: UiTheme| chrome(full()).with_theme(t).dom(),
         );
     }
 }

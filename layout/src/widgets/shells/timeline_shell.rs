@@ -21,21 +21,13 @@
 //!
 //! Key types: [`TimelineShell`].
 
-use azul_core::{
-    dom::{Dom, DomVec, OptionDom},
-    refany::RefAny,
-};
+use azul_core::dom::{Dom, DomVec, OptionDom};
 use azul_css::AzString;
 
 use super::{
-    office_shell::{
-        OfficeShell, OptionShellOnPaneFocus, OptionShellOnPaneResize, ShellOnPaneFocus,
-        ShellOnPaneFocusCallback, ShellOnPaneResize, ShellOnPaneResizeCallback, ShellPane,
-        ShellPaneKind,
-    },
+    office_shell::{OfficeShell, ShellPane, ShellPaneKind},
     part, GROW_COLUMN_BASE, GROW_ROW_BASE, RAIL_BASE,
 };
-use crate::widgets::themes::{OptionUiTheme, UiTheme};
 
 /// The media bin's DOM id.
 pub const MEDIA_ID: &str = "shell-media";
@@ -55,6 +47,9 @@ pub const TRACKS_CLASS: &str = "__azul-native-timeline-shell-tracks";
 pub const METERS_CLASS: &str = "__azul-native-timeline-shell-meters";
 
 /// S3: media | source | program | inspector over the timeline.
+///
+/// The preset holds its panes and slots; the chrome (the F6 / splitter hooks, the theme) is the [`OfficeShell`]'s:
+/// `TimelineShell::create(..).office_shell().with_status_bar(s)`.
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct TimelineShell {
@@ -72,15 +67,8 @@ pub struct TimelineShell {
     pub timeline: Dom,
     /// The audio meters at the timeline's right edge.
     pub meters: OptionDom,
-    /// F6 moved the focus to a pane.
-    pub on_pane_focus: OptionShellOnPaneFocus,
-    /// A splitter moved.
-    pub on_pane_resize: OptionShellOnPaneResize,
     /// The timeline's share of the height (default 0.45).
     pub timeline_ratio: f32,
-    /// The widget theme this shell is PINNED to (`with_theme`), or `None`
-    /// to follow the app theme.
-    pub theme: OptionUiTheme,
 }
 
 impl TimelineShell {
@@ -95,10 +83,7 @@ impl TimelineShell {
             inspector,
             timeline,
             meters: OptionDom::None,
-            on_pane_focus: None.into(),
-            on_pane_resize: None.into(),
             timeline_ratio: 0.45,
-            theme: OptionUiTheme::None,
         }
     }
 
@@ -138,50 +123,6 @@ impl TimelineShell {
         self
     }
 
-    /// F6 moved the focus to a pane.
-    pub fn set_on_pane_focus<C: Into<ShellOnPaneFocusCallback>>(&mut self, data: RefAny, callback: C) {
-        self.on_pane_focus = Some(ShellOnPaneFocus {
-            callback: callback.into(),
-            refany: data,
-        })
-        .into();
-    }
-
-    /// [`Self::set_on_pane_focus`] for the builder chain.
-    #[must_use]
-    pub fn with_on_pane_focus<C: Into<ShellOnPaneFocusCallback>>(mut self, data: RefAny, callback: C) -> Self {
-        self.set_on_pane_focus(data, callback);
-        self
-    }
-
-    /// A splitter moved.
-    pub fn set_on_pane_resize<C: Into<ShellOnPaneResizeCallback>>(&mut self, data: RefAny, callback: C) {
-        self.on_pane_resize = Some(ShellOnPaneResize {
-            callback: callback.into(),
-            refany: data,
-        })
-        .into();
-    }
-
-    /// [`Self::set_on_pane_resize`] for the builder chain.
-    #[must_use]
-    pub fn with_on_pane_resize<C: Into<ShellOnPaneResizeCallback>>(mut self, data: RefAny, callback: C) -> Self {
-        self.set_on_pane_resize(data, callback);
-        self
-    }
-
-    /// Pin the widget theme; unset, the shell follows the app theme.
-    pub const fn set_theme(&mut self, theme: UiTheme) {
-        self.theme = OptionUiTheme::Some(theme);
-    }
-
-    /// [`Self::set_theme`] for the builder chain.
-    #[must_use]
-    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
-        self.set_theme(theme);
-        self
-    }
-
     /// Replaces `self` with an empty shell and returns the original.
     #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
@@ -208,10 +149,7 @@ impl TimelineShell {
             inspector,
             timeline,
             meters,
-            on_pane_focus,
-            on_pane_resize,
             timeline_ratio,
-            theme,
         } = self;
         let mut bottom_row: alloc::vec::Vec<Dom> = alloc::vec![Dom::create_div()
             .with_class(AzString::from_const_str(TRACKS_CLASS))
@@ -231,9 +169,6 @@ impl TimelineShell {
             .with_children(DomVec::from_vec(bottom_row));
         OfficeShell {
             title_row: menu_bar,
-            on_pane_focus,
-            on_pane_resize,
-            theme,
             ..OfficeShell::create()
         }
         .with_pane(
@@ -287,10 +222,12 @@ mod timeline_shell_tests {
         themes::{theme_blocks::checks, theme_checks as tc, UiTheme},
     };
 
-    fn full() -> TimelineShell {
+    /// S3 with every slot filled, converted (it has no chrome of its own).
+    fn full() -> OfficeShell {
         TimelineShell::create(slot(), slot(), slot(), slot(), slot())
             .with_menu_bar(slot())
             .with_meters(slot())
+            .office_shell()
     }
 
     #[test]
@@ -314,7 +251,7 @@ mod timeline_shell_tests {
         let bottom = tc::find(&dom, BOTTOM_CLASS).expect("the bottom row");
         assert_eq!(bottom.children.as_ref().len(), 2, "the tracks, the meters");
         assert!(tc::has_class(&bottom.children.as_ref()[1], METERS_CLASS));
-        assert_eq!(full().office_shell().cycle_ids().len(), 5);
+        assert_eq!(full().cycle_ids().len(), 5);
     }
 
     #[test]

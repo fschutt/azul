@@ -20,18 +20,10 @@
 //!
 //! Key types: [`DeveloperShell`].
 
-use azul_core::{
-    dom::{Dom, OptionDom},
-    refany::RefAny,
-};
+use azul_core::dom::{Dom, OptionDom};
 use azul_css::AzString;
 
-use super::office_shell::{
-    OfficeShell, OptionShellOnPaneFocus, OptionShellOnPaneResize, ShellOnPaneFocus,
-    ShellOnPaneFocusCallback, ShellOnPaneResize, ShellOnPaneResizeCallback, ShellPane,
-    ShellPaneKind,
-};
-use crate::widgets::themes::{OptionUiTheme, UiTheme};
+use super::office_shell::{OfficeShell, ShellPane, ShellPaneKind};
 
 /// The activity bar's DOM id.
 pub const ACTIVITY_BAR_ID: &str = "shell-activity-bar";
@@ -46,11 +38,13 @@ pub const ACTIVITY_BAR_WIDTH: f32 = 48.0;
 
 /// S8: activity bar | side bar | editor, the panel under them, a status
 /// bar.
+///
+/// The preset holds its panes and slots; the chrome (title row, status bar, the F6 / splitter hooks, the
+/// theme) is the [`OfficeShell`]'s:
+/// `DeveloperShell::create(activity, side, editor).office_shell().with_status_bar(s)`.
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct DeveloperShell {
-    /// The app-drawn title row.
-    pub title_row: OptionDom,
     /// The activity bar (the icon column).
     pub activity_bar: Dom,
     /// The side bar (the explorer tree, search, source control).
@@ -59,19 +53,10 @@ pub struct DeveloperShell {
     pub editor: Dom,
     /// The bottom panel (terminal, problems, output).
     pub panel: OptionDom,
-    /// The status bar.
-    pub status_bar: OptionDom,
-    /// F6 moved the focus to a pane.
-    pub on_pane_focus: OptionShellOnPaneFocus,
-    /// A splitter moved.
-    pub on_pane_resize: OptionShellOnPaneResize,
     /// The side bar's share of the width beside the editor (default 0.25).
     pub side_bar_ratio: f32,
     /// The panel's share of the height (default 0.3).
     pub panel_ratio: f32,
-    /// The widget theme this shell is PINNED to (`with_theme`), or `None`
-    /// to follow the app theme.
-    pub theme: OptionUiTheme,
 }
 
 impl DeveloperShell {
@@ -79,30 +64,13 @@ impl DeveloperShell {
     #[must_use]
     pub fn create(activity_bar: Dom, side_bar: Dom, editor: Dom) -> Self {
         Self {
-            title_row: OptionDom::None,
             activity_bar,
             side_bar,
             editor,
             panel: OptionDom::None,
-            status_bar: OptionDom::None,
-            on_pane_focus: None.into(),
-            on_pane_resize: None.into(),
             side_bar_ratio: 0.25,
             panel_ratio: 0.3,
-            theme: OptionUiTheme::None,
         }
-    }
-
-    /// The app-drawn title row.
-    pub fn set_title_row(&mut self, title_row: Dom) {
-        self.title_row = OptionDom::Some(title_row);
-    }
-
-    /// [`Self::set_title_row`] for the builder chain.
-    #[must_use]
-    pub fn with_title_row(mut self, title_row: Dom) -> Self {
-        self.set_title_row(title_row);
-        self
     }
 
     /// The bottom panel.
@@ -114,18 +82,6 @@ impl DeveloperShell {
     #[must_use]
     pub fn with_panel(mut self, panel: Dom) -> Self {
         self.set_panel(panel);
-        self
-    }
-
-    /// The status bar.
-    pub fn set_status_bar(&mut self, status_bar: Dom) {
-        self.status_bar = OptionDom::Some(status_bar);
-    }
-
-    /// [`Self::set_status_bar`] for the builder chain.
-    #[must_use]
-    pub fn with_status_bar(mut self, status_bar: Dom) -> Self {
-        self.set_status_bar(status_bar);
         self
     }
 
@@ -153,50 +109,6 @@ impl DeveloperShell {
         self
     }
 
-    /// F6 moved the focus to a pane.
-    pub fn set_on_pane_focus<C: Into<ShellOnPaneFocusCallback>>(&mut self, data: RefAny, callback: C) {
-        self.on_pane_focus = Some(ShellOnPaneFocus {
-            callback: callback.into(),
-            refany: data,
-        })
-        .into();
-    }
-
-    /// [`Self::set_on_pane_focus`] for the builder chain.
-    #[must_use]
-    pub fn with_on_pane_focus<C: Into<ShellOnPaneFocusCallback>>(mut self, data: RefAny, callback: C) -> Self {
-        self.set_on_pane_focus(data, callback);
-        self
-    }
-
-    /// A splitter moved.
-    pub fn set_on_pane_resize<C: Into<ShellOnPaneResizeCallback>>(&mut self, data: RefAny, callback: C) {
-        self.on_pane_resize = Some(ShellOnPaneResize {
-            callback: callback.into(),
-            refany: data,
-        })
-        .into();
-    }
-
-    /// [`Self::set_on_pane_resize`] for the builder chain.
-    #[must_use]
-    pub fn with_on_pane_resize<C: Into<ShellOnPaneResizeCallback>>(mut self, data: RefAny, callback: C) -> Self {
-        self.set_on_pane_resize(data, callback);
-        self
-    }
-
-    /// Pin the widget theme; unset, the shell follows the app theme.
-    pub const fn set_theme(&mut self, theme: UiTheme) {
-        self.theme = OptionUiTheme::Some(theme);
-    }
-
-    /// [`Self::set_theme`] for the builder chain.
-    #[must_use]
-    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
-        self.set_theme(theme);
-        self
-    }
-
     /// Replaces `self` with an empty shell and returns the original.
     #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
@@ -210,27 +122,14 @@ impl DeveloperShell {
     #[must_use]
     pub fn office_shell(self) -> OfficeShell {
         let Self {
-            title_row,
             activity_bar,
             side_bar,
             editor,
             panel,
-            status_bar,
-            on_pane_focus,
-            on_pane_resize,
             side_bar_ratio,
             panel_ratio,
-            theme,
         } = self;
-        let mut shell = OfficeShell {
-            title_row,
-            status_bar,
-            on_pane_focus,
-            on_pane_resize,
-            theme,
-            ..OfficeShell::create()
-        }
-        .with_pane(
+        let mut shell = OfficeShell::create().with_pane(
             ShellPane::create(AzString::from_const_str(ACTIVITY_BAR_ID), activity_bar)
                 .with_kind(ShellPaneKind::Navigation)
                 .with_label(AzString::from_const_str("Activity bar"))
@@ -280,9 +179,11 @@ mod developer_shell_tests {
         themes::{theme_blocks::checks, theme_checks as tc, UiTheme},
     };
 
-    fn full() -> DeveloperShell {
+    /// S8 with every slot filled, the chrome set on the converted shell.
+    fn full() -> OfficeShell {
         DeveloperShell::create(slot(), slot(), slot())
             .with_panel(slot())
+            .office_shell()
             .with_status_bar(slot())
     }
 
@@ -309,7 +210,7 @@ mod developer_shell_tests {
         // One horizontal split (side bar | editor) and one vertical (row / panel).
         assert_eq!(tc::find_all(&dom, "__azul-native-split-pane").len(), 2);
         assert_eq!(
-            full().office_shell().cycle_ids().iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            full().cycle_ids().iter().map(|s| s.as_str()).collect::<Vec<_>>(),
             vec![ACTIVITY_BAR_ID, SIDE_BAR_ID, EDITOR_ID, PANEL_ID]
         );
     }
