@@ -1,0 +1,30 @@
+[package]
+name = "azul-pim"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    The personal-information logic the Azlin apps share (AzCalendar, AzTasks,
+    AzContacts, AzMail): dates and month math, repeat rules (iCalendar RRULE
+    and the to-do repeats that clamp to short months or count from the
+    completion), iCalendar / vCard content lines (folding, escaping,
+    parameters), e-mail address lines and attendees, search with diacritics
+    folded, avatar initials, and the one task store every app reads and
+    writes (tasks/<list>/<task-uuid>.json through azul-storage's Drive).
+    Plain Rust, no azul dependency, like azul-storage: the unit tests need
+    no libazul.
+"""
+publish = false
+
+[dependencies]
+# No new crates in the tree: chrono with the features azul-layout, AzCalendar
+# and AzTasks build it with; serde / serde_json and azul-storage as AzTasks has them.
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+azul-storage = { path = "../azul-storage" }
+
+[lib]
+name = "azul_pim"
+path = "src/lib.rs"

@@ -757,6 +757,12 @@ jobs:
           cargo test -p azul-appkit --no-fail-fast 2>&1 | tee azul-appkit-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-appkit-tests.txt
 
+      - name: Run azul-pim tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-pim --no-fail-fast 2>&1 | tee azul-pim-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-pim-tests.txt
+
       - name: Run AzCalculator tests
       - name: Run AzSetup tests
       - name: Run AzNotes tests
