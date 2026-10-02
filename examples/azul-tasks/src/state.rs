@@ -767,6 +767,13 @@ impl Tasks {
             self.settings = s;
         }
         self.skipped = loaded.skipped;
+        // A task file of AzCalendar's old To-Do bar in the shared store: written back in the
+        // store's format (DEDUP_EDITORS B12).
+        for key in &loaded.migrated {
+            if let Some(i) = self.tasks.iter().position(|t| t.key() == *key) {
+                self.save_task(i);
+            }
+        }
         self.loaded = true;
         if self.lists.is_empty() && self.tasks.is_empty() {
             if self.sample_requested {
