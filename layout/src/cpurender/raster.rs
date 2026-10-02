@@ -4773,6 +4773,14 @@ fn render_image(
             agg_fill_path(pixmap, &mut path, &gray, FillingRule::NonZero);
             return;
         }
+        // An `<img src>` nobody supplied - the XML loaders' placeholder, a
+        // `NullImage` whose tag is the src - is a picture that is not there,
+        // so nothing is drawn: WebRender draws nothing for it either (a
+        // `NullImage` has no pixels to upload). It stays in the display list
+        // for a renderer that resolves srcs itself (printpdf's HTML bridge).
+        // The grey below is for an image that EXISTS without CPU pixels (a GL
+        // texture's copy, the frontpage `opengl` shot).
+        DecodedImage::NullImage { tag, .. } if !tag.is_empty() => return,
         DecodedImage::NullImage { .. } => {
             let gray = Rgba8::new(200, 200, 200, 255);
             // The placeholder stands in for the image, so it takes the image's
