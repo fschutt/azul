@@ -1191,15 +1191,15 @@ fn toggle(app: &RefAny, icon: &str, label: &str, action: Action, on: bool) -> Ri
 }
 
 fn column(items: Vec<RibbonItem>) -> RibbonItem {
-    RibbonItem::Column(RibbonColumn::create().with_items(items.into()))
+    RibbonItem::Column(RibbonColumn::create().with_items(items))
 }
 
 fn group(label: &str, items: Vec<RibbonItem>) -> RibbonGroup {
-    RibbonGroup::create(AzString::from(label)).with_items(items.into())
+    RibbonGroup::create(AzString::from(label)).with_items(items)
 }
 
 fn tab(label: &str, groups: Vec<RibbonGroup>) -> RibbonTab {
-    RibbonTab::create(AzString::from(label)).with_groups(groups.into())
+    RibbonTab::create(AzString::from(label)).with_groups(groups)
 }
 
 fn ribbon(s: &AppState, app: &RefAny) -> Dom {

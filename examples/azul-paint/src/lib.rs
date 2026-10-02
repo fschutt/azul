@@ -290,7 +290,7 @@ fn render_brush_cpu(
     background: Option<&RawImage>,
 ) -> RawImage {
     let mut img =
-        RawImage::create_rgba8(w, h, vec![0u8; (w as usize) * (h as usize) * 4].into(), true);
+        RawImage::create_rgba8(w, h, vec![0u8; (w as usize) * (h as usize) * 4], true);
     if let RawImageData::U8(ref mut v) = img.pixels {
         composite_base(v.as_mut(), w, h, bg, background);
     }
@@ -563,7 +563,7 @@ fn metaball_image(
     mb.dabs = total_dabs;
     mb.strokes = strokes.len();
 
-    RawImage::create_rgba8(w, h, mb.buf.clone().into(), true)
+    RawImage::create_rgba8(w, h, mb.buf.clone(), true)
 }
 
 const MAX_GPU_BALLS: usize = 128;

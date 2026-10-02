@@ -8,8 +8,7 @@ use azul::{
     misc::PaginationSnapshot,
     pdf::Pdf,
 };
-// The tests' node labels match on the node type (`use super::*`).
-#[cfg(test)]
+// The Markdown export and the tests' node labels match on the node type.
 use azul::dom::NodeType;
 
 pub const A4_PAGE_W: f32 = 794.0;

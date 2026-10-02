@@ -114,7 +114,7 @@ impl Stamp {
         let side = (2.0 * radius).ceil() as usize + 3;
         let center = side as f32 / 2.0;
         let mut image =
-            RawImage::create_rgba8(side as u32, side as u32, vec![0u8; side * side * 4].into(), true);
+            RawImage::create_rgba8(side as u32, side as u32, vec![0u8; side * side * 4], true);
         let mut brush = Brush::create(
             ColorU {
                 r: 255,

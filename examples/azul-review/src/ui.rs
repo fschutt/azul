@@ -583,7 +583,7 @@ extern "C" fn render_ink(mut data: RefAny, info: RenderImageCallbackInfo) -> Ima
         all.push(l);
     }
     let buf = ink::rasterize_page(&all, w, h);
-    let img = RawImage::create_rgba8(w, h, buf.into(), false);
+    let img = RawImage::create_rgba8(w, h, buf, false);
     ImageRef::create_rawimage(img)
         .into_option()
         .unwrap_or_else(|| {

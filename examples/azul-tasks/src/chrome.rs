@@ -304,7 +304,7 @@ fn small(app: &RefAny, command: Command, toggled: bool) -> RibbonItem {
 }
 
 fn column(items: Vec<RibbonItem>) -> RibbonItem {
-    RibbonItem::Column(RibbonColumn::create().with_items(items.into()))
+    RibbonItem::Column(RibbonColumn::create().with_items(items))
 }
 
 /// A short label for a toggled small button.

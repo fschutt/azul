@@ -171,7 +171,7 @@ pub fn scale_to(c: &Canvas, width: u32, height: u32) -> Canvas {
     if c.width == 0 || c.height == 0 {
         return Canvas::black(w, h);
     }
-    let source = RawImage::create_rgba8(c.width, c.height, c.rgba.clone().into(), true);
+    let source = RawImage::create_rgba8(c.width, c.height, c.rgba.clone(), true);
     match source.resized(w, h).into_option().map(|scaled| scaled.pixels) {
         Some(RawImageData::U8(bytes)) => Canvas {
             width: w,

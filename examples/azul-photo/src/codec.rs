@@ -107,7 +107,7 @@ pub fn to_rgba8(image: &RawImage) -> Option<(u32, u32, Vec<u8>)> {
 
 /// A straight RGBA8 `RawImage`.
 fn raw_rgba(w: u32, h: u32, rgba: Vec<u8>) -> RawImage {
-    RawImage::create_rgba8(w, h, rgba.into(), false)
+    RawImage::create_rgba8(w, h, rgba, false)
 }
 
 fn encoded(result: ResultU8VecEncodeImageError) -> Result<Vec<u8>, String> {

@@ -217,7 +217,7 @@ fn send_icon() -> OptionImageRef {
             pixels.extend_from_slice(if inside { &INK } else { &CLEAR });
         }
     }
-    ImageRef::create_rawimage(RawImage::create_rgba8(SIZE as u32, SIZE as u32, pixels.into(), false))
+    ImageRef::create_rawimage(RawImage::create_rgba8(SIZE as u32, SIZE as u32, pixels, false))
 }
 
 // ---------------------------------------------------------------------------
