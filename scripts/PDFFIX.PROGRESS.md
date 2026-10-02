@@ -59,7 +59,17 @@ just to make the one layout work".
   Some -> no columns); orphans/widows not honoured in columns; a split box paints its
   background/border on its first fragment only.
 
+- item 1: 0e275ee03 RED (layout/tests/a_multicol_block_flows_its_children_through_its_columns.rs),
+  41e7b532c refactor (solver3/multicol.rs: column_style + ColumnStyle::geometry + column_x/advance;
+  translate_to_text3_constraints uses it)
+
 ## NEXT
-- RED: layout/tests/a_multicol_block_flows_its_children_through_its_columns.rs
+- text3: UnifiedConstraints.column_flow: Option<ColumnFlow { breaks: Vec<usize> line indices,
+  advance, column_top }> (+Hash/PartialEq/Default None); perform_fragment_layout honours it when
+  columns == 1 (flow_line_index counter; column j at x += j*advance, lines start at column_top).
+- then LayoutConstraints.column_flow (12 literal sites: add `column_flow: None` next to
+  `fragmentainer:`), translate passes it (columns==1 only), layout_ifc content hash folds it.
+- then anonymous IFC wrappers: no columns from the parent (RED pin test first).
+- then multicol::plan_columns (+unit tests), establishes_new_bfc, layout_bfc hook, promotion.
 
 ## Open questions / decisions
