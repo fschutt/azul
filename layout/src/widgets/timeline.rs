@@ -468,7 +468,7 @@ pub struct TimelineEvent {
     pub edge: TimelineEdge,
     /// Shift was held.
     pub shift: bool,
-    /// Ctrl (or Cmd) was held.
+    /// The primary modifier was held: Cmd on macOS, Ctrl elsewhere.
     pub ctrl: bool,
 }
 
@@ -1052,12 +1052,6 @@ fn fire(hook: &OptionTimelineOnEvent, info: CallbackInfo, event: TimelineEvent) 
     }
 }
 
-/// Shift and Ctrl (or Cmd) held.
-fn modifiers(info: &CallbackInfo) -> (bool, bool) {
-    let ks = info.get_current_keyboard_state();
-    (ks.shift_down(), ks.ctrl_down() || ks.super_down())
-}
-
 /// A callback hook on a part.
 fn hook(event: EventFilter, cb: extern "C" fn(RefAny, CallbackInfo) -> Update, data: RefAny) -> CoreCallbackData {
     CoreCallbackData {
@@ -1285,7 +1279,8 @@ extern "C" fn on_lane_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
     drop(s);
     let node = info.get_hit_node();
     focus_lanes(&mut info, node);
-    let (shift, ctrl) = modifiers(&info);
+    let ks = info.get_current_keyboard_state();
+    let (shift, ctrl) = (ks.shift_down(), ks.primary_down());
     let mut event = TimelineEvent::create(TimelineEventKind::LaneClick, t);
     event.track = track;
     event.shift = shift;
@@ -1345,7 +1340,8 @@ extern "C" fn on_clip_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let node = info.get_hit_node();
     info.capture_pointer(node);
     focus_lanes(&mut info, node);
-    let (shift, ctrl) = modifiers(&info);
+    let ks = info.get_current_keyboard_state();
+    let (shift, ctrl) = (ks.shift_down(), ks.primary_down());
     let mut event = TimelineEvent::create(TimelineEventKind::Select, time);
     event.clip_id = clip_id;
     event.track = track;

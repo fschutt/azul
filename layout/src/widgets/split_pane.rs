@@ -869,7 +869,7 @@ extern "C" fn on_split_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(key) = ks.current_virtual_keycode.into_option() else {
         return Update::DoNothing;
     };
-    let step = if ks.ctrl_down() || ks.super_down() {
+    let step = if ks.primary_down() {
         KEY_STEP_COARSE
     } else {
         KEY_STEP

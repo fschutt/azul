@@ -191,7 +191,7 @@ pub struct MessageListEvent {
     pub kind: MessageListEventKind,
     /// `Select`: Shift was held.
     pub shift: bool,
-    /// `Select`: Ctrl (or Cmd) was held.
+    /// `Select`: the primary modifier was held (Cmd on macOS, Ctrl elsewhere).
     pub ctrl: bool,
 }
 
@@ -1050,12 +1050,6 @@ fn row_identity(info: &mut CallbackInfo, node: azul_core::dom::DomNodeId) -> Opt
     Some((row.index, row.id))
 }
 
-/// The modifiers a selection carries.
-fn modifiers(info: &CallbackInfo) -> (bool, bool) {
-    let ks = info.get_current_keyboard_state();
-    (ks.shift_down(), ks.ctrl_down() || ks.super_down())
-}
-
 /// A click on a row: select it, with the modifiers held. The row becomes
 /// the rows' one Tab stop (the click already focused it).
 extern "C" fn on_row_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -1072,7 +1066,8 @@ extern "C" fn on_row_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
             roving::set_stop(&mut info, &rows, at);
         }
     }
-    let (shift, ctrl) = modifiers(&info);
+    let ks = info.get_current_keyboard_state();
+    let (shift, ctrl) = (ks.shift_down(), ks.primary_down());
     let mut event = MessageListEvent::create(MessageListEventKind::Select, index, id);
     event.shift = shift;
     event.ctrl = ctrl;
@@ -1138,7 +1133,7 @@ extern "C" fn on_row_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     let shift = ks.shift_down();
-    let ctrl = ks.ctrl_down() || ks.super_down();
+    let ctrl = ks.primary_down();
     let (on_select, on_open, on_delete, total_rows, first_row, row_height) = {
         let Some(shared) = shared.downcast_ref::<ListShared>() else {
             return Update::DoNothing;

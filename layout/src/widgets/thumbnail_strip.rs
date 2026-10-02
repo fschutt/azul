@@ -223,7 +223,7 @@ pub struct ThumbnailStripEvent {
     pub kind: ThumbnailStripEventKind,
     /// `Select`: Shift was held (extend from the anchor).
     pub shift: bool,
-    /// `Select`: Ctrl / Cmd was held (toggle).
+    /// `Select`: the primary modifier was held (toggle): Cmd on macOS, Ctrl elsewhere.
     pub ctrl: bool,
 }
 
@@ -853,7 +853,7 @@ extern "C" fn on_item_click(mut data: RefAny, info: CallbackInfo) -> Update {
     let ks = info.get_current_keyboard_state();
     let mut event = ThumbnailStripEvent::create(ThumbnailStripEventKind::Select, index);
     event.shift = ks.shift_down();
-    event.ctrl = ks.ctrl_down() || ks.super_down();
+    event.ctrl = ks.primary_down();
     emit(&mut shared, info, event)
 }
 
@@ -938,7 +938,7 @@ extern "C" fn on_item_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     }
     let shift = ks.shift_down();
-    let ctrl = ks.ctrl_down() || ks.super_down();
+    let ctrl = ks.primary_down();
     let Some((index, mut shared)) = item_of(&mut data) else {
         return Update::DoNothing;
     };
