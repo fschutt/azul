@@ -901,6 +901,26 @@ fn parse_pixel_value_inner<'a>(
         }
     }
 
+    // The font-relative units without a `SizeMetric` of their own: `ex` (the
+    // x-height) and `ch` (the advance of "0"). A length is resolved here
+    // without its font, so they take the fallback CSS Values 4 (6.1.1) gives
+    // when the font's measure is not at hand, half an em each - wherever the
+    // caller accepts em at all. (Gmail indents every quote by `0.8ex`.)
+    if match_values.iter().any(|(_, m)| *m == SizeMetric::Em) {
+        for unit in ["ex", "ch"] {
+            if let Some(value) = input.strip_suffix(unit) {
+                let value = value.trim();
+                if value.is_empty() {
+                    return Err(CssPixelValueParseError::NoValueGiven(input, SizeMetric::Em));
+                }
+                return match value.parse::<f32>() {
+                    Ok(o) => Ok(PixelValue::em(o * 0.5)),
+                    Err(e) => Err(CssPixelValueParseError::ValueParseErr(e, value)),
+                };
+            }
+        }
+    }
+
     input.trim().parse::<f32>().map_or_else(
         |_| Err(CssPixelValueParseError::InvalidPixelValue(input)),
         |o| Ok(PixelValue::px(o)),
