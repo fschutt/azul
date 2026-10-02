@@ -281,7 +281,7 @@ pub fn run_export(
         while let Some(packet) = encoder.recv_packet().into_option() {
             if muxed {
                 if !muxer.write_annexb(packet) {
-                    return Err(format!("the MP4 muxer refused a packet: {}", muxer.error().as_str()));
+                    return Err(format!("the MP4 muxer refused a packet: {}", muxer.last_error().as_str()));
                 }
             } else {
                 raw.extend_from_slice(packet.as_slice());
@@ -312,7 +312,7 @@ pub fn run_export(
     if muxed {
         let file = muxer.finish();
         if file.as_slice().is_empty() {
-            return Err(format!("the MP4 muxer wrote nothing: {}", muxer.error().as_str()));
+            return Err(format!("the MP4 muxer wrote nothing: {}", muxer.last_error().as_str()));
         }
         Ok((file.as_slice().to_vec(), OutputFormat::Mp4))
     } else {

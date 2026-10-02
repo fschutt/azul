@@ -327,7 +327,7 @@ impl Mp4Demuxer {
     }
 
     /// Why the file did not open; empty when it did.
-    pub fn error(&self) -> AzString {
+    pub fn open_error(&self) -> AzString {
         AzString::from(
             self.inner()
                 .map_or_else(|| String::from("no file"), |i| i.error.clone()),
@@ -655,7 +655,7 @@ impl Mp4Muxer {
     }
 
     /// The last failure; empty while all is well.
-    pub fn error(&self) -> AzString {
+    pub fn last_error(&self) -> AzString {
         AzString::from(self.inner().map_or_else(
             || {
                 String::from(

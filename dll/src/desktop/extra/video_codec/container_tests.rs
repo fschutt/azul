@@ -145,14 +145,14 @@ fn a_seek_starts_at_the_keyframe_at_or_before_the_frame() {
 fn a_bad_file_opens_no_demuxer_and_says_why_and_a_build_without_mp4_has_no_muxer() {
     let demuxer = Mp4Demuxer::create(U8Vec::from_vec(b"not an mp4 file at all".to_vec()));
     assert!(!demuxer.is_open());
-    assert!(!demuxer.error().as_str().is_empty(), "the reason is kept");
+    assert!(!demuxer.open_error().as_str().is_empty(), "the reason is kept");
     assert_eq!(demuxer.chunk_count(), 0);
     assert!(matches!(demuxer.chunk(0), OptionVideoChunk::None));
     assert_eq!(demuxer.width(), 0);
     if !cfg!(feature = "video-native") {
         let muxer = Mp4Muxer::create(320, 180, 25.0);
         assert!(!muxer.is_open(), "no mp4 crate, no muxer");
-        assert!(!muxer.error().as_str().is_empty());
+        assert!(!muxer.last_error().as_str().is_empty());
     }
 }
 
@@ -167,7 +167,7 @@ fn a_muxer_that_never_saw_a_keyframe_writes_no_file_and_says_why() {
     );
     let bytes = muxer.finish();
     assert!(bytes.as_ref().is_empty());
-    assert!(!muxer.error().as_str().is_empty());
+    assert!(!muxer.last_error().as_str().is_empty());
 }
 
 #[cfg(feature = "video-native")]
@@ -183,10 +183,10 @@ fn an_encoded_stream_muxed_to_mp4_demuxes_to_the_same_access_units() {
     let file = bytes.as_ref();
     assert!(file.len() > 100, "an MP4 came out ({} bytes)", file.len());
     assert_eq!(&file[4..8], b"ftyp", "it starts with the file type box");
-    assert!(muxer.error().as_str().is_empty(), "{}", muxer.error().as_str());
+    assert!(muxer.last_error().as_str().is_empty(), "{}", muxer.last_error().as_str());
 
     let demuxer = Mp4Demuxer::create(U8Vec::from_vec(file.to_vec()));
-    assert!(demuxer.is_open(), "{}", demuxer.error().as_str());
+    assert!(demuxer.is_open(), "{}", demuxer.open_error().as_str());
     assert_eq!((demuxer.width(), demuxer.height()), (320, 180));
     assert_eq!(demuxer.chunk_count(), 6);
     assert!((demuxer.fps() - 25.0).abs() < 0.01, "fps {}", demuxer.fps());

@@ -128,7 +128,7 @@ impl ClipReader {
     pub fn open(bytes: &[u8], width: u32, height: u32) -> Result<Self, String> {
         let demuxer = Mp4Demuxer::create(U8Vec::from_vec(bytes.to_vec()));
         if !demuxer.is_open() {
-            return Err(format!("not a readable MP4: {}", demuxer.error().as_str()));
+            return Err(format!("not a readable MP4: {}", demuxer.open_error().as_str()));
         }
         let decoder = VideoDecoder::open(false);
         if !decoder.is_open() {
@@ -280,7 +280,7 @@ pub struct Probe {
 pub fn probe(bytes: &[u8], thumb_w: u32, thumb_h: u32) -> Result<Probe, String> {
     let demuxer = Mp4Demuxer::create(U8Vec::from_vec(bytes.to_vec()));
     if !demuxer.is_open() {
-        return Err(format!("not a readable MP4: {}", demuxer.error().as_str()));
+        return Err(format!("not a readable MP4: {}", demuxer.open_error().as_str()));
     }
     let (w, h) = fit_within(demuxer.width(), demuxer.height(), thumb_w, thumb_h);
     let thumbnail = ClipReader::open(bytes, w, h)
