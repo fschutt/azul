@@ -330,11 +330,11 @@ impl AppState {
     /// Rows and columns the grid shows at once (an estimate from the
     /// window and the default sizes; the overscan covers the rest).
     #[must_use]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
     pub fn window_cells(&self) -> (i32, i32) {
         let zoom = self.zoom.max(10) as f32 / 100.0;
         let rows = ((self.window.1 - CHROME_HEIGHT).max(100.0) / (20.0 * zoom)).ceil();
         let columns = (self.window.0.max(200.0) / (64.0 * zoom)).ceil();
-        #[allow(clippy::cast_possible_truncation)]
         (rows as i32, columns as i32)
     }
 
@@ -1011,14 +1011,13 @@ extern "C" fn cell_look(mut data: RefAny, cell: CellGridCellRef) -> CellGridCell
 }
 
 /// The most common of `sizes` (the sheet's default), else `fallback`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
 fn common_size(sizes: &[(i32, f64)], fallback: f32) -> f32 {
     let mut counts: HashMap<i64, usize> = HashMap::new();
     for (_, px) in sizes {
-        #[allow(clippy::cast_possible_truncation)]
         let key = (*px * 10.0).round() as i64;
         *counts.entry(key).or_insert(0) += 1;
     }
-    #[allow(clippy::cast_precision_loss)]
     counts
         .into_iter()
         .max_by_key(|(k, n)| (*n, *k))

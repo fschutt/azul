@@ -1787,9 +1787,8 @@ pub(crate) fn wheel_steps(travel: &mut f32, delta: f32, px_per_step: f32) -> i64
     #[allow(clippy::cast_possible_truncation)]
     let steps = ((*travel / px_per_step) as i64).clamp(-WHEEL_MAX_STEPS, WHEEL_MAX_STEPS);
     #[allow(clippy::cast_precision_loss)]
-    {
-        *travel -= steps as f32 * px_per_step;
-    }
+    let used = steps as f32 * px_per_step;
+    *travel -= used;
     steps
 }
 
@@ -2795,10 +2794,7 @@ fn start_edit(view: &CellGridView, cell: CellGridCellRef, mode: CellGridEditMode
     };
     next.edit_mode = mode;
     next.edit_text = AzString::from(String::from(text));
-    #[allow(clippy::cast_possible_truncation)]
-    {
-        next.edit_cursor = text.chars().count() as u32;
-    }
+    next.edit_cursor = u32::try_from(text.chars().count()).unwrap_or(u32::MAX);
     next
 }
 
