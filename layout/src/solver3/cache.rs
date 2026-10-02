@@ -3552,6 +3552,44 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                 node_index,
                 writing_mode,
             )?;
+            // CSS 2.2 10.7: the content height is only the TENTATIVE auto
+            // height - `max-height`, then `min-height`, clamp it. The sizing
+            // pass clamped the pre-layout placeholder, and the content-based
+            // height above replaces that placeholder with the larger of the
+            // two, so without this a `max-height: 0; overflow: hidden` mail
+            // preheader stood as tall as its text. Not for the table boxes:
+            // min/max-height on tables, rows, row groups and cells is
+            // undefined in CSS 2.2 (17.5.3), and Chrome ignores max-height
+            // there; nor for an inline box, which has no height property.
+            let clamps = tree.get(LayoutNodeId::new(node_index)).is_some_and(|n| {
+                !matches!(
+                    n.formatting_context,
+                    FormattingContext::Table
+                        | FormattingContext::TableRowGroup
+                        | FormattingContext::TableRow
+                        | FormattingContext::TableCell
+                        | FormattingContext::TableColumnGroup
+                        | FormattingContext::Inline
+                )
+            });
+            if let (true, Some(id)) = (clamps, dom_id) {
+                let horizontal = matches!(writing_mode, LayoutWritingMode::HorizontalTb);
+                let cb_extent = if horizontal {
+                    cb.height.definite()
+                } else {
+                    cb.width.definite()
+                };
+                let clamped = super::sizing::clamp_auto_block_size(
+                    ctx.styled_dom,
+                    id,
+                    &styled_node_state,
+                    final_used_size.main(writing_mode),
+                    cb_extent.unwrap_or(f32::NAN),
+                    &box_props,
+                    horizontal,
+                );
+                final_used_size = final_used_size.with_main(writing_mode, clamped);
+            }
         }
     }
 

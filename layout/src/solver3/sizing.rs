@@ -2989,6 +2989,73 @@ fn apply_height_constraints(
     result.max(min_height)
 }
 
+/// The used block size of a box whose block size is `auto`, from the
+/// content-based size the layout of its children produced (CSS 2.2 10.7):
+/// the content size clamped by `max-height`, then by `min-height`, which wins
+/// a conflict.
+///
+/// `border_box` is the box's block-axis border-box extent as the
+/// content-based sizing gave it, and the result is a border box too. The
+/// limits apply to the content box under `box-sizing: content-box` and to the
+/// border box under `border-box` (CSS Box Sizing 3), floored at the padding
+/// and border. `horizontal` picks the axis: in a horizontal writing mode the
+/// block axis is the physical height (`min-height` / `max-height`), in a
+/// vertical one the physical width (`min-width` / `max-width`).
+/// `containing_block_extent` is that axis of the containing block, NaN when
+/// it is indefinite (a percentage limit then does not apply).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn clamp_auto_block_size(
+    styled_dom: &StyledDom,
+    id: NodeId,
+    node_state: &StyledNodeState,
+    border_box: f32,
+    containing_block_extent: f32,
+    box_props: &BoxProps,
+    horizontal: bool,
+) -> f32 {
+    let extras = if horizontal {
+        box_props.padding.top
+            + box_props.padding.bottom
+            + box_props.border.top
+            + box_props.border.bottom
+    } else {
+        box_props.padding.left
+            + box_props.padding.right
+            + box_props.border.left
+            + box_props.border.right
+    };
+    let constrain = |tentative: f32| {
+        if horizontal {
+            apply_height_constraints(
+                styled_dom,
+                id,
+                node_state,
+                tentative,
+                containing_block_extent,
+                box_props,
+            )
+        } else {
+            apply_width_constraints(
+                styled_dom,
+                id,
+                node_state,
+                tentative,
+                containing_block_extent,
+                box_props,
+            )
+        }
+    };
+    let border_box_sizing = matches!(
+        get_css_box_sizing(styled_dom, id, node_state),
+        MultiValue::Exact(azul_css::props::layout::LayoutBoxSizing::BorderBox)
+    );
+    if border_box_sizing {
+        constrain(border_box).max(extras)
+    } else {
+        constrain((border_box - extras).max(0.0)) + extras
+    }
+}
+
 #[must_use]
 pub fn extract_text_from_node(styled_dom: &StyledDom, node_id: NodeId) -> Option<String> {
     match &styled_dom.node_data.as_container()[node_id].get_node_type() {
