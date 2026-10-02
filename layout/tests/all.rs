@@ -750,3 +750,5 @@ mod a_space_between_a_tables_inline_children_is_kept;
 mod an_inline_tables_baseline_is_its_first_rows;
 #[path = "a_captions_own_caption_side_places_it.rs"]
 mod a_captions_own_caption_side_places_it;
+#[path = "a_spanning_cells_percentage_is_shared_by_its_columns.rs"]
+mod a_spanning_cells_percentage_is_shared_by_its_columns;
