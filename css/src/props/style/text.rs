@@ -2742,6 +2742,30 @@ mod tests {
         );
     }
 
+    /// `line-height` keeps its unit until it is computed: an `em` or a
+    /// percentage computes to a length the descendants inherit, a number is
+    /// inherited as the number, and `rem` and the viewport units need the
+    /// root font size and the viewport - so `normal`, a number, a percentage
+    /// and every length parse, and print back as written.
+    #[test]
+    fn test_parse_line_height_keeps_its_unit_until_it_is_computed() {
+        for input in [
+            "normal", "1.5", "150%", "19px", "14pt", "1.5em", "2rem", "5vh", "4vw", "5vmin",
+            "4vmax",
+        ] {
+            let parsed = parse_style_line_height(input)
+                .unwrap_or_else(|e| panic!("line-height: {input} parses: {e:?}"));
+            assert_eq!(parsed.print_as_css_value(), input, "line-height: {input}");
+        }
+        // A negative line-height is invalid CSS.
+        for input in ["-1", "-100%", "-2px", "-1em"] {
+            assert!(
+                parse_style_line_height(input).is_err(),
+                "line-height: {input} is rejected"
+            );
+        }
+    }
+
     #[test]
     fn test_parse_tab_size() {
         // Unitless number is treated as `em`
