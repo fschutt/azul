@@ -40,6 +40,18 @@ def expect_display(app, expected, what):
     app.log("%s: %s" % (what, expected.replace("\t", "  |  ")))
 
 
+def keys_inside_the_keypad(app, screen):
+    """Every key of the keypad lies inside the keypad: a column that outgrows
+    it puts its keys over the history panel, and a click on them lands there."""
+    pad = app.must("get_node_layout", selector="#calc-keypad")["data"]["value"]["rect"]
+    for key_id in ["key-plus", "key-equals", "key-1"]:
+        r = app.must("get_node_layout", selector="#" + key_id)["data"]["value"]["rect"]
+        if r["x"] < pad["x"] - 0.5 or r["x"] + r["width"] > pad["x"] + pad["width"] + 0.5:
+            raise Failure("%s: #%s (x %.1f..%.1f) sticks out of the keypad (x %.1f..%.1f)" % (
+                screen, key_id, r["x"], r["x"] + r["width"], pad["x"], pad["x"] + pad["width"]))
+    app.log("%s: the keys lie inside the keypad" % screen)
+
+
 def history_lines(data_dir):
     path = os.path.join(data_dir, "calculator", "history.jsonl")
     try:
@@ -65,6 +77,7 @@ def body(args, logs, out):
         if not app.has_id("calc-keypad") or not app.has_id("calc-panel"):
             raise Failure("the Standard keypad and the history panel (680 px wide) are not in the tree")
         app.screenshot(os.path.join(out, "standard-flat-light.png"))
+        keys_inside_the_keypad(app, "Standard")
 
         # Standard by mouse: the plan's sample.
         for key_id in ["key-1", "key-2", "key-8", "key-0", "key-multiply", "key-0", "key-point", "key-1",
@@ -98,9 +111,12 @@ def body(args, logs, out):
                 raise Failure("history.jsonl lacks %s: %s" % (expected, results))
         app.log("history.jsonl: %d lines, %s" % (len(lines), results))
 
-        # Scientific.
+        # Scientific: a fresh entry first (42 is still typed, and sin applies
+        # to the number on the display, as in every desktop calculator).
+        app.key("escape")
         app.click(text="Scientific")
         app.until("the Scientific screen", lambda: app.last("AZCALC_SCREEN") == "scientific")
+        keys_inside_the_keypad(app, "Scientific")
         for key_id in ["key-sin", "key-3", "key-0", "key-rparen", "key-plus", "key-2", "key-pow", "key-1", "key-0",
                        "key-equals"]:
             app.click(selector="#" + key_id)
@@ -110,6 +126,7 @@ def body(args, logs, out):
         # Programmer.
         app.click(text="Programmer")
         app.until("the Programmer screen", lambda: app.last("AZCALC_SCREEN") == "programmer")
+        keys_inside_the_keypad(app, "Programmer")
         app.key("f5")
         app.type_keys(["2", "a", "5", "f"])
         expect_display(app, "\t2A5F", "2A5F typed in HEX")

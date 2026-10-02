@@ -587,7 +587,11 @@ struct KeyRef {
 }
 
 fn grid(columns: usize, cells: Vec<Dom>, id: &str) -> Dom {
-    let template = vec!["1fr"; columns].join(" ");
+    // `minmax(0, 1fr)`, not `1fr` (= `minmax(auto, 1fr)`): a bare `1fr` column
+    // cannot shrink below its button's min-content, so the nine Scientific
+    // columns of padded buttons outgrew the 404px keypad and its last column
+    // sat over the history panel - a click on + or = recalled a history entry.
+    let template = vec!["minmax(0, 1fr)"; columns].join(" ");
     Dom::create_div()
         .with_id(id)
         .with_css(format!(
@@ -624,7 +628,10 @@ fn keypad(app: &RefAny, keys: &[KeyDef], columns: usize, base: Option<Base>, id:
             } else {
                 button
             };
-            button.dom().with_id(k.id).with_css("min-height: 34px;")
+            button
+                .dom()
+                .with_id(k.id)
+                .with_css("min-height: 34px; min-width: 0; padding-left: 2px; padding-right: 2px;")
         })
         .collect();
     grid(columns, cells, id)
