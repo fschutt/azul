@@ -69,13 +69,7 @@ fn s(text: &str) -> AzString {
 
 /// The shell accent that goes with the deck's theme.
 fn accent_of(st: &AppState) -> ShellThemeAccent {
-    match st.editor.as_ref().map_or(1, |e| themes::index_of(&e.deck.theme)) {
-        2 => ShellThemeAccent::Leaf,
-        3 => ShellThemeAccent::Plum,
-        4 => ShellThemeAccent::Clay,
-        5 => ShellThemeAccent::Slate,
-        _ => ShellThemeAccent::Blue,
-    }
+    themes::accent(st.editor.as_ref().map_or(1, |e| themes::index_of(&e.deck.theme)))
 }
 
 /// The window's title row: the deck's title, a star while unsaved.
