@@ -164,16 +164,9 @@ pub(crate) fn open_compose(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny
             compose::forward_fields(view),
             MailDoc::forward_quote(view, &header_date(&view.date)),
         ),
-        (ComposeKind::Draft, Some(view)) => (
-            StartFields {
-                to: view.to.clone(),
-                cc: view.cc.clone(),
-                subject: view.subject.clone(),
-                in_reply_to: None,
-                references: view.references.clone(),
-            },
-            MailDoc::from_plain(&view.text, 0),
-        ),
+        (ComposeKind::Draft, Some(view)) => {
+            (compose::draft_fields(view), MailDoc::from_plain(&view.text, 0))
+        }
         _ => (StartFields::default(), MailDoc::empty()),
     };
     let id = s.next_compose;
@@ -188,7 +181,7 @@ pub(crate) fn open_compose(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny
         from: account.sender(),
         to: start.to,
         cc: start.cc,
-        bcc: String::new(),
+        bcc: start.bcc,
         subject: start.subject,
         body: editor::doc_to_host(&body),
         in_reply_to: start.in_reply_to,

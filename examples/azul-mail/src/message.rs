@@ -119,6 +119,10 @@ pub struct MessageView {
     pub reply_to: String,
     /// The References header's ids, bare, oldest first.
     pub references: Vec<String>,
+    /// The Bcc header as `Name <address>, ...` (only a draft or a sent copy has one).
+    pub bcc: String,
+    /// The In-Reply-To header's id, bare; empty without one.
+    pub in_reply_to: String,
 }
 
 /// The message view of a message's bytes; `None` when they are not a message.
@@ -159,6 +163,8 @@ pub fn parse_view(bytes: &[u8]) -> Option<MessageView> {
             .as_text_list()
             .map(|ids| ids.iter().map(|id| id.trim().to_string()).collect())
             .unwrap_or_default(),
+        bcc: String::new(),
+        in_reply_to: String::new(),
     })
 }
 
@@ -376,6 +382,28 @@ Yes.\r\n";
         assert_eq!(plain.message_id, "plain-1@example.org");
         assert_eq!(plain.reply_to, "");
         assert!(plain.references.is_empty());
+    }
+
+    #[test]
+    fn a_draft_read_back_keeps_its_bcc_and_the_mail_it_answers() {
+        const DRAFT: &[u8] = b"Bcc: Eve <eve@example.org>, fay@example.org\r\n\
+X-AzMail-Draft: 1\r\n\
+Message-ID: <draft-1@example.org>\r\n\
+Date: Wed, 30 Sep 2026 10:42:00 +0200\r\n\
+From: Ada Lovelace <ada@example.org>\r\n\
+To: ben@example.org\r\n\
+Subject: Re: Garden plan\r\n\
+In-Reply-To: <garden-1@example.org>\r\n\
+References: <root-0@example.org> <garden-1@example.org>\r\n\
+Content-Type: text/plain; charset=utf-8\r\n\
+\r\n\
+Not sure yet.\r\n";
+        let v = parse_view(DRAFT).unwrap();
+        assert_eq!(v.bcc, "Eve <eve@example.org>, fay@example.org");
+        assert_eq!(v.in_reply_to, "garden-1@example.org");
+        let plain = parse_view(PLAIN).unwrap();
+        assert_eq!(plain.bcc, "");
+        assert_eq!(plain.in_reply_to, "");
     }
 
     #[test]

@@ -156,6 +156,8 @@ pub fn same_address(a: &str, b: &str) -> bool {
 pub struct StartFields {
     pub to: String,
     pub cc: String,
+    /// A reopened draft's Bcc; empty for a reply or a forward.
+    pub bcc: String,
     pub subject: String,
     /// The original's Message-ID (bare, no angle brackets), for In-Reply-To.
     pub in_reply_to: Option<String>,
@@ -207,6 +209,7 @@ pub fn reply_fields(original: &MessageView, me: &str, all: bool) -> StartFields 
     StartFields {
         to: to.join(", "),
         cc: cc.join(", "),
+        bcc: String::new(),
         subject: reply_subject(&original.subject),
         in_reply_to,
         references,
@@ -219,10 +222,18 @@ pub fn forward_fields(original: &MessageView) -> StartFields {
     StartFields {
         to: String::new(),
         cc: String::new(),
+        bcc: String::new(),
         subject: forward_subject(&original.subject),
         in_reply_to,
         references,
     }
+}
+
+/// A saved draft reopened: its own To / Cc / Bcc / Subject and the thread it continues (its
+/// In-Reply-To and References as saved; its own Message-ID is not part of the thread).
+pub fn draft_fields(draft: &MessageView) -> StartFields {
+    let _ = draft;
+    StartFields::default()
 }
 
 /// A run of text in one style.
@@ -772,7 +783,40 @@ mod tests {
             message_id: String::from("garden-1@example.org"),
             reply_to: String::new(),
             references: vec![String::from("root-0@example.org")],
+            bcc: String::new(),
+            in_reply_to: String::new(),
         }
+    }
+
+    #[test]
+    fn a_reopened_draft_starts_with_all_its_fields_and_the_thread_it_continues() {
+        let draft = MessageView {
+            subject: String::from("Re: Garden plan for October"),
+            from: String::from("Ada Lovelace <ada@example.org>"),
+            to: String::from("Ben Okafor <ben@example.org>"),
+            cc: String::from("dan@example.org"),
+            bcc: String::from("Eve <eve@example.org>"),
+            message_id: String::from("draft-1@example.org"),
+            in_reply_to: String::from("garden-1@example.org"),
+            references: vec![
+                String::from("root-0@example.org"),
+                String::from("garden-1@example.org"),
+            ],
+            ..original()
+        };
+        let fields = draft_fields(&draft);
+        assert_eq!(fields.to, "Ben Okafor <ben@example.org>");
+        assert_eq!(fields.cc, "dan@example.org");
+        assert_eq!(fields.bcc, "Eve <eve@example.org>");
+        assert_eq!(fields.subject, "Re: Garden plan for October", "no second prefix");
+        assert_eq!(fields.in_reply_to.as_deref(), Some("garden-1@example.org"));
+        assert_eq!(fields.references, draft.references, "the draft's own id is not added");
+        let fresh = MessageView {
+            in_reply_to: String::new(),
+            references: Vec::new(),
+            ..draft
+        };
+        assert_eq!(draft_fields(&fresh).in_reply_to, None, "a new mail answers nothing");
     }
 
     fn runs(doc: &MailDoc) -> Vec<(u8, String)> {
