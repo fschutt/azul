@@ -3947,6 +3947,37 @@ mod autotest_generated {
         );
     }
 
+    /// AzCalendar's weeks start on Monday, the picker's always started on
+    /// Sunday, so the navigator's rows split the calendar's weeks in two
+    /// (DEDUP_EDITORS D10 / B25). `with_week_start(Monday)` lays the date
+    /// grid Monday first: the header reads Mo .. Su, and the 1st of October
+    /// 2026, a Thursday, has three blanks before it, not four.
+    #[test]
+    fn a_monday_week_start_lays_the_day_grid_monday_first() {
+        let sunday = DatePicker::create(2026, 10, 2).dom();
+        let monday = DatePicker::create(2026, 10, 2)
+            .with_week_start(DatePickerWeekStart::Monday)
+            .dom();
+        let names = |dom: &Dom| -> Vec<String> {
+            sections(dom).1.children.as_ref().iter().filter_map(text_of).collect()
+        };
+        assert_eq!(names(&sunday).first().map(String::as_str), Some("Su"));
+        assert_eq!(names(&monday), vec!["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]);
+        let leading = |dom: &Dom| {
+            day_numbers(sections(dom).2)
+                .iter()
+                .take_while(|d| d.is_none())
+                .count()
+        };
+        assert_eq!(leading(&sunday), 4, "Sunday first: Su Mo Tu We blank");
+        assert_eq!(leading(&monday), 3, "Monday first: Mo Tu We blank");
+        assert_eq!(
+            DatePicker::create(2026, 10, 2).week_start,
+            DatePickerWeekStart::Sunday,
+            "Sunday stays the default"
+        );
+    }
+
     #[test]
     fn dom_labels_the_header_with_the_month_name_and_the_year() {
         for (y, m, want) in [
