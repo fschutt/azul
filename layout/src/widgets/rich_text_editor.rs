@@ -63,8 +63,8 @@ use crate::{
     callbacks::{Callback, CallbackInfo},
     widgets::rich_text::{
         doc::{
-            shortcut_in as _, typed_shortcut, RichAlign, RichBlock, RichBlockKind, RichCheck,
-            RichFormat, RichFormats, RichImage, RichRun, RichTable, RichTextDoc,
+            typed_shortcut, RichAlign, RichBlock, RichBlockKind, RichCheck, RichFormat,
+            RichFormats, RichImage, RichRun, RichTable, RichTextDoc,
         },
         history::{RichEditGroup, RichTextHistory},
         html as rich_html,
@@ -1233,4 +1233,1015 @@ fn toolbar_buttons(editor: &RichTextEditor, data: &RefAny) -> Vec<Dom> {
         .collect()
 }
 
-// RTE-WIDGET-PART-C: the engine glue and the callbacks follow.
+// ==== The state: the app's side ====
+
+impl RichTextEditorState {
+    /// The state of an editor showing `doc` (an empty history, the host id
+    /// [`DEFAULT_HOST_ID`]).
+    #[must_use]
+    pub fn create(doc: RichTextDoc) -> Self {
+        let mut doc = doc;
+        doc.normalize();
+        Self {
+            doc,
+            history: RichTextHistory::create(),
+            host_id: AzString::from_const_str(DEFAULT_HOST_ID),
+            caret_block: 0,
+            caret_byte: 0,
+            revision: 0,
+            typing: OptionRichTypingStyle::None,
+        }
+    }
+
+    /// The document (a copy).
+    #[must_use]
+    pub fn get_doc(&self) -> RichTextDoc {
+        self.doc.clone()
+    }
+
+    /// Shows another document (another note was opened, a draft was
+    /// loaded): the history starts over. Call
+    /// `CallbackInfo::reset_editor_content` for a live editor (or use
+    /// [`Self::replace_doc`]).
+    pub fn set_doc(&mut self, doc: RichTextDoc) {
+        let mut doc = doc;
+        doc.normalize();
+        self.doc = doc;
+        self.history.clear();
+        self.typing = OptionRichTypingStyle::None;
+        self.caret_block = 0;
+        self.caret_byte = 0;
+        self.revision += 1;
+    }
+
+    /// Replaces the document of a LIVE editor from a callback as one undoable
+    /// step (a signature inserted, a template applied): the engine drops the
+    /// old content's editing state. Returns `RefreshDom`.
+    pub fn replace_doc(&mut self, mut info: CallbackInfo, doc: RichTextDoc) -> Update {
+        let host = self.host_node(&info);
+        if let Some(host) = host {
+            let _ = self.sync_text(&mut info, host, false);
+        }
+        let mut doc = doc;
+        doc.normalize();
+        self.history.record(&self.doc, RichEditGroup::None);
+        self.doc = doc;
+        self.after_history(&mut info, host);
+        Update::RefreshDom
+    }
+
+    /// The formats text typed at the caret takes: the typing style when one
+    /// was set there, else the run before the caret's (a toolbar's pressed
+    /// buttons).
+    #[must_use]
+    pub fn current_formats(&self) -> RichFormats {
+        self.formats_at(self.caret_block, self.caret_byte)
+    }
+
+    /// The kind of the caret's block.
+    #[must_use]
+    pub fn current_kind(&self) -> RichBlockKind {
+        self.doc
+            .block(self.caret_block)
+            .map(|b| b.kind.clone())
+            .unwrap_or_default()
+    }
+
+    /// Whether there is a step to undo.
+    #[must_use]
+    pub fn can_undo(&self) -> bool {
+        self.history.can_undo()
+    }
+
+    /// Whether there is an undone step to redo.
+    #[must_use]
+    pub fn can_redo(&self) -> bool {
+        self.history.can_redo()
+    }
+
+    /// The editing host in the window `info` runs in (looked up by
+    /// [`Self::host_id`]), if the editor is there.
+    #[must_use]
+    pub fn host_node(&self, info: &CallbackInfo) -> Option<DomNodeId> {
+        let id = self.host_id.as_str();
+        let hit_dom = info.get_hit_node().dom;
+        [hit_dom, DomId::ROOT_ID].into_iter().find_map(|dom| {
+            let node = info.get_node_id_by_id_attribute(dom, id)?;
+            Some(DomNodeId {
+                dom,
+                node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+            })
+        })
+    }
+
+    /// Puts the keyboard focus into the editor (after a button of the app
+    /// took it).
+    pub fn focus(&self, mut info: CallbackInfo) {
+        if let Some(host) = self.host_node(&info) {
+            info.set_focus(FocusTarget::Id(host));
+        }
+    }
+
+    /// Folds what was typed and not reported yet into the document - call
+    /// it before reading [`Self::doc`] in a callback that is not the
+    /// editor's (Send, Save). Returns whether the document changed.
+    pub fn sync(&mut self, mut info: CallbackInfo) -> bool {
+        match self.host_node(&info) {
+            Some(host) => self.sync_text(&mut info, host, false).0,
+            None => false,
+        }
+    }
+
+    /// Runs `command` (a ribbon's or a toolbar's) on the document, after
+    /// folding in what was typed; returns `RefreshDom` when the document
+    /// changed (the app rebuilds the editor from this state).
+    pub fn apply_command(&mut self, mut info: CallbackInfo, command: RichTextCommand) -> Update {
+        let host = self.host_node(&info);
+        if let Some(host) = host {
+            let _ = self.sync_text(&mut info, host, false);
+        }
+        self.run_command(&mut info, host, &command, true)
+    }
+}
+
+// ==== The state: the engine's side ====
+
+/// The child-index path from `host` down to `node` (empty: the host).
+fn path_in_host(info: &CallbackInfo, host: DomNodeId, node: DomNodeId) -> Option<Vec<u32>> {
+    if node == host {
+        return Some(Vec::new());
+    }
+    info.get_node_child_index_path(host, node)
+        .into_option()
+        .map(|path| path.as_ref().to_vec())
+}
+
+/// The block `node` is (or is in).
+fn block_of(info: &CallbackInfo, host: DomNodeId, node: DomNodeId) -> Option<usize> {
+    path_in_host(info, host, node)?
+        .first()
+        .map(|b| *b as usize)
+}
+
+/// The caret as `(block, byte in the block's text)`, when there is one in
+/// the host.
+fn caret_in(info: &CallbackInfo, host: DomNodeId) -> Option<(usize, usize)> {
+    let position = info.get_document_caret().into_option()?;
+    let block = block_of(info, host, position.node)?;
+    Some((block, position.text_byte as usize))
+}
+
+/// The caret's child-index path below the host (`[block, row, cell]` in a
+/// table).
+fn caret_path(info: &CallbackInfo, host: DomNodeId) -> Option<(Vec<u32>, usize)> {
+    let position = info.get_document_caret().into_option()?;
+    let path = path_in_host(info, host, position.node)?;
+    Some((path, position.text_byte as usize))
+}
+
+/// The selection as `(block, start, end)` spans; empty for a caret.
+fn selection_in(info: &CallbackInfo, host: DomNodeId) -> Vec<(usize, usize, usize)> {
+    info.get_document_selection()
+        .as_ref()
+        .iter()
+        .filter(|s| s.end_byte > s.start_byte)
+        .filter_map(|s| {
+            block_of(info, host, s.node).map(|b| (b, s.start_byte as usize, s.end_byte as usize))
+        })
+        .collect()
+}
+
+/// The bytes before run `child` of `block` (a split position given as a
+/// child index).
+fn bytes_before(block: &RichBlock, child: usize) -> usize {
+    block
+        .runs
+        .as_ref()
+        .iter()
+        .filter(|r| !r.as_str().is_empty())
+        .take(child)
+        .map(|r| r.as_str().len())
+        .sum()
+}
+
+/// The engine's typing-style format for a model format (inline code has
+/// none: the editor rebuilds instead).
+const fn engine_format(format: RichFormat) -> Option<TextFormat> {
+    match format {
+        RichFormat::Bold => Some(TextFormat::Bold),
+        RichFormat::Italic => Some(TextFormat::Italic),
+        RichFormat::Underline => Some(TextFormat::Underline),
+        RichFormat::Strike => Some(TextFormat::Strikethrough),
+        RichFormat::Code => None,
+    }
+}
+
+impl RichTextEditorState {
+    /// The formats text typed at byte `at` of block `block` takes.
+    fn formats_at(&self, block: usize, at: usize) -> RichFormats {
+        if let Some(typing) = self.typing.as_ref() {
+            if typing.block == block && typing.at == at {
+                return typing.formats;
+            }
+        }
+        self.doc.formats_at(block, at)
+    }
+
+    /// Remembers where the engine's caret is.
+    fn track_caret(&mut self, info: &CallbackInfo, host: DomNodeId) {
+        if let Some((block, byte)) = caret_in(info, host) {
+            self.caret_block = block;
+            self.caret_byte = byte;
+        }
+    }
+
+    /// The typing style for an edit of `block` from `old` to `new`, moved
+    /// past the inserted text; `None` (and dropped) for any other edit.
+    fn typing_for(&mut self, block: usize, old: &str, new: &str) -> Option<RichFormats> {
+        let typing = self.typing.as_ref().copied()?;
+        self.typing = OptionRichTypingStyle::None;
+        let (prefix, suffix) = crate::widgets::rich_text::doc::text_diff(old, new);
+        let removed = old.len() - prefix - suffix;
+        let inserted = new.len() - prefix - suffix;
+        if typing.block != block || removed != 0 || inserted == 0 || prefix != typing.at {
+            return None;
+        }
+        self.typing = OptionRichTypingStyle::Some(RichTypingStyle {
+            at: prefix + inserted,
+            ..typing
+        });
+        Some(typing.formats)
+    }
+
+    /// Folds the engine's unsynced text edits of the host into the document
+    /// and acks them. Returns `(changed, rebuild)`: a Markdown shortcut (with
+    /// `shortcuts`) or a typing style the engine cannot paint (inline code)
+    /// asks for a new DOM.
+    pub(crate) fn sync_text(
+        &mut self,
+        info: &mut CallbackInfo,
+        host: DomNodeId,
+        shortcuts: bool,
+    ) -> (bool, bool) {
+        let edits = info.get_unsynced_text_edits();
+        let edits = edits.as_ref();
+        if edits.is_empty() {
+            return (false, false);
+        }
+        let mut max_revision = 0u64;
+        let mut changed = false;
+        let mut rebuild = false;
+        for edit in edits {
+            max_revision = max_revision.max(edit.revision);
+            let Some(path) = path_in_host(info, host, edit.node) else {
+                continue; // not this editor's text (a text field beside it)
+            };
+            let Some(&first) = path.first() else {
+                continue;
+            };
+            let block = first as usize;
+            let new = edit.text.as_str();
+            if let Some(RichBlockKind::Table(table)) = self.doc.block(block).map(|b| &b.kind) {
+                // Typing into a cell: `[block, row, cell]`.
+                if let (Some(&row), Some(&cell)) = (path.get(1), path.get(2)) {
+                    let old = table
+                        .rows
+                        .as_ref()
+                        .get(row as usize)
+                        .map(|r| r.cell(cell as usize).to_string());
+                    if old.as_deref().is_some_and(|old| old != new) {
+                        self.history.record(&self.doc, RichEditGroup::Typing(block));
+                        changed |= self
+                            .doc
+                            .set_table_cell(block, row as usize, cell as usize, new);
+                    }
+                }
+                continue;
+            }
+            let Some(old) = self.doc.block(block).map(RichBlock::flat) else {
+                continue;
+            };
+            if old == new {
+                continue;
+            }
+            let typing = self.typing_for(block, &old, new);
+            self.history.record(&self.doc, RichEditGroup::Typing(block));
+            if self.doc.sync_block_text(block, new, typing) {
+                changed = true;
+                if typing.is_some_and(|t| t.code) {
+                    rebuild = true;
+                }
+                if shortcuts {
+                    let kind = self.doc.block(block).map(|b| b.kind.clone());
+                    if let Some(shortcut) = kind.and_then(|k| typed_shortcut(&k, &old, new)) {
+                        self.doc.apply_shortcut(block, &shortcut);
+                        self.history.break_group();
+                        rebuild = true;
+                    }
+                }
+            }
+            self.caret_block = block;
+        }
+        if max_revision > 0 {
+            info.mark_text_revision_synced(max_revision);
+        }
+        if changed {
+            self.revision += 1;
+        }
+        (changed, rebuild)
+    }
+
+    /// The engine's structural edit (Enter's split, Backspace's / Delete's
+    /// merge, a delete, type-over or paste across blocks) applied to the
+    /// document and acknowledged - WITHOUT an inverse: the editor's history
+    /// is the one history. Returns whether the document changed (the edit,
+    /// or typing folded in first).
+    fn apply_document_edit(&mut self, info: &mut CallbackInfo, host: DomNodeId) -> bool {
+        use crate::managers::changeset::DocumentOperation;
+
+        let Some(changeset) = info.get_document_edit_clone().into_option() else {
+            return false;
+        };
+        let (synced, _) = self.sync_text(info, host, false);
+        let caret = caret_in(info, host);
+        let before = self.doc.clone();
+        let applied = match &changeset.operation {
+            DocumentOperation::SplitNode(split) => {
+                let target = block_of(info, host, split.node);
+                target
+                    .and_then(|b| {
+                        let at = match caret {
+                            Some((cb, byte)) if cb == b => byte,
+                            _ => self.doc.block(b).map_or(0, |block| {
+                                bytes_before(block, split.at.child_index as usize)
+                                    + split.at.text_byte.into_option().unwrap_or(0) as usize
+                            }),
+                        };
+                        self.doc.split_block(b, at)
+                    })
+                    .is_some()
+            }
+            DocumentOperation::MergeNodes(merge) => {
+                match (
+                    block_of(info, host, merge.first),
+                    block_of(info, host, merge.second),
+                ) {
+                    (Some(first), Some(second)) if second == first + 1 => self
+                        .doc
+                        .merge_into_previous(second, merge.join.text_byte.into_option().is_some())
+                        .is_some(),
+                    _ => false,
+                }
+            }
+            DocumentOperation::ReplaceChildren(replace)
+                if path_in_host(info, host, replace.parent).is_some_and(|p| p.is_empty()) =>
+            {
+                let (start, end) = (replace.start as usize, replace.end as usize);
+                let parts: &[Dom] = replace.content.children.as_ref();
+                if parts.len() <= 1 {
+                    // A delete or a type-over across blocks: one block whose
+                    // text is the head of the first and the tail of the last;
+                    // the model keeps both ends' formats.
+                    let mut joined = String::new();
+                    for part in parts {
+                        rich_html::dom_text(part, &mut joined);
+                    }
+                    self.doc.replace_blocks(start, end, &joined)
+                } else {
+                    // A paste of several blocks.
+                    let pasted = rich_html::blocks_from_doms(parts);
+                    !pasted.is_empty() && self.doc.replace_with(start, end, pasted)
+                }
+            }
+            _ => false,
+        };
+        if applied {
+            self.history.record(&before, RichEditGroup::None);
+            info.mark_document_edit_applied(changeset.id);
+            self.typing = OptionRichTypingStyle::None;
+            self.revision += 1;
+        }
+        applied || synced
+    }
+
+    /// The blocks a block command acts on: those of the selection, else the
+    /// caret's.
+    fn command_blocks(&self, spans: &[(usize, usize, usize)], caret: usize) -> Vec<usize> {
+        let mut blocks: Vec<usize> = spans.iter().map(|(b, _, _)| *b).collect();
+        blocks.dedup();
+        if blocks.is_empty() {
+            blocks.push(caret);
+        }
+        blocks
+    }
+
+    /// The caret's block and byte (the engine's, else the last seen).
+    fn caret_target(&mut self, info: &CallbackInfo, host: Option<DomNodeId>) -> (usize, usize) {
+        if let Some(host) = host {
+            self.track_caret(info, host);
+        }
+        let last = self.doc.block_count().saturating_sub(1);
+        if self.caret_block > last {
+            self.caret_block = last;
+            self.caret_byte = 0;
+        }
+        (self.caret_block, self.caret_byte)
+    }
+
+    /// After an undo, a redo or a replaced document: the typing style goes,
+    /// the caret stays in range, and the engine drops the editing state of
+    /// the old content (its overlay, its per-host undo, its structural
+    /// history) - no second history survives.
+    fn after_history(&mut self, info: &mut CallbackInfo, host: Option<DomNodeId>) {
+        self.typing = OptionRichTypingStyle::None;
+        self.revision += 1;
+        let last = self.doc.block_count().saturating_sub(1);
+        if self.caret_block > last {
+            self.caret_block = last;
+        }
+        self.caret_byte = 0;
+        if let Some(host) = host {
+            info.reset_editor_content(host, true);
+        }
+    }
+
+    /// Runs `command`. `paint`: at a caret, a format also asks the engine to
+    /// paint the typing style (a button; a key's default action does it
+    /// itself). Returns `RefreshDom` when the document changed.
+    #[allow(clippy::too_many_lines)]
+    fn run_command(
+        &mut self,
+        info: &mut CallbackInfo,
+        host: Option<DomNodeId>,
+        command: &RichTextCommand,
+        paint: bool,
+    ) -> Update {
+        let (block, byte) = self.caret_target(info, host);
+        let spans = host.map(|h| selection_in(info, h)).unwrap_or_default();
+        let before = self.doc.clone();
+        let depth = self.doc.block(block).map_or(0, |b| b.quote_depth);
+        let changed = match command {
+            RichTextCommand::Undo => {
+                return match self.history.undo(&self.doc) {
+                    Some(previous) => {
+                        self.doc = previous;
+                        self.after_history(info, host);
+                        Update::RefreshDom
+                    }
+                    None => Update::DoNothing,
+                };
+            }
+            RichTextCommand::Redo => {
+                return match self.history.redo(&self.doc) {
+                    Some(next) => {
+                        self.doc = next;
+                        self.after_history(info, host);
+                        Update::RefreshDom
+                    }
+                    None => Update::DoNothing,
+                };
+            }
+            RichTextCommand::ToggleFormat(format) => {
+                if spans.is_empty() {
+                    // At a caret: the typing style of what is typed next.
+                    let mut formats = self.formats_at(block, byte);
+                    formats.set(*format, !formats.has(*format));
+                    self.typing = OptionRichTypingStyle::Some(RichTypingStyle {
+                        block,
+                        at: byte,
+                        formats,
+                    });
+                    if paint {
+                        if let (Some(host), Some(f)) = (host, engine_format(*format)) {
+                            info.toggle_text_format(host, f);
+                        }
+                    }
+                    false
+                } else {
+                    // Set everywhere when one span lacks it, else clear
+                    // everywhere (Bold twice is plain again).
+                    let on = !spans
+                        .iter()
+                        .all(|(b, s, e)| self.doc.has_format(*b, *s, *e, *format));
+                    let mut changed = false;
+                    for (b, s, e) in &spans {
+                        changed |= self.doc.set_format(*b, *s, *e, *format, on);
+                    }
+                    changed
+                }
+            }
+            RichTextCommand::ToggleKind(kind) => {
+                let blocks = self.command_blocks(&spans, block);
+                let undo = blocks
+                    .first()
+                    .and_then(|b| self.doc.block(*b))
+                    .is_some_and(|b| b.kind.same_family(kind));
+                let mut changed = false;
+                for b in blocks {
+                    let Some(current) = self.doc.block(b).map(|x| x.kind.clone()) else {
+                        continue;
+                    };
+                    let next = if undo {
+                        RichBlockKind::Paragraph
+                    } else if current.is_list() && kind.is_list() {
+                        kind.with_indent(current.indent())
+                    } else {
+                        kind.clone()
+                    };
+                    changed |= self.doc.set_kind(b, next);
+                }
+                if changed {
+                    self.doc.normalize();
+                }
+                changed
+            }
+            RichTextCommand::ToggleQuote => {
+                let blocks = self.command_blocks(&spans, block);
+                let quoted = blocks
+                    .first()
+                    .and_then(|b| self.doc.block(*b))
+                    .is_some_and(|b| b.quote_depth > 0);
+                let mut changed = false;
+                for b in blocks {
+                    changed |= self.doc.set_quote_depth(b, if quoted { 0 } else { 1 });
+                }
+                changed
+            }
+            RichTextCommand::Indent | RichTextCommand::Outdent => {
+                let delta = if *command == RichTextCommand::Indent { 1 } else { -1 };
+                let mut changed = false;
+                for b in self.command_blocks(&spans, block) {
+                    changed |= self.doc.indent(b, delta);
+                }
+                changed
+            }
+            RichTextCommand::SetAlign(align) => {
+                let mut changed = false;
+                for b in self.command_blocks(&spans, block) {
+                    changed |= self.doc.set_align(b, *align);
+                }
+                changed
+            }
+            RichTextCommand::InsertRule
+            | RichTextCommand::InsertPageBreak
+            | RichTextCommand::InsertImage(_)
+            | RichTextCommand::InsertTable(_) => {
+                let kind = match command {
+                    RichTextCommand::InsertRule => RichBlockKind::Rule,
+                    RichTextCommand::InsertPageBreak => RichBlockKind::PageBreak,
+                    RichTextCommand::InsertImage(image) => RichBlockKind::Image(image.clone()),
+                    RichTextCommand::InsertTable(size) => RichBlockKind::Table(RichTable::empty(
+                        size.rows.max(1),
+                        size.columns.max(1),
+                    )),
+                    _ => RichBlockKind::Rule,
+                };
+                let at = self.doc.insert_after(
+                    block,
+                    RichBlock::new(kind, Vec::new()).with_quote_depth(depth),
+                );
+                let after = self
+                    .doc
+                    .insert_after(at, RichBlock::paragraph("").with_quote_depth(depth));
+                self.caret_block = after;
+                self.caret_byte = 0;
+                true
+            }
+            RichTextCommand::SetLink(url) => {
+                let url = url.as_str().trim();
+                if url.is_empty() {
+                    false
+                } else if spans.is_empty() {
+                    let run = RichRun::plain(url).with_link(AzString::from(url));
+                    self.doc.insert_run(block, byte, run)
+                } else {
+                    let mut changed = false;
+                    for (b, s, e) in &spans {
+                        changed |= self.doc.set_link(*b, *s, *e, Some(url));
+                    }
+                    changed
+                }
+            }
+            RichTextCommand::RemoveLink => {
+                if spans.is_empty() {
+                    match self.doc.link_range_at(block, byte) {
+                        Some((s, e)) => self.doc.set_link(block, s, e, None),
+                        None => false,
+                    }
+                } else {
+                    let mut changed = false;
+                    for (b, s, e) in &spans {
+                        changed |= self.doc.set_link(*b, *s, *e, None);
+                    }
+                    changed
+                }
+            }
+            RichTextCommand::ToggleCheck => self.doc.toggle_check(block),
+        };
+        if !changed {
+            return Update::DoNothing;
+        }
+        self.history.record(&before, RichEditGroup::None);
+        self.revision += 1;
+        if !matches!(command, RichTextCommand::ToggleFormat(_)) {
+            self.typing = OptionRichTypingStyle::None;
+        }
+        Update::RefreshDom
+    }
+}
+
+// ==== The callbacks (one RefAny per editor) ====
+
+/// What every callback of one editor shares: the editor's live copy of the
+/// state (the app's copy follows through `on_change`).
+struct EditorData {
+    state: RichTextEditorState,
+    on_change: OptionRichTextEditorOnChange,
+    on_link: OptionRichTextEditorOnLink,
+    markdown_shortcuts: bool,
+}
+
+impl EditorData {
+    /// Hands the new state to the app.
+    fn notify(&self, info: CallbackInfo) -> Update {
+        match self.on_change.as_ref() {
+            Some(on_change) => {
+                on_change
+                    .callback
+                    .invoke(on_change.refany.clone(), info, self.state.clone())
+            }
+            None => Update::DoNothing,
+        }
+    }
+}
+
+/// `TextChanged` on the host: the typing goes into the document (no
+/// rebuild, unless a Markdown shortcut changed a block).
+extern "C" fn on_text_changed(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(mut guard) = data.downcast_mut::<EditorData>() else {
+        return Update::DoNothing;
+    };
+    let editor = &mut *guard;
+    let Some(host) = editor.state.host_node(&info) else {
+        return Update::DoNothing;
+    };
+    let shortcuts = editor.markdown_shortcuts;
+    let (changed, rebuild) = editor.state.sync_text(&mut info, host, shortcuts);
+    editor.state.track_caret(&info, host);
+    let mut update = if rebuild {
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
+    };
+    if changed {
+        update.max_self(editor.notify(info));
+    }
+    update
+}
+
+/// `DocumentEdit` on the host: the structural edit goes into the document,
+/// acknowledged so the engine places the caret at its resume point; a new
+/// DOM either way (the applied edit, or - an edit the model cannot take -
+/// the engine's preview dropped).
+extern "C" fn on_document_edit(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(mut guard) = data.downcast_mut::<EditorData>() else {
+        return Update::DoNothing;
+    };
+    let editor = &mut *guard;
+    let Some(host) = editor.state.host_node(&info) else {
+        return Update::DoNothing;
+    };
+    if editor.state.apply_document_edit(&mut info, host) {
+        let _ = editor.notify(info);
+    }
+    Update::RefreshDom
+}
+
+/// A click on a check item's box: tick or untick it.
+extern "C" fn on_check_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut editor_data, block)) = data
+        .downcast_ref::<CheckRef>()
+        .map(|r| (r.editor.clone(), r.block))
+    else {
+        return Update::DoNothing;
+    };
+    let Some(mut guard) = editor_data.downcast_mut::<EditorData>() else {
+        return Update::DoNothing;
+    };
+    let editor = &mut *guard;
+    let host = editor.state.host_node(&info);
+    if let Some(host) = host {
+        // Typing not folded in yet goes in first.
+        let _ = editor.state.sync_text(&mut info, host, false);
+    }
+    let before = editor.state.doc.clone();
+    if !editor.state.doc.toggle_check(block) {
+        return Update::DoNothing;
+    }
+    editor.state.history.record(&before, RichEditGroup::None);
+    editor.state.revision += 1;
+    let mut update = Update::RefreshDom;
+    update.max_self(editor.notify(info));
+    update
+}
+
+/// Ctrl / Cmd + click on a link in the text opens it: the app's `on_link`,
+/// else the system's handler.
+extern "C" fn on_link_click(mut data: RefAny, info: CallbackInfo) -> Update {
+    if !info.get_current_keyboard_state().primary_down() {
+        return Update::DoNothing;
+    }
+    let Some((mut editor_data, url)) = data
+        .downcast_ref::<LinkRef>()
+        .map(|l| (l.editor.clone(), l.url.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    let on_link = editor_data
+        .downcast_ref::<EditorData>()
+        .and_then(|e| e.on_link.as_ref().cloned());
+    match on_link {
+        Some(on_link) => {
+            on_link
+                .callback
+                .invoke(on_link.refany.clone(), info, AzString::from(url))
+        }
+        None => {
+            if let Ok(parsed) = azul_core::url::Url::parse(&url) {
+                let _ = parsed.open();
+            }
+            Update::DoNothing
+        }
+    }
+}
+
+/// A button of the built-in toolbar: its command, then the focus back into
+/// the editor.
+extern "C" fn on_toolbar_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut editor_data, command)) = data
+        .downcast_ref::<ToolbarRef>()
+        .map(|r| (r.editor.clone(), r.command.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    let Some(mut guard) = editor_data.downcast_mut::<EditorData>() else {
+        return Update::DoNothing;
+    };
+    let editor = &mut *guard;
+    let host = editor.state.host_node(&info);
+    let mut synced = false;
+    if let Some(host) = host {
+        synced = editor.state.sync_text(&mut info, host, false).0;
+    }
+    let typing_before = editor.state.typing.clone();
+    let mut update = editor
+        .state
+        .run_command(&mut info, host, &command, true);
+    if synced || update == Update::RefreshDom || editor.state.typing != typing_before {
+        update.max_self(editor.notify(info));
+    }
+    if let Some(host) = host {
+        info.set_focus(FocusTarget::Id(host));
+    }
+    update
+}
+
+/// The keys the editor handles itself (the engine's defaults do the rest):
+/// the format and block shortcuts, Enter in a code block, Enter on an empty
+/// list item or quoted line, Backspace at the start of a list item,
+/// heading, code block or quoted line, Tab / Shift+Tab in a list, and the
+/// keys that would split or merge table cells.
+#[allow(clippy::too_many_lines)]
+extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let keyboard = info.get_current_keyboard_state();
+    let Some(key) = keyboard.current_virtual_keycode.into_option() else {
+        return Update::DoNothing;
+    };
+    let primary = keyboard.primary_down();
+    let shift = keyboard.shift_down();
+    let alt = keyboard.alt_down();
+    let Some(mut guard) = data.downcast_mut::<EditorData>() else {
+        return Update::DoNothing;
+    };
+    let editor = &mut *guard;
+    let Some(host) = editor.state.host_node(&info) else {
+        return Update::DoNothing;
+    };
+    editor.state.track_caret(&info, host);
+    let collapsed = selection_in(&info, host).is_empty();
+
+    if primary && !alt {
+        // `(command, paint)`: paint = no key default of the engine paints
+        // the typing style at a caret, the editor asks for it.
+        let command = match (key, shift) {
+            (VirtualKeyCode::B, false) => Some((RichTextCommand::ToggleFormat(RichFormat::Bold), false)),
+            (VirtualKeyCode::I, false) => {
+                Some((RichTextCommand::ToggleFormat(RichFormat::Italic), false))
+            }
+            (VirtualKeyCode::U, false) => {
+                Some((RichTextCommand::ToggleFormat(RichFormat::Underline), false))
+            }
+            (VirtualKeyCode::X, true) => {
+                Some((RichTextCommand::ToggleFormat(RichFormat::Strike), true))
+            }
+            (VirtualKeyCode::E, false) => {
+                Some((RichTextCommand::ToggleFormat(RichFormat::Code), true))
+            }
+            (VirtualKeyCode::Key0, false) => {
+                Some((RichTextCommand::ToggleKind(RichBlockKind::Paragraph), true))
+            }
+            (VirtualKeyCode::Key1, false) => {
+                Some((RichTextCommand::ToggleKind(RichBlockKind::Heading(1)), true))
+            }
+            (VirtualKeyCode::Key2, false) => {
+                Some((RichTextCommand::ToggleKind(RichBlockKind::Heading(2)), true))
+            }
+            (VirtualKeyCode::Key3, false) => {
+                Some((RichTextCommand::ToggleKind(RichBlockKind::Heading(3)), true))
+            }
+            (VirtualKeyCode::Key7, true) => {
+                Some((RichTextCommand::ToggleKind(RichBlockKind::Numbered(0)), true))
+            }
+            (VirtualKeyCode::Key8, true) => {
+                Some((RichTextCommand::ToggleKind(RichBlockKind::Bullet(0)), true))
+            }
+            (VirtualKeyCode::Key9, true) => Some((
+                RichTextCommand::ToggleKind(RichBlockKind::Check(RichCheck::default())),
+                true,
+            )),
+            (VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter, false) => {
+                Some((RichTextCommand::ToggleCheck, true))
+            }
+            _ => None,
+        };
+        let Some((command, paint)) = command else {
+            return Update::DoNothing;
+        };
+        let synced = editor.state.sync_text(&mut info, host, false).0;
+        // B / I / U at a caret: the engine's default action paints the
+        // typing style, the model records it. Everything else - a format
+        // over a selection in particular - is the editor's, and the
+        // engine's default is cancelled.
+        let is_format = matches!(command, RichTextCommand::ToggleFormat(_));
+        if !is_format || !collapsed || paint {
+            info.prevent_default();
+        }
+        let typing_before = editor.state.typing.clone();
+        let mut update = editor.state.run_command(&mut info, Some(host), &command, paint);
+        if synced || update == Update::RefreshDom || editor.state.typing != typing_before {
+            update.max_self(editor.notify(info));
+        }
+        return update;
+    }
+
+    let Some((path, byte)) = caret_path(&info, host) else {
+        return Update::DoNothing;
+    };
+    let Some(&first) = path.first() else {
+        return Update::DoNothing;
+    };
+    let block = first as usize;
+    let Some(current) = editor.state.doc.block(block) else {
+        return Update::DoNothing;
+    };
+    let kind = current.kind.clone();
+    let empty = current.is_empty();
+    let depth = current.quote_depth;
+
+    if let RichBlockKind::Table(table) = &kind {
+        // A cell never splits or merges: Enter, and Backspace / Delete at
+        // its edges, stop at the cell.
+        let cell_len = match (path.get(1), path.get(2)) {
+            (Some(&row), Some(&cell)) => table
+                .rows
+                .as_ref()
+                .get(row as usize)
+                .map_or(0, |r| r.cell(cell as usize).len()),
+            _ => 0,
+        };
+        let stop = match key {
+            VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter => true,
+            VirtualKeyCode::Back => collapsed && byte == 0,
+            VirtualKeyCode::Delete => collapsed && byte >= cell_len,
+            _ => false,
+        };
+        if stop {
+            info.prevent_default();
+        }
+        return Update::DoNothing;
+    }
+
+    let action = match key {
+        VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter if !shift && collapsed => {
+            if kind.is_code() {
+                // A code block takes line breaks; Enter on its empty last
+                // line (the text ends in "\n") leaves it.
+                info.prevent_default();
+                let _ = editor.state.sync_text(&mut info, host, false);
+                let text = editor
+                    .state
+                    .doc
+                    .block(block)
+                    .map(RichBlock::flat)
+                    .unwrap_or_default();
+                if byte >= text.len() && text.ends_with('\n') {
+                    let trimmed = text.trim_end_matches('\n').to_string();
+                    let before = editor.state.doc.clone();
+                    editor.state.doc.sync_block_text(block, &trimmed, None);
+                    let at = editor
+                        .state
+                        .doc
+                        .insert_after(block, RichBlock::paragraph("").with_quote_depth(depth));
+                    editor.state.history.record(&before, RichEditGroup::None);
+                    editor.state.revision += 1;
+                    editor.state.caret_block = at;
+                    editor.state.caret_byte = 0;
+                    let mut update = Update::RefreshDom;
+                    update.max_self(editor.notify(info));
+                    return update;
+                }
+                if let Some(node) = info
+                    .get_document_caret()
+                    .into_option()
+                    .and_then(|p| p.node.node.into_crate_internal())
+                {
+                    info.insert_text(host.dom, node, AzString::from_const_str("\n"));
+                }
+                return Update::DoNothing;
+            }
+            if empty && kind.is_list() {
+                // Enter on an empty item leaves the list (a level at a time).
+                KeyAction::Indent(-1)
+            } else if empty && depth > 0 {
+                // Enter on an empty quoted line leaves the quote (a level at
+                // a time).
+                KeyAction::Unquote
+            } else {
+                KeyAction::None
+            }
+        }
+        VirtualKeyCode::Back if collapsed && byte == 0 => {
+            if kind.is_list() {
+                // Backspace at the start of a list item outdents it ...
+                KeyAction::Indent(-1)
+            } else if kind != RichBlockKind::Paragraph && kind.has_text() {
+                // ... at the start of a heading or a code block turns it
+                // back into a paragraph instead of merging it into the block
+                // above ...
+                KeyAction::ToParagraph
+            } else if depth > 0 {
+                // ... and at the start of a quoted line unquotes it a level.
+                KeyAction::Unquote
+            } else {
+                KeyAction::None
+            }
+        }
+        VirtualKeyCode::Tab if kind.is_list() => KeyAction::Indent(if shift { -1 } else { 1 }),
+        _ => KeyAction::None,
+    };
+    if action == KeyAction::None {
+        return Update::DoNothing;
+    }
+    info.prevent_default();
+    let synced = editor.state.sync_text(&mut info, host, false).0;
+    let before = editor.state.doc.clone();
+    let changed = match action {
+        KeyAction::Indent(delta) => editor.state.doc.indent(block, delta),
+        KeyAction::Unquote => editor
+            .state
+            .doc
+            .set_quote_depth(block, depth.saturating_sub(1)),
+        KeyAction::ToParagraph => editor.state.doc.set_kind(block, RichBlockKind::Paragraph),
+        KeyAction::None => false,
+    };
+    if changed {
+        editor.state.history.record(&before, RichEditGroup::None);
+        editor.state.revision += 1;
+        editor.state.typing = OptionRichTypingStyle::None;
+    }
+    if !changed && !synced {
+        return Update::DoNothing;
+    }
+    let mut update = if changed {
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
+    };
+    update.max_self(editor.notify(info));
+    update
+}
+
+/// What a key the editor handles does to the caret's block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KeyAction {
+    None,
+    /// A list item one level deeper (`1`) or up (`-1`; out of the list at
+    /// level 0).
+    Indent(i8),
+    /// One quote level less.
+    Unquote,
+    /// Back to a paragraph.
+    ToParagraph,
+}
+
+// RTE-WIDGET-PART-D: tests follow.

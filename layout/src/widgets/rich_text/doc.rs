@@ -1573,6 +1573,54 @@ impl RichTextDoc {
         true
     }
 
+    /// Inserts `run` at byte `at` of block `index` (a link inserted at a
+    /// caret). Returns whether it was inserted.
+    pub fn insert_run(&mut self, index: usize, at: usize, run: RichRun) -> bool {
+        let Some(block) = self.block_mut(index) else {
+            return false;
+        };
+        if !block.kind.has_text() || run.as_str().is_empty() {
+            return false;
+        }
+        let flat = block.flat();
+        let at = floor_char_boundary(&flat, at.min(flat.len()));
+        let mut runs = block.runs_vec();
+        let tail = split_runs(&mut runs, at);
+        push_run(&mut runs, run);
+        for rest in tail {
+            push_run(&mut runs, rest);
+        }
+        block.set_runs(runs);
+        true
+    }
+
+    /// The byte range of the link the caret at byte `at` of block `index`
+    /// is on: the neighbouring runs to the same address, together.
+    #[must_use]
+    pub fn link_range_at(&self, index: usize, at: usize) -> Option<(usize, usize)> {
+        let block = self.block(index)?;
+        let url = self.link_at(index, at)?;
+        let mut spans: Vec<(usize, usize, bool)> = Vec::new();
+        let mut acc = 0usize;
+        for run in block.runs.as_ref() {
+            let len = run.as_str().len();
+            spans.push((acc, acc + len, run.link_str() == Some(url.as_str())));
+            acc += len;
+        }
+        let hit = spans
+            .iter()
+            .position(|(s, e, linked)| *linked && *s <= at && at <= *e)?;
+        let mut first = hit;
+        while first > 0 && spans[first - 1].2 {
+            first -= 1;
+        }
+        let mut last = hit;
+        while last + 1 < spans.len() && spans[last + 1].2 {
+            last += 1;
+        }
+        Some((spans[first].0, spans[last].1))
+    }
+
     /// Indents (`delta > 0`) or outdents a list item; an outdent at level
     /// 0 turns it into a paragraph. Returns whether it changed.
     pub fn indent(&mut self, index: usize, delta: i8) -> bool {
