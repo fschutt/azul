@@ -3,10 +3,20 @@
 Branch `wt/rte` from `2e92c759b`. Worktree `.claude/worktrees/agent-ac6805ca5f7cbc4a1`.
 
 ## DONE
-- progress file
+- 80053d413 progress + decisions
+- 9459bcfd0 build: pulldown-cmark optional in azul-layout (feature rich_text_markdown in widgets), Cargo.lock, justifications
+- f8867e6d5 rich_text/doc.rs types + run helpers; 5e55d680a doc edits; 74ef7acdb doc tests
+- b74e23982 rich_text/history.rs (one undo stack) + tests
+- 889e451b4 rich_text/markdown.rs (reader/writer, quotes, tables, page breaks) + tests
+- 26d71d81e rich_text/html.rs (HTML + plain writers, from_plain_text, from_html via paste sanitizer, DOM collector) + tests
+- e34472bac RED layout/tests/a_rich_text_editor_keeps_one_model_and_one_history.rs (registered in all.rs)
 
 ## IN PROGRESS
-- step 1: dependency (pulldown-cmark optional in azul-layout) + module skeleton
+- step 7: layout/src/widgets/rich_text_editor.rs (state, callbacks, dom, sync, structural, keys, toolbar, commands)
+  API the RED test fixes: RichTextEditor::create(RichTextEditorState).with_on_change(RefAny, cb).dom();
+  RichTextEditorState::create(doc), .doc, .history, .apply_command(CallbackInfo, RichTextCommand) -> Update;
+  RichTextCommand::{Undo, Redo, ...}; RichTextEditorOnChangeCallbackType; DEFAULT_HOST_ID.
+  Module NOT yet registered in widgets/mod.rs (register with the widget commit: rich_text + rich_text_editor).
 
 ## NEXT (in order; commit after every unit)
 1. layout/Cargo.toml: `pulldown-cmark` optional, feature `rich_text_markdown` (in `widgets`); justification lines.
