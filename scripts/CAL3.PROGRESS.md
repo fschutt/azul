@@ -29,19 +29,19 @@ bindings), `unused.py FILE...` (unused imports, heuristic), `red.py` / `stub_lib
 
 - nothing half-done
 
+## DONE since (commit hashes)
+
+- `scripts/azcalendar_e2e.py` `05356abaa`; calendar colour contrast guard `304c43b25`
+- DatePicker lit range (engine widget): RED `7af90d031`, GREEN `ff96d1b81`; the app's navigator uses it
+  `59804ab76`; duplicate fn name fix `ecc63a794`
+
 ## NEXT (in order, precise)
 
-1. `scripts/azcalendar_e2e.py` (new; imports week_interactions' Debug / Week / helpers): stages
-   views (Ctrl+Alt+1..6 + ribbon clicks, `AZCAL_VIEW` on stdout, `#view-<name>`), editor (Ctrl+N ->
-   `AZCAL_EDITOR open`; requests with `window_id: "azcalendar-editor"`; BLOCKED message when the
-   debug server cannot reach the window - MAIL2's engine fix), repeat (weekly event: via editor if
-   reachable, else an .ics import with RRULE; next week shows `#event-<id>-<yyyymmdd>`), import
-   (FILE > Open & Export: `#import-path` text, `#import-run`; `AZCAL_IMPORTED`).
-2. Theme / mode review: every button on a surface of the app's own (event blocks with Join meeting);
-   `--theme flora --mode dark` screenshots stage in the E2E.
-3. DatePicker visible-range highlight (engine widget, RED first) if time allows; else listed as left.
-4. Report `scripts/CAL3_2026_10_01.md` (commits, api.json list = none new unless DatePicker range,
-   least-sure spots, test commands, what is left).
+1. Review pass over the UI files for compile errors (names, borrows, types) - chrome.rs read up to
+   the backstage builder; continue with its pages and callbacks, then editor_ui.rs, views_ui.rs,
+   timegrid.rs, lib.rs. Commit each fix.
+2. Report `scripts/CAL3_2026_10_01.md` (commits, api.json list: DatePicker.range_start / range_end /
+   set_range / with_range; least-sure spots; test commands; what is left). Commit.
 
 ## Decisions (unattended run)
 
