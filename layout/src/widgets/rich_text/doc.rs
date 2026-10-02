@@ -529,6 +529,20 @@ impl RichBlock {
         Self::text(RichBlockKind::Paragraph, text)
     }
 
+    /// A paragraph of plain `text` (the API constructor of
+    /// [`Self::paragraph`]: a reply's header line, a forward's fields).
+    #[must_use]
+    pub fn create_paragraph(text: AzString) -> Self {
+        Self::paragraph(text.as_str())
+    }
+
+    /// A block of `kind` holding plain `text` (the API constructor of
+    /// [`Self::text`]).
+    #[must_use]
+    pub fn create_text(kind: RichBlockKind, text: AzString) -> Self {
+        Self::text(kind, text.as_str())
+    }
+
     /// A block of `kind` holding plain `text` (no run when empty).
     #[must_use]
     pub fn text(kind: RichBlockKind, text: &str) -> Self {
