@@ -39,7 +39,7 @@ use azul::{
 
 use crate::{
     compose::{self, ComposeFields, ComposeKind, MailDoc, StartFields},
-    editor, send,
+    editor, message, send,
     store::LocalFolder,
     with_app, MailApp,
 };
@@ -74,9 +74,44 @@ pub(crate) struct Compose {
 /// A file to attach, read when the mail is saved or sent (on the thread).
 #[derive(Debug, Clone)]
 pub(crate) struct AttachedFile {
-    pub(crate) path: PathBuf,
+    pub(crate) source: AttachSource,
     pub(crate) name: String,
     pub(crate) size: u64,
+}
+
+/// Where an attachment's bytes come from.
+#[derive(Debug, Clone)]
+pub(crate) enum AttachSource {
+    /// A file on this computer, read when the mail is saved or sent.
+    File(PathBuf),
+    /// A forwarded mail's or a reopened draft's attachment, read when the window opened (a
+    /// re-saved draft replaces the file it came from).
+    Carried { mime_type: String, bytes: Vec<u8> },
+}
+
+/// The attachments a forward or a reopened draft carries on: the open message's, with their
+/// bytes (the same file the reading pane shows, read once more).
+fn carried_attachments(s: &MailApp, kind: ComposeKind) -> Vec<AttachedFile> {
+    if !matches!(kind, ComposeKind::Forward | ComposeKind::Draft) {
+        return Vec::new();
+    }
+    let (Some(open), Some(store)) = (s.open.as_ref(), s.store()) else {
+        return Vec::new();
+    };
+    let Ok(bytes) = store.get(&open.entry.path) else {
+        return Vec::new();
+    };
+    message::attachment_parts(&bytes)
+        .into_iter()
+        .map(|part| AttachedFile {
+            name: part.name,
+            size: part.bytes.len() as u64,
+            source: AttachSource::Carried {
+                mime_type: part.mime_type,
+                bytes: part.bytes,
+            },
+        })
+        .collect()
 }
 
 /// What the window says under the ribbon.
@@ -148,6 +183,7 @@ pub(crate) fn open_compose(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny
         return;
     };
     let original = s.open.as_ref().and_then(|o| o.view.clone());
+    let carried = carried_attachments(s, kind);
     let draft_uid = s
         .open
         .as_ref()
@@ -186,7 +222,7 @@ pub(crate) fn open_compose(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny
         body: editor::doc_to_host(&body),
         in_reply_to: start.in_reply_to,
         references: start.references,
-        attachments: Vec::new(),
+        attachments: carried,
         draft_uid,
         status: ComposeStatus::Editing,
         show_link: false,
@@ -837,7 +873,11 @@ extern "C" fn on_files_picked(mut data: RefAny, _info: CallbackInfo, result: Ref
         .filter_map(|path| {
             let size = std::fs::metadata(&path).ok()?.len();
             let name = path.file_name()?.to_string_lossy().into_owned();
-            Some(AttachedFile { path, name, size })
+            Some(AttachedFile {
+                source: AttachSource::File(path),
+                name,
+                size,
+            })
         })
         .collect();
     if files.is_empty() {
@@ -909,15 +949,22 @@ extern "C" fn outgoing_thread(mut init: RefAny, mut sender: ThreadSender, _recei
 fn run_outgoing(job: &OutgoingJob) -> OutgoingDone {
     let mut attachments = Vec::with_capacity(job.attachments.len());
     for file in &job.attachments {
-        match std::fs::read(&file.path) {
-            Ok(bytes) => attachments.push(send::Attachment {
+        match &file.source {
+            AttachSource::File(path) => match std::fs::read(path) {
+                Ok(bytes) => attachments.push(send::Attachment {
+                    file_name: file.name.clone(),
+                    mime_type: compose::mime_type_for(&file.name).to_string(),
+                    bytes,
+                }),
+                Err(e) => {
+                    return OutgoingDone::Problem(format!("Could not read {}: {e}", file.name));
+                }
+            },
+            AttachSource::Carried { mime_type, bytes } => attachments.push(send::Attachment {
                 file_name: file.name.clone(),
-                mime_type: compose::mime_type_for(&file.name).to_string(),
-                bytes,
+                mime_type: mime_type.clone(),
+                bytes: bytes.clone(),
             }),
-            Err(e) => {
-                return OutgoingDone::Problem(format!("Could not read {}: {e}", file.name));
-            }
         }
     }
     let now = crate::now_unix();

@@ -112,8 +112,24 @@ pub struct AttachmentPart {
 /// Every attachment of a message's bytes with its contents, in the order of
 /// [`MessageView::attachments`]; none when the bytes are not a message.
 pub fn attachment_parts(bytes: &[u8]) -> Vec<AttachmentPart> {
-    let _ = bytes;
-    Vec::new()
+    let Some(message) = MessageParser::default().parse(bytes) else {
+        return Vec::new();
+    };
+    message
+        .attachments()
+        .map(|part| AttachmentPart {
+            name: part.attachment_name().unwrap_or("attachment").to_string(),
+            mime_type: part
+                .content_type()
+                .map(|ct| match ct.subtype() {
+                    Some(sub) => format!("{}/{}", ct.ctype(), sub),
+                    None => ct.ctype().to_string(),
+                })
+                .map(|t| t.to_ascii_lowercase())
+                .unwrap_or_else(|| String::from("application/octet-stream")),
+            bytes: part.contents().to_vec(),
+        })
+        .collect()
 }
 
 /// What the message view shows.
