@@ -3,6 +3,13 @@
 Task: table parity with Chrome, part B (borders, spans, fixed layout, cell sizing rules).
 Brief: scratchpad `TABLE_B_go.md`; house rules `wave4_common.md`. Nothing is compiled here.
 
+## FIX on merged main (branch `wt/table-b-fix` from `f9aba9e00`) - IN PROGRESS
+Six table failures on main (layout --test all): (1) table_cell_width single/two cells +
+flex_intrinsic_text::table_cell_padding_offsets_text_from_the_cell_top - whole table has no rects;
+(2) real_table_cells_center_their_text_vertically - header baseline 24.8 vs 28.2; (3) fixed table
+first-row percentage - 6300 px differ; (4) prose_cells_wrap_inside_a_220px_table - only 2 lines.
+- NEXT: root-cause (1) from the code.
+
 ## REPLAY onto TABLE-A (branch `wt/table-b-on-a` from `1964f561e`) - DONE
 All of wt/table-b replayed in order; report section 9 "Replayed onto TABLE-A" written
 (`e8968026a`). Skipped picks: 5de5cfd0a (folded), 51c16a9df / bc087a71f / 349d1418e (alignment,
