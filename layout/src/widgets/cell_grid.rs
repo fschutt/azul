@@ -3826,7 +3826,8 @@ mod cell_grid_tests {
         assert_eq!(cells_to_tsv(&rows), "a\t\"b\tc\"\n\"\"\"q\"\"\"\t<1>");
         assert_eq!(
             cells_to_html(&rows),
-            "<table><tr><td>a</td><td>b\tc</td></tr><tr><td>&quot;q&quot;</td><td>&lt;1&gt;</td></tr></table>"
+            "<table><tr><td>a</td><td>b\tc</td></tr><tr><td>\"q\"</td><td>&lt;1&gt;</td></tr></table>",
+            "a cell is text: the one encoder escapes & < >, a quote is plain text there"
         );
         let mut view = CellGridView::create();
         view.ranges = CellGridRangeVec::from_vec(vec![CellGridRange::spanning(at(0, 0), at(999_999, 1))]);

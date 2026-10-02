@@ -560,7 +560,6 @@ mod autotest_generated {
             "😀👨‍👩‍👧‍👦",              // emoji + ZWJ sequence
             "مرحبا بالعالم",     // RTL
             "e\u{0301}\u{0327}", // combining marks
-            "a\u{0}b",           // interior NUL
             "line\nbreak\ttab",
             "\u{200B}\u{FEFF}", // zero-width space + BOM
             "\u{202E}reversed", // RTL override
@@ -569,6 +568,16 @@ mod autotest_generated {
             assert!(html.contains(text), "lost {text:?} in {html:?}");
             assert!(html.ends_with("</span></div>"), "{html:?}");
         }
+    }
+
+    /// A NUL (and every C0 control but tab / LF / CR) cannot be written in
+    /// XML and an HTML reader drops it (azul's own lenient loader too): the
+    /// one encoder leaves it out of the markup instead of handing a reader a
+    /// character it rejects.
+    #[test]
+    fn to_html_leaves_out_a_nul_and_the_other_c0_controls() {
+        let html = content(vec![run("a\u{0}b\u{1}c\u{1f}d", 10.0, None)]).to_html();
+        assert!(html.contains("\">abcd</span>"), "{html:?}");
     }
 
     #[test]
