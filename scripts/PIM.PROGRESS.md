@@ -22,11 +22,14 @@ mail addresses, search, initials, one task store) + move AzCalendar / AzTasks / 
 - 27f16874f AzCalendar ids + AzContacts uids from azul_storage::ids::random_seed (B1)
 - a571c89ac AzMail weekday_name + AzCalendar week_start from azul_pim::dates
 
-## IN PROGRESS
-- Repeat <-> Rule bridge in pim repeat.rs (RED with stubs, then GREEN)
+- da65b755f RED / 731c23455 GREEN Repeat::to_rule / from_rule (B6)
+- report scripts/PIM_2026_10_02.md
 
-## NEXT (in order)
-6. Repeat <-> Rule bridge (RED first), then the report scripts/PIM_2026_10_02.md
+## IN PROGRESS
+- nothing: task complete (report committed)
+
+## NEXT
+- wave 6 items: see the report's "Left for wave 6".
 
 ## Decisions
 - One task format = AzTasks' `aztasks.task` v1 (no rename: AzTasks' files need no migration).
