@@ -17,13 +17,16 @@ mail addresses, search, initials, one task store) + move AzCalendar / AzTasks / 
 - f985e12db RED / c0b1d9f34 GREEN (pim) / a9009d359 GREEN (AzCalendar): one task store + migration;
   963c9ac3c RED / e0b745a44 GREEN AzTasks rewrites migrated files on load
 
+- b62b9815e `search` + `initials`; 93f177196 RED / 9de16a522 GREEN Mail/Tasks search folds diacritics,
+  Contacts + Mail initials (B16, B24, F5)
+- 27f16874f AzCalendar ids + AzContacts uids from azul_storage::ids::random_seed (B1)
+- a571c89ac AzMail weekday_name + AzCalendar week_start from azul_pim::dates
+
 ## IN PROGRESS
-- search (fold + Query) + initials modules
+- Repeat <-> Rule bridge in pim repeat.rs (RED with stubs, then GREEN)
 
 ## NEXT (in order)
-4. search (fold + Query) + initials; Contacts/Tasks/Mail adopt
-5. AzCalendar ids via azul_storage::ids::random_seed
-6. Repeat <-> Rule bridge (RED first), report
+6. Repeat <-> Rule bridge (RED first), then the report scripts/PIM_2026_10_02.md
 
 ## Decisions
 - One task format = AzTasks' `aztasks.task` v1 (no rename: AzTasks' files need no migration).
