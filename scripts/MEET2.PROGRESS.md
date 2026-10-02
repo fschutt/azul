@@ -43,29 +43,25 @@ here (house rule); Rust files are parse-checked with `rustfmt --check` / `--emit
   scripts/azmeet_cpu.py; `22eb8785a` RED / `690c82f3c` VideoEncoder::is_hardware; `92e7cea54`
   AzMeet reports hardware encode; `184f4847a` lobby device pickers.
 
-## IN PROGRESS (last commit: 184f4847a)
-- next: a compile-review read of lib.rs / ui.rs (names, borrows, removed items), fix what it finds;
-  then the report scripts/MEET2_2026_10_01.md (api.json list, least-sure spots, test commands,
-  LIFECYCLE needs, what is left) and the final progress.
+- `769a5c95e` drop stage_key; report `scripts/MEET2_2026_10_01.md`.
 
-## NEXT (plan, in order)
-1. Engine video leftovers (RED then fix each):
-   a. VideoToolbox: matrix by CFEqual; encoder pool / tags from the source frame (range,
-      matrix); decoder output change without waiting for an IDR (VTPixelTransferSession stage).
-   b. avfoundation: matrix by CFEqual.
-   c. stream.rs: apply VideoConfig::output_format (one line + helper test).
-   d. capture_common::cut_frame: keep the capacity when the frame travels.
-   e. Codec worker: VideoEncoder / VideoDecoder run their engine on a worker thread owned by
-      the handle; the UI thread only queues; `VideoEncoder::flush`.
-   f. Zero-copy step (native CVPixelBuffer frames inside the dll, with a test).
-   g. macOS never defaults to JPEG (AzMeet probe with the async encoder, caps before first frame).
-2. AzMeet on CallShell (lobby, grid + active speaker, culled tiles, share stage, chat, people,
-   controls, stats overlay, settings on ShellSettingsLayout), chat wire message.
-3. scripts/azmeet_e2e.py: two peers, tiles, chat.
-4. CPU: adaptive pump, no periodic RefreshDom, measure script.
+## IN PROGRESS
+- nothing: the task is done (report committed).
+
+## NEXT (for the parent)
+- api.json via autofix: VideoEncoder.flush, VideoEncoder.is_hardware, CallbackInfo.is_node_visible,
+  CallShell.stage (+ set_stage / with_stage); then compile, the suites and the scripts listed in
+  the report.
 
 ## Decisions
-- (filled as they are made)
+- Codec work runs on a thread per handle (CodecThread), not a shared pool: no head-of-line
+  blocking between streams; the `<video>` worker and the whole-file pipeline keep their engine on
+  their own thread (`open_on_this_thread`).
+- Decoder output changes go through a VTPixelTransferSession stage instead of a new session at
+  the next IDR.
+- Lobby = CallShell with the self preview tile; statistics = a side-panel tab; settings = an
+  in-window screen on ShellSettingsLayout.
+- Two apps at once in the E2E / CPU scripts, each capped at 1000 MB (house-rule exception).
 
 ## Open questions / needs from LIFECYCLE
-- (filled as found)
+- none blocking (see the report's Coordination).
