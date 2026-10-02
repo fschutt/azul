@@ -327,6 +327,14 @@ criteria = "safe-to-deploy"
 version = "0.65.1"
 criteria = "safe-to-deploy"
 
+[[exemptions.bitcode]]
+version = "0.6.9"
+criteria = "safe-to-deploy"
+
+[[exemptions.bitcode_derive]]
+version = "0.6.9"
+criteria = "safe-to-deploy"
+
 [[exemptions.bitflags]]
 version = "2.13.1"
 criteria = "safe-to-deploy"
@@ -404,7 +412,15 @@ version = "1.12.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.bzip2]]
+version = "0.4.4"
+criteria = "safe-to-deploy"
+
+[[exemptions.bzip2]]
 version = "0.6.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.bzip2-sys]]
+version = "0.1.13+1.0.8"
 criteria = "safe-to-deploy"
 
 [[exemptions.calendrical_calculations]]
@@ -483,6 +499,10 @@ criteria = "safe-to-deploy"
 version = "0.4.45"
 criteria = "safe-to-deploy"
 
+[[exemptions.chrono-tz]]
+version = "0.10.4"
+criteria = "safe-to-deploy"
+
 [[exemptions.cipher]]
 version = "0.5.2"
 criteria = "safe-to-deploy"
@@ -553,6 +573,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.const-oid]]
 version = "0.10.2"
+criteria = "safe-to-deploy"
+
+[[exemptions.constant_time_eq]]
+version = "0.1.5"
 criteria = "safe-to-deploy"
 
 [[exemptions.constant_time_eq]]
@@ -1063,6 +1087,10 @@ criteria = "safe-to-deploy"
 version = "0.1.10"
 criteria = "safe-to-deploy"
 
+[[exemptions.glam]]
+version = "0.33.7"
+criteria = "safe-to-deploy"
+
 [[exemptions.glob]]
 version = "0.3.4"
 criteria = "safe-to-deploy"
@@ -1435,6 +1463,14 @@ criteria = "safe-to-deploy"
 version = "1.0.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.ironcalc]]
+version = "0.8.3"
+criteria = "safe-to-deploy"
+
+[[exemptions.ironcalc_base]]
+version = "0.8.3"
+criteria = "safe-to-deploy"
+
 [[exemptions.is_terminal_polyfill]]
 version = "1.70.2"
 criteria = "safe-to-deploy"
@@ -1637,6 +1673,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.micromail]]
 version = "0.1.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.micromail]]
+version = "0.2.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.miette]]
@@ -2071,6 +2111,10 @@ criteria = "safe-to-deploy"
 version = "0.9.12"
 criteria = "safe-to-deploy"
 
+[[exemptions.password-hash]]
+version = "0.4.2"
+criteria = "safe-to-deploy"
+
 [[exemptions.paste]]
 version = "1.0.15"
 criteria = "safe-to-deploy"
@@ -2085,6 +2129,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.pathfinder_simd]]
 version = "0.5.6"
+criteria = "safe-to-deploy"
+
+[[exemptions.pbkdf2]]
+version = "0.11.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.pbkdf2]]
@@ -2112,6 +2160,10 @@ version = "0.5.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.phf]]
+version = "0.12.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.phf]]
 version = "0.13.1"
 criteria = "safe-to-deploy"
 
@@ -2121,6 +2173,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.phf_macros]]
 version = "0.13.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.phf_shared]]
+version = "0.12.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.phf_shared]]
@@ -2464,6 +2520,10 @@ version = "0.11.5"
 criteria = "safe-to-deploy"
 
 [[exemptions.roxmltree]]
+version = "0.19.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.roxmltree]]
 version = "0.20.0"
 criteria = "safe-to-deploy"
 
@@ -2777,6 +2837,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.stable_deref_trait]]
 version = "1.2.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.statrs]]
+version = "0.18.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.strfmt]]
@@ -3516,6 +3580,10 @@ version = "0.11.6"
 criteria = "safe-to-deploy"
 
 [[exemptions.zip]]
+version = "0.6.6"
+criteria = "safe-to-deploy"
+
+[[exemptions.zip]]
 version = "6.0.0"
 criteria = "safe-to-deploy"
 
@@ -3536,7 +3604,15 @@ version = "0.8.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.zstd]]
+version = "0.11.2+zstd.1.5.2"
+criteria = "safe-to-deploy"
+
+[[exemptions.zstd]]
 version = "0.13.3"
+criteria = "safe-to-deploy"
+
+[[exemptions.zstd-safe]]
+version = "5.0.2+zstd.1.5.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.zstd-safe]]

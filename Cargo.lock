@@ -3761,9 +3761,9 @@ checksum = "5ca63cb2488b847c12d1ca56034ba0f15613972c0dc0f8a957f525707567b23d"
 
 [[package]]
 name = "glam"
-version = "0.33.12"
+version = "0.33.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37bfe73dc8ec21f54d181e5a60554327ec3f1c600c455a75ccbfc65d2106a6c4"
+checksum = "e762b9b188634fc508d4ec54b62ea3d352c43fd431d18d05d46f559f217f4725"
 
 [[package]]
 name = "glob"
@@ -5608,6 +5608,8 @@ dependencies = [
 [[package]]
 name = "micromail"
 version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfc6746884b0eae91b380e4ff1ecf57e9007ee2755369f26c5342ef180ed6529"
 dependencies = [
  "base64 0.22.1",
  "bytes",
