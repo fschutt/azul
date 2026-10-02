@@ -250,7 +250,9 @@ pub mod image;
 /// Pure-functional image resampling (area downscale / bilinear upscale): the
 /// golden-reference scaler shared by the CPU rasterizer, the capture pipeline
 /// and any `RawImage` resize. No `image`-crate or platform dependency.
-pub mod image_scale;
+/// Image scaling lives in core (`RawImage::thumbnail` needs it); re-exported
+/// here so `azul_layout::image_scale::*` keeps working.
+pub use azul_core::image_scale;
 /// The ACTION JOURNAL: a bounded breadcrumb trail of dispatched callbacks,
 /// for problem reports and crash dumps. Off until enabled.
 #[cfg(feature = "std")]

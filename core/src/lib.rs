@@ -416,6 +416,8 @@ pub mod custom_property_cascade;
 pub mod refany;
 /// Resource management: font/image loading, caching, and garbage collection.
 pub mod resources;
+/// Scaling of raw images and video frames (thumbnails, consumer cuts).
+pub mod image_scale;
 /// Screen-capture POD types — `ScreenCaptureSource` + `ScreenCaptureConfig`.
 ///
 /// Symmetric to the camera surface (a "dumb widget" in

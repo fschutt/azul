@@ -33,7 +33,7 @@
 
 use alloc::vec::Vec;
 
-use azul_core::{
+use crate::{
     resources::{Nv12Layout, RawImage, RawImageData, RawImageFormat, YuvCoefficients},
     video::{ConsumerFrame, FrameConsumer, VideoFrame},
 };
@@ -728,7 +728,7 @@ mod tests {
     /// RGBA8 - a few kilobytes on the GPU instead of the whole photo.
     #[test]
     fn a_thumbnail_fits_the_box_keeps_the_aspect_and_never_enlarges() {
-        use azul_core::resources::{RawImage, RawImageData};
+        use crate::resources::{RawImage, RawImageData};
         use azul_css::{F32Vec, U8Vec};
 
         assert_eq!(fit_within(400, 200, 100, 100), (100, 50));
@@ -962,7 +962,7 @@ mod tests {
 
     /// A `w x h` NV12 frame of one colour (`y`, `cb`, `cr`).
     fn solid_nv12(w: u32, h: u32, y: u8, cb: u8, cr: u8) -> Vec<u8> {
-        let layout = azul_core::resources::Nv12Layout::new(w as usize, h as usize);
+        let layout = crate::resources::Nv12Layout::new(w as usize, h as usize);
         let mut bytes = alloc::vec![y; layout.y_len()];
         for _ in 0..layout.chroma_width * layout.chroma_height {
             bytes.push(cb);
@@ -1162,7 +1162,7 @@ mod tests {
             }
         );
         // The same-size cut of a non-uniform frame is its bytes.
-        let layout = azul_core::resources::Nv12Layout::new(641, 361);
+        let layout = crate::resources::Nv12Layout::new(641, 361);
         let bytes: Vec<u8> = (0..layout.checked_total_len().expect("small"))
             .map(|i| ((i * 37 + 11) % 256) as u8)
             .collect();
