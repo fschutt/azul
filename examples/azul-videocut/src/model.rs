@@ -14,6 +14,7 @@
 //! No azul types here: the model is plain data with serde, unit-tested
 //! without a window.
 
+use azul_appkit::UndoHistory;
 use serde::{Deserialize, Serialize};
 
 /// A frame index at the sequence's rate.
@@ -412,12 +413,10 @@ impl EditError {
     }
 }
 
-/// The undo and redo stacks: each entry is an edit's name and the sequence
-/// before it (undo) or after it (redo).
-#[derive(Debug, Clone, Default)]
-pub struct History {
-    undo: Vec<(&'static str, Sequence)>,
-    redo: Vec<(&'static str, Sequence)>,
+/// The undo and redo steps of a project's sequence (appkit's shared stack:
+/// each step is an edit's name and the sequence before or after it).
+fn new_history() -> UndoHistory<Sequence> {
+    UndoHistory::new("Open").with_limit(HISTORY_LIMIT)
 }
 
 /// The project: the media bin and the sequence.
@@ -430,8 +429,8 @@ pub struct Project {
     pub sequence: Sequence,
     /// The next id for a media item, a track or a clip.
     pub next_id: u64,
-    #[serde(skip)]
-    history: History,
+    #[serde(skip, default = "new_history")]
+    history: UndoHistory<Sequence>,
 }
 
 impl Project {
@@ -459,7 +458,7 @@ impl Project {
             name,
             media: Vec::new(),
             next_id: 7,
-            history: History::default(),
+            history: new_history(),
         }
     }
 
@@ -524,11 +523,7 @@ impl Project {
         match self.apply(edit) {
             Ok(()) => {
                 if self.sequence != before {
-                    self.history.undo.push((label, before));
-                    if self.history.undo.len() > HISTORY_LIMIT {
-                        self.history.undo.remove(0);
-                    }
-                    self.history.redo.clear();
+                    self.history.checkpoint(label, before);
                 }
                 Ok(())
             }
@@ -541,49 +536,39 @@ impl Project {
 
     /// Undoes the last edit; `false` when there is none.
     pub fn undo(&mut self) -> bool {
-        let Some((label, before)) = self.history.undo.pop() else {
-            return false;
-        };
-        let now = core::mem::replace(&mut self.sequence, before);
-        self.history.redo.push((label, now));
-        true
+        self.history.undo(&mut self.sequence)
     }
 
     /// Redoes the last undone edit; `false` when there is none.
     pub fn redo(&mut self) -> bool {
-        let Some((label, after)) = self.history.redo.pop() else {
-            return false;
-        };
-        let now = core::mem::replace(&mut self.sequence, after);
-        self.history.undo.push((label, now));
-        true
+        self.history.redo(&mut self.sequence)
     }
 
     #[must_use]
     pub fn can_undo(&self) -> bool {
-        !self.history.undo.is_empty()
+        self.history.can_undo()
     }
 
     #[must_use]
     pub fn can_redo(&self) -> bool {
-        !self.history.redo.is_empty()
+        self.history.can_redo()
     }
 
     /// Forgets every edit (a project as it was loaded or made).
     pub fn clear_history(&mut self) {
-        self.history = History::default();
+        self.history = new_history();
     }
 
     /// The name of the edit Undo would undo.
     #[must_use]
-    pub fn undo_label(&self) -> Option<&'static str> {
-        self.history.undo.last().map(|(l, _)| *l)
+    pub fn undo_label(&self) -> Option<&str> {
+        self.history.undo_label()
     }
 
     /// The name of the edit Redo would redo.
     #[must_use]
-    pub fn redo_label(&self) -> Option<&'static str> {
-        self.history.redo.last().map(|(l, _)| *l)
+    pub fn redo_label(&self) -> Option<&str> {
+        self.history.redo_label()
     }
 
     /// The project as `project.json`.

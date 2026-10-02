@@ -172,6 +172,7 @@ dependencies = [
 name = "AzVideoCut"
 version = "0.1.0"
 dependencies = [
+ "azul-appkit",
  "azul-dll",
  "azul-storage",
  "serde",
