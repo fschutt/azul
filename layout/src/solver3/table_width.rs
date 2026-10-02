@@ -96,7 +96,7 @@ pub fn specified_width(styled_dom: &StyledDom, dom_id: NodeId, h_extras: f32) ->
 /// `<col>` straight under the table and a `span` count like everywhere else
 /// the grid is read.
 #[must_use]
-pub fn column_element_widths(
+pub(crate) fn column_element_widths(
     styled_dom: &StyledDom,
     tree: &LayoutTree,
     column_boxes: &[crate::solver3::fc::TableColumnBox],
