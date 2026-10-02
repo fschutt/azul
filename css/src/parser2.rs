@@ -4627,6 +4627,59 @@ mod autotest_generated {
         assert!(!warnings.is_empty(), "the unknown key should have warned");
     }
 
+    /// An `!important` declaration is not a broken one. Mail CSS marks half its
+    /// declarations important (Cerberus: `color: inherit !important`, every
+    /// responsive `width: 100% !important`); the value parser read the flag as part
+    /// of the value and dropped the declaration. The value parses without it (the
+    /// flag's precedence over inline styles is not modelled yet), in a sheet and
+    /// in a `style` attribute alike, `! important` and upper case included.
+    #[test]
+    fn an_important_declaration_keeps_its_value() {
+        let (css, warnings) = new_from_str(
+            "p { color: red !important; width: 10px!important; height: 5px ! IMPORTANT; \
+             mso-line-height-rule: exactly; }",
+        );
+        assert_eq!(css.rules.len(), 1);
+        let declarations = css.rules.as_slice()[0].declarations.as_slice();
+        assert_eq!(
+            declarations.len(),
+            3,
+            "colour, width and height survive, the mso- key is skipped: {declarations:?}"
+        );
+        assert!(
+            warnings.iter().all(|w| !matches!(
+                w.warning,
+                CssParseWarnMsgInner::SkippedDeclaration { .. }
+            )),
+            "no declaration is skipped as a bad value: {warnings:?}"
+        );
+
+        let km = key_map();
+        let mut warnings = Vec::new();
+        let mut inline = Vec::new();
+        let r = parse_css_declaration(
+            "width",
+            "100% !important",
+            loc(0, 0),
+            &km,
+            &mut warnings,
+            &mut inline,
+        );
+        assert_eq!(r, Ok(()));
+        assert_eq!(inline.len(), 1);
+        // `!important` alone is no value.
+        let mut none = Vec::new();
+        assert!(parse_css_declaration(
+            "width",
+            "!important",
+            loc(0, 0),
+            &km,
+            &mut Vec::new(),
+            &mut none
+        )
+        .is_err());
+    }
+
     /// `var()` is resolved by the CASCADE, under the live context and across
     /// stylesheets (design §7.3): the parser keeps the `--boxw` definition as a
     /// declaration and leaves the reference unresolved. The end-to-end
