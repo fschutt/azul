@@ -10,6 +10,11 @@
 - fd73c7255 StatusBarZoom create / set_range / with_range / hook setters / show_label
 - 21860f483 Writer / Show / Sheets status bar zoom via the new API (Show+Sheets 10..400)
 - 00c6b10ce ribbon with_items / add_items / with_groups / add_groups; 3f085f354 apps' ribbon folds -> with_items
+- fbd8b8722 RED ColorU hex/parse_css; 9012fd28e ColorU::to_hex/parse_hex/parse_css (color_input delegates, theme_scope
+  hex twin gone, accent props lower case); 66af319ba apps (Show model, Photo, Widgets, Writer, Sheets parse_hex gone)
+- 75862973d RED RawImage; b92c06baa RawImage::create_rgba8 / resized (thumbnail = fit_within + resized);
+  c5fe179c6 apps create_rgba8 (Photo x2, Paint x2, Review, Widgets, VideoCut) + VideoCut scale_to via resized
+- 398bdb97d DiskSpace::format_bytes (moved from tile.rs); f3a9dd224 apps (Drive, Mail, Tasks, Photo)
 
 ## api.json list (accumulating; for the report)
 - KeyModifiers.primary_down (dom; self ref -> bool)
@@ -20,14 +25,18 @@
 - StatusBarZoom.create(percent, min, max) ctor; set_percent, set_range, with_range, set/with_on_zoom_out,
   set/with_on_zoom_in, set/with_on_slider_change, set/with_show_label
 - RibbonColumn / RibbonRow / RibbonGroup .add_items / .with_items(items: RibbonItemVec); RibbonTab .add_groups / .with_groups(RibbonGroupVec)
+- ColorU.to_hex (self ref -> String), ColorU.parse_hex(text: String) -> OptionColorU, ColorU.parse_css(text: String) -> OptionColorU (css)
+- RawImage.create_rgba8(width: u32, height: u32, pixels: U8Vec, premultiplied_alpha: bool) ctor; RawImage.resized(width: u32, height: u32) -> OptionRawImage (image)
+- DiskSpace.format_bytes(bytes: u64) -> String (static, file)
 
 ## IN PROGRESS
-- item 4: ColorU::to_hex / parse_hex / try_from_str
+- item 4: Button disabled / toggled
 
 ## NEXT
-4. ColorU::to_hex/parse_hex/try_from_str; RawImage::create_rgba8/resized; format_bytes; Button disabled/toggled;
-   NodeData attribute getter; text-node accessor; TextAreaState.get_text; DatePicker.with_week_start; GlobalHotkey.matches
+4. Button disabled/toggled; NodeData attribute getter (+ AzMail href); text-node accessor (box_str x3);
+   TextAreaState.get_text (+5 app copies); DatePicker.with_week_start (RED); GlobalHotkey.matches (RED)
 5. reborrow_info -> *info
+6. report scripts/APIEXPORT_2026_10_02.md
 
 ## Decisions
 - No CallbackInfo convenience for the primary modifier: `info.get_key_modifiers().primary_down()` is one call;
