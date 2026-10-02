@@ -1,8 +1,8 @@
 //! An S3-compatible bucket as a drive: AWS S3, Cloudflare R2, MinIO.
 //!
-//! Five calls of the S3 API, each signed with SigV4: ListObjectsV2 (with
-//! continuation tokens), GetObject (with `Range`), PutObject, DeleteObject and
-//! HeadObject. Error answers become [`ServiceError`]s that say what the
+//! Six calls of the S3 API, each signed with SigV4: ListObjectsV2 (with
+//! continuation tokens), GetObject (with `Range`), PutObject, CopyObject,
+//! DeleteObject and HeadObject. Error answers become [`ServiceError`]s that say what the
 //! service said. The requests are built here and sent through a
 //! [`Transport`], so the same code runs over azul's HTTP client in the apps and
 //! over a recording fake in the tests.
@@ -557,9 +557,9 @@ impl Drive for S3Drive {
     /// object up to 5 GB). A 200 answer can still carry an error body.
     fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
         check_s3_key(from)?;
-        if from.ends_with('/') || to.ends_with('/') {
+        if let Some(folder) = [from, to].into_iter().find(|k| k.ends_with('/')) {
             return Err(DriveError::InvalidKey {
-                key: from.to_string(),
+                key: folder.to_string(),
                 reason: "a folder is copied object by object",
             });
         }
@@ -576,6 +576,12 @@ impl Drive for S3Drive {
         let body = String::from_utf8_lossy(&reply.body);
         if body.contains("<Error>") {
             return Err(DriveError::Service(xml::parse_error(500, &body)));
+        }
+        if !body.contains("CopyObjectResult") {
+            // A server that ignored `x-amz-copy-source` wrote an empty object.
+            return Err(DriveError::Protocol(format!(
+                "{from}: the service did not confirm the copy (no CopyObjectResult)"
+            )));
         }
         Ok(())
     }

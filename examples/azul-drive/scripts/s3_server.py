@@ -6,7 +6,8 @@ Two backends:
 - ``stdlib`` (the default, no pip): a small S3 subset server that keeps the objects in a
   local folder (``<root>/<bucket>/<key>``) and implements exactly what AzDrive and AzMail use:
   ListObjectsV2 (prefix, delimiter, max-keys, continuation-token, start-after), GetObject (one
-  ``Range``), PutObject, DeleteObject, HeadObject, plus CreateBucket / HeadBucket / ListBuckets.
+  ``Range``), PutObject, CopyObject (``x-amz-copy-source``), DeleteObject, HeadObject, plus
+  CreateBucket / HeadBucket / ListBuckets.
   Every request must be signed with AWS SigV4 (header-based) with the configured key; errors are
   S3's XML error bodies. Path-style (``/<bucket>/<key>``) and virtual-host style
   (``Host: <bucket>.<host>``) both work. Every request is logged, so a test can assert which
@@ -544,6 +545,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 data = b"" if self.command == "HEAD" else store.read(bucket, key)
                 self.respond(200, data, headers)
             return "HeadObject" if self.command == "HEAD" else "GetObject"
+        if self.command == "PUT" and self.headers.get("x-amz-copy-source") is not None:
+            source = urllib.parse.unquote(self.headers["x-amz-copy-source"].split("?", 1)[0])
+            source_bucket, _, source_key = source.lstrip("/").partition("/")
+            if not store.has_bucket(source_bucket):
+                raise S3Error(404, "NoSuchBucket", "The specified bucket does not exist",
+                              BucketName=source_bucket)
+            if not source_key or store.info(source_bucket, source_key) is None:
+                raise S3Error(404, "NoSuchKey", "The specified key does not exist.", Key=source_key)
+            etag = store.write(bucket, key, store.read(source_bucket, source_key))
+            result = element("LastModified", iso8601(store.info(bucket, key)["mtime"])) + element("ETag", etag)
+            self.respond(200, xml_document("CopyObjectResult", result), {"Content-Type": "application/xml"})
+            return "CopyObject"
         if self.command == "PUT":
             etag = store.write(bucket, key, body)
             self.respond(200, headers={"ETag": etag})

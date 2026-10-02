@@ -316,9 +316,9 @@ pub trait Drive: Send + Sync {
     /// copies the file, a bucket asks the service (CopyObject), so nothing
     /// passes through this process.
     fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
-        if from.ends_with('/') || to.ends_with('/') {
+        if let Some(folder) = [from, to].into_iter().find(|k| k.ends_with('/')) {
             return Err(DriveError::InvalidKey {
-                key: from.to_string(),
+                key: folder.to_string(),
                 reason: "a folder is copied object by object",
             });
         }
