@@ -552,7 +552,7 @@ fn attachments(app: &RefAny, t: &Task) -> Dom {
                 .with_css(STEP_ROW)
                 .with_child(Dom::create_icon("description"))
                 .with_child(Dom::create_span_with_text(a.name.as_str()).with_css(STEP))
-                .with_child(Dom::create_span_with_text(size_text(a.size)).with_css(META))
+                .with_child(Dom::create_span_with_text(azul::file::DiskSpace::format_bytes(a.size)).with_css(META))
                 .with_child(
                     Button::create("Open")
                         .with_on_click(detail_ref(app, &t.id, n), on_attachment_open as ButtonOnClickCallbackType)
@@ -579,15 +579,6 @@ fn attachments(app: &RefAny, t: &Task) -> Dom {
             )
             .with_child(Dom::create_span_with_text("or drop files on the window").with_css(META)),
     )
-}
-
-/// "12 KB".
-fn size_text(bytes: u64) -> String {
-    match bytes {
-        b if b < 1024 => format!("{b} B"),
-        b if b < 1024 * 1024 => format!("{} KB", b / 1024),
-        b => format!("{:.1} MB", b as f64 / (1024.0 * 1024.0)),
-    }
 }
 
 /// Created / completed, and Delete.
@@ -1193,12 +1184,5 @@ mod tests {
         assert_eq!(next_week(thursday, Weekday::Mon), day(2026, 10, 5));
         assert_eq!(next_week(thursday, Weekday::Sun), day(2026, 10, 4));
         assert_eq!(next_week(day(2026, 10, 5), Weekday::Mon), day(2026, 10, 12));
-    }
-
-    #[test]
-    fn sizes_read_in_bytes_kilobytes_and_megabytes() {
-        assert_eq!(size_text(900), "900 B");
-        assert_eq!(size_text(48_213), "47 KB");
-        assert_eq!(size_text(3 * 1024 * 1024 + 300_000), "3.3 MB");
     }
 }
