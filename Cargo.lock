@@ -59,7 +59,7 @@ dependencies = [
  "imap",
  "imap-proto",
  "mail-parser",
- "micromail 0.2.0",
+ "micromail",
  "rustls",
  "rustls-rustcrypto",
  "serde",
@@ -1094,7 +1094,7 @@ dependencies = [
  "lru",
  "lyon",
  "material-icons",
- "micromail 0.1.0",
+ "micromail",
  "minisign",
  "minisign-verify",
  "objc2 0.6.4",
@@ -5589,21 +5589,6 @@ name = "microdns"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19341fa84c1ef1c7da6a873178de38b7a19daf03ee62133870a222a56e7c0397"
-
-[[package]]
-name = "micromail"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9fbb3792ca4384d3e9dfbccbe9ad5cc38dee5da22333531415cdc5a67c5fcdf"
-dependencies = [
- "base64 0.22.1",
- "bytes",
- "chrono",
- "log",
- "microdns",
- "rand 0.8.8",
- "thiserror 1.0.69",
-]
 
 [[package]]
 name = "micromail"

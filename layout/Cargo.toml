@@ -138,9 +138,13 @@ material-icons = { version = "0.3", optional = true }
 # `json_parse(json_stringify(x)) != x`. See core/Cargo.toml.
 serde_json = { version = "1.0", default-features = false, features = ["std", "float_roundtrip"], optional = true }
 # Crash-report MAIL transport (EHLO SMTP client) — our own crate, published
-# on crates.io (0.1.0, owner fschutt), consumed from the registry like any
-# other dependency, so it is publish-safe for azul-layout.
-micromail = { version = "0.1.0", optional = true, default-features = false }
+# on crates.io (owner fschutt), consumed from the registry like any
+# other dependency, so it is publish-safe for azul-layout. 0.2 (the version
+# AzMail uses - one copy in the tree): `MIME-Version: 1.0`, dot-stuffing,
+# CRLF line ends, and STARTTLS only when the build can speak TLS.
+# `tls-rustcrypto` is the pure-Rust rustls provider the `http` feature (which
+# crash-mail implies through telemetry) already brings: STARTTLS for real.
+micromail = { version = "0.2", optional = true, default-features = false, features = ["tls-rustcrypto"] }
 # Digest verification of update downloads (already in the tree transitively).
 sha2 = { version = "0.10", optional = true }
 # Minisign SIGNATURE verification for update artifacts (pure Rust, zero deps).
