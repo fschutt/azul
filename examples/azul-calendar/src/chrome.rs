@@ -1103,7 +1103,7 @@ extern "C" fn on_navigation_event(
                 Update::RefreshDom
             }
             other => {
-                let name = MODULES.get(other).map_or("This module", |(label, _)| label);
+                let name = MODULES.get(other).map_or("This module", |(label, _)| *label);
                 s.notice = format!("{name} is not part of this build yet.");
                 Update::RefreshDom
             }
