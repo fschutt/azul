@@ -5135,7 +5135,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     use azul_css::compact_cache::{
         DOM_HAS_EXCLUSION_MARGIN, DOM_HAS_HANGING_PUNCTUATION, DOM_HAS_HYPHENATION_LANGUAGE,
         DOM_HAS_HYPHENS, DOM_HAS_INITIAL_LETTER, DOM_HAS_INITIAL_LETTER_ALIGN, DOM_HAS_LINE_BREAK,
-        DOM_HAS_LINE_CLAMP, DOM_HAS_LINE_HEIGHT, DOM_HAS_OVERFLOW_WRAP, DOM_HAS_SHAPE_INSIDE,
+        DOM_HAS_LINE_CLAMP, DOM_HAS_OVERFLOW_WRAP, DOM_HAS_SHAPE_INSIDE,
         DOM_HAS_SHAPE_MARGIN, DOM_HAS_SHAPE_OUTSIDE, DOM_HAS_TEXT_ALIGN_LAST,
         DOM_HAS_TEXT_COMBINE_UPRIGHT, DOM_HAS_TEXT_INDENT, DOM_HAS_TEXT_JUSTIFY,
         DOM_HAS_UNICODE_BIDI, DOM_HAS_WORD_BREAK,
@@ -5349,16 +5349,46 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     // Use helper function which checks dependency chain first
     let font_size = get_element_font_size(styled_dom, id, node_state);
 
-    let line_height_value = if dom_declared & DOM_HAS_LINE_HEIGHT != 0 {
-        styled_dom
-            .css_property_cache
-            .ptr
-            .get_line_height(node_data, &id, node_state)
-            .and_then(|s| s.get_property().copied())
-            .unwrap_or_default()
-    } else {
-        azul_css::props::style::text::StyleLineHeight::default()
+    // The IFC root's own computed style: the very `StyleProperties` its text
+    // runs are built from (memoized per layout). The line-height and the
+    // strut's font below come from it, so the strut sits around the baseline
+    // exactly like the glyphs of the same font and line-height do. This used
+    // to re-read `line-height` from the cascade on its own, and the two
+    // readers disagreed: a node that declared none came out `1.2em` here but
+    // `normal` on its runs.
+    let root_style = crate::solver3::getters::get_style_properties_cached(
+        &mut ctx.style_cache,
+        styled_dom,
+        id,
+        ctx.system_style.as_ref(),
+        PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+    );
+    // The used line-height as a length, for the readers that need one
+    // (`vertical-align: <percentage>`, `initial-letter`); `normal` stands in
+    // as 1.2em there, as it always did.
+    let line_height_px = match root_style.line_height {
+        text3::cache::LineHeight::Px(px) => px,
+        text3::cache::LineHeight::Normal => font_size * 1.2,
     };
+    // CSS 2.2 §10.8.1: the strut has the ascent and descent of the block
+    // container's FIRST AVAILABLE FONT. A synthetic 0.8em / 0.2em split
+    // stood in for it, and the strut is part of EVERY line box (text3's
+    // `position_one_line` unions it with the line's content): for any font
+    // with another split (Times: 0.891em / 0.216em) the strut and the text
+    // sat at different heights around the same baseline, and every line box
+    // came out taller than its line-height by |(A - D) / 2 - 0.3em| -
+    // `line-height: 19px` on 11pt text pitched its lines 19.55px apart. The
+    // descent is taken exactly as `text3::cache::get_item_vertical_metrics`
+    // takes a glyph's, so both boxes coincide for the same font. Until the
+    // face is loaded the approximation stays.
+    let (strut_ascent, strut_descent) = ctx
+        .font_manager
+        .first_available_font_metrics(&root_style.font_stack)
+        .filter(|m| m.units_per_em > 0)
+        .map_or((font_size * 0.8, font_size * 0.2), |m| {
+            let scale = root_style.font_size_px / f32::from(m.units_per_em);
+            (m.ascent * scale, (-m.descent * scale).max(0.0))
+        });
 
     let hyphenation = if dom_declared & DOM_HAS_HYPHENS != 0 {
         styled_dom
@@ -5471,10 +5501,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         StyleVerticalAlign::TextBottom => text3::cache::VerticalAlign::TextBottom,
         // §10.8.1: <percentage> refers to line-height of the element itself
         StyleVerticalAlign::Percentage(p) => {
-            let lh_n = line_height_value.inner.normalized();
-            let resolved_lh = if lh_n < 0.0 { -lh_n } else { lh_n * font_size };
-            let offset = p.normalized() * resolved_lh;
-            text3::cache::VerticalAlign::Offset(offset)
+            text3::cache::VerticalAlign::Offset(p.normalized() * line_height_px)
         }
         // §10.8.1: <length> is absolute offset from baseline
         StyleVerticalAlign::Length(l) => {
@@ -5723,13 +5750,11 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     // +spec:floats:c5e23f - floats in subsequent lines adjacent to a sunk initial letter must clear
     // it
     if let Some(ref il) = initial_letter {
-        let lh_n = line_height_value.inner.normalized();
-        let computed_line_height = if lh_n < 0.0 { -lh_n } else { lh_n * font_size };
         let (letter_w, letter_h) = layout_initial_letter(
             il.size,
             il.sink,
             constraints.available_size.width,
-            computed_line_height,
+            line_height_px,
         );
         if letter_w > 0.0 && letter_h > 0.0 {
             // Place the exclusion at the inline-start (x=0, y=0 relative to the IFC).
@@ -5948,34 +5973,19 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         },
         // +spec:line-height:79f3aa - line-height resolved: `normal` uses the font's real
         // metrics (ascent - descent + line_gap), <number>/<percentage> × font-size.
-        // When line-height is NOT declared the computed value is `normal`; pass
-        // LineHeight::Normal through so text3 resolves it against the run's actual
-        // font metrics (CoreText/Chrome parity) instead of a synthetic 1.2 ratio.
-        // Negative normalized() = absolute px value (convention from parser for "50px" etc.)
-        line_height: if dom_declared & DOM_HAS_LINE_HEIGHT == 0 {
-            text3::cache::LineHeight::Normal
-        } else {
-            text3::cache::LineHeight::Px({
-                let n = line_height_value.inner.normalized();
-                if n < 0.0 {
-                    -n
-                } else {
-                    n * font_size
-                }
-            })
-        },
-        // Strut metrics for the container's first available font, approximated as
-        // 80%/20%/50% of font_size (typical Latin ratios).
-        // TODO(superplan): use the resolved primary font's real OS/2 metrics
-        // (`ParsedFontTrait::get_font_metrics` → ascent/descent/x_height scaled by
-        // units_per_em) and `get_space_width` for `ch_width`. The font is not
-        // resolved here: picking the element's primary `ParsedFont` requires the
-        // font-chain machinery in `getters::resolve_font_chains` (font-family →
-        // fc_cache → loaded font), which isn't threaded into this function. The
-        // strut only sizes empty / whitespace-only lines — non-empty runs already
-        // use each run's real font metrics during shaping in text3.
-        strut_ascent: font_size * 0.8,
-        strut_descent: font_size * 0.2,
+        // When line-height is NOT declared the computed value is `normal`; it stays
+        // LineHeight::Normal so text3 resolves it against the run's actual font
+        // metrics (CoreText/Chrome parity) instead of a synthetic 1.2 ratio. The
+        // value is the root style's, the one its runs carry (see `root_style`).
+        line_height: root_style.line_height,
+        // The strut's ascent and descent: the container's first available font's
+        // (see `strut_ascent` above).
+        // TODO(superplan): x-height and cap-height are still approximated as
+        // 50% / 70% of font_size; take them from the same face's OS/2 metrics
+        // (`LayoutFontMetrics::x_height` / `cap_height`) and `get_space_width`
+        // for `ch_width`.
+        strut_ascent,
+        strut_descent,
         strut_x_height: font_size * 0.5, // 0.5em fallback per CSS Inline 3 Appendix A
         // Typical Latin cap ratio, same approximation spirit as the rest of
         // the strut block (Appendix A.2's formal fallback is "ascent", which
