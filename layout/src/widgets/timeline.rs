@@ -76,7 +76,13 @@ use crate::{
     callbacks::CallbackInfo,
     widgets::{
         button::{Button, ButtonOnClickCallbackType, ButtonType},
-        themes::{OptionUiTheme, UiTheme},
+        themes::{
+            decl::{
+                display_flex, flex_direction, grow, no_shrink, nowrap, overflow_x_hidden,
+                overflow_y_hidden, position, px_bottom, px_height, px_left, px_top, px_width,
+            },
+            OptionUiTheme, UiTheme,
+        },
     },
 };
 
@@ -1565,40 +1571,6 @@ pub(crate) struct TimelineLook {
 
 type P = CssPropertyWithConditions;
 
-const fn grow(n: isize) -> P {
-    P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(n)))
-}
-
-const fn no_shrink() -> P {
-    P::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
-        inner: FloatValue::const_new(0),
-    }))
-}
-
-const fn display_flex() -> P {
-    P::simple(CssProperty::const_display(LayoutDisplay::Flex))
-}
-
-const fn flex_direction(direction: LayoutFlexDirection) -> P {
-    P::simple(CssProperty::const_flex_direction(direction))
-}
-
-const fn position(p: LayoutPosition) -> P {
-    P::simple(CssProperty::const_position(p))
-}
-
-const fn overflow_x_hidden() -> P {
-    P::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden))
-}
-
-const fn overflow_y_hidden() -> P {
-    P::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden))
-}
-
-const fn nowrap() -> P {
-    P::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(StyleWhiteSpace::Nowrap)))
-}
-
 /// The widget: a column that fills its host, chrome text not selectable.
 pub(crate) static TIMELINE_BASE: &[P] = &[
     display_flex(),
@@ -1732,27 +1704,6 @@ fn classes(names: &[&'static str]) -> IdOrClassVec {
             .map(|n| IdOrClass::Class(AzString::from_const_str(*n)))
             .collect(),
     )
-}
-
-/// A px width / height / left / top.
-fn px_width(v: f32) -> P {
-    P::simple(CssProperty::width(LayoutWidth::Px(PixelValue::px(v))))
-}
-
-fn px_height(v: f32) -> P {
-    P::simple(CssProperty::height(LayoutHeight::Px(PixelValue::px(v))))
-}
-
-fn px_left(v: f32) -> P {
-    P::simple(CssProperty::left(LayoutLeft::px(v)))
-}
-
-fn px_top(v: f32) -> P {
-    P::simple(CssProperty::top(LayoutTop::px(v)))
-}
-
-fn px_bottom(v: f32) -> P {
-    P::simple(CssProperty::bottom(azul_css::props::layout::LayoutInsetBottom::px(v)))
 }
 
 /// A ruler label: `M:SS` steps of seconds, `MM:SS:FF` steps of frames,

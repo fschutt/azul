@@ -517,3 +517,115 @@ pub(crate) const fn border_right(width_px: isize) -> [CssPropertyWithConditions;
         )),
     ]
 }
+
+// ==== layout: one-property declarations (DEDUP_WIDGETS_API F4) ====
+//
+// The single structural declarations a widget's BASE parts are built from.
+// timeline.rs, cell_grid.rs, dialog_kit.rs and shells/mod.rs each carried
+// private copies of these; they are the shared ones now.
+
+use azul_css::props::{
+    basic::length::FloatValue,
+    layout::{
+        LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow, LayoutFlexShrink, LayoutHeight,
+        LayoutInsetBottom, LayoutLeft, LayoutMinWidth, LayoutOverflow, LayoutPosition, LayoutTop,
+        LayoutWidth,
+    },
+    property::StyleWhiteSpaceValue,
+    style::StyleWhiteSpace,
+};
+
+/// An unconditional declaration - `CssPropertyWithConditions::simple`, for
+/// the `static` base lists that are written as one call per property.
+#[must_use]
+pub(crate) const fn simple(property: CssProperty) -> CssPropertyWithConditions {
+    CssPropertyWithConditions::simple(property)
+}
+
+/// `display: flex`.
+#[must_use]
+pub(crate) const fn display_flex() -> CssPropertyWithConditions {
+    simple(CssProperty::const_display(LayoutDisplay::Flex))
+}
+
+/// `flex-direction: <direction>`.
+#[must_use]
+pub(crate) const fn flex_direction(direction: LayoutFlexDirection) -> CssPropertyWithConditions {
+    simple(CssProperty::const_flex_direction(direction))
+}
+
+/// `flex-grow: <n>`.
+#[must_use]
+pub(crate) const fn grow(n: isize) -> CssPropertyWithConditions {
+    simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(n)))
+}
+
+/// `flex-shrink: 0`.
+#[must_use]
+pub(crate) const fn no_shrink() -> CssPropertyWithConditions {
+    simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    }))
+}
+
+/// `position: <position>`.
+#[must_use]
+pub(crate) const fn position(position: LayoutPosition) -> CssPropertyWithConditions {
+    simple(CssProperty::const_position(position))
+}
+
+/// `overflow-x: hidden`.
+#[must_use]
+pub(crate) const fn overflow_x_hidden() -> CssPropertyWithConditions {
+    simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden))
+}
+
+/// `overflow-y: hidden`.
+#[must_use]
+pub(crate) const fn overflow_y_hidden() -> CssPropertyWithConditions {
+    simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden))
+}
+
+/// `white-space: nowrap`.
+#[must_use]
+pub(crate) const fn nowrap() -> CssPropertyWithConditions {
+    simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
+        StyleWhiteSpace::Nowrap,
+    )))
+}
+
+/// `width: <px>px`, fractional.
+#[must_use]
+pub(crate) fn px_width(px: f32) -> CssPropertyWithConditions {
+    simple(CssProperty::const_width(LayoutWidth::px(px)))
+}
+
+/// `height: <px>px`, fractional.
+#[must_use]
+pub(crate) fn px_height(px: f32) -> CssPropertyWithConditions {
+    simple(CssProperty::const_height(LayoutHeight::px(px)))
+}
+
+/// `min-width: <px>px`, fractional.
+#[must_use]
+pub(crate) fn px_min_width(px: f32) -> CssPropertyWithConditions {
+    simple(CssProperty::const_min_width(LayoutMinWidth::px(px)))
+}
+
+/// `left: <px>px`, fractional.
+#[must_use]
+pub(crate) fn px_left(px: f32) -> CssPropertyWithConditions {
+    simple(CssProperty::const_left(LayoutLeft::px(px)))
+}
+
+/// `top: <px>px`, fractional.
+#[must_use]
+pub(crate) fn px_top(px: f32) -> CssPropertyWithConditions {
+    simple(CssProperty::const_top(LayoutTop::px(px)))
+}
+
+/// `bottom: <px>px`, fractional.
+#[must_use]
+pub(crate) fn px_bottom(px: f32) -> CssPropertyWithConditions {
+    simple(CssProperty::const_bottom(LayoutInsetBottom::px(px)))
+}

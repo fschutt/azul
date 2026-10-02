@@ -67,6 +67,9 @@ use azul_css::{
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
+use crate::widgets::themes::decl::{
+    px_height, px_left, px_min_width, px_top, px_width, simple,
+};
 
 // ---- the types the app sees ----
 
@@ -1979,10 +1982,6 @@ pub(crate) struct CellGridLook {
     pub marker: Option<&'static str>,
 }
 
-const fn simple(p: CssProperty) -> CssPropertyWithConditions {
-    CssPropertyWithConditions::simple(p)
-}
-
 /// The grid: a column of rows that takes its pane, clips what does not fit,
 /// is the containing block of the overlays, and is ONE focus stop whose
 /// text a drag never selects.
@@ -2175,23 +2174,11 @@ pub(crate) fn auto_ink(fill: ColorU) -> ColorU {
     fill.best_contrast_text()
 }
 
-fn px_width(px: f32) -> CssPropertyWithConditions {
-    simple(CssProperty::const_width(LayoutWidth::px(px)))
-}
-
-fn px_height(px: f32) -> CssPropertyWithConditions {
-    simple(CssProperty::const_height(LayoutHeight::px(px)))
-}
-
-fn px_min_width(px: f32) -> CssPropertyWithConditions {
-    simple(CssProperty::const_min_width(LayoutMinWidth::px(px)))
-}
-
 /// `left` / `top` / `width` / `height` of an overlay.
 fn place(x: f32, y: f32, w: f32, h: f32) -> [CssPropertyWithConditions; 4] {
     [
-        simple(CssProperty::const_left(LayoutLeft::px(x))),
-        simple(CssProperty::const_top(LayoutTop::px(y))),
+        px_left(x),
+        px_top(y),
         px_width(w.max(0.0)),
         px_height(h.max(0.0)),
     ]

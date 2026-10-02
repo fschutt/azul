@@ -35,7 +35,7 @@ use azul_css::{
     AzString,
 };
 
-use crate::widgets::themes::{OptionUiTheme, UiTheme};
+use crate::widgets::themes::{decl::simple, OptionUiTheme, UiTheme};
 
 /// What a theme decides about the dialog widgets: the SKIN of every part,
 /// laid over the part's base (its structure, the kit's own) by each
@@ -448,10 +448,6 @@ pub const MARK_CLASS: &str = "__azul-native-dialog-kit-mark";
 // ---------------------------------------------------------------------------
 // The bases: the kit's structure, the same in every theme (R5)
 // ---------------------------------------------------------------------------
-
-const fn simple(p: CssProperty) -> CssPropertyWithConditions {
-    CssPropertyWithConditions::simple(p)
-}
 
 /// A row whose parts sit on one midline.
 pub(crate) static ROW_MIDDLE_BASE: &[CssPropertyWithConditions] = &[
