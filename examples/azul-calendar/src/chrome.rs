@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use azul::{
     callbacks::{
         ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, ResumeCallbackType,
-        TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallbackType,
+        TextInputOnVirtualKeyDownCallbackType,
     },
     css::DarkLightMode,
     dialog::{FileDialog, FileOpenResult, SaveTargetResult},
@@ -27,10 +27,9 @@ use azul::{
     vec::StringVec,
     widgets::{
         Backstage, BackstageNavItem, ButtonType, CheckBoxState, DatePicker, DatePickerState,
-        DropDown, OnTextInputReturn, Ribbon, RibbonAppButton, RibbonButton, RibbonGroup,
-        RibbonItem, RibbonTab, StatusBar, StatusBarSegment, StatusBarSync, StatusBarSyncKind,
-        TextInputState, TextInputValid, Titlebar, ToDoBar, ToDoBarEvent, ToDoBarEventKind,
-        ToDoTask,
+        OnTextInputReturn, Ribbon, RibbonAppButton, RibbonButton, RibbonGroup, RibbonItem,
+        RibbonTab, StatusBar, StatusBarSegment, StatusBarSync, StatusBarSyncKind, TextInputState,
+        TextInputValid, Titlebar, ToDoBar, ToDoBarEvent, ToDoBarEventKind, ToDoTask,
     },
 };
 use chrono::{Datelike, Duration, NaiveDate};
@@ -462,52 +461,6 @@ fn primary(label: &str, id: &str, app: &RefAny, cb: ButtonOnClickCallbackType) -
         .with_css("margin-right: 8px;")
 }
 
-/// A text field growing to its row's width.
-fn text_field(
-    text: &str,
-    placeholder: &str,
-    name: &str,
-    id: &str,
-    data: RefAny,
-    cb: TextInputOnTextInputCallbackType,
-) -> Dom {
-    Dom::create_div()
-        .with_css(
-            "display: flex; flex-direction: column; flex-grow: 1; min-width: 0; margin-right: 8px;",
-        )
-        .with_child(
-            TextInput::create()
-                .with_text(text)
-                .with_placeholder(placeholder)
-                .with_accessibility_name(name)
-                .with_on_text_input(data, cb)
-                .dom()
-                .with_id(id),
-        )
-}
-
-fn choices(
-    labels: Vec<String>,
-    selected: usize,
-    name: &str,
-    id: &str,
-    data: RefAny,
-    cb: azul::callbacks::DropDownOnChoiceChangeCallbackType,
-) -> Dom {
-    DropDown::create(StringVec::from(
-        labels
-            .into_iter()
-            .map(AzString::from)
-            .collect::<Vec<AzString>>(),
-    ))
-    .with_selected(selected)
-    .with_accessibility_name(name)
-    .with_on_choice_change(data, cb)
-    .dom()
-    .with_id(id)
-    .with_css("margin-right: 8px;")
-}
-
 /// How the meeting links stand, in a sentence.
 fn sync_status(s: &CalState) -> String {
     match (s.pending_links(), s.sync_error.is_empty()) {
@@ -563,7 +516,7 @@ fn open_page(s: &CalState, app: &RefAny) -> Dom {
              again is updated, not added twice.",
         ))
         .with_child(line(vec![
-            text_field(
+            crate::text_field(
                 &s.import_path,
                 "/path/to/calendar.ics",
                 "File to import",
@@ -575,7 +528,7 @@ fn open_page(s: &CalState, app: &RefAny) -> Dom {
         ]))
         .with_child(line(vec![
             Dom::create_span_with_text("Into").with_css(format!("margin-right: 8px; {SECONDARY}")),
-            choices(
+            crate::drop_down(
                 calendar_names(s, "A new calendar named after the file"),
                 s.import_calendar.min(s.calendars.len()),
                 "Import into",
@@ -587,7 +540,7 @@ fn open_page(s: &CalState, app: &RefAny) -> Dom {
         ]))
         .with_child(heading("Export a calendar as an iCalendar file"))
         .with_child(line(vec![
-            text_field(
+            crate::text_field(
                 &s.export_path,
                 "/path/to/calendar.ics",
                 "File to export to",
@@ -600,7 +553,7 @@ fn open_page(s: &CalState, app: &RefAny) -> Dom {
         .with_child(line(vec![
             Dom::create_span_with_text("Calendar")
                 .with_css(format!("margin-right: 8px; {SECONDARY}")),
-            choices(
+            crate::drop_down(
                 calendar_names(s, "All calendars"),
                 s.export_calendar.min(s.calendars.len()),
                 "Calendar to export",
@@ -668,7 +621,7 @@ fn calendars_page(s: &CalState, app: &RefAny) -> Dom {
                         .dom()
                         .with_id(format!("calendar-name-{index}")),
                 ),
-            choices(
+            crate::drop_down(
                 colours.clone(),
                 Colour::ALL.iter().position(|x| *x == c.colour).unwrap_or(0),
                 &format!("Colour of {}", c.name),
@@ -689,7 +642,7 @@ fn calendars_page(s: &CalState, app: &RefAny) -> Dom {
     }
     page.add_child(heading("New calendar"));
     page.add_child(line(vec![
-        text_field(
+        crate::text_field(
             &s.calendar_name,
             "Name",
             "New calendar's name",
@@ -710,7 +663,7 @@ fn options_page(s: &CalState, app: &RefAny) -> Dom {
     let mut server = Dom::create_div()
         .with_css("display: flex; flex-direction: column;")
         .with_child(Dom::create_span_with_text("Meeting server").with_css(LABEL))
-        .with_child(line(vec![text_field(
+        .with_child(line(vec![crate::text_field(
             &s.server_text,
             "https://meet.example.com",
             "Meeting server",
@@ -1103,7 +1056,9 @@ extern "C" fn on_navigation_event(
                 Update::RefreshDom
             }
             other => {
-                let name = MODULES.get(other).map_or("This module", |(label, _)| *label);
+                let name = MODULES
+                    .get(other)
+                    .map_or("This module", |(label, _)| *label);
                 s.notice = format!("{name} is not part of this build yet.");
                 Update::RefreshDom
             }

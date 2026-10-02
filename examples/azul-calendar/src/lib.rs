@@ -418,6 +418,55 @@ pub(crate) fn typed() -> azul::widgets::OnTextInputReturn {
     }
 }
 
+/// A text field growing to its row's width, a little gap after it: the backstage pages' and the
+/// editor's.
+pub(crate) fn text_field(
+    text: &str,
+    placeholder: &str,
+    name: &str,
+    id: &str,
+    data: RefAny,
+    cb: azul::callbacks::TextInputOnTextInputCallbackType,
+) -> Dom {
+    Dom::create_div()
+        .with_css(
+            "display: flex; flex-direction: column; flex-grow: 1; min-width: 0; margin-right: 8px;",
+        )
+        .with_child(
+            TextInput::create()
+                .with_text(text)
+                .with_placeholder(placeholder)
+                .with_accessibility_name(name)
+                .with_on_text_input(data, cb)
+                .dom()
+                .with_id(id),
+        )
+}
+
+/// A drop-down of `labels` with `selected` picked, a little gap after it: the backstage pages'
+/// and the editor's.
+pub(crate) fn drop_down(
+    labels: Vec<String>,
+    selected: usize,
+    name: &str,
+    id: &str,
+    data: RefAny,
+    cb: azul::callbacks::DropDownOnChoiceChangeCallbackType,
+) -> Dom {
+    azul::widgets::DropDown::create(azul::vec::StringVec::from(
+        labels
+            .into_iter()
+            .map(AzString::from)
+            .collect::<Vec<AzString>>(),
+    ))
+    .with_selected(selected)
+    .with_accessibility_name(name)
+    .with_on_choice_change(data, cb)
+    .dom()
+    .with_id(id)
+    .with_css("margin-right: 8px;")
+}
+
 /// Three 64-bit draws of `event::random_seed` for a room id (130 of the bits are used).
 pub(crate) fn room_entropy() -> [u64; 3] {
     [

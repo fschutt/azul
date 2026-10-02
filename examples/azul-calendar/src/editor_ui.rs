@@ -13,8 +13,7 @@
 use azul::{
     callbacks::{
         ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, DatePickerOnChangeCallbackType,
-        DropDownOnChoiceChangeCallbackType, SegmentedOnChangeCallbackType,
-        TextAreaOnTextInputCallbackType, TextInputOnTextInputCallbackType,
+        SegmentedOnChangeCallbackType, TextAreaOnTextInputCallbackType,
         TimePickerOnChangeCallbackType,
     },
     dom::VirtualKeyCode,
@@ -23,9 +22,9 @@ use azul::{
     str::String as AzString,
     vec::StringVec,
     widgets::{
-        ButtonType, CheckBoxState, DatePicker, DatePickerState, DropDown, OnTextInputReturn,
-        Ribbon, RibbonButton, RibbonGroup, RibbonItem, RibbonTab, Segmented, SegmentedState,
-        TextArea, TextAreaState, TextInputState, TimePicker, TimePickerState, Titlebar,
+        ButtonType, CheckBoxState, DatePicker, DatePickerState, OnTextInputReturn, Ribbon,
+        RibbonButton, RibbonGroup, RibbonItem, RibbonTab, Segmented, SegmentedState, TextArea,
+        TextAreaState, TextInputState, TimePicker, TimePickerState, Titlebar,
     },
     window::WindowDecorations,
 };
@@ -253,28 +252,6 @@ fn row(label: &str, controls: Vec<Dom>) -> Dom {
     line
 }
 
-/// A text field of the form, growing to the row's width.
-fn field(
-    text: &str,
-    placeholder: &str,
-    name: &str,
-    id: &str,
-    app: &RefAny,
-    cb: TextInputOnTextInputCallbackType,
-) -> Dom {
-    Dom::create_div()
-        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-width: 0;")
-        .with_child(
-            TextInput::create()
-                .with_text(text)
-                .with_placeholder(placeholder)
-                .with_accessibility_name(name)
-                .with_on_text_input(app.clone(), cb)
-                .dom()
-                .with_id(id),
-        )
-}
-
 fn date_picker(
     date: NaiveDate,
     name: &str,
@@ -325,27 +302,6 @@ fn segmented(
     .with_id(id)
 }
 
-fn drop_down(
-    labels: Vec<String>,
-    selected: usize,
-    name: &str,
-    id: &str,
-    app: &RefAny,
-    cb: DropDownOnChoiceChangeCallbackType,
-) -> Dom {
-    DropDown::create(StringVec::from(
-        labels
-            .into_iter()
-            .map(AzString::from)
-            .collect::<Vec<AzString>>(),
-    ))
-    .with_selected(selected)
-    .with_accessibility_name(name)
-    .with_on_choice_change(app.clone(), cb)
-    .dom()
-    .with_id(id)
-}
-
 fn check(
     checked: bool,
     label: &str,
@@ -370,24 +326,24 @@ fn check(
 fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
     let mut page = Dom::create_div().with_css(PAGE).with_child(row(
         "Subject",
-        vec![field(
+        vec![crate::text_field(
             &form.title,
             "Add a title",
             "Subject",
             "editor-title",
-            app,
+            app.clone(),
             on_title,
         )],
     ));
     let attendees = || {
         row(
             "Attendees",
-            vec![field(
+            vec![crate::text_field(
                 &form.attendees,
                 "ana@example.com, bo@example.org",
                 "Attendees",
                 "editor-attendees",
-                app,
+                app.clone(),
                 on_attendees,
             )],
         )
@@ -395,12 +351,12 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
     let location = || {
         row(
             "Location",
-            vec![field(
+            vec![crate::text_field(
                 &form.location,
                 "Where?",
                 "Location",
                 "editor-location",
-                app,
+                app.clone(),
                 on_location,
             )],
         )
@@ -554,12 +510,12 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
     let reminders: Vec<String> = REMINDERS.iter().map(|(_, l)| l.to_string()).collect();
     page.add_child(row(
         "Reminder",
-        vec![drop_down(
+        vec![crate::drop_down(
             reminders,
             editor::reminder_index(form.reminder),
             "Reminder",
             "editor-reminder",
-            app,
+            app.clone(),
             on_reminder,
         )],
     ));
@@ -571,12 +527,12 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
         .unwrap_or(0);
     page.add_child(row(
         "Calendar",
-        vec![drop_down(
+        vec![crate::drop_down(
             calendars,
             calendar,
             "Calendar",
             "editor-calendar",
-            app,
+            app.clone(),
             on_calendar,
         )],
     ));
