@@ -1012,6 +1012,51 @@ mod tests {
         assert_eq!(inner("<o:p>x</o:p><custom-tag>y</custom-tag>"), "xy");
     }
 
+    /// The presentational attributes of tables, cells and blocks reach azul as they are: its
+    /// own HTML hints map them to CSS as Chrome's do (core's `presentational_css`, the one
+    /// generator), `<table align=center>` a centred table, `cellpadding` / `cellspacing` /
+    /// `border` included - where the sanitizer kept a subset as `text-align` and dropped the
+    /// rest. What becomes another element keeps its meaning as style: the body's `bgcolor` /
+    /// `text`, a `<font>`'s `color` / `face` / `size`, a picture's `align` / `hspace` /
+    /// `vspace` / `border`.
+    #[test]
+    fn presentational_attributes_mean_what_they_mean_in_a_browser() {
+        assert_eq!(
+            inner(
+                "<table align=center width=600 cellpadding=8 cellspacing=0 border=1 \
+                 bordercolor=#ccc bgcolor=ffffff><tr valign=top><td align=right width=50% \
+                 height=40 nowrap>x</td></tr></table>"
+            ),
+            "<table align=\"center\" width=\"600\" cellpadding=\"8\" cellspacing=\"0\" \
+             border=\"1\" bordercolor=\"#ccc\" bgcolor=\"ffffff\"><tbody><tr valign=\"top\"><td \
+             align=\"right\" width=\"50%\" height=\"40\" nowrap=\"\">x</td></tr></tbody></table>"
+        );
+        assert_eq!(inner("<p align=center>c</p>"), "<p align=\"center\">c</p>");
+        assert_eq!(
+            inner("<body bgcolor=\"#f4f4f4\" text=\"#333333\"><p>b</p></body>"),
+            "<div style=\"background-color: #f4f4f4; color: #333333\"><p>b</p></div>"
+        );
+        assert_eq!(
+            inner("<font face=\"Arial, Helvetica\" size=\"2\" color=red>a</font><font size=+2>b</font>"),
+            "<span style=\"font-family: Arial, Helvetica; font-size: 13px; color: red\">a</span>\
+             <span style=\"font-size: 24px\">b</span>"
+        );
+        let pictures = sanitize_with(
+            "<img src=\"https://cdn.example/a.png\" width=\"80\" height=\"60\" align=\"left\" \
+             hspace=\"10\" vspace=\"4\" border=\"2\">",
+            true,
+        );
+        assert!(
+            pictures.xhtml.contains(
+                "<img src=\"https://cdn.example/a.png\" width=\"80\" height=\"60\" style=\"float: \
+                 left; margin-left: 10px; margin-right: 10px; margin-top: 4px; margin-bottom: \
+                 4px; border-width: 2px; border-style: solid\"/>"
+            ),
+            "{}",
+            pictures.xhtml
+        );
+    }
+
     #[test]
     fn remote_images_are_not_loaded() {
         let s = sanitize(
