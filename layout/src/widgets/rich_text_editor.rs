@@ -1352,6 +1352,28 @@ impl RichTextEditorState {
             .unwrap_or_default()
     }
 
+    /// Whether the caret's block is of `kind`'s family (a toolbar's or a
+    /// ribbon's block button shows pressed).
+    #[must_use]
+    pub fn is_current_kind(&self, kind: RichBlockKind) -> bool {
+        self.current_kind().same_family(&kind)
+    }
+
+    /// Whether text typed at the caret takes `format` (a toolbar's or a
+    /// ribbon's format button shows pressed).
+    #[must_use]
+    pub fn is_current_format(&self, format: RichFormat) -> bool {
+        self.current_formats().has(format)
+    }
+
+    /// Whether the caret's block is quoted.
+    #[must_use]
+    pub fn is_current_quoted(&self) -> bool {
+        self.doc
+            .block(self.caret_block)
+            .is_some_and(|b| b.quote_depth > 0)
+    }
+
     /// Whether there is a step to undo.
     #[must_use]
     pub fn can_undo(&self) -> bool {
