@@ -24,6 +24,11 @@
 
 use std::collections::BTreeMap;
 
+// The content lines (folding, escaping, parameters) are the format vCard has too:
+// azul_pim::content_line (DEDUP_EDITORS B15).
+pub use azul_pim::content_line::{
+    escape_text, fold, parse_line, unescape_text, unfold, ContentLine,
+};
 use azul_pim::mail_address::{is_email, parse_mailbox};
 use chrono::{Duration, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike};
 
@@ -35,159 +40,9 @@ use crate::{
 
 /// What an imported event without a `SUMMARY` is called (as a draft without a title is).
 pub const NO_TITLE: &str = "(No title)";
-/// The longest a written line is, in octets, before it is folded (RFC 5545, 3.1).
-const FOLD_OCTETS: usize = 75;
 /// AzCalendar's own properties: an event's AzMeet link and the meeting server that has its room.
 const MEETING_PROP: &str = "X-AZCAL-MEETING";
 const MEETING_SERVER_PROP: &str = "X-AZCAL-MEETING-SERVER";
-
-/// One content line, unfolded: `NAME;PARAM=VALUE;...:value`. The name and the parameter names
-/// are upper-cased; parameter values lose their quotes.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ContentLine {
-    pub name: String,
-    pub params: Vec<(String, String)>,
-    pub value: String,
-}
-
-impl ContentLine {
-    /// The value of the parameter `name` (upper case).
-    #[must_use]
-    pub fn param(&self, name: &str) -> Option<&str> {
-        self.params
-            .iter()
-            .find(|(n, _)| n == name)
-            .map(|(_, v)| v.as_str())
-    }
-}
-
-/// The logical lines of `text`: a line break followed by a space or a tab continues the line
-/// before it (the break and that one character go). Empty lines are left out.
-#[must_use]
-pub fn unfold(text: &str) -> Vec<String> {
-    let mut lines: Vec<String> = Vec::new();
-    for raw in text.split('\n') {
-        let raw = raw.strip_suffix('\r').unwrap_or(raw);
-        match raw.chars().next() {
-            Some(' ' | '\t') if !lines.is_empty() => {
-                if let Some(last) = lines.last_mut() {
-                    last.push_str(&raw[1..]);
-                }
-            }
-            _ => {
-                if !raw.is_empty() {
-                    lines.push(raw.to_string());
-                }
-            }
-        }
-    }
-    lines
-}
-
-/// `line` folded at 75 octets: each break is CRLF and a space, and never splits a character.
-/// No CRLF at the end.
-#[must_use]
-pub fn fold(line: &str) -> String {
-    let mut out = String::with_capacity(line.len() + line.len() / FOLD_OCTETS * 3);
-    let mut used = 0;
-    // The first physical line holds 75 octets; each one after it 74 (its space is one).
-    let mut room = FOLD_OCTETS;
-    for c in line.chars() {
-        let len = c.len_utf8();
-        if used + len > room {
-            out.push_str("\r\n ");
-            used = 0;
-            room = FOLD_OCTETS - 1;
-        }
-        out.push(c);
-        used += len;
-    }
-    out
-}
-
-/// `text` as an iCalendar TEXT value: `\`, `;` and `,` escaped, line breaks as `\n`.
-#[must_use]
-pub fn escape_text(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            ';' => out.push_str("\\;"),
-            ',' => out.push_str("\\,"),
-            '\r' if chars.peek() == Some(&'\n') => {}
-            '\n' | '\r' => out.push_str("\\n"),
-            c => out.push(c),
-        }
-    }
-    out
-}
-
-/// An iCalendar TEXT value read back: `\n` / `\N` a line break, `\,` `\;` `\\` the character.
-#[must_use]
-pub fn unescape_text(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    let mut chars = value.chars();
-    while let Some(c) = chars.next() {
-        if c != '\\' {
-            out.push(c);
-            continue;
-        }
-        match chars.next() {
-            Some('n' | 'N') => out.push('\n'),
-            Some(other) => out.push(other),
-            None => out.push('\\'),
-        }
-    }
-    out
-}
-
-/// Reads one unfolded line; `None` for one without a `:`.
-#[must_use]
-pub fn parse_line(line: &str) -> Option<ContentLine> {
-    // The name and parameters end at the first ':' outside quotes.
-    let mut quoted = false;
-    let mut colon = None;
-    for (i, c) in line.char_indices() {
-        match c {
-            '"' => quoted = !quoted,
-            ':' if !quoted => {
-                colon = Some(i);
-                break;
-            }
-            _ => {}
-        }
-    }
-    let colon = colon?;
-    let (head, value) = (&line[..colon], &line[colon + 1..]);
-    let mut parts: Vec<String> = Vec::new();
-    let mut current = String::new();
-    let mut quoted = false;
-    for c in head.chars() {
-        match c {
-            '"' => quoted = !quoted,
-            ';' if !quoted => parts.push(std::mem::take(&mut current)),
-            c => current.push(c),
-        }
-    }
-    parts.push(current);
-    let mut parts = parts.into_iter();
-    let name = parts.next()?.trim().to_ascii_uppercase();
-    if name.is_empty() {
-        return None;
-    }
-    let params = parts
-        .filter_map(|p| {
-            let (n, v) = p.split_once('=')?;
-            Some((n.trim().to_ascii_uppercase(), v.to_string()))
-        })
-        .collect();
-    Some(ContentLine {
-        name,
-        params,
-        value: value.to_string(),
-    })
-}
 
 /// A moment as an .ics file writes it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -226,9 +81,9 @@ fn parse_time_value(value: &str, value_date: bool, tzid: Option<&str>) -> Option
 /// The DATE / DATE-TIME values of `line` (a comma list for EXDATE).
 fn parse_times(line: &ContentLine) -> Vec<IcsTime> {
     let value_date = line
-        .param("VALUE")
+        .param_value("VALUE")
         .is_some_and(|v| v.eq_ignore_ascii_case("DATE"));
-    let tzid = line.param("TZID");
+    let tzid = line.param_value("TZID");
     line.value
         .split(',')
         .filter_map(|v| parse_time_value(v, value_date, tzid))
@@ -433,7 +288,7 @@ impl Component {
 fn components(lines: &[String]) -> Vec<Component> {
     let mut stack: Vec<Component> = vec![Component::default()];
     for raw in lines {
-        let Some(line) = parse_line(raw) else {
+        let Ok(line) = parse_line(raw) else {
             continue;
         };
         match line.name.as_str() {
@@ -590,10 +445,10 @@ fn reminder_of(event: &Component) -> Option<u32> {
         .find_map(|alarm| {
             let trigger = alarm.first("TRIGGER")?;
             if trigger
-                .param("RELATED")
+                .param_value("RELATED")
                 .is_some_and(|r| r.eq_ignore_ascii_case("END"))
                 || trigger
-                    .param("VALUE")
+                    .param_value("VALUE")
                     .is_some_and(|v| v.eq_ignore_ascii_case("DATE-TIME"))
             {
                 return None;
@@ -991,64 +846,6 @@ mod tests {
         let cal = parse(&calendar(body), zone).unwrap();
         assert_eq!(cal.events.len(), 1, "{:?}", cal.events);
         (cal.events[0].clone(), cal.notes)
-    }
-
-    #[test]
-    fn a_long_line_is_folded_at_75_octets_and_unfolds_to_itself() {
-        let line = format!("DESCRIPTION:{}", "abcdefghij".repeat(20));
-        let folded = fold(&line);
-        for physical in folded.split("\r\n") {
-            assert!(
-                physical.len() <= 75,
-                "{} octets: {physical:?}",
-                physical.len()
-            );
-        }
-        assert!(folded.split("\r\n").skip(1).all(|l| l.starts_with(' ')));
-        assert_eq!(unfold(&folded), vec![line]);
-    }
-
-    #[test]
-    fn folding_never_splits_a_character() {
-        let line = format!("SUMMARY:{}", "\u{20ac}\u{e4}".repeat(40));
-        let folded = fold(&line);
-        for physical in folded.split("\r\n") {
-            assert!(physical.len() <= 75, "{} octets", physical.len());
-        }
-        assert_eq!(unfold(&folded), vec![line]);
-        let short = "SUMMARY:Lunch";
-        assert_eq!(fold(short), short);
-    }
-
-    #[test]
-    fn unfolding_takes_crlf_or_lf_and_a_space_or_a_tab() {
-        let text = "SUMMARY:Team\r\n  sync\nDESCRIPTION:a\n\tb\r\n\r\nLOCATION:x\r\n";
-        assert_eq!(
-            unfold(text),
-            vec!["SUMMARY:Team sync", "DESCRIPTION:ab", "LOCATION:x"]
-        );
-    }
-
-    #[test]
-    fn text_values_escape_and_unescape() {
-        let text = "Plans, notes; and a \\ path\nnext line";
-        let escaped = escape_text(text);
-        assert_eq!(escaped, "Plans\\, notes\\; and a \\\\ path\\nnext line");
-        assert_eq!(unescape_text(&escaped), text);
-        assert_eq!(unescape_text("one\\Ntwo"), "one\ntwo");
-        assert_eq!(escape_text("a\r\nb"), "a\\nb");
-    }
-
-    #[test]
-    fn a_line_keeps_quoted_parameters_and_colons_in_its_value() {
-        let line =
-            parse_line("ATTENDEE;CN=\"Doe, Ana: PM\";role=REQ-PARTICIPANT:mailto:ana@example.com")
-                .unwrap();
-        assert_eq!(line.name, "ATTENDEE");
-        assert_eq!(line.param("CN"), Some("Doe, Ana: PM"));
-        assert_eq!(line.param("ROLE"), Some("REQ-PARTICIPANT"));
-        assert_eq!(line.value, "mailto:ana@example.com");
-        assert_eq!(parse_line("no colon"), None);
     }
 
     #[test]
