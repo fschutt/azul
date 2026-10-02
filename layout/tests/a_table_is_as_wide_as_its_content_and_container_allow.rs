@@ -18,16 +18,16 @@
 //!
 //! Not compiled by the author (house rule); expected RED before the fix.
 
-use crate::table_markup::{block, body, near, prose, rect, right};
+use crate::table_markup::{block, body, near, rect, right, words};
 
 #[test]
 fn an_auto_table_of_long_content_is_capped_by_its_container() {
-    // Max-content: sixty words in one line, far wider than 600px.
+    // Max-content: ten 100px boxes in one line, ~1000px + spaces.
     let lw = body(&format!(
         "<div style=\"width: 600px\">\
          <table id=\"t\" style=\"border-spacing: 0\"><tr>\
          <td id=\"c\" style=\"padding: 0\">{}</td></tr></table></div>",
-        prose(60)
+        words(10, 100)
     ));
     let t = rect(&lw, "t");
     assert!(
@@ -104,7 +104,7 @@ fn max_width_caps_an_auto_table() {
     let lw = body(&format!(
         "<table id=\"t\" style=\"max-width: 300px; border-spacing: 0\"><tr>\
          <td style=\"padding: 0\">{}</td></tr></table>",
-        prose(40)
+        words(10, 50)
     ));
     let t = rect(&lw, "t");
     assert!(

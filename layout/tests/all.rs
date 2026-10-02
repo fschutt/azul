@@ -750,3 +750,25 @@ mod an_unresolved_img_from_markup_takes_no_space;
 mod a_blank_line_is_as_tall_as_a_line_of_text;
 #[path = "a_rich_text_editor_keeps_one_model_and_one_history.rs"]
 mod a_rich_text_editor_keeps_one_model_and_one_history;
+#[path = "text_beside_an_italic_or_bold_box_keeps_a_font.rs"]
+mod text_beside_an_italic_or_bold_box_keeps_a_font;
+#[path = "a_rows_stray_child_sits_in_an_anonymous_cell.rs"]
+mod a_rows_stray_child_sits_in_an_anonymous_cell;
+#[path = "an_inline_block_contributes_its_clamped_padded_width.rs"]
+mod an_inline_block_contributes_its_clamped_padded_width;
+#[path = "a_cells_vertical_align_counts_its_last_childs_bottom_margin.rs"]
+mod a_cells_vertical_align_counts_its_last_childs_bottom_margin;
+#[path = "a_line_break_ends_a_line_in_the_max_content.rs"]
+mod a_line_break_ends_a_line_in_the_max_content;
+#[path = "an_inline_block_in_a_cell_sits_where_its_line_puts_it.rs"]
+mod an_inline_block_in_a_cell_sits_where_its_line_puts_it;
+#[path = "a_space_between_a_tables_inline_children_is_kept.rs"]
+mod a_space_between_a_tables_inline_children_is_kept;
+#[path = "an_inline_tables_baseline_is_its_first_rows.rs"]
+mod an_inline_tables_baseline_is_its_first_rows;
+#[path = "a_captions_own_caption_side_places_it.rs"]
+mod a_captions_own_caption_side_places_it;
+#[path = "a_spanning_cells_percentage_is_shared_by_its_columns.rs"]
+mod a_spanning_cells_percentage_is_shared_by_its_columns;
+#[path = "a_right_to_left_tables_columns_run_from_the_right.rs"]
+mod a_right_to_left_tables_columns_run_from_the_right;

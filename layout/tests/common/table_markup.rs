@@ -137,11 +137,7 @@ pub fn block(w: u32) -> String {
 /// and a min-content of one word, whatever the font - for the tests that
 /// only need "wider than the container" and "narrower than it".
 ///
-/// Not [`words`]: the intrinsic min-content of inline-blocks separated by
-/// whitespace-only text came out as the SUM of the boxes on the parent's
-/// run (2026-10-01: `words(10, 100)` measured 1000 px, `words(10, 50)`
-/// 500 px, spaces included in neither), so a table of them had no smaller
-/// minimum to shrink to (scripts/TABLE_A_2026_10_01.md, "engine findings").
+/// For fixed sizes use [`words`]: these depend on the machine's fonts.
 pub fn prose(n: usize) -> String {
     const WORDS: [&str; 10] = [
         "lorem",
@@ -162,9 +158,21 @@ pub fn prose(n: usize) -> String {
 }
 
 /// `n` fixed-size inline boxes of `w` px separated by spaces: min-content
-/// `w`, max-content about `n * w` (plus the spaces) in a browser.
+/// `w`, max-content `n * w` plus the spaces - a "word" per box.
+///
+/// The boxes are `<span>`s, not [`block`]'s `<i>`: the UA makes `<i>`
+/// italic, and the spaces beside an italic box got no font on the parent's
+/// run (2026-10-01: `words(10, 100)` measured 1000 px - no space, no break
+/// opportunity). That is a text/font bug, pinned on its own by
+/// `text_beside_an_italic_or_bold_box_keeps_a_font`; the table tests here
+/// test the table.
 pub fn words(n: usize, w: u32) -> String {
-    (0..n).map(|_| block(w)).collect::<Vec<_>>().join(" ")
+    (0..n)
+        .map(|_| {
+            format!("<span style=\"display: inline-block; width: {w}px; height: 10px\"></span>")
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The right edge of a rect.

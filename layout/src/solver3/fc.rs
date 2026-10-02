@@ -6161,6 +6161,10 @@ pub(crate) struct TableLayoutContext {
     pub(crate) h_spacing: f32,
     /// The used vertical `border-spacing` (0 in the collapsing model).
     pub(crate) v_spacing: f32,
+    /// The table's `direction` is `rtl` (CSS 2.2 17.5): its first column is
+    /// the rightmost - the layout places and the painter reads the columns
+    /// mirrored. Set by [`analyze_table_structure`].
+    pub(crate) rtl: bool,
 }
 
 impl TableLayoutContext {
@@ -6185,6 +6189,7 @@ impl TableLayoutContext {
             col_occupied: Vec::new(),
             h_spacing: 0.0,
             v_spacing: 0.0,
+            rtl: false,
         }
     }
 
@@ -6854,23 +6859,22 @@ fn get_caption_side_property<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNodeHot,
 ) -> StyleCaptionSide {
-    if let Some(dom_id) = node.dom_node_id {
-        let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
-        let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+    specified_caption_side(ctx, node).unwrap_or(StyleCaptionSide::Top) // Default per CSS 2.2
+}
 
-        if let Some(prop) =
-            ctx.styled_dom
-                .css_property_cache
-                .ptr
-                .get_caption_side(node_data, &dom_id, &node_state)
-        {
-            if let Some(value) = prop.get_property() {
-                return *value;
-            }
-        }
-    }
-
-    StyleCaptionSide::Top // Default per CSS 2.2
+/// The `caption-side` the cascade gives `node`, `None` when nothing set it.
+fn specified_caption_side<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    node: &LayoutNodeHot,
+) -> Option<StyleCaptionSide> {
+    let dom_id = node.dom_node_id?;
+    let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
+    let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+    ctx.styled_dom
+        .css_property_cache
+        .ptr
+        .get_caption_side(node_data, &dom_id, &node_state)
+        .and_then(|prop| prop.get_property().copied())
 }
 
 //   removes entire row or column from display; space made available for other content;
@@ -7246,7 +7250,14 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
     //
     // "The caption box is a block box that retains its own content,
     // padding, border, and margin areas."
-    let caption_side = get_caption_side_property(ctx, &table_node);
+    // `caption-side` applies to the caption (CSS 2.2 17.4.1; inherited, so
+    // a table's value reaches a caption that sets none): the caption's own
+    // value first, the table's otherwise.
+    let caption_side = table_ctx
+        .caption_index
+        .and_then(|caption_idx| tree.get(LayoutNodeId::new(caption_idx)))
+        .and_then(|caption| specified_caption_side(ctx, caption))
+        .unwrap_or_else(|| get_caption_side_property(ctx, &table_node));
     let mut caption_height = 0.0;
     let mut table_y_offset = 0.0;
 
@@ -7371,15 +7382,45 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
     // where the caller treats the bottom content edge as the baseline.
     // TODO(superplan): a rowspan cell that *starts* in row 0 but whose content
     // baseline sits in a later row is approximated by `row_baselines[0]` here.
-    let table_baseline = table_ctx
-        .row_baselines
-        .first()
-        .copied()
-        .and_then(|row0_baseline| {
-            row_tops
-                .first()
-                .map(|top| top + table_y_offset + row0_baseline)
+    //
+    // A first row with no baseline-aligned cell (the HTML default: cells
+    // inherit `vertical-align: middle` from their row) has no baseline of its
+    // own; CSS 2.2 17.5.3 puts it at the bottom content edge of the row's
+    // lowest cell. Left at 0 (the row's top), an inline-table hung a whole
+    // table height below the line it sat on.
+    let row0_baseline = table_ctx.row_baselines.first().copied().map(|baseline| {
+        let row0_cells: Vec<&TableCellInfo> =
+            table_ctx.cells.iter().filter(|c| c.row == 0).collect();
+        let any_baseline_cell = row0_cells.iter().any(|c| {
+            let dom = tree
+                .get(LayoutNodeId::new(c.node_index))
+                .and_then(|n| n.dom_node_id);
+            is_baseline_aligned(cell_vertical_align(ctx.styled_dom, dom))
         });
+        if any_baseline_cell {
+            return baseline;
+        }
+        let row_height = table_ctx.row_heights.first().copied().unwrap_or(0.0);
+        let bottom_extras = row0_cells
+            .iter()
+            .filter(|c| c.rowspan == 1)
+            .filter_map(|c| tree.get(LayoutNodeId::new(c.node_index)))
+            .map(|n| {
+                let bp = n.box_props.unpack();
+                bp.padding.bottom + bp.border.bottom
+            })
+            .fold(f32::INFINITY, f32::min);
+        if bottom_extras.is_finite() {
+            (row_height - bottom_extras).max(0.0)
+        } else {
+            row_height
+        }
+    });
+    let table_baseline = row0_baseline.and_then(|row0_baseline| {
+        row_tops
+            .first()
+            .map(|top| top + table_y_offset + row0_baseline)
+    });
 
     // Create output with the table's final size and cell positions
     // +spec:box-model:52fcfe - overflow_size must include borders that spill into margin in
@@ -7415,8 +7456,18 @@ pub(crate) fn analyze_table_structure<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
 ) -> Result<TableLayoutContext> {
     let mut table_ctx = TableLayoutContext::new();
-    tree.get(LayoutNodeId::new(table_index))
+    let table_node = tree
+        .get(LayoutNodeId::new(table_index))
         .ok_or(LayoutError::InvalidTree)?;
+    // CSS 2.2 17.5: the columns run in the table's `direction` (inherited:
+    // `<td dir="rtl">` reverses the table inside it).
+    table_ctx.rtl = table_node.dom_node_id.is_some_and(|dom_id| {
+        let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+        matches!(
+            get_direction_property(ctx.styled_dom, dom_id, node_state),
+            MultiValue::Exact(StyleDirection::Rtl)
+        )
+    });
 
     // +spec:width-calculation:0a2766 - table internal elements form rectangular grid of
     // rows/columns (CSS 2.2 §17.5) CSS 2.2 Section 17.4: A table may have one table-caption
@@ -8831,7 +8882,11 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
     let cell_node = tree
         .get(LayoutNodeId::new(cell_index))
         .ok_or(LayoutError::InvalidTree)?;
-    let cell_dom_id = cell_node.dom_node_id.ok_or(LayoutError::InvalidTree)?;
+    // An ANONYMOUS cell (CSS 2.2 17.2.1: the reconciler wraps a row's stray
+    // children in one) has no DOM node: its inline runs sit in anonymous
+    // inline wrappers, so it is laid out by the block branch below. It used
+    // to fail the whole table with `InvalidTree`.
+    let cell_dom_id = cell_node.dom_node_id;
 
     // Check if cell has text content directly in DOM (not in LayoutTree)
     // Text nodes are intentionally not included in LayoutTree per CSS spec,
@@ -8854,7 +8909,8 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
     // container's). Laid out as one IFC, the block was not laid out and the
     // clearing below wiped its text. Only a cell whose children are ALL
     // inline-level establishes an inline formatting context (9.4.2).
-    let has_text_children = cell_is_inline_formatting_context(ctx.styled_dom, cell_dom_id);
+    let has_text_children =
+        cell_dom_id.is_some_and(|dom_id| cell_is_inline_formatting_context(ctx.styled_dom, dom_id));
 
     debug_table_layout!(
         ctx,
@@ -8912,6 +8968,12 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
         };
 
         let output = layout_ifc(ctx, text_cache, tree, cell_index, &cell_constraints)?;
+        // Where the line put each atomic inline (an inline-block, an image):
+        // its relative position, which hit-testing, the positioning pass and
+        // the painting of its own content read. Dropped here, the box stayed
+        // at the cell's content origin while its line painted it in place -
+        // a centered button's label at the cell's left edge.
+        publish_interior_positions(tree, &output);
 
         // The cell now owns the authoritative IFC result. Clear any duplicate
         // inline_layout_result from text children that was set during the cell's
@@ -9440,6 +9502,16 @@ fn position_table_cells<T: ParsedFontTrait>(
             }
         }
     }
+    // A right-to-left table runs its columns from the right (CSS 2.2 17.5):
+    // every column mirrored in the grid's width, so a cell's left edge is
+    // its LAST column's (the lowest x of its columns, read below).
+    if table_ctx.rtl {
+        let grid_width = x_offset;
+        for (i, col) in table_ctx.columns.iter().enumerate() {
+            let width = col.computed_width.unwrap_or(0.0);
+            col_positions[i] = grid_width - col_positions[i] - width;
+        }
+    }
 
     // Calculate cumulative row positions (y-offsets) with spacing
     let mut row_positions = vec![0.0; table_ctx.num_rows];
@@ -9479,8 +9551,13 @@ fn position_table_cells<T: ParsedFontTrait>(
             .get_mut(LayoutNodeId::new(cell_info.node_index))
             .ok_or(LayoutError::InvalidTree)?;
 
-        // Calculate cell position
-        let x = col_positions.get(cell_info.column).copied().unwrap_or(0.0);
+        // Calculate cell position: the left edge of its columns (its first
+        // column's, or its last one's in a right-to-left table).
+        let span_end = (cell_info.column + cell_info.colspan).min(col_positions.len());
+        let x = col_positions
+            .get(cell_info.column..span_end)
+            .and_then(|spanned| spanned.iter().copied().reduce(f32::min))
+            .unwrap_or(0.0);
         let y = row_positions.get(cell_info.row).copied().unwrap_or(0.0);
 
         // Calculate cell size (sum of spanned columns/rows and the spacing
@@ -9691,6 +9768,25 @@ fn position_table_cells<T: ParsedFontTrait>(
                     ctx.reflowed_ifcs.insert(cell_info.node_index);
                 }
             }
+            // The atomic inlines of the line move with it: their boxes were
+            // placed from the same layout (`layout_cell_for_height`).
+            let atomic_children: Vec<usize> = tree
+                .children(cell_info.node_index)
+                .iter()
+                .copied()
+                .filter(|&c| {
+                    tree.get(LayoutNodeId::new(c))
+                        .is_some_and(|n| !matches!(n.formatting_context, FormattingContext::Inline))
+                })
+                .collect();
+            for c in atomic_children {
+                if let Some(pos) = tree
+                    .warm_mut(LayoutNodeId::new(c))
+                    .and_then(|w| w.relative_position.as_mut())
+                {
+                    pos.y += y_offset;
+                }
+            }
         }
 
         // +spec:inline-formatting-context:4545e8 - vertical-align on a table cell
@@ -9707,9 +9803,14 @@ fn position_table_cells<T: ParsedFontTrait>(
         if !cell_has_inline {
             let vertical_align = cell_vertical_align(ctx.styled_dom, cell_dom_node_id);
             let children: Vec<usize> = tree.children(cell_info.node_index).to_vec();
-            // Natural content height = furthest in-flow child bottom edge,
-            // measured from the cell content-box top (relative_position is
-            // relative to the parent content box).
+            // Natural content height = furthest in-flow child bottom MARGIN
+            // edge, measured from the cell content-box top (relative_position
+            // is relative to the parent content box). A cell is a BFC root:
+            // the last child's bottom margin stays inside it (CSS 2.2
+            // 10.6.7), and the row height (`layout_cell_for_height`, the
+            // cell's laid-out content height) counts it - measured to the
+            // border edge, content that filled its cell was moved down by
+            // half its bottom margin.
             let mut content_height = 0.0f32;
             let mut inflow: Vec<usize> = Vec::new();
             for &c in &children {
@@ -9724,11 +9825,13 @@ fn position_table_cells<T: ParsedFontTrait>(
                     .warm(LayoutNodeId::new(c))
                     .and_then(|w| w.relative_position)
                     .map_or(0.0, |p| p.y);
-                let h = tree
-                    .get(LayoutNodeId::new(c))
-                    .and_then(|n| n.used_size)
-                    .map_or(0.0, |s| s.height);
-                content_height = content_height.max(top + h);
+                let (h, margin_end) = tree.get(LayoutNodeId::new(c)).map_or((0.0, 0.0), |n| {
+                    (
+                        n.used_size.map_or(0.0, |s| s.height),
+                        n.box_props.unpack().margin.main_end(writing_mode),
+                    )
+                });
+                content_height = content_height.max(top + h + margin_end);
                 inflow.push(c);
             }
             let content_box_height = height
@@ -9855,9 +9958,14 @@ fn place_table_grid_boxes(
             .and_then(|c| c.computed_width)
             .unwrap_or(0.0)
     };
-    // The grid's horizontal extent: from the first column's left to the last
-    // column's right (the outer spacing is outside every row).
-    let grid_left = col_positions.first().copied().unwrap_or(0.0);
+    // The grid's horizontal extent: from the leftmost column's left to the
+    // rightmost column's right (the outer spacing is outside every row; in a
+    // right-to-left table the first column is the rightmost).
+    let grid_left = col_positions
+        .iter()
+        .copied()
+        .reduce(f32::min)
+        .unwrap_or(0.0);
     let grid_right = col_positions
         .iter()
         .enumerate()
@@ -9954,7 +10062,9 @@ fn place_table_grid_boxes(
         if first >= last {
             continue;
         }
-        let left = col_positions[first];
+        let left = (first..last)
+            .map(|i| col_positions[i])
+            .fold(col_positions[first], f32::min);
         let right = (first..last)
             .map(|i| col_positions[i] + col_width(i))
             .fold(left, f32::max);
