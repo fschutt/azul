@@ -20,6 +20,8 @@ publish = false
 [dependencies]
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
 azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+# The PIM logic the Azlin apps share: addresses, vCard content lines, search, initials (plain Rust).
+azul-pim = { path = "../azul-pim" }
 
 [lib]
 name = "azcontacts"

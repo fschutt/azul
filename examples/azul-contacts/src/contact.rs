@@ -310,8 +310,8 @@ impl Contact {
             .join(" \u{b7} ")
     }
 
-    /// What the edit form refuses: no name at all, an email without `@` and
-    /// a dot after it, a birthday that is not a date.
+    /// What the edit form refuses: no name at all, an email that is not one
+    /// (`azul_pim::mail_address::is_email`), a birthday that is not a date.
     #[must_use]
     pub fn problems(&self, birthday_text: Option<&str>) -> Vec<String> {
         let mut out = Vec::new();
@@ -323,14 +323,7 @@ impl Contact {
             if v.is_empty() {
                 continue;
             }
-            let ok = match v.split_once('@') {
-                Some((local, domain)) => {
-                    !local.is_empty() && domain.contains('.') && !domain.starts_with('.') && !domain.ends_with('.')
-                        && !v.contains(char::is_whitespace)
-                }
-                None => false,
-            };
-            if !ok {
+            if !azul_pim::mail_address::is_email(v) {
                 out.push(format!("\"{v}\" is not an email address."));
             }
         }
