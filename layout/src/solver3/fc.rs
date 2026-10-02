@@ -6301,6 +6301,17 @@ fn get_table_layout_property<T: ParsedFontTrait>(
         .unwrap_or(LayoutTableLayout::Auto)
 }
 
+/// Is the table laid out with the fixed table layout (CSS 2.2 17.5.2.1)?
+/// `table-layout: fixed` and a width of its own: browsers lay a fixed table
+/// whose width is `auto` out automatically.
+pub(crate) fn uses_fixed_table_layout<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    node: &LayoutNodeHot,
+) -> bool {
+    matches!(get_table_layout_property(ctx, node), LayoutTableLayout::Fixed)
+        && table_has_definite_width(ctx, node)
+}
+
 /// Does the table have a width of its own (a length, a percentage, a
 /// `calc()`)? `auto` and the intrinsic keywords do not count.
 fn table_has_definite_width<T: ParsedFontTrait>(
@@ -6718,8 +6729,7 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
     let table_layout = get_table_layout_property(ctx, &table_node);
     // The fixed algorithm fixes the table's width: browsers lay a
     // `table-layout: fixed` table whose width is `auto` out automatically.
-    table_ctx.use_fixed_layout = matches!(table_layout, LayoutTableLayout::Fixed)
-        && table_has_definite_width(ctx, &table_node);
+    table_ctx.use_fixed_layout = uses_fixed_table_layout(ctx, &table_node);
 
     // +spec:containing-block:cc1453 - collapsing border model: border-collapse property drives
     // table border handling Read border properties
@@ -7752,23 +7762,37 @@ fn calculate_column_widths_fixed<T: ParsedFontTrait>(
         available_width
     );
 
-    let num_cols = table_ctx.columns.len();
-    if num_cols == 0 {
-        return;
+    let widths = fixed_column_widths(ctx.styled_dom, tree, table_ctx, available_width);
+    for (col, width) in table_ctx.columns.iter_mut().zip(widths) {
+        col.computed_width = Some(width);
     }
-    let collapsed = table_ctx.collapsed_columns.clone();
+}
+
+/// The fixed table layout's column widths (CSS 2.2 17.5.2.1) when the
+/// columns share `available_width` (the table's content width less its cell
+/// spacing): a `<col>`'s width, else a first-row cell's, the rest shared
+/// equally, a collapsed column 0. They never depend on the cells' content,
+/// and they add up to `available_width` unless the widths given want more.
+/// The table's layout and its intrinsic sizes
+/// ([`fixed_table_content_width`]) both take them from here.
+#[allow(clippy::cast_precision_loss)] // a column count
+pub(crate) fn fixed_column_widths(
+    styled_dom: &StyledDom,
+    tree: &LayoutTree,
+    table_ctx: &TableLayoutContext,
+    available_width: f32,
+) -> Vec<f32> {
+    let num_cols = table_ctx.columns.len();
+    let collapsed = &table_ctx.collapsed_columns;
     let visible: Vec<usize> = (0..num_cols).filter(|c| !collapsed.contains(c)).collect();
     if visible.is_empty() {
-        for col in &mut table_ctx.columns {
-            col.computed_width = Some(0.0);
-        }
-        return;
+        return vec![0.0; num_cols];
     }
 
     // Step 1: a `<col>` with a width sets its column (a column box has no
     // padding and, for its width, no border).
     let mut widths: Vec<Option<f32>> = crate::solver3::table_width::column_element_widths(
-        ctx.styled_dom,
+        styled_dom,
         tree,
         &table_ctx.column_boxes,
         num_cols,
@@ -7780,7 +7804,7 @@ fn calculate_column_widths_fixed<T: ParsedFontTrait>(
             .column_box_at(c)
             .and_then(|b| tree.get(LayoutNodeId::new(b.node_index)))
             .and_then(|n| n.dom_node_id)?;
-        fixed_layout_width(ctx.styled_dom, dom_id, width, 0.0, available_width)
+        fixed_layout_width(styled_dom, dom_id, width, 0.0, available_width)
     })
     .collect();
 
@@ -7801,9 +7825,9 @@ fn calculate_column_widths_fixed<T: ParsedFontTrait>(
         let bp = cell.box_props.unpack();
         let h_extras = bp.padding.left + bp.padding.right + bp.border.left + bp.border.right;
         let Some(w) = fixed_layout_width(
-            ctx.styled_dom,
+            styled_dom,
             dom_id,
-            crate::solver3::table_width::specified_width(ctx.styled_dom, dom_id, h_extras),
+            crate::solver3::table_width::specified_width(styled_dom, dom_id, h_extras),
             h_extras,
             available_width,
         ) else {
@@ -7859,13 +7883,75 @@ fn calculate_column_widths_fixed<T: ParsedFontTrait>(
         }
     }
 
-    for (c, col) in table_ctx.columns.iter_mut().enumerate() {
-        col.computed_width = Some(if collapsed.contains(&c) {
-            0.0
-        } else {
-            widths[c].unwrap_or(0.0)
-        });
+    (0..num_cols)
+        .map(|c| {
+            if collapsed.contains(&c) {
+                0.0
+            } else {
+                widths[c].unwrap_or(0.0)
+            }
+        })
+        .collect()
+}
+
+/// A FIXED table's content width as its columns make it (CSS 2.2
+/// 17.5.2.1): its own width, or the sum of its columns' widths and the cell
+/// spacing when the widths its `<col>`s and first-row cells give want more.
+/// `None` for a table laid out automatically.
+///
+/// This is a fixed table's minimum, the floor its used width never goes
+/// below - not its content's minimum (MIN, the automatic layout's floor):
+/// the fixed layout does not read the cells' content. Floored at MIN, the
+/// 100px table of WPT fixed-table-layout-025 came out 150px wide, its red
+/// cells' 2 x 25px of padding making room for themselves.
+#[allow(clippy::cast_precision_loss)] // a column count
+pub(crate) fn fixed_table_content_width<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    table_index: usize,
+    grid: &TableLayoutContext,
+) -> Option<f32> {
+    let table = tree.get(LayoutNodeId::new(table_index))?;
+    if !uses_fixed_table_layout(ctx, table) {
+        return None;
     }
+    let dom_id = table.dom_node_id?;
+    let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+    // Its own width as a content width; a percentage (or a `calc()`) has no
+    // basis here, and its columns' widths are the floor alone.
+    let own = match get_css_width(ctx.styled_dom, dom_id, node_state) {
+        MultiValue::Exact(LayoutWidth::Px(px)) => {
+            let em = get_element_font_size(ctx.styled_dom, dom_id, node_state);
+            let rem = get_root_font_size(ctx.styled_dom, node_state);
+            crate::solver3::calc::resolve_pixel_value_no_percent(&px, em, rem)
+                .filter(|w| w.is_finite())
+                .map_or(0.0, |w| {
+                    let bp = table.box_props.unpack();
+                    let content = match get_css_box_sizing(ctx.styled_dom, dom_id, node_state) {
+                        MultiValue::Exact(
+                            azul_css::props::layout::LayoutBoxSizing::BorderBox,
+                        ) => {
+                            w - bp.padding.left
+                                - bp.padding.right
+                                - bp.border.left
+                                - bp.border.right
+                        }
+                        _ => w,
+                    };
+                    content.max(0.0)
+                })
+        }
+        _ => 0.0,
+    };
+    let spacing = if grid.columns.is_empty() {
+        0.0
+    } else {
+        grid.h_spacing * (grid.columns.len() + 1) as f32
+    };
+    let columns: f32 = fixed_column_widths(ctx.styled_dom, tree, grid, (own - spacing).max(0.0))
+        .iter()
+        .sum();
+    Some((columns + spacing).max(own))
 }
 
 /// A cell's (or a `<col>`'s) width for the fixed table layout, as a border

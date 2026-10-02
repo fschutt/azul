@@ -1301,11 +1301,13 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // (`fc::analyze_table_structure`: visual row order, a cell under a
         // rowspan in the next free column - counting `col += span` per row put
         // it on top of the rowspan cell).
-        let Ok(grid) = super::fc::analyze_table_structure(tree, node_index, &*self.ctx) else {
+        let Ok(mut grid) = super::fc::analyze_table_structure(tree, node_index, &*self.ctx) else {
             return IntrinsicSizes::default();
         };
         let (h_spacing, v_spacing) =
             super::fc::resolve_table_border_spacing(&*self.ctx, tree, node_index);
+        grid.h_spacing = h_spacing;
+        grid.v_spacing = v_spacing;
 
         // A one-column cell goes to its column with its `width`; a spanning
         // cell is spread over its columns once every one-column cell is in,
@@ -1410,8 +1412,13 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         } else {
             h_spacing * (cons.len() + 1) as f32
         };
-        let min_width = (columns_min + spacing).max(caption_min);
-        let max_width = (columns_max + spacing).max(caption_min);
+        // A FIXED table's minimum is its own width or its columns' (CSS 2.2
+        // 17.5.2.1), never its content's: the fixed layout does not read the
+        // cells, so their padding or a long word does not widen it.
+        let min_width = super::fc::fixed_table_content_width(&*self.ctx, tree, node_index, &grid)
+            .unwrap_or(columns_min + spacing)
+            .max(caption_min);
+        let max_width = (columns_max + spacing).max(caption_min).max(min_width);
 
         // A cell spanning rows that are shorter than it grows the last one;
         // the rows are `rows + 1` vertical spacings apart.
