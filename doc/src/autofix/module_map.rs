@@ -1787,4 +1787,92 @@ mod tests {
         // ...and still reach a module through the heuristic.
         assert!(!determine_module("FontMetrics").0.is_empty());
     }
+
+    /// A widget's `*VecSlice` stays with its widget, whatever keyword its
+    /// name contains: `CellGridRangeVecSlice` holds "grid" (a css keyword),
+    /// `ToDoTaskVecSlice` "task", `WizardOptionVecSlice` "option",
+    /// `WizardComponentVecSlice` "component", the node graph's slices
+    /// "node" / "input" (dom). The move check treated `vecslice` as a
+    /// structural suffix and returned the keyword answer before it asked the
+    /// widget rule, so 14 widget slices sat in css / task / option /
+    /// component / dom (DEDUP_WIDGETS_API F17).
+    #[test]
+    fn a_widget_vec_slice_is_placed_by_the_widget_rule_not_by_its_name() {
+        for (name, file) in [
+            ("CellGridRangeVecSlice", "cell_grid"),
+            ("CellGridSizeVecSlice", "cell_grid"),
+            ("TimelineClipVecSlice", "timeline"),
+            ("ToDoTaskVecSlice", "todo_bar"),
+            ("WizardOptionVecSlice", "wizard_pages"),
+            ("WizardComponentVecSlice", "wizard_pages"),
+            ("InputConnectionVecSlice", "node_graph"),
+            ("NodeTypeFieldVecSlice", "node_graph"),
+            ("OutputNodeAndIndexVecSlice", "node_graph"),
+        ] {
+            let path = format!("azul_layout::widgets::{file}::{name}");
+            assert_eq!(
+                widget_module_for(name, &path).as_deref(),
+                Some("widgets"),
+                "{name}: the add command's rule"
+            );
+            assert_eq!(
+                get_correct_module_with_path(name, "widgets", Some(&path)),
+                None,
+                "{name} in widgets must stay there"
+            );
+            let (keyword_module, _) = determine_module(name);
+            assert_eq!(
+                get_correct_module_with_path(name, &keyword_module, Some(&path)).as_deref(),
+                Some("widgets"),
+                "{name} in {keyword_module} must move to widgets"
+            );
+        }
+    }
+
+    /// One "is a Vec type" rule: the name-only classifier, the widget rule
+    /// and the move check agree on every member of the Vec family, and none
+    /// of them counts a `*VecSlice` as one (a slice is a borrowed view of its
+    /// element and lives with it: `StringVecSlice` in `str`, `DomVecSlice` in
+    /// `dom`).
+    #[test]
+    fn the_three_vec_rules_agree_and_a_vec_slice_is_not_a_vec() {
+        let widget = |t: &str| format!("azul_layout::widgets::ribbon::{t}");
+        for name in [
+            "RibbonTabVec",
+            "RibbonTabVecDestructor",
+            "RibbonTabVecDestructorType",
+            "RibbonTabVecRef",
+            "RibbonTabVecRefMut",
+        ] {
+            assert_eq!(determine_module(name).0, "vec", "{name}");
+            assert_eq!(widget_module_for(name, &widget(name)).as_deref(), Some("vec"), "{name}");
+            assert_eq!(
+                get_correct_module_with_path(name, "widgets", Some(&widget(name))).as_deref(),
+                Some("vec"),
+                "{name}"
+            );
+        }
+        assert_ne!(determine_module("RibbonTabVecSlice").0, "vec");
+        assert_eq!(
+            widget_module_for("RibbonTabVecSlice", &widget("RibbonTabVecSlice")).as_deref(),
+            Some("widgets")
+        );
+        // Non-widget slices keep their established, element-based modules.
+        assert_eq!(
+            get_correct_module_with_path(
+                "StringVecSlice",
+                "str",
+                Some("azul_css::corety::StringVecSlice")
+            ),
+            None
+        );
+        assert_eq!(
+            get_correct_module_with_path(
+                "DomVecSlice",
+                "dom",
+                Some("azul_core::dom::DomVecSlice")
+            ),
+            None
+        );
+    }
 }
