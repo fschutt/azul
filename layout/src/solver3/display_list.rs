@@ -8177,6 +8177,16 @@ where
                 size: LogicalSize::default(),
             }
         };
+        // Lines ABOVE the box: a paragraph continuing at the top of the
+        // next column of a multi-column container (`text3::cache::
+        // ColumnFlow`). The PDF bridge draws every glyph at `bounds.origin`
+        // plus its item position, so `bounds` stays anchored at the box -
+        // and then reaches a whole layout height below the box's top while
+        // missing the lines above it, for the page slicer and the paged
+        // extent alike. Such a layout's TextLayout carries its own copy of
+        // the layout moved down to start at 0, under an origin moved up by
+        // as much: every glyph stays where it is, `bounds` holds the lines.
+        let lines_above = layout_bounds.y < 0.0 && !layout.items.is_empty();
 
         // Only push TextLayout if layout has actual content
         // This prevents empty TextLayout items with 0x0 bounds at various Y positions
@@ -8239,15 +8249,30 @@ where
             // damage diffing is Arc::ptr_eq, so a fresh Arc per rebuild made
             // every blink / tween tick repaint the whole text run (and deep-
             // cloned all shaped glyphs per frame). Real text changes replace
-            // the cached Arc, so ptr_eq still fires damage then.
+            // the cached Arc, so ptr_eq still fires damage then. (A layout
+            // with lines above its box is the one exception, see
+            // `lines_above`: paged-only, a split multi-column paragraph.)
+            let (text_payload, text_bounds) = if lines_above {
+                let dy = layout_bounds.y;
+                let mut moved: UnifiedLayout = (**layout).clone();
+                for item in &mut moved.items {
+                    item.position.y -= dy;
+                }
+                let moved: Arc<dyn std::any::Any + Send + Sync> = Arc::new(moved);
+                let origin =
+                    LogicalPosition::new(container_rect.origin.x, container_rect.origin.y + dy);
+                (moved, LogicalRect::new(origin, actual_bounds.size))
+            } else {
+                (payload.clone(), actual_bounds)
+            };
             builder.push_text_layout(
                 // (d5) The CACHED payload Arc — TextPayload{dense,sparse}
                 // when the dense view is retained, the bare layout Arc
                 // otherwise. Cloned from the cache entry, so ptr_eq damage
                 // diffing sees the same allocation across paints exactly
                 // as before.
-                payload.clone(),
-                actual_bounds,
+                text_payload,
+                text_bounds,
                 FontHash::from_hash(primary_hash),
                 primary_size,
                 ColorU {
