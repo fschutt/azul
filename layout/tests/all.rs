@@ -736,3 +736,5 @@ mod a_line_height_in_points_sets_the_line_pitch;
 mod text_beside_an_italic_or_bold_box_keeps_a_font;
 #[path = "a_rows_stray_child_sits_in_an_anonymous_cell.rs"]
 mod a_rows_stray_child_sits_in_an_anonymous_cell;
+#[path = "an_inline_block_contributes_its_clamped_padded_width.rs"]
+mod an_inline_block_contributes_its_clamped_padded_width;
