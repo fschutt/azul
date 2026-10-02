@@ -2976,10 +2976,11 @@ pub fn start() {
     app.run(window);
 }
 
-/// A fresh project id (the project's folder in the drive).
+/// A fresh project id (the project's folder in the drive): random, so no
+/// launch reuses another's (`Uuid::v4` is a process-local marker sequence).
 #[must_use]
 pub fn new_project_id() -> String {
-    Uuid::v4().as_str().to_string()
+    Uuid::from_seed(azul_storage::ids::random_seed()).as_str().to_string()
 }
 
 #[cfg(test)]

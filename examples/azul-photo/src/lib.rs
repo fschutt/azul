@@ -161,10 +161,11 @@ pub fn say(line: &str) {
     println!("{line}");
 }
 
-/// A fresh document folder name.
+/// A fresh document folder name: random, so no launch reuses another's
+/// (`Uuid::v4` is a process-local marker sequence, the same in every run).
 #[must_use]
 pub fn new_uuid() -> String {
-    azul::uuid::Uuid::v4().as_str().to_string()
+    azul::uuid::Uuid::from_seed(azul_storage::ids::random_seed()).as_str().to_string()
 }
 
 /// The sample: the photo, a warm light leak (Screen, 60 %) and a Curves

@@ -27,6 +27,7 @@
 //! in `Debug` output.
 
 pub mod config;
+pub mod ids;
 pub mod key;
 pub mod local;
 pub mod ops;

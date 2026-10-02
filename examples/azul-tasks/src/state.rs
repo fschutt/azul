@@ -168,29 +168,9 @@ pub fn now() -> NaiveDateTime {
 /// seed (as AzCalendar mints its event ids).
 #[must_use]
 pub fn new_id() -> String {
-    azul::uuid::Uuid::from_seed(random_seed())
+    azul::uuid::Uuid::from_seed(azul_storage::ids::random_seed())
         .as_str()
         .to_string()
-}
-
-/// 64 random bits: `std`'s `RandomState` hashed with the time, the process id and a counter.
-fn random_seed() -> u64 {
-    use std::{
-        collections::hash_map::RandomState,
-        hash::{BuildHasher, Hasher},
-        sync::atomic::{AtomicU64, Ordering},
-        time::{SystemTime, UNIX_EPOCH},
-    };
-    static MINTED: AtomicU64 = AtomicU64::new(0);
-    let mut h = RandomState::new().build_hasher();
-    h.write_u64(MINTED.fetch_add(1, Ordering::Relaxed));
-    h.write_u128(
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_nanos()),
-    );
-    h.write_u32(std::process::id());
-    h.finish()
 }
 
 impl Tasks {

@@ -292,10 +292,11 @@ fn notebook_for_new(state: &AppState) -> String {
 
 /// Creates a note in the shown notebook (tagged with the shown tag, pinned
 /// in Pinned), opens it, and puts the focus into its body.
-/// A fresh note id (the note's file name in the drive).
+/// A fresh note id (the note's file name in the drive): random, so no launch
+/// reuses another's (`Uuid::v4` is a process-local marker sequence).
 #[must_use]
 pub fn new_note_id() -> String {
-    azul::uuid::Uuid::v4().as_str().to_string()
+    azul::uuid::Uuid::from_seed(azul_storage::ids::random_seed()).as_str().to_string()
 }
 
 pub fn new_note(info: &mut CallbackInfo, app: &RefAny, state: &mut AppState) {
