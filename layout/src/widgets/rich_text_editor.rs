@@ -353,14 +353,14 @@ pub struct RichTextEditor {
     pub font_size: f32,
     /// The space under a paragraph in px (a note's 6, a mail's 0).
     pub paragraph_spacing: f32,
+    /// The widget theme the frame and toolbar are PINNED to, or `None` to
+    /// follow the app theme.
+    pub theme: crate::widgets::themes::OptionUiTheme,
     pub toolbar: RichTextToolbar,
     /// Markdown shortcuts typed at a block's start change the block.
     pub markdown_shortcuts: bool,
     /// A read-only view (a version, a print): no editing, no callbacks.
     pub read_only: bool,
-    /// The widget theme the frame and toolbar are PINNED to, or `None` to
-    /// follow the app theme.
-    pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
 impl RichTextEditor {

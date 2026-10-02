@@ -499,10 +499,10 @@ impl RichAlign {
 pub struct RichBlock {
     pub kind: RichBlockKind,
     pub runs: RichRunVec,
+    pub align: RichAlign,
     /// 0 = the writer's own text; 1 = quoted once (`> `), 2 = a quote in a
     /// quote (a reply to a reply), ...
     pub quote_depth: u8,
-    pub align: RichAlign,
 }
 
 impl RichBlock {
@@ -512,8 +512,8 @@ impl RichBlock {
         Self {
             kind,
             runs,
-            quote_depth: 0,
             align: RichAlign::Left,
+            quote_depth: 0,
         }
     }
 
@@ -558,6 +558,13 @@ impl RichBlock {
     #[must_use]
     pub fn flat(&self) -> String {
         flatten(self.runs.as_ref())
+    }
+
+    /// The block's text, every run in order (the API form of
+    /// [`Self::flat`]).
+    #[must_use]
+    pub fn get_text(&self) -> AzString {
+        AzString::from(self.flat())
     }
 
     /// The block's runs as a plain vector (a copy).
@@ -992,7 +999,7 @@ impl RichTextDoc {
     /// preview): an image as its text alternative, a table's cells split by
     /// tabs and its rows by line breaks.
     #[must_use]
-    pub fn plain_text(&self) -> String {
+    pub fn plain_text(&self) -> AzString {
         let mut out = String::new();
         for (i, block) in self.blocks().iter().enumerate() {
             if i > 0 {
@@ -1013,7 +1020,7 @@ impl RichTextDoc {
                 _ => out.push_str(&block.flat()),
             }
         }
-        out
+        AzString::from(out)
     }
 
     /// How many words the document holds.
@@ -1031,7 +1038,7 @@ impl RichTextDoc {
     /// The first line of text that is not `title` (a list's preview line),
     /// at most 120 characters.
     #[must_use]
-    pub fn preview(&self, title: &str) -> String {
+    pub fn preview(&self, title: &str) -> AzString {
         for block in self.blocks() {
             if !block.kind.has_text() {
                 continue;
@@ -1042,9 +1049,9 @@ impl RichTextDoc {
             if line == title.trim() {
                 continue;
             }
-            return truncate_chars(line, 120);
+            return AzString::from(truncate_chars(line, 120));
         }
-        String::new()
+        AzString::from_const_str("")
     }
 
     /// `(done, total)` of the checklist items.
@@ -2116,7 +2123,7 @@ mod tests {
         assert_eq!(table.rows.as_ref()[1].cell(0), "Q4");
         assert_eq!(table.rows.as_ref()[0].cell(0), "");
         assert!(!doc.sync_block_text(0, "text", None), "a table has no runs");
-        assert_eq!(doc.plain_text(), "\t\nQ4\t\nafter");
+        assert_eq!(doc.plain_text().as_str(), "\t\nQ4\t\nafter");
     }
 
     #[test]
@@ -2146,7 +2153,7 @@ mod tests {
                 vec![],
             ),
         ]);
-        assert_eq!(doc.preview("Offsite agenda"), "Bring laptops");
+        assert_eq!(doc.preview("Offsite agenda").as_str(), "Bring laptops");
         assert_eq!(doc.word_count(), 5);
         assert_eq!(doc.image_srcs().as_ref(), &[AzString::from("a.png")]);
         assert!(!doc.is_blank());
