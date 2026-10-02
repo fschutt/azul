@@ -893,7 +893,7 @@ extern "C" fn on_share(mut data: RefAny, _info: CallbackInfo) -> Update {
     })
 }
 
-fn open_page(data: &mut RefAny, page: BackstagePage) -> Update {
+fn show_page(data: &mut RefAny, page: BackstagePage) -> Update {
     with_state(data, |s| {
         s.backstage = Some(page);
         Update::RefreshDom
@@ -902,20 +902,20 @@ fn open_page(data: &mut RefAny, page: BackstagePage) -> Update {
 
 /// FILE: the backstage, on Info.
 extern "C" fn on_file(mut data: RefAny, _info: CallbackInfo) -> Update {
-    open_page(&mut data, BackstagePage::Info)
+    show_page(&mut data, BackstagePage::Info)
 }
 
 /// Open Calendar / Open & Export: the backstage page that imports and exports .ics files.
 pub(crate) extern "C" fn on_open_page(mut data: RefAny, _info: CallbackInfo) -> Update {
-    open_page(&mut data, BackstagePage::Open)
+    show_page(&mut data, BackstagePage::Open)
 }
 
 pub(crate) extern "C" fn on_calendars_page(mut data: RefAny, _info: CallbackInfo) -> Update {
-    open_page(&mut data, BackstagePage::Calendars)
+    show_page(&mut data, BackstagePage::Calendars)
 }
 
 pub(crate) extern "C" fn on_options_page(mut data: RefAny, _info: CallbackInfo) -> Update {
-    open_page(&mut data, BackstagePage::Options)
+    show_page(&mut data, BackstagePage::Options)
 }
 
 extern "C" fn on_backstage_nav(mut data: RefAny, _info: CallbackInfo, index: usize) -> Update {
