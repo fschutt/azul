@@ -12,6 +12,9 @@ pub mod getters;
 pub mod layout_tree;
 pub use layout_tree::LayoutNodeId;
 pub mod break_token;
+/// CSS Multi-column Layout 1: column geometry and the column breaks of a
+/// multi-column block container.
+pub mod multicol;
 pub mod page_breaks;
 pub mod paged_layout;
 pub mod pagination;

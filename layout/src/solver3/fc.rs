@@ -20,8 +20,8 @@ use azul_css::{
             ColorU, PhysicalSize, PropertyContext, ResolutionContext, SizeMetric,
         },
         layout::{
-            ColumnCount, ColumnWidth, LayoutBorderSpacing, LayoutClear, LayoutDisplay, LayoutFloat,
-            LayoutHeight, LayoutJustifyContent, LayoutOverflow, LayoutPosition, LayoutTableLayout,
+            LayoutBorderSpacing, LayoutClear, LayoutDisplay, LayoutFloat, LayoutHeight,
+            LayoutJustifyContent, LayoutOverflow, LayoutPosition, LayoutTableLayout,
             LayoutTextJustify, LayoutWidth, LayoutWritingMode, ShapeInside, ShapeOutside,
             StyleBorderCollapse, StyleCaptionSide, StyleEmptyCells,
         },
@@ -4737,9 +4737,8 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     dom_id: NodeId,
 ) -> UnifiedConstraints {
     use azul_css::compact_cache::{
-        DOM_HAS_COLUMN_COUNT, DOM_HAS_COLUMN_GAP, DOM_HAS_COLUMN_WIDTH, DOM_HAS_EXCLUSION_MARGIN,
-        DOM_HAS_HANGING_PUNCTUATION, DOM_HAS_HYPHENATION_LANGUAGE, DOM_HAS_HYPHENS,
-        DOM_HAS_INITIAL_LETTER, DOM_HAS_INITIAL_LETTER_ALIGN, DOM_HAS_LINE_BREAK,
+        DOM_HAS_EXCLUSION_MARGIN, DOM_HAS_HANGING_PUNCTUATION, DOM_HAS_HYPHENATION_LANGUAGE,
+        DOM_HAS_HYPHENS, DOM_HAS_INITIAL_LETTER, DOM_HAS_INITIAL_LETTER_ALIGN, DOM_HAS_LINE_BREAK,
         DOM_HAS_LINE_CLAMP, DOM_HAS_LINE_HEIGHT, DOM_HAS_OVERFLOW_WRAP, DOM_HAS_SHAPE_INSIDE,
         DOM_HAS_SHAPE_MARGIN, DOM_HAS_SHAPE_OUTSIDE, DOM_HAS_TEXT_ALIGN_LAST,
         DOM_HAS_TEXT_COMBINE_UPRIGHT, DOM_HAS_TEXT_INDENT, DOM_HAS_TEXT_JUSTIFY,
@@ -5208,64 +5207,16 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     let text_indent_each_line = text_indent_prop.is_some_and(|ti| ti.each_line);
     let text_indent_hanging = text_indent_prop.is_some_and(|ti| ti.hanging);
 
-    // ResolutionContext shared by column-gap and column-width (both resolve
-    // lengths against the same font/viewport, with no containing-block size).
-    let column_resolve_ctx = ResolutionContext {
-        vertical_writing_mode: false,
-        element_font_size: get_element_font_size(styled_dom, id, node_state),
-        parent_font_size: get_parent_font_size(styled_dom, id, node_state),
-        root_font_size: get_root_font_size(styled_dom, node_state),
-        containing_block_size: PhysicalSize::new(0.0, 0.0),
-        element_size: None,
-        viewport_size: PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
-    };
-
-    // Read a declared CSS property from the cache, returning None when the
-    // DOM-level declared bit is clear (no node sets the property).
-    macro_rules! declared_prop {
-        ($bit:expr, $getter:ident) => {
-            if dom_declared & $bit != 0 {
-                styled_dom
-                    .css_property_cache
-                    .ptr
-                    .$getter(node_data, &id, node_state)
-                    .and_then(|s| s.get_property())
-            } else {
-                None
-            }
-        };
-    }
-
-    // Get column-gap for multi-column layout (default: normal = 1em)
-    let column_gap = declared_prop!(DOM_HAS_COLUMN_GAP, get_column_gap)
-        .map(|cg| {
-            cg.inner
-                .resolve_with_context(&column_resolve_ctx, PropertyContext::Other)
-        })
-        .unwrap_or_else(|| get_element_font_size(styled_dom, id, node_state));
-
-    // Get column-width for multi-column layout (None = auto)
-    let column_width =
-        declared_prop!(DOM_HAS_COLUMN_WIDTH, get_column_width).and_then(|cw| match cw {
-            ColumnWidth::Auto => None,
-            ColumnWidth::Length(px) => {
-                Some(px.resolve_with_context(&column_resolve_ctx, PropertyContext::Other))
-            }
-        });
-
-    // Get column-count for multi-column layout (default: 1 = no columns)
-    let explicit_column_count = declared_prop!(DOM_HAS_COLUMN_COUNT, get_column_count).copied();
-
-    // CSS multi-column: derive column count from column-width when column-count is auto.
-    // Per spec: N = max(1, floor((available-width + column-gap) / (column-width + column-gap)))
-    let columns = match (explicit_column_count, column_width) {
-        (Some(ColumnCount::Integer(n)), _) => n,
-        (_, Some(cw)) if cw > 0.0 => {
-            let avail = constraints.available_size.width;
-            ((avail + column_gap) / (cw + column_gap)).floor().max(1.0) as u32
-        }
-        _ => 1,
-    };
+    // Multi-column: THE reader of the column declarations and THE column
+    // resolution (`multicol::column_style` / `ColumnStyle::geometry`, CSS
+    // Multicol 1 §3.4), shared with the multi-column block layout. text3
+    // splits this inline formatting context's lines over the columns; the
+    // gap only matters between columns.
+    let column_geometry =
+        crate::solver3::multicol::column_style(styled_dom, id, node_state, ctx.viewport_size)
+            .map(|style| style.geometry(constraints.available_size.width));
+    let columns = column_geometry.map_or(1, |g| g.count);
+    let column_gap = column_geometry.map_or(0.0, |g| g.gap);
 
     // +spec:line-breaking:b4928e - white-space values mapped to wrap/whitespace processing rules
     // Map white-space CSS property to TextWrap
