@@ -57,25 +57,19 @@ parse-checked with `rustfmt --edition 2021 --check`.
 
 - Report scripts/NOTES_2026_10_01.md written (keep its commit list current when adding work).
 
-## IN PROGRESS (precise next steps, in order)
-8. (optional, time permitting) more review passes / engine gaps; update the report's commit list.
-   A careful compile-in-head review pass over every AzNotes file (types, borrows, imports).
-9. Report scripts/NOTES_2026_10_01.md.
-   (old plan follows, done up to 6) REQUIRED by lib.rs/jobs.rs: `pub extern "C" fn layout(RefAny,
-   LayoutCallbackInfo) -> Dom`, `pub const SETTINGS_SHORTCUTS: usize`, `pub const SETTINGS_ABOUT:
-   usize`, `pub fn show_history(&mut CallbackInfo, &RefAny, &mut AppState)`. Pieces: (a) layout +
-   title row + status bar + window callbacks (keys Ctrl+N/K/S/,/Escape, focus, close);
-   (b) navigation pane + its event; (c) note list (MessageList, Pin mark) + its events;
-   (d) editor pane (title TextInput, tag chips + tag field, toolbar Buttons) + callbacks;
-   (e) overlays (palette with commands, new notebook, link, confirm delete); (f) settings
-   (ShellSettingsLayout: General, Editor, Storage, Keyboard shortcuts, About); (g) history
-   screen (versions list, preview, restore); (h) exports (PDF via Pdf::from_dom_in_callback,
-   Markdown via FileDialog::save_bytes), empty states.
-6. registration (root Cargo.toml member, scripts/workspace_test_members.txt, CI step),
-   scripts/aznotes_e2e.py, report scripts/NOTES_2026_10_01.md.
+## DONE since the report (fa3fc4341)
+- `dc7136e81` links open (Ctrl/Cmd+click, the sheet's Open), blocks carry #nb-<i>, typing_for test.
+- `0116989d0`, `7186fdef5` E2E: click #nb-0 for the caret; type into fields via focus_node.
+- `aa47f1b50` close never waits for a save that did not start; `3f132b4d2` autosave re-armed
+  by a save's answer while notes are dirty; `409be9705` loose-list test.
+- The background review subagent was cut by the session limit (no findings). Do the review by
+  reading, no subagents (coordinator, 2026-10-02).
 
-## NEXT
-- registration (workspace, test members, CI), scripts/aznotes_e2e.py, the report.
+## IN PROGRESS (precise next steps, in order)
+1. Compile review by reading, file by file, committing fixes per file: lib.rs, args.rs,
+   look.rs, sample.rs, store.rs, model.rs, doc.rs, markdown.rs (done: editor.rs, jobs.rs
+   partly), ui.rs (sections a-g).
+2. Update the report's commit list and "least sure" list; commit.
 
 ## Decisions (made unattended, for the report)
 - D1 The editor is app-local for this pass (`examples/azul-notes/src/editor.rs` +
