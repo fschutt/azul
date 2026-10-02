@@ -2700,6 +2700,33 @@ mod tests {
         );
     }
 
+    /// Every absolute length is a pixel count at parse time (pdfocr's
+    /// html2pdf writes `line-height: 14pt`: it was rejected and the
+    /// declaration dropped); `em` is the element's own font size, the
+    /// multiplier a number is.
+    #[test]
+    fn test_parse_line_height_in_any_absolute_unit_and_em() {
+        for (input, px) in [
+            ("14pt", 14.0 * 96.0 / 72.0),
+            ("1in", 96.0),
+            ("2.54cm", 96.0),
+            ("25.4mm", 96.0),
+        ] {
+            let inner = parse_style_line_height(input)
+                .unwrap_or_else(|e| panic!("{input} parses: {e:?}"))
+                .inner;
+            assert!(
+                (inner.normalized() + px).abs() < 0.01,
+                "{input} is {px} absolute px (stored negative): {}",
+                inner.normalized()
+            );
+        }
+        assert_eq!(
+            parse_style_line_height("1.5em").unwrap().inner,
+            PercentageValue::new(150.0)
+        );
+    }
+
     #[test]
     fn test_parse_tab_size() {
         // Unitless number is treated as `em`

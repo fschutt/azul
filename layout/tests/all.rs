@@ -728,3 +728,7 @@ mod content_clipped_by_an_overflow_hidden_box_adds_no_pages;
 mod a_multicol_block_flows_its_children_through_its_columns;
 #[path = "a_percent_wide_inline_image_takes_its_share_of_the_line_box_container.rs"]
 mod a_percent_wide_inline_image_takes_its_share_of_the_line_box_container;
+#[path = "the_first_line_of_a_paragraph_starts_text_indent_further_in.rs"]
+mod the_first_line_of_a_paragraph_starts_text_indent_further_in;
+#[path = "a_line_height_in_points_sets_the_line_pitch.rs"]
+mod a_line_height_in_points_sets_the_line_pitch;
