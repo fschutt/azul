@@ -410,7 +410,7 @@ pub fn open_settings(kit_ref: &RefAny, category: Option<&str>) {
                 k.category = i;
             }
         }
-    }
+    };
 }
 
 /// Hides the settings page.
@@ -418,7 +418,7 @@ pub fn close_settings(kit_ref: &RefAny) {
     let mut kit = kit_ref.clone();
     if let Some(mut k) = kit.downcast_mut::<Kit>() {
         k.settings_open = false;
-    }
+    };
 }
 
 /// Whether the settings page is showing.
@@ -494,10 +494,10 @@ pub fn row(label: &str, control: Dom) -> Dom {
 
 /// A line of secondary text under a section's rows.
 #[must_use]
-pub fn note(text: &str) -> Dom {
+pub fn note(content: &str) -> Dom {
     Dom::create_div()
         .with_css("padding: 4px 0px; font-size: 12px; opacity: 0.75;")
-        .with_child(text(text))
+        .with_child(text(content))
 }
 
 fn column(children: Vec<Dom>) -> Dom {
