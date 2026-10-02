@@ -5225,6 +5225,99 @@ mod tests {
         );
     }
 
+    /// Every key a window-level `VirtualKeyDown` callback saw, in order.
+    static WINDOW_KEYS: std::sync::Mutex<Vec<VirtualKeyCode>> = std::sync::Mutex::new(Vec::new());
+
+    extern "C" fn record_window_key(_data: RefAny, info: CallbackInfo) -> Update {
+        if let Some(vk) = info.get_current_keyboard_state().current_virtual_keycode.into_option() {
+            WINDOW_KEYS.lock().unwrap().push(vk);
+        }
+        Update::DoNothing
+    }
+
+    /// AzCalculator E2E (2026-10-02): `1 2 3 Backspace` left `123` - its
+    /// window-level key handler (as every app's) must see Backspace like
+    /// any other key, through the same ops, also while a NON-editable element
+    /// has the focus (the `=` key the mouse clicked last): the input
+    /// interpreter claimed Backspace/Delete for a text edit wherever focus was
+    /// and swallowed them (`AddAndSkip`), as it once did the arrows.
+    #[test]
+    fn a_window_key_handler_sees_backspace_like_any_other_key() {
+        for focused in [false, true] {
+            WINDOW_KEYS.lock().unwrap().clear();
+            window_key_handler_sees_backspace(focused);
+        }
+    }
+
+    fn window_key_handler_sees_backspace(focused: bool) {
+        let mut key = Dom::create_div()
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("="));
+        key.set_tab_index(azul_core::dom::TabIndex::Auto);
+        let body = Dom::create_body()
+            .with_child(key)
+            .with_callback(
+                EventFilter::Window(azul_core::events::WindowEventFilter::VirtualKeyDown),
+                RefAny::new(()),
+                record_window_key as usize,
+            );
+        let mut dom = body;
+        let (css, _) = azul_css::parser2::new_from_str(CSS);
+        let styled_dom = StyledDom::create(&mut dom, css);
+        let mut runner = Runner::new(800.0, 600.0, 96, false);
+        runner.layout(styled_dom, true);
+        if focused {
+            // body = 0, the "=" key = 1.
+            runner.layout_window.focus_manager.set_focused_node(Some(DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
+            }));
+        }
+        let mut session = E2eSession::new();
+        let mut app_data = RefAny::new(());
+        let component_map = Arc::new(Mutex::new(ComponentMap::with_builtin()));
+        let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
+        let mut op = |runner: &mut Runner, event: DebugEvent| {
+            let (tx, _rx) = std::sync::mpsc::channel();
+            let request = DebugRequest {
+                request_id: 1,
+                event,
+                window_id: None,
+                wait_for_render: false,
+                dom_id: None,
+                response_tx: tx,
+            };
+            let needs_update = runner.with_callback_info(&changes, |ci| {
+                process_debug_event(&request, ci, &mut app_data, &component_map, &mut session)
+            });
+            runner.service(&changes, needs_update);
+        };
+        for key in ["1", "2", "3", "backspace"] {
+            op(
+                &mut runner,
+                DebugEvent::KeyDown {
+                    key: key.into(),
+                    modifiers: Default::default(),
+                    text: None,
+                    seat: 0,
+                },
+            );
+            op(
+                &mut runner,
+                DebugEvent::KeyUp {
+                    key: key.into(),
+                    modifiers: Default::default(),
+                    seat: 0,
+                },
+            );
+        }
+        let seen = WINDOW_KEYS.lock().unwrap().clone();
+        assert_eq!(
+            seen,
+            [VirtualKeyCode::Key1, VirtualKeyCode::Key2, VirtualKeyCode::Key3, VirtualKeyCode::Back],
+            "the window handler sees every key, Backspace included (focused: {focused})"
+        );
+    }
+
     #[test]
     fn a_keydown_veto_kills_the_recorded_text() {
         let mut runner = editor_runner("ab", false, Some(veto_key_down));

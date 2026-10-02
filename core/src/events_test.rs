@@ -3590,6 +3590,28 @@ mod autotest_generated {
         assert_eq!(word_back.mode, SelectionMode::Delete);
     }
 
+    /// AzCalculator E2E (2026-10-02): with the `=` key (a focused button)
+    /// Backspace never reached the app's window key handler - the
+    /// interpreter claimed it for a text edit (`AddAndSkip` swallows the
+    /// key), as it once did the arrows. Only a text-editing focus owns
+    /// Backspace and Delete; anywhere else they are the app's keys.
+    #[test]
+    fn backspace_and_delete_pass_through_a_non_editable_focus() {
+        let kb = KeyboardState::default();
+        let target = Some(dnid(0, 1));
+        for vk in [VirtualKeyCode::Back, VirtualKeyCode::Delete] {
+            let ev = key_event(vk as u32, KeyModifiers::default());
+            assert!(
+                handle_key_down(&ev, &kb, target, false).is_none(),
+                "{vk:?} on a non-editable focus must reach the callbacks"
+            );
+            assert!(
+                handle_key_down(&ev, &kb, target, true).is_some(),
+                "{vk:?} still edits text in an editable focus"
+            );
+        }
+    }
+
     #[test]
     fn handle_key_down_ignores_keys_it_does_not_interpret() {
         let kb = KeyboardState::default();

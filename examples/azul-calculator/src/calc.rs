@@ -1146,6 +1146,10 @@ mod tests {
     #[test]
     fn backspace_ce_and_c() {
         assert_eq!(std("123B").result_line(), "12");
+        // After a result, a new number typed is a number being typed: Backspace
+        // deletes its digit (AzCalculator E2E 2026-10-02: 7*6= 123 B kept 123).
+        assert_eq!(std("7*6=123B").result_line(), "12");
+        assert_eq!(std("1280*0.19=C0.1+0.2=7*6=123B").result_line(), "12");
         assert_eq!(std("1BB").result_line(), "0");
         assert_eq!(std("12+B").expression_line(), "", "the operator goes, the 12 is typed on");
         assert_eq!(std("12+B3").result_line(), "123");
