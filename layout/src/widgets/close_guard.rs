@@ -37,13 +37,13 @@ use alloc::{format, vec::Vec};
 
 use azul_core::{
     callbacks::{CoreCallback, Update},
-    dom::{Dom, EventFilter},
+    dom::{Dom, DomVec, EventFilter},
     events::WindowEventFilter,
     refany::{OptionRefAny, RefAny},
 };
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
-    impl_option, impl_option_inner,
+    impl_option_inner,
     props::{
         layout::{LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow, LayoutMinHeight},
         property::CssProperty,
@@ -321,7 +321,139 @@ struct GuardRef {
 }
 
 fn build(guard: CloseGuard) -> Dom {
-    todo!("GREEN {}", guard.dirty)
+    let CloseGuard {
+        content,
+        title,
+        question,
+        text,
+        save_label,
+        discard_label,
+        cancel_label,
+        on_event,
+        theme,
+        dirty,
+        asking,
+    } = guard;
+    let theme = theme.into_option();
+    let shared = RefAny::new(GuardRef {
+        on_event,
+        dirty,
+        confirmed: false,
+    });
+    let mut children: Vec<Dom> = Vec::with_capacity(2);
+    children.push(content);
+    if asking {
+        let mut message = MessageBox::create(MessageBoxKind::Question, question, text)
+            .with_buttons(
+                StringVec::from_vec(alloc::vec![save_label, discard_label, cancel_label]),
+                0,
+            )
+            .with_on_event(
+                shared.clone(),
+                on_answer as StandardDialogOnEventCallbackType,
+            );
+        if let Some(t) = theme {
+            message = message.with_theme(t);
+        }
+        let mut modal = Modal::create(message.dom())
+            .with_title(title)
+            .with_open(true)
+            .with_on_close(shared.clone(), on_modal_close as ModalOnCloseCallbackType);
+        if let Some(t) = theme {
+            modal = modal.with_theme(t);
+        }
+        children.push(modal.dom());
+    }
+    Dom::create_div()
+        .with_class(AzString::from_const_str(CLOSE_GUARD_CLASS))
+        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+            CLOSE_GUARD_BASE,
+        ))
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::CloseRequested),
+            shared,
+            CoreCallback {
+                cb: on_close_requested as usize,
+                ctx: OptionRefAny::None,
+            },
+        )
+        .with_children(DomVec::from_vec(children))
+}
+
+/// Hands `kind` to the app's callback.
+fn report(
+    on_event: &OptionCloseGuardOnEvent,
+    info: CallbackInfo,
+    kind: CloseGuardEventKind,
+) -> Update {
+    match on_event.as_ref() {
+        Some(CloseGuardOnEvent { callback, refany }) => {
+            callback.invoke(refany.clone(), info, CloseGuardEvent::create(kind))
+        }
+        None => Update::DoNothing,
+    }
+}
+
+/// The window is asked to close: held while the document is dirty (and
+/// someone listens), and the app asked.
+extern "C" fn on_close_requested(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let (on_event, hold) = {
+        let Some(g) = data.downcast_ref::<GuardRef>() else {
+            return Update::DoNothing;
+        };
+        (
+            g.on_event.clone(),
+            g.dirty && !g.confirmed && g.on_event.is_some(),
+        )
+    };
+    if !hold {
+        return Update::DoNothing;
+    }
+    let update = report(&on_event, info, CloseGuardEventKind::Ask);
+    // Last: the veto rides on whatever window state the app queued.
+    info.prevent_window_close();
+    update
+}
+
+/// An answer: button 0 saves, 1 discards, 2 cancels.
+extern "C" fn on_answer(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    event: StandardDialogEvent,
+) -> Update {
+    let kind = match (event.kind, event.index) {
+        (StandardDialogEventKind::Button, 0) => CloseGuardEventKind::Save,
+        (StandardDialogEventKind::Button, 1) => CloseGuardEventKind::Discard,
+        (StandardDialogEventKind::Button | StandardDialogEventKind::Cancel, _) => {
+            CloseGuardEventKind::Cancel
+        }
+        _ => return Update::DoNothing,
+    };
+    let on_event = {
+        let Some(mut g) = data.downcast_mut::<GuardRef>() else {
+            return Update::DoNothing;
+        };
+        if kind != CloseGuardEventKind::Cancel {
+            // The close this answer leads to (the guard's own, or the app's
+            // after its save) passes the guard.
+            g.confirmed = true;
+        }
+        g.on_event.clone()
+    };
+    let update = report(&on_event, info, kind);
+    if kind == CloseGuardEventKind::Discard {
+        info.close_window();
+    }
+    update
+}
+
+/// The question's modal closed (Escape, its close button): Cancel.
+extern "C" fn on_modal_close(mut data: RefAny, info: CallbackInfo, _state: ModalState) -> Update {
+    let on_event = match data.downcast_ref::<GuardRef>() {
+        Some(g) => g.on_event.clone(),
+        None => return Update::DoNothing,
+    };
+    report(&on_event, info, CloseGuardEventKind::Cancel)
 }
 
 #[cfg(test)]
