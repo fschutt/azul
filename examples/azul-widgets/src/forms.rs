@@ -30,7 +30,7 @@
 
 use azul::{
     dom::{AttributeType, SmallAriaInfo},
-    image::{ImageRef, RawImage, RawImageData, RawImageFormat},
+    image::{ImageRef, RawImage},
     option::OptionImageRef,
     prelude::*,
     str::String as AzString,
@@ -217,14 +217,7 @@ fn send_icon() -> OptionImageRef {
             pixels.extend_from_slice(if inside { &INK } else { &CLEAR });
         }
     }
-    ImageRef::create_rawimage(RawImage {
-        pixels: RawImageData::U8(pixels.into()),
-        width: SIZE,
-        height: SIZE,
-        premultiplied_alpha: false,
-        data_format: RawImageFormat::RGBA8,
-        tag: Vec::<u8>::new().into(),
-    })
+    ImageRef::create_rawimage(RawImage::create_rgba8(SIZE as u32, SIZE as u32, pixels.into(), false))
 }
 
 // ---------------------------------------------------------------------------

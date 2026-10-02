@@ -160,23 +160,26 @@ pub fn generate(pattern: &Pattern, frame: Frame, width: u32, height: u32) -> Can
     }
 }
 
-/// `c` resized to `width` x `height` (nearest sample).
+/// `c` resized to `width` x `height` by azul's scaler
+/// (`RawImage::resized`: area-averaging down, bilinear up - it was a
+/// private nearest sampler, DEDUP_OFFICE D15).
 #[must_use]
 pub fn scale_to(c: &Canvas, width: u32, height: u32) -> Canvas {
+    use azul::image::{RawImage, RawImageData};
+
     let (w, h) = (width.max(1), height.max(1));
-    let mut out = Canvas::clear(w, h);
     if c.width == 0 || c.height == 0 {
         return Canvas::black(w, h);
     }
-    for y in 0..h {
-        let sy = ((u64::from(y) * u64::from(c.height)) / u64::from(h)) as u32;
-        for x in 0..w {
-            let sx = ((u64::from(x) * u64::from(c.width)) / u64::from(w)) as u32;
-            let (i, j) = (out.index(x, y), c.index(sx, sy));
-            out.rgba[i..i + 4].copy_from_slice(&c.rgba[j..j + 4]);
-        }
+    let source = RawImage::create_rgba8(c.width, c.height, c.rgba.clone().into(), true);
+    match source.resized(w, h).into_option().map(|scaled| scaled.pixels) {
+        Some(RawImageData::U8(bytes)) => Canvas {
+            width: w,
+            height: h,
+            rgba: bytes.as_ref().to_vec(),
+        },
+        _ => Canvas::black(w, h),
     }
-    out
 }
 
 /// `src` drawn through `effects` with `opacity` on a transparent

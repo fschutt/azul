@@ -1,7 +1,7 @@
 use azul::{
     callbacks::RenderImageCallbackInfo,
     dom::{AccessibilityInfo, IdOrClass, RenderImageCallback},
-    image::{ImageRef, RawImage, RawImageData, RawImageFormat},
+    image::{ImageRef, RawImage, RawImageFormat},
     menu::{Menu, MenuItem, StringMenuItem},
     prelude::*,
     vec::{IdOrClassVec, MenuItemVec, U8VecRef},
@@ -583,14 +583,7 @@ extern "C" fn render_ink(mut data: RefAny, info: RenderImageCallbackInfo) -> Ima
         all.push(l);
     }
     let buf = ink::rasterize_page(&all, w, h);
-    let img = RawImage {
-        pixels: RawImageData::U8(buf.into()),
-        width: w as usize,
-        height: h as usize,
-        premultiplied_alpha: false,
-        data_format: RawImageFormat::RGBA8,
-        tag: Vec::new().into(),
-    };
+    let img = RawImage::create_rgba8(w, h, buf.into(), false);
     ImageRef::create_rawimage(img)
         .into_option()
         .unwrap_or_else(|| {

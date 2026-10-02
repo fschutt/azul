@@ -14,7 +14,7 @@
 use std::collections::HashMap;
 
 use azul::{
-    image::{Brush, RawImage, RawImageData, RawImageFormat},
+    image::{Brush, RawImage, RawImageData},
     prelude::ColorU,
 };
 
@@ -113,14 +113,8 @@ impl Stamp {
         let radius = radius.max(0.5);
         let side = (2.0 * radius).ceil() as usize + 3;
         let center = side as f32 / 2.0;
-        let mut image = RawImage {
-            pixels: RawImageData::U8(vec![0u8; side * side * 4].into()),
-            width: side,
-            height: side,
-            premultiplied_alpha: true,
-            data_format: RawImageFormat::RGBA8,
-            tag: Vec::new().into(),
-        };
+        let mut image =
+            RawImage::create_rgba8(side as u32, side as u32, vec![0u8; side * side * 4].into(), true);
         let mut brush = Brush::create(
             ColorU {
                 r: 255,

@@ -57,7 +57,7 @@ use azul::{
     dialog::{FileDialog, FileOpenMultiResult},
     dom::{NodeId, VirtualKeyCode},
     file::{FilePath, FileTypeList},
-    image::{ImageRef, RawImage, RawImageData, RawImageFormat},
+    image::{ImageRef, RawImage, RawImageFormat},
     option::{OptionDarkLightMode, OptionFileTypeList, OptionString},
     prelude::*,
     shells::{
@@ -716,14 +716,7 @@ extern "C" fn on_job_done(mut data: RefAny, mut msg: RefAny, mut info: CallbackI
 
 /// A picture as an image for an image node (opaque RGBA8).
 fn image_of(c: &Canvas) -> Option<ImageRef> {
-    let raw = RawImage {
-        pixels: RawImageData::U8(U8Vec::from_vec(c.rgba.clone())),
-        width: c.width as usize,
-        height: c.height as usize,
-        premultiplied_alpha: true,
-        data_format: RawImageFormat::RGBA8,
-        tag: U8Vec::create(),
-    };
+    let raw = RawImage::create_rgba8(c.width, c.height, U8Vec::from_vec(c.rgba.clone()), true);
     ImageRef::create_rawimage(raw).into_option()
 }
 
