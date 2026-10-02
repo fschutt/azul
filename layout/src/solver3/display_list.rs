@@ -1866,22 +1866,25 @@ pub fn empty_editable_caret_rect(font_size_px: f32, line_height: f32) -> Logical
     }
 }
 
-fn intersect_or(a: LogicalRect, b: LogicalRect) -> LogicalRect {
+/// The common area of `a` and `b`; `None` when they share no area (touching
+/// edges, a degenerate or NaN rect).
+fn intersect_rects(a: LogicalRect, b: LogicalRect) -> Option<LogicalRect> {
     let x0 = a.origin.x.max(b.origin.x);
     let y0 = a.origin.y.max(b.origin.y);
     let x1 = (a.origin.x + a.size.width).min(b.origin.x + b.size.width);
     let y1 = (a.origin.y + a.size.height).min(b.origin.y + b.size.height);
-    if x1 > x0 && y1 > y0 {
-        LogicalRect {
-            origin: LogicalPosition { x: x0, y: y0 },
-            size: LogicalSize {
-                width: x1 - x0,
-                height: y1 - y0,
-            },
-        }
-    } else {
-        b
-    }
+    (x1 > x0 && y1 > y0).then(|| LogicalRect {
+        origin: LogicalPosition { x: x0, y: y0 },
+        size: LogicalSize {
+            width: x1 - x0,
+            height: y1 - y0,
+        },
+    })
+}
+
+/// [`intersect_rects`], or `b` itself when the two share no area.
+fn intersect_or(a: LogicalRect, b: LogicalRect) -> LogicalRect {
+    intersect_rects(a, b).unwrap_or(b)
 }
 
 impl DisplayListItem {
@@ -11079,21 +11082,57 @@ fn generate_text_display_items(
     }]
 }
 
-/// Calculate the total height of a display list (max Y + height of all items).
+/// The paged extent of a display list: the bottom of the lowest content
+/// that can be PAINTED.
+///
+/// Every item counts with the part of its bounds the clips it is painted in
+/// leave visible (`PushClip`, `PushScrollFrame`, `PushImageMaskClip`; nested
+/// ones intersect, their pops close them). Content an `overflow: hidden` box
+/// clips away shows on no page, so it must not make one - an abspos block's
+/// text running past a fixed-height clipped page box made empty pages. A
+/// clip marker's own rect counts like an item (it is the clipping box),
+/// within the clips around it. Items under 0.1px tall are no visible
+/// content; the result is never negative or NaN.
 pub(crate) fn calculate_display_list_height(display_list: &DisplayList) -> f32 {
+    // The clips open at each item: no entry = unclipped, `None` = an empty
+    // clip (nothing inside it is painted).
+    let mut clips: Vec<Option<LogicalRect>> = Vec::new();
     let mut max_bottom = 0.0f32;
 
     for item in &display_list.items {
-        if let Some(bounds) = get_display_item_bounds(item) {
-            // Skip items with zero height - they don't contribute to visible content
-            if bounds.0.size.height < 0.1 {
-                continue;
-            }
-
-            let item_bottom = bounds.0.origin.y + bounds.0.size.height;
-            if item_bottom > max_bottom {
-                max_bottom = item_bottom;
-            }
+        if matches!(
+            item,
+            DisplayListItem::PopClip
+                | DisplayListItem::PopScrollFrame
+                | DisplayListItem::PopImageMaskClip
+        ) {
+            clips.pop();
+            continue;
+        }
+        let Some(bounds) = get_display_item_bounds(item) else {
+            continue;
+        };
+        let visible = match clips.last().copied() {
+            None => Some(bounds.0),
+            Some(clip) => clip.and_then(|c| intersect_rects(c, bounds.0)),
+        };
+        if matches!(
+            item,
+            DisplayListItem::PushClip { .. }
+                | DisplayListItem::PushScrollFrame { .. }
+                | DisplayListItem::PushImageMaskClip { .. }
+        ) {
+            clips.push(visible);
+        }
+        let Some(visible) = visible else {
+            continue;
+        };
+        if visible.size.height < 0.1 {
+            continue;
+        }
+        let item_bottom = visible.origin.y + visible.size.height;
+        if item_bottom > max_bottom {
+            max_bottom = item_bottom;
         }
     }
 
