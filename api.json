@@ -52545,7 +52545,8 @@
                                 "GridArea": {},
                                 "TextBox": {},
                                 "InsetBlock": {},
-                                "InsetInline": {}
+                                "InsetInline": {},
+                                "ListStyle": {}
                             }
                         ],
                         "repr": "C"
@@ -98640,6 +98641,21 @@
                                     "type": "ResultXmlXmlError"
                                 },
                                 "fn_body": "azul_layout::xml::parse_xml(xml_string.as_str()).into()"
+                            },
+                            "create_from_html": {
+                                "doc": [
+                                    "Parses real-world HTML the way a browser builds its tree - never",
+                                    "fails (unquoted attributes, `<br>` without a slash, implied end tags,",
+                                    "stray end tags, Word / Outlook markup, the HTML named references; see",
+                                    "[`html`]). A fragment is a document: `<html>`, `<head>` and `<body>`",
+                                    "are implied. The strict XML loaders stay strict."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "html": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::xml::Xml::create_from_html(html)"
                             }
                         },
                         "functions": {
