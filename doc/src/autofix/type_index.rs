@@ -79,7 +79,27 @@ const STD_TRAITS: &[&str] = &[
     "Iterator", "IntoIterator", "FromIterator", "Extend", "Send", "Sync",
 ];
 
+/// Crate-internal plumbing traits: their methods serve the engine (the host
+/// invoker's `HostOut::unwritten` builds a callback's default answer), never
+/// an API caller. Unlike a standard trait they are not a `custom_impls`
+/// entry either - they simply do not cross the API.
+const INTERNAL_TRAITS: &[&str] = &["HostOut"];
+
 impl MethodDef {
+    /// Whether this is an internal plumbing trait's impl method
+    /// (see [`INTERNAL_TRAITS`]).
+    pub fn is_internal_trait_impl(&self) -> bool {
+        self.from_trait
+            .as_deref()
+            .is_some_and(|t| INTERNAL_TRAITS.contains(&t))
+    }
+
+    /// Whether this method can never be an API function: a standard trait's
+    /// (a derive / custom impl in api.json) or an internal trait's.
+    pub fn is_non_api_trait_impl(&self) -> bool {
+        self.is_std_trait_impl() || self.is_internal_trait_impl()
+    }
+
     /// Whether this is a standard trait's impl method (`default`, `clone`,
     /// `drop`, `fmt`, `eq`, ...): never an API function, never "missing from
     /// api.json". A wrapper trait that exposes free functions stays a
@@ -3576,6 +3596,9 @@ mod tests {
         assert!(!m.is_std_trait_impl(), "a wrapper trait's method stays an API candidate");
         m.from_trait = None;
         assert!(!m.is_std_trait_impl(), "an inherent method stays an API candidate");
+        m.from_trait = Some("HostOut".to_string());
+        assert!(!m.is_std_trait_impl(), "an internal trait is not a custom impl");
+        assert!(m.is_non_api_trait_impl(), "but its methods never become API functions");
 
         let source = r#"
             pub struct Tile { pub title: String }

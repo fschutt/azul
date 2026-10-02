@@ -124,7 +124,7 @@ pub fn compare_type_functions(
     let source_methods: BTreeMap<String, &MethodDef> = type_def
         .methods
         .iter()
-        .filter(|m| m.is_public && !m.is_std_trait_impl())
+        .filter(|m| m.is_public && !m.is_non_api_trait_impl())
         .map(|m| (m.name.clone(), m))
         .collect();
 
@@ -780,7 +780,7 @@ pub fn api_candidate_methods<'a>(
     methods
         .iter()
         .copied()
-        .filter(|m| m.is_public && !m.is_std_trait_impl())
+        .filter(|m| m.is_public && !m.is_non_api_trait_impl())
         .filter(|m| spec == "*" || m.name == spec || api_name_of(m) == spec)
         .filter(|m| {
             let api_name = api_name_of(m);
