@@ -228,6 +228,297 @@ pub fn column_style(
     })
 }
 
+// ---------------------------------------------------------------------------
+// The column breaks of a multi-column block container
+// ---------------------------------------------------------------------------
+
+/// One in-flow child of a multi-column block container, as laid out in the
+/// single column of the column width (block-axis offsets from the
+/// container's content-box top).
+#[derive(Debug, Clone, PartialEq)]
+pub struct FlowBox {
+    /// Its border-box top (its top margin above it).
+    pub top: f32,
+    /// Its border-box bottom.
+    pub bottom: f32,
+    /// The lines of a box that may continue in the next column between two
+    /// of them (a plain inline formatting context), in order; empty for a
+    /// box that moves to the next column whole.
+    pub lines: Vec<FlowLine>,
+}
+
+/// One line of a [`FlowBox`]: the extent of its content in the flow.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FlowLine {
+    /// The line's index in its inline formatting context.
+    pub index: usize,
+    /// The top of the line's content.
+    pub top: f32,
+    /// The bottom of the line's content.
+    pub bottom: f32,
+}
+
+/// Where one [`FlowBox`] goes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BoxPlacement {
+    /// The column the box starts in.
+    pub column: usize,
+    /// The line indices at which the box continues at the top of the next
+    /// columns, ascending; empty when it sits in one column.
+    pub line_breaks: Vec<usize>,
+}
+
+/// The columns a multi-column block container's flow is cut into.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ColumnPlan {
+    /// Where on the single-column flow each column starts (the first at 0):
+    /// content at flow offset `y` in column `k` sits `y - starts[k]` below
+    /// the column's top.
+    pub starts: Vec<f32>,
+    /// The tallest column's content: the container's content height.
+    pub height: f32,
+    /// Where each [`FlowBox`] goes, in the order given.
+    pub boxes: Vec<BoxPlacement>,
+}
+
+impl ColumnPlan {
+    /// The column holding flow offset `y`: the last one starting at or
+    /// before it.
+    #[must_use]
+    pub fn column_at(&self, y: f32) -> usize {
+        self.starts
+            .iter()
+            .rposition(|&start| start <= y + FIT_EPS)
+            .unwrap_or(0)
+    }
+}
+
+/// Sub-1/100-px overshoot is float noise, not a reason to break.
+const FIT_EPS: f32 = 0.01;
+
+/// The smallest piece of the flow the columns are cut between: a box that
+/// moves whole, or the top of a splittable box through its first line, or
+/// one further line of it.
+#[derive(Debug, Clone, Copy)]
+struct Atom {
+    bottom: f32,
+    /// Where a column starts when the break falls before this atom; `None`
+    /// = no break here (the first atom, a line on the line before).
+    break_at: Option<f32>,
+    owner: usize,
+    /// The line index the atom opens, for the lines after a box's first.
+    line: Option<usize>,
+}
+
+fn atoms_of(boxes: &[FlowBox]) -> Vec<Atom> {
+    let mut atoms: Vec<Atom> = Vec::new();
+    let mut last_break = f32::MIN;
+    let mut push =
+        |atoms: &mut Vec<Atom>, at: f32, bottom: f32, owner: usize, line: Option<usize>| {
+            // A break must move the flow forward; one that would not (a line
+            // overlapping the one before it) is no break opportunity.
+            let break_at = (at.is_finite() && at > last_break + FIT_EPS).then_some(at);
+            if let Some(at) = break_at {
+                last_break = at;
+            }
+            atoms.push(Atom {
+                bottom,
+                break_at,
+                owner,
+                line,
+            });
+        };
+    for (owner, flow_box) in boxes.iter().enumerate() {
+        let lines: Vec<&FlowLine> = flow_box
+            .lines
+            .iter()
+            .filter(|l| l.top.is_finite() && l.bottom.is_finite() && l.bottom > l.top)
+            .collect();
+        if lines.len() < 2 {
+            push(
+                &mut atoms,
+                flow_box.top,
+                flow_box.bottom.max(flow_box.top),
+                owner,
+                None,
+            );
+            continue;
+        }
+        // The box's top (border, padding) goes with its first line, its
+        // bottom with its last; a column break between two lines falls
+        // where one line box ends and the next begins.
+        push(
+            &mut atoms,
+            flow_box.top,
+            lines[0].bottom.max(flow_box.top),
+            owner,
+            None,
+        );
+        for j in 1..lines.len() {
+            let at = f32::midpoint(lines[j - 1].bottom, lines[j].top).max(flow_box.top);
+            let bottom = if j + 1 == lines.len() {
+                lines[j].bottom.max(flow_box.bottom)
+            } else {
+                lines[j].bottom
+            };
+            push(&mut atoms, at, bottom, owner, Some(lines[j].index));
+        }
+    }
+    // Nothing comes before the first atom to break from.
+    if let Some(first) = atoms.first_mut() {
+        first.break_at = None;
+    }
+    atoms
+}
+
+/// Where the column starting with atom `a` starts on the flow.
+fn column_start(atoms: &[Atom], a: usize) -> f32 {
+    if a == 0 {
+        0.0
+    } else {
+        atoms[a].break_at.unwrap_or(0.0)
+    }
+}
+
+/// Fills columns `height` tall in order: each takes atoms until the next
+/// would end below it, and breaks before that one at the last break
+/// opportunity whose preceding content fits. A column that cannot fit even
+/// its first piece takes it anyway and breaks at the first opportunity
+/// after it (a monolith overflows, never loops). Returns the first atom of
+/// every column.
+fn fill_columns(atoms: &[Atom], height: f32) -> Vec<usize> {
+    let mut firsts = vec![0usize];
+    let mut a = 0usize;
+    while a < atoms.len() {
+        let limit = column_start(atoms, a) + height + FIT_EPS;
+        let mut content_bottom = atoms[a].bottom;
+        let mut fitting_break = None;
+        let mut first_break = None;
+        let mut overflowed = false;
+        for (i, atom) in atoms.iter().enumerate().skip(a + 1) {
+            if atom.break_at.is_some() {
+                if first_break.is_none() {
+                    first_break = Some(i);
+                }
+                if content_bottom <= limit {
+                    fitting_break = Some(i);
+                } else {
+                    overflowed = true;
+                    break;
+                }
+            }
+            content_bottom = content_bottom.max(atom.bottom);
+        }
+        if !overflowed && content_bottom <= limit {
+            break; // the rest fits: this is the last column
+        }
+        match fitting_break.or(first_break) {
+            Some(next) => {
+                firsts.push(next);
+                a = next;
+            }
+            None => break, // nowhere to break: the rest stays here
+        }
+    }
+    firsts
+}
+
+/// CSS Multicol 1 §7 (`column-fill`) and §8 (overflow): cuts a
+/// multi-column container's single-column flow into `count` columns.
+///
+/// `balance` (the initial value, and always when the container's height is
+/// not definite): the shortest column height whose in-order fill needs no
+/// more than `count` columns - capped by a definite `height`. `auto` with a
+/// definite height: columns of that height, filled in turn. Content a
+/// capped column height cannot fit in `count` columns runs on in further
+/// (overflow) columns in the inline direction.
+#[must_use]
+#[allow(clippy::cast_precision_loss)] // a column count
+pub fn plan_columns(
+    boxes: &[FlowBox],
+    count: u32,
+    height: Option<f32>,
+    fill: ColumnFill,
+) -> ColumnPlan {
+    let atoms = atoms_of(boxes);
+    if atoms.is_empty() {
+        return ColumnPlan {
+            starts: vec![0.0],
+            height: 0.0,
+            boxes: Vec::new(),
+        };
+    }
+    let count = count.max(1) as usize;
+    let cap = height.filter(|h| h.is_finite() && *h > 0.0);
+    let total = atoms.iter().map(|a| a.bottom).fold(0.0_f32, f32::max);
+
+    let column_height = match (fill, cap) {
+        (ColumnFill::Auto, Some(cap)) => cap,
+        _ => {
+            // The smallest height that needs at most `count` columns: a
+            // greedy fill never needs MORE columns for a taller height, so
+            // bisect between the even share and the whole flow.
+            let needs = |h: f32| fill_columns(&atoms, h).len();
+            let mut lo = total / count as f32;
+            let mut hi = total;
+            if needs(lo) <= count {
+                hi = lo;
+            } else {
+                for _ in 0..48 {
+                    if hi - lo <= FIT_EPS {
+                        break;
+                    }
+                    let mid = f32::midpoint(lo, hi);
+                    if needs(mid) <= count {
+                        hi = mid;
+                    } else {
+                        lo = mid;
+                    }
+                }
+            }
+            cap.map_or(hi, |cap| hi.min(cap))
+        }
+    };
+
+    let firsts = fill_columns(&atoms, column_height);
+    let starts: Vec<f32> = firsts.iter().map(|&a| column_start(&atoms, a)).collect();
+    let mut tallest = 0.0_f32;
+    for (k, &first) in firsts.iter().enumerate() {
+        let end = firsts.get(k + 1).copied().unwrap_or(atoms.len());
+        let bottom = atoms[first..end]
+            .iter()
+            .map(|a| a.bottom)
+            .fold(starts[k], f32::max);
+        tallest = tallest.max(bottom - starts[k]);
+    }
+
+    let mut placements: Vec<BoxPlacement> = boxes
+        .iter()
+        .map(|_| BoxPlacement {
+            column: 0,
+            line_breaks: Vec::new(),
+        })
+        .collect();
+    let mut column = 0usize;
+    for (i, atom) in atoms.iter().enumerate() {
+        let opens_column = firsts.get(column + 1) == Some(&i);
+        if opens_column {
+            column += 1;
+        }
+        match atom.line {
+            None => placements[atom.owner].column = column,
+            Some(line) if opens_column => placements[atom.owner].line_breaks.push(line),
+            Some(_) => {}
+        }
+    }
+
+    ColumnPlan {
+        starts,
+        height: tallest,
+        boxes: placements,
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::float_cmp)]
 mod tests {
@@ -286,5 +577,155 @@ mod tests {
         assert_eq!(g.column_x(1, 420.0, true), 0.0);
         assert_eq!(g.advance(false), 220.0);
         assert_eq!(g.advance(true), -220.0);
+    }
+
+    // ---- plan_columns ----
+
+    /// A box that moves whole, `top..bottom`.
+    fn block(top: f32, bottom: f32) -> FlowBox {
+        FlowBox {
+            top,
+            bottom,
+            lines: Vec::new(),
+        }
+    }
+
+    /// A paragraph at `top` of `n` 20px line boxes, each line's content
+    /// 19px tall in the middle of its line box.
+    fn paragraph(top: f32, n: usize) -> FlowBox {
+        #[allow(clippy::cast_precision_loss)] // a line index
+        let lines = (0..n)
+            .map(|index| {
+                let line_top = top + 20.0 * index as f32;
+                FlowLine {
+                    index,
+                    top: line_top + 0.5,
+                    bottom: line_top + 19.5,
+                }
+            })
+            .collect();
+        #[allow(clippy::cast_precision_loss)] // a line count
+        let bottom = top + 20.0 * n as f32;
+        FlowBox { top, bottom, lines }
+    }
+
+    fn columns_of(plan: &ColumnPlan) -> Vec<usize> {
+        plan.boxes.iter().map(|b| b.column).collect()
+    }
+
+    fn near(a: f32, b: f32) -> bool {
+        (a - b).abs() < 0.05
+    }
+
+    #[test]
+    fn four_boxes_balance_two_per_column() {
+        let boxes = [
+            block(0.0, 40.0),
+            block(40.0, 80.0),
+            block(80.0, 120.0),
+            block(120.0, 160.0),
+        ];
+        let plan = plan_columns(&boxes, 2, None, ColumnFill::Balance);
+        assert_eq!(columns_of(&plan), [0, 0, 1, 1]);
+        assert_eq!(plan.starts.len(), 2);
+        assert!(near(plan.starts[1], 80.0), "{:?}", plan.starts);
+        assert!(near(plan.height, 80.0), "{}", plan.height);
+        assert!(plan.boxes.iter().all(|b| b.line_breaks.is_empty()));
+    }
+
+    #[test]
+    fn as_many_columns_as_boxes_put_one_box_in_each() {
+        let boxes = [
+            block(0.0, 40.0),
+            block(40.0, 80.0),
+            block(80.0, 120.0),
+            block(120.0, 160.0),
+        ];
+        let plan = plan_columns(&boxes, 4, None, ColumnFill::Balance);
+        assert_eq!(columns_of(&plan), [0, 1, 2, 3]);
+        assert!(near(plan.height, 40.0), "{}", plan.height);
+    }
+
+    #[test]
+    fn a_paragraph_breaks_between_two_lines() {
+        // 40px block + six 20px lines: balanced at 80px, the paragraph's
+        // third line (index 2) opens the second column.
+        let boxes = [block(0.0, 40.0), paragraph(40.0, 6)];
+        let plan = plan_columns(&boxes, 2, None, ColumnFill::Balance);
+        assert_eq!(columns_of(&plan), [0, 0]);
+        assert_eq!(plan.boxes[1].line_breaks, [2]);
+        assert!(near(plan.starts[1], 80.0), "{:?}", plan.starts);
+        assert!(near(plan.height, 80.0), "{}", plan.height);
+    }
+
+    #[test]
+    fn a_long_paragraph_alone_runs_through_every_column() {
+        let plan = plan_columns(&[paragraph(0.0, 9)], 3, None, ColumnFill::Balance);
+        assert_eq!(plan.boxes[0].column, 0);
+        assert_eq!(plan.boxes[0].line_breaks, [3, 6]);
+        assert!(near(plan.height, 60.0), "{}", plan.height);
+    }
+
+    #[test]
+    fn a_box_too_tall_for_what_is_left_moves_whole() {
+        // 50 + 50 + 60: at 80px the 60px box cannot follow the second.
+        let boxes = [block(0.0, 50.0), block(50.0, 100.0), block(100.0, 160.0)];
+        let plan = plan_columns(&boxes, 2, None, ColumnFill::Balance);
+        assert_eq!(columns_of(&plan), [0, 0, 1]);
+        assert!(near(plan.height, 100.0), "{}", plan.height);
+    }
+
+    #[test]
+    fn a_fixed_height_runs_on_into_overflow_columns() {
+        let boxes = [
+            block(0.0, 40.0),
+            block(40.0, 80.0),
+            block(80.0, 120.0),
+            block(120.0, 160.0),
+        ];
+        let plan = plan_columns(&boxes, 2, Some(60.0), ColumnFill::Balance);
+        assert_eq!(columns_of(&plan), [0, 1, 2, 3]);
+        // A fixed height under `column-fill: auto` fills each column first.
+        let plan = plan_columns(&boxes, 2, Some(100.0), ColumnFill::Auto);
+        assert_eq!(columns_of(&plan), [0, 0, 1, 1]);
+    }
+
+    #[test]
+    fn a_monolith_taller_than_any_column_stays_whole_and_ends() {
+        let plan = plan_columns(&[block(0.0, 200.0)], 2, None, ColumnFill::Balance);
+        assert_eq!(columns_of(&plan), [0]);
+        assert_eq!(plan.starts.len(), 1);
+        assert!(near(plan.height, 200.0), "{}", plan.height);
+        let plan = plan_columns(
+            &[block(0.0, 200.0), block(200.0, 210.0)],
+            2,
+            Some(50.0),
+            ColumnFill::Balance,
+        );
+        assert_eq!(columns_of(&plan), [0, 1]);
+    }
+
+    #[test]
+    fn an_empty_flow_is_one_empty_column() {
+        let plan = plan_columns(&[], 3, None, ColumnFill::Balance);
+        assert_eq!(plan.starts, [0.0]);
+        assert_eq!(plan.height, 0.0);
+        assert!(plan.boxes.is_empty());
+        assert_eq!(plan.column_at(123.0), 0);
+    }
+
+    #[test]
+    fn column_at_finds_the_column_holding_an_offset() {
+        let boxes = [
+            block(0.0, 40.0),
+            block(40.0, 80.0),
+            block(80.0, 120.0),
+            block(120.0, 160.0),
+        ];
+        let plan = plan_columns(&boxes, 2, None, ColumnFill::Balance);
+        assert_eq!(plan.column_at(0.0), 0);
+        assert_eq!(plan.column_at(79.0), 0);
+        assert_eq!(plan.column_at(80.0), 1);
+        assert_eq!(plan.column_at(150.0), 1);
     }
 }
