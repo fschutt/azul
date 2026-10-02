@@ -2319,12 +2319,33 @@ fn too_many_shadows<'a>(
     (count > MAX_BOX_SHADOWS).then_some(CssParseWarnMsgInner::TooManyShadows { key, value, count })
 }
 
+/// A declaration's value without its `!important` flag (CSS Cascade 4, 6.4:
+/// `!` and then `important`, ASCII case-insensitive, white space allowed
+/// before and between). The value parsers do not know the flag: left on, it
+/// made every important declaration an invalid one, and mail CSS marks half
+/// its declarations important. Its precedence over inline declarations is
+/// not modelled - an important declaration cascades like a normal one.
+fn strip_important(value: &str) -> &str {
+    let trimmed = value.trim_end();
+    let Some(cut) = trimmed.len().checked_sub("important".len()) else {
+        return value;
+    };
+    match (trimmed.get(cut..), trimmed.get(..cut)) {
+        (Some(flag), Some(before)) if flag.eq_ignore_ascii_case("important") => before
+            .trim_end()
+            .strip_suffix('!')
+            .map_or(value, str::trim_end),
+        _ => value,
+    }
+}
+
 fn parse_declaration_resilient<'a>(
     unparsed_css_key: &'a str,
     unparsed_css_value: &'a str,
     location: ErrorLocationRange,
     css_key_map: &CssKeyMap,
 ) -> Result<Vec<CssDeclaration>, CssParseErrorInner<'a>> {
+    let unparsed_css_value = strip_important(unparsed_css_value);
     let mut declarations = Vec::new();
 
     if let Some(combined_key) = CombinedCssPropertyType::from_str(unparsed_css_key, css_key_map) {
