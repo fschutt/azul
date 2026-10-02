@@ -1231,4 +1231,20 @@ mod tests {
         let r = e.view.expect("the ants move");
         assert!(r.w <= 26 && r.h <= 26, "{r:?}");
     }
+
+    #[test]
+    fn a_digit_sets_the_layer_opacity_with_the_move_tool_and_the_paint_opacity_with_a_brush() {
+        let mut s = editor();
+        let bg = s.engine.active_layer().unwrap();
+        s.tool = Tool::Move;
+        let e = s.digit_opacity(5);
+        assert!(e.dom);
+        assert_eq!(s.engine.document().layer(bg).unwrap().opacity, 0.5);
+        let _ = s.digit_opacity(0);
+        assert_eq!(s.engine.document().layer(bg).unwrap().opacity, 1.0, "0 is 100 %");
+        s.tool = Tool::Brush;
+        let _ = s.digit_opacity(3);
+        assert!((s.opts.opacity - 0.3).abs() < 1e-6);
+        assert_eq!(s.engine.document().layer(bg).unwrap().opacity, 1.0, "the layer kept its opacity");
+    }
 }
