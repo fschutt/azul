@@ -15,6 +15,11 @@
 - 75862973d RED RawImage; b92c06baa RawImage::create_rgba8 / resized (thumbnail = fit_within + resized);
   c5fe179c6 apps create_rgba8 (Photo x2, Paint x2, Review, Widgets, VideoCut) + VideoCut scale_to via resized
 - 398bdb97d DiskSpace::format_bytes (moved from tile.rs); f3a9dd224 apps (Drive, Mail, Tasks, Photo)
+- 7ac3ecf90 RED Button disabled/toggled; aed9c4dc5 Button disabled_reason + toggled (themes: button_toggled_face
+  appended in flat.rs/flora.rs; ribbon's disabled machinery moved into button.rs); 57079464d AzCalculator disabled key
+- 2944230c4 RED attributes; 9f25d3ffd NodeData::get_attribute/get_attributes (CallbackInfo::get_node_attribute
+  delegates); ca8319fd4 AzMail href in attribute (LINK_CLASS_PREFIX gone)
+- e5f0fc51a NodeType::get_text (+test); 3a11557b3 box_str x3 gone (Writer/Notes/Mail)
 
 ## api.json list (accumulating; for the report)
 - KeyModifiers.primary_down (dom; self ref -> bool)
@@ -28,13 +33,16 @@
 - ColorU.to_hex (self ref -> String), ColorU.parse_hex(text: String) -> OptionColorU, ColorU.parse_css(text: String) -> OptionColorU (css)
 - RawImage.create_rgba8(width: u32, height: u32, pixels: U8Vec, premultiplied_alpha: bool) ctor; RawImage.resized(width: u32, height: u32) -> OptionRawImage (image)
 - DiskSpace.format_bytes(bytes: u64) -> String (static, file)
+- Button: struct fields disabled_reason (AzString, after on_click) + toggled (OptionBool, last);
+  set_disabled / with_disabled(reason: String) / is_disabled / set_toggled / with_toggled(bool)
+- NodeData.get_attribute(name: String) -> OptionString, NodeData.get_attributes() -> AttributeTypeVec (dom)
+- NodeType.get_text() -> OptionString (dom)
 
 ## IN PROGRESS
-- item 4: Button disabled / toggled
+- item 4: TextAreaState.get_text
 
 ## NEXT
-4. Button disabled/toggled; NodeData attribute getter (+ AzMail href); text-node accessor (box_str x3);
-   TextAreaState.get_text (+5 app copies); DatePicker.with_week_start (RED); GlobalHotkey.matches (RED)
+4. TextAreaState.get_text (+5 app copies); DatePicker.with_week_start (RED); GlobalHotkey.matches (RED)
 5. reborrow_info -> *info
 6. report scripts/APIEXPORT_2026_10_02.md
 
