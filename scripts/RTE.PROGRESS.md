@@ -13,10 +13,14 @@ Branch `wt/rte` from `2e92c759b`. Worktree `.claude/worktrees/agent-ac6805ca5f7c
 - 2ec6f7dd5 widget part A+B (types, builder, rendering); 4f15c93d6 part C (engine glue, keys, commands, callbacks)
 - 8b0e4e8eb registered rich_text + rich_text_editor in widgets/mod.rs, flat/flora looks, manifest (CONTAINERS), widget tests
 - 54b5ef81b / 44d39f080 small fixes: split_off, AzString returns, FFI field order
+- 63d26de7a get_selection / set_link_on / content_dom; de02fd0c6 is_current_kind/format/quoted
+- 9b69988d3 + 8478ed719 AzNotes adoption (model/markdown front matter; editor.rs glue; ui/jobs/lib/sample; doc.rs deleted; e2e #note-body-0)
 
 ## IN PROGRESS
-- step 8: AzNotes adoption (examples/azul-notes): note.doc -> azul::widgets::RichTextDoc via the editor state;
-  editor.rs shrinks to the glue; doc.rs and the Markdown body half of markdown.rs go (front matter stays).
+- step 9: AzMail compose adoption (examples/azul-mail): Compose.body Dom -> RichTextEditorState; editor.rs
+  (Dom model) goes; compose.rs MailDoc -> RichTextDoc (to_html wrapped in <html><body>, to_plain_text);
+  reply/forward quotes via from_plain_text; reopened drafts via from_html; ribbon B/I/U/lists/link via
+  apply_command; Ctrl/Cmd+B/I/U handled by the editor itself.
 
 ## NEXT (in order; commit after every unit)
 1. layout/Cargo.toml: `pulldown-cmark` optional, feature `rich_text_markdown` (in `widgets`); justification lines.
