@@ -13,11 +13,15 @@ Brief: scratchpad/wave5/HYGIENE.md. Findings: scripts/DEDUP_WIDGETS_API_2026_10_
 - Item 4b (F31): d0f71856d tests on the one decoder, a1c20bf54 prepare_string on decode_character_references; decode_entities & co. deleted.
 - Extra (found in F5): 0bd60d7e8 RED / 8f7e19808 fix - to_html font-family attribute injection.
 
+- Item 5 (F26): fdfa6a879 - layout micromail 0.2 + tls-rustcrypto, lock / vet one copy.
+- 441ae3bfb - doc_markdown / match_same_arms cleanups.
+- Report: scripts/HYGIENE_2026_10_02.md.
+
 ## IN PROGRESS
-- Item 5 (F26): layout micromail 0.1 -> 0.2 (read ~/Development/micromail CHANGELOG + src).
+- (none) - task complete.
 
 ## NEXT
-- Report scripts/HYGIENE_2026_10_02.md.
+- Wave 6 items are listed in the report's last section.
 
 ## Decisions / open questions
 - F4: decl survives (fill = background, fill_box = 100% box); style_kit keeps the theme marker only (rename to `marker` is wave 6).
