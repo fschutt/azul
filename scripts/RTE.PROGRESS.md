@@ -17,12 +17,16 @@ Branch `wt/rte` from `2e92c759b`. Worktree `.claude/worktrees/agent-ac6805ca5f7c
 - 9b69988d3 + 8478ed719 AzNotes adoption (model/markdown front matter; editor.rs glue; ui/jobs/lib/sample; doc.rs deleted; e2e #note-body-0)
 - 5ce6b9daf RichBlock::create_paragraph / create_text
 - 4219be130 AzMail compose adoption (editor.rs + MailDoc deleted; compose.rs reply/forward/draft_body/html_part; ui_compose on the widget)
+- 30a9dd9f3 constructors renamed create_* (api.json rule)
+- report scripts/RTE_2026_10_02.md (parts 1 + 2)
 
 ## IN PROGRESS
-- step 10: final compile-review pass over rich_text_editor.rs + rich_text/*, then the report
-  scripts/RTE_2026_10_02.md (api.json list, least-sure spots, test commands, Writer plan for wave 6).
+- (none) - task complete; report committed.
 
-## NEXT (in order; commit after every unit)
+## NEXT
+- nothing left in wave 5 (wave-6 list in the report, section 8)
+
+## (original plan)
 1. layout/Cargo.toml: `pulldown-cmark` optional, feature `rich_text_markdown` (in `widgets`); justification lines.
 2. layout/src/widgets/rich_text/{mod,doc}.rs: FFI model types + run helpers + edits (from AzNotes doc.rs) + tests.
 3. rich_text/markdown.rs (AzNotes reader/writer, quote_depth, tables, align as HTML? no) + tests.
