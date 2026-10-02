@@ -11,6 +11,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "AzCalculator"
+version = "0.1.0"
+dependencies = [
+ "azul-appkit",
+ "azul-dll",
+ "bigdecimal",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "AzCalendar"
 version = "0.1.0"
 dependencies = [
@@ -18,6 +29,14 @@ dependencies = [
  "chrono",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "AzContacts"
+version = "0.1.0"
+dependencies = [
+ "azul-appkit",
+ "azul-dll",
 ]
 
 [[package]]
@@ -786,6 +805,16 @@ name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
+
+[[package]]
+name = "azul-appkit"
+version = "0.1.0"
+dependencies = [
+ "azul-dll",
+ "azul-storage",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "azul-core"
