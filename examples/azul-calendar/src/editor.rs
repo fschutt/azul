@@ -11,9 +11,11 @@
 
 use chrono::{Datelike, Duration, NaiveDate, NaiveTime, Weekday};
 
+use azul_pim::dates::{nth_weekday_of_month, ordinal_word, weekday_name, WORK_DAYS};
+
 use crate::{
     event::{is_email, Event, EventError, Meeting},
-    rrule::{self, ByDay, Freq, RepeatEnd, Rule},
+    rrule::{ByDay, Freq, RepeatEnd, Rule},
 };
 
 /// The repeat choice.
@@ -336,17 +338,9 @@ pub fn error_text(e: &EventError) -> String {
 /// "last" (-1) for a fifth one (which most months do not have).
 #[must_use]
 pub fn monthly_weekday(date: NaiveDate) -> ByDay {
-    let (nth, _) = rrule::nth_weekday_of_month(date);
+    let (nth, _) = nth_weekday_of_month(date);
     ByDay::nth(if nth >= 5 { -1 } else { nth }, date.weekday())
 }
-
-const WEEKDAYS: [Weekday; 5] = [
-    Weekday::Mon,
-    Weekday::Tue,
-    Weekday::Wed,
-    Weekday::Thu,
-    Weekday::Fri,
-];
 
 /// The rule a repeat choice makes for an event that starts on `date`; `None` for `Never` and
 /// `Custom` (whose rule is the event's own).
@@ -364,7 +358,7 @@ pub fn rule_of(
         Repeat::Daily => Rule::new(Freq::Daily),
         Repeat::Weekly => Rule::new(Freq::Weekly).with_by_day(vec![ByDay::every(date.weekday())]),
         Repeat::Weekdays => {
-            Rule::new(Freq::Weekly).with_by_day(WEEKDAYS.into_iter().map(ByDay::every).collect())
+            Rule::new(Freq::Weekly).with_by_day(WORK_DAYS.into_iter().map(ByDay::every).collect())
         }
         Repeat::MonthlyDay => {
             Rule::new(Freq::Monthly).with_by_month_day(vec![i8::try_from(date.day()).unwrap_or(1)])
@@ -437,15 +431,15 @@ pub fn repeat_label(repeat: Repeat, date: NaiveDate, custom: Option<&Rule>) -> S
     match repeat {
         Repeat::Never => String::from("Does not repeat"),
         Repeat::Daily => String::from("Daily"),
-        Repeat::Weekly => format!("Weekly on {}", rrule::weekday_name(date.weekday())),
+        Repeat::Weekly => format!("Weekly on {}", weekday_name(date.weekday())),
         Repeat::Weekdays => String::from("Every weekday (Monday to Friday)"),
         Repeat::MonthlyDay => format!("Monthly on day {}", date.day()),
         Repeat::MonthlyWeekday => {
             let by = monthly_weekday(date);
             format!(
                 "Monthly on the {} {}",
-                rrule::ordinal(i32::from(by.nth)),
-                rrule::weekday_name(by.weekday)
+                ordinal_word(i32::from(by.nth)),
+                weekday_name(by.weekday)
             )
         }
         Repeat::Yearly => format!("Yearly on {}", date.format("%-d %B")),

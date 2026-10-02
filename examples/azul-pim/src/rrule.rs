@@ -1,5 +1,6 @@
 //! Repeat rules: the part of iCalendar's RRULE (RFC 5545, 3.3.10) that AzCalendar writes and
-//! reads, and the dates a rule makes.
+//! reads, and the dates a rule makes. Moved here from AzCalendar's `rrule.rs`
+//! (scripts/DEDUP_EDITORS_2026_10_02.md, B6); a to-do's repeat ([`crate::repeat`]) turns into one.
 //!
 //! An event file keeps its rule as RRULE text (`"repeat": "FREQ=WEEKLY;BYDAY=WE"`), so the file,
 //! an .ics export and an .ics import all say the same thing. The subset:
@@ -20,6 +21,11 @@
 //! 30-day month, 29 February in a common year) is skipped, not moved.
 
 use chrono::{Datelike, Duration, NaiveDate, Weekday};
+
+use crate::dates::{
+    days_in_month, join_and, month_name, ordinal_word, shift_month, start_of_week, weekday_code,
+    weekday_from_code, weekday_name,
+};
 
 /// How often a rule repeats.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -103,30 +109,6 @@ impl std::fmt::Display for RuleError {
 /// about the year 9999), so a nonsense rule cannot hang the view.
 const MAX_PERIODS: i64 = 200_000;
 
-const WEEKDAYS: [(&str, Weekday); 7] = [
-    ("MO", Weekday::Mon),
-    ("TU", Weekday::Tue),
-    ("WE", Weekday::Wed),
-    ("TH", Weekday::Thu),
-    ("FR", Weekday::Fri),
-    ("SA", Weekday::Sat),
-    ("SU", Weekday::Sun),
-];
-
-fn weekday_code(weekday: Weekday) -> &'static str {
-    WEEKDAYS
-        .iter()
-        .find(|(_, w)| *w == weekday)
-        .map_or("MO", |(code, _)| code)
-}
-
-fn parse_weekday(code: &str) -> Option<Weekday> {
-    WEEKDAYS
-        .iter()
-        .find(|(c, _)| c.eq_ignore_ascii_case(code))
-        .map(|(_, w)| *w)
-}
-
 /// `2TU`, `-1FR`, `MO`.
 fn parse_by_day(text: &str) -> Option<ByDay> {
     let text = text.trim();
@@ -135,7 +117,7 @@ fn parse_by_day(text: &str) -> Option<ByDay> {
         return None;
     }
     let (number, code) = text.split_at(split);
-    let weekday = parse_weekday(code)?;
+    let weekday = weekday_from_code(code)?;
     let nth = if number.is_empty() {
         0
     } else {
@@ -149,7 +131,7 @@ fn parse_by_day(text: &str) -> Option<ByDay> {
 }
 
 /// `20261231`, or the date of `20261231T235959` / `20261231T235959Z`.
-pub(crate) fn parse_basic_date(text: &str) -> Option<NaiveDate> {
+pub fn parse_basic_date(text: &str) -> Option<NaiveDate> {
     let digits = text.get(..8)?;
     if !digits.bytes().all(|b| b.is_ascii_digit()) {
         return None;
@@ -159,30 +141,6 @@ pub(crate) fn parse_basic_date(text: &str) -> Option<NaiveDate> {
         return None;
     }
     NaiveDate::parse_from_str(digits, "%Y%m%d").ok()
-}
-
-/// The first day of the week `weekday_start` begins that holds `day`.
-fn start_of_week(day: NaiveDate, week_start: Weekday) -> NaiveDate {
-    day - Duration::days(i64::from(day.weekday().days_since(week_start)))
-}
-
-fn days_in_month(year: i32, month: u32) -> u32 {
-    let (next_year, next_month) = if month == 12 {
-        (year + 1, 1)
-    } else {
-        (year, month + 1)
-    };
-    NaiveDate::from_ymd_opt(next_year, next_month, 1)
-        .and_then(|d| d.pred_opt())
-        .map_or(28, |d| d.day())
-}
-
-/// `(year, month)` `months` months after `(year, month)`; `None` past chrono's range.
-fn add_months(year: i32, month: u32, months: i64) -> Option<(i32, u32)> {
-    let index = i64::from(year) * 12 + i64::from(month) - 1 + months;
-    let year = i32::try_from(index.div_euclid(12)).ok()?;
-    let month = u32::try_from(index.rem_euclid(12)).ok()? + 1;
-    (1..=9999).contains(&year).then_some((year, month))
 }
 
 /// The days of `weekday` from `from` to `to` (inclusive), in order.
@@ -333,7 +291,7 @@ impl Rule {
                         .collect::<Option<Vec<_>>>()
                         .ok_or_else(bad)?;
                 }
-                "WKST" => rule.week_start = parse_weekday(value).ok_or_else(bad)?,
+                "WKST" => rule.week_start = weekday_from_code(value).ok_or_else(bad)?,
                 _ => return Err(RuleError::Unsupported(part.to_string())),
             }
         }
@@ -420,7 +378,7 @@ impl Rule {
             Freq::Weekly => start_of_week(first, self.week_start)
                 .checked_add_signed(Duration::try_days(step.checked_mul(7)?)?),
             Freq::Monthly => {
-                let (y, m) = add_months(first.year(), first.month(), step)?;
+                let (y, m) = shift_month(first.year(), first.month(), step)?;
                 NaiveDate::from_ymd_opt(y, m, 1)
             }
             Freq::Yearly => {
@@ -661,7 +619,7 @@ impl Rule {
                     let day = weekday_name(d.weekday);
                     match d.nth {
                         0 => day.to_string(),
-                        n => format!("the {} {day}", ordinal(i32::from(n))),
+                        n => format!("the {} {day}", ordinal_word(i32::from(n))),
                     }
                 })
                 .collect();
@@ -687,7 +645,7 @@ impl Rule {
                         .map(|&d| match d {
                             -1 => String::from("the last day"),
                             d if d < 0 => {
-                                format!("the {} day from the end", ordinal(i32::from(-d)))
+                                format!("the {} day from the end", ordinal_word(i32::from(-d)))
                             }
                             d => format!("day {d}"),
                         })
@@ -739,74 +697,6 @@ fn is_weekdays(days: &[ByDay]) -> bool {
         .collect();
     weekdays.sort_unstable();
     days.len() == 5 && weekdays == [0, 1, 2, 3, 4]
-}
-
-/// "Monday"
-#[must_use]
-pub fn weekday_name(weekday: Weekday) -> &'static str {
-    match weekday {
-        Weekday::Mon => "Monday",
-        Weekday::Tue => "Tuesday",
-        Weekday::Wed => "Wednesday",
-        Weekday::Thu => "Thursday",
-        Weekday::Fri => "Friday",
-        Weekday::Sat => "Saturday",
-        Weekday::Sun => "Sunday",
-    }
-}
-
-fn month_name(month: u32) -> &'static str {
-    [
-        "January",
-        "February",
-        "March",
-        "April",
-        "May",
-        "June",
-        "July",
-        "August",
-        "September",
-        "October",
-        "November",
-        "December",
-    ]
-    .get(month.saturating_sub(1) as usize)
-    .copied()
-    .unwrap_or("January")
-}
-
-/// "first", "second", ... "fifth", "last", "second to last".
-#[must_use]
-pub fn ordinal(n: i32) -> String {
-    match n {
-        -1 => String::from("last"),
-        -2 => String::from("second to last"),
-        1 => String::from("first"),
-        2 => String::from("second"),
-        3 => String::from("third"),
-        4 => String::from("fourth"),
-        5 => String::from("fifth"),
-        n if n < 0 => format!("{}th to last", -n),
-        n => format!("{n}th"),
-    }
-}
-
-/// "a", "a and b", "a, b and c".
-fn join_and(items: &[String]) -> String {
-    match items {
-        [] => String::new(),
-        [one] => one.clone(),
-        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
-    }
-}
-
-/// Which `nth` weekday of its month `day` is, counted from the start (1 to 5) - and -1 when it is
-/// also the month's last such weekday.
-#[must_use]
-pub fn nth_weekday_of_month(day: NaiveDate) -> (i8, bool) {
-    let nth = i8::try_from((day.day() - 1) / 7 + 1).unwrap_or(1);
-    let last = day.day() + 7 > days_in_month(day.year(), day.month());
-    (nth, last)
 }
 
 #[cfg(test)]
@@ -1150,14 +1040,5 @@ mod tests {
         assert!(!Rule::new(Freq::Weekly)
             .with_end(RepeatEnd::Until(d(2026, 10, 6)))
             .repeats(first));
-    }
-
-    #[test]
-    fn the_nth_weekday_of_a_day_and_whether_it_is_the_last() {
-        assert_eq!(nth_weekday_of_month(d(2026, 10, 13)), (2, false));
-        assert_eq!(nth_weekday_of_month(d(2026, 10, 30)), (5, true));
-        assert_eq!(nth_weekday_of_month(d(2026, 10, 25)), (4, true));
-        assert_eq!(ordinal(-1), "last");
-        assert_eq!(ordinal(2), "second");
     }
 }

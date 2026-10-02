@@ -21,6 +21,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # The same features azul-layout builds chrono with (dates, and the local date for "today").
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+# The PIM logic the Azlin apps share (dates, repeat rules, .ics content lines, addresses, the task
+# store) and the drive the tasks are written through; both plain Rust, no new crates.
+azul-pim = { path = "../azul-pim" }
+azul-storage = { path = "../azul-storage" }
 
 [lib]
 name = "azcalendar"
