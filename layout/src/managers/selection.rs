@@ -251,7 +251,11 @@ impl ClipboardContent {
             html.push_str("<span style=\"");
 
             if let Some(font_family) = run.font_family.as_ref() {
-                let _ = write!(html, "font-family: {}; ", font_family.as_str());
+                let _ = write!(
+                    html,
+                    "font-family: {}; ",
+                    azul_core::xml::html::encode_attribute(font_family.as_str())
+                );
             }
             let _ = write!(html, "font-size: {}px; ", run.font_size_px);
             let _ = write!(
