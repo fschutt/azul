@@ -2161,6 +2161,94 @@ mod autotest_generated {
         assert_eq!(decode_entities(&amps).len(), 20_000);
     }
 
+    // ================================================================
+    // the one decoder (`html::decode_character_references`, XML rules)
+    // - what `prepare_string` decodes with (DEDUP_WIDGETS_API F31)
+    // ================================================================
+
+    fn xml_decode(s: &str) -> String {
+        html::decode_character_references(s, html::CharRefMode::Xml).into_owned()
+    }
+
+    #[test]
+    fn a_numeric_reference_decodes_to_its_character() {
+        assert_eq!(xml_decode("&#65;"), "A");
+        assert_eq!(xml_decode("&#x41;"), "A");
+        assert_eq!(xml_decode("&#X41;"), "A", "uppercase X accepted");
+        assert_eq!(xml_decode("&#x1F600;"), "\u{1F600}");
+    }
+
+    #[test]
+    fn a_malformed_numeric_reference_stays_as_written() {
+        for s in ["&#;", "&#x;", "&#zz;", "&# 65;", "&#65junk;", "&#65"] {
+            assert_eq!(xml_decode(s), s);
+        }
+    }
+
+    #[test]
+    fn a_numeric_reference_outside_the_scalar_values_stays_as_written() {
+        assert_eq!(xml_decode("&#0;"), "\u{0}", "NUL is a valid char");
+        assert_eq!(xml_decode("&#x10FFFF;"), "\u{10FFFF}", "max scalar");
+        for s in [
+            "&#x110000;",       // one past the max scalar value
+            "&#xD800;",         // a lone surrogate is not a char
+            "&#4294967295;",    // u32::MAX is not a scalar value
+            "&#4294967296;",    // one past u32::MAX must not wrap
+            "&#-1;",            // a sign is not a digit
+            "&#xFFFFFFFFFFFF;", // hex overflow is rejected, not truncated
+        ] {
+            assert_eq!(xml_decode(s), s);
+        }
+    }
+
+    #[test]
+    fn an_extremely_long_numeric_reference_terminates() {
+        let s = format!("&#{};", "9".repeat(LONG));
+        assert_eq!(xml_decode(&s), s, "overflows u32: stays as written");
+    }
+
+    #[test]
+    fn an_unknown_or_empty_reference_stays_as_written() {
+        assert_eq!(xml_decode(""), "");
+        assert_eq!(xml_decode("&"), "&", "a bare '&' at EOF must not panic");
+        assert_eq!(xml_decode("&;"), "&;", "empty reference body");
+        assert_eq!(xml_decode("&bogus;"), "&bogus;");
+        assert_eq!(
+            xml_decode("&averyveryverylongbody;"),
+            "&averyveryverylongbody;"
+        );
+    }
+
+    #[test]
+    fn decoding_is_one_pass_so_an_ampersand_never_reopens_a_reference() {
+        assert_eq!(
+            xml_decode("&amp;lt;"),
+            "&lt;",
+            "&amp; must not re-open an entity"
+        );
+        assert_eq!(xml_decode("&lt;&gt;&amp;&quot;&apos;"), "<>&\"'");
+    }
+
+    #[test]
+    fn decoding_keeps_unicode_and_terminates_on_long_input() {
+        assert_eq!(
+            xml_decode("\u{1F600}\u{0301}\u{130}"),
+            "\u{1F600}\u{0301}\u{130}"
+        );
+        let amps = "&".repeat(20_000);
+        assert_eq!(xml_decode(&amps).len(), 20_000);
+    }
+
+    /// `&nbsp;` is a space `prepare_string`'s trimming keeps: decoded to
+    /// U+00A0 before the per-line trim, it would be trimmed away (U+00A0 is
+    /// white space to `str::trim`).
+    #[test]
+    fn prepare_string_turns_nbsp_into_a_space_the_trim_keeps() {
+        assert_eq!(prepare_string("a&nbsp;b"), "a b");
+        assert_eq!(prepare_string("&nbsp;x&nbsp;"), " x ");
+        assert_eq!(prepare_string("&nbsp;&amp;&nbsp;"), " & ");
+    }
+
     #[test]
     fn prepare_string_empty_and_whitespace() {
         assert_eq!(prepare_string(""), "");
