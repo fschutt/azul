@@ -3110,3 +3110,29 @@ fn every_binding_pads_a_union_variant_payload_like_azul_h() {
     }
     assert_none("union variant records laid out unlike Rust", offenders);
 }
+
+/// Every Vec of the Rust bindings that converts from a `Vec<T>` also has the
+/// inherent `from_vec` that azul's own crates have (`impl_vec!`): app code is
+/// written against both sides, and on 2026-10-01 six apps written against the
+/// internal API called `StringVec::from_vec` / `DomVec::from_vec`, which the
+/// bindings lacked.
+#[test]
+fn every_rust_binding_vec_has_from_vec() {
+    let outputs = shipped_outputs();
+    let mut offenders = Vec::new();
+    let mut checked = 0;
+    for (path, text) in outputs.get("rust").map(|v| v.as_slice()).unwrap_or(&[]) {
+        for line in text.lines() {
+            let Some(rest) = line.strip_prefix("impl From<alloc::vec::Vec<") else { continue };
+            let Some((_, ty)) = rest.split_once(">> for ") else { continue };
+            let ty = ty.trim_end_matches(" {").trim();
+            checked += 1;
+            let wanted = format!("impl {ty} {{\n    pub fn from_vec(");
+            if !text.contains(&wanted) {
+                offenders.push(format!("{path}: {ty}"));
+            }
+        }
+    }
+    assert!(checked > 50, "found only {checked} Vec conversions - the pattern broke");
+    assert!(offenders.is_empty(), "Vecs without from_vec: {offenders:?}");
+}

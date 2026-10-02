@@ -1892,6 +1892,18 @@ impl RustGenerator {
                     builder.dedent();
                     builder.line("}");
                     builder.blank();
+
+                    // The name azul's own crates use (`impl_vec!`'s `from_vec`):
+                    // app code is written against both sides.
+                    builder.line(&format!("impl {} {{", prefixed_name));
+                    builder.indent();
+                    builder.line(&format!(
+                        "pub fn from_vec(v: alloc::vec::Vec<{}>) -> Self {{ Self::from(v) }}",
+                        prefixed_inner
+                    ));
+                    builder.dedent();
+                    builder.line("}");
+                    builder.blank();
                 }
             }
         }
