@@ -3,16 +3,16 @@
 Branch `wt/widgets9a` from `e537ddbe2`. Nothing compiled (house rule). Report: `scripts/WIDGETS9A_2026_10_03.md`.
 
 ## DONE (commits)
-- (this file)
+- 75c86029c progress file
+- Toolbar (`layout/src/widgets/toolbar.rs`): 288e31797 skeleton, 49bf1cad7 RED tests, 7a8badc52 GREEN fit (+ button.rs
+  tooltip handlers pub(crate)), b433a4229 GREEN build/handlers/menus, 8e0794816 flat/flora looks, ab1b3a910 manifest
+  (`toolbar`, `toolbar (overflow)` in every_widget_dom + theme_contrast CHROME)
 
 ## IN PROGRESS
-- Toolbar: `layout/src/widgets/toolbar.rs`
+- TokenInput: `layout/src/widgets/token_input.rs`
 
 ## NEXT
-1. Toolbar: skeleton (types, builder, callback triple) -> RED tests -> GREEN (fit, build, handlers) -> theme appends
-   (`toolbar_look` in flat.rs / flora.rs under `// ==== toolbar ====`) -> manifest (mod.rs `pub mod toolbar;`,
-   `every_widget_dom` push, theme_contrast CHROME) -> commit each.
-2. TokenInput: `layout/src/widgets/token_input.rs`, same steps; manifest group INPUTS.
+2. TokenInput: `layout/src/widgets/token_input.rs`: skeleton -> RED -> GREEN -> looks -> manifest (group INPUTS).
 3. IconGrid: `layout/src/widgets/icon_grid.rs`, same steps; manifest CHROME + wheel_ownership list.
 4. Report with the api.json list.
 

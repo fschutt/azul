@@ -63,7 +63,7 @@ use azul_css::{
         layout::{
             LayoutAlignItems, LayoutBoxSizing, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
             LayoutFlexShrink, LayoutFlexWrap, LayoutHeight, LayoutJustifyContent, LayoutMarginLeft,
-            LayoutMarginRight, LayoutMinHeight, LayoutMinWidth, LayoutOverflow, LayoutPaddingBottom,
+            LayoutMarginRight, LayoutMinWidth, LayoutOverflow, LayoutPaddingBottom,
             LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, LayoutWidth,
         },
         property::CssProperty,
