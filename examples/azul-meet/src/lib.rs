@@ -4752,12 +4752,10 @@ extern "C" fn on_key(mut data: RefAny, info: CallbackInfo) -> Update {
     }
 }
 
+/// The demo meeting's code (`abc-defg-hij`): it names the meeting's folder in the data tree, so
+/// it comes from the seed for ids that leave the process, not from the clock.
 fn gen_link() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let n = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
+    let n = azul_storage::ids::random_seed();
     format!(
         "{:03x}-{:04x}-{:03x}",
         (n & 0xfff) as u16,
