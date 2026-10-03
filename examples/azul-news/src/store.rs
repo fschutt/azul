@@ -18,9 +18,12 @@ use serde::{Deserialize, Serialize};
 use crate::{
     feed::Item,
     library::{FeedData, FeedMeta, Library},
-    opml::{self, Subscription},
+    opml,
     state::ReadState,
 };
+
+#[cfg(test)]
+use crate::opml::Subscription;
 
 /// The app's folder in the data tree.
 pub const APP_FOLDER: &str = "news";
@@ -55,8 +58,13 @@ pub fn state_key(id: &str) -> String {
 
 /// The feed id and the file name of a key under [`FEEDS_PREFIX`] (`None` for any other key).
 #[must_use]
-pub fn split_key(_key: &str) -> Option<(&str, &str)> {
-    None
+pub fn split_key(key: &str) -> Option<(&str, &str)> {
+    let rest = key.strip_prefix(FEEDS_PREFIX)?;
+    let (id, file) = rest.split_once('/')?;
+    if id.is_empty() || file.is_empty() || file.contains('/') {
+        return None;
+    }
+    Some((id, file))
 }
 
 /// The `items.json` file.
@@ -70,23 +78,37 @@ struct ItemsFile {
 
 /// The text of an `items.json`.
 #[must_use]
-pub fn items_to_json(_items: &[Item]) -> String {
-    String::new()
+pub fn items_to_json(items: &[Item]) -> String {
+    let file = ItemsFile {
+        format: ITEMS_FORMAT.to_string(),
+        version: ITEMS_VERSION,
+        items: items.to_vec(),
+    };
+    serde_json::to_string(&file).unwrap_or_default()
 }
 
 /// The articles of an `items.json`.
 ///
 /// # Errors
 /// A sentence when the file cannot be read.
-pub fn items_from_json(_text: &str) -> Result<Vec<Item>, String> {
-    let _unused = ItemsFile::default();
-    Err("RED".to_string())
+pub fn items_from_json(text: &str) -> Result<Vec<Item>, String> {
+    serde_json::from_str::<ItemsFile>(text)
+        .map(|file| file.items)
+        .map_err(|e| format!("the articles could not be read: {e}"))
 }
 
 /// The jobs that read the whole library when the window opens.
 #[must_use]
 pub fn load_jobs() -> Vec<FileJob> {
-    Vec::new()
+    vec![
+        FileJob::Get {
+            key: SUBSCRIPTIONS_KEY.to_string(),
+        },
+        FileJob::GetAll {
+            prefix: FEEDS_PREFIX.to_string(),
+            suffix: ".json".to_string(),
+        },
+    ]
 }
 
 /// What [`load`] read.
@@ -103,32 +125,95 @@ pub struct Loaded {
 /// [`FEEDS_PREFIX`]. A subscription without an id gets one (`new_id`); a feed folder no
 /// subscription names is left alone.
 #[must_use]
-pub fn load(_subscriptions: Option<&[u8]>, _files: &[(String, Vec<u8>)], _new_id: &mut dyn FnMut() -> String) -> Loaded {
-    Loaded::default()
+pub fn load(
+    subscriptions: Option<&[u8]>,
+    files: &[(String, Vec<u8>)],
+    new_id: &mut dyn FnMut() -> String,
+) -> Loaded {
+    let mut loaded = Loaded::default();
+    let subs = match subscriptions.map(opml::parse) {
+        None => Vec::new(),
+        Some(Ok(subs)) => subs,
+        Some(Err(e)) => {
+            loaded.problems.push(format!("{SUBSCRIPTIONS_KEY}: {e}"));
+            Vec::new()
+        }
+    };
+    for mut sub in subs {
+        if sub.id.trim().is_empty() {
+            sub.id = new_id();
+            loaded.minted = true;
+        }
+        loaded.library.subscribe(sub);
+    }
+    for (key, bytes) in files {
+        let Some((id, file)) = split_key(key) else {
+            continue;
+        };
+        let Some(index) = loaded.library.feed_index(id) else {
+            // A folder no subscription names (unsubscribed elsewhere): left alone.
+            continue;
+        };
+        let text = String::from_utf8_lossy(bytes);
+        let feed = &mut loaded.library.feeds[index];
+        match file {
+            "feed.json" => match FeedMeta::from_json(&text) {
+                Some(meta) => feed.meta = meta,
+                None => loaded
+                    .problems
+                    .push(format!("{key}: the feed's details could not be read")),
+            },
+            "items.json" => match items_from_json(&text) {
+                Ok(items) => feed.items = items,
+                Err(e) => loaded.problems.push(format!("{key}: {e}")),
+            },
+            "state.json" => {
+                let (state, problem) = ReadState::from_json(&text);
+                feed.state = state;
+                if let Some(p) = problem {
+                    loaded.problems.push(format!("{key}: {p}"));
+                }
+            }
+            _ => {}
+        }
+    }
+    loaded
 }
 
 /// The job that writes the subscription list.
 #[must_use]
-pub fn subscriptions_job(_library: &Library) -> FileJob {
-    FileJob::Get { key: String::new() }
+pub fn subscriptions_job(library: &Library) -> FileJob {
+    FileJob::Put {
+        key: SUBSCRIPTIONS_KEY.to_string(),
+        bytes: opml::write(&library.subscriptions(), OPML_TITLE).into_bytes(),
+    }
 }
 
 /// The job that writes one feed's meta.
 #[must_use]
-pub fn meta_job(_feed: &FeedData) -> FileJob {
-    FileJob::Get { key: String::new() }
+pub fn meta_job(feed: &FeedData) -> FileJob {
+    FileJob::Put {
+        key: meta_key(&feed.sub.id),
+        bytes: feed.meta.to_json().into_bytes(),
+    }
 }
 
 /// The job that writes one feed's articles.
 #[must_use]
-pub fn items_job(_feed: &FeedData) -> FileJob {
-    FileJob::Get { key: String::new() }
+pub fn items_job(feed: &FeedData) -> FileJob {
+    FileJob::Put {
+        key: items_key(&feed.sub.id),
+        bytes: items_to_json(&feed.items).into_bytes(),
+    }
 }
 
 /// The job that writes one feed's marks.
 #[must_use]
-pub fn state_job(_feed: &FeedData) -> FileJob {
-    FileJob::Get { key: String::new() }
+pub fn state_job(feed: &FeedData) -> FileJob {
+    FileJob::Put {
+        key: state_key(&feed.sub.id),
+        bytes: feed.state.to_json().into_bytes(),
+    }
 }
 
 /// Every file of one feed.
@@ -139,10 +224,11 @@ pub fn feed_jobs(feed: &FeedData) -> Vec<FileJob> {
 
 /// The jobs that remove a feed's files (it was unsubscribed).
 #[must_use]
-pub fn delete_jobs(_id: &str) -> Vec<FileJob> {
-    let _unused: (Option<Subscription>, Option<FeedMeta>, Option<ReadState>) = (None, None, None);
-    let _write = opml::write;
-    Vec::new()
+pub fn delete_jobs(id: &str) -> Vec<FileJob> {
+    [meta_key(id), items_key(id), state_key(id)]
+        .into_iter()
+        .map(|key| FileJob::Delete { key })
+        .collect()
 }
 
 #[cfg(test)]
@@ -195,14 +281,22 @@ mod tests {
         assert_eq!(meta_key("abc"), "news/feeds/abc/feed.json");
         assert_eq!(items_key("abc"), "news/feeds/abc/items.json");
         assert_eq!(state_key("abc"), "news/feeds/abc/state.json");
-        assert_eq!(split_key("news/feeds/abc/state.json"), Some(("abc", "state.json")));
+        assert_eq!(
+            split_key("news/feeds/abc/state.json"),
+            Some(("abc", "state.json"))
+        );
         assert_eq!(split_key("news/settings.json"), None);
         assert_eq!(split_key("news/feeds/abc/deeper/x.json"), None);
         assert_eq!(
             load_jobs(),
             vec![
-                FileJob::Get { key: SUBSCRIPTIONS_KEY.to_string() },
-                FileJob::GetAll { prefix: FEEDS_PREFIX.to_string(), suffix: ".json".to_string() },
+                FileJob::Get {
+                    key: SUBSCRIPTIONS_KEY.to_string()
+                },
+                FileJob::GetAll {
+                    prefix: FEEDS_PREFIX.to_string(),
+                    suffix: ".json".to_string()
+                },
             ]
         );
     }
@@ -211,7 +305,9 @@ mod tests {
     fn what_is_written_loads_back_the_same() {
         let lib = library();
         let (subscriptions, files) = written(&lib);
-        let loaded = load(Some(&subscriptions), &files, &mut || panic!("every feed has an id"));
+        let loaded = load(Some(&subscriptions), &files, &mut || {
+            panic!("every feed has an id")
+        });
         assert_eq!(loaded.problems, Vec::<String>::new());
         assert!(!loaded.minted);
         assert_eq!(loaded.library.feeds.len(), 2);
@@ -226,7 +322,11 @@ mod tests {
     #[test]
     fn a_list_from_elsewhere_gets_ids_and_asks_to_be_written() {
         let opml = opml::write(
-            &[Subscription { title: "No id".into(), url: "https://x.example.org/feed".into(), ..Subscription::default() }],
+            &[Subscription {
+                title: "No id".into(),
+                url: "https://x.example.org/feed".into(),
+                ..Subscription::default()
+            }],
             "Imported",
         );
         let mut n = 0;
@@ -248,13 +348,23 @@ mod tests {
                 *bytes = b"{ broken".to_vec();
             }
         }
-        files.push(("news/feeds/orphan/items.json".to_string(), items_to_json(&[]).into_bytes()));
+        files.push((
+            "news/feeds/orphan/items.json".to_string(),
+            items_to_json(&[]).into_bytes(),
+        ));
         let loaded = load(Some(&subscriptions), &files, &mut || "x".to_string());
         assert_eq!(loaded.problems.len(), 1, "{:?}", loaded.problems);
         assert!(loaded.library.feeds[0].items.is_empty());
         assert_eq!(loaded.library.feeds[1].items.len(), 1);
-        assert_eq!(loaded.library.feeds.len(), 2, "an orphan folder is no subscription");
-        assert_eq!(load(None, &[], &mut || "x".to_string()).library.feeds.len(), 0);
+        assert_eq!(
+            loaded.library.feeds.len(),
+            2,
+            "an orphan folder is no subscription"
+        );
+        assert_eq!(
+            load(None, &[], &mut || "x".to_string()).library.feeds.len(),
+            0
+        );
     }
 
     #[test]
@@ -262,9 +372,15 @@ mod tests {
         assert_eq!(
             delete_jobs("f1"),
             vec![
-                FileJob::Delete { key: meta_key("f1") },
-                FileJob::Delete { key: items_key("f1") },
-                FileJob::Delete { key: state_key("f1") },
+                FileJob::Delete {
+                    key: meta_key("f1")
+                },
+                FileJob::Delete {
+                    key: items_key("f1")
+                },
+                FileJob::Delete {
+                    key: state_key("f1")
+                },
             ]
         );
     }
