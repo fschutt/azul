@@ -35,16 +35,30 @@ Report: scripts/MEDIA9_2026_10_03.md (date = the day it finishes).
 
 - B1 6dfd00c90 GREEN LevelMeter (level_meter.rs + flat/flora appends + manifest/INPUTS).
 
+- B1b b652ce195 AzMeet uses LevelMeter + LevelMeterThrottle (mic_level_percent / meter_moved_ms gone).
+
 ## IN PROGRESS
-- NEXT STEP: AzMeet uses LevelMeter (no twin): examples/azul-meet/src/lib.rs - delete
-  METER_FLOOR_DB + mic_level_percent, meter_change keeps its shape but uses
-  `LevelMeter::level_of`-equivalent rms_percent via the generated API (`LevelMeter::level_of(frame)`
-  needs an AudioFrame; or keep `level_of` and build a frame) and a `LevelMeterThrottle` field in
-  MeetState instead of mic_level + meter_moved_ms; show_level -> `LevelMeter::update_level(info,
-  bar, level)`; ui.rs level_meter(): `LevelMeter::create(view.mic_level).with_accessibility_name(
-  "Microphone level").dom()` instead of ProgressBar. Check AzMeet's tests that name mic_level_percent
-  (grep) and the E2E (scripts/azmeet_e2e.py) for the meter. Then B2 SeekBar.
-- then SeekBar, MediaControls, Waveform widget part (same pattern), then AzMusic, AzPlayer.
+- NEXT STEP: B2 SeekBar, new file layout/src/widgets/seek_bar.rs (append `pub mod seek_bar;` after
+  `pub mod level_meter;` in widgets/mod.rs). Design: `media_time(seconds) -> String` ("m:ss",
+  "h:mm:ss" past an hour, "-" for unknown/NaN; the ONE media clock helper - timeline.rs tick_label
+  has the same branches, note the twin); SeekBar { position_s f64, duration_s f64, buffered_s f64,
+  chapters F64Vec (chapter start times; check an F64Vec exists, else F32Vec), show_times bool,
+  on_seek OptionSeekBarOnSeek (callback triple like Slider's: extern fn(RefAny, CallbackInfo,
+  SeekBarState) -> Update), accessibility_name, theme }; SeekBarState { position_s, duration_s,
+  dragging bool }. DOM: row [time label p, track (grow 1, height 6, relative: played fill width %,
+  buffered fill, chapter ticks (absolute left %), thumb (absolute left % - 6px)), duration label p].
+  Pointer: down on the track -> dragging + seek to cursor x / width * duration, move while dragging,
+  up ends (report on up with dragging false, so an app seeks the player once on release and moves
+  only the thumb while dragging - both reported, state.dragging tells). Keys: Left/Right -5/+5 s
+  (Shift: 30 s? use primary_down for 10% like Slider), Home/End; a11y Slider role, value
+  "1:12 of 9:22". merge callback carries dragging across rebuilds (like merge_slider_state).
+  `SeekBar::update_position(info, node, position_s)` moves fill + thumb + label in place (a player
+  ticks it 4x a second without a rebuild). Look struct + flat/flora appends + manifest INPUTS.
+- then B3 MediaControls (prev / play-pause / next, optional shuffle / repeat toggles, -15/+30 skip
+  (podcast), volume Slider; variants compact / large / overlay; one on_action callback with a
+  MediaControlsAction enum + value; Buttons (use existing Button + icons), a11y Toolbar role) and
+  B4 the Waveform widget part (bars from peaks, played part in accent, click/drag seeks via the
+  same SeekBarState callback type - reuse SeekBar's callback triple, no twin).
 
 ## api.json so far (for the report)
 - audio.AudioFileDecoder (external azul_dll::unified::audio::AudioFileDecoder, Clone Default Drop,
