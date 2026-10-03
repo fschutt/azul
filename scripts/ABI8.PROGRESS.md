@@ -37,13 +37,17 @@ Brief: scripts/waves/wave8/PLAN.md section "ABI8". Report: scripts/ABI8_2026_10_
 - Simulated this branch's azul.h (/tmp/abi8/simulate_header.py -> /tmp/abi8/sim): e2e c 2/2, cpp PASS on
   azul03/11/14/17/20/23.hpp.
 
+- 2ea2db741 CI: c_compile_check runs `abi_guard_e2e.py --only c,cpp` (Linux, macOS); Windows hello-world
+  steps compile+link the MSVC arm with cl.exe.
+- Verified the Rust load-time static with rustc 1.91 in /tmp/abi8/rs (rlib dep, cgu 16, -O; and fat LTO):
+  the check runs before main on macOS arm64, even when main uses nothing from the rlib.
+
 ## IN PROGRESS
-- CI wiring of scripts/abi_guard_e2e.py.
+- Report scripts/ABI8_2026_10_03.md (write, commit).
 
 ## NEXT
-- CI: add `python3 scripts/abi_guard_e2e.py --only c,cpp` where target/codegen exists (rust.yml), and
-  `--only rust` in the dll_tests job if it has a built app (check).
-- Report scripts/ABI8_2026_10_03.md.
+- Left for later (in the report): managed bindings (Lua/PHP declare AzAbi_getHash, do not compare; C#, Ruby,
+  Node, Swift, Go, Java, ... nothing), Rust-app e2e in CI.
 
 ## Decisions
 - Do not add `AzAbi_getHash` to api.json (LIFECYCLE: it would change the hash it reports).
