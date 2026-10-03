@@ -1551,6 +1551,36 @@ const fn engine_format(format: RichFormat) -> Option<TextFormat> {
     }
 }
 
+/// `formats` with the bold / italic / underline / strike the ENGINE has
+/// (its edit report, its pending format at the caret); inline code stays
+/// the model's - the engine has no such format.
+const fn with_engine_formats(
+    mut formats: RichFormats,
+    engine: azul_core::events::TextFormatSet,
+) -> RichFormats {
+    formats.bold = engine.bold;
+    formats.italic = engine.italic;
+    formats.underline = engine.underline;
+    formats.strike = engine.strikethrough;
+    formats
+}
+
+/// An edit report's format spans (`DocumentTextEdit::runs`) as
+/// `(start, end, formats)` byte spans of the block's text.
+fn reported_spans(
+    runs: &[azul_core::selection::TextFormatSpan],
+) -> Vec<(usize, usize, RichFormats)> {
+    runs.iter()
+        .map(|span| {
+            (
+                span.start as usize,
+                span.end as usize,
+                with_engine_formats(RichFormats::create(), span.formats),
+            )
+        })
+        .collect()
+}
+
 impl RichTextEditorState {
     /// The formats text typed at byte `at` of block `block` takes.
     fn formats_at(&self, block: usize, at: usize) -> RichFormats {
@@ -1643,6 +1673,16 @@ impl RichTextEditorState {
             self.history.record(&self.doc, RichEditGroup::Typing(block));
             if self.doc.sync_block_text(block, new, typing) {
                 changed = true;
+                // The new text's bold / italic / underline / strike are the
+                // engine's (its typing style at a caret, a formatted paste):
+                // the edit report carries them, no mirror guesses them.
+                let (prefix, suffix) = crate::widgets::rich_text::doc::text_diff(&old, new);
+                let _ = self.doc.apply_reported_formats(
+                    block,
+                    prefix,
+                    new.len() - suffix,
+                    &reported_spans(edit.runs.as_ref()),
+                );
                 if typing.is_some_and(|t| t.code) {
                     rebuild = true;
                 }
@@ -1847,8 +1887,14 @@ impl RichTextEditorState {
             }
             RichTextCommand::ToggleFormat(format) => {
                 if spans.is_empty() {
-                    // At a caret: the typing style of what is typed next.
+                    // At a caret: the typing style of what is typed next -
+                    // the engine's pending format there (the run under the
+                    // caret with a toggled style on top), toggled.
                     let mut formats = self.formats_at(block, byte);
+                    if let Some(engine) = host.and_then(|h| info.get_typing_formats(h).into_option())
+                    {
+                        formats = with_engine_formats(formats, engine);
+                    }
                     formats.set(*format, !formats.has(*format));
                     self.typing = OptionRichTypingStyle::Some(RichTypingStyle {
                         block,
