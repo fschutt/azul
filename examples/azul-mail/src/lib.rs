@@ -984,6 +984,14 @@ pub(crate) enum IoJob {
         folder: String,
         flags: LocalFlags,
     },
+    /// A new DKIM key for the account editor (making an RSA key takes a moment).
+    DkimKey,
+    /// The DKIM / DMARC / SPF records in DNS, for the account editor.
+    DkimCheck {
+        selector: String,
+        domain: String,
+        public_key: String,
+    },
 }
 
 /// What a write did.
@@ -997,6 +1005,8 @@ pub(crate) enum IoDone {
     AccountFailed(String),
     FlagsSaved,
     Failed(String),
+    DkimKey(Result<dkim::KeyPair, String>),
+    DkimChecked(dkim::DnsReport),
 }
 
 /// Runs `job` on a thread of the window whose callback asks.
@@ -1036,6 +1046,12 @@ extern "C" fn io_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: T
             Ok(()) => IoDone::FlagsSaved,
             Err(e) => IoDone::Failed(format!("Could not save the read marks: {e}")),
         },
+        IoJob::DkimKey => IoDone::DkimKey(dkim::generate_key()),
+        IoJob::DkimCheck {
+            selector,
+            domain,
+            public_key,
+        } => IoDone::DkimChecked(dkim::dns_report(&selector, &domain, &public_key)),
     };
     sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
         refany: RefAny::new(done),
@@ -1088,6 +1104,14 @@ extern "C" fn on_io_done(mut app: RefAny, mut payload: RefAny, mut info: Callbac
         IoDone::FlagsSaved => Update::DoNothing,
         IoDone::Failed(error) => {
             s.notice = error;
+            Update::RefreshDom
+        }
+        IoDone::DkimKey(result) => {
+            ui_account::dkim_key_made(s, result);
+            Update::RefreshDom
+        }
+        IoDone::DkimChecked(report) => {
+            ui_account::dkim_checked(s, &report);
             Update::RefreshDom
         }
     })

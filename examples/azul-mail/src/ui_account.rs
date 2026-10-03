@@ -27,6 +27,7 @@ use azul::{
 
 use crate::{
     account::{self, Account, AccountForm, Secret},
+    dkim,
     send::SendSettings,
     sending::SendingForm,
     ids, ui_main, with_app, IoJob, MailApp,
@@ -58,6 +59,13 @@ pub(crate) struct AccountEditor {
     pub(crate) step: usize,
     /// Finish / Save was pressed and the files are being written.
     pub(crate) saving: bool,
+    /// A DKIM key made in this editor: its private half goes to the keyring when the account is
+    /// saved, its public half into sending.json and the DNS record shown.
+    pub(crate) dkim_new_key: Option<dkim::KeyPair>,
+    /// A key is being made or DNS is being asked (on a thread).
+    pub(crate) dkim_busy: bool,
+    /// What the last "Check DNS" found, one line per record.
+    pub(crate) dkim_report: Vec<String>,
 }
 
 impl AccountEditor {
@@ -73,8 +81,71 @@ impl AccountEditor {
             drawn,
             step: 0,
             saving: false,
+            dkim_new_key: None,
+            dkim_busy: false,
+            dkim_report: Vec::new(),
         }
     }
+
+    /// The public half of the key the account signs with: one made here, else the saved one.
+    pub(crate) fn dkim_public_key(&self) -> String {
+        match &self.dkim_new_key {
+            Some(pair) => pair.public_key.clone(),
+            None => self
+                .settings
+                .dkim
+                .as_ref()
+                .map(|d| d.public_key.clone())
+                .unwrap_or_default(),
+        }
+    }
+
+    /// The sending settings the form describes: the route and STARTTLS, then DKIM.
+    fn sending_settings(&self) -> Result<SendSettings, String> {
+        let applied = self.sending.apply(&self.settings)?;
+        let new_key = self
+            .dkim_new_key
+            .as_ref()
+            .map(|pair| pair.public_key.as_str())
+            .unwrap_or_default();
+        self.sending
+            .apply_dkim(applied, &self.form.email, new_key, crate::now_unix())
+    }
+}
+
+/// A DKIM key was made (on a thread): kept in the editor until the account is saved.
+pub(crate) fn dkim_key_made(s: &mut MailApp, result: Result<dkim::KeyPair, String>) {
+    let Some(editor) = s.editor.as_mut() else {
+        return;
+    };
+    editor.dkim_busy = false;
+    match result {
+        Ok(pair) => {
+            println!("AZMAIL_DKIM_KEY_MADE");
+            editor.dkim_new_key = Some(pair);
+            editor.sending.dkim = true;
+            editor.dkim_report.clear();
+            editor.error.clear();
+        }
+        Err(e) => editor.error = e,
+    }
+}
+
+/// "Check DNS" is done (on a thread).
+pub(crate) fn dkim_checked(s: &mut MailApp, report: &dkim::DnsReport) {
+    let Some(editor) = s.editor.as_mut() else {
+        return;
+    };
+    editor.dkim_busy = false;
+    editor.dkim_report = dkim::report_lines(report);
+    println!(
+        "AZMAIL_DKIM_CHECKED {}",
+        if report.dkim == dkim::Published::Matches {
+            "published"
+        } else {
+            "not-published"
+        }
+    );
 }
 
 /// File > Add Account: the wizard, on an empty form (or `prefill`).
@@ -121,6 +192,16 @@ pub(crate) fn account_saved(
         .as_ref()
         .map(|e| e.secret.clone())
         .filter(|secret| !secret.is_empty());
+    // A DKIM key made in the editor: into the keyring and memory, now that sending.json names
+    // its public half.
+    let new_dkim_key = s
+        .editor
+        .as_mut()
+        .and_then(|e| e.dkim_new_key.take())
+        .map(|pair| pair.private_pem);
+    if let Some(key) = new_dkim_key {
+        crate::remember_dkim_key(s, info, &account.id, key);
+    }
     let index = match s.accounts.iter().position(|a| a.id == account.id) {
         Some(i) => {
             s.accounts[i] = account.clone();
@@ -169,7 +250,7 @@ fn check_step(s: &MailApp, editor: &AccountEditor, step: usize) -> Result<(), St
             Ok(())
         }
         1 => editor.form.to_account().map(|_| ()).map_err(|e| e.to_string()),
-        2 => editor.sending.apply(&editor.settings).map(|_| ()),
+        2 => editor.sending_settings().map(|_| ()),
         _ => Ok(()),
     }
 }
@@ -184,7 +265,7 @@ fn save(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) {
             .try_for_each(|step| check_step(s, editor, step).map_err(|e| (step, e)))
             .and_then(|()| {
                 let account = editor.form.to_account().map_err(|e| (1, e.to_string()))?;
-                let settings = editor.sending.apply(&editor.settings).map_err(|e| (2, e))?;
+                let settings = editor.sending_settings().map_err(|e| (2, e))?;
                 Ok((account, settings, editor.editing))
             })
     };
@@ -546,8 +627,7 @@ fn finish_summary(editor: &AccountEditor) -> Dom {
         f.imap_host.trim().to_string()
     };
     let sending = editor
-        .sending
-        .apply(&editor.settings)
+        .sending_settings()
         .map(|settings| crate::sending::describe(&settings))
         .unwrap_or_default();
     let line = |text: String| Dom::create_span_with_text(text).with_css("margin-top: 6px;");
