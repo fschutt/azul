@@ -314,7 +314,7 @@ impl TerminalSelection {
     /// The columns selected on row `line` of a grid `columns` wide, first
     /// and last included; `None` when the row has none.
     #[must_use]
-    pub fn columns_on(&self, line: u32, columns: u32) -> Option<(u32, u32)> {
+    pub(crate) fn columns_on(&self, line: u32, columns: u32) -> Option<(u32, u32)> {
         if columns == 0 || line < self.start.line || line > self.end.line {
             return None;
         }
@@ -954,7 +954,7 @@ impl TerminalPalette {
     /// applied - and whether the ground must be painted (`false`: it is the
     /// view's own surface).
     #[must_use]
-    pub fn colors_of(&self, style: &TerminalStyle) -> TerminalStyleColors {
+    pub(crate) fn colors_of(&self, style: &TerminalStyle) -> TerminalStyleColors {
         let mut ink = self.color_of(style.fg);
         let mut ground = self.color_of(style.bg);
         let mut paints_ground = style.bg != TerminalColor::Background;
