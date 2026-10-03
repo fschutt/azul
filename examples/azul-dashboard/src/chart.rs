@@ -189,6 +189,17 @@ pub fn chart_width(width: f32) -> f32 {
     }
 }
 
+/// The height of the strip [`charts_dom`] builds in a window `width` px wide:
+/// the row (16 px padding, the charts side by side or one per row, 16 px
+/// between them) and the caption line under it. The table below gets the rest.
+#[must_use]
+pub fn strip_height(width: f32) -> f32 {
+    let rows = if width >= SIDE_BY_SIDE_MIN { 1.0 } else { 2.0 };
+    let row = rows * CHART_HEIGHT + (rows - 1.0) * GAP + 2.0 * GAP;
+    // The caption: a 12 px line (about 16 px tall) and its 12 px bottom margin.
+    row + 16.0 + 12.0
+}
+
 /// The caption under the charts: what is picked, or how to pick.
 #[must_use]
 pub fn caption(charts: &Charts, value_name: &str) -> String {

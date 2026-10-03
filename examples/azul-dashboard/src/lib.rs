@@ -32,6 +32,9 @@
 //! a refused one.
 
 pub mod data;
+/// The charts over the table (a line and a bar chart of the rows the table
+/// shows): azul's Chart widget (the chart half).
+pub mod chart;
 /// The DOM ids and classes (`__azdash_` prefix), each defined once.
 pub mod ids;
 /// The orders table: azul's DataTable over the data set (the table half).
@@ -41,6 +44,7 @@ use azul::{
     callbacks::WriteBackCallbackType,
     prelude::*,
     shells::{RecordsShell, ShellThemeAccent, ShellThemeScope},
+    widgets::DataTableView,
     task::{Thread, ThreadId, ThreadReceiveMsg, ThreadReceiver, ThreadSender, ThreadWriteBackMsg},
 };
 use azul_appkit::{
@@ -131,7 +135,8 @@ impl Dashboard {
             rows: rows_wanted(),
             table: table::TableState::default(),
             window: args.size.unwrap_or((1280.0, 800.0)),
-            chart: None,
+            // The bars group the shown orders by category; line and bars sum the sales.
+            chart: Some(RefAny::new(chart::Charts::new(data::c::CATEGORY, data::c::SALES))),
         }
     }
 }
@@ -218,6 +223,45 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
     Update::DoNothing
 }
 
+// ==== The charts' view of the table ====
+
+/// The rows the table shows, in its order (after its filter and sort), as the
+/// charts read them.
+struct Shown<'a> {
+    set: &'a data::DataSet,
+    view: &'a DataTableView,
+    rows: u32,
+}
+
+impl Shown<'_> {
+    /// The order at shown position `position`.
+    fn row(&self, position: usize) -> Option<u32> {
+        let position = u32::try_from(position).ok()?;
+        self.view.row_at(position, self.rows).into_option()
+    }
+}
+
+impl chart::ChartSource for Shown<'_> {
+    fn shown_rows(&self) -> usize {
+        self.view.shown_count(self.rows) as usize
+    }
+    fn text(&self, row: usize, column: usize) -> &str {
+        self.row(row)
+            .map_or("", |r| self.set.category_text(r, column))
+    }
+    fn number(&self, row: usize, column: usize) -> Option<f64> {
+        let value = self.set.value(self.row(row)?, column);
+        value.is_finite().then_some(value)
+    }
+    fn column_name(&self, column: usize) -> &str {
+        data::COLUMNS.get(column).map_or("", |c| c.title)
+    }
+    fn generation(&self) -> u64 {
+        // A new order (filter / sort landed) or an edit changes what is shown.
+        (u64::from(self.view.order_serial) << 32) | u64::from(self.set.edits)
+    }
+}
+
 // ==== The window ====
 
 /// The window: the RecordsShell (title row, tool row, charts over the
@@ -239,12 +283,29 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let settings = kit::settings_open(&s.kit);
 
     // ==== CHART7: the charts (the RecordsShell's cards strip over the table) ====
-    // The chart half replaces this block with its strip, e.g.
-    // `let cards: Option<Dom> = Some(chart::cards(s, &app));`, built from
-    // `s.source` (a `data::DataSet`) and `s.chart`. `table::view` gets the
-    // strip's height through `charts_height` so the table's viewport is right.
-    let cards: Option<Dom> = None;
-    let charts_height: f32 = 0.0;
+    // Built from the rows the table shows (its filter and sort) once the orders
+    // are in; `table::view` gets the strip's height so its viewport is right.
+    let mut cards: Option<Dom> = None;
+    if let (Some(charts), Some(source)) = (s.chart.as_ref(), s.source.as_ref()) {
+        let mut source = source.clone();
+        let strip = match source.downcast_ref::<data::DataSet>() {
+            Some(set) => {
+                let shown = Shown {
+                    set: &set,
+                    view: &s.table.view,
+                    rows: set.rows(),
+                };
+                Some(chart::charts_dom(charts, &shown, s.window.0))
+            }
+            None => None,
+        };
+        cards = strip;
+    }
+    let charts_height: f32 = if cards.is_some() {
+        chart::strip_height(s.window.0)
+    } else {
+        0.0
+    };
     // ==== /CHART7 ====
 
     let shell = if settings {

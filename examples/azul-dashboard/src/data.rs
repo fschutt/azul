@@ -449,6 +449,30 @@ impl DataSet {
         }
     }
 
+    /// The text of a CATEGORY column of order `row`, borrowed (the charts group
+    /// by it without building a String per row): region, country, city,
+    /// segment, category, subcategory, ship mode, priority, returned, sales
+    /// rep. Empty for any other column or past the end.
+    #[must_use]
+    pub fn category_text(&self, row: u32, column: usize) -> &'static str {
+        let Some(o) = self.orders.get(row as usize) else {
+            return "";
+        };
+        match column {
+            c::REGION => o.region(),
+            c::COUNTRY => o.country(),
+            c::CITY => o.city_name(),
+            c::SEGMENT => SEGMENTS[usize::from(o.segment) % 4],
+            c::CATEGORY => o.category(),
+            c::SUBCATEGORY => SUBCATEGORIES[usize::from(o.subcategory) % 12],
+            c::SHIP_MODE => SHIP_MODES[usize::from(o.ship_mode) % 4],
+            c::PRIORITY => PRIORITIES[usize::from(o.priority) % 4],
+            c::RETURNED => YES_NO[usize::from(o.returned)],
+            c::SALES_REP => SALES_REPS[usize::from(o.rep) % 20],
+            _ => "",
+        }
+    }
+
     /// The number column `column` of order `row` sorts and range-filters
     /// by: money in units (not cents), dates as days since 1970-01-01. NaN
     /// for a text column (the table sorts those by their text).
