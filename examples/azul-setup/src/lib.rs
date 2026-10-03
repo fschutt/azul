@@ -56,6 +56,7 @@ use azul::{
 use azul_appkit::{
     about::AboutInfo,
     args::{AppArgs, AppSpec, ModePref, Theme},
+    settings::AppSettings,
     shortcuts::Shortcut,
     ui as kit,
 };
@@ -188,19 +189,121 @@ fn setting_key(id: &str) -> String {
 /// A setting's value as settings.json keeps it (`None`: not kept - a
 /// shortcut, which the demo does not remember).
 fn stored(value: &ShellSettingValue) -> Option<String> {
-    let _ = value;
-    todo!()
+    match value {
+        ShellSettingValue::Toggle(b) => Some(b.to_string()),
+        ShellSettingValue::Choice(c) | ShellSettingValue::Radio(c) => Some(c.selected.to_string()),
+        ShellSettingValue::Number(n) | ShellSettingValue::Slider(n) => Some(n.value.to_string()),
+        ShellSettingValue::Text(t) | ShellSettingValue::Path(t) => Some(t.as_str().to_string()),
+        ShellSettingValue::Color(c) => Some(c.to_hex().as_str().to_string()),
+        ShellSettingValue::Shortcut(_) => None,
+    }
 }
 
 /// `text` from settings.json read back as a value of `like`'s kind, inside
 /// its range (`None`: unreadable, the default stays).
 fn restored(like: &ShellSettingValue, text: &str) -> Option<ShellSettingValue> {
-    let _ = (like, text);
-    todo!()
+    let choice = |c: &ShellSettingChoice| {
+        text.trim()
+            .parse::<usize>()
+            .ok()
+            .filter(|i| *i < c.options.as_ref().len())
+            .map(|i| ShellSettingChoice::create(c.options.clone(), i))
+    };
+    let number = |n: &ShellSettingNumber| {
+        text.trim()
+            .parse::<f32>()
+            .ok()
+            .filter(|v| v.is_finite() && *v >= n.min && *v <= n.max)
+            .map(|v| {
+                let mut m = n.clone();
+                m.value = v;
+                m
+            })
+    };
+    match like {
+        ShellSettingValue::Toggle(_) => text.trim().parse::<bool>().ok().map(ShellSettingValue::Toggle),
+        ShellSettingValue::Choice(c) => choice(c).map(ShellSettingValue::Choice),
+        ShellSettingValue::Radio(c) => choice(c).map(ShellSettingValue::Radio),
+        ShellSettingValue::Number(n) => number(n).map(ShellSettingValue::Number),
+        ShellSettingValue::Slider(n) => number(n).map(ShellSettingValue::Slider),
+        ShellSettingValue::Text(_) => Some(ShellSettingValue::Text(s(text))),
+        ShellSettingValue::Path(_) => Some(ShellSettingValue::Path(s(text))),
+        ShellSettingValue::Color(_) => ColorU::parse_hex(s(text)).into_option().map(ShellSettingValue::Color),
+        ShellSettingValue::Shortcut(_) => None,
+    }
+}
+
+/// The values settings.json remembers, laid over the table's defaults: the
+/// appearance from the kit's theme and mode, every other setting from its
+/// `setting.<id>` key.
+fn with_remembered(
+    mut settings: Vec<ShellSetting>,
+    theme: Theme,
+    mode: ModePref,
+    saved: &AppSettings,
+) -> Vec<ShellSetting> {
+    for setting in &mut settings {
+        let id = setting.id.as_str().to_string();
+        let value = match id.as_str() {
+            "appearance.theme" => restored(&setting.value, if theme == Theme::Flora { "1" } else { "0" }),
+            "appearance.mode" => restored(
+                &setting.value,
+                match mode {
+                    ModePref::Light => "0",
+                    ModePref::Dark => "1",
+                    ModePref::System => "2",
+                },
+            ),
+            _ => saved
+                .get(&setting_key(&id))
+                .and_then(|text| restored(&setting.value, text)),
+        };
+        if let Some(v) = value {
+            setting.value = v.clone();
+            setting.applied = v;
+        }
+    }
+    settings
+}
+
+/// Keeps the values in effect in settings.json (one write, on a Thread):
+/// the appearance as the kit's theme and mode (the next start opens in
+/// them), every other setting under `setting.<id>`.
+fn remember(st: &Setup, info: &mut CallbackInfo) {
+    {
+        let mut kit_ref = st.kit.clone();
+        let Some(mut k) = kit_ref.downcast_mut::<kit::Kit>() else {
+            return;
+        };
+        for setting in st.settings.settings.as_ref() {
+            let id = setting.id.as_str();
+            match id {
+                "appearance.theme" => {
+                    k.settings.theme =
+                        if setting.applied.as_index() == 1 { Theme::Flora } else { Theme::Flat };
+                    k.args.theme = None;
+                }
+                "appearance.mode" => {
+                    k.settings.mode = match setting.applied.as_index() {
+                        0 => ModePref::Light,
+                        1 => ModePref::Dark,
+                        _ => ModePref::System,
+                    };
+                    k.args.mode = None;
+                }
+                _ => {
+                    if let Some(text) = stored(&setting.applied) {
+                        k.settings.set(&setting_key(id), &text);
+                    }
+                }
+            }
+        }
+    }
+    kit::save_settings(&st.kit, info);
 }
 
 /// The settings window's table: every kind of setting.
-fn settings_dialog(theme: &str) -> ShellSettingsDialog {
+fn settings_dialog(theme: Theme, mode: ModePref, saved: &AppSettings) -> ShellSettingsDialog {
     let shortcut = |ctrl: bool, shift: bool, key: VirtualKeyCode| {
         ShellSettingValue::Shortcut(ShellSettingShortcut::create(GlobalHotkey::create(
             HotkeyModifiers {
@@ -303,7 +406,7 @@ fn settings_dialog(theme: &str) -> ShellSettingsDialog {
             s("Theme"),
             ShellSettingValue::Choice(ShellSettingChoice::create(
                 strs(&["Flat", "Flora"]),
-                usize::from(theme == "flora"),
+                0,
             )),
         )
         .with_default(ShellSettingValue::Choice(ShellSettingChoice::create(
@@ -357,7 +460,7 @@ fn settings_dialog(theme: &str) -> ShellSettingsDialog {
     ];
     ShellSettingsDialog::create(strs(&["General", "Editing", "Appearance", "Advanced"]))
         .with_category_icons(strs(&["tune", "edit", "palette", "build"]))
-        .with_settings(ShellSettingVec::from_vec(settings))
+        .with_settings(ShellSettingVec::from_vec(with_remembered(settings, theme, mode, saved)))
         .with_apply_mode(ShellSettingsApplyMode::platform())
 }
 
@@ -791,6 +894,12 @@ extern "C" fn on_settings(
             _ => info.set_mode(OptionDarkLightMode::None),
         }
     }
+    let instant = matches!(st.settings.apply_mode, ShellSettingsApplyMode::Instant);
+    if matches!(kind, ShellSettingsEventKind::Apply | ShellSettingsEventKind::Ok)
+        || (instant && matches!(kind, ShellSettingsEventKind::Changed))
+    {
+        remember(&st, &mut info);
+    }
     if matches!(
         kind,
         ShellSettingsEventKind::Ok | ShellSettingsEventKind::Cancel
@@ -867,10 +976,15 @@ pub fn start() {
         step = Step::at(n);
     }
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[], args);
-    let theme = {
+    let (theme, mode, saved) = {
         let mut k = kit_ref.clone();
-        k.downcast_ref::<kit::Kit>()
-            .map_or(Theme::Flat, |k| k.effective().0)
+        k.downcast_ref::<kit::Kit>().map_or(
+            (Theme::Flat, ModePref::System, AppSettings::default()),
+            |k| {
+                let (theme, mode) = k.effective();
+                (theme, mode, k.settings.clone())
+            },
+        )
     };
     let path = default_folder();
     let state = Setup {
@@ -885,7 +999,7 @@ pub fn start() {
         show_log: false,
         confirm_cancel: false,
         about_open: screen == Screen::About,
-        settings: settings_dialog(theme.name()),
+        settings: settings_dialog(theme, mode, &saved),
         path,
         kit: kit_ref.clone(),
     };
@@ -922,7 +1036,7 @@ mod remembered_settings_tests {
             let back = restored(&v, &text).expect("read back");
             assert_eq!(back.display_text().as_str(), v.display_text().as_str(), "{text}");
         }
-        let shortcut = settings_dialog("flat")
+        let shortcut = settings_dialog(Theme::Flat, ModePref::System, &AppSettings::default())
             .value_of(s("editing.palette"))
             .into_option()
             .expect("the palette shortcut");
