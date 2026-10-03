@@ -75,7 +75,7 @@ use azul::{
         CellGridCellKind, CellGridCellRef, CellGridCellStyle, CellGridEditMode, CellGridEvent,
         CellGridEventKind, CellGridHorizontalAlign, CellGridRange, CellGridSize,
         CellGridVerticalAlign, CellGridView, OnTextInputReturn, Ribbon, RibbonAppButton,
-        RibbonButton, RibbonColumn, RibbonGroup, RibbonItem, RibbonTab, SliderState, StatusBar,
+        RibbonButton, RibbonColumn, RibbonGroup, RibbonItem, RibbonRow, RibbonTab, SliderState, StatusBar,
         StatusBarSegment, StatusBarZoom, TextInput, TextInputState, TextInputValid, Titlebar,
     },
     window::WindowDecorations,
@@ -1194,6 +1194,16 @@ fn column(items: Vec<RibbonItem>) -> RibbonItem {
     RibbonItem::Column(RibbonColumn::create().with_items(items))
 }
 
+fn row(items: Vec<RibbonItem>) -> RibbonItem {
+    RibbonItem::Row(RibbonRow::create().with_items(items))
+}
+
+/// An icon-only small button (Excel's Font / Alignment rows), named `name`
+/// for assistive technology.
+fn icon(app: &RefAny, icon: &str, name: &str, action: Action, on: bool) -> RibbonItem {
+    RibbonItem::SmallButton(action_button(app, icon, "", action, on).with_alt(AzString::from(name)))
+}
+
 fn group(label: &str, items: Vec<RibbonItem>) -> RibbonGroup {
     RibbonGroup::create(AzString::from(label)).with_items(items)
 }
@@ -1210,6 +1220,10 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
         .cloned()
         .unwrap_or_default();
     let (fr, fc) = s.cache.snapshot.frozen;
+    // Excel 2010's HOME: the Font, Alignment, Number and Cells commands are
+    // rows of icon-only buttons (named for assistive technology), so the
+    // whole tab fits a 1280 px window (labelled, Cells and Editing fell off
+    // its right edge and could not be clicked).
     let home = tab(
         "HOME",
         vec![
@@ -1220,68 +1234,71 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
                     column(vec![
                         small(app, "content_cut", "Cut", Action::Cut),
                         small(app, "content_copy", "Copy", Action::Copy),
-                        small(app, "undo", "Undo", Action::Undo),
+                        row(vec![
+                            icon(app, "undo", "Undo", Action::Undo, false),
+                            icon(app, "redo", "Redo", Action::Redo, false),
+                        ]),
                     ]),
-                    column(vec![small(app, "redo", "Redo", Action::Redo)]),
                 ],
             ),
             group(
                 "Font",
-                vec![
-                    column(vec![
-                        toggle(app, "format_bold", "Bold", Action::Bold, style.bold),
-                        toggle(app, "format_italic", "Italic", Action::Italic, style.italic),
-                        toggle(app, "format_underlined", "Underline", Action::Underline, style.underline),
+                vec![column(vec![
+                    row(vec![
+                        icon(app, "format_bold", "Bold", Action::Bold, style.bold),
+                        icon(app, "format_italic", "Italic", Action::Italic, style.italic),
+                        icon(app, "format_underlined", "Underline", Action::Underline, style.underline),
+                        icon(app, "format_strikethrough", "Strikethrough", Action::Strike, style.strike),
+                        icon(app, "text_increase", "Grow font", Action::Grow, false),
+                        icon(app, "text_decrease", "Shrink font", Action::Shrink, false),
                     ]),
-                    column(vec![
-                        toggle(app, "format_strikethrough", "Strikethrough", Action::Strike, style.strike),
-                        small(app, "text_increase", "Grow font", Action::Grow),
-                        small(app, "text_decrease", "Shrink font", Action::Shrink),
+                    row(vec![
+                        icon(app, "format_color_text", "Red text", Action::InkRed, false),
+                        icon(app, "format_color_reset", "Automatic text colour", Action::InkAuto, false),
+                        icon(app, "format_color_fill", "Yellow fill", Action::FillYellow, false),
+                        icon(app, "format_paint", "Green fill", Action::FillGreen, false),
+                        icon(app, "block", "No fill", Action::FillNone, false),
                     ]),
-                    column(vec![
-                        small(app, "format_color_text", "Red text", Action::InkRed),
-                        small(app, "format_color_reset", "Automatic text", Action::InkAuto),
-                        small(app, "format_color_fill", "Yellow fill", Action::FillYellow),
+                    row(vec![
+                        icon(app, "border_all", "All borders", Action::BordersAll, false),
+                        icon(app, "border_outer", "Outside borders", Action::BordersOutline, false),
+                        icon(app, "border_clear", "No borders", Action::BordersNone, false),
                     ]),
-                    column(vec![
-                        small(app, "format_color_fill", "Green fill", Action::FillGreen),
-                        small(app, "format_color_reset", "No fill", Action::FillNone),
-                    ]),
-                ],
+                ])],
             ),
             group(
                 "Alignment",
-                vec![
-                    column(vec![
-                        toggle(app, "vertical_align_top", "Top", Action::AlignTop, style.v_align == VAlign::Top),
-                        toggle(app, "vertical_align_center", "Middle", Action::AlignMiddle, style.v_align == VAlign::Center),
-                        toggle(app, "vertical_align_bottom", "Bottom", Action::AlignBottom, style.v_align == VAlign::Bottom),
+                vec![column(vec![
+                    row(vec![
+                        icon(app, "vertical_align_top", "Top", Action::AlignTop, style.v_align == VAlign::Top),
+                        icon(app, "vertical_align_center", "Middle", Action::AlignMiddle, style.v_align == VAlign::Center),
+                        icon(app, "vertical_align_bottom", "Bottom", Action::AlignBottom, style.v_align == VAlign::Bottom),
                     ]),
-                    column(vec![
-                        toggle(app, "format_align_left", "Left", Action::AlignLeft, style.h_align == HAlign::Left),
-                        toggle(app, "format_align_center", "Center", Action::AlignCenter, style.h_align == HAlign::Center),
-                        toggle(app, "format_align_right", "Right", Action::AlignRight, style.h_align == HAlign::Right),
+                    row(vec![
+                        icon(app, "format_align_left", "Left", Action::AlignLeft, style.h_align == HAlign::Left),
+                        icon(app, "format_align_center", "Center", Action::AlignCenter, style.h_align == HAlign::Center),
+                        icon(app, "format_align_right", "Right", Action::AlignRight, style.h_align == HAlign::Right),
                     ]),
-                    column(vec![toggle(app, "wrap_text", "Wrap text", Action::Wrap, style.wrap)]),
-                ],
+                    row(vec![icon(app, "wrap_text", "Wrap text", Action::Wrap, style.wrap)]),
+                ])],
             ),
             group(
                 "Number",
-                vec![
-                    column(vec![
-                        small(app, "notes", "General", Action::FormatGeneral),
-                        small(app, "pin", "Number", Action::FormatNumber),
-                        small(app, "payments", "Currency", Action::FormatCurrency),
+                vec![column(vec![
+                    row(vec![
+                        icon(app, "notes", "General", Action::FormatGeneral, false),
+                        icon(app, "pin", "Number", Action::FormatNumber, false),
+                        icon(app, "payments", "Currency", Action::FormatCurrency, false),
                     ]),
-                    column(vec![
-                        small(app, "percent", "Percent", Action::FormatPercent),
-                        small(app, "calendar_today", "Date", Action::FormatDate),
+                    row(vec![
+                        icon(app, "percent", "Percent", Action::FormatPercent, false),
+                        icon(app, "calendar_today", "Date", Action::FormatDate, false),
                     ]),
-                    column(vec![
-                        small(app, "add", "More decimals", Action::DecimalMore),
-                        small(app, "remove", "Fewer decimals", Action::DecimalLess),
+                    row(vec![
+                        icon(app, "add", "More decimals", Action::DecimalMore, false),
+                        icon(app, "remove", "Fewer decimals", Action::DecimalLess, false),
                     ]),
-                ],
+                ])],
             ),
             group(
                 "Styles",
@@ -1294,48 +1311,43 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
                         small(app, "thumb_up", "Good", Action::StyleGood),
                         small(app, "thumb_down", "Bad", Action::StyleBad),
                     ]),
-                    column(vec![
-                        small(app, "border_all", "All borders", Action::BordersAll),
-                        small(app, "border_outer", "Outside borders", Action::BordersOutline),
-                        small(app, "border_clear", "No borders", Action::BordersNone),
-                    ]),
                 ],
             ),
             group(
                 "Cells",
-                vec![
-                    column(vec![
-                        small(app, "table_rows", "Insert row", Action::InsertRow),
-                        small(app, "view_column", "Insert column", Action::InsertColumn),
-                        small(app, "add_box", "Insert sheet", Action::InsertSheet),
+                vec![column(vec![
+                    row(vec![
+                        icon(app, "table_rows", "Insert row", Action::InsertRow, false),
+                        icon(app, "view_column", "Insert column", Action::InsertColumn, false),
+                        icon(app, "add_box", "Insert sheet", Action::InsertSheet, false),
                     ]),
-                    column(vec![
-                        small(app, "delete_sweep", "Delete row", Action::DeleteRow),
-                        small(app, "delete", "Delete column", Action::DeleteColumn),
-                        small(app, "delete_forever", "Delete sheet", Action::DeleteSheet),
+                    row(vec![
+                        icon(app, "delete_sweep", "Delete row", Action::DeleteRow, false),
+                        icon(app, "delete", "Delete column", Action::DeleteColumn, false),
+                        icon(app, "delete_forever", "Delete sheet", Action::DeleteSheet, false),
                     ]),
-                    column(vec![
-                        small(app, "drive_file_rename_outline", "Rename sheet", Action::RenameSheet),
-                        small(app, "arrow_back", "Move sheet left", Action::SheetLeft),
-                        small(app, "arrow_forward", "Move sheet right", Action::SheetRight),
+                    row(vec![
+                        icon(app, "drive_file_rename_outline", "Rename sheet", Action::RenameSheet, false),
+                        icon(app, "arrow_back", "Move sheet left", Action::SheetLeft, false),
+                        icon(app, "arrow_forward", "Move sheet right", Action::SheetRight, false),
+                        icon(app, "palette", "Tab color", Action::TabColor, false),
                     ]),
-                    column(vec![small(app, "palette", "Tab color", Action::TabColor)]),
-                ],
+                ])],
             ),
             group(
                 "Editing",
                 vec![
                     large(app, "functions", "AutoSum", Action::AutoSum),
                     column(vec![
-                        small(app, "arrow_downward", "Fill down", Action::FillDown),
-                        small(app, "arrow_forward", "Fill right", Action::FillRight),
-                        small(app, "backspace", "Clear contents", Action::ClearContents),
-                    ]),
-                    column(vec![
                         small(app, "sort_by_alpha", "Sort A to Z", Action::SortAsc),
                         small(app, "filter_alt", "Filter", Action::Filter),
-                        small(app, "search", "Find", Action::Find),
+                        row(vec![
+                            icon(app, "arrow_downward", "Fill down", Action::FillDown, false),
+                            icon(app, "arrow_forward", "Fill right", Action::FillRight, false),
+                            icon(app, "backspace", "Clear contents", Action::ClearContents, false),
+                        ]),
                     ]),
+                    large(app, "search", "Find", Action::Find),
                 ],
             ),
         ],
