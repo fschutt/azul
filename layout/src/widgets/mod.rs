@@ -507,6 +507,14 @@ pub mod date_repeat_picker;
 /// (the app validates), the keyboard moves a cell cursor and selects rows;
 /// a big table is sorted off the UI thread. See `data_table.rs`.
 pub mod data_table;
+/// Chart widget.
+///
+/// Line, area, bar (grouped / stacked), scatter, pie and donut charts over
+/// series of numbers: nice 1-2-5 axes, gridlines, a legend, a tooltip under
+/// the pointer, a click that reports the point, a text summary and a table
+/// view for screen readers; a long line decimated per pixel column. Drawn
+/// with the engine's SVG path; see `chart.rs`.
+pub mod chart;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
@@ -1837,6 +1845,9 @@ mod label_convention {
         ));
         // The data table: 1,000 rows of five columns, a 400 x 300 window.
         all.push(("data_table", super::data_table::fixtures::small().dom()));
+        // The chart: three series of bars over four categories, a legend and
+        // the table view.
+        all.push(("chart", super::chart::fixtures::sample().dom()));
         all
     }
 
@@ -2778,6 +2789,9 @@ mod theme_contrast {
         "cell_grid",
         // The data table: a records window's table.
         "data_table",
+        // A chart: a data surface like the grid (its title, ticks, legend
+        // and table text on the chart's own sheet).
+        "chart",
     ];
 
     /// A widget added to the manifest must land in a group, or it is simply

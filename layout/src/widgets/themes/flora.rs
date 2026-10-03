@@ -7968,3 +7968,62 @@ pub(crate) fn data_table_look() -> crate::widgets::data_table::DataTableLook {
 pub(crate) fn data_table(t: crate::widgets::data_table::DataTableResolved) -> Dom {
     crate::widgets::data_table::build(t, &data_table_look())
 }
+
+// ==== chart ====
+//
+// The flora chart is a leaf laid on the page (flora's surface, its night
+// surface in the dark) with flora's small corner, in the UI face at 12 px:
+// the title semibold in the ink, tick labels in the soft ink, legend names
+// and axis titles in the intro ink. Gridlines are the faint separator, the
+// baseline and the crosshair the strong border. The series wear the chart's
+// categorical palette (`chart::CHART_PALETTE`: flora's accent stones are
+// too dark and grey to tell series apart - they fail the colour-blind
+// checks); the selection and the focus ring wear the accent stone by day
+// and its glow at night. The tooltip is the tooltip widget's own.
+
+/// Flora's chart skin.
+#[must_use]
+pub(crate) fn chart_skin() -> crate::widgets::chart::ChartSkin {
+    use super::decl;
+    use crate::widgets::chart::{ChartColor, ChartSkin, CHART_PALETTE};
+
+    let mut root = decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec();
+    root.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    root.push(decl::font_size(12));
+    root.push(CssPropertyWithConditions::simple(CssProperty::const_font_family(
+        SYSTEM_UI_FAMILY,
+    )));
+    root.extend(decl::radius(5));
+
+    let mut title = vec![decl::font_size(14), decl::semibold()];
+    title.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    let mut tick = vec![decl::font_size(11)];
+    tick.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    let mut caption = vec![decl::font_size(12)];
+    caption.extend(decl::themed_ink(LIGHT_INTRO, DARK_INTRO));
+
+    let mut table_head = decl::padding(4, 8, 4, 8).to_vec();
+    table_head.push(decl::semibold());
+    table_head.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    table_head.extend(decl::border_bottom(1));
+    table_head.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+    let mut table_cell = decl::padding(3, 8, 3, 8).to_vec();
+    table_cell.extend(decl::themed_ink(LIGHT_INTRO, DARK_INTRO));
+
+    ChartSkin {
+        root,
+        title,
+        tick,
+        caption,
+        tip: tooltip_skin().tip.as_slice().to_vec(),
+        table_head,
+        table_cell,
+        surface: ChartColor::create(LIGHT_SUR, DARK_SUR),
+        grid: ChartColor::create(LIGHT_SEP2, DARK_SEP2),
+        axis: ChartColor::create(LIGHT_BD3, DARK_BD3),
+        crosshair: ChartColor::create(LIGHT_BD3, DARK_BD3),
+        accent: ChartColor::create(LIGHT_ACC, DARK_GLOW),
+        palette: CHART_PALETTE,
+        marker: Some("__azul-theme-flora"),
+    }
+}
