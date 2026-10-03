@@ -442,14 +442,16 @@ impl PolicyList {
                 return false;
             }
         }
+        let cause = refusal_cause(reply);
+        let reason = format!("{} ({reply})", cause.explain(&domain));
         self.domains.insert(
             domain,
             DomainPolicy {
                 route: DomainRoute::Relay,
                 source: PolicySource::Learned,
-                reason: reply.to_string(),
+                reason,
                 updated: message::rfc3339_utc(now),
-                cause: RefusalCause::Unknown,
+                cause,
             },
         );
         true
@@ -459,15 +461,30 @@ impl PolicyList {
     /// DKIM-`signed` mail is held back only by what was learned or set, not by a shipped
     /// default (those were about unsigned mail from home).
     pub fn holds_back(&self, domain: &str, signed: bool) -> Option<&DomainPolicy> {
-        let _ = signed;
-        self.entry_for(domain)
-            .filter(|entry| entry.route == DomainRoute::Relay)
+        self.entry_for(domain).filter(|entry| {
+            entry.route == DomainRoute::Relay && !(signed && entry.source == PolicySource::Default)
+        })
     }
 
     /// Whether the last probe found port 25 blocked less than [`PORT25_RECHECK_SECS`] ago.
     pub fn port25_blocked(&self, now: i64) -> bool {
-        let _ = now;
-        false
+        self.port25
+            .as_ref()
+            .is_some_and(|check| !check.open && now - check.checked < PORT25_RECHECK_SECS)
+    }
+
+    /// Records that port 25 was found open at `now`; whether the list changed (an open finding
+    /// is kept with its first date).
+    fn note_port25_open(&mut self, now: i64) -> bool {
+        if self.port25.as_ref().is_some_and(|check| check.open) {
+            return false;
+        }
+        self.port25 = Some(Port25Check {
+            open: true,
+            checked: now,
+            detail: String::new(),
+        });
+        true
     }
 }
 
@@ -483,16 +500,129 @@ pub const PORT25_PROBE_HOSTS: &[&str] = &[
 pub const PORT25_BLOCKED: &str = "this Internet connection blocks outgoing mail on port 25 \
      (many home providers do): the mail waits in the Outbox until it can go through a relay";
 
-/// What a refusal of direct delivery was about, from the receiver's answer.
+/// How long the port-25 probe waits for each host.
+const PORT25_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(6);
+
+/// What a refusal of direct delivery was about, from the receiver's answer (its enhanced code
+/// and words: Gmail's 5.7.25 / 5.7.26, Spamhaus PBL in Microsoft's, Yahoo's and many smaller
+/// receivers' 5.7.1, Postfix's "cannot find your reverse hostname").
 pub fn refusal_cause(reply: &Reply) -> RefusalCause {
-    let _ = reply;
+    let text = format!(
+        "{} {}",
+        reply.enhanced.as_deref().unwrap_or_default(),
+        reply.text
+    )
+    .to_ascii_lowercase();
+    let any = |needles: &[&str]| needles.iter().any(|needle| text.contains(needle));
+    if any(&[
+        "5.7.25",
+        "ptr",
+        "reverse dns",
+        "reverse hostname",
+        "reverse lookup",
+        "reverse-dns",
+        "rdns",
+        "no reverse",
+    ]) {
+        return RefusalCause::NoReverseDns;
+    }
+    if any(&[
+        "5.7.20",
+        "5.7.21",
+        "5.7.22",
+        "5.7.23",
+        "5.7.26",
+        "5.7.27",
+        "spf",
+        "dkim",
+        "dmarc",
+        "unauthenticated",
+        "not authenticated",
+    ]) {
+        return RefusalCause::NotAuthenticated;
+    }
+    if any(&[
+        "spamhaus",
+        "pbl",
+        "dynamic",
+        "residential",
+        "dial-up",
+        "dialup",
+        "dsl",
+        "home",
+        "consumer",
+        "blocked using",
+        "blacklist",
+        "blocklist",
+        "block list",
+        "dnsbl",
+        "rbl",
+        "[bl",
+        "s3150",
+        "5.7.606",
+    ]) {
+        return RefusalCause::HomeAddress;
+    }
     RefusalCause::Unknown
 }
 
 impl RefusalCause {
     /// The cause in words, for `domain`'s refusal.
     pub fn explain(self, domain: &str) -> String {
-        format!("{domain} refused the mail")
+        match self {
+            RefusalCause::HomeAddress => format!(
+                "{domain} refuses mail sent straight from a home Internet connection (its answer \
+                 names a list of home addresses such as Spamhaus PBL): it needs a relay"
+            ),
+            RefusalCause::NoReverseDns => format!(
+                "{domain} refuses mail from an address without a matching reverse DNS name \
+                 (PTR): it needs a relay, or a PTR record for this connection from the Internet \
+                 provider"
+            ),
+            RefusalCause::NotAuthenticated => format!(
+                "{domain} did not accept the mail's SPF / DKIM / DMARC: check the DKIM record \
+                 under Account Settings, Sending, and the domain's SPF record"
+            ),
+            RefusalCause::Unknown => format!(
+                "{domain} refuses mail delivered directly from this computer: it needs a relay"
+            ),
+        }
+    }
+}
+
+/// Knocks on `hosts` (`host:port`, port 25 for the real probe): `Open` at the first that takes
+/// a TCP connection, `Blocked` when DNS knew some of them and none could be connected to,
+/// `Unknown` when DNS knew none (offline). Blocking, at most `timeout` per address tried (the
+/// first IPv4 and the first IPv6 address of each host).
+pub fn probe_port_25(hosts: &[String], timeout: std::time::Duration) -> Port25Probe {
+    use std::net::{TcpStream, ToSocketAddrs};
+    let mut found = false;
+    let mut seen = Vec::new();
+    for host in hosts {
+        let addresses: Vec<std::net::SocketAddr> = match host.as_str().to_socket_addrs() {
+            Ok(addresses) => addresses.collect(),
+            Err(e) => {
+                seen.push(format!("{host}: {e}"));
+                continue;
+            }
+        };
+        let tried = addresses
+            .iter()
+            .find(|a| a.is_ipv4())
+            .into_iter()
+            .chain(addresses.iter().find(|a| a.is_ipv6()));
+        for address in tried {
+            found = true;
+            match TcpStream::connect_timeout(address, timeout) {
+                Ok(_) => return Port25Probe::Open,
+                Err(e) => seen.push(format!("{host} ({address}): {e}")),
+            }
+        }
+    }
+    if found {
+        Port25Probe::Blocked(seen.join("; "))
+    } else {
+        Port25Probe::Unknown(seen.join("; "))
     }
 }
 
@@ -569,7 +699,9 @@ fn sign(bytes: Vec<u8>, settings: &SendSettings, account_id: &str) -> Result<Vec
         ),
         _ => {
             return Err(format!(
-                "DKIM: no key (neither a key file nor the keyring entry {})",
+                "DKIM: waiting for the signing key (the system keyring's entry {} is read at \
+                 the next Send / Receive; without it, create a key under Account Settings, \
+                 Sending)",
                 dkim_keyring_key(account_id)
             ))
         }
@@ -727,7 +859,12 @@ impl Transport for Micromail<'_> {
     }
 
     fn probe_port_25(&mut self) -> Port25Probe {
-        Port25Probe::Unknown(String::from("not probed"))
+        let hosts: Vec<String> = if self.settings.port25_probe.is_empty() {
+            PORT25_PROBE_HOSTS.iter().map(|h| h.to_string()).collect()
+        } else {
+            self.settings.port25_probe.clone()
+        };
+        probe_port_25(&hosts, PORT25_PROBE_TIMEOUT)
     }
 }
 
@@ -807,11 +944,11 @@ pub(crate) fn send_mail_with(
             reason: "There is no recipient.".to_string(),
         };
     }
+    // The outbox keeps the message unsigned: each attempt signs it with the key it has then
+    // (`attempt`), so a mail written before the key came from the keyring waits rather than
+    // going out unsigned.
     let built = build_message(mail, now);
-    let bytes = match sign(built.bytes, settings, account_id) {
-        Ok(bytes) => bytes,
-        Err(why) => return SendStatus::Failed { reason: why },
-    };
+    let bytes = built.bytes;
     let message_id = built
         .message_id
         .trim_start_matches('<')
@@ -840,10 +977,11 @@ pub(crate) fn send_mail_with(
             reason: format!("The outbox cannot be written: {e}"),
         };
     }
-    attempt(
+    let attempted = attempt(
         root, account_id, settings, &mut entry, &bytes, now, transport,
     );
-    finish(root, account_id, &mut entry, &bytes, now)
+    let sent = attempted.sent.as_deref().unwrap_or(&bytes);
+    finish(root, account_id, &mut entry, sent, now, attempted.waiting)
 }
 
 pub(crate) fn retry_outbox_with(
@@ -866,10 +1004,11 @@ pub(crate) fn retry_outbox_with(
             let _ = outbox.delete(&format!("{}.json", entry.id));
             continue;
         };
-        attempt(
+        let attempted = attempt(
             root, account_id, settings, &mut entry, &bytes, now, transport,
         );
-        let status = finish(root, account_id, &mut entry, &bytes, now);
+        let sent = attempted.sent.as_deref().unwrap_or(&bytes);
+        let status = finish(root, account_id, &mut entry, sent, now, attempted.waiting);
         results.push((entry.id.clone(), status));
     }
     results
@@ -891,7 +1030,18 @@ fn write_entry(outbox: &MailStore, entry: &OutboxEntry) -> std::io::Result<()> {
     outbox.put(&format!("{}.json", entry.id), text.as_bytes())
 }
 
-/// Sends to the entry's pending recipients and records each outcome.
+/// What one attempt did.
+#[derive(Debug, Default)]
+struct Attempted {
+    /// The message as it went out (signed when the account signs): what Sent keeps.
+    sent: Option<Vec<u8>>,
+    /// Nothing was tried because the mail waits for the user (the DKIM key is not in memory
+    /// yet): no attempt is counted, and the mail is due again at once.
+    waiting: bool,
+}
+
+/// Signs the message for this attempt, sends to the entry's pending recipients and records
+/// each outcome.
 #[allow(clippy::too_many_arguments)]
 fn attempt(
     root: &DriveFolder,
@@ -901,61 +1051,188 @@ fn attempt(
     bytes: &[u8],
     now: i64,
     transport: &mut dyn Transport,
-) {
+) -> Attempted {
     let pending = entry.pending();
     if pending.is_empty() {
-        return;
+        return Attempted::default();
     }
+    let wire = match sign(bytes.to_vec(), settings, account_id) {
+        Ok(wire) => wire,
+        Err(why) => {
+            // Never unsigned when the account signs: the mail waits for the key.
+            hold_back(entry, &pending, &why);
+            return Attempted {
+                sent: None,
+                waiting: true,
+            };
+        }
+    };
     entry.attempts += 1;
     entry.last_attempt = now;
     match &settings.route {
         SendRoute::Smtp { host, port } => {
             let outcomes =
-                transport.deliver(Some((host.as_str(), *port)), &entry.from, &pending, bytes);
+                transport.deliver(Some((host.as_str(), *port)), &entry.from, &pending, &wire);
             record(entry, &outcomes);
         }
         SendRoute::Direct => {
-            let account_dir = account::account_dir(root, account_id);
-            let mut policy = PolicyList::load(&account_dir);
-            let mut learned = false;
-            let mut domains: Vec<(String, Vec<String>)> = Vec::new();
-            for address in pending {
-                let domain = micromail::message::address_domain(&address).unwrap_or_default();
-                match domains.iter_mut().find(|(d, _)| *d == domain) {
-                    Some((_, group)) => group.push(address),
-                    None => domains.push((domain, vec![address])),
+            let signed = settings.dkim.is_some();
+            deliver_direct(
+                root, account_id, settings, entry, pending, &wire, signed, now, transport,
+            );
+        }
+    }
+    Attempted {
+        sent: Some(wire),
+        waiting: false,
+    }
+}
+
+/// Puts `why` on the pending recipients among `group` (they stay pending).
+fn hold_back(entry: &mut OutboxEntry, group: &[String], why: &str) {
+    for recipient in entry.recipients.iter_mut().filter(|r| {
+        r.state == RecipientProgress::Pending && group.iter().any(|g| g.eq_ignore_ascii_case(&r.address))
+    }) {
+        recipient.reason = why.to_string();
+    }
+}
+
+/// Direct delivery of `wire` to `pending`, each domain to its own mail exchangers, with the
+/// policy list: a connection whose port 25 was found blocked waits (and is probed again after
+/// [`PORT25_RECHECK_SECS`]); a domain that needs a relay waits; a refusal that says something
+/// about this sender is learned with its cause; when no exchanger of a domain could even be
+/// connected to, the port-25 probe tells a dead domain from a blocked connection.
+#[allow(clippy::too_many_arguments)]
+fn deliver_direct(
+    root: &DriveFolder,
+    account_id: &str,
+    settings: &SendSettings,
+    entry: &mut OutboxEntry,
+    pending: Vec<String>,
+    wire: &[u8],
+    signed: bool,
+    now: i64,
+    transport: &mut dyn Transport,
+) {
+    let account_dir = account::account_dir(root, account_id);
+    let mut policy = PolicyList::load(&account_dir);
+    let mut changed = false;
+
+    // The connection first.
+    if !settings.ignore_policy {
+        if policy.port25_blocked(now) {
+            hold_back(entry, &pending, PORT25_BLOCKED);
+            return;
+        }
+        if policy.port25.as_ref().is_some_and(|check| !check.open) {
+            // Found blocked a while ago: this may be another network now.
+            match transport.probe_port_25() {
+                Port25Probe::Open => changed |= policy.note_port25_open(now),
+                Port25Probe::Blocked(detail) => {
+                    policy.port25 = Some(Port25Check {
+                        open: false,
+                        checked: now,
+                        detail,
+                    });
+                    let _ = policy.save(&account_dir);
+                    hold_back(entry, &pending, PORT25_BLOCKED);
+                    return;
                 }
-            }
-            for (domain, group) in domains {
-                if !settings.ignore_policy && policy.route_for(&domain) == DomainRoute::Relay {
-                    let why = format!(
-                        "{domain} takes mail only from a trusted relay: choose an SMTP server \
-                         under Settings, Sending"
-                    );
-                    for recipient in entry
-                        .recipients
-                        .iter_mut()
-                        .filter(|r| group.iter().any(|g| g.eq_ignore_ascii_case(&r.address)))
-                    {
-                        recipient.reason = why.clone();
-                    }
-                    continue;
-                }
-                let outcomes = transport.deliver(None, &entry.from, &group, bytes);
-                for outcome in &outcomes {
-                    if let RecipientStatus::Rejected { reply, server } = &outcome.status {
-                        // Only the domain's own server's answer says something about the route.
-                        if !server.is_empty() && policy.learn(&domain, reply, now) {
-                            learned = true;
-                        }
-                    }
-                }
-                record(entry, &outcomes);
-            }
-            if learned {
-                let _ = policy.save(&account_dir);
+                Port25Probe::Unknown(_) => {}
             }
         }
+    }
+
+    let mut domains: Vec<(String, Vec<String>)> = Vec::new();
+    for address in pending {
+        let domain = micromail::message::address_domain(&address).unwrap_or_default();
+        match domains.iter_mut().find(|(d, _)| *d == domain) {
+            Some((_, group)) => group.push(address),
+            None => domains.push((domain, vec![address])),
+        }
+    }
+    // Recipients whose domain's exchangers could not even be connected to.
+    let mut unreached: Vec<String> = Vec::new();
+    // Some exchanger answered: port 25 is open.
+    let mut reached = false;
+    for (domain, group) in domains {
+        if !settings.ignore_policy {
+            if let Some(held) = policy.holds_back(&domain, signed) {
+                let why = if held.source == PolicySource::Default {
+                    format!(
+                        "{domain} takes mail only from a trusted relay: choose an SMTP server \
+                         under Settings, Sending"
+                    )
+                } else {
+                    held.reason.clone()
+                };
+                hold_back(entry, &group, &why);
+                continue;
+            }
+        }
+        let outcomes = transport.deliver(None, &entry.from, &group, wire);
+        let mut no_answer = !outcomes.is_empty();
+        for outcome in &outcomes {
+            let answered = match &outcome.status {
+                RecipientStatus::Deferred { reply, .. } => reply.is_some(),
+                RecipientStatus::Accepted { server } | RecipientStatus::Rejected { server, .. } => {
+                    !server.is_empty()
+                }
+            };
+            reached |= answered;
+            if !matches!(outcome.status, RecipientStatus::Deferred { reply: None, .. }) {
+                no_answer = false;
+            }
+        }
+        record(entry, &outcomes);
+        for outcome in &outcomes {
+            let RecipientStatus::Rejected { reply, server } = &outcome.status else {
+                continue;
+            };
+            // Only the domain's own server's answer about the sender says something about the
+            // route.
+            if server.is_empty() || !says_relay_needed(reply) {
+                continue;
+            }
+            changed |= policy.learn(&domain, reply, now);
+            let why = format!(
+                "{} ({server}: {reply})",
+                refusal_cause(reply).explain(&domain)
+            );
+            if let Some(recipient) = entry
+                .recipients
+                .iter_mut()
+                .find(|r| r.address.eq_ignore_ascii_case(&outcome.address))
+            {
+                recipient.reason = why;
+            }
+        }
+        if no_answer {
+            unreached.extend(group);
+        }
+    }
+
+    if !unreached.is_empty() && !reached {
+        // Is it those domains, or this connection's port 25?
+        match transport.probe_port_25() {
+            Port25Probe::Blocked(detail) => {
+                policy.port25 = Some(Port25Check {
+                    open: false,
+                    checked: now,
+                    detail,
+                });
+                changed = true;
+                hold_back(entry, &unreached, PORT25_BLOCKED);
+            }
+            Port25Probe::Open => changed |= policy.note_port25_open(now),
+            Port25Probe::Unknown(_) => {}
+        }
+    }
+    if reached {
+        changed |= policy.note_port25_open(now);
+    }
+    if changed {
+        let _ = policy.save(&account_dir);
     }
 }
 
@@ -1001,12 +1278,15 @@ fn backoff_secs(attempts: u32) -> i64 {
 }
 
 /// Files the entry by its recipients' states and says what became of the mail.
+/// `bytes` is the message as it went out (what Sent keeps); `waiting`: the attempt waited for
+/// the user, so the mail is due again at once instead of after a backoff.
 fn finish(
     root: &DriveFolder,
     account_id: &str,
     entry: &mut OutboxEntry,
     bytes: &[u8],
     now: i64,
+    waiting: bool,
 ) -> SendStatus {
     let outbox = MailStore::new(outbox_dir(root, account_id));
     if entry.count(RecipientProgress::Pending) > 0 && now - entry.created >= GIVE_UP_AFTER_SECS {
@@ -1070,7 +1350,11 @@ fn finish(
     }
 
     entry.state = OutboxState::Queued;
-    entry.next_attempt = now + backoff_secs(entry.attempts);
+    entry.next_attempt = if waiting {
+        now
+    } else {
+        now + backoff_secs(entry.attempts)
+    };
     let _ = write_entry(&outbox, entry);
     let waiting: Vec<String> = entry
         .recipients
