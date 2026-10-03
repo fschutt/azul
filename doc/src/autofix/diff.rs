@@ -462,7 +462,7 @@ fn needs_path_fix(api_path: &str, workspace_path: &str) -> bool {
 /// stopped being true when the root+leaf rule was added directly beneath it. A
 /// doc comment that contradicts its own body is worse than none — it is what a
 /// reader trusts instead of reading the code.)
-fn paths_are_equivalent(path1: &str, path2: &str) -> bool {
+pub(crate) fn paths_are_equivalent(path1: &str, path2: &str) -> bool {
     if path1 == path2 {
         return true;
     }
@@ -1283,7 +1283,7 @@ fn generate_diff_v2(
                 // exposed standalone type (e.g. MapTileId, OnAudioFrame) that just isn't
                 // reachable from a public fn signature - removing it would drop a valid
                 // binding and make `autofix apply <dir>` destructive (false-remove drift).
-                if index.resolve(api_name, None).is_none() {
+                if !still_exposed_in_source(index, api_name) {
                     diff.removals
                         .push(format!("{}:{}", api_name, api_info.path));
                 }
@@ -1445,7 +1445,7 @@ fn generate_diff_v2(
             // Same guard as the unmatched-type removal above: never auto-remove a type
             // that still exists in the workspace source (a valid exposed standalone type),
             // only one genuinely gone - keeps `autofix apply <dir>` non-destructive.
-            if index.resolve(dead_type, None).is_some() {
+            if still_exposed_in_source(index, dead_type) {
                 continue;
             }
             if let Some(api_info) = current_api_types.get(dead_type) {
@@ -1466,7 +1466,7 @@ fn generate_diff_v2(
     // received their parameter names).
     let removed_dead: BTreeSet<&String> = dead_types
         .iter()
-        .filter(|t| index.resolve(t, None).is_none())
+        .filter(|t| !still_exposed_in_source(index, t))
         .collect();
     if !removed_dead.is_empty() {
         diff.modifications
@@ -1475,7 +1475,38 @@ fn generate_diff_v2(
             .retain(|a| !removed_dead.contains(&a.type_name));
     }
 
+    // No other patch of a type this round removes: a modify / path fix of it
+    // competes with the removal, and a module move takes it away from the
+    // module the removal targets (the remove then finds nothing and the type
+    // comes back every round).
+    let removed: BTreeSet<String> = diff
+        .removals
+        .iter()
+        .map(|r| r.split(':').next().unwrap_or(r).to_string())
+        .collect();
+    if !removed.is_empty() {
+        diff.modifications.retain(|m| !removed.contains(&m.type_name));
+        diff.additions.retain(|a| !removed.contains(&a.type_name));
+        diff.path_fixes.retain(|f| !removed.contains(&f.type_name));
+        diff.module_moves.retain(|m| !removed.contains(&m.type_name));
+    }
+
     diff
+}
+
+/// Whether an api.json type nothing reaches is kept because its source still
+/// exposes it (a deliberately standalone type like MapTileId). A type whose
+/// source is gone is not; nor is a struct / enum with no repr at all - it
+/// cannot cross the FFI, so it cannot be exposed (it looped on a `set_repr`
+/// to none instead, wave 5).
+fn still_exposed_in_source(index: &TypeIndex, api_name: &str) -> bool {
+    match index.resolve(api_name, None) {
+        None => false,
+        Some(def) => match &def.kind {
+            TypeDefKind::Struct { repr, .. } | TypeDefKind::Enum { repr, .. } => repr.is_some(),
+            _ => true,
+        },
+    }
 }
 
 /// Detect dead circular type clusters in api.json.
@@ -1734,8 +1765,12 @@ fn compare_derives_and_impls(
         });
     }
 
-    // Compare repr - now using Option<String> for exact value comparison
-    if workspace_repr != api_info.repr {
+    // Compare repr - now using Option<String> for exact value comparison.
+    // A source type that LOST its repr gets no patch: api.json cannot carry a
+    // type without a C repr, and a `None` in the patch means "leave it" - the
+    // set_repr changed nothing and came back every round (wave 5). The FFI
+    // check reports it; when nothing reaches it, generate_diff_v2 removes it.
+    if workspace_repr.is_some() && workspace_repr != api_info.repr {
         modifications.push(TypeModification {
             type_name: type_name.to_string(),
             kind: ModificationKind::ReprChanged {
@@ -3073,5 +3108,92 @@ mod path_fix_tests {
         let p = "azul_layout::widgets::shells::office_shell::ShellPaneVec";
         assert!(needs_path_fix("", p), "a class without `external` gets the workspace path");
         assert!(!needs_path_fix(p, p));
+    }
+}
+
+#[cfg(test)]
+mod repr_loss_tests {
+    use super::*;
+
+    fn struct_def(name: &str, repr: Option<&str>) -> TypeDefinition {
+        TypeDefinition {
+            full_path: format!("azul_layout::widgets::t::{name}"),
+            type_name: name.to_string(),
+            file_path: std::path::PathBuf::from("t.rs"),
+            module_path: "widgets::t".to_string(),
+            crate_name: "azul_layout".to_string(),
+            kind: TypeDefKind::Struct {
+                fields: indexmap::IndexMap::new(),
+                repr: repr.map(str::to_string),
+                repr_attr_count: usize::from(repr.is_some()),
+                generic_params: Vec::new(),
+                derives: Vec::new(),
+                custom_impls: Vec::new(),
+                is_tuple_struct: false,
+            },
+            source_code: String::new(),
+            methods: Vec::new(),
+        }
+    }
+
+    fn api_info(name: &str, repr: Option<&str>) -> ApiTypeInfo {
+        ApiTypeInfo {
+            path: format!("azul_layout::widgets::t::{name}"),
+            module: "widgets".to_string(),
+            repr: repr.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    /// A source struct that lost its `#[repr(C)]` while api.json says
+    /// `repr: C`: the scan proposed `set_repr` to none every round - a none
+    /// in the patch means "leave it", so it changed nothing and came back
+    /// (`autofix difficult remove` was needed, wave 5). api.json cannot carry
+    /// a type without a C repr: no repr patch (the FFI check reports it).
+    #[test]
+    fn a_type_that_lost_its_c_repr_gets_no_repr_patch() {
+        let is_repr = |m: &TypeModification| matches!(m.kind, ModificationKind::ReprChanged { .. });
+        let mods = compare_derives_and_impls(
+            "Orphan",
+            &struct_def("Orphan", None),
+            &api_info("Orphan", Some("C")),
+        );
+        assert!(!mods.iter().any(is_repr), "{mods:?}");
+
+        let mods = compare_derives_and_impls(
+            "Orphan",
+            &struct_def("Orphan", Some("C")),
+            &api_info("Orphan", None),
+        );
+        assert!(mods.iter().any(is_repr), "a repr the source has still goes to api.json: {mods:?}");
+    }
+
+    /// The same type when nothing in the API reaches it: removed (it cannot
+    /// be a deliberately exposed standalone type without a C repr), and no
+    /// other patch of it competes with the removal. A reachable-from-nothing
+    /// type that still has its C repr stays.
+    #[test]
+    fn an_unreachable_type_without_a_c_repr_is_removed() {
+        let mut index = TypeIndex::new();
+        index.add_type_for_test(struct_def("Orphan", None));
+        index.add_type_for_test(struct_def("Standalone", Some("C")));
+        let mut current = BTreeMap::new();
+        current.insert("Orphan".to_string(), api_info("Orphan", Some("C")));
+        current.insert("Standalone".to_string(), api_info("Standalone", Some("C")));
+
+        let diff = generate_diff_v2(&ResolvedTypeSet::default(), &current, &index);
+        let removed: Vec<&str> = diff
+            .removals
+            .iter()
+            .map(|r| r.split(':').next().unwrap_or(r))
+            .collect();
+        assert_eq!(removed, vec!["Orphan"], "{:?}", diff.removals);
+        assert!(
+            diff.modifications.iter().all(|m| m.type_name != "Orphan"),
+            "{:?}",
+            diff.modifications
+        );
+        assert!(diff.module_moves.iter().all(|m| m.type_name != "Orphan"));
+        assert!(diff.path_fixes.iter().all(|f| f.type_name != "Orphan"));
     }
 }

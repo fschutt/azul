@@ -11,6 +11,7 @@ pub mod diff;
 pub mod function_diff;
 pub mod module_map;
 pub mod patch_format;
+pub mod pending;
 pub mod type_index;
 pub mod type_resolver;
 pub mod unified_index;
@@ -151,6 +152,13 @@ pub fn autofix_api(
     // Run the full diff analysis (returns diff, type index, and type resolver warnings)
     let (diff, index, type_warnings) = analyze_api_diff(project_root, api_data, verbose)?;
 
+    // The classes this round removes as a whole
+    let removed_classes: std::collections::BTreeSet<&str> = diff
+        .removals
+        .iter()
+        .map(|r| r.split(':').next().unwrap_or(r))
+        .collect();
+
     // Check FFI safety for types that exist in api.json AND types about to be added
     let addition_names: Vec<String> = diff.additions.iter().map(|a| a.type_name.clone()).collect();
     let mut ffi_warnings = check_ffi_safety(&index, api_data, &addition_names);
@@ -173,6 +181,10 @@ pub fn autofix_api(
     let doc_warnings = check_doc_characters(api_data);
     ffi_warnings.extend(doc_warnings);
 
+    // Every type a function signature names must cross the FFI (a raw `str`
+    // made the codegen emit `Azstr`, wave 5)
+    ffi_warnings.extend(check_function_signatures(api_data, &addition_names));
+
     // Check for reserved keywords across all target languages
     let keyword_warnings = check_reserved_keywords(api_data);
     ffi_warnings.extend(keyword_warnings);
@@ -181,6 +193,13 @@ pub fn autofix_api(
     // colliding with auto-emitted `isOk()` for the `Ok` variant).
     let enum_variant_warnings = check_enum_variant_method_collisions(api_data);
     ffi_warnings.extend(enum_variant_warnings);
+
+    // A class this round removes is no FFI error (an unreachable struct that
+    // lost its C repr is removed, not reported); `Class::fn` names a function
+    ffi_warnings.retain(|w| {
+        let class = w.type_name.split("::").next().unwrap_or("");
+        !removed_classes.contains(class)
+    });
 
     print_ffi_safety_warnings(&ffi_warnings);
 
@@ -221,6 +240,30 @@ pub fn autofix_api(
             for line in &d.differences {
                 println!("      {}", line.dimmed());
             }
+        }
+    }
+
+    // api.json functions whose Rust method is gone (BLOCKS' 84 preset-shell
+    // setters, wave 5): reported here, removal patches written below. A class
+    // this round removes as a whole needs no function removals.
+    let gone: Vec<function_diff::GoneApiFunction> = function_diff::gone_api_functions(&index, api_data)
+        .into_iter()
+        .filter(|g| !removed_classes.contains(g.class.as_str()))
+        .collect();
+    if !gone.is_empty() {
+        println!(
+            "\n{} {} api.json function(s) call a Rust method that is gone (removal patches written):",
+            "!".yellow(),
+            gone.len()
+        );
+        for g in &gone {
+            println!(
+                "  {}.{}.{} {}",
+                g.module.dimmed(),
+                g.class.white(),
+                g.api_name.red(),
+                format!("(calls `{}`)", g.rust_name).dimmed()
+            );
         }
     }
 
@@ -792,6 +835,40 @@ pub fn autofix_api(
             patch_count, module_move.type_name
         ));
         fs::write(&patch_path, &patch_content)?;
+        patch_count += 1;
+    }
+
+    // Removal patches for the api.json functions whose Rust method is gone,
+    // one per class (in the module the class is in)
+    let version = api_data
+        .get_latest_version_str()
+        .unwrap_or(patch_format::API_VERSION)
+        .to_string();
+    let mut gone_by_class: std::collections::BTreeMap<(&str, &str), (Vec<&str>, Vec<&str>)> =
+        std::collections::BTreeMap::new();
+    for g in &gone {
+        let (functions, constructors) = gone_by_class
+            .entry((g.module.as_str(), g.class.as_str()))
+            .or_default();
+        if g.is_constructor {
+            constructors.push(g.api_name.as_str());
+        } else {
+            functions.push(g.api_name.as_str());
+        }
+    }
+    for ((module, class), (functions, constructors)) in &gone_by_class {
+        let patch = function_diff::generate_remove_entries_patch(
+            class,
+            functions,
+            constructors,
+            module,
+            &version,
+        );
+        let patch_path = patches_dir.join(format!(
+            "{:04}_remove_fns_{}.patch.json",
+            patch_count, class
+        ));
+        fs::write(&patch_path, serde_json::to_string_pretty(&patch)?)?;
         patch_count += 1;
     }
 
@@ -1410,6 +1487,15 @@ pub enum FfiSafetyWarningKind {
         /// The type name that is referenced but not defined
         referenced_type: String,
     },
+    /// A function argument or return type is a raw `str` (`str`, `&str`,
+    /// `Optionstr`, `Option<&str>`): a borrow with no FFI form. The codegen
+    /// emits `Azstr` / `AzOptionstr`, which do not exist.
+    RawStrInSignature {
+        /// Where, e.g. "return type" or "argument 'text'"
+        location: String,
+        /// The type as api.json spells it
+        raw_type: String,
+    },
     /// Type alias uses generic_args (e.g. `Vec<ComponentArgument>`) which is not FFI-safe
     /// unless both the target type and all generic args are defined in api.json.
     /// If the target (e.g. `CssPropertyValue`) and all args are in api.json, this is
@@ -1509,6 +1595,8 @@ impl FfiSafetyWarningKind {
             FfiSafetyWarningKind::AngleBracketInType { .. } => true,
             // Critical - referenced type not defined in api.json
             FfiSafetyWarningKind::UndefinedTypeReference { .. } => true,
+            // Critical - `str` has no FFI form, the codegen emits `Azstr`
+            FfiSafetyWarningKind::RawStrInSignature { .. } => true,
             // Generic type aliases are only critical if the target or args are NOT in api.json.
             // e.g. Vec<ComponentArgument> is critical (Vec not in api.json),
             // but CssPropertyValue<StyleBackgroundContent> is fine (both in api.json).
@@ -2962,6 +3050,23 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
         }
+        FfiSafetyWarningKind::RawStrInSignature { location, raw_type } => {
+            println!("  {} {}", "✗".red(), warning.type_name.white());
+            println!(
+                "    {} {} is a borrowed str: {}",
+                "→".dimmed(),
+                location.cyan(),
+                raw_type.yellow()
+            );
+            println!(
+                "    {} A str has no FFI form. Return `String` (fn_body \
+                 `azul_css::AzString::from(..)`) or `OptionString` (fn_body \
+                 `..map(|s| azul_css::AzString::from(s)).into()`), take `String` (`text.as_str()`); \
+                 `autofix add` writes these.",
+                "FIX:".cyan()
+            );
+            println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+        }
         FfiSafetyWarningKind::GenericTypeAlias {
             target,
             generic_args,
@@ -3089,6 +3194,130 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
         }
     }
     println!();
+}
+
+/// The C-ABI scalars a function signature may name without an api.json class
+/// (the `core::ffi` family included: `GlContextPtr.get_uniform_location`
+/// returns `c_int`).
+const FFI_SCALARS: &[&str] = &[
+    "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128", "usize",
+    "f32", "f64", "bool", "char", "c_void", "c_char", "c_schar", "c_uchar", "c_int", "c_uint",
+    "c_short", "c_ushort", "c_long", "c_ulong", "c_longlong", "c_ulonglong", "c_float",
+    "c_double",
+];
+
+/// A signature type without its pointer / reference prefixes
+/// (`*const Foo` -> `Foo`, `&mut str` -> `str`).
+fn signature_base_type(ty: &str) -> &str {
+    let mut base = ty.trim();
+    loop {
+        let stripped = base
+            .strip_prefix("*const ")
+            .or_else(|| base.strip_prefix("*mut "))
+            .or_else(|| base.strip_prefix("&mut "))
+            .or_else(|| base.strip_prefix('&'));
+        match stripped {
+            Some(rest) => base = rest.trim(),
+            None => return base,
+        }
+    }
+}
+
+/// Whether `base` (a type without pointer prefixes) is a raw `str` in any
+/// spelling: `str`, `Optionstr`, `OptionStr`, `Option<&str>`, `Option<str>`.
+fn is_raw_str(base: &str) -> bool {
+    if base == "str" {
+        return true;
+    }
+    base.strip_prefix("Option").is_some_and(|rest| {
+        let inner = rest.trim().trim_start_matches('<').trim_end_matches('>').trim();
+        signature_base_type(inner).eq_ignore_ascii_case("str")
+    })
+}
+
+/// Every type an api.json function signature names must cross the FFI: a
+/// raw `str` in any spelling is a [`FfiSafetyWarningKind::RawStrInSignature`]
+/// (RichRun's `as_str -> str` / `link_str -> Optionstr` made the codegen
+/// emit `Azstr` / `AzOptionstr` and broke the dylib, wave 5), and any other
+/// name that is not a C scalar, an api.json class, one of the class's or
+/// function's generic parameters, or a type this round's patches add
+/// (`additional_type_names`) is a
+/// [`FfiSafetyWarningKind::UndefinedTypeReference`]. `()` is left to
+/// `UnitTypeInSignature`.
+pub fn check_function_signatures(
+    api_data: &ApiData,
+    additional_type_names: &[String],
+) -> Vec<FfiSafetyWarning> {
+    use std::collections::BTreeSet;
+
+    let defined: BTreeSet<&str> = api_data
+        .0
+        .values()
+        .flat_map(|version| version.api.values())
+        .flat_map(|module| module.classes.keys())
+        .map(String::as_str)
+        .chain(additional_type_names.iter().map(String::as_str))
+        .chain(FFI_SCALARS.iter().copied())
+        .collect();
+
+    let mut warnings = Vec::new();
+    for version in api_data.0.values() {
+        for (module_name, module) in &version.api {
+            for (class_name, class) in &module.classes {
+                let file_path = format!("api.json - {}.{}", module_name, class_name);
+                let entries = class
+                    .constructors
+                    .iter()
+                    .chain(class.functions.iter())
+                    .flat_map(|map| map.iter());
+                for (fn_name, f) in entries {
+                    let generic: BTreeSet<&str> = class
+                        .generic_params
+                        .iter()
+                        .flatten()
+                        .chain(f.generic_params.iter().flatten())
+                        .map(String::as_str)
+                        .collect();
+                    let args = f.fn_args.iter().flat_map(|arg| arg.iter()).filter_map(
+                        |(name, ty)| (name != "self").then(|| (format!("argument '{}'", name), ty)),
+                    );
+                    let ret = f.returns.iter().map(|r| ("return type".to_string(), &r.r#type));
+                    for (location, ty) in args.chain(ret) {
+                        if contains_unit_type(ty) {
+                            continue;
+                        }
+                        let base = signature_base_type(ty);
+                        let kind = if is_raw_str(base) {
+                            FfiSafetyWarningKind::RawStrInSignature {
+                                location,
+                                raw_type: ty.clone(),
+                            }
+                        } else {
+                            // `[T; N]` names T
+                            let named = base
+                                .strip_prefix('[')
+                                .and_then(|rest| rest.split(';').next())
+                                .map(str::trim)
+                                .unwrap_or(base);
+                            if defined.contains(named) || generic.contains(named) {
+                                continue;
+                            }
+                            FfiSafetyWarningKind::UndefinedTypeReference {
+                                location,
+                                referenced_type: ty.clone(),
+                            }
+                        };
+                        warnings.push(FfiSafetyWarning {
+                            type_name: format!("{}::{}", class_name, fn_name),
+                            file_path: file_path.clone(),
+                            kind,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    warnings
 }
 
 /// Check for invalid characters in documentation strings
@@ -5139,5 +5368,101 @@ mod addition_patch_module_tests {
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         let op = &v["operations"][0];
         assert!(op.get("module").map_or(true, |m| m.is_null()), "{json}");
+    }
+}
+
+#[cfg(test)]
+mod function_signature_tests {
+    use super::{check_function_signatures, FfiSafetyWarningKind};
+    use crate::api::ApiData;
+
+    /// An api.json with one `widgets.RichRun` class holding `functions`, and
+    /// the classes a signature may name (`String`, `OptionString`).
+    fn api_with(functions: serde_json::Value) -> ApiData {
+        serde_json::from_value(serde_json::json!({
+            "0.2.0": {"apiversion": 1, "git": "", "date": "", "api": {
+                "widgets": {"classes": {
+                    "RichRun": {
+                        "external": "azul_layout::widgets::rich_text::doc::RichRun",
+                        "functions": functions
+                    },
+                    "String": {"external": "azul_css::corety::AzString"},
+                    "OptionString": {"external": "azul_css::corety::OptionString"}
+                }}
+            }}
+        }))
+        .expect("test api parses")
+    }
+
+    fn returning(ty: &str) -> serde_json::Value {
+        serde_json::json!({"fn_args": [{"self": "ref"}], "returns": {"type": ty}, "fn_body": "object.f()"})
+    }
+
+    /// `RichRun.as_str -> str` and `link_str -> Optionstr` reached api.json
+    /// (wave 5) and nothing flagged them: the codegen emitted the types
+    /// `Azstr` / `AzOptionstr`, which do not exist, and the dylib did not
+    /// build. A borrowed `str` has no FFI form - it is a critical error,
+    /// however api.json spells it.
+    #[test]
+    fn a_raw_str_in_a_function_signature_is_a_critical_ffi_error() {
+        let api = api_with(serde_json::json!({
+            "as_str": returning("str"),
+            "link_str": returning("Optionstr"),
+            "cell": returning("&str"),
+            "label": returning("Option<&str>"),
+            "takes": {"fn_args": [{"self": "ref"}, {"text": "&str"}], "fn_body": "object.takes(text)"},
+            "text": returning("String"),
+            "link": returning("OptionString"),
+            "len": returning("usize"),
+            "raw": returning("*const c_void")
+        }));
+        let warnings = check_function_signatures(&api, &[]);
+        let mut flagged: Vec<&str> = warnings
+            .iter()
+            .filter(|w| matches!(w.kind, FfiSafetyWarningKind::RawStrInSignature { .. }))
+            .filter(|w| w.is_critical())
+            .map(|w| w.type_name.as_str())
+            .collect();
+        flagged.sort();
+        assert_eq!(
+            flagged,
+            vec![
+                "RichRun::as_str",
+                "RichRun::cell",
+                "RichRun::label",
+                "RichRun::link_str",
+                "RichRun::takes"
+            ],
+            "{warnings:?}"
+        );
+        assert_eq!(
+            warnings.len(),
+            5,
+            "String / OptionString / usize / *const c_void are fine: {warnings:?}"
+        );
+    }
+
+    /// Any type a signature names must be defined in api.json (or be a C
+    /// scalar, or be added by this round's patches): the codegen prefixes
+    /// whatever it finds with `Az`.
+    #[test]
+    fn a_function_naming_an_undefined_type_is_a_critical_ffi_error() {
+        let api = api_with(serde_json::json!({
+            "blocks": returning("RichBlockRef"),
+            "location": returning("c_int")
+        }));
+        let warnings = check_function_signatures(&api, &[]);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].is_critical());
+        assert!(matches!(
+            &warnings[0].kind,
+            FfiSafetyWarningKind::UndefinedTypeReference { referenced_type, .. }
+                if referenced_type == "RichBlockRef"
+        ));
+        let pending = vec!["RichBlockRef".to_string()];
+        assert!(
+            check_function_signatures(&api, &pending).is_empty(),
+            "a type this round's patches add is not undefined"
+        );
     }
 }

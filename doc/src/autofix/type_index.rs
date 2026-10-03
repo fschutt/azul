@@ -43,6 +43,11 @@ pub struct MethodArg {
     pub ty: String,
     /// Reference kind (Value, Ref, RefMut, ConstPtr, MutPtr)
     pub ref_kind: RefKind,
+    /// The type's name as the source writes it, before the `Az` prefix is
+    /// stripped and an `Into<T>` parameter is resolved: `String` for a std
+    /// `String` (`ty` says `String` for an `AzString` too), `AzString`, `S`
+    /// for `S: Into<AzString>`. The fn_body converts a std `String`.
+    pub source_ty: String,
 }
 
 /// A method extracted from an impl block
@@ -3572,6 +3577,7 @@ pub(super) fn extract_method_def(method: &syn::ImplItemFn, type_name: &str) -> O
                 name: arg_name,
                 ty,
                 ref_kind,
+                source_ty: written_type_name(&pat_type.ty),
             });
         }
     }
@@ -3609,6 +3615,25 @@ pub(super) fn extract_method_def(method: &syn::ImplItemFn, type_name: &str) -> O
         is_public,
         from_trait: None,
     })
+}
+
+/// The last path segment of a type as the source writes it (one reference
+/// stripped), without the Az-prefix stripping of [`extract_type_name`]:
+/// `&std::string::String` -> `String`, `AzString` -> `AzString`.
+fn written_type_name(ty: &syn::Type) -> String {
+    let ty = match ty {
+        syn::Type::Reference(r) => r.elem.as_ref(),
+        other => other,
+    };
+    match ty {
+        syn::Type::Path(p) if p.qself.is_none() => p
+            .path
+            .segments
+            .last()
+            .map(|seg| seg.ident.to_string())
+            .unwrap_or_default(),
+        other => clean_type_string(&other.to_token_stream().to_string()),
+    }
 }
 
 /// Attach methods to a TypeDefinition
@@ -3676,11 +3701,13 @@ mod tests {
                     name: "host".to_string(),
                     ty: "DomNodeId".to_string(),
                     ref_kind: RefKind::Value,
+                    source_ty: "DomNodeId".to_string(),
                 },
                 MethodArg {
                     name: "format".to_string(),
                     ty: "TextFormat".to_string(),
                     ref_kind: RefKind::Ref,
+                    source_ty: "TextFormat".to_string(),
                 },
             ],
             return_type: None,

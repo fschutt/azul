@@ -262,10 +262,24 @@ fn find_function_differences(
                 .filter(|arg_map| !arg_map.contains_key("self"))
                 .flat_map(|arg_map| arg_map.iter());
             for ((api_name, api_ty), source_arg) in api_args.zip(source_method.args.iter()) {
-                let (source_ty, _) = source_arg_ffi_type(source_arg);
+                let (source_ty, accessor) = source_arg_ffi_type(source_arg);
                 if !same_ffi_arg_type(api_ty, &source_ty) {
                     diffs.push(format!(
                         "argument `{api_name}`: api.json declares `{api_ty}`, source takes `{source_ty}`"
+                    ));
+                } else if accessor
+                    .as_deref()
+                    .is_some_and(|a| a.contains("into_library_owned_string"))
+                    && api_fn
+                        .fn_body
+                        .as_deref()
+                        .is_some_and(|body| passes_bare(body, api_name))
+                {
+                    // Same type on both sides (`String`), but the C side
+                    // passes an AzString and the method takes a std String.
+                    diffs.push(format!(
+                        "argument `{api_name}`: the source takes a std `String`, the fn_body \
+                         passes the AzString as it is (`{api_name}.into_library_owned_string()`)"
                     ));
                 }
             }
@@ -280,6 +294,179 @@ fn find_function_differences(
     }
 
     differences
+}
+
+/// An api.json function whose fn_body calls a Rust method its type no
+/// longer has.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GoneApiFunction {
+    /// The api.json module of the class
+    pub module: String,
+    /// The api.json class
+    pub class: String,
+    /// The api.json name (`create_old`, `set_title_row`)
+    pub api_name: String,
+    /// The Rust method its fn_body calls (`new_old`, `set_title_row`)
+    pub rust_name: String,
+    /// In `constructors` (else in `functions`)
+    pub is_constructor: bool,
+}
+
+/// Methods a type has without an impl block the index can see: derive
+/// output and std (blanket) trait methods.
+const DERIVED_OR_BLANKET_METHODS: &[&str] = &[
+    "clone", "clone_from", "to_string", "to_owned", "into", "try_into", "from", "try_from",
+    "eq", "ne", "cmp", "partial_cmp", "lt", "le", "gt", "ge", "max", "min", "clamp", "hash",
+    "fmt", "default", "as_ref", "as_mut", "borrow", "borrow_mut", "deref", "deref_mut", "drop",
+];
+
+/// The identifier at the start of `s`.
+fn leading_ident(s: &str) -> &str {
+    let end = s
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .unwrap_or(s.len());
+    &s[..end]
+}
+
+/// The Rust method an api.json fn_body calls on its own class: the first
+/// `object.m(..)` of the body, else `<path>::m(..)` for one of the class's
+/// `paths`. None for any other body (a free function, a field access, an
+/// expression the scan cannot read).
+fn called_method<'a>(fn_body: &'a str, paths: &[&str]) -> Option<&'a str> {
+    let mut from = 0;
+    while let Some(pos) = fn_body[from..].find("object.") {
+        let at = from + pos;
+        let whole_word = fn_body[..at]
+            .chars()
+            .next_back()
+            .map_or(true, |c| !(c.is_ascii_alphanumeric() || c == '_'));
+        if whole_word {
+            let rest = &fn_body[at + "object.".len()..];
+            let name = leading_ident(rest);
+            return (!name.is_empty() && rest[name.len()..].starts_with('(')).then_some(name);
+        }
+        from = at + "object.".len();
+    }
+    for path in paths.iter().filter(|p| !p.is_empty()) {
+        let needle = format!("{path}::");
+        if let Some(pos) = fn_body.find(&needle) {
+            let rest = &fn_body[pos + needle.len()..];
+            let name = leading_ident(rest);
+            if !name.is_empty() && rest[name.len()..].starts_with('(') {
+                return Some(name);
+            }
+        }
+    }
+    None
+}
+
+/// Whether the source file text defines a fn `name` (`fn name(` /
+/// `fn name<`): the safety net for methods the index does not extract
+/// (generic ones that are not `Into<T>`-bound).
+fn source_file_defines_fn(file: &std::path::Path, name: &str) -> bool {
+    let Ok(text) = std::fs::read_to_string(file) else {
+        return false;
+    };
+    let needle = format!("fn {name}");
+    text.match_indices(&needle).any(|(at, _)| {
+        let after = text[at + needle.len()..].trim_start();
+        after.starts_with('(') || after.starts_with('<')
+    })
+}
+
+/// Every api.json function whose Rust method is gone: its fn_body calls
+/// `object.m(..)` or `<the class's path>::m(..)` and the class's source type
+/// has no method `m` (BLOCKS' 84 preset-shell setters, wave 5, which the
+/// scan kept until they were removed by hand). Not judged: a class without a
+/// source type or whose api.json path names a different type (a path fix
+/// comes first), a macro-made type (impl_vec!, impl_option!: methods the
+/// index does not see), a type with a `Deref` impl, any other body shape,
+/// and derive / std-trait methods ([`DERIVED_OR_BLANKET_METHODS`]).
+pub fn gone_api_functions(index: &TypeIndex, api_data: &ApiData) -> Vec<GoneApiFunction> {
+    let Some(version) = api_data.get_latest_version_str() else {
+        return Vec::new();
+    };
+    let Some(version_data) = api_data.get_version(version) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (module_name, module) in &version_data.api {
+        for (class_name, class) in &module.classes {
+            let Some(external) = class.external.as_deref() else {
+                continue;
+            };
+            // The type at the class's own path first (two types of one name
+            // in one crate are different types)
+            let Some(def) = index
+                .get_by_path(external)
+                .or_else(|| index.resolve(class_name, None))
+                .or_else(|| index.resolve(&format!("Az{class_name}"), None))
+            else {
+                continue;
+            };
+            if !super::diff::paths_are_equivalent(external, &def.full_path) {
+                continue;
+            }
+            let derefs = match &def.kind {
+                TypeDefKind::Struct { custom_impls, .. } | TypeDefKind::Enum { custom_impls, .. } => {
+                    custom_impls.iter().any(|t| t.ends_with("Deref"))
+                }
+                _ => false,
+            } || def
+                .methods
+                .iter()
+                .any(|m| m.from_trait.as_deref() == Some("Deref"));
+            if def.is_macro_generated() || derefs {
+                continue;
+            }
+            let entries = class
+                .constructors
+                .iter()
+                .flat_map(|c| c.iter().map(|e| (e, true)))
+                .chain(
+                    class
+                        .functions
+                        .iter()
+                        .flat_map(|f| f.iter().map(|e| (e, false))),
+                );
+            for ((api_name, f), is_constructor) in entries {
+                let Some(body) = f.fn_body.as_deref() else {
+                    continue;
+                };
+                let Some(rust_name) = called_method(body, &[external, def.full_path.as_str()])
+                else {
+                    continue;
+                };
+                if DERIVED_OR_BLANKET_METHODS.contains(&rust_name)
+                    || def.methods.iter().any(|m| m.name == rust_name)
+                    || source_file_defines_fn(&def.file_path, rust_name)
+                {
+                    continue;
+                }
+                out.push(GoneApiFunction {
+                    module: module_name.clone(),
+                    class: class_name.clone(),
+                    api_name: api_name.clone(),
+                    rust_name: rust_name.to_string(),
+                    is_constructor,
+                });
+            }
+        }
+    }
+    out
+}
+
+/// Whether `body` passes the argument `name` to a call as it is
+/// (`f(name)`, `f(a, name, b)`), not through a method of its own.
+fn passes_bare(body: &str, name: &str) -> bool {
+    [
+        format!("({name})"),
+        format!("({name},"),
+        format!(", {name})"),
+        format!(", {name},"),
+    ]
+    .iter()
+    .any(|p| body.contains(p.as_str()))
 }
 
 /// Find a class/type in api.json for a specific version
@@ -434,10 +621,72 @@ fn generate_destructor_body(method: &MethodDef) -> String {
 /// - `Option<X>` -> `OptionX` (with `.into()` added to fn_body)
 /// - `Self` -> class_name
 ///
-/// Returns (converted_type, needs_into) where needs_into indicates if `.into()` should be appended
-fn convert_return_type_for_ffi(return_type: &str, class_name: &str) -> (String, bool) {
+/// - a borrowed `str` -> `String`, `Option<&str>` / `Option<String>` ->
+///   `OptionString` (see [`ReturnConversion`])
+///
+/// Returns (converted_type, conversion): how the fn_body turns the Rust
+/// call's value into the api.json type.
+fn convert_return_type_for_ffi(return_type: &str, class_name: &str) -> (String, ReturnConversion) {
     let trimmed = return_type.trim();
 
+    // A borrowed `str` (`&str`, extracted as `str` + a Ref kind) crosses as an
+    // owned `String`; an `Option` of a `str` or of a std `String` as
+    // `OptionString`, which converts from `Option<AzString>` only (`AzString`
+    // is extracted as `String` too; `AzString::from` is the identity there).
+    // Without this, `as_str -> str` and `link_str -> Optionstr` reached
+    // api.json and the codegen emitted `Azstr` / `AzOptionstr` (wave 5).
+    if trimmed == "str" || trimmed == "&str" {
+        return ("String".to_string(), ReturnConversion::OwnedStr);
+    }
+    if let Some(inner) = trimmed
+        .strip_prefix("Option<")
+        .and_then(|rest| rest.strip_suffix('>'))
+    {
+        let inner = inner.trim().trim_start_matches('&').trim();
+        if inner == "str" || inner == "String" {
+            return ("OptionString".to_string(), ReturnConversion::OptionOwnedStr);
+        }
+    }
+
+    let (converted, needs_into) = convert_return_type_for_ffi_inner(trimmed, class_name);
+    let conversion = if needs_into {
+        ReturnConversion::Into
+    } else {
+        ReturnConversion::None
+    };
+    (converted, conversion)
+}
+
+/// How a generated fn_body turns the Rust method's return value into the
+/// api.json return type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReturnConversion {
+    /// The value is the api.json type
+    None,
+    /// `<call>.into()` (`Result<X, Y>` -> `ResultXY`, `Option<X>` -> `OptionX`, `String`)
+    Into,
+    /// `azul_css::AzString::from(<call>)`: a borrowed `str` copied into a `String`
+    OwnedStr,
+    /// `<call>.map(|s| azul_css::AzString::from(s)).into()`: an `Option` of a
+    /// `str` or a std `String` as `OptionString`
+    OptionOwnedStr,
+}
+
+impl ReturnConversion {
+    fn wrap(self, call: String) -> String {
+        match self {
+            ReturnConversion::None => call,
+            ReturnConversion::Into => format!("{call}.into()"),
+            ReturnConversion::OwnedStr => format!("azul_css::AzString::from({call})"),
+            ReturnConversion::OptionOwnedStr => {
+                format!("{call}.map(|s| azul_css::AzString::from(s)).into()")
+            }
+        }
+    }
+}
+
+/// The Result / Option / Self / String rules of [`convert_return_type_for_ffi`].
+fn convert_return_type_for_ffi_inner(trimmed: &str, class_name: &str) -> (String, bool) {
     // Handle Result<X, Y> -> ResultXY
     if trimmed.starts_with("Result<") && trimmed.ends_with('>') {
         let inner = &trimmed[7..trimmed.len() - 1]; // Remove "Result<" and ">"
@@ -761,12 +1010,15 @@ pub fn api_name_of(method: &MethodDef) -> String {
 /// custom_impls); matching `spec` (`*` = all, else the Rust or the API name);
 /// and, when the type is already in the API, not reached by an existing
 /// entry - under its API name, or as the call of an entry's body (`create`
-/// whose body is `T::new(..)`).
+/// whose body is `T::new(..)`). For `*`, only methods whose signature
+/// crosses the FFI ([`wildcard_skip_reason`]; `carries` says which named
+/// types the FFI carries - [`ffi_carries`] for the real API).
 pub fn api_candidate_methods<'a>(
     type_name: &str,
     methods: &[&'a MethodDef],
     spec: &str,
     api_class: Option<&ClassData>,
+    carries: &dyn Fn(&str) -> bool,
 ) -> Vec<&'a MethodDef> {
     let existing: Vec<(&String, &FunctionData)> = api_class
         .map(|c| {
@@ -792,6 +1044,7 @@ pub fn api_candidate_methods<'a>(
                     .any(|o| o.is_public && !o.is_non_api_trait_impl() && o.name == api_name)
         })
         .filter(|m| spec == "*" || m.name == spec || api_name_of(m) == spec)
+        .filter(|m| spec != "*" || wildcard_skip_reason(m, type_name, carries).is_none())
         .filter(|m| {
             let api_name = api_name_of(m);
             let static_call = format!("{type_name}::{}(", m.name);
@@ -804,6 +1057,68 @@ pub fn api_candidate_methods<'a>(
             })
         })
         .collect()
+}
+
+/// Why `autofix add <Type>.*` leaves `method` out, if it does - THE
+/// wildcard rule. `Type.*` exports a method only when its whole signature
+/// crosses the FFI as written:
+/// - it returns no borrow (`&T`, `&str`, `&[T]`, `&mut T`, `Option<&T>`):
+///   those are Rust-side accessors;
+/// - every argument and the return type, spelled as api.json spells it
+///   (`&str` -> `String`, `&T` -> `*const T`, `Option<X>` -> `OptionX`), is a
+///   scalar, the type itself, or a type `carries` says the FFI carries (an
+///   api.json type, a C-repr workspace type: [`ffi_carries`]). `Vec<T>`,
+///   slices, tuples, `Option<&str>` arguments, `Instant`, a struct without a
+///   C repr have no FFI form.
+///
+/// Everything else is a Rust-only helper (RichTextDoc's 29 of wave 5). A
+/// helper that HAS an FFI form but is not API stays `pub(crate)` (house
+/// rule); a Rust-only method the API does need is added by name
+/// (`autofix add Type.method`), which this rule does not filter.
+pub fn wildcard_skip_reason(
+    method: &MethodDef,
+    type_name: &str,
+    carries: &dyn Fn(&str) -> bool,
+) -> Option<String> {
+    let returns_borrow = matches!(method.return_ref_kind, RefKind::Ref | RefKind::RefMut)
+        || method.return_type.as_deref().is_some_and(|r| r.contains('&'));
+    if returns_borrow {
+        return Some(format!("returns a borrow: {}", method.signature()));
+    }
+    for arg in &method.args {
+        let (ffi, _) = source_arg_ffi_type(arg);
+        if !ffi_type_is_carried(&ffi, type_name, carries) {
+            return Some(format!(
+                "argument `{}: {}{}` has no FFI form",
+                arg.name,
+                arg.ref_kind.as_prefix(),
+                arg.ty
+            ));
+        }
+    }
+    if let Some(ret) = &method.return_type {
+        let (ffi, _) = convert_return_type_for_ffi(ret, type_name);
+        if !ffi_type_is_carried(&ffi, type_name, carries) {
+            return Some(format!("returns `{ret}`, which has no FFI form"));
+        }
+    }
+    None
+}
+
+/// Whether an api.json type spelling (`String`, `*const Foo`, `OptionU32`)
+/// names something the FFI carries: one plain name, a scalar, the type
+/// itself, or what `carries` accepts.
+fn ffi_type_is_carried(ffi: &str, type_name: &str, carries: &dyn Fn(&str) -> bool) -> bool {
+    let base = ffi.trim();
+    let base = base
+        .strip_prefix("*const ")
+        .or_else(|| base.strip_prefix("*mut "))
+        .unwrap_or(base)
+        .trim();
+    if base.is_empty() || !base.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return false;
+    }
+    base == type_name || base == "c_void" || is_primitive_type(base) || carries(base)
 }
 
 pub fn generate_add_functions_patch(
@@ -863,11 +1178,25 @@ pub fn generate_remove_functions_patch(
     module_name: &str,
     version: &str,
 ) -> ApiPatch {
-    // For now, add both remove_functions and remove_constructors
-    // The patch application logic will handle whichever is present
+    // Both lists: the patch application removes whichever exists
+    generate_remove_entries_patch(type_name, function_names, function_names, module_name, version)
+}
+
+/// A patch removing exactly these `functions` and `constructors` of a class
+/// (an empty list removes nothing from that map).
+pub fn generate_remove_entries_patch(
+    type_name: &str,
+    functions: &[&str],
+    constructors: &[&str],
+    module_name: &str,
+    version: &str,
+) -> ApiPatch {
+    let names = |list: &[&str]| -> Option<Vec<String>> {
+        (!list.is_empty()).then(|| list.iter().map(|s| s.to_string()).collect())
+    };
     let mut class_patch = ClassPatch::default();
-    class_patch.remove_functions = Some(function_names.iter().map(|s| s.to_string()).collect());
-    class_patch.remove_constructors = Some(function_names.iter().map(|s| s.to_string()).collect());
+    class_patch.remove_functions = names(functions);
+    class_patch.remove_constructors = names(constructors);
 
     let mut classes = BTreeMap::new();
     classes.insert(type_name.to_string(), class_patch);
@@ -899,12 +1228,131 @@ pub fn generate_remove_type_patch(type_name: &str, module_name: &str, version: &
     ApiPatch { versions }
 }
 
+/// What `autofix remove` / `autofix difficult remove` removes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RemoveTarget {
+    /// A whole class: `Type` or `module.Type`
+    Class { module: String, class: String },
+    /// One function or constructor: `Type.fn` or `module.Type.fn`
+    Function {
+        module: String,
+        class: String,
+        name: String,
+    },
+}
+
+impl RemoveTarget {
+    /// The removal patch (the one-item commands' format).
+    pub fn patch(&self, version: &str) -> ApiPatch {
+        match self {
+            RemoveTarget::Class { module, class } => {
+                generate_remove_type_patch(class, module, version)
+            }
+            RemoveTarget::Function {
+                module,
+                class,
+                name,
+            } => generate_remove_functions_patch(class, &[name.as_str()], module, version),
+        }
+    }
+
+    /// The patch file name (`remove_<class>.patch.json`,
+    /// `remove_<class>_<fn>.patch.json`).
+    pub fn file_name(&self) -> String {
+        match self {
+            RemoveTarget::Class { class, .. } => {
+                format!("remove_{}.patch.json", class.to_lowercase())
+            }
+            RemoveTarget::Function { class, name, .. } => {
+                format!("remove_{}_{}.patch.json", class.to_lowercase(), name)
+            }
+        }
+    }
+
+    /// For the console: `widgets.ModuleSwitcher (whole class)`,
+    /// `widgets.ModuleSwitcher.dom`.
+    pub fn describe(&self) -> String {
+        match self {
+            RemoveTarget::Class { module, class } => format!("{module}.{class} (whole class)"),
+            RemoveTarget::Function {
+                module,
+                class,
+                name,
+            } => format!("{module}.{class}.{name}"),
+        }
+    }
+}
+
+/// Parse an item of `autofix remove` / `autofix difficult remove`:
+/// `module.Type.fn`, `Type.fn`, `module.Type` (a whole class) or `Type`. A
+/// two-part item is a class when its first part is a module that has it,
+/// else a function. The module comes from api.json (the one the class IS in).
+pub fn parse_remove_spec(spec: &str, version_data: &VersionData) -> Result<RemoveTarget, String> {
+    let parts: Vec<&str> = spec.split('.').filter(|p| !p.is_empty()).collect();
+    let class_in = |module: &str, class: &str| {
+        version_data
+            .api
+            .get(module)
+            .is_some_and(|m| m.classes.contains_key(class))
+    };
+    let module_of = |class: &str| {
+        find_type_module(class, version_data)
+            .map(str::to_string)
+            .ok_or_else(|| format!("Type '{class}' not found in api.json"))
+    };
+    match parts.as_slice() {
+        [] => Err(format!("empty item '{spec}'")),
+        [class] => Ok(RemoveTarget::Class {
+            module: module_of(*class)?,
+            class: class.to_string(),
+        }),
+        [module, class] if class_in(*module, *class) => Ok(RemoveTarget::Class {
+            module: module.to_string(),
+            class: class.to_string(),
+        }),
+        [class, name] => Ok(RemoveTarget::Function {
+            module: module_of(*class)?,
+            class: class.to_string(),
+            name: name.to_string(),
+        }),
+        [.., module, class, name] => {
+            let module = if class_in(*module, *class) {
+                module.to_string()
+            } else {
+                module_of(*class)?
+            };
+            Ok(RemoveTarget::Function {
+                module,
+                class: class.to_string(),
+                name: name.to_string(),
+            })
+        }
+    }
+}
+
 /// Convert a MethodDef to FunctionData for api.json
 /// A source argument's api.json type and the `fn_body` accessor it needs:
 /// what `autofix add` writes for it, and so what an existing api.json entry
 /// must declare for it. Generic `C: Into<T>` parameters arrive here already
 /// resolved to `T` (`type_index::extract_into_bounds`).
 fn source_arg_ffi_type(arg: &super::type_index::MethodArg) -> (String, Option<String>) {
+    // A string argument crosses as an `AzString` (api.json `String`). The
+    // index spells both a std `String` and an `AzString` `String`; the type
+    // as written tells them apart. A std `String` is converted (passing the
+    // AzString as it is broke the dll: RichRun.set_text, wave 5), a borrowed
+    // one re-borrowed; a generic `S: Into<AzString>` takes it as it is.
+    if arg.ty == "String" {
+        let std_string = arg.source_ty == "String";
+        let accessor = match (&arg.ref_kind, std_string) {
+            (crate::api::RefKind::Value, true) => Some("{}.into_library_owned_string()"),
+            (crate::api::RefKind::Ref, true) => Some("&{}.into_library_owned_string()"),
+            (crate::api::RefKind::Ref, false) => Some("&{}"),
+            _ => None,
+        };
+        if accessor.is_some() || arg.ref_kind == crate::api::RefKind::Value {
+            return ("String".to_string(), accessor.map(str::to_string));
+        }
+    }
     let (ffi_type, accessor) = convert_arg_type_for_ffi(&arg.ty);
     // The source parser splits `&mut Dom` into ty="Dom" + ref_kind=RefMut
     // BEFORE this point, so the string-prefix arms in
@@ -969,11 +1417,11 @@ fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData 
 
     // Build returns - convert Result<X, Y> to ResultXY, Option<X> to OptionX
     // Also track if we need to add .into() to the fn_body
-    let (returns, needs_into) = if method.is_constructor {
+    let (returns, conversion) = if method.is_constructor {
         // Constructors don't specify returns in api.json (implicit Self)
         // But if they return Result<Self, E>, we need to convert it
         if let Some(ref ret_ty) = method.return_type {
-            let (converted, needs_into) = convert_return_type_for_ffi(ret_ty, class_name);
+            let (converted, conversion) = convert_return_type_for_ffi(ret_ty, class_name);
             if converted != class_name && converted != "Self" {
                 // Constructor returns Result or Option - need explicit returns
                 (
@@ -981,25 +1429,25 @@ fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData 
                         r#type: converted,
                         doc: None,
                     }),
-                    needs_into,
+                    conversion,
                 )
             } else {
-                (None, false)
+                (None, ReturnConversion::None)
             }
         } else {
-            (None, false)
+            (None, ReturnConversion::None)
         }
     } else if let Some(ref ret_ty) = method.return_type {
-        let (converted, needs_into) = convert_return_type_for_ffi(ret_ty, class_name);
+        let (converted, conversion) = convert_return_type_for_ffi(ret_ty, class_name);
         (
             Some(ReturnTypeData {
                 r#type: converted,
                 doc: None,
             }),
-            needs_into,
+            conversion,
         )
     } else {
-        (None, false)
+        (None, ReturnConversion::None)
     };
 
     // Generate fn_body using the full external path
@@ -1033,10 +1481,9 @@ fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData 
         }
     }
 
-    // Add .into() if the return type was converted (Result/Option wrapper types)
-    if needs_into {
-        fn_body_str = format!("{}.into()", fn_body_str);
-    }
+    // Convert the return value to its api.json type (`.into()` for the
+    // Result / Option wrappers, an owned `String` for a borrowed `str`)
+    let fn_body_str = conversion.wrap(fn_body_str);
 
     let fn_body = Some(fn_body_str);
 
@@ -1084,6 +1531,33 @@ pub struct AddTypeResult {
 /// Check if a type already exists in api.json
 pub fn type_exists_in_api(type_name: &str, version_data: &VersionData) -> bool {
     find_type_module(type_name, version_data).is_some()
+}
+
+/// THE `carries` predicate of the `Type.*` rule ([`wildcard_skip_reason`])
+/// for the real API: a type api.json has, or a workspace type the FFI can
+/// carry - a struct / enum with a C (or transparent) repr, a callback
+/// typedef, a type alias, or a macro-made Vec / Option / Result.
+pub fn ffi_carries(type_name: &str, version_data: &VersionData, index: &TypeIndex) -> bool {
+    if type_exists_in_api(type_name, version_data) {
+        return true;
+    }
+    let Some(def) = index
+        .resolve(type_name, None)
+        .or_else(|| index.resolve(&format!("Az{type_name}"), None))
+    else {
+        return false;
+    };
+    match &def.kind {
+        TypeDefKind::Struct { repr, .. } | TypeDefKind::Enum { repr, .. } => {
+            repr.as_deref().is_some_and(|r| {
+                let r = r.to_lowercase();
+                r.contains('c') || r.contains("transparent")
+            })
+        }
+        TypeDefKind::CallbackTypedef { .. }
+        | TypeDefKind::TypeAlias { .. }
+        | TypeDefKind::MacroGenerated { .. } => true,
+    }
 }
 
 /// Helper to extract fields from TypeDefKind (expands MacroGenerated types)
@@ -1472,6 +1946,7 @@ pub fn generate_add_type_patches(
             &all,
             spec,
             find_api_class(type_name, version_data),
+            &|t: &str| ffi_carries(t, version_data, index),
         );
         let mut std_impls: Vec<String> = type_def
             .methods
@@ -1726,7 +2201,7 @@ mod tests {
         }
         let refs: Vec<&MethodDef> = ms.iter().collect();
 
-        let fresh = api_candidate_methods("T", &refs, "*", None);
+        let fresh = api_candidate_methods("T", &refs, "*", None, &|_: &str| true);
         let mut names: Vec<String> = fresh.iter().map(|m| api_name_of(m)).collect();
         names.sort();
         assert_eq!(names, vec!["create", "create_with_icon", "with_label"]);
@@ -1736,12 +2211,12 @@ mod tests {
                 "fn_body": "azul_layout::widgets::t::T::new(label)"}}}"#,
         )
         .expect("test class parses");
-        let existing = api_candidate_methods("T", &refs, "*", Some(&class));
+        let existing = api_candidate_methods("T", &refs, "*", Some(&class), &|_: &str| true);
         let mut names: Vec<String> = existing.iter().map(|m| api_name_of(m)).collect();
         names.sort();
         assert_eq!(names, vec!["create_with_icon", "with_label"], "`new` is reached by `create`");
 
-        let one = api_candidate_methods("T", &refs, "with_label", Some(&class));
+        let one = api_candidate_methods("T", &refs, "with_label", Some(&class), &|_: &str| true);
         assert_eq!(one.len(), 1);
     }
 
@@ -1763,9 +2238,327 @@ mod tests {
         .into_values()
         .collect();
         let refs: Vec<&MethodDef> = ms.iter().collect();
-        let fresh = api_candidate_methods("T", &refs, "*", None);
+        let fresh = api_candidate_methods("T", &refs, "*", None, &|_: &str| true);
         let rust: Vec<&str> = fresh.iter().map(|m| m.name.as_str()).collect();
         assert_eq!(rust, vec!["create"], "only the real create: {rust:?}");
+    }
+
+    /// A repr(C) struct `name` at `azul_layout::<module_path>::<name>` with
+    /// the methods of `source` (an `impl T { .. }`).
+    fn type_def(name: &str, module_path: &str, source: &str) -> TypeDefinition {
+        TypeDefinition {
+            full_path: format!("azul_layout::{module_path}::{name}"),
+            type_name: name.to_string(),
+            file_path: std::path::PathBuf::from("/nonexistent/autofix_gone_test.rs"),
+            module_path: module_path.to_string(),
+            crate_name: "azul_layout".to_string(),
+            kind: TypeDefKind::Struct {
+                fields: IndexMap::new(),
+                repr: Some("C".to_string()),
+                repr_attr_count: 1,
+                generic_params: Vec::new(),
+                derives: Vec::new(),
+                custom_impls: Vec::new(),
+                is_tuple_struct: false,
+            },
+            source_code: String::new(),
+            methods: methods(source).into_values().collect(),
+        }
+    }
+
+    /// BLOCKS moved 42 setter pairs of the preset shells to OfficeShell
+    /// (wave 5): api.json kept the 84 `DocumentShell.set_title_row` & co.,
+    /// whose fn_body calls a method the type no longer has, and the scan did
+    /// not notice - they were removed by hand. A function whose body calls
+    /// `object.m(..)` or `<the class's path>::m(..)` is gone when the type
+    /// has no method `m` (derive / std-trait methods like `clone` and
+    /// `to_string` aside). Macro-made types, other bodies, and a class whose
+    /// api.json path names a different type are not judged.
+    #[test]
+    fn an_api_function_whose_rust_method_is_gone_is_found() {
+        let mut index = TypeIndex::new();
+        index.add_type_for_test(type_def(
+            "DocumentShell",
+            "widgets::shells::document_shell",
+            r#"impl T {
+                pub fn create() -> Self { todo!() }
+                pub fn office_shell(self) -> OfficeShell { todo!() }
+            }"#,
+        ));
+        index.add_type_for_test(type_def("Other", "widgets::other", "impl T {}"));
+        let mut vec_def = type_def("ShellPaneVec", "widgets::shells::office_shell", "impl T {}");
+        vec_def.kind = TypeDefKind::MacroGenerated {
+            source_macro: "impl_vec!".to_string(),
+            base_type: "ShellPane".to_string(),
+            kind: super::super::type_index::MacroGeneratedKind::Vec,
+            derives: Vec::new(),
+            implemented_traits: Vec::new(),
+        };
+        index.add_type_for_test(vec_def);
+
+        let path = "azul_layout::widgets::shells::document_shell::DocumentShell";
+        let api: ApiData = serde_json::from_value(serde_json::json!({
+            "0.2.0": {"apiversion": 1, "git": "", "date": "", "api": {"shells": {"classes": {
+                "DocumentShell": {
+                    "external": path,
+                    "constructors": {
+                        "create": {"fn_body": format!("{path}::create()")},
+                        "create_old": {"fn_body": format!("{path}::new_old()")}
+                    },
+                    "functions": {
+                        "office_shell": {"fn_args": [{"self": "value"}], "fn_body": "object.office_shell()"},
+                        "set_title_row": {"fn_args": [{"self": "refmut"}, {"title_row": "TitleRow"}],
+                                          "fn_body": "object.set_title_row(title_row)"},
+                        "with_theme": {"fn_args": [{"self": "value"}, {"theme": "UiTheme"}],
+                                       "fn_body": "object.with_theme(theme)"},
+                        "clone_shell": {"fn_args": [{"self": "ref"}], "fn_body": "object.clone()"},
+                        "to_text": {"fn_args": [{"self": "ref"}], "fn_body": "object.to_string().into()"},
+                        "helper": {"fn_args": [{"self": "ref"}],
+                                   "fn_body": "azul_layout::widgets::shells::other::helper(object)"},
+                        "title_len": {"fn_args": [{"self": "ref"}], "fn_body": "object.title.len()"}
+                    }
+                },
+                "Other": {
+                    "external": "azul_core::other::Other",
+                    "functions": {"gone": {"fn_args": [{"self": "ref"}], "fn_body": "object.gone()"}}
+                },
+                "ShellPaneVec": {
+                    "external": "azul_layout::widgets::shells::office_shell::ShellPaneVec",
+                    "functions": {"len": {"fn_args": [{"self": "ref"}], "fn_body": "object.len()"}}
+                }
+            }}}}
+        }))
+        .expect("test api parses");
+
+        let gone = gone_api_functions(&index, &api);
+        let mut found: Vec<(String, String, String, bool)> = gone
+            .iter()
+            .map(|g| {
+                (
+                    format!("{}.{}", g.module, g.class),
+                    g.api_name.clone(),
+                    g.rust_name.clone(),
+                    g.is_constructor,
+                )
+            })
+            .collect();
+        found.sort();
+        let row = |api: &str, rust: &str, ctor: bool| {
+            ("shells.DocumentShell".to_string(), api.to_string(), rust.to_string(), ctor)
+        };
+        assert_eq!(
+            found,
+            vec![
+                row("create_old", "new_old", true),
+                row("set_title_row", "set_title_row", false),
+                row("with_theme", "with_theme", false),
+            ]
+        );
+    }
+
+    /// `autofix remove` took `module.Type.method` but not `module.Type`: a
+    /// whole class (the ModuleSwitcher family, wave 5) needed `autofix
+    /// difficult remove`, which clears the pending patches. One parser for
+    /// both commands: `module.Type.fn`, `Type.fn`, `module.Type`, `Type`.
+    #[test]
+    fn a_remove_spec_names_a_function_or_a_whole_class() {
+        let api: ApiData = serde_json::from_value(serde_json::json!({
+            "0.2.0": {"apiversion": 1, "git": "", "date": "", "api": {
+                "widgets": {"classes": {"ModuleSwitcher": {"functions": {"dom": {}}}}},
+                "dom": {"classes": {"Dom": {}}}
+            }}
+        }))
+        .expect("test api parses");
+        let v = api.get_version("0.2.0").expect("version");
+        let class = |module: &str, class: &str| RemoveTarget::Class {
+            module: module.to_string(),
+            class: class.to_string(),
+        };
+        let function = |module: &str, class: &str, name: &str| RemoveTarget::Function {
+            module: module.to_string(),
+            class: class.to_string(),
+            name: name.to_string(),
+        };
+
+        assert_eq!(parse_remove_spec("widgets.ModuleSwitcher", v), Ok(class("widgets", "ModuleSwitcher")));
+        assert_eq!(parse_remove_spec("ModuleSwitcher", v), Ok(class("widgets", "ModuleSwitcher")));
+        assert_eq!(
+            parse_remove_spec("ModuleSwitcher.dom", v),
+            Ok(function("widgets", "ModuleSwitcher", "dom"))
+        );
+        assert_eq!(
+            parse_remove_spec("widgets.ModuleSwitcher.dom", v),
+            Ok(function("widgets", "ModuleSwitcher", "dom"))
+        );
+        assert!(parse_remove_spec("Nope.dom", v).is_err());
+        assert!(parse_remove_spec("dom.ModuleSwitcher", v).is_err(), "not in that module");
+
+        // the patch each one writes
+        let removes_class = class("widgets", "ModuleSwitcher").patch("0.2.0");
+        let cp = &removes_class.versions["0.2.0"].modules["widgets"].classes["ModuleSwitcher"];
+        assert!(cp.is_removal());
+        let removes_fn = function("widgets", "ModuleSwitcher", "dom").patch("0.2.0");
+        let cp = &removes_fn.versions["0.2.0"].modules["widgets"].classes["ModuleSwitcher"];
+        assert_eq!(cp.remove_functions.as_deref(), Some(&["dom".to_string()][..]));
+        assert_eq!(class("widgets", "ModuleSwitcher").file_name(), "remove_moduleswitcher.patch.json");
+    }
+
+    /// `autofix add RichTextDoc.*` exported 29 Rust-only helpers (RichRun 7):
+    /// slices, `Vec`s, tuples, `Option<&T>` and `&str` accessors, types
+    /// without a C repr. THE wildcard rule: `Type.*` takes a method only when
+    /// its whole signature crosses the FFI as written - no borrowed return,
+    /// and every argument and the return type (as api.json spells it) a
+    /// scalar, an api.json type or a type the FFI carries. A method named
+    /// explicitly still goes out.
+    #[test]
+    fn the_wildcard_exports_only_methods_whose_signature_crosses_the_ffi() {
+        let ms: Vec<MethodDef> = methods(
+            r#"
+            impl T {
+                pub fn create() -> Self { todo!() }
+                pub fn block_count(&self) -> usize { 0 }
+                pub fn set_kind(&mut self, index: usize, kind: Kind) -> bool { true }
+                pub fn preview(&self, title: &str) -> AzString { todo!() }
+                pub fn link_at(&self, index: usize) -> Option<String> { None }
+                pub fn same(&self, other: &T) -> bool { true }
+                pub fn blocks(&self) -> &[Block] { todo!() }
+                pub fn block(&self, index: usize) -> Option<&Block> { None }
+                pub fn as_str(&self) -> &str { "" }
+                pub fn link_str(&self) -> Option<&str> { None }
+                pub fn take_blocks(&mut self) -> Vec<Block> { todo!() }
+                pub fn put_blocks(&mut self, blocks: Vec<Block>) {}
+                pub fn checklist(&self) -> (usize, usize) { (0, 0) }
+                pub fn set_link(&mut self, url: Option<&str>) {}
+                pub fn apply(&mut self, shortcut: &Shortcut) {}
+                pub fn when(&self) -> Instant { todo!() }
+            }
+        "#,
+        )
+        .into_values()
+        .collect();
+        let refs: Vec<&MethodDef> = ms.iter().collect();
+        let carries = |t: &str| matches!(t, "String" | "OptionString" | "Kind");
+
+        let mut names: Vec<String> = api_candidate_methods("T", &refs, "*", None, &carries)
+            .iter()
+            .map(|m| api_name_of(m))
+            .collect();
+        names.sort();
+        assert_eq!(
+            names,
+            vec!["block_count", "create", "link_at", "preview", "same", "set_kind"]
+        );
+
+        let named = api_candidate_methods("T", &refs, "take_blocks", None, &carries);
+        assert_eq!(named.len(), 1, "a method named explicitly still goes out");
+    }
+
+    /// The api.json entry `autofix add` writes for method `name` of `source`.
+    fn added(source: &str, name: &str) -> FunctionData {
+        let ms = methods(source);
+        method_to_function_data(&ms[name], "azul_layout::widgets::t::T")
+    }
+
+    fn returns_of(f: &FunctionData) -> Option<&str> {
+        f.returns.as_ref().map(|r| r.r#type.as_str())
+    }
+
+    /// `autofix add RichRun.*` wrote `as_str -> str` (body `object.as_str()`)
+    /// and `link_str -> Optionstr`: types the codegen spells `Azstr` /
+    /// `AzOptionstr`, which do not exist (wave 5). A borrowed `str` crosses
+    /// the FFI as an owned `String`, `Option<&str>` as `OptionString`, and
+    /// so does an `Option` of a std `String` (`OptionString` converts from
+    /// `Option<AzString>` only).
+    #[test]
+    fn a_borrowed_str_return_is_exported_as_an_owned_string() {
+        let source = r#"
+            impl T {
+                pub fn as_str(&self) -> &str { todo!() }
+                pub fn link_str(&self) -> Option<&str> { todo!() }
+                pub fn label(&self) -> Option<String> { todo!() }
+                pub fn title(&self) -> String { todo!() }
+            }
+        "#;
+        let f = added(source, "as_str");
+        assert_eq!(returns_of(&f), Some("String"));
+        assert_eq!(f.fn_body.as_deref(), Some("azul_css::AzString::from(object.as_str())"));
+
+        for name in ["link_str", "label"] {
+            let f = added(source, name);
+            assert_eq!(returns_of(&f), Some("OptionString"), "{name}");
+            assert_eq!(
+                f.fn_body.as_deref(),
+                Some(format!("object.{name}().map(|s| azul_css::AzString::from(s)).into()").as_str()),
+                "{name}"
+            );
+        }
+
+        let f = added(source, "title");
+        assert_eq!(returns_of(&f), Some("String"));
+        assert_eq!(f.fn_body.as_deref(), Some("object.title().into()"));
+    }
+
+    /// The C side passes an `AzString` for an api.json `String` argument. A
+    /// method taking a std `String` got it as it is (`object.set_text(text)`,
+    /// RichRun.set_text, wave 5) and the dll did not build: the fn_body
+    /// converts it. An `AzString` argument (also extracted as `String`) and
+    /// a generic `S: Into<AzString>` take it as it is.
+    #[test]
+    fn a_std_string_argument_is_converted_in_the_fn_body() {
+        let source = r#"
+            impl T {
+                pub fn set_text(&mut self, text: String) {}
+                pub fn set_label(&mut self, label: AzString) {}
+                pub fn with_title<S: Into<AzString>>(self, title: S) -> Self { todo!() }
+                pub fn find(&self, needle: &String, from: usize) -> bool { todo!() }
+                pub fn same(&self, other: &AzString) -> bool { todo!() }
+            }
+        "#;
+        let cases = [
+            ("set_text", "object.set_text(text.into_library_owned_string())"),
+            ("set_label", "object.set_label(label)"),
+            ("with_title", "object.with_title(title)"),
+            ("find", "object.find(&needle.into_library_owned_string(), from)"),
+            ("same", "object.same(&other)"),
+        ];
+        for (name, body) in cases {
+            let f = added(source, name);
+            assert_eq!(f.fn_body.as_deref(), Some(body), "{name}");
+            let string_args = f
+                .fn_args
+                .iter()
+                .flat_map(|a| a.iter())
+                .filter(|(n, _)| *n != "self" && *n != "from")
+                .all(|(_, ty)| ty == "String");
+            assert!(string_args, "{name}: {:?}", f.fn_args);
+        }
+    }
+
+    /// An api.json entry already passing an `AzString` to a std `String`
+    /// parameter is reported (it is invisible to the type comparison:
+    /// both sides say `String`).
+    #[test]
+    fn a_std_string_argument_passed_unconverted_is_reported() {
+        let source = r#"impl T { pub fn set_text(&mut self, text: String) {} }"#;
+        let entry = |body: &str| {
+            format!(
+                r#"{{"functions": {{"set_text": {{
+                    "fn_args": [{{"self": "refmut"}}, {{"text": "String"}}],
+                    "fn_body": "{body}"}}}}}}"#
+            )
+        };
+        let found = diffs(source, &entry("object.set_text(text)"));
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("`text`") && found[0].contains("std `String`"), "{found:?}");
+
+        let converted = diffs(source, &entry("object.set_text(text.into_library_owned_string())"));
+        assert!(converted.is_empty(), "{converted:?}");
+
+        let az = diffs(
+            r#"impl T { pub fn set_text(&mut self, text: AzString) {} }"#,
+            &entry("object.set_text(text)"),
+        );
+        assert!(az.is_empty(), "an AzString parameter takes it as it is: {az:?}");
     }
 
     const SOURCE: &str = r#"

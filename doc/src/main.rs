@@ -771,63 +771,16 @@ fn main() -> anyhow::Result<()> {
             let mut patch_count = 0;
 
             for item in items {
-                if item.contains('.') {
-                    // It's a function: TypeName.method
-                    let parts: Vec<&str> = item.split('.').collect();
-                    let (type_name, method_name) = if parts.len() == 2 {
-                        (parts[0], parts[1])
-                    } else {
-                        (parts[parts.len() - 2], parts[parts.len() - 1])
-                    };
-
-                    if let Some(module_name) =
-                        autofix::function_diff::find_type_module(type_name, version_data)
-                    {
-                        println!(
-                            "  - {}.{} (from {} module)",
-                            type_name, method_name, module_name
-                        );
-
-                        let patch = autofix::function_diff::generate_remove_functions_patch(
-                            type_name,
-                            &[method_name],
-                            module_name,
-                            &version,
-                        );
-
-                        let patch_filename = format!(
-                            "remove_{}_{}.patch.json",
-                            type_name.to_lowercase(),
-                            method_name
-                        );
-                        let patch_path = patches_dir.join(&patch_filename);
+                match autofix::function_diff::parse_remove_spec(item, version_data) {
+                    Ok(target) => {
+                        println!("  - {}", target.describe());
+                        let patch = target.patch(&version);
+                        let patch_path = patches_dir.join(target.file_name());
                         let json = serde_json::to_string_pretty(&patch)?;
                         fs::write(&patch_path, &json)?;
                         patch_count += 1;
-                    } else {
-                        eprintln!("  [WARN] Type '{}' not found in api.json", type_name);
                     }
-                } else {
-                    // It's a type name - remove the entire type
-                    if let Some(module_name) =
-                        autofix::function_diff::find_type_module(item, version_data)
-                    {
-                        println!("  - {} (entire type from {} module)", item, module_name);
-
-                        let patch = autofix::function_diff::generate_remove_type_patch(
-                            item,
-                            module_name,
-                            &version,
-                        );
-
-                        let patch_filename = format!("remove_{}.patch.json", item.to_lowercase());
-                        let patch_path = patches_dir.join(&patch_filename);
-                        let json = serde_json::to_string_pretty(&patch)?;
-                        fs::write(&patch_path, &json)?;
-                        patch_count += 1;
-                    } else {
-                        eprintln!("  [WARN] Type '{}' not found in api.json", item);
-                    }
+                    Err(e) => eprintln!("  [WARN] {}", e),
                 }
             }
 
@@ -1079,6 +1032,9 @@ fn main() -> anyhow::Result<()> {
                                 &all,
                                 method_spec,
                                 None,
+                                &|t: &str| {
+                                    autofix::function_diff::ffi_carries(t, version_data, &index)
+                                },
                             );
 
                             let func_patch = autofix::function_diff::generate_add_functions_patch(
@@ -1126,13 +1082,30 @@ fn main() -> anyhow::Result<()> {
                 .unwrap()
                 .to_string();
 
+            // api.json as the pending patches will leave it: an entry a pending
+            // `autofix remove` drops can be re-added (a changed signature) in
+            // the same round
+            let pending = autofix::pending::PendingRemovals::read(&patches_dir, type_name);
+            if pending.class {
+                eprintln!(
+                    "Error: a pending patch in {} removes the class '{}'; run `autofix apply` \
+                     first, then add",
+                    patches_dir.display(),
+                    type_name
+                );
+                std::process::exit(1);
+            }
+            let api_class = autofix::function_diff::find_api_class(type_name, version_data)
+                .map(|class| pending.apply_to(class));
+
             // Get matching methods
             let all: Vec<_> = type_def.methods.iter().collect();
             let methods = autofix::function_diff::api_candidate_methods(
                 type_name,
                 &all,
                 method_spec,
-                autofix::function_diff::find_api_class(type_name, version_data),
+                api_class.as_ref(),
+                &|t: &str| autofix::function_diff::ffi_carries(t, version_data, &index),
             );
 
             if methods.is_empty() {
@@ -1186,6 +1159,18 @@ fn main() -> anyhow::Result<()> {
             let json = serde_json::to_string_pretty(&patch)?;
             fs::write(&patch_path, &json)?;
 
+            // The re-added entries supersede their pending removals, whatever
+            // order `autofix apply` takes the patches in
+            let superseded =
+                autofix::pending::supersede_pending_removals(&patches_dir, type_name, &patch)?;
+            if !superseded.is_empty() {
+                println!(
+                    "[ADD] Supersedes the pending removal of {}: {}",
+                    type_name,
+                    superseded.join(", ")
+                );
+            }
+
             println!("\n[OK] Patch written to: {}", patch_path.display());
             println!(
                 "\n\x1b[1;33mIMPORTANT\x1b[0m: Apply patches immediately or they may become stale:"
@@ -1200,7 +1185,8 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         ["autofix", "remove", fn_spec] => {
-            // Remove function from api.json: autofix remove Dom.some_function
+            // Remove a function or a whole class from api.json:
+            // autofix remove Dom.some_function / autofix remove widgets.Foo
             let patches_dir = pending_patches_dir(&project_root, "REMOVE")?;
 
             let api_data = load_api_json(&api_path)?;
@@ -1211,48 +1197,22 @@ fn main() -> anyhow::Result<()> {
                 .ok_or_else(|| anyhow::anyhow!("No versions in api.json"))?
                 .to_string();
 
-            // Parse fn_spec
-            let parts: Vec<&str> = fn_spec.split('.').collect();
-
-            if parts.len() < 2 {
-                eprintln!("Error: Invalid format. Use: TypeName.method or module.TypeName.method");
-                std::process::exit(1);
-            }
-
-            let (type_name, method_name) = if parts.len() == 2 {
-                (parts[0], parts[1])
-            } else {
-                (parts[parts.len() - 2], parts[parts.len() - 1])
-            };
-
-            // Find which module the type is in (from api.json)
+            // `module.Type.fn`, `Type.fn`, `module.Type` (a whole class), `Type`
             let version_data = api_data
                 .get_version(&version)
                 .ok_or_else(|| anyhow::anyhow!("Version not found"))?;
-            let module_name = autofix::function_diff::find_type_module(type_name, version_data)
-                .ok_or_else(|| anyhow::anyhow!("Type '{}' not found in api.json", type_name))?
-                .to_string();
+            let target = autofix::function_diff::parse_remove_spec(fn_spec, version_data)
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "{e}. Use: module.TypeName.method, TypeName.method, module.TypeName or \
+                         TypeName"
+                    )
+                })?;
 
-            println!(
-                "[REMOVE] Generating patch to remove '{}' from {}\n",
-                method_name, type_name
-            );
+            println!("[REMOVE] Generating patch to remove {}\n", target.describe());
 
-            // Generate the patch
-            let patch = autofix::function_diff::generate_remove_functions_patch(
-                type_name,
-                &[method_name],
-                &module_name,
-                &version,
-            );
-
-            // Write patch to file
-            let patch_filename = format!(
-                "remove_{}_{}.patch.json",
-                type_name.to_lowercase(),
-                method_name
-            );
-            let patch_path = patches_dir.join(&patch_filename);
+            let patch = target.patch(&version);
+            let patch_path = patches_dir.join(target.file_name());
 
             let json = serde_json::to_string_pretty(&patch)?;
             fs::write(&patch_path, &json)?;
