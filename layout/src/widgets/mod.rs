@@ -515,6 +515,13 @@ pub mod data_table;
 /// view for screen readers; a long line decimated per pixel column. Drawn
 /// with the engine's SVG path; see `chart.rs`.
 pub mod chart;
+/// Waveform widget.
+///
+/// An audio file's loudness over time as bars (the peaks of each slice),
+/// the part already played in the accent; a click or a drag seeks. The
+/// peaks come from `AudioFileDecoder::waveform` or the app's own samples
+/// (`WaveformPeaks`, `resample_peaks`); see `waveform.rs`.
+pub mod waveform;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
