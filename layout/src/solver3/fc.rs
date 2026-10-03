@@ -3536,10 +3536,10 @@ fn layout_bfc<T: ParsedFontTrait>(
     );
 
     // +spec:inline-formatting-context:2227a4 - atomic inline baseline for inline-block/inline-table
-    // Baseline calculation would happen here in a full implementation.
     // CSS2 §10.8.1: For inline-block, baseline is the baseline of the last
-    // line box in normal flow, or the bottom margin edge if no line boxes.
-    output.baseline = None;
+    // line box in normal flow, or the bottom margin edge if no line boxes
+    // (`None`, which `atomic_inline_baseline_offset` turns into that edge).
+    output.baseline = last_line_box_baseline(tree, ctx.styled_dom, node_index, &output.positions);
 
     // Store escaped margins in the LayoutNode for use by parent
     if let Some(warm_mut) = tree.warm_mut(LayoutNodeId::new(node_index)) {
@@ -10325,6 +10325,34 @@ fn publish_interior_positions(tree: &mut LayoutTree, output: &LayoutOutput) {
             w.relative_position = Some(*child_pos);
         }
     }
+}
+
+/// The baseline of a block container's LAST line box in the normal flow,
+/// from the top of its content box (CSS 2.2 s10.8.1 - what an inline-block
+/// aligns by): the last in-flow child of `node_index` that has a baseline of
+/// its own (`LayoutNodeWarm::baseline`, from that child's content-box top, set
+/// when Pass 1 of `layout_bfc` laid the child out), at the child's position in
+/// `positions` (its border-box origin) plus its top border and padding. A
+/// float is not in the flow; a child without a line box is passed over.
+/// `None` when no child has one. A block container used to report no
+/// baseline at all, so an inline-block whose text sits in a block child was
+/// aligned by its bottom edge.
+fn last_line_box_baseline(
+    tree: &LayoutTree,
+    styled_dom: &StyledDom,
+    node_index: usize,
+    positions: &BTreeMap<usize, LogicalPosition>,
+) -> Option<f32> {
+    tree.children(node_index).iter().rev().find_map(|&child| {
+        let pos = positions.get(&child)?;
+        let node = tree.get(LayoutNodeId::new(child))?;
+        if get_float_property(styled_dom, node.dom_node_id) != LayoutFloat::None {
+            return None;
+        }
+        let baseline = tree.warm(LayoutNodeId::new(child))?.baseline?;
+        let bp = node.box_props.unpack();
+        Some(pos.y + bp.border.top + bp.padding.top + baseline)
+    })
 }
 
 fn atomic_inline_baseline_offset(
