@@ -30,16 +30,26 @@ Report: scripts/MEDIA9_2026_10_03.md (date = the day it finishes).
   /tmp/media9_tc/stubs/full_harness.rs (rebuild stubs + symphonia: /tmp/media9_tools/build_symphonia.sh).
   PHASE A (engine) DONE.
 
+- B1 12b563ba7 RED layout/src/widgets/level_meter.rs (db_percent, rms_percent, peak_percent,
+  zone_widths, LevelMeterOrientation, LevelMeter, LevelMeterThrottle, LevelMeterLook; 8 tests).
+
 ## IN PROGRESS
-- NEXT STEP: Phase B widget 1 = LevelMeter, new file layout/src/widgets/level_meter.rs (append
-  `pub mod level_meter;` after `pub mod waveform;` in layout/src/widgets/mod.rs). Move AzMeet's
-  meter in: `level_percent(samples) -> f32` (RMS -> dB, -60 dB floor -> 0..100, from
-  examples/azul-meet/src/lib.rs mic_level_percent), `LevelMeterThrottle` (meter_change: moves at
-  most every 100 ms and by >= 0.5 %), the widget (VirtualView like ProgressBar for the fast path:
-  `LevelMeter::update_level(info, node, percent)`), horizontal / vertical, green / yellow / red
-  zones, a11y role ProgressBar(meter) + value. Look struct LevelMeterLook + flat.rs / flora.rs
-  APPENDS (`// ==== level_meter ====`), manifest (every_widget_dom + theme_contrast group in
-  widgets/mod.rs). RED tests first. Then AzMeet uses it (examples/azul-meet/src/{lib.rs, ui.rs}).
+- NEXT STEP: GREEN level_meter.rs: db_percent ((db+60)/60*100 clamped, NaN->0), rms_percent
+  (AzMeet formula: 20*log10(max(rms,1e-6))), peak_percent, zone_widths ([min(l,70), clamp(l-70,0,20),
+  clamp(l-90,0,10)]), throttle next(), build(meter, &look) = root div (class
+  __azul-native-level-meter + marker, a11y ProgressBar "{:.0}%", flex row) > track (class
+  -track, grow 1, overflow hidden, flex row or column-reverse for Vertical) > ok / warm / hot divs
+  (classes -ok/-warm/-hot, width (or height) percent, flex-shrink 0); dom() via
+  theme_blocks::follow_app_theme(self, flat::level_meter, flora::level_meter); look_for not needed.
+  update_level: get_first_child(root)=track, its first child + next siblings = segments,
+  set_css_property(width/height percent), set_accessibility_value. Theme APPENDS at the END of
+  flat.rs / flora.rs under `// ==== level_meter ====`: level_meter_look() (track themed_fill
+  LIGHT_TRACK/DARK_TRACK + radius 3 + height 8 (or width 8 vertical: put sizes in build), ok green,
+  warm amber, hot red themed fills) and `pub fn level_meter(m) -> Dom { build(m, &look) }`.
+  Manifest: every_widget_dom push ("level_meter", LevelMeter::create(80.0).dom()) + "level_meter"
+  in theme_contrast INPUTS (next to "progressbar"). Then AzMeet migration.
+  Commit messages: ALWAYS write a fresh /tmp file with a bash heredoc (a failed Write once reused
+  a stale message; fixed with --amend on the unpushed commit).
 - then SeekBar, MediaControls, Waveform widget part (same pattern), then AzMusic, AzPlayer.
 
 ## api.json so far (for the report)
