@@ -46,9 +46,12 @@ Branch `wt/office7` from `2e55eef06` (the wave-6 integration; every app compiles
   styles (CellGrid draws 1 px colour borders only) - report.
   (d) DECIDED not done: merges are outside IronCalc's model and its undo history (the adapter keeps them), so
   shifting them on insert would leave them wrong after an undo of the insert - report.
-- 8. LOOK (writer, notes, mail, sheets, show, review) with /tmp/office7_look.py (recreate from the transcript
-  if /tmp was wiped).
-- Report scripts/OFFICE7_2026_10_03.md.
+- 8. LOOK DONE (all six, prebuilt, flat/flora x light/dark). App fixes: AzWriter styles gallery
+  (cd8516307 RED E2E / 03e2699f4 with_visible(3)); AzReview texts as spans (c72a7ded5 RED / 2a5c814b7).
+  Engine/widget findings for others: 4809ad3ed RED rail thumbnails misaligned by a badge (WIDGETS7); AzSheets
+  dark mode: filled header row white ink (CellGrid auto_ink loses to the dark ink? unverified, report);
+  widget a11y warnings (TreeView toggles, RTE host / check islands, Button, dialog window) -> report.
+- NEXT: the report scripts/OFFICE7_2026_10_03.md (write in pieces, commit each).
 
 ## Decisions
 - WIDGETS7 heads-up (coordinator): MessageList -> SummaryList is applied by the parent AFTER merging this
