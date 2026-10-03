@@ -1241,14 +1241,108 @@ pub(crate) fn char_width_of(cv: &CodeView) -> f32 {
     }
 }
 
-/// Lays the view out: the lines and columns in view, the gutter, the bar.
-pub(crate) fn geometry(cv: &CodeView) -> Geometry {
-    todo!("GREEN: geometry {}", cv.line_count)
+/// How many decimal digits `n` has.
+pub(crate) fn digits(mut n: u32) -> u32 {
+    let mut d = 1;
+    while n >= 10 {
+        n /= 10;
+        d += 1;
+    }
+    d
 }
 
-/// The view with its `top_line` kept in range for `line_count` lines.
+/// The whole lines the viewport holds and the lines built to fill it (a
+/// part of one more shows at the bottom).
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn viewport_lines(cv: &CodeView) -> (u32, u32) {
+    let lh = cv.line_height.max(1.0);
+    let h = cv.viewport_height.max(0.0);
+    let fit = ((h / lh).floor() as u32).max(1);
+    let built = ((h / lh).ceil() as u32).max(1);
+    (fit, built)
+}
+
+/// The whole lines the view shows: as measured at the last action, else
+/// what the viewport holds.
+pub(crate) fn fit_lines_of(cv: &CodeView) -> u32 {
+    if cv.view.visible_lines > 0 {
+        cv.view.visible_lines
+    } else {
+        viewport_lines(cv).0
+    }
+}
+
+/// Lays the view out: the lines and columns in view, the gutter, the bar.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+pub(crate) fn geometry(cv: &CodeView) -> Geometry {
+    let count = cv.line_count.max(1);
+    let cw = char_width_of(cv);
+    let lh = cv.line_height.max(1.0);
+    let (_, built) = viewport_lines(cv);
+    let fit_lines = fit_lines_of(cv);
+    let top = cv.view.top_line.min(count - 1);
+    let rows = built.min(count - top);
+    let gutter_width = if cv.show_line_numbers {
+        digits(count).max(3) as f32 * cw + 2.0 * GUTTER_PAD
+    } else {
+        0.0
+    };
+    let text_left = gutter_width + TEXT_PAD;
+    let width = cv.viewport_width.max(0.0);
+    let height = cv.viewport_height.max(0.0);
+    let has_bar = count > fit_lines;
+    let bar_px = if has_bar { SCROLL_BAR_PX } else { 0.0 };
+    let text_width = (width - text_left - bar_px).max(0.0);
+    let fit_columns = if cv.view.visible_columns > 0 {
+        cv.view.visible_columns
+    } else {
+        ((text_width / cw).floor() as u32).max(1)
+    };
+    let columns = ((text_width / cw).ceil() as u32).max(1).saturating_add(1);
+    let vbar = has_bar.then(|| {
+        let max_top = (count - 1).max(1) as f32;
+        let thumb_len = (height * fit_lines as f32 / (max_top + fit_lines as f32))
+            .max(MIN_THUMB_PX)
+            .min(height);
+        let travel = (height - thumb_len).max(0.0);
+        ScrollBar {
+            track: ((width - SCROLL_BAR_PX).max(0.0), 0.0, SCROLL_BAR_PX, height),
+            thumb_start: travel * top as f32 / max_top,
+            thumb_len,
+        }
+    });
+    Geometry {
+        top,
+        rows,
+        fit_lines,
+        left: cv.view.left_column,
+        columns,
+        fit_columns,
+        gutter_width,
+        text_left,
+        char_width: cw,
+        line_height: lh,
+        width,
+        height,
+        vbar,
+    }
+}
+
+/// The view with its `top_line` kept in range for `line_count` lines, and
+/// its cursors on lines that exist (their columns are kept inside the
+/// line where the line is read).
 pub(crate) fn clamp_view(view: &mut CodeViewView, line_count: u32) {
-    todo!("GREEN: clamp_view {} {line_count}", view.top_line)
+    let last = line_count.max(1) - 1;
+    view.top_line = view.top_line.min(last);
+    let mut all = view.cursors.as_slice().to_vec();
+    if all.is_empty() {
+        all.push(CodeViewCursor::default());
+    }
+    for c in &mut all {
+        c.anchor.line = c.anchor.line.min(last);
+        c.head.line = c.head.line.min(last);
+    }
+    view.cursors = CodeViewCursorVec::from_vec(all);
 }
 
 // ---- a line's pieces: colours, selections, carets ----
@@ -1276,7 +1370,46 @@ pub(crate) struct LinePieces {
 /// What of line `line` the cursors select (byte ranges; an end of
 /// `u32::MAX` takes the line break too) and where their carets are.
 pub(crate) fn line_marks(view: &CodeViewView, line: u32) -> (Vec<(u32, u32)>, Vec<u32>) {
-    todo!("GREEN: line_marks {line} {}", view.cursor_count())
+    let mut selected = Vec::new();
+    let mut carets = Vec::new();
+    for c in view.cursors.as_slice() {
+        if c.head.line == line {
+            carets.push(c.head.column);
+        }
+        if c.is_empty() {
+            continue;
+        }
+        let (start, end) = (c.start(), c.end());
+        if line < start.line || line > end.line {
+            continue;
+        }
+        let from = if line == start.line { start.column } else { 0 };
+        let to = if line == end.line { end.column } else { u32::MAX };
+        if from < to {
+            selected.push((from, to));
+        }
+    }
+    selected.sort_unstable();
+    carets.sort_unstable();
+    carets.dedup();
+    (selected, carets)
+}
+
+/// `piece` added to `pieces`, merged into the run before it when that one
+/// is of the same kind and selection.
+fn push_run(pieces: &mut Vec<Piece>, text: String, kind: CodeTokenKind, selected: bool) {
+    if let Some(Piece::Text {
+        text: last,
+        kind: last_kind,
+        selected: last_selected,
+    }) = pieces.last_mut()
+    {
+        if *last_kind == kind && *last_selected == selected {
+            last.push_str(&text);
+            return;
+        }
+    }
+    pieces.push(Piece::Text { text, kind, selected });
 }
 
 /// Line `text` cut into its pieces: at its spans' edges, its selections'
@@ -1291,12 +1424,57 @@ pub(crate) fn line_pieces(
     left: u32,
     columns: u32,
 ) -> LinePieces {
-    todo!(
-        "GREEN: line_pieces {text} {} {} {} {tab} {left} {columns}",
-        spans.len(),
-        selected.len(),
-        carets.len()
-    )
+    let len = len32(text);
+    let right = left.saturating_add(columns);
+    let carets: Vec<u32> = carets.iter().map(|&c| clamp_to_char(text, c)).collect();
+    let mut cuts: Vec<u32> = alloc::vec![0, len];
+    for s in spans {
+        cuts.push(clamp_to_char(text, s.start));
+        cuts.push(clamp_to_char(text, s.end));
+    }
+    for &(a, b) in selected {
+        cuts.push(clamp_to_char(text, a));
+        cuts.push(clamp_to_char(text, b.min(len)));
+    }
+    cuts.extend(carets.iter().copied());
+    cuts.sort_unstable();
+    cuts.dedup();
+    let kind_at = |b: u32| {
+        spans
+            .iter()
+            .find(|s| s.start <= b && b < s.end)
+            .map_or(CodeTokenKind::Plain, |s| s.kind)
+    };
+    let selected_at = |b: u32| selected.iter().any(|&(s, e)| s <= b && b < e);
+    let mut pieces = Vec::new();
+    let mut column = 0_u32;
+    for w in cuts.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        if carets.contains(&a) && column >= left && column <= right {
+            pieces.push(Piece::Caret);
+        }
+        let expanded = expand_tabs(&text[a as usize..b as usize], column, tab);
+        let width = u32::try_from(expanded.chars().count()).unwrap_or(u32::MAX);
+        let (from, to) = (left.max(column), right.min(column.saturating_add(width)));
+        if from < to {
+            let shown: String = expanded
+                .chars()
+                .skip((from - column) as usize)
+                .take((to - from) as usize)
+                .collect();
+            push_run(&mut pieces, shown, kind_at(a), selected_at(a));
+        }
+        column = column.saturating_add(width);
+    }
+    if carets.contains(&len) && column >= left && column <= right {
+        pieces.push(Piece::Caret);
+    }
+    let eol_selected =
+        selected.iter().any(|&(_, e)| e == u32::MAX) && column >= left && column <= right;
+    LinePieces {
+        pieces,
+        eol_selected,
+    }
 }
 
 // ---- editing: keys to edits and the next view ----
