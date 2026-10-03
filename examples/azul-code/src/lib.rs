@@ -171,7 +171,7 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
     let timer = Timer::create(app.clone(), commands::highlight_tick, info.get_system_time_fn())
         .with_interval(Duration::System(SystemTimeDiff::from_millis(250)));
     info.add_timer(TimerId::unique(), timer);
-    println!("AZCODE_READY");
+    println!("AZCODE_READY 1");
     Update::RefreshDom
 }
 
