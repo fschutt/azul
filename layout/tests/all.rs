@@ -912,3 +912,5 @@ mod a_transform_tween_moves_no_box_and_rebuilds_no_list;
 mod a_face_fade_frame_is_patched_in_place;
 #[path = "a_layout_tween_frame_reuses_the_tree_and_patches_the_list.rs"]
 mod a_layout_tween_frame_reuses_the_tree_and_patches_the_list;
+#[path = "a_relayout_keeps_the_virtual_views_of_an_unchanged_host.rs"]
+mod a_relayout_keeps_the_virtual_views_of_an_unchanged_host;
