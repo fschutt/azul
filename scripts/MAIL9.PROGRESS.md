@@ -67,11 +67,35 @@ dumb as possible". Order now:
 - wiring DKIM into the app (Sending page: key creation, record, notes, DNS check; keyring store / read;
   the compose job and the Send / Receive retry hand the key over)
 
-## NEXT
-- send.rs module doc; ui_account.rs DKIM section; lib.rs keyring queue (IMAP secret + DKIM key);
-  ui_compose OutgoingJob.dkim_key; sync thread retry dkim_key; azmail-send `--dkim-generate`,
-  `--port25-probe`; E2E: python+openssl DKIM verifier in scripts/azmail_send_test.py (`dkim` full b=
-  check, `dkim-generated`, `port25`)
+## NEXT (exact, in order; each its own commit)
+1. sending.rs: RED tests then GREEN for the DKIM part of the form: `SendingForm` gets `dkim: bool`,
+   `dkim_domain`, `dkim_selector` (filled by `from_settings`); new
+   `SendingForm::apply_dkim(&self, settings: SendSettings, email: &str, public_key: &str, now: i64)
+   -> Result<SendSettings, String>` (off: dkim None; on: domain = typed or the address's domain,
+   `dkim::can_sign_for`, selector typed / saved / `dkim::default_selector(now)`, `dkim::is_selector`,
+   key = given public key or the saved one or a key_file, else Err "Create a key first");
+   `describe()` appends ", DKIM-signed (<domain>)".
+2. lib.rs: keyring QUEUE (`KeyringCall { op, key, secret: Option<Secret> }`, `s.keyring_queue:
+   VecDeque`, `keyring_call()` / `keyring_next()` called at the end of `on_keyring_result`); new ops
+   `StoreDkim`, `GetDkim { account }`; `s.dkim_keys: HashMap<String, Option<Secret>>`; `start_sync` reads
+   the DKIM key after the IMAP secret when sending.json signs without a key_file; `SyncInit.dkim_key` ->
+   `settings.dkim_key` before `retry_outbox` in `sync_thread`.
+3. lib.rs IoJob: `DkimKey` (thread: `dkim::generate_key`) -> `IoDone::DkimKey(Result<KeyPair,String>)`
+   and `DkimCheck { selector, domain, public_key }` -> `IoDone::DkimChecked(DnsReport)`.
+4. ui_account.rs: DKIM section in `sending_fields` (check box Flag::Dkim, fields DkimDomain /
+   DkimSelector, "Create a key" button, the record name / value / zone line with ids
+   `__azmail_dkim_name` / `__azmail_dkim_value` in ids.rs, `dkim::setup_notes`, "Check DNS" button +
+   result lines); `AccountEditor` gets `dkim_new_key: Option<KeyPair>`, `dkim_busy`, `dkim_report`;
+   `save()` runs `apply_dkim`; `account_saved()` queues the keyring store of a new key and keeps it in
+   `s.dkim_keys`.
+5. ui_compose.rs: `OutgoingJob.dkim_key` from `s.dkim_keys`, set on the loaded settings in
+   `run_outgoing`.
+6. bin/azmail_send.rs: `--dkim-generate <pem out file>` (prints AZMAIL_DKIM_RECORD name / value),
+   `--port25-probe host:port`; scripts/azmail_send_test.py: a python+openssl DKIM verifier (relaxed /
+   relaxed, rsa-sha256 via `openssl dgst -sha256 -verify`), cases `dkim` (full b= check),
+   `dkim-generated`, `port25` (closed local port as MX and probe target -> queued, send_policy.json
+   port25.open == false).
+7. Then SECONDARY: lettre submission route (decisions above). Then remote content (PLAN).
 
 ## Open questions
 - Fonts: azul has no runtime "register a font under a family name" API (FontManager::register_named_font
