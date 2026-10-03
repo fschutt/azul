@@ -80,11 +80,15 @@ headless Chrome and the prebuilt azul (AzPaint `mount`, capped runner), prints r
   text-decoration thickness, background size/position px, calc() px terms, gaps / flex-basis in taffy.
   Note for OFFICE7: AzMail can now put `zoom: <n>` on the reading pane / paper.
 
+## DONE (extras)
+- (11) text-indent: RED 5a0c781f7, GREEN 64d3cb633. (12) vertical-align vw/vh/rem: RED ca60d66fb, GREEN 5ede221e7
+  (get_vertical_align_for_node gained a `viewport: PhysicalSize` arg - Rust-only pub).
+
 ## IN PROGRESS
-- extra (11) TEXT7: text-indent in an anonymous block after a nested block (fc.rs) - probe + RED
+- extra (13) lines of only atomic inlines get no strut (Chrome: 20px line-height line around a 10px box) - find in fc.rs / text3
 
 ## NEXT
-- extra (12) vertical-align vw/vh; (13) strut for lines of only atomic inlines; then the report
+- the report scripts/LAYOUT7_2026_10_03.md
 - extra (from TEXT7 via coordinator, RED first if room, else report): (11) text in an ANONYMOUS block
   after a nested block is text-indented although CSS 2.1 s16.1 indents only the first formatted line of
   the block container (fc.rs); (12) `vertical-align` in vw / vh has no viewport to resolve against.
