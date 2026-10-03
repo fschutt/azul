@@ -123,7 +123,7 @@ use azul::{
     vec::{F32Vec, StyledTextRunVec, U8Vec, U8VecRef},
     video::{VideoDecoder, VideoEncoder, VideoFrame},
     widgets::{
-        ConsumerFrame, FrameConsumer, OnTextInputReturn, ProgressBar, SegmentedState,
+        ConsumerFrame, FrameConsumer, OnTextInputReturn, ProgressBar, SegmentedState, TextInput,
         TextInputState, TextInputValid,
     },
     window::{HwAcceleration, PlatformCapability, Vsync, WindowDecorations},
@@ -1012,6 +1012,7 @@ const ACTIONS: ui::Actions = ui::Actions {
     chat_text: on_chat_text,
     chat_key: on_chat_key,
     chat_send: on_chat_send,
+    chat_blur: on_chat_blur,
     name_text: on_name_text,
     server_text: on_server_text,
     server_key: on_server_key,
@@ -4565,7 +4566,8 @@ extern "C" fn on_chat_key(
     let update = match key {
         Some(VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter) => {
             let text = state.get_text().as_str().to_string();
-            send_draft(&mut data, &mut info, &text)
+            let field = info.get_hit_node();
+            send_draft(&mut data, &mut info, Some(field), &text)
         }
         _ => Update::DoNothing,
     };
@@ -4575,18 +4577,33 @@ extern "C" fn on_chat_key(
     }
 }
 
-/// The chat's Send button.
+/// The chat's Send button (the field beside it, `ui::chat`, lost the focus first and handed
+/// over its text: `on_chat_blur`).
 extern "C" fn on_chat_send(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let text = data
         .downcast_ref::<MeetState>()
         .map(|s| s.chat_draft.clone())
         .unwrap_or_default();
-    send_draft(&mut data, &mut info, &text)
+    let field = info.get_previous_sibling(info.get_hit_node()).into_option();
+    send_draft(&mut data, &mut info, field, &text)
 }
 
-/// Sends `text` to the chat and empties the field; nothing for an empty message. The meeting's
-/// `chat.jsonl` is written again.
-fn send_draft(data: &mut RefAny, info: &mut CallbackInfo, text: &str) -> Update {
+/// The chat field lost the focus: the draft as the field holds it (deletions included).
+extern "C" fn on_chat_blur(mut data: RefAny, _info: CallbackInfo, state: TextInputState) -> Update {
+    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        s.chat_draft = state.get_text().as_str().to_string();
+    }
+    Update::DoNothing
+}
+
+/// Sends `text` to the chat and empties the field (`field`: the chat field, when known);
+/// nothing for an empty message. The meeting's `chat.jsonl` is written again.
+fn send_draft(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    field: Option<DomNodeId>,
+    text: &str,
+) -> Update {
     let Some(mut guard) = data.downcast_mut::<MeetState>() else {
         return Update::DoNothing;
     };
@@ -4596,6 +4613,11 @@ fn send_draft(data: &mut RefAny, info: &mut CallbackInfo, text: &str) -> Update 
     }
     s.chat_draft.clear();
     flush_files(s, info);
+    // Re-rendering the field with an empty draft is not enough: what the user typed outranks
+    // the DOM until the app SETS the text.
+    if let Some(field) = field {
+        TextInput::set_text_in(*info, field, AzString::from(""));
+    }
     Update::RefreshDom
 }
 

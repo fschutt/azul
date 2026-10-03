@@ -198,6 +198,8 @@ pub(crate) struct Actions {
     pub chat_text: TextInputOnTextInputCallbackType,
     pub chat_key: TextInputOnVirtualKeyDownCallbackType,
     pub chat_send: ButtonOnClickCallbackType,
+    /// The chat field lost the focus (a click on Send): the draft as the field holds it.
+    pub chat_blur: TextInputOnFocusLostCallbackType,
     pub name_text: TextInputOnTextInputCallbackType,
     pub server_text: TextInputOnTextInputCallbackType,
     pub server_key: TextInputOnVirtualKeyDownCallbackType,
@@ -547,6 +549,7 @@ fn chat(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
         .with_placeholder("Message everyone")
         .with_on_text_input(data.clone(), actions.chat_text)
         .with_on_virtual_key_down(data.clone(), actions.chat_key)
+        .with_on_focus_lost(data.clone(), actions.chat_blur)
         .dom()
         .with_css(CHAT_FIELD)
         .with_id(ids::CHAT_FIELD);
