@@ -37,12 +37,12 @@ Screenshots: target/small6-shots/ (not committed). Look driver: target/small6/lo
   12f01aa07 DocumentShell + ShellThemeScope::body() + system colours + Buttons + settings page; 17944f4b0
   scripts/azreview_e2e.py.
 
+- AzBuilder: 3fd127f98 documented, not changed (its empty body is the builder's canvas).
+- Report: scripts/SMALL6_2026_10_03.md (this commit).
+
 ## NEXT (exact)
-- AzBuilder (examples/azul-builder): read it; minimal - body() + a real window instead of the empty white
-  body (LOOK: dark mode white too); appkit args/About if it fits; ids prefix; no long runs.
-- then the finish: report the engine findings (Ctrl+C copy shortcut -> WRITER6; long text overflowing LEFT ->
-  MAILENG6; first screenshot after set_theme shows two layouts -> HEADLESS6) in the final message; a short
-  LOOK only when the coordinator says power is fine.
+- DONE. Nothing left on this branch; the parent integrates (api.json ShellThemeScope.body, codegen, build,
+  suites, E2Es) - see the report's "Left".
 - AzShells: body(), appkit, prefixes, About, E2E.
 - AzWidgets: the new widgets; app theme; LOOK (short, it has a <video>).
 - AzMaps, AzReview: onto shells + themes + appkit + Drive; AzBuilder: checklist minimal.
