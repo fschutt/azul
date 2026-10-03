@@ -6467,3 +6467,32 @@ pub(crate) fn chart_skin() -> crate::widgets::chart::ChartSkin {
         marker: None,
     }
 }
+
+// ==== money_input ====
+//
+// The flat money input is the flat text field with the currency code in an
+// addon box beside it - Bootstrap's input-group text: the strip face in the
+// default border at the field's 4px radius, the code in the secondary ink;
+// the night strip, border and ink in the dark. The field itself is the
+// TextInput's own flat look.
+
+/// Flat's money-input skin.
+#[must_use]
+pub(crate) fn money_input_skin() -> crate::widgets::money_input::MoneyInputSkin {
+    use super::decl;
+
+    let root = vec![CssPropertyWithConditions::simple(
+        CssProperty::const_font_family(SYSTEM_UI_FAMILY),
+    )];
+    let mut addon = decl::padding(0, 8, 0, 8).to_vec();
+    addon.push(decl::font_size(13));
+    addon.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
+    addon.extend(decl::themed_border(decl::Edges::ALL, 1, LIGHT_BD, DARK_BD));
+    addon.extend(decl::radius(4));
+    addon.extend(decl::themed_ink(LIGHT_INTRO, DARK_INTRO));
+    crate::widgets::money_input::MoneyInputSkin {
+        root,
+        addon,
+        marker: None,
+    }
+}

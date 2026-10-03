@@ -8046,3 +8046,37 @@ pub(crate) fn chart_skin() -> crate::widgets::chart::ChartSkin {
         marker: Some("__azul-theme-flora"),
     }
 }
+
+// ==== money_input ====
+//
+// A flora money input is flora's field with the currency code on a raised
+// paper tab beside it: the raised face (--fl-rT -> --fl-rB) in the --fl-bd2
+// hairline at the house radius, the code semibold and tracked out in
+// --fl-soft1 like a pill's label; every surface, edge and ink has its night
+// value. The field itself is the TextInput's own flora look.
+
+/// Flora's money-input skin.
+#[must_use]
+pub(crate) fn money_input_skin() -> crate::widgets::money_input::MoneyInputSkin {
+    use super::decl;
+
+    let root = vec![CssPropertyWithConditions::simple(
+        CssProperty::const_font_family(SYSTEM_UI_FAMILY),
+    )];
+    let mut addon = decl::padding(0, 8, 0, 8).to_vec();
+    addon.push(decl::font_size(12));
+    addon.push(decl::semibold());
+    addon.push(decl::letter_spacing_em(0.06));
+    addon.extend(decl::themed_layers(
+        vec![decl::face(LIGHT_RT, LIGHT_RB)],
+        vec![decl::face(DARK_RT, DARK_RB)],
+    ));
+    addon.extend(decl::themed_border(decl::Edges::ALL, 1, LIGHT_BD2, DARK_BD2));
+    addon.extend(decl::radius(3));
+    addon.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    crate::widgets::money_input::MoneyInputSkin {
+        root,
+        addon,
+        marker: Some("__azul-theme-flora"),
+    }
+}
