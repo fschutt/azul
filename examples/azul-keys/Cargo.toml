@@ -50,6 +50,10 @@ sha2 = "0.10"
 # In Cargo.lock (AzSheets, ironcalc): the browsers' and password managers' CSV exports.
 csv = "1.4"
 
+[dev-dependencies]
+# The shared temporary folder for tests (azul_pim::testing::TempDir).
+azul-pim = { path = "../azul-pim", features = ["test-util"] }
+
 [lib]
 name = "azkeys"
 path = "src/lib.rs"
