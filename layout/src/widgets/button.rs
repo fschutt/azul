@@ -782,7 +782,9 @@ pub const BUTTON_DISABLED_CLASS: &str = "__azul-native-button-disabled";
 pub(crate) struct DisabledReason(pub(crate) AzString);
 
 /// The pointer rests on a disabled button, or it was clicked: say why.
-extern "C" fn show_disabled_reason(mut data: RefAny, mut info: CallbackInfo) -> Update {
+/// (Any text in a [`DisabledReason`]: the toolbar shows an icon-only tool's
+/// name through it too.)
+pub(crate) extern "C" fn show_disabled_reason(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let reason = data.downcast_ref::<DisabledReason>().map(|r| r.0.clone());
     if let Some(reason) = reason {
         info.show_tooltip(reason);
@@ -791,7 +793,7 @@ extern "C" fn show_disabled_reason(mut data: RefAny, mut info: CallbackInfo) -> 
 }
 
 /// The pointer left a disabled button.
-extern "C" fn hide_disabled_reason(_data: RefAny, mut info: CallbackInfo) -> Update {
+pub(crate) extern "C" fn hide_disabled_reason(_data: RefAny, mut info: CallbackInfo) -> Update {
     info.hide_tooltip();
     Update::DoNothing
 }

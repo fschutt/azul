@@ -571,8 +571,36 @@ pub(crate) struct ToolbarFit {
 /// [`TOOLBAR_CHAR_EM`] a character).
 #[must_use]
 pub(crate) fn item_width(item: &ToolbarItem) -> f32 {
-    let _ = item;
-    0.0
+    match item.kind {
+        ToolbarItemKind::Separator => TOOLBAR_SEPARATOR_PX,
+        ToolbarItemKind::Spacer => 0.0,
+        ToolbarItemKind::Custom => item.width.max(0.0) + TOOLBAR_ITEM_GAP_PX,
+        ToolbarItemKind::Button | ToolbarItemKind::Toggle | ToolbarItemKind::MenuButton => {
+            // The tool's parts (icon, label, arrow) sit a gap apart.
+            let mut content = 0.0_f32;
+            let mut parts = 0_u8;
+            if !item.icon.as_str().is_empty() {
+                content += TOOLBAR_ICON_PX;
+                parts += 1;
+            }
+            if item.shows_label() {
+                content += label_px(item.label.as_str());
+                parts += 1;
+            }
+            if item.kind == ToolbarItemKind::MenuButton {
+                content += TOOLBAR_ARROW_PX;
+                parts += 1;
+            }
+            let gaps = f32::from(parts.saturating_sub(1)) * TOOLBAR_GAP_PX;
+            TOOLBAR_ITEM_PAD_PX + content + gaps + TOOLBAR_ITEM_GAP_PX
+        }
+    }
+}
+
+/// A label's estimated width, px.
+#[allow(clippy::cast_precision_loss)] // a label is far shorter than 2^24 characters
+fn label_px(label: &str) -> f32 {
+    label.chars().count() as f32 * TOOLBAR_FONT_PX * TOOLBAR_CHAR_EM
 }
 
 /// Which of `items` fit into `available` px (0 = everything): from the
@@ -581,11 +609,61 @@ pub(crate) fn item_width(item: &ToolbarItem) -> f32 {
 /// spacers; a separator left at an end of either list, or doubled, goes.
 #[must_use]
 pub(crate) fn fit(items: &[ToolbarItem], available: f32) -> ToolbarFit {
-    let _ = available;
-    ToolbarFit {
-        shown: (0..items.len()).collect(),
-        overflow: Vec::new(),
+    let widths: Vec<f32> = items.iter().map(item_width).collect();
+    let total: f32 = widths.iter().sum();
+    let mut shown = alloc::vec![true; items.len()];
+    if available.is_finite() && available > 0.0 && total > available {
+        let budget = (available - TOOLBAR_MORE_PX).max(0.0);
+        let mut used = total;
+        for index in (0..items.len()).rev() {
+            if used <= budget {
+                break;
+            }
+            let item = &items[index];
+            if item.never_overflow || item.kind == ToolbarItemKind::Spacer {
+                continue;
+            }
+            shown[index] = false;
+            used -= widths[index];
+        }
     }
+    let on: Vec<usize> = (0..items.len()).filter(|i| shown[*i]).collect();
+    let off: Vec<usize> = (0..items.len()).filter(|i| !shown[*i]).collect();
+    ToolbarFit {
+        shown: without_stray_separators(items, &on),
+        overflow: without_stray_separators(items, &off),
+    }
+}
+
+/// `list` (indices into `items`) without the separators that separate
+/// nothing: one before the first item, one after the last, the second of
+/// two in a row. Spacers are not items here (a separator before a spacer
+/// still separates the groups either side of it).
+fn without_stray_separators(items: &[ToolbarItem], list: &[usize]) -> Vec<usize> {
+    let is_content = |i: usize| {
+        !matches!(
+            items[i].kind,
+            ToolbarItemKind::Separator | ToolbarItemKind::Spacer
+        )
+    };
+    let mut out = Vec::with_capacity(list.len());
+    // Whether the last item kept (spacers aside) is content, not a separator.
+    let mut after_content = false;
+    for (position, &index) in list.iter().enumerate() {
+        if items[index].kind == ToolbarItemKind::Separator {
+            let content_follows = list[position + 1..].iter().any(|&j| is_content(j));
+            if after_content && content_follows {
+                out.push(index);
+                after_content = false;
+            }
+        } else {
+            out.push(index);
+            if is_content(index) {
+                after_content = true;
+            }
+        }
+    }
+    out
 }
 
 // ==== The look and the DOM ====
