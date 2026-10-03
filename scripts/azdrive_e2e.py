@@ -55,6 +55,25 @@ REPO = os.path.abspath(os.path.join(HERE, ".."))
 # Cmd on macOS, Ctrl elsewhere.
 PRIMARY = "meta" if sys.platform == "darwin" else "ctrl"
 
+# AzDrive names its ids and classes with the app prefix `__azdrive_` (src/ids.rs, the wave-6
+# prefix ruling); a binary built before that used `azdrive-<class>` and bare ids. The script
+# finds out once which naming the window uses (NAMING) and asks C / I for every name.
+NAMING = {"prefixed": True}
+
+
+def C(name):
+    """A class by its short name: `drive` -> `__azdrive_drive` (`azdrive-drive` before)."""
+    if NAMING["prefixed"]:
+        return "__azdrive_" + name.replace("-", "_")
+    return "azdrive-" + name
+
+
+def I(name):
+    """An id by its short name: `rename-field` -> `__azdrive_rename_field` (bare before)."""
+    if NAMING["prefixed"]:
+        return "__azdrive_" + name.replace("-", "_")
+    return name
+
 
 def log(line):
     print("[azdrive-e2e] %s" % line, flush=True)
@@ -290,7 +309,7 @@ def item_names(app):
     nodes = app.hierarchy()
     by_index = {n["index"]: n for n in nodes}
     for n in nodes:
-        if "azdrive-name" in (n.get("classes") or []):
+        if C("name") in (n.get("classes") or []):
             if n.get("text"):
                 names.append(n["text"])
                 continue
@@ -330,7 +349,10 @@ def run(args, logs):
         app.until("the debug server", lambda: app.op("get_dom_tree"))
         app.must("resize", width=1280.0, height=800.0)
         app.frame(3)
-        app.until("the drive tiles", lambda: app.nodes_with_class("azdrive-drive"))
+        app.until("the drive tiles", lambda: app.nodes_with_class("__azdrive_drive") or
+                  app.nodes_with_class("azdrive-drive"))
+        NAMING["prefixed"] = bool(app.nodes_with_class("__azdrive_drive"))
+        log("names: %s" % ("__azdrive_ prefixed" if NAMING["prefixed"] else "unprefixed (older build)"))
         for tab in ("FILE", "HOME", "SHARE", "VIEW", "DRIVE"):
             app.until("the ribbon tab %s" % tab, lambda: app.exact(tab) is not None)
         app.until("This PC's groups", lambda: app.shows("Devices and drives"))
@@ -343,7 +365,7 @@ def run(args, logs):
         # On the tile's icon: its centre is the capacity bar, a ProgressBar, which is a
         # VirtualView of its own DOM - and a Hover event aimed into a child DOM does not
         # bubble out to the tile in the parent DOM (engine, reported to HEADLESS6).
-        tile = app.nodes_with_class("azdrive-drive")[0]
+        tile = app.nodes_with_class(C("drive"))[0]
         r = app.value("get_node_layout", node_id=tile)["rect"]
         listed = app.after("the Home drive's listing", "AZDRIVE_LISTED", r"home / \d+",
                            lambda: (app.must("double_click", x=r["x"] + 24.0,
@@ -357,8 +379,8 @@ def run(args, logs):
         for digit, name in LAYOUTS:
             app.after("the layout %s" % name, "AZDRIVE_LAYOUT", re.escape(name),
                       lambda: app.key(digit, primary=True, shift=True))
-            app.until("the %s view" % name, lambda: "azdrive-layout-%s" % name in app.classes())
-            app.until("the items of %s" % name, lambda: len(app.nodes_with_class("azdrive-item")) >= 5)
+            app.until("the %s view" % name, lambda: C("layout-" + name) in app.classes())
+            app.until("the items of %s" % name, lambda: len(app.nodes_with_class(C("item"))) >= 5)
             if name in ("large_icons", "tiles"):
                 app.screenshot(os.path.join(out, "03-%s.png" % name))
         app.click_exact("VIEW")
@@ -369,7 +391,7 @@ def run(args, logs):
         log("3. all eight layouts render the folder (keys and the ribbon's gallery)")
 
         # 4. Sort by the Name header (twice: descending), then by Size.
-        app.until("the Details header", lambda: app.has("#details-header"))
+        app.until("the Details header", lambda: app.has("#" + I("details-header")))
         before = item_names(app)
         app.after("sort by name, descending", "AZDRIVE_SORT", r"Name desc",
                   lambda: app.click_exact("Name"))
@@ -415,8 +437,8 @@ def run(args, logs):
                   lambda: app.click_exact("notes.txt"))
         app.after("the rename field", "AZDRIVE_RENAMING", r"Documents/notes\.txt",
                   lambda: app.key("f2"))
-        app.until("the rename field laid out", lambda: app.has("#rename-field"))
-        app.must("focus_node", selector="#rename-field")
+        app.until("the rename field laid out", lambda: app.has("#" + I("rename-field")))
+        app.must("focus_node", selector="#" + I("rename-field"))
         app.frame()
         app.key("end")
         for _ in range(len("notes.txt")):
@@ -437,9 +459,9 @@ def run(args, logs):
         app.after("a new folder", "AZDRIVE_DONE", r"created Documents/New folder/",
                   lambda: app.key("n", primary=True, shift=True))
         app.until("the new folder on disk", lambda: os.path.isdir(os.path.join(docs, "New folder")))
-        app.until("its rename field", lambda: app.has("#rename-field"))
+        app.until("its rename field", lambda: app.has("#" + I("rename-field")))
         app.key("escape")
-        app.until("the field gone", lambda: not app.has("#rename-field"))
+        app.until("the field gone", lambda: not app.has("#" + I("rename-field")))
         log("8. Ctrl+Shift+N made New folder on disk; Escape kept its name")
 
         # 9. Copy / paste; a conflict; Keep both.
@@ -453,10 +475,10 @@ def run(args, logs):
         app.until("the copy on disk", lambda: os.path.isfile(os.path.join(target, "notes.txt")))
         app.after("the conflict", "AZDRIVE_TRANSFER", r"\d+ conflict 1",
                   lambda: app.key("v", primary=True))
-        app.until("the conflict dialog", lambda: app.has("#conflict"))
+        app.until("the conflict dialog", lambda: app.has("#" + I("conflict")))
         app.screenshot(os.path.join(out, "09-conflict.png"))
         app.after("keep both", "AZDRIVE_TRANSFER", r"\d+ done 1",
-                  lambda: (app.must("click", selector="#conflict-keep-both"), app.frame()))
+                  lambda: (app.must("click", selector="#" + I("conflict-keep-both")), app.frame()))
         app.until("notes (2).txt on disk", lambda: os.path.isfile(os.path.join(target, "notes (2).txt")))
         log("9. Ctrl+C / Ctrl+V copied into New folder; a second paste asked, Keep both made notes (2).txt")
 
@@ -488,18 +510,18 @@ def run(args, logs):
         app.until("the preview pane laid out", lambda: app.has("#shell-preview"))
         app.after("a text preview", "AZDRIVE_PREVIEW", r"text Documents/notes\.txt",
                   lambda: app.click_exact("notes.txt"))
-        app.until("the text in the preview", lambda: app.has("#preview-text"))
+        app.until("the text in the preview", lambda: app.has("#" + I("preview-text")))
         app.after("up to Home", "AZDRIVE_PLACE", r"home /", lambda: app.key("backspace"))
         app.after("Pictures", "AZDRIVE_LISTED", r"home Pictures/ \d+",
                   lambda: app.click_exact("Pictures", double=True))
         app.after("an image preview", "AZDRIVE_PREVIEW", r"image Pictures/gradient\.png",
                   lambda: app.click_exact("gradient.png"))
-        app.until("the image in the preview", lambda: app.has("#preview-image"))
+        app.until("the image in the preview", lambda: app.has("#" + I("preview-image")))
         app.screenshot(os.path.join(out, "12-preview.png"))
         # Large icons show the picture as a thumbnail.
         app.after("a thumbnail", "AZDRIVE_THUMBNAIL", r"Pictures/gradient\.png",
                   lambda: app.key("2", primary=True, shift=True))
-        app.until("the thumbnail drawn", lambda: "azdrive-thumbnail" in app.classes())
+        app.until("the thumbnail drawn", lambda: C("thumbnail") in app.classes())
         app.screenshot(os.path.join(out, "12-thumbnails.png"))
         app.after("back to Details", "AZDRIVE_LAYOUT", r"details",
                   lambda: app.key("6", primary=True, shift=True))
@@ -521,11 +543,11 @@ def run(args, logs):
         app.after("gradient.png selected", "AZDRIVE_SELECTED", r"1 Pictures/gradient\.png",
                   lambda: app.click_exact("gradient.png"))
         app.after("Properties", "AZDRIVE_DONE", r"properties 1", lambda: app.key("enter", alt=True))
-        app.until("the Properties sheet", lambda: app.has("#properties"))
+        app.until("the Properties sheet", lambda: app.has("#" + I("properties")))
         app.until("its title", lambda: app.shows("gradient.png Properties"))
         app.screenshot(os.path.join(out, "13-properties.png"))
         app.click_exact("OK")
-        app.until("the sheet closed", lambda: not app.has("#properties"))
+        app.until("the sheet closed", lambda: not app.has("#" + I("properties")))
         log("13. Alt+Enter opened Properties; OK closed it")
 
         # 13b. A WAV previews (and could play through azul's AudioSink).
@@ -534,16 +556,16 @@ def run(args, logs):
                   lambda: app.click_exact("Music", double=True))
         app.after("an audio preview", "AZDRIVE_PREVIEW", r"audio Music/chime\.wav",
                   lambda: app.click_exact("chime.wav"))
-        app.until("the sound's preview", lambda: app.has("#preview-audio"))
-        app.until("its Play button", lambda: app.has("#preview-play"))
+        app.until("the sound's preview", lambda: app.has("#" + I("preview-audio")))
+        app.until("its Play button", lambda: app.has("#" + I("preview-play")))
         log("13b. chime.wav previews as a sound with Play")
 
         # 14. FILE: the backstage and the Options.
         app.click_exact("FILE")
-        app.until("the Options", lambda: app.has("#settings"))
+        app.until("the Options", lambda: app.has("#" + I("settings")))
         app.screenshot(os.path.join(out, "14-options.png"))
         app.key("escape")
-        app.until("the backstage closed", lambda: not app.has("#settings"))
+        app.until("the backstage closed", lambda: not app.has("#" + I("settings")))
         log("14. FILE opened the backstage with the Options; Escape closed it")
 
         # 15. Flora, dark.
