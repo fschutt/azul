@@ -14098,6 +14098,9 @@ impl LayoutWindow {
         if dom_id == DomId::ROOT_ID {
             let placed = &self.anim_key_to_node;
             let _dropped = self.animations.drop_unplaced(|key| placed.contains_key(&key));
+            // What the dropped slides (and the slides re-keyed to other
+            // nodes by the rebuilt map) had published goes with them.
+            self.release_undriven_animation_values();
         }
 
         // Publish the STARTING values immediately, with a zero-length step.
@@ -14601,6 +14604,7 @@ impl LayoutWindow {
     /// at its *animated* position, not at a phantom pre-animation rect.
     pub fn tick_animations(&mut self, dt: f32) -> bool {
         if self.animations.is_empty() && !self.has_track_work() {
+            self.release_undriven_animation_values();
             return false;
         }
         let finished = self.animations.tick(dt);
@@ -14887,8 +14891,56 @@ impl LayoutWindow {
                 cache.anim_opacity_keys.remove(&node_id);
             }
         }
+        // And every value no animation drives any more - a slide a rebuild
+        // dropped or re-keyed to another node never FINISHES here.
+        self.release_undriven_animation_values();
 
         !self.animations.is_empty() || self.has_track_work()
+    }
+
+    /// Releases every ANIMATION-channel value (transform and opacity, key
+    /// and value) that no animation drives: the channel holds exactly the
+    /// nodes of the slides in flight (`animations` through
+    /// `anim_key_to_node`) and of the live keyframe tracks.
+    ///
+    /// A slide's value used to be released only when the slide FINISHED,
+    /// through `anim_key_to_node` - but a rebuild mid-slide rebuilds that map
+    /// wholesale and drops the slides whose node it cannot place
+    /// (`finish_reconciliation`), and those values stayed in the cache for
+    /// good: a reference frame with a stranger's offset on every later frame
+    /// (AzDrive after a theme switch during the backstage's exit: its back
+    /// button in the window corner, the search box gone).
+    fn release_undriven_animation_values(&mut self) {
+        let Some(cache) = self.gpu_state_manager.caches.get(&DomId::ROOT_ID) else {
+            return;
+        };
+        if cache.anim_transform_keys.is_empty()
+            && cache.anim_current_transform_values.is_empty()
+            && cache.anim_opacity_keys.is_empty()
+            && cache.anim_current_opacity_values.is_empty()
+        {
+            return;
+        }
+        let driven: BTreeSet<NodeId> = self
+            .animations
+            .iter()
+            .filter_map(|(key, _)| self.anim_key_to_node.get(&key).copied())
+            .chain(self.live_tracks.keys().copied())
+            .collect();
+        if let Some(cache) = self.gpu_state_manager.caches.get_mut(&DomId::ROOT_ID) {
+            cache
+                .anim_transform_keys
+                .retain(|node, _| driven.contains(node));
+            cache
+                .anim_current_transform_values
+                .retain(|node, _| driven.contains(node));
+            cache
+                .anim_opacity_keys
+                .retain(|node, _| driven.contains(node));
+            cache
+                .anim_current_opacity_values
+                .retain(|node, _| driven.contains(node));
+        }
     }
 
     #[allow(clippy::too_many_lines)] // one cohesive fade state machine per scrollbar; no natural
