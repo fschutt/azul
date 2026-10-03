@@ -19006,3 +19006,103 @@ mod autotest_generated {
         );
     }
 }
+
+/// TEXT7 (MAILENG6 "seen broken"): a run shaped while its face is not loaded
+/// shapes to nothing (the font-shape deficit), and the per-item shaping cache
+/// kept that nothing under the run's text and style - so the text stayed
+/// invisible after the face arrived, until something changed the text.
+#[cfg(test)]
+mod a_run_shaped_before_its_font_loads {
+    use azul_css::props::basic::FontRef;
+
+    use super::*;
+
+    fn glyph_count(flow: &FlowLayout) -> usize {
+        flow.fragment_layouts
+            .values()
+            .flat_map(|layout| layout.items.iter())
+            .map(|positioned| match &positioned.item {
+                ShapedItem::Cluster(c) => c.glyphs.len(),
+                _ => 0,
+            })
+            .sum()
+    }
+
+    #[test]
+    fn draws_once_its_font_is_loaded() {
+        let fm: FontManager<FontRef> =
+            FontManager::new(FcFontCache::default()).expect("a font manager");
+        let selectors = vec![FontSelector {
+            family: "Azul Mock Mono".to_string(),
+            ..FontSelector::default()
+        }];
+        let key = FontChainKey::from_selectors(&selectors);
+        let chain = resolve_chain_on_miss(&key, &fm.fc_cache);
+        let mut chain_cache = HashMap::new();
+        chain_cache.insert(key.clone(), chain.clone());
+        let style = Arc::new(StyleProperties {
+            font_stack: FontStack::Stack(selectors),
+            font_size_px: 20.0,
+            ..StyleProperties::default()
+        });
+        let content = vec![InlineContent::Text(StyledRun {
+            text: Arc::from("HELLO"),
+            style,
+            logical_start_byte: 0,
+            source_node_id: None,
+        })];
+        let fragments = vec![LayoutFragment {
+            id: "main".to_string(),
+            constraints: UnifiedConstraints {
+                available_width: AvailableSpace::Definite(400.0),
+                ..UnifiedConstraints::default()
+            },
+        }];
+        let mut cache = TextShapingCache::new();
+
+        let before = cache
+            .layout_flow(
+                &content,
+                &[],
+                &fragments,
+                &chain_cache,
+                &fm.fc_cache,
+                &fm.get_loaded_fonts(),
+                &mut None,
+            )
+            .expect("the run lays out");
+        assert_eq!(
+            glyph_count(&before),
+            0,
+            "premise: no face is loaded yet, nothing to draw with"
+        );
+
+        let mut resolved = crate::solver3::getters::ResolvedFontChains::default();
+        resolved.chains.insert(FontChainKeyOrRef::Chain(key), chain);
+        let loader = crate::text3::default::PathLoader::new();
+        let failed = fm.load_missing_for_chains(&resolved, |bytes, index| {
+            loader.load_font_shared(bytes, index)
+        });
+        assert!(
+            failed.is_empty(),
+            "premise: the mock face loads: {failed:?}"
+        );
+
+        let after = cache
+            .layout_flow(
+                &content,
+                &[],
+                &fragments,
+                &chain_cache,
+                &fm.fc_cache,
+                &fm.get_loaded_fonts(),
+                &mut None,
+            )
+            .expect("the run lays out");
+        assert_eq!(
+            glyph_count(&after),
+            5,
+            "the same run laid out again once its face is loaded draws its five glyphs"
+        );
+    }
+}
