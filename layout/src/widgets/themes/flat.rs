@@ -4446,6 +4446,13 @@ pub fn color_input(c: crate::widgets::color_input::ColorInput) -> Dom {
 /// ring on every keyboard stop in every mode.
 #[must_use]
 pub fn date_picker(d: crate::widgets::date_picker::DatePicker) -> Dom {
+    crate::widgets::date_picker::build(d, &date_picker_look())
+}
+
+/// The flat date picker's look, part by part - what [`date_picker`] builds
+/// with, and what the date range picker draws its two calendars in.
+#[must_use]
+pub(crate) fn date_picker_look() -> crate::widgets::date_picker::DatePickerLook {
     use super::decl;
     use crate::widgets::date_picker::DatePickerLook;
 
@@ -4463,7 +4470,7 @@ pub fn date_picker(d: crate::widgets::date_picker::DatePicker) -> Dom {
         decl::shadow(0, 0, 1, DARK_ACC, true),
     )
     .to_vec();
-    crate::widgets::date_picker::build(d, &look)
+    look
 }
 
 // ==== combobox ====

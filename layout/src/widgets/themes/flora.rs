@@ -4905,6 +4905,13 @@ fn flora_day_geometry(selected: bool) -> Vec<CssPropertyWithConditions> {
 /// mode.
 #[must_use]
 pub fn date_picker(d: crate::widgets::date_picker::DatePicker) -> Dom {
+    crate::widgets::date_picker::build(d, &date_picker_look())
+}
+
+/// The flora date picker's look, part by part - what [`date_picker`] builds
+/// with, and what the date range picker draws its two calendars in.
+#[must_use]
+pub(crate) fn date_picker_look() -> crate::widgets::date_picker::DatePickerLook {
     use super::decl;
     use crate::widgets::date_picker::DatePickerLook;
 
@@ -4967,8 +4974,7 @@ pub fn date_picker(d: crate::widgets::date_picker::DatePicker) -> Dom {
     )
     .to_vec();
     look.marker = Some("__azul-theme-flora");
-
-    crate::widgets::date_picker::build(d, &look)
+    look
 }
 
 // ==== combobox ====
