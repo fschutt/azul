@@ -7620,3 +7620,10 @@ mod close_protocol_tests {
         assert!(closing, "nobody vetoed: the close stands");
     }
 }
+
+// ==== RULINGS8: a press focuses the nearest focusable ancestor ====
+// ...continuing past a `VirtualView` page's root at its host (user ruling
+// 2026-10-03). A child of this module for `run_e2e_test_keeping_runner`.
+#[cfg(test)]
+#[path = "focus_across_virtual_view_tests.rs"]
+mod focus_across_virtual_view_tests;
