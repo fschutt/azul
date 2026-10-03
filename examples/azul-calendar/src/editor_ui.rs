@@ -15,18 +15,20 @@ use azul::{
     callbacks::{
         ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, CloseGuardOnEventCallbackType,
         DatePickerOnChangeCallbackType, RecurrenceEditorOnChangeCallbackType,
-        TextAreaOnTextInputCallbackType, TimePickerOnChangeCallbackType,
+        SegmentedOnChangeCallbackType, TextAreaOnTextInputCallbackType,
+        TimePickerOnChangeCallbackType,
     },
     dom::VirtualKeyCode,
     prelude::*,
     shells::{OfficeShell, ShellPane, ShellPaneKind, ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
+    vec::StringVec,
     widgets::{
         ButtonType, CheckBoxState, CloseGuard, CloseGuardEvent, CloseGuardEventKind, DatePicker,
         DatePickerState, DatePickerWeekStart,
         OnTextInputReturn, RecurrenceEditor, RecurrenceRule, Ribbon, RibbonButton, RibbonGroup,
-        RibbonItem, RibbonTab, TextArea, TextAreaState, TextInputState, TimePicker,
-        TimePickerState, Titlebar,
+        RibbonItem, RibbonTab, Segmented, SegmentedState, TextArea, TextAreaState,
+        TextInputState, TimePicker, TimePickerState, Titlebar,
     },
     window::WindowDecorations,
 };
@@ -342,6 +344,14 @@ fn picker_day(date: NaiveDate) -> DatePickerState {
 /// for a rule of the event's own it cannot show - what the rule says and "Replace", which
 /// starts a rule the editor can show.
 fn repeat_rows(form: &EditorForm, app: &RefAny) -> Vec<Dom> {
+    // One occurrence does not repeat by itself: the series' rule is edited with the series.
+    if form.edits_one_occurrence() {
+        return vec![Dom::create_span_with_text(
+            "This occurrence only - choose \"The whole series\" to change how it repeats.",
+        )
+        .with_id("editor-repeat-occurrence")
+        .with_css(SECONDARY)];
+    }
     let text = form
         .shown_rule()
         .map(|rule| rule.to_rrule(true))
@@ -373,7 +383,24 @@ fn repeat_rows(form: &EditorForm, app: &RefAny) -> Vec<Dom> {
 /// The form (`#editor-form` holds it): every field of `editor.rs`'s form, the error line and
 /// the buttons.
 fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
-    let mut page = Dom::create_div().with_css(PAGE).with_child(row(
+    let mut page = Dom::create_div().with_css(PAGE);
+    // Opened on an occurrence of a series: this occurrence alone, or the whole series.
+    if let Some(day) = form.occurrence {
+        page.add_child(row(
+            "Edit",
+            vec![
+                Segmented::create(StringVec::from(vec![
+                    AzString::from(format!("This occurrence ({})", day.format("%a %-d %b"))),
+                    AzString::from("The whole series"),
+                ]))
+                .with_selected_index(usize::from(form.whole_series))
+                .with_on_change(app.clone(), on_scope as SegmentedOnChangeCallbackType)
+                .dom()
+                .with_id("editor-scope"),
+            ],
+        ));
+    }
+    page.add_child(row(
         "Subject",
         vec![crate::text_field(
             &form.title,
@@ -733,6 +760,24 @@ extern "C" fn on_repeat_rule(mut data: RefAny, _info: CallbackInfo, rule: Recurr
         f.set_rule(parsed);
         rows_of(&before) != rows_of(&text)
     })
+}
+
+/// "This occurrence" / "The whole series": the form moves to the occurrence's day or to the
+/// series' first day.
+extern "C" fn on_scope(mut data: RefAny, _info: CallbackInfo, state: SegmentedState) -> Update {
+    let Some(mut guard) = data.downcast_mut::<CalState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    let Some(form) = s.editor.as_mut() else {
+        return Update::DoNothing;
+    };
+    let Some(first) = s.events.iter().find(|e| e.id == form.id).map(|e| e.date) else {
+        return Update::DoNothing;
+    };
+    form.error.clear();
+    form.set_whole_series(state.selected_index == 1, first);
+    Update::RefreshDom
 }
 
 /// "Replace" beside a rule the recurrence editor cannot show: the event no longer repeats by
