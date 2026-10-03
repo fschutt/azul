@@ -12020,6 +12020,24 @@ pub trait PlatformWindow {
                             })
                         })
                         .unwrap_or(false),
+                    // A focus with a Paste callback (a terminal: no text of
+                    // its own, no selection the engine knows) asks for the
+                    // paste chord - only the engine can read the clipboard.
+                    focus_hears_paste: layout_window
+                        .focus_manager
+                        .get_focused_node()
+                        .and_then(|f| {
+                            let node = f.node.into_crate_internal()?;
+                            let lr = layout_window.layout_results.get(&f.dom)?;
+                            Some(azul_layout::solver3::getters::node_has_callback_for(
+                                &lr.styled_dom,
+                                node,
+                                azul_core::dom::EventFilter::Focus(
+                                    azul_core::events::FocusEventFilter::Paste,
+                                ),
+                            ))
+                        })
+                        .unwrap_or(false),
                 },
             };
             let interpreter = &layout_window.input_interpreter;

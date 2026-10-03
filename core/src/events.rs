@@ -4454,6 +4454,12 @@ pub struct InputInterpreterState {
     /// report, 2026-09-01: "the arrow keys for sliders do not work at all,
     /// nor the four arrow keys for navigating the color gradient").
     pub focus_is_editable: bool,
+    /// Whether the focused node LISTENS for paste (it has a
+    /// `Focus(Paste)` callback): a terminal holds no text of its own and no
+    /// selection the engine knows, yet wants the paste chord as the
+    /// engine's paste - only the engine can read the clipboard. Its other
+    /// editing shortcuts stay its keys.
+    pub focus_hears_paste: bool,
 }
 
 /// All context needed by the input interpreter to map events to system changes.
@@ -5160,6 +5166,7 @@ pub fn default_input_interpreter(info: &InputInterpreterInfo<'_>) -> PreCallback
         drag_start_position: info.state.drag_start_position,
         focus_is_editable: info.state.focus_is_editable,
         has_selection: info.state.has_selection,
+        focus_hears_paste: info.state.focus_hears_paste,
         seat_focus: info.seat_focus,
     };
 
@@ -5217,6 +5224,7 @@ where
             drag_start_position: selection_manager.get_drag_start_position(),
             has_selection: selection_manager.has_selection(),
             focus_is_editable,
+            focus_hears_paste: false,
         },
     };
     default_input_interpreter(&info)
@@ -5234,6 +5242,8 @@ struct FilterContext<'a> {
     focus_is_editable: bool,
     /// See `InputInterpreterState::has_selection`.
     has_selection: bool,
+    /// See `InputInterpreterState::focus_hears_paste`.
+    focus_hears_paste: bool,
     /// See `InputInterpreterInfo::seat_focus`.
     seat_focus: &'a [(u64, Option<DomNodeId>)],
 }
@@ -5280,12 +5290,13 @@ fn process_event_for_internal(
                 EventData::Keyboard(k) => k.seat_id,
                 _ => crate::window::PRIMARY_POINTER_SEAT,
             };
-            handle_key_down(
+            handle_key_down_for(
                 event,
                 ctx.keyboard_state,
                 ctx.focused_node_for(seat_id),
                 ctx.focus_is_editable,
                 ctx.has_selection,
+                ctx.focus_hears_paste,
             )
         }
         EventType::MouseUp => Some(handle_mouse_up()),
@@ -5428,8 +5439,29 @@ fn handle_mouse_move(
     ))
 }
 
-/// [`handle_key_down`] for a focus that may LISTEN for paste
-/// (`focus_hears_paste`, see `InputInterpreterState::focus_hears_paste`).
+/// Handle `KeyDown` event - detect shortcuts, arrow keys, and delete keys
+/// (on a focus that does not listen for paste: [`handle_key_down_for`]).
+fn handle_key_down(
+    event: &SyntheticEvent,
+    keyboard_state: &crate::window::KeyboardState,
+    focused_node: Option<DomNodeId>,
+    focus_is_editable: bool,
+    has_selection: bool,
+) -> Option<InternalEventAction> {
+    handle_key_down_for(
+        event,
+        keyboard_state,
+        focused_node,
+        focus_is_editable,
+        has_selection,
+        false,
+    )
+}
+
+/// Handle `KeyDown` event - detect shortcuts, arrow keys, and delete keys.
+/// `focus_hears_paste`: the focused node listens for paste
+/// (`InputInterpreterState::focus_hears_paste`), so the paste chord is the
+/// engine's paste even off a text-editing focus.
 fn handle_key_down_for(
     event: &SyntheticEvent,
     keyboard_state: &crate::window::KeyboardState,
@@ -5437,18 +5469,6 @@ fn handle_key_down_for(
     focus_is_editable: bool,
     has_selection: bool,
     focus_hears_paste: bool,
-) -> Option<InternalEventAction> {
-    let _ = focus_hears_paste;
-    handle_key_down(event, keyboard_state, focused_node, focus_is_editable, has_selection)
-}
-
-/// Handle `KeyDown` event - detect shortcuts, arrow keys, and delete keys
-fn handle_key_down(
-    event: &SyntheticEvent,
-    keyboard_state: &crate::window::KeyboardState,
-    focused_node: Option<DomNodeId>,
-    focus_is_editable: bool,
-    has_selection: bool,
 ) -> Option<InternalEventAction> {
     use crate::window::VirtualKeyCode;
 
@@ -5503,8 +5523,13 @@ fn handle_key_down(
             // while text is selected (something to copy); on any other focus
             // (a button, a slider, a canvas) it is the app's key - claiming
             // it swallowed AzCalculator's Ctrl/Cmd+C after a click on a
-            // keypad button, as it once did Backspace / Delete.
-            if !focus_is_editable && !has_selection {
+            // keypad button, as it once did Backspace / Delete. A node that
+            // listens for paste (a terminal) asks for the paste chord: only
+            // the engine can read the clipboard for it. Its copy / cut /
+            // select all stay its keys (a terminal's Ctrl+C, Ctrl+A).
+            let asked_for =
+                focus_hears_paste && matches!(shortcut, KeyboardShortcut::Paste);
+            if !focus_is_editable && !has_selection && !asked_for {
                 return None;
             }
             let change = match shortcut {

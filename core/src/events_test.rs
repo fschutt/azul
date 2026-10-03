@@ -3681,6 +3681,7 @@ mod autotest_generated {
                 drag_start_position: None,
                 has_selection: false,
                 focus_is_editable: false,
+                focus_hears_paste: false,
             },
         };
         let r = default_input_interpreter(&info);
@@ -3784,6 +3785,7 @@ mod autotest_generated {
                 drag_start_position: None,
                 has_selection: false,
                 focus_is_editable: true,
+                focus_hears_paste: false,
             },
         };
         let r = default_input_interpreter(&info);
@@ -3820,6 +3822,7 @@ mod autotest_generated {
                 drag_start_position: None,
                 has_selection: false,
                 focus_is_editable: true,
+                focus_hears_paste: false,
             },
         };
         let r = default_input_interpreter(&info);
@@ -3865,6 +3868,7 @@ mod autotest_generated {
                 drag_start_position: None,
                 has_selection: false,
                 focus_is_editable: true,
+                focus_hears_paste: false,
             },
         };
         let r = default_input_interpreter(&info);
