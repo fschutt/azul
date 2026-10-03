@@ -23,35 +23,7 @@ use super::playback::{
     apply_gain, chunk_peaks, remix, LevelHistory, LinearResampler, Rechunker, TrackClock,
 };
 
-/// What an [`AudioPlayer`](self) is doing, as the listener hears it.
-#[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct AudioPlayerState {
-    /// Where the listener is in the track heard now, in seconds.
-    pub position_s: f64,
-    /// The length of the track heard now, in seconds (0 when unknown).
-    pub duration_s: f64,
-    /// The id of the track heard now (what `load_*` / `queue_*` returned); 0 = none.
-    pub track: u64,
-    /// The id of the last track that could not be opened (0 = none): its reason is
-    /// `AudioPlayer::error_message`.
-    pub failed_track: u64,
-    /// The player's volume, `0.0..=1.0`.
-    pub volume: f32,
-    /// The peak level (`0.0..=1.0`) of the left channel of the audio heard now (a meter's input).
-    pub peak_left: f32,
-    /// The peak level of the right channel.
-    pub peak_right: f32,
-    /// Tracks queued after the one being decoded.
-    pub queued_tracks: u32,
-    /// Playback runs (not paused, something to play, an output open).
-    pub playing: bool,
-    /// Everything loaded and queued has been heard to its end.
-    pub finished: bool,
-    /// An audio output opened: false in a headless run without the synthetic sink, and on a
-    /// machine without an output device (`AudioPlayer::error_message` says why).
-    pub has_output: bool,
-}
+pub use azul_core::audio::AudioPlayerState;
 
 /// Decoded audio the player plays: a file, or (in tests) a made-up signal.
 pub(crate) trait PcmSource {

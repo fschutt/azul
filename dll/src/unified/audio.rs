@@ -287,3 +287,157 @@ impl EchoCanceller {
     }
     pub fn close(&mut self) {}
 }
+
+/// wasm stub of the desktop `AudioFileDecoder` (`audio::decode`): no decoder
+/// on wasm, so every handle is closed and says so. `#[repr(C)]` layout MUST
+/// match the desktop type (ptr + error + run_destructor).
+#[cfg(target_arch = "wasm32")]
+#[repr(C)]
+pub struct AudioFileDecoder {
+    pub ptr: *mut c_void,
+    pub error: OptionString,
+    pub run_destructor: bool,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Clone for AudioFileDecoder {
+    fn clone(&self) -> Self {
+        AudioFileDecoder {
+            ptr: self.ptr,
+            error: self.error.clone(),
+            run_destructor: false,
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Default for AudioFileDecoder {
+    fn default() -> Self {
+        AudioFileDecoder {
+            ptr: core::ptr::null_mut(),
+            error: OptionString::None,
+            run_destructor: false,
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Drop for AudioFileDecoder {
+    fn drop(&mut self) {}
+}
+
+#[cfg(target_arch = "wasm32")]
+impl AudioFileDecoder {
+    fn closed() -> AudioFileDecoder {
+        AudioFileDecoder {
+            ptr: core::ptr::null_mut(),
+            error: OptionString::Some(AzString::from(
+                "this platform has no audio file decoder in azul yet (wasm)",
+            )),
+            run_destructor: false,
+        }
+    }
+    pub fn backend_name() -> AzString {
+        AzString::from_const_str("none")
+    }
+    pub fn open(_path: AzString) -> AudioFileDecoder {
+        Self::closed()
+    }
+    pub fn create(_bytes: azul_css::U8Vec, _extension: AzString) -> AudioFileDecoder {
+        Self::closed()
+    }
+    pub fn is_open(&self) -> bool {
+        false
+    }
+    pub fn error_message(&self) -> OptionString {
+        self.error.clone()
+    }
+    pub fn info(&self) -> azul_core::audio::AudioFileInfo {
+        azul_core::audio::AudioFileInfo::default()
+    }
+    pub fn next_frame(&mut self) -> azul_core::audio::OptionAudioFrame {
+        azul_core::audio::OptionAudioFrame::None
+    }
+    pub fn seek(&mut self, _position_s: f64) -> bool {
+        false
+    }
+    pub fn position_s(&self) -> f64 {
+        0.0
+    }
+    pub fn waveform(&mut self, _buckets: u32) -> azul_css::F32Vec {
+        azul_css::F32Vec::from_vec(Vec::new())
+    }
+    pub fn close(&mut self) {}
+}
+
+/// wasm stub of the desktop `AudioPlayer` (`audio::player`): no output and
+/// no decoder on wasm; every call is a no-op, the state says there is no
+/// output. `#[repr(C)]` layout MUST match the desktop type (ptr +
+/// run_destructor).
+#[cfg(target_arch = "wasm32")]
+#[repr(C)]
+pub struct AudioPlayer {
+    pub ptr: *mut c_void,
+    pub run_destructor: bool,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Clone for AudioPlayer {
+    fn clone(&self) -> Self {
+        AudioPlayer {
+            ptr: self.ptr,
+            run_destructor: false,
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Default for AudioPlayer {
+    fn default() -> Self {
+        AudioPlayer {
+            ptr: core::ptr::null_mut(),
+            run_destructor: false,
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Drop for AudioPlayer {
+    fn drop(&mut self) {}
+}
+
+#[cfg(target_arch = "wasm32")]
+impl AudioPlayer {
+    pub fn create() -> AudioPlayer {
+        AudioPlayer::default()
+    }
+    pub fn load_file(&self, _path: AzString) -> u64 {
+        0
+    }
+    pub fn load_bytes(&self, _bytes: azul_css::U8Vec, _extension: AzString) -> u64 {
+        0
+    }
+    pub fn queue_file(&self, _path: AzString) -> u64 {
+        0
+    }
+    pub fn queue_bytes(&self, _bytes: azul_css::U8Vec, _extension: AzString) -> u64 {
+        0
+    }
+    pub fn clear_queue(&self) {}
+    pub fn play(&self) {}
+    pub fn pause(&self) {}
+    pub fn toggle(&self) {}
+    pub fn stop(&self) {}
+    pub fn seek(&self, _position_s: f64) {}
+    pub fn skip(&self) {}
+    pub fn set_volume(&self, _volume: f32) {}
+    pub fn get_state(&self) -> azul_core::audio::AudioPlayerState {
+        azul_core::audio::AudioPlayerState::default()
+    }
+    pub fn error_message(&self) -> OptionString {
+        OptionString::Some(AzString::from(
+            "this platform has no audio output in azul yet (wasm)",
+        ))
+    }
+    pub fn close(&mut self) {}
+}

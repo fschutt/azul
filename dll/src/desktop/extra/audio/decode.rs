@@ -21,54 +21,7 @@ use core::ffi::c_void;
 use azul_core::audio::{AudioFrame, OptionAudioFrame};
 use azul_css::{AzString, F32Vec, OptionString, U8Vec};
 
-/// What an audio file holds: its format, length and tags. Every text is empty when the file does
-/// not say; numbers are 0.
-#[repr(C)]
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct AudioFileInfo {
-    /// The track's title (`TITLE`, ID3 `TIT2`, MP4 `©nam`).
-    pub title: AzString,
-    /// The performer.
-    pub artist: AzString,
-    /// The album.
-    pub album: AzString,
-    /// The album's artist (a compilation's "Various Artists").
-    pub album_artist: AzString,
-    /// The genre.
-    pub genre: AzString,
-    /// The date or year the file gives, as it gives it ("2024", "2024-05-01").
-    pub date: AzString,
-    /// Unsynchronised lyrics, when the file carries them.
-    pub lyrics: AzString,
-    /// The codec ("mp3", "aac", "flac", "vorbis", "opus", "pcm_s16le", ...).
-    pub codec: AzString,
-    /// The container ("wave", "flac", "isomp4", "ogg", "mkv", ...).
-    pub container: AzString,
-    /// The cover art's media type ("image/jpeg", "image/png"), empty without a cover.
-    pub cover_mime: AzString,
-    /// The cover art, encoded as stored (decode it with `RawImage::decode_image_bytes_any`);
-    /// empty without a cover. The front cover when the file has several pictures.
-    pub cover: U8Vec,
-    /// The length in seconds (0 when the file does not say and it was not measured).
-    pub duration_s: f64,
-    /// Samples per second per channel.
-    pub sample_rate: u32,
-    /// The track's number on its album (0 = not given).
-    pub track_number: u32,
-    /// The track count of the album (0 = not given).
-    pub track_total: u32,
-    /// The disc's number (0 = not given).
-    pub disc_number: u32,
-    /// Channels (1 mono, 2 stereo, ...).
-    pub channels: u16,
-}
-
-azul_css::impl_option!(
-    AudioFileInfo,
-    OptionAudioFileInfo,
-    copy = false,
-    [Debug, Clone, PartialEq]
-);
+pub use azul_core::audio::{AudioFileInfo, OptionAudioFileInfo};
 
 /// One open audio file, decoding: what the [`AudioFileDecoder`] handle and the player share.
 /// Rust-only.
