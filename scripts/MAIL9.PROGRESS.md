@@ -58,14 +58,20 @@ dumb as possible". Order now:
   blocks the worker, not the UI); `cid:` pictures from the mail's own parts always shown.
 
 ## DONE
-- (none yet)
+- 000768b4e / f6c5143d8 progress file, route priority change recorded
+- 2f998b457 RED dkim.rs tests; 488255954 GREEN dkim.rs (key, SPKI, record, zone line, notes, TXT check)
+- d7cb18ec8 RED send.rs (signed vs defaults, unsigned outbox + sign at attempt, refusal causes, port 25);
+  35ec74153 GREEN send.rs
 
 ## IN PROGRESS
-- reading the code, progress file
+- wiring DKIM into the app (Sending page: key creation, record, notes, DNS check; keyring store / read;
+  the compose job and the Send / Receive retry hand the key over)
 
 ## NEXT
-- RED: dkim.rs (key, DNS record, TXT check, notes) + send.rs (sign at attempt, signed mail vs defaults,
-  refusal causes, port-25 probe)
+- send.rs module doc; ui_account.rs DKIM section; lib.rs keyring queue (IMAP secret + DKIM key);
+  ui_compose OutgoingJob.dkim_key; sync thread retry dkim_key; azmail-send `--dkim-generate`,
+  `--port25-probe`; E2E: python+openssl DKIM verifier in scripts/azmail_send_test.py (`dkim` full b=
+  check, `dkim-generated`, `port25`)
 
 ## Open questions
 - Fonts: azul has no runtime "register a font under a family name" API (FontManager::register_named_font
