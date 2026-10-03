@@ -104,8 +104,15 @@ pub(crate) fn open_event(
         let serial = s.editors_opened;
         s.selected = Some((id.to_string(), date));
         s.events.iter().find(|e| e.id == id).map(|e| {
+            // A repeating event opens on the occurrence it was opened from, editing that
+            // occurrence alone until "The whole series" is chosen (Outlook's "Open this
+            // occurrence").
             let occurrence = e.repeat.is_some().then_some(date);
-            (EditorForm::from_event(serial, e), occurrence)
+            let form = match occurrence {
+                Some(day) => EditorForm::from_occurrence(serial, e, day),
+                None => EditorForm::from_event(serial, e),
+            };
+            (form, occurrence)
         })
     };
     match opened {
@@ -803,31 +810,47 @@ fn save(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
     } else {
         None
     };
-    let event = match form.event(meeting) {
-        Ok(event) => event,
+    // One occurrence of a series: the series skips its day, the occurrence is an event of its
+    // own. Anything else: the form's event.
+    let made = if form.edits_one_occurrence() {
+        match s.events.iter().find(|e| e.id == form.id) {
+            Some(series) => form
+                .occurrence_events(series, &event::new_event_id(), meeting)
+                .map(|(kept, one)| vec![kept, one]),
+            None => Err(String::from(
+                "The series of this occurrence is gone: it was deleted meanwhile.",
+            )),
+        }
+    } else {
+        form.event(meeting).map(|event| vec![event])
+    };
+    let events = match made {
+        Ok(events) => events,
         Err(message) => {
             eprintln!("[azcalendar] cannot save: {message}");
             form.error = message;
             return Update::RefreshDom;
         }
     };
-    let (date, start, title) = (event.date, event.start, event.title.clone());
-    match s.store_event(event) {
-        Ok(_) => {
-            s.notice = format!("Saved \"{title}\".");
-            closed(s);
-            timegrid::reveal(s, info, date, start);
-            info.close_window();
-            Update::RefreshDomAllWindows
-        }
-        Err(message) => {
+    // The window shows the last one next: the event, or the occurrence.
+    let Some((date, start, title)) = events.last().map(|e| (e.date, e.start, e.title.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    for event in events {
+        if let Err(message) = s.store_event(event) {
             eprintln!("[azcalendar] {message}");
             if let Some(form) = s.editor.as_mut() {
                 form.error = message;
             }
-            Update::RefreshDom
+            return Update::RefreshDom;
         }
     }
+    s.notice = format!("Saved \"{title}\".");
+    closed(s);
+    timegrid::reveal(s, info, date, start);
+    info.close_window();
+    Update::RefreshDomAllWindows
 }
 
 /// Cancel / Close: the window goes, nothing is saved.
