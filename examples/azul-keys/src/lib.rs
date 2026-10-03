@@ -18,6 +18,7 @@ pub mod audit;
 pub mod clipboard;
 pub mod crypto;
 pub mod generator;
+pub mod ids;
 pub mod import;
 pub mod lock;
 pub mod sample;
