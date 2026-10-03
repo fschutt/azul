@@ -5327,7 +5327,10 @@ impl X11Window {
                     // the flag false -> true and run a pass so
                     // EventType::WindowClose fires; a callback that clears the
                     // flag cancels the close.
-                    let outcome = self.request_window_close("x11.wm_delete_window");
+                    // Against the DOM the app's state describes now (a
+                    // rebuild its last callback asked for is built first, as
+                    // ConfigureNotify's regenerate_now does in this handler).
+                    let outcome = self.run_close_protocol("x11.wm_delete_window");
                     if outcome.confirmed {
                         self.is_open = false;
                     } else {
