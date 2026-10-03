@@ -4,6 +4,7 @@ Branch `wt/mail6` from `25d78e309`. Brief: scripts/waves/wave6/MAIL6.md. Report:
 
 ## DONE
 - 3059d3be7 progress file
+- cc7040ae5 RED layout test for bug 9 (typing_stays_with_its_field_when_another_page_replaces_it.rs, all.rs appended); root cause NOT found by reading: core diff.rs reconcile_dom keys by CSS id (A1/B1-B3 all include the id), window.rs remap_node_ids drops the overlay of unmatched nodes - so the cause is elsewhere (the path AzMail takes: TextInput on_text_input returns DoNothing, overlay over a stale DOM; check content_overlay GC / layout_new_generation vs regenerate path). Owner: none in wave 6 -> report.
 - LOOK run 1 + 2 (prebuilt AzMail aa59b2d84, `--sample`, headless, capped): screenshots in
   target/mail6-look/ (not committed). Drivers: scratchpad look.py / look2.py (main, open message, compose,
   backstage; flat/flora x light/dark via the debug server's set_theme / set_mode).
@@ -17,7 +18,7 @@ Branch `wt/mail6` from `25d78e309`. Brief: scripts/waves/wave6/MAIL6.md. Report:
    are wider than 0 (engine bug 2 - stays RED until MAILENG6); wizard page 2 fields are empty.
 2. App: body `height: 100%` (ui_main.rs layout_main ~line 115, ui_compose.rs layout_compose ~line 363;
    the wizard is inside the backstage of layout_main).
-3. Wizard bug 9 (below): read layout/src/widgets/text_input.rs dom() ~1182 / dataset merge ~1307/1380;
+3. (done as RED cc7040ae5; fix later if time, else report)
    decide owner (no wave-6 task owns text_input.rs -> fix RED first in layout/tests, or app: distinct keys).
 4. Compose close via the CloseGuard widget (ui_compose.rs on_compose_close_requested ~764 clears
    flags.close_requested by hand - DEDUP_OFFICE A16).
