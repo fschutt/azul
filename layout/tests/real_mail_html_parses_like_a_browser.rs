@@ -2,7 +2,8 @@
 //!
 //! The mail corpus (`tests/mail_corpus/`, see SOURCES.tsv: Cerberus, Mailgun,
 //! Postmark, a Litmus-style template and the exploration's Gmail / Outlook /
-//! Apple Mail / Thunderbird / receipt / hostile / legacy samples) is HTML as
+//! Apple Mail / Thunderbird / receipt / hostile / legacy samples, AzMail's own
+//! sample newsletter and phishing mail) is HTML as
 //! mail clients send it: unquoted and bare attributes, `<BR>`, `<TABLE>`,
 //! `<p>` and `<li>` without end tags, Outlook's `<o:p>` and conditional
 //! comments. The XML loaders reject most of it (`InvalidQuote` on
@@ -14,8 +15,8 @@
 //!
 //! Two Postmark templates put template text (`{{#each ..}}`) between table
 //! rows; Chrome moves such text in front of the table (foster parenting),
-//! which the simplified tree construction does not do - their ELEMENTS must
-//! still be Chrome's.
+//! and so does azul (XML8) - every mail, those two included, is Chrome's
+//! tree.
 //!
 //! And the lenient document loader (`parse_html_to_styled_dom`, the arena
 //! path) builds the same DOM from every mail as the lenient tree loader
@@ -51,10 +52,10 @@ const CORPUS: &[&str] = &[
     "postmark/invoice",
     "postmark/receipt",
     "postmark/welcome",
+    // AzMail's own sample mails (examples/azul-mail/scripts/sample_mail)
+    "azmail/newsletter",
+    "azmail/phishing",
 ];
-
-/// The mails whose template text Chrome foster-parents out of a table.
-const FOSTER_PARENTED: &[&str] = &["postmark/invoice", "postmark/receipt"];
 
 fn corpus_file(relative: &str) -> String {
     let path = format!(
@@ -134,43 +135,10 @@ fn first_difference(expected: &str, got: &str) -> String {
     )
 }
 
-/// An outline without its texts (and the spaces they leave).
-fn elements_only(outline: &str) -> String {
-    let mut out = String::new();
-    let mut chars = outline.chars();
-    while let Some(c) = chars.next() {
-        if c == '"' {
-            // Skip the JSON string.
-            while let Some(d) = chars.next() {
-                match d {
-                    '\\' => {
-                        let _ = chars.next();
-                    }
-                    '"' => break,
-                    _ => {}
-                }
-            }
-            continue;
-        }
-        out.push(c);
-    }
-    let mut squeezed = String::new();
-    for word in out.split_whitespace() {
-        if !squeezed.is_empty() {
-            squeezed.push(' ');
-        }
-        squeezed.push_str(word);
-    }
-    squeezed
-        .replace("{ ", "{")
-        .replace(" }", "}")
-        .replace("{}", "")
-}
-
 #[test]
 fn every_corpus_mail_parses_to_the_tree_chrome_builds() {
     let mut failures = Vec::new();
-    for mail in CORPUS.iter().filter(|m| !FOSTER_PARENTED.contains(m)) {
+    for mail in CORPUS {
         let (chrome_head, chrome_body) = chrome_outlines(mail);
         let (head, body) = azul_outlines(&corpus_file(&format!("{mail}.html")));
         if head != chrome_head {
@@ -187,20 +155,6 @@ fn every_corpus_mail_parses_to_the_tree_chrome_builds() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
-}
-
-#[test]
-fn a_mail_with_template_text_between_table_rows_keeps_chromes_elements() {
-    for mail in FOSTER_PARENTED {
-        let (_, chrome_body) = chrome_outlines(mail);
-        let (_, body) = azul_outlines(&corpus_file(&format!("{mail}.html")));
-        let (chrome, azul) = (elements_only(&chrome_body), elements_only(&body));
-        assert!(
-            !azul.is_empty() && azul == chrome,
-            "{mail}: {}",
-            first_difference(&chrome, &azul)
-        );
-    }
 }
 
 /// `(depth, what)` of every node of a `Dom`, depth first: an element is its
