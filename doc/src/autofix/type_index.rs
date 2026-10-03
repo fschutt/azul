@@ -1077,14 +1077,15 @@ impl TypeIndex {
             .cloned()
             .collect();
         for mut typedef in parsed {
-            if let Some((module, name)) = typedef.full_path.rsplit_once("::") {
-                if first_private_module(module, &index.private_modules).is_some() {
-                    if let Some(path) =
-                        public_path(module, name, &index.private_modules, &facts.reexports, 0)
-                    {
-                        typedef.full_path = path;
-                    }
-                }
+            let public = typedef
+                .full_path
+                .rsplit_once("::")
+                .filter(|(module, _)| first_private_module(module, &index.private_modules).is_some())
+                .and_then(|(module, name)| {
+                    public_path(module, name, &index.private_modules, &facts.reexports, 0)
+                });
+            if let Some(path) = public {
+                typedef.full_path = path;
             }
             index.add_type(typedef);
         }
