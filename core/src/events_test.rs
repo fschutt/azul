@@ -3689,6 +3689,18 @@ mod autotest_generated {
             .any(|e| e.event_type == EventType::KeyDown));
     }
 
+    /// Ctrl/Cmd+D (the next occurrence as another caret) is text editing
+    /// too: on a focused button it is the app's key (a "duplicate", a
+    /// bookmark), in a text field the engine's.
+    #[test]
+    fn ctrl_d_reaches_the_app_on_a_non_editable_focus() {
+        let kb = KeyboardState::default();
+        let target = Some(dnid(0, 1));
+        let ev = key_event(VirtualKeyCode::D as u32, primary_modifiers());
+        assert!(handle_key_down(&ev, &kb, target, false, false).is_none());
+        assert!(handle_key_down(&ev, &kb, target, true, false).is_some());
+    }
+
     /// Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z and Ctrl/Cmd+Y reach the callbacks of an
     /// editing focus: an editor that owns its history (a rich-text editor,
     /// a document app) handles them. The engine's text undo is the key's
