@@ -4,10 +4,12 @@ Branch: wt/clock9 (base e537ddbe2). Brief: scripts/waves/wave9/PLAN.md "CLOCK9",
 ../azul-apps/planning/core/clock.md. Report: scripts/CLOCK9_2026_10_03.md.
 
 ## DONE
-- d2106068f progress file
+- d2106068f progress file; 6c3d3daa2 plan
+- c4908aa79 RED crate skeleton + registration + alarm/tone tests
+- 7cb992a6c GREEN alarm.rs (occurrences, DST, due/snooze/arm, labels) + tone.rs
 
 ## IN PROGRESS
-- A1 crate skeleton examples/azul-clock (Cargo.toml, lib.rs, main.rs, ids.rs) + registration
+- A2 RED timer.rs + stopwatch.rs + fmt.rs, then world.rs, schedule.rs
 
 ## NEXT (plan, in order)
 - A1 skeleton + register (root Cargo.toml members, scripts/workspace_test_members.txt, rust.yml dll_tests step)
