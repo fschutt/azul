@@ -29,14 +29,29 @@ deac0bebb's own diagnosis ("measured beside old siblings") was a memo-with-side-
 c60844cab later fixed at its root (`NodeCache::final_layout_current`) plus the "a measure hands the size
 back" fix in compute_non_flex_layout - so the clear is no longer needed for correctness.
 
+- 6d3d770b4 RED layout/tests/a_one_box_slide_does_not_re_lay_out_the_page.rs (3 tests, registered in all.rs)
+
+## FOUND WHILE PROBING (prebuilt azul-doc e2e, probes in /tmp/lp8/e2e, to be copied to scripts/layoutperf8_e2e)
+- LATENT BUG A (RED test 3): a block page, a box restyles via css dirt -> the text beside a block in its
+  sibling (anonymous wrapper rebuilt by the reconcile, `try_reuse_anon_wrapper` carries no layout state)
+  is never laid out: display list text_count 3 -> 2. Fixed by GREEN (2).
+- LATENT BUG B: a block child of a block whose own margin-left changes through css dirt does not move
+  (x stays 0, fresh layout gives 40): the dirty root is re-solved from its OLD slot
+  (mod.rs adjusted_cb_pos) and `reposition_block_flow_siblings` keeps a dirty root's position. Not the
+  perf issue; decide after GREEN (lift Full/SizingOnly css-dirty roots to the parent?).
+- ifc_membership of cloned text nodes keeps the OLD tree's IFC-root index (stale after an index shift
+  elsewhere) - a memo hit on a clean subtree keeps it stale (selection / caret lookups). GREEN (4) remaps.
+
 ## IN PROGRESS
-- RED test layout/tests/a_one_box_slide_re_lays_out_only_its_ancestors.rs (probe counts)
+- GREEN
 
 ## NEXT
-- RED test, register in all.rs; then GREEN: (1) clone keeps taffy measurements unless the node or an
-  ancestor restyled (reconcile_recursive), (2) a matched anonymous wrapper carries its old layout state
-  (try_reuse_anon_wrapper) so a memo above it never skips a never-laid-out wrapper, (3) viewport-unit
-  guard in layout_document Step 1.2.
+- GREEN: (1) layout_tree.rs clone_node_from_old keeps taffy_cache + measured_content_sizes;
+  (2) cache.rs try_reuse_anon_wrapper carries the old wrapper's layout-derived state (+ recon arg);
+  (3) cache.rs reconcile_recursive clears the clone's taffy cache when subtree_style_changed;
+  (4) ReconciliationResult.old_to_new map + ifc_membership remap on clones;
+  (5) mod.rs Step 1.2: viewport size changed && uses_viewport_units -> clear every taffy cache.
+  Then update the dll ribbon test doc (headless/mod.rs switching_tabs_does_not_shift_the_other_tabs_text).
 
 ## Decisions / open questions
 - Conservative: a clone under a restyled node (own or ancestor inline/class/state change) still clears
