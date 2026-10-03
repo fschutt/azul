@@ -237,6 +237,20 @@ mod tests {
         );
     }
 
+    /// A new type the bindings cannot name (behind a private module nothing
+    /// re-exports) is refused at the add, not left to break the dylib.
+    #[test]
+    fn an_add_of_a_type_behind_a_private_module_is_refused() {
+        let mut index = TypeIndex::new();
+        index.add_private_module_for_test("azul_layout::cpurender::hidden");
+        index.add_type_for_test(type_def("Hidden", "cpurender::hidden", "impl Hidden { pub fn create() -> Self { todo!() } }"));
+        let api = empty_api();
+        let v = api.get_version("0.2.0").expect("version");
+        let err = new_type_patch_files("Hidden", "create", &index, v, "0.2.0")
+            .expect_err("refused");
+        assert!(err.contains("azul_layout::cpurender::hidden"), "{err}");
+    }
+
     /// `autofix add RawImage.draw_text --fn azul_layout::cpurender::draw_text`
     /// writes one patch (named like every add's functions patch) into the
     /// module the class is in, and the apply puts the entry there.
