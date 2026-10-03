@@ -627,6 +627,8 @@ pub enum Field {
     TextSize,
     TextBold,
     TextItalic,
+    /// The Text tool's field (its text comes through `on_text`).
+    Text,
 }
 
 /// A value widget's payload: the app and the field.
@@ -917,6 +919,7 @@ fn set_field(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo, f: F
             o.text_italic = flag;
             restyle = true;
         }
+        Field::Text => {}
     }
     if restyle {
         e = e.merge(app.s.restyle_text(&azul_text));

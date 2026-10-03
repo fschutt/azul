@@ -398,6 +398,19 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     if app.screen != AppScreen::Editor && !m.cmd {
         return Update::DoNothing;
     }
+    // While a text is being set (its field focused), Enter places it and
+    // Escape drops it.
+    if app.s.text.is_some() && !m.cmd {
+        let command = match key {
+            VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter => Some(Command::TextCommit),
+            VirtualKeyCode::Escape => Some(Command::TextCancel),
+            _ => None,
+        };
+        if let Some(command) = command {
+            info.prevent_default();
+            return commands::run(app, &app_ref, &mut info, command);
+        }
+    }
     // Plain keys belong to a text field being typed into (a size, an
     // opacity), not to the tools.
     let typing = info

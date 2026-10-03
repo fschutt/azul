@@ -7,7 +7,7 @@ use azul::{
     callbacks::{
         ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, ColorInputOnValueChangeCallbackType,
         DropDownOnChoiceChangeCallbackType, NumberInputOnValueChangeCallbackType,
-        SegmentedOnChangeCallbackType, SliderOnValueChangeCallbackType,
+        SegmentedOnChangeCallbackType, SliderOnValueChangeCallbackType, TextInputOnTextInputCallbackType,
     },
     css::DarkLightMode,
     dom::{AccessibilityInfo, AccessibilityRole, VirtualKeyCode, VirtualKeyCodeCombo},
@@ -17,7 +17,7 @@ use azul::{
     shells::{CanvasShell, ShellEmptyState, ShellSettingsLayout, ShellSettingsSection, ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
     vec::StringVec,
-    widgets::{ButtonType, DropDown, Segmented, Slider, StatusBar, StatusBarSegment, Titlebar},
+    widgets::{ButtonType, DropDown, Segmented, Slider, StatusBar, StatusBarSegment, TextInput, Titlebar},
 };
 
 use crate::{
@@ -25,7 +25,7 @@ use crate::{
     commands::{self, cmd, field, Command, Field},
     jobs::ExportFormat,
     raster::{layer, Adjustment, BlendMode, LayerContent, SelectMode},
-    state::Tool,
+    state::{Tool, TEXT_FAMILIES},
     view, AppScreen, PhotoApp, Sheet,
 };
 
@@ -360,6 +360,9 @@ fn menu_row(app: &RefAny, p: &Palette) -> Dom {
 
 // ==== Options bar and tools ====
 
+/// The Text tool's field (scripts type into it).
+pub const TEXT_FIELD_ID: &str = "photo-text-field";
+
 /// The options bar: the active tool's settings.
 fn options_bar(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
     let s = &a.s;
@@ -424,7 +427,43 @@ fn options_bar(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
             bar.add_child(button(app, "Fit", Command::Fit));
             bar.add_child(button(app, "100 %", Command::ActualPixels));
         }
-        Tool::Text => bar.add_child(hint(crate::state::TEXT_TOOL_NOTE)),
+        Tool::Text => {
+            bar.add_child(
+                DropDown::create(strings(&TEXT_FAMILIES))
+                    .with_selected(o.text_family)
+                    .with_accessibility_name(AzString::from("Font"))
+                    .with_on_choice_change(field(app, Field::TextFamily), commands::on_choice as DropDownOnChoiceChangeCallbackType)
+                    .dom()
+                    .with_id("photo-text-family")
+                    .with_css("margin-right: 10px;"),
+            );
+            bar.add_child(number(app, "Size", o.text_size, Field::TextSize, p));
+            bar.add_child(check(app, "Bold", o.text_bold, Field::TextBold, p));
+            bar.add_child(check(app, "Italic", o.text_italic, Field::TextItalic, p));
+            match &s.text {
+                Some(draft) => {
+                    bar.add_child(
+                        TextInput::create()
+                            .with_text(AzString::from(draft.text.as_str()))
+                            .with_placeholder(AzString::from("Type the text"))
+                            .with_accessibility_name(AzString::from("Text"))
+                            .with_on_text_input(field(app, Field::Text), commands::on_text as TextInputOnTextInputCallbackType)
+                            .dom()
+                            .with_id(TEXT_FIELD_ID)
+                            .with_css("width: 220px; margin-right: 8px;"),
+                    );
+                    bar.add_child(
+                        Button::with_type(AzString::from("Commit"), ButtonType::Primary)
+                            .with_on_click(cmd(app, Command::TextCommit), commands::on_command as ButtonOnClickCallbackType)
+                            .dom()
+                            .with_id("photo-text-commit")
+                            .with_css("margin-right: 6px;"),
+                    );
+                    bar.add_child(button(app, "Cancel", Command::TextCancel).with_id("photo-text-cancel"));
+                }
+                None => bar.add_child(hint("Click the canvas where the text starts")),
+            }
+        }
     }
     bar.add_child(Dom::create_div().with_css("flex-grow: 1;"));
     if !s.status.is_empty() {
@@ -437,19 +476,20 @@ fn options_bar(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
 fn tools_column(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
     let mut col = column(&format!("align-items: center; padding: 4px 0px; background: {};", p.chrome)).with_id("photo-tools");
     for t in Tool::ALL {
-        let selected = t == a.s.tool;
-        let css = format!(
-            "margin: 1px; {}{}",
-            if selected { format!("background: {}; border-radius: 4px; ", p.selected) } else { String::new() },
-            if t.enabled() { "" } else { "opacity: 0.45;" }
-        );
+        // The chosen tool is a toggled button; a tool that cannot act on the
+        // active layer (a pixel tool on an adjustment or a locked layer) is
+        // disabled and says why.
+        let mut b = Button::create(AzString::from(""))
+            .with_icon(AzString::from(t.icon()))
+            .with_toggled(t == a.s.tool);
+        if !a.s.tool_available(t) {
+            b = b.with_disabled(AzString::from("Needs a pixel layer that is not locked"));
+        }
         col.add_child(
-            Button::create(AzString::from(""))
-                .with_icon(AzString::from(t.icon()))
-                .with_on_click(cmd(app, Command::Tool(t)), commands::on_command as ButtonOnClickCallbackType)
+            b.with_on_click(cmd(app, Command::Tool(t)), commands::on_command as ButtonOnClickCallbackType)
                 .dom()
                 .with_id(t.dom_id())
-                .with_css(css)
+                .with_css("margin: 1px;")
                 .with_accessibility_info(AccessibilityInfo::named(
                     format!("{} ({})", t.name(), t.key()),
                     AccessibilityRole::PushButton,
