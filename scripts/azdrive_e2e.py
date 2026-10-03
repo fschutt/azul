@@ -8,18 +8,22 @@ node layout, AzDrive's stdout markers and the files on disk:
      2. open the Home drive (double-click its tile);
      3. every layout of VIEW > Layout (the gallery), back to Details;
      4. sort: the Name header twice, then Size;
-     5. into Documents; select (click, Ctrl+click, Shift+click), Ctrl+A, Escape;
+     5. into Documents; select (click, Ctrl+click, Shift+click), Select all, Escape;
      6. type-ahead ("r" selects report.md);
-     7. F2: rename notes.txt to todo.txt in place (the file on disk), Ctrl+Z renames it back;
+     7. F2: rename notes.txt to todo.txt in place (the file on disk; End, Backspace over the
+        whole name, typing), Undo renames it back;
      8. Ctrl+Shift+N: a new folder (on disk), Escape keeps its name;
-     9. Ctrl+C / Ctrl+V into the new folder, again: the conflict dialog, "Keep both files";
-    10. Delete: into the trash folder (on disk), Ctrl+Z brings it back;
+     9. Copy / Paste into the new folder, again: the conflict dialog, "Keep both files";
+    10. Delete: into the trash folder (on disk), Undo brings it back;
     11. Backspace (up), Alt+Left (back), Alt+Right (forward);
     12. the panes: Preview pane (a text and an image preview), a thumbnail in Large icons,
         Navigation pane off / on, Details pane off / on;
     13. Properties (Alt+Enter) in the in-window sheet, OK;
     14. FILE: the backstage with the Options, Escape;
-    15. flora + dark: a screenshot.
+    15. flora + dark: a screenshot;
+    16. Ctrl+A / Ctrl+C with the content pane focused (the engine handed them to the text
+        selection until 2026-10-03; steps 5, 7, 9 and 10 use the ribbon's buttons for the
+        same commands, so they do not depend on it).
 
 Usage (from the azul repository, after building libazul with the debug server and AzDrive):
 
@@ -31,7 +35,8 @@ Run it through the capped runner on a small machine:
     <scratchpad>/run_capped.sh --cap-mb 1500 --seconds 240 --log /tmp/azdrive-e2e.log -- \\
         python3 scripts/azdrive_e2e.py --bin target/release/AzDrive
 
-Every op that changes state is followed by `wait_frame`s and an `until` on what it must cause.
+Every op that changes state is followed by `wait_frame`s and an `until` on what it must cause;
+every screenshot waits for the animations to finish (`settle`).
 Every key_down has its key_up (the E2E key_up rule).
 """
 
@@ -279,7 +284,35 @@ class App:
         self.until(what, lambda: self.count(key, pattern) > before)
         return self.printed(key, pattern)[-1]
 
+    def settle(self, limit=3.0):
+        """Waits (at most `limit` seconds) until no animation, exit or transition runs: a
+        screenshot right after a change caught the details pane's rows mid-way in, overlapping
+        and faded."""
+        end = time.time() + limit
+        while time.time() < end:
+            value = self.value("get_animations")
+            if not isinstance(value, dict) or not (
+                    value.get("active") or value.get("zombies") or value.get("transitions")):
+                return
+            time.sleep(0.1)
+            self.frame(1)
+
+    def ribbon(self, label):
+        """Clicks the HOME tab's button whose label starts with `label`, then shows VIEW again
+        (where the walk keeps the ribbon, so "New folder" in the list is not the ribbon's)."""
+        def found():
+            for n in self.hierarchy():
+                if (n.get("text") or "").startswith(label):
+                    return n.get("parent", n["index"])
+            return None
+        self.click_exact("HOME")
+        node = self.until('the ribbon\'s "%s"' % label, found)
+        self.must("click", node_id=node, button="left")
+        self.frame()
+        self.click_exact("VIEW")
+
     def screenshot(self, path):
+        self.settle()
         value = self.value("take_screenshot")
         data = value.get("data") if isinstance(value, dict) else None
         if not isinstance(data, str) or "base64," not in data:
@@ -424,9 +457,9 @@ def run(args, logs):
             app.click_exact("data.csv"),
             app.op("key_up", key="shift", modifiers={"shift": False})))
         app.after("Escape", "AZDRIVE_SELECTED", r"0 -", lambda: app.key("escape"))
-        app.after("Ctrl+A", "AZDRIVE_SELECTED", r"3 .*", lambda: app.key("a", primary=True))
+        app.after("Select all", "AZDRIVE_SELECTED", r"3 .*", lambda: app.ribbon("Select all"))
         app.after("Escape", "AZDRIVE_SELECTED", r"0 -", lambda: app.key("escape"))
-        log("5. click, Ctrl+click, Shift+click, Ctrl+A and Escape select as Explorer does")
+        log("5. click, Ctrl+click, Shift+click, Select all and Escape select as Explorer does")
 
         # 6. Type-ahead.
         app.after("type-ahead r", "AZDRIVE_SELECTED", r"1 Documents/report\.md",
@@ -451,10 +484,10 @@ def run(args, logs):
         app.until("todo.txt on disk", lambda: os.path.isfile(os.path.join(docs, "todo.txt")))
         if os.path.exists(os.path.join(docs, "notes.txt")):
             raise Failure("notes.txt is still there after the rename")
-        app.key("z", primary=True)
-        app.until("notes.txt back on disk (Ctrl+Z)",
+        app.ribbon("Undo")
+        app.until("notes.txt back on disk (Undo)",
                   lambda: os.path.isfile(os.path.join(docs, "notes.txt")))
-        log("7. F2 renamed notes.txt to todo.txt on disk; Ctrl+Z renamed it back")
+        log("7. F2 renamed notes.txt to todo.txt on disk; Undo renamed it back")
 
         # 8. A new folder.
         app.after("a new folder", "AZDRIVE_DONE", r"created Documents/New folder/",
@@ -468,20 +501,20 @@ def run(args, logs):
         # 9. Copy / paste; a conflict; Keep both.
         app.after("notes.txt selected", "AZDRIVE_SELECTED", r"1 Documents/notes\.txt",
                   lambda: app.click_exact("notes.txt"))
-        app.after("Ctrl+C", "AZDRIVE_CLIPBOARD", r"copy 1", lambda: app.key("c", primary=True))
+        app.after("Copy", "AZDRIVE_CLIPBOARD", r"copy 1", lambda: app.ribbon("Copy"))
         app.after("into New folder", "AZDRIVE_LISTED", r"home Documents/New folder/ \d+",
                   lambda: app.click_exact("New folder", double=True))
         target = os.path.join(docs, "New folder")
-        app.after("the paste", "AZDRIVE_TRANSFER", r"\d+ done 1", lambda: app.key("v", primary=True))
+        app.after("the paste", "AZDRIVE_TRANSFER", r"\d+ done 1", lambda: app.ribbon("Paste"))
         app.until("the copy on disk", lambda: os.path.isfile(os.path.join(target, "notes.txt")))
         app.after("the conflict", "AZDRIVE_TRANSFER", r"\d+ conflict 1",
-                  lambda: app.key("v", primary=True))
+                  lambda: app.ribbon("Paste"))
         app.until("the conflict dialog", lambda: app.has("#" + I("conflict")))
         app.screenshot(os.path.join(out, "09-conflict.png"))
         app.after("keep both", "AZDRIVE_TRANSFER", r"\d+ done 1",
                   lambda: (app.must("click", selector="#" + I("conflict-keep-both")), app.frame()))
         app.until("notes (2).txt on disk", lambda: os.path.isfile(os.path.join(target, "notes (2).txt")))
-        log("9. Ctrl+C / Ctrl+V copied into New folder; a second paste asked, Keep both made notes (2).txt")
+        log("9. Copy / Paste copied into New folder; a second paste asked, Keep both made notes (2).txt")
 
         # 10. Delete into the trash; Ctrl+Z.
         app.after("notes (2).txt selected", "AZDRIVE_SELECTED", r"1 .*notes \(2\)\.txt",
@@ -491,10 +524,10 @@ def run(args, logs):
         trashed = glob.glob(os.path.join(home, ".azdrive-trash", "*", "Documents", "New folder", "notes (2).txt"))
         if not trashed:
             raise Failure("the deleted file is not in the trash folder")
-        app.key("z", primary=True)
-        app.until("notes (2).txt back (Ctrl+Z)",
+        app.ribbon("Undo")
+        app.until("notes (2).txt back (Undo)",
                   lambda: os.path.isfile(os.path.join(target, "notes (2).txt")))
-        log("10. Delete moved the file into .azdrive-trash; Ctrl+Z brought it back")
+        log("10. Delete moved the file into .azdrive-trash; Undo brought it back")
 
         # 11. Up, Back, Forward.
         app.after("Backspace (up)", "AZDRIVE_PLACE", r"home Documents/", lambda: app.key("backspace"))
@@ -586,9 +619,22 @@ def run(args, logs):
         app.must("set_mode", mode="dark")
         app.frame(4)
         app.screenshot(os.path.join(out, "15-flora-dark.png"))
+        log("15. flora + dark")
+
+        # 16. The editing keys with the content pane focused (a click focuses it): Ctrl+A,
+        # Ctrl+C, Ctrl+Z reach Explorer's keyboard. (Engine, 2026-10-03: with ANY node
+        # focused, core's handle_key_down took Copy / Cut / Paste / Select all for the text
+        # selection and skipped the callbacks - the window's VirtualKeyDown never saw them.)
+        app.after("up to Home", "AZDRIVE_PLACE", r"home /", lambda: app.key("backspace"))
+        app.after("an item selected", "AZDRIVE_SELECTED", r"1 Documents/",
+                  lambda: app.click_exact("Documents"))
+        app.after("Ctrl+A", "AZDRIVE_SELECTED", r"[2-9] .*", lambda: app.key("a", primary=True))
+        app.after("Ctrl+C", "AZDRIVE_CLIPBOARD", r"copy [2-9]", lambda: app.key("c", primary=True))
+        app.key("escape")
+        log("16. Ctrl+A and Ctrl+C reach Explorer's keyboard while the content pane has focus")
         log("PASS: AzDrive browsed, laid out, sorted, selected, renamed, created, copied, "
             "resolved a conflict, deleted and undid, walked the history, toggled the panes, "
-            "showed Properties and the Options")
+            "showed Properties and the Options, took the editing keys")
         return True
     except Failure:
         for name, path in (("stdout", app.out_path), ("stderr", app.err_path)):
