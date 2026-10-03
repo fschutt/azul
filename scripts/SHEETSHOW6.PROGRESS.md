@@ -69,13 +69,17 @@ screenshots + hierarchy dumps under target/sheetshow6-shots/.
   HOME > Styles panel (conditional_panel.rs). Note: the ribbon toggles read the CF-overlaid style; data bars / icons
   not drawn.
 
+- 3364e06c8 both apps' body is ShellThemeScope::body() (SMALL6's engine fix; builds after wt/small6 merges).
+- 86fa3d417 RED / 08df6d7e2 GREEN model::step_sheet; f6a791d6f the sheet tabs are a PageTabList (Selected, one Tab
+  stop, Left / Right, Mod+PageUp / PageDown, double-click renames, tab colours kept).
+
 ## IN PROGRESS
 - (none)
 
 ## NEXT (exact)
 1-3. (done)
 4. (done)
-5. NEXT: Sheets tab strip; Show (drop indicator, multi-select
+5. NEXT: Show (find / replace first, then drop indicator, multi-select
    rotate, tables in place, picture contain / cover, find / replace, presenter on a chosen monitor).
 6. Check both apps for `ctrl || meta` and duplicated helpers (checklist).
 
