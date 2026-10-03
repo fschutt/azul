@@ -15,7 +15,9 @@ Commit messages via `printf ... > /tmp/w9a_msg.txt && git commit -F /tmp/w9a_msg
   theme_contrast INPUTS)
 
 ## IN PROGRESS
-- IconGrid: nothing written yet.
+- IconGrid: step a DONE (20a1edf3d: skeleton, `pub mod icon_grid;`; pure fns `geometry`, `hit_test`, `item_rect`,
+  `marquee_keys`, `scroll_by`, `press`, `drag_move`, `drag_end`, `grid_key`, `look_for`, `build` are STUBS with their
+  final signatures). Continue at step b (RED tests in `mod icon_grid_tests`).
 
 ## NEXT (exact) - IconGrid in `layout/src/widgets/icon_grid.rs` (model: `data_table.rs`, `thumbnail_strip.rs`)
 a. Skeleton + `pub mod icon_grid;` APPENDED after `pub mod token_input;` in widgets/mod.rs. Types (all repr C):
