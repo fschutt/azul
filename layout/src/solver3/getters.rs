@@ -3730,11 +3730,9 @@ pub fn get_style_properties_for_state(
                 // build_font_selector_stack then resolves via Platform::current() so
                 // the names stay in lock-step with the font-loading pass.
                 let platform = system_style.map(|ss| &ss.platform);
-                FontStack::Stack(build_font_selector_stack_memo(
-                    &font_families,
-                    platform,
-                    fc_weight,
-                    fc_style,
+                FontStack::Stack(at_optical_size(
+                    build_font_selector_stack_memo(&font_families, platform, fc_weight, fc_style),
+                    font_size,
                 ))
             },
             FontStack::Ref,
@@ -4340,6 +4338,21 @@ fn build_font_selector_stack_memo(
     built
 }
 
+/// `stack` with every selector at the optical size of text of `font_size_px`
+/// ([`crate::text3::cache::optical_size_for`]): its chain then draws a variable
+/// face with an `opsz` axis at that size, as Chrome and CoreText do
+/// (`font-optical-sizing: auto`). THE one place a stack gets its optical size:
+/// the style of a run ([`get_style_properties`]) and the font-stack collector
+/// ([`collect_font_stacks_from_styled_dom`]) both go through it, so the key a
+/// run shapes with is the key the collector resolved.
+fn at_optical_size(mut stack: Vec<FontSelector>, font_size_px: f32) -> Vec<FontSelector> {
+    let optical_size = crate::text3::cache::optical_size_for(font_size_px);
+    for selector in &mut stack {
+        selector.optical_size = optical_size;
+    }
+    stack
+}
+
 /// Build a fontconfig `FontSelector` stack from a list of CSS font families.
 ///
 /// Shared by `get_style_properties` and `collect_font_stacks_from_styled_dom`.
@@ -4599,7 +4612,7 @@ pub fn collect_font_stacks_from_styled_dom(
     // un-mirrored EMPTY_GROUP static, fixed transpiler-side in symbol_table.rs::
     // compute_hashbrown_empty_group_ranges. std HashMap lifts correctly now; RandomState seeds
     // via the transpiler's HashmapRandomKeys fixed-seed body.)
-    let mut unique_font_keys: HashMap<(u64, u16, u8), usize> = HashMap::new();
+    let mut unique_font_keys: HashMap<(u64, u16, u8, u16), usize> = HashMap::new();
     let node_count = node_data.internal.len();
 
     // WEB-LIFT: probe node_type bytes (NodeType #[repr(C,u8)], Text=177 per AzDom_createText).
@@ -4684,10 +4697,17 @@ pub fn collect_font_stacks_from_styled_dom(
             MultiValue::Exact(v) => v,
             _ => StyleFontStyle::Normal,
         };
+        // And on the optical size of the node's font size: a variable face
+        // with an `opsz` axis (macOS's system font) is a different instance
+        // per size, and each needs its chain resolved and its face loaded.
+        let optical_size = crate::text3::cache::optical_size_for(get_element_font_size(
+            styled_dom, dom_id, node_state,
+        ));
         let key = (
             fh,
             super::fc::convert_font_weight(weight) as u16,
             super::fc::convert_font_style(style) as u8,
+            optical_size,
         );
         unique_font_keys.entry(key).or_insert(i);
     }
@@ -4726,7 +4746,7 @@ pub fn collect_font_stacks_from_styled_dom(
     // representative node to get the actual font-family names.
     let styled_nodes = styled_dom.styled_nodes.as_container();
 
-    for (&(fh, _wb, _sb), &repr_idx) in &unique_font_keys {
+    for (&(fh, _wb, _sb, optical_size), &repr_idx) in &unique_font_keys {
         // A 0-based arena index, like the key's (see Phase 1).
         let dom_id = NodeId::new(repr_idx);
         let node_state = &styled_nodes[dom_id].styled_node_state;
@@ -4758,8 +4778,14 @@ pub fn collect_font_stacks_from_styled_dom(
         let fc_weight = super::fc::convert_font_weight(font_weight);
         let fc_style = super::fc::convert_font_style(font_style);
 
-        let font_stack =
+        let mut font_stack =
             build_font_selector_stack(&font_families, Some(platform), fc_weight, fc_style);
+        // The optical size the key was collected under (see Phase 1): the
+        // stack carries it into its chain key, as `get_style_properties`'s
+        // stack does (`at_optical_size`, the same rounding).
+        for selector in &mut font_stack {
+            selector.optical_size = optical_size;
+        }
 
         if font_stack.is_empty() {
             continue;
