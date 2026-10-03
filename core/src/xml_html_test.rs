@@ -994,13 +994,16 @@ fn character_references_decode_as_in_a_browser() {
 fn elements_deeper_than_the_limit_become_siblings() {
     let html = "<div>".repeat(2000) + "x";
     let nodes = parse_html_nodes(&html);
+    // From the body (the document's first child is its head).
+    let body = find_element(&nodes, "body").expect("a document has a body");
     let mut depth = 0;
-    let mut cursor: &[XmlNodeChild] = &nodes;
+    let mut cursor: &[XmlNodeChild] = body.children.as_ref();
     while let Some(XmlNodeChild::Element(e)) = cursor.first() {
         depth += 1;
         cursor = e.children.as_ref();
     }
-    assert!(depth <= MAX_XML_NESTING_DEPTH + 1, "nested {depth} deep");
+    assert!(depth <= MAX_XML_NESTING_DEPTH, "nested {depth} deep");
+    assert!(depth > 500, "the divs nest up to the limit: {depth}");
     drop(nodes);
 }
 
