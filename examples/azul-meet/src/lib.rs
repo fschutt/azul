@@ -114,7 +114,10 @@ use std::{
 
 use azul::{
     app::RendererOptions,
-    audio::{AudioConfig, AudioDeviceList, AudioDeviceListResult, AudioFrame, AudioSink},
+    audio::{
+        AudioConfig, AudioDecoder, AudioDeviceList, AudioDeviceListResult, AudioEncoder,
+        AudioFrame, AudioSink,
+    },
     callbacks::{CallbackInfo, TimerCallbackInfo, TimerCallbackReturn, UpdateImageType},
     css::{DarkLightMode, LogicalSize, PhysicalPositionI32, Srgb, WindowPosition},
     dom::{Callback, ClipboardContent, DomNodeId, NodeId, VirtualKeyCode},
@@ -148,7 +151,7 @@ use video_wire::{Codec, Control, Message};
 const ALPN: &str = "azmeet/3";
 const CAMERA_TRACK: u32 = 1;
 const SCREEN_TRACK: u32 = 2;
-/// The audio track: 20 ms PCM packets, three to a frame (`audio.rs`).
+/// The audio track: 20 ms Opus or PCM packets, three to a frame (`audio.rs`).
 const AUDIO_TRACK: u32 = 3;
 /// The rate the microphone (or the test tone) is asked for.
 const MIC_RATE: u32 = 48_000;
@@ -205,6 +208,9 @@ struct Remote {
     h264: Option<bool>,
     /// Whether the peer encodes H.264, from its caps message.
     encodes: Option<bool>,
+    /// Whether the peer decodes Opus audio, from its caps message; `None` until that arrives,
+    /// and everyone gets 16-bit PCM until every peer said yes.
+    opus: Option<bool>,
     /// The peer's last `ConnectionSync`; the peer is part of the plan from its first one.
     sync: Option<routes::Sync>,
     /// Direct (else relayed) and the RTT in ms of the connection, from the last statistics.
@@ -235,6 +241,7 @@ impl Remote {
             state: None,
             h264: None,
             encodes: None,
+            opus: None,
             sync: None,
             path: None,
             tile_height: [None; 2],
@@ -434,6 +441,21 @@ struct MeetState {
     /// The tone while the microphone is on, and when it started.
     tone: Option<(audio::ToneSource, std::time::Instant)>,
     packetizer: audio::Packetizer,
+    /// This side's Opus encoder, opened with the first audio sent at a rate (mono): the rate it
+    /// was opened for, and the encoder (`None` where it does not open; not asked again at that
+    /// rate).
+    opus_out: Option<(u32, Option<AudioEncoder>)>,
+    /// Numbers this side's Opus packets and puts three in a frame.
+    opus_framer: audio::OpusFramer,
+    /// The codec this side's audio went out in last (`audio::CODEC_OPUS` / `CODEC_PCM16`).
+    audio_codec_out: Option<u8>,
+    /// This machine decodes Opus (an `AudioDecoder` opens here): said in the caps.
+    decodes_opus: bool,
+    /// Each peer's Opus decoder and which of its packets were decoded, by origin key.
+    opus_in: BTreeMap<u64, (AudioDecoder, audio::OpusOrder)>,
+    /// The codec of each origin's last audio frame: a change starts its jitter buffer over (the
+    /// two codecs number their packets apart).
+    audio_codec_in: BTreeMap<u64, u8>,
     /// Received audio, shared with the playout thread; started with the first packet.
     playout: Option<Arc<Mutex<Playout>>>,
     /// Received audio may be played on a device (false in a headless run).
@@ -549,6 +571,16 @@ impl MeetState {
             tone_mic: false,
             tone: None,
             packetizer: audio::Packetizer::new(),
+            opus_out: None,
+            opus_framer: audio::OpusFramer::new(),
+            audio_codec_out: None,
+            decodes_opus: AudioDecoder::create(AudioConfig {
+                sample_rate: audio::OPUS_RATE,
+                channels: 1,
+            })
+            .is_open(),
+            opus_in: BTreeMap::new(),
+            audio_codec_in: BTreeMap::new(),
             playout: None,
             play_audio: true,
             clock: std::time::Instant::now(),
@@ -1472,6 +1504,7 @@ fn configure_audio(s: &mut MeetState) {
 fn sync_mic(s: &mut MeetState) {
     if !s.mic_on {
         s.packetizer.reset();
+        s.opus_framer.reset();
         s.tone = None;
     } else if s.tone_mic && s.tone.is_none() {
         s.tone = Some((
@@ -1482,7 +1515,9 @@ fn sync_mic(s: &mut MeetState) {
 }
 
 /// Sends captured audio as 20 ms packets on the audio track to whom the plan says: everyone in the
-/// full mesh, the backbone parent for a leaf.
+/// full mesh, the backbone parent for a leaf. As Opus (about 32 kbit/s) when this side encodes it
+/// and every peer decodes it (`audio::send_opus`; forwarders pass one stream on), else as 16-bit
+/// PCM.
 fn send_audio(s: &mut MeetState, sample_rate: u32, channels: u16, samples: &[f32]) {
     if !s.mic_on {
         return;
@@ -1490,35 +1525,156 @@ fn send_audio(s: &mut MeetState, sample_rate: u32, channels: u16, samples: &[f32
     if s.remotes.is_empty() {
         // Nobody listens: the first frame to the next peer starts with fresh audio.
         s.packetizer.reset();
+        s.opus_framer.reset();
         return;
     }
     let Some(endpoint) = s.endpoint.clone() else {
         return;
     };
     let targets = handles_of(s, &s.plan.children(s.me, s.me));
-    for frame in s.packetizer.push(sample_rate, channels, samples) {
+    let peers_opus: Vec<Option<bool>> = s.remotes.iter().map(|r| r.opus).collect();
+    let opus = audio::send_opus(opus_encoder(s, sample_rate).is_some(), &peers_opus);
+    let codec = if opus {
+        audio::CODEC_OPUS
+    } else {
+        audio::CODEC_PCM16
+    };
+    if s.audio_codec_out != Some(codec) {
+        s.audio_codec_out = Some(codec);
+        // For scripts: the codec this side's voice goes out in from now on.
+        println!("AZMEET_AUDIO {}", if opus { "opus" } else { "pcm" });
+    }
+    let frames = if opus {
+        // Should PCM come back (a peer without Opus joins), it starts with fresh audio.
+        s.packetizer.reset();
+        opus_frames(s, sample_rate, channels, samples)
+    } else {
+        s.opus_framer.reset();
+        s.packetizer.push(sample_rate, channels, samples)
+    };
+    for frame in frames {
         for handle in &targets {
             endpoint.send_frame(*handle, AUDIO_TRACK, frame.clone());
         }
     }
 }
 
-/// Takes a frame of `origin`'s audio (from it directly, or passed on) into its jitter buffer.
-/// Returns whether the active speaker changed (the speaker view's stage).
+/// This side's Opus encoder for mono audio at `sample_rate`, opened on first use at that rate;
+/// `None` where it does not open (then it is not asked again at that rate).
+fn opus_encoder(s: &mut MeetState, sample_rate: u32) -> Option<&mut AudioEncoder> {
+    let stale = s
+        .opus_out
+        .as_ref()
+        .map_or(true, |(rate, _)| *rate != sample_rate);
+    if stale {
+        let encoder = AudioEncoder::create(
+            AudioConfig {
+                sample_rate,
+                channels: 1,
+            },
+            audio::OPUS_KBPS,
+        );
+        let open = encoder.is_open();
+        s.opus_out = Some((sample_rate, open.then_some(encoder)));
+    }
+    s.opus_out
+        .as_mut()
+        .and_then(|(_, encoder)| encoder.as_mut())
+}
+
+/// `samples` mixed down to mono, through this side's Opus encoder: a frame (the new packet and
+/// the two before it) for every packet it completes.
+fn opus_frames(
+    s: &mut MeetState,
+    sample_rate: u32,
+    channels: u16,
+    samples: &[f32],
+) -> Vec<Vec<u8>> {
+    let mono = audio::mix_to_mono(channels, samples);
+    let mut packets = Vec::new();
+    if let Some(encoder) = opus_encoder(s, sample_rate) {
+        let taken = encoder.encode(AudioFrame {
+            sample_rate,
+            channels: 1,
+            samples: F32Vec::from(mono),
+        });
+        if taken {
+            while let Some(packet) = encoder.recv_packet().into_option() {
+                packets.push(packet.as_slice().to_vec());
+            }
+        }
+    }
+    packets
+        .into_iter()
+        .map(|packet| s.opus_framer.push(packet))
+        .collect()
+}
+
+/// The packets of `origin`'s Opus frame this side has not decoded yet, decoded (in order, each
+/// once: `audio::OpusOrder`) by that peer's own decoder into 48 kHz PCM packets.
+fn decode_opus(s: &mut MeetState, origin: u64, bytes: &[u8]) -> Vec<audio::Packet> {
+    let Some(packets) = audio::decode_opus_frame(bytes) else {
+        return Vec::new();
+    };
+    let (decoder, order) = s.opus_in.entry(origin).or_insert_with(|| {
+        let decoder = AudioDecoder::create(AudioConfig {
+            sample_rate: audio::OPUS_RATE,
+            channels: 1,
+        });
+        (decoder, audio::OpusOrder::new())
+    });
+    let mut decoded = Vec::new();
+    for packet in packets {
+        if !order.take(packet.sequence) {
+            continue;
+        }
+        let Some(frame) = decoder.decode(U8Vec::from(packet.data)).into_option() else {
+            continue;
+        };
+        let samples: &[f32] = frame.samples.as_ref();
+        decoded.push(audio::Packet {
+            sequence: packet.sequence,
+            samples: samples
+                .iter()
+                .map(|sample| audio::to_pcm16(*sample))
+                .collect(),
+        });
+    }
+    decoded
+}
+
+/// Takes a frame of `origin`'s audio (from it directly, or passed on; Opus or 16-bit PCM) into its
+/// jitter buffer. Returns whether the active speaker changed (the speaker view's stage).
 fn receive_audio(s: &mut MeetState, origin: u64, bytes: &[u8]) -> bool {
     if !s.remotes.iter().any(|r| r.key == origin) {
         return false;
     }
-    let Some(wire) = audio::decode_frame(bytes) else {
-        return false;
+    let codec = audio::frame_codec(bytes).unwrap_or(audio::CODEC_PCM16);
+    let (sample_rate, packets) = if codec == audio::CODEC_OPUS {
+        (audio::OPUS_RATE, decode_opus(s, origin, bytes))
+    } else {
+        match audio::decode_frame(bytes) {
+            Some(wire) => (wire.sample_rate, wire.packets),
+            None => return false,
+        }
     };
+    // The two codecs number their packets apart: a switch starts the jitter buffer over.
+    let switched = s
+        .audio_codec_in
+        .insert(origin, codec)
+        .is_some_and(|before| before != codec);
+    if switched {
+        if let Some(shared) = s.playout.as_ref() {
+            lock(shared).peers.remove(&origin);
+        }
+    }
     // Who speaks: the newest packet's level (a frame repeats the two before it). Measured even
     // while deafened, so the stage still follows the conversation.
+    let Some(newest) = packets.last() else {
+        return false;
+    };
     let now = now_ms(s);
-    let level = wire
-        .packets
-        .last()
-        .map_or(speaker::SILENCE_DB, |packet| speaker::level_db(&packet.samples));
+    let level = speaker::level_db(&newest.samples);
     let stage_moved = s.speaker.observe(origin, level, now);
     if s.deafened {
         return stage_moved;
@@ -1530,8 +1686,8 @@ fn receive_audio(s: &mut MeetState, origin: u64, bytes: &[u8]) -> bool {
         .peers
         .entry(origin)
         .or_insert_with(|| audio::JitterBuffer::new(audio::TARGET_PACKETS, audio::MAX_PACKETS));
-    for packet in wire.packets {
-        jitter.push(wire.sample_rate, packet);
+    for packet in packets {
+        jitter.push(sample_rate, packet);
     }
     stage_moved
 }
@@ -1554,8 +1710,19 @@ fn speaker_moved(s: &mut MeetState) -> bool {
     true
 }
 
-/// Forgets the received audio of the peer with key `origin` (it left), or everyone's.
-fn drop_audio(s: &MeetState, origin: Option<u64>) {
+/// Forgets the received audio of the peer with key `origin` (it left), or everyone's: its jitter
+/// buffer, and its Opus decoder (a peer that comes back numbers its packets from scratch).
+fn drop_audio(s: &mut MeetState, origin: Option<u64>) {
+    match origin {
+        Some(origin) => {
+            s.opus_in.remove(&origin);
+            s.audio_codec_in.remove(&origin);
+        }
+        None => {
+            s.opus_in.clear();
+            s.audio_codec_in.clear();
+        }
+    }
     let Some(shared) = s.playout.as_ref() else {
         return;
     };
@@ -2483,10 +2650,15 @@ fn apply_video_control(
             }
             false
         }
-        Control::Caps { h264, encodes, .. } => {
+        Control::Caps {
+            h264,
+            encodes,
+            opus,
+        } => {
             let Some(remote) = s.remotes.iter_mut().find(|r| r.handle == conn) else {
                 return false;
             };
+            remote.opus = Some(opus);
             if remote.h264 == Some(h264) && remote.encodes == Some(encodes) {
                 return false;
             }
@@ -2499,11 +2671,12 @@ fn apply_video_control(
             let node_id = remote.node_id.clone();
             let yes = |on: bool| if on { "yes" } else { "no" };
             eprintln!(
-                "[azmeet] {}: {} decodes H.264: {}, encodes it: {}",
+                "[azmeet] {}: {} decodes H.264: {}, encodes it: {}, decodes Opus: {}",
                 s.name,
                 remote_name(s, &node_id),
                 yes(h264),
-                yes(encodes)
+                yes(encodes),
+                yes(opus)
             );
             true
         }
@@ -2906,9 +3079,14 @@ fn send_sync(s: &MeetState, handles: &[u64]) {
     send_message_to(s, handles, &routes::encode_sync(&s.sync));
 }
 
-/// Tells the peers behind `handles` whether this side decodes and encodes H.264.
+/// Tells the peers behind `handles` whether this side decodes and encodes H.264, and whether it
+/// decodes Opus.
 fn send_caps(s: &MeetState, handles: &[u64]) {
-    let caps = video_wire::encode_caps(s.video.decodes_h264, s.video.encoder.is_ok(), false);
+    let caps = video_wire::encode_caps(
+        s.video.decodes_h264,
+        s.video.encoder.is_ok(),
+        s.decodes_opus,
+    );
     send_message_to(s, handles, &caps);
 }
 
@@ -4570,6 +4748,7 @@ fn leave_meeting(s: &mut MeetState) -> Option<HttpJob> {
     s.remotes.clear();
     drop_audio(s, None);
     s.packetizer.reset();
+    s.opus_framer.reset();
     for out in s.video_out.values_mut() {
         out.stop();
     }
