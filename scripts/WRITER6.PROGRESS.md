@@ -14,10 +14,12 @@ Branch `wt/writer6` from `25d78e309`. Brief: scripts/waves/wave6/WRITER6.md.
   55ce2dc21 GREEN sync_text takes formats from DocumentTextEdit.runs, toggle at caret from get_typing_formats.
   DECISION: RichTypingStyle / state.typing stay (api.json; inline code has no engine format; pressed state).
 
+- 8d1e858e3 RED paged editor tests, ff83a66ff GREEN RichTextEditor::page_doms(page_starts: U32Vec,
+  first_page, page_count) -> DomVec (one host per page `<host>-page-<first>`, ONE shared EditorData),
+  mapping via host_of/model_path (walks up to the nearest host of this editor).
+
 ## IN PROGRESS
-- NEXT: the pager entry for AzWriter (RTE 8b): RichTextEditor renders a RANGE of blocks (a page) with
-  `<host>-<index>` ids, and block mapping (path_in_host / block_of) falls back to the nearest ancestor's
-  `<host>-<index>` id when the blocks are not the host's direct children. Then AzWriter adoption.
+- NEXT: AzWriter adoption (RTE 8a-e) + shell/appkit/drive/close/prefixes + scripts/azwriter_e2e.py.
 
 ## DONE design notes - Undo/Redo ownership. DESIGN (decided): the browser keydown model. core `handle_key_down` stops
   claiming primary+Z / Shift+Z / Y for the PRIMARY seat (no AddAndSkip: the KeyDown passes to callbacks);
