@@ -25,6 +25,7 @@ use crate::{
     actions::{self, action_ref, on_action, Action, ActionRef, Toggle},
     browse,
     fileops::{ConflictChoice, JobState},
+    ids,
     model::{StartPlace, ViewLayout},
     save_settings, with_state, DriveState, Popup, PropertiesState, HOME_ID,
 };
@@ -114,7 +115,7 @@ struct FieldRef {
     field: Field,
 }
 
-fn input(app: &RefAny, value: &str, placeholder: &str, field: Field, id: &str, secret: bool) -> Dom {
+fn input(app: &RefAny, value: &str, placeholder: &str, field: Field, id: AzString, secret: bool) -> Dom {
     let base = if secret {
         TextInput::create_password()
     } else {
@@ -130,7 +131,7 @@ fn input(app: &RefAny, value: &str, placeholder: &str, field: Field, id: &str, s
             on_form_text as TextInputOnTextInputCallbackType,
         )
         .dom()
-        .with_id(AzString::from(id))
+        .with_id(id)
 }
 
 extern "C" fn on_form_text(
@@ -188,17 +189,17 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
             ..
         } => {
             let mut body = Dom::create_div()
-                .with_id("add-drive")
+                .with_id(ids::ADD_DRIVE)
                 .with_css("display: flex; flex-direction: column; min-width: 340px;")
                 .with_child(label("Name"))
-                .with_child(input(app, &form.name, "S3 Drive", Field::Name, "add-name", false))
+                .with_child(input(app, &form.name, "S3 Drive", Field::Name, ids::ADD_NAME, false))
                 .with_child(label("Endpoint"))
                 .with_child(input(
                     app,
                     &form.endpoint,
                     "https://s3.eu-central-1.amazonaws.com",
                     Field::Endpoint,
-                    "add-endpoint",
+                    ids::ADD_ENDPOINT,
                     false,
                 ))
                 .with_child(label("Region"))
@@ -207,18 +208,18 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
                     &form.region,
                     "us-east-1 (R2: auto)",
                     Field::Region,
-                    "add-region",
+                    ids::ADD_REGION,
                     false,
                 ))
                 .with_child(label("Bucket"))
-                .with_child(input(app, &form.bucket, "my-bucket", Field::Bucket, "add-bucket", false))
+                .with_child(input(app, &form.bucket, "my-bucket", Field::Bucket, ids::ADD_BUCKET, false))
                 .with_child(label("Access key"))
                 .with_child(input(
                     app,
                     &form.access_key,
                     "",
                     Field::AccessKey,
-                    "add-access-key",
+                    ids::ADD_ACCESS_KEY,
                     false,
                 ))
                 .with_child(label("Secret key (kept in the system keyring only)"))
@@ -227,7 +228,7 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
                     &form.secret_key,
                     "",
                     Field::SecretKey,
-                    "add-secret-key",
+                    ids::ADD_SECRET_KEY,
                     true,
                 ))
                 .with_child(
@@ -263,10 +264,10 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
                 }
             };
             if let Some(text) = status {
-                body.add_child(line(&text).with_id("add-status"));
+                body.add_child(line(&text).with_id(ids::ADD_STATUS));
             }
             if !error.is_empty() {
-                body.add_child(line(error).with_id("add-error").with_css("color: #C42B1C;"));
+                body.add_child(line(error).with_id(ids::ADD_ERROR).with_css("color: #C42B1C;"));
             }
             body.add_child(buttons(vec![
                 button("Test connection", app, on_test_connection),
@@ -289,7 +290,7 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
             (
                 String::from("Delete for good"),
                 Dom::create_div()
-                    .with_id("confirm-delete")
+                    .with_id(ids::CONFIRM_DELETE)
                     .with_css("display: flex; flex-direction: column; min-width: 320px;")
                     .with_child(line(&format!(
                         "Are you sure you want to delete {what} from \"{drive}\" for good?"
@@ -325,10 +326,10 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
                 _ => "Copy",
             };
             let mut body = Dom::create_div()
-                .with_id("choose-location")
+                .with_id(ids::CHOOSE_LOCATION)
                 .with_css("display: flex; flex-direction: column; min-width: 360px;")
                 .with_child(label("The folder (a drive's name, then its folders: Home/docs)"))
-                .with_child(input(app, text, "Home/docs", Field::Location, "location-path", false));
+                .with_child(input(app, text, "Home/docs", Field::Location, ids::LOCATION_PATH, false));
             if !error.is_empty() {
                 body.add_child(line(error).with_css("color: #C42B1C;"));
             }
@@ -356,7 +357,7 @@ fn conflict_dialog(s: &DriveState, app: &RefAny, id: u64, apply_all: bool) -> (S
     let name = next.map_or_else(String::new, |f| key::last_segment(&f.target_key).to_string());
     let target = s.place_title(&browse::Place::folder(&job.target_id, &job.target_prefix));
     let mut body = Dom::create_div()
-        .with_id("conflict")
+        .with_id(ids::CONFLICT)
         .with_css("display: flex; flex-direction: column; min-width: 380px;")
         .with_child(line(&format!(
             "{} {} item(s) to \"{target}\"",
@@ -373,7 +374,7 @@ fn conflict_dialog(s: &DriveState, app: &RefAny, id: u64, apply_all: bool) -> (S
             browse::format_size(file.size)
         )));
     }
-    let choice = |text: &str, choice: ConflictChoice, id: &str| {
+    let choice = |text: &str, choice: ConflictChoice, id: AzString| {
         Button::create(AzString::from(text))
             .with_on_click(
                 RefAny::new(ChoiceRef {
@@ -383,16 +384,16 @@ fn conflict_dialog(s: &DriveState, app: &RefAny, id: u64, apply_all: bool) -> (S
                 on_conflict_choice as ButtonOnClickCallbackType,
             )
             .dom()
-            .with_id(AzString::from(id))
+            .with_id(id)
             .with_css("margin-top: 8px;")
     };
     body.add_child(choice(
         "Replace the file in the destination",
         ConflictChoice::Replace,
-        "conflict-replace",
+        ids::CONFLICT_REPLACE,
     ));
-    body.add_child(choice("Skip this file", ConflictChoice::Skip, "conflict-skip"));
-    body.add_child(choice("Keep both files", ConflictChoice::KeepBoth, "conflict-keep-both"));
+    body.add_child(choice("Skip this file", ConflictChoice::Skip, ids::CONFLICT_SKIP));
+    body.add_child(choice("Keep both files", ConflictChoice::KeepBoth, ids::CONFLICT_KEEP_BOTH));
     if left > 1 {
         body.add_child(
             Dom::create_div()
@@ -580,7 +581,7 @@ fn properties_dialog(s: &DriveState, app: &RefAny, props: &PropertiesState) -> (
     }
     let rows = if props.tab == 0 { general } else { details };
     let body = Dom::create_div()
-        .with_id("properties")
+        .with_id(ids::PROPERTIES)
         .with_css("display: flex; flex-direction: column; min-width: 420px;")
         .with_child(tabs)
         .with_child(property_rows(rows))
@@ -604,7 +605,7 @@ extern "C" fn on_properties_tab(mut data: RefAny, mut info: CallbackInfo, state:
 /// The transfer queue: what runs, what waits, what ended; Cancel.
 fn transfers_dialog(s: &DriveState, app: &RefAny) -> (String, Dom) {
     let mut body = Dom::create_div()
-        .with_id("transfers")
+        .with_id(ids::TRANSFERS)
         .with_css("display: flex; flex-direction: column; min-width: 420px;");
     if s.queue.jobs().is_empty() {
         body.add_child(line("No transfers."));
@@ -666,7 +667,7 @@ extern "C" fn on_clear_finished(mut data: RefAny, mut info: CallbackInfo) -> Upd
 /// A dialog as a sheet inside the window (`AZDRIVE_DIALOGS=inline`).
 pub(crate) fn inline_sheet(title: String, panel: Dom) -> Dom {
     Dom::create_div()
-        .with_id("sheet")
+        .with_id(ids::SHEET)
         .with_css(
             "position: absolute; top: 120px; right: 24px; width: 440px; padding: 16px; \
              display: flex; flex-direction: column; background: system:window-background; \
@@ -847,7 +848,7 @@ fn options(s: &DriveState, app: &RefAny) -> Dom {
                             on_default_layout as DropDownOnChoiceChangeCallbackType,
                         )
                         .dom()
-                        .with_id("setting-layout"),
+                        .with_id(ids::SETTING_LAYOUT),
                 ),
                 section(
                     "Show",
@@ -902,7 +903,7 @@ fn options(s: &DriveState, app: &RefAny) -> Dom {
                     on_start_place as DropDownOnChoiceChangeCallbackType,
                 )
                 .dom()
-                .with_id("setting-start"),
+                .with_id(ids::SETTING_START),
             ),
             section(
                 "Panes",
@@ -1012,7 +1013,7 @@ fn options(s: &DriveState, app: &RefAny) -> Dom {
             on_settings_search as ShellSettingsLayoutOnSearchCallbackType,
         )
         .dom()
-        .with_id("settings")
+        .with_id(ids::SETTINGS)
 }
 
 /// About AzDrive.
@@ -1042,7 +1043,7 @@ fn about(s: &DriveState) -> Dom {
         )
         .with_css("font-size: 12px; opacity: 0.75;"),
     ])
-    .with_id("about")
+    .with_id(ids::ABOUT)
 }
 
 struct DriveRef {
