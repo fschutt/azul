@@ -135,4 +135,99 @@ for size-changing scopes, on up through every ancestor whose block size depends 
 at a definite-size box or a scroll container (a relayout boundary) or the tree root. With the caches kept
 (this fix) that root pass costs the chain, not the page.
 
-(sections below: commits, api.json, compile risks, tests, left)
+## Commits (wt/layoutperf8, oldest first)
+
+| Commit | What |
+|---|---|
+| 2e6f1f370 | progress file |
+| 0b156f22c | `scripts/layoutperf8_tick_scenario_gen.py` (the AZ_E2E tick probe) + measured cost / root cause |
+| 6d3d770b4 | RED `layout/tests/a_one_box_slide_does_not_re_lay_out_the_page.rs` (registered in `tests/all.rs`) |
+| 39f090082 | GREEN: clone keeps its measurements, anon wrapper carries its layout, `carried_indices` + ifc_membership remap, viewport-unit guard, paged path clears all, comments |
+| 04db13759 | `scripts/layoutperf8_e2e/`: text beside a block (FAIL on wave 7, expected PASS), own margin (xfail, bug B) |
+| d6ad6d687 | a clone paired by position drops its measurements |
+| 22acb1c28 | guard `a_page_laid_out_again_matches_a_fresh_window` (cold oracle) |
+| cd12ec4da | e2e `a_parent_grows_with_its_restyled_child.json` (xfail, bug C) |
+| (+ progress / report commits) | |
+
+Tests in `a_one_box_slide_does_not_re_lay_out_the_page.rs`:
+- `a_knob_frame_costs_the_same_on_a_page_twice_as_long` - RED before (counts double with the page).
+- `the_cards_beside_a_moving_knob_paint_what_they_painted` - guard (passes before; fails if the anonymous
+  block carry is missing once measurements are kept).
+- `text_beside_a_block_keeps_painting_when_a_sibling_restyles` - RED before (latent bug A).
+- `a_page_laid_out_again_matches_a_fresh_window` - guard: knob frame, rebuild relabelling one card, knob
+  frame; every node box and glyph equals a fresh window's.
+
+## Files touched outside the core (layout cache / reconcile)
+
+- `dll/src/desktop/shell2/headless/mod.rs`: doc comment of `switching_tabs_does_not_shift_the_other_tabs_text`
+  only (its NEGATIVE CONTROL line described the clear this branch removes).
+- `layout/src/solver3/fc.rs`: one comment in `layout_ifc` (GlyphSwap exit).
+- `layout/src/solver3/paged_layout.rs`: Step 1.2 clears every flex measurement on its reconcile path.
+  Never touched: `page_breaks.rs`, `a_padded_table_cell_stays_in_its_row.rs`.
+- MAILREF8 / RULINGS8 overlap: none of their files (no sizing / table / text3 edits).
+
+## api.json
+
+No change. `ReconciliationResult::carried_indices` is a new pub field on a solver3-internal type that
+api.json does not export; everything else is private.
+
+## Least sure to compile
+
+- `cache.rs` `try_reuse_anon_wrapper`: `new_node.used_size = t.get(LayoutNodeId::new(old_anon)).and_then(|h| h.used_size);`
+  (`t.get` -> `Option<&LayoutNodeHot>`, `used_size: Option<LogicalSize>`), and the new `recon` parameter at
+  its two call sites (`recon` is the `&mut ReconciliationResult` of `reconcile_recursive`).
+- `cache.rs` `reconcile_recursive` clone branch: `old_full_node.dom_node_id != Some(new_dom_id)` (the owned
+  `LayoutNode` from `get_full_node`, still alive after the borrow by `clone_node_from_old`); the
+  `ifc_membership` remap takes `old_root` out first, then `as_mut()` / `= None` in the match arms (no
+  overlapping borrows); `recon` and `new_tree_builder` are distinct `&mut`s.
+- `mod.rs` Step 1.2: `cache.viewport.is_some_and(..)` on the `Option<LogicalRect>` field (Copy, as in
+  `reconcile_and_invalidate`); `new_dom.css_property_cache.ptr.compact_cache.as_ref().is_none_or(..)` (the
+  expression `layout_ifc` uses on `ctx.styled_dom`).
+- The test file: `prop.get_type().relayout_scope(false)`, `azul_layout::probe::{Event, Probe}`,
+  `azul_core::profile::{cpu,memory,heap}_enabled`, `&mut None` for the debug-message argument,
+  `.with_css(&format!(..))`, `DisplayListItem::Text { glyphs, .. }` with `g.index` (u32).
+
+## Test commands (for the parent)
+
+```
+cargo test -p azul-layout --test all a_one_box_slide_does_not_re_lay_out_the_page -- --nocapture
+# the guards around kept caches and the reconcile:
+cargo test -p azul-layout --test all the_resize_fast_path_paints_what_a_relayout_paints \
+  flex_items_keep_the_size_their_container_gave_them subtree_relayout cache_and_dirty_propagation \
+  resize_relayout_bug switch_animation accordion_animation ifc_caching text_beside_a_block \
+  contenteditable_e2e dl_patch_golden display_list_ids
+cargo test -p azul-layout --lib solver3::
+cd dll && cargo test switching_tabs_does_not_shift_the_other_tabs_text   # the negative control
+./target/release/azul-doc e2e e2e                     # the corpus
+./target/release/azul-doc e2e scripts/layoutperf8_e2e # expect: 1 passed, 2 xfailed
+# perf, release (prints idle / edit / resize per-frame costs):
+cargo test --release -p azul-layout --test all frame_perf -- --nocapture
+# AzWidgets re-measure: see "Expected after the build" above.
+```
+
+Note on `the_resize_fast_path_paints_what_a_relayout_paints`: its reference side is the restyle
+relayout, which until now dropped every measurement; it keeps them now too, so that test compares two
+cache-keeping paths. The new `a_page_laid_out_again_matches_a_fresh_window` is the cold oracle for the
+reconcile path.
+
+## Left
+
+- Bugs B and C (css-dirty block layout: stale box props of a clone, ancestors not re-sized) - plan above.
+- The rest of a knob frame after this fix (~20 - 35 ms expected), largest first:
+  1. The reconcile itself (5 - 9 ms: fingerprints and a clone of all 2231 layout nodes, each with its boxed
+     inline caches) runs for an animation tick that changed no node - an override-only tick could take the
+     retained tree like the resize fast path does (a latch set by the transition-tick relayout; the
+     restyle path still needs the fingerprint diff for state changes). Owner: window.rs relayout decision.
+  2. The full display list (~6 ms): a css-dirty pass never patches (`structure_ok` requires empty
+     css_dirty) - a layout-scope change whose nodes kept their sizes could splice like a text edit does.
+  3. `layout_document`'s wasm-lift diagnostic `cache.tree = Some((*new_tree).clone())` (mod.rs ~1206,
+     "[az-diag g65]") deep-clones the whole tree every pass and is overwritten at the end; left alone here
+     (another session's diagnostic scaffolding) - removing it is free.
+  4. ANIM8 lead (c): a position-only change (a knob that slides) could travel as a FLIP / transform on the
+     compositor instead of a relayout per frame.
+- `paged_layout`'s `cache_map` is resized by position, not remapped by identity like `layout_document`'s -
+  after a structural change a node can be served another node's per-node cache. Pre-existing; this branch
+  only stopped it from also serving kept taffy finals there.
+- Mixed-content markers: a `::marker` that is laid out as an IFC of its own (a list item with no line) is
+  rebuilt fresh by every reconcile and is not carried like an anonymous block; a memo above it skips it.
+  Pre-existing for the block path, rare (no line in the list item).
