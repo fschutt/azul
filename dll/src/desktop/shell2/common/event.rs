@@ -2984,6 +2984,12 @@ pub struct CommonWindowState {
     /// The clear colour WebRender was last told
     /// ([`Self::sync_renderer_clear_color`]); `None` before the first frame.
     renderer_clear_color: Option<azul_css::props::basic::ColorU>,
+    /// A scripted E2E run owns this window's animation clock
+    /// (`debug_server::scripted_run_owns_the_clock`, read when the window
+    /// opens): the wall-clock CSS animation driver is never armed, and
+    /// animations move only with the scenario's `tick_animations`, as in the
+    /// in-process runner.
+    pub scripted_animation_clock: bool,
 }
 
 impl CommonWindowState {
@@ -3302,6 +3308,7 @@ impl CommonWindowState {
             app_order: azul_layout::managers::app_target::WindowActivationOrder::for_new_window(),
             desktop_theme,
             renderer_clear_color: None,
+            scripted_animation_clock: super::debug_server::scripted_run_owns_the_clock(),
         }
     }
 

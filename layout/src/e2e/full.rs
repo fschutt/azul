@@ -4846,6 +4846,20 @@ pub fn is_debug_enabled() -> bool {
     DEBUG_ENABLED.load(Ordering::SeqCst) || E2E_ACTIVE.load(Ordering::SeqCst)
 }
 
+/// Does a SCRIPTED run (`AZ_E2E` / `AZ_E2E_TEST`: `queue_e2e_tests`) own the
+/// engine's animation clock? Then nothing animates on the wall clock: a CSS
+/// transition, a layout animation or a keyframe track moves only when the
+/// scenario moves it (`tick_animations`), exactly as in the in-process runner,
+/// whose clock is frozen. A live driver stepping on the wall clock between
+/// two ops added one frame per turn of the loop, and a scenario's exact
+/// mid-transition measurement depended on how fast the host answered
+/// (e2e/css-animation-multi: 197.333 / 117.336 instead of 200 / 120).
+/// The debug server alone (`AZ_DEBUG`) leaves the clock live.
+#[cfg(feature = "std")]
+pub fn scripted_run_owns_the_clock() -> bool {
+    E2E_ACTIVE.load(Ordering::SeqCst)
+}
+
 /// Whether the `log_*!` macros should fire. In the full (debug-server) build
 /// this tracks `is_debug_enabled()` exactly — messages flow into the queue for
 /// the HTTP server / `AZ_RECORD` exactly as before. (The lean stub overrides

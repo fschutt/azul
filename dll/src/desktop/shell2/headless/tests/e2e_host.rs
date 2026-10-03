@@ -317,3 +317,45 @@ fn registering_a_css_id_image_repaints_the_box_that_uses_it() {
         "the box that references the id paints the image the frame after it was registered"
     );
 }
+
+/// A spinner: keyframe tracks that run for as long as it is shown.
+extern "C" fn spinner_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    Dom::create_body().with_child(azul_layout::widgets::spinner::Spinner::create().dom())
+}
+
+/// A laid-out spinner window whose animation clock is `scripted` or live,
+/// with its animation drivers armed as a pass end arms them.
+fn spinner_window(scripted: bool) -> HeadlessWindow {
+    let state = Arc::new(RefCell::new(RefAny::new(())));
+    let mut window = make_window_with(&state, spinner_layout);
+    window.common.scripted_animation_clock = scripted;
+    window.regenerate_layout().expect("a layout pass");
+    let _ = window.common.take_regeneration();
+    window.arm_animation_drivers_if_needed();
+    window
+}
+
+fn css_driver_armed(window: &HeadlessWindow) -> bool {
+    window.common.layout_window.as_ref().is_some_and(|lw| {
+        lw.timers
+            .contains_key(&azul_core::task::CSS_ANIMATION_TIMER_ID)
+    })
+}
+
+/// e2e/css-animation-multi, red against AzPaint and green in-process: under
+/// `AZ_E2E` the wall-clock CSS animation driver stepped the transitions
+/// between two ops, one frame per turn of the loop, on top of the
+/// scenario's own `tick_animations` (197.333 / 117.336 for 200 / 120). A
+/// scripted run owns the animation clock, as the in-process runner's frozen
+/// clock does: the live driver is never armed.
+#[test]
+fn a_scripted_run_owns_the_animation_clock() {
+    assert!(
+        css_driver_armed(&spinner_window(false)),
+        "harness: a live window arms the wall-clock driver for its spinner"
+    );
+    assert!(
+        !css_driver_armed(&spinner_window(true)),
+        "a scripted run's animations move only with its tick_animations"
+    );
+}
