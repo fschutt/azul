@@ -169,10 +169,10 @@ pub(crate) const ERROR: &str = "font-size: 13px; color: #b3261e; margin-top: 12p
                                 (prefers-color-scheme: dark) { color: #f2b8b5; }";
 /// A block's title: one line, cut with an ellipsis at the block's edge.
 pub(crate) const CLIPPED_TITLE: &str = "font-weight: bold; white-space: nowrap; overflow: \
-                                        hidden; text-overflow: ellipsis;";
+                                        hidden; text-overflow: ellipsis; flex-shrink: 0;";
 /// A block's other lines, the same way.
 pub(crate) const CLIPPED_LINE: &str = "color: system:secondary-text; white-space: nowrap; \
-                                       overflow: hidden; text-overflow: ellipsis;";
+                                       overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;";
 /// The popover's card: the whole of its window.
 pub(crate) const POPOVER: &str = "display: flex; flex-direction: column; width: 320px; padding: \
                                   16px; box-sizing: border-box; background: \

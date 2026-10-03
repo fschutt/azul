@@ -325,13 +325,22 @@ fn event_block(s: &CalState, e: &Event, date: NaiveDate, p: &week::Placement, ap
              hidden; {}",
             s.colour_of(e).event_css(),
             if selected { SELECTED_RING } else { "" }
-        ))
-        .with_child(Dom::create_span_with_text(e.title.as_str()).with_css(CLIPPED_TITLE))
-        .with_child(Dom::create_span_with_text(time.as_str()).with_css(CLIPPED_LINE));
-    if !e.location.is_empty() {
+        ));
+    // Only the lines that fit (LOOK: a 15-minute block squeezed two lines into 6 px each): a
+    // short block says "title, time" on one line.
+    let lines = week::block_lines(height);
+    if lines == 1 {
+        dom.add_child(
+            Dom::create_span_with_text(format!("{}, {time}", e.title)).with_css(CLIPPED_TITLE),
+        );
+    } else {
+        dom.add_child(Dom::create_span_with_text(e.title.as_str()).with_css(CLIPPED_TITLE));
+        dom.add_child(Dom::create_span_with_text(time.as_str()).with_css(CLIPPED_LINE));
+    }
+    if lines >= 3 && !e.location.is_empty() {
         dom.add_child(Dom::create_span_with_text(e.location.as_str()).with_css(CLIPPED_LINE));
     }
-    if let Some(m) = &e.meeting {
+    if let Some(m) = e.meeting.as_ref().filter(|_| lines >= 4) {
         if m.pending {
             dom.add_child(
                 Dom::create_span_with_text("AzMeet link waits for the server").with_css(format!(

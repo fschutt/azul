@@ -34,8 +34,9 @@ pub const BLOCK_PADDING_PX: f32 = 6.0;
 /// too short for two says "title, time" on one line, as Outlook's does).
 #[must_use]
 pub fn block_lines(height_px: f32) -> usize {
-    let _ = height_px;
-    todo!()
+    // `as` saturates: a negative or NaN count is 0, then 1.
+    let fit = ((height_px - BLOCK_PADDING_PX) / BLOCK_LINE_PX).floor() as usize;
+    fit.max(1)
 }
 /// The hour at the top of the view when it opens on a week that is not today's.
 pub const MORNING_HOUR: u32 = 8;
