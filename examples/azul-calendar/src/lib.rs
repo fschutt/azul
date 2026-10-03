@@ -254,6 +254,11 @@ pub(crate) struct CalState {
     pub(crate) editors_opened: u32,
     /// Open the editor once the window is up (`--screen editor`).
     pub(crate) editor_at_start: bool,
+    /// The form as the editor window opened with it: closing the window asks "save
+    /// changes?" once the form differs from it (`EditorForm::changed_since`).
+    pub(crate) editor_opened: Option<EditorForm>,
+    /// The editor window shows that question (its close guard is asking).
+    pub(crate) editor_asking: bool,
     // ---- FILE > Open & Export ----
     pub(crate) import_path: String,
     /// The calendar an import goes into: its index in `calendars`.
@@ -378,6 +383,15 @@ impl CalState {
                 "Could not write {}: {e}",
                 event::event_path(&self.data_dir, &event.id).display()
             )),
+        }
+    }
+
+    /// The open editor's form differs from the form it opened with: closing its window asks
+    /// "save changes?" first.
+    pub(crate) fn editor_dirty(&self) -> bool {
+        match (&self.editor, &self.editor_opened) {
+            (Some(form), Some(opened)) => form.changed_since(opened),
+            _ => false,
         }
     }
 
@@ -1187,6 +1201,8 @@ pub fn start() {
         editor_occurrence: None,
         editors_opened: 0,
         editor_at_start,
+        editor_opened: None,
+        editor_asking: false,
         import_path: String::new(),
         import_calendar: 0,
         export_path: String::new(),
