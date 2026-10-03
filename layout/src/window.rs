@@ -15626,9 +15626,8 @@ impl LayoutWindow {
         // e2e digest and the contract tests read it). Nothing malformed
         // reaches an adapter.
         let manager = &mut self.a11y_manager;
-        let refreshed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            manager.refresh(&inputs)
-        }));
+        let refreshed =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| manager.refresh(&inputs)));
         if refreshed.is_err() {
             // A panic mid-pass leaves the retained tree half updated.
             self.a11y_manager.resend_full_tree();
