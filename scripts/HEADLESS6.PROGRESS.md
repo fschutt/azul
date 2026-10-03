@@ -37,10 +37,11 @@ Branch `wt/headless6` from base 25d78e309. Brief: scripts/waves/wave6/HEADLESS6.
   (runner.rs close_unconfirmed + confirm_app_close + run_frame extracted; tests mod close_protocol_tests).
 
 ## IN PROGRESS
-- corpus C..G: code reading (no probe runs while on battery). Then the report.
+- RESUMED after the power loss (coordinator: power back, probe runs allowed again, one at a time, capped).
+  Scratchpad was wiped: probes now in <scratchpad>/headless6/probe. Next: probe C (hit_test at (50,25),
+  get_node_layout #below/#mover) against the prebuilt AzPaint; then D..G; then the report.
 
 ## NEXT
-- items 3 (headless menus), 4 (window id on LayoutCallbackInfo), 5 (child-window routing).
 - C..G need a probe run (power permitting): probe scenarios in scratchpad/probe.
   C bug-transform-offsets-hit-test: 2nd click at (50,25) clears focus instead of focusing absolute #below;
     same CpuHitTester + resolve_tf in both hosts -> suspect layout/mount difference; probe with hit_test op.
@@ -65,5 +66,5 @@ Branch `wt/headless6` from base 25d78e309. Brief: scripts/waves/wave6/HEADLESS6.
 ## Decisions
 - Category A fix lives in layout/src/window.rs `remap_node_ids` (manager lifecycle, unowned by another
   wave-6 task); minimal edit at the end of the function.
-- POWER (coordinator, 02:45): on battery - no long headless runs until told otherwise; commit every unit.
+- POWER (coordinator, 02:45): on battery - no long headless runs. LIFTED on resume (power back).
 - Corpus runs: AZ_E2E=<dir> dispatcher under run_capped (cap 1500 MB covers the 7 parallel children).
