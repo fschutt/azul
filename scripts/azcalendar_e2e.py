@@ -360,8 +360,11 @@ def stage_editor(app, ctx):
     )
     ed = reach_editor(app)
     ed.type_into("#editor-title", EDITOR_TITLE)
+    # The repeat row is the RecurrenceEditor (#editor-repeat): "Weekly" on its frequency row
+    # brings its "Ends" row and the weekday toggles.
+    ed.wait_for("#editor-repeat")
     ed.click(text="Weekly")
-    ed.wait_for("#editor-repeat-variant")
+    ed.until("the recurrence editor's weekly rows", lambda: ed.shows("Ends"))
     ed.click(selector="#editor-save")
     w.until(
         "AZCAL_EDITOR closed",

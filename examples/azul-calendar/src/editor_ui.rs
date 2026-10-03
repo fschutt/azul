@@ -1,8 +1,9 @@
 //! The event editor: a window of its own (Outlook's appointment window), on the same Office
 //! scaffold as the main window - its title row, a ribbon (Save & Close, Delete, Delete This
 //! Occurrence, Add AzMeet Link, Close) and the form (`editor.rs` holds what it edits): subject,
-//! location, attendees, start and end (date and time), all day, repeat (Segmented rows a script
-//! can click), every N, ends, reminder, calendar, "Add AzMeet link", notes.
+//! location, attendees, start and end (date and time), all day, repeat (azul's
+//! `RecurrenceEditor`: frequency, every N, weekdays or the month's day, the end), reminder,
+//! calendar, "Add AzMeet link", notes.
 //!
 //! One editor window at a time: the window's layout callback reads `CalState::editor`, so two
 //! windows would show one form; asking for a second says so in the main window instead. The
