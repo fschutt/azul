@@ -40,7 +40,8 @@ pub fn canvas_dom(app: &RefAny, tool: Tool) -> Dom {
         "flex-grow: 1; align-self: stretch; min-width: 0px; min-height: 0px; cursor: {cursor};"
     ))
     .with_callback(EventFilter::Hover(HoverEventFilter::MouseDown), app.clone(), on_down)
-    .with_callback(EventFilter::Hover(HoverEventFilter::MouseOver), app.clone(), on_move)
+    // Movement is `MouseMove` (W3C `mouseover` fires once, on entry).
+    .with_callback(EventFilter::Hover(HoverEventFilter::MouseMove), app.clone(), on_move)
     .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), app.clone(), on_up)
     .with_callback(EventFilter::Hover(HoverEventFilter::MouseLeave), app.clone(), on_leave)
     .with_callback(EventFilter::Hover(HoverEventFilter::TouchStart), app.clone(), on_down)
