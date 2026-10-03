@@ -47,19 +47,42 @@ impl Container {
     /// A container of these `(path, bytes)` files (a test's book, a plain file).
     #[must_use]
     pub fn from_files<I: IntoIterator<Item = (String, Vec<u8>)>>(files: I) -> Container {
-        unimplemented!("RED: Container::from_files {}", files.into_iter().count())
+        Container {
+            files: files.into_iter().collect(),
+        }
     }
 
     /// The files of an EPUB (a zip archive), read with azul's `Zip`. Directories are left out.
     pub fn from_zip_bytes(bytes: &[u8]) -> Result<Container, EpubError> {
-        unimplemented!("RED: Container::from_zip_bytes {}", bytes.len())
+        let zip = azul::zip::Zip::from_bytes(bytes.to_vec());
+        let mut files = BTreeMap::new();
+        for i in 0..zip.file_count() {
+            if zip.file_is_directory(i) {
+                continue;
+            }
+            let path = zip.file_path(i).as_str().to_string();
+            if path.is_empty() || path.ends_with('/') {
+                continue;
+            }
+            files.insert(path, zip.file_data(i).as_slice().to_vec());
+        }
+        if files.is_empty() {
+            return Err(EpubError::NotAZip);
+        }
+        Ok(Container { files })
     }
 
     /// The bytes of the file at `path`: the exact path, else the one path that differs only
     /// in case (a package that writes `Text/Ch1.xhtml` for `text/ch1.xhtml`).
     #[must_use]
     pub fn get(&self, path: &str) -> Option<&[u8]> {
-        unimplemented!("RED: Container::get {path} {}", self.files.len())
+        if let Some(bytes) = self.files.get(path) {
+            return Some(bytes.as_slice());
+        }
+        self.files
+            .iter()
+            .find(|(p, _)| p.eq_ignore_ascii_case(path))
+            .map(|(_, bytes)| bytes.as_slice())
     }
 
     /// The file at `path` as text: UTF-8 (a byte-order mark dropped), UTF-16 with its mark,
@@ -90,7 +113,29 @@ impl Container {
 /// `bytes` as text: see [`Container::text`].
 #[must_use]
 pub fn decode_text(bytes: &[u8]) -> String {
-    unimplemented!("RED: decode_text {}", bytes.len())
+    if let Some(rest) = bytes.strip_prefix(&[0xEF_u8, 0xBB, 0xBF][..]) {
+        return String::from_utf8_lossy(rest).into_owned();
+    }
+    let utf16 = |rest: &[u8], little: bool| -> String {
+        let units: Vec<u16> = rest
+            .chunks_exact(2)
+            .map(|c| {
+                if little {
+                    u16::from_le_bytes([c[0], c[1]])
+                } else {
+                    u16::from_be_bytes([c[0], c[1]])
+                }
+            })
+            .collect();
+        String::from_utf16_lossy(&units)
+    };
+    if let Some(rest) = bytes.strip_prefix(&[0xFF_u8, 0xFE][..]) {
+        return utf16(rest, true);
+    }
+    if let Some(rest) = bytes.strip_prefix(&[0xFE_u8, 0xFF][..]) {
+        return utf16(rest, false);
+    }
+    String::from_utf8_lossy(bytes).into_owned()
 }
 
 /// What the package says about the book.
@@ -188,7 +233,15 @@ impl Book {
     /// into it, else the last entry that points before it (the part it belongs to), else "".
     #[must_use]
     pub fn chapter_title(&self, chapter: usize) -> String {
-        unimplemented!("RED: Book::chapter_title {chapter} {}", self.toc.len())
+        if let Some(entry) = self.toc.iter().find(|e| e.chapter == Some(chapter)) {
+            return entry.label.clone();
+        }
+        self.toc
+            .iter()
+            .filter(|e| e.chapter.is_some_and(|c| c < chapter))
+            .last()
+            .map(|e| e.label.clone())
+            .unwrap_or_default()
     }
 
     /// The media type the manifest gives the file at `path`.
@@ -213,7 +266,29 @@ pub fn dir_of(path: &str) -> &str {
 /// `%xx` escapes decoded (an invalid one stays as written).
 #[must_use]
 pub fn percent_decode(s: &str) -> String {
-    unimplemented!("RED: percent_decode {s}")
+    let bytes = s.as_bytes();
+    let hex = |b: u8| -> Option<u8> {
+        match b {
+            b'0'..=b'9' => Some(b - b'0'),
+            b'a'..=b'f' => Some(b - b'a' + 10),
+            b'A'..=b'F' => Some(b - b'A' + 10),
+            _ => None,
+        }
+    };
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(hi), Some(lo)) = (hex(bytes[i + 1]), hex(bytes[i + 2])) {
+                out.push(hi * 16 + lo);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// An `href` in the file at `base` (a container path) as `(path, fragment)`: relative to
@@ -221,19 +296,329 @@ pub fn percent_decode(s: &str) -> String {
 /// percent-decoded; `#x` alone is `base` itself with fragment `x`.
 #[must_use]
 pub fn resolve(base: &str, href: &str) -> (String, String) {
-    unimplemented!("RED: resolve {base} {href}")
+    let href = href.trim();
+    let (path_part, fragment) = match href.split_once('#') {
+        Some((p, f)) => (p, f),
+        None => (href, ""),
+    };
+    // A query is no part of a file's path.
+    let path_part = path_part.split('?').next().unwrap_or("");
+    let fragment = percent_decode(fragment);
+    if path_part.is_empty() {
+        return (base.to_string(), fragment);
+    }
+    let path_part = percent_decode(path_part);
+    let joined = match path_part.strip_prefix('/') {
+        Some(absolute) => absolute.to_string(),
+        None => format!("{}{}", dir_of(base), path_part),
+    };
+    let mut segments: Vec<&str> = Vec::new();
+    for segment in joined.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                segments.pop();
+            }
+            s => segments.push(s),
+        }
+    }
+    (segments.join("/"), fragment)
 }
 
 /// The package document's path: what `META-INF/container.xml` names (its first rootfile of
 /// the OPF type), else the first `.opf` file in the container.
 #[must_use]
 pub fn package_path(container: &Container) -> Option<String> {
-    unimplemented!("RED: package_path {}", container.len())
+    if let Some(text) = container.text("META-INF/container.xml") {
+        let (xml, _) = xmltree::parse_document(&text, false);
+        for rootfile in find_all(xml.root.as_slice(), "rootfile") {
+            let media = attr(rootfile, "media-type").unwrap_or("").trim();
+            let Some(path) = attr(rootfile, "full-path") else {
+                continue;
+            };
+            let path = path.trim().trim_start_matches('/').to_string();
+            let opf =
+                media.is_empty() || media.eq_ignore_ascii_case("application/oebps-package+xml");
+            if opf && container.get(&path).is_some() {
+                return Some(path);
+            }
+        }
+    }
+    container
+        .paths()
+        .find(|p| p.to_ascii_lowercase().ends_with(".opf"))
+        .map(str::to_string)
 }
 
 /// Reads the book in `container`.
 pub fn parse_book(container: &Container) -> Result<Book, EpubError> {
-    unimplemented!("RED: parse_book {}", container.len())
+    let package_path = package_path(container).ok_or(EpubError::NoPackage)?;
+    let package_text = container.text(&package_path).ok_or(EpubError::NoPackage)?;
+    let (xml, _) = xmltree::parse_document(&package_text, false);
+    let root = xml.root.as_slice();
+    let metadata_node = find_first(root, "metadata");
+    let metadata = metadata_node.map(read_metadata).unwrap_or_default();
+
+    let manifest: Vec<ManifestItem> = find_first(root, "manifest")
+        .map(|m| find_all(m.children.as_slice(), "item"))
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|item| {
+            let href = attr(item, "href")?;
+            let (path, _) = resolve(&package_path, href);
+            Some(ManifestItem {
+                id: attr(item, "id").unwrap_or("").trim().to_string(),
+                path,
+                media_type: attr(item, "media-type").unwrap_or("").trim().to_string(),
+                properties: attr(item, "properties")
+                    .unwrap_or("")
+                    .split_whitespace()
+                    .map(str::to_string)
+                    .collect(),
+            })
+        })
+        .collect();
+
+    let spine_node = find_first(root, "spine");
+    let mut spine = Vec::new();
+    if let Some(spine_node) = spine_node {
+        for itemref in children_named(spine_node, "itemref") {
+            let Some(idref) = attr(itemref, "idref").map(str::trim) else {
+                continue;
+            };
+            let Some(item) = manifest.iter().find(|m| m.id == idref) else {
+                continue;
+            };
+            let Some(bytes) = container.get(&item.path) else {
+                continue;
+            };
+            let linear =
+                !attr(itemref, "linear").is_some_and(|l| l.trim().eq_ignore_ascii_case("no"));
+            spine.push(SpineItem {
+                path: item.path.clone(),
+                media_type: item.media_type.clone(),
+                linear,
+                size: bytes.len() as u64,
+            });
+        }
+    }
+    if spine.is_empty() {
+        return Err(EpubError::NoChapters);
+    }
+
+    let has = |m: &ManifestItem, property: &str| m.properties.iter().any(|p| p == property);
+    let cover = manifest
+        .iter()
+        .find(|m| has(m, "cover-image"))
+        .map(|m| m.path.clone())
+        .or_else(|| {
+            let meta = metadata_node.and_then(|md| {
+                find_all(md.children.as_slice(), "meta")
+                    .into_iter()
+                    .find(|m| {
+                        attr(m, "name").is_some_and(|n| n.trim().eq_ignore_ascii_case("cover"))
+                    })
+            })?;
+            let id = attr(meta, "content")?.trim();
+            manifest.iter().find(|m| m.id == id).map(|m| m.path.clone())
+        })
+        .or_else(|| {
+            manifest
+                .iter()
+                .find(|m| {
+                    m.media_type.to_ascii_lowercase().starts_with("image/")
+                        && (m.id.to_ascii_lowercase().contains("cover")
+                            || m.path.to_ascii_lowercase().contains("cover"))
+                })
+                .map(|m| m.path.clone())
+        })
+        .filter(|p| container.get(p).is_some());
+
+    let mut toc = Vec::new();
+    if let Some(nav) = manifest.iter().find(|m| has(m, "nav")) {
+        if let Some(nav_text) = container.text(&nav.path) {
+            toc = nav_toc(&nav_text, &nav.path);
+        }
+    }
+    if toc.is_empty() {
+        let ncx_id = spine_node.and_then(|s| attr(s, "toc")).map(str::trim);
+        let ncx = ncx_id
+            .and_then(|id| manifest.iter().find(|m| m.id == id))
+            .or_else(|| {
+                manifest.iter().find(|m| {
+                    m.media_type
+                        .eq_ignore_ascii_case("application/x-dtbncx+xml")
+                })
+            });
+        if let Some(ncx) = ncx {
+            if let Some(ncx_text) = container.text(&ncx.path) {
+                toc = ncx_toc(&ncx_text, &ncx.path);
+            }
+        }
+    }
+    if toc.is_empty() {
+        toc = spine_toc(container, &spine);
+    }
+    let mut book = Book {
+        metadata,
+        package_path,
+        manifest,
+        spine,
+        toc: Vec::new(),
+        cover,
+    };
+    for entry in &mut toc {
+        if !entry.path.is_empty() {
+            entry.chapter = book.chapter_of_path(&entry.path);
+        }
+    }
+    book.toc = toc;
+    Ok(book)
+}
+
+/// The package's `<metadata>`: the Dublin Core elements by their local names, at any depth
+/// (an OEB 1.2 package nests them in `<dc-metadata>`).
+fn read_metadata(md: &XmlNode) -> Metadata {
+    let all = |name: &str| -> Vec<String> {
+        find_all(md.children.as_slice(), name)
+            .into_iter()
+            .map(text)
+            .filter(|t| !t.is_empty())
+            .collect()
+    };
+    let first = |name: &str| all(name).into_iter().next().unwrap_or_default();
+    Metadata {
+        title: first("title"),
+        authors: all("creator"),
+        language: first("language"),
+        identifier: first("identifier"),
+        publisher: first("publisher"),
+        description: first("description"),
+        date: first("date"),
+    }
+}
+
+/// The EPUB 3 navigation document's `toc` nav (else its first nav) as entries.
+fn nav_toc(nav_text: &str, nav_path: &str) -> Vec<TocEntry> {
+    let (xml, _) = xmltree::parse_document(nav_text, false);
+    let navs = find_all(xml.root.as_slice(), "nav");
+    let is_toc = |n: &XmlNode| {
+        attr(n, "type").is_some_and(|t| t.split_whitespace().any(|w| w.eq_ignore_ascii_case("toc")))
+    };
+    let Some(nav) = navs
+        .iter()
+        .copied()
+        .find(|n| is_toc(*n))
+        .or_else(|| navs.first().copied())
+    else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    if let Some(list) = find_first(nav.children.as_slice(), "ol") {
+        nav_list(list, 0, nav_path, &mut out);
+    }
+    out
+}
+
+/// One `<ol>` of the navigation document: each `<li>`'s link (or heading `<span>`), then its
+/// nested list one level deeper.
+fn nav_list(list: &XmlNode, depth: usize, base: &str, out: &mut Vec<TocEntry>) {
+    for item in children_named(list, "li") {
+        let link = elements(item).find(|e| matches!(xmltree::name(e).as_str(), "a" | "span"));
+        if let Some(link) = link {
+            let mut label = text(link);
+            if label.is_empty() {
+                label = attr(link, "title")
+                    .map(xmltree::fold_space)
+                    .unwrap_or_default();
+            }
+            let (path, fragment) = match attr(link, "href") {
+                Some(href) if xmltree::name(link) == "a" => resolve(base, href),
+                _ => (String::new(), String::new()),
+            };
+            if !label.is_empty() || !path.is_empty() {
+                out.push(TocEntry {
+                    label,
+                    path,
+                    fragment,
+                    depth,
+                    chapter: None,
+                });
+            }
+        }
+        if let Some(sub) = child(item, "ol") {
+            nav_list(sub, depth + 1, base, out);
+        }
+    }
+}
+
+/// The EPUB 2 NCX's `navMap` as entries (nested `navPoint`s one level deeper).
+fn ncx_toc(ncx_text: &str, ncx_path: &str) -> Vec<TocEntry> {
+    let (xml, _) = xmltree::parse_document(ncx_text, false);
+    let mut out = Vec::new();
+    if let Some(map) = find_first(xml.root.as_slice(), "navmap") {
+        ncx_points(map, 0, ncx_path, &mut out);
+    }
+    out
+}
+
+fn ncx_points(parent: &XmlNode, depth: usize, base: &str, out: &mut Vec<TocEntry>) {
+    for point in children_named(parent, "navpoint") {
+        let label = child(point, "navlabel")
+            .and_then(|l| child(l, "text"))
+            .map(text)
+            .unwrap_or_default();
+        let (path, fragment) = child(point, "content")
+            .and_then(|c| attr(c, "src"))
+            .map(|src| resolve(base, src))
+            .unwrap_or_default();
+        out.push(TocEntry {
+            label,
+            path,
+            fragment,
+            depth,
+            chapter: None,
+        });
+        ncx_points(point, depth + 1, base, out);
+    }
+}
+
+/// A book without a table of contents: each chapter by its title (its `<title>`, else its
+/// first heading, else "Chapter N").
+fn spine_toc(container: &Container, spine: &[SpineItem]) -> Vec<TocEntry> {
+    spine
+        .iter()
+        .enumerate()
+        .map(|(i, item)| {
+            let label = container
+                .text(&item.path)
+                .map(|t| chapter_label(&t, item.is_html()))
+                .filter(|l| !l.is_empty())
+                .unwrap_or_else(|| format!("Chapter {}", i + 1));
+            TocEntry {
+                label,
+                path: item.path.clone(),
+                fragment: String::new(),
+                depth: 0,
+                chapter: Some(i),
+            }
+        })
+        .collect()
+}
+
+/// A chapter's own title: its `<title>`, else its first `h1` / `h2` / `h3`.
+fn chapter_label(source: &str, html: bool) -> String {
+    let (xml, _) = xmltree::parse_document(source, html);
+    let root = xml.root.as_slice();
+    for name in ["title", "h1", "h2", "h3"] {
+        if let Some(node) = find_first(root, name) {
+            let label = text(node);
+            if !label.is_empty() {
+                return label;
+            }
+        }
+    }
+    String::new()
 }
 
 #[cfg(test)]
