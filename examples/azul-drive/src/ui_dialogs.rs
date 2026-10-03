@@ -548,17 +548,8 @@ fn properties_dialog(s: &DriveState, app: &RefAny, props: &PropertiesState) -> (
                         details.push((String::from("Metadata"), String::from("Reading...")))
                     }
                     Some(Ok(pairs)) => {
-                        for (name, value) in pairs {
-                            let value = if name == "Created" {
-                                value
-                                    .parse::<u64>()
-                                    .map(|secs| browse::format_modified(Some(secs), &chrono::Local))
-                                    .unwrap_or_else(|_| value.clone())
-                            } else {
-                                value.clone()
-                            };
-                            details.push((name.clone(), value));
-                        }
+                        let shown = ["Name", "Key", "ETag"];
+                        details.extend(browse::metadata_rows(pairs, &shown, &chrono::Local));
                     }
                     Some(Err(e)) => details.push((String::from("Metadata"), e.clone())),
                     None => {}

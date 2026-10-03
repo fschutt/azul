@@ -660,13 +660,9 @@ pub(crate) fn details_pane(s: &DriveState) -> Dom {
                         pane = pane.with_property(AzString::from("ETag"), AzString::from(etag.as_str()));
                     }
                     if let Some(Ok(pairs)) = s.metadata.get(&entry.key) {
-                        for (name, value) in pairs {
-                            if name != "ETag" {
-                                pane = pane.with_property(
-                                    AzString::from(name.as_str()),
-                                    AzString::from(value.as_str()),
-                                );
-                            }
+                        let shown = ["Size", "Date modified", "Location", "ETag"];
+                        for (name, value) in browse::metadata_rows(pairs, &shown, &chrono::Local) {
+                            pane = pane.with_property(AzString::from(name), AzString::from(value));
                         }
                     }
                     pane

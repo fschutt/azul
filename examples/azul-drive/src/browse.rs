@@ -290,9 +290,17 @@ pub fn metadata_rows<Tz: chrono::TimeZone>(
 where
     Tz::Offset: std::fmt::Display,
 {
-    // RED: every pair as it is.
-    let _ = (shown, zone);
-    pairs.to_vec()
+    pairs
+        .iter()
+        .filter(|(name, _)| !shown.contains(&name.as_str()))
+        .map(|(name, value)| {
+            let value = match value.parse::<u64>() {
+                Ok(secs) if name == "Created" => format_modified(Some(secs), zone),
+                _ => value.clone(),
+            };
+            (name.clone(), value)
+        })
+        .collect()
 }
 
 /// Where the window is: Quick access (the pinned folders), the "This PC"
