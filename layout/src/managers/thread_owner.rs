@@ -28,6 +28,13 @@
 //! callback, a write-back - are the APP's and are never bound: a download
 //! must not die because the button that started it re-rendered as a progress
 //! bar.
+//!
+//! TIMERS follow the same rule (THREADS8): a timer one of a node's lifecycle
+//! callbacks started - the map's 250 ms tile sweep - belongs to the node.
+//! When the node unmounts, `LayoutWindow::remap_node_ids` drops it from the
+//! window's timers and puts it on [`ThreadOwnerManager::take_timers_to_stop`],
+//! from which the shell stops its platform timer. A closing window stops ALL
+//! its workers together ([`stop_all`], from `LayoutWindow`'s `Drop`).
 
 use alloc::{collections::BTreeMap, vec::Vec};
 
