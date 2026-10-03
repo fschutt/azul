@@ -153,6 +153,14 @@ pub enum Command {
     SumRange {
         at: CellAddr,
     },
+    /// Merge & Center the area (the top-left input stays).
+    MergeCenter {
+        area: CellArea,
+    },
+    /// Removes the merges overlapping the area.
+    Unmerge {
+        area: CellArea,
+    },
     AddSheet,
     RenameSheet {
         sheet: u32,
@@ -254,6 +262,8 @@ pub struct Snapshot {
     pub row_heights: Vec<(i32, f64)>,
     /// The frozen panes: (rows, columns).
     pub frozen: (i32, i32),
+    /// The merged areas of the sheet.
+    pub merges: Vec<CellArea>,
     pub grid_lines: bool,
     /// (max_row, max_column) of the sheet's data.
     pub extent: (i32, i32),
@@ -381,6 +391,7 @@ pub fn snapshot(engine: &dyn SheetEngine, view: &ViewRequest) -> Snapshot {
         cells,
         styles,
         frozen: engine.frozen(sheet),
+        merges: engine.merges(sheet),
         grid_lines: engine.show_grid_lines(sheet),
         extent: engine.extent(sheet),
         stats: ops::selection_stats(engine, &view.selection),
@@ -495,6 +506,8 @@ fn run(
             extras.area = ops::sum_range_above(engine, *at);
             Ok(())
         }
+        Command::MergeCenter { area } => ops::merge_and_center(engine, *area),
+        Command::Unmerge { area } => engine.unmerge(*area),
         Command::AddSheet => engine.add_sheet(),
         Command::RenameSheet { sheet, name } => engine.rename_sheet(*sheet, name),
         Command::DeleteSheet { sheet } => engine.delete_sheet(*sheet),
