@@ -38,6 +38,11 @@ Branch `wt/headless6` from base 25d78e309. Brief: scripts/waves/wave6/HEADLESS6.
   (solver3 -> MAILENG6): the DL paints positioned #below BEFORE the earlier transformed #mover's
   stacking context (tree order says mover first). Also: hit tester ignores the ANIMATION transform
   channel (anim_transform_keys) the DL honours.
+- F + G: 29efad7b9 RED / 79923bac0 GREEN: headless service_frame keeps the desktop frame contract
+  (relayout-only = layout already ran -> paint_laid_out; ShouldIncrementalRelayout lays out at the raise
+  point; display_list_dirty consumed by repaint_only). Seen, not fixed: X11 GPU path treats
+  display_list_dirty as "already rebuilt" but ImageById (window.rs apply_content_change) does NOT
+  rebuild the DL itself (the clip-mask arm does) -> css-id image registration stale on X11 GPU.
 - coordinator (INFRA6 note): runner close protocol. 021331d4c RED / b150ef6ba GREEN
   (runner.rs close_unconfirmed + confirm_app_close + run_frame extracted; tests mod close_protocol_tests).
 
@@ -45,7 +50,9 @@ Branch `wt/headless6` from base 25d78e309. Brief: scripts/waves/wave6/HEADLESS6.
 - RESUMED after the power loss (coordinator: power back, probe runs allowed again, one at a time, capped).
   Scratchpad was wiped: probes now in <scratchpad>/headless6/probe (client.py = debug-server client).
   In-process check: `target/release/azul-doc e2e <dir>` (prebuilt) -> D, E, F, G PASS in-process, so they
-  are host-only. Next: D (frozen clock question), then E, F, G probes; then the report.
+  are host-only. Solo runs (fresh process each, solo.sh) fail the same way -> not cross-scenario leaks.
+  Next: D (live CSS driver steps on wall clock under AZ_E2E: decide), E (2 transitions: probe which
+  property), then the report.
 
 ## NEXT
 - C..G need a probe run (power permitting): probe scenarios in scratchpad/probe.
