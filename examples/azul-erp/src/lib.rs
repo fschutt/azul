@@ -46,3 +46,6 @@ pub mod csv_io;
 /// Totals by category and location, the depreciation forecast,
 /// maintenance due, overdue check-outs.
 pub mod reports;
+/// The view-JSON interpreter (first slice): the ERP's view dialect, routing,
+/// labels, view -> columns / fields / tabs / steps, records by field name.
+pub mod views;
