@@ -287,6 +287,60 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    /// A drive that answers two entries per page (an S3 bucket answers a
+    /// thousand): a listing that reads one page misses the rest.
+    struct TwoPerPage(LocalDrive);
+
+    impl Drive for TwoPerPage {
+        fn list(&self, request: &ListRequest) -> Result<azul_storage::ListPage, DriveError> {
+            self.0.list(&request.clone().with_max_keys(2))
+        }
+        fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+            self.0.get(key)
+        }
+        fn get_range(&self, key: &str, range: azul_storage::ByteRange) -> Result<Vec<u8>, DriveError> {
+            self.0.get_range(key, range)
+        }
+        fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+            self.0.put(key, bytes)
+        }
+        fn delete(&self, key: &str) -> Result<(), DriveError> {
+            self.0.delete(key)
+        }
+        fn head(&self, key: &str) -> Result<azul_storage::ObjectInfo, DriveError> {
+            self.0.head(key)
+        }
+    }
+
+    /// DEDUP_OFFICE N2 / D4 (an S3 blocker): `Job::List` read ONE page, so
+    /// on a bucket the decks past the first thousand keys vanished from
+    /// File > Open.
+    #[test]
+    fn the_open_page_lists_every_deck_past_the_first_page_of_the_listing() {
+        let root = temp_root("pages");
+        let drive = TwoPerPage(local_drive(root.clone()));
+        for i in 0..5 {
+            let deck = sample_deck(&format!("deck-{i}"), Theme::office());
+            assert!(matches!(run_job(&drive, Job::Save { deck: Box::new(deck) }), Outcome::Saved(Ok(_))));
+        }
+        let picture = Job::PutMedia {
+            deck: String::from("deck-0"),
+            name: String::from("a.png"),
+            bytes: vec![1, 2, 3],
+        };
+        assert!(matches!(run_job(&drive, picture), Outcome::MediaStored(Ok(_))), "a picture is no deck");
+        match run_job(&drive, Job::List) {
+            Outcome::Listed(Ok(decks)) => {
+                let mut ids: Vec<String> = decks.iter().map(|d| d.id.clone()).collect();
+                ids.sort();
+                assert_eq!(ids, vec!["deck-0", "deck-1", "deck-2", "deck-3", "deck-4"]);
+                assert!(decks.iter().all(|d| d.modified.is_some()), "the date comes with the listing");
+            }
+            other => panic!("{other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     #[test]
     fn a_missing_deck_is_an_error_not_a_panic() {
         let root = temp_root("missing");
