@@ -65,12 +65,22 @@ Brief: scripts/waves/wave8/PLAN.md section "WPT8". Items in order:
   boxes and inline-blocks: outer shadows, bg layers, inset shadows on the padding box, border);
   raster render_box_shadow casts inset shadows; exact ring hole on the pixel grid.
 
+- item 8 (reftest budget): d90dfadfb RED (stub + 3 unit tests in doc/src/reftest/pipeline.rs),
+  40643b675 fix: `pass_threshold_for` (wpt-* 2500 px or its fuzzy meta; others global), pipeline +
+  debug.rs use it; `meta_content` reads one meta tag.
+- item 5 (background-clip): f11afdf70 RED, 84d404d2b feat: new CSS property BackgroundClip (css type +
+  parser + every CssProperty arm + codegen tables + core get_background_clip); getters
+  `get_background_clip`; display_list `paint_box_decorations` clips bg layers; `inset_rect` /
+  `inset_radius` free fns. API.JSON: StyleBackgroundClip, StyleBackgroundClipValue,
+  CssProperty::BackgroundClip, CssPropertyType::BackgroundClip (+ consts) - list in report.
+
 ## IN PROGRESS
-- item 8: reftest budget in doc/src/reftest/pipeline.rs (per-page budget for wpt-* pages)
+- deciding on ::before/::after generated content (item 3 remainder)
 
 ## NEXT
-- item 5 background-clip (needs a NEW css property: follow the zoom commit 40b1ab2a3 as template ->
-  api.json additions), then ::before/::after generated content if feasible, then the report.
+- generated content if feasible (design: parser2 `::before`/`:before` -> DirectChildren +
+  Type(NodeTypeTag::Before)? + pseudo nodes + content eval), else the report
+  scripts/WPT8_2026_10_03.md.
 
 ## Decisions / open questions
 - Tests use the document loader (`parse_xml_to_styled_dom`), which keeps `<html>` attributes.
