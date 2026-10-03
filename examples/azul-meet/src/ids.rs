@@ -23,6 +23,8 @@ pub const CHAT_MESSAGES: AzString = AzString::from_const_str("__azmeet_chat_mess
 pub const CHAT_FIELD: AzString = AzString::from_const_str("__azmeet_chat_field");
 pub const CHAT_SEND: AzString = AzString::from_const_str("__azmeet_chat_send");
 pub const STATISTICS: AzString = AzString::from_const_str("__azmeet_statistics");
+/// The side panel's "Copy link" (the meeting's link beside it).
+pub const COPY_LINK: AzString = AzString::from_const_str("__azmeet_copy_link");
 
 // ==== The lobby ====
 
