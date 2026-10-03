@@ -63,7 +63,17 @@ Brief: scripts/waves/wave8/PLAN.md section "RULINGS8".
 - 3. Ripple review: 33 layout/tests files use inline-blocks (table_markup::block(w) = 10px-high inline-blocks;
      table tests asserted 10px rows) - grep height / origin.y assertions on lines holding only inline-blocks
      and update them to Chrome's numbers (or note them for the parent).
-- 4. Widgets: grep themes flat.rs / flora.rs + widget files for display: inline-block / inline-flex / img
+- 3b. Ripple so far: read row_groups, a_rows_stray_child, an_inline_tables_baseline, abspos line, max-height,
+     vertical_align viewport, text3_baseline_exact (sub/super/text-top unchanged; middle only asserts != 0) -
+     all still hold. Known side effect: an EMPTY inline span (fc.rs collect_inline_span_recursive emulates it
+     as a Shape of line-height height ON the baseline) alone on a line: 18 -> 22 (Chrome 0 phantom / 18);
+     report it (fc.rs owner), not changed.
+- 4. Widgets: scan tools (not committed) target/rulings8/scan.py <App> <out.json> (dumps layout tree +
+     node rects + hierarchy of every dom, capped) and analyze.py <dump> (IFC roots with atomics but no text).
+     AzWidgets: only __azul-native-dialog (block) > .dialog-invoker (inline-block button, 31px, has text
+     baseline -> line unchanged). Widgets use NO vertical-align. TODO: analyze.py misses inline-flex children
+     (layout FC "Flex") - extend scan.py to query get_node_css_properties for Flex children of all-inline
+     parents; then scan a few apps (AzMail, AzWriter, AzDrive, AzCalendar...). Also grep widgets: flat.rs / flora.rs + widget files for display: inline-block / inline-flex / img
      icons in block containers; add line-height: 0 / display: block / vertical-align where the look must
      stay; list each in the report.
 - 5. Report scripts/RULINGS8_2026_10_03.md.
