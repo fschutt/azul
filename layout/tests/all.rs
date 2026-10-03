@@ -814,3 +814,5 @@ mod a_node_mid_slide_is_hit_where_it_is_painted;
 mod a_css_id_image_registration_rebuilds_the_display_list_itself;
 #[path = "a_clipped_box_inside_a_scrolled_frame_shows_all_of_its_lines.rs"]
 mod a_clipped_box_inside_a_scrolled_frame_shows_all_of_its_lines;
+#[path = "a_sliding_box_moves_its_sliding_children_once.rs"]
+mod a_sliding_box_moves_its_sliding_children_once;
