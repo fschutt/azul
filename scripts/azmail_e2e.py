@@ -514,6 +514,11 @@ class SampleRun(Run):
         self.check('the message list and the reading pane keep their widths with an HTML mail open',
                    lists and panes and min(lists) > 100 and min(panes) > 100,
                    f'(list {lists}, reading pane {panes})')
+        # The newsletter's 600 px table stays on its paper: the paper grows with the mail
+        # (html.rs) and the pane scrolls it sideways.
+        papers = self.widths('__azmail_paper')
+        self.check('the newsletter\'s 600 px table stays on its paper',
+                   papers and min(papers) >= 600, f'(paper {papers})')
 
     def todo_task(self):
         self.must('focus_node', selector='.__azul-native-todo-bar-task-input '
