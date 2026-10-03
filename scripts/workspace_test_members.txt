@@ -46,6 +46,7 @@ tested: AzSheets             # dll_tests (the engine trait on a fake, the IronCa
 tested: AzTasks              # dll_tests (quick-add parser, repeat rules, smart lists, task files)
 tested: azul-pim             # dll_tests (dates, RRULE, repeats, content lines, addresses, search, initials, the task store)
 tested: AzDashboard          # dll_tests (the generated orders, their texts and values, edit validation, the table glue)
+tested: AzReader             # dll_tests (EPUB container / package / TOC, the content policy, pages and positions, the library files)
 
 # ── members with genuinely no tests. The script verifies the claim by grepping
 #    for #[test]; if any of these grows one, it fails until it is moved up and

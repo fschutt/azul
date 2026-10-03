@@ -26,6 +26,7 @@ members = [
     "examples/azul-tasks", # AzTasks: to-dos and reminders (S4 PimShell), one JSON file per task through azul-storage
     "examples/azul-pim", # azul-pim: the shared PIM logic (dates, RRULE, .ics/.vcf content lines, addresses, search, initials, the one task store)
     "examples/azul-dashboard", # AzDashboard: 500k orders in the virtualized DataTable (sort, filter, edit) + charts, on the S6 RecordsShell
+    "examples/azul-reader", # AzReader: the e-reader (EPUB through azul's XML/HTML parser, paged layout, library, TOC, bookmarks; reader/books/<uuid>/...)
     "dll", # dll module with auto-gen C functions (optional pyO3 support), depends on layout, core and css
     "doc", # doc / test generator, depends on layout, core and css
     "layout", # layout depends on core + css
