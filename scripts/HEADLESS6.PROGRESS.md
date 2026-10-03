@@ -33,13 +33,19 @@ Branch `wt/headless6` from base 25d78e309. Brief: scripts/waves/wave6/HEADLESS6.
 - item 3: f4e39d74c RED / d8b3643e8 GREEN headless menus = child window (desktop::menu::show_menu),
   ids azul-menu, azul-menu-2...; 5e7689256 RED / 986c8a5ba GREEN `list_windows` op (+ gene2e OP_POLICY row).
   NOT done: dismiss-on-outside-click for headless menus (close via item click or `close` op with window_id).
+- C: 72c7f40de RED / 3af8bbc7b GREEN: hit tester applies a node's OWN transform to its own box
+  (headless.rs compute_node_chains). C was red in-process too (prebuilt azul-doc e2e). Seen, NOT fixed
+  (solver3 -> MAILENG6): the DL paints positioned #below BEFORE the earlier transformed #mover's
+  stacking context (tree order says mover first). Also: hit tester ignores the ANIMATION transform
+  channel (anim_transform_keys) the DL honours.
 - coordinator (INFRA6 note): runner close protocol. 021331d4c RED / b150ef6ba GREEN
   (runner.rs close_unconfirmed + confirm_app_close + run_frame extracted; tests mod close_protocol_tests).
 
 ## IN PROGRESS
 - RESUMED after the power loss (coordinator: power back, probe runs allowed again, one at a time, capped).
-  Scratchpad was wiped: probes now in <scratchpad>/headless6/probe. Next: probe C (hit_test at (50,25),
-  get_node_layout #below/#mover) against the prebuilt AzPaint; then D..G; then the report.
+  Scratchpad was wiped: probes now in <scratchpad>/headless6/probe (client.py = debug-server client).
+  In-process check: `target/release/azul-doc e2e <dir>` (prebuilt) -> D, E, F, G PASS in-process, so they
+  are host-only. Next: D (frozen clock question), then E, F, G probes; then the report.
 
 ## NEXT
 - C..G need a probe run (power permitting): probe scenarios in scratchpad/probe.
