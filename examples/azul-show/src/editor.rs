@@ -362,6 +362,20 @@ impl Editor {
         self.text = None;
     }
 
+    /// Cell `row`, `col` of table `id` on the current slide takes `text`
+    /// (typed in place). Whether it changed.
+    pub fn set_cell(&mut self, id: u64, row: usize, col: usize, text: &str) -> bool {
+        let _ = (id, row, col, text);
+        false
+    }
+
+    /// A row of empty cells at the end of table `id` (Tab in its last
+    /// cell); the new row's index.
+    pub fn add_table_row(&mut self, id: u64) -> Option<usize> {
+        let _ = id;
+        None
+    }
+
     /// The body of the text being edited.
     pub fn edited_body_mut(&mut self) -> Option<&mut TextBody> {
         let id = self.editing?;
@@ -996,6 +1010,30 @@ mod tests {
         let pic = ed.insert_image("media/a.png", 800.0, 600.0);
         let at = ed.slide().index_of(pic).expect("the picture");
         assert!(!ed.activate(at));
+    }
+
+    #[test]
+    fn a_table_is_edited_in_place_cell_by_cell() {
+        let mut ed = editor();
+        let table = ed.insert_table(3, 2);
+        let at = ed.slide().index_of(table).expect("the table");
+        assert!(ed.activate(at), "a double-click on a table edits its cells");
+        assert_eq!(ed.editing, Some(table));
+        let cells = |ed: &Editor| match &ed.slide().element(table).expect("the table").kind {
+            ElementKind::Table { rows, .. } => rows.clone(),
+            _ => Vec::new(),
+        };
+        ed.dirty = false;
+        assert!(ed.set_cell(table, 1, 0, "Budget"));
+        assert!(ed.dirty, "a typed cell is an edit of the deck");
+        assert_eq!(cells(&ed)[1][0], "Budget");
+        assert!(!ed.set_cell(table, 1, 0, "Budget"), "the same text is no change");
+        assert!(!ed.set_cell(table, 9, 0, "x"), "no such cell");
+        assert_eq!(ed.add_table_row(table), Some(3), "Tab in the last cell adds a row");
+        assert_eq!(cells(&ed).len(), 4);
+        assert_eq!(cells(&ed)[3], vec![String::new(), String::new()]);
+        ed.stop_editing();
+        assert_eq!(ed.editing, None);
     }
 
     #[test]

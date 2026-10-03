@@ -43,6 +43,13 @@ pub fn host_id(element: u64) -> String {
     format!("{}{element}", crate::ids::TEXT_PREFIX)
 }
 
+/// The DOM id of cell `row`, `col` of table `element` (edited in place).
+#[must_use]
+pub fn cell_id(element: u64, row: usize, col: usize) -> String {
+    let _ = (row, col);
+    host_id(element)
+}
+
 fn rich_align(a: Align) -> RichAlign {
     match a {
         Align::Left => RichAlign::Left,
@@ -291,5 +298,6 @@ mod tests {
     fn the_dom_ids_name_the_element_and_the_paragraph() {
         assert_eq!(block_id(42, 3), "__azshow_tb42-3");
         assert_eq!(host_id(42), "__azshow_tb42");
+        assert_eq!(cell_id(42, 1, 2), "__azshow_tb42-1-2");
     }
 }
