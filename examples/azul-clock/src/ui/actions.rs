@@ -237,7 +237,8 @@ pub(crate) fn run(s: &mut ClockApp, info: &mut CallbackInfo, action: Action) {
             t.start(now);
             s.selected_timer = Some(t.id.clone());
             s.timers.push(t);
-            save_timer(s, s.timers.len() - 1);
+            let last = s.timers.len() - 1;
+            save_timer(s, last);
         }
         Action::TimerSelect(id) => s.selected_timer = Some(id),
         Action::TimerToggle(id) => {
