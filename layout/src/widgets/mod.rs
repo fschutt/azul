@@ -515,6 +515,14 @@ pub mod data_table;
 /// view for screen readers; a long line decimated per pixel column. Drawn
 /// with the engine's SVG path; see `chart.rs`.
 pub mod chart;
+/// Code view widget.
+///
+/// The editing surface of a code editor over as many lines as the app has
+/// (a million is the yardstick): only the lines in view are built, a gutter
+/// of line numbers, syntax colours from the app's spans, several cursors
+/// with selections, the keys and the pointer of a code editor; the app
+/// owns the text (edits come back as replacements). See `code_view.rs`.
+pub mod code_view;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
