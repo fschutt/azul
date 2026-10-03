@@ -671,49 +671,159 @@ pub(crate) enum Hit {
     Nothing,
 }
 
+/// How many whole `cell` px steps fit into `px` (at least one when `min_one`).
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // finite, non-negative, small
+fn steps(px: f32, cell: f32, min_one: bool) -> usize {
+    let n = if px.is_finite() && px > 0.0 { (px / cell).floor() as usize } else { 0 };
+    if min_one { n.max(1) } else { n }
+}
+
 /// The geometry of `g` as it is built now.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
 pub(crate) fn geometry(g: &IconGrid) -> Geometry {
-    let _ = g;
+    use crate::widgets::data_table::{thumb, SCROLLBAR_PX};
+
+    let width = g.viewport_width.max(0.0);
+    let height = g.viewport_height.max(0.0);
+    let cell_width = g.cell_width.max(1.0);
+    let cell_height = g.cell_height.max(1.0);
+    let count = g.count;
+    let rows_for = |columns: usize| count.div_ceil(columns);
+    let page_rows = steps(height, cell_height, true);
+    let mut body_width = width;
+    let mut columns = steps(body_width, cell_width, true);
+    let mut rows = rows_for(columns);
+    let overflows = rows > page_rows;
+    if overflows {
+        body_width = (width - SCROLLBAR_PX).max(0.0);
+        columns = steps(body_width, cell_width, true);
+        rows = rows_for(columns);
+    }
+    let max_top = rows.saturating_sub(page_rows);
+    let top = g.view.top_row.min(max_top);
+    // The rows shown: the whole ones and a part of the next.
+    let shown_rows = if height > 0.0 { (height / cell_height).ceil() as usize } else { 0 };
+    let first = (top * columns).min(count);
+    let end = ((top + shown_rows) * columns).min(count);
+    let vbar = overflows.then(|| {
+        let clamp = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+        let (thumb_start, thumb_len) =
+            thumb(height, page_rows as f32, rows as f32, clamp(top), clamp(max_top));
+        ScrollBar {
+            track: (body_width, 0.0, SCROLLBAR_PX.min(width), height),
+            thumb_start,
+            thumb_len,
+        }
+    });
     Geometry {
-        count: 0,
-        columns: 1,
-        rows: 0,
-        page_rows: 1,
-        top: 0,
-        max_top: 0,
-        first: 0,
-        end: 0,
-        body_width: 0.0,
-        height: 0.0,
-        cell_width: 1.0,
-        cell_height: 1.0,
-        vbar: None,
+        count,
+        columns,
+        rows,
+        page_rows,
+        top,
+        max_top,
+        first,
+        end,
+        body_width,
+        height,
+        cell_width,
+        cell_height,
+        vbar,
     }
 }
 
 /// What the point (`x`, `y`) px in the grid is over.
 pub(crate) fn hit_test(geo: &Geometry, x: f32, y: f32) -> Hit {
-    let _ = (geo, x, y);
-    Hit::Nothing
+    if let Some(bar) = geo.vbar {
+        if bar.contains(x, y) {
+            let along = y - bar.track.1;
+            return if along < bar.thumb_start {
+                Hit::Track(false)
+            } else if along < bar.thumb_start + bar.thumb_len {
+                Hit::Thumb
+            } else {
+                Hit::Track(true)
+            };
+        }
+    }
+    if !(x.is_finite() && y.is_finite()) || x < 0.0 || y < 0.0 || x >= geo.body_width || y >= geo.height {
+        return Hit::Nothing;
+    }
+    let column = steps(x, geo.cell_width, false);
+    if column >= geo.columns {
+        return Hit::Empty;
+    }
+    let row = geo.top + steps(y, geo.cell_height, false);
+    let index = row * geo.columns + column;
+    if index < geo.count {
+        Hit::Item(index)
+    } else {
+        Hit::Empty
+    }
 }
 
 /// Item `index`'s cell (x, y, width, height px in the grid), when in view.
+#[allow(clippy::cast_precision_loss)] // cells in view: small numbers
 pub(crate) fn item_rect(geo: &Geometry, index: usize) -> Option<(f32, f32, f32, f32)> {
-    let _ = (geo, index);
-    None
+    if index < geo.first || index >= geo.end {
+        return None;
+    }
+    let row = index / geo.columns - geo.top;
+    let column = index % geo.columns;
+    Some((
+        column as f32 * geo.cell_width,
+        row as f32 * geo.cell_height,
+        geo.cell_width,
+        geo.cell_height,
+    ))
 }
 
 /// The items whose cells the rectangle from (`x0`, `y0`) to (`x1`, `y1`)
 /// (px in the grid, either way round) crosses, ascending.
 pub(crate) fn marquee_keys(geo: &Geometry, x0: f32, y0: f32, x1: f32, y1: f32) -> Vec<u64> {
-    let _ = (geo, x0, y0, x1, y1);
-    Vec::new()
+    let (left, right) = (x0.min(x1).max(0.0), x0.max(x1));
+    let (top, bottom) = (y0.min(y1).max(0.0), y0.max(y1));
+    if geo.columns == 0 || right < 0.0 || bottom < 0.0 {
+        return Vec::new();
+    }
+    let first_column = steps(left, geo.cell_width, false);
+    if first_column >= geo.columns {
+        return Vec::new();
+    }
+    let last_column = steps(right, geo.cell_width, false).min(geo.columns - 1);
+    let first_row = geo.top + steps(top, geo.cell_height, false);
+    let last_row = geo.top + steps(bottom, geo.cell_height, false);
+    let mut keys = Vec::new();
+    for row in first_row..=last_row {
+        for column in first_column..=last_column {
+            let index = row * geo.columns + column;
+            if index < geo.count {
+                keys.push(index as u64);
+            }
+        }
+    }
+    keys
 }
 
 /// The view scrolled by `rows` rows (kept in range).
 pub(crate) fn scroll_by(g: &IconGrid, geo: &Geometry, rows: i64) -> IconGridView {
-    let _ = (geo, rows);
-    g.view.clone()
+    let mut next = g.view.clone();
+    let top = i64::try_from(geo.top).unwrap_or(i64::MAX).saturating_add(rows);
+    let max = i64::try_from(geo.max_top).unwrap_or(i64::MAX);
+    next.top_row = usize::try_from(top.clamp(0, max)).unwrap_or(0);
+    next
+}
+
+/// `view` scrolled so that item `index`'s row is in view.
+fn reveal(view: &mut IconGridView, geo: &Geometry, index: usize) {
+    let row = index / geo.columns.max(1);
+    let page = geo.page_rows.max(1);
+    if row < view.top_row {
+        view.top_row = row;
+    } else if row >= view.top_row + page {
+        view.top_row = row + 1 - page;
+    }
+    view.top_row = view.top_row.min(geo.max_top);
 }
 
 /// What a press at (`x`, `y`) on `hit` does; `window_y` is the pointer's
