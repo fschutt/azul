@@ -53,16 +53,22 @@ scratchpad/msg.txt).
 
 ## Resume 2 (2026-10-03, after the power loss)
 - Battery 1% on AC (charging): code work first, the LOOK runs once the battery is above ~20%.
+- 3c0755ec3 RED / 0287cec63 GREEN AzMeet args on AppArgs + --name (D2)
+- 1454d22b9 RED / 83cde692a GREEN store Prefs (server/name/quality) + single save thread queue
+- a628f46ad store wired into lib.rs: files_root() (headless only with --data-dir/AZLIN_DATA),
+  saved_settings(), remember(), enter_record(), note_people(), flush_files(); settings.txt gone
+- d915a62ee rooms.rs settings.txt encoding removed; 74780b997 demo code from random_seed
+- Decision: the legacy <config>/AzMeet/settings.txt (one server URL) is NOT migrated
+  (pre-release; the next server that answers is saved again).
 
 ## IN PROGRESS
 - LOOK (paused: battery warning - no long headless runs until told otherwise)
 
 ## NEXT
-- AzMeet: wire store.rs into lib.rs - settings (server, name, quality, theme, mode) from
-  meet/settings.json via load_settings at start instead of <config>/AzMeet/settings.txt
-  (lib.rs ~4050 settings_path / saved_server / save_server); saves via store::save on a Thread;
-  chat.jsonl + meeting.json per meeting on each chat message / join / leave.
-- AzMeet args.rs on azul_appkit::AppArgs (like AzDrive 935dfecd6) if appkit allows extra switches.
+- AzMeet: About section = AboutDialog (ui.rs settings `_ =>` arm); shortcuts as an appkit
+  Shortcut table (keys.rs like AzDrive's) checked by a test; E2E: AZLIN_DATA per app, check
+  meet/<room>/chat.jsonl + meet/settings.json (AZMEET_SAVED lines)
+- then the LOOK runs (battery permitting)
 (older NEXT below)
 - when power allows: run scripts/azdrive_e2e.py (prebuilt AzDrive) through run_capped, look at
   every screenshot (target/md6/drive-shots), then AzMeet (run the WHOLE meet E2E under ONE
