@@ -5428,6 +5428,20 @@ fn handle_mouse_move(
     ))
 }
 
+/// [`handle_key_down`] for a focus that may LISTEN for paste
+/// (`focus_hears_paste`, see `InputInterpreterState::focus_hears_paste`).
+fn handle_key_down_for(
+    event: &SyntheticEvent,
+    keyboard_state: &crate::window::KeyboardState,
+    focused_node: Option<DomNodeId>,
+    focus_is_editable: bool,
+    has_selection: bool,
+    focus_hears_paste: bool,
+) -> Option<InternalEventAction> {
+    let _ = focus_hears_paste;
+    handle_key_down(event, keyboard_state, focused_node, focus_is_editable, has_selection)
+}
+
 /// Handle `KeyDown` event - detect shortcuts, arrow keys, and delete keys
 fn handle_key_down(
     event: &SyntheticEvent,

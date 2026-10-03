@@ -3691,6 +3691,37 @@ mod autotest_generated {
             .any(|e| e.event_type == EventType::KeyDown));
     }
 
+    /// A focused node that LISTENS for paste (a terminal: no text of its
+    /// own, no selection the engine knows) still gets the paste chord as the
+    /// engine's paste - only the engine can read the clipboard, and a
+    /// `Paste` callback is how a node asks for it. Copy, cut and select all
+    /// stay the node's keys: a terminal's Ctrl+C is the program's interrupt,
+    /// its Ctrl+A the start of the line.
+    #[test]
+    fn a_paste_chord_on_a_node_that_listens_for_paste_becomes_the_engines_paste() {
+        let kb = KeyboardState::default();
+        let target = Some(dnid(0, 1));
+        let paste = key_event(VirtualKeyCode::V as u32, primary_modifiers());
+        assert!(
+            handle_key_down_for(&paste, &kb, target, false, false, false).is_none(),
+            "without a paste listener the chord is the app's key"
+        );
+        assert!(
+            matches!(
+                handle_key_down_for(&paste, &kb, target, false, false, true),
+                Some(InternalEventAction::AddAndSkip(SystemChange::PasteFromClipboard))
+            ),
+            "a node listening for paste gets the engine's paste"
+        );
+        for vk in [VirtualKeyCode::C, VirtualKeyCode::X, VirtualKeyCode::A] {
+            let ev = key_event(vk as u32, primary_modifiers());
+            assert!(
+                handle_key_down_for(&ev, &kb, target, false, false, true).is_none(),
+                "{vk:?} on a paste listener is still the node's key"
+            );
+        }
+    }
+
     /// Ctrl/Cmd+D (the next occurrence as another caret) is text editing
     /// too: on a focused button it is the app's key (a "duplicate", a
     /// bookmark), in a text field the engine's.
