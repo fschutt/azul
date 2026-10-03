@@ -74,6 +74,12 @@ use sync::{Progress, SyncError, SyncOptions, SyncReport};
 /// The main window's id (the debug server addresses a window by it).
 pub(crate) const MAIN_WINDOW_ID: &str = "azmail-main";
 
+/// Every window's body: a column as tall as the window (`height: 100%` of the viewport - a
+/// flex body without it is only as tall as its content, and the shell's status bar floated
+/// in the middle of the window).
+pub(crate) const WINDOW_BODY_CSS: &str =
+    "display: flex; flex-direction: column; height: 100%; margin: 0px;";
+
 // ==== State ====
 
 /// The app: one per process, shared by the main window and every compose window.

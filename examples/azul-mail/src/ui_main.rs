@@ -112,7 +112,7 @@ pub(crate) extern "C" fn layout_main(mut data: RefAny, info: LayoutCallbackInfo)
         .with_child(title_row(s))
         .with_child(shell.dom());
     Dom::create_body()
-        .with_css("display: flex; flex-direction: column; margin: 0px;")
+        .with_css(crate::WINDOW_BODY_CSS)
         .with_child(
             ShellThemeScope::create(column)
                 .with_accent(ShellThemeAccent::Blue)
