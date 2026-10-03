@@ -614,11 +614,17 @@ pub fn about_open(kit_ref: &RefAny) -> bool {
     kit.downcast_ref::<Kit>().is_some_and(|k| k.about_open)
 }
 
-/// Opens or closes the About box.
+/// Opens or closes the About box (stdout `<APP>_ABOUT open|closed`, for
+/// scripts).
 pub fn set_about_open(kit_ref: &RefAny, open: bool) {
     let mut kit = kit_ref.clone();
     if let Some(mut k) = kit.downcast_mut::<Kit>() {
         k.about_open = open;
+        println!(
+            "{}_ABOUT {}",
+            k.spec.binary.to_uppercase(),
+            if open { "open" } else { "closed" }
+        );
     };
 }
 
