@@ -664,6 +664,12 @@ enum ReturnConversion {
     /// `<call>.map(|s| azul_css::AzString::from(s)).into()`: an `Option` of a
     /// `str` or a std `String` as `OptionString`
     OptionOwnedStr,
+    /// `<call>.clone()`: a borrowed `&T` return crosses as a value
+    Cloned,
+    /// `<call>.clone().into()`: a borrowed return whose value converts
+    ClonedInto,
+    /// `<call>.cloned().into()`: an `Option<&T>` as `OptionT`
+    OptionCloned,
 }
 
 impl ReturnConversion {
@@ -675,6 +681,25 @@ impl ReturnConversion {
             ReturnConversion::OptionOwnedStr => {
                 format!("{call}.map(|s| azul_css::AzString::from(s)).into()")
             }
+            ReturnConversion::Cloned => format!("{call}.clone()"),
+            ReturnConversion::ClonedInto => format!("{call}.clone().into()"),
+            ReturnConversion::OptionCloned => format!("{call}.cloned().into()"),
+        }
+    }
+
+    /// The conversion for `method`'s return when it is a borrow: an api.json
+    /// function returns a value, so `&T` is cloned and `Option<&T>`
+    /// `.cloned()` (AUTOFIX6: `object.block(i)` returned `&RichBlock` as
+    /// `RichBlock`). A borrowed `str` is [`ReturnConversion::OwnedStr`]
+    /// already; a slice has no FFI form and is left to the signature check.
+    fn for_borrowed_return(self, method: &MethodDef) -> Self {
+        let ret = method.return_type.as_deref().unwrap_or("").trim();
+        let borrowed = matches!(method.return_ref_kind, RefKind::Ref | RefKind::RefMut);
+        match self {
+            ReturnConversion::None if borrowed && !ret.starts_with('[') => ReturnConversion::Cloned,
+            ReturnConversion::Into if borrowed => ReturnConversion::ClonedInto,
+            ReturnConversion::Into if ret.starts_with("Option<&") => ReturnConversion::OptionCloned,
+            other => other,
         }
     }
 }
@@ -1624,8 +1649,9 @@ fn function_data_for_call(method: &MethodDef, class_name: &str, call: String) ->
     }
 
     // Convert the return value to its api.json type (`.into()` for the
-    // Result / Option wrappers, an owned `String` for a borrowed `str`)
-    let fn_body_str = conversion.wrap(fn_body_str);
+    // Result / Option wrappers, an owned `String` for a borrowed `str`, a
+    // clone of a borrow)
+    let fn_body_str = conversion.for_borrowed_return(method).wrap(fn_body_str);
 
     // A `&mut` callback info is re-borrowed from a mutable copy
     let rebound = rebound_handle_args(method);
