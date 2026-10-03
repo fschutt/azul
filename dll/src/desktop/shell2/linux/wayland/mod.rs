@@ -330,6 +330,10 @@ struct ShmSlot {
     /// cross-slot copy). Until then partial catch-up is meaningless — the
     /// slot's other pixels are undefined (#27).
     valid: bool,
+    /// Given back while the window was idle (WAYLAND8): `buffer` is null (the
+    /// `wl_buffer` was destroyed) and the slot's pages were punched out of the
+    /// file. `shm::plan_slot` re-creates it when a frame needs it.
+    released: bool,
 }
 
 /// Set to `true` by the `wl_shm.format` listener when the compositor
@@ -365,6 +369,10 @@ struct CpuFallbackState {
     /// copy). Fixed for the pool's lifetime.
     format: u32,
     fd: i32, // Keep fd open until drop
+    /// Bytes from one slot to the next (page-aligned, `shm::pool_layout`).
+    slot_bytes: usize,
+    /// When a buffer was last attached - the idle clock of `shm::idle_spare`.
+    last_attach: std::time::Instant,
     /// Damage rects (x, y, w, h) of the last render pass, in BUFFER (physical)
     /// coordinates. Filled by the CPU present path from
     /// `CpuBackend::last_present_damage`; drained into per-rect
@@ -3111,6 +3119,16 @@ impl WaylandWindow {
         // Get the display fd
         let display_fd = unsafe { (self.wayland.wl_display_get_fd)(self.display) };
 
+        // An idle CPU window gives its spare shm buffer back (shm::idle_spare)
+        // and otherwise says when to ask again - the poll below must not sleep
+        // past that deadline. The destroy request goes out with the flush.
+        let spare_deadline = match &mut self.render_mode {
+            RenderMode::Cpu(Some(cpu_state)) if !closing_now => {
+                cpu_state.release_idle_spare(std::time::Instant::now())
+            }
+            _ => None,
+        };
+
         unsafe {
             // Flush outgoing requests
             (self.wayland.wl_display_flush)(self.display);
@@ -3228,6 +3246,20 @@ impl WaylandWindow {
                     .max(1)
             } else {
                 -1
+            };
+            // ...but no longer than the spare buffer's idle deadline.
+            let timeout_ms = match spare_deadline {
+                Some(left) => {
+                    let ms = i32::try_from(left.as_millis())
+                        .unwrap_or(i32::MAX)
+                        .saturating_add(1);
+                    if timeout_ms < 0 {
+                        ms
+                    } else {
+                        timeout_ms.min(ms)
+                    }
+                }
+                None => timeout_ms,
             };
 
             let result = libc::poll(
@@ -8153,6 +8185,8 @@ impl WaylandWindow {
                             0,
                         );
                         *cpu_state.slots[cpu_state.active].busy = true;
+                        // The idle clock of the spare-buffer release.
+                        cpu_state.last_attach = std::time::Instant::now();
                         surface_committed = true;
                         // The GPU branch sets this after its first present;
                         // the CPU branch NEVER did, so `force_full =
@@ -8898,15 +8932,12 @@ unsafe fn wp_viewport_destroy(wayland: &Wayland, viewport: *mut defines::wp_view
 ///
 /// Pure so the ownership law can be tested without a compositor.
 pub(crate) fn next_writable_slot(active: usize, busy: [bool; 2]) -> Option<usize> {
-    let a = active & 1;
-    if !busy[a] {
-        return Some(a);
+    // The one law lives in shm.rs (`plan_slot`, which also knows buffers an
+    // idle window gave back); a pool that never releases one is this.
+    match shm::plan_slot(active, busy, [false, false]) {
+        shm::SlotPlan::Use(slot) => Some(slot),
+        shm::SlotPlan::Recreate(_) | shm::SlotPlan::Wait => None,
     }
-    let b = 1 - a;
-    if !busy[b] {
-        return Some(b);
-    }
-    None
 }
 
 /// Which slot a POPUP repaint (`WaylandPopup::render_if_ready`) writes into.
@@ -8923,6 +8954,41 @@ pub(crate) fn popup_paint_slot(active: usize, busy: [bool; 2]) -> Option<usize> 
     // protocol says the bytes were not ours to touch. The law is the
     // toplevel's, so it is literally the toplevel's.
     next_writable_slot(active, busy)
+}
+
+/// One `wl_buffer` of a slot of a `CpuFallbackState` pool, with the release
+/// listener writing into the slot's `busy` flag - the ONE constructor for the
+/// pool's creation and for re-creating a slot an idle window gave back.
+#[allow(clippy::too_many_arguments)]
+fn create_slot_buffer(
+    wayland: &Wayland,
+    pool: *mut defines::wl_shm_pool,
+    offset: usize,
+    width: i32,
+    height: i32,
+    stride: i32,
+    format: u32,
+    busy: *mut bool,
+) -> *mut defines::wl_buffer {
+    unsafe {
+        let buffer = (wayland.wl_shm_pool_create_buffer)(
+            pool,
+            offset as i32,
+            width,
+            height,
+            stride,
+            format,
+        );
+        if !buffer.is_null() {
+            *busy = false;
+            (wayland.wl_buffer_add_listener)(
+                buffer,
+                &WL_BUFFER_RELEASE_LISTENER,
+                busy as *mut c_void,
+            );
+        }
+        buffer
+    }
 }
 
 impl CpuFallbackState {
@@ -8990,24 +9056,10 @@ impl CpuFallbackState {
         };
         let make_slot = |idx: usize| -> ShmSlot {
             let offset = layout.offset_of(idx);
-            let buffer = unsafe {
-                (wayland.wl_shm_pool_create_buffer)(
-                    pool,
-                    offset as i32,
-                    width,
-                    height,
-                    stride,
-                    format,
-                )
-            };
             let busy = Box::into_raw(Box::new(false));
-            unsafe {
-                (wayland.wl_buffer_add_listener)(
-                    buffer,
-                    &WL_BUFFER_RELEASE_LISTENER,
-                    busy as *mut c_void,
-                );
-            }
+            let buffer = create_slot_buffer(
+                wayland, pool, offset, width, height, stride, format, busy,
+            );
             ShmSlot {
                 buffer,
                 offset,
@@ -9016,6 +9068,7 @@ impl CpuFallbackState {
                 // A fresh slot has undefined content: full copy on first use.
                 stale_overflow: true,
                 valid: false,
+                released: false,
             }
         };
 
@@ -9074,17 +9127,116 @@ impl CpuFallbackState {
             scale,
             format,
             fd, // Keep fd open - will be closed in Drop
+            slot_bytes: layout.slot_bytes,
+            last_attach: std::time::Instant::now(),
             damage_rects: Vec::new(),
         })
     }
 
-    /// Pick a buffer the compositor is NOT holding. Prefers the current
-    /// `active` slot; returns None when both are busy (caller skips the
-    /// attach this cycle and retries after the next frame callback/release).
+    /// Pick a buffer the compositor is NOT holding (`shm::plan_slot`):
+    /// prefers the current `active` slot, then the other live one, and
+    /// re-creates a slot an idle window gave back only when no live one is
+    /// free. Returns None when both are held (caller skips the attach this
+    /// cycle and retries after the next frame callback/release).
     fn acquire_slot(&mut self) -> Option<usize> {
-        let slot = next_writable_slot(self.active, self.busy_flags())?;
+        let slot = match shm::plan_slot(self.active, self.busy_flags(), self.released_flags()) {
+            shm::SlotPlan::Use(slot) => slot,
+            shm::SlotPlan::Recreate(slot) => {
+                if !self.recreate_slot(slot) {
+                    return None;
+                }
+                slot
+            }
+            shm::SlotPlan::Wait => return None,
+        };
         self.active = slot;
         Some(slot)
+    }
+
+    /// Which slots an idle window gave back (`ShmSlot::released`).
+    fn released_flags(&self) -> [bool; 2] {
+        [self.slots[0].released, self.slots[1].released]
+    }
+
+    /// Give `slot` back while the window is idle (WAYLAND8, "an idle window
+    /// holds ONE buffer"): destroy its `wl_buffer` (the compositor drops its
+    /// mapping / udmabuf import of it) and punch its pages out of the memfd,
+    /// which frees them for both processes. The slot's bytes are undefined
+    /// afterwards, so it must be caught up in full before it is drawn into
+    /// again. Never called for a held slot or for `active` (`shm::idle_spare`).
+    fn release_slot(&mut self, slot: usize) {
+        let s = &mut self.slots[slot];
+        if s.released || s.buffer.is_null() {
+            return;
+        }
+        unsafe {
+            (self.wayland.wl_buffer_destroy)(s.buffer);
+            // The proxy is gone: no release event can fire into the flag.
+            *s.busy = false;
+            // FALLOC_FL_PUNCH_HOLE | KEEP_SIZE on shmem frees the pages and
+            // zaps every mapping of them (ours and the compositor's); the
+            // file keeps its size, so F_SEAL_SHRINK allows it. Best effort:
+            // a failure only means the memory stays resident.
+            let _ = libc::fallocate(
+                self.fd,
+                libc::FALLOC_FL_PUNCH_HOLE | libc::FALLOC_FL_KEEP_SIZE,
+                s.offset as libc::off_t,
+                self.slot_bytes as libc::off_t,
+            );
+        }
+        s.buffer = std::ptr::null_mut();
+        s.released = true;
+        s.valid = false;
+        s.stale.clear();
+        s.stale_overflow = true;
+        wl_trace!(
+            "shm pool slot {slot} RELEASED (idle) - {} bytes punched out",
+            self.slot_bytes
+        );
+    }
+
+    /// Re-create a slot given back while idle: a new `wl_buffer` over the
+    /// same pool range (its pages fault back in as zeroes). The slot is not
+    /// `valid` - `catch_up_slot` copies the other slot in full first, or the
+    /// frame repaints everything. False if the compositor refused the buffer.
+    fn recreate_slot(&mut self, slot: usize) -> bool {
+        let buffer = create_slot_buffer(
+            &self.wayland,
+            self.pool,
+            self.slots[slot].offset,
+            self.width,
+            self.height,
+            self.stride,
+            self.format,
+            self.slots[slot].busy,
+        );
+        if buffer.is_null() {
+            return false;
+        }
+        let s = &mut self.slots[slot];
+        s.buffer = buffer;
+        s.released = false;
+        s.valid = false;
+        s.stale.clear();
+        s.stale_overflow = true;
+        wl_trace!("shm pool slot {slot} RE-CREATED on demand");
+        true
+    }
+
+    /// The idle hook (`wait_for_events`, before it parks): give the spare
+    /// buffer back once the window has presented nothing for
+    /// `shm::SPARE_IDLE_RELEASE`. Returns how long the loop may sleep before
+    /// it must ask again (None: no deadline from here).
+    fn release_idle_spare(&mut self, now: std::time::Instant) -> Option<std::time::Duration> {
+        let idle_for = now.saturating_duration_since(self.last_attach);
+        match shm::idle_spare(self.active, self.busy_flags(), self.released_flags(), idle_for) {
+            shm::IdleSpare::Release(slot) => {
+                self.release_slot(slot);
+                None
+            }
+            shm::IdleSpare::WakeIn(left) => Some(left),
+            shm::IdleSpare::Nothing => None,
+        }
     }
 
     /// The compositor's holds on the two slots: `busy[i]` is slot `i`'s
