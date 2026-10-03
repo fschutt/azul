@@ -25,6 +25,7 @@ pub mod links;
 pub mod opml;
 pub mod reader;
 pub mod state;
+pub mod store;
 pub mod xmltree;
 
 /// Starts AzNews (the switches are read from the command line).
