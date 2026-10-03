@@ -40,6 +40,7 @@ import os
 import re
 import secrets
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -120,28 +121,49 @@ class Run:
     def start(self, name, command, env):
         out = open(os.path.join(self.tmp, f'{name}.out'), 'w')
         err = open(os.path.join(self.tmp, f'{name}.err'), 'w')
+        # A session of its own: stopping it stops the whole tree - with --runner the app is
+        # the runner's child, and terminating only the runner left the app running.
         child = subprocess.Popen(command, env={**os.environ, **env}, stdout=out, stderr=err,
-                                 stdin=subprocess.DEVNULL)
+                                 stdin=subprocess.DEVNULL, start_new_session=True)
         self.children.append((name, child))
         return child
 
+    @staticmethod
+    def stop_tree(child, sig=signal.SIGTERM):
+        try:
+            os.killpg(child.pid, sig)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    def stop(self, child):
+        if child.poll() is None:
+            self.stop_tree(child)
+        try:
+            child.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            self.stop_tree(child, signal.SIGKILL)
+            child.wait(timeout=5)
+
     def stop_all(self):
         for _, child in self.children:
-            if child.poll() is None:
-                child.terminate()
-        for _, child in self.children:
-            try:
-                child.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                child.kill()
+            self.stop(child)
+
+    def runner_log(self, name):
+        """With --runner, the app's own output goes to the runner's --log file."""
+        return os.path.join(self.tmp, f'runner-{name}.log')
 
     def output(self, name, stream='out'):
-        try:
-            with open(os.path.join(self.tmp, f'{name}.{stream}'), encoding='utf-8',
-                      errors='replace') as f:
-                return f.read()
-        except OSError:
-            return ''
+        text = ''
+        paths = [os.path.join(self.tmp, f'{name}.{stream}')]
+        if self.args.runner:
+            paths.append(self.runner_log(name))
+        for path in paths:
+            try:
+                with open(path, encoding='utf-8', errors='replace') as f:
+                    text += f.read()
+            except OSError:
+                pass
+        return text
 
     def until(self, what, check, interval=0.25):
         last = None
@@ -245,7 +267,7 @@ class Run:
         if self.args.runner:
             command = [self.args.runner, '--cap-mb', '1500', '--seconds',
                        str(int(self.args.timeout) + 30), '--log',
-                       os.path.join(self.tmp, 'runner.log'), '--', 'env'] + \
+                       self.runner_log('azmail'), '--', 'env'] + \
                       [f'{k}={v}' for k, v in env.items()] + [binary]
         self.start('azmail', command, env)
 
@@ -469,7 +491,7 @@ class SampleRun(Run):
         if self.args.runner:
             command = [self.args.runner, '--cap-mb', '1500', '--seconds',
                        str(int(self.args.timeout) + 30), '--log',
-                       os.path.join(self.tmp, f'runner-{name}.log'), '--', 'env'] + \
+                       self.runner_log(name), '--', 'env'] + \
                       [f'{k}={v}' for k, v in env.items()] + command
         self.start(name, command, env)
         self.until('the sample Inbox', lambda: self.shows(NEWSLETTER))
@@ -597,10 +619,13 @@ class SampleRun(Run):
 
     def restart_keeps_tasks(self):
         for name, child in self.children:
-            if name == 'azmail' and child.poll() is None:
-                child.terminate()
-                child.wait(timeout=5)
+            if name == 'azmail':
+                self.stop(child)
         self.children = [(n, c) for n, c in self.children if n != 'azmail']
+        # The next run's output starts empty (its markers are its own).
+        for path in (os.path.join(self.tmp, 'azmail.out'), self.runner_log('azmail')):
+            if os.path.exists(path):
+                os.replace(path, path + '.1')
         self.start_sample_app('azmail')
         self.check('the To-Do bar task is there again after a restart', self.shows(TASK))
 
