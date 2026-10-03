@@ -9311,6 +9311,7 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
             }));
         } else {
             // Cache miss — shape this group
+            let deficit_before = thread_font_shape_deficit();
             let group_items = shape_visual_items(
                 &visual_items[idx..coalesce_end],
                 font_chain_cache,
@@ -9318,24 +9319,31 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
                 loaded_fonts,
                 debug_messages,
             )?;
-            let total_advance: f32 = group_items
-                .iter()
-                .map(|item| match item {
-                    ShapedItem::Cluster(c) => c.advance,
-                    _ => 0.0,
-                })
-                .sum();
-            per_item_cache.insert(
-                group_key,
-                Arc::new(PerItemShapedEntry {
-                    compact: CompactShapedEntry::build(&group_items),
-                    total_advance,
-                    items: self::group_items(&visual_items[idx..coalesce_end])
-                        .into_iter()
-                        .map(|it| (it.source, it.run_byte_offset))
-                        .collect(),
-                }),
-            );
+            // A group shaped short of a font (its face not loaded YET) is not
+            // cached: the key is its text and layout style, not the loaded
+            // faces, so the empty / partial result would be served after the
+            // face arrives and the text would stay invisible. The next pass
+            // shapes it again.
+            if thread_font_shape_deficit() == deficit_before {
+                let total_advance: f32 = group_items
+                    .iter()
+                    .map(|item| match item {
+                        ShapedItem::Cluster(c) => c.advance,
+                        _ => 0.0,
+                    })
+                    .sum();
+                per_item_cache.insert(
+                    group_key,
+                    Arc::new(PerItemShapedEntry {
+                        compact: CompactShapedEntry::build(&group_items),
+                        total_advance,
+                        items: self::group_items(&visual_items[idx..coalesce_end])
+                            .into_iter()
+                            .map(|it| (it.source, it.run_byte_offset))
+                            .collect(),
+                    }),
+                );
+            }
             shaped.extend(group_items);
         }
 
@@ -9519,6 +9527,29 @@ pub fn take_font_shape_deficit() -> u32 {
     FONT_SHAPE_DEFICIT.swap(0, core::sync::atomic::Ordering::Relaxed)
 }
 
+std::thread_local! {
+    /// This thread's running count of font-shape deficits. The global
+    /// [`FONT_SHAPE_DEFICIT`] is shared by every thread and drained by the
+    /// frame report, so it cannot tell whether ONE shaping call came up short;
+    /// this one can (shaping is synchronous on its thread).
+    static THREAD_FONT_SHAPE_DEFICIT: core::cell::Cell<u32> =
+        const { core::cell::Cell::new(0) };
+}
+
+/// Count one shaping that came up short of a font (its face not loaded, or
+/// no face for any of its characters): the frame report's counter and this
+/// thread's.
+fn note_font_shape_deficit() {
+    FONT_SHAPE_DEFICIT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    THREAD_FONT_SHAPE_DEFICIT.with(|count| count.set(count.get().wrapping_add(1)));
+}
+
+/// This thread's deficit count so far: unchanged across a shaping call means
+/// that call had every face it needed.
+fn thread_font_shape_deficit() -> u32 {
+    THREAD_FONT_SHAPE_DEFICIT.with(core::cell::Cell::get)
+}
+
 /// Shape text with per-character font fallback.
 ///
 /// Splits the text into segments by font coverage, shapes each segment with
@@ -9639,7 +9670,7 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
                     text.chars().take(20).collect::<String>()
                 );
             }
-            FONT_SHAPE_DEFICIT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            note_font_shape_deficit();
             return Ok(Vec::new());
         };
         let font = if let Some(f) = loaded_fonts.get(font_id) {
@@ -9658,7 +9689,7 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
                     text.chars().take(20).collect::<String>()
                 );
             }
-            FONT_SHAPE_DEFICIT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            note_font_shape_deficit();
             return Ok(Vec::new());
         };
         // If segment covers the full text (overwhelmingly common), skip substr+fixup
@@ -9705,6 +9736,9 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
                      {seg_start}..{seg_end}"
                 );
             }
+            // The segment's glyphs are missing: as much a deficit as a whole
+            // run shaped to nothing (it was skipped silently).
+            note_font_shape_deficit();
             continue;
         };
         let segment_text = &text[*seg_start..*seg_end];
