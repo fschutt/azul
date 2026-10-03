@@ -99,7 +99,13 @@ Never compile; never touch layout/src/solver3/page_breaks.rs (nor display_list.r
     12. D: `sans-serif` on macOS -> Helvetica (as Chrome). In-azul route: override the fallback list once
         where azul builds its FcFontCache / generic mapping (`FcFontCache::set_fallback_config`), NOT
         upstream. system-ui must NOT change. Audit what app UI text uses; list what changes.
-    13. E2: `<hr>` 2px per HTML 15.3.11 (1px inset border all four sides, width auto, gray): core/src/
+    13. DONE E2: RED 275639c9d (layout/tests/an_hr_is_a_two_pixel_inset_rule_as_wide_as_its_block.rs),
+        GREEN 0109e0c78 (ua_css.rs: 4 inset gray sides + dark twins, margin-inline auto, no UA width;
+        BUTTON_BORDER_*_WIDTH + BORDER_TOP_WIDTH_1PX twins merged into BORDER_*_WIDTH_1PX; core test
+        renamed hr_is_a_two_pixel_inset_rule_with_an_auto_width). Widgets: only the RTE's rule uses
+        <hr>; it sets `border: none; border-top: 1px solid` (keeps its 1px look) and now fits its block
+        instead of overflowing it by its quote indent. NEXT: unit 12 (sans-serif).
+        Was: E2: `<hr>` 2px per HTML 15.3.11 (1px inset border all four sides, width auto, gray): core/src/
         ua_css.rs + its dark twins; rename the core test `hr_line_comes_from_the_border_not_from_height`
         to state the new behaviour.
     Not mine: icon-only lines' strut (RULINGS8), Postmark foster parenting (XML8).
