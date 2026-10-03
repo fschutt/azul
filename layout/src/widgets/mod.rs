@@ -527,6 +527,12 @@ pub mod money_input;
 /// critical bands colouring it; a meter for assistive technology, drawn
 /// with the engine's vector path. See `gauge.rs`.
 pub mod gauge;
+/// Date range picker widget.
+///
+/// A span of days picked on two months side by side - anchor, previewed
+/// span, pick - with presets (today, last 7 days, this month ...), on the
+/// date picker's calendars; see `date_range_picker.rs`.
+pub mod date_range_picker;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
