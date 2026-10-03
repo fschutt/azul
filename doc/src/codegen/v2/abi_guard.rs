@@ -212,15 +212,32 @@ fn ret(r: &Option<String>) -> String {
 
 /// Does a Rust wrapper of `kind` call `az_abi_check()` before entering
 /// libazul? Only in a binding (`ExternalBindings`) and only for the functions
-/// a program can call without already holding a libazul value: constructors
-/// and static methods. The first call of any program is one of them (or an
-/// `AzString` `From` impl, which checks too), so checking them checks the
-/// first call.
+/// a program can call without already holding a libazul value
+/// ([`is_first_call_kind`]). The first call of any program is one of them (or
+/// an `AzString` `From` impl, which checks too), so checking them checks the
+/// first call. The trait bodies that call such a function (`impl Default` ->
+/// `AzX_createDefault`) ask the same question with the function's kind.
 pub fn rust_wrapper_checks(config: &CodegenConfig, kind: FunctionKind) -> bool {
     matches!(
         config.cabi_functions,
         CAbiFunctionMode::ExternalBindings { .. }
-    ) && matches!(kind, FunctionKind::Constructor | FunctionKind::StaticMethod)
+    ) && is_first_call_kind(kind)
+}
+
+/// Can a function of `kind` be a program's FIRST call into libazul - is it
+/// callable without a value libazul made (no `self`)? Constructors, static
+/// methods, `createDefault` (`X::create_default()`, `impl Default`) and the
+/// enum-variant constructors (`BorderStyle::none()`, `OptionX::some(..)`).
+/// Methods and the other trait functions (`clone`, `eq`, `hash`, `drop`, ...)
+/// need a value first.
+pub fn is_first_call_kind(kind: FunctionKind) -> bool {
+    matches!(
+        kind,
+        FunctionKind::Constructor
+            | FunctionKind::StaticMethod
+            | FunctionKind::Default
+            | FunctionKind::EnumVariantConstructor
+    )
 }
 
 /// The statement [`rust_wrapper_checks`] wrappers start with.

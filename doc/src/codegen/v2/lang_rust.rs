@@ -3840,6 +3840,11 @@ impl RustGenerator {
             builder.indent();
             builder.line(&format!("fn default() -> {name} {{"));
             builder.indent();
+            // `X::default()` can be a program's first call into libazul: it
+            // checks the ABI first, as `X::create_default()` does (`abi_guard`).
+            if super::abi_guard::rust_wrapper_checks(config, FunctionKind::Default) {
+                builder.line(super::abi_guard::RUST_CHECK_CALL);
+            }
             builder.line(&format!("unsafe {{ {}() }}", sym("createDefault")));
             builder.dedent();
             builder.line("}");
