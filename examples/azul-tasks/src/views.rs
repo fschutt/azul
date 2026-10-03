@@ -601,6 +601,68 @@ pub fn summary(tasks: &[Task], now: NaiveDateTime) -> (usize, usize) {
     (due_today, overdue)
 }
 
+// ==== The planned month and the board ====
+
+/// The open tasks due on each of `days` (a month grid's 42, `azul_pim::dates::month_grid`),
+/// each day's by time, priority and the manual order: the planned month's cells.
+#[must_use]
+pub fn planned_month(tasks: &[Task], days: &[NaiveDate]) -> Vec<Vec<usize>> {
+    let _ = tasks;
+    vec![Vec::new(); days.len()]
+}
+
+/// A board's column: where a task of a list stands (the plan's To do / Doing / Done).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Column {
+    ToDo,
+    Doing,
+    Done,
+}
+
+impl Column {
+    /// Left to right.
+    pub const ALL: [Column; 3] = [Column::ToDo, Column::Doing, Column::Done];
+
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Column::ToDo => "To do",
+            Column::Doing => "Doing",
+            Column::Done => "Done",
+        }
+    }
+
+    /// The name in ids and on stdout: `todo`, `doing`, `done`.
+    #[must_use]
+    pub fn key(self) -> &'static str {
+        match self {
+            Column::ToDo => "todo",
+            Column::Doing => "doing",
+            Column::Done => "done",
+        }
+    }
+
+    /// The column task `t` stands in: Done when completed, Doing when started, else To do.
+    #[must_use]
+    pub fn of(t: &Task) -> Column {
+        if t.is_done() {
+            Column::Done
+        } else if t.started.is_some() {
+            Column::Doing
+        } else {
+            Column::ToDo
+        }
+    }
+}
+
+/// The board of list `list`: its tasks in the columns of [`Column::ALL`] - To do and Doing in
+/// the list's manual order, Done the latest completed first.
+#[must_use]
+pub fn board(tasks: &[Task], list: &str) -> [Vec<usize>; 3] {
+    let _ = (tasks, list);
+    [Vec::new(), Vec::new(), Vec::new()]
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::NaiveTime;
@@ -892,5 +954,39 @@ mod tests {
         assert_eq!(due_label(&tasks[4], today).as_deref(), Some("Sun 4 Oct"));
         assert_eq!(due_label(&tasks[9], today), None);
         assert_eq!(next_order(&tasks, "work"), 6 + ORDER_STEP);
+    }
+
+    #[test]
+    fn the_planned_month_puts_each_open_task_on_its_due_day() {
+        let tasks = sample();
+        let days = azul_pim::dates::month_grid(day(2026, 10, 1), chrono::Weekday::Mon);
+        let cells = planned_month(&tasks, &days);
+        assert_eq!(cells.len(), 42);
+        let on = |d: NaiveDate| -> Vec<String> {
+            let n = days.iter().position(|x| *x == d).unwrap();
+            cells[n].iter().map(|&i| tasks[i].id.clone()).collect()
+        };
+        assert_eq!(on(day(2026, 9, 28)), vec!["late"]);
+        assert_eq!(on(day(2026, 10, 1)), vec!["nine", "noon"], "a day's by time");
+        assert_eq!(on(day(2026, 10, 2)), vec!["tomorrow"]);
+        assert_eq!(on(day(2026, 10, 8)), vec!["week-out"]);
+        assert!(on(day(2026, 9, 30)).is_empty(), "a completed task is not planned");
+        let shown: usize = cells.iter().map(Vec::len).sum();
+        assert_eq!(shown, 6, "November's 12th and next year are outside the grid");
+    }
+
+    #[test]
+    fn the_board_puts_a_lists_tasks_in_to_do_doing_and_done() {
+        let mut tasks = sample();
+        let started = tasks.iter().position(|t| t.id == "week-out").unwrap();
+        tasks[started].set_started(true, now());
+        assert_eq!(Column::of(&tasks[started]), Column::Doing);
+        let [todo, doing, done] = board(&tasks, "work");
+        let names = |c: &[usize]| -> Vec<String> { c.iter().map(|&i| tasks[i].id.clone()).collect() };
+        assert_eq!(names(&todo), vec!["late", "tomorrow", "november", "undated"], "the manual order");
+        assert_eq!(names(&doing), vec!["week-out"]);
+        assert_eq!(names(&done), vec!["done"]);
+        assert!(board(&tasks, "nowhere").iter().all(Vec::is_empty));
+        assert_eq!(Column::ALL.map(Column::key), ["todo", "doing", "done"]);
     }
 }

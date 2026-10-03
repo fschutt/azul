@@ -399,6 +399,20 @@ mod tests {
     }
 
     #[test]
+    fn a_started_task_is_in_process_and_reads_back_started() {
+        let mut started = ferns();
+        started.repeat = None;
+        started.set_started(true, at(2026, 10, 2, 8, 0));
+        let text = write(&[&started], "Home", at(2026, 10, 3, 8, 0), &same);
+        assert!(text.contains("STATUS:IN-PROCESS\r\n"), "{text}");
+        assert!(!text.contains("STATUS:NEEDS-ACTION"), "{text}");
+        let back = read(&text, LIST, at(2026, 10, 3, 10, 0), &mut ids(), &same);
+        assert_eq!(back.tasks.len(), 1);
+        assert_eq!(back.tasks[0].started, Some(at(2026, 10, 3, 10, 0)), "started when imported");
+        assert!(!back.tasks[0].is_done());
+    }
+
+    #[test]
     fn what_aztasks_writes_reads_back_as_the_same_tasks() {
         let mut timed = ferns();
         timed.title = "Call the plumber ".repeat(8).trim().to_string();
