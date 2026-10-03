@@ -1470,10 +1470,18 @@ pub struct WindowListResponse {
 #[cfg(feature = "std")]
 #[must_use]
 pub fn window_list(windows: &[(u64, String)], this_window: &str) -> WindowListResponse {
-    let _ = (windows, this_window);
+    let windows: Vec<WindowListEntry> = windows
+        .iter()
+        .enumerate()
+        .map(|(i, (_, id))| WindowListEntry {
+            window_id: id.clone(),
+            is_default: i == 0,
+            is_this: id == this_window,
+        })
+        .collect();
     WindowListResponse {
-        window_count: 0,
-        windows: Vec::new(),
+        window_count: windows.len(),
+        windows,
     }
 }
 
