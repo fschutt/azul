@@ -5,7 +5,7 @@ progress file"). Worktrees: /Users/fschutt/Development/azul/.claude/worktrees/ag
 
 | Task | Agent id | Branch | Worktree | State |
 |---|---|---|---|---|
-| TEXT7 | a19030a2753308208 | wt/text7 | .claude/worktrees/agent-a19030a2753308208 | running |
+| TEXT7 | a19030a2753308208 | wt/text7 | .claude/worktrees/agent-a19030a2753308208 | DONE (21 commits; report scripts/TEXT7_2026_10_03.md; text-indent fixed for greedy + Knuth-Plass, font-load reshape, bolder/lighter in the cascade, dll font-index; items 5/6 were already fixed in wave 5 - pin tests; edits in LAYOUT7 files getters.rs / fc.rs / sizing.rs and core compact.rs / prop_cache.rs, css font.rs) |
 | LAYOUT7 | aece3b97049bb1c3a | wt/layout7 | .claude/worktrees/agent-aece3b97049bb1c3a | running |
 | PAINT7 | a3f339e65a9f1d3c3 | wt/paint7 | .claude/worktrees/agent-a3f339e65a9f1d3c3 | running |
 | EVENTS7 | a083d3b843e66855a | wt/events7 | .claude/worktrees/agent-a083d3b843e66855a | running |
