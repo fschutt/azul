@@ -336,7 +336,8 @@ def run(args, logs):
         "AZ_DEBUG": str(args.debug_port),
         "AZDRIVE_HOME": home,
         "AZDRIVE_DOWNLOADS": os.path.join(logs, "downloads"),
-        "AZDRIVE_SETTINGS": os.path.join(logs, "settings"),
+        "AZDRIVE_SETTINGS": os.path.join(logs, "settings"),  # an older build's settings folder
+        "AZLIN_DATA": os.path.join(logs, "data"),  # the data tree (azul-appkit's data root)
         "AZUL_DRIVES": os.path.join(logs, "config", "drives.json"),
         "AZDRIVE_DIALOGS": "inline",
     })
@@ -564,9 +565,21 @@ def run(args, logs):
         app.click_exact("FILE")
         app.until("the Options", lambda: app.has("#" + I("settings")))
         app.screenshot(os.path.join(out, "14-options.png"))
+        if NAMING["prefixed"]:
+            # The Options are azul-appkit's page: Appearance saves the theme into the data
+            # tree (drive/settings.json), so it is there on the next start.
+            app.click_exact("Appearance")
+            app.until("the Appearance section", lambda: app.shows("Theme"))
+            app.after("the theme saved", "AZDRIVE_SETTINGS_SAVED", r"drive/settings\.json",
+                      lambda: app.click_exact("Flora"))
+            saved = os.path.join(logs, "data", "drive", "settings.json")
+            app.until("flora in the settings file",
+                      lambda: os.path.isfile(saved) and '"flora"' in open(saved).read())
+            app.click_exact("Flat")
+            app.until("flat in the settings file", lambda: '"flat"' in open(saved).read())
         app.key("escape")
         app.until("the backstage closed", lambda: not app.has("#" + I("settings")))
-        log("14. FILE opened the backstage with the Options; Escape closed it")
+        log("14. FILE opened the Options (the theme saved into the data tree); Escape closed them")
 
         # 15. Flora, dark.
         app.must("set_theme", theme="flora")
