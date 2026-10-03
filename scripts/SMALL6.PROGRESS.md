@@ -17,10 +17,17 @@ Screenshots: target/small6-shots/ (not committed). Look driver: target/small6/lo
 ## IN PROGRESS
 - POWER WARNING (coordinator, 16% battery): commit after every small unit; NO long headless runs until told.
 
+- AzSetup: 3637b7921 body(); ef93a054c / 0e07e1e9a split_switches + open_on (RED/GREEN); a5b8a8ad3 on appkit
+  (own Args parser deleted); 878f3092c / a37cabfd0 settings remembered (RED/GREEN); 24237e413 Escape = Cancel;
+  7c4867de1 AZSETUP_BOXES stdout; dcf5e50c0 E2E rewritten on azlin_e2e (Escape/F1, buttons in window,
+  remembered dark mode). AzSetup defines no DOM ids/classes of its own (widgets' only) - prefix rule n/a.
+
 ## NEXT (exact)
-- AzSetup (examples/azul-setup/src/lib.rs): (1) window_root (~line 470) -> ShellThemeScope::body(); commit.
-  (2) ids module `__azsetup_`; (3) appkit: args (--screen/--theme/--mode/--data-dir), settings dialog values
-  remembered in settings.json (kit::set_value on Apply/OK), shortcuts table; (4) E2E scripts/azsetup_e2e.py.
+- AzShells (examples/azul-shells/src/lib.rs): (1) layout body (~line 489) -> ShellThemeScope::body(); commit.
+  (2) ids module `__azshells_` (picker, shell-area are the app's own ids; the shells' `shell-*` ids are the
+  widget's); (3) appkit: args (--screen S1..S11|settings), settings remembered (pick, theme, mode via kit),
+  About (appkit About box needs the kit settings page - or a Help button opening AboutDialog in a Modal),
+  shortcuts table; VirtualKeyCode import check; (4) shells_e2e.py onto azlin_e2e.
 - AzShells: body(), appkit, prefixes, About, E2E.
 - AzWidgets: the new widgets; app theme; LOOK (short, it has a <video>).
 - AzMaps, AzReview: onto shells + themes + appkit + Drive; AzBuilder: checklist minimal.
