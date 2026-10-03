@@ -11,15 +11,16 @@ use std::{
 /// decoder does not read); `None` for a link, another type, or broken base64.
 #[must_use]
 pub fn image_bytes(photo: &str) -> Option<Vec<u8>> {
-    let _ = photo;
-    todo!()
+    let (mime, bytes) = azul_pim::data_uri::parse_data_uri(photo)?;
+    (mime.starts_with("image/") && mime != "image/svg+xml" && !bytes.is_empty()).then_some(bytes)
 }
 
 /// The key a decoded photo is kept by (the same photo text, the same key).
 #[must_use]
 pub fn key(photo: &str) -> u64 {
-    let _ = photo;
-    todo!()
+    let mut hasher = DefaultHasher::new();
+    photo.hash(&mut hasher);
+    hasher.finish()
 }
 
 /// The decoded photos the window keeps at most (a list scrolled through many cards does not
