@@ -4,14 +4,16 @@ Branch: wt/term9 (base e537ddbe2). Worktree: .claude/worktrees/agent-aeeb57dd4eb
 Crate sources read from /tmp/term9_src (alacritty_terminal-0.26.0, vte-0.15.0, downloaded with curl, not compiled).
 
 ## DONE
-- 2b1cc1059 progress file
+- 2b1cc1059 progress file; 84b4f7566 decisions
+- 814855418 widget data types + builder (layout/src/widgets/terminal_view.rs, registered in widgets/mod.rs)
+- aa7d17d51 RED pure-logic tests (encoding_tests, palette_tests, view_tests)
+- 3577bdf53 GREEN pure logic + theme palettes (flat.rs / flora.rs APPENDED) + data_table::thumb pub(crate)
 
 ## IN PROGRESS
-- RED tests for the azul widget's pure logic (layout/src/widgets/terminal_view.rs)
+- the DOM build (VirtualView host) + handlers in terminal_view.rs (marker "TERM9-NEXT: the build, the handlers.")
 
 ## NEXT
-1. layout/src/widgets/terminal_view.rs: types skeleton (commit), RED tests (key encoding, palette, windowing,
-   selection spans, mouse/paste encoding), GREEN.
+1. (done) widget types + pure logic.
 2. DOM build (VirtualView host, rows, cursor, selection, scroll bar), handlers, theme APPENDs (flat/flora), manifest.
 3. examples/azul-term (AzTerm): Cargo.toml, lib.rs, vt.rs (alacritty Term -> TerminalLine mapping, RED tests first),
    session.rs (PTY + EventLoop), ui, args, settings, sample recordings, registration, E2E script.
