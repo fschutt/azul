@@ -495,3 +495,63 @@ pub fn render_xhtml_to_webp(
         },
     ))
 }
+
+/// The pass budget of one page: how many pixels may differ between Chrome's
+/// render and azul's. STUB (RED): every page gets the global 0.5 %.
+#[must_use]
+pub fn pass_threshold_for(_test_file: &Path, _xml: &str) -> usize {
+    PASS_THRESHOLD_PIXELS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const GREEN_SQUARE: &str = "<html xmlns=\"http://www.w3.org/1999/xhtml\"><head>\
+        <title>t</title></head><body><div style=\"width:100px;height:100px\"/></body></html>";
+
+    /// REFCI (scripts/REFCI_2026_09_30.md 2.0): the global budget, 0.5 % of
+    /// 1920x1080 = 10368 px, is more than a WPT page's whole 100x100 subject
+    /// - `wpt-local-css-cdo-and-cdc-around-rules-do-not-hide-them` passed
+    /// with NO green square painted (10000 px off).
+    #[test]
+    fn a_wpt_page_fails_when_its_hundred_pixel_square_is_missing() {
+        let budget = pass_threshold_for(
+            Path::new("doc/working/wpt-CSS2-tables-border-collapse-005.xht"),
+            GREEN_SQUARE,
+        );
+        assert!(
+            budget < 100 * 100,
+            "a missing 100x100 square must fail a wpt-* page; budget {budget}"
+        );
+        assert!(
+            budget >= 1000,
+            "the one-sentence text of a WPT page differs between the engines' rasterizers by \
+             up to a few thousand pixels; budget {budget}"
+        );
+    }
+
+    #[test]
+    fn a_wpt_pages_own_fuzzy_meta_widens_its_budget() {
+        let page = "<html><head><meta name=\"fuzzy\" content=\"0-1;0-19000\"/></head>\
+                    <body/></html>";
+        assert_eq!(
+            pass_threshold_for(Path::new("doc/working/wpt-background-margin-root.xht"), page),
+            19_000
+        );
+        let named = "<html><head><meta content=\"maxDifference=0-3;totalPixels=0-12000\" \
+                     name=\"fuzzy\"/></head><body/></html>";
+        assert_eq!(
+            pass_threshold_for(Path::new("doc/working/wpt-x.xht"), named),
+            12_000
+        );
+    }
+
+    #[test]
+    fn any_other_page_keeps_the_global_budget() {
+        assert_eq!(
+            pass_threshold_for(Path::new("doc/working/block-margin-collapse.xht"), GREEN_SQUARE),
+            PASS_THRESHOLD_PIXELS
+        );
+    }
+}
