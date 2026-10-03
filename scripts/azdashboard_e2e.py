@@ -174,8 +174,9 @@ def body(args, logs, out):
         if count != ROWS:
             raise Failure("clearing the filters shows %d rows, not %d" % (count, ROWS))
         app.click(selector="#__azdash_orders")
+        seen = len(app.printed("AZDASH_TOP"))
         app.key("end", primary=True)
-        app.until("the last page", lambda: app.last("AZDASH_TOP"))
+        app.until("the last page", lambda: len(app.printed("AZDASH_TOP")) > seen)
         top = int(app.last("AZDASH_TOP").split()[0])
         if top < ROWS - 100:
             raise Failure("Ctrl+End scrolled to row %d of %d" % (top, ROWS))
