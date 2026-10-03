@@ -118,6 +118,12 @@ pub struct EditorForm {
     pub uid: String,
     /// Why the last Save did not save.
     pub error: String,
+    /// The day of the repeating event's occurrence the form was opened on (`None`: a series
+    /// opened as a whole, a plain event, a new one).
+    pub occurrence: Option<NaiveDate>,
+    /// Opened on an occurrence: Save edits the whole series (else that occurrence alone, which
+    /// becomes an event of its own).
+    pub whole_series: bool,
 }
 
 impl EditorForm {
@@ -158,6 +164,8 @@ impl EditorForm {
             except: Vec::new(),
             uid: String::new(),
             error: String::new(),
+            occurrence: None,
+            whole_series: false,
         }
     }
 
@@ -212,6 +220,40 @@ impl EditorForm {
         form.except = event.except.clone();
         form.uid = event.uid.clone();
         form
+    }
+
+    /// The form of the repeating `series`' occurrence on `day`: the event's fields on that
+    /// day, editing that occurrence alone until "The whole series" is chosen.
+    #[must_use]
+    pub fn from_occurrence(serial: u32, series: &Event, day: NaiveDate) -> EditorForm {
+        let _ = (serial, series, day);
+        todo!()
+    }
+
+    /// Edits the whole series (`whole`, the form on the series' first day `series_first`) or
+    /// the occurrence the form was opened on (on its day).
+    pub fn set_whole_series(&mut self, whole: bool, series_first: NaiveDate) {
+        let _ = (whole, series_first);
+        todo!()
+    }
+
+    /// The form edits the occurrence it was opened on, not the series.
+    #[must_use]
+    pub fn edits_one_occurrence(&self) -> bool {
+        self.occurrence.is_some() && !self.whole_series
+    }
+
+    /// What Save writes for one occurrence of `series`: the series skipping the occurrence's
+    /// day, and the occurrence as an event of its own (`new_id`, no repeat, the form's edits,
+    /// `meeting`); `Err` with what to tell the user.
+    pub fn occurrence_events(
+        &self,
+        series: &Event,
+        new_id: &str,
+        meeting: Option<Meeting>,
+    ) -> Result<(Event, Event), String> {
+        let _ = (series, new_id, meeting);
+        todo!()
     }
 
     /// Moves the first day to `date`; an all-day event's last day moves along (the same number
@@ -778,6 +820,62 @@ mod tests {
         let m = EditorForm::new_meeting(3, ID, d(2026, 9, 30), at(9, 0), at(10, 0), "");
         assert!(m.add_meet && m.meeting_request);
         assert_eq!(m.window_title(), "Untitled - Meeting");
+    }
+
+    const OTHER_ID: &str = "7d3c0f1e-2a4b-4c5d-8e6f-0a1b2c3d4e5f";
+
+    /// "Team sync", weekly on Wednesdays from 30 September 2026, 09:00 - 10:00.
+    fn series() -> Event {
+        let mut f = form();
+        f.set_rule(Rule::parse("FREQ=WEEKLY;BYDAY=WE").ok());
+        f.event(None).unwrap()
+    }
+
+    /// Outlook's "Open this occurrence": the form shows the occurrence's day; Save keeps the
+    /// series (skipping that day) and makes the occurrence an event of its own with the edits.
+    #[test]
+    fn an_occurrence_is_edited_alone_and_saved_as_an_event_of_its_own() {
+        let series = series();
+        let day = d(2026, 10, 14);
+        let mut f = EditorForm::from_occurrence(2, &series, day);
+        assert_eq!((f.date, f.last_day), (day, day), "the form is on the occurrence's day");
+        assert_eq!(f.occurrence, Some(day));
+        assert!(f.edits_one_occurrence());
+        assert!(f.existing);
+        f.title = String::from("Team sync (moved)");
+        f.start = at(11, 0);
+        f.end = at(12, 0);
+        let (kept, one) = f.occurrence_events(&series, OTHER_ID, None).unwrap();
+        assert_eq!(kept.id, series.id);
+        assert_eq!(kept.except, vec![day], "the series skips the day");
+        assert_eq!(kept.repeat, series.repeat);
+        assert_eq!((kept.title.as_str(), kept.start), ("Team sync", at(9, 0)), "the series is as it was");
+        assert_eq!(one.id, OTHER_ID);
+        assert_eq!((one.date, one.start, one.end), (day, at(11, 0), at(12, 0)));
+        assert_eq!(one.title, "Team sync (moved)");
+        assert_eq!(one.repeat, None, "the occurrence does not repeat");
+        assert!(one.except.is_empty());
+        assert_eq!(one.uid, "");
+        assert_eq!(one.calendar, series.calendar);
+        // An edit that fails says why and writes nothing.
+        f.title.clear();
+        assert!(f.occurrence_events(&series, OTHER_ID, None).is_err());
+    }
+
+    #[test]
+    fn the_whole_series_is_edited_from_its_first_day() {
+        let series = series();
+        let day = d(2026, 10, 14);
+        let mut f = EditorForm::from_occurrence(2, &series, day);
+        f.set_whole_series(true, series.date);
+        assert!(!f.edits_one_occurrence());
+        assert_eq!(f.date, series.date, "the series is shown from its first day");
+        assert_eq!(rule_text(&f).as_deref(), Some("FREQ=WEEKLY;BYDAY=WE"));
+        f.set_whole_series(false, series.date);
+        assert!(f.edits_one_occurrence());
+        assert_eq!(f.date, day, "back on the occurrence's day");
+        // A plain event has no occurrence to edit alone.
+        assert!(!EditorForm::from_event(3, &form().event(None).unwrap()).edits_one_occurrence());
     }
 
     /// Closing the editor asks "save changes?" only after an edit: a form is changed since it
