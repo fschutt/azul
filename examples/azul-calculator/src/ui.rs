@@ -799,9 +799,9 @@ struct HistoryRef {
 }
 
 /// A calculation in the history panel, over its result.
-const PANEL_EXPR_CSS: &str = "font-size: 12px; opacity: 0.7;";
+const PANEL_EXPR_CSS: &str = "font-size: 12px; opacity: 0.7; overflow-wrap: anywhere;";
 /// A result in the history / memory panel.
-const PANEL_RESULT_CSS: &str = "font-size: 18px; font-weight: 600;";
+const PANEL_RESULT_CSS: &str = "font-size: 18px; font-weight: 600; overflow-wrap: anywhere;";
 
 fn history_list(s: &CalcApp, app: &RefAny) -> Dom {
     let mut list = Dom::create_div()
