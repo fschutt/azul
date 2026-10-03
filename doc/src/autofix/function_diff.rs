@@ -821,40 +821,38 @@ pub fn signature_drift(
     out
 }
 
-/// Convert a Rust argument type to an FFI-compatible type
-/// Returns (ffi_type, accessor_suffix) where accessor_suffix is appended to the variable in fn_body
-/// e.g. ("String", ".as_str()") for &str
+/// Convert a Rust argument type to an FFI-compatible type.
+/// Returns (ffi_type, accessor) where the accessor is a `{}` template for
+/// the argument in the fn_body (`{}.as_str()` for `&str`): every accessor is
+/// a template, substituted for WHOLE arguments only - a suffix spliced in
+/// with `replace("text)")` also hit `context)` (AUTOFIX6).
 fn convert_arg_type_for_ffi(ty: &str) -> (String, Option<String>) {
     let trimmed = ty.trim();
 
     // Handle &str and str -> String (need .as_str() in fn_body)
     if trimmed == "&str" || trimmed == "str" {
-        return ("String".to_string(), Some(".as_str()".to_string()));
-    }
-
-    // Handle &[u8] and [u8] -> U8VecRef (need .as_slice() in fn_body)
-    if trimmed == "&[u8]" || trimmed == "[u8]" {
-        return ("U8VecRef".to_string(), Some(".as_slice()".to_string()));
+        return ("String".to_string(), Some("{}.as_str()".to_string()));
     }
 
     // Handle &String -> String (need .as_str() in fn_body if function expects &str)
     if trimmed == "&String" {
-        return ("String".to_string(), Some(".as_str()".to_string()));
+        return ("String".to_string(), Some("{}.as_str()".to_string()));
     }
 
     // Handle &Vec<u8> -> U8VecRef (need .as_slice() in fn_body)
     if trimmed == "&Vec<u8>" || trimmed == "Vec<u8>" {
-        return ("U8VecRef".to_string(), Some(".as_slice()".to_string()));
+        return ("U8VecRef".to_string(), Some("{}.as_slice()".to_string()));
     }
 
-    // Handle generic slices &[T] -> TypeVecRef with .as_slice()
-    if trimmed.starts_with("&[") && trimmed.ends_with(']') {
-        let inner = &trimmed[2..trimmed.len() - 1];
-        let inner_clean = inner.trim();
-        return (
-            format!("{}VecRef", inner_clean),
-            Some(".as_slice()".to_string()),
-        );
+    // Slices `[T]` (the source parser splits the `&` off before) or `&[T]`
+    if let Some(elem) = trimmed
+        .strip_prefix("&[")
+        .or_else(|| trimmed.strip_prefix('['))
+        .and_then(|rest| rest.strip_suffix(']'))
+    {
+        if let Some(slice) = slice_arg_type(elem.trim()) {
+            return (slice, Some("{}.as_slice()".to_string()));
+        }
     }
 
     // Reference to an API type: crosses the ABI as a raw pointer (the FFI
@@ -862,9 +860,7 @@ fn convert_arg_type_for_ffi(ty: &str) -> (String, Option<String>) {
     // it. The PREVIOUS behavior stripped the `&` down to a VALUE, so the
     // generated call tried to MOVE a struct the caller still owns — a
     // signature mismatch that broke codegen compilation, silently, on the
-    // first method imported with a reference argument. The accessor is a
-    // `{}` template (the whole argument expression is substituted), unlike
-    // the plain-suffix accessors above.
+    // first method imported with a reference argument.
     if let Some(inner) = trimmed.strip_prefix("&mut ") {
         return (
             format!("*mut {}", inner.trim()),
@@ -886,6 +882,32 @@ fn convert_arg_type_for_ffi(ty: &str) -> (String, Option<String>) {
 
     // No conversion needed
     (trimmed.to_string(), None)
+}
+
+/// The api.json type a `&[elem]` argument crosses as: the impl_vec! slice
+/// `{Elem}VecSlice` (the house convention), or for u8 / f32 / i32 the gl
+/// `{Elem}VecRef` api.json already uses (`U8VecRef`). `None` for an element
+/// that is not one plain name (`&str`, a tuple): no FFI form.
+fn slice_arg_type(elem: &str) -> Option<String> {
+    if elem.is_empty() || !elem.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return None;
+    }
+    if matches!(elem, "u8" | "f32" | "i32") {
+        return Some(format!("{}VecRef", capitalize(elem)));
+    }
+    if is_primitive_type(elem) {
+        return Some(format!("{}VecSlice", capitalize(elem)));
+    }
+    Some(format!("{elem}VecSlice"))
+}
+
+/// `u32` -> `U32`, `LayoutRect` stays.
+fn capitalize(name: &str) -> String {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
+        None => String::new(),
+    }
 }
 
 // // helper functions for list/add/remove
@@ -1478,7 +1500,7 @@ fn function_data_for_call(method: &MethodDef, class_name: &str, call: String) ->
     let mut fn_args: Vec<IndexMap<String, String>> = Vec::new();
 
     // Track argument accessors for fn_body generation
-    // Maps arg_name -> accessor_suffix (e.g. "svg_string" -> ".as_str()")
+    // Maps arg_name -> accessor template (e.g. "svg_string" -> "{}.as_str()")
     let mut arg_accessors: Vec<(String, Option<String>)> = Vec::new();
 
     // Add self parameter for non-static, non-constructor methods
@@ -1541,31 +1563,18 @@ fn function_data_for_call(method: &MethodDef, class_name: &str, call: String) ->
 
     let mut fn_body_str = call;
 
-    // Apply argument accessors to fn_body
-    // Replace each argument reference with the accessor version
+    // Apply argument accessors to fn_body: every accessor is a `{}`
+    // template, and the WHOLE argument expression is substituted - only an
+    // argument standing alone between `(` / `, ` and `,` / `)` (a suffix
+    // spliced in with `replace("text)")` also hit `context)`, AUTOFIX6)
     for (arg_name, accessor_opt) in &arg_accessors {
         if let Some(accessor) = accessor_opt {
-            if accessor.contains("{}") {
-                // Template accessor: the WHOLE argument expression is
-                // substituted (pointer re-borrows like `unsafe { &mut *x }`).
-                let wrapped = accessor.replace("{}", arg_name);
-                fn_body_str = fn_body_str
-                    .replace(&format!("({},", arg_name), &format!("({},", wrapped))
-                    .replace(&format!(", {},", arg_name), &format!(", {},", wrapped))
-                    .replace(&format!("({})", arg_name), &format!("({})", wrapped))
-                    .replace(&format!(", {})", arg_name), &format!(", {})", wrapped));
-                continue;
-            }
-            // Replace "arg_name," or "arg_name)" patterns
-            // This handles cases like func(arg_name, other) or func(arg_name)
-            fn_body_str = fn_body_str.replace(
-                &format!("{},", arg_name),
-                &format!("{}{},", arg_name, accessor),
-            );
-            fn_body_str = fn_body_str.replace(
-                &format!("{})", arg_name),
-                &format!("{}{})", arg_name, accessor),
-            );
+            let wrapped = accessor.replace("{}", arg_name);
+            fn_body_str = fn_body_str
+                .replace(&format!("({},", arg_name), &format!("({},", wrapped))
+                .replace(&format!(", {},", arg_name), &format!(", {},", wrapped))
+                .replace(&format!("({})", arg_name), &format!("({})", wrapped))
+                .replace(&format!(", {})", arg_name), &format!(", {})", wrapped));
         }
     }
 
