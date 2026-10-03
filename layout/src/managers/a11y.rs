@@ -2239,7 +2239,9 @@ mod autotest_generated {
     /// `node_hierarchy`; the layout tree only supplies bounds. So this is
     /// enough to reproduce exactly the tree a real window publishes, with no
     /// solver pass and no fonts.
-    fn layout_result_of(styled_dom: azul_core::styled_dom::StyledDom) -> DomLayoutResult {
+    pub(super) fn layout_result_of(
+        styled_dom: azul_core::styled_dom::StyledDom,
+    ) -> DomLayoutResult {
         use std::{collections::HashMap, sync::Arc};
 
         use azul_core::geom::LogicalRect;
@@ -3984,5 +3986,215 @@ mod autotest_generated {
             Some(accesskit::SortDirection::Descending)
         );
         assert_eq!(header(Vec::new()).sort_direction(), None);
+    }
+}
+
+/// The retained tree: what a pass publishes against what it published before.
+#[cfg(all(test, feature = "a11y"))]
+mod retained_tree_tests {
+    use std::collections::BTreeMap;
+
+    use accesskit::{Node, NodeId as A11yNodeId, Role, TreeId, TreeUpdate};
+    use azul_core::{
+        dom::{Dom, DomId, DomNodeId, NodeId},
+        geom::LogicalSize,
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+    };
+    use azul_css::AzString;
+
+    use super::{autotest_generated::layout_result_of, A11yManager, A11yTreeInputs, A11yTreeMirror};
+    use crate::{managers::scroll_state::ScrollManager, window::DomLayoutResult};
+
+    /// body(0) > p(1) > text(2) "alpha", and body > div(3) > text(4) `div_text`;
+    /// a11y ids are index + 1.
+    fn page(div_text: Option<&str>) -> BTreeMap<DomId, DomLayoutResult> {
+        let mut body = Dom::create_body().with_child(
+            Dom::create_p()
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("alpha")),
+        );
+        if let Some(text) = div_text {
+            body = body.with_child(
+                Dom::create_div()
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(text)),
+            );
+        }
+        let mut results = BTreeMap::new();
+        results.insert(DomId::ROOT_ID, layout_result_of(StyledDom::create_from_dom(body)));
+        results
+    }
+
+    fn refresh(
+        m: &mut A11yManager,
+        results: &BTreeMap<DomId, DomLayoutResult>,
+        focused: Option<usize>,
+    ) -> Option<TreeUpdate> {
+        let scroll_manager = ScrollManager::new();
+        let overrides = BTreeMap::new();
+        let title = AzString::from("t");
+        let inputs = A11yTreeInputs {
+            layout_results: results,
+            scroll_manager: &scroll_manager,
+            window_title: &title,
+            window_size: LogicalSize::new(800.0, 600.0),
+            focused_node: focused.map(|idx| DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(idx))),
+            }),
+            hidpi_factor: 1.0,
+            dirty_text_overrides: &overrides,
+            cursor_info: None,
+        };
+        let _ = m.refresh(&inputs);
+        m.take_pending()
+    }
+
+    fn ids(update: &TreeUpdate) -> Vec<u64> {
+        update.nodes.iter().map(|(id, _)| id.0).collect()
+    }
+
+    #[test]
+    fn the_first_pass_publishes_the_whole_tree_and_an_unchanged_one_nothing() {
+        let mut m = A11yManager::new();
+        let first = refresh(&mut m, &page(Some("beta")), None).expect("the first tree");
+        assert!(first.tree.is_some());
+        assert_eq!(ids(&first), vec![0, 1, 2, 3, 4, 5]);
+        assert_eq!(m.last_pass.built, 6);
+
+        assert!(refresh(&mut m, &page(Some("beta")), None).is_none());
+        assert_eq!(
+            m.last_pass.built, 0,
+            "an unchanged node is reused, not built: {:?}",
+            m.last_pass
+        );
+        assert!(!m.last_pass.published);
+    }
+
+    #[test]
+    fn a_changed_text_publishes_its_node_and_the_label_it_feeds_only() {
+        let mut m = A11yManager::new();
+        let _ = refresh(&mut m, &page(Some("beta")), None);
+        let patch = refresh(&mut m, &page(Some("gamma")), None).expect("the text changed");
+        assert!(patch.tree.is_none(), "a patch, not the tree");
+        // The div's label is promoted from its only child's text.
+        assert_eq!(ids(&patch), vec![4, 5]);
+        assert_eq!(patch.nodes[0].1.label(), Some("gamma"));
+        assert_eq!(m.last_pass.built, 2);
+    }
+
+    #[test]
+    fn a_removed_subtree_publishes_its_parent_and_leaves_the_mirror() {
+        let mut m = A11yManager::new();
+        let _ = refresh(&mut m, &page(Some("beta")), None);
+        let patch = refresh(&mut m, &page(None), None).expect("the div left");
+        assert_eq!(ids(&patch), vec![1], "only the body's child list changed");
+        assert_eq!(patch.nodes[0].1.children(), &[A11yNodeId(2)]);
+        assert_eq!(m.last_pass.removed, 2);
+        assert!(!m.delivered.children.contains_key(&A11yNodeId(4)));
+        assert!(!m.delivered.children.contains_key(&A11yNodeId(5)));
+        assert_eq!(m.full_tree().nodes.len(), 4);
+    }
+
+    #[test]
+    fn a_focus_move_alone_publishes_an_empty_patch_with_the_new_focus() {
+        let mut m = A11yManager::new();
+        let _ = refresh(&mut m, &page(Some("beta")), None);
+        let patch = refresh(&mut m, &page(Some("beta")), Some(3)).expect("the focus moved");
+        assert!(patch.nodes.is_empty());
+        assert_eq!(patch.focus, A11yNodeId(4));
+    }
+
+    #[test]
+    fn two_unsent_passes_fold_into_one_patch_without_the_nodes_the_second_removed() {
+        let mut m = A11yManager::new();
+        let _ = refresh(&mut m, &page(Some("beta")), None);
+        // Neither pass is drained in between.
+        let _ = m.refresh(&inputs_for_test(&page(Some("gamma"))));
+        let _ = m.refresh(&inputs_for_test(&page(None)));
+        let folded = m.take_pending().expect("both passes are parked");
+        assert!(folded.tree.is_none());
+        assert_eq!(
+            ids(&folded),
+            vec![1],
+            "the div the first pass changed is gone by the second: only the body remains"
+        );
+    }
+
+    /// `A11yTreeInputs` over `results` with no focus (the leaked locals live
+    /// for the test).
+    fn inputs_for_test(results: &BTreeMap<DomId, DomLayoutResult>) -> A11yTreeInputs<'_> {
+        let scroll_manager: &'static ScrollManager = Box::leak(Box::new(ScrollManager::new()));
+        let overrides: &'static BTreeMap<(DomId, NodeId), String> =
+            Box::leak(Box::new(BTreeMap::new()));
+        let title: &'static AzString = Box::leak(Box::new(AzString::from("t")));
+        A11yTreeInputs {
+            layout_results: results,
+            scroll_manager,
+            window_title: title,
+            window_size: LogicalSize::new(800.0, 600.0),
+            focused_node: None,
+            hidpi_factor: 1.0,
+            dirty_text_overrides: overrides,
+            cursor_info: None,
+        }
+    }
+
+    fn container(children: &[u64]) -> Node {
+        let mut n = Node::new(Role::GenericContainer);
+        n.set_children(children.iter().map(|c| A11yNodeId(*c)).collect::<Vec<_>>());
+        n
+    }
+
+    fn mirror(nodes: &[(u64, &[u64])]) -> A11yTreeMirror {
+        A11yTreeMirror::default()
+            .apply(&TreeUpdate {
+                nodes: nodes.iter().map(|(id, cs)| (A11yNodeId(*id), container(cs))).collect(),
+                tree: Some(accesskit::Tree::new(A11yNodeId(0))),
+                focus: A11yNodeId(0),
+                tree_id: TreeId::ROOT,
+            })
+            .expect("a well-formed tree")
+    }
+
+    fn patch(nodes: &[(u64, &[u64])], focus: u64) -> TreeUpdate {
+        TreeUpdate {
+            nodes: nodes.iter().map(|(id, cs)| (A11yNodeId(*id), container(cs))).collect(),
+            tree: None,
+            focus: A11yNodeId(focus),
+            tree_id: TreeId::ROOT,
+        }
+    }
+
+    #[test]
+    fn a_patch_applied_in_place_drops_what_it_cut_loose_and_keeps_a_moved_child() {
+        // 0 > [1 > [3 > [4]], 2]
+        let mut m = mirror(&[(0, &[1, 2]), (1, &[3]), (2, &[]), (3, &[4]), (4, &[])]);
+        let removed = m
+            .apply_patch_in_place(&patch(&[(0, &[2]), (2, &[4])], 2))
+            .expect("a well-formed patch");
+        assert_eq!(
+            removed.iter().map(|id| id.0).collect::<Vec<_>>(),
+            vec![1, 3],
+            "1 and 3 leave; 4 moved under 2"
+        );
+        assert_eq!(
+            m.children.keys().map(|id| id.0).collect::<Vec<_>>(),
+            vec![0, 2, 4]
+        );
+        assert_eq!(m.children[&A11yNodeId(2)], vec![A11yNodeId(4)]);
+    }
+
+    #[test]
+    fn a_patch_applied_in_place_is_refused_whole_and_changes_nothing() {
+        let before = mirror(&[(0, &[1]), (1, &[])]);
+        let mut m = before.clone();
+        // Focus on the node the patch removes.
+        assert!(m.apply_patch_in_place(&patch(&[(0, &[])], 1)).is_err());
+        // A node the patch both updates and cuts loose.
+        assert!(m
+            .apply_patch_in_place(&patch(&[(0, &[]), (1, &[])], 0))
+            .is_err());
+        // An unknown child.
+        assert!(m.apply_patch_in_place(&patch(&[(1, &[9])], 0)).is_err());
+        assert_eq!(m, before, "a refused patch leaves the mirror as it was");
     }
 }
