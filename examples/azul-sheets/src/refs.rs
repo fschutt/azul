@@ -10,8 +10,146 @@
 /// the caret.
 #[must_use]
 pub fn cycle_reference(text: &str, cursor: usize) -> Option<(String, usize)> {
-    let _ = (text, cursor);
-    None
+    let chars: Vec<char> = text.chars().collect();
+    let span = references(&chars)
+        .into_iter()
+        .find(|r| r.start < cursor && cursor <= r.end)?;
+    let (col_abs, row_abs) = span.parts[0].anchoring;
+    let next = match (col_abs, row_abs) {
+        (false, false) => (true, true),
+        (true, true) => (false, true),
+        (false, true) => (true, false),
+        (true, false) => (false, false),
+    };
+    let turned: Vec<String> = span.parts.iter().map(|p| p.spelled(next)).collect();
+    let replacement = turned.join(":");
+    let mut out: String = chars[..span.start].iter().collect();
+    out.push_str(&replacement);
+    out.extend(&chars[span.end..]);
+    Some((out, span.start + replacement.chars().count()))
+}
+
+/// One cell reference: its column letters, its row digits and whether each
+/// is anchored (`$`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct CellRef {
+    column: String,
+    row: String,
+    anchoring: (bool, bool),
+}
+
+impl CellRef {
+    fn spelled(&self, (col_abs, row_abs): (bool, bool)) -> String {
+        format!(
+            "{}{}{}{}",
+            if col_abs { "$" } else { "" },
+            self.column,
+            if row_abs { "$" } else { "" },
+            self.row
+        )
+    }
+}
+
+/// A reference in the text: a cell, or a range of two (`A1:B2`), over the
+/// characters `start..end`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RefSpan {
+    start: usize,
+    end: usize,
+    parts: Vec<CellRef>,
+}
+
+/// A character that continues a name or a number: a reference may not
+/// start right after one, nor end right before one.
+fn is_name_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_' || c == '.'
+}
+
+/// The cell reference starting at `i` (`$`? 1-3 letters `$`? digits), not
+/// glued to a name before or after it and not a function call (`LOG10(`):
+/// the reference and the index after it.
+fn cell_at(chars: &[char], i: usize) -> Option<(CellRef, usize)> {
+    if i > 0 && (is_name_char(chars[i - 1]) || chars[i - 1] == '$') {
+        return None;
+    }
+    let mut j = i;
+    let col_abs = chars.get(j) == Some(&'$');
+    if col_abs {
+        j += 1;
+    }
+    let letters = j;
+    while chars.get(j).is_some_and(char::is_ascii_alphabetic) {
+        j += 1;
+    }
+    if j == letters || j - letters > 3 {
+        return None;
+    }
+    let column: String = chars[letters..j].iter().collect();
+    let row_abs = chars.get(j) == Some(&'$');
+    if row_abs {
+        j += 1;
+    }
+    let digits = j;
+    while chars.get(j).is_some_and(char::is_ascii_digit) {
+        j += 1;
+    }
+    if j == digits {
+        return None;
+    }
+    if chars.get(j).is_some_and(|c| is_name_char(*c) || *c == '(' || *c == '$') {
+        return None;
+    }
+    let row: String = chars[digits..j].iter().collect();
+    Some((
+        CellRef {
+            column,
+            row,
+            anchoring: (col_abs, row_abs),
+        },
+        j,
+    ))
+}
+
+/// Every reference of a formula outside its strings, left to right; none
+/// when the text is no formula.
+fn references(chars: &[char]) -> Vec<RefSpan> {
+    let mut out = Vec::new();
+    if chars.first() != Some(&'=') {
+        return out;
+    }
+    let mut in_string = false;
+    let mut i = 1;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '"' {
+            in_string = !in_string;
+            i += 1;
+            continue;
+        }
+        if in_string {
+            i += 1;
+            continue;
+        }
+        match cell_at(chars, i) {
+            Some((first, end)) => {
+                let mut span = RefSpan {
+                    start: i,
+                    end,
+                    parts: vec![first],
+                };
+                if chars.get(end) == Some(&':') {
+                    if let Some((second, end2)) = cell_at(chars, end + 1) {
+                        span.end = end2;
+                        span.parts.push(second);
+                    }
+                }
+                i = span.end;
+                out.push(span);
+            }
+            None => i += 1,
+        }
+    }
+    out
 }
 
 #[cfg(test)]
