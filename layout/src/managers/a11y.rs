@@ -392,7 +392,7 @@ pub type A11yIdMap<V> = HashMap<A11yNodeId, V, core::hash::BuildHasherDefault<A1
 #[derive(Debug, Clone)]
 pub struct RetainedA11yNode {
     /// Signature of every input the node's content was built from
-    /// ([`A11yManager::node_signature`]). Equal inputs reuse `content`
+    /// (`A11yManager::node_signature`). Equal inputs reuse `content`
     /// without building it; `0` means "unknown - build it again".
     pub inputs: u64,
     /// The pass ([`A11yRetainedTree::pass`]) that last found the node in the
@@ -492,7 +492,7 @@ pub struct A11yPassStats {
 #[cfg(feature = "a11y")]
 type PublishedContent = (Node, Option<Vec<A11yNodeId>>);
 
-/// What [`A11yManager::rebuild_retained`] found.
+/// What `A11yManager::rebuild_retained` found.
 #[cfg(feature = "a11y")]
 struct A11yRebuild {
     /// Nodes that are new or differ from what was last published, in
@@ -669,7 +669,7 @@ impl A11yManager {
     /// every accepted update) - a patch in place, at the cost of the patch
     /// ([`A11yTreeMirror::apply_patch_in_place`]); a full tree must be
     /// complete on its own. Then folds `update` into whatever is still parked
-    /// (see [`Self::fold`]), so the slot always holds ONE coherent update.
+    /// (see `Self::fold`), so the slot always holds ONE coherent update.
     /// Refused updates leave the slot and the mirror exactly as they were and
     /// are recorded in `last_rejection`; the caller decides (incremental:
     /// rebuild the full tree; full: keep the last good state).
@@ -907,7 +907,7 @@ impl A11yManager {
     /// every exposed DOM node (in document order, DOM by DOM), link each to
     /// its nearest exposed ancestor (else the root window node), set the
     /// child lists. What is new is the first pass: a node whose inputs
-    /// ([`Self::node_signature`]) equal the retained node's is not built at
+    /// (`Self::node_signature`) equal the retained node's is not built at
     /// all; a node built again is compared with what was published. Returns
     /// the nodes that are new or differ from the published ones (in document
     /// order), how many were built and removed, and whether the focus moved.
@@ -1245,7 +1245,7 @@ impl A11yManager {
     }
 
     /// The signature of every input a node's content is built from
-    /// ([`Self::build_content`]): the node's type, attributes, flags,
+    /// (`Self::build_content`): the node's type, attributes, flags,
     /// accessibility info, focusability and activation behaviour, the text
     /// its label / value pass reads (an override, else its direct children's
     /// text), the caret on it, whether it has a box, its screen bounds and its
@@ -1324,7 +1324,7 @@ impl A11yManager {
     }
 
     /// One exposed node's content - everything but its child list: the node
-    /// [`Self::build_node`] makes of its box (or, with no box yet, its role and
+    /// `Self::build_node` makes of its box (or, with no box yet, its role and
     /// text), its scroll surface, and its label / value / caret.
     #[allow(clippy::too_many_arguments, clippy::cast_possible_truncation)]
     fn build_content(
