@@ -2274,26 +2274,24 @@ impl HeadlessWindow {
         while let Some(mut pending_create) = self.pending_window_creates.pop() {
             // Every menu window is `azul-menu` (`desktop::menu::show_menu`):
             // one opened while another is open (a submenu, a second
-            // drop-down) gets an id of its own - `azul-menu-2`, ... - or the
-            // debug server, which routes by id, could only reach the first.
+            // drop-down) gets an id of its own - the first free of
+            // `azul-menu-2`, `-3`, ... - or the debug server, which routes by
+            // id, could only reach the first.
             if pending_create.window_state.flags.window_type
                 == azul_core::window::WindowType::Menu
             {
-                let open_menus = self
-                    .children
-                    .iter()
-                    .filter(|c| {
-                        c.common.current_window_state().flags.window_type
-                            == azul_core::window::WindowType::Menu
-                    })
-                    .count();
-                if open_menus > 0 {
-                    let id = format!(
-                        "{}-{}",
-                        pending_create.window_state.window_id.as_str(),
-                        open_menus + 1
-                    );
-                    pending_create.window_state.window_id = id.into();
+                let base = pending_create.window_state.window_id.as_str().to_string();
+                let taken = |id: &str| {
+                    self.children
+                        .iter()
+                        .any(|c| c.common.current_window_state().window_id.as_str() == id)
+                };
+                if taken(&base) {
+                    let free = (2usize..)
+                        .map(|n| format!("{base}-{n}"))
+                        .find(|id| !taken(id))
+                        .unwrap_or(base);
+                    pending_create.window_state.window_id = free.into();
                 }
             }
             log_debug!(
