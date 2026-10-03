@@ -318,6 +318,20 @@ impl EditorForm {
         };
         format!("{title} - {kind}")
     }
+
+    /// The rule the recurrence editor shows: the form's choice made into a rule, or its own
+    /// rule; `None` when it does not repeat.
+    #[must_use]
+    pub fn shown_rule(&self) -> Option<Rule> {
+        todo!()
+    }
+
+    /// Takes the rule the recurrence editor made (`None`: it does not repeat): a rule one of
+    /// the choices makes shows as that choice, any other is kept as the form's own.
+    pub fn set_rule(&mut self, rule: Option<Rule>) {
+        let _ = rule;
+        todo!()
+    }
 }
 
 /// What the editor says about an event it cannot save.
@@ -846,6 +860,32 @@ mod tests {
             .collect();
         assert_eq!(monthly, vec![Repeat::MonthlyDay, Repeat::MonthlyWeekday]);
         assert!(repeat_variants(Repeat::Daily, date).is_empty());
+    }
+
+    /// The recurrence editor hands the form a rule: one of the form's choices shows as that
+    /// choice (any interval and end), any other - Monday and Wednesday every week - is kept as
+    /// the form's own rule; the rule the editor shows is the form's.
+    #[test]
+    fn a_rule_from_the_recurrence_editor_becomes_the_forms_repeat() {
+        let mut f = form();
+        assert_eq!(f.shown_rule(), None, "a new appointment does not repeat");
+        let every_two_weeks = Rule::parse("FREQ=WEEKLY;INTERVAL=2;COUNT=4;BYDAY=WE").unwrap();
+        f.set_rule(Some(every_two_weeks.clone()));
+        assert_eq!(f.repeat, Repeat::Weekly);
+        assert_eq!((f.interval, f.ends, f.count), (2, Ends::After, 4));
+        assert_eq!(f.custom, None);
+        assert_eq!(f.shown_rule(), Some(every_two_weeks));
+        assert_eq!(rule_text(&f).as_deref(), Some("FREQ=WEEKLY;INTERVAL=2;COUNT=4;BYDAY=WE"));
+
+        let two_days = Rule::parse("FREQ=WEEKLY;BYDAY=MO,WE").unwrap();
+        f.set_rule(Some(two_days.clone()));
+        assert_eq!(f.repeat, Repeat::Custom);
+        assert_eq!(f.custom.as_ref(), Some(&two_days));
+        assert_eq!(f.shown_rule(), Some(two_days));
+
+        f.set_rule(None);
+        assert_eq!((f.repeat, f.custom.as_ref()), (Repeat::Never, None));
+        assert_eq!(rule_text(&f), None);
     }
 
     #[test]
