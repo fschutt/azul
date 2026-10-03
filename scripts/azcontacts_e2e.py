@@ -221,9 +221,15 @@ def body(args, logs, out):
         preview = app.last("AZCONTACTS_IMPORT_PREVIEW")
         if not preview.startswith("2 ") or "2 new" not in preview:
             raise Failure("the CSV preview should be 2 new rows: %r" % preview)
+        pane = app.box(app.sel("contact-import"))
         for n in range(5):
             if not app.has_id(app.name("import-column-%d" % n)):
                 raise Failure("the CSV column %d has no mapping control" % n)
+            # Each picker fits the pane, its choice on one line (LOOK: "Mobile phone" wrapped and
+            # the fixed-width columns pushed the pane into a sideways scroll).
+            b = app.box(app.sel("import-column-%d" % n))
+            if b["x"] + b["width"] > pane["x"] + pane["width"] + 0.5 or b["height"] > 34.0:
+                raise Failure("the CSV column %d's picker is cramped: %s in %s" % (n, b, pane))
         app.screenshot(os.path.join(out, "import-csv.png"))
         before = len(contact_files(data_dir))
         app.click(selector=app.sel("import-run"))
