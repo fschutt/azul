@@ -11,8 +11,19 @@ Branch `wt/mail6` from `25d78e309`. Brief: scripts/waves/wave6/MAIL6.md. Report:
 ## IN PROGRESS
 - fixing the LOOK list (below), RED first.
 
-## NEXT
-- (see plan below)
+## NEXT (exact, in order; last commit: see `git log -1`)
+1. RED E2E first: extend scripts/azmail_e2e.py with a `--sample` look phase (RED vs the prebuilt binary):
+   status bar bottom == window bottom (main + compose); after opening the newsletter the list and reading pane
+   are wider than 0 (engine bug 2 - stays RED until MAILENG6); wizard page 2 fields are empty.
+2. App: body `height: 100%` (ui_main.rs layout_main ~line 115, ui_compose.rs layout_compose ~line 363;
+   the wizard is inside the backstage of layout_main).
+3. Wizard bug 9 (below): read layout/src/widgets/text_input.rs dom() ~1182 / dataset merge ~1307/1380;
+   decide owner (no wave-6 task owns text_input.rs -> fix RED first in layout/tests, or app: distinct keys).
+4. Compose close via the CloseGuard widget (ui_compose.rs on_compose_close_requested ~764 clears
+   flags.close_requested by hand - DEDUP_OFFICE A16).
+5. To-Do bar on azul_pim task_store (model: examples/azul-calendar/src/tasks.rs; writes on a Thread).
+6. __azmail_ prefix constants (ids.rs), appkit (args/data root/settings/About dialog/shortcuts),
+   sanitizer class prefix, escapers -> Xml.encode_text/encode_attribute (api.json list), status bar zoom.
 
 ## Seen broken (LOOK, prebuilt aa59b2d84)
 1. APP: the window content is only ~490 px of the 860 px window (main), ~480 of 680 (compose), ~310 (backstage):
@@ -34,6 +45,12 @@ Branch `wt/mail6` from `25d78e309`. Brief: scripts/waves/wave6/MAIL6.md. Report:
 7. APP: About is a backstage page with hand-written shortcut lines ("Ctrl+N" on macOS too), not the standard
    AboutDialog; the shortcuts are listed twice (About text and the key handler).
 8. APP: the To-Do bar's tasks are in memory (lost on restart).
+
+9. APP/ENGINE (LOOK 3; the prebuilt E2E fails here: "timed out waiting for the sending page"): the Add
+   Account wizard's page 2 TextInputs inherit page 1's TextInput states by position: IMAP host shows
+   "Ada Lovelace" (page 1 Name), port shows "ada@example.org" (page 1 e-mail); typed text goes in at the old
+   caret ("Ada Lovelac127.0.0.1e"), and the app's on_text_input gets the merged text -> "The IMAP port
+   "ada@example.or1143g" is not a port". Screenshots w4_incoming_typed.png / w5_after_next.png.
 
 ## Decisions
 - Labels stay English (Outlook 2010 English: File / Home / Send / Receive / Folder / View; groups New, Delete,
