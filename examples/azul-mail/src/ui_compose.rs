@@ -1084,7 +1084,9 @@ fn run_outgoing(job: &OutgoingJob) -> OutgoingDone {
     let mut attachments = Vec::with_capacity(job.attachments.len());
     for file in &job.attachments {
         match &file.source {
-            AttachSource::File(path) => match std::fs::read(path) {
+            // A file the user picked outside the data tree: the kit's one way to read one
+            // (a drive at its folder that keeps no manifest).
+            AttachSource::File(path) => match azul_appkit::files::read_outside(path) {
                 Ok(bytes) => attachments.push(send::Attachment {
                     file_name: file.name.clone(),
                     mime_type: compose::mime_type_for(&file.name).to_string(),
