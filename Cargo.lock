@@ -45,6 +45,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "AzDashboard"
+version = "0.1.0"
+dependencies = [
+ "azul-appkit",
+ "azul-dll",
+ "chrono",
+]
+
+[[package]]
 name = "AzDrive"
 version = "0.1.0"
 dependencies = [
