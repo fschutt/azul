@@ -566,12 +566,12 @@ enum Post {
     None,
     /// `sheets/<id>.xlsx` and `.json` from `Reply::saved`.
     Save {
-        root: PathBuf,
+        drive: Arc<dyn Drive>,
         id: String,
         sidecar: Sidecar,
     },
-    /// `exports/<name>.csv` from `Reply::csv`.
-    Csv { root: PathBuf, name: String },
+    /// `exports/<name>.csv` from `Reply::csv`, into the data tree.
+    Csv { drive: Arc<dyn Drive>, name: String },
 }
 
 /// A waiting thread's start data, taken out once.
@@ -607,23 +607,21 @@ pub fn safe_name(title: &str) -> String {
 fn run_post(post: Post, reply: &Reply) -> Option<Result<String, String>> {
     match post {
         Post::None => None,
-        Post::Save { root, id, sidecar } => {
+        Post::Save { drive, id, sidecar } => {
             let bytes = reply.saved.as_ref()?;
-            let drive = LocalDrive::new(root);
             Some(
-                storage::save(&drive, &id, bytes, &sidecar)
+                storage::save(&*drive, &id, bytes, &sidecar)
                     .map(|()| id)
                     .map_err(|e| format!("Could not save the workbook: {e}")),
             )
         }
-        Post::Csv { root, name } => {
+        Post::Csv { drive, name } => {
             let csv = reply.csv.as_ref()?;
-            let key = format!("exports/{name}.csv");
-            let drive = LocalDrive::new(root.clone());
+            let key = storage::export_key(&name, "csv");
             Some(
                 drive
                     .put(&key, csv.as_bytes())
-                    .map(|()| root.join(&key).display().to_string())
+                    .map(|()| storage::shown_path(&*drive, &key))
                     .map_err(|e| format!("Could not export: {e}")),
             )
         }
@@ -857,13 +855,14 @@ extern "C" fn on_reply(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo)
 /// A blocking storage call for a worker thread.
 enum Job {
     /// The workbooks in the data folder.
-    List { root: PathBuf },
+    List { drive: Arc<dyn Drive> },
     /// `sheets/<id>.xlsx` and its sidecar.
-    Load { root: PathBuf, id: String },
-    /// An `.xlsx` from anywhere on disk.
+    Load { drive: Arc<dyn Drive>, id: String },
+    /// An `.xlsx` the user picked from anywhere on disk (outside the data
+    /// tree: read once, saved into the tree like any workbook).
     Import { path: PathBuf },
-    /// Bytes to `<root>/<key>` (the PDF export).
-    Write { root: PathBuf, key: String, bytes: Vec<u8> },
+    /// Bytes to `key` in the data tree (the PDF export).
+    Write { drive: Arc<dyn Drive>, key: String, bytes: Vec<u8> },
 }
 
 /// What a job answers.
@@ -884,11 +883,11 @@ struct JobMsg {
 
 fn run_job(job: Job) -> JobDone {
     match job {
-        Job::List { root } => JobDone::Listed(
-            storage::list(&LocalDrive::new(root)).map_err(|e| format!("Could not list the workbooks: {e}")),
+        Job::List { drive } => JobDone::Listed(
+            storage::list(&*drive).map_err(|e| format!("Could not list the workbooks: {e}")),
         ),
-        Job::Load { root, id } => JobDone::Loaded(
-            storage::load(&LocalDrive::new(root), &id)
+        Job::Load { drive, id } => JobDone::Loaded(
+            storage::load(&*drive, &id)
                 .map(|(bytes, sidecar)| (id.clone(), bytes, sidecar, false))
                 .map_err(|e| format!("Could not open the workbook: {e}")),
         ),
@@ -902,15 +901,12 @@ fn run_job(job: Job) -> JobDone {
                 })
                 .map_err(|e| format!("Could not read {}: {e}", path.display())),
         ),
-        Job::Write { root, key, bytes } => {
-            let drive = LocalDrive::new(root.clone());
-            JobDone::Wrote(
-                drive
-                    .put(&key, &bytes)
-                    .map(|()| root.join(&key).display().to_string())
-                    .map_err(|e| format!("Could not write {key}: {e}")),
-            )
-        }
+        Job::Write { drive, key, bytes } => JobDone::Wrote(
+            drive
+                .put(&key, &bytes)
+                .map(|()| storage::shown_path(&*drive, &key))
+                .map_err(|e| format!("Could not write {key}: {e}")),
+        ),
     }
 }
 
@@ -1012,7 +1008,7 @@ fn sidecar_of(s: &AppState) -> Sidecar {
 /// Saves the workbook on screen as `sheets/<id>.xlsx` (+ sidecar).
 fn save(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState) {
     let post = Post::Save {
-        root: s.data_root.clone(),
+        drive: Arc::clone(&s.drive),
         id: s.doc.id.clone(),
         sidecar: sidecar_of(s),
     };
@@ -2600,7 +2596,7 @@ fn act(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, action: Action) 
         Action::Save => save(info, app, s),
         Action::ExportCsv => {
             let post = Post::Csv {
-                root: s.data_root.clone(),
+                drive: Arc::clone(&s.drive),
                 name: safe_name(&s.doc.title),
             };
             send(info, app, s, Command::ExportCsv { sheet }, Pending::Exported, post);
@@ -2664,8 +2660,8 @@ fn export_pdf(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState) {
         info,
         app,
         Job::Write {
-            root: s.data_root.clone(),
-            key: format!("exports/{}.pdf", safe_name(&s.doc.title)),
+            drive: Arc::clone(&s.drive),
+            key: storage::export_key(&safe_name(&s.doc.title), "pdf"),
             bytes,
         },
     );
@@ -2913,7 +2909,7 @@ fn backstage_pane(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, pane:
             info,
             app,
             Job::List {
-                root: s.data_root.clone(),
+                drive: Arc::clone(&s.drive),
             },
         );
     }
@@ -2993,7 +2989,7 @@ extern "C" fn on_open_entry(mut data: RefAny, mut info: CallbackInfo) -> Update 
                 info,
                 app,
                 Job::Load {
-                    root: s.data_root.clone(),
+                    drive: Arc::clone(&s.drive),
                     id,
                 },
             );
