@@ -6467,3 +6467,65 @@ pub(crate) fn chart_skin() -> crate::widgets::chart::ChartSkin {
         marker: None,
     }
 }
+
+// ==== toolbar ====
+//
+// The flat toolbar is Explorer's command bar on the window surface, closed
+// along its foot by a separator hairline. Its tools are quiet keys: no face
+// at rest (a transparent face in a transparent hairline), the row-hover
+// blue in Explorer's selection-blue hairline under the pointer, the
+// selection blue while held, the fields' ring on focus; a toggle that is on
+// rests on the selection blue in Explorer's deeper checked hairline. Icons
+// in the icon grey, a menu button's arrow in the secondary ink, separators
+// in the separator grey. At night the desktop's surfaces and inks, flat's
+// dark row hover, the tree's dark selection.
+
+/// Explorer's checked hairline (#99D1FF) around a toggle that is on.
+const TOOLBAR_CHECKED_EDGE_LIGHT: ColorU = ColorU::rgb(0x99, 0xD1, 0xFF);
+
+/// A flat tool's states - the hover face and hairline, the pressed face,
+/// the focus ring, the face's fade - appended after any resting face (a
+/// toggle that is on lays its own), so that face never shadows them.
+fn flat_toolbar_key_states(v: &mut Vec<CssPropertyWithConditions>) {
+    use super::decl;
+    v.extend(decl::hover_fill(LIGHT_ROW_HOVER, DARK_ROW_HOVER));
+    v.extend(decl::hover_border_color(TILE_SELECTED_LIGHT, DARK_BD));
+    v.extend(decl::active_fill(TILE_SELECTED_LIGHT, TILE_SELECTED_DARK));
+    v.extend(decl::focus_ring(FIELD_RING, DARK_ACC));
+    v.extend(decl::state_fade(decl::BUTTON_FACE, decl::BUTTON_FADE_MS));
+}
+
+/// Flat's toolbar look.
+#[must_use]
+pub(crate) fn toolbar_look() -> crate::widgets::toolbar::ToolbarLook {
+    use super::decl;
+
+    let font = CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY));
+    let mut bar = vec![font.clone()];
+    bar.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    bar.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    bar.extend(decl::padding(2, 4, 2, 4));
+    bar.extend(decl::border_bottom(1));
+    bar.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let mut item = decl::themed_ink(LIGHT_INK, DARK_INK).to_vec();
+    item.extend(decl::radius(2));
+    item.push(CssPropertyWithConditions::simple(decl::fill(ColorU::TRANSPARENT)));
+    item.extend(decl::border_colors(ColorU::TRANSPARENT).map(CssPropertyWithConditions::simple));
+    flat_toolbar_key_states(&mut item);
+
+    let mut item_pressed = decl::themed_fill(TILE_SELECTED_LIGHT, TILE_SELECTED_DARK).to_vec();
+    item_pressed.extend(decl::themed_border_color(TOOLBAR_CHECKED_EDGE_LIGHT, DARK_ACC));
+    flat_toolbar_key_states(&mut item_pressed);
+
+    crate::widgets::toolbar::ToolbarLook {
+        bar,
+        item,
+        item_pressed,
+        label: vec![font],
+        icon: decl::themed_ink(LIGHT_ICON, DARK_ICON).to_vec(),
+        arrow: decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1).to_vec(),
+        separator: decl::themed_fill(LIGHT_SEP, DARK_SEP).to_vec(),
+        marker: None,
+    }
+}

@@ -8046,3 +8046,47 @@ pub(crate) fn chart_skin() -> crate::widgets::chart::ChartSkin {
         marker: Some("__azul-theme-flora"),
     }
 }
+
+// ==== toolbar ====
+//
+// A flora toolbar is flora's toolbar strip (`--fl-strip`, closed along its
+// foot by a `--fl-bd` rule) whose tools are flora's toolbar keys
+// (`chrome_key`, the ribbon's commands): bare paper at rest, the hover face
+// in a hairline under the pointer, the pressed face while held, ringed on
+// focus; a toggle that is on stays pushed in, in a `--fl-bd3` hairline (the
+// ribbon's checked key). Icons in the house icon ink, a menu button's arrow
+// in soft ink, separators the `--fl-sep` hairline. At night every surface
+// and ink takes its night value.
+
+/// Flora's toolbar look.
+#[must_use]
+pub(crate) fn toolbar_look() -> crate::widgets::toolbar::ToolbarLook {
+    use super::decl;
+
+    let font = CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY));
+    let mut bar = vec![font.clone()];
+    bar.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
+    bar.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    bar.extend(decl::padding(2, 4, 2, 4));
+    bar.extend(decl::border_bottom(1));
+    bar.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    let mut item = decl::themed_ink(LIGHT_INK, DARK_INK).to_vec();
+    chrome_key(&mut item);
+
+    let mut item_pressed =
+        decl::themed_layers(vec![PRESSED_FACE_LIGHT], vec![PRESSED_FACE_DARK]).to_vec();
+    item_pressed.extend(decl::themed_border_color(LIGHT_BD3, DARK_BD3));
+    chrome_key_states(&mut item_pressed);
+
+    crate::widgets::toolbar::ToolbarLook {
+        bar,
+        item,
+        item_pressed,
+        label: vec![font],
+        icon: decl::themed_ink(LIGHT_ICON, DARK_ICON).to_vec(),
+        arrow: decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1).to_vec(),
+        separator: decl::themed_fill(LIGHT_SEP, DARK_SEP).to_vec(),
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
+}
