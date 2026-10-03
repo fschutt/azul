@@ -15,6 +15,9 @@ publish = false
 
 [dependencies]
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+# The app skeleton every Azlin app shares: switches, data root, settings
+# remembered, shortcuts, About, the undo history, file jobs on a Thread.
+azul-appkit = { path = "../azul-appkit", features = ["azul"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "android-activity"] }

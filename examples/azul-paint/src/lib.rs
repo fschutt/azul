@@ -1,7 +1,8 @@
 use azul::{
-    callbacks::{CallbackType, RenderImageCallbackInfo},
+    callbacks::{
+        CallbackType, DialogOnCloseCallbackType, RenderImageCallbackInfo, StandardDialogOnEventCallbackType,
+    },
     css::PhysicalSizeU32,
-    window::WindowDecorations,
     dialog::{FileDialog, FileOpenResult, SaveTargetResult},
     dom::RenderImageCallback,
     error::{ResultRawImageDecodeImageError, ResultU8VecEncodeImageError, ResultU8VecFileError},
@@ -12,9 +13,47 @@ use azul::{
     prelude::*,
     str::String as AzString,
     vec::{F32VecRef, StringVec, U8VecRef},
-    widgets::Titlebar,
+    widgets::{AboutDialog, Dialog, DialogState, StandardDialogEvent, Titlebar},
 };
-use azul_appkit::history::UndoHistory;
+use azul_appkit::{
+    about::AboutInfo,
+    args::{AppArgs, AppSpec},
+    history::UndoHistory,
+    shortcuts::Shortcut,
+    ui as kit,
+};
+
+/// The screens `--screen` opens; the first is the default.
+const SCREENS: [&str; 3] = ["paint", "settings", "about"];
+
+/// What azul-appkit's parser and usage text know about AzPaint.
+const SPEC: AppSpec = AppSpec {
+    name: "AzPaint",
+    binary: "AzPaint",
+    summary: "a paint app for the mouse, a finger or a stylus: brush and metaball strokes",
+    screens: &SCREENS,
+    files_help: "an image to paint over (PNG, JPEG, WebP, GIF, BMP, TIFF)",
+};
+
+/// What the About dialog and the settings page say about AzPaint.
+const ABOUT: AboutInfo = AboutInfo {
+    name: "AzPaint",
+    version: env!("CARGO_PKG_VERSION"),
+    summary: "Paint with the mouse, a finger or a stylus (pressure, tilt and twist): brush or \
+              metaball strokes over an imported picture, exported as PNG or SVG into the data \
+              folder. Part of the Azlin apps, built with azul.",
+    license: "MIT",
+    app_folder: "paint",
+};
+
+/// The keyboard shortcuts the settings page lists (`Mod` = Cmd / Ctrl).
+const SHORTCUTS: [Shortcut; 5] = [
+    Shortcut::new("Edit", "Mod+Z", "Undo"),
+    Shortcut::new("Edit", "Mod+Shift+Z", "Redo"),
+    Shortcut::new("File", "Mod+O", "Import a picture to paint over"),
+    Shortcut::new("File", "Mod+S", "Export PNG into the data folder"),
+    Shortcut::new("File", "Mod+Shift+S", "Export SVG into the data folder"),
+];
 
 /// Every DOM id and marker AzPaint sets, defined ONCE with the app's prefix
 /// (`__azpaint_`, like the widgets' `__azul_`).
@@ -113,6 +152,10 @@ struct PaintState {
     export_path: Option<String>,
     rev: u64,
     last_pressure: f32,
+    /// azul-appkit's kit: settings (theme and mode remembered), the
+    /// settings page, the data root.
+    kit: RefAny,
+    about_open: bool,
 }
 
 impl PaintState {
@@ -134,7 +177,40 @@ impl PaintState {
             export_path: None,
             rev: 1,
             last_pressure: 0.0,
+            kit: RefAny::new(()),
+            about_open: false,
         }
+    }
+
+    /// `--sample`: three strokes, so the canvas shows what the app does.
+    fn load_sample(&mut self) {
+        let colors = [
+            ColorU::rgb(0x1e, 0x1e, 0x28),
+            ColorU::rgb(0xc8, 0x3c, 0x32),
+            ColorU::rgb(0x28, 0x78, 0xc8),
+        ];
+        for (row, color) in colors.into_iter().enumerate() {
+            let y = 90.0 + row as f32 * 70.0;
+            let points = (0..40)
+                .map(|i| {
+                    let t = i as f32 / 39.0;
+                    StrokePoint {
+                        x: 60.0 + t * 420.0,
+                        y: y + (t * std::f32::consts::TAU).sin() * 18.0,
+                        pressure: 0.25 + 0.6 * (t * std::f32::consts::PI).sin(),
+                        tilt_x: 0.0,
+                        tilt_y: 0.0,
+                        barrel_roll_rad: 0.0,
+                    }
+                })
+                .collect();
+            self.strokes.push(Stroke {
+                points,
+                color,
+                is_eraser: false,
+            });
+        }
+        self.rev += 1;
     }
 
     fn toggle_metaballs(&mut self) {
@@ -1110,6 +1186,10 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
             "Toggle effect (Brush / Metaballs)",
             on_toggle_mode,
         )])),
+        MenuItem::string(StringMenuItem::create("Help").with_children(vec![
+            action("Settings…", on_settings_open),
+            action("About AzPaint", on_about_open),
+        ])),
     ]);
 
     let ctx_menu = Menu::create(vec![
@@ -1122,13 +1202,113 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     ]);
     let canvas = canvas.with_context_menu(ctx_menu.clone());
 
-    Dom::create_body()
+    let (kit_ref, about_open) = data
+        .downcast_ref::<PaintState>()
+        .map(|s| (s.kit.clone(), s.about_open))
+        .unwrap_or((RefAny::new(()), false));
+    let mut body = Dom::create_body()
         .with_css(ROOT)
         .with_menu_bar(menu)
         .with_context_menu(ctx_menu)
         .with_child(title_row())
-        .with_child(header)
-        .with_child(canvas)
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::VirtualKeyDown),
+            data.clone(),
+            on_key,
+        );
+    if kit::settings_open(&kit_ref) {
+        // azul-appkit's settings page: Appearance (remembered), Data,
+        // Shortcuts, About.
+        body.add_child(kit::settings_page(&kit_ref, Vec::new()));
+        return body;
+    }
+    body.add_child(header);
+    body.add_child(canvas);
+    if about_open {
+        body.add_child(about_dialog(&data));
+    }
+    body
+}
+
+/// Help > About AzPaint: azul's standard AboutDialog in a modal Dialog.
+fn about_dialog(data: &RefAny) -> Dom {
+    let about = AboutDialog::create(ABOUT.name, ABOUT.version)
+        .with_icon("brush")
+        .with_description(ABOUT.summary)
+        .with_copyright("MIT license")
+        .with_credit("azul", "MIT")
+        .with_on_event(data.clone(), on_about_event as StandardDialogOnEventCallbackType)
+        .dom();
+    Dialog::create(about)
+        .with_title("About AzPaint")
+        .with_open(true)
+        .with_modal(true)
+        .with_close_button(true)
+        .with_on_close(data.clone(), on_about_close as DialogOnCloseCallbackType)
+        .dom()
+}
+
+fn close_about(data: &mut RefAny) -> Update {
+    match data.downcast_mut::<PaintState>() {
+        Some(mut s) if s.about_open => {
+            s.about_open = false;
+            Update::RefreshDom
+        }
+        _ => Update::DoNothing,
+    }
+}
+
+extern "C" fn on_about_event(mut data: RefAny, _info: CallbackInfo, _event: StandardDialogEvent) -> Update {
+    close_about(&mut data)
+}
+
+extern "C" fn on_about_close(mut data: RefAny, _info: CallbackInfo, _state: DialogState) -> Update {
+    close_about(&mut data)
+}
+
+extern "C" fn on_about_open(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some(mut s) = data.downcast_mut::<PaintState>() else {
+        return Update::DoNothing;
+    };
+    kit::close_settings(&s.kit);
+    s.about_open = true;
+    Update::RefreshDom
+}
+
+/// File > Settings / Help > Keyboard Shortcuts: the kit's settings page.
+extern "C" fn on_settings_open(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some(mut s) = data.downcast_mut::<PaintState>() else {
+        return Update::DoNothing;
+    };
+    s.about_open = false;
+    kit::open_settings(&s.kit, None);
+    Update::RefreshDom
+}
+
+/// The window's keys: the kit's (Mod+, the settings, F1 the shortcuts,
+/// Escape closes them), Escape closes About. Undo, redo, import and export
+/// are the menu items' accelerators.
+extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(kit_ref) = data.downcast_ref::<PaintState>().map(|s| s.kit.clone()) else {
+        return Update::DoNothing;
+    };
+    if let Some(update) = kit::handle_key(&kit_ref, &mut info) {
+        return update;
+    }
+    let key = info.get_current_keyboard_state().current_virtual_keycode.into_option();
+    if matches!(key, Some(azul::dom::VirtualKeyCode::Escape)) {
+        return close_about(&mut data);
+    }
+    Update::DoNothing
+}
+
+/// The window is up: the kit's `--shot` timer.
+extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    if let Some(s) = data.downcast_ref::<PaintState>() {
+        kit::on_window_created(&s.kit, &mut info);
+        say_strokes(&s);
+    }
+    Update::DoNothing
 }
 
 /// The window's title row, drawn by azul (the window is `NoTitle`, so macOS
@@ -1519,14 +1699,43 @@ extern "C" fn on_export_svg(mut data: RefAny, _info: CallbackInfo) -> Update {
     Update::DoNothing
 }
 
+/// Starts AzPaint (`--help` for the switches): azul-appkit's kit (the data
+/// root, the remembered theme and mode, `--size`, `--shot`), `--sample`, an
+/// image to paint over.
 pub fn start() {
-    let data = RefAny::new(PaintState::new());
-    let config = AppConfig::create();
-    let app = App::create(data, config);
-    let mut window = WindowCreateOptions::create(layout);
-    window.window_state.title = "AzPaint".into();
-    window.window_state.flags.decorations = WindowDecorations::NoTitle;
-    app.run(window);
+    let app_args = match AppArgs::parse(&SPEC, std::env::args().skip(1)) {
+        Ok(a) => a,
+        Err(message) => {
+            println!("{message}");
+            std::process::exit(if message.contains("USAGE") { 0 } else { 2 });
+        }
+    };
+    let screen = app_args.screen_or_default(&SPEC).to_string();
+    let picture = app_args.files.first().cloned();
+    let sample = app_args.sample;
+    let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[], app_args);
+    if screen == "settings" {
+        kit::open_settings(&kit_ref, None);
+    }
+    let mut state = PaintState::new();
+    state.kit = kit_ref.clone();
+    state.about_open = screen == "about";
+    if sample {
+        state.load_sample();
+    }
+    // A picture named on the command line, read before the window exists.
+    if let Some(path) = picture {
+        match std::fs::read(&path) {
+            Ok(bytes) => match RawImage::decode_image_bytes_any(U8VecRef::from(bytes.as_slice())) {
+                ResultRawImageDecodeImageError::Ok(img) => state.set_background(img),
+                _ => eprintln!("[azpaint] {}: not an image azul can read", path.display()),
+            },
+            Err(e) => eprintln!("[azpaint] {}: {e}", path.display()),
+        }
+    }
+    let config = kit::app_config(&kit_ref);
+    let window = kit::window_options(&kit_ref, layout, (1024.0, 720.0), (480.0, 360.0), on_window_created);
+    App::create(RefAny::new(state), config).run(window);
 }
 
 #[cfg(target_os = "android")]
