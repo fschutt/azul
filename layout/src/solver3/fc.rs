@@ -4594,7 +4594,7 @@ fn layout_ifc<T: ParsedFontTrait>(
                     let main_frag = cached.materialized();
                     let mut output = LayoutOutput {
                         overflow_size: ifc_extent(&main_frag),
-                        baseline: main_frag.last_line_baseline_y(),
+                        baseline: main_frag.last_baseline(),
                         ..Default::default()
                     };
                     // The cache-reuse exit must trim like the full path: a
@@ -4843,11 +4843,7 @@ fn layout_ifc<T: ParsedFontTrait>(
         // exit above reports the same, so two layouts of unchanged content
         // agree to the bit.
         output.overflow_size = ifc_extent(main_frag);
-        // WHERE the last line's baseline is (an inline-block's baseline, CSS
-        // 2.2 10.8.1) - not the last item's own offset (`last_baseline`), which
-        // put a two-line inline-block on its first line and read a box's
-        // distance from its bottom as one from the top.
-        output.baseline = main_frag.last_line_baseline_y();
+        output.baseline = main_frag.last_baseline();
         warm_node.baseline = output.baseline;
 
         apply_text_box_trim(
@@ -9224,25 +9220,6 @@ fn compute_cell_baseline(cell_index: usize, tree: &LayoutTree) -> f32 {
 fn first_line_baseline(index: usize, tree: &LayoutTree, depth: usize) -> Option<f32> {
     // +spec:inline-formatting-context:27be38 - cell baseline is first in-flow line box or bottom of
     // content edge
-    line_baseline(index, tree, depth, LineEdge::First)
-}
-
-/// Which line box of a box gives its baseline: a table cell's and a flex /
-/// grid container's FIRST (CSS 2.2 17.5.3, Flexbox 8.5, Grid 10.6), an
-/// inline-block's LAST (CSS 2.2 10.8.1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LineEdge {
-    First,
-    Last,
-}
-
-/// The baseline of the first or the last line box inside a laid-out box,
-/// measured from the top of its border box: its own first / last line when
-/// it holds lines, else its first / last child's that has one - at any
-/// depth, offset by where each child sits. ONE walk for the table cells
-/// ([`first_line_baseline`]) and the atomic inlines
-/// ([`atomic_inline_content_baseline`]).
-fn line_baseline(index: usize, tree: &LayoutTree, depth: usize, edge: LineEdge) -> Option<f32> {
     const MAX_DEPTH: usize = 64;
     let node = tree.get(LayoutNodeId::new(index))?;
     let bp = node.box_props.unpack();
@@ -9251,56 +9228,26 @@ fn line_baseline(index: usize, tree: &LayoutTree, depth: usize, edge: LineEdge) 
         .warm(LayoutNodeId::new(index))
         .and_then(|w| w.inline_layout_result.as_ref())
     {
-        // (d6h) Materialized: sentinel-safe line baseline.
+        // (d6h) Materialized: sentinel-safe first-line baseline.
         let inline_result = cached_layout.materialized();
-        let baseline = match edge {
-            LineEdge::First => inline_result.first_line_baseline_y(),
-            LineEdge::Last => inline_result.last_line_baseline_y(),
-        };
-        if let Some(baseline) = baseline {
-            return Some(content_top + baseline);
+        if let Some(first_item) = inline_result.items.first() {
+            let (item_ascent, _) = text3::cache::get_item_vertical_metrics_approx(&first_item.item);
+            return Some(content_top + first_item.position.y + item_ascent);
         }
     }
     if depth >= MAX_DEPTH {
         return None;
     }
-    let baseline_of = |child: usize| {
+    for &child in tree.children(index) {
         let child_top = tree
             .warm(LayoutNodeId::new(child))
             .and_then(|w| w.relative_position)
             .map_or(0.0, |p| p.y);
-        line_baseline(child, tree, depth + 1, edge).map(|b| content_top + child_top + b)
-    };
-    let children = tree.children(index);
-    match edge {
-        LineEdge::First => children.iter().find_map(|&child| baseline_of(child)),
-        LineEdge::Last => children.iter().rev().find_map(|&child| baseline_of(child)),
+        if let Some(baseline) = first_line_baseline(child, tree, depth + 1) {
+            return Some(content_top + child_top + baseline);
+        }
     }
-}
-
-/// The baseline of an atomic inline whose own layout reported none, from
-/// the line boxes laid out inside it, measured from the top of its CONTENT
-/// box - `None` when it holds no line box (its bottom margin edge then):
-/// - a flex or grid container takes its FIRST line box's (the first item's
-///   baseline, CSS Flexbox 8.5 / Grid 10.6);
-/// - an inline-block holding blocks takes its LAST line box's, at any depth
-///   (CSS 2.2 10.8.1).
-///
-/// The flex / grid layout and the block layout report no baseline of their
-/// own, so an inline-flex button or an inline-block of blocks sat on the
-/// line by its bottom edge: a 32px button beside text made a 36px line
-/// (Chrome 32), and one alone on a line hung the strut's descent below it.
-fn atomic_inline_content_baseline(
-    tree: &LayoutTree,
-    index: usize,
-    content_top: f32,
-) -> Option<f32> {
-    let edge = match tree.get(LayoutNodeId::new(index))?.formatting_context {
-        FormattingContext::Flex | FormattingContext::Grid => LineEdge::First,
-        FormattingContext::Block { .. } | FormattingContext::InlineBlock => LineEdge::Last,
-        _ => return None,
-    };
-    line_baseline(index, tree, 0, edge).map(|from_border_top| from_border_top - content_top)
+    None
 }
 
 /// A table cell's `vertical-align` (CSS 2.2 17.5.3), `baseline` when unset
@@ -10545,35 +10492,18 @@ fn measure_atomic_inline<T: ParsedFontTrait>(
         node.used_size = Some(final_size);
     }
 
-    // CSS 2.2 s 10.8.1, via `atomic_inline_baseline_offset`. The `overflow`
-    // rule (a clipping box sits on its bottom margin edge) is the
-    // inline-block's alone: a flex or grid box keeps its first item's
-    // baseline whatever its overflow (Chrome: an `overflow: hidden`
-    // inline-flex button sits on its label's baseline).
+    // CSS 2.2 s 10.8.1, via `atomic_inline_baseline_offset`.
     let overflow_x = get_overflow_x(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
     let overflow_y = get_overflow_y(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
-    let is_flex_or_grid = tree.get(LayoutNodeId::new(child_index)).is_some_and(|n| {
-        matches!(
-            n.formatting_context,
-            FormattingContext::Flex | FormattingContext::Grid
-        )
-    });
-    let overflow_is_visible = is_flex_or_grid
-        || matches!(
-            (overflow_x, overflow_y),
-            (LayoutOverflow::Visible, LayoutOverflow::Visible)
-        );
-    let content_top = box_props.padding.top + box_props.border.top;
-    // A layout that reported no baseline (flex, grid, a block of blocks):
-    // the line boxes laid out inside it, just published to the tree.
-    let baseline_from_top = layout_result
-        .output
-        .baseline
-        .or_else(|| atomic_inline_content_baseline(tree, child_index, content_top));
+    let overflow_is_visible = matches!(
+        (overflow_x, overflow_y),
+        (LayoutOverflow::Visible, LayoutOverflow::Visible)
+    );
+    let baseline_from_top = layout_result.output.baseline;
     let baseline_offset = atomic_inline_baseline_offset(
         baseline_from_top,
         final_height,
-        content_top,
+        box_props.padding.top + box_props.border.top,
         box_props.margin.bottom,
         overflow_is_visible,
     );
