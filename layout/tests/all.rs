@@ -772,3 +772,5 @@ mod a_captions_own_caption_side_places_it;
 mod a_spanning_cells_percentage_is_shared_by_its_columns;
 #[path = "a_right_to_left_tables_columns_run_from_the_right.rs"]
 mod a_right_to_left_tables_columns_run_from_the_right;
+#[path = "a_text_rasterises_into_a_raw_image.rs"]
+mod a_text_rasterises_into_a_raw_image;
