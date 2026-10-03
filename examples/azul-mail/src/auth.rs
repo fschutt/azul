@@ -171,7 +171,9 @@ mod tests {
 
     #[test]
     fn submission_signs_in_with_what_the_server_offers_and_a_token_only_as_offered_xoauth2() {
-        let offered = |m: &[&str]| ServerCaps::from_smtp_auth(m);
+        fn offered(mechanisms: &[&str]) -> ServerCaps {
+            ServerCaps::from_smtp_auth(mechanisms)
+        }
         assert_eq!(
             choose_submission(AuthKind::Password, offered(&["LOGIN", "PLAIN"])),
             Ok(AuthMethod::Plain)
