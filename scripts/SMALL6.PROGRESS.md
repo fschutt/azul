@@ -10,11 +10,16 @@ Screenshots: target/small6-shots/ (not committed). Look driver: target/small6/lo
 - f07100715 / 14d55866e shells: `ShellThemeScope::body()` fills the window (RED unit + layout test / GREEN).
 
 ## IN PROGRESS
-- moving the apps onto `ShellThemeScope::body()` and the finish checklist.
+- moving the apps onto `ShellThemeScope::body()` and the finish checklist. Last commit: 7f33fe13b (progress).
+- POWER WARNING (coordinator, 16% battery): commit after every small unit; NO long headless runs until told.
 
-## NEXT
-- AzCalculator: body(), `__azcalc_` prefix consts (ids module), long history results wrap, About via AboutDialog
-  (appkit), E2E: Ctrl+C step moved last (engine bug, WRITER6) + new ids.
+## NEXT (exact)
+- AzCalculator (examples/azul-calculator/src/ui.rs): (1) `window_root` / layout body at ~line 1267
+  (`Dom::create_body().with_css(..)` + ShellThemeScope) -> `ShellThemeScope::create(..).body()` keeping the
+  callbacks on the returned body; commit. (2) history result lines (`history_list`, ~line 800) get
+  `overflow-wrap: anywhere`; commit. (3) `ids` module with `__azcalc_` consts (key ids in the key tables
+  ~lines 398-580 become "__azcalc_key-.."), update scripts/azcalculator_e2e.py selectors; commit. (4) E2E: move
+  the Ctrl+C step to the end; commit. (5) About via AboutDialog (appkit About section button + Modal).
 - AzSetup: body(), appkit, prefixes, settings remembered, E2E.
 - AzShells: body(), appkit, prefixes, About, E2E.
 - AzWidgets: the new widgets; app theme; LOOK (short, it has a <video>).
