@@ -14,9 +14,11 @@ Report: `scripts/KEYS9_<date>.md` (when done). Never compile (house rules); rust
 - 7755d4af0 GREEN generator.rs; 580a990fa GREEN clipboard.rs + lock.rs; f50d18b3a GREEN audit.rs
 - a18b6e625 RED store.rs (file keys, Work/Done/Failure, run(), read_listing) + azul-pim test-util dev-dep
 - 46a58d5f7 GREEN store.rs; c91f0a2a0 sample.rs (+ tests, SAMPLE_PASSWORD "sample")
+- 007d2b35e ids.rs; ed43239d6 RED + 5adc26c13 GREEN session.rs (Session, OpenVault, Form, Reading, Reveal,
+  ImportView: the plain window model; UI callbacks should only call these)
 - 9cbc73f1a registered: root Cargo.toml member, workspace_test_members.txt, rust.yml step (NEXT item 7 done)
 
-## NEXT (exact) - items 1, 2 and 7 are DONE; continue at 3
+## NEXT (exact) - items 1, 2, 3 and 7 are DONE (+ session.rs); continue at 4
 1. (done) GREEN `examples/azul-keys/src/store.rs`: fill `read_listing` (parse each `(key, bytes)` with
    `Envelope::parse`, problems "`<key>`: <VaultError>", sort by folded name) and `run` (List via
    `azul_appkit::files::list_all(drive, VAULTS)` + get each `.azkv`; Create: KdfParams::fresh() when None,
@@ -28,7 +30,7 @@ Report: `scripts/KEYS9_<date>.md` (when done). Never compile (house rules); rust
 2. (done) sample.rs: `sample_vault(now) -> Vault` (~40-128 fictional items: CodeHost (example) dev@example.org with
    TOTP secret GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ, Mail (Box example), Bank (card) 4242, identity Anna Berg,
    SSH keys, notes, some weak / reused / old passwords for the audit); `SAMPLE_PASSWORD = "sample"`; a test.
-3. ids.rs: `__azkeys_` const AzString names (macro like examples/azul-contacts/src/ids.rs).
+3. (done) ids.rs: `__azkeys_` const AzString names (macro like examples/azul-contacts/src/ids.rs).
 4. lib.rs: SPEC / ABOUT (app_folder "keys") / SHORTCUTS / APP_CATEGORIES, `KeysApp` state, Settings
    (idle_minutes default 5, clear_seconds default 30, `device_unlock.<vault-id>` = biometric|prompt|keyring),
    `start()` like AzContacts' ui::start (AppArgs::from_env, kit::create_kit, kit::window_options).
