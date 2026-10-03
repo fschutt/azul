@@ -3020,6 +3020,17 @@ extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update 
         Some(VirtualKeyCode::N) if command => {
             with_app(&mut data, &mut info, |info, app, s| new_workbook(info, app, s, false))
         }
+        // The kit's keys (every Azlin app): Mod+, opens the settings, F1
+        // opens them at the shortcuts - here, the backstage's Options pane.
+        Some(VirtualKeyCode::Comma) if command => with_app(&mut data, &mut info, |info, app, s| {
+            backstage_pane(info, app, s, OPTIONS_PANE);
+        }),
+        Some(VirtualKeyCode::F1) => with_app(&mut data, &mut info, |info, app, s| {
+            if let Some(kit_ref) = &s.kit {
+                kit::open_settings(kit_ref, Some("Shortcuts"));
+            }
+            backstage_pane(info, app, s, OPTIONS_PANE);
+        }),
         Some(VirtualKeyCode::Escape) => with_app(&mut data, &mut info, |_, _, s| {
             if s.screen == Screen::Backstage {
                 s.screen = Screen::Workbook;
