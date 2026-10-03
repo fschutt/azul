@@ -250,8 +250,22 @@ pub(crate) enum SlotPlan {
 /// other live one; a released buffer is only re-created when no live buffer
 /// is free.
 pub(crate) fn plan_slot(active: usize, busy: [bool; 2], released: [bool; 2]) -> SlotPlan {
-    let _ = (active, busy, released);
-    SlotPlan::Wait
+    let a = active & 1;
+    let b = 1 - a;
+    let free = |s: usize| !busy[s] && !released[s];
+    if free(a) {
+        SlotPlan::Use(a)
+    } else if free(b) {
+        SlotPlan::Use(b)
+    } else if released[b] {
+        // The usual case: the newest buffer is on screen (held), the spare
+        // was given back while idle.
+        SlotPlan::Recreate(b)
+    } else if released[a] {
+        SlotPlan::Recreate(a)
+    } else {
+        SlotPlan::Wait
+    }
 }
 
 /// What an idle window does with its spare buffer before it sleeps.
@@ -276,8 +290,14 @@ pub(crate) fn idle_spare(
     released: [bool; 2],
     idle_for: Duration,
 ) -> IdleSpare {
-    let _ = (active, busy, released, idle_for);
-    IdleSpare::Nothing
+    let spare = 1 - (active & 1);
+    if released[spare] || busy[spare] {
+        return IdleSpare::Nothing;
+    }
+    match SPARE_IDLE_RELEASE.checked_sub(idle_for) {
+        Some(left) if !left.is_zero() => IdleSpare::WakeIn(left),
+        _ => IdleSpare::Release(spare),
+    }
 }
 
 #[cfg(test)]
