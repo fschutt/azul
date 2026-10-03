@@ -1379,6 +1379,31 @@ fn source_arg_ffi_type(arg: &super::type_index::MethodArg) -> (String, Option<St
     }
 }
 
+/// The api.json entry `autofix add <class>.<api_name> --fn <path>` writes,
+/// and whether it is a constructor: a function of `class_name` whose body
+/// calls the free function.
+pub fn free_fn_entry(
+    class_name: &str,
+    api_name: &str,
+    free_fn: &super::type_index::FreeFnDef,
+) -> (FunctionData, bool) {
+    let _ = (class_name, api_name, free_fn);
+    (
+        FunctionData {
+            doc: None,
+            priority: None,
+            fn_args: Vec::new(),
+            returns: None,
+            fn_body: None,
+            use_patches: None,
+            const_fn: false,
+            generic_params: None,
+            generic_bounds: None,
+        },
+        false,
+    )
+}
+
 fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData {
     use super::type_index::SelfKind;
 
@@ -2614,6 +2639,147 @@ mod tests {
             r#"{"functions": {"get": {
                 "fn_args": [{"self": "ref"}, {"id": "DomId"}, {"span": "OptionI32"}],
                 "fn_body": "object.get(&id, span.into())"}}}"#,
+        );
+        assert!(found.is_empty(), "{found:?}");
+    }
+
+    /// The free function `name` of `source`, read for class `class` and
+    /// called through `path`.
+    fn free_fn(source: &str, name: &str, class: &str, path: &str) -> super::super::type_index::FreeFnDef {
+        let file: syn::File = syn::parse_file(source).expect("test source parses");
+        let method = file
+            .items
+            .iter()
+            .find_map(|item| match item {
+                syn::Item::Fn(f) if f.sig.ident == name => {
+                    super::super::type_index::free_fn_method(f, class)
+                }
+                _ => None,
+            })
+            .expect("the free fn");
+        super::super::type_index::FreeFnDef {
+            path: path.to_string(),
+            defined_in: String::new(),
+            method,
+        }
+    }
+
+    fn arg_list(f: &FunctionData) -> Vec<(String, String)> {
+        f.fn_args
+            .iter()
+            .flat_map(|a| a.iter().map(|(n, t)| (n.clone(), t.clone())))
+            .collect()
+    }
+
+    fn pairs(list: &[(&str, &str)]) -> Vec<(String, String)> {
+        list.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect()
+    }
+
+    /// Xml.encode_text / encode_attribute, RawImage.from_text / draw_text
+    /// needed a hand-written patch at the wave-6 integration: `autofix add`
+    /// could not make a function whose body calls a FREE function. With
+    /// `--fn <path>` the entry takes the free function's arguments; a first
+    /// argument of the class's own type is the receiver, passed on in the
+    /// codegen's receiver form (`raw_image`, the generated function's
+    /// parameter - a bare `object` is not rewritten and did not compile).
+    #[test]
+    fn a_free_function_becomes_a_function_of_the_class() {
+        let source = r#"
+            pub fn text_image(text: AzString, style: TextRasterStyle) -> OptionRawImage { todo!() }
+            pub fn draw_text(image: &mut RawImage, text: AzString, style: TextRasterStyle, x: f32, y: f32) -> bool { todo!() }
+            pub fn encode_text(s: &str) -> String { todo!() }
+            pub fn blank(width: u32, height: u32) -> RawImage { todo!() }
+        "#;
+        let path = "azul_layout::cpurender";
+
+        let (f, ctor) = free_fn_entry(
+            "RawImage",
+            "from_text",
+            &free_fn(source, "text_image", "RawImage", &format!("{path}::text_image")),
+        );
+        assert!(!ctor);
+        assert_eq!(arg_list(&f), pairs(&[("text", "String"), ("style", "TextRasterStyle")]));
+        assert_eq!(returns_of(&f), Some("OptionRawImage"));
+        assert_eq!(f.fn_body.as_deref(), Some("azul_layout::cpurender::text_image(text, style)"));
+
+        let (f, ctor) = free_fn_entry(
+            "RawImage",
+            "draw_text",
+            &free_fn(source, "draw_text", "RawImage", &format!("{path}::draw_text")),
+        );
+        assert!(!ctor);
+        assert_eq!(
+            arg_list(&f),
+            pairs(&[
+                ("self", "refmut"),
+                ("text", "String"),
+                ("style", "TextRasterStyle"),
+                ("x", "f32"),
+                ("y", "f32")
+            ])
+        );
+        assert_eq!(returns_of(&f), Some("bool"));
+        assert_eq!(
+            f.fn_body.as_deref(),
+            Some("azul_layout::cpurender::draw_text(raw_image, text, style, x, y)")
+        );
+
+        let (f, _) = free_fn_entry(
+            "Xml",
+            "encode_text",
+            &free_fn(source, "encode_text", "Xml", "azul_core::xml::html::encode_text"),
+        );
+        assert_eq!(arg_list(&f), pairs(&[("s", "String")]));
+        assert_eq!(returns_of(&f), Some("String"));
+        assert_eq!(
+            f.fn_body.as_deref(),
+            Some("azul_core::xml::html::encode_text(s.as_str()).into()")
+        );
+
+        // a `create*` name returning the class is a constructor
+        let blank = free_fn(source, "blank", "RawImage", &format!("{path}::blank"));
+        let (f, ctor) = free_fn_entry("RawImage", "create_blank", &blank);
+        assert!(ctor);
+        assert_eq!(f.fn_body.as_deref(), Some("azul_layout::cpurender::blank(width, height)"));
+        let (_, ctor) = free_fn_entry("RawImage", "blank", &blank);
+        assert!(!ctor, "only a create* name is a constructor");
+    }
+
+    /// A callback receives its info by value (CallbackType's fn_args), and
+    /// the info is a set of pointers into the window state, so it crosses by
+    /// value and the body re-borrows a mutable copy - the pattern of
+    /// ProgressBar.update_progress and TextInput.set_text_in. `autofix add`
+    /// wrote `*mut CallbackInfo` and the scan called the existing entries
+    /// drifted.
+    #[test]
+    fn a_callback_info_argument_crosses_by_value_and_is_re_borrowed() {
+        let source = r#"
+            impl T {
+                pub fn set_text_in(info: &mut CallbackInfo, container: DomNodeId, text: AzString) {}
+                pub fn update_progress(callback_info: &mut CallbackInfo, node_id: DomNodeId, percent_done: f32) -> bool { true }
+            }
+        "#;
+        let ms = methods(source);
+        let f = method_to_function_data(&ms["set_text_in"], "azul_layout::widgets::text_input::TextInput");
+        assert_eq!(
+            arg_list(&f),
+            pairs(&[("info", "CallbackInfo"), ("container", "DomNodeId"), ("text", "String")])
+        );
+        assert_eq!(
+            f.fn_body.as_deref(),
+            Some(
+                "{ let mut info = info; \
+                 azul_layout::widgets::text_input::TextInput::set_text_in(&mut info, container, text) }"
+            )
+        );
+
+        let found = diffs(
+            source,
+            r#"{"functions": {"update_progress": {
+                "fn_args": [{"callback_info": "CallbackInfo"}, {"node_id": "DomNodeId"},
+                            {"percent_done": "f32"}],
+                "returns": {"type": "bool"},
+                "fn_body": "{ let mut callback_info = callback_info; azul_layout::widgets::progressbar::ProgressBar::update_progress(&mut callback_info, node_id, percent_done) }"}}}"#,
         );
         assert!(found.is_empty(), "{found:?}");
     }

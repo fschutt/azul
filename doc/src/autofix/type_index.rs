@@ -850,6 +850,20 @@ pub fn find_free_fn(workspace_root: &Path, path: &str, class_name: &str) -> Resu
     Err(format!("free function `{path}` not found"))
 }
 
+/// The signature of the free function `f` as a static method of
+/// `class_name` (the method extraction's rules: `Into<T>` generics resolved,
+/// other generics skipped, `Self` / constructor-ness against `class_name`).
+pub(crate) fn free_fn_method(f: &syn::ItemFn, class_name: &str) -> Option<MethodDef> {
+    let as_method = syn::ImplItemFn {
+        attrs: f.attrs.clone(),
+        vis: f.vis.clone(),
+        defaultness: None,
+        sig: f.sig.clone(),
+        block: (*f.block).clone(),
+    };
+    extract_method_def(&as_method, class_name)
+}
+
 /// Fast lookup index for type definitions
 #[derive(Debug, Default)]
 pub struct TypeIndex {
