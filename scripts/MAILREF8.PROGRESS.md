@@ -96,7 +96,16 @@ Never compile; never touch layout/src/solver3/page_breaks.rs (nor display_list.r
 11. (was complete) RESUMED with a coordinator message: user ruling 2026-10-03 "Chrome is the reference -
     when azul and Chrome disagree, azul changes, then the widgets' CSS is adjusted to keep their look".
     New units, RED first, commit each:
-    12. D: `sans-serif` on macOS -> Helvetica (as Chrome). In-azul route: override the fallback list once
+    12. DONE D: RED 6f84b193a (layout/tests/sans_serif_is_helvetica_on_macos_as_in_chrome.rs, macOS-only),
+        GREEN 0693801d2 (font::loading::{browser_generic_families, use_browser_generic_families}, unit
+        test; build_font_cache applies it) + 0c5c90faf (FontManager::new / from_arc_shared, FontContext::
+        from_fc_cache / from_registry, dll App::create's registry.cache, E2E runner's registry).
+        Probe target/mailref8/g1.json: serif (Times) and monospace (Menlo) already = Chrome; system-ui
+        differs (azul 128.30 / Chrome 139.16) - NOT touched (instruction), listed. Changes on macOS:
+        AzNotes (root UI font-family: sans-serif, note paper, a bold label), AzCalendar (2 rules), AzShow
+        default font scheme, examples/{rust,c,cpp,python} calc/widgets/async/infinity/icons, mail text
+        falling back to sans-serif. NEXT: append report section 11.
+        Was: D: `sans-serif` on macOS -> Helvetica (as Chrome). In-azul route: override the fallback list once
         where azul builds its FcFontCache / generic mapping (`FcFontCache::set_fallback_config`), NOT
         upstream. system-ui must NOT change. Audit what app UI text uses; list what changes.
     13. DONE E2: RED 275639c9d (layout/tests/an_hr_is_a_two_pixel_inset_rule_as_wide_as_its_block.rs),
