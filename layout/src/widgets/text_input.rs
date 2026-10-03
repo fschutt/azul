@@ -1620,6 +1620,18 @@ pub(crate) fn replace_engine_line(info: &mut CallbackInfo, container: DomNodeId,
     }
 }
 
+impl TextInput {
+    /// Sets the text of the field hosted at `container` from a callback, as the
+    /// app: it supersedes what the user typed there (a chat field emptied after
+    /// Send, a search box filled from a suggestion). Re-rendering the field
+    /// with `with_text` alone does not: the user's typing outranks the DOM
+    /// until the DOM catches up. A password field shows its mask.
+    pub fn set_text_in(info: &mut CallbackInfo, container: DomNodeId, text: AzString) {
+        // RED: nothing is written yet.
+        let _ = (info, container, text);
+    }
+}
+
 /// What a field's value-dependent looks were derived from, captured BEFORE an
 /// edit so [`sync_live_looks`] can tell what changed.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -5133,6 +5145,20 @@ mod autotest_generated {
                 "flora: the dark ring must differ from the light one"
             );
         }
+    }
+
+    #[test]
+    fn the_app_sets_a_fields_text_on_its_line_over_the_typing() {
+        let (styled_dom, _state) = rendered(TextInput::create().with_text("Hello Ben".into()));
+        let (_, changes, nodes) = run(Env::new(styled_dom), |mut info| {
+            TextInput::set_text_in(&mut info, dom_node(CONTAINER), AzString::from(""));
+        });
+        let leaf = nodes.label_text.expect("the value line has a text leaf");
+        assert_eq!(
+            pushed_texts(&changes),
+            vec![(leaf, String::new())],
+            "one write, on the line's text leaf (ChangeNodeText supersedes the typing)"
+        );
     }
 }
 
