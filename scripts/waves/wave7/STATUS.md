@@ -11,7 +11,7 @@ progress file"). Worktrees: /Users/fschutt/Development/azul/.claude/worktrees/ag
 | EVENTS7 | a083d3b843e66855a | wt/events7 | .claude/worktrees/agent-a083d3b843e66855a | MERGED, DONE (report scripts/EVENTS7_2026_10_03.md; api.json FocusEventFilter::TypingStyleChanged (last variant); VirtualView clicks bubble to the host page; macOS Edit menu through press_shortcut_keys; undo/redo moved into LayoutWindow; headless menus close; least sure: hover_callbacks_along_path lifetimes, undo_redo.rs impl, macOS edit_command) |
 | WIDGETS7 | a82f849dedcbbbe5d | wt/widgets7 | .claude/worktrees/agent-a82f849dedcbbbe5d | MERGED, DONE (report scripts/WIDGETS7_2026_10_03.md; INTEGRATION: api.json CloseGuard.dirty_check + ToDoBar.week_start; run scripts/waves/wave7/widgets7_rename_summary_list.py --api, then gen_codegen_lowering.py, then --apps AFTER merging OFFICE7; edits in core prop_cache.rs (placeholder cascade), css colour printers) |
 | OFFICE7 | ae791904cdd96da77 | wt/office7 | .claude/worktrees/agent-ae791904cdd96da77 | MERGED, DONE (report scripts/OFFICE7_2026_10_03.md; api: Update.max_self, RichTextEditor.line_height field + set/with_line_height) |
-| PIMDRIVE7 | a5305b6b2e2aa001f | wt/pimdrive7 | .claude/worktrees/agent-a5305b6b2e2aa001f | running |
+| PIMDRIVE7 | a5305b6b2e2aa001f | wt/pimdrive7 | .claude/worktrees/agent-a5305b6b2e2aa001f | MERGED, DONE (report scripts/PIMDRIVE7_2026_10_03.md; no api.json; AzMeet encode/decode_settings removed again - AzCalendar has its own settings line now) |
 | DATATABLE7 | a5fe1fc603353c662 | wt/datatable7 | .claude/worktrees/agent-a5fe1fc603353c662 | MERGED (report scripts/DATATABLE7_2026_10_03.md; api list in report; AccessibilityState SortedAscending/Descending) |
 | CHART7 | a316f8beeb5434fe0 | wt/chart7 | .claude/worktrees/agent-a316f8beeb5434fe0 | MERGED 7ef97bd8c (report scripts/CHART7_2026_10_03.md; dashboard lib.rs wiring still TODO - see report "lib.rs lines"; api list in report) |
 | TOOLS7 | ae314b7cb341cd9cb | wt/tools7 | .claude/worktrees/agent-ae314b7cb341cd9cb | MERGED (report scripts/TOOLS7_2026_10_03.md; 185 autofix+patch tests pass; next scan moves TextRasterStyle css -> image) |
@@ -21,3 +21,5 @@ progress file"). Worktrees: /Users/fschutt/Development/azul/.claude/worktrees/ag
 LAYOUT7, WIDGETS7 + the SummaryList rename 5805e5943); api.json converged 80135435c (122 functions in one autofix add, all
 landed). NOT BUILT (user: wait for the last agent, then build). Still open: the dashboard's chart wiring (CHART7 report
 "lib.rs lines"), then PIMDRIVE7's merge + api entries, then dylib + apps + push.
+2026-10-03 integration round 2: PIMDRIVE7 merged + the dashboard chart wiring (9606ffebb); ALL TEN MERGED; autofix
+0 patches / 0 critical. dylib + 24 app crates building (no tests yet).
