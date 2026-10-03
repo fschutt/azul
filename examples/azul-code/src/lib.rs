@@ -17,6 +17,7 @@
 pub mod buffer;
 pub mod highlight;
 pub mod search;
+pub mod workspace;
 
 /// Starts the app (filled in by the UI half of this crate).
 pub fn start() {}
