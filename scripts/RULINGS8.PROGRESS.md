@@ -21,6 +21,17 @@ Brief: scripts/waves/wave8/PLAN.md section "RULINGS8".
 - bb575b00f RED + 72ef0a634 GREEN (e): IFC baseline = positioned last line baseline
   (PositionedItem::baseline_y, UnifiedLayout::first_line_baseline_y / last_line_baseline_y; fc.rs layout_ifc
   both exits + line_baseline)
+- MAILREF8 SYNC (coordinator 2026-10-03: MAILREF8 landed inline_block_baseline + UnifiedLayout::last_line_baseline
+  + glyph-line line boxes in the same regions):
+  - 92bb530ce reverted my (e) 72ef0a634 and (d) d06b7c8b6 (duplicates of MAILREF8's helpers)
+  - d79e4b720 (d'): fc.rs layout_flex_grid sets output.baseline = first_line_baseline (MAILREF8's
+    measure_atomic_inline reads it for Flex/Grid); overflow rule exempted for flex/grid via the overflow_x/y lines
+  - 1adee2882 (a'): reverted 60a535026, re-landed as separate blocks (atomic_line_box_top/_bottom recorded
+    before `line_index += 1`, union after the existing line-box block) - clear of MAILREF8's lines
+  - 55ee0c7db docs; `git merge-tree --write-tree HEAD wt/mailref8` (and every wt/*8 branch): only
+    layout/tests/all.rs (append-only) conflicts.
+  - Inline-block baseline tests in an_atomic_inline_sits_on_the_baseline_of_its_content.rs pass only with
+    MAILREF8 merged (noted in the file).
 - 91928b72d FOCUS GREEN: managers::hover::focusable_under_pointer walks core::events::get_event_path (4th closure
   host_of); dll event.rs + runner.rs pass virtual_view_manager.host_of_nested_dom; hover.rs unit tests updated.
 
@@ -90,7 +101,11 @@ Brief: scripts/waves/wave8/PLAN.md section "RULINGS8".
      depth, LineEdge::First|Last) (First = the old code exactly; Last = items.last() / children reversed);
      flex/grid -> First and ignore the overflow rule; block -> Last. Subtract padding.top+border.top
      (first_line_baseline is from the border-box top; atomic_inline_baseline_offset wants content-top).
-- 4c. NEXT: scan more apps one at a time (scan.py <App> target/rulings8/<app>.json; analyze.py) - lines of
+- 4c. Scanned (no atomic-only lines found): AzWidgets (only the dialog invoker: has text, label-baseline),
+     AzMail (--sample), AzWriter, AzDrive, AzCalendar (--data), AzNotes, AzSheets, AzShow, AzPhoto.
+     NEXT: AzTasks (--data), AzContacts, AzPaint, AzDashboard, AzMeet, AzReview, AzBuilder, AzCalculator,
+     AzSetup, AzVideoCut, AzShells, AzMaps (no --data-dir: run without --sample). Then grep widgets for
+     image icons in block containers. (was: scan more apps one at a time (scan.py <App> target/rulings8/<app>.json; analyze.py) - lines of
      only atomics WITHOUT text inside (icons, swatches, images) are what grows (by the strut descent, and to
      the strut ascent if shorter); boxes with text sit on their label baseline now (unchanged height).
 - 5. Report scripts/RULINGS8_2026_10_03.md.
