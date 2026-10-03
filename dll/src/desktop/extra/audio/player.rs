@@ -144,8 +144,32 @@ impl PcmOutput for super::AudioSink {
 /// to the output's format, and the clock of what is heard. [`pump`](Self::pump) feeds the
 /// output up to the lead; everything else is a command.
 pub(crate) struct PlayerCore {
-    _private: (),
+    /// The track being decoded (id, source).
+    current: Option<(u64, Box<dyn PcmSource>)>,
+    /// The tracks after it, in order.
+    queue: VecDeque<(u64, Box<dyn PcmSource>)>,
+    /// The resampler of the track being decoded, for its rate, when it differs from the output's.
+    resampler: Option<(u32, LinearResampler)>,
+    chunker: Rechunker,
+    /// A chunk the output did not take, offered again first.
+    held: Option<Vec<f32>>,
+    clock: TrackClock,
+    levels: LevelHistory,
+    /// The volume asked for, and the gain the last chunk ended at (the ramp's start).
+    volume: f32,
+    gain: f32,
+    paused: bool,
+    /// Frames handed to the output (taken back off by a clear).
+    written: u64,
+    lead_frames: u64,
+    out_rate: u32,
+    out_channels: u16,
+    /// The lengths of the last tracks (the one heard may be before the one decoded).
+    durations: VecDeque<(u64, f64)>,
 }
+
+/// Track lengths a player remembers (the heard track trails the decoded one by one at most).
+const DURATIONS_KEPT: usize = 8;
 
 impl PlayerCore {
     /// A player for an output at `out_rate` x `out_channels`, writing chunks of `chunk_frames`
@@ -156,58 +180,256 @@ impl PlayerCore {
         chunk_frames: usize,
         lead_frames: u64,
     ) -> Self {
-        let _ = (out_rate, out_channels, chunk_frames, lead_frames);
-        Self { _private: () }
+        Self {
+            current: None,
+            queue: VecDeque::new(),
+            resampler: None,
+            chunker: Rechunker::new(out_channels, chunk_frames),
+            held: None,
+            clock: TrackClock::default(),
+            levels: LevelHistory::default(),
+            volume: 1.0,
+            gain: 1.0,
+            paused: false,
+            written: 0,
+            lead_frames: lead_frames.max(1),
+            out_rate: out_rate.max(1),
+            out_channels: out_channels.max(1),
+            durations: VecDeque::new(),
+        }
+    }
+
+    fn remember_duration(&mut self, id: u64, duration_s: f64) {
+        self.durations.retain(|(i, _)| *i != id);
+        self.durations.push_back((id, duration_s));
+        while self.durations.len() > DURATIONS_KEPT {
+            self.durations.pop_front();
+        }
+    }
+
+    /// Drops what the output has queued and everything in flight here; the next frame written
+    /// starts a new stretch.
+    fn restart_output(&mut self, out: &dyn PcmOutput) {
+        let _ = out.clear();
+        self.written = out.samples_played() + out.queued_frames();
+        self.chunker.clear();
+        self.held = None;
+        self.resampler = None;
+        self.clock.clear();
+        self.levels.clear();
     }
 
     /// Plays `source` (track `id`) now: what was playing and queued is dropped.
     pub(crate) fn load(&mut self, id: u64, source: Box<dyn PcmSource>, out: &dyn PcmOutput) {
-        let _ = (id, source, out);
+        self.queue.clear();
+        self.start_now(id, source, out);
+    }
+
+    /// `source` becomes the track being decoded, heard from the next frame written.
+    fn start_now(&mut self, id: u64, source: Box<dyn PcmSource>, out: &dyn PcmOutput) {
+        self.restart_output(out);
+        self.remember_duration(id, source.duration_s());
+        self.clock.begin(self.written, id, 0.0, self.out_rate);
+        self.current = Some((id, source));
     }
 
     /// Plays `source` (track `id`) after the queue, gaplessly.
     pub(crate) fn enqueue(&mut self, id: u64, source: Box<dyn PcmSource>) {
-        let _ = (id, source);
+        if self.current.is_none() && self.queue.is_empty() {
+            // Nothing is being decoded (all ran out, or nothing was loaded): this one follows
+            // whatever the output still has to play.
+            let start = self.written
+                + self
+                    .held
+                    .as_ref()
+                    .map_or(0, |h| (h.len() / usize::from(self.out_channels)) as u64)
+                + self.chunker.pending_frames() as u64;
+            self.remember_duration(id, source.duration_s());
+            self.clock.begin(start, id, 0.0, self.out_rate);
+            self.resampler = None;
+            self.current = Some((id, source));
+        } else {
+            self.queue.push_back((id, source));
+        }
     }
 
     /// Drops the queued tracks (the one being decoded plays on).
-    pub(crate) fn clear_queue(&mut self) {}
+    pub(crate) fn clear_queue(&mut self) {
+        self.queue.clear();
+    }
 
     /// Ends the track being decoded and goes on with the next queued one now.
     pub(crate) fn skip(&mut self, out: &dyn PcmOutput) {
-        let _ = out;
+        match self.queue.pop_front() {
+            Some((id, source)) => self.start_now(id, source, out),
+            None => self.stop(out),
+        }
     }
 
     /// Goes to `seconds` in the track being decoded; what was queued is dropped.
     pub(crate) fn seek(&mut self, seconds: f64, out: &dyn PcmOutput) {
-        let _ = (seconds, out);
+        let Some((id, mut source)) = self.current.take() else {
+            return;
+        };
+        let reached = source.seek(seconds);
+        self.restart_output(out);
+        self.clock
+            .begin(self.written, id, reached.unwrap_or(0.0), self.out_rate);
+        self.current = Some((id, source));
     }
 
     /// Holds (`true`) or resumes playback.
     pub(crate) fn set_paused(&mut self, paused: bool, out: &dyn PcmOutput) {
-        let _ = (paused, out);
+        self.paused = paused;
+        if paused {
+            let _ = out.pause();
+        } else {
+            out.resume();
+        }
     }
 
     /// The volume, `0.0..=1.0` (ramped in over the next chunk).
     pub(crate) fn set_volume(&mut self, volume: f32) {
-        let _ = volume;
+        self.volume = if volume.is_finite() {
+            volume.clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
     }
 
     /// Drops everything: nothing plays, nothing is queued.
     pub(crate) fn stop(&mut self, out: &dyn PcmOutput) {
-        let _ = out;
+        self.queue.clear();
+        self.current = None;
+        self.restart_output(out);
+    }
+
+    /// The next chunk in the output's format, the gain applied; `None` when nothing is left.
+    fn next_chunk(&mut self) -> Option<Vec<f32>> {
+        loop {
+            if let Some(chunk) = self.chunker.pop() {
+                return Some(self.finish_chunk(chunk));
+            }
+            let Some((_, source)) = self.current.as_mut() else {
+                let tail = self.chunker.flush()?;
+                return Some(self.finish_chunk(tail));
+            };
+            match source.next_samples() {
+                Some(samples) => {
+                    let (rate, channels) = (source.rate(), source.channels());
+                    let samples = self.convert(&samples, rate, channels);
+                    self.chunker.push(&samples);
+                }
+                None => {
+                    // The track ran out: the next queued one starts at the very next frame.
+                    self.resampler = None;
+                    match self.queue.pop_front() {
+                        Some((id, next)) => {
+                            let start = self.written + self.chunker.pending_frames() as u64;
+                            self.remember_duration(id, next.duration_s());
+                            self.clock.begin(start, id, 0.0, self.out_rate);
+                            self.current = Some((id, next));
+                        }
+                        None => self.current = None,
+                    }
+                }
+            }
+        }
+    }
+
+    /// `samples` (interleaved, `channels` at `rate`) in the output's channels and rate.
+    fn convert(&mut self, samples: &[f32], rate: u32, channels: u16) -> Vec<f32> {
+        let remixed = remix(samples, channels, self.out_channels);
+        if rate == self.out_rate || rate == 0 {
+            return remixed;
+        }
+        let fits = matches!(&self.resampler, Some((r, _)) if *r == rate);
+        if !fits {
+            self.resampler = Some((
+                rate,
+                LinearResampler::new(rate, self.out_rate, self.out_channels),
+            ));
+        }
+        match self.resampler.as_mut() {
+            Some((_, resampler)) => resampler.process(&remixed),
+            None => remixed,
+        }
+    }
+
+    /// The gain applied to a chunk: from where the last chunk ended to the volume asked for.
+    fn finish_chunk(&mut self, mut chunk: Vec<f32>) -> Vec<f32> {
+        let (from, to) = (self.gain, self.volume);
+        if (from - 1.0).abs() > f32::EPSILON || (to - 1.0).abs() > f32::EPSILON {
+            apply_gain(&mut chunk, self.out_channels, from, to);
+        }
+        self.gain = to;
+        chunk
     }
 
     /// Feeds the output up to the lead. Returns the frames written.
     pub(crate) fn pump(&mut self, out: &dyn PcmOutput) -> u64 {
-        let _ = out;
-        0
+        if self.paused {
+            return 0;
+        }
+        let channels = usize::from(self.out_channels);
+        let mut wrote = 0u64;
+        // At most one lead's worth a call, so an output that cannot tell its queue (and does
+        // not block) is never flooded.
+        while out.queued_frames() < self.lead_frames && wrote < self.lead_frames {
+            let chunk = match self.held.take() {
+                Some(chunk) => chunk,
+                None => match self.next_chunk() {
+                    Some(chunk) => chunk,
+                    None => break,
+                },
+            };
+            let frames = (chunk.len() / channels) as u64;
+            if out.try_play(&chunk) {
+                self.levels
+                    .push(self.written, chunk_peaks(&chunk, self.out_channels));
+                self.written += frames;
+                wrote += frames;
+            } else {
+                self.held = Some(chunk);
+                break;
+            }
+        }
+        wrote
     }
 
     /// What the listener hears now.
     pub(crate) fn state(&mut self, out: &dyn PcmOutput) -> AudioPlayerState {
-        let _ = out;
-        AudioPlayerState::default()
+        let played = out.samples_played();
+        let (track, position_s) = self.clock.at(played).unwrap_or((0, 0.0));
+        let duration_s = self
+            .durations
+            .iter()
+            .find(|(id, _)| *id == track)
+            .map_or(0.0, |(_, d)| *d);
+        let position_s = if duration_s > 0.0 {
+            position_s.min(duration_s)
+        } else {
+            position_s
+        };
+        let (peak_left, peak_right) = self.levels.at(played, self.written);
+        let decoding = self.current.is_some()
+            || !self.queue.is_empty()
+            || self.held.is_some()
+            || self.chunker.pending_frames() > 0;
+        let finished = track != 0 && !decoding && played >= self.written;
+        AudioPlayerState {
+            position_s,
+            duration_s,
+            track,
+            failed_track: 0,
+            volume: self.volume,
+            peak_left,
+            peak_right,
+            queued_tracks: u32::try_from(self.queue.len()).unwrap_or(u32::MAX),
+            playing: !self.paused && track != 0 && !finished,
+            finished,
+            has_output: true,
+        }
     }
 }
 
@@ -423,10 +645,12 @@ pub(crate) mod player_tests {
         core.load(1, Ramp::boxed(1000, 2000, 0.0), &out);
         core.pump(&out);
         out.advance(100);
+        // (The load dropped the output's queue too: a new track never plays after old audio.)
+        let clears = out.clears.get();
         core.seek(1.5, &out);
         assert_eq!(
             out.clears.get(),
-            1,
+            clears + 1,
             "the queue of the old position is dropped"
         );
         assert!(close(core.state(&out).position_s, 1.5));
