@@ -310,6 +310,15 @@ impl EditorForm {
         format!("{title} - {kind}")
     }
 
+    /// Anything the form saves differs from `opened` (the form as the window opened with it):
+    /// closing the window then asks "save changes?". The error line and the serial are no
+    /// edits.
+    #[must_use]
+    pub fn changed_since(&self, opened: &EditorForm) -> bool {
+        let _ = opened;
+        todo!()
+    }
+
     /// The rule the recurrence editor shows: the form's choice made into a rule, or its own
     /// rule; `None` when it does not repeat.
     #[must_use]
@@ -765,6 +774,28 @@ mod tests {
         let m = EditorForm::new_meeting(3, ID, d(2026, 9, 30), at(9, 0), at(10, 0), "");
         assert!(m.add_meet && m.meeting_request);
         assert_eq!(m.window_title(), "Untitled - Meeting");
+    }
+
+    /// Closing the editor asks "save changes?" only after an edit: a form is changed since it
+    /// was opened when anything it saves differs - not when only its error line or its serial
+    /// do, and not after an edit that was undone by hand.
+    #[test]
+    fn a_form_is_changed_only_when_what_it_saves_differs_from_when_it_opened() {
+        let opened = form();
+        let mut f = opened.clone();
+        assert!(!f.changed_since(&opened), "a form just opened is unchanged");
+        f.error = String::from("Give the event a title.");
+        f.serial += 1;
+        assert!(!f.changed_since(&opened), "the error line and the serial are not edits");
+        f.title.push('!');
+        assert!(f.changed_since(&opened), "a title typed");
+        f.title.pop();
+        assert!(!f.changed_since(&opened), "the same title again");
+        f.set_rule(Rule::parse("FREQ=DAILY").ok());
+        assert!(f.changed_since(&opened), "a repeat chosen");
+        let mut g = opened.clone();
+        g.reminder = None;
+        assert!(g.changed_since(&opened), "a reminder taken away");
     }
 
     /// The recurrence editor hands the form a rule: one of the form's choices shows as that
