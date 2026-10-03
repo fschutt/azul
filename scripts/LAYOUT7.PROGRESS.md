@@ -13,6 +13,10 @@ headless Chrome and the prebuilt azul (AzPaint `mount`, capped runner), prints r
   GREEN 3995cb27f (layout_tree::inline_holds_a_block / split_inlines_around_blocks, used by the fresh
   tree, the reconciler, has_only_inline_children; fc.rs twin inline_children_hold_a_block deleted).
   Not built: the split inline's fragment boxes (background/border/padding of the inline beside the block).
+- items 3+4: RED a7f933552 (a_border_box_min_width_bounds_the_border_box.rs, a_fit_content_width_shrinks_to_its_content.rs);
+  GREEN d6016967a (border-box min/max clamp on auto widths + intrinsic min-width floor), cc44b5c48
+  (fit-content keyword parses as fit-content(100%), argument = available space, content size; IFC root of
+  only atomics measured; intrinsic-keyword boxes are STF).
 
 ## NOTES item 1 (done)
 - item 1: abspos child treated as in-flow + ::marker with list-style-type none.
@@ -39,10 +43,10 @@ headless Chrome and the prebuilt azul (AzPaint `mount`, capped runner), prints r
   skip a marker that has a host, a marker IFC collects only its marker; no marker box for none.
 
 ## IN PROGRESS
-- item 3: inline-block min-width:100% + border-box + padding = 524 in 500 (MAIL6) - probe + RED next
+- item 5: display:table drops a child p's margins (Chrome tb 76 / azul 44; p y 28 / 12) - RED next
 
 ## NEXT
-- items 4..10 in brief order
+- items 6..10 in brief order
 
 ## Decisions / open questions
 - no-host marker (`<li><div h50/></li>`, Chrome 50 azul 70): kept as today (own line); note in report.
