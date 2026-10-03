@@ -24,9 +24,14 @@ Report: `scripts/KEYS9_<date>.md` (when done). Never compile (house rules); rust
   status, on_key, settings sections, read_import_file/on_import_read, close guard)
 - 6ed5bf219 / dd42887e1 / 1ebd7aff1 ui_item.rs (item view, edit form, generator, import preview, audit)
 - 19f2dc90b lib.rs start() + `pub mod jobs; ui; ui_item;` - THE APP IS COMPLETE IN CODE (uncompiled)
+- 651b4d772 wrong password empties the field; 4e9ac65d4 scripts/azkeys_e2e.py; d5c9fa8aa TODO wording
+- report scripts/KEYS9_2026_10_03.md
 - 9cbc73f1a registered: root Cargo.toml member, workspace_test_members.txt, rust.yml step (NEXT item 7 done)
 
-## NEXT (exact) - items 1-7 are DONE; continue at 8
+## STATE: DONE in code - report scripts/KEYS9_2026_10_03.md committed. Remaining (Monday / the parent):
+compile + fix, run `cargo test -p AzKeys --lib`, run scripts/azkeys_e2e.py through the capped runner.
+
+## (old) NEXT (exact) - items 1-7 are DONE; continue at 8
 - 8a. self-review pass over ui.rs / ui_item.rs / jobs.rs for compile errors (imports unused/missing, borrows).
 - 8b. scripts/azkeys_e2e.py (model on scripts/shells_e2e.py): --data-dir tmp --sample; wait AZKEYS_LISTED/CREATED;
   lock (toolbar-lock), unlock with "sample" (focus + text_input __azkeys_unlock-password, click unlock-button),
