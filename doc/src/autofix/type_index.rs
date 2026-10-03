@@ -1274,8 +1274,6 @@ impl TypeIndex {
         self.by_name.len()
     }
 
-    /// Add a type definition for testing purposes
-    #[cfg(test)]
     /// The first private module on the way to `path` (a type or module
     /// path), if any: the path does not name its item from another crate.
     pub fn private_module_on(&self, path: &str) -> Option<String> {
@@ -1283,10 +1281,13 @@ impl TypeIndex {
     }
 
     /// Record `module` as declared without `pub` (tests).
+    #[cfg(test)]
     pub fn add_private_module_for_test(&mut self, module: &str) {
         self.private_modules.insert(module.to_string());
     }
 
+    /// Add a type definition for testing purposes
+    #[cfg(test)]
     pub fn add_type_for_test(&mut self, typedef: TypeDefinition) {
         let full_path = if typedef.module_path.is_empty() {
             format!("{}::{}", typedef.crate_name, typedef.type_name)
