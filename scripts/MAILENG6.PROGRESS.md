@@ -13,10 +13,26 @@ agents - keep files under `m6/` (a `msg.txt` at the root got overwritten).
   1-based FFI decoder) on a 0-based index in `collect_font_stacks_from_styled_dom` - every
   text node took the font of the node before it.
 
-## IN PROGRESS
-- item 3 + 7 (Chrome's rounded font metrics + the Times/Helvetica/Courier ascent hack):
-  NEXT: RED test, then one helper on `LayoutFontMetrics` (Blink rounding), used by
-  `LineHeight::resolve*`, `get_item_vertical_metrics*`, the fc.rs strut.
+## IN PROGRESS (last commit: the progress commit after 2b5bae827; worktree clean)
+- item 3 + 7 (Chrome's rounded font metrics + the Times/Helvetica/Courier ascent hack).
+  VERIFIED against Chrome 154 (m6/chrome_metrics.py, 11 Mac families x 13 sizes = 143 cases,
+  0 mismatches): `line-height: normal` = A + D + G with A = round(hhea asc * s),
+  D = round(-hhea desc * s), G = round(lineGap * s); on macOS for family EXACTLY Times /
+  Helvetica / Courier then A += floor((A + D) * 0.15 + 0.5) (Blink AscentDescentWithHacks,
+  IS_APPLE; applied AFTER rounding, so MAILHTML's font-unit `browser_compat_ascent` is wrong
+  once metrics round: 16px Helvetica would give 19, Chrome 18). `line-height: 20px` x3 = 60
+  in Chrome for every family/size.
+  NEXT STEP (exact): (a) RED test in a new `layout/tests/a_normal_line_is_as_tall_as_chromes.rs`
+  (Arial 16px block = 18px, 2 lines = 36; skip where Arial is missing) - append to all.rs;
+  (b) add a bool field `ascent_compat_boost` to `LayoutFontMetrics` (text3/cache.rs:2825; 10
+  files build the literal: font.rs, font_traits.rs, text3/{cache,dense,glyphs,default}.rs,
+  solver3/{layout_tree,display_list}.rs, tests text3_dense_equivalence.rs, text3/mod.rs) set in
+  font.rs from the name-table FAMILY (not the PostScript prefix) and only on macOS, and a
+  helper `LayoutFontMetrics::line_metrics_px(font_size) -> (A, D, G)`; (c) use it in
+  `LineHeight::resolve_with_metrics`, `get_item_vertical_metrics(_approx)` (glyph A/D), fc.rs
+  strut (~5391); half-leading split above = floor((L - (A + D)) / 2) (LayoutNG
+  CalculateLeadingSpace); (d) drop `browser_compat_ascent` from the parse (keep fn name? no:
+  replace by the flag) and update its two lib tests in font.rs.
 
 ## NEXT
 - item 4 (verify line-height 20px pitch / unset lines `normal` on the prebuilt - probe)
