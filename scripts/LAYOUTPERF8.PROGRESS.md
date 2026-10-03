@@ -83,7 +83,16 @@ font_chain_resolve in the root pass). Verify on THIS build with AZ_TAFFY_DEBUG /
 RED that reproduces the real app, fix; append to scripts/LAYOUTPERF8B_2026_10_03.md.
 
 ## 8C DONE
-- (this section)
+- 0537e8f6b progress section
+- 653a502ca run_capped.sh: a leading `env VAR=...` is applied by the runner (SIP stripped DYLD_LIBRARY_PATH
+  through /usr/bin/env, so every `-- env ... App` run loaded the app's install-name dylib:
+  target/release/build/azul-dll-78dff1e65276e337/out/libazul.dylib 18:38 = PRE-8B; target/azul-lib is 19:04)
+
+## 8C FINDINGS
+- The "unchanged" re-measure ran the stale 18:38 library. Run correctly (env vars before run_capped, no
+  `env`): root pass 5.8 ms (19.4), solver3 20.0 ms (33.6), flows 76 (288), taffy misses 184 (618),
+  no root font resolution, no fresh root nodes; 38.8-43 ms wall profiled (55-58). Log /tmp/lp8b/c2.log.
+- Still left: 76 flows / 184 misses / fc_flex_grid 59 / size_cache_miss 148 per tick - next: find them.
 
 ## 8C NEXT
-- run the tick scenario on the 19:04 build with AZ_RECON_DEBUG + AZ_TAFFY_DEBUG; check DOM 3459-3461
+- AZ_TAFFY_DEBUG on the CORRECT library: which nodes still miss
