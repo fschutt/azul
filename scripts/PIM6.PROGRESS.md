@@ -67,7 +67,10 @@ Screenshots: target/pim6-shots (not committed).
   7ecbbbda7/736ac6088 csv.rs; 6cf55e911 store::csv_preview; 6fb898ef7 CSV mapping UI;
   a175f4cdc E2E (birthday, CSV).
 
-## IN PROGRESS
+## DONE - report scripts/PIM6_2026_10_03.md (the task is finished)
+- D9 (report): the `__az<app>_` prefixes are left (coordinator: finish over scope).
+
+## (old) IN PROGRESS
 - `__az<app>_` prefix constants: decide scope (ids module per app); then
   `__az<app>_` prefixes (three apps + E2E scripts), report scripts/PIM6_2026_10_03.md.
 
