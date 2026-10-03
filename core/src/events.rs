@@ -4963,6 +4963,7 @@ pub fn default_input_interpreter(info: &InputInterpreterInfo<'_>) -> PreCallback
         focused_node: info.state.focused_node,
         drag_start_position: info.state.drag_start_position,
         focus_is_editable: info.state.focus_is_editable,
+        has_selection: info.state.has_selection,
         seat_focus: info.seat_focus,
     };
 
@@ -5035,6 +5036,8 @@ struct FilterContext<'a> {
     drag_start_position: Option<LogicalPosition>,
     /// See `InputInterpreterState::focus_is_editable`.
     focus_is_editable: bool,
+    /// See `InputInterpreterState::has_selection`.
+    has_selection: bool,
     /// See `InputInterpreterInfo::seat_focus`.
     seat_focus: &'a [(u64, Option<DomNodeId>)],
 }
@@ -5086,6 +5089,7 @@ fn process_event_for_internal(
                 ctx.keyboard_state,
                 ctx.focused_node_for(seat_id),
                 ctx.focus_is_editable,
+                ctx.has_selection,
             )
         }
         EventType::MouseUp => Some(handle_mouse_up()),
@@ -5234,8 +5238,10 @@ fn handle_key_down(
     keyboard_state: &crate::window::KeyboardState,
     focused_node: Option<DomNodeId>,
     focus_is_editable: bool,
+    has_selection: bool,
 ) -> Option<InternalEventAction> {
     use crate::window::VirtualKeyCode;
+    let _ = has_selection;
 
     let target = focused_node?;
     let EventData::Keyboard(kbd) = &event.data else {
