@@ -5,8 +5,10 @@
 //! secret in it. This module is only what the settings page shows and edits: the route (direct
 //! delivery to each receiver's mail server, or one SMTP server `host:port`) and STARTTLS
 //! (`TlsPolicy`: on - opportunistic, or required when the file says so - or off, for a test
-//! server on this computer without TLS). Everything else in the settings (DKIM, the EHLO name,
-//! a test CA, the direct port, the policy override) is kept as it is when the form is applied.
+//! server on this computer without TLS), and client-side DKIM ([`SendingForm::apply_dkim`]:
+//! on or off, the signing domain, the selector, the public half of the key `crate::dkim`
+//! made). Everything else in the settings (the EHLO name, a test CA, the direct port, the
+//! policy override, a key file named by hand) is kept as it is when the form is applied.
 
 use crate::{
     dkim,
@@ -17,9 +19,10 @@ use crate::{
 pub const SUBMISSION_PORT: u16 = 587;
 
 /// One line for the status bar and the settings page: "Direct delivery" or "SMTP
-/// localhost:2525" (", STARTTLS" / ", STARTTLS required").
+/// localhost:2525" (", STARTTLS" / ", STARTTLS required"), and ", DKIM-signed (<domain>)" for
+/// an account that signs.
 pub fn describe(settings: &SendSettings) -> String {
-    match &settings.route {
+    let route = match &settings.route {
         SendRoute::Direct => String::from("Direct delivery"),
         SendRoute::Smtp { host, port } => {
             let tls = match settings.tls {
@@ -29,6 +32,10 @@ pub fn describe(settings: &SendSettings) -> String {
             };
             format!("SMTP {host}:{port}{tls}")
         }
+    };
+    match &settings.dkim {
+        Some(dkim) => format!("{route}, DKIM-signed ({})", dkim.domain),
+        None => route,
     }
 }
 
@@ -87,8 +94,48 @@ impl SendingForm {
         public_key: &str,
         now: i64,
     ) -> Result<SendSettings, String> {
-        let _ = (email, public_key, now);
-        Ok(settings)
+        if !self.dkim {
+            return Ok(SendSettings {
+                dkim: None,
+                ..settings
+            });
+        }
+        let saved = settings.dkim.clone().unwrap_or_default();
+        let domain = match self.dkim_domain.trim() {
+            "" => crate::account::email_domain(email).unwrap_or_default(),
+            typed => typed.trim_end_matches('.').to_ascii_lowercase(),
+        };
+        dkim::can_sign_for(&domain)?;
+        let selector = match self.dkim_selector.trim() {
+            "" if !saved.selector.is_empty() => saved.selector.clone(),
+            "" => dkim::default_selector(now),
+            typed => typed.to_string(),
+        };
+        if !dkim::is_selector(&selector) {
+            return Err(format!(
+                "The selector {selector:?} cannot be a DNS name: letters, digits and -, at most \
+                 63."
+            ));
+        }
+        let public_key = match public_key.trim() {
+            "" => saved.public_key.clone(),
+            new => new.to_string(),
+        };
+        if public_key.is_empty() && saved.key_file.is_none() {
+            return Err(String::from(
+                "Create a key first: AzMail signs with a key of its own, whose public half goes \
+                 into your domain's DNS.",
+            ));
+        }
+        Ok(SendSettings {
+            dkim: Some(DkimSettings {
+                domain,
+                selector,
+                key_file: saved.key_file,
+                public_key,
+            }),
+            ..settings
+        })
     }
 
     /// `settings` with the form's route and STARTTLS choice (every other setting kept), or
