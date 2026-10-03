@@ -48,10 +48,14 @@ noted in the report). Never compile; the parent runs `cargo test -p azul-doc --b
 
 - item 4 RED + GREEN: api_candidate_methods(.., carries); ffi_carries; wildcard_skip_reason; main.rs 2 call sites
 
+- item 5 RED + GREEN + scan integration (mod.rs: `removed_classes`, `gone`, patches `NNNN_remove_fns_<Class>`)
+
 ## NEXT (exact)
-- item 5 (gap 2) RED: function_diff.rs test `an_api_function_whose_rust_method_is_gone_is_found` calling
-  `gone_api_functions(&index, &api) -> Vec<GoneApiFunction>` (stub in RED); GREEN: `called_method(body, paths)`,
-  DERIVED_OR_BLANKET_METHODS, skip macro-made / Deref types / path mismatch (make diff.rs `paths_are_equivalent`
-  pub(crate)), fallback text check of the type's source file for `fn name`; `generate_remove_entries_patch`;
-  scan (mod.rs autofix_api) prints them and writes `{:04}_remove_fns_<Class>.patch.json` (skip removed classes).
-- then items 6, 7, 8, 9 as in the plan above.
+- item 6 (gap 6) RED: diff.rs test module `repr_loss_tests`: `a_type_that_lost_its_c_repr_gets_no_repr_patch`
+  (compare_derives_and_impls) and `an_unreachable_type_without_a_c_repr_is_removed` (generate_diff_v2 with
+  ResolvedTypeSet::default(), index via add_type_for_test). GREEN: in compare_derives_and_impls skip ReprChanged
+  when workspace repr is None; `still_exposed_in_source(index, name)` (Some def and, for struct/enum, repr.is_some())
+  replaces `index.resolve(..).is_some()/is_none()` at the 3 removal guards; at the end drop modifications /
+  additions / path_fixes / module_moves of every removed type; mod.rs: drop FFI warnings of removed classes
+  (reuse `removed_classes` - move its computation up before the ffi checks).
+- then items 7, 8, 9 as in the plan above.
