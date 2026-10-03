@@ -1251,6 +1251,27 @@ pub mod parsed {
                 .ok()
                 .and_then(|hhea_data| ReadScope::new(&hhea_data?).read::<HheaTable>().ok())?;
 
+            // The OS/2 x-height and cap height (`sxHeight` / `sCapHeight`,
+            // version 2 and later; 0 means "not given"): the strut's
+            // `vertical-align: middle` and `text-box-edge: ex / cap` read
+            // them, with 0.5em / 0.7em only for a face without them.
+            let (x_height, cap_height) = provider
+                .table_data(tag::OS_2)
+                .ok()
+                .flatten()
+                .and_then(|os2_data| {
+                    ReadScope::new(&os2_data)
+                        .read_dep::<allsorts::tables::os2::Os2>(os2_data.len())
+                        .ok()
+                })
+                .and_then(|os2| os2.version2to4)
+                .map_or((None, None), |v| {
+                    (
+                        (v.s_x_height > 0).then(|| f32::from(v.s_x_height)),
+                        (v.s_cap_height > 0).then(|| f32::from(v.s_cap_height)),
+                    )
+                });
+
             // Build layout-specific font metrics
             let font_metrics = LayoutFontMetrics {
                 units_per_em: if head_table.units_per_em == 0 {
@@ -1261,9 +1282,8 @@ pub mod parsed {
                 ascent: f32::from(hhea_table.ascender),
                 descent: f32::from(hhea_table.descender),
                 line_gap: f32::from(hhea_table.line_gap),
-                x_height: None, /* will be populated from OS/2 table via from_font_metrics if
-                                 * available */
-                cap_height: None,
+                x_height,
+                cap_height,
                 browser_ascent_boost: browser_ascent_boost(family_name.as_deref()),
             };
 

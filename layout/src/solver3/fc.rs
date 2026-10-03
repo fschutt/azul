@@ -5382,10 +5382,23 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     // glyph's (`LayoutFontMetrics::line_metrics_px`, Chrome's rounding), so
     // both boxes coincide for the same font. Until the face is loaded the
     // approximation stays.
-    let strut_font = ctx
+    let strut_face = ctx
         .font_manager
         .first_available_font_metrics(&root_style.font_stack)
-        .and_then(|m| m.line_metrics_px(root_style.font_size_px));
+        .filter(|m| m.units_per_em > 0);
+    let strut_font = strut_face.and_then(|m| m.line_metrics_px(root_style.font_size_px));
+    // The same face's OS/2 x-height and cap height (`vertical-align:
+    // middle`, `text-box-edge: ex / cap`); 0.5em / 0.7em where the face has
+    // none or is not loaded yet.
+    let strut_scale = strut_face.map(|m| root_style.font_size_px / f32::from(m.units_per_em));
+    let strut_x_height = strut_face
+        .and_then(|m| m.x_height)
+        .zip(strut_scale)
+        .map_or(font_size * 0.5, |(x_height, scale)| x_height * scale);
+    let strut_cap_height = strut_face
+        .and_then(|m| m.cap_height)
+        .zip(strut_scale)
+        .map_or(font_size * 0.7, |(cap_height, scale)| cap_height * scale);
     let (strut_ascent, strut_descent) =
         strut_font.map_or((font_size * 0.8, font_size * 0.2), |(a, d, _)| (a, d));
     // The root's `line-height: normal` IS that face's A + D + line gap: the
@@ -5998,20 +6011,16 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         // instead of a synthetic 1.2 ratio. The value is the root style's,
         // the one its runs carry (see `root_style`).
         line_height: root_line_height,
-        // The strut's ascent and descent: the container's first available font's
-        // (see `strut_ascent` above).
-        // TODO(superplan): x-height and cap-height are still approximated as
-        // 50% / 70% of font_size; take them from the same face's OS/2 metrics
-        // (`LayoutFontMetrics::x_height` / `cap_height`) and `get_space_width`
-        // for `ch_width`.
+        // The strut's ascent, descent, x-height and cap height: the
+        // container's first available font's (see `strut_ascent` above; the
+        // x-height falls back to 0.5em per CSS Inline 3 Appendix A, the cap
+        // height to the typical Latin 0.7em - Appendix A.2's formal fallback,
+        // the ascent, would make cap-edge trimming a no-op).
+        // TODO(superplan): `ch_width` from `get_space_width` / the "0" glyph.
         strut_ascent,
         strut_descent,
-        strut_x_height: font_size * 0.5, // 0.5em fallback per CSS Inline 3 Appendix A
-        // Typical Latin cap ratio, same approximation spirit as the rest of
-        // the strut block (Appendix A.2's formal fallback is "ascent", which
-        // would make cap-edge trimming a no-op; 0.7em keeps it meaningful
-        // until real OS/2 metrics are threaded here - see the TODO above).
-        strut_cap_height: font_size * 0.7,
+        strut_x_height,
+        strut_cap_height,
         ch_width: font_size * 0.5,
         vertical_align,
         // +spec:inline-formatting-context:48ce44 - overflow-wrap property: break at otherwise
