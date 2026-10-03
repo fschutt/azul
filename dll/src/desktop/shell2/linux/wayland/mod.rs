@@ -9957,24 +9957,22 @@ impl WaylandPopup {
                         if let Some(ref pixmap) = self.cpu_backend.last_frame {
                             // #27: popups never arm the native target, but
                             // their pool shares the global format choice — an
-                            // ABGR pool takes rows verbatim.
+                            // ABGR pool takes rows verbatim. Whole frame, row
+                            // by row at the slot's padded pitch (shm.rs).
                             let straight = cpu_state.is_native();
+                            let dst_pitch = cpu_state.stride.max(0) as usize;
+                            let (fw, fh) = (pixmap.width(), pixmap.height());
                             let buf = cpu_state.pixel_buffer_mut();
-                            let src = pixmap.data();
-                            let copy_len = buf.len().min(src.len());
-                            if straight {
-                                buf[..copy_len].copy_from_slice(&src[..copy_len]);
-                            } else {
-                                // RGBA -> ARGB8888: swap R and B for Wayland.
-                                let mut i = 0;
-                                while i + 3 < copy_len {
-                                    buf[i] = src[i + 2]; // B
-                                    buf[i + 1] = src[i + 1]; // G
-                                    buf[i + 2] = src[i]; // R
-                                    buf[i + 3] = src[i + 3]; // A
-                                    i += 4;
-                                }
-                            }
+                            crate::desktop::shell2::headless::copy_rgba_rects_into(
+                                buf,
+                                dst_pitch,
+                                pixmap.data(),
+                                fw as usize * 4,
+                                fw as usize,
+                                fh as usize,
+                                &[(0, 0, fw, fh)],
+                                !straight,
+                            );
                             painted = true;
                         }
                     }
