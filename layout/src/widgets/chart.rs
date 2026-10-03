@@ -1446,3 +1446,297 @@ mod math_tests {
 }
 
 // CHART7-NEXT: the geometry, the build, the pointer and the keys.
+
+#[cfg(test)]
+mod geometry_tests {
+    use super::*;
+
+    fn frame(bands: usize) -> PlotFrame {
+        PlotFrame {
+            x_min: 0.0,
+            x_max: 10.0,
+            y_min: -10.0,
+            y_max: 30.0,
+            width: 300.0,
+            height: 200.0,
+            bands,
+        }
+    }
+
+    fn series(name: &str, ys: &[f64]) -> ChartSeries {
+        ChartSeries::create(
+            AzString::from(name),
+            ChartPointVec::from_vec(
+                ys.iter()
+                    .enumerate()
+                    .map(|(i, y)| ChartPoint::create(i as f64, *y))
+                    .collect(),
+            ),
+        )
+    }
+
+    fn ends(path: &SvgPath) -> (SvgPoint, SvgPoint) {
+        let items = path.items.as_slice();
+        let start = match items.first().expect("a ring has elements") {
+            SvgPathElement::Line(l) => l.start,
+            SvgPathElement::QuadraticCurve(q) => q.start,
+            SvgPathElement::CubicCurve(c) => c.start,
+        };
+        let end = match items.last().expect("a ring has elements") {
+            SvgPathElement::Line(l) => l.end,
+            SvgPathElement::QuadraticCurve(q) => q.end,
+            SvgPathElement::CubicCurve(c) => c.end,
+        };
+        (start, end)
+    }
+
+    #[test]
+    fn a_line_is_one_open_ring_through_its_points() {
+        let f = frame(0);
+        let points = [
+            ChartPoint::create(0.0, 0.0),
+            ChartPoint::create(5.0, 10.0),
+            ChartPoint::create(10.0, 30.0),
+        ];
+        let shape = line_shape(&points, &[0, 1, 2], &f);
+        let rings = shape.rings.as_slice();
+        assert_eq!(rings.len(), 1);
+        assert_eq!(rings[0].items.as_slice().len(), 2);
+        let (start, end) = ends(&rings[0]);
+        assert_eq!((start.x, start.y), (f.px_x(0.0), f.px_y(0.0)));
+        assert_eq!((end.x, end.y), (300.0, 0.0));
+    }
+
+    #[test]
+    fn an_area_closes_along_the_baseline() {
+        let f = frame(0);
+        let points = [
+            ChartPoint::create(0.0, 10.0),
+            ChartPoint::create(10.0, 20.0),
+        ];
+        let base = f.px_y(0.0);
+        let shape = area_shape(&points, &[0, 1], &f, base);
+        let ring = &shape.rings.as_slice()[0];
+        let (start, end) = ends(ring);
+        assert_eq!((start.x, start.y), (end.x, end.y), "the area is closed");
+        let touches_base = ring.items.as_slice().iter().any(|e| match e {
+            SvgPathElement::Line(l) => l.end.y == base,
+            _ => false,
+        });
+        assert!(touches_base, "the area runs along the baseline");
+    }
+
+    #[test]
+    fn grouped_bars_are_thin_two_px_apart_and_rounded_at_the_data_end() {
+        let f = frame(3);
+        let data = [
+            series("a", &[10.0, 20.0, 5.0]),
+            series("b", &[3.0, 4.0, 30.0]),
+        ];
+        let rects = bar_rects(ChartKind::Bar, &data, &f);
+        assert_eq!(rects.len(), 2);
+        assert_eq!(rects[0].len(), 3);
+        let base = f.px_y(0.0);
+        for r in rects.iter().flatten() {
+            assert!(r.x1 - r.x0 <= MAX_BAR_PX + 1e-3, "a bar is at most 24 px");
+            assert!(
+                (r.bottom - base).abs() < 1e-3,
+                "a positive bar stands on the baseline"
+            );
+            assert_eq!(r.rounded, BarEnd::Top);
+        }
+        let (a, b) = (rects[0][1], rects[1][1]);
+        assert!(
+            (b.x0 - a.x1 - SURFACE_GAP_PX).abs() < 1e-3,
+            "the group's bars are 2 px apart"
+        );
+        let centre = (a.x0 + b.x1) / 2.0;
+        assert!(
+            (centre - f.px_x(1.0)).abs() < 1e-3,
+            "the group is centred on its category"
+        );
+    }
+
+    #[test]
+    fn a_negative_bar_hangs_from_the_baseline_and_rounds_its_bottom() {
+        let f = frame(1);
+        let rects = bar_rects(ChartKind::Bar, &[series("a", &[-5.0])], &f);
+        let r = rects[0][0];
+        assert!((r.top - f.px_y(0.0)).abs() < 1e-3);
+        assert!((r.bottom - f.px_y(-5.0)).abs() < 1e-3);
+        assert_eq!(r.rounded, BarEnd::Bottom);
+    }
+
+    #[test]
+    fn stacked_segments_sit_on_each_other_with_a_gap_and_only_the_top_one_is_rounded() {
+        let f = frame(1);
+        let data = [series("a", &[10.0]), series("b", &[5.0])];
+        let rects = bar_rects(ChartKind::StackedBar, &data, &f);
+        let (low, high) = (rects[0][0], rects[1][0]);
+        assert!((low.bottom - f.px_y(0.0)).abs() < 1e-3);
+        assert!((high.bottom - f.px_y(10.0)).abs() < 1e-3, "b stands on a");
+        assert!(
+            (low.top - (f.px_y(10.0) + SURFACE_GAP_PX)).abs() < 1e-3,
+            "a 2 px gap under b"
+        );
+        assert!((high.top - f.px_y(15.0)).abs() < 1e-3);
+        assert_eq!(low.rounded, BarEnd::None);
+        assert_eq!(high.rounded, BarEnd::Top);
+        assert!((low.x0 - high.x0).abs() < 1e-3 && (low.x1 - high.x1).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_rounded_bar_ring_stays_inside_its_rectangle() {
+        let r = BarRect {
+            x0: 10.0,
+            x1: 30.0,
+            top: 50.0,
+            bottom: 150.0,
+            rounded: BarEnd::Top,
+            series: 0,
+            index: 0,
+        };
+        for e in bar_ring(&r).items.as_slice() {
+            let pts: Vec<SvgPoint> = match e {
+                SvgPathElement::Line(l) => vec![l.start, l.end],
+                SvgPathElement::QuadraticCurve(q) => vec![q.start, q.ctrl, q.end],
+                SvgPathElement::CubicCurve(c) => vec![c.start, c.ctrl_1, c.ctrl_2, c.end],
+            };
+            for p in pts {
+                assert!(
+                    p.x >= 10.0 && p.x <= 30.0 && p.y >= 50.0 && p.y <= 150.0,
+                    "{p:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn pie_slices_share_the_circle_in_proportion_from_twelve_o_clock() {
+        let slices = pie_slices(&[1.0, 1.0, 2.0]);
+        assert_eq!(slices.len(), 3);
+        let tau = core::f32::consts::TAU;
+        assert!(slices[0].start.abs() < 1e-6);
+        assert!((slices[0].end - tau / 4.0).abs() < 1e-5);
+        assert!((slices[1].end - tau / 2.0).abs() < 1e-5);
+        assert!((slices[2].end - tau).abs() < 1e-5);
+    }
+
+    #[test]
+    fn a_pie_of_many_categories_folds_the_rest_into_other() {
+        let values: Vec<f64> = (0..12).map(|i| f64::from(i + 1)).collect();
+        let slices = pie_slices(&values);
+        assert_eq!(slices.len(), PALETTE_LEN);
+        let other = slices.last().expect("an Other slice");
+        assert!(other.other);
+        let rest: f64 = values[PALETTE_LEN - 1..].iter().sum();
+        assert!((other.value - rest).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_negative_or_missing_value_takes_no_slice() {
+        let slices = pie_slices(&[2.0, -1.0, f64::NAN, 2.0]);
+        let shown: Vec<usize> = slices
+            .iter()
+            .filter(|s| s.end > s.start)
+            .map(|s| s.index)
+            .collect();
+        assert_eq!(shown, vec![0, 3]);
+    }
+
+    #[test]
+    fn a_wedge_stays_inside_its_circle() {
+        let ring = wedge_ring(100.0, 100.0, 80.0, 48.0, 0.3, 2.0);
+        for e in ring.items.as_slice() {
+            if let SvgPathElement::Line(l) = e {
+                for p in [l.start, l.end] {
+                    let d = ((p.x - 100.0).powi(2) + (p.y - 100.0).powi(2)).sqrt();
+                    assert!(d <= 80.0 + 1e-3 && d >= 48.0 - 1e-3, "{d}");
+                }
+            }
+        }
+    }
+
+    fn chart(kind: ChartKind) -> Chart {
+        Chart::create(kind, 600.0, 300.0)
+            .with_added_series(series("a", &[1.0, 5.0, 3.0]))
+            .with_added_series(series("b", &[2.0, 8.0, 4.0]))
+    }
+
+    #[test]
+    fn the_plot_sits_inside_the_chart_right_of_its_y_labels() {
+        let g = chart_geometry(&chart(ChartKind::Line).with_title(AzString::from("T")));
+        assert!(g.plot_left >= Y_GUTTER);
+        assert!(g.plot_left + g.frame.width <= 600.0);
+        assert!(g.plot_top + g.frame.height <= g.frame_height);
+        assert!(g.frame_height <= 300.0 - TITLE_HEIGHT - LEGEND_HEIGHT + 1e-3);
+        assert!(g.legend, "two series get a legend");
+        assert!(g.title);
+    }
+
+    #[test]
+    fn a_bar_chart_starts_its_y_axis_at_zero() {
+        let c = chart(ChartKind::Bar)
+            .with_series(ChartSeriesVec::from_vec(vec![series("a", &[50.0, 60.0])]))
+            .with_categories(StringVec::from_vec(vec![
+                AzString::from("x"),
+                AzString::from("y"),
+            ]));
+        let g = chart_geometry(&c);
+        assert_eq!(g.frame.y_min, 0.0);
+        assert!(g.frame.y_max >= 60.0);
+        assert_eq!(g.frame.bands, 2);
+        assert!(!g.legend, "one series needs no legend");
+    }
+
+    #[test]
+    fn a_stacked_chart_fits_the_stacks_not_the_values() {
+        let c = chart(ChartKind::StackedBar);
+        let g = chart_geometry(&c);
+        assert!(
+            g.frame.y_max >= 13.0,
+            "5 + 8 must fit, got {}",
+            g.frame.y_max
+        );
+    }
+
+    #[test]
+    fn a_fixed_y_range_holds_whatever_the_data() {
+        let g = chart_geometry(&chart(ChartKind::Line).with_y_range(0.0, 100.0));
+        assert_eq!((g.frame.y_min, g.frame.y_max), (0.0, 100.0));
+    }
+
+    #[test]
+    fn a_number_axis_spans_the_data_exactly() {
+        let points: Vec<ChartPoint> = (0..50)
+            .map(|i| ChartPoint::create(f64::from(i) * 0.5 + 3.0, 1.0))
+            .collect();
+        let c = Chart::create(ChartKind::Line, 600.0, 300.0).with_added_series(
+            ChartSeries::create(AzString::from("a"), ChartPointVec::from_vec(points)),
+        );
+        let g = chart_geometry(&c);
+        assert_eq!((g.frame.x_min, g.frame.x_max), (3.0, 27.5));
+        assert_eq!(g.frame.bands, 0);
+        assert!(g.x_ticks.is_some());
+    }
+
+    #[test]
+    fn a_pie_is_a_centred_square_without_axes() {
+        let c = chart(ChartKind::Pie).with_categories(StringVec::from_vec(vec![
+            AzString::from("x"),
+            AzString::from("y"),
+            AzString::from("z"),
+        ]));
+        let g = chart_geometry(&c);
+        assert_eq!(g.frame.width, g.frame.height);
+        assert!(g.y_ticks.is_none() && g.x_ticks.is_none());
+        assert!(g.legend, "a pie's slices get a legend");
+    }
+
+    #[test]
+    fn an_empty_chart_still_lays_out() {
+        let g = chart_geometry(&Chart::create(ChartKind::Line, 100.0, 50.0));
+        assert!(g.frame.width > 0.0 && g.frame.height > 0.0);
+        assert!(g.frame.y_max > g.frame.y_min);
+    }
+}
