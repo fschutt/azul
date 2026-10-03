@@ -49,14 +49,28 @@ impl Payload {
     /// `alarm:<uuid>:<ms>`, `snooze:<uuid>:<ms>`, `timer:<uuid>`.
     #[must_use]
     pub fn to_text(&self) -> String {
-        String::new()
+        match self {
+            Payload::Alarm { id, at_ms } => format!("alarm:{id}:{at_ms}"),
+            Payload::Snooze { id, at_ms } => format!("snooze:{id}:{at_ms}"),
+            Payload::Timer { id } => format!("timer:{id}"),
+        }
     }
 
     /// The payload a notification came back with; `None` for anything else.
     #[must_use]
     pub fn parse(text: &str) -> Option<Payload> {
-        let _ = text;
-        None
+        let (kind, rest) = text.trim().split_once(':')?;
+        let with_time = |rest: &str| -> Option<(String, i64)> {
+            let (id, ms) = rest.rsplit_once(':')?;
+            (!id.is_empty()).then_some(())?;
+            Some((id.to_string(), ms.parse().ok()?))
+        };
+        match kind {
+            "alarm" => with_time(rest).map(|(id, at_ms)| Payload::Alarm { id, at_ms }),
+            "snooze" => with_time(rest).map(|(id, at_ms)| Payload::Snooze { id, at_ms }),
+            "timer" if !rest.is_empty() => Some(Payload::Timer { id: rest.to_string() }),
+            _ => None,
+        }
     }
 
     /// The alarm or timer it is about.
@@ -127,8 +141,87 @@ pub fn plan<Tz: TimeZone>(
     tz: &Tz,
     twelve_hour: bool,
 ) -> Plan {
-    let _ = (alarms, timers, now, tz, twelve_hour, instant, Duration::zero(), fmt::clock);
-    Plan::default()
+    let now_ms = now.timestamp_millis();
+    let horizon = now + Duration::days(HORIZON_DAYS);
+    let mut post: Vec<Planned> = Vec::new();
+    let mut withdraw: Vec<String> = Vec::new();
+    for alarm in alarms {
+        if !alarm.enabled {
+            withdraw.extend(ids_of_alarm(&alarm.id));
+            continue;
+        }
+        let title = if alarm.label.trim().is_empty() {
+            "Alarm".to_string()
+        } else {
+            alarm.label.trim().to_string()
+        };
+        let body = fmt::clock(alarm.hour, alarm.minute, twelve_hour);
+        let silent = alarm.sound == crate::tone::Sound::Silent;
+        let planned = |id: String, at_ms: i64, payload: Payload| Planned {
+            id,
+            at_ms,
+            title: title.clone(),
+            body: body.clone(),
+            payload,
+            snooze_minutes: alarm.snooze_minutes,
+            silent,
+        };
+        match alarm.snoozed_until.filter(|ms| *ms > now_ms) {
+            Some(at_ms) => post.push(planned(
+                snooze_id(&alarm.id),
+                at_ms,
+                Payload::Snooze {
+                    id: alarm.id.clone(),
+                    at_ms,
+                },
+            )),
+            None => withdraw.push(snooze_id(&alarm.id)),
+        }
+        // Occurrences that rang already are not scheduled again.
+        let from = alarm.last_rang.map_or(now, |ms| instant(ms).max(now));
+        let upcoming: Vec<DateTime<Utc>> = alarm
+            .occurrences_after(from, tz, ALARM_SLOTS)
+            .into_iter()
+            .filter(|at| *at <= horizon)
+            .collect();
+        for (slot, at) in upcoming.iter().enumerate() {
+            let at_ms = at.timestamp_millis();
+            post.push(planned(
+                alarm_slot_id(&alarm.id, slot),
+                at_ms,
+                Payload::Alarm {
+                    id: alarm.id.clone(),
+                    at_ms,
+                },
+            ));
+        }
+        withdraw.extend((upcoming.len()..ALARM_SLOTS).map(|slot| alarm_slot_id(&alarm.id, slot)));
+    }
+    for timer in timers {
+        match timer.ends_at().filter(|end| *end > now_ms) {
+            Some(at_ms) => post.push(Planned {
+                id: timer_id(&timer.id),
+                at_ms,
+                title: if timer.label.trim().is_empty() {
+                    "Timer".to_string()
+                } else {
+                    timer.label.trim().to_string()
+                },
+                body: format!("Time is up ({})", fmt::countdown(timer.duration_ms)),
+                payload: Payload::Timer {
+                    id: timer.id.clone(),
+                },
+                snooze_minutes: 0,
+                silent: timer.sound == crate::tone::Sound::Silent,
+            }),
+            None => withdraw.push(timer_id(&timer.id)),
+        }
+    }
+    post.sort_by(|a, b| a.at_ms.cmp(&b.at_ms).then_with(|| a.id.cmp(&b.id)));
+    if post.len() > BUDGET {
+        withdraw.extend(post.drain(BUDGET..).map(|p| p.id));
+    }
+    Plan { post, withdraw }
 }
 
 /// What changed from the plan handed over last (`None`: nothing is known
@@ -137,8 +230,22 @@ pub fn plan<Tz: TimeZone>(
 /// not any more.
 #[must_use]
 pub fn diff(previous: Option<&Plan>, next: &Plan) -> Plan {
-    let _ = (previous, next);
-    Plan::default()
+    let Some(previous) = previous else {
+        return next.clone();
+    };
+    let post: Vec<Planned> = next
+        .post
+        .iter()
+        .filter(|p| !previous.post.contains(p))
+        .cloned()
+        .collect();
+    let withdraw: Vec<String> = previous
+        .post
+        .iter()
+        .filter(|old| !next.post.iter().any(|p| p.id == old.id))
+        .map(|old| old.id.clone())
+        .collect();
+    Plan { post, withdraw }
 }
 
 #[cfg(test)]
