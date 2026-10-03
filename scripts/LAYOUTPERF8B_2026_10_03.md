@@ -188,3 +188,122 @@ cd dll && cargo test switching_tabs_does_not_shift_the_other_tabs_text
 ./target/release/azul-doc e2e e2e
 ./target/release/azul-doc e2e scripts/layoutperf8_e2e     # 1 passed, 2 xfailed (unchanged)
 ```
+
+---
+
+# LAYOUTPERF8C - "unchanged on the 19:04 build" (branch `wt/layoutperf8c`, base 615cccdfd)
+
+## 1. The re-measure ran the OLD library (fixed in the tool)
+
+`AzWidgets` links libazul by an ABSOLUTE install name:
+`otool -L target/release/AzWidgets` -> `target/release/build/azul-dll-78dff1e65276e337/out/libazul.dylib`,
+dated 18:38 - the pre-8B build (the 19:04 build refreshed `target/azul-lib/libazul.dylib`, not that
+build-script copy). `run_capped.sh` exports `DYLD_LIBRARY_PATH=target/azul-lib` and then starts
+`env AZ_BACKEND=headless ... App` - and `/usr/bin/env` is SIP-protected, so the kernel strips every
+`DYLD_*` variable when it starts it (shown: through the old runner a non-SIP python sees
+`DYLD_LIBRARY_PATH=None`). The app silently loaded the stale 18:38 library: both 8B fixes "had no effect".
+
+Fix (653a502ca): `run_capped.sh` applies a leading `env VAR=VALUE ...` itself (`export`) and starts the
+program directly, so the documented `-- env A=B App` form works (verified: the same python sees
+`target/azul-lib`). Until this is merged, put the variables BEFORE the runner:
+`AZ_BACKEND=headless AZ_E2E=... scripts/waves/tools/run_capped.sh ... -- target/release/AzWidgets`.
+A probe harness that starts the app itself (python3 scripts) must pass `DYLD_LIBRARY_PATH` on - a system
+python is SIP-protected too. The parent's build should also refresh (or stop apps from linking) the
+`target/release/build/azul-dll-*/out/libazul.dylib` copy, or every run without `DYLD_LIBRARY_PATH` keeps
+loading an old library.
+
+Re-measured on the 19:04 library (correct invocation, `/tmp/lp8b/c2.log`, `c4.log`):
+
+| per knob tick | 18:38 library (coordinator) | 19:04 library (8B) |
+|---|---|---|
+| reconcile builds nodes fresh (root DOM) | 3 (the trailing button) | 0 |
+| `font_chain_resolve` in the root pass | 1.9 - 2.2 ms | none |
+| `solver3_layout_document` | 33.6 ms | 20.0 ms |
+| `root_layout_pass` | 19.4 ms | 5.8 ms |
+| `text_layout_flow` / `taffy_cache_get_miss` / `fc_flex_grid` | 288 / 618 / 203 | 76 / 184 / 59 |
+| wall, profiled | 55 - 58 ms | 38.8 - 43 ms |
+| wall, unprofiled | 39 - 43 ms | 27 - 30 ms (no-op relayout 12.6 ms) |
+
+So 8B works; what is left was found next.
+
+## 2. The rest: taffy's one-entry-per-class measurement cache thrashes (FIXED)
+
+`AZ_TAFFY_DEBUG` on the right library (`/tmp/lp8b/c3.log`): 173 of the 184 misses are still in the form
+section (layout nodes 2038-2227), now without any dirt. The page column (node 27, a flex item with a
+visible overflow) is measured by its container TWICE per pass - its flex basis at a max-content height and
+its automatic minimum at a min-content height - and in each run asks every item for its width at the
+height the item got in THAT run:
+
+```
+[taffy] MISS n2038 kd=(None,Some(938.0)) avail=(Definite(852.0),Definite(12693.0)) mode=ComputeSize
+[taffy] MISS n2038 kd=(None,Some(906.0)) avail=(Definite(852.0),Definite(12661.0)) mode=ComputeSize
+```
+
+The form section's height depends on the main size its column offers (938 vs 906), so it is asked two
+keys of one slot class (3: height known, width at definite). taffy's `Cache` keeps ONE measurement per
+class, so each run evicts the other's entry and EVERY pass misses both - the section is laid out again
+twice, and its descendants repeat it with keys of their own: counted over one tick, up to four distinct
+keys of one class per node and up to seven in all (`/tmp/lp8b/slots.py`). This was harmless while every
+clean node was rebuilt with an empty cache anyway; with LAYOUTPERF8 keeping caches it is the cost left.
+
+Fix (e281247e7, c0ef10773): `TaffyMeasureSpill` (taffy_bridge.rs) - a ring of the node's last 12
+distinct measurements of any class, matched by taffy's own rule (taffy's `Cache::get` also searches every
+slot), consulted on a primary miss. It lives in the node's `NodeCache` (which follows the node across
+passes by DOM id) and is allocated only at the node's first eviction - a second store into a slot class,
+which can only follow a miss (`NodeCache::taffy_slots_stored`) - so AzWidgets pays it for a few dozen
+nodes (~0.5 KB each), not for all 2238. It is part of the taffy cache for validity: never read while the
+primary is empty, dropped by the first store after the primary was emptied (every invalidation - the dirty
+closure, a restyle, a clone that cannot keep it, taffy's hidden-layout clear - empties the primary), and
+by `NodeCache::clear`; counted in `Solver3CacheMemoryReport::cache_map_bytes`. `LayoutNodeWarm` (size-pinned)
+is unchanged.
+
+RED (cac602bc1): the test page gets AzWidgets' measure shape - the cards sit in a page column with a
+visible overflow inside the scrolling one, and each card holds a group in wrapping columns (as tall as its
+options stacked at max-content, as one option at min-content: taffy puts every item on its own line under
+a min-content main size). `a_knob_frame_costs_the_same_on_a_page_twice_as_long` is RED again on the 8B
+code (every card is asked two keys of one class per frame - the cost doubles with the page) and GREEN with
+the spill.
+
+## Expected after the 8C build (per knob tick, measured as in section 1)
+
+| | 8B library (measured) | expected |
+|---|---|---|
+| `taffy_cache_get_miss` + `taffy_final_layout_stale` | 184 + 97 | ~11 + a few (the knob's chain) |
+| `text_layout_flow` | 76 | 0 - 3 |
+| `fc_flex_grid` / `size_cache_miss` | 59 / 148 | a few / < 10 |
+| `root_layout_pass` | 5.8 ms | ~1 - 2 ms |
+| `solver3_layout_document` | 20.0 ms | ~14 - 16 ms (reconcile ~5, display list ~6) |
+| wall, unprofiled | 27 - 30 ms | ~22 - 25 ms |
+
+`taffy_cache_get_spill_hit` (a new probe span) counts the lookups the spill answers. Check the right library
+was loaded: no `font_chain_resolve` in the root pass's `[CPU]` block.
+
+## Commits (wt/layoutperf8c)
+
+| Commit | What |
+|---|---|
+| 0537e8f6b | progress section |
+| 653a502ca | `run_capped.sh`: a leading `env` is applied by the runner (SIP stripped DYLD_LIBRARY_PATH) |
+| cac602bc1 | RED: the test page gets AzWidgets' measure shape |
+| e281247e7 | GREEN: `TaffyMeasureSpill` in `NodeCache` |
+| c0ef10773 | the spill is a 12-entry ring of any class |
+| ccd671d20 | the tick probe documents the SIP-safe invocation |
+
+## Least sure to compile (8C)
+
+- taffy_bridge.rs `cache_get`: `let primary = &self.tree.warm(..)?.taffy_cache;` then
+  `self.ctx.cache_map.entries.get(node_idx).and_then(|c| c.taffy_measure_spill.as_deref())` (both shared
+  borrows), `taffy::Cache::is_empty()` and `LayoutOutput::from_outer_size` (both pub in taffy 0.10.1).
+- `cache_store`: the `warm_mut` borrow ends before `self.ctx.cache_map.entries.get_mut(..)`; `let ... else`.
+- `TaffyMeasureSpill`: `#[derive(Default)]` over `[Option<SpilledMeasure>; 12]`; `iter_mut().flatten()` over
+  `&mut Option<_>`; `Size<Option<f32>>` / `AvailableSpace` `PartialEq` (taffy derives it).
+- cache.rs `NodeCache`: the new pub field's type `super::taffy_bridge::TaffyMeasureSpill` is `pub`.
+
+## Test commands (8C)
+
+```
+cargo test -p azul-layout --test all a_one_box_slide_does_not_re_lay_out_the_page -- --nocapture
+cargo test -p azul-layout --lib solver3::cache        # NodeCache default / clear / memory report
+cargo test -p azul-layout --test all flex_items_keep_the_size_their_container_gave_them \
+  the_resize_fast_path_paints_what_a_relayout_paints flex_intrinsic_text struct_sizes
+```
