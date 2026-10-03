@@ -23,7 +23,7 @@ use azul::{
 use crate::{
     actions::{self, action_ref, on_action, Action},
     browse::{self, Column, Entry, Place},
-    go,
+    go, ids,
     model::{self, ViewLayout},
     preview::{self, PreviewKind},
     save_settings, with_state, ColumnDrag, DriveState, Message,
@@ -92,7 +92,7 @@ fn info_bar(message: &Message, app: &RefAny) -> Dom {
         .with_action(AzString::from("Dismiss"))
         .with_on_action(app.clone(), on_dismiss as ButtonOnClickCallbackType)
         .dom()
-        .with_id("info-bar")
+        .with_id(ids::INFO_BAR)
 }
 
 extern "C" fn on_dismiss(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -101,7 +101,7 @@ extern "C" fn on_dismiss(mut data: RefAny, mut info: CallbackInfo) -> Update {
 
 /// The content pane.
 pub(crate) fn content(s: &DriveState, app: &RefAny) -> Dom {
-    let mut area = Dom::create_div().with_id("content").with_css(
+    let mut area = Dom::create_div().with_id(ids::CONTENT).with_css(
         "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; min-width: 0px;",
     );
     if let Some(message) = &s.message {
@@ -115,7 +115,7 @@ pub(crate) fn content(s: &DriveState, app: &RefAny) -> Dom {
     let background = RefAny::new(BackgroundRef { app: app.clone() });
     area.add_child(
         Dom::create_div()
-            .with_id("view")
+            .with_id(ids::VIEW)
             .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; overflow: auto;")
             .with_child(view)
             // A click on the empty space selects nothing; a right-click there
@@ -144,7 +144,7 @@ pub(crate) fn content(s: &DriveState, app: &RefAny) -> Dom {
                     Button::create(AzString::from("Load more"))
                         .with_on_click(app.clone(), on_load_more as ButtonOnClickCallbackType)
                         .dom()
-                        .with_id("load-more"),
+                        .with_id(ids::LOAD_MORE),
                 ),
         );
     }
@@ -332,7 +332,7 @@ fn drive_tile(s: &DriveState, app: &RefAny, index: usize) -> Dom {
     tile.with_on_click(data.clone(), on_place_click as TileOnClickCallbackType)
         .with_on_double_click(data, on_place_open as TileOnClickCallbackType)
         .dom()
-        .with_class(AzString::from("azdrive-drive"))
+        .with_class(ids::DRIVE_CLASS)
         .with_css("width: 260px; margin: 0px 8px 8px 0px;")
 }
 
@@ -363,7 +363,7 @@ fn this_pc(s: &DriveState, app: &RefAny) -> Dom {
             tiles(&cloud)
         },
     ));
-    groups(s, app, sections).with_id("this-pc")
+    groups(s, app, sections).with_id(ids::THIS_PC)
 }
 
 /// Quick access: the pinned folders and the places visited last.
@@ -426,7 +426,7 @@ fn quick_access(s: &DriveState, app: &RefAny) -> Dom {
             (String::from("Recent places"), recent_count, wrap_row(recent)),
         ],
     )
-    .with_id("quick-access")
+    .with_id(ids::QUICK_ACCESS)
 }
 
 // ==== A folder ====
@@ -458,7 +458,7 @@ fn interactive(s: &DriveState, app: &RefAny, entry: &Entry, dom: Dom) -> Dom {
     let data = item_ref(app, entry);
     let renaming = s.renaming.as_ref().is_some_and(|r| r.key == entry.key);
     let mut dom = dom
-        .with_class(AzString::from("azdrive-item"))
+        .with_class(ids::ITEM_CLASS)
         .with_attribute(AttributeType::Draggable(!renaming))
         .with_callback(
             EventFilter::Hover(HoverEventFilter::Click),
@@ -482,7 +482,7 @@ fn interactive(s: &DriveState, app: &RefAny, entry: &Entry, dom: Dom) -> Dom {
         );
     if entry.is_folder {
         dom = dom
-            .with_class(AzString::from("azdrive-folder"))
+            .with_class(ids::FOLDER_CLASS)
             .with_callback(EventFilter::Hover(HoverEventFilter::Drop), data, on_item_drop);
     }
     dom
@@ -605,7 +605,7 @@ fn rename_field(s: &DriveState, app: &RefAny) -> Dom {
         .with_on_focus_lost(app.clone(), on_rename_blur as TextInputOnFocusLostCallbackType)
         .with_accessibility_name(AzString::from("New name"))
         .dom()
-        .with_id("rename-field")
+        .with_id(ids::RENAME_FIELD)
         .with_css("min-width: 120px; flex-grow: 1;")
         .with_callback(
             EventFilter::Component(ComponentEventFilter::AfterMount),
@@ -683,7 +683,7 @@ fn name_cell(s: &DriveState, app: &RefAny, entry: &Entry, icon_px: f32) -> Dom {
         Dom::create_span_with_text(AzString::from(
             entry.display_name(s.settings.show_extensions),
         ))
-        .with_class(AzString::from("azdrive-name"))
+        .with_class(ids::NAME_CLASS)
         .with_css("overflow: hidden; text-overflow: ellipsis; white-space: nowrap;")
     };
     Dom::create_div()
@@ -706,7 +706,7 @@ fn column_parts(data: &mut RefAny) -> Option<(RefAny, Column)> {
 /// The Details header: the columns (a click sorts, again reverses), each
 /// with an edge to drag (its width) or double-click (to fit).
 fn details_header(s: &DriveState, app: &RefAny) -> Dom {
-    let mut row = Dom::create_div().with_id("details-header").with_css(
+    let mut row = Dom::create_div().with_id(ids::DETAILS_HEADER).with_css(
         "display: flex; flex-direction: row; font-size: 12px; \
          border-bottom: 1px solid rgba(128, 128, 128, 0.35);",
     );
@@ -720,7 +720,7 @@ fn details_header(s: &DriveState, app: &RefAny) -> Dom {
             column: c.column,
         });
         let mut cell = Dom::create_div()
-            .with_class(AzString::from("azdrive-column"))
+            .with_class(ids::COLUMN_CLASS)
             .with_css(format!(
                 "display: flex; flex-direction: row; align-items: center; width: {width}px; \
                  min-width: {width}px; flex-shrink: 0; padding: 4px 0px 4px 8px; \
@@ -740,7 +740,7 @@ fn details_header(s: &DriveState, app: &RefAny) -> Dom {
         }
         cell.add_child(
             Dom::create_div()
-                .with_class(AzString::from("azdrive-column-edge"))
+                .with_class(ids::COLUMN_EDGE_CLASS)
                 .with_css(
                     "width: 6px; align-self: stretch; flex-shrink: 0; cursor: col-resize; \
                      border-right: 1px solid rgba(128, 128, 128, 0.35);",
@@ -971,7 +971,7 @@ fn icon_cell(s: &DriveState, app: &RefAny, entry: &Entry, layout: ViewLayout) ->
                 ))
                 .with_child(
                     Dom::create_image(image.clone())
-                        .with_class(AzString::from("azdrive-thumbnail"))
+                        .with_class(ids::THUMBNAIL_CLASS)
                         .with_css(format!("max-width: {px}px; max-height: {px}px;")),
                 ),
         ),
@@ -987,7 +987,7 @@ fn icon_cell(s: &DriveState, app: &RefAny, entry: &Entry, layout: ViewLayout) ->
             Dom::create_span_with_text(AzString::from(
                 entry.display_name(s.settings.show_extensions),
             ))
-            .with_class(AzString::from("azdrive-name"))
+            .with_class(ids::NAME_CLASS)
             .with_css(
                 "font-size: 12px; text-align: center; max-width: 100%; overflow: hidden; \
                  max-height: 32px; margin-top: 4px;",
@@ -1097,7 +1097,7 @@ fn folder_view(s: &DriveState, app: &RefAny) -> Dom {
             .with_icon(AzString::from("folder_open"))
             .with_detail(AzString::from(detail))
             .dom()
-            .with_id("empty-folder");
+            .with_id(ids::EMPTY_FOLDER);
     }
     let layout = s.settings.layout;
     let now = actions::now_secs() as i64;
@@ -1116,8 +1116,8 @@ fn folder_view(s: &DriveState, app: &RefAny) -> Dom {
         groups(s, app, sections)
     };
     let mut view = Dom::create_div()
-        .with_id("folder-view")
-        .with_class(AzString::from(format!("azdrive-layout-{}", layout.name())))
+        .with_id(ids::FOLDER_VIEW)
+        .with_class(ids::layout_class(layout))
         .with_css("display: flex; flex-direction: column;");
     if layout == ViewLayout::Details {
         view.add_child(details_header(s, app));
