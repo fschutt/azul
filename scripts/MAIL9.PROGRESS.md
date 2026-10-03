@@ -62,13 +62,14 @@ dumb as possible". Order now:
 - 2f998b457 RED dkim.rs tests; 488255954 GREEN dkim.rs (key, SPKI, record, zone line, notes, TXT check)
 - d7cb18ec8 RED send.rs (signed vs defaults, unsigned outbox + sign at attempt, refusal causes, port 25);
   35ec74153 GREEN send.rs
+- e977cf9e8 RED / a20b19f9a GREEN sending.rs DKIM form part (NEXT step 1 done)
 
 ## IN PROGRESS
 - wiring DKIM into the app (Sending page: key creation, record, notes, DNS check; keyring store / read;
   the compose job and the Send / Receive retry hand the key over)
 
 ## NEXT (exact, in order; each its own commit)
-1. sending.rs: RED tests then GREEN for the DKIM part of the form: `SendingForm` gets `dkim: bool`,
+1. DONE - sending.rs: RED tests then GREEN for the DKIM part of the form: `SendingForm` gets `dkim: bool`,
    `dkim_domain`, `dkim_selector` (filled by `from_settings`); new
    `SendingForm::apply_dkim(&self, settings: SendSettings, email: &str, public_key: &str, now: i64)
    -> Result<SendSettings, String>` (off: dkim None; on: domain = typed or the address's domain,
