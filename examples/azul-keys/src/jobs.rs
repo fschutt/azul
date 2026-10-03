@@ -181,6 +181,14 @@ fn handle(s: &mut KeysApp, info: &mut CallbackInfo, app: &RefAny, done: Done) {
             s.change = Default::default();
             s.change.message = "The master password is changed.".to_string();
             println!("AZKEYS_PASSWORD_CHANGED");
+            // A change made while the file was rewritten is saved now.
+            if s.save_again {
+                s.save_again = false;
+                if let Some(session) = s.session.as_mut() {
+                    session.dirty = true;
+                }
+                save(s, info, app);
+            }
             after_save(s, info);
         }
         Done::Put { key } => {
