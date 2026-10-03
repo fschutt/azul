@@ -30,6 +30,8 @@ from azlin_e2e import Failure
 
 TAG = "azcalc"
 TIMES = "×"
+# The app's DOM names carry its prefix (examples/azul-calculator/src/ids.rs).
+P = "__azcalc_"
 
 
 def display(app):
@@ -44,9 +46,9 @@ def expect_display(app, expected, what):
 def keys_inside_the_keypad(app, screen):
     """Every key of the keypad lies inside the keypad: a column that outgrows
     it puts its keys over the history panel, and a click on them lands there."""
-    pad = app.must("get_node_layout", selector="#calc-keypad")["data"]["value"]["rect"]
+    pad = app.must("get_node_layout", selector="#" + P + "keypad")["data"]["value"]["rect"]
     for key_id in ["key-plus", "key-equals", "key-1"]:
-        r = app.must("get_node_layout", selector="#" + key_id)["data"]["value"]["rect"]
+        r = app.must("get_node_layout", selector="#" + P + key_id)["data"]["value"]["rect"]
         if r["x"] < pad["x"] - 0.5 or r["x"] + r["width"] > pad["x"] + pad["width"] + 0.5:
             raise Failure("%s: #%s (x %.1f..%.1f) sticks out of the keypad (x %.1f..%.1f)" % (
                 screen, key_id, r["x"], r["x"] + r["width"], pad["x"], pad["x"] + pad["width"]))
@@ -75,7 +77,7 @@ def body(args, logs, out):
             raise Failure("--sample on an empty folder loads 3 history entries, got %d" % loaded)
         app.until("the sample history on disk", lambda: len(history_lines(data_dir)) == 3)
         app.frame(2)
-        if not app.has_id("calc-keypad") or not app.has_id("calc-panel"):
+        if not app.has_id(P + "keypad") or not app.has_id(P + "panel"):
             raise Failure("the Standard keypad and the history panel (680 px wide) are not in the tree")
         app.screenshot(os.path.join(out, "standard-flat-light.png"))
         keys_inside_the_keypad(app, "Standard")
@@ -83,7 +85,7 @@ def body(args, logs, out):
         # Standard by mouse: the plan's sample.
         for key_id in ["key-1", "key-2", "key-8", "key-0", "key-multiply", "key-0", "key-point", "key-1",
                        "key-9", "key-equals"]:
-            app.click(selector="#" + key_id)
+            app.click(selector="#" + P + key_id)
         expect_display(app, "1,280 %s 0.19 =\t243.2" % TIMES, "1280 x 0.19 by mouse")
         if not app.shows("243.2"):
             raise Failure("the result node does not show 243.2")
@@ -118,7 +120,7 @@ def body(args, logs, out):
         keys_inside_the_keypad(app, "Scientific")
         for key_id in ["key-sin", "key-3", "key-0", "key-rparen", "key-plus", "key-2", "key-pow", "key-1", "key-0",
                        "key-equals"]:
-            app.click(selector="#" + key_id)
+            app.click(selector="#" + P + key_id)
         expect_display(app, "sin(30) + 2^10 =\t1,024.5", "sin(30) + 2^10 in degrees")
         app.screenshot(os.path.join(out, "scientific.png"))
 
@@ -131,7 +133,7 @@ def body(args, logs, out):
         expect_display(app, "\t2A5F", "2A5F typed in HEX")
         if not app.shows("10,847"):
             raise Failure("the DEC row does not show 10,847")
-        app.click(selector="#bit-0")
+        app.click(selector="#" + P + "bit-0")
         expect_display(app, "\t2A5E", "bit 0 toggled")
         app.screenshot(os.path.join(out, "programmer.png"))
 
@@ -139,7 +141,7 @@ def body(args, logs, out):
         app.click(text="Convert")
         app.until("the Convert screen", lambda: app.last("AZCALC_SCREEN") == "convert")
         app.frame(2)
-        if not app.has_id("conv-from-value") or not app.has_id("conv-to-unit"):
+        if not app.has_id(P + "conv-from-value") or not app.has_id(P + "conv-to-unit"):
             raise Failure("the converter's fields are not in the tree")
         if not app.shows("1 km = 0.621371 mi"):
             raise Failure("the converter does not show the km -> mi rate")
@@ -147,7 +149,7 @@ def body(args, logs, out):
         app.click(text="Date")
         app.until("the Date screen", lambda: app.last("AZCALC_SCREEN") == "date")
         app.frame(2)
-        if not app.has_id("date-from") or not app.shows("Difference between dates"):
+        if not app.has_id(P + "date-from") or not app.shows("Difference between dates"):
             raise Failure("the date screen is not shown")
         app.screenshot(os.path.join(out, "date.png"))
 
