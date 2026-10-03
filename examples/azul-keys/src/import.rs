@@ -19,7 +19,10 @@
 //! A row that has nothing to keep is skipped with its row number and the reason - never with a
 //! value from the file.
 
-use crate::vault::{Item, Vault};
+use azul_storage::time::parse_iso8601;
+use serde_json::Value;
+
+use crate::vault::{host_of, Card, Field, Item, Kind, PastPassword, Vault};
 
 /// Where a file came from (its header says it).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,36 +65,542 @@ pub struct Imported {
     pub skipped: Vec<String>,
 }
 
+/// The header names of a CSV, lower case and trimmed.
+fn normalized(headers: &[String]) -> Vec<String> {
+    headers.iter().map(|h| h.trim().to_lowercase()).collect()
+}
+
 /// The format a CSV header names.
 #[must_use]
 pub fn detect(headers: &[String]) -> Format {
-    let _ = headers;
-    todo!("GREEN")
+    let h = normalized(headers);
+    let has = |name: &str| h.iter().any(|x| x == name);
+    if has("httprealm") || has("formactionorigin") || has("timepasswordchanged") {
+        Format::Firefox
+    } else if has("login_password") || has("login_uri") || has("login_username") {
+        Format::BitwardenCsv
+    } else if has("otpauth") && (has("favorite") || has("archived") || has("tags")) {
+        Format::OnePassword
+    } else if has("otpauth") {
+        Format::Safari
+    } else if has("group") && has("title") && (has("last modified") || has("icon")) {
+        Format::KeePassXc
+    } else if has("grouping") || (has("extra") && has("fav")) {
+        Format::LastPass
+    } else if has("name") && has("url") && has("username") && has("password") {
+        Format::Chrome
+    } else {
+        Format::Csv
+    }
+}
+
+/// Where each kind of value is in a CSV row.
+#[derive(Default)]
+struct Columns {
+    title: Option<usize>,
+    url: Option<usize>,
+    username: Option<usize>,
+    password: Option<usize>,
+    notes: Option<usize>,
+    totp: Option<usize>,
+    folder: Option<usize>,
+    favorite: Option<usize>,
+    tags: Option<usize>,
+    kind: Option<usize>,
+    fields: Option<usize>,
+    /// Milliseconds since 1970 (Firefox).
+    created_ms: Option<usize>,
+    changed_ms: Option<usize>,
+    /// ISO 8601 (KeePassXC).
+    created_iso: Option<usize>,
+    modified_iso: Option<usize>,
+}
+
+impl Columns {
+    fn of(headers: &[String]) -> Columns {
+        let h = normalized(headers);
+        let find = |names: &[&str]| h.iter().position(|x| names.contains(&x.as_str()));
+        Columns {
+            title: find(&["name", "title", "item name", "account"]),
+            url: find(&[
+                "url",
+                "login_uri",
+                "website",
+                "uri",
+                "web site",
+                "login url",
+            ]),
+            username: find(&[
+                "username",
+                "login_username",
+                "user name",
+                "login name",
+                "login",
+                "user",
+            ])
+            .or_else(|| find(&["email", "e-mail"])),
+            password: find(&["password", "login_password"]),
+            notes: find(&["note", "notes", "extra", "comments", "comment"]),
+            totp: find(&[
+                "totp",
+                "otpauth",
+                "login_totp",
+                "otp",
+                "one-time password",
+                "2fa",
+            ]),
+            folder: find(&["folder", "group", "grouping"]),
+            favorite: find(&["favorite", "favourite", "fav"]),
+            tags: find(&["tags", "tag", "labels"]),
+            kind: find(&["type"]),
+            fields: find(&["fields"]),
+            created_ms: find(&["timecreated"]),
+            changed_ms: find(&["timepasswordchanged"]),
+            created_iso: find(&["created", "creation date", "creationdate"]),
+            modified_iso: find(&["last modified", "modified", "lastmodified"]),
+        }
+    }
+
+    /// Whether the file has a column worth importing.
+    fn any(&self) -> bool {
+        self.title.is_some()
+            || self.url.is_some()
+            || self.username.is_some()
+            || self.password.is_some()
+            || self.notes.is_some()
+    }
+}
+
+/// A yes in a CSV cell: `1`, `true`, `yes`, `y`, `x`.
+fn truthy(cell: &str) -> bool {
+    matches!(
+        cell.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "y" | "x"
+    )
+}
+
+/// The kind a `type` cell names (Bitwarden's words); a login when it names none.
+fn kind_of(cell: &str) -> Kind {
+    match cell
+        .trim()
+        .to_ascii_lowercase()
+        .replace([' ', '_', '-'], "")
+        .as_str()
+    {
+        "note" | "securenote" => Kind::Note,
+        "card" => Kind::Card,
+        "identity" => Kind::Identity,
+        "sshkey" => Kind::SshKey,
+        _ => Kind::Login,
+    }
+}
+
+/// Bitwarden's `fields` cell: one `name: value` per line.
+fn fields_of(cell: &str) -> Vec<Field> {
+    cell.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(|line| match line.split_once(": ") {
+            Some((name, value)) => Field {
+                name: name.trim().to_string(),
+                value: value.to_string(),
+                hidden: false,
+            },
+            None => Field {
+                name: line.trim_end_matches(':').to_string(),
+                value: String::new(),
+                hidden: false,
+            },
+        })
+        .collect()
+}
+
+/// Seconds of a milliseconds cell.
+fn millis(cell: &str) -> Option<u64> {
+    cell.trim()
+        .parse::<u64>()
+        .ok()
+        .filter(|ms| *ms > 0)
+        .map(|ms| ms / 1000)
+}
+
+/// The separator a header line holds most of: comma, semicolon or tab (a comma on a tie).
+fn separator(header_line: &str) -> u8 {
+    let mut best = (b',', 0usize);
+    for sep in [b',', b';', b'\t'] {
+        let n = header_line.bytes().filter(|b| *b == sep).count();
+        if n > best.1 {
+            best = (sep, n);
+        }
+    }
+    best.0
 }
 
 /// The items of a CSV export; `Err` when the file is no table or has no column to import.
 pub fn import_csv(text: &str, now: u64) -> Result<Imported, String> {
-    let _ = (text, now);
-    todo!("GREEN")
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let first = text.lines().next().unwrap_or_default();
+    if first.trim().is_empty() {
+        return Err("The file is empty: it has no header row.".to_string());
+    }
+    let mut reader = csv::ReaderBuilder::new()
+        .has_headers(true)
+        .flexible(true)
+        .delimiter(separator(first))
+        .from_reader(text.as_bytes());
+    let headers: Vec<String> = reader
+        .headers()
+        .map_err(|e| format!("The header row cannot be read: {e}"))?
+        .iter()
+        .map(str::to_string)
+        .collect();
+    let columns = Columns::of(&headers);
+    if !columns.any() {
+        return Err(
+            "No column of this file is one AzKeys imports: it needs a header row naming \
+                    name or title, url, username, password or notes."
+                .to_string(),
+        );
+    }
+    let format = detect(&headers);
+    let mut items = Vec::new();
+    let mut skipped = Vec::new();
+    for (n, record) in reader.records().enumerate() {
+        // The row's number as a spreadsheet shows it: the header is row 1.
+        let row = n + 2;
+        let record = match record {
+            Ok(r) => r,
+            Err(e) => {
+                skipped.push(format!("row {row}: cannot be read ({})", csv_problem(&e)));
+                continue;
+            }
+        };
+        let get = |c: Option<usize>| c.and_then(|i| record.get(i)).map(str::trim).unwrap_or("");
+        let (title, url, username, password) = (
+            get(columns.title),
+            get(columns.url),
+            get(columns.username),
+            get(columns.password),
+        );
+        let notes = get(columns.notes);
+        let totp = get(columns.totp);
+        if [title, url, username, password, notes, totp]
+            .iter()
+            .all(|s| s.is_empty())
+        {
+            skipped.push(format!(
+                "row {row}: nothing to import (no name, website, user name, password or note)"
+            ));
+            continue;
+        }
+        // LastPass writes its secure notes as rows with the url `http://sn`.
+        let lastpass_note = url.eq_ignore_ascii_case("http://sn");
+        let kind = if lastpass_note {
+            Kind::Note
+        } else {
+            kind_of(get(columns.kind))
+        };
+        let title = if title.is_empty() {
+            host_of(url)
+                .or_else(|| (!username.is_empty()).then(|| username.to_string()))
+                .unwrap_or_else(|| "Imported item".to_string())
+        } else {
+            title.to_string()
+        };
+        let mut item = Item::new(kind, &title, now);
+        if !url.is_empty() && !lastpass_note {
+            item.urls.push(url.to_string());
+        }
+        item.username = username.to_string();
+        item.password = password.to_string();
+        item.notes = notes.to_string();
+        item.totp = totp.to_string();
+        item.folder = get(columns.folder).to_string();
+        item.favorite = truthy(get(columns.favorite));
+        for tag in get(columns.tags).split([',', ';']) {
+            item.add_tag(tag);
+        }
+        item.fields = fields_of(get(columns.fields));
+        if let Some(created) =
+            millis(get(columns.created_ms)).or_else(|| parse_iso8601(get(columns.created_iso)))
+        {
+            item.created = created;
+        }
+        if let Some(modified) = parse_iso8601(get(columns.modified_iso)) {
+            item.modified = modified;
+        }
+        if let Some(changed) = millis(get(columns.changed_ms)) {
+            item.password_changed = changed;
+        }
+        items.push(item);
+    }
+    Ok(Imported {
+        format,
+        items,
+        skipped,
+    })
+}
+
+/// What went wrong reading a CSV row, without the row's content.
+fn csv_problem(e: &csv::Error) -> String {
+    match e.kind() {
+        csv::ErrorKind::Utf8 { .. } => "it is not UTF-8 text".to_string(),
+        csv::ErrorKind::UnequalLengths { .. } => "it has another number of columns".to_string(),
+        _ => "a CSV error".to_string(),
+    }
+}
+
+/// A JSON value as text: a string as it is, a number or a bool written out, else "".
+fn text_of(value: &Value, key: &str) -> String {
+    match value.get(key) {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Number(n)) => n.to_string(),
+        Some(Value::Bool(b)) => b.to_string(),
+        _ => String::new(),
+    }
+}
+
+/// A Bitwarden date (`2024-01-01T00:00:00.000Z`) as seconds since 1970.
+fn date_of(value: &Value, key: &str) -> Option<u64> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .and_then(parse_iso8601)
+}
+
+/// The identity fields of a Bitwarden export, in the order the item shows them:
+/// `(key, label, hidden)`.
+const IDENTITY_FIELDS: [(&str, &str, bool); 18] = [
+    ("title", "Title", false),
+    ("firstName", "First name", false),
+    ("middleName", "Middle name", false),
+    ("lastName", "Last name", false),
+    ("company", "Company", false),
+    ("email", "Email", false),
+    ("phone", "Phone", false),
+    ("address1", "Address", false),
+    ("address2", "Address 2", false),
+    ("address3", "Address 3", false),
+    ("city", "City", false),
+    ("state", "State", false),
+    ("postalCode", "Postal code", false),
+    ("country", "Country", false),
+    ("username", "User name", false),
+    ("ssn", "SSN", true),
+    ("passportNumber", "Passport number", true),
+    ("licenseNumber", "License number", true),
+];
+
+/// The SSH key fields of a Bitwarden export: `(key, label, hidden)`.
+const SSH_FIELDS: [(&str, &str, bool); 3] = [
+    ("privateKey", "Private key", true),
+    ("publicKey", "Public key", false),
+    ("keyFingerprint", "Fingerprint", false),
+];
+
+/// The fields of `object` named in `table`, those with a value.
+fn fields_from(object: Option<&Value>, table: &[(&str, &str, bool)]) -> Vec<Field> {
+    let Some(object) = object else {
+        return Vec::new();
+    };
+    table
+        .iter()
+        .filter_map(|(key, label, hidden)| {
+            let value = text_of(object, key);
+            (!value.trim().is_empty()).then(|| Field {
+                name: (*label).to_string(),
+                value,
+                hidden: *hidden,
+            })
+        })
+        .collect()
 }
 
 /// The items of a Bitwarden JSON export; `Err` for an encrypted export or a file that is not one.
 pub fn import_bitwarden_json(text: &str, now: u64) -> Result<Imported, String> {
-    let _ = (text, now);
-    todo!("GREEN")
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let value: Value = serde_json::from_str(text).map_err(|e| {
+        format!(
+            "This is not a JSON file (line {}, column {}).",
+            e.line(),
+            e.column()
+        )
+    })?;
+    let Some(root) = value.as_object() else {
+        return Err("This JSON file is not a Bitwarden export.".to_string());
+    };
+    if root.get("encrypted").and_then(Value::as_bool) == Some(true) {
+        return Err(
+            "This is an encrypted Bitwarden export. Export the vault again choosing \
+                    \"JSON\" (unencrypted), import that file, then delete it."
+                .to_string(),
+        );
+    }
+    let Some(entries) = root.get("items").and_then(Value::as_array) else {
+        return Err("This JSON file has no \"items\": it is not a Bitwarden export.".to_string());
+    };
+    let folders: Vec<(String, String)> = root
+        .get("folders")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .map(|f| (text_of(f, "id"), text_of(f, "name")))
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut items = Vec::new();
+    let mut skipped = Vec::new();
+    for (n, entry) in entries.iter().enumerate() {
+        let kind = match entry.get("type").and_then(Value::as_u64) {
+            Some(1) => Kind::Login,
+            Some(2) => Kind::Note,
+            Some(3) => Kind::Card,
+            Some(4) => Kind::Identity,
+            Some(5) => Kind::SshKey,
+            _ => {
+                skipped.push(format!("item {}: a type AzKeys does not know", n + 1));
+                continue;
+            }
+        };
+        let name = text_of(entry, "name");
+        let title = if name.trim().is_empty() {
+            "Imported item".to_string()
+        } else {
+            name
+        };
+        let mut item = Item::new(kind, &title, now);
+        item.notes = text_of(entry, "notes");
+        item.favorite = entry
+            .get("favorite")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let folder_id = text_of(entry, "folderId");
+        if !folder_id.is_empty() {
+            if let Some((_, folder)) = folders.iter().find(|(id, _)| *id == folder_id) {
+                item.folder = folder.clone();
+            }
+        }
+        if let Some(created) = date_of(entry, "creationDate") {
+            item.created = created;
+        }
+        if let Some(modified) = date_of(entry, "revisionDate") {
+            item.modified = modified;
+        }
+        for field in entry
+            .get("fields")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            // 0 text, 1 hidden, 2 boolean, 3 linked (to a login field: nothing of its own).
+            let kind = field.get("type").and_then(Value::as_u64).unwrap_or(0);
+            if kind == 3 {
+                continue;
+            }
+            item.fields.push(Field {
+                name: text_of(field, "name"),
+                value: text_of(field, "value"),
+                hidden: kind == 1,
+            });
+        }
+        if let Some(login) = entry.get("login") {
+            item.username = text_of(login, "username");
+            item.password = text_of(login, "password");
+            item.totp = text_of(login, "totp");
+            for uri in login
+                .get("uris")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let uri = text_of(uri, "uri");
+                if !uri.trim().is_empty() {
+                    item.urls.push(uri);
+                }
+            }
+            if let Some(changed) = date_of(login, "passwordRevisionDate") {
+                item.password_changed = changed;
+            }
+        }
+        let mut history: Vec<PastPassword> = entry
+            .get("passwordHistory")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|p| PastPassword {
+                password: text_of(p, "password"),
+                until: date_of(p, "lastUsedDate").unwrap_or(0),
+            })
+            .filter(|p| !p.password.is_empty())
+            .collect();
+        history.sort_by(|a, b| b.until.cmp(&a.until));
+        history.truncate(crate::vault::HISTORY_KEPT);
+        item.history = history;
+        if let Some(card) = entry.get("card") {
+            let month = text_of(card, "expMonth");
+            let year = text_of(card, "expYear");
+            item.card = Card {
+                holder: text_of(card, "cardholderName"),
+                brand: text_of(card, "brand"),
+                number: text_of(card, "number"),
+                expiry: match (month.trim(), year.trim()) {
+                    ("", "") => String::new(),
+                    (m, "") => format!("{m:0>2}"),
+                    ("", y) => y.to_string(),
+                    (m, y) => format!("{m:0>2}/{y}"),
+                },
+                code: text_of(card, "code"),
+            };
+        }
+        item.fields
+            .extend(fields_from(entry.get("identity"), &IDENTITY_FIELDS));
+        item.fields
+            .extend(fields_from(entry.get("sshKey"), &SSH_FIELDS));
+        items.push(item);
+    }
+    Ok(Imported {
+        format: Format::BitwardenJson,
+        items,
+        skipped,
+    })
 }
 
 /// The items of a file the user picked: JSON when it starts with `{`, else CSV.
 pub fn import_file(bytes: &[u8], now: u64) -> Result<Imported, String> {
-    let _ = (bytes, now);
-    todo!("GREEN")
+    let bytes = bytes
+        .strip_prefix(b"\xef\xbb\xbf".as_slice())
+        .unwrap_or(bytes);
+    let text = std::str::from_utf8(bytes).map_err(|_| {
+        "The file is not UTF-8 text: save it as a UTF-8 CSV or as JSON.".to_string()
+    })?;
+    if text.trim_start().starts_with('{') {
+        import_bitwarden_json(text, now)
+    } else {
+        import_csv(text, now)
+    }
 }
 
 /// Adds `items` to the vault, leaving out those it already has (same kind, title, user name and
 /// password); `(added, already there)`.
 pub fn merge(vault: &mut Vault, items: Vec<Item>, now: u64) -> (usize, usize) {
-    let _ = (vault, items, now);
-    todo!("GREEN")
+    let (mut added, mut already) = (0, 0);
+    for mut item in items {
+        let known = vault.items.iter().any(|v| {
+            v.kind == item.kind
+                && v.title == item.title
+                && v.username == item.username
+                && v.password == item.password
+                && v.notes == item.notes
+        });
+        if known {
+            item.wipe();
+            already += 1;
+        } else {
+            vault.upsert(item, now);
+            added += 1;
+        }
+    }
+    (added, already)
 }
 
 #[cfg(test)]
