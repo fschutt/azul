@@ -506,6 +506,9 @@ struct MeetState {
     record: Option<store::MeetingRecord>,
     /// The files that changed since they were written last (`flush_files`).
     unsaved: Unsaved,
+    /// The meeting's files of an earlier visit are being read back (`on_history_read`): its chat
+    /// and record are not written over meanwhile.
+    reading_history: bool,
 }
 
 /// The files of the data tree that changed since the last [`flush_files`].
@@ -587,6 +590,7 @@ impl MeetState {
             settings: azul_appkit::AppSettings::default(),
             record: None,
             unsaved: Unsaved::default(),
+            reading_history: false,
         }
     }
 }
@@ -3754,6 +3758,7 @@ extern "C" fn on_room_opened(data: RefAny, mut info: CallbackInfo, result: RefAn
         return Update::DoNothing;
     };
     let answer = http_answer(result);
+    let app = data.clone();
     let follow_up = {
         let Some(mut guard) = data.downcast_mut::<MeetState>() else {
             return Update::DoNothing;
@@ -3786,6 +3791,8 @@ extern "C" fn on_room_opened(data: RefAny, mut info: CallbackInfo, result: RefAn
                 s.link_status = String::from("waiting for others to join");
                 let job = room.first_job();
                 enter_record(s);
+                // Back in a meeting this side was in before: its chat and people come back.
+                read_history(s, &mut info, app.clone());
                 flush_files(s, &mut info);
                 job
             }
@@ -4184,7 +4191,15 @@ fn note_people(s: &mut MeetState) {
 /// the settings, the meeting's record, its chat. Nothing in a run without a data root, or for
 /// the demo's second window.
 fn flush_files(s: &mut MeetState, info: &mut CallbackInfo) {
-    let unsaved = std::mem::take(&mut s.unsaved);
+    let mut unsaved = std::mem::take(&mut s.unsaved);
+    if s.reading_history {
+        // The earlier visit's chat and record are on their way back: they are written once they
+        // are in (`on_history_read`), never the new ones over them.
+        s.unsaved.chat = unsaved.chat;
+        s.unsaved.record = unsaved.record;
+        unsaved.chat = false;
+        unsaved.record = false;
+    }
     let Some(root) = files_root().filter(|_| s.keeps_files) else {
         return;
     };
@@ -4204,6 +4219,50 @@ fn flush_files(s: &mut MeetState, info: &mut CallbackInfo) {
         }
     }
     store::save(info, root, files);
+}
+
+/// Reads the files an earlier visit to the meeting just entered left (`meet/<meeting>/chat.jsonl`
+/// and `meeting.json`) on a Thread; `on_history_read` lists that chat before what is said now.
+fn read_history(s: &mut MeetState, info: &mut CallbackInfo, app: RefAny) {
+    let Some(root) = files_root().filter(|_| s.keeps_files) else {
+        return;
+    };
+    s.reading_history = true;
+    store::read_meeting(info, root, &meeting_name(s), app, on_history_read);
+}
+
+/// The earlier visit's files are in: its chat goes before what was said since (`AZMEET_CHAT_RESTORED
+/// <n>`), the people it met join the record; then both files are written whole.
+extern "C" fn on_history_read(mut data: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((meeting, chat, record)) = msg
+        .downcast_ref::<store::Earlier>()
+        .map(|e| (e.meeting.clone(), e.chat.clone(), e.record.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    let Some(mut guard) = data.downcast_mut::<MeetState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    s.reading_history = false;
+    if meeting_name(s) == meeting {
+        let earlier = chat.map(|text| store::parse_chat(&text, s.me)).unwrap_or_default();
+        if !earlier.is_empty() {
+            println!("AZMEET_CHAT_RESTORED {}", earlier.len());
+            s.chat.restore(earlier);
+            s.unsaved.chat = true;
+        }
+        let people = record.map(|text| store::record_people(&text)).unwrap_or_default();
+        if let Some(current) = s.record.as_mut() {
+            for name in people {
+                if current.met(&name) {
+                    s.unsaved.record = true;
+                }
+            }
+        }
+    }
+    flush_files(s, &mut info);
+    Update::RefreshDom
 }
 
 /// The answer to the leave request; nothing waits on it.

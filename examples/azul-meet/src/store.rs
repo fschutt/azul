@@ -18,6 +18,7 @@ use std::{
 };
 
 use azul::{
+    callbacks::WriteBackCallbackType,
     file::FilePath,
     prelude::*,
     task::{Thread, ThreadId, ThreadReceiveMsg, ThreadReceiver, ThreadSender, ThreadWriteBackMsg},
@@ -352,6 +353,63 @@ pub fn save(info: &mut CallbackInfo, root: &Path, files: Vec<(String, Vec<u8>)>)
             Thread::create(RefAny::new(()), RefAny::new(()), save_thread),
         );
     }
+}
+
+/// What a meeting's files held when this side came back to it, read on an azul Thread: the
+/// meeting (its folder name), its `chat.jsonl` and its `meeting.json` (`None`: not there).
+pub struct Earlier {
+    pub meeting: String,
+    pub chat: Option<String>,
+    pub record: Option<String>,
+}
+
+/// What the read thread needs: where, which meeting, whom to tell.
+struct ReadInit {
+    root: PathBuf,
+    meeting: String,
+    on_read: WriteBackCallbackType,
+}
+
+/// Runs on the worker thread: reads the meeting's two files from the data tree and hands them
+/// back as an [`Earlier`].
+extern "C" fn read_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: ThreadReceiver) {
+    let Some((root, meeting, on_read)) = init
+        .downcast_ref::<ReadInit>()
+        .map(|i| (i.root.clone(), i.meeting.clone(), i.on_read))
+    else {
+        return;
+    };
+    let drive = LocalDrive::new(root);
+    let read = |key: Option<String>| {
+        key.and_then(|k| drive.get(&k).ok())
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+    };
+    let earlier = Earlier {
+        chat: read(chat_key(&meeting)),
+        record: read(meeting_key(&meeting)),
+        meeting,
+    };
+    let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::create(
+        on_read,
+        RefAny::new(earlier),
+    )));
+}
+
+/// Reads meeting `meeting`'s files from the data tree at `root` on an azul Thread (never here);
+/// `on_read(reply_to, Earlier, info)` gets them on the UI thread.
+pub fn read_meeting(
+    info: &mut CallbackInfo,
+    root: &Path,
+    meeting: &str,
+    reply_to: RefAny,
+    on_read: WriteBackCallbackType,
+) {
+    let init = RefAny::new(ReadInit {
+        root: root.to_path_buf(),
+        meeting: meeting.to_string(),
+        on_read,
+    });
+    info.add_thread(ThreadId::unique(), Thread::create(init, reply_to, read_thread));
 }
 
 /// The settings file's (key, bytes), for [`save`].
