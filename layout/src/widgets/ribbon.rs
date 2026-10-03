@@ -4000,21 +4000,37 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior, theme: UiTh
         .with_children(DomVec::from_vec(vec![items_row, footer]))
 }
 
+/// The cells the in-ribbon strip shows: the row of `visible` cells holding
+/// `selected` (the last row filled from the end), or every cell when
+/// `visible` is 0 or covers them all.
+fn gallery_window(len: usize, selected: usize, visible: usize) -> core::ops::Range<usize> {
+    if visible == 0 || visible >= len {
+        return 0..len;
+    }
+    let start = ((selected.min(len - 1) / visible) * visible).min(len - visible);
+    start..start + visible
+}
+
 fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior, theme: UiTheme) -> Dom {
     let RibbonGallery {
         cells,
         selected,
         on_select,
-        visible: _,
+        visible,
     } = gallery;
     let has_callback = on_select.is_some();
     let cells = cells.into_library_owned_vec();
+    let strip_cells = gallery_window(cells.len(), selected, visible);
 
     // The cells are built twice: once for the in-ribbon strip and once for
     // the expansion panel, so "More" can show every cell without a relayout.
     let build_cells = |in_panel: bool| -> Vec<Dom> {
         let mut out: Vec<Dom> = Vec::with_capacity(cells.len());
         for (idx, cell) in cells.iter().enumerate() {
+            // The strip shows its window of cells; the panel every cell.
+            if !in_panel && !strip_cells.contains(&idx) {
+                continue;
+            }
             let (classes, cell_style) = if idx == selected {
                 (
                     CLS_GALLERY_CELL_SELECTED,
