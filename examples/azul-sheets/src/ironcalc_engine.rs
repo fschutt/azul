@@ -26,7 +26,8 @@ use ironcalc::base::{
 };
 
 use crate::engine::{
-    BorderPreset, CellAddr, CellArea, CellBorders, CellStyle, CellValue, DefinedName, EngineError,
+    BorderPreset, CellAddr, CellArea, CellBorders, CellStyle, CellValue, CondLook, CondRule, ConditionalFormat,
+    DefinedName, EngineError,
     FillTo, HAlign, SheetEngine, SheetInfo, StylePatch, VAlign,
 };
 
@@ -628,6 +629,21 @@ impl SheetEngine for IronCalcEngine {
         }
         Ok(())
     }
+
+    fn conditional_formats(&self, sheet: u32) -> Vec<ConditionalFormat> {
+        let _ = sheet;
+        Vec::new()
+    }
+
+    fn add_conditional_format(&mut self, area: CellArea, rule: &CondRule, look: CondLook) -> Result<(), EngineError> {
+        let _ = (area, rule, look);
+        Ok(())
+    }
+
+    fn clear_conditional_formats(&mut self, area: CellArea) -> Result<(), EngineError> {
+        let _ = area;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -900,6 +916,30 @@ mod tests {
         assert_eq!(back.merges(1), vec![CellArea::spanning(1, 1, 3, 2, 5)]);
         back.unmerge(CellArea::cell(CellAddr::new(1, 2, 4))).unwrap();
         assert!(back.merges(1).is_empty());
+    }
+
+    /// The brief's conditional formatting, IronCalc evaluating it: a cell
+    /// that matches a rule shows the rule's look, the others their own.
+    #[test]
+    fn a_conditional_format_colours_the_matching_cells_and_clearing_it_restores_them() {
+        let mut e = IronCalcEngine::new_empty();
+        for (row, v) in [(1, "1"), (2, "6"), (3, "9")] {
+            e.set_cell_input(at(row, 1), v).unwrap();
+        }
+        let area = CellArea::spanning(0, 1, 1, 3, 1);
+        e.add_conditional_format(area, &CondRule::GreaterThan(String::from("5")), CondLook::LightRed)
+            .unwrap();
+        let list = e.conditional_formats(0);
+        assert_eq!(list.len(), 1);
+        assert_eq!((list[0].area, list[0].description.as_str()), (area, "Cell value > 5"));
+        assert_eq!(e.cell_style(at(1, 1)).fill, None, "1 is not > 5");
+        let six = e.cell_style(at(2, 1));
+        assert_eq!(six.fill.as_deref().map(str::to_ascii_uppercase).as_deref(), Some("#FFC7CE"));
+        assert_eq!(six.font_color.as_deref().map(str::to_ascii_uppercase).as_deref(), Some("#9C0006"));
+
+        e.clear_conditional_formats(CellArea::cell(at(2, 1))).unwrap();
+        assert!(e.conditional_formats(0).is_empty());
+        assert_eq!(e.cell_style(at(2, 1)).fill, None);
     }
 
     #[test]

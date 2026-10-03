@@ -10,7 +10,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::engine::{
-    BorderPreset, CellAddr, CellArea, CellStyle, CellValue, DefinedName, EngineError, FillTo,
+    BorderPreset, CellAddr, CellArea, CellStyle, CellValue, CondLook, CondRule, ConditionalFormat, DefinedName,
+    EngineError, FillTo,
     SheetEngine, SheetInfo, StylePatch, LAST_COLUMN, LAST_ROW,
 };
 
@@ -985,6 +986,21 @@ impl SheetEngine for FakeEngine {
         self.book.sheets[area.sheet as usize]
             .merges
             .retain(|m| !CellArea { sheet: area.sheet, ..*m }.overlaps(&area));
+        Ok(())
+    }
+
+    fn conditional_formats(&self, sheet: u32) -> Vec<ConditionalFormat> {
+        let _ = sheet;
+        Vec::new()
+    }
+
+    fn add_conditional_format(&mut self, area: CellArea, rule: &CondRule, look: CondLook) -> Result<(), EngineError> {
+        let _ = (area, rule, look);
+        Ok(())
+    }
+
+    fn clear_conditional_formats(&mut self, area: CellArea) -> Result<(), EngineError> {
+        let _ = area;
         Ok(())
     }
 }
