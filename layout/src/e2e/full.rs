@@ -21157,8 +21157,27 @@ pub fn take_debug_request_wake() -> bool {
 #[cfg(feature = "std")]
 #[must_use]
 pub fn window_still_moving(layout_window: &azul_layout::window::LayoutWindow) -> Option<String> {
-    let _ = layout_window;
-    None
+    let lw = layout_window;
+    let mut moving: Vec<String> = Vec::new();
+    let mut count = |n: usize, what: &str| {
+        if n > 0 {
+            moving.push(format!("{n} {what}"));
+        }
+    };
+    count(lw.animations.len(), "layout animation(s)");
+    count(lw.css_transitions.len(), "CSS transition(s)");
+    count(lw.live_tracks.len(), "keyframe track(s)");
+    count(
+        lw.zombies.iter().filter(|z| !z.tracks.is_empty()).count(),
+        "exiting node(s)",
+    );
+    if lw.scroll_manager.has_active_animations() {
+        moving.push(String::from("a scroll easing"));
+    }
+    if lw.gpu_state_manager.scrollbar_fade_active {
+        moving.push(String::from("a scrollbar fading"));
+    }
+    (!moving.is_empty()).then(|| moving.join(", "))
 }
 
 /// One `wait_settled` waiter's verdict at `now`: `None` keeps waiting,
@@ -21171,8 +21190,13 @@ pub fn settle_verdict(
     now: std::time::Instant,
     deadline: std::time::Instant,
 ) -> Option<Result<(), String>> {
-    let _ = (moving, now, deadline);
-    None
+    match moving {
+        None => Some(Ok(())),
+        Some(_) if now < deadline => None,
+        Some(what) => Some(Err(format!(
+            "wait_settled: the window was still moving at the deadline: {what}"
+        ))),
+    }
 }
 
 /// Counts [`announce_debug_request`]s, so that EVERY window sees each one
