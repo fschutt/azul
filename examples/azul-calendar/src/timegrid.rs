@@ -340,7 +340,9 @@ fn event_block(s: &CalState, e: &Event, date: NaiveDate, p: &week::Placement, ap
     if lines >= 3 && !e.location.is_empty() {
         dom.add_child(Dom::create_span_with_text(e.location.as_str()).with_css(CLIPPED_LINE));
     }
-    if let Some(m) = e.meeting.as_ref().filter(|_| lines >= 4) {
+    // The meeting's line stays whatever the height (its "Join meeting" is how one joins from
+    // the week); the block clips what does not fit.
+    if let Some(m) = &e.meeting {
         if m.pending {
             dom.add_child(
                 Dom::create_span_with_text("AzMeet link waits for the server").with_css(format!(
