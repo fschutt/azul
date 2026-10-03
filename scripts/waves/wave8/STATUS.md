@@ -13,5 +13,5 @@ progress file"). Worktrees: /Users/fschutt/Development/azul/.claude/worktrees/ag
 | THREADS8 | a4a2effff66331779 | wt/threads8 | DONE (report scripts/THREADS8_2026_10_03.md; task already done in 7c1c12389 - fixed 3 gaps: video workers honour stop, stop_all on window close (Drop for LayoutWindow), mount-started timers stop on unmount; no api.json) |
 | XML8 | acfe4639b5484119d | wt/xml8 | running (worktree .claude/worktrees/agent-acfe4639b5484119d) |
 | VIDEO8 | a6e731cce5b11a63a | wt/video8 | running (worktree .claude/worktrees/agent-a6e731cce5b11a63a) |
-| RULINGS8 | addd801aa5b76e026 | wt/rulings8 | running (worktree .claude/worktrees/agent-addd801aa5b76e026; base 72d0d6639) |
+| RULINGS8 | addd801aa5b76e026 | wt/rulings8 | DONE (report scripts/RULINGS8_2026_10_03.md; focus walks get_event_path across the VirtualView host; inline-block lines: strut, strut font, vertical-align middle, flex/grid baselines, empty inline = 0 height - 5 causes; widget CSS unchanged (none needed); 4 tests need MAILREF8 merged too; no api.json) |
 | LAYOUTPERF8 | a8bde8e3457166c14 | wt/layoutperf8 | running (worktree .claude/worktrees/agent-a8bde8e3457166c14; base e290321da) |
