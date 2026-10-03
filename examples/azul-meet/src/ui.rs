@@ -364,6 +364,15 @@ pub(crate) fn tile_id(t: &TileView) -> String {
 }
 
 /// "Ada", "Ada · muted", "Ada's screen", "You".
+/// A person's name as the window shows it: this side's own with "(you)" after it.
+pub(crate) fn shown_name(name: &str, me: bool) -> String {
+    if me {
+        format!("{name} (you)")
+    } else {
+        name.to_string()
+    }
+}
+
 fn tile_label(t: &TileView) -> String {
     let mut label = match t.kind {
         TileKind::Camera => t.name.clone(),
@@ -980,6 +989,16 @@ mod tests {
         );
     }
 
+
+    #[test]
+    fn this_sides_tile_says_you_and_its_avatar_keeps_the_names_initials() {
+        let mut me = tile("Ada Lovelace", true, TileKind::Camera);
+        me.muted = true;
+        assert_eq!(tile_label(&me), "Ada Lovelace (you) · muted");
+        assert_eq!(tile_label(&tile("Ada Lovelace", true, TileKind::Screen)), "Your screen");
+        assert_eq!(initials(&me.name), "AL", "the avatar reads the name, not the label (\"A(\")");
+        assert_eq!(shown_name("Ben", false), "Ben");
+    }
 
     #[test]
     fn a_tile_label_says_whose_screen_and_who_is_muted() {
