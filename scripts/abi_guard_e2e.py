@@ -187,3 +187,81 @@ def find_in_elf(data):
         if p_type == 1 and p_vaddr <= value < p_vaddr + p_filesz:  # PT_LOAD
             return p_offset + (value - p_vaddr), arch
     raise SystemExit(f"{SYMBOL} at {value:#x} is in no PT_LOAD segment")
+
+
+# ---------------------------------------------------------------------------
+# Reading and patching the constant AzAbi_getHash returns
+# ---------------------------------------------------------------------------
+
+A64_RET = 0xD65F03C0
+# Landing pads a hardened build may start the function with (BTI c / j / jc,
+# PACIASP, PACIBSP): kept, the patch goes after them.
+A64_PADS = {0xD503245F, 0xD503249F, 0xD50324DF, 0xD503233F, 0xD503237F}
+X86_ENDBR64 = b"\xf3\x0f\x1e\xfa"
+
+
+def body_start(data, off, arch):
+    """Offset of the first instruction after a landing pad."""
+    if arch == ARM64:
+        while struct.unpack_from("<I", data, off)[0] in A64_PADS:
+            off += 4
+    elif data[off:off + 4] == X86_ENDBR64:
+        off += 4
+    return off
+
+
+def decode_hash(data, off, arch):
+    """The constant `AzAbi_getHash` returns (`AZ_ABI_HASH` of the build), or
+    None when the code is not the expected load-constant-and-return."""
+    off = body_start(data, off, arch)
+    if arch == ARM64:
+        value = 0
+        for i in range(8):
+            ins = struct.unpack_from("<I", data, off + 4 * i)[0]
+            if ins == A64_RET:
+                return value
+            if ins & 0x1F != 0:  # every instruction must write x0
+                return None
+            imm, hw = (ins >> 5) & 0xFFFF, (ins >> 21) & 3
+            if ins & 0xFF800000 == 0xD2800000:  # MOVZ x0, #imm, lsl #16*hw
+                value = imm << (16 * hw)
+            elif ins & 0xFF800000 == 0xF2800000:  # MOVK x0, #imm, lsl #16*hw
+                value = (value & ~(0xFFFF << (16 * hw))) | (imm << (16 * hw))
+            else:
+                return None
+        return None
+    # x86_64: [push rbp; mov rbp, rsp;] movabs rax, imm64
+    window = data[off:off + 16]
+    at = window.find(b"\x48\xb8")
+    if at < 0:
+        return None
+    return struct.unpack_from("<Q", window, at + 2)[0]
+
+
+def patch_code(arch, value):
+    """`return value;` (value < 2^16) in the arch's machine code."""
+    if arch == ARM64:
+        return struct.pack("<II", 0xD2800000 | (value << 5), A64_RET)  # MOVZ x0, #value; RET
+    return b"\xb8" + struct.pack("<I", value) + b"\xc3"  # mov eax, imm32 (zero-extends); ret
+
+
+def patched_copy(lib, dest_dir):
+    """Copy `lib` into dest_dir with `AzAbi_getHash` returning WRONG_HASH.
+    Returns (copy, the hash the unpatched library reports or None)."""
+    data = bytearray(lib.read_bytes())
+    off, arch = find_function(data)
+    original = decode_hash(data, off, arch)
+    code = patch_code(arch, WRONG_HASH)
+    start = body_start(data, off, arch)
+    data[start:start + len(code)] = code
+    out = dest_dir / lib_name()
+    out.write_bytes(bytes(data))
+    out.chmod(0o755)
+    if sys.platform == "darwin":
+        # The patch broke the code signature; arm64 macOS kills a process
+        # that maps an unsigned or mis-signed library. Re-sign it ad hoc.
+        r = subprocess.run(["codesign", "--force", "--sign", "-", str(out)],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            raise SystemExit(f"codesign failed: {r.stderr.strip()}")
+    return out, original
