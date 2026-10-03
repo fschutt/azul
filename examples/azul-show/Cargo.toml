@@ -20,8 +20,9 @@ publish = false
 [dependencies]
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
 azul-storage = { path = "../azul-storage", features = ["azul"] }
-# The shared undo / redo stack (`azul_appkit::UndoHistory`); the plain modules only.
-azul-appkit = { path = "../azul-appkit" }
+# The app skeleton: switches, the data root, the settings file and page, the
+# shortcuts table, the undo / redo stack (`azul_appkit::UndoHistory`).
+azul-appkit = { path = "../azul-appkit", features = ["azul"] }
 # The rich text of a text box is AzWriter's IR (`azwriter::ir`): one rich text
 # model for both apps until it moves into azul as the RichTextEditor model.
 AzWriter = { path = "../azul-writer" }
