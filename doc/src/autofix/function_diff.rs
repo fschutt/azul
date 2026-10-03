@@ -395,8 +395,11 @@ pub fn gone_api_functions(index: &TypeIndex, api_data: &ApiData) -> Vec<GoneApiF
             let Some(external) = class.external.as_deref() else {
                 continue;
             };
+            // The type at the class's own path first (two types of one name
+            // in one crate are different types)
             let Some(def) = index
-                .resolve(class_name, None)
+                .get_by_path(external)
+                .or_else(|| index.resolve(class_name, None))
                 .or_else(|| index.resolve(&format!("Az{class_name}"), None))
             else {
                 continue;
