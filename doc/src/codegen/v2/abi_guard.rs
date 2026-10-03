@@ -30,9 +30,12 @@
 //!   `AzAbi_getHash()`, and the check helpers;
 //! - `dll_api_external.rs` / `azul.rs` (the Rust `azul` crate,
 //!   `link-dynamic`, and the pre-rendered release crate): `AZ_ABI_HASH`, the
-//!   `AzAbi_getHash` declaration and `az_abi_check()`, which every
-//!   constructor / static method wrapper and the `AzString` `From` impls call
-//!   before entering libazul (one relaxed atomic load after the first call);
+//!   `AzAbi_getHash` declaration and `az_abi_check()`, which the program's
+//!   loader runs before `main` (`AZ_ABI_CHECK_AT_LOAD`, an initializer-section
+//!   entry), and which every wrapper a program can call first (constructor,
+//!   static method, `create_default` / `impl Default`, enum-variant
+//!   constructor; [`is_first_call_kind`]) and the `AzString` `From` impls call
+//!   again before entering libazul (one relaxed atomic load after the first);
 //! - `azul.h` (C, and C++ through it): `AZ_ABI_HASH`, the declaration,
 //!   `AzAbi_check()`, and a load-time call of it (a GCC/Clang constructor, or
 //!   a static object in C++ on other compilers). `AZ_NO_ABI_CHECK` opts out.
@@ -280,8 +283,10 @@ pub fn rust_items(ir: &CodegenIR, config: &CodegenConfig) -> String {
             b.blank();
             b.line("/// Aborts the process unless the loaded libazul has this binding's ABI");
             b.line("/// ([`az_abi_check_hash`]). Compares once per process; every later call is");
-            b.line("/// one relaxed atomic load. Every constructor and static method calls it");
-            b.line("/// before entering libazul, so the first call of a program is checked.");
+            b.line("/// one relaxed atomic load. The program's loader runs it before `main`");
+            b.line("/// (`AZ_ABI_CHECK_AT_LOAD`); every wrapper a program can call first (a");
+            b.line("/// constructor, static method, default or enum-variant constructor) calls it");
+            b.line("/// again before entering libazul, for a platform without a load-time entry.");
             b.line("#[inline]");
             b.line("pub fn az_abi_check() {");
             b.indent();
@@ -297,11 +302,15 @@ pub fn rust_items(ir: &CodegenIR, config: &CodegenConfig) -> String {
             b.line("#[inline(never)]");
             b.line("fn az_abi_check_slow() {");
             b.indent();
+            b.line("// Names the load-time entry below: a linker that pulls this code in");
+            b.line("// (every wrapper calls it) keeps the initializer entry too.");
+            b.line("let _ = unsafe { core::ptr::read_volatile(&AZ_ABI_CHECK_AT_LOAD) };");
             b.line("az_abi_check_hash(unsafe { AzAbi_getHash() });");
             b.line("AZ_ABI_CHECKED.store(true, core::sync::atomic::Ordering::Relaxed);");
             b.dedent();
             b.line("}");
             b.blank();
+            rust_load_time_check(&mut b);
         }
     }
     // Shared by both sides: the library's own tests drive them, and a host
@@ -338,6 +347,47 @@ pub fn rust_items(ir: &CodegenIR, config: &CodegenConfig) -> String {
     b.line("}");
     b.blank();
     b.finish()
+}
+
+/// The binding's load-time check: a `#[used]` entry in the platform loader's
+/// initializer section, which the loader calls before `main` (after libazul's
+/// own initializers - libazul is a dependency, so it is loaded first), as
+/// azul.h's constructor does. Apple: `__DATA,__mod_init_func` (typed
+/// `mod_init_funcs`, as the assembler types it); ELF systems:
+/// `.init_array` (the loader passes argc / argv / envp, which a C function
+/// without parameters may ignore); Windows (MSVC and MinGW CRTs): `.CRT$XCU`.
+/// Elsewhere it is a plain static and the per-wrapper checks remain.
+fn rust_load_time_check(b: &mut CodeBuilder) {
+    b.line("/// Runs [`az_abi_check`] when the program loads, before `main`, as azul.h's");
+    b.line("/// constructor does: a stale app aborts before its first line runs, whatever");
+    b.line("/// that line is. The loader calls every entry of its initializer section.");
+    b.line("#[used]");
+    b.line("#[cfg_attr(target_vendor = \"apple\", link_section = \"__DATA,__mod_init_func,mod_init_funcs\")]");
+    // One attribute per line (the test reads them back line by line).
+    let elf = [
+        "linux",
+        "android",
+        "freebsd",
+        "netbsd",
+        "openbsd",
+        "dragonfly",
+        "illumos",
+        "solaris",
+    ]
+    .map(|os| format!("target_os = \"{os}\""))
+    .join(", ");
+    b.line(&format!(
+        "#[cfg_attr(any({elf}), link_section = \".init_array\")]"
+    ));
+    b.line("#[cfg_attr(target_os = \"windows\", link_section = \".CRT$XCU\")]");
+    b.line("static AZ_ABI_CHECK_AT_LOAD: extern \"C\" fn() = az_abi_check_at_load;");
+    b.blank();
+    b.line("extern \"C\" fn az_abi_check_at_load() {");
+    b.indent();
+    b.line(RUST_CHECK_CALL);
+    b.dedent();
+    b.line("}");
+    b.blank();
 }
 
 fn rust_const(b: &mut CodeBuilder, hash: u64) {
@@ -752,7 +802,11 @@ mod tests {
                 .copied()
                 .collect();
             assert!(attrs.contains(&"#[used]"), "{what}: {attrs:?}");
-            for section in ["__DATA,__mod_init_func", ".init_array", ".CRT$XCU"] {
+            for section in [
+                "__DATA,__mod_init_func,mod_init_funcs",
+                ".init_array",
+                ".CRT$XCU",
+            ] {
                 assert!(
                     attrs
                         .iter()
