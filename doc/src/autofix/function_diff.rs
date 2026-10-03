@@ -1874,6 +1874,69 @@ mod tests {
         assert_eq!(f.fn_body.as_deref(), Some("object.title().into()"));
     }
 
+    /// The C side passes an `AzString` for an api.json `String` argument. A
+    /// method taking a std `String` got it as it is (`object.set_text(text)`,
+    /// RichRun.set_text, wave 5) and the dll did not build: the fn_body
+    /// converts it. An `AzString` argument (also extracted as `String`) and
+    /// a generic `S: Into<AzString>` take it as it is.
+    #[test]
+    fn a_std_string_argument_is_converted_in_the_fn_body() {
+        let source = r#"
+            impl T {
+                pub fn set_text(&mut self, text: String) {}
+                pub fn set_label(&mut self, label: AzString) {}
+                pub fn with_title<S: Into<AzString>>(self, title: S) -> Self { todo!() }
+                pub fn find(&self, needle: &String, from: usize) -> bool { todo!() }
+                pub fn same(&self, other: &AzString) -> bool { todo!() }
+            }
+        "#;
+        let cases = [
+            ("set_text", "object.set_text(text.into_library_owned_string())"),
+            ("set_label", "object.set_label(label)"),
+            ("with_title", "object.with_title(title)"),
+            ("find", "object.find(&needle.into_library_owned_string(), from)"),
+            ("same", "object.same(&other)"),
+        ];
+        for (name, body) in cases {
+            let f = added(source, name);
+            assert_eq!(f.fn_body.as_deref(), Some(body), "{name}");
+            let string_args = f
+                .fn_args
+                .iter()
+                .flat_map(|a| a.iter())
+                .filter(|(n, _)| *n != "self" && *n != "from")
+                .all(|(_, ty)| ty == "String");
+            assert!(string_args, "{name}: {:?}", f.fn_args);
+        }
+    }
+
+    /// An api.json entry already passing an `AzString` to a std `String`
+    /// parameter is reported (it is invisible to the type comparison:
+    /// both sides say `String`).
+    #[test]
+    fn a_std_string_argument_passed_unconverted_is_reported() {
+        let source = r#"impl T { pub fn set_text(&mut self, text: String) {} }"#;
+        let entry = |body: &str| {
+            format!(
+                r#"{{"functions": {{"set_text": {{
+                    "fn_args": [{{"self": "refmut"}}, {{"text": "String"}}],
+                    "fn_body": "{body}"}}}}}}"#
+            )
+        };
+        let found = diffs(source, &entry("object.set_text(text)"));
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("`text`") && found[0].contains("std `String`"), "{found:?}");
+
+        let converted = diffs(source, &entry("object.set_text(text.into_library_owned_string())"));
+        assert!(converted.is_empty(), "{converted:?}");
+
+        let az = diffs(
+            r#"impl T { pub fn set_text(&mut self, text: AzString) {} }"#,
+            &entry("object.set_text(text)"),
+        );
+        assert!(az.is_empty(), "an AzString parameter takes it as it is: {az:?}");
+    }
+
     const SOURCE: &str = r#"
         impl T {
             pub fn add_component_library<R: Into<RegisterComponentLibraryFn>>(
