@@ -2000,11 +2000,11 @@ pub const HOVER_BORDER_RIGHT_DARK: CssPropertyWithConditions =
 
 /// The prompt of an empty field in the dark theme: `system:placeholder-text`.
 ///
-/// A field's resting dark ink is a `dark_theme` declaration, and one of those
-/// matches in EVERY pseudo-state - `::placeholder` included - so without this
-/// the prompt painted exactly as bright as the value in the dark theme. Push it
-/// after the resting ink (last match wins); its light half is the field's own
-/// `on_placeholder` colour.
+/// The prompt's own dark colour: `::placeholder` is a pseudo-element, so only
+/// declarations naming it style the prompt (the host's dark resting ink does
+/// not), and without this the dark prompt kept the light `on_placeholder`
+/// grey. Pushed after the light half (last match wins); its light half is the
+/// field's own `on_placeholder` colour.
 pub const FIELD_PLACEHOLDER_DARK: CssPropertyWithConditions =
     CssPropertyWithConditions::with_single_condition(
         CssProperty::const_text_color(StyleTextColor {
