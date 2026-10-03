@@ -816,3 +816,19 @@ pub fn status_bar(app: &RefAny, st: &AppState, zoom_percent: f32) -> Dom {
         .with_zoom(zoom)
         .dom()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::next_cell;
+
+    #[test]
+    fn the_next_cell_goes_row_by_row() {
+        let shape = [2, 2, 2];
+        assert_eq!(next_cell(&shape, 0, 0, false), Some((0, 1)));
+        assert_eq!(next_cell(&shape, 0, 1, false), Some((1, 0)), "the end of a row: the next row");
+        assert_eq!(next_cell(&shape, 2, 1, false), None, "past the last cell: a new row");
+        assert_eq!(next_cell(&shape, 1, 0, true), Some((0, 1)), "Shift+Tab: the previous row's last cell");
+        assert_eq!(next_cell(&shape, 0, 0, true), None);
+        assert_eq!(next_cell(&[2, 0, 1], 0, 1, false), Some((2, 0)), "an empty row is skipped");
+    }
+}
