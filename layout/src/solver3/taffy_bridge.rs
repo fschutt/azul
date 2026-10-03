@@ -2615,6 +2615,115 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
     }
 }
 
+/// The second way of taffy's measurement cache for one node.
+///
+/// taffy's `Cache` keeps ONE measurement per slot class (nine classes: which
+/// of width and height are known, and whether an unknown axis is asked at
+/// min-content). A flex container measured twice in one pass with different
+/// available main sizes - its basis at max-content and its automatic minimum
+/// at min-content, as every flex item with a visible overflow is - asks each
+/// of its items for its cross size at the main size the item got in THAT
+/// run. An item whose size depends on that (anything holding wrapping lines)
+/// is asked two keys of one class: each run evicts the other's entry, and
+/// every pass misses both, the item's whole subtree with it. AzWidgets' page
+/// column asked its form section `(None, 938)` and `(None, 906)`: 173 of a
+/// switch-knob frame's 184 taffy misses and its 76 text re-flows.
+///
+/// Keeps the last two distinct keys per class, for such a node only: it
+/// lives in the node's `NodeCache` (which follows the node across passes)
+/// and is allocated at the first eviction. It is part of the taffy cache
+/// for validity: never read while that cache is empty, dropped by the first
+/// store after it was emptied (a dirty subtree, a restyle, a clone that
+/// could not keep it all empty it).
+#[derive(Debug, Clone, Default)]
+pub struct TaffyMeasureSpill {
+    entries: [[Option<SpilledMeasure>; 2]; 9],
+}
+
+/// One measurement in a [`TaffyMeasureSpill`]: the key taffy keys it by and
+/// the outer size it answered.
+#[derive(Debug, Clone, Copy)]
+struct SpilledMeasure {
+    known_dimensions: Size<Option<f32>>,
+    available_space: Size<AvailableSpace>,
+    size: Size<f32>,
+}
+
+impl SpilledMeasure {
+    /// taffy's own rule for a measurement answering a query (`Cache::get`,
+    /// `RunMode::ComputeSize`): a known axis matches the stored known value
+    /// or the stored result; an unknown axis matches the stored available
+    /// space.
+    fn answers(&self, input: &LayoutInput) -> bool {
+        let known = input.known_dimensions;
+        let avail = input.available_space;
+        (known.width == self.known_dimensions.width || known.width == Some(self.size.width))
+            && (known.height == self.known_dimensions.height
+                || known.height == Some(self.size.height))
+            && (known.width.is_some() || self.available_space.width.is_roughly_equal(avail.width))
+            && (known.height.is_some()
+                || self.available_space.height.is_roughly_equal(avail.height))
+    }
+
+    fn same_key(&self, other: &Self) -> bool {
+        self.known_dimensions == other.known_dimensions
+            && self
+                .available_space
+                .width
+                .is_roughly_equal(other.available_space.width)
+            && self
+                .available_space
+                .height
+                .is_roughly_equal(other.available_space.height)
+    }
+}
+
+impl TaffyMeasureSpill {
+    fn get(&self, input: &LayoutInput) -> Option<Size<f32>> {
+        let slot = measure_slot(input.known_dimensions, input.available_space);
+        self.entries[slot]
+            .iter()
+            .flatten()
+            .find(|m| m.answers(input))
+            .map(|m| m.size)
+    }
+
+    /// Record a measurement: the newest of a class first, the one before it
+    /// second; the same key again is refreshed where it is.
+    fn store(&mut self, input: &LayoutInput, size: Size<f32>) {
+        let new = SpilledMeasure {
+            known_dimensions: input.known_dimensions,
+            available_space: input.available_space,
+            size,
+        };
+        let ways = &mut self.entries[measure_slot(input.known_dimensions, input.available_space)];
+        if let Some(same) = ways.iter_mut().flatten().find(|m| m.same_key(&new)) {
+            *same = new;
+            return;
+        }
+        ways[1] = ways[0];
+        ways[0] = Some(new);
+    }
+}
+
+/// taffy's measurement slot class of a key (`Cache::compute_cache_slot`,
+/// private there): 0 both axes known; 1 / 2 only the width, the height asked
+/// at max-content-or-definite / min-content; 3 / 4 only the height, likewise
+/// for the width; 5 - 8 neither, by which of the two are asked at
+/// min-content.
+fn measure_slot(
+    known_dimensions: Size<Option<f32>>,
+    available_space: Size<AvailableSpace>,
+) -> usize {
+    let min = |a: AvailableSpace| usize::from(a == AvailableSpace::MinContent);
+    match (known_dimensions.width, known_dimensions.height) {
+        (Some(_), Some(_)) => 0,
+        (Some(_), None) => 1 + min(available_space.height),
+        (None, Some(_)) => 3 + min(available_space.width),
+        (None, None) => 5 + 2 * min(available_space.width) + min(available_space.height),
+    }
+}
+
 impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
     fn cache_get(&self, node_id: taffy::NodeId, input: &LayoutInput) -> Option<LayoutOutput> {
         let node_idx: usize = node_id.into();
@@ -2626,11 +2735,24 @@ impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
             drop(crate::probe::Probe::span("taffy_final_layout_stale"));
             return None;
         }
-        let hit = self
-            .tree
-            .warm(LayoutNodeId::new(node_idx))?
-            .taffy_cache
-            .get(input);
+        let primary = &self.tree.warm(LayoutNodeId::new(node_idx))?.taffy_cache;
+        let mut hit = primary.get(input);
+        // A measurement taffy's one entry per slot class evicted lives on in
+        // the node's second way (`TaffyMeasureSpill`). Never read past an
+        // empty primary: everything in the spill then predates its clear.
+        if hit.is_none() && input.run_mode == RunMode::ComputeSize && !primary.is_empty() {
+            hit = self
+                .ctx
+                .cache_map
+                .entries
+                .get(node_idx)
+                .and_then(|c| c.taffy_measure_spill.as_deref())
+                .and_then(|spill| spill.get(input))
+                .map(LayoutOutput::from_outer_size);
+            if hit.is_some() {
+                drop(crate::probe::Probe::span("taffy_cache_get_spill_hit"));
+            }
+        }
         drop(crate::probe::Probe::span(if hit.is_some() {
             "taffy_cache_get_hit"
         } else {
@@ -2662,8 +2784,33 @@ impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
         layout_output: LayoutOutput,
     ) {
         let node_idx: usize = node_id.into();
+        let mut primary_was_empty = true;
         if let Some(warm) = self.tree.warm_mut(LayoutNodeId::new(node_idx)) {
+            primary_was_empty = warm.taffy_cache.is_empty();
             warm.taffy_cache.store(input, layout_output);
+        }
+        let Some(cache) = self.ctx.cache_map.entries.get_mut(node_idx) else {
+            return;
+        };
+        // The first store after the primary was emptied: whatever the second
+        // way holds was measured before that clear.
+        if primary_was_empty {
+            cache.taffy_measure_spill = None;
+            cache.taffy_slots_stored = 0;
+        }
+        if input.run_mode != RunMode::ComputeSize {
+            return;
+        }
+        // A store is only ever made after a miss, so a second store into a
+        // slot class is an eviction: from then on this node keeps a second
+        // way for every measurement it stores.
+        let bit = 1u16 << measure_slot(input.known_dimensions, input.available_space);
+        if cache.taffy_slots_stored & bit != 0 && cache.taffy_measure_spill.is_none() {
+            cache.taffy_measure_spill = Some(Box::default());
+        }
+        cache.taffy_slots_stored |= bit;
+        if let Some(spill) = cache.taffy_measure_spill.as_deref_mut() {
+            spill.store(input, layout_output.size);
         }
     }
 
