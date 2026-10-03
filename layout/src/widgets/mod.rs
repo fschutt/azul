@@ -1881,6 +1881,9 @@ mod label_convention {
         // The token input: two chips, "al" typed, three suggestions showing
         // (one highlighted).
         all.push(("token_input", super::token_input::fixtures::sample().dom()));
+        // The icon grid: 40 files in a 400 x 300 viewport (the rows in view
+        // only), two selected, the scroll bar.
+        all.push(("icon_grid", super::icon_grid::fixtures::sample().dom()));
         all
     }
 
@@ -2266,6 +2269,8 @@ mod wheel_ownership {
                 "cell_grid".to_string(),
                 // The data table scrolls by whole rows too.
                 "data_table".to_string(),
+                // So does the icon grid.
+                "icon_grid".to_string(),
             ],
             "a widget started listening for the wheel: a closed control must leave the gesture to \
              the page under it",
@@ -2830,6 +2835,8 @@ mod theme_contrast {
         // The toolbar: application chrome (its labels on the bar's strip).
         "toolbar",
         "toolbar (overflow)",
+        // The icon grid: a file manager's / photo library's surface.
+        "icon_grid",
     ];
 
     /// A widget added to the manifest must land in a group, or it is simply

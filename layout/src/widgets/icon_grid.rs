@@ -1550,6 +1550,37 @@ extern "C" fn on_item_drag_start(mut data: RefAny, mut info: CallbackInfo) -> Up
     deliver(&mut shared, &g, info, event)
 }
 
+// ==== fixtures (the widget manifest's sample) ====
+
+/// The grid the widget manifest builds (`widgets::label_convention`): 40
+/// files in a 400 x 300 viewport, two selected, one with a badge.
+#[cfg(test)]
+pub(crate) mod fixtures {
+    use super::*;
+
+    extern "C" fn files(_data: RefAny, index: usize) -> IconGridItem {
+        let item = IconGridItem::create(
+            AzString::from(alloc::format!("Photo {index}.jpg")),
+            AzString::from_const_str("image"),
+        );
+        if index == 2 {
+            item.with_badge(AzString::from_const_str("cloud_done"))
+        } else {
+            item
+        }
+    }
+
+    /// The sample grid.
+    pub(crate) fn sample() -> IconGrid {
+        let mut view = IconGridView::create();
+        view.selection.select_keys(U64Vec::from_vec(alloc::vec![1, 2]));
+        IconGrid::create(40, 400.0, 300.0)
+            .with_view(view)
+            .with_data_source(RefAny::new(()), files as IconGridDataSourceCallbackType)
+            .with_accessibility_name(AzString::from_const_str("Pictures"))
+    }
+}
+
 #[cfg(test)]
 mod icon_grid_tests {
     use std::sync::{Arc, Mutex};
