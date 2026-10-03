@@ -1239,20 +1239,92 @@ pub enum RemoveTarget {
 }
 
 impl RemoveTarget {
-    /// The removal patch.
-    pub fn patch(&self, _version: &str) -> ApiPatch {
-        ApiPatch::default()
+    /// The removal patch (the one-item commands' format).
+    pub fn patch(&self, version: &str) -> ApiPatch {
+        match self {
+            RemoveTarget::Class { module, class } => {
+                generate_remove_type_patch(class, module, version)
+            }
+            RemoveTarget::Function {
+                module,
+                class,
+                name,
+            } => generate_remove_functions_patch(class, &[name.as_str()], module, version),
+        }
     }
 
-    /// The patch file name.
+    /// The patch file name (`remove_<class>.patch.json`,
+    /// `remove_<class>_<fn>.patch.json`).
     pub fn file_name(&self) -> String {
-        String::new()
+        match self {
+            RemoveTarget::Class { class, .. } => {
+                format!("remove_{}.patch.json", class.to_lowercase())
+            }
+            RemoveTarget::Function { class, name, .. } => {
+                format!("remove_{}_{}.patch.json", class.to_lowercase(), name)
+            }
+        }
+    }
+
+    /// For the console: `widgets.ModuleSwitcher (whole class)`,
+    /// `widgets.ModuleSwitcher.dom`.
+    pub fn describe(&self) -> String {
+        match self {
+            RemoveTarget::Class { module, class } => format!("{module}.{class} (whole class)"),
+            RemoveTarget::Function {
+                module,
+                class,
+                name,
+            } => format!("{module}.{class}.{name}"),
+        }
     }
 }
 
-/// Parse an item of `autofix remove`.
-pub fn parse_remove_spec(_spec: &str, _version_data: &VersionData) -> Result<RemoveTarget, String> {
-    Err("not implemented".to_string())
+/// Parse an item of `autofix remove` / `autofix difficult remove`:
+/// `module.Type.fn`, `Type.fn`, `module.Type` (a whole class) or `Type`. A
+/// two-part item is a class when its first part is a module that has it,
+/// else a function. The module comes from api.json (the one the class IS in).
+pub fn parse_remove_spec(spec: &str, version_data: &VersionData) -> Result<RemoveTarget, String> {
+    let parts: Vec<&str> = spec.split('.').filter(|p| !p.is_empty()).collect();
+    let class_in = |module: &str, class: &str| {
+        version_data
+            .api
+            .get(module)
+            .is_some_and(|m| m.classes.contains_key(class))
+    };
+    let module_of = |class: &str| {
+        find_type_module(class, version_data)
+            .map(str::to_string)
+            .ok_or_else(|| format!("Type '{class}' not found in api.json"))
+    };
+    match parts.as_slice() {
+        [] => Err(format!("empty item '{spec}'")),
+        [class] => Ok(RemoveTarget::Class {
+            module: module_of(*class)?,
+            class: class.to_string(),
+        }),
+        [module, class] if class_in(*module, *class) => Ok(RemoveTarget::Class {
+            module: module.to_string(),
+            class: class.to_string(),
+        }),
+        [class, name] => Ok(RemoveTarget::Function {
+            module: module_of(*class)?,
+            class: class.to_string(),
+            name: name.to_string(),
+        }),
+        [.., module, class, name] => {
+            let module = if class_in(*module, *class) {
+                module.to_string()
+            } else {
+                module_of(*class)?
+            };
+            Ok(RemoveTarget::Function {
+                module,
+                class: class.to_string(),
+                name: name.to_string(),
+            })
+        }
+    }
 }
 
 /// Convert a MethodDef to FunctionData for api.json
