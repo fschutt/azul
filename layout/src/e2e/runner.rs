@@ -1310,6 +1310,22 @@ impl Runner {
                                 .max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
                         }
                     }
+                    // The dll's `UndoTextEdit` / `RedoTextEdit` arms, through
+                    // the same `LayoutWindow` body (EVENTS7). The primary's
+                    // undo keys are default actions now (below); this is the
+                    // change for whatever still asks for it directly.
+                    SystemChange::UndoTextEdit { target } => {
+                        if self.layout_window.undo_text_edit(*target) {
+                            result = result
+                                .max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+                        }
+                    }
+                    SystemChange::RedoTextEdit { target } => {
+                        if self.layout_window.redo_text_edit(*target) {
+                            result = result
+                                .max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+                        }
+                    }
                     // Still unported (dropped, as the whole set was before):
                     // AddCursorAtClick (Cmd+click multi-cursor), the clipboard
                     // trio (deferred post-callback in the DLL), auto-scroll
@@ -1735,73 +1751,27 @@ impl Runner {
                 for filter in &event_filters {
                     match filter {
                         EventFilter::Hover(_) => {
-                            let dom_id = event.target.dom;
-                            let Some(layout_result) = lw.layout_results.get(&dom_id) else {
-                                continue;
-                            };
-
-                            let node_hierarchy = {
-                                let items = layout_result.styled_dom.node_hierarchy.as_container();
-                                let nodes: Vec<azul_core::id::Node> = (0..items.len())
-                                    .map(|i| {
-                                        let item = &items.internal[i];
-                                        azul_core::id::Node {
-                                            parent: CoreNodeId::from_usize(item.parent),
-                                            previous_sibling: CoreNodeId::from_usize(
-                                                item.previous_sibling,
-                                            ),
-                                            next_sibling: CoreNodeId::from_usize(item.next_sibling),
-                                            last_child: CoreNodeId::from_usize(item.last_child),
-                                        }
-                                    })
-                                    .collect();
-                                azul_core::id::NodeHierarchy::new(nodes)
-                            };
-
-                            let node_data_container =
-                                layout_result.styled_dom.node_data.as_container();
-                            let mut callback_map: BTreeMap<CoreNodeId, Vec<EventFilter>> =
-                                BTreeMap::new();
-                            for node_idx in 0..node_data_container.len() {
-                                let node_id = CoreNodeId::new(node_idx);
-                                if let Some(nd) = node_data_container.get(node_id) {
-                                    let matching: Vec<EventFilter> = nd
-                                        .get_callbacks()
-                                        .as_ref()
-                                        .iter()
-                                        .filter(|cb| cb.event == *filter)
-                                        .map(|cb| cb.event)
-                                        .collect();
-                                    if !matching.is_empty() {
-                                        callback_map.insert(node_id, matching);
-                                    }
-                                }
-                            }
-                            if callback_map.is_empty() {
-                                continue;
-                            }
-
-                            let mut event_clone = event.clone();
-                            let prop_result = azul_core::events::propagate_event(
-                                &mut event_clone,
-                                &node_hierarchy,
-                                &callback_map,
+                            // The shell's plan (core's, one for both): along the
+                            // path that goes on past a `VirtualView` page's root
+                            // at its host.
+                            let layout_results = &lw.layout_results;
+                            let virtual_views = &lw.virtual_view_manager;
+                            let reached = azul_core::events::hover_callbacks_along_path(
+                                event,
+                                *filter,
+                                &|dom| layout_results.get(&dom).map(|lr| &lr.styled_dom),
+                                &|dom| virtual_views.host_of_nested_dom(dom),
                             );
-
-                            for (node_id, matched_filter) in &prop_result.callbacks_to_invoke {
-                                let Some(nd) = node_data_container.get(*node_id) else {
+                            for (at, callback_data) in reached {
+                                let Some(node_id) = at.node.into_crate_internal() else {
                                     continue;
                                 };
-                                for cb in nd.get_callbacks().as_ref() {
-                                    if cb.event == *matched_filter {
-                                        planned.push(PlannedInvocation {
-                                            dom_id,
-                                            node_id: *node_id,
-                                            callback_data: cb.clone(),
-                                            event_type: event.event_type,
-                                        });
-                                    }
-                                }
+                                planned.push(PlannedInvocation {
+                                    dom_id: at.dom,
+                                    node_id,
+                                    callback_data,
+                                    event_type: event.event_type,
+                                });
                             }
                         }
                         EventFilter::Focus(_) => {
@@ -4206,11 +4176,33 @@ impl Runner {
             }
             // Ctrl/Cmd+B / I / U: the typing style at the caret, as the dll
             // shell sets it.
+            //
+            // The toggle changes nothing on screen, so the editing host hears
+            // it: `TypingStyleChanged`, after the toggle (EVENTS7) - the
+            // shell's dispatch, ported.
             DefaultAction::ToggleTextFormat { target, format } => {
-                if is_primary {
-                    let _ = self.layout_window.toggle_text_format(*target, *format);
+                if !(is_primary && self.layout_window.toggle_text_format(*target, *format)) {
+                    return (ProcessEventResult::DoNothing, false);
                 }
-                (ProcessEventResult::DoNothing, false)
+                let changed = azul_core::events::SyntheticEvent::new(
+                    azul_core::events::EventType::TypingStyleChanged,
+                    azul_core::events::EventSource::User,
+                    *target,
+                    self.now(),
+                    azul_core::events::EventData::None,
+                );
+                let (r, update, _, _) = self.dispatch_events_propagated(&[changed]);
+                if matches!(
+                    update,
+                    azul_core::callbacks::Update::RefreshDom
+                        | azul_core::callbacks::Update::RefreshDomAllWindows
+                ) {
+                    return (
+                        r.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow),
+                        false,
+                    );
+                }
+                (r, false)
             }
             // ==== E1: `ScrollFocusedContainer` ====
             // PgUp / PgDn / Space / Home / End, and an arrow with nowhere to
@@ -4229,6 +4221,25 @@ impl Runner {
                 if scrolled {
                     self.layout_window.scroll_manager.calculate_scrollbar_states();
                     (ProcessEventResult::ShouldReRenderCurrentWindow, false)
+                } else {
+                    (ProcessEventResult::DoNothing, false)
+                }
+            }
+            // Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z / Y after the callbacks: the
+            // editing host's text undo / redo unless an editor with its own
+            // history vetoed it - the dll's arms, through the same
+            // `LayoutWindow` body (EVENTS7). The primary's only: a second
+            // seat's key is its `SeatShortcut`.
+            DefaultAction::UndoTextEdit { target } => {
+                if is_primary && self.layout_window.undo_text_edit(*target) {
+                    (ProcessEventResult::ShouldUpdateDisplayListCurrentWindow, false)
+                } else {
+                    (ProcessEventResult::DoNothing, false)
+                }
+            }
+            DefaultAction::RedoTextEdit { target } => {
+                if is_primary && self.layout_window.redo_text_edit(*target) {
+                    (ProcessEventResult::ShouldUpdateDisplayListCurrentWindow, false)
                 } else {
                     (ProcessEventResult::DoNothing, false)
                 }
@@ -4768,18 +4779,34 @@ mod tests {
     /// A runner with one contenteditable div laid out and an editing session on
     /// it — the shape every text scenario mounts.
     fn editor_runner(content: &str, animations: bool, on_key_down: Option<CallbackType>) -> Runner {
+        let listeners = on_key_down
+            .map(|cb| {
+                (
+                    EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown),
+                    RefAny::new(()),
+                    cb,
+                )
+            })
+            .into_iter()
+            .collect();
+        editor_runner_with(content, animations, listeners)
+    }
+
+    /// [`editor_runner`] whose editor carries `listeners` (filter, data,
+    /// callback).
+    fn editor_runner_with(
+        content: &str,
+        animations: bool,
+        listeners: Vec<(EventFilter, RefAny, CallbackType)>,
+    ) -> Runner {
         reset_test_clock();
         freeze_test_clock();
 
         let mut editor = Dom::create_div().with_contenteditable(true).with_child(
             Dom::create_text_do_not_use_without_block_level_wrapper(content),
         );
-        if let Some(cb) = on_key_down {
-            editor = editor.with_callback(
-                EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown),
-                RefAny::new(()),
-                cb as usize,
-            );
+        for (filter, data, cb) in listeners {
+            editor = editor.with_callback(filter, data, cb as usize);
         }
         let mut dom = Dom::create_body().with_child(editor);
         let (css, _) = azul_css::parser2::new_from_str(CSS);
@@ -7336,6 +7363,175 @@ mod tests {
             offset.y >= 60.0,
             "the arrow keys must have scrolled the box to (near) its 80px maximum, got {:.1}",
             offset.y,
+        );
+    }
+
+    // ── The undo keys in a scenario (EVENTS7) ────────────────────────────────
+
+    /// The key the platform's shortcuts are held with: Cmd under the Mac's
+    /// conventions, Ctrl elsewhere (`KeyModifiers::primary_down`).
+    fn primary_key() -> VirtualKeyCode {
+        if azul_core::window::mac_shortcut_conventions() {
+            VirtualKeyCode::LWin
+        } else {
+            VirtualKeyCode::LControl
+        }
+    }
+
+    /// An editor that owns its undo history: it vetoes the undo keys' default
+    /// action (and lets every other key through).
+    extern "C" fn veto_the_undo_keys(_data: RefAny, mut info: CallbackInfo) -> Update {
+        let keyboard = info.get_current_keyboard_state();
+        let key = keyboard.current_virtual_keycode.into_option();
+        if keyboard.primary_down() && matches!(key, Some(VirtualKeyCode::Z | VirtualKeyCode::Y)) {
+            info.prevent_default();
+        }
+        Update::DoNothing
+    }
+
+    /// WRITER6 / HEADLESS6: the runner had no arm for the undo keys' default
+    /// actions (`DefaultAction::UndoTextEdit` / `RedoTextEdit`) - and had never
+    /// applied `SystemChange::UndoTextEdit` either, its body lived in the dll -
+    /// so a JSON scenario's Ctrl/Cmd+Z undid nothing. The one body is
+    /// `LayoutWindow::undo_text_edit` now, which both hosts call.
+    #[test]
+    fn a_scenarios_undo_key_undoes_the_typing_and_the_redo_key_redoes_it() {
+        let mut runner = editor_runner("abc", false, None);
+        press_key_with_text(&mut runner, VirtualKeyCode::X, "x");
+        let typed = text_of(&runner);
+        assert_ne!(typed, "abc", "premise: the keystroke types into the editor");
+
+        tap_key(&mut runner, VirtualKeyCode::Z, &[primary_key()]);
+        assert_eq!(text_of(&runner), "abc", "primary + Z undoes the typing");
+
+        tap_key(
+            &mut runner,
+            VirtualKeyCode::Z,
+            &[primary_key(), VirtualKeyCode::LShift],
+        );
+        assert_eq!(text_of(&runner), typed, "primary + Shift + Z redoes it");
+
+        tap_key(&mut runner, VirtualKeyCode::Z, &[primary_key()]);
+        tap_key(&mut runner, VirtualKeyCode::Y, &[primary_key()]);
+        assert_eq!(text_of(&runner), typed, "primary + Y redoes too");
+    }
+
+    /// The other half of the browser keydown model in a scenario: an editor
+    /// that vetoes the undo key keeps the engine's text undo from running.
+    #[test]
+    fn a_scenarios_undo_key_vetoed_by_the_editor_undoes_nothing() {
+        let mut runner = editor_runner("abc", false, Some(veto_the_undo_keys));
+        press_key_with_text(&mut runner, VirtualKeyCode::X, "x");
+        let typed = text_of(&runner);
+        assert_ne!(typed, "abc", "premise: the keystroke types into the editor");
+
+        tap_key(&mut runner, VirtualKeyCode::Z, &[primary_key()]);
+        assert_eq!(text_of(&runner), typed, "the editor's veto stands");
+    }
+
+    /// The same through a JSON scenario's ops - click into an editable, type,
+    /// then `key_down z` with the primary modifier - the way a corpus
+    /// scenario drives it.
+    #[test]
+    fn a_json_scenarios_undo_key_undoes_the_typing() {
+        use azul_core::dom::IdOrClass;
+
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("ed".into())].into())
+                .with_contenteditable(true)
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "abc",
+                )),
+        );
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; } \
+             .ed { height: 40px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        let mac = azul_core::window::mac_shortcut_conventions();
+        let primary = serde_json::json!({ "ctrl": !mac, "meta": mac });
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "undo_key",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "click", "selector": ".ed" },
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "x", "text": "x" }, { "op": "key_up", "key": "x" },
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "z", "modifiers": primary.clone() },
+                { "op": "key_up", "key": "z", "modifiers": primary.clone() },
+                { "op": "wait_frame" }
+            ]
+        }))
+        .expect("scenario json");
+
+        let (_result, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        let focused = runner
+            .layout_window
+            .focus_manager
+            .get_focused_node()
+            .copied()
+            .expect("the click focuses the editable");
+        let node_id = focused.node.into_crate_internal().expect("focused node id");
+        assert_eq!(
+            text_input_value(&runner, focused.dom, node_id),
+            "abc",
+            "the scenario's primary + Z undoes the typed x"
+        );
+    }
+
+    // ── Ctrl+B with no selection reaches the app (EVENTS7) ──────────────────
+
+    /// What a toolbar's listener read on each `TypingStyleChanged`: whether
+    /// the caret's pending format is bold.
+    type SeenBold = Arc<Mutex<Vec<Option<bool>>>>;
+
+    extern "C" fn record_typing_bold(mut data: RefAny, info: CallbackInfo) -> Update {
+        let bold = info
+            .get_typing_formats(editor_node())
+            .into_option()
+            .map(|formats| formats.bold);
+        if let Some(seen) = data.downcast_ref::<SeenBold>() {
+            seen.lock().unwrap().push(bold);
+        }
+        Update::DoNothing
+    }
+
+    /// DEDUP_EDITORS D1 / the ledger's "Ctrl+B with no selection is not
+    /// reported to the app": the engine's Ctrl/Cmd+B at a collapsed caret
+    /// toggles the typing style (the next typed text is bold) as the key's
+    /// default action - AFTER the KeyDown callbacks ran - and told the app
+    /// nothing, so a toolbar's B showed the old state until its next render.
+    /// TEXTENG put the formats into the text-edit report; the toggle itself
+    /// is now `FocusEventFilter::TypingStyleChanged` at the editing host.
+    #[test]
+    fn ctrl_b_at_a_caret_tells_the_editor_its_typing_style_changed() {
+        let seen: SeenBold = Arc::default();
+        let mut runner = editor_runner_with(
+            "abc",
+            false,
+            vec![(
+                EventFilter::Focus(azul_core::events::FocusEventFilter::TypingStyleChanged),
+                RefAny::new(seen.clone()),
+                record_typing_bold as CallbackType,
+            )],
+        );
+
+        tap_key(&mut runner, VirtualKeyCode::B, &[primary_key()]);
+        assert_eq!(
+            seen.lock().unwrap().clone(),
+            vec![Some(true)],
+            "one TypingStyleChanged, after the toggle: the caret now types bold"
+        );
+
+        tap_key(&mut runner, VirtualKeyCode::B, &[primary_key()]);
+        assert_eq!(
+            seen.lock().unwrap().last().copied(),
+            Some(Some(false)),
+            "toggled back: plain again"
         );
     }
 }

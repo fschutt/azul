@@ -2357,12 +2357,28 @@ impl HeadlessWindow {
             }
         }
         let mut opened_by_children = Vec::new();
+        let mut a_menu_closed = false;
         self.children.retain_mut(|child| {
             child.pump_once(false);
             opened_by_children.append(&mut child.pending_window_creates);
-            child.is_open()
+            let open = child.is_open();
+            a_menu_closed |= !open && child.is_menu_window();
+            open
         });
+        // A menu that closed takes its chain with it (X11's
+        // `dismiss_chain_if_menu`): an item picked in a submenu, or an Escape
+        // in it, leaves the menu it hangs off too. Every menu of this window
+        // is one chain - a menu's own creates (its submenus) come up here.
+        if a_menu_closed {
+            let _ = self.dismiss_menu_windows();
+        }
         self.pending_window_creates.extend(opened_by_children);
+    }
+
+    /// Is this window a window-based menu (`WindowType::Menu`)?
+    fn is_menu_window(&self) -> bool {
+        self.common.current_window_state().flags.window_type
+            == azul_core::window::WindowType::Menu
     }
 
     /// Whether this window's loop must poll (it has timers or threads in flight): the
@@ -3653,6 +3669,23 @@ impl PlatformWindow for HeadlessWindow {
         );
         self.pending_window_creates.push(options);
         self.wake();
+    }
+
+    /// The menus this window opened are its menu children - one chain: a
+    /// menu's own creates (its submenus) come up to this window
+    /// ([`HeadlessWindow::pump_children`]). There is no pointer grab headless
+    /// to close them when the user leaves them, so the owner does: all of
+    /// them, at once (EVENTS7).
+    fn dismiss_menu_windows(&mut self) -> bool {
+        let mut any = false;
+        for child in &mut self.children {
+            if child.is_open() && child.is_menu_window() {
+                child.close();
+                any = true;
+            }
+        }
+        self.children.retain(HeadlessWindow::is_open);
+        any
     }
 
     fn show_tooltip_from_callback(&mut self, _text: &str, _position: LogicalPosition) {
@@ -12069,6 +12102,10 @@ mod tests {
     // A permission-bearing node subscribes under its own node id
     // (`tests/permission_probe.rs`, TEXT7).
     mod permission_probe;
+
+    // A native command runs as the keystroke it stands for
+    // (`tests/shortcut_keys.rs`, EVENTS7).
+    mod shortcut_keys;
 
     // --- Video tiles: a new frame is an image CONTENT update ---------------
     //

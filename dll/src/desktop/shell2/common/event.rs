@@ -2996,6 +2996,11 @@ pub struct CommonWindowState {
     /// animations move only with the scenario's `tick_animations`, as in the
     /// in-process runner.
     pub scripted_animation_clock: bool,
+    /// A press outside this window's window-based menus closed them
+    /// ([`PlatformWindow::dismiss_menu_windows`]) and was spent there; its
+    /// RELEASE is owed to the menus too, so it reaches nothing under the
+    /// pointer either (EVENTS7).
+    menu_release_owed: bool,
 }
 
 impl CommonWindowState {
@@ -3335,6 +3340,7 @@ impl CommonWindowState {
             renderer_clear_color: None,
             close_unconfirmed: false,
             scripted_animation_clock: super::debug_server::scripted_run_owns_the_clock(),
+            menu_release_owed: false,
         }
     }
 
@@ -4219,6 +4225,60 @@ pub trait PlatformWindow {
         previous.keyboard_state = current.keyboard_state.clone();
         previous.keyboard_seats = current.keyboard_seats.clone();
         self.set_previous_window_state(previous);
+    }
+
+    /// The keystroke a native command stands for, pressed and released
+    /// through the ordinary key passes (EVENTS7): `keys` held - modifiers
+    /// first, the key itself last - and one pass (the key handlers, then the
+    /// key's default action, which a `prevent_default` vetoes), then released
+    /// and another pass.
+    ///
+    /// A native menu item is the equivalent of its keystroke (macOS Edit >
+    /// Undo is Cmd+Z). Run as that keystroke, a command picked with the
+    /// pointer gives the app's key handlers the same first say the key gives
+    /// them - an editor that owns its undo history takes Undo - where applying
+    /// the engine's text undo directly ran it behind the editor's back. A
+    /// modifier the user already holds stays held; the key itself comes up.
+    fn press_shortcut_keys(
+        &mut self,
+        keys: &[azul_core::window::VirtualKeyCode],
+        site: &str,
+    ) -> ProcessEventResult {
+        let Some(&key) = keys.last() else {
+            return ProcessEventResult::DoNothing;
+        };
+
+        self.snapshot_window_state_baseline(site);
+        let pressed_here: Vec<azul_core::window::VirtualKeyCode> = {
+            let keyboard = self.get_common_mut().keyboard_state_mut();
+            let mut pressed_here: Vec<azul_core::window::VirtualKeyCode> = Vec::new();
+            for k in keys {
+                if !keyboard.is_key_down(*k) {
+                    keyboard.pressed_virtual_keycodes.insert_hm_item(*k);
+                    pressed_here.push(*k);
+                }
+            }
+            keyboard.current_virtual_keycode = azul_core::window::OptionVirtualKeyCode::Some(key);
+            keyboard.is_repeat = false;
+            keyboard.sync_modifiers();
+            pressed_here
+        };
+        let down = self.process_window_events(0);
+
+        self.snapshot_window_state_baseline(site);
+        {
+            let keyboard = self.get_common_mut().keyboard_state_mut();
+            for k in &pressed_here {
+                keyboard.pressed_virtual_keycodes.remove_hm_item(k);
+            }
+            // The key itself is a tap, even if the engine had it down already:
+            // a key held with Cmd never gets its macOS `keyUp:`.
+            keyboard.pressed_virtual_keycodes.remove_hm_item(&key);
+            keyboard.current_virtual_keycode = azul_core::window::OptionVirtualKeyCode::None;
+            keyboard.sync_modifiers();
+        }
+        let up = self.process_window_events(0);
+        down.max(up)
     }
 
     // Resource Access
@@ -5121,6 +5181,19 @@ pub trait PlatformWindow {
     /// (headless: the test drives it).
     fn deliver_forwarded_keys(&mut self) {}
 
+    /// Close every window-based MENU this window opened - the whole chain
+    /// (a menu and the submenus it opened) - because the user left them: a
+    /// press landed in this window, outside them, or an Escape reached it.
+    /// Returns whether any were open.
+    ///
+    /// Default: none to close. macOS and Win32 menus are native and close
+    /// themselves; X11 and Wayland dismiss their fallback menus through the
+    /// menu's own pointer / seat grab, before this window ever sees the
+    /// press. Headless has no grab, so its owner closes them (EVENTS7).
+    fn dismiss_menu_windows(&mut self) -> bool {
+        false
+    }
+
     /// `<transient-window>`, parent side: after a layout pass, turn the
     /// engine's popup diff into child windows / mailbox writes, and act on
     /// popups that dismissed themselves. See `common::transient`.
@@ -5286,8 +5359,26 @@ pub trait PlatformWindow {
         };
         let current = self.get_current_window_state().clone();
 
+        // The release of the press that closed this window's menus is the
+        // menus' too (see the parent side below): spent here, it reaches
+        // nothing under the pointer.
+        if self.get_common_mut().menu_release_owed
+            && super::transient::fresh_release(&previous, &current)
+        {
+            self.get_common_mut().menu_release_owed = false;
+            self.discard_input_delta("menu.outside_release");
+            return;
+        }
+
         if let Some(cause) = popup_dismiss_cause(&previous, &current) {
-            if post_dismissed(&current) {
+            // A window-based MENU (a fallback / headless menu window) has no
+            // mailbox and no parent node to post to: it just closes, and its
+            // owner takes the rest of the chain down with it. It used to stay
+            // open - `popup_dismiss_cause` answered for it, the close below
+            // waited for a mailbox it never has.
+            let is_window_menu = super::transient::mailbox_of(&current).is_none()
+                && current.flags.window_type == azul_core::window::WindowType::Menu;
+            if post_dismissed(&current) || is_window_menu {
                 log_debug!(
                     super::debug_server::LogCategory::Window,
                     "[transient] popup dismissing itself: {cause:?}"
@@ -5316,6 +5407,29 @@ pub trait PlatformWindow {
                 super::debug_server::LogCategory::Window,
                 "[transient] closing window reports itself dismissed"
             );
+            self.request_regeneration_all_windows();
+            return;
+        }
+
+        // The parent side for window-based MENUS this window owns: they
+        // light-dismiss like an `outside` popup - a fresh press here is
+        // outside them, an Escape that reached their owner leaves them - but
+        // the click that leaves a menu does nothing else (a native menu eats
+        // it, X11's grab does): the press is spent, its release owed.
+        let menu_press = super::transient::fresh_press(&previous, &current);
+        let menu_escape = super::transient::fresh_escape(&previous, &current);
+        if (menu_press || menu_escape) && self.dismiss_menu_windows() {
+            log_debug!(
+                super::debug_server::LogCategory::Window,
+                "[menu] the owner dismissed its menu windows (press={menu_press} \
+                 escape={menu_escape})"
+            );
+            if menu_press {
+                self.discard_input_delta("menu.outside_press");
+                self.get_common_mut().menu_release_owed = true;
+            } else {
+                self.consume_keyboard_delta("menu.escape_dismissed");
+            }
             self.request_regeneration_all_windows();
             return;
         }
@@ -8291,26 +8405,16 @@ pub trait PlatformWindow {
             }
 
             SystemChange::UndoTextEdit { target } => {
+                // The primary's text undo, its caret put back where the edit
+                // found it: `LayoutWindow::undo_text_edit`, the body the e2e
+                // runner calls too.
                 let Some(layout_window) = self.get_layout_window_mut() else {
                     return ProcessEventResult::DoNothing;
                 };
-                match undo_text_edit_on(
-                    layout_window,
-                    *target,
-                    azul_core::window::PRIMARY_POINTER_SEAT,
-                ) {
-                    Some(restore) => {
-                        // The primary's caret goes where the edit found it.
-                        if let Some(ref mut mc) = layout_window.text_edit_manager.multi_cursor {
-                            if let Some(range) = restore.range {
-                                mc.set_single_range(range);
-                            } else if let Some(cursor) = restore.cursor {
-                                mc.set_single_cursor(cursor);
-                            }
-                        }
-                        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
-                    }
-                    None => ProcessEventResult::DoNothing,
+                if layout_window.undo_text_edit(*target) {
+                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                } else {
+                    ProcessEventResult::DoNothing
                 }
             }
 
@@ -8318,11 +8422,7 @@ pub trait PlatformWindow {
                 let Some(layout_window) = self.get_layout_window_mut() else {
                     return ProcessEventResult::DoNothing;
                 };
-                if redo_text_edit_on(
-                    layout_window,
-                    *target,
-                    azul_core::window::PRIMARY_POINTER_SEAT,
-                ) {
+                if layout_window.redo_text_edit(*target) {
                     ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                 } else {
                     ProcessEventResult::DoNothing
@@ -8416,7 +8516,7 @@ pub trait PlatformWindow {
                         let Some(layout_window) = self.get_layout_window_mut() else {
                             return ProcessEventResult::DoNothing;
                         };
-                        match undo_text_edit_on(layout_window, *target, *seat_id) {
+                        match layout_window.undo_text_edit_for_seat(*target, *seat_id) {
                             Some(restore) => {
                                 let (cursor, anchor) = match (restore.range, restore.cursor) {
                                     (Some(range), _) => (range.end, Some(range.start)),
@@ -8447,7 +8547,7 @@ pub trait PlatformWindow {
                         let Some(layout_window) = self.get_layout_window_mut() else {
                             return ProcessEventResult::DoNothing;
                         };
-                        if redo_text_edit_on(layout_window, *target, *seat_id) {
+                        if layout_window.redo_text_edit_for_seat(*target, *seat_id) {
                             ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                         } else {
                             ProcessEventResult::DoNothing
@@ -9493,84 +9593,31 @@ pub trait PlatformWindow {
                 for filter in &event_filters {
                     match filter {
                         EventFilter::Hover(_) => {
-                            // W3C propagation: Capture → Target → Bubble
-                            let dom_id = event.target.dom;
-                            let layout_result = match layout_window.layout_results.get(&dom_id) {
-                                Some(lr) => lr,
-                                None => continue,
-                            };
-
-                            // Build NodeHierarchy from NodeHierarchyItemVec for propagation
-                            let node_hierarchy = {
-                                let items = layout_result.styled_dom.node_hierarchy.as_container();
-                                let nodes: Vec<azul_core::id::Node> = (0..items.len())
-                                    .map(|i| {
-                                        let item = &items.internal[i];
-                                        azul_core::id::Node {
-                                            parent: NodeId::from_usize(item.parent),
-                                            previous_sibling: NodeId::from_usize(
-                                                item.previous_sibling,
-                                            ),
-                                            next_sibling: NodeId::from_usize(item.next_sibling),
-                                            last_child: NodeId::from_usize(item.last_child),
-                                        }
-                                    })
-                                    .collect();
-                                azul_core::id::NodeHierarchy::new(nodes)
-                            };
-
-                            // Build callback map: NodeId → Vec<EventFilter>
-                            let node_data_container =
-                                layout_result.styled_dom.node_data.as_container();
-                            let mut callback_map: BTreeMap<NodeId, Vec<EventFilter>> =
-                                BTreeMap::new();
-
-                            for node_idx in 0..node_data_container.len() {
-                                let node_id = NodeId::new(node_idx);
-                                if let Some(nd) = node_data_container.get(node_id) {
-                                    let matching_filters: Vec<EventFilter> = nd
-                                        .get_callbacks()
-                                        .as_ref()
-                                        .iter()
-                                        .filter(|cb| cb.event == *filter)
-                                        .map(|cb| cb.event)
-                                        .collect();
-                                    if !matching_filters.is_empty() {
-                                        callback_map.insert(node_id, matching_filters);
-                                    }
-                                }
-                            }
-
-                            if callback_map.is_empty() {
-                                continue;
-                            }
-
-                            // Run W3C event propagation
-                            let mut event_clone = event.clone();
-                            let prop_result = azul_core::events::propagate_event(
-                                &mut event_clone,
-                                &node_hierarchy,
-                                &callback_map,
+                            // W3C propagation: Capture → Target → Bubble, along
+                            // the path core plans for both dispatchers (this and
+                            // the e2e runner's): past a `VirtualView` page's root
+                            // it goes on at the page's host in the parent dom, so
+                            // a double-click on a tile's progress bar reaches the
+                            // tile.
+                            let layout_results = &layout_window.layout_results;
+                            let virtual_views = &layout_window.virtual_view_manager;
+                            let reached = azul_core::events::hover_callbacks_along_path(
+                                event,
+                                *filter,
+                                &|dom| layout_results.get(&dom).map(|lr| &lr.styled_dom),
+                                &|dom| virtual_views.host_of_nested_dom(dom),
                             );
-
-                            // Collect actual CoreCallbackData for each matched node+filter
-                            for (node_id, matched_filter) in &prop_result.callbacks_to_invoke {
-                                if let Some(nd) = node_data_container.get(*node_id) {
-                                    for cb in nd.get_callbacks().as_ref().iter() {
-                                        if cb.event == *matched_filter {
-                                            planned.push(PlannedInvocation {
-                                                dom_id,
-                                                node_id: *node_id,
-                                                callback_data: cb.clone(),
-                                                event_type: event.event_type,
-                                                seat_id:
-                                                    azul_layout::managers::hover::seat_of_event(
-                                                        event,
-                                                    ),
-                                            });
-                                        }
-                                    }
-                                }
+                            for (at, callback_data) in reached {
+                                let Some(node_id) = at.node.into_crate_internal() else {
+                                    continue;
+                                };
+                                planned.push(PlannedInvocation {
+                                    dom_id: at.dom,
+                                    node_id,
+                                    callback_data,
+                                    event_type: event.event_type,
+                                    seat_id: azul_layout::managers::hover::seat_of_event(event),
+                                });
                             }
                         }
                         EventFilter::Focus(_) => {
@@ -12503,6 +12550,10 @@ pub trait PlatformWindow {
         // KEYBOARD DEFAULT ACTIONS (Tab navigation, Enter/Space activation, Escape)
         let mut default_action_focus_changed = false;
         let mut synthetic_click_target: Option<azul_core::dom::DomNodeId> = None;
+        // The editing host whose typing style a format key just toggled
+        // (Ctrl/Cmd+B / I / U at a caret): told after the match, like the
+        // synthetic click (EVENTS7).
+        let mut typing_style_changed_at: Option<azul_core::dom::DomNodeId> = None;
 
         if !prevent_default {
             let has_key_event = pre_filter
@@ -12924,10 +12975,12 @@ pub trait PlatformWindow {
                                     // Ctrl/Cmd+B / I / U: the typing style at the
                                     // primary's caret (nothing to repaint - the
                                     // next typed text shows it).
-                                    if key_seat == azul_core::window::PRIMARY_POINTER_SEAT {
-                                        if let Some(lw) = self.get_layout_window_mut() {
-                                            let _ = lw.toggle_text_format(*target, *format);
-                                        }
+                                    if key_seat == azul_core::window::PRIMARY_POINTER_SEAT
+                                        && self
+                                            .get_layout_window_mut()
+                                            .is_some_and(|lw| lw.toggle_text_format(*target, *format))
+                                    {
+                                        typing_style_changed_at = Some(*target);
                                     }
                                 }
 
@@ -13051,6 +13104,33 @@ pub trait PlatformWindow {
                     "[Event] Dispatched synthetic click for element activation: {:?}",
                     click_target
                 );
+            }
+        }
+
+        // TYPING STYLE CHANGED (EVENTS7): a format key toggled the caret's
+        // typing style - the next typed text's formats - and nothing repaints,
+        // so the editing host hears it here, after the toggle (its KeyDown ran
+        // before it): a toolbar reads `get_typing_formats` and shows the
+        // pressed B at once.
+        if let Some(host) = typing_style_changed_at {
+            if depth + 1 < MAX_EVENT_RECURSION_DEPTH {
+                let changed = azul_core::events::SyntheticEvent::new(
+                    azul_core::events::EventType::TypingStyleChanged,
+                    azul_core::events::EventSource::User,
+                    host,
+                    azul_core::task::Instant::now(),
+                    azul_core::events::EventData::None,
+                );
+                let (changed_result, changed_update, _, _) =
+                    self.dispatch_events_propagated(&[changed]);
+                result = result.max(changed_result);
+                if matches!(
+                    changed_update,
+                    Update::RefreshDom | Update::RefreshDomAllWindows
+                ) {
+                    self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                    result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+                }
             }
         }
 
@@ -15903,119 +15983,6 @@ mod pointer_source_tests {
             );
         }
     }
-}
-
-/// Where an undone edit left its caret: what the caller places into the
-/// seat that asked (9b-ii-a-i-d-ii-b-i).
-struct UndoRestore {
-    range: Option<azul_core::selection::SelectionRange>,
-    cursor: Option<azul_core::selection::TextCursor>,
-}
-
-/// The body of `SystemChange::UndoTextEdit` minus the caret placement: pop
-/// the node's undo entry, restore the pre-edit content (the styled snapshot
-/// when there is one, else the plain pre-text), push the entry onto redo.
-/// `None` = nothing to undo on that node.
-/// Per-person undo (9b-ii-a-i-d-ii-d): `seat_id`'s own latest edit, and only
-/// while it is the top of the node's stack - see
-/// `NodeUndoRedoStack::pop_undo_for_seat`.
-fn undo_text_edit_on(
-    layout_window: &mut LayoutWindow,
-    target: azul_core::dom::DomNodeId,
-    seat_id: u64,
-) -> Option<UndoRestore> {
-    use std::sync::Arc;
-
-    use azul_layout::text3::cache::{InlineContent, StyleProperties, StyledRun};
-
-    let node_id = target.node.into_crate_internal()?;
-    let operation = layout_window
-        .undo_redo_manager
-        .pop_undo_for_seat(node_id, seat_id)?;
-    let new_content = layout_window
-        .undo_redo_manager
-        .get_content_snapshot(operation.changeset.id)
-        .map(|snap| snap.pre.clone())
-        .unwrap_or_else(|| {
-            vec![InlineContent::Text(StyledRun {
-                text: Arc::from(operation.pre_state.text_content.as_str()),
-                style: Arc::new(StyleProperties::default()),
-                logical_start_byte: 0,
-                source_node_id: None,
-            })]
-        });
-    // MWA-C-undo_redo keying: the STACK is keyed by the HOST (`target`), the
-    // CONTENT by the node the edit re-shaped (`pre_state.node_id`, the caret's
-    // IFC owner). Restoring a paragraph's snapshot into the host would key a
-    // host-flattened blob - the bug typing and deleting were already cured of.
-    layout_window.update_text_cache_after_edit(
-        target.dom,
-        operation.pre_state.node_id,
-        new_content,
-    );
-    let restore = UndoRestore {
-        range: operation.pre_state.selection_range.into_option(),
-        cursor: operation.pre_state.cursor_position.into_option(),
-    };
-    layout_window.undo_redo_manager.push_redo(operation);
-    Some(restore)
-}
-
-/// The body of `SystemChange::RedoTextEdit`: pop the node's redo entry and
-/// restore the post-edit content (the styled snapshot, else the pre-text
-/// plus the inserted text for an insert). `false` = nothing redone.
-fn redo_text_edit_on(
-    layout_window: &mut LayoutWindow,
-    target: azul_core::dom::DomNodeId,
-    seat_id: u64,
-) -> bool {
-    use std::sync::Arc;
-
-    use azul_layout::{
-        managers::changeset::TextOperation,
-        text3::cache::{InlineContent, StyleProperties, StyledRun},
-    };
-
-    let Some(node_id) = target.node.into_crate_internal() else {
-        return false;
-    };
-    let Some(operation) = layout_window
-        .undo_redo_manager
-        .pop_redo_for_seat(node_id, seat_id)
-    else {
-        return false;
-    };
-    let new_content = layout_window
-        .undo_redo_manager
-        .get_content_snapshot(operation.changeset.id)
-        .map(|snap| snap.post.clone())
-        .or_else(|| {
-            if let TextOperation::InsertText(op) = &operation.changeset.operation {
-                let mut text = operation.pre_state.text_content.as_str().to_string();
-                text.push_str(op.text.as_str());
-                Some(vec![InlineContent::Text(StyledRun {
-                    text: Arc::from(text.as_str()),
-                    style: Arc::new(StyleProperties::default()),
-                    logical_start_byte: 0,
-                    source_node_id: None,
-                })])
-            } else {
-                None
-            }
-        });
-    if let Some(new_content) = new_content {
-        // Same keying as undo: the content goes back to the node the edit
-        // re-shaped, not the host the stack is keyed by.
-        layout_window.update_text_cache_after_edit(
-            target.dom,
-            operation.pre_state.node_id,
-            new_content,
-        );
-        layout_window.undo_redo_manager.reinstate_undo(operation);
-        return true;
-    }
-    layout_window.undo_redo_manager.push_redo(operation);
-    false
 }
 
 #[cfg(test)]

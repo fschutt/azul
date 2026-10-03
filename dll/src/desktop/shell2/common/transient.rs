@@ -1158,19 +1158,9 @@ pub fn popup_dismiss_cause(
     if azul_layout::managers::eyedropper::in_flight_anywhere() {
         return None;
     }
-    let escape_now = current
-        .keyboard_state
-        .pressed_virtual_keycodes
-        .as_ref()
-        .contains(&VirtualKeyCode::Escape);
-    let escape_before = previous
-        .keyboard_state
-        .pressed_virtual_keycodes
-        .as_ref()
-        .contains(&VirtualKeyCode::Escape);
     // `outside-only`: the content answers Escape (a dialog's cancelable
     // `cancel` step), so the engine must not spend the key first.
-    if escape_now && !escape_before && policy != TransientDismiss::OutsideOnly {
+    if fresh_escape(previous, current) && policy != TransientDismiss::OutsideOnly {
         return Some(DismissCause::Escape);
     }
     if matches!(
@@ -1207,6 +1197,35 @@ pub fn post_dismissed_on_close(previous: &FullWindowState, current: &FullWindowS
     post_dismissed(current)
 }
 
+/// Any mouse button held in `state`.
+fn a_button_is_down(state: &FullWindowState) -> bool {
+    state.mouse_state.left_down || state.mouse_state.right_down || state.mouse_state.middle_down
+}
+
+/// A fresh mouse press: no button was down, one is now.
+#[must_use]
+pub fn fresh_press(previous: &FullWindowState, current: &FullWindowState) -> bool {
+    a_button_is_down(current) && !a_button_is_down(previous)
+}
+
+/// The press is over: a button was down, none is now.
+#[must_use]
+pub fn fresh_release(previous: &FullWindowState, current: &FullWindowState) -> bool {
+    a_button_is_down(previous) && !a_button_is_down(current)
+}
+
+/// A fresh Escape press: Escape was not held, it is now.
+#[must_use]
+pub fn fresh_escape(previous: &FullWindowState, current: &FullWindowState) -> bool {
+    let esc = |s: &FullWindowState| {
+        s.keyboard_state
+            .pressed_virtual_keycodes
+            .as_ref()
+            .contains(&VirtualKeyCode::Escape)
+    };
+    esc(current) && !esc(previous)
+}
+
 /// The parent side: Escape was pressed while popups are open. The popup
 /// handles its own Escape when it has keyboard focus; on a platform (or in a
 /// moment) where the parent still has it, the parent closes every popup
@@ -1216,13 +1235,7 @@ pub fn dismiss_on_escape(
     current: &FullWindowState,
     lw: &mut LayoutWindow,
 ) -> bool {
-    let esc = |s: &FullWindowState| {
-        s.keyboard_state
-            .pressed_virtual_keycodes
-            .as_ref()
-            .contains(&VirtualKeyCode::Escape)
-    };
-    if !(esc(current) && !esc(previous)) {
+    if !fresh_escape(previous, current) {
         return false;
     }
     let targets: Vec<NodeId> = lw
@@ -1260,10 +1273,7 @@ pub fn dismiss_outside_on_press(
     current: &FullWindowState,
     lw: &mut LayoutWindow,
 ) -> bool {
-    let was_down = |s: &FullWindowState| {
-        s.mouse_state.left_down || s.mouse_state.right_down || s.mouse_state.middle_down
-    };
-    if !(was_down(current) && !was_down(previous)) {
+    if !fresh_press(previous, current) {
         return false;
     }
     // A press on the popup's own ANCHOR is not "outside": the anchor is the

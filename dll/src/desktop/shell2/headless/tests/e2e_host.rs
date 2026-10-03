@@ -359,3 +359,139 @@ fn a_scripted_run_owns_the_animation_clock() {
         "a scripted run's animations move only with its tick_animations"
     );
 }
+
+// ---- EVENTS7: a headless menu closes the way a desktop menu does -----------
+//
+// HEADLESS6 left it open: a script could close a headless menu only by
+// clicking one of its items (or `close` with its window id). A desktop menu
+// also closes on Escape and on a press outside it - X11 through its pointer
+// grab, macOS and Win32 natively - and a menu CHAIN (a menu and the submenu
+// it opened) goes as one.
+
+/// `window` with two menus open - a menu and a second one, as its submenu
+/// would be: the chain.
+fn window_with_two_open_menus() -> HeadlessWindow {
+    let mut window = settled_window();
+    window.show_menu_from_callback(&copy_paste_menu(), LogicalPosition::new(20.0, 10.0), None);
+    window.pump_children();
+    window.show_menu_from_callback(&copy_paste_menu(), LogicalPosition::new(60.0, 10.0), None);
+    window.pump_children();
+    assert_eq!(window.children.len(), 2, "harness: two menus are open");
+    window
+}
+
+/// An Escape press in `window`, the way a backend's key handler runs it.
+fn press_escape(window: &mut HeadlessWindow) {
+    use azul_core::window::{OptionVirtualKeyCode, VirtualKeyCode};
+    window.snapshot_window_state_baseline("test.escape");
+    let keyboard = window.common.keyboard_state_mut();
+    keyboard
+        .pressed_virtual_keycodes
+        .insert_hm_item(VirtualKeyCode::Escape);
+    keyboard.current_virtual_keycode = OptionVirtualKeyCode::Some(VirtualKeyCode::Escape);
+    keyboard.sync_modifiers();
+    let _ = window.process_window_events(0);
+}
+
+#[test]
+fn escape_in_a_headless_menu_closes_the_menu_and_its_chain() {
+    let mut window = window_with_two_open_menus();
+    press_escape(&mut window.children[1]);
+    window.pump_children();
+    assert!(
+        window.children.is_empty(),
+        "Escape leaves the menu, and the chain with it: {} menu(s) still open",
+        window.children.len()
+    );
+}
+
+#[test]
+fn escape_in_the_window_that_owns_open_menus_closes_them() {
+    let mut window = window_with_two_open_menus();
+    press_escape(&mut window);
+    window.pump_children();
+    assert!(
+        window.children.is_empty(),
+        "an Escape that reached the owner leaves its menus: {} still open",
+        window.children.len()
+    );
+}
+
+/// `body > div` (300 x 200) whose presses and releases are counted.
+extern "C" fn counted_box_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    use azul_core::events::HoverEventFilter;
+    let counter = data
+        .downcast_ref::<Arc<core::sync::atomic::AtomicUsize>>()
+        .map(|c| c.clone())
+        .expect("the counter");
+    Dom::create_body().with_child(
+        Dom::create_div()
+            .with_css("width: 300px; height: 200px;")
+            .with_callbacks(
+                vec![
+                    counting_callback(HoverEventFilter::MouseDown, &counter),
+                    counting_callback(HoverEventFilter::MouseUp, &counter),
+                ]
+                .into(),
+            ),
+    )
+}
+
+#[test]
+fn a_press_outside_open_menus_closes_them_and_reaches_nothing_under_it() {
+    use core::sync::atomic::{AtomicUsize, Ordering};
+
+    use azul_core::events::MouseButton;
+
+    let counted = Arc::new(AtomicUsize::new(0));
+    let state = Arc::new(RefCell::new(RefAny::new(counted.clone())));
+    let mut window = make_window_with(&state, counted_box_layout);
+    window.regenerate_layout().expect("a layout pass");
+    let _ = window.common.take_regeneration();
+    window.show_menu_from_callback(&copy_paste_menu(), LogicalPosition::new(20.0, 10.0), None);
+    window.pump_children();
+    assert_eq!(window.children.len(), 1, "harness: a menu is open");
+
+    step(&mut window, HeadlessEvent::MouseMove { x: 150.0, y: 100.0 });
+    step(
+        &mut window,
+        HeadlessEvent::MouseDown {
+            button: MouseButton::Left,
+        },
+    );
+    step(
+        &mut window,
+        HeadlessEvent::MouseUp {
+            button: MouseButton::Left,
+        },
+    );
+    window.pump_children();
+    assert!(
+        window.children.is_empty(),
+        "a press outside the menu closes it"
+    );
+    assert_eq!(
+        counted.load(Ordering::SeqCst),
+        0,
+        "the click that leaves a menu reaches nothing under it - neither its press nor its release"
+    );
+
+    // The menu is gone: the next click is the window's again.
+    step(
+        &mut window,
+        HeadlessEvent::MouseDown {
+            button: MouseButton::Left,
+        },
+    );
+    step(
+        &mut window,
+        HeadlessEvent::MouseUp {
+            button: MouseButton::Left,
+        },
+    );
+    assert_eq!(
+        counted.load(Ordering::SeqCst),
+        2,
+        "the box hears the next press and its release"
+    );
+}
