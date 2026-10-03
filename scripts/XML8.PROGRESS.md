@@ -102,6 +102,12 @@ Files (all `azul_core::xml::html`, re-exported from xml_html.rs so every path st
 - `04911ec8c` wip: core/src/xml_html_rules.rs (the data tables; not declared as a module yet).
 - `367e64518` wip: core/src/xml_html_tokenizer.rs (the state machine; not declared yet).
 
+- `f03e5ffd9` / `218a2edd5` wip: core/src/xml_html_tree.rs (TreeBuilder: arena for HTML, stream for XML).
+- `cb5b8a8f6` GREEN: wired in xml_html.rs (modules, re-exports, driver); old scanner + builder removed.
+- `c884feb76` lint-clean (type-check harness `scratchpad/xml8/harness/lib.rs` + `lib_test.rs` + `lib_dead.rs`,
+  `sh scratchpad/xml8/lint.sh` = clippy-driver with CI's azul-core lint set; 0 warnings). MAILREF8 asked for the
+  Postmark foster-parenting mail as a real-mail test: already in (60f112c71, corpus test exact for all 18).
+
 ## IN PROGRESS
 
 - (nothing half-edited)
@@ -110,9 +116,8 @@ Files (all `azul_core::xml::html`, re-exported from xml_html.rs so every path st
 
 1. (done: Chrome probe, see DONE.)
 2. (done: RED.)
-3. GREEN (rules + tokenizer written; NEXT: core/src/xml_html_tree.rs = TreeBuilder (arena for HTML, stream
-   for XML), then wire in xml_html.rs: `#[path] mod rules/tokenizer/tree`, re-exports, remove the old
-   tokenizer / builder code from xml_html.rs, driver `parse_html_into` sets the text mode): xml_html_rules.rs, xml_html_tokenizer.rs, xml_html_tree.rs, wire in xml_html.rs.
+3. (done: GREEN written + type-checked.) NEXT: the Python mirror (scratchpad/xml8/mirror.py: a line-by-line
+   port of tokenizer + tree builder) run against Chrome (rows + corpus outlines) to find logic bugs; fix in Rust. xml_html_rules.rs, xml_html_tokenizer.rs, xml_html_tree.rs, wire in xml_html.rs.
 4. Type-check harness; Python mirror vs Chrome (rows + corpus); fix.
 5. Corpus test: the two foster-parented Postmark mails join the exact-tree test.
 6. Report.
