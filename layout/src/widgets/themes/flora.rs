@@ -8080,3 +8080,40 @@ pub(crate) fn money_input_skin() -> crate::widgets::money_input::MoneyInputSkin 
         marker: Some("__azul-theme-flora"),
     }
 }
+
+// ==== gauge ====
+//
+// A flora gauge cuts its value from the semantic stones the badges and chips
+// wear - leaf for ok, amber for a warning, clay for critical, slate for a
+// plain range - each by day as the stone and at night as its glow, on the
+// groove of flora's track; outside every band the value is the accent stone
+// (its glow at night). The value is semibold in --fl-ink, the label in
+// --fl-intro.
+
+/// Flora's gauge skin.
+#[must_use]
+pub(crate) fn gauge_skin() -> crate::widgets::gauge::GaugeSkin {
+    use super::decl;
+    use crate::widgets::chart::ChartColor;
+
+    let stone = |s: FloraStone| ChartColor::create(s.stone, s.glow);
+    let mut root = vec![CssPropertyWithConditions::simple(
+        CssProperty::const_font_family(SYSTEM_UI_FAMILY),
+    )];
+    root.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    let mut value_text = vec![decl::semibold()];
+    value_text.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    let label = decl::themed_ink(LIGHT_INTRO, DARK_INTRO).to_vec();
+    crate::widgets::gauge::GaugeSkin {
+        root,
+        value_text,
+        label,
+        track: ChartColor::create(LIGHT_TRACK, DARK_TRACK),
+        ok: stone(STONE_LEAF),
+        warn: stone(STONE_AMBER),
+        bad: stone(STONE_CLAY),
+        neutral: stone(STONE_SLATE),
+        accent: ChartColor::create(LIGHT_ACC, DARK_GLOW),
+        marker: Some("__azul-theme-flora"),
+    }
+}

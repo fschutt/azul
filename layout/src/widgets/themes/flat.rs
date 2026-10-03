@@ -6496,3 +6496,39 @@ pub(crate) fn money_input_skin() -> crate::widgets::money_input::MoneyInputSkin 
         marker: None,
     }
 }
+
+// ==== gauge ====
+//
+// The flat gauge is a track in the slider's groove colour with the bands
+// washed over it and the value's arc (or bar) in the Bootstrap semantic
+// colours - success green, a deepened warning amber (the yellow #ffc107
+// vanishes on white), danger red, secondary grey - and flat's accent outside
+// every band; each has its lighter dark-mode step. The value is semibold in
+// the ink, the label in the secondary ink.
+
+/// Flat's gauge skin.
+#[must_use]
+pub(crate) fn gauge_skin() -> crate::widgets::gauge::GaugeSkin {
+    use super::decl;
+    use crate::widgets::chart::ChartColor;
+
+    let mut root = vec![CssPropertyWithConditions::simple(
+        CssProperty::const_font_family(SYSTEM_UI_FAMILY),
+    )];
+    root.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    let mut value_text = vec![decl::semibold()];
+    value_text.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    let label = decl::themed_ink(LIGHT_INTRO, DARK_INTRO).to_vec();
+    crate::widgets::gauge::GaugeSkin {
+        root,
+        value_text,
+        label,
+        track: ChartColor::create(LIGHT_TRACK, DARK_TRACK),
+        ok: ChartColor::create(ColorU::rgb(0x19, 0x87, 0x54), ColorU::rgb(0x75, 0xB7, 0x98)),
+        warn: ChartColor::create(ColorU::rgb(0xE0, 0xA8, 0x00), ColorU::rgb(0xFF, 0xDA, 0x6A)),
+        bad: ChartColor::create(ColorU::rgb(0xDC, 0x35, 0x45), ColorU::rgb(0xEA, 0x86, 0x8F)),
+        neutral: ChartColor::create(ColorU::rgb(0x6C, 0x75, 0x7D), ColorU::rgb(0xAD, 0xB5, 0xBD)),
+        accent: ChartColor::create(LIGHT_ACC, DARK_ACC),
+        marker: None,
+    }
+}
