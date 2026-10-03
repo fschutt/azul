@@ -3778,9 +3778,9 @@ impl LayoutTreeBuilder {
     ///
     /// `new_dom_id` is what the node IS; the clone only carries what it
     /// COSTS (used size, taffy cache and flex measurements, inline layout
-    /// result). Reconciliation
-    /// matches an old child to a new one by DOM id where it can, but falls
-    /// back to POSITION when the id is absent from the old child list — and
+    /// result). Reconciliation matches an old child to a new one by DOM id
+    /// where it can, but falls back to POSITION when the id is absent from
+    /// the old child list — and
     /// a positional match pairs nodes with different ids. Copying the old
     /// id through then produced a layout node claiming to be a DOM node
     /// that has moved, or (when the DOM shrank) one that no longer exists:

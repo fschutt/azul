@@ -2089,14 +2089,20 @@ pub fn reconcile_recursive(
         if let Some(old_idx) = old_tree_idx {
             recon.carried_indices.insert(old_idx, idx);
         }
+        // Paired by POSITION with an old node of another identity (the
+        // fallback above): the clone carries that node's measurements, while
+        // `layout_document`'s `cache_map` remap hands it the per-node cache -
+        // and `final_layout_current` - of its own id. The two must describe
+        // the same node for a memoised final layout to be served.
+        let paired_by_position = old_full_node.dom_node_id != Some(new_dom_id);
         if let Some(cloned) = new_tree_builder.get_mut(idx) {
             // The clone keeps its flex measurements (`clone_node_from_old`) -
             // unless a restyle on it or above it may have moved what it
             // INHERITS (a font size, an `em` padding): no dirty mark reaches a
             // clean descendant of a restyled node, and its measurements would
             // describe the old values. Such a node is laid out again, as every
-            // clone was before.
-            if subtree_style_changed {
+            // clone was before; so is a node paired by position.
+            if subtree_style_changed || paired_by_position {
                 cloned.taffy_cache.clear();
                 cloned.measured_content_sizes = (None, None);
             }
