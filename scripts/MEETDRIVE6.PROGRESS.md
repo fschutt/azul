@@ -44,11 +44,26 @@ scratchpad/msg.txt).
 ## AzMeet plan
 1. ids `__azmeet_`; 2. initials via azul_pim; 3. settings + theme/mode via a Drive on a Thread in
 `<data root>/meet/`; 4. per-meeting folder `meet/<meeting>/chat.jsonl`; 5. E2E nested-runner fix
+- 11982ebd8 initials via azul_pim (B24)
+- bb1f2c043 RED / 4cb1d8dd1 GREEN ids.rs `__azmeet_`
+- 58fb8e816 azmeet_e2e.py / azmeet_cpu.py: App.id() prefixed ids, ONE outer runner
+- 5d190cbb3 RED / 4a6ddea0c GREEN store.rs layout (meet/settings.json, meet/<m>/meeting.json,
+  meet/<m>/chat.jsonl); 650ef3495 store data_root / load_settings / save on a Thread
+  (NOT wired into lib.rs yet)
+
+## Resume 2 (2026-10-03, after the power loss)
+- Battery 1% on AC (charging): code work first, the LOOK runs once the battery is above ~20%.
 
 ## IN PROGRESS
 - LOOK (paused: battery warning - no long headless runs until told otherwise)
 
 ## NEXT
+- AzMeet: wire store.rs into lib.rs - settings (server, name, quality, theme, mode) from
+  meet/settings.json via load_settings at start instead of <config>/AzMeet/settings.txt
+  (lib.rs ~4050 settings_path / saved_server / save_server); saves via store::save on a Thread;
+  chat.jsonl + meeting.json per meeting on each chat message / join / leave.
+- AzMeet args.rs on azul_appkit::AppArgs (like AzDrive 935dfecd6) if appkit allows extra switches.
+(older NEXT below)
 - when power allows: run scripts/azdrive_e2e.py (prebuilt AzDrive) through run_capped, look at
   every screenshot (target/md6/drive-shots), then AzMeet (run the WHOLE meet E2E under ONE
   run_capped with `--capped ""`: the runner holds a machine-wide lock, nested runners deadlock)
