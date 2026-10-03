@@ -152,7 +152,13 @@ impl ChatLog {
     /// The chat of an earlier visit to this meeting (read from its `chat.jsonl`): listed before
     /// what was said since, all of it read; the newest [`MAX_MESSAGES`] stay.
     pub fn restore(&mut self, earlier: Vec<ChatMessage>) {
-        let _ = earlier;
+        let mut all = earlier;
+        all.append(&mut self.messages);
+        self.messages = all;
+        if self.messages.len() > MAX_MESSAGES {
+            let extra = self.messages.len() - MAX_MESSAGES;
+            self.messages.drain(..extra);
+        }
     }
 
     /// Lists `message`, dropping the oldest beyond [`MAX_MESSAGES`].

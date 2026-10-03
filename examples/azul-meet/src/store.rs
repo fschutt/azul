@@ -27,7 +27,7 @@ use azul_appkit::{
     settings::AppSettings,
 };
 use azul_storage::{Drive, LocalDrive};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::chat::ChatMessage;
 
@@ -164,15 +164,35 @@ pub fn chat_lines(messages: &[ChatMessage]) -> String {
 /// such object is skipped.
 #[must_use]
 pub fn parse_chat(text: &str, me: u64) -> Vec<ChatMessage> {
-    let _ = (text, me);
-    Vec::new()
+    #[derive(Deserialize)]
+    struct Line {
+        name: String,
+        text: String,
+        #[serde(default)]
+        mine: bool,
+    }
+    text.lines()
+        .filter_map(|line| serde_json::from_str::<Line>(line.trim()).ok())
+        .map(|l| ChatMessage {
+            from: if l.mine { me } else { 0 },
+            mine: l.mine,
+            name: l.name,
+            text: l.text,
+        })
+        .collect()
 }
 
 /// The people an earlier `meeting.json` lists (none for a file that does not read).
 #[must_use]
 pub fn record_people(text: &str) -> Vec<String> {
-    let _ = text;
-    Vec::new()
+    #[derive(Deserialize)]
+    struct People {
+        #[serde(default)]
+        people: Vec<String>,
+    }
+    serde_json::from_str::<People>(text)
+        .map(|p| p.people)
+        .unwrap_or_default()
 }
 
 /// What `meeting.json` says about a meeting.
