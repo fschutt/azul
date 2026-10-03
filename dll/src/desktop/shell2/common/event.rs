@@ -12807,7 +12807,10 @@ pub trait PlatformWindow {
                                     }
                                 }
 
-                                DefaultAction::CloseModal { .. } | DefaultAction::SelectAllText => {
+                                DefaultAction::CloseModal { .. }
+                                | DefaultAction::SelectAllText
+                                | DefaultAction::UndoTextEdit { .. }
+                                | DefaultAction::RedoTextEdit { .. } => {
                                     // Placeholder for future implementation
                                 }
                             }

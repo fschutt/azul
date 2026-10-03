@@ -1580,6 +1580,20 @@ pub enum DefaultAction {
         target: DomNodeId,
         format: TextFormat,
     },
+    /// Ctrl/Cmd+Z in an editing host: undo the host's last text edit
+    /// (`SystemChange::UndoTextEdit`). A DEFAULT action, so an editor that
+    /// keeps its own history (the rich-text editor) takes the key with
+    /// `prevent_default` - the browser keydown model. APPENDED at the enum
+    /// tail for ABI stability.
+    UndoTextEdit {
+        target: DomNodeId,
+    },
+    /// Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y in an editing host: redo
+    /// (`SystemChange::RedoTextEdit`), vetoable like
+    /// [`Self::UndoTextEdit`]. APPENDED at the enum tail for ABI stability.
+    RedoTextEdit {
+        target: DomNodeId,
+    },
 }
 
 /// A character format a rich-text editor toggles (Ctrl/Cmd+B, I, U, or a
