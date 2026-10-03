@@ -120,10 +120,22 @@ pub const ABOUT: AboutInfo = AboutInfo {
 /// The keyboard shortcuts the settings page lists.
 pub const SHORTCUTS: [Shortcut; 8] = [
     Shortcut::new("Processes", "Up  Down", "Select a process"),
-    Shortcut::new("Processes", "Page Up  Page Down", "Move by a screen of processes"),
+    Shortcut::new(
+        "Processes",
+        "Page Up  Page Down",
+        "Move by a screen of processes",
+    ),
     Shortcut::new("Processes", "Mod+Home  Mod+End", "The first / last process"),
-    Shortcut::new("Processes", "Click  Shift+Click", "Sort by a column, add a second key"),
-    Shortcut::new("Processes", "Delete", "End the selected process (asks first)"),
+    Shortcut::new(
+        "Processes",
+        "Click  Shift+Click",
+        "Sort by a column, add a second key",
+    ),
+    Shortcut::new(
+        "Processes",
+        "Delete",
+        "End the selected process (asks first)",
+    ),
     Shortcut::new("Processes", "Mod+C", "Copy the selected rows"),
     Shortcut::new("Monitor", "F5", "Read the system now"),
     Shortcut::new("Monitor", "Escape", "Close the question"),
@@ -262,7 +274,9 @@ fn stored_speed(kit_ref: &RefAny) -> u64 {
     let mut kit_ref = kit_ref.clone();
     kit_ref
         .downcast_ref::<kit::Kit>()
-        .map_or(DEFAULT_INTERVAL_MS, |k| speed_from_setting(k.settings.get(SPEED_KEY)))
+        .map_or(DEFAULT_INTERVAL_MS, |k| {
+            speed_from_setting(k.settings.get(SPEED_KEY))
+        })
 }
 
 /// The app's start: switches, the kit (settings, data root), the window.
@@ -281,7 +295,13 @@ pub fn start() {
     let interval = stored_speed(&kit_ref);
     let app = Monitor::new(kit_ref.clone(), &args, interval);
     let config = kit::app_config(&kit_ref);
-    let window = kit::window_options(&kit_ref, layout, (1200.0, 780.0), (720.0, 480.0), on_window_created);
+    let window = kit::window_options(
+        &kit_ref,
+        layout,
+        (1200.0, 780.0),
+        (720.0, 480.0),
+        on_window_created,
+    );
     App::create(RefAny::new(app), config).run(window);
 }
 
@@ -316,7 +336,10 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
 /// screen re-render in place, the status labels are rewritten; the page is
 /// built only for the first reading.
 pub extern "C" fn on_reading(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
-    let Some(snapshot) = msg.downcast_mut::<Reading>().and_then(|mut r| r.snapshot.take()) else {
+    let Some(snapshot) = msg
+        .downcast_mut::<Reading>()
+        .and_then(|mut r| r.snapshot.take())
+    else {
         return Update::DoNothing;
     };
     let (plan, labels) = {
@@ -433,16 +456,22 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     };
     let s = &*guard;
     let shell = if kit::settings_open(&s.kit) {
-        RecordsShell::create(Dom::create_div(), kit::settings_page(&s.kit, ui::settings_sections(s, &app)))
+        RecordsShell::create(
+            Dom::create_div(),
+            kit::settings_page(&s.kit, ui::settings_sections(s, &app)),
+        )
     } else if s.model.readings == 0 {
         RecordsShell::create(ui::tools(s, &app), ui::waiting(s))
     } else {
         match s.screen {
-            Screen::Processes => RecordsShell::create(ui::tools(s, &app), ui::live_view(&app, LiveView::Table))
-                .with_cards(ui::live_view(&app, LiveView::Cards)),
-            Screen::Performance => {
-                RecordsShell::create(ui::tools(s, &app), ui::live_view(&app, LiveView::Performance))
+            Screen::Processes => {
+                RecordsShell::create(ui::tools(s, &app), ui::live_view(&app, LiveView::Table))
+                    .with_cards(ui::live_view(&app, LiveView::Cards))
             }
+            Screen::Performance => RecordsShell::create(
+                ui::tools(s, &app),
+                ui::live_view(&app, LiveView::Performance),
+            ),
         }
     };
     let mut column = Dom::create_div()
@@ -461,7 +490,11 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     ShellThemeScope::create(column)
         .with_accent(ShellThemeAccent::Slate)
         .body()
-        .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app, on_key)
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::VirtualKeyDown),
+            app,
+            on_key,
+        )
 }
 
 /// Whether the keyboard focus is in the page itself (the filter field, a
@@ -484,7 +517,9 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         .get_current_keyboard_state()
         .current_virtual_keycode
         .into_option();
-    let asking = data.downcast_ref::<Monitor>().is_some_and(|s| s.confirm.is_some());
+    let asking = data
+        .downcast_ref::<Monitor>()
+        .is_some_and(|s| s.confirm.is_some());
     if asking && matches!(key, Some(VirtualKeyCode::Escape)) {
         if let Some(mut s) = data.downcast_mut::<Monitor>() {
             s.confirm = None;
@@ -548,7 +583,10 @@ mod tests {
     fn the_sort_reads_as_its_columns_and_directions() {
         assert_eq!(sort_text(&[]), "PID");
         assert_eq!(
-            sort_text(&[SortKey::new(Column::Cpu, true), SortKey::new(Column::Name, false)]),
+            sort_text(&[
+                SortKey::new(Column::Cpu, true),
+                SortKey::new(Column::Name, false)
+            ]),
             "CPU desc, Name asc"
         );
     }
