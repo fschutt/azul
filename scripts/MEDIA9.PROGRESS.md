@@ -57,22 +57,12 @@ Report: scripts/MEDIA9_2026_10_03.md (date = the day it finishes).
   f05a9d324 registered (Cargo.toml members, workspace_test_members.txt, rust.yml dll_tests step);
   c3cd9a2e9 scripts/azmusic_e2e.py. PHASE C (AzMusic) DONE (pending the parent's compile).
 
+- D bf6ba792d / ebb4c59de AzPlayer history.rs + sync.rs; 3b45d318d window (app.rs, ui.rs);
+  cc4ecf542 registered; 9d20e684a scripts/azplayer_e2e.py. PHASE D (AzPlayer) DONE.
+
 ## IN PROGRESS
-- NEXT STEP: Phase D AzPlayer in examples/azul-player (package AzPlayer, lib azplayer, bin AzPlayer;
-  register like AzMusic). Plan: MediaShell::create_player(content, now_playing_bar); content = the
-  VideoWidget (VideoConfig { source: VideoSource::File(path), autoplay, paused, timestamp } with
-  on_status -> position / duration / phase) or the library screen (recent files with resume
-  positions: player/history.json in the data tree; Open file button -> FileDialog::open_file mp4 /
-  m4v / mov; drop a file); the audio track: AudioPlayer::load_file(the same path) - audio follows
-  the video: on each video status (250 ms) if |audio - video| > 0.15 s -> AudioPlayer::seek(video
-  position); pause / play / seek drive both (video via config.paused / config.timestamp changes on
-  rebuild, audio via the player); overlay MediaControls (show_skip true: -10/+10 relabelled? the
-  widget's skips are -15/+30 - fine) + SeekBar + volume; F / double-click fullscreen
-  (WindowFrame::Fullscreen via window state), Escape leaves; keys Space, Left/Right +-10 s, Up/Down
-  volume, M mute; --sample generates a short H.264 MP4? (VideoEncoder only on Apple/Vulkan) ->
-  instead the empty state + Open file; E2E opens a generated file if the encoder exists else checks
-  the empty state. history.rs pure (tests first): resume positions, recent list (cap 20, newest
-  first, finished (>95%) restarts at 0).
+- NEXT STEP: the report scripts/MEDIA9_2026_10_03.md (what was built, commits, the api.json list
+  below, least-sure spots, test commands, twins, what is left). Write it in pieces, commit each.
 
 ## api.json so far (for the report)
 - audio.AudioFileDecoder (external azul_dll::unified::audio::AudioFileDecoder, Clone Default Drop,
