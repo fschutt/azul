@@ -94,5 +94,16 @@ RED that reproduces the real app, fix; append to scripts/LAYOUTPERF8B_2026_10_03
   no root font resolution, no fresh root nodes; 38.8-43 ms wall profiled (55-58). Log /tmp/lp8b/c2.log.
 - Still left: 76 flows / 184 misses / fc_flex_grid 59 / size_cache_miss 148 per tick - next: find them.
 
+- 7bc800e7b progress
+- cac602bc1 RED: the knob-frame page gets AzWidgets' measure shape (page column with visible overflow inside
+  the scroll column; each card holds a column-wrap group) -> cost doubles with the page again
+- e281247e7 GREEN: TaffyMeasureSpill (taffy_bridge.rs) in NodeCache - keeps evicted measurements;
+  c0ef10773 made it a 12-entry ring of any class (AzWidgets nodes see up to 4 keys/class, 7/node per pass)
+- ccd671d20 tick probe docstring: SIP-safe invocation
+- On the RIGHT library (8B), unprofiled: tick 27-30 ms, no-op relayout 12.6 ms, click regenerate 427 ms.
+- Remaining misses (AZ_TAFFY_DEBUG, /tmp/lp8b/c3.log): 173 of 184 in the form section, from the page
+  column's two measures (basis at max-content, automatic minimum at min-content) asking its items' cross
+  size at two different main sizes -> one slot class, two keys, evicting each other every pass.
+
 ## 8C NEXT
-- AZ_TAFFY_DEBUG on the CORRECT library: which nodes still miss
+- append the 8C section to scripts/LAYOUTPERF8B_2026_10_03.md
