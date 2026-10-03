@@ -65,15 +65,61 @@ impl NumberCategory {
 /// separator; `None` for Custom (the code stays as it is).
 #[must_use]
 pub fn number_code(category: NumberCategory, decimals: usize, thousands: bool) -> Option<String> {
-    let _ = (category, decimals, thousands);
-    None
+    let decimals = decimals.min(MAX_DECIMALS);
+    let fraction = if decimals > 0 {
+        format!(".{}", "0".repeat(decimals))
+    } else {
+        String::new()
+    };
+    Some(match category {
+        NumberCategory::General => String::from("general"),
+        NumberCategory::Number => format!("{}{fraction}", if thousands { "#,##0" } else { "0" }),
+        NumberCategory::Currency => format!("\"$\"#,##0{fraction}"),
+        NumberCategory::Percentage => format!("0{fraction}%"),
+        NumberCategory::Date => String::from("yyyy-mm-dd"),
+        NumberCategory::Time => String::from("hh:mm:ss"),
+        NumberCategory::Text => String::from("@"),
+        NumberCategory::Custom => return None,
+    })
 }
 
 /// The category, decimals and thousands separator a code reads as (the
 /// dialog opens on them).
 #[must_use]
 pub fn read_code(code: &str) -> (NumberCategory, usize, bool) {
-    let _ = code;
+    let code = code.trim();
+    let lower = code.to_ascii_lowercase();
+    if lower.is_empty() || lower == "general" {
+        return (NumberCategory::General, 0, false);
+    }
+    if code == "@" {
+        return (NumberCategory::Text, 0, false);
+    }
+    // The decimals: the zeros after the point of the (one) numeric section.
+    let decimals = |body: &str| body.split_once('.').map_or(0, |(_, f)| f.chars().filter(|c| *c == '0').count());
+    let numeric = |body: &str| !body.is_empty() && body.chars().all(|c| matches!(c, '#' | '0' | ',' | '.'));
+    if let Some(body) = code.strip_suffix('%') {
+        if numeric(body) {
+            return (NumberCategory::Percentage, decimals(body), false);
+        }
+    }
+    if let Some(body) = code.strip_prefix("\"$\"") {
+        if numeric(body) {
+            return (NumberCategory::Currency, decimals(body), true);
+        }
+    }
+    if numeric(code) {
+        return (NumberCategory::Number, decimals(code), code.contains(','));
+    }
+    if !code.contains(';') && !code.contains('[') {
+        let only = |allowed: &str| lower.chars().all(|c| allowed.contains(c));
+        if only("ymd-/. ") && (lower.contains('y') || lower.contains('d')) {
+            return (NumberCategory::Date, 0, false);
+        }
+        if only("hms: ") && lower.contains('h') {
+            return (NumberCategory::Time, 0, false);
+        }
+    }
     (NumberCategory::Custom, 0, false)
 }
 
@@ -110,26 +156,85 @@ impl FormatDraft {
         }
     }
 
-    /// Picks a category: the code follows.
+    /// Picks a category: the code follows. Coming from a category without
+    /// decimals, a number starts at two (Excel's default).
     pub fn set_category(&mut self, category: NumberCategory) {
-        let _ = category;
+        if category.has_decimals() && !self.category.has_decimals() {
+            self.decimals = 2;
+        }
+        self.category = category;
+        self.sync_code();
     }
 
     /// One decimal more or fewer (0 ..= [`MAX_DECIMALS`]): the code follows.
     pub fn step_decimals(&mut self, more: bool) {
-        let _ = more;
+        self.decimals = if more {
+            (self.decimals + 1).min(MAX_DECIMALS)
+        } else {
+            self.decimals.saturating_sub(1)
+        };
+        self.sync_code();
     }
 
     /// The thousands separator on or off: the code follows.
     pub fn set_thousands(&mut self, on: bool) {
-        let _ = on;
+        self.thousands = on;
+        self.sync_code();
+    }
+
+    /// The style's code from the Number tab's choices (Custom keeps it).
+    fn sync_code(&mut self) {
+        if let Some(code) = number_code(self.category, self.decimals, self.thousands) {
+            self.style.num_fmt = code;
+        }
     }
 
     /// What OK applies: one patch per property that changed, the border
     /// preset if one was picked.
     #[must_use]
     pub fn patches(&self) -> Vec<StylePatch> {
-        Vec::new()
+        let (a, b) = (&self.original, &self.style);
+        let mut out = Vec::new();
+        if a.bold != b.bold {
+            out.push(StylePatch::Bold(b.bold));
+        }
+        if a.italic != b.italic {
+            out.push(StylePatch::Italic(b.italic));
+        }
+        if a.underline != b.underline {
+            out.push(StylePatch::Underline(b.underline));
+        }
+        if a.strike != b.strike {
+            out.push(StylePatch::Strike(b.strike));
+        }
+        if a.font_size != b.font_size {
+            out.push(StylePatch::FontSize(b.font_size));
+        }
+        if a.font_color != b.font_color {
+            out.push(StylePatch::FontColor(b.font_color.clone()));
+        }
+        if a.fill != b.fill {
+            out.push(StylePatch::Fill(b.fill.clone()));
+        }
+        if a.h_align != b.h_align {
+            out.push(StylePatch::HAlign(b.h_align));
+        }
+        if a.v_align != b.v_align {
+            out.push(StylePatch::VAlign(b.v_align));
+        }
+        if a.wrap != b.wrap {
+            out.push(StylePatch::Wrap(b.wrap));
+        }
+        if a.num_fmt != b.num_fmt {
+            out.push(StylePatch::NumberFormat(b.num_fmt.clone()));
+        }
+        if let Some(preset) = self.border {
+            out.push(StylePatch::Borders {
+                preset,
+                color: self.border_color.clone(),
+            });
+        }
+        out
     }
 }
 
