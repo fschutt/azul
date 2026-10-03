@@ -37,7 +37,7 @@ Branch `wt/media6` from `25d78e309`. Brief: `scripts/waves/wave6/MEDIA6.md`.
 - (between units)
 
 ## NEXT (in order)
-8. Report scripts/MEDIA6_2026_10_03.md - IN PROGRESS. Then done.
+8. Report scripts/MEDIA6_2026_10_03.md - written. MEDIA6 done; waiting on the parent's build.
    Cross-task find: the generated azul crate has NO AzString::from_const_str (target/codegen
    dll_api_external.rs) though PLAN.md mandates `const X: AzString = AzString::from_const_str(..)`.
 
