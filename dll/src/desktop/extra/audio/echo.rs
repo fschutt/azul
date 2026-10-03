@@ -47,8 +47,426 @@ pub fn block_len(sample_rate: u32) -> usize {
     }
 }
 
+/// Most tail a canceller takes (ms): longer filters converge slowly and cost more than they cancel.
+const MAX_TAIL_MS: u32 = 2000;
+/// The background filter's step (frequency-domain NLMS): fast convergence, stable.
+const STEP: f32 = 0.8;
+/// How much of the last block's far-end power the per-bin normalization keeps.
+const POWER_SMOOTHING: f32 = 0.7;
+/// Speex's thresholds for taking the background's coefficients, and for resetting it.
+const VAR1_UPDATE: f64 = 0.5;
+const VAR2_UPDATE: f64 = 0.25;
+const VAR_BACKTRACK: f64 = 4.0;
+/// Blocks the ERLE statistic averages over (about half a second at 48 kHz).
+const ERLE_BLOCKS: f32 = 94.0;
+
+/// A complex number: an FFT sample.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+struct Complex {
+    re: f32,
+    im: f32,
+}
+
+impl Complex {
+    const ZERO: Complex = Complex { re: 0.0, im: 0.0 };
+
+    fn mul(self, o: Complex) -> Complex {
+        Complex {
+            re: self.re * o.re - self.im * o.im,
+            im: self.re * o.im + self.im * o.re,
+        }
+    }
+
+    fn conj(self) -> Complex {
+        Complex {
+            re: self.re,
+            im: -self.im,
+        }
+    }
+
+    fn norm_sqr(self) -> f32 {
+        self.re * self.re + self.im * self.im
+    }
+}
+
+/// An iterative radix-2 FFT of one power-of-two size.
+#[derive(Debug)]
+struct Fft {
+    n: usize,
+    /// `exp(-2 pi i k / n)` for `k < n / 2`.
+    twiddles: Vec<Complex>,
+    /// The bit-reversed index of every position.
+    reversed: Vec<usize>,
+}
+
+impl Fft {
+    fn new(n: usize) -> Fft {
+        debug_assert!(n.is_power_of_two() && n >= 2);
+        let bits = n.trailing_zeros();
+        let twiddles = (0..n / 2)
+            .map(|k| {
+                let angle = -2.0 * core::f64::consts::PI * k as f64 / n as f64;
+                Complex {
+                    re: angle.cos() as f32,
+                    im: angle.sin() as f32,
+                }
+            })
+            .collect();
+        let reversed = (0..n)
+            .map(|i| i.reverse_bits() >> (usize::BITS - bits))
+            .collect();
+        Fft {
+            n,
+            twiddles,
+            reversed,
+        }
+    }
+
+    /// The DFT of `a` in place (`inverse`: the inverse, scaled by `1 / n`).
+    fn transform(&self, a: &mut [Complex], inverse: bool) {
+        let n = self.n;
+        for i in 0..n {
+            let j = self.reversed[i];
+            if i < j {
+                a.swap(i, j);
+            }
+        }
+        let mut len = 2;
+        while len <= n {
+            let half = len / 2;
+            let stride = n / len;
+            for start in (0..n).step_by(len) {
+                for k in 0..half {
+                    let w = self.twiddles[k * stride];
+                    let w = if inverse { w.conj() } else { w };
+                    let u = a[start + k];
+                    let v = a[start + k + half].mul(w);
+                    a[start + k] = Complex {
+                        re: u.re + v.re,
+                        im: u.im + v.im,
+                    };
+                    a[start + k + half] = Complex {
+                        re: u.re - v.re,
+                        im: u.im - v.im,
+                    };
+                }
+            }
+            len <<= 1;
+        }
+        if inverse {
+            let scale = 1.0 / n as f32;
+            for v in a.iter_mut() {
+                v.re *= scale;
+                v.im *= scale;
+            }
+        }
+    }
+
+    /// The half spectrum (bins `0..=n/2`) of the real signal `x` (`n` samples) into `half`;
+    /// `scratch` holds `n` values.
+    fn forward_real(&self, x: &[f32], half: &mut [Complex], scratch: &mut [Complex]) {
+        for (s, v) in scratch.iter_mut().zip(x) {
+            *s = Complex { re: *v, im: 0.0 };
+        }
+        self.transform(scratch, false);
+        half.copy_from_slice(&scratch[..self.n / 2 + 1]);
+    }
+
+    /// The real signal (`n` samples, into `out`) of the half spectrum `half`; `scratch` holds
+    /// `n` values.
+    fn inverse_real(&self, half: &[Complex], out: &mut [f32], scratch: &mut [Complex]) {
+        let n = self.n;
+        scratch[..=n / 2].copy_from_slice(half);
+        for k in 1..n / 2 {
+            scratch[n - k] = half[k].conj();
+        }
+        self.transform(scratch, true);
+        for (o, s) in out.iter_mut().zip(scratch.iter()) {
+            *o = s.re;
+        }
+    }
+}
+
+/// The adaptive filters and the far end's recent spectra (see the module docs).
+#[derive(Debug)]
+struct EchoCore {
+    /// Samples in a block; the FFT is twice as long.
+    block: usize,
+    fft: Fft,
+    /// The far end's last block (overlap-save keeps one block of history).
+    prev_far: Vec<f32>,
+    /// The far end's spectra, newest first: one per partition.
+    far: std::collections::VecDeque<Vec<Complex>>,
+    /// The background (adapting) and foreground (output) filters, per partition.
+    background: Vec<Vec<Complex>>,
+    foreground: Vec<Vec<Complex>>,
+    /// The far end's power per bin over all partitions, smoothed.
+    power: Vec<f32>,
+    /// Speex's foreground-update statistics.
+    davg1: f64,
+    davg2: f64,
+    dvar1: f64,
+    dvar2: f64,
+    /// The partition the gradient constraint goes to next.
+    constrain: usize,
+    /// Smoothed near-end and output power while the far end plays (the ERLE statistic).
+    near_power: f32,
+    out_power: f32,
+    // Work buffers.
+    scratch: Vec<Complex>,
+    spectrum: Vec<Complex>,
+    time: Vec<f32>,
+}
+
+impl EchoCore {
+    fn new(block: usize, partitions: usize) -> EchoCore {
+        let n = block * 2;
+        let bins = block + 1;
+        let zeros = || vec![Complex::ZERO; bins];
+        EchoCore {
+            block,
+            fft: Fft::new(n),
+            prev_far: vec![0.0; block],
+            far: (0..partitions).map(|_| zeros()).collect(),
+            background: (0..partitions).map(|_| zeros()).collect(),
+            foreground: (0..partitions).map(|_| zeros()).collect(),
+            power: vec![0.0; bins],
+            davg1: 0.0,
+            davg2: 0.0,
+            dvar1: 0.0,
+            dvar2: 0.0,
+            constrain: 0,
+            near_power: 0.0,
+            out_power: 0.0,
+            scratch: vec![Complex::ZERO; n],
+            spectrum: zeros(),
+            time: vec![0.0; n],
+        }
+    }
+
+    /// The echo `filter` estimates for the current block (`block` samples into `out`).
+    fn estimate(&mut self, filter: &[Vec<Complex>], out: &mut [f32]) {
+        for v in self.spectrum.iter_mut() {
+            *v = Complex::ZERO;
+        }
+        for (w, x) in filter.iter().zip(self.far.iter()) {
+            for ((y, w), x) in self.spectrum.iter_mut().zip(w).zip(x) {
+                let p = w.mul(*x);
+                y.re += p.re;
+                y.im += p.im;
+            }
+        }
+        self.fft
+            .inverse_real(&self.spectrum, &mut self.time, &mut self.scratch);
+        out.copy_from_slice(&self.time[self.block..]);
+    }
+
+    /// One block: `far` was played, `near` is what the microphone captured meanwhile; `out`
+    /// gets the microphone with the echo removed.
+    fn process(&mut self, far: &[f32], near: &[f32], out: &mut [f32]) {
+        let b = self.block;
+        // The far end's newest spectrum: the last two blocks (overlap-save).
+        self.time[..b].copy_from_slice(&self.prev_far);
+        self.time[b..].copy_from_slice(far);
+        self.prev_far.copy_from_slice(far);
+        let mut newest = self.far.pop_back().unwrap_or_default();
+        newest.resize(b + 1, Complex::ZERO);
+        let input = core::mem::take(&mut self.time);
+        self.fft
+            .forward_real(&input, &mut newest, &mut self.scratch);
+        self.time = input;
+        self.far.push_front(newest);
+
+        // Both filters' echo estimates and errors.
+        let mut echo_b = vec![0.0f32; b];
+        let mut echo_f = vec![0.0f32; b];
+        let background = core::mem::take(&mut self.background);
+        self.estimate(&background, &mut echo_b);
+        self.background = background;
+        let foreground = core::mem::take(&mut self.foreground);
+        self.estimate(&foreground, &mut echo_f);
+        self.foreground = foreground;
+        let mut err_b: Vec<f32> = near.iter().zip(&echo_b).map(|(d, y)| d - y).collect();
+        let mut err_f: Vec<f32> = near.iter().zip(&echo_f).map(|(d, y)| d - y).collect();
+        let energy = |x: &[f32]| x.iter().map(|v| f64::from(*v) * f64::from(*v)).sum::<f64>();
+        let see = energy(&err_b);
+        let mut sff = energy(&err_f);
+        let dbf = echo_b
+            .iter()
+            .zip(&echo_f)
+            .map(|(a, c)| {
+                let d = f64::from(a - c);
+                d * d
+            })
+            .sum::<f64>()
+            + 1e-12;
+
+        // Take the background's coefficients when it cancels significantly better; reset it
+        // when it got significantly worse (Speex's test).
+        let gain = sff - see;
+        self.davg1 = 0.6 * self.davg1 + 0.4 * gain;
+        self.davg2 = 0.85 * self.davg2 + 0.15 * gain;
+        self.dvar1 = 0.36 * self.dvar1 + 0.16 * sff * dbf;
+        self.dvar2 = 0.7225 * self.dvar2 + 0.0225 * sff * dbf;
+        let take = gain * gain.abs() > sff * dbf
+            || self.davg1 * self.davg1.abs() > VAR1_UPDATE * self.dvar1
+            || self.davg2 * self.davg2.abs() > VAR2_UPDATE * self.dvar2;
+        let backtrack = -gain * gain.abs() > VAR_BACKTRACK * sff * dbf
+            || -self.davg1 * self.davg1.abs() > VAR_BACKTRACK * self.dvar1
+            || -self.davg2 * self.davg2.abs() > VAR_BACKTRACK * self.dvar2;
+        if take {
+            for (f, w) in self.foreground.iter_mut().zip(&self.background) {
+                f.copy_from_slice(w);
+            }
+            err_f.copy_from_slice(&err_b);
+            sff = see;
+            self.reset_statistics();
+        } else if backtrack {
+            for (w, f) in self.background.iter_mut().zip(&self.foreground) {
+                w.copy_from_slice(f);
+            }
+            err_b.copy_from_slice(&err_f);
+            self.reset_statistics();
+        }
+
+        self.adapt(&err_b);
+
+        // The output: the foreground's error, unless it is louder than the microphone.
+        let near_energy = energy(near);
+        if sff > near_energy {
+            out.copy_from_slice(near);
+        } else {
+            out.copy_from_slice(&err_f);
+        }
+        self.count_erle(far, near_energy, energy(out));
+    }
+
+    fn reset_statistics(&mut self) {
+        self.davg1 = 0.0;
+        self.davg2 = 0.0;
+        self.dvar1 = 0.0;
+        self.dvar2 = 0.0;
+    }
+
+    /// The background filter's step on its own error `err` (one block), normalized per bin by
+    /// the far end's power; one partition gets the gradient constraint.
+    fn adapt(&mut self, err: &[f32]) {
+        let b = self.block;
+        self.time[..b].fill(0.0);
+        self.time[b..].copy_from_slice(err);
+        let input = core::mem::take(&mut self.time);
+        let mut e = core::mem::take(&mut self.spectrum);
+        self.fft.forward_real(&input, &mut e, &mut self.scratch);
+        self.time = input;
+        let delta = 1e-6 * (2 * b) as f32;
+        for (k, p) in self.power.iter_mut().enumerate() {
+            let total: f32 = self.far.iter().map(|x| x[k].norm_sqr()).sum();
+            *p = POWER_SMOOTHING * *p + (1.0 - POWER_SMOOTHING) * total;
+        }
+        for (w, x) in self.background.iter_mut().zip(self.far.iter()) {
+            for (k, wk) in w.iter_mut().enumerate() {
+                let step = STEP / (self.power[k] + delta);
+                let g = x[k].conj().mul(e[k]);
+                wk.re += step * g.re;
+                wk.im += step * g.im;
+            }
+        }
+        self.spectrum = e;
+        // The gradient constraint on one partition: its impulse response must fit one block.
+        let p = self.constrain;
+        self.constrain = (self.constrain + 1) % self.background.len();
+        let mut w = core::mem::take(&mut self.background[p]);
+        let mut time = core::mem::take(&mut self.time);
+        self.fft.inverse_real(&w, &mut time, &mut self.scratch);
+        time[b..].fill(0.0);
+        self.fft.forward_real(&time, &mut w, &mut self.scratch);
+        self.time = time;
+        self.background[p] = w;
+    }
+
+    /// The ERLE statistic: near-end and output power, smoothed, while the far end plays.
+    fn count_erle(&mut self, far: &[f32], near_energy: f64, out_energy: f64) {
+        let playing = far.iter().any(|v| v.abs() > 1e-4);
+        if !playing {
+            return;
+        }
+        let a = 1.0 / ERLE_BLOCKS;
+        self.near_power = (1.0 - a) * self.near_power + a * near_energy as f32;
+        self.out_power = (1.0 - a) * self.out_power + a * out_energy as f32;
+    }
+
+    fn erle_db(&self) -> f32 {
+        if self.near_power <= 0.0 {
+            return 0.0;
+        }
+        10.0 * (self.near_power / self.out_power.max(1e-20)).log10()
+    }
+}
+
+/// The canceller between two free-running streams: the far end as it is fed, the microphone in
+/// frames of any size; blocks are cut from both, and the output keeps the input's size one block
+/// later.
+#[derive(Debug)]
+struct EchoStream {
+    core: EchoCore,
+    sample_rate: u32,
+    /// Far-end samples fed and not used yet, oldest first.
+    far: std::collections::VecDeque<f32>,
+    /// Most far-end samples kept: older ones belong to no microphone block any more.
+    max_far: usize,
+    /// Microphone samples waiting for a whole block.
+    near: Vec<f32>,
+    /// Processed samples waiting to go out (primed with one block of silence: the latency).
+    out: std::collections::VecDeque<f32>,
+}
+
+impl EchoStream {
+    fn new(sample_rate: u32, tail_ms: u32) -> EchoStream {
+        let block = block_len(sample_rate);
+        let tail = (u64::from(sample_rate) * u64::from(tail_ms.min(MAX_TAIL_MS)) / 1000) as usize;
+        let partitions = tail.div_ceil(block).max(1);
+        EchoStream {
+            core: EchoCore::new(block, partitions),
+            sample_rate,
+            far: std::collections::VecDeque::new(),
+            max_far: tail + 2 * block,
+            near: Vec::with_capacity(block),
+            out: std::iter::repeat(0.0).take(block).collect(),
+        }
+    }
+
+    fn far_end(&mut self, samples: &[f32]) {
+        self.far.extend(samples.iter().copied());
+        let excess = self.far.len().saturating_sub(self.max_far);
+        self.far.drain(..excess);
+    }
+
+    fn process(&mut self, samples: &[f32]) -> Vec<f32> {
+        let b = self.core.block;
+        let mut far = vec![0.0f32; b];
+        let mut out = vec![0.0f32; b];
+        for s in samples {
+            self.near.push(*s);
+            if self.near.len() < b {
+                continue;
+            }
+            // The far end of this block: what was fed first (silence where nothing was).
+            for f in far.iter_mut() {
+                *f = self.far.pop_front().unwrap_or(0.0);
+            }
+            self.core.process(&far, &self.near, &mut out);
+            self.out.extend(out.iter().copied());
+            self.near.clear();
+        }
+        self.out
+            .drain(..samples.len().min(self.out.len()))
+            .collect()
+    }
+}
+
 /// An echo canceller handle: feed it what is played ([`far_end`](Self::far_end)) and pass the
-/// microphone through [`process`](Self::process).
+/// microphone through [`process`](Self::process). Its methods may be called from different
+/// threads (the playout's and the microphone's): the state sits behind a lock.
 #[repr(C)]
 pub struct EchoCanceller {
     pub ptr: *mut c_void,
@@ -78,9 +496,25 @@ impl EchoCanceller {
     /// after the sound was played (the audio buffers' delay plus the room's reverberation;
     /// [`DEFAULT_TAIL_MS`] when unsure). Closed for a zero rate or tail.
     pub fn create(sample_rate: u32, tail_ms: u32) -> EchoCanceller {
-        // RED stub: no canceller yet.
-        let _ = (sample_rate, tail_ms);
-        EchoCanceller::default()
+        if sample_rate == 0 || tail_ms == 0 {
+            return EchoCanceller::default();
+        }
+        let inner = Box::new(std::sync::Mutex::new(EchoStream::new(sample_rate, tail_ms)));
+        EchoCanceller {
+            ptr: Box::into_raw(inner) as *mut c_void,
+            run_destructor: true,
+        }
+    }
+
+    /// The stream behind an open handle, locked (through a poisoned lock: the state is plain
+    /// data).
+    fn stream(&self) -> Option<std::sync::MutexGuard<'_, EchoStream>> {
+        let inner = unsafe { (self.ptr as *const std::sync::Mutex<EchoStream>).as_ref() }?;
+        Some(
+            inner
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
     }
 
     /// Whether the canceller opened.
@@ -92,8 +526,14 @@ impl EchoCanceller {
     /// frame that goes to the speaker, in order, when it is handed to the output. False when the
     /// canceller is not open or the frame is in another format.
     pub fn far_end(&self, frame: AudioFrame) -> bool {
-        let _ = frame;
-        false
+        let Some(mut stream) = self.stream() else {
+            return false;
+        };
+        if frame.sample_rate != stream.sample_rate || frame.channels != 1 {
+            return false;
+        }
+        stream.far_end(frame.samples.as_ref());
+        true
     }
 
     /// The near end: `frame` as the microphone captured it (mono, at the canceller's rate),
@@ -103,22 +543,40 @@ impl EchoCanceller {
     ///
     /// [`latency`]: Self::latency_samples
     pub fn process(&self, frame: AudioFrame) -> AudioFrame {
-        frame
+        let Some(mut stream) = self.stream() else {
+            return frame;
+        };
+        if frame.sample_rate != stream.sample_rate || frame.channels != 1 {
+            return frame;
+        }
+        let out = stream.process(frame.samples.as_ref());
+        AudioFrame {
+            sample_rate: frame.sample_rate,
+            channels: 1,
+            samples: F32Vec::from_vec(out),
+        }
     }
 
     /// How many samples `process` delays the microphone by (one block).
     pub fn latency_samples(&self) -> u32 {
-        0
+        self.stream().map_or(0, |stream| {
+            u32::try_from(stream.core.block).unwrap_or(u32::MAX)
+        })
     }
 
     /// How much of the echo is removed right now, in dB (echo return loss enhancement, over the
     /// last half second the far end played); 0 while nothing played.
     pub fn erle_db(&self) -> f32 {
-        0.0
+        self.stream().map_or(0.0, |stream| stream.core.erle_db())
     }
 
     /// Release the canceller. (Drop does this too.)
     pub fn close(&mut self) {
+        if self.run_destructor && !self.ptr.is_null() {
+            unsafe {
+                drop(Box::from_raw(self.ptr as *mut std::sync::Mutex<EchoStream>));
+            }
+        }
         self.ptr = core::ptr::null_mut();
         self.run_destructor = false;
     }
