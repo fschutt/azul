@@ -1301,12 +1301,16 @@ fn reading_pane(s: &MailApp, app: &RefAny) -> Dom {
         Dom::create_span_with_text(open.error.as_str()).with_css("padding: 16px; color: #b3261e;")
     } else {
         match html {
-            // The mail's own sizes are its author's: the zoom scales what it leaves to the
-            // paper (an `em` of the pane's font). azul has no CSS `zoom` yet (MAIL6 report).
-            Some(sanitized) if (s.zoom - 100.0).abs() > f32::EPSILON => Dom::create_div()
-                .with_css(format!("font-size: {:.2}em;", s.zoom / 100.0))
-                .with_child(html_body(sanitized)),
-            Some(sanitized) => html_body(sanitized),
+            // A mail wider than the pane (its paper grows with it, `html.rs`) scrolls sideways
+            // here. The zoom scales what the mail leaves to the paper (an `em` of the pane's
+            // font); its own px sizes are its author's - azul has no CSS `zoom` yet (report).
+            Some(sanitized) => {
+                let mut css = String::from("overflow-x: auto;");
+                if (s.zoom - 100.0).abs() > f32::EPSILON {
+                    css.push_str(&format!(" font-size: {:.2}em;", s.zoom / 100.0));
+                }
+                Dom::create_div().with_css(css).with_child(html_body(sanitized))
+            }
             None => plain_body(&view.text, s.zoom),
         }
     };
