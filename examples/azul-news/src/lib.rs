@@ -25,6 +25,7 @@ pub mod library;
 pub mod links;
 pub mod opml;
 pub mod reader;
+pub mod sample;
 pub mod state;
 pub mod store;
 pub mod xmltree;
