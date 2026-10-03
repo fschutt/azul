@@ -3,16 +3,39 @@
 Branch `wt/mail6` from `25d78e309`. Brief: scripts/waves/wave6/MAIL6.md. Report: scripts/MAIL6_2026_10_03.md.
 
 ## DONE
-- (none yet)
+- 3059d3be7 progress file
+- LOOK run 1 + 2 (prebuilt AzMail aa59b2d84, `--sample`, headless, capped): screenshots in
+  target/mail6-look/ (not committed). Drivers: scratchpad look.py / look2.py (main, open message, compose,
+  backstage; flat/flora x light/dark via the debug server's set_theme / set_mode).
 
 ## IN PROGRESS
-- LOOK: run the prebuilt AzMail (aa59b2d84) headless, screenshots flat/flora x light/dark, write down what is broken.
+- fixing the LOOK list (below), RED first.
 
 ## NEXT
-- fix list (below), RED first.
+- (see plan below)
+
+## Seen broken (LOOK, prebuilt aa59b2d84)
+1. APP: the window content is only ~490 px of the 860 px window (main), ~480 of 680 (compose), ~310 (backstage):
+   the body is `display: flex; flex-direction: column` WITHOUT `height: 100%` (AzCalendar / AzMeet set it), so it
+   is as tall as its content. The navigation pane's module buttons (Mail / Calendar / Contacts / Tasks) are cut off.
+2. ENGINE (solver3 layout cache - MAILENG6): opening the HTML newsletter ("Garden Weekly") collapses the PIM shell's
+   inner SplitPane (message list | reading pane): both panes 0 px wide (hierarchy: split 826 px, first 0, second 0;
+   every descendant 0 wide, the subject wraps per letter). Plain-text mail is fine; View > Plain Text on the same
+   mail is fine; a window RESIZE afterwards lays it out right (list 385, reading 532). So the incremental /
+   cached relayout after the DOM change keeps a min-content (0) layout of the split's children. Repro: AzMail
+   --sample, click "Garden Weekly: bulbs, frost and a sale" (the mail has a `<table width=600>`).
+3. HEADLESS (HEADLESS6?): the compose window (a second window) does not follow the debug server's `set_mode`
+   (app-wide `callback_info.set_mode`): it stays light in "dark" while `set_theme` reaches it.
+4. RENDER (headless screenshot): after several relayouts the text in screenshots is smeared (drawn several times at
+   sub-pixel offsets): backstage_flat_light.png, l2_resize.png. The first frame is crisp.
+5. APP: the HTML mail's paper in dark mode: a black frame around the mail's white table, the table's green header
+   wider than the paper (600 px table in a narrower paper, no horizontal scroll).
+6. APP (Outlook look): no zoom in the status bar (Outlook 2010: zoom slider bottom right).
+7. APP: About is a backstage page with hand-written shortcut lines ("Ctrl+N" on macOS too), not the standard
+   AboutDialog; the shortcuts are listed twice (About text and the key handler).
+8. APP: the To-Do bar's tasks are in memory (lost on restart).
 
 ## Decisions
-- (none yet)
-
-## Seen broken (LOOK)
-- (to fill)
+- Labels stay English (Outlook 2010 English: File / Home / Send / Receive / Folder / View; groups New, Delete,
+  Respond, Quick Steps, Move, Tags, Find, Send/Receive) like every Azlin app; the brief's German names are the
+  same Outlook 2010 controls.
