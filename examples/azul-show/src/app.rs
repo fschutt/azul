@@ -3,13 +3,14 @@
 //! (snap guides, marquee), the pictures, the slide show in flight; and the
 //! [`Command`]s the ribbon, the backstage, the menus and the keys run.
 
-use std::{collections::HashMap, path::PathBuf, time::Instant};
+use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Instant};
 
 use azul::{
     callbacks::RefAny,
     image::ImageRef,
     widgets::{AdornerFrame, AdornerGuide},
 };
+use azul_storage::{Drive, LocalDrive};
 
 use crate::{
     args::Args,
@@ -74,11 +75,12 @@ pub enum BackstagePage {
     Export,
     Close,
     Options,
+    About,
 }
 
 impl BackstagePage {
     /// The navigation, top to bottom.
-    pub const NAV: [BackstagePage; 7] = [
+    pub const NAV: [BackstagePage; 8] = [
         BackstagePage::Info,
         BackstagePage::New,
         BackstagePage::Open,
@@ -86,6 +88,7 @@ impl BackstagePage {
         BackstagePage::Export,
         BackstagePage::Close,
         BackstagePage::Options,
+        BackstagePage::About,
     ];
 
     #[must_use]
@@ -98,6 +101,7 @@ impl BackstagePage {
             BackstagePage::Export => "Export",
             BackstagePage::Close => "Close",
             BackstagePage::Options => "Options",
+            BackstagePage::About => "About",
         }
     }
 
@@ -181,20 +185,29 @@ pub struct AppState {
     pub new_fonts: usize,
     pub new_size: SlideSize,
     pub show: Option<ShowRuntime>,
-    /// `<data root>`: decks are under `<data root>/show/`.
+    /// `<data root>`: decks are under `<data root>/show/` (for the user's
+    /// eyes: files go through `drive`).
     pub data_root: PathBuf,
+    /// The ONE drive every storage job goes through - a `LocalDrive` on
+    /// `data_root` today, an `S3Drive` later with no other change
+    /// (DEDUP_OFFICE D21: a root path per job was an S3 blocker).
+    pub drive: Arc<dyn Drive>,
+    /// azul-appkit's kit (settings, data root, shortcuts, About); `None` in
+    /// the unit tests.
+    pub kit: Option<RefAny>,
     /// The status bar's last message ("Saved", an error).
     pub message: String,
     /// Storage jobs in flight.
     pub busy: usize,
-    pub settings_category: usize,
     pub args: Args,
     /// The element whose text gets the focus after the next layout.
     pub focus_text: Option<u64>,
-    /// The mode the user chose (Options): dark, light, or the system's.
-    pub mode_choice: Option<bool>,
     /// The build / transition player's timer is running.
     pub playing_timer: bool,
+    /// The window is asking "save changes?" (the close guard).
+    pub asking_close: bool,
+    /// The window closes once the save in flight is written.
+    pub close_after_save: bool,
 }
 
 impl AppState {
@@ -217,14 +230,16 @@ impl AppState {
             new_fonts: 0,
             new_size: SlideSize::Wide,
             show: None,
+            drive: Arc::new(LocalDrive::new(data_root.clone())),
             data_root,
+            kit: None,
             message: String::new(),
             busy: 0,
-            settings_category: 0,
             args,
             focus_text: None,
-            mode_choice: None,
             playing_timer: false,
+            asking_close: false,
+            close_after_save: false,
         }
     }
 
@@ -357,10 +372,6 @@ pub enum Command {
     ZoomFit,
     ToggleNotes,
     RibbonTab(usize),
-    // ---- app ----
-    AppTheme(String),
-    Mode(Option<bool>),
-    SettingsCategory(usize),
 }
 
 /// A button's payload: the app and the command it runs.
@@ -395,6 +406,7 @@ mod tests {
     fn the_views_and_pages_know_their_place() {
         assert_eq!(View::Outline.index(), 2);
         assert_eq!(BackstagePage::Open.index(), 2);
-        assert_eq!(BackstagePage::NAV.len(), 7);
+        assert_eq!(BackstagePage::NAV.len(), 8);
+        assert_eq!(BackstagePage::About.label(), "About");
     }
 }
