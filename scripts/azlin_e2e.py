@@ -226,16 +226,29 @@ class App:
         return any(text in t for t in self.texts())
 
     def has_id(self, node_id):
-        answer = self.op("get_node_layout", selector="#%s" % node_id)
+        return self.has("#%s" % node_id)
+
+    def rect(self, node_id):
+        value = self.value("get_node_layout", selector="#%s" % node_id)
+        return value.get("rect") or {}
+
+    def has(self, selector):
+        """Whether `selector` (any CSS selector the debug server reads) names a laid-out node."""
+        try:
+            answer = self.op("get_node_layout", selector=selector)
+        except (OSError, ValueError, urllib.error.URLError):
+            return False
         if not isinstance(answer, dict) or answer.get("status") == "error":
             return False
         data = answer.get("data") or {}
         value = data.get("value") if isinstance(data, dict) else None
         return isinstance(value, dict) and value.get("node_id") is not None
 
-    def rect(self, node_id):
-        value = self.value("get_node_layout", selector="#%s" % node_id)
-        return value.get("rect") or {}
+    def box(self, selector):
+        """The laid-out rect of `selector` (window coordinates before scrolling) as floats."""
+        value = self.value("get_node_layout", selector=selector)
+        r = (value or {}).get("rect") or {}
+        return {key: float(r.get(key, 0)) for key in ("x", "y", "width", "height")}
 
     # ---- the app's DOM names ----
     # Every Azlin app's ids and classes carry its prefix (`__azcontacts_`, ...: the wave-6 prefix
@@ -289,6 +302,20 @@ class App:
         # chord's modifiers would leave them held - every later click a Cmd / Shift + click.
         self.must("key_up", key=key, modifiers=RELEASED)
         self.frame(frames)
+
+    def drag(self, x0, y0, x1, y1, steps=8):
+        """A mouse drag from (x0, y0) to (x1, y1) in `steps` moves, a frame each: what starts
+        an app's drag (`draggable`, DragStart) and drops it (DragOver, Drop)."""
+        self.must("mouse_move", x=x0, y=y0)
+        self.frame(1)
+        self.must("mouse_down", x=x0, y=y0)
+        self.frame(1)
+        for i in range(1, steps + 1):
+            t = i / float(steps)
+            self.must("mouse_move", x=x0 + (x1 - x0) * t, y=y0 + (y1 - y0) * t)
+            self.frame(1)
+        self.must("mouse_up", x=x1, y=y1)
+        self.frame(2)
 
     def type_keys(self, keys):
         """keys: a list of key names or (name, {"shift": True}) pairs."""
