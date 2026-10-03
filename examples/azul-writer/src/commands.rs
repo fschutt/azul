@@ -22,18 +22,6 @@ use crate::{
     paginate, storage,
 };
 
-/// The stronger of two updates.
-#[must_use]
-pub fn merge(a: Update, b: Update) -> Update {
-    match (a, b) {
-        (Update::RefreshDomAllWindows, _) | (_, Update::RefreshDomAllWindows) => {
-            Update::RefreshDomAllWindows
-        }
-        (Update::RefreshDom, _) | (_, Update::RefreshDom) => Update::RefreshDom,
-        _ => Update::DoNothing,
-    }
-}
-
 /// A button's click: the command it carries.
 pub extern "C" fn on_command(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((mut app, cmd)) = data
@@ -318,11 +306,5 @@ mod tests {
         let docx = include_bytes!("../testdata/sample.docx");
         let doc = import_bytes("Report.DOCX", docx).expect("word");
         assert_eq!(crate::model::title_of(&doc), "A Real Heading");
-    }
-
-    #[test]
-    fn the_stronger_update_wins() {
-        assert!(matches!(merge(Update::DoNothing, Update::RefreshDom), Update::RefreshDom));
-        assert!(matches!(merge(Update::DoNothing, Update::DoNothing), Update::DoNothing));
     }
 }

@@ -139,7 +139,7 @@ extern "C" fn on_style(mut data: RefAny, mut info: CallbackInfo, index: usize) -
     let mut update = Update::DoNothing;
     for cmd in commands {
         let next = crate::commands::run(&mut app, Command::Rich(cmd), &mut info);
-        update = crate::commands::merge(update, next);
+        update.max_self(next);
     }
     update
 }
