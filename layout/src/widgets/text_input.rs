@@ -1486,6 +1486,14 @@ fn mirror_insertion(state: &mut TextInputState, inserted: &str, caret: Option<us
 }
 
 /// The caret's byte offset inside the edited node, if the engine has one.
+/// The byte offset in `text` a caret stands at: a LEADING caret before its
+/// grapheme cluster, a TRAILING one after it.
+fn caret_byte(cursor: &azul_core::selection::TextCursor, text: &str) -> usize {
+    // RED: the affinity is not read yet.
+    let _ = text;
+    cursor.cluster_id.start_byte_in_run as usize
+}
+
 fn engine_caret(info: &CallbackInfo, node: DomNodeId) -> Option<usize> {
     info.get_node_cursor_position(node)
         .map(|c| c.cluster_id.start_byte_in_run as usize)
@@ -5158,5 +5166,47 @@ mod structure_tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod caret_tests {
+    use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
+
+    use super::caret_byte;
+
+    fn at(start_byte_in_run: u32, affinity: CursorAffinity) -> TextCursor {
+        TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run,
+            },
+            affinity,
+        }
+    }
+
+    /// End puts the engine's caret on the LAST cluster, trailing: the widget's
+    /// mirror inserted one character early ("notes.txt", End, "X" mirrored as
+    /// "notes.txXt" while the field showed "notes.txtX").
+    #[test]
+    fn a_trailing_caret_stands_after_its_cluster() {
+        assert_eq!(caret_byte(&at(8, CursorAffinity::Trailing), "notes.txt"), 9);
+        assert_eq!(caret_byte(&at(0, CursorAffinity::Trailing), "notes.txt"), 1);
+        // A cluster of several bytes is stepped over whole.
+        assert_eq!(caret_byte(&at(1, CursorAffinity::Trailing), "a\u{e9}b"), 3);
+        assert_eq!(caret_byte(&at(1, CursorAffinity::Trailing), "ae\u{301}b"), 4);
+    }
+
+    #[test]
+    fn a_leading_caret_stands_before_its_cluster() {
+        assert_eq!(caret_byte(&at(8, CursorAffinity::Leading), "notes.txt"), 8);
+        assert_eq!(caret_byte(&at(0, CursorAffinity::Leading), "notes.txt"), 0);
+    }
+
+    #[test]
+    fn a_caret_past_the_text_stays_inside_it() {
+        assert_eq!(caret_byte(&at(9, CursorAffinity::Trailing), "notes.txt"), 9);
+        assert_eq!(caret_byte(&at(40, CursorAffinity::Leading), "notes.txt"), 9);
+        assert_eq!(caret_byte(&at(0, CursorAffinity::Trailing), ""), 0);
     }
 }
