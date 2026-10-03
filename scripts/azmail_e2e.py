@@ -588,19 +588,19 @@ class SampleRun(Run):
         return window
 
     def close_guard(self, window):
-        self.type_into(PREFIX + 'compose_subject', 'Bulb order', window)
-        # The window's close (the title bar's button, Alt+F4): an edited mail is held and
-        # asked about (CloseRequested + prevent_window_close, the CloseGuard widget).
-        self.must('close', window)
-        self.frame(None, 2)
         try:
+            self.type_into(PREFIX + 'compose_subject', 'Bulb order', window)
+            # The window's close (the title bar's button, Alt+F4): an edited mail is held and
+            # asked about (CloseRequested + prevent_window_close, the CloseGuard widget).
+            self.must('close', window)
+            self.frame(None, 2)
             self.until('the "save changes?" question',
                        lambda: self.shows('Do you want to save changes', window), limit=20)
             asked = window not in self.printed('AZMAIL_COMPOSE_CLOSED')
             self.check('closing an edited mail asks "save changes?" and keeps the window', asked)
             self.click("Don't Save", window)
             self.until('the compose window to close', lambda: window in self.printed(
-                'AZMAIL_COMPOSE_CLOSED'))
+                'AZMAIL_COMPOSE_CLOSED'), limit=20)
             self.check('"Don\'t Save" closes the window', True)
         except Failure as e:
             self.check('closing an edited mail asks "save changes?"', False, str(e))
