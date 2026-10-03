@@ -959,3 +959,8 @@ mod tests {
         );
     }
 }
+
+/// `ParsedPdf` (PDF9): page count, page sizes, page N as SVG, page text, outline.
+#[cfg(all(test, feature = "pdf"))]
+#[path = "parsed_tests.rs"]
+mod parsed_tests;
