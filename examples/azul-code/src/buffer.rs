@@ -533,6 +533,21 @@ impl TextBuffer {
         self.saved_depth = self.undo.len();
         self.typing = false;
     }
+
+    /// How many undo steps lead here (what a save in flight remembers).
+    #[must_use]
+    pub fn depth(&self) -> usize {
+        self.undo.len()
+    }
+
+    /// The text as it was at undo depth `depth` reached the disk (a save
+    /// that started there finished; edits made since keep it dirty).
+    pub fn mark_saved_at(&mut self, depth: usize) {
+        self.saved_depth = depth;
+        if depth == self.undo.len() {
+            self.typing = false;
+        }
+    }
 }
 
 /// `text` with its CRLF and lone CR breaks as LF.
