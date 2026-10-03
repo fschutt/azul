@@ -164,7 +164,7 @@ pub fn status_bar(app: &RefAny, st: &AppState) -> Dom {
         StatusBarSegment::create(s(&page_label)),
         StatusBarSegment::create(s(&format!("{words} WORDS"))).with_marker(st.word_count_marker.clone()),
     ];
-    if st.saving {
+    if st.is_saving() {
         segments.push(StatusBarSegment::create(s("SAVING")).with_icon(s("cloud_upload")));
     }
     if !st.notice.is_empty() {

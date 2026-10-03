@@ -119,11 +119,14 @@ pub struct AppState {
     pub view: View,
     /// The last notice for the user ("" = none).
     pub notice: String,
-    /// A save of the open document is on the way.
-    pub saving: bool,
-    /// What the save on the way writes: `(document id, Markdown)`; the
-    /// document is clean at that text once the save answers.
-    pub pending_save: Option<(String, String)>,
+    /// The saves on the way: `(document id, the Markdown it writes)`; a
+    /// document is clean at that text once its save answers.
+    pub pending_saves: Vec<(String, String)>,
+    /// The sample document was made (`--sample`, once).
+    pub sample_done: bool,
+    /// A document imported at start (a file on the command line) is saved
+    /// into the data tree once the window is up.
+    pub save_on_start: bool,
     /// The window closes once the save on the way is done.
     pub close_after_save: bool,
     /// The "Save changes?" question is showing.
@@ -154,14 +157,21 @@ impl AppState {
             zoom_percent: 100.0,
             view: View::Print,
             notice: String::new(),
-            saving: false,
-            pending_save: None,
+            pending_saves: Vec::new(),
+            sample_done: false,
+            save_on_start: false,
             close_after_save: false,
             asking_close: false,
             about_open: false,
             sample,
             word_count_marker: azul::uuid::Uuid::short(),
         }
+    }
+
+    /// A save is on the way.
+    #[must_use]
+    pub fn is_saving(&self) -> bool {
+        !self.pending_saves.is_empty()
     }
 
     /// The open document has changes its file does not.

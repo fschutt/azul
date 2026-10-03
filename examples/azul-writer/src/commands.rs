@@ -73,8 +73,7 @@ pub fn save(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, tag: u64) 
     };
     let markdown = doc.markdown();
     let job = storage::save_job(&doc.id, &markdown);
-    st.pending_save = Some((doc.id.clone(), markdown));
-    st.saving = true;
+    st.pending_saves.push((doc.id.clone(), markdown));
     spawn(st, info, app, vec![job], tag);
 }
 

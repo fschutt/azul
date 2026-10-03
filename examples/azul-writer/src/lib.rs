@@ -1,1027 +1,438 @@
-mod args;
-mod backstage_ui;
-mod document;
-mod editor_ui;
-mod fonts;
-pub mod ir;
-mod palette;
-mod perf;
-mod ribbon_ui;
+//! AzWriter: a Word-style document editor on the public azul API.
+//!
+//! The window is the S1 `DocumentShell` (the app-drawn `Titlebar` under
+//! `WindowDecorations::NoTitle`, the ribbon or the backstage, the A4 pages,
+//! the status bar) inside a `ShellThemeScope`, behind a `CloseGuard` that
+//! asks "Save changes?"; it follows the app theme (flat / flora) and the
+//! OS mode. The text is azul's shared rich-text editor (`RichTextEditor` +
+//! `RichTextDoc`, the one AzNotes and AzMail's compose window use): one
+//! document, ONE undo history (Ctrl/Cmd+Z included), formats from the
+//! engine, one editing host per page (`RichTextEditor::page_doms`, the
+//! pages from the engine's pagination). Documents are Markdown files in the
+//! data tree, `writer/<uuid>.md`, exports in `writer/exports/`, written
+//! through azul-storage from a `Thread` (azul-appkit's file jobs); args,
+//! settings, About and the shortcuts are azul-appkit's.
+//!
+//! On stdout, for scripts (`scripts/azwriter_e2e.py`): `AZWRITER_READY`,
+//! `AZWRITER_LISTED <n>`, `AZWRITER_OPENED <id>`, `AZWRITER_SAVED <id>`,
+//! `AZWRITER_EXPORTED <key>`, `AZWRITER_PAGES <n>`, `AZWRITER_DELETED <id>`.
 
-use std::path::{Path, PathBuf};
+pub mod app;
+mod backstage;
+pub mod commands;
+pub mod docx;
+pub mod ids;
+pub mod model;
+pub mod pages;
+pub mod paginate;
+mod ribbon;
+pub mod storage;
 
 use azul::{
-    app::{App, AppConfig},
-    callbacks::{
-        CallbackInfo, LayoutCallbackInfo, RefAny, TimerCallbackInfo,
-        TimerCallbackReturn, Update, WriteBackCallback,
-    },
-    css::{DocumentOperation, LayoutSize, SystemStyleDependency},
-    dialog::{FileDialog, FileOpenResult, SaveTargetResult},
-    dom::{Callback, Dom, DomId, DomNodeId},
-    file::FilePath,
-    option::{
-        OptionFileTypeList, OptionLogicalRect, OptionRefAny, OptionString, OptionThreadSendMsg,
-    },
-    pdf::Pdf,
+    app::App,
+    callbacks::{CallbackInfo, LayoutCallbackInfo, RefAny, TimerCallbackInfo, TimerCallbackReturn, Update},
+    css::EventFilter,
+    dom::{Dom, VirtualKeyCode},
+    font::FontCacheSnapshot,
+    shells::{DocumentShell, ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
-    svg::{CssPath, CssPathSelector, LogicalRect},
-    task::{
-        TerminateTimer, Thread, ThreadId, ThreadReceiveMsg, ThreadReceiver, ThreadSendMsg,
-        ThreadSender, ThreadWriteBackMsg, Timer, TimerId,
-    },
+    task::{Timer, TimerId},
     time::{Duration, SystemTimeDiff},
-    widgets::SliderState,
-    window::{WindowCreateOptions, WindowDecorations, WindowFrame},
+    widgets::{
+        AboutDialog, CloseGuard, CloseGuardEvent, CloseGuardEventKind, Modal, ModalState,
+        StandardDialogEvent,
+    },
+    window::WindowEventFilter,
+};
+use azul_appkit::{
+    about::AboutInfo,
+    args::{AppArgs, AppSpec},
+    files::FileOutcome,
+    shortcuts::Shortcut,
+    ui as kit,
 };
 
-pub use crate::args::Args;
-use crate::document::{DocumentModel, FontCacheSnapshot};
+pub use crate::app::AppState;
+use crate::{
+    app::{BackstagePage, Command, Screen},
+    model::DocumentModel,
+};
 
-static WINDOW_ARGS: std::sync::OnceLock<Args> = std::sync::OnceLock::new();
+// ==== The app's facts ====
 
-struct FrameTimer(Option<std::time::Instant>);
-impl FrameTimer {
-    fn start() -> Self {
-        Self((perf::mode() != perf::Mode::Off).then(std::time::Instant::now))
-    }
-}
-impl Drop for FrameTimer {
-    fn drop(&mut self) {
-        let Some(t) = self.0 else { return };
-        let d = t.elapsed();
-        let n = perf::next_frame_number();
-        let phases = perf::take_phases();
-        let over_budget = d > std::time::Duration::from_millis(8);
-        if !over_budget && perf::mode() != perf::Mode::All {
-            return;
-        }
-        eprintln!("[frame #{n}] layout() took {d:?}");
-        for (name, dur) in phases {
-            eprintln!("[frame #{n}]   {name:<22} {dur:?}");
-        }
-    }
-}
+pub const SCREENS: [&str; 4] = ["editor", "open", "new", "settings"];
 
-fn root_dom_id() -> DomId {
-    DomId { inner: 0 }
-}
+pub const SPEC: AppSpec = AppSpec {
+    name: "AzWriter",
+    binary: "AzWriter",
+    summary: "documents on A4 pages, kept as Markdown files",
+    screens: &SCREENS,
+    files_help: "Markdown (.md) or Word (.docx) files to import as new documents",
+};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Screen {
-    Editor,
-    Backstage,
-}
+pub const ABOUT: AboutInfo = AboutInfo {
+    name: "AzWriter",
+    version: env!("CARGO_PKG_VERSION"),
+    summary: "A document editor with A4 pages: headings, lists, tables, page breaks, Word import \
+              and PDF export. Every document is a Markdown file in your data folder.",
+    license: "MIT",
+    app_folder: storage::APP_FOLDER,
+};
 
-#[derive(Clone)]
-pub struct AppState {
-    pub screen: Screen,
-    pub backstage_pane: usize,
-    pub ribbon_tab: usize,
-    pub bold: bool,
-    pub italic: bool,
-    pub underline: bool,
-    pub align: usize,
-    pub selected_style: usize,
-    pub view_mode: usize,
-    pub zoom_percent: f32,
-    pub editing_page: usize,
-    pub undo_stack: Vec<(DocumentOperation, Vec<u32>)>,
-    pub redo_stack: Vec<(DocumentOperation, Vec<u32>)>,
-    pub document: DocumentModel,
-    pub exact_page_count: Option<(u64, usize)>,
-    pub pages_vv_node: Option<DomNodeId>,
-    pub pagination_thread: Option<(u64, ThreadId)>,
-    pub word_count_marker: AzString,
-}
+pub const SHORTCUTS: [Shortcut; 14] = [
+    Shortcut::new("Document", "Mod+N", "New document"),
+    Shortcut::new("Document", "Mod+O", "Open a document"),
+    Shortcut::new("Document", "Mod+S", "Save"),
+    Shortcut::new("Document", "Mod+P", "Export as PDF"),
+    Shortcut::new("Editing", "Mod+Z", "Undo"),
+    Shortcut::new("Editing", "Mod+Shift+Z / Mod+Y", "Redo"),
+    Shortcut::new("Editing", "Mod+B / Mod+I / Mod+U", "Bold / italic / underline"),
+    Shortcut::new("Editing", "Mod+Shift+X", "Strikethrough"),
+    Shortcut::new("Editing", "Mod+E", "Inline code"),
+    Shortcut::new("Editing", "Mod+0 / 1 / 2 / 3", "Normal text / heading 1 - 3"),
+    Shortcut::new("Editing", "Mod+Shift+7 / 8 / 9", "Numbered / bulleted / check list"),
+    Shortcut::new("Editing", "Tab / Shift+Tab", "Indent / outdent a list item"),
+    Shortcut::new("Window", "Escape", "Leave File, close About"),
+    Shortcut::new("Window", "F6", "The next pane"),
+];
 
-impl Default for AppState {
-    fn default() -> Self {
-        Self {
-            screen: Screen::Editor,
-            backstage_pane: 0,
-            ribbon_tab: 0,
-            bold: false,
-            italic: false,
-            underline: false,
-            align: 0,
-            selected_style: 0,
-            view_mode: 1,
-            zoom_percent: 100.0,
-            editing_page: 0,
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
-            document: DocumentModel::untitled(),
-            exact_page_count: None,
-            pages_vv_node: None,
-            pagination_thread: None,
-            word_count_marker: azul::uuid::Uuid::short(),
-        }
-    }
-}
+// ==== Start ====
 
-const PAGINATION_CHUNK_BLOCKS: u32 = 64;
-
-struct PaginationThreadInit {
-    ir: ir::IrDocument,
-    generation: u64,
-    fonts: Option<FontCacheSnapshot>,
-}
-
-struct PaginationChunk {
-    generation: u64,
-    pages_so_far: usize,
-    paths_so_far: Vec<Vec<u32>>,
-    done: bool,
-}
-
-extern "C" fn pagination_worker(
-    mut init: RefAny,
-    mut sender: ThreadSender,
-    mut recv: ThreadReceiver,
-) {
-    use azul::dom::DomSplit;
-
-    let (doc_ir, generation, fonts) = {
-        let Some(init) = init.downcast_ref::<PaginationThreadInit>() else {
-            return;
-        };
-        (init.ir.clone(), init.generation, init.fonts.clone())
-    };
-
-    let total_blocks = doc_ir.blocks.len() as u32;
-    let content = document::content_dom_from_ir(&doc_ir);
-
-    let mut remaining = content;
-    let mut block_offset: u32 = 0;
-    let mut paths_acc: Vec<Vec<u32>> = Vec::new();
-    let mut pages_acc: usize = 0;
-
-    loop {
-        if matches!(
-            recv.recv(),
-            OptionThreadSendMsg::Some(ThreadSendMsg::TerminateThread)
-        ) {
-            return;
-        }
-
-        let split = DomSplit::at_path(&remaining, vec![PAGINATION_CHUNK_BLOCKS]);
-        let (chunk, tail) = (split.head, split.tail);
-        let rel = document::break_paths_for(&chunk, fonts.clone());
-        for p in &rel {
-            let mut abs = p.clone();
-            if let Some(first) = abs.first_mut() {
-                *first += block_offset;
-            }
-            paths_acc.push(abs);
-        }
-        pages_acc += rel.len() + 1;
-
-        block_offset += PAGINATION_CHUNK_BLOCKS;
-        let done = block_offset >= total_blocks;
-        if !done {
-            paths_acc.push(vec![block_offset]);
-        }
-
-        let sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
-            refany: RefAny::new(PaginationChunk {
-                generation,
-                pages_so_far: pages_acc,
-                paths_so_far: paths_acc.clone(),
-                done,
-            }),
-            callback: WriteBackCallback {
-                cb: pagination_writeback,
-                ctx: OptionRefAny::None,
-            },
-        }));
-        if !sent || done {
-            return;
-        }
-        remaining = tail;
-    }
-}
-
-extern "C" fn pagination_writeback(
-    mut app: RefAny,
-    mut msg: RefAny,
-    mut info: CallbackInfo,
-) -> Update {
-    let (generation, pages, paths, done) = {
-        let Some(chunk) = msg.downcast_ref::<PaginationChunk>() else {
-            return Update::DoNothing;
-        };
-        (
-            chunk.generation,
-            chunk.pages_so_far,
-            chunk.paths_so_far.clone(),
-            chunk.done,
-        )
-    };
-
-    let (vv_node, zoom) = {
-        let Some(mut state) = app.downcast_mut::<AppState>() else {
-            return Update::DoNothing;
-        };
-        if generation != state.document.generation {
-            if let Some((g, tid)) = state.pagination_thread.take() {
-                if g == generation {
-                    info.remove_thread(tid);
-                } else {
-                    state.pagination_thread = Some((g, tid));
-                }
-            }
-            return Update::DoNothing;
-        }
-        document::seed_break_paths(generation, paths, done);
-        state.exact_page_count = Some((generation, pages));
-        if done {
-            state.pagination_thread = None;
-        }
-        (state.pages_vv_node, state.zoom_percent / 100.0)
-    };
-
-    if let Some(vv) = vv_node {
-        use azul::css::{LogicalPosition, LogicalSize};
-        let stride = editor_ui::page_stride(zoom);
-        let width = (editor_ui::page_sheet_w() * zoom).round() + 2.0;
-        info.update_virtual_view(
-            vv,
-            OptionLogicalRect::None,
-            OptionLogicalRect::Some(LogicalRect {
-                origin: LogicalPosition::zero(),
-                size: LogicalSize {
-                    width,
-                    height: pages as f32 * stride,
-                },
-            }),
-        );
-    }
-
-    Update::RefreshDom
-}
-
-pub extern "C" fn on_pages_mounted(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let (app, fonts) = {
-        let Some(ctx) = data.downcast_ref::<editor_ui::PagesMountCtx>() else {
-            return Update::DoNothing;
-        };
-        (ctx.app.clone(), ctx.fonts.clone())
-    };
-    let mut app = app;
-    let app_for_thread = app.clone();
-    let Some(mut state) = app.downcast_mut::<AppState>() else {
-        return Update::DoNothing;
-    };
-    state.pages_vv_node = Some(info.get_hit_node());
-
-    let generation = state.document.generation;
-    if document::pagination_is_complete(generation) {
-        return Update::DoNothing;
-    }
-    if matches!(state.pagination_thread, Some((g, _)) if g == generation) {
-        return Update::DoNothing;
-    }
-    if let Some((_, old)) = state.pagination_thread.take() {
-        info.remove_thread(old);
-    }
-
-    let init = RefAny::new(PaginationThreadInit {
-        ir: state.document.ir.clone(),
-        generation,
-        fonts,
-    });
-    let thread = Thread::create(init, app_for_thread, pagination_worker);
-    let thread_id = ThreadId::unique();
-    info.add_thread(thread_id, thread);
-    state.pagination_thread = Some((generation, thread_id));
-    Update::DoNothing
-}
-
-pub extern "C" fn on_pages_unmounted(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let app = {
-        let Some(ctx) = data.downcast_ref::<editor_ui::PagesMountCtx>() else {
-            return Update::DoNothing;
-        };
-        ctx.app.clone()
-    };
-    let mut app = app;
-    let Some(mut state) = app.downcast_mut::<AppState>() else {
-        return Update::DoNothing;
-    };
-    if let Some((_, tid)) = state.pagination_thread.take() {
-        info.remove_thread(tid);
-    }
-    state.pages_vv_node = None;
-    Update::DoNothing
-}
-
-fn set_window_title(info: &mut CallbackInfo, name: &str) {
-    let mut st = info.get_current_window_state();
-    st.title = AzString::from(format!("{name} - AzWriter"));
-    info.modify_window_state(st);
-}
-
-fn markdown_filter() -> OptionFileTypeList {
-    use azul::file::FileTypeList;
-    OptionFileTypeList::Some(FileTypeList {
-        document_types: vec![AzString::from("*.md")].into(),
-        document_descriptor: AzString::from("Markdown documents (*.md)"),
-    })
-}
-
-fn snapshot_for_save(
-    data: &mut RefAny,
-    info: &mut CallbackInfo,
-) -> Option<(Option<PathBuf>, DocumentModel)> {
-    Some({
-        let Some(mut state) = data.downcast_mut::<AppState>() else {
-            return None;
-        };
-        if sync_ir_text_from_engine(&mut state, info) {
-            state.document.refresh_derived();
-            state.document.dirty = true;
-        }
-        let mut snapshot = state.document.clone();
-        snapshot.markdown = ir::to_markdown(&snapshot.ir);
-        (state.document.path.clone(), snapshot)
-    })
-}
-
-fn do_save(data: &mut RefAny, info: &mut CallbackInfo, always_ask: bool) -> Update {
-    let Some((current_path, model_snapshot)) = snapshot_for_save(data, info) else {
-        return Update::DoNothing;
-    };
-    if current_path.is_none() || always_ask {
-        let _request = FileDialog::save_file(
-            AzString::from("Save As - .md for markdown, .pdf to export"),
-            AzString::from("document.md"),
-            data.clone(),
-            on_save_target_picked,
-        );
-        return Update::DoNothing;
-    }
-    let Some(path) = current_path else {
-        return Update::DoNothing;
-    };
-    save_snapshot_to(data, info, path, model_snapshot)
-}
-
-extern "C" fn on_save_target_picked(
-    mut data: RefAny,
-    mut info: CallbackInfo,
-    result: RefAny,
-) -> Update {
-    let Some(picked) = SaveTargetResult::downcast(result).into_option() else {
-        return Update::DoNothing;
-    };
-    let Some(target) = picked.target.into_option() else {
-        return Update::DoNothing;
-    };
-    let Some(path) = target.as_path().into_option() else {
-        return Update::DoNothing;
-    };
-    let mut path = PathBuf::from(path.as_string().as_str());
-    if path.extension().is_none() {
-        path.set_extension("md");
-    }
-    let Some((_, model_snapshot)) = snapshot_for_save(&mut data, &mut info) else {
-        return Update::DoNothing;
-    };
-    save_snapshot_to(&mut data, &mut info, path, model_snapshot)
-}
-
-fn save_snapshot_to(
-    data: &mut RefAny,
-    info: &mut CallbackInfo,
-    path: PathBuf,
-    model_snapshot: DocumentModel,
-) -> Update {
-    if path
-        .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
-    {
-        let bytes = pdf_bytes(&model_snapshot.content, info);
-        if bytes.is_empty() {
-            eprintln!("[azwriter] PDF export produced no bytes");
-            return Update::DoNothing;
-        }
-        return match std::fs::write(&path, &bytes) {
-            Ok(()) => {
-                eprintln!(
-                    "[azwriter] exported {} bytes to {}",
-                    bytes.len(),
-                    path.display()
-                );
-                Update::RefreshDom
-            }
-            Err(e) => {
-                eprintln!("[azwriter] PDF write failed: {e}");
-                Update::DoNothing
-            }
-        };
-    }
-
-    match document::save_markdown(&path, &model_snapshot) {
-        Ok(()) => {
-            let Some(mut state) = data.downcast_mut::<AppState>() else {
-                return Update::DoNothing;
-            };
-            state.document.path = Some(path);
-            state.document.markdown = model_snapshot.markdown.clone();
-            state.document.dirty = false;
-            let name = state.document.display_name();
-            drop(state);
-            set_window_title(info, &name);
-            Update::RefreshDom
-        }
+/// Reads a file named on the command line as a document to import (at
+/// start, before the window - not from a callback).
+fn import_at_start(path: &std::path::Path) -> Option<azul::widgets::RichTextDoc> {
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
         Err(e) => {
-            eprintln!("[azwriter] save failed: {e}");
-            Update::DoNothing
+            eprintln!("[azwriter] cannot read {}: {e}", path.display());
+            return None;
+        }
+    };
+    match commands::import_bytes(&path.display().to_string(), &bytes) {
+        Ok(doc) => Some(doc),
+        Err(e) => {
+            eprintln!("[azwriter] cannot import {}: {e}", path.display());
+            None
         }
     }
 }
 
-pub(crate) fn sync_ir_text_from_engine(state: &mut AppState, info: &mut CallbackInfo) -> bool {
-    let edits = info.get_unsynced_text_edits();
-    let edits = edits.as_ref();
-    if edits.is_empty() {
-        return false;
+pub fn start() {
+    let args = match AppArgs::from_env(&SPEC) {
+        Ok(a) => a,
+        Err(message) => {
+            println!("{message}");
+            std::process::exit(if message.contains("USAGE") { 0 } else { 2 });
+        }
+    };
+    let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[], args.clone());
+    let data_root = {
+        let mut k = kit_ref.clone();
+        let root = k.downcast_ref::<kit::Kit>().map(|k| k.data_root.clone());
+        root.unwrap_or_default()
+    };
+    let mut st = AppState::new(kit_ref.clone(), data_root, args.sample);
+    st.doc = Some(DocumentModel::untitled(model::new_document_id()));
+    if let Some(doc) = args.files.first().and_then(|p| import_at_start(p)) {
+        st.doc = Some(DocumentModel::from_doc(model::new_document_id(), doc, String::new()));
+        st.save_on_start = true;
     }
-    let total_blocks = state.document.ir.blocks.len();
-    let mut changed = false;
-    let mut max_revision = 0u64;
-    for edit in edits {
-        max_revision = max_revision.max(edit.revision);
-        let text = edit.text.as_str();
-        let mut applied = false;
-        for i in 0..total_blocks {
-            let id = document::block_dom_id(i);
-            let block_node = info.get_node_id_by_id_attribute(edit.node.dom, id.as_str());
-            if block_node.into_raw() == 0 {
-                continue;
-            }
-            let block_id = DomNodeId {
-                dom: edit.node.dom,
-                node: block_node,
-            };
-            let Some(rel) = info
-                .get_node_child_index_path(block_id, edit.node)
-                .into_option()
-            else {
-                continue;
-            };
-            let rel = rel.as_ref();
-            applied = true;
-            changed |= match state.document.ir.blocks.get(i) {
-                Some(ir::IrBlock::Paragraph(_)) => match rel.first() {
-                    Some(&run) => ir::set_run_text(&mut state.document.ir, i, run as usize, text),
-                    None => ir::sync_block_text(&mut state.document.ir, &[i as u32], text),
-                },
-                Some(ir::IrBlock::List(_)) => {
-                    let item = rel.first().copied().unwrap_or(0);
-                    ir::sync_block_text(&mut state.document.ir, &[i as u32, item], text)
-                }
-                _ => false,
-            };
-            break;
+    match args.screen.as_deref() {
+        Some("open") => {
+            st.screen = Screen::Backstage;
+            st.backstage = BackstagePage::Open;
         }
-        if !applied {
+        Some("new") => {
+            st.screen = Screen::Backstage;
+            st.backstage = BackstagePage::New;
         }
+        Some("settings") => kit::open_settings(&kit_ref, None),
+        _ => {}
     }
-    info.mark_text_revision_synced(max_revision);
-    changed
+    let config = kit::app_config(&kit_ref);
+    let window = kit::window_options(&kit_ref, layout, (1280.0, 800.0), (720.0, 480.0), on_window_created);
+    App::create(RefAny::new(st), config).run(window);
 }
 
-pub(crate) fn map_node_to_block(
-    state: &AppState,
-    info: &mut CallbackInfo,
-    node: DomNodeId,
-) -> Option<(usize, Vec<u32>)> {
-    for i in 0..state.document.ir.blocks.len() {
-        let id = document::block_dom_id(i);
-        let block_node = info.get_node_id_by_id_attribute(node.dom, id.as_str());
-        if block_node.into_raw() == 0 {
-            continue;
-        }
-        let block_id = DomNodeId {
-            dom: node.dom,
-            node: block_node,
-        };
-        if let Some(rel) = info.get_node_child_index_path(block_id, node).into_option() {
-            return Some((i, rel.as_ref().to_vec()));
-        }
+// ==== The window ====
+
+fn column(children: Vec<Dom>) -> Dom {
+    let mut column = Dom::create_div()
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;");
+    for child in children {
+        column.add_child(child);
     }
-    None
+    column
 }
 
-pub(crate) fn map_span_to_block_range(
-    state: &AppState,
-    info: &mut CallbackInfo,
-    span: &azul::dom::DocumentSelectionSpan,
-) -> Option<(usize, usize, usize)> {
-    let (block, rel) = map_node_to_block(state, info, span.node)?;
-    let run_start: usize = match state.document.ir.blocks.get(block) {
-        Some(ir::IrBlock::Paragraph(p)) => {
-            let run_idx = rel.first().copied().unwrap_or(0) as usize;
-            p.runs.iter().take(run_idx).map(|r| r.text.len()).sum()
-        }
-        _ => 0,
-    };
-    Some((
-        block,
-        run_start + span.start_byte as usize,
-        run_start + span.end_byte as usize,
-    ))
+/// The About box (open while `about_open`).
+fn about_modal(app: &RefAny, st: &AppState) -> Dom {
+    let about = AboutDialog::create(AzString::from(ABOUT.name), AzString::from(format!("Version {}", ABOUT.version)))
+        .with_icon(AzString::from("description"))
+        .with_description(AzString::from(ABOUT.summary))
+        .with_copyright(AzString::from("Copyright 2026 the azul contributors"))
+        .with_credit(AzString::from("azul"), AzString::from("MIT"))
+        .with_credit(AzString::from("docx-parser"), AzString::from("MIT"))
+        .with_on_event(app.clone(), on_about)
+        .dom()
+        .with_id(ids::ABOUT);
+    Modal::create(about)
+        .with_title(AzString::from("About AzWriter"))
+        .with_open(st.about_open)
+        .with_on_close(app.clone(), on_modal_close)
+        .dom()
 }
-
-pub(crate) fn apply_format_axis(
-    data: &mut RefAny,
-    info: &mut CallbackInfo,
-    axis: ir::FormatAxis,
-) -> Update {
-    let Some(mut state) = data.downcast_mut::<AppState>() else {
-        return Update::DoNothing;
-    };
-    let mut changed = sync_ir_text_from_engine(&mut state, info);
-    let spans = info.get_document_selection();
-    for span in spans.as_ref() {
-        if let Some((block, start, end)) = map_span_to_block_range(&state, info, span) {
-            changed |= ir::toggle_format_range(&mut state.document.ir, block, start, end, axis);
-        }
-    }
-    if changed {
-        state.document.refresh_derived();
-        state.document.dirty = true;
-        Update::RefreshDom
-    } else {
-        Update::DoNothing
-    }
-}
-
-pub extern "C" fn on_text_changed(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let (marker, label) = {
-        let Some(mut state) = data.downcast_mut::<AppState>() else {
-            return Update::DoNothing;
-        };
-        if sync_ir_text_from_engine(&mut state, &mut info) {
-            state.document.refresh_derived();
-            state.document.dirty = true;
-        }
-        (
-            state.word_count_marker.clone(),
-            AzString::from(format!("{} WORDS", state.document.word_count())),
-        )
-    };
-    if let Some(node) = info.get_node_id_by_marker(marker).into_option() {
-        azul::widgets::StatusBar::update_segment_label(info, node, label);
-    }
-    Update::DoNothing
-}
-
-pub extern "C" fn on_document_edit(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let changeset = match info.get_document_edit_clone().into_option() {
-        Some(c) => c,
-        None => return Update::DoNothing,
-    };
-
-    let Some(mut state) = data.downcast_mut::<AppState>() else {
-        return Update::DoNothing;
-    };
-
-    let synced = sync_ir_text_from_engine(&mut state, &mut info);
-
-    let pages = document::paginate_cached(&state.document.content, state.document.generation);
-    let offsets = document::page_block_offsets(&pages);
-    let page_index = state.editing_page.min(offsets.len().saturating_sub(1));
-    let page_offset = offsets.get(page_index).copied().unwrap_or(0);
-    let mut resume: Vec<u32> = changeset.resume.node_path.as_ref().to_vec();
-    if let Some(first) = resume.first_mut() {
-        *first += page_offset as u32;
-    }
-
-    let Some((inverse, inverse_resume)) =
-        ir::apply_operation(&mut state.document.ir, &changeset.operation, &resume)
-    else {
-        eprintln!("[azwriter] edit apply failed: operation not mirrorable onto the IR");
-        if synced {
-            state.document.refresh_derived();
-            state.document.dirty = true;
-        }
-        return if synced {
-            Update::RefreshDom
-        } else {
-            Update::DoNothing
-        };
-    };
-
-    state.undo_stack.push((inverse.clone(), inverse_resume));
-    state.redo_stack.clear();
-
-    state.document.refresh_derived();
-    state.document.dirty = true;
-    drop(state);
-
-    info.mark_document_edit_applied_with_inverse(changeset.id, inverse);
-    Update::RefreshDom
-}
-
-fn pdf_bytes(content: &Dom, info: &mut CallbackInfo) -> Vec<u8> {
-    const A4_W_PX: f32 = 794.0;
-    const A4_H_PX: f32 = 1123.0;
-
-    std::env::set_var("AZ_PAGINATION_ENGINE", "tokens");
-
-    let mut doc = Dom::create_body().with_css(
-        format!(
-            "margin: 0; padding: {}px; background: white; {}",
-            96,
-            fonts::UI_FONT_CSS
-        )
-        .as_str(),
-    );
-    doc.add_child(content.clone());
-
-    let pdf = Pdf::create();
-    // `CallbackInfo` is `Copy`: the renderer gets its own handle.
-    pdf.from_dom_in_callback(*info, doc, A4_W_PX, A4_H_PX)
-        .as_ref()
-        .to_vec()
-}
-
-pub extern "C" fn on_export_pdf(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let (default_name, content) = {
-        let Some(state) = data.downcast_ref::<AppState>() else {
-            return Update::DoNothing;
-        };
-        (
-            state.document.display_name(),
-            state.document.content.clone(),
-        )
-    };
-
-    let bytes = pdf_bytes(&content, &mut info);
-
-    if bytes.is_empty() {
-        eprintln!("[azwriter] PDF export produced no bytes");
-        return Update::DoNothing;
-    }
-    let name = format!("{default_name}.pdf");
-    let len = bytes.len();
-    if FileDialog::save_bytes(
-        AzString::from(name.clone()),
-        AzString::from("application/pdf"),
-        bytes,
-    ) {
-        eprintln!("[azwriter] exported {len} bytes as {name}");
-        Update::RefreshDom
-    } else {
-        eprintln!("[azwriter] PDF export cancelled");
-        Update::DoNothing
-    }
-}
-
-pub extern "C" fn on_undo(mut data: RefAny, _: CallbackInfo) -> Update {
-    let Some(mut state) = data.downcast_mut::<AppState>() else {
-        return Update::DoNothing;
-    };
-    let Some((op, path)) = state.undo_stack.pop() else {
-        return Update::DoNothing;
-    };
-    let Some(redo_entry) = ir::apply_operation(&mut state.document.ir, &op, &path) else {
-        state.undo_stack.push((op, path));
-        return Update::DoNothing;
-    };
-    state.redo_stack.push(redo_entry);
-    state.document.refresh_derived();
-    state.document.dirty = true;
-    Update::RefreshDom
-}
-
-pub extern "C" fn on_redo(mut data: RefAny, _: CallbackInfo) -> Update {
-    let Some(mut state) = data.downcast_mut::<AppState>() else {
-        return Update::DoNothing;
-    };
-    let Some((op, path)) = state.redo_stack.pop() else {
-        return Update::DoNothing;
-    };
-    let Some(undo_entry) = ir::apply_operation(&mut state.document.ir, &op, &path) else {
-        state.redo_stack.push((op, path));
-        return Update::DoNothing;
-    };
-    state.undo_stack.push(undo_entry);
-    state.document.refresh_derived();
-    state.document.dirty = true;
-    Update::RefreshDom
-}
-
-pub extern "C" fn on_file_button(mut data: RefAny, _: CallbackInfo) -> Update {
-    let Some(mut state) = data.downcast_mut::<AppState>() else {
-        return Update::DoNothing;
-    };
-    state.screen = Screen::Backstage;
-    state.backstage_pane = 0;
-    Update::RefreshDom
-}
-
-pub extern "C" fn on_backstage_back(mut data: RefAny, _: CallbackInfo) -> Update {
-    let Some(mut state) = data.downcast_mut::<AppState>() else {
-        return Update::DoNothing;
-    };
-    state.screen = Screen::Editor;
-    Update::RefreshDom
-}
-
-pub extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, idx: usize) -> Update {
-    const SAVE: usize = 3;
-    const SAVE_AS: usize = 4;
-    const CLOSE: usize = 8;
-
-    match idx {
-        SAVE | SAVE_AS => {
-            let update = do_save(&mut data, &mut info, idx == SAVE_AS);
-            if matches!(update, Update::RefreshDom) {
-                if let Some(mut state) = data.downcast_mut::<AppState>() {
-                    state.screen = Screen::Editor;
-                }
-            }
-            update
-        }
-        CLOSE => {
-            let Some(mut state) = data.downcast_mut::<AppState>() else {
-                return Update::DoNothing;
-            };
-            state.document = DocumentModel::untitled();
-            state.screen = Screen::Editor;
-            drop(state);
-            set_window_title(&mut info, "Document1");
-            Update::RefreshDom
-        }
-        _ => {
-            let Some(mut state) = data.downcast_mut::<AppState>() else {
-                return Update::DoNothing;
-            };
-            state.backstage_pane = idx;
-            Update::RefreshDom
-        }
-    }
-}
-
-pub extern "C" fn on_browse_clicked(data: RefAny, _info: CallbackInfo) -> Update {
-    let _request = FileDialog::open_file(
-        AzString::from("Open"),
-        OptionString::None,
-        markdown_filter(),
-        data,
-        on_browse_picked,
-    );
-    Update::DoNothing
-}
-
-extern "C" fn on_browse_picked(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
-    let Some(picked) = FileOpenResult::downcast(result).into_option() else {
-        return Update::DoNothing;
-    };
-    let Some(path_str) = picked.path.into_option() else {
-        return Update::DoNothing;
-    };
-    let path_string = path_str.as_string();
-    let path = Path::new(path_string.as_str());
-
-    let Some(mut state) = data.downcast_mut::<AppState>() else {
-        return Update::DoNothing;
-    };
-    state.document = DocumentModel::from_path(path);
-    state.screen = Screen::Editor;
-    let name = state.document.display_name();
-    drop(state);
-    set_window_title(&mut info, &name);
-    Update::RefreshDom
-}
-
-pub extern "C" fn on_save_clicked(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    do_save(&mut data, &mut info, false)
-}
-
-pub extern "C" fn on_view_select(mut data: RefAny, _: CallbackInfo, idx: usize) -> Update {
-    let Some(mut state) = data.downcast_mut::<AppState>() else {
-        return Update::DoNothing;
-    };
-    state.view_mode = idx;
-    Update::RefreshDom
-}
-
-const ZOOM_MIN: f32 = 10.0;
-const ZOOM_MAX: f32 = 190.0;
-
-pub extern "C" fn on_zoom_out(mut data: RefAny, _: CallbackInfo) -> Update {
-    let Some(mut state) = data.downcast_mut::<AppState>() else {
-        return Update::DoNothing;
-    };
-    state.zoom_percent = (state.zoom_percent - 10.0).clamp(ZOOM_MIN, ZOOM_MAX);
-    Update::RefreshDom
-}
-
-pub extern "C" fn on_zoom_in(mut data: RefAny, _: CallbackInfo) -> Update {
-    let Some(mut state) = data.downcast_mut::<AppState>() else {
-        return Update::DoNothing;
-    };
-    state.zoom_percent = (state.zoom_percent + 10.0).clamp(ZOOM_MIN, ZOOM_MAX);
-    Update::RefreshDom
-}
-
-pub extern "C" fn on_zoom_slider(mut data: RefAny, _: CallbackInfo, slider: SliderState) -> Update {
-    let Some(mut state) = data.downcast_mut::<AppState>() else {
-        return Update::DoNothing;
-    };
-    state.zoom_percent = slider.value.round().clamp(ZOOM_MIN, ZOOM_MAX);
-    Update::RefreshDom
-}
-
-pub const MOBILE_BREAKPOINT_PX: f32 = 720.0;
 
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
-    let _frame_timer = FrameTimer::start();
-    let state = {
-        let _p = perf::Phase::start("state_clone");
-        match data.downcast_ref::<AppState>() {
-            Some(s) => (*s).clone(),
-            None => return Dom::create_body(),
+    // Reading the mode and the theme makes a switch of either rebuild the window.
+    let _mode = info.get_mode();
+    let _theme = info.get_theme();
+    let width = info.get_window_width();
+    let app = data.clone();
+    // The window's fonts, for the pagination thread.
+    if let Some(mut st) = data.downcast_mut::<AppState>() {
+        if st.fonts.is_none() {
+            st.fonts = Some(FontCacheSnapshot::from_layout_info(&info));
+        }
+    }
+    let Some(guard) = data.downcast_ref::<AppState>() else {
+        return Dom::create_body();
+    };
+    let st = &*guard;
+    let title = st.title();
+    let content = if kit::settings_open(&st.kit) {
+        column(vec![kit::title_row(&title), kit::settings_page(&st.kit, Vec::new())])
+    } else {
+        match st.screen {
+            Screen::Backstage => DocumentShell::create(Dom::create_div())
+                .office_shell()
+                .with_title_row(kit::title_row(&title))
+                .with_backstage(backstage::backstage(&app, st))
+                .dom(),
+            Screen::Editor => DocumentShell::create(pages::document_area(&app, st, width))
+                .office_shell()
+                .with_title_row(kit::title_row(&title))
+                .with_ribbon(ribbon::ribbon(&app, st))
+                .with_status_bar(pages::status_bar(&app, st))
+                .dom(),
         }
     };
-
-    let font_cache = {
-        let _p = perf::Phase::start("get_font_cache");
-        Some(FontCacheSnapshot::from_layout_info(&info))
-    };
-    let max_monitor: Option<LayoutSize> = info.get_max_monitor_size().into_option();
-    info.depends_on_system_style(SystemStyleDependency::Theme);
-    info.depends_on_system_style(SystemStyleDependency::Colors);
-    let system_style = info.get_system_style_untracked();
-    let pal = palette::Palette::from_system(&system_style, info.get_mode());
-
-    let compact = !info.viewport_bigger_than(MOBILE_BREAKPOINT_PX);
-
-    let screen = match state.screen {
-        Screen::Editor => editor_ui::editor_screen(
-            &state,
-            &data,
-            font_cache,
-            max_monitor,
-            &pal,
-            &system_style,
-            compact,
-        ),
-        Screen::Backstage => backstage_ui::backstage_screen(&state, &data, &pal, &system_style),
-    };
-
+    let document_name = st.doc.as_ref().map_or_else(|| "AzWriter".to_string(), DocumentModel::title);
+    let guarded = CloseGuard::create(content, AzString::from(document_name))
+        .with_dirty(st.is_dirty())
+        .with_asking(st.asking_close)
+        .with_on_event(app.clone(), on_close_guard)
+        .dom();
+    let root = column(vec![guarded, about_modal(&app, st)]);
     Dom::create_body()
-        .with_css(
-            format!(
-                "display: flex; flex-direction: column; margin: 0; padding: 0; height: 100%; \
-                 background: {}; {} font-size: 12px; color: {};",
-                palette::Palette::hex(pal.chrome),
-                fonts::UI_FONT_CSS,
-                palette::Palette::hex(pal.text),
-            )
-            .as_str(),
-        )
-        .with_child(screen)
+        .with_css("display: flex; flex-direction: column; margin: 0px; padding: 0px; height: 100%;")
+        .with_child(ShellThemeScope::create(root).with_accent(ShellThemeAccent::Blue).dom())
+        .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app, on_key)
 }
 
-struct ShotConfig {
-    path: String,
-}
+// ==== Callbacks ====
 
-extern "C" fn shot_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
-    let Some(cfg) = data.downcast_ref::<ShotConfig>() else {
-        return TimerCallbackReturn {
-            should_update: Update::DoNothing,
-            should_terminate: TerminateTimer::Terminate,
-        };
+extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app = data.clone();
+    let Some(mut guard) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
     };
-    let png = match info
-        .callback_info
-        .take_screenshot(root_dom_id())
-        .into_result()
-    {
-        Ok(png) => png,
-        Err(e) => {
-            eprintln!("[azwriter] screenshot FAILED: {}", e.as_str());
-            std::process::exit(2);
-        }
-    };
-    match FilePath::from_str(cfg.path.as_str())
-        .write_bytes(png)
-        .into_result()
-    {
-        Ok(_) => {
-            eprintln!("[azwriter] screenshot written: {}", cfg.path);
-            std::process::exit(0);
-        }
-        Err(e) => {
-            eprintln!("[azwriter] screenshot FAILED: {}", e.message.as_str());
-            std::process::exit(2);
-        }
+    let st = &mut *guard;
+    kit::on_window_created(&st.kit, &mut info);
+    commands::list_documents(st, &mut info, &app);
+    if st.save_on_start {
+        st.save_on_start = false;
+        commands::save(st, &mut info, &app, storage::tag::SAVE);
     }
-}
-
-extern "C" fn startup_focus_tick(
-    _data: RefAny,
-    mut info: TimerCallbackInfo,
-) -> TimerCallbackReturn {
-    info.callback_info.set_focus_to_path(
-        root_dom_id(),
-        CssPath {
-            selectors: vec![CssPathSelector::Class("mw-doc".into())].into(),
-        },
-    );
-    TimerCallbackReturn {
-        should_update: Update::DoNothing,
-        should_terminate: TerminateTimer::Terminate,
-    }
-}
-
-extern "C" fn on_window_created(data: RefAny, mut info: CallbackInfo) -> Update {
-    {
-        let timer = Timer::create(
-            RefAny::new(()),
-            startup_focus_tick,
-            info.get_system_time_fn(),
-        )
-        .with_delay(Duration::System(SystemTimeDiff::from_millis(150)));
-        info.add_timer(TimerId::unique(), timer);
-    }
-    if let Some((path, delay_ms)) = WINDOW_ARGS.get().and_then(|a| {
-        a.shot
-            .as_ref()
-            .map(|p| (p.display().to_string(), a.shot_delay_ms))
-    }) {
-        let timer = Timer::create(
-            RefAny::new(ShotConfig { path }),
-            shot_tick,
-            info.get_system_time_fn(),
-        )
-        .with_delay(Duration::System(SystemTimeDiff::from_millis(delay_ms)));
-        info.add_timer(TimerId::unique(), timer);
-    }
-    let _ = data;
+    // The pagination keeps up with the document (one at a time).
+    let timer = Timer::create(app.clone(), pagination_tick, info.get_system_time_fn())
+        .with_interval(Duration::System(SystemTimeDiff::from_millis(400)));
+    info.add_timer(TimerId::unique(), timer);
+    println!("AZWRITER_READY");
     Update::DoNothing
 }
 
-pub fn start(args: Args) {
-    perf::init_frame_log(args.frame_log);
-    document::init_dump_xml(args.dump_xml.clone());
+extern "C" fn pagination_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
+    let app = data.clone();
+    if let Some(mut st) = data.downcast_mut::<AppState>() {
+        paginate::ensure(&mut st, &mut info.callback_info, &app);
+    }
+    TimerCallbackReturn::continue_unchanged()
+}
 
-    let mut state = AppState::default();
+/// The sample document of `--sample`: made once, when the data folder has
+/// no document and the open one is the untouched blank one.
+fn make_sample(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) {
+    if !st.sample || st.sample_done || !st.docs.is_empty() || st.is_dirty() {
+        return;
+    }
+    st.sample_done = true;
+    let doc = DocumentModel::from_doc(
+        model::new_document_id(),
+        azul::widgets::RichTextDoc::create_from_markdown(storage::SAMPLE),
+        String::new(),
+    );
+    commands::show_document(st, doc);
+    commands::save(st, info, app, storage::tag::SAVE);
+}
 
-    match args.screen {
-        args::Screen::Editor => {}
-        args::Screen::BackstageInfo => {
-            state.screen = Screen::Backstage;
-            state.backstage_pane = 0;
+/// The answers of the file jobs (`storage::tag`).
+pub extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(reply) = kit::take_reply(&mut msg) else {
+        return Update::DoNothing;
+    };
+    let handle = app.clone();
+    let Some(mut guard) = app.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    let st = &mut *guard;
+    let mut close = false;
+    for outcome in reply.outcomes {
+        match outcome {
+            FileOutcome::GotAll { files, errors, .. } => {
+                st.docs = storage::entries_from(&files);
+                st.listed = true;
+                if let Some(e) = errors.first() {
+                    st.notice = format!("Some documents could not be read: {e}");
+                }
+                println!("AZWRITER_LISTED {}", st.docs.len());
+            }
+            FileOutcome::Got { key, result } => match result {
+                Ok(Some(bytes)) => {
+                    let id = storage::id_of_key(&key).unwrap_or_default().to_string();
+                    let text = String::from_utf8_lossy(&bytes).into_owned();
+                    commands::show_document(st, DocumentModel::from_markdown(id, &text));
+                }
+                Ok(None) => st.notice = "That document is gone.".to_string(),
+                Err(e) => st.notice = format!("The document could not be read: {e}"),
+            },
+            FileOutcome::Put { key, result } => {
+                let save = storage::id_of_key(&key).map(str::to_string);
+                match (save, result) {
+                    (Some(id), Ok(())) => {
+                        if let Some(at) = st.pending_saves.iter().position(|(i, _)| *i == id) {
+                            let (_, markdown) = st.pending_saves.remove(at);
+                            if let Some(doc) = st.doc.as_mut().filter(|d| d.id == id) {
+                                doc.saved = markdown;
+                            }
+                        }
+                        println!("AZWRITER_SAVED {id}");
+                        close |= reply.tag == storage::tag::SAVE_AND_CLOSE;
+                    }
+                    (Some(id), Err(e)) => {
+                        st.pending_saves.retain(|(i, _)| *i != id);
+                        st.close_after_save = false;
+                        st.notice = format!("The document could not be saved: {e}");
+                    }
+                    (None, Ok(())) => {
+                        st.notice = format!(
+                            "Exported to {}",
+                            azul_appkit::data::local_path(&st.data_root, &key).display()
+                        );
+                        println!("AZWRITER_EXPORTED {key}");
+                    }
+                    (None, Err(e)) => st.notice = format!("The export failed: {e}"),
+                }
+            }
+            FileOutcome::Deleted { key, result } => match result {
+                Ok(()) => println!(
+                    "AZWRITER_DELETED {}",
+                    storage::id_of_key(&key).unwrap_or_default()
+                ),
+                Err(e) => st.notice = format!("The document could not be deleted: {e}"),
+            },
         }
-        args::Screen::BackstageOpen => {
-            state.screen = Screen::Backstage;
-            state.backstage_pane = 2;
+    }
+    if reply.tag == storage::tag::LIST {
+        make_sample(st, &mut info, &handle);
+    }
+    if reply.tag == storage::tag::SAVE && st.screen == Screen::Backstage && st.backstage == BackstagePage::Open {
+        commands::list_documents(st, &mut info, &handle);
+    }
+    if close && st.close_after_save && !st.is_saving() {
+        info.close_window();
+    }
+    Update::RefreshDom
+}
+
+/// The close guard: a close was asked while the document has changes, or
+/// the question was answered.
+extern "C" fn on_close_guard(mut data: RefAny, mut info: CallbackInfo, event: CloseGuardEvent) -> Update {
+    let handle = data.clone();
+    let Some(mut guard) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    let st = &mut *guard;
+    match event.kind {
+        CloseGuardEventKind::Ask => {
+            commands::sync_doc(st, &mut info);
+            st.asking_close = true;
         }
+        CloseGuardEventKind::Save => {
+            st.asking_close = false;
+            st.close_after_save = true;
+            commands::save(st, &mut info, &handle, storage::tag::SAVE_AND_CLOSE);
+        }
+        CloseGuardEventKind::Discard | CloseGuardEventKind::Cancel => st.asking_close = false,
     }
+    Update::RefreshDom
+}
 
-    if let Some(p) = args.open.as_deref() {
-        state.document = DocumentModel::from_path(p);
+extern "C" fn on_about(mut data: RefAny, _info: CallbackInfo, _event: StandardDialogEvent) -> Update {
+    if let Some(mut st) = data.downcast_mut::<AppState>() {
+        st.about_open = false;
     }
+    Update::RefreshDom
+}
 
-    if args.paginate_twice {
-        let t = std::time::Instant::now();
-        let _ = document::paginate_cached(&state.document.content, document::next_generation());
-        eprintln!("[primer] SECOND pagination (warm) took {:?}", t.elapsed());
+extern "C" fn on_modal_close(mut data: RefAny, _info: CallbackInfo, _state: ModalState) -> Update {
+    if let Some(mut st) = data.downcast_mut::<AppState>() {
+        st.about_open = false;
     }
+    Update::RefreshDom
+}
 
-    let data = RefAny::new(state);
-    let mut config = AppConfig::create();
-    config.updates.app_name = AzString::from("azwriter");
-    config.updates.current_version = AzString::from(env!("CARGO_PKG_VERSION"));
-    let app = App::create(data, config);
-
-    let mut window = WindowCreateOptions::create(layout);
-    window.window_state.title = AzString::from("Document1 - AzWriter");
-    window.window_state.flags.frame = WindowFrame::Maximized;
-    window.window_state.flags.decorations = WindowDecorations::None;
-    window.window_state.size.dimensions.width = 1280.0;
-    window.window_state.size.dimensions.height = 800.0;
-    if let Some((w, h)) = args.size {
-        window.window_state.size.dimensions.width = w;
-        window.window_state.size.dimensions.height = h;
+/// The window's keys: the kit's first (settings, F1), then the document's.
+/// The text's keys (formats, undo) are the editor's.
+extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((kit_ref, screen, about_open)) = data
+        .downcast_ref::<AppState>()
+        .map(|s| (s.kit.clone(), s.screen, s.about_open))
+    else {
+        return Update::DoNothing;
+    };
+    if let Some(update) = kit::handle_key(&kit_ref, &mut info) {
+        return update;
     }
-    window.create_callback = Some(Callback::create(on_window_created)).into();
-    WINDOW_ARGS.set(args).ok();
-
-    app.run(window);
+    if kit::settings_open(&kit_ref) {
+        return Update::DoNothing;
+    }
+    let Some(key) = info.get_current_keyboard_state().current_virtual_keycode.into_option() else {
+        return Update::DoNothing;
+    };
+    let modifiers = info.get_key_modifiers();
+    let primary = modifiers.primary_down();
+    let cmd = match (key, primary, modifiers.shift) {
+        (VirtualKeyCode::S, true, false) => Command::Save,
+        (VirtualKeyCode::N, true, false) => Command::NewDocument,
+        (VirtualKeyCode::O, true, false) => Command::OpenBackstage(BackstagePage::Open),
+        (VirtualKeyCode::P, true, false) => Command::ExportPdf,
+        (VirtualKeyCode::Escape, false, _) if about_open => {
+            if let Some(mut st) = data.downcast_mut::<AppState>() {
+                st.about_open = false;
+            }
+            info.prevent_default();
+            return Update::RefreshDom;
+        }
+        (VirtualKeyCode::Escape, false, _) if screen == Screen::Backstage => Command::CloseBackstage,
+        _ => return Update::DoNothing,
+    };
+    info.prevent_default();
+    commands::run(&mut data, cmd, &mut info)
 }
 
 #[cfg(target_os = "android")]
 #[ctor::ctor]
 fn azul_android_init() {
-    start(Args::default());
+    start();
 }
