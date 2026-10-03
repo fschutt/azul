@@ -1152,7 +1152,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_css("display: flex; flex-direction: column; margin: 0px; height: 100%;")
         .with_child(
             ShellThemeScope::create(column)
-                .with_accent(ShellThemeAccent::Slate)
+                .with_accent(ShellThemeAccent::Clay)
                 .dom()
                 .with_css(ROOT_CSS),
         )
