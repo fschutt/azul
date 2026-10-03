@@ -14,15 +14,37 @@ planning: ../azul-apps/planning/core/system-monitor.md. House rules: scripts/wav
 - c3be3af98 / 8e3a554de history CSV RED / GREEN + ids.rs
 - f58f6a66c table.rs RED; 5e81882b4 user RED; 2f0555dc7 user + table GREEN
 
+- bf65398dc lib.rs written (RED for helpers speed_from_setting / speed_index / speed_text / sort_text: todo!())
+
 ## IN PROGRESS
-- lib.rs (Monitor, start, layout, on_reading tick, on_key, rerender/status helpers, speed setting) +
-  ui.rs (tools, live views = VirtualViews, cards, performance page, status bar, confirm, settings)
-  table.rs references crate::{Monitor, sort_text, print_selected, rerender} - lib.rs must define them.
+- examples/azul-monitor/src/ui.rs does NOT exist yet; lib.rs needs from it (exact signatures):
+  `ui::tools(&Monitor, &RefAny) -> Dom` (TabHeader Processes/Performance, filter TextInput with
+  `.with_text(model.filter())`, "End process" Button disabled without a selected_row),
+  `ui::waiting(&Monitor) -> Dom` (ShellEmptyState, id ids::WAITING),
+  `ui::live_view(&RefAny, LiveView) -> Dom` (Dom::create_virtual_view(RefAny::new(Live{app,view}),
+  render_live) + with_marker(OptionString::Some(marker)) + with_id + css: Cards height 132px
+  flex-shrink 0 width 100%; Table/Performance flex-grow 1 min-height 0 width 100%),
+  `ui::marker_of(LiveView) -> AzString` (ids::CARDS / TABLE_VIEW / PERFORMANCE),
+  `ui::status_bar(&Monitor) -> Dom` (StatusBarSegment with_marker for STATUS_PROCESSES / CPU /
+  MEMORY / NOTICE / SPEED), `ui::status_labels(&Monitor) -> Vec<(AzString, String)>`,
+  `ui::confirm_dom(&Confirm, &RefAny) -> Dom` (MessageBox Question in Modal, buttons
+  End process / Kill / Cancel, default 2), `ui::ask_to_end(&mut Monitor) -> bool` (opens the
+  question for selected_row, prints AZMON_ASK), `ui::settings_sections(&Monitor, &RefAny) ->
+  Vec<kit::AppSection>` (category 0 "Monitor": Segmented SPEEDS -> lib::set_speed; Export button ->
+  kit::spawn_file_jobs FileJob::Put key kit.key("history/<chrono stamp>.csv") bytes
+  model.history_csv(s.seconds_per_reading()), on done AZMON_EXPORTED + s.notice).
+  render_live: downcast Live, size = info.bounds.get_logical_size(); content wrapped in a div of
+  explicit px size + ShellThemeScope::create(..).with_accent(Slate).dom() (VV content inherits
+  nothing); VirtualViewReturn::with_dom(dom, rect, rect). Table: clone view+rows from Monitor, DROP
+  the guard, then table::table(app, view, rows, w, h).dom(). Cards: 4 cards (CPU, Memory, Disk,
+  Network) headline + Chart Area sparkline (no legend/grid). Performance: CPU chart + per-core
+  ProgressBars (TODO(WIDGETS9B) Gauge) + memory/disk/network charts + stats line.
+  Chart x = -(seconds ago); a helper `chart_points(&[f64], secs) -> Vec<ChartPoint>` (test it).
 
 ## NEXT
-1. lib.rs + ui.rs (above), RED tests for speed_from_setting / chart points / status labels first
+1. write ui.rs (above), commit; then GREEN the four lib.rs helpers (tests in lib.rs tests mod)
 2. scripts/azmonitor_e2e.py (--sample; AZMON_* stdout lines; layout count constant across ticks)
-3. report scripts/MONITOR9_2026_10_03.md
+3. report scripts/MONITOR9_2026_10_03.md (api.json: none expected - app only; sysinfo 0.38 new crate)
 
 ## Decisions
 - sysinfo 0.38 (not 0.39: needs rustc 1.95; toolchain is 1.91). 0.38.4 reuses the locked
