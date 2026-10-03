@@ -17,11 +17,18 @@ Brief: scripts/waves/wave7/EVENTS7.md. Report at the end: scripts/EVENTS7_2026_1
   - b47d4f120 macos/mod.rs edit_command -> press_shortcut_keys(EditCommand::keys()); can_undo/can_redo
     true on an editing focus; dead perform_undo/perform_redo removed
 
+- item 3 (runner undo keys):
+  - 08260920e RED runner.rs tests (tap_key primary+Z / Shift+Z / Y; veto guard)
+  - 4561f90d6 GREEN LayoutWindow::{undo,redo}_text_edit(_for_seat) + pub UndoRestore in
+    layout/src/managers/undo_redo.rs; dll arms call them (dll copies deleted); runner DefaultAction +
+    SystemChange arms
+  - 500c88730 JSON scenario test a_json_scenarios_undo_key_undoes_the_typing
+
 ## IN PROGRESS
-- item 3: runner.rs UndoTextEdit / RedoTextEdit arms (read dll event.rs `undo_text_edit_on` ~15869)
+- item 4: headless menus close on outside click / Escape (read dll headless show_menu_from_callback,
+  pump_children, desktop::menu)
 
 ## NEXT
-3. layout/src/e2e/runner.rs: DefaultAction::UndoTextEdit / RedoTextEdit arms (LayoutWindow method shared with dll)
 4. headless menus close on outside click / Escape
 5. Ctrl+B with no selection reported to the app
 
