@@ -2715,10 +2715,15 @@ impl LayoutTreeBuilder {
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<()> {
         // Filter out display: none children - they don't participate in layout
-        let children: Vec<NodeId> = layout_children(styled_dom, parent_dom_id)
-            .into_iter()
-            .filter(|&child_id| get_display_type(styled_dom, child_id) != LayoutDisplay::None)
-            .collect();
+        // ... and an inline box holding a block is split around it (CSS 2.2
+        // s9.2.1.1): its children take its place.
+        let children: Vec<NodeId> = split_inlines_around_blocks(
+            styled_dom,
+            layout_children(styled_dom, parent_dom_id)
+                .into_iter()
+                .filter(|&child_id| get_display_type(styled_dom, child_id) != LayoutDisplay::None)
+                .collect(),
+        );
 
         // Debug: log which children we found
         if let Some(msgs) = debug_messages.as_mut() {
@@ -2917,7 +2922,8 @@ impl LayoutTreeBuilder {
             return Ok(());
         }
         let mut inline_run: Vec<NodeId> = Vec::new();
-        let block_level = in_flow_block_level_mask(styled_dom, children);
+        let children = split_inlines_around_blocks(styled_dom, children.to_vec());
+        let block_level = in_flow_block_level_mask(styled_dom, &children);
         for (&child_id, is_block) in children.iter().zip(block_level) {
             if is_block {
                 self.flush_inline_run(styled_dom, anon_idx, &mut inline_run, debug_messages)?;
@@ -3997,6 +4003,88 @@ pub(crate) fn in_flow_block_level_mask(styled_dom: &StyledDom, children: &[NodeI
     mask
 }
 
+/// Whether a DOM node is floated (`float` not `none`).
+fn is_floated(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    styled_dom
+        .styled_nodes
+        .as_container()
+        .get(node_id)
+        .is_some_and(|n| !get_float(styled_dom, node_id, &n.styled_node_state).is_none())
+}
+
+/// CSS 2.2 s9.2.1.1 block-in-inline: whether `node_id` is an inline box (an
+/// element with `display: inline`, not replaced, in flow, not floated) that
+/// holds an in-flow block-level box - as a child, or inside another such
+/// inline box (`<a href><img style="display: block"></a>`, every linked
+/// picture of a newsletter; `<span><a><div>..</div></a></span>`).
+#[must_use]
+pub(crate) fn inline_holds_a_block(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    let Some(node_data) = styled_dom.node_data.as_container().get(node_id) else {
+        return false;
+    };
+    if matches!(node_data.get_node_type(), NodeType::Text(_))
+        || is_replaced_element(node_data)
+        || get_display_type(styled_dom, node_id) != LayoutDisplay::Inline
+        || is_out_of_flow_positioned(styled_dom, node_id)
+        || is_floated(styled_dom, node_id)
+    {
+        return false;
+    }
+    layout_children(styled_dom, node_id)
+        .into_iter()
+        .any(|child| {
+            get_display_type(styled_dom, child) != LayoutDisplay::None
+                && ((is_block_level(styled_dom, child)
+                    && !is_out_of_flow_positioned(styled_dom, child)
+                    && !is_floated(styled_dom, child))
+                    || inline_holds_a_block(styled_dom, child))
+        })
+}
+
+/// A block container's `children` (in order, `display: none` already gone)
+/// with every inline box that holds a block ([`inline_holds_a_block`])
+/// replaced by its own children, recursively - the boxes the container's box
+/// tree is built from, by the fresh tree (`process_block_children`, anonymous
+/// table cells) and the reconciler (`reconcile_recursive`,
+/// `reconcile_table_children`) alike.
+///
+/// CSS 2.2 s9.2.1.1: such an inline box "is broken around the block-level
+/// box": the inline content before and after it goes into anonymous block
+/// boxes (`in_flow_block_level_mask` then makes them), the block becomes
+/// their sibling. The inline box keeps no box of its own here - its style
+/// reaches the content around the block through the cascade (colour, font,
+/// text decoration), but its own background, border and padding are not
+/// drawn on the fragments (the split inline's fragment boxes are not built).
+/// Before, the block was "inlinified" into the line and had no box at all.
+#[must_use]
+pub(crate) fn split_inlines_around_blocks(
+    styled_dom: &StyledDom,
+    children: Vec<NodeId>,
+) -> Vec<NodeId> {
+    fn push_split(styled_dom: &StyledDom, node_id: NodeId, out: &mut Vec<NodeId>) {
+        if inline_holds_a_block(styled_dom, node_id) {
+            for child in layout_children(styled_dom, node_id) {
+                if get_display_type(styled_dom, child) != LayoutDisplay::None {
+                    push_split(styled_dom, child, out);
+                }
+            }
+        } else {
+            out.push(node_id);
+        }
+    }
+    if !children
+        .iter()
+        .any(|&child| inline_holds_a_block(styled_dom, child))
+    {
+        return children;
+    }
+    let mut out = Vec::with_capacity(children.len());
+    for child in children {
+        push_split(styled_dom, child, &mut out);
+    }
+    out
+}
+
 // +spec:display-property:23f111 - Inline-level elements: inline, inline-block, inline-table,
 // inline-flex, inline-grid
 /// Checks if a node is inline-level (including text nodes).
@@ -4056,9 +4144,13 @@ pub(crate) fn has_only_inline_children(styled_dom: &StyledDom, node_id: NodeId) 
     // inline content (`in_flow_block_level_mask`: CSS 2.2 s9.2.1.1, an
     // absolutely positioned child does not make its parent a block
     // container of blocks).
+    // An inline box that holds a block is split around it (CSS 2.2
+    // s9.2.1.1, `split_inlines_around_blocks`): its container is a block
+    // container of anonymous blocks and that block.
     let mask = in_flow_block_level_mask(styled_dom, &children);
     children.iter().zip(mask).all(|(&child_id, block_level)| {
         !block_level
+            && !inline_holds_a_block(styled_dom, child_id)
             && (is_inline_level(styled_dom, child_id)
                 || is_out_of_flow_positioned(styled_dom, child_id))
     })

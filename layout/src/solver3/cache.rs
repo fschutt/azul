@@ -1676,7 +1676,12 @@ fn reconcile_table_children(
             // The anonymous cell is a block container: its block-level
             // children as they are, each run of inline-level ones in an
             // anonymous inline wrapper (none for collapsible whitespace).
-            let content = &run[cell_start..j];
+            // An inline holding a block is split around it (CSS 2.2 s9.2.1.1).
+            let split_content = super::layout_tree::split_inlines_around_blocks(
+                styled_dom,
+                run[cell_start..j].to_vec(),
+            );
+            let content = &split_content[..];
             let block_level = in_flow_block_level_mask(styled_dom, content);
             let mut k = 0;
             while k < content.len() {
@@ -2087,6 +2092,30 @@ pub fn reconcile_recursive(
             parent_display,
             new_children_dom_ids,
         );
+        // CSS 2.2 s9.2.1.1: in a block container an inline box that holds a
+        // block is split around it - its children take its place (the fresh
+        // tree's `process_block_children` does the same). Flex / grid items
+        // and table parts are not block containers' children.
+        if !matches!(
+            parent_display,
+            LayoutDisplay::Flex
+                | LayoutDisplay::InlineFlex
+                | LayoutDisplay::Grid
+                | LayoutDisplay::InlineGrid
+                | LayoutDisplay::Table
+                | LayoutDisplay::InlineTable
+                | LayoutDisplay::TableRowGroup
+                | LayoutDisplay::TableHeaderGroup
+                | LayoutDisplay::TableFooterGroup
+                | LayoutDisplay::TableRow
+                | LayoutDisplay::TableColumnGroup
+                | LayoutDisplay::TableColumn
+                | LayoutDisplay::Contents
+                | LayoutDisplay::None
+        ) {
+            new_children_dom_ids =
+                super::layout_tree::split_inlines_around_blocks(styled_dom, new_children_dom_ids);
+        }
     }
 
     // Compute both positional and DOM-keyed lookups for the old

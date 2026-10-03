@@ -8932,37 +8932,12 @@ fn calculate_column_widths_auto_with_width<T: ParsedFontTrait>(
 /// `layout_formatting_context` (7534be8c7, reverted) also changed the final
 /// passes and dropped whole tables from the layout.
 fn cell_is_inline_formatting_context(styled_dom: &StyledDom, cell_dom_id: NodeId) -> bool {
-    let any_text = cell_dom_id
-        .az_children(&styled_dom.node_hierarchy.as_container())
-        .any(|child_id| {
-            matches!(
-                styled_dom.node_data.as_container()[child_id].get_node_type(),
-                NodeType::Text(_)
-            )
-        });
+    // A cell whose inline box holds a block (`<td><a><img style="display:
+    // block"></a></td>`) is not one: that inline is split around the block
+    // (CSS 2.2 s9.2.1.1), which `has_only_inline_children` answers - the
+    // twin walk `inline_children_hold_a_block` that kept such cells on the
+    // block branch is gone (`layout_tree::inline_holds_a_block`).
     crate::solver3::layout_tree::has_only_inline_children(styled_dom, cell_dom_id)
-        && (any_text || !inline_children_hold_a_block(styled_dom, cell_dom_id))
-}
-
-/// Whether an inline box among `node`'s children holds a block-level box
-/// (block-in-inline, CSS 2.2 9.2.1.1: `<a><img style="display: block"></a>`),
-/// looking through `display: inline` boxes only: an atomic inline
-/// (inline-block, inline-table, inline-flex, inline-grid) is a leaf, its
-/// content is its own formatting context.
-fn inline_children_hold_a_block(styled_dom: &StyledDom, node: NodeId) -> bool {
-    use crate::solver3::layout_tree::{get_display_type, is_block_level};
-    node.az_children(&styled_dom.node_hierarchy.as_container())
-        .any(|child| {
-            if matches!(
-                styled_dom.node_data.as_container()[child].get_node_type(),
-                NodeType::Text(_)
-            ) {
-                return false;
-            }
-            is_block_level(styled_dom, child)
-                || (get_display_type(styled_dom, child) == LayoutDisplay::Inline
-                    && inline_children_hold_a_block(styled_dom, child))
-        })
 }
 
 /// Layout a cell with its computed column width to determine its content height
