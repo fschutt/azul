@@ -9,14 +9,14 @@ Scratch helpers (not committed): /tmp/pimdrive7/rep.py (exact replacements from 
 - 3d46aa748 AzCalendar src/ids.rs (`__azcal_` + old name, names! macro like AzCalculator's), all UI files use it
 - c0f72572e azcalendar_e2e.py / week_interactions.py / offline_links.py: `wi.sel(stem)`, `detect_naming`
 - d53b050f0 mint-and-join.mjs: `cal(stem)`, `detectNaming`
+- 46f77dc56 AzTasks src/ids.rs wired (is_task_row, focus_id takes AzString); d641667ff aztasks_e2e.py sel/detect
+- 24591336b AzContacts src/ids.rs wired (indexed! macro for form rows; ui::section_id -> ids::section)
+- b93148da3 azlin_e2e.App detect_naming / name / sel; azcontacts_e2e.py on it
 
 ## IN PROGRESS
-- 1. PREFIXES, AzTasks: src/ids.rs written (uncommitted until wired); next: wire it into backstage.rs,
-  detail.rs, chrome.rs (focus_id takes AzString), listedit.rs, nav.rs, list.rs, lib.rs (is_task_row),
-  then scripts/aztasks_e2e.py (`P` + stem, detect naming). Then AzContacts the same.
+- 2. AzTasks blank-on-click in "All": reproduce on the prebuilt binary (capped, headless), root-cause.
 
 ## NEXT
-- 2. AzTasks blank-on-click in "All" (reproduce on the prebuilt binary, root-cause).
 - 3. AzTasks planned / board view + tags as TokenInput.
 - 4. AzCalendar start through the Drive.
 - 5. AzContacts LOOK + fixes.
