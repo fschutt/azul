@@ -28,17 +28,18 @@ Branch `wt/media6` from `25d78e309`. Brief: `scripts/waves/wave6/MEDIA6.md`.
 - AzPhoto `796d2da1a` canvas on MouseMove (same W3C MouseOver bug).
 - AzPaint `849e39cd4` RED undo tests, `0846c9ed9` UndoHistory + accelerators, `7f923fdb3` appkit
   (args/kit/settings page/AboutDialog/--sample/picture arg), `2f429b8d8` exports via kit file jobs.
+- AzPhoto `724a5122d` D16 theme-following palette + Clay + History buttons in the title row (P1, P3);
+  AzVideoCut `61d701fd4` Clay.
+- CORE `b891dbca8` RED / `7feabd775` GREEN RawImage::fit_within -> PhysicalSizeU32.
+- LAYOUT `9efadea1b` CallbackInfo::text_image (window's fc_cache); AzPhoto `e616a93c4` uses it.
 
 ## IN PROGRESS
 - (between units)
 
 ## NEXT (in order)
-5. AzPhoto leftovers: P1 private Palette (D16) - flora accent; P3 History undo/redo row cut off.
-6. Verify brief items: UndoHistory in Photo (engine.rs history) and VideoCut; VideoCut save-changes
-   (project autosaved?); ids from Uuid::from_seed(random_seed()) in all three; no ctrl||meta.
-7. LOOK again where the prebuilt binary still tells something (nothing new can be built here).
-8. Report scripts/MEDIA6_2026_10_03.md (api.json: TextRasterStyle + RawImage.from_text /
-   draw_text, RawImage.fit_within; engine fix; AzReview ui.rs:547 still MouseOver - owner).
+8. Report scripts/MEDIA6_2026_10_03.md - IN PROGRESS. Then done.
+   Cross-task find: the generated azul crate has NO AzString::from_const_str (target/codegen
+   dll_api_external.rs) though PLAN.md mandates `const X: AzString = AzString::from_const_str(..)`.
 
 ## Seen broken (LOOK)
 Screenshots: `target/media6/{photo,vc,paint}/*.png` (not committed). LOOK harness:
@@ -83,3 +84,6 @@ pre-patch Arc, the next cache-hit relayout serves it back. (4) 8 px body margin.
   key handler only forwards the kit's keys.
 
 ## Open questions
+- (none blocking) Verified: Photo/VideoCut on UndoHistory; VideoCut autosaves after every edit (no
+  save-changes needed); ids via Uuid::from_seed(random_seed()); no ctrl||meta; only reads of
+  user-picked files use std::fs.
