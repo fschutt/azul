@@ -11,7 +11,9 @@ Commit messages go through `<scratchpad>/infra6/msg.txt` (the scratchpad root is
 - c9b579c04 sigv4 helper tests (+ progress d301b6153)
 - 9c5e32262 migration RED (appkit migrate.rs, stub + 8 tests), a639fc30a migration GREEN + hook in ui::create_kit
 - b39b4d731 CLOSE RED (dll/tests/close_requested_headless.rs, 7 tests)
-- LAST COMMIT: see `git log -1`; next step = CLOSE GREEN step A (common/event.rs), see the plan below.
+- 76395525c A (common/event.rs), 7d20fc589 B (headless), 0b084638e C (linux), 04bf7ba63 D (macos),
+  1fa94d591 E (windows)
+- LAST COMMIT: see `git log -1`; next step = CLOSE step F (remove close_callback), then the report.
 
 ## CLOSE GREEN plan (exact)
 A. common/event.rs: CommonWindowState gets `close_unconfirmed: bool` (init false in `new`) + `pub fn
