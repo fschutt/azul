@@ -21,6 +21,14 @@
 //! a close (nobody could answer). The guard owns nothing: the app keeps
 //! `dirty` and `asking`.
 //!
+//! Every backend delivers every close through the same protocol (the window
+//! manager's close button, Alt+F4, `close_window`, the CSD titlebar's close
+//! button), and judges it by the DOM the app's LAST callback asked for: a
+//! rebuild that callback requested is built first. So after Save or Discard
+//! the app clears `dirty` before, or in the same callback as, the
+//! `close_window` - a thread's writeback can mark the document saved, return
+//! `RefreshDom` and close in one go.
+//!
 //! ```text
 //! body
 //!  └ CloseGuard (CloseRequested -> veto + Ask while dirty)
