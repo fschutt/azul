@@ -18,6 +18,7 @@
 //! - [`sample`]: the `--sample` library.
 
 pub mod ids;
+pub mod xmltree;
 
 /// Starts AzNews (the switches are read from the command line).
 pub fn start() {
