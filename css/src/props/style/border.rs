@@ -227,7 +227,12 @@ impl_border_width_helpers!(
 pub struct StyleBorderSide {
     pub border_width: PixelValue,
     pub border_style: BorderStyle,
+    /// The shorthand's colour; black when it names none (see `color_given`).
     pub border_color: ColorU,
+    /// Whether the shorthand named a colour. Without one the side's colour
+    /// is reset to its initial value, `currentcolor` (CSS Backgrounds 3
+    /// s4.2) - `border: 1px solid` is drawn in the text colour, not black.
+    pub color_given: bool,
 }
 
 // --- PARSERS ---
@@ -433,6 +438,7 @@ fn parse_border_side(input: &str) -> Result<StyleBorderSide, CssBorderSideParseE
         border_width: width.unwrap_or(MEDIUM_BORDER_THICKNESS),
         border_style: style.unwrap_or(BorderStyle::None),
         border_color: color.unwrap_or(ColorU::BLACK),
+        color_given: color.is_some(),
     })
 }
 
@@ -1646,6 +1652,7 @@ mod autotest_generated {
             border_width: PixelValue::px(2.0),
             border_style: BorderStyle::Dashed,
             border_color: ColorU::new_rgb(0, 255, 0),
+            color_given: true,
         };
         for input in [
             "2px dashed #00ff00",

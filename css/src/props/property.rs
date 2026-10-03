@@ -4119,30 +4119,42 @@ pub fn parse_combined_css_property(
         Border => {
             let border = parse_style_border(value)?;
             Ok(vec![
-                CssProperty::BorderTopColor(
+                CssProperty::BorderTopColor(if border.color_given {
                     StyleBorderTopColor {
                         inner: border.border_color,
                     }
-                    .into(),
-                ),
-                CssProperty::BorderRightColor(
+                    .into()
+                } else {
+                    // No colour: reset to the initial `currentcolor`.
+                    CssPropertyValue::Initial
+                }),
+                CssProperty::BorderRightColor(if border.color_given {
                     StyleBorderRightColor {
                         inner: border.border_color,
                     }
-                    .into(),
-                ),
-                CssProperty::BorderLeftColor(
+                    .into()
+                } else {
+                    // No colour: reset to the initial `currentcolor`.
+                    CssPropertyValue::Initial
+                }),
+                CssProperty::BorderLeftColor(if border.color_given {
                     StyleBorderLeftColor {
                         inner: border.border_color,
                     }
-                    .into(),
-                ),
-                CssProperty::BorderBottomColor(
+                    .into()
+                } else {
+                    // No colour: reset to the initial `currentcolor`.
+                    CssPropertyValue::Initial
+                }),
+                CssProperty::BorderBottomColor(if border.color_given {
                     StyleBorderBottomColor {
                         inner: border.border_color,
                     }
-                    .into(),
-                ),
+                    .into()
+                } else {
+                    // No colour: reset to the initial `currentcolor`.
+                    CssPropertyValue::Initial
+                }),
                 CssProperty::BorderTopStyle(
                     StyleBorderTopStyle {
                         inner: border.border_style,
@@ -4196,12 +4208,15 @@ pub fn parse_combined_css_property(
         BorderLeft => {
             let border = parse_style_border(value)?;
             Ok(vec![
-                CssProperty::BorderLeftColor(
+                CssProperty::BorderLeftColor(if border.color_given {
                     StyleBorderLeftColor {
                         inner: border.border_color,
                     }
-                    .into(),
-                ),
+                    .into()
+                } else {
+                    // No colour: reset to the initial `currentcolor`.
+                    CssPropertyValue::Initial
+                }),
                 CssProperty::BorderLeftStyle(
                     StyleBorderLeftStyle {
                         inner: border.border_style,
@@ -4219,12 +4234,15 @@ pub fn parse_combined_css_property(
         BorderRight => {
             let border = parse_style_border(value)?;
             Ok(vec![
-                CssProperty::BorderRightColor(
+                CssProperty::BorderRightColor(if border.color_given {
                     StyleBorderRightColor {
                         inner: border.border_color,
                     }
-                    .into(),
-                ),
+                    .into()
+                } else {
+                    // No colour: reset to the initial `currentcolor`.
+                    CssPropertyValue::Initial
+                }),
                 CssProperty::BorderRightStyle(
                     StyleBorderRightStyle {
                         inner: border.border_style,
@@ -4242,12 +4260,15 @@ pub fn parse_combined_css_property(
         BorderTop => {
             let border = parse_style_border(value)?;
             Ok(vec![
-                CssProperty::BorderTopColor(
+                CssProperty::BorderTopColor(if border.color_given {
                     StyleBorderTopColor {
                         inner: border.border_color,
                     }
-                    .into(),
-                ),
+                    .into()
+                } else {
+                    // No colour: reset to the initial `currentcolor`.
+                    CssPropertyValue::Initial
+                }),
                 CssProperty::BorderTopStyle(
                     StyleBorderTopStyle {
                         inner: border.border_style,
@@ -4265,12 +4286,15 @@ pub fn parse_combined_css_property(
         BorderBottom => {
             let border = parse_style_border(value)?;
             Ok(vec![
-                CssProperty::BorderBottomColor(
+                CssProperty::BorderBottomColor(if border.color_given {
                     StyleBorderBottomColor {
                         inner: border.border_color,
                     }
-                    .into(),
-                ),
+                    .into()
+                } else {
+                    // No colour: reset to the initial `currentcolor`.
+                    CssPropertyValue::Initial
+                }),
                 CssProperty::BorderBottomStyle(
                     StyleBorderBottomStyle {
                         inner: border.border_style,

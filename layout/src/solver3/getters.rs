@@ -2476,6 +2476,69 @@ fn background_contents_as_declared(
     }
 }
 
+/// The used `color` of `dom_id` - what its text paints in and what
+/// `currentcolor` means for it (a border without a colour of its own, CSS
+/// Backgrounds 3 s4.2). The one resolution of the property: the compact
+/// cache's inherited value, else the cascade, `system:` keywords resolved
+/// against the theme the cascade evaluated.
+#[allow(clippy::cast_possible_truncation)] // the packed 0xRRGGBBAA bytes
+#[must_use]
+pub fn get_used_text_color(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    node_state: &StyledNodeState,
+) -> ColorU {
+    let cache = &styled_dom.css_property_cache.ptr;
+    let color_from_cache = {
+        // FAST PATH: compact cache for text color
+        let mut fast_color = None;
+        if node_state.is_normal() {
+            if let Some(ref cc) = cache.compact_cache {
+                let raw = cc.get_text_color_raw(dom_id.index());
+                if raw != 0 {
+                    // Decode 0xRRGGBBAA → ColorU
+                    fast_color = Some(ColorU {
+                        r: (raw >> 24) as u8,
+                        g: (raw >> 16) as u8,
+                        b: (raw >> 8) as u8,
+                        a: raw as u8,
+                    });
+                }
+            }
+        }
+        fast_color.or_else(|| {
+            let node_data = &styled_dom.node_data.as_container()[dom_id];
+            cache
+                .get_text_color(node_data, &dom_id, node_state)
+                .and_then(|v| v.get_property().copied())
+                .map(|v| v.inner)
+        })
+    };
+
+    // The UA's `color` default is THEMED and CASCADED (the root's
+    // `cascaded_props`, every descendant's `computed_values`, the compact
+    // text tier — `ua_css::get_ua_root_property_themed`), so on a cascaded
+    // DOM one of the two reads above always answers. The seed below exists
+    // for a cache no UA pass has run on, and asserts that it is one.
+    // Do NOT use system_style.colors.text here — that reflects the OS theme
+    // (e.g. white on macOS dark mode) and would produce white text on
+    // explicitly light-colored backgrounds.  System colors (CanvasText etc.)
+    // should only be used when referenced through CSS system-color keywords.
+    let color = color_from_cache.unwrap_or_else(|| {
+        debug_assert!(
+            !cache.ua_applied,
+            "get_style_properties: node {} has no `color` in its resolved style although the UA \
+             pass ran — the themed root default did not reach it (theme-chain analysis \
+             2026-09-12, R1)",
+            dom_id.index()
+        );
+        ColorU::BLACK
+    });
+    // `color: system:<slot>` arrives as a token (inherited like any colour);
+    // this is where it becomes the colour of the theme the cascade evaluated.
+    system_colors_resolved(styled_dom, color)
+}
+
 /// Information about border rendering
 #[derive(Copy, Clone, Debug)]
 pub struct BorderInfo {
@@ -2484,9 +2547,113 @@ pub struct BorderInfo {
     pub styles: crate::solver3::display_list::StyleBorderStyles,
 }
 
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// The border of `node_id` as it is USED (CSS Backgrounds 3 s4.1-4.3): a
+/// side whose style is `none` or `hidden` has no width; a side with a
+/// visible style but no width of its own is `medium` (3px); and a side
+/// without a colour of its own is `currentcolor`, the element's text colour.
+/// Before, a side without a declared colour painted transparent - nothing -
+/// and a style alone had no width, so `border-top-style: solid;
+/// border-top-width: medium` drew nothing at all (WPT
+/// border-top-width-medium).
+///
+/// An SVG shape is left as declared: its border slots carry `stroke` and
+/// `stroke-width`, which have no style (see `svg_stroke_for`).
 #[must_use]
 pub fn get_border_info(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> BorderInfo {
+    use azul_css::{
+        css::CssPropertyValue,
+        props::style::{
+            border::{
+                BorderStyle, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor,
+                StyleBorderTopColor,
+            },
+            LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
+            LayoutBorderTopWidth,
+        },
+    };
+
+    let mut info = declared_border_info(styled_dom, node_id, node_state);
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    if node_data.get_svg_data().is_some() {
+        return info;
+    }
+    let cache = &styled_dom.css_property_cache.ptr;
+    let mut current_color: Option<ColorU> = None;
+
+    macro_rules! used_side {
+        ($side:ident, $Width:ident, $Color:ident, $declared_color:ident) => {{
+            let style = info
+                .styles
+                .$side
+                .as_ref()
+                .and_then(|v| v.get_property())
+                .map_or(BorderStyle::None, |s| s.inner);
+            let declared_width = match info.widths.$side.as_ref().and_then(|v| v.get_property()) {
+                Some(w) => MultiValue::Exact(w.inner),
+                None => MultiValue::Initial,
+            };
+            info.widths.$side = Some(CssPropertyValue::Exact($Width {
+                inner: used_border_width(declared_width, style),
+            }));
+            let has_no_colour = info
+                .colors
+                .$side
+                .as_ref()
+                .and_then(|v| v.get_property())
+                .is_none();
+            if has_no_colour && !matches!(style, BorderStyle::None | BorderStyle::Hidden) {
+                // "No colour" from the compact cache is also an explicit
+                // `transparent` (it packs both as 0): the cascade tells
+                // which. Only a side with no colour at all is currentcolor.
+                let declared = cache
+                    .$declared_color(node_data, &node_id, node_state)
+                    .and_then(|v| v.get_property())
+                    .map(|c| c.inner);
+                let color = match declared {
+                    Some(c) => c,
+                    None => *current_color.get_or_insert_with(|| {
+                        get_used_text_color(styled_dom, node_id, node_state)
+                    }),
+                };
+                info.colors.$side = Some(CssPropertyValue::Exact($Color { inner: color }));
+            }
+        }};
+    }
+    used_side!(top, LayoutBorderTopWidth, StyleBorderTopColor, get_border_top_color);
+    used_side!(right, LayoutBorderRightWidth, StyleBorderRightColor, get_border_right_color);
+    used_side!(bottom, LayoutBorderBottomWidth, StyleBorderBottomColor, get_border_bottom_color);
+    used_side!(left, LayoutBorderLeftWidth, StyleBorderLeftColor, get_border_left_color);
+    info
+}
+
+/// The used width of one border side (CSS Backgrounds 3 s4.3): 0 when its
+/// style is `none` or `hidden`, its declared width, else `medium` (3px, the
+/// initial value - a side with a style but no width has one). The one rule
+/// the box model (`layout_tree`'s box props) and the painter
+/// ([`get_border_info`]) share.
+#[must_use]
+pub fn used_border_width(
+    declared: MultiValue<PixelValue>,
+    style: azul_css::props::style::border::BorderStyle,
+) -> PixelValue {
+    use azul_css::props::style::border::BorderStyle;
+    if matches!(style, BorderStyle::None | BorderStyle::Hidden) {
+        return PixelValue::const_px(0);
+    }
+    match declared {
+        MultiValue::Exact(pv) => pv,
+        _ => azul_css::props::basic::pixel::MEDIUM_BORDER_THICKNESS,
+    }
+}
+
+/// The border of `node_id` as the cascade declared it: `None` for a side
+/// that declares nothing. [`get_border_info`] turns it into the used one.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+fn declared_border_info(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -3467,53 +3634,7 @@ pub fn get_style_properties_for_state(
         })
     };
 
-    let color_from_cache = {
-        // FAST PATH: compact cache for text color
-        let mut fast_color = None;
-        if node_state.is_normal() {
-            if let Some(ref cc) = cache.compact_cache {
-                let raw = cc.get_text_color_raw(dom_id.index());
-                if raw != 0 {
-                    // Decode 0xRRGGBBAA → ColorU
-                    fast_color = Some(ColorU {
-                        r: (raw >> 24) as u8,
-                        g: (raw >> 16) as u8,
-                        b: (raw >> 8) as u8,
-                        a: raw as u8,
-                    });
-                }
-            }
-        }
-        fast_color.or_else(|| {
-            cache
-                .get_text_color(node_data, &dom_id, node_state)
-                .and_then(|v| v.get_property().copied())
-                .map(|v| v.inner)
-        })
-    };
-
-    // The UA's `color` default is THEMED and CASCADED (the root's
-    // `cascaded_props`, every descendant's `computed_values`, the compact
-    // text tier — `ua_css::get_ua_root_property_themed`), so on a cascaded
-    // DOM one of the two reads above always answers. The seed below exists
-    // for a cache no UA pass has run on, and asserts that it is one.
-    // Do NOT use system_style.colors.text here — that reflects the OS theme
-    // (e.g. white on macOS dark mode) and would produce white text on
-    // explicitly light-colored backgrounds.  System colors (CanvasText etc.)
-    // should only be used when referenced through CSS system-color keywords.
-    let color = color_from_cache.unwrap_or_else(|| {
-        debug_assert!(
-            !cache.ua_applied,
-            "get_style_properties: node {} has no `color` in its resolved style although the UA \
-             pass ran — the themed root default did not reach it (theme-chain analysis \
-             2026-09-12, R1)",
-            dom_id.index()
-        );
-        ColorU::BLACK
-    });
-    // `color: system:<slot>` arrives as a token (inherited like any colour);
-    // this is where it becomes the colour of the theme the cascade evaluated.
-    let color = system_colors_resolved(styled_dom, color);
+    let color = get_used_text_color(styled_dom, dom_id, node_state);
 
     // +spec:font-metrics:e480da - line-height: normal/number/length/percentage resolution
     let line_height = get_used_line_height(styled_dom, dom_id, node_state, font_size, viewport_size);
