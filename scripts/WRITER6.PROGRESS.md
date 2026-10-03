@@ -32,8 +32,10 @@ Branch `wt/writer6` from `25d78e309`. Brief: scripts/waves/wave6/WRITER6.md.
 
 - ef9a62f7a AzNotes on azul-appkit (args/data root/settings page/About/shortcuts; E2E --data-dir).
 
+- de54fa885 E2E dialog-button click; a4c1bf828..362b5e3ad the report scripts/WRITER6_2026_10_03.md.
+
 ## IN PROGRESS
-- NEXT: the report scripts/WRITER6_2026_10_03.md (api.json list, least-sure spots, test commands, left).
+- (none) - the task is reported. If resumed: nothing pending; follow-ups are in the report sections 6-7.
 - Scratch helpers (api.json lookup script) live in the session scratchpad; it was wiped by the restart.
 - USER asked "don't we already have pagination?": yes - paginate.rs does NOT re-implement it. It calls the
   engine's Pdf::compute_pagination (PaginationSnapshot::break_path) and only maps each break path to the
