@@ -7,6 +7,7 @@ use azul::{
         ButtonOnClickCallbackType, DataTableDataSourceCallbackType, DataTableOnEventCallbackType,
         MediaControlsOnActionCallbackType, SeekBarOnSeekCallbackType,
     },
+    css::ApplicationEventFilter,
     dialog::{FileDialog, FileOpenResult},
     option::OptionString,
     prelude::*,
