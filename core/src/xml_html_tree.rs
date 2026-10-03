@@ -30,7 +30,7 @@ use alloc::{
 use super::{
     is_html_space,
     rules::{
-        self, Content, EndAction, Mode, Scope, Step, TableEnd, TableStart, BREAKOUT, FORMATTING,
+        self, ContentModel, EndAction, Mode, Scope, Step, TableEnd, TableStart, BREAKOUT, FORMATTING,
         FOSTER_TARGET, HEAD, HEADING, IMPLIED_END, INTEGRATION_POINT, MARKER, SPECIAL, VOID,
     },
     tokenizer::{Doctype, TextMode},
@@ -421,10 +421,10 @@ impl TreeBuilder {
         }
         let key = lower(name);
         rules::element(&key).map_or(TextMode::Data, |e| match e.content {
-            Content::Markup => TextMode::Data,
-            Content::RcData => TextMode::RcData(e.name),
-            Content::RawText => TextMode::RawText(e.name),
-            Content::PlainText => TextMode::PlainText,
+            ContentModel::Markup => TextMode::Data,
+            ContentModel::RcData => TextMode::RcData(e.name),
+            ContentModel::RawText => TextMode::RawText(e.name),
+            ContentModel::PlainText => TextMode::PlainText,
         })
     }
 
@@ -899,7 +899,7 @@ impl TreeBuilder {
     fn in_text_element(&self) -> bool {
         self.stack
             .last()
-            .is_some_and(|e| !e.foreign && rules::content(&e.key) != Content::Markup)
+            .is_some_and(|e| !e.foreign && rules::content(&e.key) != ContentModel::Markup)
     }
 
     // ---- HTML: the list of active formatting elements (13.2.4.3) ----

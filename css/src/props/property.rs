@@ -5369,9 +5369,11 @@ impl CssProperty {
             // one-layer case, flora's gradient faces the rest) tween every
             // colour (`interpolate_background_layers`); others switch half way.
             (Self::BackgroundContent(start), Self::BackgroundContent(end)) => {
-                let layers = |v: &StyleBackgroundContentVecValue| {
+                // A fn, not a closure: the returned slice borrows the argument
+                // (closures get no input-to-output lifetime elision).
+                fn layers(v: &StyleBackgroundContentVecValue) -> Option<&[StyleBackgroundContent]> {
                     v.get_property().map(StyleBackgroundContentVec::as_slice)
-                };
+                }
                 match (layers(start), layers(end)) {
                     (Some(a), Some(b)) => {
                         match crate::props::style::background::interpolate_background_layers(

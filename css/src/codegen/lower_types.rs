@@ -215,7 +215,7 @@ pub(crate) fn lower_css_property(p: &crate::props::property::CssProperty) -> Exp
         P::ListStylePosition(v) => prop_value(v, "ListStylePosition", "StyleListStylePositionValue", "StyleListStylePosition", Some("list_style_position")),
         P::StringSet(v) => prop_value(v, "StringSet", "StringSetValue", "StringSet", Some("string_set")),
         P::Zoom(v) => prop_value(v, "Zoom", "StyleZoomValue", "StyleZoom", None),
-        P::BackgroundClip(v) => prop_value(v, "BackgroundClip", "StyleBackgroundClipValue", "StyleBackgroundClip", None),
+        P::BackgroundClip(v) => prop_value(v, "BackgroundClip", "StyleBackgroundClipValue", "StyleBackgroundClip", Some("background_clip")),
     }
 }
 
@@ -307,8 +307,10 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("AttributeTypeVecDestructorType", "vec"),
     ("AttributeTypeVecSlice", "dom"),
     ("AudioConfig", "audio"),
+    ("AudioDecoder", "audio"),
     ("AudioDeviceList", "audio"),
     ("AudioDeviceListResult", "audio"),
+    ("AudioEncoder", "audio"),
     ("AudioFrame", "audio"),
     ("AudioMetrics", "css"),
     ("AudioSink", "audio"),
@@ -902,6 +904,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("DynamicSelectorVecDestructor", "vec"),
     ("DynamicSelectorVecDestructorType", "vec"),
     ("DynamicSelectorVecSlice", "css"),
+    ("EchoCanceller", "misc"),
     ("EdgeType", "callbacks"),
     ("EditResumePoint", "misc"),
     ("EmailAddress", "image"),
@@ -1663,6 +1666,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("OptionAlertOnDismiss", "option"),
     ("OptionAttributeType", "option"),
     ("OptionAudioDeviceListResult", "option"),
+    ("OptionAudioFrame", "option"),
     ("OptionBackstageNavItem", "option"),
     ("OptionBackstageOnNavSelect", "option"),
     ("OptionBiometricResult", "option"),
@@ -3629,7 +3633,7 @@ pub(crate) static CSS_PROPERTY_ALIASES: &[(&str, &str, &str)] = &[
     ("ListStylePosition", "StyleListStylePositionValue", "list_style_position"),
     ("StringSet", "StringSetValue", "string_set"),
     ("Zoom", "StyleZoomValue", ""),
-    ("BackgroundClip", "StyleBackgroundClipValue", ""),
+    ("BackgroundClip", "StyleBackgroundClipValue", "background_clip"),
 ];
 
 /// The `CssPropertyValue` alias of a `CssProperty` variant (`Width` ->
@@ -6158,6 +6162,17 @@ impl Lower for crate::props::style::transform::StyleBackfaceVisibility {
     }
 }
 
+impl Lower for crate::props::style::background::StyleBackgroundClip {
+    fn lower(&self) -> Expr {
+        let variant = match self {
+            Self::BorderBox => "BorderBox",
+            Self::PaddingBox => "PaddingBox",
+            Self::ContentBox => "ContentBox",
+        };
+        Expr::unit("StyleBackgroundClip", EnumShape::CLike, variant)
+    }
+}
+
 impl Lower for crate::props::style::background::StyleBackgroundContent {
     fn lower(&self) -> Expr {
         match self {
@@ -6192,17 +6207,6 @@ impl Lower for crate::props::style::background::StyleBackgroundPosition {
 impl Lower for crate::props::style::background::StyleBackgroundPositionVec {
     fn lower(&self) -> Expr {
         Expr::vec("StyleBackgroundPositionVec", "StyleBackgroundPosition", self.as_slice().iter().map(Lower::lower).collect())
-    }
-}
-
-impl Lower for crate::props::style::background::StyleBackgroundClip {
-    fn lower(&self) -> Expr {
-        let variant = match self {
-            Self::BorderBox => "BorderBox",
-            Self::PaddingBox => "PaddingBox",
-            Self::ContentBox => "ContentBox",
-        };
-        Expr::unit("StyleBackgroundClip", EnumShape::CLike, variant)
     }
 }
 

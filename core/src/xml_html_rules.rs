@@ -54,7 +54,7 @@ pub(super) const INTEGRATION_POINT: u32 = 1 << 11;
 /// How an element's content is tokenized (13.2.6.2, the generic raw text and RCDATA element
 /// parsing algorithms; 13.2.6.4.7 "plaintext").
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Content {
+pub(super) enum ContentModel {
     /// Markup.
     Markup,
     /// Text with its character references decoded, up to the element's end tag.
@@ -69,18 +69,18 @@ pub(super) enum Content {
 pub(super) struct Element {
     pub(super) name: &'static str,
     pub(super) flags: u32,
-    pub(super) content: Content,
+    pub(super) content: ContentModel,
 }
 
 const fn el(name: &'static str, flags: u32) -> Element {
     Element {
         name,
         flags,
-        content: Content::Markup,
+        content: ContentModel::Markup,
     }
 }
 
-const fn text_el(name: &'static str, flags: u32, content: Content) -> Element {
+const fn text_el(name: &'static str, flags: u32, content: ContentModel) -> Element {
     Element {
         name,
         flags,
@@ -152,7 +152,7 @@ pub(super) static ELEMENTS: &[Element] = &[
     el("hr", SV | BREAKOUT),
     el("html", S | SCOPE | TABLE_SCOPE),
     el("i", F),
-    text_el("iframe", S, Content::RawText),
+    text_el("iframe", S, ContentModel::RawText),
     el("img", SV | BREAKOUT),
     el("input", SV),
     el("keygen", SV),
@@ -170,8 +170,8 @@ pub(super) static ELEMENTS: &[Element] = &[
     el("mtext", SIP),
     el("nav", S),
     el("nobr", F),
-    text_el("noembed", S, Content::RawText),
-    text_el("noframes", S | HEAD, Content::RawText),
+    text_el("noembed", S, ContentModel::RawText),
+    text_el("noframes", S | HEAD, ContentModel::RawText),
     // scripting is off (as in DOMParser): its content is markup
     el("noscript", S),
     el("object", SMS),
@@ -180,7 +180,7 @@ pub(super) static ELEMENTS: &[Element] = &[
     el("option", IMPLIED_END),
     el("p", SB | IMPLIED_END),
     el("param", SV),
-    text_el("plaintext", S, Content::PlainText),
+    text_el("plaintext", S, ContentModel::PlainText),
     el("pre", SB),
     el("rb", IMPLIED_END),
     el("rp", IMPLIED_END),
@@ -188,7 +188,7 @@ pub(super) static ELEMENTS: &[Element] = &[
     el("rtc", IMPLIED_END),
     el("ruby", BREAKOUT),
     el("s", F),
-    text_el("script", S | HEAD, Content::RawText),
+    text_el("script", S | HEAD, ContentModel::RawText),
     el("search", S),
     el("section", S),
     el("select", S),
@@ -197,7 +197,7 @@ pub(super) static ELEMENTS: &[Element] = &[
     el("span", BREAKOUT),
     el("strike", F),
     el("strong", F),
-    text_el("style", S | HEAD, Content::RawText),
+    text_el("style", S | HEAD, ContentModel::RawText),
     el("sub", BREAKOUT),
     el("summary", S),
     el("sup", BREAKOUT),
@@ -205,11 +205,11 @@ pub(super) static ELEMENTS: &[Element] = &[
     el("tbody", SFT),
     el("td", SMS),
     el("template", SMS | TABLE_SCOPE | HEAD),
-    text_el("textarea", S, Content::RcData),
+    text_el("textarea", S, ContentModel::RcData),
     el("tfoot", SFT),
     el("th", SMS),
     el("thead", SFT),
-    text_el("title", SIP | HEAD, Content::RcData),
+    text_el("title", SIP | HEAD, ContentModel::RcData),
     el("tr", SFT),
     el("track", SV),
     el("tt", F),
@@ -217,7 +217,7 @@ pub(super) static ELEMENTS: &[Element] = &[
     el("ul", SB),
     el("var", BREAKOUT),
     el("wbr", SV),
-    text_el("xmp", S, Content::RawText),
+    text_el("xmp", S, ContentModel::RawText),
 ];
 
 /// The row of `name` (lower-case), if a rule names it.
@@ -240,8 +240,8 @@ pub(super) fn is(name: &str, flag: u32) -> bool {
 }
 
 /// How the content of `name` (lower-case) is tokenized.
-pub(super) fn content(name: &str) -> Content {
-    element(name).map_or(Content::Markup, |e| e.content)
+pub(super) fn content(name: &str) -> ContentModel {
+    element(name).map_or(ContentModel::Markup, |e| e.content)
 }
 
 /// The start tags a browser reads as another element (13.2.6.4.7: "A start tag whose tag
