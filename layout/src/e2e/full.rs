@@ -3061,6 +3061,10 @@ pub enum DebugEvent {
     PrintResponse,
 
     // Screenshots
+    /// `{ "op": "take_screenshot" }` - a CPU render of the window as it is
+    /// NOW, animations mid-flight included. For the window at rest, put
+    /// `wait_settled` before it: right after a rebuild, moved nodes are still
+    /// sliding and a still of them shows "two layouts at once".
     TakeScreenshot,
     /// `render_shadow` omitted follows AZ_SCREENSHOT_SHADOW.
     TakeNativeScreenshot {
