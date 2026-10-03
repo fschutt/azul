@@ -1964,22 +1964,6 @@ extern "C" fn on_edit_keep(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_form(&mut data, &mut info, |form| form.confirm_discard = false)
 }
 
-/// Standard base64 (for a photo picked from a file).
-#[must_use]
-pub fn base64(bytes: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
-        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
-        out.push(TABLE[(n >> 18) as usize & 63] as char);
-        out.push(TABLE[(n >> 12) as usize & 63] as char);
-        out.push(if chunk.len() > 1 { TABLE[(n >> 6) as usize & 63] as char } else { '=' });
-        out.push(if chunk.len() > 2 { TABLE[n as usize & 63] as char } else { '=' });
-    }
-    out
-}
-
 /// The image type of a picture file by its name.
 #[must_use]
 pub fn image_mime(path: &str) -> &'static str {
@@ -2050,7 +2034,7 @@ extern "C" fn on_photo_read(mut app: RefAny, mut msg: RefAny, mut info: Callback
                 match result {
                     Ok(Some(bytes)) if bytes.len() <= 2 * 1024 * 1024 => {
                         if let Reading::Edit(form) = &mut s.reading {
-                            form.draft.photo = format!("data:{};base64,{}", image_mime(&key), base64(&bytes));
+                            form.draft.photo = azul_pim::data_uri::data_uri(image_mime(&key), &bytes);
                             s.notice = "Photo set".to_string();
                         }
                     }
@@ -2354,13 +2338,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn base64_matches_the_standard_alphabet_and_padding() {
-        assert_eq!(base64(b""), "");
-        assert_eq!(base64(b"f"), "Zg==");
-        assert_eq!(base64(b"fo"), "Zm8=");
-        assert_eq!(base64(b"foo"), "Zm9v");
-        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
-        assert_eq!(base64(&[0xff, 0xfe, 0xfd]), "//79");
+    fn a_picture_file_names_its_image_type() {
+        // The photo's base64 is azul_pim::data_uri's (tested there).
         assert_eq!(image_mime("Me.PNG"), "image/png");
         assert_eq!(image_mime("me.jpg"), "image/jpeg");
     }
