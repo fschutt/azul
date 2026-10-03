@@ -1,8 +1,9 @@
 //! Switch (toggle) widget — a boolean on/off control rendered as a rounded,
 //! pill-shaped "track" with a sliding circular "knob". A near-clone of
 //! [`crate::widgets::check_box::CheckBox`] (boolean state + an `on_toggle`
-//! callback) restyled as a switch: toggling flips the knob's horizontal
-//! position (via `margin-left`) and the track's background colour.
+//! callback) restyled as a switch: toggling slides the knob across the track
+//! (via `transform: translateX(..)`, a GPU property: the slide moves no box)
+//! and flips the track's background colour.
 //!
 //! Key types: [`Switch`], [`SwitchState`], [`SwitchOnToggle`].
 
@@ -19,14 +20,14 @@ use azul_css::{
         basic::{color::ColorU, *},
         layout::{
             LayoutAlignItems, LayoutAlignSelf, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
-            LayoutHeight, LayoutMarginLeft, LayoutPaddingBottom, LayoutPaddingLeft,
-            LayoutPaddingRight, LayoutPaddingTop, LayoutWidth,
+            LayoutHeight, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight,
+            LayoutPaddingTop, LayoutWidth,
         },
         property::{CssProperty, *},
         style::{
             StyleBackgroundContent, StyleBackgroundContentVec, StyleBorderBottomLeftRadius,
             StyleBorderBottomRightRadius, StyleBorderTopLeftRadius, StyleBorderTopRightRadius,
-            StyleCursor,
+            StyleCursor, StyleTransform, StyleTransformVec,
         },
     },
     AzString, OptionString,
@@ -146,8 +147,27 @@ const KNOB_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color
 const KNOB_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(KNOB_BG_ITEMS);
 
+// ---- the knob's two positions ----
+//
+// The knob sits at the track's left padding edge in its BOX, and the switched-on
+// knob is SHIFTED by the travel: a `transform`, not a margin. A slide is a move,
+// and a move travels on the compositor - each frame of the glide publishes one
+// matrix and lays nothing out (it was a whole-window relayout per frame while the
+// knob slid by `margin-left`: 20 ms for a 16 px move in AzWidgets). The off state
+// declares `translateX(0px)`, not `none`, so the knob's reference frame exists
+// from the first layout and the first toggle needs no display-list rebuild either.
+const KNOB_OFF_TRANSFORM_ITEMS: &[StyleTransform] =
+    &[StyleTransform::TranslateX(PixelValue::const_px(0))];
+const KNOB_OFF_TRANSFORM: StyleTransformVec =
+    StyleTransformVec::from_const_slice(KNOB_OFF_TRANSFORM_ITEMS);
+const KNOB_ON_TRANSFORM_ITEMS: &[StyleTransform] = &[StyleTransform::TranslateX(
+    PixelValue::const_px(KNOB_TRAVEL),
+)];
+const KNOB_ON_TRANSFORM: StyleTransformVec =
+    StyleTransformVec::from_const_slice(KNOB_ON_TRANSFORM_ITEMS);
+
 /// What the switch declares so its two state changes TWEEN instead of
-/// snapping: the knob's `margin-left` travel and the track's colour.
+/// snapping: the knob's `transform` slide and the track's colour.
 ///
 /// The click handler writes both imperatively, and an imperative write now
 /// honours a declared `animation` the same way a change found by the DOM diff
@@ -226,13 +246,18 @@ pub fn build_track_style(checked: bool) -> CssPropertyWithConditionsVec {
     ])
 }
 
-/// Build the knob style. The knob's `margin-left` is the state-dependent
-/// property that slides it between the off (left) and on (right) positions.
+/// Build the knob style. The knob's `transform: translateX(..)` is the
+/// state-dependent property that slides it between the off (left) and on
+/// (right) positions; its box never moves.
 #[must_use]
 pub fn build_knob_style(checked: bool) -> CssPropertyWithConditionsVec {
-    let margin = if checked { KNOB_TRAVEL } else { 0 };
+    let offset = if checked {
+        KNOB_ON_TRANSFORM
+    } else {
+        KNOB_OFF_TRANSFORM
+    };
     CssPropertyWithConditionsVec::from_vec(alloc::vec![
-        switch_animation("margin-left"),
+        switch_animation("transform"),
         CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(
             KNOB_SIZE,
         ))),
@@ -255,9 +280,7 @@ pub fn build_knob_style(checked: bool) -> CssPropertyWithConditionsVec {
             StyleBorderBottomRightRadius::const_px(KNOB_RADIUS),
         )),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(KNOB_BG)),
-        CssPropertyWithConditions::simple(CssProperty::const_margin_left(
-            LayoutMarginLeft::const_px(margin),
-        )),
+        CssPropertyWithConditions::simple(CssProperty::const_transform(offset)),
     ])
 }
 
@@ -380,9 +403,12 @@ impl Default for Switch {
 pub mod input {
 
     use azul_core::{callbacks::Update, refany::RefAny};
-    use azul_css::props::{layout::LayoutMarginLeft, property::CssProperty};
+    use azul_css::props::property::CssProperty;
 
-    use super::{SwitchOnToggle, SwitchStateWrapper, KNOB_TRAVEL, TRACK_OFF_BG, TRACK_ON_BG};
+    use super::{
+        SwitchOnToggle, SwitchStateWrapper, KNOB_OFF_TRANSFORM, KNOB_ON_TRANSFORM, TRACK_OFF_BG,
+        TRACK_ON_BG,
+    };
     use crate::callbacks::CallbackInfo;
 
     #[must_use]
@@ -432,19 +458,13 @@ pub mod input {
         // CallbackInfo is Copy, so `info` is still usable after the call above.
         if switch.inner.checked {
             info.set_css_property(track_id, CssProperty::const_background_content(TRACK_ON_BG));
-            info.set_css_property(
-                knob_id,
-                CssProperty::const_margin_left(LayoutMarginLeft::const_px(KNOB_TRAVEL)),
-            );
+            info.set_css_property(knob_id, CssProperty::const_transform(KNOB_ON_TRANSFORM));
         } else {
             info.set_css_property(
                 track_id,
                 CssProperty::const_background_content(TRACK_OFF_BG),
             );
-            info.set_css_property(
-                knob_id,
-                CssProperty::const_margin_left(LayoutMarginLeft::const_px(0)),
-            );
+            info.set_css_property(knob_id, CssProperty::const_transform(KNOB_OFF_TRANSFORM));
         }
 
         result
@@ -672,14 +692,25 @@ mod autotest_generated {
             .collect()
     }
 
-    fn pushed_margins(changes: &[CallbackChange]) -> Vec<(NodeId, f32)> {
+    /// Every knob offset the handler wrote: `(node, translateX in px)`.
+    fn pushed_knob_offsets(changes: &[CallbackChange]) -> Vec<(NodeId, f32)> {
         pushed_pairs(changes)
             .into_iter()
-            .filter_map(|(n, p)| match p {
-                CssProperty::MarginLeft(m) => m.get_property().map(|m| (n, px(&m.inner))),
-                _ => None,
-            })
+            .filter_map(|(n, p)| translate_x_px(&p).map(|x| (n, x)))
             .collect()
+    }
+
+    /// The x offset of a `transform` that is exactly one `translateX(<px>)` -
+    /// the only shape the knob declares. Anything else (a second function, a
+    /// matrix) is `None`, so a test reading it fails loudly.
+    fn translate_x_px(p: &CssProperty) -> Option<f32> {
+        match p {
+            CssProperty::Transform(t) => t.get_property().and_then(|list| match list.as_ref() {
+                [StyleTransform::TranslateX(pv)] => Some(px(pv)),
+                _ => None,
+            }),
+            _ => None,
+        }
     }
 
     // ------------------------------------------------------------------
@@ -731,13 +762,11 @@ mod autotest_generated {
         })
     }
 
-    /// The knob's `margin-left` — the single property that encodes "which side is the
-    /// knob on". This is the only thing distinguishing the two knob styles.
-    fn margin_left_px(v: &CssPropertyWithConditionsVec) -> Option<f32> {
-        find(v, |p| match p {
-            CssProperty::MarginLeft(m) => m.get_property().map(|m| px(&m.inner)),
-            _ => None,
-        })
+    /// The knob's `transform: translateX(..)` — the single property that encodes
+    /// "which side is the knob on". This is the only thing distinguishing the two
+    /// knob styles.
+    fn knob_offset_px(v: &CssPropertyWithConditionsVec) -> Option<f32> {
+        find(v, translate_x_px)
     }
 
     /// `(top, right, bottom, left)` padding, each as an absolute px.
@@ -823,7 +852,7 @@ mod autotest_generated {
                 CssProperty::PaddingRight(x) => x.get_property().map(|x| px(&x.inner)),
                 CssProperty::PaddingBottom(x) => x.get_property().map(|x| px(&x.inner)),
                 CssProperty::PaddingLeft(x) => x.get_property().map(|x| px(&x.inner)),
-                CssProperty::MarginLeft(x) => x.get_property().map(|x| px(&x.inner)),
+                CssProperty::Transform(_) => translate_x_px(&p.property),
                 CssProperty::BorderTopLeftRadius(x) => x.get_property().map(|x| px(&x.inner)),
                 CssProperty::BorderTopRightRadius(x) => x.get_property().map(|x| px(&x.inner)),
                 CssProperty::BorderBottomLeftRadius(x) => x.get_property().map(|x| px(&x.inner)),
@@ -988,9 +1017,9 @@ mod autotest_generated {
             assert!(v >= 0, "{name} = {v} is negative");
 
             // encode -> decode must be lossless for these integral px values.
-            let encoded = LayoutMarginLeft::const_px(v);
+            let encoded = PixelValue::const_px(v);
             assert_eq!(
-                px(&encoded.inner),
+                px(&encoded),
                 v as f32,
                 "{name} = {v} does not round-trip through PixelValue",
             );
@@ -1179,8 +1208,8 @@ mod autotest_generated {
 
     #[test]
     pub fn build_track_style_lays_the_knob_out_as_a_centred_row() {
-        // The knob is positioned by `margin-left` alone, which only behaves as a
-        // left-anchored offset inside a row flex container.
+        // The knob's BOX rests at the track's left padding edge (a row flex
+        // container, vertically centred); its `transform` shifts it from there.
         for checked in [false, true] {
             let v = build_track_style(checked);
             assert_eq!(
@@ -1196,7 +1225,7 @@ mod autotest_generated {
                     _ => None,
                 }),
                 Some(LayoutFlexDirection::Row),
-                "checked={checked}: margin-left only slides the knob in a row container",
+                "checked={checked}: the knob rests at the left edge only in a row container",
             );
             assert_eq!(
                 find(&v, |p| match p {
@@ -1224,7 +1253,7 @@ mod autotest_generated {
     }
 
     #[test]
-    pub fn build_knob_style_differs_between_the_two_states_only_in_margin_left() {
+    pub fn build_knob_style_differs_between_the_two_states_only_in_its_transform() {
         let on = properties(&build_knob_style(true));
         let off = properties(&build_knob_style(false));
         assert_eq!(
@@ -1241,22 +1270,22 @@ mod autotest_generated {
             .collect();
         assert_eq!(
             differing,
-            vec![discriminant(&CssProperty::const_margin_left(
-                LayoutMarginLeft::const_px(0)
+            vec![discriminant(&CssProperty::const_transform(
+                KNOB_OFF_TRANSFORM
             ))],
-            "the on/off knob styles differ in something other than margin-left",
+            "the on/off knob styles differ in something other than the transform",
         );
     }
 
     #[test]
     pub fn build_knob_style_parks_the_knob_left_when_off_and_right_when_on() {
         assert_eq!(
-            margin_left_px(&build_knob_style(false)),
+            knob_offset_px(&build_knob_style(false)),
             Some(0.0),
             "the off knob is not flush against the track's left padding edge",
         );
         assert_eq!(
-            margin_left_px(&build_knob_style(true)),
+            knob_offset_px(&build_knob_style(true)),
             Some(TRAVEL),
             "the on knob does not travel the full width of the track",
         );
@@ -1288,7 +1317,7 @@ mod autotest_generated {
 
     #[test]
     pub fn build_knob_style_declares_no_property_twice() {
-        // Two `margin-left` declarations would make the knob's position depend on
+        // Two `transform` declarations would make the knob's position depend on
         // declaration order rather than on `checked`.
         for checked in [false, true] {
             let props = properties(&build_knob_style(checked));
@@ -1339,7 +1368,7 @@ mod autotest_generated {
         // constants: left edge >= 0 and right edge <= the track's content width.
         let content_w = TRACK_W - 2.0 * PAD;
         for checked in [false, true] {
-            let margin = margin_left_px(&build_knob_style(checked)).expect("no margin-left");
+            let margin = knob_offset_px(&build_knob_style(checked)).expect("no knob offset");
             let size = width_px(&build_knob_style(checked)).expect("no width");
 
             assert!(
@@ -1412,7 +1441,7 @@ mod autotest_generated {
         for checked in [false, true] {
             let s = Switch::create(checked);
             let bg = background(&s.resolved_track_style()).expect("no track background");
-            let margin = margin_left_px(&s.resolved_knob_style()).expect("no knob margin");
+            let margin = knob_offset_px(&s.resolved_knob_style()).expect("no knob offset");
 
             let (expected_color, expected_margin) = if s.switch_state.inner.checked {
                 (TRACK_ON_COLOR, TRAVEL)
@@ -1880,7 +1909,7 @@ mod autotest_generated {
             "turning the switch on did not repaint the *track* green",
         );
         assert_eq!(
-            pushed_margins(&changes),
+            pushed_knob_offsets(&changes),
             vec![(NodeId::new(KNOB_NODE), TRAVEL)],
             "turning the switch on did not slide the *knob* right",
         );
@@ -1900,7 +1929,7 @@ mod autotest_generated {
             vec![(NodeId::new(TRACK), vec![TRACK_OFF_COLOR])],
         );
         assert_eq!(
-            pushed_margins(&changes),
+            pushed_knob_offsets(&changes),
             vec![(NodeId::new(KNOB_NODE), 0.0)]
         );
     }
@@ -1925,11 +1954,11 @@ mod autotest_generated {
                 "start={start}: the clicked track colour differs from a freshly built one",
             );
             assert_eq!(
-                pushed_margins(&changes)
+                pushed_knob_offsets(&changes)
                     .into_iter()
                     .map(|(_, m)| m)
                     .collect::<Vec<_>>(),
-                vec![margin_left_px(&expected.resolved_knob_style()).expect("no margin")],
+                vec![knob_offset_px(&expected.resolved_knob_style()).expect("no knob offset")],
                 "start={start}: the clicked knob offset differs from a freshly built one",
             );
         }
@@ -1951,10 +1980,13 @@ mod autotest_generated {
             "two clicks did not return the switch to its original state"
         );
         assert_eq!(
-            pushed_margins(&first),
+            pushed_knob_offsets(&first),
             vec![(NodeId::new(KNOB_NODE), TRAVEL)]
         );
-        assert_eq!(pushed_margins(&second), vec![(NodeId::new(KNOB_NODE), 0.0)]);
+        assert_eq!(
+            pushed_knob_offsets(&second),
+            vec![(NodeId::new(KNOB_NODE), 0.0)]
+        );
     }
 
     #[test]
@@ -2052,7 +2084,7 @@ mod autotest_generated {
         );
         // ... and the visual sync still happens *after* the user callback returns.
         assert_eq!(
-            pushed_margins(&changes),
+            pushed_knob_offsets(&changes),
             vec![(NodeId::new(KNOB_NODE), TRAVEL)]
         );
     }
@@ -2090,7 +2122,7 @@ mod autotest_generated {
         assert!(matches!(update, Update::DoNothing));
         assert!(is_checked(&state));
         assert_eq!(
-            pushed_margins(&changes),
+            pushed_knob_offsets(&changes),
             vec![(NodeId::new(KNOB_NODE), TRAVEL)],
             "a DoNothing user callback suppressed the knob slide",
         );
@@ -2144,7 +2176,7 @@ mod autotest_generated {
                 "click #{i}: the pushed track colour disagrees with the flag",
             );
             assert_eq!(
-                pushed_margins(&changes),
+                pushed_knob_offsets(&changes),
                 vec![(NodeId::new(KNOB_NODE), margin)],
                 "click #{i}: the pushed knob offset disagrees with the flag",
             );
@@ -2172,7 +2204,7 @@ mod autotest_generated {
             .into_iter()
             .map(|(n, _)| n)
             .collect();
-        let margin_nodes: Vec<_> = pushed_margins(&changes)
+        let margin_nodes: Vec<_> = pushed_knob_offsets(&changes)
             .into_iter()
             .map(|(n, _)| n)
             .collect();
