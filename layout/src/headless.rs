@@ -521,12 +521,20 @@ impl Default for CpuHitTester {
 /// Resolve each layout node's ancestor chain index into `chains`.
 ///
 /// A node's chain is everything between it and the window that moves its
-/// box: the reference frames of its transformed layout ancestors (the
-/// exact set the display-list builder wrapped in `PushReferenceFrame`, read
-/// off the GPU value cache's `css_transform_keys` via `has_transform`), in
-/// the order they nest, and the scroll frames of its [`ScrollChain`] - the
-/// same frames the builder opened around it (`scroll_chains`). An ancestor
-/// shifts its CONTENT, not itself, so the node's own frames are not in it.
+/// box: the reference frames of its transformed layout ancestors AND its
+/// own (the exact set the display-list builder wrapped in
+/// `PushReferenceFrame`, read off the GPU value cache's `css_transform_keys`
+/// via `has_transform`), in the order they nest, and the scroll frames of its
+/// [`ScrollChain`] - the same frames the builder opened around it
+/// (`scroll_chains`).
+///
+/// The two kinds differ in what they move. A scroll container shifts its
+/// CONTENT, not itself, so a node's own scroll frame is not in its chain. A
+/// transform moves the element's OWN box too: the builder pushes the
+/// reference frame before the node's own items, so its background and its
+/// hit-test area are painted transformed. Leaving the node's own transform
+/// out kept a translated box hittable at its static place, where nothing of
+/// it is painted, shadowing whatever is (e2e/bug-transform-offsets-hit-test).
 ///
 /// Scroll offsets are summed and transforms composed separately
 /// (`resolve_chain`), so the scroll links follow the transform links
@@ -589,7 +597,16 @@ fn compute_node_chains(
     let mut combined: std::collections::HashMap<(u32, u32), u32> =
         std::collections::HashMap::new();
     let mut chain_of: Vec<u32> = Vec::with_capacity(nodes.len());
-    for (idx, &t) in transforms_of.iter().enumerate() {
+    for (idx, &inherited) in transforms_of.iter().enumerate() {
+        // The node's own reference frame, innermost (see the doc comment).
+        let t = match nodes[idx].dom_node_id {
+            Some(nid) if has_transform(nid) => {
+                let mut v = chains.get(inherited as usize).cloned().unwrap_or_default();
+                v.push(HitChainLink::Transform(dom_id, nid));
+                intern_chain(chains, chain_lookup, v)
+            }
+            _ => inherited,
+        };
         let s = scroll_chains.box_chain_id(LayoutNodeId::new(idx));
         let c = if s == ScrollChains::EMPTY {
             t
