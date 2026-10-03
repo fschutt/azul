@@ -52,39 +52,27 @@ Report: scripts/MEDIA9_2026_10_03.md (date = the day it finishes).
 - C3 701e7d5b3 / 2682bafcd playlists.rs; C4 b6233d001 / ead57eeb4 ids.rs + sample.rs + scan.rs (4 tests
   pass standalone: /tmp/media9_tc/music_pure.rs); 8b2313ee8 LevelMeter::peak_level.
 
+- C5 2d47924c0 AzMusic window (app.rs: state/data/scan/playback/transport; ui.rs: MediaShell layout,
+  songs DataTable, lists, now-playing bar, settings section); 4c0352d35 SeekBar::media_time;
+  f05a9d324 registered (Cargo.toml members, workspace_test_members.txt, rust.yml dll_tests step);
+  c3cd9a2e9 scripts/azmusic_e2e.py. PHASE C (AzMusic) DONE (pending the parent's compile).
+
 ## IN PROGRESS
-- NEXT STEP: AzMusic lib.rs - the window (state MusicApp, start(), file jobs for library.json /
-  playlists (FileJob::Get / GetAll / Put), the scan Thread (AudioFileDecoder::open(path).info()),
-  the layout on MediaShell, the playback timer, MediaControls / SeekBar / keys / media control
-  requests). Media keys: VirtualKeyCode::{PlayPause, NextTrack, PrevTrack, MediaStop}; OS seek /
-  volume: EventFilter::Application(ApplicationEventFilter::MediaControl) +
-  info.get_media_control_request(); config.expose_system_media_controls = true.
-  Original Phase C plan: AzMusic in examples/azul-music (model on examples/azul-dashboard: appkit
-  Kit, ShellThemeScope::body, Titlebar via kit::title_row, NoTitle via kit::window_options).
-  Files: Cargo.toml (package AzMusic, lib azmusic, bin AzMusic; azul link-dynamic exactly as
-  azul-drive, azul-appkit {features azul}, azul-storage {features azul}, serde, serde_json);
-  src/main.rs (azmusic::start()); src/ids.rs (names! macro, prefix `__azmusic_`);
-  src/library.rs (PURE, tests first: Track {id, path, title, artist, album, album_artist, genre,
-  year, track_no, disc_no, duration_s}, Library {tracks, albums() grouped by album_artist+album
-  sorted by track/disc, artists(), search(query), JSON round trip, AUDIO_EXTENSIONS});
-  src/queue.rs (PURE, tests first: PlayQueue {order, current, shuffle with a seeded
-  permutation, repeat Off/All/One, next/previous (previous restarts if > 3 s in), play_next,
-  enqueue, the track to queue gaplessly after the current one}); src/playlists.rs (Playlist
-  {id uuid, name, track ids} as music/playlists/<id>.json); src/scan.rs (walk the music folder on a
-  Thread, AudioFileDecoder::open(path).info() per file -> Track); src/sample.rs (--sample: a few
-  generated WAV tones written into music/sample/ + library.json, through the Drive);
-  src/lib.rs (state, layout on MediaShell: sidebar (Library: Albums / Artists / Songs, Playlists),
-  content (Songs = DataTable; Albums / Artists = simple lists - TODO(WIDGETS9A) IconGrid), now
-  playing bar = cover + title/artist + MediaControls + SeekBar + LevelMeter; a 250 ms Timer polls
-  AudioPlayer::get_state -> SeekBar::update_position / LevelMeter::update_level in place, track
-  change -> queue the next gaplessly (AudioPlayer::queue_file) + set_now_playing; media keys and
-  get_media_control_request; settings section "Music folder" + Rescan; About; shortcuts; CloseGuard
-  not needed (no document)). Register: root Cargo.toml members, scripts/workspace_test_members.txt,
-  .github/workflows/rust.yml dll_tests step. scripts/azmusic_e2e.py (AZ_SYNTHETIC_DEVICES=audio_sink).
-- then D AzPlayer (examples/azul-player): MediaShell::create_player + VideoWidget (VideoSource::File)
-  + AudioPlayer for the file's audio track (audio follows the video's on_status position, 150 ms
-  dead band) + overlay MediaControls/SeekBar, fullscreen (F / double click), keys; library of recent
-  files with resume positions in player/history.json.
+- NEXT STEP: Phase D AzPlayer in examples/azul-player (package AzPlayer, lib azplayer, bin AzPlayer;
+  register like AzMusic). Plan: MediaShell::create_player(content, now_playing_bar); content = the
+  VideoWidget (VideoConfig { source: VideoSource::File(path), autoplay, paused, timestamp } with
+  on_status -> position / duration / phase) or the library screen (recent files with resume
+  positions: player/history.json in the data tree; Open file button -> FileDialog::open_file mp4 /
+  m4v / mov; drop a file); the audio track: AudioPlayer::load_file(the same path) - audio follows
+  the video: on each video status (250 ms) if |audio - video| > 0.15 s -> AudioPlayer::seek(video
+  position); pause / play / seek drive both (video via config.paused / config.timestamp changes on
+  rebuild, audio via the player); overlay MediaControls (show_skip true: -10/+10 relabelled? the
+  widget's skips are -15/+30 - fine) + SeekBar + volume; F / double-click fullscreen
+  (WindowFrame::Fullscreen via window state), Escape leaves; keys Space, Left/Right +-10 s, Up/Down
+  volume, M mute; --sample generates a short H.264 MP4? (VideoEncoder only on Apple/Vulkan) ->
+  instead the empty state + Open file; E2E opens a generated file if the encoder exists else checks
+  the empty state. history.rs pure (tests first): resume positions, recent list (cap 20, newest
+  first, finished (>95%) restarts at 0).
 
 ## api.json so far (for the report)
 - audio.AudioFileDecoder (external azul_dll::unified::audio::AudioFileDecoder, Clone Default Drop,
