@@ -290,17 +290,11 @@ impl MailStore {
         if self.keys(from).is_empty() {
             return Ok(());
         }
-        let taken = |name: &str| {
-            !self.keys(name).is_empty()
-                || self
-                    .folder
-                    .path()
-                    .join(name.replace('/', std::path::MAIN_SEPARATOR_STR))
-                    .exists()
-        };
+        // Taken: objects under it, or (a folder on disk) an empty folder of that name.
+        let taken = |name: &str| !self.keys(name).is_empty() || self.folder.path().join(name).exists();
         let mut target = to.to_string();
         let mut n = 2;
-        while taken(&target) {
+        while taken(target.as_str()) {
             target = format!("{to}-{n}");
             n += 1;
         }
