@@ -43,8 +43,21 @@ still re-flows ~10% of the page every tick, why a knob tick lays out the Virtual
 with counts, fix, expected numbers. Report scripts/LAYOUTPERF8B_<date>.md.
 
 ## 8B DONE
-- (this section)
+- 1a0ded9af progress section
+- d099bb32e RED: text_after_a_block_is_carried_over_by_the_next_layout; the AzWidgets-like card gains
+  inline content after a block (the knob-frame cost test is RED again)
+- cea6b0840 GREEN: old_layout_index_of - the trailing inline run's children are matched with their old
+  layout nodes (they were rebuilt fresh every reconcile)
+
+## 8B FINDINGS
+- The coordinator's "VirtualView passes 23-86 ms" are MICROseconds (the [CPU] table is in µs): each VV
+  DOM pass is 0.14-0.48 ms (solver3_layout_document 138-485 µs).
+- 607 of 618 taffy misses of a knob tick are in the form region (layout idx 2038-2227): DOM 3459 button
+  "Send the raw form" + its p + text are FRESH every reconcile (trailing inline run lookup without the
+  dom_to_layout fallback) -> ancestors to the body dirty -> the form column re-measured at several widths
+  (size_cache_miss_sizekey_w 266 / _both 252, ifc_reflow_width_dd_big 272).
+- the knob chain itself: 11 misses (n27, n32, n62, n65, n66).
 
 ## 8B NEXT
-- read /Users/fschutt/Development/azul-work/lp8/tick.log (a tick block: which spans), re-run with
-  AZ_TAFFY_DEBUG / AZ_RECON_DEBUG to name the missing nodes.
+- VirtualView passes: why laid out on a knob tick (cheap, 0.5-1 ms total) - look, document or fix
+- report scripts/LAYOUTPERF8B_2026_10_03.md
