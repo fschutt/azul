@@ -20,7 +20,9 @@ POWER: battery warning from the coordinator - commit after every small unit, no 
 - a90f4016d / 85fdf8cec RED/GREEN todo.rs (task store glue) ; df7697b1d To-Do bar UI on it (file jobs on a Thread)
 - a4fb8803f File > Options = kit settings page, File > About = AboutDialog modal, view toggles remembered, Mod+E dropped
 - 61e803731 ids.rs __azmail_ constants (needs SMALL6 codegen AzString::from_const_str); E2E scripts updated
-- NEXT NOW: step 5 (sanitizer class prefix)
+- 8ab5e1ed2 / 62eb61a93 RED/GREEN sanitizer: mail classes behind a per-message prefix (m<hash>_), class
+  selectors renamed, paper class = ids::PAPER (__azmail_paper)
+- NEXT NOW: step 6 (escapers -> one; third decoder check)
 
 ## NEXT (exact)
 1. ui_main View tab: drop the Look group (theme/mode buttons) -> File > Options opens the kit settings page
