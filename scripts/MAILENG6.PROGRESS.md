@@ -25,7 +25,18 @@ agents - keep files under `m6/` (a `msg.txt` at the root got overwritten).
   (`baseline_scaled`, no line y, no leading) as the IFC baseline (fc.rs 4551/4800) - inline-block
   baseline alignment reads it; `editing_host_strut_height` (empty editable) still 1.2em for
   `normal`.
-- NEXT: item 4 - verify on the prebuilt (short probe) or by TEXTENG's tests; then item 5.
+- item 4 VERIFIED on the prebuilt wave-5 AzPaint (probe m6/f3): `font: 15px Arial; line-height:
+  20px` 3 lines = 60.0 (Chrome 60), an unset `<p>` after it is `normal` (18.4, now 18 with the
+  rounding) - TEXTENG's wave-5 fixes hold; nothing to change.
+- item 5: RED `af58b319e` + FIX `ecdbafdf0` (a cell of only inline boxes is an IFC; guarded
+  exception for block-in-inline). td display:block (TABLES 3.1), receipt -8px (TABLES 3.3) are
+  wave-5 fixes - the parent's corpus re-measure confirms.
+- FOUND (not fixed, big): block-in-inline in an IFC drops the block: `<div style="text-align:
+  center"><a><span style="display:block;width:100px;height:40px"></span></a></div>` -> div 19.2px,
+  the span gets no box (Chrome: 40px, span at x 0). Same in a cell with whitespace text. CSS 2.2
+  9.2.1.1 splitting of an inline around a block is not implemented (reconciler + layout_ifc).
+- NEXT: item 5 RTL + border-collapse borders (fc/display_list collapsed border resolution);
+  then item 6, then item 2.
 
 ## (older notes, items 3/7 plan)
 - item 3 + 7 (Chrome's rounded font metrics + the Times/Helvetica/Courier ascent hack).
