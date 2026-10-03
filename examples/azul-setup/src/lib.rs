@@ -113,6 +113,16 @@ struct Setup {
     kit: RefAny,
 }
 
+impl Setup {
+    /// Opens / closes the About box and the exit question (stdout
+    /// `AZSETUP_BOXES about=<bool> question=<bool>`, for scripts).
+    fn set_boxes(&mut self, about: bool, question: bool) {
+        self.about_open = about;
+        self.confirm_cancel = question;
+        println!("AZSETUP_BOXES about={about} question={question}");
+    }
+}
+
 fn s(text: &str) -> AzString {
     AzString::from(text)
 }
@@ -738,7 +748,10 @@ extern "C" fn on_wizard(mut data: RefAny, mut info: CallbackInfo, event: WizardE
             info.close_window();
             return Update::DoNothing;
         }
-        WizardEventKind::Cancel => st.confirm_cancel = true,
+        WizardEventKind::Cancel => {
+            let about = st.about_open;
+            st.set_boxes(about, true);
+        }
         WizardEventKind::Step => {
             // The rail goes back to a step already passed, never forward.
             if event.step < st.step.index() && st.step.can_go_back() {
@@ -806,7 +819,8 @@ extern "C" fn on_confirm(
             Update::DoNothing
         }
         _ => {
-            st.confirm_cancel = false;
+            let about = st.about_open;
+            st.set_boxes(about, false);
             Update::RefreshDom
         }
     }
@@ -820,7 +834,8 @@ extern "C" fn on_about(
     let Some(mut st) = data.downcast_mut::<Setup>() else {
         return Update::DoNothing;
     };
-    st.about_open = false;
+    let question = st.confirm_cancel;
+    st.set_boxes(false, question);
     Update::RefreshDom
 }
 
@@ -828,8 +843,7 @@ extern "C" fn on_modal_close(mut data: RefAny, _info: CallbackInfo, _state: Moda
     let Some(mut st) = data.downcast_mut::<Setup>() else {
         return Update::DoNothing;
     };
-    st.confirm_cancel = false;
-    st.about_open = false;
+    st.set_boxes(false, false);
     Update::RefreshDom
 }
 
@@ -844,12 +858,12 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     match key {
-        Some(VirtualKeyCode::F1) if !st.about_open => st.about_open = true,
-        Some(VirtualKeyCode::Escape) if st.about_open || st.confirm_cancel => {
-            st.about_open = false;
-            st.confirm_cancel = false;
+        Some(VirtualKeyCode::F1) if !st.about_open => {
+            let question = st.confirm_cancel;
+            st.set_boxes(true, question);
         }
-        Some(VirtualKeyCode::Escape) if st.step != Step::Finish => st.confirm_cancel = true,
+        Some(VirtualKeyCode::Escape) if st.about_open || st.confirm_cancel => st.set_boxes(false, false),
+        Some(VirtualKeyCode::Escape) if st.step != Step::Finish => st.set_boxes(false, true),
         _ => return Update::DoNothing,
     }
     info.prevent_default();
