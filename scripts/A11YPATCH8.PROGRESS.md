@@ -9,12 +9,17 @@ NOTHING when a frame changed nothing a11y-visible. Brief: scripts/waves/wave8/PL
 - 75fe8e2fe / 6f22afe35 / b233be0c2 GREEN a11y.rs: retained tree types, A11yTreeMirror::apply_patch_in_place, refresh/publish/fold/take_pending, rebuild_retained + node_signature + build_content + screen_bounds (update_tree = a from-scratch rebuild)
 - 954aa5d49 GREEN window.rs: update_a11y_tree -> A11yManager::refresh; incremental path note_published_node / resend_full_tree on refusal
 
+- 0de75c39c tests adapted (a11y_consumer_contract parked-full test, scroll_chain fixed box reads published_node)
+- 3937fde8f A11yIdHasher / A11yIdMap (one-multiply hasher for id-keyed per-frame maps); 19c42122d, df0cb32f8, ba15bae74 tidy
+- af61005d9 dll feed: CompleteTree map, O(patch) merge_into, A11yTreeFeed::missed + 2 tests
+- 01fba56ff adapters call missed() on a busy lock / caught panic; macOS init_accessibility -> resend_full_tree
+- 562e3f9e3 unit tests (retained_tree_tests in a11y.rs)
+
 ## IN PROGRESS
-- adapting the tests whose premise was 'every pass parks a full tree'
+- final review of the new code for compile errors; then the report
 
 ## NEXT
-- fix tests whose premise was 'every pass parks a full tree': a11y_consumer_contract a_parked_full_tree_absorbs..., scroll_chain a_fixed_box_is_reported...
-- dll feed (common/accessibility.rs): HashMap tree, O(patch) merge, missed delivery -> full resync; macOS init_accessibility asks for a full tree
+- review a11y.rs new code once more (compile), write scripts/A11YPATCH8_2026_10_03.md
 
 ## Decisions
 - Bounds of a moving node are sent EVERY frame they change (a 1-node patch); no throttle: accesskit has no lazy bounds, the cost was the 3 ms full rebuild + full-tree consumer diff, not one node.
