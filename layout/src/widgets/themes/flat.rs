@@ -6307,3 +6307,88 @@ pub(crate) fn date_repeat_picker_look() -> crate::widgets::date_repeat_picker::D
 pub fn date_repeat_picker(e: crate::widgets::date_repeat_picker::DateRepeatPicker) -> Dom {
     crate::widgets::date_repeat_picker::build(e, &date_repeat_picker_look())
 }
+
+// ==== data_table ====
+//
+// The flat data table is a Windows list view in Details mode on the
+// desktop's palette: white rows a light hairline apart with a faint zebra
+// band, the column titles semibold on the window strip (a sorted column's
+// title in the accent, its arrow beside it), the filter row in field white
+// with a quiet "Filter" placeholder, selected rows washed in the selection
+// blue, the cursor's cell outlined in the accent, thin grey scroll bars.
+// At night the desktop's surfaces and inks.
+
+/// Flat's data-table look.
+#[must_use]
+pub(crate) fn data_table_look() -> crate::widgets::data_table::DataTableLook {
+    use super::decl;
+
+    let mut table = alloc::vec![CssPropertyWithConditions::simple(
+        CssProperty::const_font_family(SYSTEM_UI_FAMILY)
+    )];
+    table.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    table.extend(decl::themed_fill(LIGHT_PG, DARK_PG));
+
+    let mut header = alloc::vec![decl::semibold()];
+    header.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
+    header.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    header.extend(decl::border_right(1));
+    header.extend(decl::themed_border_right_color(LIGHT_BD, DARK_BD));
+    header.extend(decl::border_bottom(1));
+    header.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    let mut filter = decl::themed_fill(LIGHT_FLD, DARK_FLD).to_vec();
+    filter.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    filter.extend(decl::border_right(1));
+    filter.extend(decl::themed_border_right_color(LIGHT_SEP, DARK_SEP));
+    filter.extend(decl::border_bottom(1));
+    filter.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    let mut cell = decl::border_right(1).to_vec();
+    cell.extend(decl::themed_border_right_color(LIGHT_SEP, DARK_SEP));
+    let mut row = decl::border_bottom(1).to_vec();
+    row.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let mut cursor = decl::border(2).to_vec();
+    cursor.extend(decl::themed_border_color(LIGHT_ACC, DARK_ACC));
+    let mut editor = decl::themed_fill(LIGHT_PG, DARK_PG).to_vec();
+    editor.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    editor.extend(decl::border(2));
+    editor.extend(decl::themed_border_color(LIGHT_ACC, DARK_ACC));
+    editor.extend(decl::padding(0, 5, 0, 5));
+
+    let mut thumb = decl::themed_fill(LIGHT_SOFT2, DARK_SOFT2).to_vec();
+    thumb.extend(decl::radius(4));
+    let mut notice = decl::themed_fill(LIGHT_PG, DARK_PG).to_vec();
+    notice.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    notice.extend(decl::padding(2, 6, 2, 6));
+    notice.extend(decl::border(1));
+    notice.extend(decl::themed_border_color(LIGHT_BD, DARK_BD));
+    notice.extend(decl::radius(3));
+
+    crate::widgets::data_table::DataTableLook {
+        table,
+        header,
+        header_sorted: decl::themed_ink(LIGHT_ACC, DARK_SOFT).to_vec(),
+        filter,
+        filter_empty: decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1).to_vec(),
+        cell,
+        row,
+        row_alternate: decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec(),
+        row_selected: decl::themed_fill(TILE_SELECTED_LIGHT, TILE_SELECTED_DARK).to_vec(),
+        cursor,
+        editor,
+        caret: decl::themed_fill(LIGHT_INK, DARK_INK).to_vec(),
+        freeze_line: decl::themed_fill(LIGHT_BD3, DARK_BD3).to_vec(),
+        track: decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec(),
+        thumb,
+        notice,
+        marker: None,
+    }
+}
+
+/// The flat data table.
+#[must_use]
+pub(crate) fn data_table(t: crate::widgets::data_table::DataTableResolved) -> Dom {
+    crate::widgets::data_table::build(t, &data_table_look())
+}
