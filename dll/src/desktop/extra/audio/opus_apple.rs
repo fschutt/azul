@@ -30,10 +30,6 @@ const FLAGS_FLOAT_PACKED: u32 = (1 << 0) | (1 << 3);
 const PROPERTY_ENCODE_BIT_RATE: u32 = 0x6272_6174;
 /// `kAudioConverterPropertyMaximumOutputPacketSize` ('xops'): UInt32 bytes.
 const PROPERTY_MAX_OUTPUT_PACKET_SIZE: u32 = 0x786F_7073;
-/// `kAudioConverterCompressionMagicCookie` ('cmgc').
-const PROPERTY_COMPRESSION_COOKIE: u32 = 0x636D_6763;
-/// `kAudioConverterDecompressionMagicCookie` ('dmgc').
-const PROPERTY_DECOMPRESSION_COOKIE: u32 = 0x646D_6763;
 /// What the input callback answers when nothing is queued ('nodt'): any non-zero status ends the
 /// current `AudioConverterFillComplexBuffer` call and keeps the stream going.
 const NO_DATA_YET: i32 = 0x6E6F_6474;
@@ -136,7 +132,6 @@ struct AtLib {
     ) -> i32,
     set_property: unsafe extern "C" fn(*mut c_void, u32, u32, *const c_void) -> i32,
     get_property: unsafe extern "C" fn(*mut c_void, u32, *mut u32, *mut c_void) -> i32,
-    get_property_info: unsafe extern "C" fn(*mut c_void, u32, *mut u32, *mut u8) -> i32,
 }
 
 // Function pointers and a library handle: shareable.
@@ -176,7 +171,6 @@ impl AtLib {
             let fill = f!(b"AudioConverterFillComplexBuffer\0");
             let set_property = f!(b"AudioConverterSetProperty\0");
             let get_property = f!(b"AudioConverterGetProperty\0");
-            let get_property_info = f!(b"AudioConverterGetPropertyInfo\0");
             Some(AtLib {
                 _lib: lib,
                 new,
@@ -184,7 +178,6 @@ impl AtLib {
                 fill,
                 set_property,
                 get_property,
-                get_property_info,
             })
         })
         .as_ref()
@@ -223,24 +216,6 @@ unsafe fn u32_property(lib: &AtLib, converter: *mut c_void, id: u32) -> Option<u
         )
     };
     (status == 0).then_some(value)
-}
-
-/// A variable-size property's bytes (a magic cookie), or `None`.
-unsafe fn bytes_property(lib: &AtLib, converter: *mut c_void, id: u32) -> Option<Vec<u8>> {
-    let mut size = 0u32;
-    let mut writable = 0u8;
-    if unsafe { (lib.get_property_info)(converter, id, &mut size, &mut writable) } != 0 || size == 0
-    {
-        return None;
-    }
-    let mut bytes = vec![0u8; size as usize];
-    let status =
-        unsafe { (lib.get_property)(converter, id, &mut size, bytes.as_mut_ptr() as *mut c_void) };
-    if status != 0 {
-        return None;
-    }
-    bytes.truncate(size as usize);
-    Some(bytes)
 }
 
 /// The PCM an encoder's converter reads: what `encode` queued, and the buffer handed out last
@@ -337,12 +312,6 @@ impl OpusEncoderEngine {
                 out: vec![0u8; room],
             })
         }
-    }
-
-    /// The encoder's magic cookie (what a decoder of its stream may be told), if it has one.
-    fn cookie(&self) -> Option<Vec<u8>> {
-        let lib = AtLib::get()?;
-        unsafe { bytes_property(lib, self.converter, PROPERTY_COMPRESSION_COOKIE) }
     }
 
     /// Queues `samples` (interleaved, whole frames) and returns every packet that is complete.
@@ -479,25 +448,9 @@ impl OpusDecoderEngine {
                      OSStatus {status})"
                 )
             })?;
-            // Every AzMeet sender's stream has the same header (channels, 48 kHz, no gain): the
-            // cookie of an encoder made here for the same format describes it. Told where the
-            // decoder wants one; ignored where it does not.
-            let cookie = OpusEncoderEngine::open(
-                super::codec::OPUS_SAMPLE_RATE,
-                channels,
-                32,
-                frames_per_packet,
-            )
-            .ok()
-            .and_then(|encoder| encoder.cookie());
-            if let Some(cookie) = cookie {
-                let _ = (lib.set_property)(
-                    converter,
-                    PROPERTY_DECOMPRESSION_COOKIE,
-                    cookie.len() as u32,
-                    cookie.as_ptr() as *const c_void,
-                );
-            }
+            // No magic cookie: the converter decodes raw Opus packets from the description alone
+            // (checked on macOS 15 with and without the cookie of an encoder of the same format:
+            // the same samples).
             // Room for the longest Opus packet, resampled to the output rate.
             let frames = MAX_PACKET_FRAMES_48K * sample_rate.max(1) as usize
                 / super::codec::OPUS_SAMPLE_RATE as usize
