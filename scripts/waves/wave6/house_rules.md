@@ -1,4 +1,4 @@
-# House rules for every agent (azul, PR #476) - wave 7, 2026-10-03 (current; wave 6 copy in wave6/house_rules.md)
+# House rules for every agent (azul, PR #476) - wave 6, 2026-10-03 (current)
 
 You work in your own git worktree of /Users/fschutt/Development/azul (the azul Rust GUI toolkit). Your first
 command creates your branch from the base commit your prompt names:
@@ -52,30 +52,7 @@ worktree; never `cd` into or edit the main checkout.
 - Theme parts: when a node's style stacks several merged parts (base, then a state part), stack them with
   `crate::widgets::themes::theme_blocks::stack_parts(base, extra)`.
 
-## Wave 7 (2026-10-03) - read these first
-- Your brief: `scripts/waves/wave7/<TASK>.md` (in your worktree). The plan: `scripts/waves/wave7/PLAN.md`.
-  Report `scripts/<TASK>_<date you finish, YYYY_MM_DD>.md`; progress `scripts/<TASK>.PROGRESS.md`.
-- The wave-6 reports are the source of most of your items: `scripts/{INFRA6,AUTOFIX6,SMALL6,MAILENG6,MAIL6,MEDIA6,
-  WRITER6,HEADLESS6,MEETDRIVE6,SHEETSHOW6,PIM6}_2026_10_03.md` (sections "Seen broken" / "Left"). Read the ones
-  your brief names before you start.
-- The prebuilt binaries in /Users/fschutt/Development/azul/target/release (and target/azul-lib/libazul.dylib)
-  are the wave-6 integration - THIS branch's code, compiled. Run them (capped, one at a time) to SEE today's
-  behaviour before you change it, and write RED tests against what you saw. E2E scripts: call the debug op
-  `wait_settled` before `take_screenshot` (theme / mode switches slide ~300 ms; a screenshot mid-slide shows two
-  layouts). `list_windows` names child windows (menus are windows `azul-menu`, `azul-menu-2`, ...).
-- NEW BUILDING BLOCKS from wave 6 (in api.json) - use them, never re-implement them:
-  `ShellThemeScope::body()` (the window body every shell app returns: no UA margin, full height);
-  `AzString::from_const_str` (a `const fn` in the generated Rust crate - prefix constants are `const AzString`);
-  `DateRepeatPicker` + `DateRepeatRule` (how something repeats; RRULE in and out); `TextRasterStyle`,
-  `RawImage::from_text` / `draw_text` / `fit_within`, `CallbackInfo::text_image` (text to pixels);
-  `TextInput::set_text_in` (set a field's text from a callback); `LayoutCallbackInfo::get_window_id`;
-  `RichTextEditor::page_doms` (pages of one document); `azul_storage::ids::new_uuid()`;
-  `LocalDrive::without_manifest(root)` (a drive outside the data tree); azul-appkit's `find` module (one
-  find / replace matcher); editing shortcuts (copy / cut / paste / select all / undo / redo) now reach the app's
-  key handlers first and are the engine's only on a text-editing focus or a selection (`prevent_default` vetoes).
-  Plus everything listed for wave 6 below.
-
-## Wave 6 notes (still in force)
+## Wave 6 (2026-10-03) - read these first
 - Your brief: `scripts/waves/wave6/<TASK>.md` (in your worktree). The plan: `scripts/waves/wave6/PLAN.md`.
   Report `scripts/<TASK>_2026_10_03.md`; progress `scripts/<TASK>.PROGRESS.md`.
 - Earlier reports to read for your area: the DEDUP reviews (`scripts/DEDUP_{EDITORS,OFFICE,WIDGETS_API}_2026_10_02.md`,
@@ -104,11 +81,14 @@ worktree; never `cd` into or edit the main checkout.
     defined ONCE in the app (an `ids` / `classes` module) - no duplicated string literals (they bloat size).
   - CLOSE: "document modified, save?" lives in the DOM event `EventFilter::Window(WindowEventFilter::
     CloseRequested)`; the veto is `info.prevent_window_close()` (or the `CloseGuard` widget). Never clear
-    `flags.close_requested` by hand. `FullWindowState::close_callback` is GONE (wave 6).
+    `flags.close_requested` by hand. `FullWindowState::close_callback` is being REMOVED (INFRA6) - do not use it.
 - GENERATED-API GOTCHAS (from the wave-5 integration): the generated wrappers take `impl Into<FooVec>` - pass a
   `Vec` as it is (`.with_items(items)`), an explicit `.into()` has no target type (E0283). `&str` args are
   `String` (`impl Into<AzString>`): pass a literal as it is. A `Type.*` autofix export takes EVERY public method:
   list the exact methods for api.json in your report, and keep Rust-only helpers `pub(crate)`.
+- The prebuilt binaries in /Users/fschutt/Development/azul/target/release (and target/azul-lib/libazul.dylib)
+  are the wave-5 integration (aa59b2d84): you may run them (capped, one at a time - the runner holds a
+  machine-wide lock) to see today's behaviour and to write RED tests against it.
 
 ## Apps (examples/azul-<name>), when your task builds or changes one
 - One crate per app: `examples/azul-<name>/` with `Cargo.toml` (package `Az<Name>`, lib `az<name>`, bin
