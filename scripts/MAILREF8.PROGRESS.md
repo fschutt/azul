@@ -92,7 +92,9 @@ Never compile; never touch layout/src/solver3/page_breaks.rs (nor display_list.r
    Objects resolve N1/N2 from neighbour clusters / base). Hybrid's other residual (+5 from azr-113: a
    font-size:0 cell 10px too tall, content centred) is the group C cause (measured term) - covered by
    531e3a19e (probe target/mailref8/h1.json: cell 185 vs 175).
-10. NEXT: write the report scripts/MAILREF8_2026_10_03.md (before 531; groups A-F with owners, expected
+10. DONE: report scripts/MAILREF8_2026_10_03.md.
+11. NEXT (optional, only if resumed with time): nothing required; candidates listed in the report's
+    section 10. Old note: write the report scripts/MAILREF8_2026_10_03.md (before 531; groups A-F with owners, expected
    effects; commits; api.json none; least-sure spots; test commands). Then, if time: atomic-only line
    strut (look pass) is NOT for this wave; maybe re-check other mismatch sources in cerberus after A
    (hybrid had 6 boxes not in the -14 pattern?).
