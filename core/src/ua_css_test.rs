@@ -696,16 +696,10 @@ mod autotest_generated {
     #[test]
     fn button_border_is_symmetric_on_all_four_sides() {
         let widths = [
-            (CssPropertyType::BorderTopWidth, &BUTTON_BORDER_TOP_WIDTH),
-            (
-                CssPropertyType::BorderBottomWidth,
-                &BUTTON_BORDER_BOTTOM_WIDTH,
-            ),
-            (CssPropertyType::BorderLeftWidth, &BUTTON_BORDER_LEFT_WIDTH),
-            (
-                CssPropertyType::BorderRightWidth,
-                &BUTTON_BORDER_RIGHT_WIDTH,
-            ),
+            (CssPropertyType::BorderTopWidth, &BORDER_TOP_WIDTH_1PX),
+            (CssPropertyType::BorderBottomWidth, &BORDER_BOTTOM_WIDTH_1PX),
+            (CssPropertyType::BorderLeftWidth, &BORDER_LEFT_WIDTH_1PX),
+            (CssPropertyType::BorderRightWidth, &BORDER_RIGHT_WIDTH_1PX),
         ];
         for (pt, want) in widths {
             assert_eq!(get_ua_property(&NodeType::Button, pt), Some(want), "{pt:?}");
@@ -750,42 +744,86 @@ mod autotest_generated {
         );
     }
 
-    /// `<hr>` draws its line from the *border*, not from a height — height must
-    /// be exactly 0px, and the width exactly 100%.
+    /// `<hr>` is the HTML Standard's rule (15.3.11, as Chrome draws it): a 1px
+    /// inset gray border on ALL FOUR sides around no height - 2px tall - at
+    /// `width: auto` with `margin-inline: auto` (as wide as its block, centred
+    /// when narrowed). It was the top border alone at `width: 100%`.
     #[test]
-    fn hr_line_comes_from_the_border_not_from_height() {
+    fn hr_is_a_two_pixel_inset_rule_with_an_auto_width() {
         match get_ua_property(&NodeType::Hr, CssPropertyType::Height) {
             Some(CssProperty::Height(CssPropertyValue::Exact(LayoutHeight::Px(pv)))) => {
                 assert_eq!(pv.metric, SizeMetric::Px);
                 assert!(
                     (pv.number.get() - 0.0).abs() < 1e-6,
-                    "hr height must be 0px"
+                    "hr height must be 0px: the rule is its borders"
                 );
             }
             other => panic!("hr height: {other:?}"),
         }
-        match get_ua_property(&NodeType::Hr, CssPropertyType::Width) {
-            Some(CssProperty::Width(CssPropertyValue::Exact(LayoutWidth::Px(pv)))) => {
-                assert_eq!(pv.metric, SizeMetric::Percent);
-                assert!(
-                    (pv.number.get() - 100.0).abs() < 1e-4,
-                    "hr width must be 100%"
-                );
-            }
-            other => panic!("hr width: {other:?}"),
+        assert_eq!(
+            get_ua_property(&NodeType::Hr, CssPropertyType::Width),
+            None,
+            "hr width is auto (no UA width), so a side margin keeps it inside its block"
+        );
+        assert_eq!(
+            get_ua_property(&NodeType::Hr, CssPropertyType::MarginLeft),
+            Some(&MARGIN_LEFT_AUTO)
+        );
+        assert_eq!(
+            get_ua_property(&NodeType::Hr, CssPropertyType::MarginRight),
+            Some(&MARGIN_RIGHT_AUTO)
+        );
+        let sides = [
+            (
+                CssPropertyType::BorderTopStyle,
+                &BORDER_TOP_STYLE_INSET,
+                CssPropertyType::BorderTopWidth,
+                &BORDER_TOP_WIDTH_1PX,
+                CssPropertyType::BorderTopColor,
+                &BORDER_TOP_COLOR_GRAY,
+            ),
+            (
+                CssPropertyType::BorderBottomStyle,
+                &BORDER_BOTTOM_STYLE_INSET,
+                CssPropertyType::BorderBottomWidth,
+                &BORDER_BOTTOM_WIDTH_1PX,
+                CssPropertyType::BorderBottomColor,
+                &BORDER_BOTTOM_COLOR_GRAY,
+            ),
+            (
+                CssPropertyType::BorderLeftStyle,
+                &BORDER_LEFT_STYLE_INSET,
+                CssPropertyType::BorderLeftWidth,
+                &BORDER_LEFT_WIDTH_1PX,
+                CssPropertyType::BorderLeftColor,
+                &BORDER_LEFT_COLOR_GRAY,
+            ),
+            (
+                CssPropertyType::BorderRightStyle,
+                &BORDER_RIGHT_STYLE_INSET,
+                CssPropertyType::BorderRightWidth,
+                &BORDER_RIGHT_WIDTH_1PX,
+                CssPropertyType::BorderRightColor,
+                &BORDER_RIGHT_COLOR_GRAY,
+            ),
+        ];
+        for (style_pt, style, width_pt, width, color_pt, color) in sides {
+            assert_eq!(
+                get_ua_property(&NodeType::Hr, style_pt),
+                Some(style),
+                "{style_pt:?}"
+            );
+            assert_eq!(
+                get_ua_property(&NodeType::Hr, width_pt),
+                Some(width),
+                "{width_pt:?}"
+            );
+            assert_eq!(
+                get_ua_property(&NodeType::Hr, color_pt),
+                Some(color),
+                "{color_pt:?}"
+            );
         }
-        assert_eq!(
-            get_ua_property(&NodeType::Hr, CssPropertyType::BorderTopStyle),
-            Some(&BORDER_TOP_STYLE_INSET)
-        );
-        assert_eq!(
-            get_ua_property(&NodeType::Hr, CssPropertyType::BorderTopWidth),
-            Some(&BORDER_TOP_WIDTH_1PX)
-        );
-        assert_eq!(
-            get_ua_property(&NodeType::Hr, CssPropertyType::BorderTopColor),
-            Some(&BORDER_TOP_COLOR_GRAY)
-        );
     }
 
     #[test]
@@ -1575,6 +1613,9 @@ mod themed_ua_colours {
             (NodeType::Button, CssPropertyType::BorderLeftColor),
             (NodeType::Button, CssPropertyType::BorderRightColor),
             (NodeType::Hr, CssPropertyType::BorderTopColor),
+            (NodeType::Hr, CssPropertyType::BorderBottomColor),
+            (NodeType::Hr, CssPropertyType::BorderLeftColor),
+            (NodeType::Hr, CssPropertyType::BorderRightColor),
         ] {
             let light = get_ua_property_themed(&node, prop, Some(&ctx(azul_css::system::DarkLightMode::Light)));
             let dark = get_ua_property_themed(&node, prop, Some(&ctx(azul_css::system::DarkLightMode::Dark)));

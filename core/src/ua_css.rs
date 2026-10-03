@@ -43,7 +43,7 @@ use azul_css::{
             ColorU, StyleFontSize,
         },
         layout::{
-            dimensions::{LayoutHeight, LayoutWidth},
+            dimensions::LayoutHeight,
             display::LayoutDisplay,
             fragmentation::{BreakInside, PageBreak},
             spacing::{
@@ -93,11 +93,6 @@ static WHITE_SPACE_PRE_WRAP: CssProperty = CssProperty::WhiteSpace(CssPropertyVa
 static OVERFLOW_WRAP_BREAK_WORD: CssProperty = CssProperty::OverflowWrap(
     CssPropertyValue::Exact(azul_css::props::style::StyleOverflowWrap::BreakWord),
 );
-
-/// 100% width
-static WIDTH_100_PERCENT: CssProperty = CssProperty::Width(CssPropertyValue::Exact(
-    LayoutWidth::Px(PixelValue::const_percent(100)),
-));
 
 /// 100% height
 static HEIGHT_100_PERCENT: CssProperty = CssProperty::Height(CssPropertyValue::Exact(
@@ -433,7 +428,14 @@ static LIST_STYLE_TYPE_DECIMAL: CssProperty =
     CssProperty::ListStyleType(CssPropertyValue::Exact(StyleListStyleType::Decimal));
 
 // --- HR Element Defaults ---
-// Per HTML spec, <hr> renders as a horizontal line with inset border style
+// HTML Living Standard 15.3.11 "The hr element" (Chrome draws exactly this):
+//   hr { color: gray; border-style: inset; border-width: 1px;
+//        margin-block: 0.5em; margin-inline: auto; overflow: hidden; }
+// A 2px rule - the top and the bottom border around no content - as wide as
+// its block (`width` auto), centred when an author narrows it. `overflow:
+// hidden` is left out: the box is empty, and a clip would give every rule a
+// clip of its own. (It was the top border alone at `width: 100%`: 1px short
+// of Chrome, and a rule with a side margin overflowed its block by it.)
 
 /// margin-top: 0.5em (for hr)
 static MARGIN_TOP_0_5EM: CssProperty =
@@ -447,40 +449,82 @@ static MARGIN_BOTTOM_0_5EM: CssProperty =
         inner: PixelValue::const_em_fractional(0, 5),
     }));
 
-/// border-top-style: inset (for hr - default browser style)
+/// margin-left: auto (for hr - `margin-inline: auto`)
+static MARGIN_LEFT_AUTO: CssProperty = CssProperty::MarginLeft(CssPropertyValue::Auto);
+
+/// margin-right: auto (for hr - `margin-inline: auto`)
+static MARGIN_RIGHT_AUTO: CssProperty = CssProperty::MarginRight(CssPropertyValue::Auto);
+
+/// border-*-style: inset (for hr)
 static BORDER_TOP_STYLE_INSET: CssProperty =
     CssProperty::BorderTopStyle(CssPropertyValue::Exact(StyleBorderTopStyle {
         inner: BorderStyle::Inset,
     }));
-
-/// border-top-width: 1px (for hr)
-static BORDER_TOP_WIDTH_1PX: CssProperty =
-    CssProperty::BorderTopWidth(CssPropertyValue::Exact(LayoutBorderTopWidth {
-        inner: PixelValue::const_px(1),
+static BORDER_BOTTOM_STYLE_INSET: CssProperty =
+    CssProperty::BorderBottomStyle(CssPropertyValue::Exact(StyleBorderBottomStyle {
+        inner: BorderStyle::Inset,
+    }));
+static BORDER_LEFT_STYLE_INSET: CssProperty =
+    CssProperty::BorderLeftStyle(CssPropertyValue::Exact(StyleBorderLeftStyle {
+        inner: BorderStyle::Inset,
+    }));
+static BORDER_RIGHT_STYLE_INSET: CssProperty =
+    CssProperty::BorderRightStyle(CssPropertyValue::Exact(StyleBorderRightStyle {
+        inner: BorderStyle::Inset,
     }));
 
-/// border-top-color: gray (for hr - default visible color)
+/// The hr's `color: gray` - its borders' colour (`currentcolor`).
+const HR_GRAY: ColorU = ColorU {
+    r: 128,
+    g: 128,
+    b: 128,
+    a: 255,
+};
+
+/// The hr's colour on a DARK window: a subtle divider, like the platforms'
+/// own separators on dark (#5a5a5a), where the light rule's mid grey would
+/// read as a bright bar.
+const HR_GRAY_DARK: ColorU = ColorU {
+    r: 90,
+    g: 90,
+    b: 90,
+    a: 255,
+};
+
+/// border-*-color: gray (for hr)
 static BORDER_TOP_COLOR_GRAY: CssProperty =
     CssProperty::BorderTopColor(CssPropertyValue::Exact(StyleBorderTopColor {
-        inner: ColorU {
-            r: 128,
-            g: 128,
-            b: 128,
-            a: 255,
-        },
+        inner: HR_GRAY,
+    }));
+static BORDER_BOTTOM_COLOR_GRAY: CssProperty =
+    CssProperty::BorderBottomColor(CssPropertyValue::Exact(StyleBorderBottomColor {
+        inner: HR_GRAY,
+    }));
+static BORDER_LEFT_COLOR_GRAY: CssProperty =
+    CssProperty::BorderLeftColor(CssPropertyValue::Exact(StyleBorderLeftColor {
+        inner: HR_GRAY,
+    }));
+static BORDER_RIGHT_COLOR_GRAY: CssProperty =
+    CssProperty::BorderRightColor(CssPropertyValue::Exact(StyleBorderRightColor {
+        inner: HR_GRAY,
     }));
 
-/// border-top-color for hr on a DARK window: a subtle divider, like the
-/// platforms' own separators on dark (#5a5a5a), where the light rule's mid
-/// grey would read as a bright bar.
+/// border-*-color for hr on a DARK window (`HR_GRAY_DARK`)
 static BORDER_TOP_COLOR_GRAY_DARK: CssProperty =
     CssProperty::BorderTopColor(CssPropertyValue::Exact(StyleBorderTopColor {
-        inner: ColorU {
-            r: 90,
-            g: 90,
-            b: 90,
-            a: 255,
-        },
+        inner: HR_GRAY_DARK,
+    }));
+static BORDER_BOTTOM_COLOR_GRAY_DARK: CssProperty =
+    CssProperty::BorderBottomColor(CssPropertyValue::Exact(StyleBorderBottomColor {
+        inner: HR_GRAY_DARK,
+    }));
+static BORDER_LEFT_COLOR_GRAY_DARK: CssProperty =
+    CssProperty::BorderLeftColor(CssPropertyValue::Exact(StyleBorderLeftColor {
+        inner: HR_GRAY_DARK,
+    }));
+static BORDER_RIGHT_COLOR_GRAY_DARK: CssProperty =
+    CssProperty::BorderRightColor(CssPropertyValue::Exact(StyleBorderRightColor {
+        inner: HR_GRAY_DARK,
     }));
 /// height: 0 (for hr - the line comes from the border, not height)
 static HEIGHT_ZERO: CssProperty = CssProperty::Height(CssPropertyValue::Exact(LayoutHeight::Px(
@@ -731,19 +775,21 @@ static BUTTON_BORDER_RIGHT_STYLE: CssProperty =
         inner: BorderStyle::Solid,
     }));
 
-static BUTTON_BORDER_TOP_WIDTH: CssProperty =
+/// border-*-width: 1px - the button's border and the hr's rule (one static
+/// per side; the hr's top and the button's four were twins).
+static BORDER_TOP_WIDTH_1PX: CssProperty =
     CssProperty::BorderTopWidth(CssPropertyValue::Exact(LayoutBorderTopWidth {
         inner: PixelValue::const_px(1),
     }));
-static BUTTON_BORDER_BOTTOM_WIDTH: CssProperty =
+static BORDER_BOTTOM_WIDTH_1PX: CssProperty =
     CssProperty::BorderBottomWidth(CssPropertyValue::Exact(LayoutBorderBottomWidth {
         inner: PixelValue::const_px(1),
     }));
-static BUTTON_BORDER_LEFT_WIDTH: CssProperty =
+static BORDER_LEFT_WIDTH_1PX: CssProperty =
     CssProperty::BorderLeftWidth(CssPropertyValue::Exact(LayoutBorderLeftWidth {
         inner: PixelValue::const_px(1),
     }));
-static BUTTON_BORDER_RIGHT_WIDTH: CssProperty =
+static BORDER_RIGHT_WIDTH_1PX: CssProperty =
     CssProperty::BorderRightWidth(CssPropertyValue::Exact(LayoutBorderRightWidth {
         inner: PixelValue::const_px(1),
     }));
@@ -938,14 +984,25 @@ pub fn get_ua_property(
         // `address { display: block; font-style: italic }`
         (NT::Address, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Address, PT::FontStyle) => Some(&FONT_STYLE_ITALIC),
+        // HTML 15.3.11: a 1px inset gray border on all four sides, width auto.
         (NT::Hr, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Hr, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Hr, PT::Height) => Some(&HEIGHT_ZERO),
         (NT::Hr, PT::MarginTop) => Some(&MARGIN_TOP_0_5EM),
         (NT::Hr, PT::MarginBottom) => Some(&MARGIN_BOTTOM_0_5EM),
+        (NT::Hr, PT::MarginLeft) => Some(&MARGIN_LEFT_AUTO),
+        (NT::Hr, PT::MarginRight) => Some(&MARGIN_RIGHT_AUTO),
         (NT::Hr, PT::BorderTopStyle) => Some(&BORDER_TOP_STYLE_INSET),
+        (NT::Hr, PT::BorderBottomStyle) => Some(&BORDER_BOTTOM_STYLE_INSET),
+        (NT::Hr, PT::BorderLeftStyle) => Some(&BORDER_LEFT_STYLE_INSET),
+        (NT::Hr, PT::BorderRightStyle) => Some(&BORDER_RIGHT_STYLE_INSET),
         (NT::Hr, PT::BorderTopWidth) => Some(&BORDER_TOP_WIDTH_1PX),
+        (NT::Hr, PT::BorderBottomWidth) => Some(&BORDER_BOTTOM_WIDTH_1PX),
+        (NT::Hr, PT::BorderLeftWidth) => Some(&BORDER_LEFT_WIDTH_1PX),
+        (NT::Hr, PT::BorderRightWidth) => Some(&BORDER_RIGHT_WIDTH_1PX),
         (NT::Hr, PT::BorderTopColor) => Some(&BORDER_TOP_COLOR_GRAY),
+        (NT::Hr, PT::BorderBottomColor) => Some(&BORDER_BOTTOM_COLOR_GRAY),
+        (NT::Hr, PT::BorderLeftColor) => Some(&BORDER_LEFT_COLOR_GRAY),
+        (NT::Hr, PT::BorderRightColor) => Some(&BORDER_RIGHT_COLOR_GRAY),
 
         // Table Elements
         // Per CSS Fragmentation Level 3: table ROWS should avoid breaks inside
@@ -997,10 +1054,10 @@ pub fn get_ua_property(
         (NT::Button, PT::PaddingBottom) => Some(&PADDING_BOTTOM_5PX),
         (NT::Button, PT::PaddingLeft) => Some(&PADDING_LEFT_10PX),
         (NT::Button, PT::PaddingRight) => Some(&PADDING_RIGHT_10PX),
-        (NT::Button, PT::BorderTopWidth) => Some(&BUTTON_BORDER_TOP_WIDTH),
-        (NT::Button, PT::BorderBottomWidth) => Some(&BUTTON_BORDER_BOTTOM_WIDTH),
-        (NT::Button, PT::BorderLeftWidth) => Some(&BUTTON_BORDER_LEFT_WIDTH),
-        (NT::Button, PT::BorderRightWidth) => Some(&BUTTON_BORDER_RIGHT_WIDTH),
+        (NT::Button, PT::BorderTopWidth) => Some(&BORDER_TOP_WIDTH_1PX),
+        (NT::Button, PT::BorderBottomWidth) => Some(&BORDER_BOTTOM_WIDTH_1PX),
+        (NT::Button, PT::BorderLeftWidth) => Some(&BORDER_LEFT_WIDTH_1PX),
+        (NT::Button, PT::BorderRightWidth) => Some(&BORDER_RIGHT_WIDTH_1PX),
         (NT::Button, PT::BorderTopStyle) => Some(&BUTTON_BORDER_TOP_STYLE),
         (NT::Button, PT::BorderBottomStyle) => Some(&BUTTON_BORDER_BOTTOM_STYLE),
         (NT::Button, PT::BorderLeftStyle) => Some(&BUTTON_BORDER_LEFT_STYLE),
@@ -1438,6 +1495,9 @@ pub fn get_ua_property_themed(
     if dark {
         let twin = match (node_type, property_type) {
             (NT::Hr, PT::BorderTopColor) => Some(&BORDER_TOP_COLOR_GRAY_DARK),
+            (NT::Hr, PT::BorderBottomColor) => Some(&BORDER_BOTTOM_COLOR_GRAY_DARK),
+            (NT::Hr, PT::BorderLeftColor) => Some(&BORDER_LEFT_COLOR_GRAY_DARK),
+            (NT::Hr, PT::BorderRightColor) => Some(&BORDER_RIGHT_COLOR_GRAY_DARK),
             (NT::Button, PT::BorderTopColor) => Some(&BUTTON_BORDER_TOP_COLOR_DARK),
             (NT::Button, PT::BorderBottomColor) => Some(&BUTTON_BORDER_BOTTOM_COLOR_DARK),
             (NT::Button, PT::BorderLeftColor) => Some(&BUTTON_BORDER_LEFT_COLOR_DARK),
