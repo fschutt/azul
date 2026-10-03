@@ -17,6 +17,15 @@ Scratch helpers (not committed): /tmp/pimdrive7/rep.py (exact replacements from 
   selects it alone" (passes on the prebuilt); key taps release their modifiers (azlin_e2e, aztasks_e2e,
   azcalendar_e2e)
 
+- 99d9054fd / c49643a68 azul-pim RED / GREEN: dates::month_grid, Task.started (+ JSON, spawn resets)
+- 1a3ca545a / 80dc8d4e8 AzTasks RED / GREEN: views::planned_month, Column, board; Tasks::move_to_column,
+  reschedule (reanchor moved to state.rs); vtodo IN-PROCESS
+- c48355955 state planned_month / month / board, take_dropped (nav uses it); ids
+- 6fa8710f0 layouts.rs: the planned month + the board, the header switch (list.rs hooks)
+- b4b8b2bb1 coordinator note (WIDGETS7): AzCalendar editor on CloseGuard.with_dirty_check
+  (CloseGuardDocumentState, CloseGuardDirtyCheckCallbackType), ToDoBar.with_week_start in AzCalendar
+  (Monday) and AzTasks (setting) - needs WIDGETS7's api.json entries
+
 ## IN PROGRESS
 - 3. AzTasks planned / board + tags. Plan (azul-apps/planning/core/todo.md 2.3 / 2.4):
   3.1 RED azul-pim: dates::month_grid(day, week_start) (42 days); Task.started (JSON "started",
@@ -24,8 +33,7 @@ Scratch helpers (not committed): /tmp/pimdrive7/rep.py (exact replacements from 
   3.2 GREEN azul-pim
   3.3 RED AzTasks views: planned_month(tasks, days) per-day open tasks; board(tasks, list) -> 3 columns
       (To do / Doing = started / Done); vtodo STATUS:IN-PROCESS <-> started
-  3.4 GREEN; 3.5 UI: Scheduled "List | Month" (month grid, < > Today, drop on a day = reschedule),
-      a list "List | Board" (3 columns of cards, drop on a column = status), ids, E2E steps
+  3.4 GREEN; 3.5 UI DONE; NEXT: E2E steps for month / board in scripts/aztasks_e2e.py
   3.6 tags: no TokenInput widget (-> WIDGETS7 spec in report); chips + field + suggestion chips
   3.7 AzCalendar Month days from azul_pim::dates::month_grid (one generator)
 
