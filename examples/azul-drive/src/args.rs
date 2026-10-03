@@ -4,6 +4,7 @@
 
 use std::path::Path;
 
+use azul_appkit::AppArgs;
 use azul_storage::{Drive, LocalDrive};
 
 use crate::model::ViewLayout;
@@ -23,7 +24,7 @@ pub enum Screen {
 }
 
 /// The parsed command line.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Args {
     pub screen: Screen,
     /// The app theme (`flat`, `flora`).
@@ -34,6 +35,9 @@ pub struct Args {
     pub layout: Option<ViewLayout>,
     /// Write the sample files into the Home drive first.
     pub sample: bool,
+    /// The switches every Azlin app understands (azul-appkit): `--theme`, `--mode`
+    /// (`system` too), `--size`, `--shot`, `--sample`, `--data-dir`.
+    pub kit: AppArgs,
 }
 
 pub const HELP: &str = "\
@@ -243,6 +247,7 @@ pub fn write_sample(home: &Path) -> Result<usize, String> {
 mod tests {
     use super::*;
     use crate::model::ViewLayout;
+    use azul_appkit::{ModePref, Theme};
 
     fn parse(args: &[&str]) -> Result<Args, String> {
         Args::parse(args.iter().map(|s| s.to_string()))
@@ -252,10 +257,11 @@ mod tests {
     fn no_switches_start_where_the_settings_say() {
         let args = parse(&[]).unwrap();
         assert_eq!(args.screen, Screen::Default);
-        assert_eq!(args.theme, None);
-        assert_eq!(args.dark, None);
+        assert_eq!(args.kit.theme, None, "the settings file decides");
+        assert_eq!(args.kit.mode, None);
         assert_eq!(args.layout, None);
-        assert!(!args.sample);
+        assert!(!args.kit.sample);
+        assert_eq!(args.kit.data_dir, None);
     }
 
     #[test]
@@ -269,14 +275,23 @@ mod tests {
             "--layout",
             "large-icons",
             "--sample",
+            "--data-dir",
+            "/tmp/azlin",
         ])
         .unwrap();
         assert_eq!(args.screen, Screen::Home);
-        assert_eq!(args.theme.as_deref(), Some("flora"));
-        assert_eq!(args.dark, Some(true));
+        assert_eq!(args.kit.theme, Some(Theme::Flora));
+        assert_eq!(args.kit.mode, Some(ModePref::Dark));
         assert_eq!(args.layout, Some(ViewLayout::LargeIcons));
-        assert!(args.sample);
-        assert_eq!(parse(&["--mode", "light"]).unwrap().dark, Some(false));
+        assert!(args.kit.sample);
+        assert_eq!(args.kit.data_dir, Some(std::path::PathBuf::from("/tmp/azlin")));
+        assert_eq!(parse(&["--mode", "light"]).unwrap().kit.mode, Some(ModePref::Light));
+        assert_eq!(
+            parse(&["--mode", "system"]).unwrap().kit.mode,
+            Some(ModePref::System),
+            "the OS's mode, as in every Azlin app"
+        );
+        assert_eq!(parse(&["--layout=details"]).unwrap().layout, Some(ViewLayout::Details));
         assert_eq!(
             parse(&["--screen", "quick-access"]).unwrap().screen,
             Screen::QuickAccess
@@ -285,6 +300,7 @@ mod tests {
             parse(&["--screen=settings"]).unwrap().screen,
             Screen::Settings
         );
+        assert_eq!(parse(&["--size", "900x600"]).unwrap().kit.size, Some((900.0, 600.0)));
     }
 
     #[test]
@@ -293,8 +309,10 @@ mod tests {
         assert!(parse(&["--theme", "neon"]).unwrap_err().contains("flora"));
         assert!(parse(&["--mode"]).unwrap_err().contains("--mode"));
         assert!(parse(&["--layout", "huge"]).unwrap_err().contains("details"));
+        assert!(parse(&["--layout"]).unwrap_err().contains("--layout"));
         assert!(parse(&["--what"]).unwrap_err().contains("unknown"));
-        assert!(parse(&["--help"]).unwrap_err().contains("USAGE"));
+        let help = parse(&["--help"]).unwrap_err();
+        assert!(help.contains("USAGE") && help.contains("--layout") && help.contains("--data-dir"));
     }
 
     #[test]
