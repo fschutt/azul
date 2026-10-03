@@ -3,7 +3,9 @@
 //! check-outs are overdue. Plain sums over the [`Book`]; the Reports screen
 //! shows them as tables and charts.
 
-use chrono::{Months, NaiveDate};
+use std::collections::BTreeMap;
+
+use chrono::{Datelike, Months, NaiveDate, TimeDelta};
 
 use crate::{depreciation, model::Asset, store::Book};
 
@@ -66,30 +68,73 @@ pub fn on_books(asset: &Asset, day: NaiveDate) -> bool {
 /// The register on `day`.
 #[must_use]
 pub fn totals(book: &Book, day: NaiveDate) -> Totals {
-    let _ = (book, day, depreciation::book_value_on);
-    todo!("GREEN")
+    let mut t = Totals::default();
+    for a in &book.assets {
+        if a.disposed.is_some_and(|d| d <= day) {
+            t.disposed += 1;
+            continue;
+        }
+        if a.acquired > day {
+            continue;
+        }
+        t.count += 1;
+        t.cost += a.cost;
+        t.book_value += depreciation::book_value_on(a, day);
+        t.depreciation_this_year += depreciation::depreciation_in_year(a, day.year());
+        if book.open_checkout(&a.id).is_some() {
+            t.checked_out += 1;
+        }
+    }
+    t
+}
+
+/// The assets on the books on `day`, grouped by `name_of` (case-insensitive),
+/// by name; "(none)" for an empty name.
+fn grouped(book: &Book, day: NaiveDate, name_of: impl Fn(&Asset) -> String) -> Vec<GroupTotal> {
+    let mut groups: BTreeMap<String, GroupTotal> = BTreeMap::new();
+    for a in book.assets.iter().filter(|a| on_books(a, day)) {
+        let mut name = name_of(a);
+        if name.trim().is_empty() {
+            name = NO_GROUP.to_string();
+        }
+        let group = groups
+            .entry(name.to_lowercase())
+            .or_insert_with(|| GroupTotal {
+                name: name.clone(),
+                ..GroupTotal::default()
+            });
+        group.count += 1;
+        group.cost += a.cost;
+        group.book_value += depreciation::book_value_on(a, day);
+    }
+    groups.into_values().collect()
 }
 
 /// The assets on the books on `day`, by category, by name.
 #[must_use]
 pub fn by_category(book: &Book, day: NaiveDate) -> Vec<GroupTotal> {
-    let _ = (book, day);
-    todo!("GREEN")
+    grouped(book, day, |a| book.category_name(&a.category).to_string())
 }
 
 /// The assets on the books on `day`, by location, by name.
 #[must_use]
 pub fn by_location(book: &Book, day: NaiveDate) -> Vec<GroupTotal> {
-    let _ = (book, day);
-    todo!("GREEN")
+    grouped(book, day, |a| book.location_name(&a.location).to_string())
 }
 
 /// Every asset's depreciation in each year from `from` to `to` (both
 /// included): the forecast (and history) of the register.
 #[must_use]
 pub fn depreciation_by_year(book: &Book, from: i32, to: i32) -> Vec<(i32, i64)> {
-    let _ = (book, from, to);
-    todo!("GREEN")
+    let mut sums: Vec<(i32, i64)> = (from..=to).map(|y| (y, 0)).collect();
+    for a in &book.assets {
+        for row in depreciation::schedule(a) {
+            if let Some(slot) = sums.iter_mut().find(|(y, _)| *y == row.year) {
+                slot.1 += row.depreciation;
+            }
+        }
+    }
+    sums
 }
 
 /// The asset's next service: its maintenance interval after its last
@@ -97,23 +142,63 @@ pub fn depreciation_by_year(book: &Book, from: i32, to: i32) -> Vec<(i32, i64)> 
 /// interval or once it is disposed of.
 #[must_use]
 pub fn next_service(book: &Book, asset: &Asset) -> Option<NaiveDate> {
-    let _ = (book, asset, Months::new(0));
-    todo!("GREEN")
+    if asset.maintenance_months == 0 || asset.disposed.is_some() {
+        return None;
+    }
+    let last = book
+        .maintenance_of(&asset.id)
+        .first()
+        .map_or(asset.acquired, |m| m.date);
+    last.checked_add_months(Months::new(asset.maintenance_months))
 }
 
 /// The assets whose next service is at most `within_days` after `today`
 /// (or past), the earliest first.
 #[must_use]
 pub fn maintenance_due(book: &Book, today: NaiveDate, within_days: i64) -> Vec<Due> {
-    let _ = (book, today, within_days);
-    todo!("GREEN")
+    let horizon = today
+        .checked_add_signed(TimeDelta::days(within_days))
+        .unwrap_or(today);
+    let mut due: Vec<Due> = book
+        .assets
+        .iter()
+        .filter_map(|a| {
+            let when = next_service(book, a)?;
+            (when <= horizon).then(|| Due {
+                asset: a.id.clone(),
+                number: a.number.clone(),
+                name: a.name.clone(),
+                due: when,
+                overdue: when < today,
+            })
+        })
+        .collect();
+    due.sort_by(|a, b| (a.due, &a.number).cmp(&(b.due, &b.number)));
+    due
 }
 
 /// The open check-outs past their due date on `today`, the latest first.
 #[must_use]
 pub fn overdue_checkouts(book: &Book, today: NaiveDate) -> Vec<Overdue> {
-    let _ = (book, today);
-    todo!("GREEN")
+    let mut late: Vec<Overdue> = book
+        .checkouts
+        .iter()
+        .filter(|k| k.is_open())
+        .filter_map(|k| {
+            let due = k.due.filter(|d| *d < today)?;
+            let a = book.get::<Asset>(&k.asset)?;
+            Some(Overdue {
+                asset: a.id.clone(),
+                number: a.number.clone(),
+                name: a.name.clone(),
+                custodian: k.custodian.clone(),
+                due,
+                days_late: (today - due).num_days(),
+            })
+        })
+        .collect();
+    late.sort_by(|a, b| (b.days_late, &a.number).cmp(&(a.days_late, &b.number)));
+    late
 }
 
 #[cfg(test)]
