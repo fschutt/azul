@@ -21,6 +21,7 @@ pub mod dates;
 pub mod feed;
 pub mod fetch;
 pub mod ids;
+pub mod jobs;
 pub mod library;
 pub mod links;
 pub mod opml;
