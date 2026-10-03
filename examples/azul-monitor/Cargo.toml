@@ -1,0 +1,38 @@
+[package]
+name = "AzMonitor"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzMonitor - the system monitor (Task Manager, Activity Monitor, htop) on
+    the public azul API: the processes in azul's DataTable (sorted, filtered,
+    "End process" behind a confirmation), CPU / memory / disk / network over
+    time in azul's Chart, per-core usage, on azul's S6 RecordsShell. A sampler
+    on an azul Thread reads the system once a second (the `sysinfo` crate, or
+    a deterministic sample machine with --sample); a tick re-renders only the
+    live views (VirtualViews) and the status labels, never the page.
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+# The Azlin app skeleton: the common switches, the data root, the settings page (Appearance,
+# Data, Shortcuts, About), file jobs on a Thread (the history export), the --shot timer.
+azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+# The same features azul-layout and AzDashboard build chrono with (the export's file name).
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+# Processes, CPUs, memory, disks and networks on every desktop. 0.38 (not 0.39: that needs
+# rustc 1.95, the toolchain is 1.91); it reuses the locked objc2-core-foundation / objc2-io-kit
+# 0.3.2 and windows 0.62 - only ntapi 0.4 (Windows) is new. No `component` (temperatures),
+# no `multithread` (rayon): one refresh a second needs neither.
+sysinfo = { version = "0.38", default-features = false, features = ["system", "disk", "network", "user"] }
+
+[lib]
+name = "azmonitor"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "AzMonitor"
+path = "src/main.rs"
