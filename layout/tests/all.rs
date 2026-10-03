@@ -802,3 +802,5 @@ mod the_undo_keys_are_a_default_action_an_editor_can_veto;
 mod typing_stays_with_its_field_when_another_page_replaces_it;
 #[path = "text_inside_an_opacity_group_keeps_its_colour.rs"]
 mod text_inside_an_opacity_group_keeps_its_colour;
+#[path = "a_text_indent_narrows_the_first_line.rs"]
+mod a_text_indent_narrows_the_first_line;
