@@ -2,24 +2,37 @@
 
 Branch `wt/widgets7` from `2e55eef06` (worktree .claude/worktrees/agent-a82f849dedcbbbe5d).
 Brief: scripts/waves/wave7/WIDGETS7.md. Rules: scripts/waves/house_rules.md.
-Scratch: target/widgets7 in the worktree (look scripts, screenshots - not committed).
-Commit messages: written to target/widgets7/msg, `git commit -F`.
+Scratch: target/widgets7 in the worktree (look.py = headless look driver, screenshots - not committed).
+Commit messages: written to target/widgets7/msg, `git -C <wt> commit -F target/widgets7/msg`.
+Look run (one at a time, capped): run_capped.sh --cap-mb 1500 --seconds 90 --log <wt>/target/widgets7/runN.log --
+  python3 <wt>/target/widgets7/look.py <wt>/target/widgets7/<prefix> <port> <steps.json> -- <binary> <args>
 
 ## DONE
-- (this commit) progress file
+- 645fbec30 progress file
+- item 1 CloseGuard: c62a6ae72 RED (dirty_check API stub + 3 tests), b14047275 GREEN (on_close_requested
+  asks the check; guide windowing.md)
+- item 2 placeholder ink: LOOK prebuilt AzCalendar --screen backstage-calendars --mode light: "Name" prompt
+  #4c4c4cff in the display list. Root cause = cascade (prop_cache get_property_slow placeholder tier
+  admitted theme/mode-only declarations). cd26cf886 RED (core prop_cache_test + text_input
+  placeholder_ink_tests), 1a78b80f4 GREEN (prop_cache.rs closure; flat.rs FIELD_PLACEHOLDER_DARK doc)
 
 ## IN PROGRESS
-- item 1: CloseGuard asks the app at close time
+- item 3: AzCalendar backstage Calendars: first row TextInput garbled + DropDown caret inside text field.
+  Seen so far (prebuilt, system mode = dark, no --sample): row looked fine; light + --sample fine too.
+  Next: try --theme flora, dark, and after a click / focus; read PIM6's description again.
 
 ## NEXT
-1. CloseGuard asks the app at close time (callback returning dirty)
-2. TextInput placeholder ink
-3. AzCalendar backstage Calendars page: first row TextInput garbled + DropDown caret in the text field
+3. (above)
 4. DatePicker wider than its pane (navigator / To-Do bar)
 5. ToDoBar with_week_start
 6. flora-dark zoom slider; check box colour transparent in the HTML dump
 7. DEDUP F2 ModuleSwitcher vs ShellNavigationPane; F20 MessageList -> SummaryList (only if mechanical)
 
 ## Decisions
+- D1 CloseGuard: a callback (CloseGuardDirtyCheckCallbackType = fn(RefAny, CallbackInfo) ->
+  CloseGuardDocumentState {Saved, Unsaved}) - a repr(C) enum, not bool (bool has no HostOut impl and a
+  core edit for it is out of my area); a host that does not answer = Saved (never traps the window).
+- D2 placeholder: fixed in the cascade (pseudo-element semantics only for Placeholder; other tiers keep the
+  loose match the widgets' "states appended last" convention relies on).
 
 ## Open questions
