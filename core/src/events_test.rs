@@ -5098,3 +5098,177 @@ mod seat_dedup_tests {
         }
     }
 }
+
+/// An event aimed into a child dom - a `VirtualView` page: a progress bar, a
+/// video, a virtualized list - goes on through the node that hosts the page
+/// in its parent dom, as an event in a shadow tree goes on through its host
+/// (MEETDRIVE6: a double-click on a drive tile's capacity bar, a
+/// `ProgressBar`, which is a `VirtualView`, did not open the drive).
+#[cfg(test)]
+mod event_path_across_doms_tests {
+    use crate::{
+        callbacks::CoreCallbackData,
+        dom::{Dom, DomId, DomNodeId},
+        events::{
+            get_event_path, hover_callbacks_along_path, EventData, EventFilter, EventSource,
+            EventType, HoverEventFilter, SyntheticEvent,
+        },
+        id::NodeId,
+        refany::RefAny,
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+        task::{Instant, SystemTick},
+    };
+
+    fn at(dom: usize, node: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId { inner: dom },
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node))),
+        }
+    }
+
+    fn event(event_type: EventType, target: DomNodeId) -> SyntheticEvent {
+        SyntheticEvent::new(
+            event_type,
+            EventSource::User,
+            target,
+            Instant::Tick(SystemTick { tick_counter: 0 }),
+            EventData::None,
+        )
+    }
+
+    /// A straight parent chain per dom: node i's parent is node i - 1.
+    fn chain_parent(_: DomId, node: NodeId) -> Option<NodeId> {
+        node.index().checked_sub(1).map(NodeId::new)
+    }
+
+    /// dom 1 is hosted by node 2 of dom 0.
+    fn page_in_node_2(dom: DomId) -> Option<(DomId, NodeId)> {
+        (dom.inner == 1).then_some((DomId { inner: 0 }, NodeId::new(2)))
+    }
+
+    #[test]
+    fn an_event_in_a_child_dom_goes_on_through_the_node_that_hosts_it() {
+        let path = get_event_path(at(1, 1), &chain_parent, &page_in_node_2);
+        assert_eq!(
+            path,
+            vec![at(0, 0), at(0, 1), at(0, 2), at(1, 0), at(1, 1)],
+            "root of the root dom first, the host, then the page down to the target"
+        );
+        // The root dom's own path is unchanged.
+        let path = get_event_path(at(0, 2), &chain_parent, &page_in_node_2);
+        assert_eq!(path, vec![at(0, 0), at(0, 1), at(0, 2)]);
+    }
+
+    #[test]
+    fn a_host_chain_that_loops_ends_the_event_path() {
+        // dom 1 claims to be hosted by its own node 0: the walk must stop.
+        let looping = |dom: DomId| (dom.inner == 1).then_some((DomId { inner: 1 }, NodeId::ZERO));
+        let path = get_event_path(at(1, 1), &chain_parent, &looping);
+        assert_eq!(path, vec![at(1, 0), at(1, 1)]);
+        // A target without a node has no path.
+        let none = DomNodeId {
+            dom: DomId { inner: 1 },
+            node: NodeHierarchyItemId::NONE,
+        };
+        assert!(get_event_path(none, &chain_parent, &page_in_node_2).is_empty());
+    }
+
+    fn on(filter: HoverEventFilter, id: usize) -> (EventFilter, usize) {
+        (EventFilter::Hover(filter), id)
+    }
+
+    fn listening(dom: Dom, callbacks: &[(EventFilter, usize)]) -> Dom {
+        callbacks.iter().fold(dom, |dom, (filter, id)| {
+            dom.with_callback(*filter, RefAny::new(0_u32), *id)
+        })
+    }
+
+    /// dom 0: body(0, `body`) > tile(1, `tile`) > host(2)
+    /// dom 1, hosted by node 2 of dom 0: body(0) > bar(1, `bar`)
+    fn tile_with_a_bar(
+        body: &[(EventFilter, usize)],
+        tile: &[(EventFilter, usize)],
+        bar: &[(EventFilter, usize)],
+    ) -> (StyledDom, StyledDom) {
+        let host = StyledDom::create_from_dom(
+            listening(Dom::create_body(), body)
+                .with_child(listening(Dom::create_div(), tile).with_child(Dom::create_div())),
+        );
+        let page = StyledDom::create_from_dom(
+            Dom::create_body().with_child(listening(Dom::create_div(), bar)),
+        );
+        (host, page)
+    }
+
+    fn planned_ids(plan: &[(DomNodeId, CoreCallbackData)]) -> Vec<(DomNodeId, usize)> {
+        plan.iter().map(|(n, cb)| (*n, cb.callback.cb)).collect()
+    }
+
+    #[test]
+    fn a_double_click_on_a_tiles_progress_bar_reaches_the_tiles_handler() {
+        let (host, page) = tile_with_a_bar(&[], &[on(HoverEventFilter::DoubleClick, 7)], &[]);
+        let doms = |d: DomId| match d.inner {
+            0 => Some(&host),
+            1 => Some(&page),
+            _ => None,
+        };
+        let plan = hover_callbacks_along_path(
+            &event(EventType::DoubleClick, at(1, 1)),
+            EventFilter::Hover(HoverEventFilter::DoubleClick),
+            &doms,
+            &page_in_node_2,
+        );
+        assert_eq!(
+            planned_ids(&plan),
+            vec![(at(0, 1), 7)],
+            "the double-click on the bar must bubble out of the page to the tile"
+        );
+    }
+
+    #[test]
+    fn a_bubbling_event_reaches_the_page_then_its_host_each_callback_once() {
+        let dbl = HoverEventFilter::DoubleClick;
+        let (host, page) = tile_with_a_bar(
+            &[on(dbl, 9)],
+            // Two listeners on one node: each runs once, in their order.
+            &[on(dbl, 7), on(HoverEventFilter::MouseDown, 5), on(dbl, 8)],
+            &[on(dbl, 3)],
+        );
+        let doms = |d: DomId| match d.inner {
+            0 => Some(&host),
+            1 => Some(&page),
+            _ => None,
+        };
+        let plan = hover_callbacks_along_path(
+            &event(EventType::DoubleClick, at(1, 1)),
+            EventFilter::Hover(dbl),
+            &doms,
+            &page_in_node_2,
+        );
+        assert_eq!(
+            planned_ids(&plan),
+            vec![(at(1, 1), 3), (at(0, 1), 7), (at(0, 1), 8), (at(0, 0), 9)],
+            "the target first, then up through the host, each callback once"
+        );
+    }
+
+    #[test]
+    fn an_enter_into_a_page_does_not_reach_its_host() {
+        // MouseEnter does not bubble: every node the pointer entered gets its
+        // own event, the host included - never the page's.
+        let enter = HoverEventFilter::MouseEnter;
+        let (host, page) = tile_with_a_bar(&[], &[on(enter, 7)], &[on(enter, 3)]);
+        let doms = |d: DomId| match d.inner {
+            0 => Some(&host),
+            1 => Some(&page),
+            _ => None,
+        };
+        let plan = hover_callbacks_along_path(
+            &event(EventType::MouseEnter, at(1, 1)),
+            EventFilter::Hover(enter),
+            &doms,
+            &page_in_node_2,
+        );
+        assert_eq!(planned_ids(&plan), vec![(at(1, 1), 3)]);
+    }
+}
