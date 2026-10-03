@@ -30,6 +30,11 @@ Branch `wt/writer6` from `25d78e309`. Brief: scripts/waves/wave6/WRITER6.md.
   Cargo.toml (azul-appkit, azul-storage; pulldown-cmark dropped), delete ir/palette/fonts/args/document/
   editor_ui/ribbon_ui/backstage_ui, scripts/azwriter_e2e.py + workspace_test_members / rust.yml.
 - THEN: AzNotes prefixes (`__aznotes_`, E2E selectors follow), AzNotes appkit, report.
+- USER asked "don't we already have pagination?": yes - paginate.rs does NOT re-implement it. It calls the
+  engine's Pdf::compute_pagination (PaginationSnapshot::break_path) and only maps each break path to the
+  page's first block, on a Thread; it replaces the old document.rs glue (split_content_at / DomSplit /
+  memo) that did the same with more code. query_pagination gives Y positions only (no paths), so
+  compute_pagination is the one that fits page_doms.
 - Scratch helpers (api.json lookup script) live in the session scratchpad; it was wiped by the restart.
 
 ## Undo/Redo ownership - DESIGN (done): the browser keydown model. core `handle_key_down` stops
