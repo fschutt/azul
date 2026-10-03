@@ -31,13 +31,18 @@ Brief: scripts/waves/wave7/EVENTS7.md. Report at the end: scripts/EVENTS7_2026_1
     PlatformWindow::dismiss_menu_windows + CommonWindowState::menu_release_owed swallow); headless
     dismiss_menu_windows + chain rule in pump_children
 
+- item 5 (Ctrl+B with no selection reported to the app):
+  - e2559312e RED: EventType::TypingStyleChanged + FocusEventFilter::TypingStyleChanged (appended,
+    matcher, ALL_FOCUS, event cycle test, FOCUS test list); runner test + editor_runner_with helper
+  - 5ab5bb504 GREEN: dll keyboard default-action pass dispatches it after a successful toggle
+    (typing_style_changed_at, next to the synthetic click); runner arm the same
+  - 95ffba393 coverage ratchet `cases` gains the new EventType
+
 ## IN PROGRESS
-- item 5: Ctrl+B with no selection reported to the app (read DEDUP_EDITORS formats finding,
-  layout ToggleTextFormat / toggle_text_format, DocumentTextEdit runs)
+- the report scripts/EVENTS7_2026_10_03.md
 
 ## NEXT
-5. Ctrl+B with no selection reported to the app
-6. report scripts/EVENTS7_2026_10_03.md
+6. report scripts/EVENTS7_2026_10_03.md, commit it
 
 ## Decisions
 - item 1: the plan lives in core (core/src/events.rs, mine), both dispatchers call it with closures over
@@ -49,6 +54,10 @@ Brief: scripts/waves/wave7/EVENTS7.md. Report at the end: scripts/EVENTS7_2026_1
 
 - item 4: the click that leaves a headless menu is spent (press discarded, release owed) like a
   native menu / X11 grab; a menu child closing closes every menu child of its owner (one chain).
+
+- item 5: what was left after TEXTENG (runs in DocumentTextEdit) and WRITER6 (RTE adoption) is the toggle
+  itself: a dedicated event (EventType / FocusEventFilter::TypingStyleChanged), not a TextChanged with no
+  text change (TextChanged means "the text changed": dirty flags, word counts would misfire).
 
 ## Open questions
 - (none yet)
