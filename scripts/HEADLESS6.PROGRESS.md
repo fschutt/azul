@@ -58,7 +58,9 @@ Branch `wt/headless6` from base 25d78e309. Brief: scripts/waves/wave6/HEADLESS6.
   (runner.rs close_unconfirmed + confirm_app_close + run_frame extracted; tests mod close_protocol_tests).
 
 ## IN PROGRESS
-- nothing. Report written: scripts/HEADLESS6_2026_10_03.md.
+- nothing. Report written: scripts/HEADLESS6_2026_10_03.md. Resumed once more after a DNS outage: tree was
+  clean, all work committed (the "getter" step the coordinator quoted is a21472c60). Last: the regen
+  branch of service_frame clears display_list_dirty when the DOM changed.
 
 ## NEXT
 - DONE unless the coordinator sends more. Left (in the report): corpus + calendar E2E on the new build;
