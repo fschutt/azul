@@ -1891,6 +1891,12 @@ mod label_convention {
             "date_range_picker",
             super::date_range_picker::fixtures::sample().dom(),
         ));
+        // The reference picker: "acme" typed - two customers and the
+        // "create" row, on the combobox.
+        all.push((
+            "reference_picker",
+            super::reference_picker::fixtures::sample().dom(),
+        ));
         all
     }
 
@@ -2795,6 +2801,7 @@ mod theme_contrast {
         "money_input",
         "money_input (empty, en)",
         "date_range_picker",
+        "reference_picker",
     ];
     /// Navigation and application chrome.
     const CHROME: &[&str] = &[

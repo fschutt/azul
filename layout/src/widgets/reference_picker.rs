@@ -828,3 +828,189 @@ mod list_tests {
         assert_eq!(field_text("", None, &c), "");
     }
 }
+
+// ==== fixtures (the widget manifest's sample) ====
+
+/// Samples for the widget manifest (`widgets::label_convention`) and the
+/// tests.
+#[cfg(test)]
+pub(crate) mod fixtures {
+    use super::*;
+
+    /// Four customers and suppliers.
+    pub(crate) fn customers() -> ReferencePickerItemVec {
+        let item = |id: u64, label: &'static str, detail: &'static str| {
+            ReferencePickerItem::create(id, AzString::from_const_str(label))
+                .with_detail(AzString::from_const_str(detail))
+        };
+        ReferencePickerItemVec::from_vec(alloc::vec![
+            item(1042, "ACME GmbH", "Customer 1042, Berlin"),
+            item(77, "Acme Corp", "Supplier 77, Ohio"),
+            item(5, "Globex", "Customer 5, Paris"),
+            item(9, "Initech", "Customer 9, Austin"),
+        ])
+    }
+
+    /// "acme" typed: two records and the "create" row.
+    pub(crate) fn sample() -> ReferencePicker {
+        ReferencePicker::create(customers())
+            .with_query(AzString::from_const_str("acme"))
+            .with_placeholder(AzString::from_const_str("Customer"))
+            .with_create_label(AzString::from_const_str("Create customer"))
+            .with_accessibility_name("Customer")
+    }
+}
+
+#[cfg(test)]
+mod dom_tests {
+    use std::sync::{Arc, Mutex};
+
+    use azul_core::{
+        dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, NodeType},
+        id::NodeId,
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+    };
+
+    use super::{fixtures::*, *};
+    use crate::widgets::{roving::test_support as rv, themes::theme_checks as tc};
+
+    const OPTION: &str = "__azul-native-combobox-option";
+    const FIELD_TEXT: &str = "__azul-native-combobox-text";
+
+    type Log = Arc<Mutex<Vec<ReferencePickerEvent>>>;
+
+    extern "C" fn record(
+        mut data: RefAny,
+        _info: CallbackInfo,
+        event: ReferencePickerEvent,
+    ) -> Update {
+        if let Some(log) = data.downcast_ref::<Log>() {
+            log.lock().expect("log").push(event);
+        }
+        Update::RefreshDom
+    }
+
+    fn node(i: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(i))),
+        }
+    }
+
+    fn styled(p: ReferencePicker) -> (StyledDom, Log) {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let p = p.with_theme(UiTheme::Flat).with_on_event(
+            RefAny::new(log.clone()),
+            record as ReferencePickerOnEventCallbackType,
+        );
+        (StyledDom::create_from_dom(p.dom()), log)
+    }
+
+    fn options(styled: &StyledDom) -> Vec<usize> {
+        styled
+            .node_data
+            .as_ref()
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| n.has_class(OPTION))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    fn texts(dom: &Dom) -> Vec<String> {
+        tc::nodes(dom)
+            .into_iter()
+            .filter_map(|(_, n)| match n.root.get_node_type() {
+                NodeType::Text(s) => Some(s.as_str().to_string()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The text the field shows.
+    fn field_text_of(dom: &Dom) -> String {
+        let field = tc::find(dom, FIELD_TEXT).expect("the field's text");
+        texts(field).concat()
+    }
+
+    #[test]
+    fn the_list_holds_the_matching_records_with_details_and_the_create_row() {
+        let (s, _) = styled(sample());
+        assert_eq!(options(&s).len(), 3, "ACME GmbH, Acme Corp, create");
+        let all = texts(&sample().dom());
+        for t in [
+            "ACME GmbH",
+            "Customer 1042, Berlin",
+            "Acme Corp",
+            "Create customer \u{201c}acme\u{201d}",
+        ] {
+            assert!(all.iter().any(|x| x == t), "{t:?} in {all:?}");
+        }
+        assert!(!all.iter().any(|x| x == "Globex"), "Globex does not match");
+    }
+
+    #[test]
+    fn the_root_is_marked_and_the_field_holds_the_query() {
+        let dom = sample().dom();
+        assert!(tc::has_class(&dom, REFERENCE_PICKER_CLASS));
+        assert_eq!(field_text_of(&dom), "acme");
+    }
+
+    #[test]
+    fn a_picked_record_shows_its_label_while_nothing_is_typed() {
+        let dom = ReferencePicker::create(customers()).with_selected(5).dom();
+        assert_eq!(field_text_of(&dom), "Globex");
+    }
+
+    #[test]
+    fn the_list_says_when_nothing_matches_and_while_the_app_searches() {
+        let none = ReferencePicker::create(customers())
+            .with_query(AzString::from_const_str("zzz"))
+            .dom();
+        assert!(texts(&none).iter().any(|t| t == "No matches"));
+        let searching = ReferencePicker::create(customers())
+            .with_filter(ReferencePickerFilter::App)
+            .with_loading(true)
+            .dom();
+        assert!(texts(&searching).iter().any(|t| t == "Searching..."));
+    }
+
+    #[test]
+    fn picking_a_record_reports_its_id_and_label() {
+        let (s, log) = styled(sample());
+        let opts = options(&s);
+        let _ = rv::fire(
+            &s,
+            node(opts[1]),
+            EventFilter::Hover(HoverEventFilter::Click),
+        )
+        .expect("an option takes the click");
+        let events = log.lock().expect("log").clone();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, ReferencePickerEventKind::Pick);
+        assert_eq!(events[0].id, 77);
+        assert_eq!(events[0].text.as_str(), "Acme Corp");
+    }
+
+    #[test]
+    fn picking_the_create_row_reports_the_query() {
+        let (s, log) = styled(sample());
+        let opts = options(&s);
+        let _ = rv::fire(
+            &s,
+            node(opts[2]),
+            EventFilter::Hover(HoverEventFilter::Click),
+        )
+        .expect("the create row takes the click");
+        let events = log.lock().expect("log").clone();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, ReferencePickerEventKind::Create);
+        assert_eq!(events[0].text.as_str(), "acme");
+    }
+
+    #[test]
+    fn the_list_lists_at_most_max_rows_and_counts_the_rest() {
+        let dom = ReferencePicker::create(customers()).with_max_rows(2).dom();
+        assert!(texts(&dom).iter().any(|t| t == "2 more - type to narrow"));
+    }
+}
