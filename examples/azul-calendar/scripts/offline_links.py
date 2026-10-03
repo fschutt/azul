@@ -46,12 +46,14 @@ from week_interactions import (  # noqa: E402  (the same debug-server client, no
     Debug,
     Failure,
     Week,
+    detect_naming,
     event_files,
     find_binary,
     main_repo,
     popover_open,
     press,
     read_event,
+    sel,
     tail,
     type_title,
 )
@@ -136,7 +138,8 @@ def run(opts, logs, children):
     )
     children.append(app)
     dbg = Debug(opts.port, opts.timeout)
-    dbg.until("the week view", lambda: dbg.exists("#week-scroll"))
+    detect_naming(dbg)
+    dbg.until("the week view", lambda: dbg.exists(sel("week-scroll")))
 
     # 2. No "there is no meeting server".
     if dbg.shows("No meeting server"):
@@ -153,9 +156,9 @@ def run(opts, logs, children):
     if dbg.shows("No meeting server"):
         raise Failure("the popover says there is no meeting server")
     type_title(dbg, TITLE)
-    press(dbg, "#draft-meet")
+    press(dbg, sel("draft-meet"))
     dbg.until("the popover to say a link will be made", lambda: dbg.shows("A new AzMeet link is made"))
-    press(dbg, "#draft-save")
+    press(dbg, sel("draft-save"))
     files = dbg.until("the event file, written at once (offline)", lambda: event_files(data) or None)
     name = files[0]
     event = read_event(data, name)

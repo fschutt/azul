@@ -3,7 +3,10 @@
 
 Starts AzCalendar (AZ_BACKEND=headless, AZ_DEBUG=<port>) with an empty data folder (AZCAL_DATA) on
 the Week view, and walks its main flows. Every op is addressed to its window by `window_id`: the
-main window is `azcalendar`, the event editor `azcalendar-editor`.
+main window is `azcalendar`, the event editor `azcalendar-editor`. The app's DOM ids carry its
+prefix `__azcal_` (examples/azul-calendar/src/ids.rs): `#view-week` below is
+`#__azcal_view-week` (`wi.sel("view-week")`); an older build's bare names are detected at the
+start. The shell's own ids (`#shell-backstage`, `#shell-ribbon`) have no app prefix.
 
 Stages (each runs even when one before it failed; `--only` / `--skip` pick them):
 
@@ -211,27 +214,27 @@ def stage_views(app, ctx):
     for key, name, columns in VIEWS:
         seen = len(app.printed("AZCAL_VIEW"))
         w.key(key, primary=True, alt=True)
-        w.wait_for(f"#view-{name}")
+        w.wait_for(wi.sel(f"view-{name}"))
         line = w.until(
             f"AZCAL_VIEW {name}",
             lambda: next((l for l in app.printed("AZCAL_VIEW")[seen:] if l.startswith(name + " ")), None),
         )
         first = datetime.date.fromisoformat(line.split()[1])
         if columns is not None:
-            if not w.exists(f"#day-{columns - 1}") or w.exists(f"#day-{columns}"):
+            if not w.exists(wi.sel(f"day-{columns - 1}")) or w.exists(wi.sel(f"day-{columns}")):
                 raise Failure(f"the {name} view does not have {columns} day column(s)")
-        if name == "month" and not w.exists(f"#month-{ymd(first)}"):
+        if name == "month" and not w.exists(wi.sel(f"month-{ymd(first)}")):
             raise Failure(f"the month view has no cell #month-{ymd(first)} for its first day")
         if name == "schedule":
-            w.wait_for("#schedule")
+            w.wait_for(wi.sel("schedule"))
     # The ribbon does the same.
     w.key("3", primary=True, alt=True)
     w.click(text="Month")
-    w.wait_for("#view-month")
+    w.wait_for(wi.sel("view-month"))
     w.click(text="Schedule View")
-    w.wait_for("#view-schedule")
+    w.wait_for(wi.sel("view-schedule"))
     w.key("3", primary=True, alt=True)
-    w.wait_for("#view-week")
+    w.wait_for(wi.sel("view-week"))
     # The view is kept for the next start: the file thread writes it into settings.txt.
     settings_file = os.path.join(app.data, "settings.txt")
 
@@ -319,9 +322,9 @@ def stage_import(app, ctx):
     w.click(text="FILE")
     w.wait_for("#shell-backstage")
     w.click(text="Open & Export")
-    w.wait_for("#import-path")
-    w.type_into("#import-path", path)
-    w.click(selector="#import-run")
+    w.wait_for(wi.sel("import-path"))
+    w.type_into(wi.sel("import-path"), path)
+    w.click(selector=wi.sel("import-run"))
     line = w.until("AZCAL_IMPORTED", lambda: next(iter(app.printed("AZCAL_IMPORTED")), None))
     if not line.startswith("3 "):
         raise Failure(f"AZCAL_IMPORTED {line}: expected 3 events")
@@ -344,7 +347,7 @@ def stage_import(app, ctx):
     # The import closes the backstage and shows the first imported day.
     w.wait_gone("#shell-backstage")
     w.key("3", primary=True, alt=True)
-    w.wait_for(f"#event-{event['id']}-{ymd(wed)}")
+    w.wait_for(wi.sel(f"event-{event['id']}-{ymd(wed)}"))
     return f"3 events from {os.path.basename(path)}, the weekly one shown on {wed}"
 
 
@@ -355,7 +358,7 @@ def reach_editor(app):
     ed = Window(app.port, app.timeout, EDITOR)
     last = None
     for _ in range(10):
-        answer = ed.op({"op": "get_node_layout", "selector": "#editor-title"})
+        answer = ed.op({"op": "get_node_layout", "selector": wi.sel("editor-title")})
         if answer.get("status") != "error":
             return ed
         last = answer.get("message")
@@ -378,16 +381,16 @@ def stage_editor(app, ctx):
         lambda: "open" in app.printed("AZCAL_EDITOR")[opened:],
     )
     ed = reach_editor(app)
-    ed.type_into("#editor-title", EDITOR_TITLE)
+    ed.type_into(wi.sel("editor-title"), EDITOR_TITLE)
     # The repeat row is the DateRepeatPicker (#editor-repeat): "Weekly" on its frequency row
     # brings its "Ends" row and the weekday toggles.
-    ed.wait_for("#editor-repeat")
+    ed.wait_for(wi.sel("editor-repeat"))
     ed.click(text="Weekly")
     ed.until("the date repeat picker's weekly rows", lambda: ed.shows("Ends"))
     # Save & Close closes the editor window: no frames are asked of it after
     # the click (`click` waits two frames on the window it clicked, and a
     # closed window answers "No window has the id"). The main window waits.
-    ed.must({"op": "click", "selector": "#editor-save"})
+    ed.must({"op": "click", "selector": wi.sel("editor-save")})
     w.until(
         "AZCAL_EDITOR closed",
         lambda: "closed" in app.printed("AZCAL_EDITOR")[opened:],
@@ -424,7 +427,7 @@ def stage_close(app, ctx):
     w.key("n", primary=True)
     w.until("AZCAL_EDITOR open", lambda: "open" in app.printed("AZCAL_EDITOR")[opened:])
     ed = reach_editor(app)
-    ed.type_into("#editor-title", "Not to be kept")
+    ed.type_into(wi.sel("editor-title"), "Not to be kept")
     ed.must({"op": "close"})
     ed.frames(3)
     w.until("AZCAL_EDITOR asking", lambda: "asking" in app.printed("AZCAL_EDITOR")[opened:])
@@ -452,10 +455,10 @@ def stage_close(app, ctx):
 def show_week_of(w, day):
     """Puts the Week view on the week of `day` (Today, then Forward / Back)."""
     w.key("3", primary=True, alt=True)
-    w.click(selector="#view-today")
+    w.click(selector=wi.sel("view-today"))
     weeks = (day - monday()).days // 7
     for _ in range(abs(weeks)):
-        w.click(selector="#view-next" if weeks > 0 else "#view-prev")
+        w.click(selector=wi.sel("view-next") if weeks > 0 else wi.sel("view-prev"))
 
 
 def stage_repeat(app, ctx):
@@ -464,22 +467,22 @@ def stage_repeat(app, ctx):
     if "standup" in ctx:
         sid, wed, skip = ctx["standup"]
         show_week_of(w, wed)
-        w.wait_for(f"#event-{sid}-{ymd(wed)}")
-        w.click(selector="#view-next")
-        w.wait_for(f"#event-{sid}-{ymd(wed + datetime.timedelta(days=7))}")
-        w.click(selector="#view-next")
+        w.wait_for(wi.sel(f"event-{sid}-{ymd(wed)}"))
+        w.click(selector=wi.sel("view-next"))
+        w.wait_for(wi.sel(f"event-{sid}-{ymd(wed + datetime.timedelta(days=7))}"))
+        w.click(selector=wi.sel("view-next"))
         w.frames(3)
-        if w.exists(f"#event-{sid}-{ymd(skip)}"):
+        if w.exists(wi.sel(f"event-{sid}-{ymd(skip)}")):
             raise Failure(f"the imported standup shows on {skip}, the day its EXDATE skips")
-        w.click(selector="#view-next")
-        w.wait_for(f"#event-{sid}-{ymd(wed + datetime.timedelta(days=21))}")
+        w.click(selector=wi.sel("view-next"))
+        w.wait_for(wi.sel(f"event-{sid}-{ymd(wed + datetime.timedelta(days=21))}"))
         checked.append("the imported weekly event (and its exception)")
     if "editor_event" in ctx:
         eid, date = ctx["editor_event"]
         show_week_of(w, date)
-        w.wait_for(f"#event-{eid}-{ymd(date)}")
-        w.click(selector="#view-next")
-        w.wait_for(f"#event-{eid}-{ymd(date + datetime.timedelta(days=7))}")
+        w.wait_for(wi.sel(f"event-{eid}-{ymd(date)}"))
+        w.click(selector=wi.sel("view-next"))
+        w.wait_for(wi.sel(f"event-{eid}-{ymd(date + datetime.timedelta(days=7))}"))
         checked.append("the editor's weekly event")
     if not checked:
         raise Failure("no weekly event to check: the import and the editor stages made none")
@@ -499,7 +502,7 @@ def stage_occurrence(app, ctx):
     eid, date = ctx["editor_event"]
     day = date + datetime.timedelta(days=7)
     show_week_of(w, day)
-    block = f"#event-{eid}-{ymd(day)}"
+    block = wi.sel(f"event-{eid}-{ymd(day)}")
     w.wait_for(block)
     opened = len(app.printed("AZCAL_EDITOR"))
     before = set(wi.event_files(app.data))
@@ -508,9 +511,9 @@ def stage_occurrence(app, ctx):
     w.key("return")
     w.until("AZCAL_EDITOR open", lambda: "open" in app.printed("AZCAL_EDITOR")[opened:])
     ed = reach_editor(app)
-    ed.wait_for("#editor-scope")
-    ed.type_into("#editor-title", " (moved)")
-    ed.click(selector="#editor-save")
+    ed.wait_for(wi.sel("editor-scope"))
+    ed.type_into(wi.sel("editor-title"), " (moved)")
+    ed.click(selector=wi.sel("editor-save"))
     w.until("AZCAL_EDITOR closed", lambda: "closed" in app.printed("AZCAL_EDITOR")[opened:])
     new = w.until(
         "the occurrence's own event file",
@@ -604,7 +607,7 @@ def stage_contrast(app, ctx):
             screens = [("week", "3"), ("month", "4"), ("agenda", "6")]
             for name, key in screens:
                 w.key(key, primary=True, alt=True)
-                w.wait_for(f"#view-{name}")
+                w.wait_for(wi.sel(f"view-{name}"))
                 w.frames(3)
                 items = (w.value({"op": "get_display_list"}) or {}).get("items", [])
                 for f in contrast_findings(items, base):
@@ -614,7 +617,7 @@ def stage_contrast(app, ctx):
             w.click(text="FILE")
             w.wait_for("#shell-backstage")
             w.click(text="Open & Export")
-            w.wait_for("#import-path")
+            w.wait_for(wi.sel("import-path"))
             w.frames(3)
             items = (w.value({"op": "get_display_list"}) or {}).get("items", [])
             for f in contrast_findings(items, base):
@@ -660,7 +663,8 @@ def main():
     ctx = {"logs": logs, "out": opts.out or os.path.join(logs, "screenshots")}
     results = []
     try:
-        app.main.until("the week view", lambda: app.main.exists("#week-scroll"))
+        wi.detect_naming(app.main)
+        app.main.until("the week view", lambda: app.main.exists(wi.sel("week-scroll")))
         for name, stage in STAGES:
             if opts.only and name not in opts.only.split(","):
                 continue
