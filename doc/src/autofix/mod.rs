@@ -228,6 +228,35 @@ pub fn autofix_api(
         }
     }
 
+    // api.json functions whose Rust method is gone (BLOCKS' 84 preset-shell
+    // setters, wave 5): reported here, removal patches written below. A class
+    // this round removes as a whole needs no function removals.
+    let removed_classes: std::collections::BTreeSet<&str> = diff
+        .removals
+        .iter()
+        .map(|r| r.split(':').next().unwrap_or(r))
+        .collect();
+    let gone: Vec<function_diff::GoneApiFunction> = function_diff::gone_api_functions(&index, api_data)
+        .into_iter()
+        .filter(|g| !removed_classes.contains(g.class.as_str()))
+        .collect();
+    if !gone.is_empty() {
+        println!(
+            "\n{} {} api.json function(s) call a Rust method that is gone (removal patches written):",
+            "!".yellow(),
+            gone.len()
+        );
+        for g in &gone {
+            println!(
+                "  {}.{}.{} {}",
+                g.module.dimmed(),
+                g.class.white(),
+                g.api_name.red(),
+                format!("(calls `{}`)", g.rust_name).dimmed()
+            );
+        }
+    }
+
     // Report results
     println!("\n{}", "Analysis Results:".white().bold());
     println!(
@@ -796,6 +825,40 @@ pub fn autofix_api(
             patch_count, module_move.type_name
         ));
         fs::write(&patch_path, &patch_content)?;
+        patch_count += 1;
+    }
+
+    // Removal patches for the api.json functions whose Rust method is gone,
+    // one per class (in the module the class is in)
+    let version = api_data
+        .get_latest_version_str()
+        .unwrap_or(patch_format::API_VERSION)
+        .to_string();
+    let mut gone_by_class: std::collections::BTreeMap<(&str, &str), (Vec<&str>, Vec<&str>)> =
+        std::collections::BTreeMap::new();
+    for g in &gone {
+        let (functions, constructors) = gone_by_class
+            .entry((g.module.as_str(), g.class.as_str()))
+            .or_default();
+        if g.is_constructor {
+            constructors.push(g.api_name.as_str());
+        } else {
+            functions.push(g.api_name.as_str());
+        }
+    }
+    for ((module, class), (functions, constructors)) in &gone_by_class {
+        let patch = function_diff::generate_remove_entries_patch(
+            class,
+            functions,
+            constructors,
+            module,
+            &version,
+        );
+        let patch_path = patches_dir.join(format!(
+            "{:04}_remove_fns_{}.patch.json",
+            patch_count, class
+        ));
+        fs::write(&patch_path, serde_json::to_string_pretty(&patch)?)?;
         patch_count += 1;
     }
 
