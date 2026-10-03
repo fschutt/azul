@@ -86,7 +86,13 @@ Never compile; never touch layout/src/solver3/page_breaks.rs (nor display_list.r
 8. DONE group F: RED 37094ca16 (layout/tests/spaces_at_a_lines_edges_do_not_widen_its_max_content.rs),
    GREEN cca5b355e (text3 measure_intrinsic_widths: collapsing modes skip leading collapsible spaces and
    measure a line to its last non-space item).
-9. NEXT: write the report scripts/MAILREF8_2026_10_03.md (before 531; groups A-F with owners, expected
+9. DONE group G (residual of cerberus hybrid after A, ~45 boxes): atomic inlines in an RTL line were not
+   reordered (L2 reversed clusters only). RED abab33812 (layout/tests/inline_blocks_in_a_right_to_left_
+   line_run_from_the_right.rs), GREEN d63d0025d (text3 apply_l2_visual_reversal(line_items, base):
+   Objects resolve N1/N2 from neighbour clusters / base). Hybrid's other residual (+5 from azr-113: a
+   font-size:0 cell 10px too tall, content centred) is the group C cause (measured term) - covered by
+   531e3a19e (probe target/mailref8/h1.json: cell 185 vs 175).
+10. NEXT: write the report scripts/MAILREF8_2026_10_03.md (before 531; groups A-F with owners, expected
    effects; commits; api.json none; least-sure spots; test commands). Then, if time: atomic-only line
    strut (look pass) is NOT for this wave; maybe re-check other mismatch sources in cerberus after A
    (hybrid had 6 boxes not in the -14 pattern?).
