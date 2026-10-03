@@ -51,8 +51,18 @@ On resume: read this file, `git -C <worktree> status`, `git log --oneline -12`, 
   open-URL API -> plan: append `open_external(target)` to azul-appkit/src/files.rs (std Command:
   open / xdg-open / cmd start; twin of azul-review lib.rs:573) and list an engine API as left.
 
+- a3ce8bfca RED / cb9fa11d8 GREEN azul-appkit files.rs external_target / open_external (shared
+  helper for "Open original"; azul has no open-URL API).
+- c5df3dccf ui.rs part 1 (facts, Settings / Pictures, age / long_date, AddFeed / OpmlImport /
+  import_rows / Reading / NewsApp, start(), small pieces, tests). NOT yet `pub mod ui` in lib.rs.
+
 ## NEXT: the window (azul-dependent; model it on examples/azul-contacts/src/ui.rs line by line)
-B (next step). src/ui.rs - see B below. Then C, D.
+B (next step). src/ui.rs part 2: navigation (pre-order views, TreeViewNode with_badge), the list
+   (rows, day headers via DateGroup, Show more, mark-all confirm), the reading pane (Article via
+   ReadingPane + InfoBar, AddFeed, Import, Feed page), toolbar, status bar, settings sections,
+   layout(); part 3: callbacks (files done, refresh / picture / find events, nav, row, search,
+   filter, star / later / unread / prev / next / open, add feed, import, export, feed page,
+   settings, keys, timer). Then `pub mod ui;` + start() -> ui::start() in lib.rs. Then C, D.
 A (done). src/jobs.rs - three azul Threads (pattern: azul-appkit/src/ui.rs file_thread + azul-mail
    lib.rs run_sync/post for several WriteBack messages and TerminateThread):
    - refresh: init {feeds: Vec<(id, url, etag, last_modified)>}; in the thread
