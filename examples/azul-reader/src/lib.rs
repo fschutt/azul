@@ -4,6 +4,7 @@
 //! commits; the model modules come first, each with its tests.)
 
 pub mod bookcss;
+pub mod content;
 pub mod epub;
 pub mod position;
 pub mod xmltree;
