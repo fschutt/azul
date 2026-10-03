@@ -1493,3 +1493,347 @@ mod range_tests {
         assert_eq!(range_text(&DateRange::create(TODAY, TODAY)), "4 Mar 2026");
     }
 }
+
+// ==== fixtures (the widget manifest's sample) ====
+
+/// Samples for the widget manifest (`widgets::label_convention`) and the
+/// tests.
+#[cfg(test)]
+pub(crate) mod fixtures {
+    use super::*;
+
+    /// Wednesday, 4 March 2026.
+    pub(crate) const TODAY: DatePickerState = DatePickerState {
+        year: 2026,
+        month: 3,
+        day: 4,
+    };
+
+    /// 4 - 10 March 2026 picked, March and April shown, Monday-first,
+    /// named "Report period".
+    pub(crate) fn sample() -> DateRangePicker {
+        let range = DateRange::create(
+            TODAY,
+            DatePickerState {
+                year: 2026,
+                month: 3,
+                day: 10,
+            },
+        );
+        DateRangePicker::create(DateRangePickerView::with_range(range), TODAY)
+            .with_week_start(DatePickerWeekStart::Monday)
+            .with_accessibility_name("Report period")
+    }
+
+    /// Nothing picked yet, March and April shown.
+    pub(crate) fn empty() -> DateRangePicker {
+        DateRangePicker::create(DateRangePickerView::create(2026, 3), TODAY)
+            .with_week_start(DatePickerWeekStart::Monday)
+            .with_accessibility_name("Period")
+    }
+}
+
+#[cfg(test)]
+mod dom_tests {
+    use std::sync::{Arc, Mutex};
+
+    use azul_core::{
+        dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, NodeType, TabIndex},
+        id::NodeId,
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+        window::VirtualKeyCode,
+    };
+
+    use super::{fixtures::*, *};
+    use crate::{
+        callbacks::CallbackChange,
+        widgets::{
+            roving::test_support as rv,
+            themes::{theme_blocks::checks, theme_checks as tc},
+        },
+    };
+
+    type Log = Arc<Mutex<Vec<DateRangePickerEvent>>>;
+
+    extern "C" fn record(
+        mut data: RefAny,
+        _info: CallbackInfo,
+        event: DateRangePickerEvent,
+    ) -> Update {
+        if let Some(log) = data.downcast_ref::<Log>() {
+            log.lock().expect("log").push(event);
+        }
+        Update::RefreshDom
+    }
+
+    const fn d(year: u32, month: u32, day: u32) -> DatePickerState {
+        DatePickerState { year, month, day }
+    }
+
+    fn node(i: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(i))),
+        }
+    }
+
+    /// The picker styled, with its log.
+    fn styled(p: DateRangePicker) -> (StyledDom, Log) {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let p = p.with_theme(UiTheme::Flat).with_on_event(
+            RefAny::new(log.clone()),
+            record as DateRangePickerOnEventCallbackType,
+        );
+        (StyledDom::create_from_dom(p.dom()), log)
+    }
+
+    /// Every node with `class`, in order.
+    fn with_class(styled: &StyledDom, class: &str) -> Vec<usize> {
+        styled
+            .node_data
+            .as_ref()
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| n.has_class(class))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// The day cells: March's 31, then April's 30.
+    fn days(styled: &StyledDom) -> Vec<usize> {
+        with_class(styled, DATE_RANGE_DAY_CLASS)
+    }
+
+    fn texts(dom: &Dom) -> Vec<String> {
+        tc::nodes(dom)
+            .into_iter()
+            .filter_map(|(_, n)| match n.root.get_node_type() {
+                NodeType::Text(s) => Some(s.as_str().to_string()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn styles_written(changes: &[CallbackChange]) -> usize {
+        changes
+            .iter()
+            .filter(|c| matches!(c, CallbackChange::SetNodeStyle { .. }))
+            .count()
+    }
+
+    fn texts_written(changes: &[CallbackChange]) -> Vec<String> {
+        changes
+            .iter()
+            .filter_map(|c| match c {
+                CallbackChange::ChangeNodeText { text, .. } => Some(text.as_str().to_string()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn click(styled: &StyledDom, i: usize) -> Vec<CallbackChange> {
+        rv::fire(styled, node(i), EventFilter::Hover(HoverEventFilter::Click))
+            .expect("the node takes the click")
+            .1
+    }
+
+    #[test]
+    fn the_picker_shows_two_months_of_days() {
+        let (s, _) = styled(sample());
+        assert_eq!(days(&s).len(), 31 + 30);
+        let all = texts(&sample().with_theme(UiTheme::Flat).dom());
+        assert!(all.iter().any(|t| t == "March 2026"), "{all:?}");
+        assert!(all.iter().any(|t| t == "April 2026"), "{all:?}");
+    }
+
+    #[test]
+    fn the_days_of_both_months_are_one_tab_stop_on_the_ranges_start() {
+        let (s, _) = styled(sample());
+        let nodes = s.node_data.as_ref();
+        let stops: Vec<usize> = days(&s)
+            .into_iter()
+            .filter(|i| nodes[*i].get_tab_index() == Some(TabIndex::Auto))
+            .collect();
+        assert_eq!(stops, vec![days(&s)[3]], "4 March holds the stop");
+    }
+
+    #[test]
+    fn the_presets_and_the_summary_are_shown() {
+        let (s, _) = styled(sample());
+        assert_eq!(
+            with_class(&s, DATE_RANGE_PRESET_CLASS).len(),
+            DEFAULT_PRESETS.len()
+        );
+        let all = texts(&sample().with_theme(UiTheme::Flat).dom());
+        assert!(all.iter().any(|t| t == "Last 7 days"));
+        assert!(
+            all.iter().any(|t| t == "4 Mar 2026 \u{2013} 10 Mar 2026"),
+            "{all:?}"
+        );
+        let no_presets = sample()
+            .with_presets(DateRangePresetVec::from_const_slice(&[]))
+            .dom();
+        assert!(tc::find(&no_presets, DATE_RANGE_PRESETS_CLASS).is_none());
+    }
+
+    #[test]
+    fn two_clicks_anchor_then_pick_and_repaint_both_months_in_place() {
+        let (s, log) = styled(empty());
+        let all = days(&s);
+        let changes = click(&s, all[9]); // 10 March
+        assert_eq!(styles_written(&changes), 61, "every day repainted");
+        assert!(texts_written(&changes)
+            .iter()
+            .any(|t| t == "10 Mar 2026 \u{2013} pick the last day"));
+        let changes = click(&s, all[3]); // 4 March
+        assert_eq!(styles_written(&changes), 61);
+        assert!(texts_written(&changes)
+            .iter()
+            .any(|t| t == "4 Mar 2026 \u{2013} 10 Mar 2026"));
+        let events = log.lock().expect("log").clone();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].kind, DateRangePickerEventKind::Anchored);
+        assert_eq!(
+            events[0].view.anchor,
+            OptionDatePickerState::Some(d(2026, 3, 10))
+        );
+        assert_eq!(events[1].kind, DateRangePickerEventKind::Picked);
+        assert_eq!(
+            events[1].view.range,
+            OptionDateRange::Some(DateRange::create(d(2026, 3, 4), d(2026, 3, 10)))
+        );
+    }
+
+    #[test]
+    fn the_pointer_previews_the_span_from_the_anchor_and_nothing_before() {
+        let (s, log) = styled(empty());
+        let all = days(&s);
+        let hover = |i: usize| {
+            rv::fire(
+                &s,
+                node(all[i]),
+                EventFilter::Hover(HoverEventFilter::MouseEnter),
+            )
+            .expect("a day hears the pointer")
+            .1
+        };
+        assert_eq!(styles_written(&hover(14)), 0, "no anchor, no preview");
+        let _ = click(&s, all[9]);
+        let changes = hover(31 + 4); // 5 April
+        assert_eq!(styles_written(&changes), 61);
+        assert!(texts_written(&changes)
+            .iter()
+            .any(|t| t == "10 Mar 2026 \u{2013} 5 Apr 2026"));
+        assert_eq!(
+            log.lock().expect("log").len(),
+            1,
+            "a preview reports nothing"
+        );
+    }
+
+    #[test]
+    fn escape_drops_the_anchor_and_says_so() {
+        let (s, log) = styled(empty());
+        let all = days(&s);
+        let _ = click(&s, all[9]);
+        let (_, changes) = rv::press(&s, node(all[9]), VirtualKeyCode::Escape, &[]).expect("keys");
+        assert!(rv::prevented(&changes));
+        let events = log.lock().expect("log").clone();
+        assert_eq!(
+            events.last().map(|e| e.kind),
+            Some(DateRangePickerEventKind::Cancelled)
+        );
+        assert_eq!(
+            events.last().map(|e| e.view.anchor),
+            Some(OptionDatePickerState::None)
+        );
+        // Without an anchor Escape is not the picker's.
+        let (_, changes) = rv::press(&s, node(all[9]), VirtualKeyCode::Escape, &[]).expect("keys");
+        assert!(!rv::prevented(&changes));
+    }
+
+    #[test]
+    fn page_down_and_the_arrows_past_the_months_turn_them() {
+        let (s, log) = styled(sample());
+        let all = days(&s);
+        let _ = rv::press(&s, node(all[0]), VirtualKeyCode::PageDown, &[]).expect("keys");
+        let last = log.lock().expect("log").last().copied().expect("an event");
+        assert_eq!(last.kind, DateRangePickerEventKind::Navigated);
+        assert_eq!((last.view.year, last.view.month), (2026, 4));
+        // An arrow before 1 March turns back (a fresh picker: after a turn
+        // the app rebuilds on the new months).
+        let (s, log) = styled(sample());
+        let all = days(&s);
+        let _ = rv::press(&s, node(all[0]), VirtualKeyCode::Left, &[]).expect("keys");
+        let last = log.lock().expect("log").last().copied().expect("an event");
+        assert_eq!(last.kind, DateRangePickerEventKind::Navigated);
+        assert_eq!((last.view.year, last.view.month), (2026, 2));
+    }
+
+    #[test]
+    fn the_arrow_keys_cross_from_one_month_into_the_next() {
+        let (s, _) = styled(sample());
+        let all = days(&s);
+        let (_, changes) = rv::press(&s, node(all[30]), VirtualKeyCode::Right, &[]).expect("keys"); // 31 March
+        assert_eq!(
+            rv::focus_request(&changes),
+            Some(node(all[31])),
+            "to 1 April"
+        );
+        let (_, changes) = rv::press(&s, node(all[3]), VirtualKeyCode::Down, &[]).expect("keys");
+        assert_eq!(
+            rv::focus_request(&changes),
+            Some(node(all[10])),
+            "a week down"
+        );
+    }
+
+    #[test]
+    fn a_preset_picks_its_span_and_shows_its_months() {
+        let (s, log) = styled(empty());
+        let presets = with_class(&s, DATE_RANGE_PRESET_CLASS);
+        let _ = click(&s, presets[2]); // Last 7 days
+        let event = log.lock().expect("log").last().copied().expect("an event");
+        assert_eq!(event.kind, DateRangePickerEventKind::Preset);
+        assert_eq!(event.preset, DateRangePreset::Last7Days);
+        assert_eq!(
+            event.view.range,
+            OptionDateRange::Some(DateRange::create(d(2026, 2, 26), d(2026, 3, 4)))
+        );
+        assert_eq!((event.view.year, event.view.month), (2026, 2));
+    }
+
+    #[test]
+    fn the_picker_is_a_named_group_saying_its_range() {
+        let dom = sample().dom();
+        let info = dom.root.get_accessibility_info().expect("a group");
+        assert_eq!(
+            info.accessibility_name
+                .as_ref()
+                .map(|n| n.as_str().to_string()),
+            Some(String::from("Report period"))
+        );
+        assert_eq!(
+            info.accessibility_value
+                .as_ref()
+                .map(|n| n.as_str().to_string()),
+            Some(String::from("4 Mar 2026 \u{2013} 10 Mar 2026"))
+        );
+    }
+
+    #[test]
+    fn a_date_range_picker_follows_the_app_theme() {
+        checks::assert_follows_the_app_theme(
+            "date range picker",
+            || sample().dom(),
+            |theme| sample().with_theme(theme).dom(),
+        );
+    }
+
+    #[test]
+    fn a_pinned_date_range_picker_keeps_its_theme_invariants() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            tc::assert_theme_invariants("date range picker", &sample().with_theme(theme).dom());
+        }
+    }
+}

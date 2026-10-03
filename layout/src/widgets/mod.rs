@@ -1879,6 +1879,12 @@ mod label_convention {
         // The gauge: a CPU dial at 73% (the warning band), and as a bar.
         all.push(("gauge", super::gauge::fixtures::sample().dom()));
         all.push(("gauge (linear)", super::gauge::fixtures::linear().dom()));
+        // The date range picker: 4 - 10 March 2026 picked, March and April
+        // shown, the default presets.
+        all.push((
+            "date_range_picker",
+            super::date_range_picker::fixtures::sample().dom(),
+        ));
         all
     }
 
@@ -2782,6 +2788,7 @@ mod theme_contrast {
         "date_repeat_picker",
         "money_input",
         "money_input (empty, en)",
+        "date_range_picker",
     ];
     /// Navigation and application chrome.
     const CHROME: &[&str] = &[
