@@ -38,17 +38,22 @@ screenshots + hierarchy dumps under target/sheetshow6-shots/.
   FileDialog::save_bytes), cf3f7a6fa (Options = kit page, About = AboutDialog), 0772d3897 (`__azshow_` ids),
   bcf486aab (azshow_e2e.py on azlin_e2e, NOT run: power).
 
+- 2884a05fe RED / 379115fe7 GREEN / f59a06873: ops::find_match (case / whole word / backwards), replace_text,
+  replace_all (one undo step); 26c4ddd8f worker Command::Find opts / Replace / ReplaceAll; b0d33c710 the side
+  panel's Find is the standard FindReplaceDialog (Mod+F / Mod+H, HOME > Replace).
+- Resumed after the power loss (coordinator, 2026-10-03): power back; the uuid note is done (d265c5ccb dropped the
+  crate, cf5d4b1ce new_uuid).
+
 ## IN PROGRESS
-- (power warning 2026-10-03: battery ~16 %; NO headless app runs until told otherwise. The AzShow look run was
-  killed before it produced anything; AzShow is NOT looked at yet.)
+- LOOK at AzShow (prebuilt aa59b2d84) via show_steps1.py in the background.
 
 ## NEXT (exact)
 1-3. (done)
 4. (done)
-5. NEXT: Sheets Find -> FindReplaceDialog in the side panel (Replace / Replace all via the engine), then the brief's features: Sheets (FindReplaceDialog for Find, Format Cells dialog, merge cells, conditional
-   formatting, F4, point mode, tab strip), Show (drop indicator, multi-select rotate, tables in place, picture
-   contain / cover, find / replace, presenter on a chosen monitor).
-5. When power allows: LOOK at AzShow (target/sheetshow6-tools/show_steps1.py, fixed ready check) and re-look at Sheets.
+5. NEXT: Sheets F4 reference cycling (a pure formula-text function, RED first in a new module refs.rs), then point
+   mode, Format Cells dialog, merge cells, conditional formatting, tab strip; Show (drop indicator, multi-select
+   rotate, tables in place, picture contain / cover, find / replace, presenter on a chosen monitor).
+6. Check both apps for `ctrl || meta` and duplicated helpers (checklist).
 
 ## Broken (seen, 2026-10-03, prebuilt aa59b2d84, headless 1280x800)
 AzSheets:
