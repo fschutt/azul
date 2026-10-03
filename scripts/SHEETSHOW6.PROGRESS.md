@@ -73,13 +73,17 @@ screenshots + hierarchy dumps under target/sheetshow6-shots/.
 - 86fa3d417 RED / 08df6d7e2 GREEN model::step_sheet; f6a791d6f the sheet tabs are a PageTabList (Selected, one Tab
   stop, Left / Right, Mod+PageUp / PageDown, double-click renames, tab colours kept).
 
+- 10d45f884 azul_appkit::find (the shared matcher; Sheets ops uses it). AzShow find: 20903f81e RED / 3b093c5b6 GREEN
+  find.rs (find_next / replace_in / replace_all over slides, tables, groups, notes); 22c6264a1 the pane
+  (find_ui.rs, FindReplaceDialog in the side pane, Command::Find, Mod+F / Mod+H, HOME > Editing).
+
 ## IN PROGRESS
 - (none)
 
 ## NEXT (exact)
 1-3. (done)
 4. (done)
-5. NEXT: Show (find / replace first, then drop indicator, multi-select
+5. NEXT: Show (picture contain / cover, drop indicator, multi-select
    rotate, tables in place, picture contain / cover, find / replace, presenter on a chosen monitor).
 6. Check both apps for `ctrl || meta` and duplicated helpers (checklist).
 
