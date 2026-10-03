@@ -137,6 +137,8 @@ pub(crate) struct MailApp {
     pub(crate) show_reading: bool,
     pub(crate) show_todo: bool,
     pub(crate) plain_text: bool,
+    /// The reading pane's zoom in percent (the status bar's zoom, remembered across restarts).
+    pub(crate) zoom: f32,
     /// File > About is open (the standard About dialog).
     pub(crate) about_open: bool,
 
@@ -246,6 +248,7 @@ impl MailApp {
             show_todo: view(ui_main::SET_TODO_BAR, true),
             about_open: false,
             plain_text: view(ui_main::SET_PLAIN_TEXT, false),
+            zoom: ui_main::zoom_setting(settings.get(ui_main::SET_ZOOM)),
             ribbon_tab: 0,
             backstage: None,
             editor: None,

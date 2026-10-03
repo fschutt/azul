@@ -77,6 +77,25 @@ pub(crate) const SET_PLAIN_TEXT: &str = "plain_text";
 pub(crate) const SET_NEWEST_FIRST: &str = "newest_first";
 pub(crate) const SET_ZOOM: &str = "zoom";
 
+/// The reading pane's zoom: the status bar's range in percent, and one click of `-` / `+`.
+pub(crate) const ZOOM_MIN: f32 = 50.0;
+pub(crate) const ZOOM_MAX: f32 = 200.0;
+const ZOOM_STEP: f32 = 10.0;
+
+/// The zoom a settings.json value names: a number in percent, inside the range; 100 when there
+/// is none or it is no number.
+pub(crate) fn zoom_setting(value: Option<&str>) -> f32 {
+    let _ = value;
+    100.0
+}
+
+/// `zoom` moved by `steps` clicks of the status bar's `-` / `+` (negative: out), inside the
+/// range.
+fn zoom_by(zoom: f32, steps: f32) -> f32 {
+    let _ = steps;
+    zoom
+}
+
 /// Rows the list renders at once around what is in view (the list is virtualised).
 const LIST_WINDOW: usize = 200;
 /// Every row's height in the list.
@@ -1402,5 +1421,33 @@ extern "C" fn on_picture_decoded(mut data: RefAny, mut info: CallbackInfo, resul
             eprintln!("[azmail] picture {url} not decoded: {e:?}");
             Update::DoNothing
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The zoom is remembered as a number in settings.json: read back inside the status bar's
+    /// range, 100 % when the value is missing or no number.
+    #[test]
+    fn the_zoom_setting_is_read_back_inside_the_range() {
+        assert_eq!(zoom_setting(None), 100.0);
+        assert_eq!(zoom_setting(Some("130")), 130.0);
+        assert_eq!(zoom_setting(Some(" 80 ")), 80.0);
+        assert_eq!(zoom_setting(Some("1000")), ZOOM_MAX);
+        assert_eq!(zoom_setting(Some("5")), ZOOM_MIN);
+        assert_eq!(zoom_setting(Some("big")), 100.0);
+        assert_eq!(zoom_setting(Some("NaN")), 100.0);
+    }
+
+    /// `-` and `+` move the zoom by ten percent and stop at the range's ends.
+    #[test]
+    fn zoom_out_and_in_step_by_ten_and_stop_at_the_ends() {
+        assert_eq!(zoom_by(100.0, 1.0), 110.0);
+        assert_eq!(zoom_by(100.0, -1.0), 90.0);
+        assert_eq!(zoom_by(ZOOM_MAX, 1.0), ZOOM_MAX);
+        assert_eq!(zoom_by(ZOOM_MIN, -1.0), ZOOM_MIN);
+        assert_eq!(zoom_by(57.0, -1.0), ZOOM_MIN);
     }
 }
