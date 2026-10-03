@@ -1873,4 +1873,22 @@ mod flora_tests {
             css(office.resolved_back_icon_style())
         );
     }
+
+    /// The flat page (the root, the right side and the pane) is the Office
+    /// white by day and flat's dark page at night: the caller's pane is
+    /// written in the window's ink, and AzCalendar's dark backstage showed
+    /// white headings and buttons on a white page (WIDGETS7, prebuilt
+    /// AzCalendar `--mode dark`, FILE > Calendars).
+    #[test]
+    fn the_flat_backstage_page_is_dark_in_the_dark_mode() {
+        let dom = pinned(UiTheme::Flat);
+        for part in [&dom, node(&dom, RIGHT), node(&dom, CONTENT)] {
+            assert_eq!(face(part, false, None), fill(WHITE), "the page by day");
+            assert_eq!(
+                face(part, true, None),
+                fill(flat::DARK_PG),
+                "the page at night"
+            );
+        }
+    }
 }
