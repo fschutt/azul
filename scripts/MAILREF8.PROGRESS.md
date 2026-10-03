@@ -104,7 +104,7 @@ Never compile; never touch layout/src/solver3/page_breaks.rs (nor display_list.r
         differs (azul 128.30 / Chrome 139.16) - NOT touched (instruction), listed. Changes on macOS:
         AzNotes (root UI font-family: sans-serif, note paper, a bold label), AzCalendar (2 rules), AzShow
         default font scheme, examples/{rust,c,cpp,python} calc/widgets/async/infinity/icons, mail text
-        falling back to sans-serif. NEXT: append report section 11.
+        falling back to sans-serif. Report section 11 appended. ALL DONE.
         Was: D: `sans-serif` on macOS -> Helvetica (as Chrome). In-azul route: override the fallback list once
         where azul builds its FcFontCache / generic mapping (`FcFontCache::set_fallback_config`), NOT
         upstream. system-ui must NOT change. Audit what app UI text uses; list what changes.
