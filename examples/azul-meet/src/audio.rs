@@ -91,6 +91,29 @@ pub struct WireFrame {
 const HEADER_BYTES: usize = 8;
 const PACKET_HEADER_BYTES: usize = 6;
 
+/// The header every audio frame starts with (version, codec, packet count, reserved, rate), with
+/// room for `body` more bytes.
+fn frame_header(codec: u8, count: usize, sample_rate: u32, body: usize) -> Vec<u8> {
+    let mut out = Vec::with_capacity(HEADER_BYTES + body);
+    out.extend_from_slice(&[WIRE_VERSION, codec, count as u8, 0]);
+    out.extend_from_slice(&sample_rate.to_le_bytes());
+    out
+}
+
+/// A `codec` frame read up to its packets: (packet count, rate, the packets' bytes). `None` for
+/// another version or codec, no packets, a zero rate, or a frame shorter than its header.
+fn read_header(bytes: &[u8], codec: u8) -> Option<(usize, u32, &[u8])> {
+    let header = bytes.get(..HEADER_BYTES)?;
+    if header[0] != WIRE_VERSION || header[1] != codec || header[2] == 0 {
+        return None;
+    }
+    let sample_rate = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
+    if sample_rate == 0 {
+        return None;
+    }
+    Some((usize::from(header[2]), sample_rate, &bytes[HEADER_BYTES..]))
+}
+
 /// The frame carrying `packets` (oldest first) at `sample_rate`. More than 255 packets keep the
 /// newest 255, and a packet keeps at most 65535 samples.
 pub fn encode_frame(sample_rate: u32, packets: &[Packet]) -> Vec<u8> {
@@ -99,9 +122,7 @@ pub fn encode_frame(sample_rate: u32, packets: &[Packet]) -> Vec<u8> {
         .iter()
         .map(|p| PACKET_HEADER_BYTES + 2 * p.samples.len())
         .sum();
-    let mut out = Vec::with_capacity(HEADER_BYTES + body);
-    out.extend_from_slice(&[WIRE_VERSION, CODEC_PCM16, packets.len() as u8, 0]);
-    out.extend_from_slice(&sample_rate.to_le_bytes());
+    let mut out = frame_header(CODEC_PCM16, packets.len(), sample_rate, body);
     for p in packets {
         let samples = &p.samples[..p.samples.len().min(usize::from(u16::MAX))];
         out.extend_from_slice(&p.sequence.to_le_bytes());
@@ -116,16 +137,7 @@ pub fn encode_frame(sample_rate: u32, packets: &[Packet]) -> Vec<u8> {
 /// Reads a frame; `None` for another version or codec, no packets, a zero rate, or bytes that do
 /// not add up.
 pub fn decode_frame(bytes: &[u8]) -> Option<WireFrame> {
-    let header = bytes.get(..HEADER_BYTES)?;
-    if header[0] != WIRE_VERSION || header[1] != CODEC_PCM16 || header[2] == 0 {
-        return None;
-    }
-    let count = usize::from(header[2]);
-    let sample_rate = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
-    if sample_rate == 0 {
-        return None;
-    }
-    let mut rest = &bytes[HEADER_BYTES..];
+    let (count, sample_rate, mut rest) = read_header(bytes, CODEC_PCM16)?;
     let mut packets = Vec::with_capacity(count);
     for _ in 0..count {
         let head = rest.get(..PACKET_HEADER_BYTES)?;
@@ -172,11 +184,9 @@ impl Packetizer {
             self.reset();
             self.sample_rate = sample_rate;
         }
-        let channels = usize::from(channels);
         let per_packet = samples_per_packet(sample_rate);
         let mut frames = Vec::new();
-        for frame in samples.chunks_exact(channels) {
-            let mono = frame.iter().sum::<f32>() / channels as f32;
+        for mono in mix_to_mono(channels, samples) {
             self.pending.push(to_pcm16(mono));
             if self.pending.len() < per_packet {
                 continue;
@@ -569,26 +579,47 @@ pub struct OpusPacket {
 /// The codec byte of an audio frame ([`CODEC_PCM16`] or [`CODEC_OPUS`]); `None` for another
 /// version or a frame shorter than its header.
 pub fn frame_codec(bytes: &[u8]) -> Option<u8> {
-    // RED stub.
-    let _ = bytes;
-    None
+    let header = bytes.get(..HEADER_BYTES)?;
+    (header[0] == WIRE_VERSION).then_some(header[1])
 }
 
 /// The frame carrying the Opus `packets` (oldest first): the PCM frame's layout with codec byte
 /// [`CODEC_OPUS`], rate [`OPUS_RATE`], and each packet's length in bytes. More than 255 packets
 /// keep the newest 255; a packet keeps at most 65535 bytes.
 pub fn encode_opus_frame(packets: &[OpusPacket]) -> Vec<u8> {
-    // RED stub.
-    let _ = packets;
-    Vec::new()
+    let packets = &packets[packets.len().saturating_sub(usize::from(u8::MAX))..];
+    let longest = usize::from(u16::MAX);
+    let body: usize = packets
+        .iter()
+        .map(|p| PACKET_HEADER_BYTES + p.data.len().min(longest))
+        .sum();
+    let mut out = frame_header(CODEC_OPUS, packets.len(), OPUS_RATE, body);
+    for p in packets {
+        let data = &p.data[..p.data.len().min(longest)];
+        out.extend_from_slice(&p.sequence.to_le_bytes());
+        out.extend_from_slice(&(data.len() as u16).to_le_bytes());
+        out.extend_from_slice(data);
+    }
+    out
 }
 
 /// Reads an Opus frame; `None` for another version or codec, no packets, a rate other than
 /// [`OPUS_RATE`], or bytes that do not add up.
 pub fn decode_opus_frame(bytes: &[u8]) -> Option<Vec<OpusPacket>> {
-    // RED stub.
-    let _ = bytes;
-    None
+    let (count, sample_rate, mut rest) = read_header(bytes, CODEC_OPUS)?;
+    if sample_rate != OPUS_RATE {
+        return None;
+    }
+    let mut packets = Vec::with_capacity(count);
+    for _ in 0..count {
+        let head = rest.get(..PACKET_HEADER_BYTES)?;
+        let sequence = u32::from_le_bytes([head[0], head[1], head[2], head[3]]);
+        let end = PACKET_HEADER_BYTES + usize::from(u16::from_le_bytes([head[4], head[5]]));
+        let data = rest.get(PACKET_HEADER_BYTES..end)?.to_vec();
+        packets.push(OpusPacket { sequence, data });
+        rest = &rest[end..];
+    }
+    rest.is_empty().then_some(packets)
 }
 
 /// Numbers the Opus packets the encoder makes and wraps each new one, with the
@@ -607,9 +638,16 @@ impl OpusFramer {
 
     /// The frame to send for the encoder's next packet.
     pub fn push(&mut self, data: Vec<u8>) -> Vec<u8> {
-        // RED stub.
-        let _ = data;
-        Vec::new()
+        let packet = OpusPacket {
+            sequence: self.next_sequence,
+            data,
+        };
+        self.next_sequence = self.next_sequence.wrapping_add(1);
+        if self.recent.len() == REDUNDANCY {
+            self.recent.pop_front();
+        }
+        self.recent.push_back(packet);
+        encode_opus_frame(self.recent.make_contiguous())
     }
 
     /// Forgets the packets a frame repeats, as on mute. Sequence numbers continue.
@@ -625,18 +663,25 @@ impl OpusFramer {
 
 /// `samples` (interleaved, `channels` of them) mixed down to mono; empty for no channels.
 pub fn mix_to_mono(channels: u16, samples: &[f32]) -> Vec<f32> {
-    // RED stub.
-    let _ = (channels, samples);
-    Vec::new()
+    if channels == 0 {
+        return Vec::new();
+    }
+    let n = usize::from(channels);
+    samples
+        .chunks_exact(n)
+        .map(|frame| frame.iter().sum::<f32>() / n as f32)
+        .collect()
 }
 
 /// Whether to send this side's audio as Opus: it has an Opus encoder, and every peer said it
 /// decodes Opus (a peer whose caps have not arrived, or an older AzMeet, gets 16-bit PCM - and
 /// so does everyone else, since forwarders pass one stream on).
 pub fn send_opus(encoder_open: bool, peers_decode_opus: &[Option<bool>]) -> bool {
-    // RED stub.
-    let _ = (encoder_open, peers_decode_opus);
-    false
+    encoder_open
+        && !peers_decode_opus.is_empty()
+        && peers_decode_opus
+            .iter()
+            .all(|decodes| *decodes == Some(true))
 }
 
 impl JitterBuffer {
@@ -644,9 +689,17 @@ impl JitterBuffer {
     /// receiver asks before it decodes an Opus packet, so each is decoded once, in the order the
     /// frames bring them, and copies cost nothing.
     pub fn wants(&self, sequence: u32) -> bool {
-        // RED stub.
-        let _ = sequence;
-        false
+        if self.floor.is_some_and(|floor| sequence < floor) {
+            return false;
+        }
+        match self.newest {
+            // Further back than the 128 remembered: new, as `mark_seen` counts it.
+            Some(newest) if sequence <= newest => {
+                let back = newest - sequence;
+                back >= 128 || self.seen & (1_u128 << back) == 0
+            }
+            _ => true,
+        }
     }
 }
 

@@ -246,8 +246,9 @@ pub fn encode_caps(h264: bool, encodes: bool, opus: bool) -> Vec<u8> {
     if encodes {
         flags |= CAPS_ENCODES;
     }
-    // RED stub: the Opus bit is not written yet.
-    let _ = (opus, CAPS_OPUS);
+    if opus {
+        flags |= CAPS_OPUS;
+    }
     vec![KIND_CAPS, flags]
 }
 
@@ -269,8 +270,7 @@ pub fn decode_control(bytes: &[u8]) -> Option<Control> {
             Some(Control::Caps {
                 h264: flags & CAPS_H264 != 0,
                 encodes: flags & CAPS_ENCODES != 0,
-                // RED stub: the Opus bit is not read yet.
-                opus: false,
+                opus: flags & CAPS_OPUS != 0,
             })
         }
         _ => None,
