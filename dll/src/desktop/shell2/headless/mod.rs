@@ -1591,6 +1591,12 @@ pub struct HeadlessWindow {
     /// [`HeadlessWindow::inject_accessibility_action`], drained by
     /// [`HeadlessWindow::process_accessibility_actions`].
     pub accessibility_adapter: A11yActionQueue,
+    /// Publish every painted frame's damage-driven framebuffer onto the
+    /// `LayoutWindow` (`debug_server::e2e_set_presented_frame`), for the E2E
+    /// `assert_damage_sound` `pixel_identity` check. On when a script can ask
+    /// - the debug server or `AZ_E2E` was on when the window opened - since
+    /// it copies every frame.
+    pub publish_presented_frame: bool,
 }
 
 impl HeadlessWindow {
@@ -1678,6 +1684,7 @@ impl HeadlessWindow {
             wake_condvar,
             wake_mutex,
             accessibility_adapter: A11yActionQueue::new(),
+            publish_presented_frame: debug_server::is_debug_enabled(),
         })
     }
 
@@ -11872,6 +11879,10 @@ mod tests {
     // Idle-CPU laws: animation culling, frame requests, idle timers
     // (`tests/idle_cpu.rs`).
     mod idle_cpu;
+
+    // The AZ_E2E / AZ_DEBUG host: what a script can see and drive through
+    // this backend (`tests/e2e_host.rs`, HEADLESS6).
+    mod e2e_host;
 
     // --- Video tiles: a new frame is an image CONTENT update ---------------
     //

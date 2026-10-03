@@ -11540,16 +11540,16 @@ fn eval_assert_composition(
 
 // ---- assert_damage_sound ---------------------------------------------------
 
-/// The damage-driven framebuffer of the last rendered frame, published by the
-/// headless runner (`crate::e2e::runner`). `(width, height, RGBA)`.
+/// Publish the damage-driven framebuffer of the frame just rendered onto the
+/// window that rendered it. `(width, height, RGBA)`.
 ///
 /// This is the INCREMENTAL side of the plan's pixel-identity check; the full
 /// repaint side is `render_current()` (`CallbackInfo::take_screenshot`, which
-/// re-renders from scratch with a fresh glyph cache). A host that does not
-/// publish it — the DLL, whose frames live on the GPU — makes
-/// `"pixel_identity": true` FAIL rather than silently skip.
-/// Publish the damage-driven framebuffer of the frame just rendered onto the
-/// window that rendered it.
+/// re-renders from scratch with a fresh glyph cache). Published by the
+/// in-process runner (`crate::e2e::runner`) and by the dll's headless backend
+/// (the `AZ_E2E` / `AZ_DEBUG` host). A host that does not publish it - a
+/// window whose frames live on the GPU - makes `"pixel_identity": true` FAIL
+/// rather than silently skip.
 #[cfg(all(feature = "std", feature = "cpurender"))]
 pub fn e2e_set_presented_frame(
     layout_window: &azul_layout::window::LayoutWindow,
@@ -11560,6 +11560,21 @@ pub fn e2e_set_presented_frame(
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .presented_frame = Some((pixmap.width(), pixmap.height(), pixmap.data().to_vec()));
+}
+
+/// The framebuffer [`e2e_set_presented_frame`] last published on this window
+/// `(width, height, RGBA)`, or `None` when its host publishes none.
+#[cfg(all(feature = "std", feature = "cpurender"))]
+#[must_use]
+pub fn e2e_presented_frame(
+    layout_window: &azul_layout::window::LayoutWindow,
+) -> Option<(u32, u32, Vec<u8>)> {
+    layout_window
+        .e2e_scratch
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .presented_frame
+        .clone()
 }
 
 /// `assert_damage_sound` — E2E_PLAN §(c), damage soundness in BOTH directions.
@@ -11823,8 +11838,8 @@ fn eval_assert_damage_sound(
             let Some((pw, ph, data)) = presented else {
                 return AssertionResult::fail(
                     "assert_damage_sound: 'pixel_identity' was requested but this host does not \
-                     publish the damage-driven framebuffer (only the headless runner does). \
-                     Refusing to skip the check silently.",
+                     publish the damage-driven framebuffer (the in-process runner and the \
+                     headless backend do). Refusing to skip the check silently.",
                 );
             };
             if pw != after.width() || ph != after.height() {
