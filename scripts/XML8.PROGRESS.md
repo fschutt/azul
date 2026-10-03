@@ -93,6 +93,12 @@ Files (all `azul_core::xml::html`, re-exported from xml_html.rs so every path st
   off) is markup; `<select><div>` keeps the div (customizable select: Chrome's current parser); `<frameset>`
   replaces the body (not modelled: D5).
 
+- `16b9534e0` RED: adoption agency rows + head / body rows -> Chrome's trees (core/src/xml_html_test.rs).
+- `f034b9073` RED: new tests (foster parenting, quirks, table modes, any other end tag, tokenizer states, body
+  start tags, foreign content) in core/src/xml_html_test.rs.
+- `60f112c71` RED: layout/tests/real_mail_html_parses_like_a_browser.rs - all 18 corpus mails exact (FOSTER_PARENTED
+  exclusion + elements_only + the weaker test removed). Outlines regenerated: identical to the committed ones.
+
 ## IN PROGRESS
 
 - (nothing half-edited)
@@ -100,9 +106,8 @@ Files (all `azul_core::xml::html`, re-exported from xml_html.rs so every path st
 ## NEXT
 
 1. (done: Chrome probe, see DONE.)
-2. RED: core/src/xml_html_test.rs rows per rule (foster parenting, adoption agency, quirks, head always,
-   attribute merge, colgroup / tbody implied, table in table, any other end tag, plaintext, CDATA, doctype).
-3. GREEN: xml_html_rules.rs, xml_html_tokenizer.rs, xml_html_tree.rs, wire in xml_html.rs.
+2. (done: RED.)
+3. GREEN (next: write core/src/xml_html_rules.rs, the data tables, not yet wired): xml_html_rules.rs, xml_html_tokenizer.rs, xml_html_tree.rs, wire in xml_html.rs.
 4. Type-check harness; Python mirror vs Chrome (rows + corpus); fix.
 5. Corpus test: the two foster-parented Postmark mails join the exact-tree test.
 6. Report.
