@@ -7,13 +7,19 @@ Branch: wt/chart7 (base 2e55eef06)
 - 9e152cc78 chart.rs piece 1: data types + Chart builder, `pub mod chart;` appended in widgets/mod.rs
 - cb7fef475 RED math tests; 2323d7036 GREEN math (nice ticks, PlotFrame, decimate_line, thin_scatter,
   nearest_by_x, TickFormat, format_value)
+- 2f15dd751 RED geometry tests; a4730e3c3 GREEN geometry (chart_geometry, line/area/dots/bars/wedges)
+- 2f0afcff4 RED DOM tests; b619781ee look + summary + table rows; b4ccaa6a6 the DOM build;
+  1ae310e66 pointer + keys (ChartState, show(), on_chart_*); 77225318f flat/flora chart_skin appends;
+  be755a7d7 manifest entry (every_widget_dom + CHROME group) + chart::fixtures
 
 ## IN PROGRESS
 - item 1: layout/src/widgets/chart.rs, written in pieces (types -> math -> geometry -> build -> callbacks)
 
 ## NEXT
-- chart.rs piece 3: geometry (line / area / bars / stacked / scatter dots / pie wedges as SvgMultiPolygon),
-  replacing the `// CHART7-NEXT` marker at the end of chart.rs
+- review pass of chart.rs for compile errors (read it all once)
+- item 3: an integration test in layout/tests (render a chart with cpurender, count series pixels) + run the
+  prebuilt binaries? (no app has a chart yet -> pixels via render_dom_to_rgba in a test only)
+- item 4: api.json list; item 5: examples/azul-dashboard/src/chart.rs + doc/guide/en/dashboard_tutorial.md
 
 ## Design (decided, read before continuing)
 - DRAWING: the engine's SVG path - a plot div carries `SvgNodeData::ViewBox{0,0,pw,ph}` (1 unit = 1 px), every
