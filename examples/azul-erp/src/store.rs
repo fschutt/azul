@@ -85,8 +85,18 @@ pub fn export_key(name: &str) -> String {
 /// an id with characters an id never has).
 #[must_use]
 pub fn parse_key(key: &str) -> Option<(Kind, String)> {
-    let _ = key;
-    todo!("GREEN")
+    let mut parts = key.split('/');
+    let (app, folder, file) = (parts.next()?, parts.next()?, parts.next()?);
+    if app != APP_FOLDER || parts.next().is_some() {
+        return None;
+    }
+    let kind = Kind::ALL.into_iter().find(|k| k.folder() == folder)?;
+    let id = file.strip_suffix(".json")?;
+    let valid = !id.is_empty()
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    valid.then(|| (kind, id.to_string()))
 }
 
 /// The record's write: its key and its file.
@@ -200,8 +210,15 @@ impl Book {
     /// Removes an asset with its maintenance log and its check-outs; the
     /// keys of every file to delete.
     pub fn remove_asset(&mut self, id: &str) -> Vec<String> {
-        let _ = id;
-        todo!("GREEN")
+        let Some(asset) = self.remove::<Asset>(id) else {
+            return Vec::new();
+        };
+        let mut keys = vec![key(&asset)];
+        keys.extend(self.maintenance.iter().filter(|m| m.asset == id).map(key));
+        keys.extend(self.checkouts.iter().filter(|k| k.asset == id).map(key));
+        self.maintenance.retain(|m| m.asset != id);
+        self.checkouts.retain(|k| k.asset != id);
+        keys
     }
 
     /// A category's name ("" for none or an unknown id).
@@ -246,35 +263,66 @@ impl Book {
     /// The asset's maintenance log, the newest entry first.
     #[must_use]
     pub fn maintenance_of(&self, asset: &str) -> Vec<&MaintenanceEntry> {
-        let _ = asset;
-        todo!("GREEN")
+        let mut log: Vec<&MaintenanceEntry> = self
+            .maintenance
+            .iter()
+            .filter(|m| m.asset == asset)
+            .collect();
+        log.sort_by(|a, b| (b.date, &b.id).cmp(&(a.date, &a.id)));
+        log
     }
 
     /// The asset's check-outs, the newest first.
     #[must_use]
     pub fn checkouts_of(&self, asset: &str) -> Vec<&Checkout> {
-        let _ = asset;
-        todo!("GREEN")
+        let mut log: Vec<&Checkout> = self.checkouts.iter().filter(|k| k.asset == asset).collect();
+        log.sort_by(|a, b| (b.out, &b.id).cmp(&(a.out, &a.id)));
+        log
     }
 
     /// The asset's open check-out.
     #[must_use]
     pub fn open_checkout(&self, asset: &str) -> Option<&Checkout> {
-        let _ = asset;
-        todo!("GREEN")
+        self.checkouts_of(asset).into_iter().find(|k| k.is_open())
     }
 
     /// The next free asset number: `A-` and one more than the highest
     /// `A-<digits>` there is, four digits at least (`A-0043`).
     #[must_use]
     pub fn next_number(&self) -> String {
-        todo!("GREEN")
+        let highest = self
+            .assets
+            .iter()
+            .filter_map(|a| {
+                let n = a.number.trim();
+                let digits = n
+                    .get(..2)
+                    .filter(|p| p.eq_ignore_ascii_case("A-"))
+                    .and(n.get(2..))?;
+                if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+                    return None;
+                }
+                digits.parse::<u64>().ok()
+            })
+            .max()
+            .unwrap_or(0);
+        format!("A-{:04}", highest.saturating_add(1))
     }
 
     /// Sorts every list the way the screens show it: assets by number,
     /// categories and locations by name, the logs by day.
     pub fn sort(&mut self) {
-        todo!("GREEN")
+        self.assets.sort_by(|a, b| {
+            (a.number.to_lowercase(), &a.id).cmp(&(b.number.to_lowercase(), &b.id))
+        });
+        self.categories
+            .sort_by(|a, b| (a.name.to_lowercase(), &a.id).cmp(&(b.name.to_lowercase(), &b.id)));
+        self.locations
+            .sort_by(|a, b| (a.name.to_lowercase(), &a.id).cmp(&(b.name.to_lowercase(), &b.id)));
+        self.maintenance
+            .sort_by(|a, b| (a.date, &a.id).cmp(&(b.date, &b.id)));
+        self.checkouts
+            .sort_by(|a, b| (a.out, &a.id).cmp(&(b.out, &b.id)));
     }
 }
 
@@ -283,8 +331,29 @@ impl Book {
 /// exports) are not records and are passed over.
 #[must_use]
 pub fn load(files: &[(String, Vec<u8>)]) -> (Book, Vec<Skipped>) {
-    let _ = files;
-    todo!("GREEN")
+    let mut book = Book::default();
+    let mut skipped = Vec::new();
+    for (key, bytes) in files {
+        let Some((kind, id)) = parse_key(key) else {
+            continue;
+        };
+        let text = String::from_utf8_lossy(bytes);
+        let read = match kind {
+            Kind::Asset => read_one::<Asset>(&mut book, &id, &text),
+            Kind::Category => read_one::<Category>(&mut book, &id, &text),
+            Kind::Location => read_one::<Location>(&mut book, &id, &text),
+            Kind::Maintenance => read_one::<MaintenanceEntry>(&mut book, &id, &text),
+            Kind::Checkout => read_one::<Checkout>(&mut book, &id, &text),
+        };
+        if let Err(reason) = read {
+            skipped.push(Skipped {
+                key: key.clone(),
+                reason,
+            });
+        }
+    }
+    book.sort();
+    (book, skipped)
 }
 
 /// Reads one record file of kind `R` whose file name says `id`.
