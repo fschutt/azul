@@ -927,15 +927,11 @@ extern "C" fn on_delete(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     if existing {
-        if let Err(e) = event::remove(&s.data_dir, &id) {
-            if let Some(form) = s.editor.as_mut() {
-                form.error = format!("Could not delete the event: {e}");
-            }
-            return Update::RefreshDom;
-        }
+        // The file goes on the file thread; `AZCAL_DELETED` once it is gone.
+        s.remove_event_file(&id);
+        s.announce_on_landing(&event::object_key(&id), format!("AZCAL_DELETED {id}"));
         s.events.retain(|e| e.id != id);
         s.selected = None;
-        println!("AZCAL_DELETED {id}");
         s.notice = format!("Deleted \"{title}\".");
     }
     closed(s);

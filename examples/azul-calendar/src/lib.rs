@@ -414,9 +414,12 @@ impl CalState {
         self.data_writes.failures().len() + self.task_writes.failures().len()
     }
 
-    /// Queues the removal of the event `id`'s file.
+    /// Queues the removal of the event `id`'s file (what a waiting write of it would have said
+    /// on landing is not said).
     pub(crate) fn remove_event_file(&mut self, id: &str) {
-        self.data_writes.delete(event::object_key(id));
+        let key = event::object_key(id);
+        self.on_landing.retain(|(k, _)| *k != key);
+        self.data_writes.delete(key);
     }
 
     /// Queues `calendar`'s file.
@@ -973,23 +976,15 @@ extern "C" fn on_registered(mut data: RefAny, _info: CallbackInfo, result: RefAn
                 return Update::DoNothing;
             }
             event.meeting = Some(registered);
-            match event::save(&s.data_dir, event) {
-                Ok(path) => {
-                    println!("AZCAL_SYNCED {link}");
-                    eprintln!(
-                        "[azcalendar] {server} registered {link}; {} rewritten",
-                        path.display()
-                    );
-                    s.sync_error.clear();
-                }
-                Err(e) => {
-                    // Registered, but the file still says pending: the next start sends it
-                    // again, and registering is idempotent.
-                    s.sync_error =
-                        format!("{link} is registered, but its file was not rewritten: {e}");
-                    eprintln!("[azcalendar] {}", s.sync_error);
-                }
-            }
+            // The file says so once it is rewritten (`AZCAL_SYNCED` then). Should the write not
+            // land, the file still says pending: the next start sends it again, and
+            // registering is idempotent.
+            let event = event.clone();
+            let key = event::object_key(&event.id);
+            eprintln!("[azcalendar] {server} registered {link}; {key} is rewritten");
+            let _ = s.store_event(event);
+            s.announce_on_landing(&key, format!("AZCAL_SYNCED {link}"));
+            s.sync_error.clear();
         }
         Err((status, message)) => {
             eprintln!("[azcalendar] azlin://meet/{room_id} not registered: {message}");
