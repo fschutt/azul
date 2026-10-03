@@ -3554,13 +3554,16 @@ pub fn get_style_properties_for_state(
     };
 
     // Get letter-spacing from CSS
+    // CSS `zoom` (LAYOUT7): the compact cache's spacings are computed px;
+    // a cascaded length scales by the zoom rule.
+    let zoom = get_effective_zoom(styled_dom, dom_id);
     let letter_spacing = {
         // FAST PATH: compact cache for letter-spacing (i16 resolved px × 10)
         let mut fast_ls = None;
         if node_state.is_normal() {
             if let Some(ref cc) = cache.compact_cache {
                 if let Some(px_val) = cc.get_letter_spacing(dom_id.index()) {
-                    fast_ls = Some(crate::text3::cache::Spacing::PxF(px_val));
+                    fast_ls = Some(crate::text3::cache::Spacing::PxF(px_val * zoom));
                 }
             }
         }
@@ -3572,7 +3575,12 @@ pub fn get_style_properties_for_state(
                     let px_value = v
                         .inner
                         .resolve_with_context(&font_size_context, PropertyContext::FontSize);
-                    crate::text3::cache::Spacing::PxF(px_value)
+                    crate::text3::cache::Spacing::PxF(zoomed_length(
+                        styled_dom,
+                        dom_id,
+                        v.inner.metric,
+                        px_value,
+                    ))
                 })
                 .unwrap_or_default()
         })
@@ -3585,7 +3593,7 @@ pub fn get_style_properties_for_state(
         if node_state.is_normal() {
             if let Some(ref cc) = cache.compact_cache {
                 if let Some(px_val) = cc.get_word_spacing(dom_id.index()) {
-                    fast_ws = Some(crate::text3::cache::Spacing::PxF(px_val));
+                    fast_ws = Some(crate::text3::cache::Spacing::PxF(px_val * zoom));
                 }
             }
         }
@@ -3597,7 +3605,12 @@ pub fn get_style_properties_for_state(
                     let px_value = v
                         .inner
                         .resolve_with_context(&font_size_context, PropertyContext::FontSize);
-                    crate::text3::cache::Spacing::PxF(px_value)
+                    crate::text3::cache::Spacing::PxF(zoomed_length(
+                        styled_dom,
+                        dom_id,
+                        v.inner.metric,
+                        px_value,
+                    ))
                 })
                 .unwrap_or_default()
         })
@@ -6777,12 +6790,17 @@ pub fn get_used_line_height(
     use crate::text3::cache::LineHeight;
 
     let cache = &styled_dom.css_property_cache.ptr;
+    // CSS `zoom` (LAYOUT7): a number or a percentage is of the (zoomed)
+    // `font_size_px` already; a length scales by the zoom rule - the compact
+    // cache's px are computed lengths (an em the cascade computed against the
+    // UNZOOMED font size included), so they take the node's zoom whole.
+    let zoom = get_effective_zoom(styled_dom, dom_id);
     if node_state.is_normal() {
         if let Some(ref cc) = cache.compact_cache {
             match cc.get_line_height(dom_id.index()) {
                 CompactLineHeight::Normal => return LineHeight::Normal,
                 CompactLineHeight::Factor(factor) => return LineHeight::Px(factor * font_size_px),
-                CompactLineHeight::Px(px) => return LineHeight::Px(px),
+                CompactLineHeight::Px(px) => return LineHeight::Px(px * zoom),
                 CompactLineHeight::Uncached => {}
             }
         }
@@ -6792,12 +6810,18 @@ pub fn get_used_line_height(
         .get_line_height(node_data, &dom_id, node_state)
         .and_then(|v| v.get_property().copied())
         .and_then(|lh| {
-            lh.resolve_px(
+            let resolved = lh.resolve_px(
                 font_size_px,
                 get_root_font_size(styled_dom, node_state),
                 viewport.width,
                 viewport.height,
-            )
+            )?;
+            Some(match lh {
+                azul_css::props::style::text::StyleLineHeight::Length(length) => {
+                    zoomed_length(styled_dom, dom_id, length.metric, resolved)
+                }
+                _ => resolved,
+            })
         })
         .map_or(LineHeight::Normal, LineHeight::Px)
 }
