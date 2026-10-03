@@ -206,8 +206,14 @@ pub fn parse(bytes: &[u8], content_type: &str, url: &str) -> Result<Feed, FeedEr
 
 /// Whether text that holds no feed is a web page.
 fn looks_like_html(text: &str) -> bool {
-    let head: String = text.chars().take(2048).collect::<String>().to_ascii_lowercase();
-    ["<!doctype html", "<html", "<head", "<body"].iter().any(|m| head.contains(m))
+    let head: String = text
+        .chars()
+        .take(2048)
+        .collect::<String>()
+        .to_ascii_lowercase();
+    ["<!doctype html", "<html", "<head", "<body"]
+        .iter()
+        .any(|m| head.contains(m))
 }
 
 /// Each id once (the first item with it stays).
@@ -302,12 +308,18 @@ fn feedburner(e: &Element) -> bool {
 
 /// The first child element of this local name (any case) that `test` accepts.
 fn child<'a>(e: &'a Element, local: &str, test: fn(&Element) -> bool) -> Option<&'a Element> {
-    e.elements().find(|c| c.local_name().eq_ignore_ascii_case(local) && test(c))
+    e.elements()
+        .find(|c| c.local_name().eq_ignore_ascii_case(local) && test(c))
 }
 
 /// Every child element of this local name (any case) that `test` accepts.
-fn children<'a>(e: &'a Element, local: &'a str, test: fn(&Element) -> bool) -> impl Iterator<Item = &'a Element> + 'a {
-    e.elements().filter(move |c| c.local_name().eq_ignore_ascii_case(local) && test(c))
+fn children<'a>(
+    e: &'a Element,
+    local: &'a str,
+    test: fn(&Element) -> bool,
+) -> impl Iterator<Item = &'a Element> + 'a {
+    e.elements()
+        .filter(move |c| c.local_name().eq_ignore_ascii_case(local) && test(c))
 }
 
 // ==== Text ====
@@ -376,7 +388,12 @@ fn hashed_id(title: &str, date: Option<i64>, summary: &str, content: &str) -> St
 }
 
 /// An enclosure from its address, type and length (`None` without an address).
-fn enclosure(href: Option<&str>, mime: Option<&str>, length: Option<&str>, base: &str) -> Option<Enclosure> {
+fn enclosure(
+    href: Option<&str>,
+    mime: Option<&str>,
+    length: Option<&str>,
+    base: &str,
+) -> Option<Enclosure> {
     let url = links::resolve(base, href?);
     if url.is_empty() {
         return None;
@@ -392,14 +409,18 @@ fn enclosure(href: Option<&str>, mime: Option<&str>, length: Option<&str>, base:
 /// `media:group` (YouTube).
 fn media_image(e: &Element, base: &str) -> Option<String> {
     fn in_element(e: &Element) -> Option<&str> {
-        child(e, "thumbnail", media).and_then(|t| t.attr("url")).or_else(|| {
-            children(e, "content", media)
-                .find(|c| {
-                    c.attr("medium").is_some_and(|m| m.eq_ignore_ascii_case("image"))
-                        || c.attr("type").is_some_and(|t| t.trim().starts_with("image/"))
-                })
-                .and_then(|c| c.attr("url"))
-        })
+        child(e, "thumbnail", media)
+            .and_then(|t| t.attr("url"))
+            .or_else(|| {
+                children(e, "content", media)
+                    .find(|c| {
+                        c.attr("medium")
+                            .is_some_and(|m| m.eq_ignore_ascii_case("image"))
+                            || c.attr("type")
+                                .is_some_and(|t| t.trim().starts_with("image/"))
+                    })
+                    .and_then(|c| c.attr("url"))
+            })
     }
     in_element(e)
         .or_else(|| child(e, "group", media).and_then(in_element))
@@ -417,11 +438,19 @@ fn media_description(e: &Element) -> Option<String> {
 
 /// The excerpt filled in; `None` for an item that says nothing at all.
 fn finish(mut item: Item) -> Option<Item> {
-    if item.title.is_empty() && item.link.is_empty() && item.summary.trim().is_empty() && item.content.trim().is_empty() {
+    if item.title.is_empty()
+        && item.link.is_empty()
+        && item.summary.trim().is_empty()
+        && item.content.trim().is_empty()
+    {
         return None;
     }
     let excerpt = {
-        let source = if item.summary.trim().is_empty() { &item.content } else { &item.summary };
+        let source = if item.summary.trim().is_empty() {
+            &item.content
+        } else {
+            &item.summary
+        };
         reader::excerpt(source, EXCERPT_CHARS)
     };
     item.excerpt = excerpt;
@@ -441,7 +470,11 @@ fn parse_rss(root: &Element, channel: Option<&Element>, url: &str, format: Forma
     let icon = child(channel, "image", rss_core)
         .and_then(|i| child(i, "url", rss_core))
         .map(text)
-        .or_else(|| child(channel, "image", itunes).and_then(|i| i.attr("href")).map(str::to_string))
+        .or_else(|| {
+            child(channel, "image", itunes)
+                .and_then(|i| i.attr("href"))
+                .map(str::to_string)
+        })
         .map(|i| links::resolve(url, &i))
         .unwrap_or_default();
     let feed_author = child(channel, "author", itunes)
@@ -452,7 +485,10 @@ fn parse_rss(root: &Element, channel: Option<&Element>, url: &str, format: Forma
     if !std::ptr::eq(channel, root) {
         elements.extend(children(root, "item", rss_core));
     }
-    let items = elements.into_iter().filter_map(|e| rss_item(e, url, &feed_author)).collect();
+    let items = elements
+        .into_iter()
+        .filter_map(|e| rss_item(e, url, &feed_author))
+        .collect();
     Feed {
         format,
         title: title_text(child(channel, "title", rss_core)),
@@ -469,20 +505,34 @@ fn parse_rss(root: &Element, channel: Option<&Element>, url: &str, format: Forma
 fn rss_item(e: &Element, url: &str, feed_author: &str) -> Option<Item> {
     let guid_element = child(e, "guid", rss_core);
     let guid = guid_element.map(text).unwrap_or_default();
-    let permalink = guid_element
-        .is_some_and(|g| !g.attr("isPermaLink").is_some_and(|v| v.trim().eq_ignore_ascii_case("false")));
+    let permalink = guid_element.is_some_and(|g| {
+        !g.attr("isPermaLink")
+            .is_some_and(|v| v.trim().eq_ignore_ascii_case("false"))
+    });
     let link_text = child(e, "origLink", feedburner)
         .map(text)
         .filter(|l| !l.is_empty())
-        .or_else(|| child(e, "link", rss_core).map(text).filter(|l| !l.is_empty()))
-        .or_else(|| child(e, "link", atom_ns).and_then(|l| l.attr("href")).map(str::to_string))
+        .or_else(|| {
+            child(e, "link", rss_core)
+                .map(text)
+                .filter(|l| !l.is_empty())
+        })
+        .or_else(|| {
+            child(e, "link", atom_ns)
+                .and_then(|l| l.attr("href"))
+                .map(str::to_string)
+        })
         .or_else(|| (permalink && links::is_web(&guid)).then(|| guid.clone()))
         .unwrap_or_default();
     let link = links::resolve(url, &link_text);
     let about = e.attr("rdf:about").map(str::to_string).unwrap_or_default();
     let title = title_text(child(e, "title", rss_core).or_else(|| child(e, "title", dc)));
-    let summary = child(e, "description", rss_core).map(html_of).unwrap_or_default();
-    let content = child(e, "encoded", content_ns).map(html_of).unwrap_or_default();
+    let summary = child(e, "description", rss_core)
+        .map(html_of)
+        .unwrap_or_default();
+    let content = child(e, "encoded", content_ns)
+        .map(html_of)
+        .unwrap_or_default();
     let author = child(e, "author", rss_core)
         .or_else(|| child(e, "creator", dc))
         .or_else(|| child(e, "author", itunes))
@@ -500,15 +550,28 @@ fn rss_item(e: &Element, url: &str, feed_author: &str) -> Option<Item> {
         .filter_map(|x| enclosure(x.attr("url"), x.attr("type"), x.attr("length"), url))
         .collect();
     let image = media_image(e, url)
-        .or_else(|| child(e, "image", itunes).and_then(|i| i.attr("href")).map(|h| links::resolve(url, h)))
-        .or_else(|| enclosures.iter().find(|x| x.mime.starts_with("image/")).map(|x| x.url.clone()))
+        .or_else(|| {
+            child(e, "image", itunes)
+                .and_then(|i| i.attr("href"))
+                .map(|h| links::resolve(url, h))
+        })
+        .or_else(|| {
+            enclosures
+                .iter()
+                .find(|x| x.mime.starts_with("image/"))
+                .map(|x| x.url.clone())
+        })
         .unwrap_or_default();
     let categories = children(e, "category", rss_core)
         .chain(children(e, "subject", dc))
         .map(text)
         .filter(|c| !c.is_empty())
         .collect();
-    let base = if link.is_empty() { url.to_string() } else { link.clone() };
+    let base = if link.is_empty() {
+        url.to_string()
+    } else {
+        link.clone()
+    };
     let id = first_nonempty([guid, about, link.clone()])
         .unwrap_or_else(|| hashed_id(&title, published.or(updated), &summary, &content));
     finish(Item {
@@ -544,7 +607,10 @@ enum TextKind {
 fn atom_kind(e: &Element) -> TextKind {
     let kind = e.attr("type").unwrap_or("").trim().to_ascii_lowercase();
     let mode = e.attr("mode").unwrap_or("").trim().to_ascii_lowercase();
-    if kind == "xhtml" || kind == "application/xhtml+xml" || mode == "xml" && e.has_element_children() {
+    if kind == "xhtml"
+        || kind == "application/xhtml+xml"
+        || mode == "xml" && e.has_element_children()
+    {
         TextKind::Xhtml
     } else if kind == "html" || kind == "text/html" || mode == "escaped" {
         TextKind::Html
@@ -568,7 +634,10 @@ fn atom_html(e: &Element) -> String {
     match atom_kind(e) {
         TextKind::Text => reader::text_to_html(&e.text()),
         TextKind::Html => e.text().trim().to_string(),
-        TextKind::Xhtml => match e.elements().find(|c| c.local_name().eq_ignore_ascii_case("div")) {
+        TextKind::Xhtml => match e
+            .elements()
+            .find(|c| c.local_name().eq_ignore_ascii_case("div"))
+        {
             Some(div) => div.inner_markup().trim().to_string(),
             None => e.inner_markup().trim().to_string(),
         },
@@ -596,7 +665,10 @@ fn xml_base(base: &str, e: &Element) -> String {
 fn alternate_link(e: &Element) -> Option<&str> {
     let mut any_alternate = None;
     for l in children(e, "link", atomish) {
-        let rel = l.attr("rel").map_or_else(|| "alternate".to_string(), |r| r.trim().to_ascii_lowercase());
+        let rel = l.attr("rel").map_or_else(
+            || "alternate".to_string(),
+            |r| r.trim().to_ascii_lowercase(),
+        );
         if rel != "alternate" {
             continue;
         }
@@ -614,10 +686,18 @@ fn alternate_link(e: &Element) -> Option<&str> {
 }
 
 fn parse_atom(root: &Element, url: &str) -> Feed {
-    let format = if ns(root) == Ns::Atom03 { Format::Atom03 } else { Format::Atom };
+    let format = if ns(root) == Ns::Atom03 {
+        Format::Atom03
+    } else {
+        Format::Atom
+    };
     let base = xml_base(url, root);
-    let feed_author = child(root, "author", atomish).map(atom_person).unwrap_or_default();
-    let site = alternate_link(root).map(|h| links::resolve(&base, h)).unwrap_or_default();
+    let feed_author = child(root, "author", atomish)
+        .map(atom_person)
+        .unwrap_or_default();
+    let site = alternate_link(root)
+        .map(|h| links::resolve(&base, h))
+        .unwrap_or_default();
     let icon = child(root, "icon", atomish)
         .or_else(|| child(root, "logo", atomish))
         .map(|i| links::resolve(&base, &text(i)))
@@ -627,7 +707,9 @@ fn parse_atom(root: &Element, url: &str) -> Feed {
         .collect();
     Feed {
         format,
-        title: child(root, "title", atomish).map(atom_text).unwrap_or_default(),
+        title: child(root, "title", atomish)
+            .map(atom_text)
+            .unwrap_or_default(),
         site,
         description: child(root, "subtitle", atomish)
             .or_else(|| child(root, "tagline", atomish))
@@ -641,9 +723,13 @@ fn parse_atom(root: &Element, url: &str) -> Feed {
 
 fn atom_entry(e: &Element, feed_base: &str, feed_author: &str) -> Option<Item> {
     let base = xml_base(feed_base, e);
-    let link = alternate_link(e).map(|h| links::resolve(&base, h)).unwrap_or_default();
+    let link = alternate_link(e)
+        .map(|h| links::resolve(&base, h))
+        .unwrap_or_default();
     let id = child(e, "id", atomish).map(text).unwrap_or_default();
-    let title = child(e, "title", atomish).map(atom_text).unwrap_or_default();
+    let title = child(e, "title", atomish)
+        .map(atom_text)
+        .unwrap_or_default();
     let author = child(e, "author", atomish)
         .map(atom_person)
         .filter(|a| !a.is_empty())
@@ -667,14 +753,26 @@ fn atom_entry(e: &Element, feed_base: &str, feed_author: &str) -> Option<Item> {
         .unwrap_or_default();
     let content_base = content_element.map_or_else(|| base.clone(), |c| xml_base(&base, c));
     let enclosures: Vec<Enclosure> = children(e, "link", atomish)
-        .filter(|l| l.attr("rel").is_some_and(|r| r.trim().eq_ignore_ascii_case("enclosure")))
+        .filter(|l| {
+            l.attr("rel")
+                .is_some_and(|r| r.trim().eq_ignore_ascii_case("enclosure"))
+        })
         .filter_map(|l| enclosure(l.attr("href"), l.attr("type"), l.attr("length"), &base))
         .collect();
     let image = media_image(e, &base)
-        .or_else(|| enclosures.iter().find(|x| x.mime.starts_with("image/")).map(|x| x.url.clone()))
+        .or_else(|| {
+            enclosures
+                .iter()
+                .find(|x| x.mime.starts_with("image/"))
+                .map(|x| x.url.clone())
+        })
         .unwrap_or_default();
     let categories = children(e, "category", atomish)
-        .filter_map(|c| c.attr("label").or_else(|| c.attr("term")).map(|t| t.trim().to_string()))
+        .filter_map(|c| {
+            c.attr("label")
+                .or_else(|| c.attr("term"))
+                .map(|t| t.trim().to_string())
+        })
         .filter(|c| !c.is_empty())
         .collect();
     let id = first_nonempty([id, link.clone()])
@@ -701,7 +799,11 @@ fn atom_entry(e: &Element, feed_base: &str, feed_author: &str) -> Option<Item> {
 
 /// A string field, trimmed (`""` when missing or not a string).
 fn json_str(v: &Value, key: &str) -> String {
-    v.get(key).and_then(Value::as_str).map(str::trim).unwrap_or("").to_string()
+    v.get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("")
+        .to_string()
 }
 
 /// JSON Feed 1.1's `authors` (the first named) or 1.0's `author`.
@@ -709,7 +811,11 @@ fn json_author(v: &Value) -> String {
     v.get("authors")
         .and_then(Value::as_array)
         .and_then(|a| a.iter().find_map(|x| x.get("name").and_then(Value::as_str)))
-        .or_else(|| v.get("author").and_then(|a| a.get("name")).and_then(Value::as_str))
+        .or_else(|| {
+            v.get("author")
+                .and_then(|a| a.get("name"))
+                .and_then(Value::as_str)
+        })
         .map(|n| n.trim().to_string())
         .unwrap_or_default()
 }
@@ -724,7 +830,11 @@ fn parse_json(text: &str, url: &str) -> Result<Feed, FeedError> {
     let items = value
         .get("items")
         .and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(|i| json_item(i, url, &feed_author)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|i| json_item(i, url, &feed_author))
+                .collect()
+        })
         .unwrap_or_default();
     Ok(Feed {
         format: Format::JsonFeed,
@@ -733,7 +843,8 @@ fn parse_json(text: &str, url: &str) -> Result<Feed, FeedError> {
         description: json_str(&value, "description"),
         icon: links::resolve(
             url,
-            &first_nonempty([json_str(&value, "icon"), json_str(&value, "favicon")]).unwrap_or_default(),
+            &first_nonempty([json_str(&value, "icon"), json_str(&value, "favicon")])
+                .unwrap_or_default(),
         ),
         items,
         problems: Vec::new(),
@@ -796,7 +907,11 @@ fn json_item(i: &Value, url: &str, feed_author: &str) -> Option<Item> {
         })
         .unwrap_or_default();
     let title = json_str(i, "title");
-    let base = if link.is_empty() { url.to_string() } else { link.clone() };
+    let base = if link.is_empty() {
+        url.to_string()
+    } else {
+        link.clone()
+    };
     let id = first_nonempty([id, link.clone()])
         .unwrap_or_else(|| hashed_id(&title, published.or(updated), &summary, &content));
     finish(Item {
@@ -826,7 +941,10 @@ mod tests {
     }
 
     fn wordpress() -> Feed {
-        read(include_bytes!("../tests/fixtures/wordpress_rss2.xml"), "https://example.org/feed/")
+        read(
+            include_bytes!("../tests/fixtures/wordpress_rss2.xml"),
+            "https://example.org/feed/",
+        )
     }
 
     #[test]
@@ -836,7 +954,10 @@ mod tests {
         assert_eq!(feed.title, "Example Weekly");
         assert_eq!(feed.site, "https://example.org/");
         assert_eq!(feed.description, "Notes on the open web & its plumbing");
-        assert_eq!(feed.icon, "https://example.org/wp-content/uploads/icon-32x32.png");
+        assert_eq!(
+            feed.icon,
+            "https://example.org/wp-content/uploads/icon-32x32.png"
+        );
         assert_eq!(feed.items.len(), 3);
     }
 
@@ -846,14 +967,37 @@ mod tests {
         let item = &feed.items[0];
         assert_eq!(item.id, "https://example.org/?p=123");
         assert_eq!(item.title, "The quiet return of RSS");
-        assert_eq!(item.link, "https://example.org/2026/09/30/the-quiet-return-of-rss/");
+        assert_eq!(
+            item.link,
+            "https://example.org/2026/09/30/the-quiet-return-of-rss/"
+        );
         assert_eq!(item.author, "Mara Schulz");
         assert_eq!(item.published, Some(1_790_757_720));
-        assert_eq!(item.categories, vec!["Essays".to_string(), "Web".to_string()]);
-        assert!(item.content.contains("<img src=\"/wp-content/uploads/2026/09/hero.jpg\""), "{}", item.content);
-        assert!(item.summary.starts_with("<p>For a decade"), "{}", item.summary);
-        assert!(item.excerpt.starts_with("For a decade the obituaries were written weekly."), "{}", item.excerpt);
-        assert_eq!(item.base, item.link, "an RSS item's content points from the item's address");
+        assert_eq!(
+            item.categories,
+            vec!["Essays".to_string(), "Web".to_string()]
+        );
+        assert!(
+            item.content
+                .contains("<img src=\"/wp-content/uploads/2026/09/hero.jpg\""),
+            "{}",
+            item.content
+        );
+        assert!(
+            item.summary.starts_with("<p>For a decade"),
+            "{}",
+            item.summary
+        );
+        assert!(
+            item.excerpt
+                .starts_with("For a decade the obituaries were written weekly."),
+            "{}",
+            item.excerpt
+        );
+        assert_eq!(
+            item.base, item.link,
+            "an RSS item's content points from the item's address"
+        );
         assert_eq!(item.body(), item.content);
     }
 
@@ -866,14 +1010,21 @@ mod tests {
         assert_eq!(item.author, "Ben Kr\u{fc}ger");
         assert_eq!(item.published, Some(1_790_701_500));
         assert_eq!(item.excerpt, "Short & sweet: a guide.");
-        assert_eq!(item.body(), item.summary, "no content: the summary is the body");
+        assert_eq!(
+            item.body(),
+            item.summary,
+            "no content: the summary is the body"
+        );
         assert_eq!(feed.items[2].published, Some(1_790_586_000));
         assert_eq!(feed.items[2].summary, "");
     }
 
     #[test]
     fn an_atom_feed_resolves_xml_base_and_reads_html_and_xhtml_content() {
-        let feed = read(include_bytes!("../tests/fixtures/blogger_atom.xml"), "https://blog.example.net/feeds/posts/default");
+        let feed = read(
+            include_bytes!("../tests/fixtures/blogger_atom.xml"),
+            "https://blog.example.net/feeds/posts/default",
+        );
         assert_eq!(feed.format, Format::Atom);
         assert_eq!(feed.title, "Rust & Feeds");
         assert_eq!(feed.site, "https://blog.example.net/");
@@ -883,23 +1034,41 @@ mod tests {
         let first = &feed.items[0];
         assert_eq!(first.id, "tag:blogger.com,1999:blog-4242.post-1");
         assert_eq!(first.title, "Rust 2026 survey results");
-        assert_eq!(first.link, "https://blog.example.net/2026/09/rust-survey.html", "the alternate link, not replies");
+        assert_eq!(
+            first.link, "https://blog.example.net/2026/09/rust-survey.html",
+            "the alternate link, not replies"
+        );
         assert_eq!(first.author, "Jonas Weber");
         assert_eq!(first.published, Some(1_790_755_200));
         assert_eq!(first.updated, Some(1_790_756_100));
         assert_eq!(first.categories, vec!["rust".to_string()]);
-        assert_eq!(first.content, "<p>The survey is in.</p><img src=\"images/chart.png\" alt=\"Chart\">");
-        assert_eq!(first.base, "https://blog.example.net/", "the xml:base in effect");
+        assert_eq!(
+            first.content,
+            "<p>The survey is in.</p><img src=\"images/chart.png\" alt=\"Chart\">"
+        );
+        assert_eq!(
+            first.base, "https://blog.example.net/",
+            "the xml:base in effect"
+        );
         assert_eq!(first.image, "https://blog.example.net/images/chart-s72.png");
         let second = &feed.items[1];
-        assert_eq!(second.title, "Why Option matters", "an html title is plain text");
-        assert_eq!(second.link, "https://other.example.net/mirror/why-option.html");
+        assert_eq!(
+            second.title, "Why Option matters",
+            "an html title is plain text"
+        );
+        assert_eq!(
+            second.link,
+            "https://other.example.net/mirror/why-option.html"
+        );
         assert_eq!(second.base, "https://other.example.net/mirror/");
         assert_eq!(second.author, "Ida Novak", "the feed's author");
         assert_eq!(second.published, None);
         assert_eq!(second.updated, Some(1_790_668_800));
         assert_eq!(second.date(), 1_790_668_800);
-        assert_eq!(second.summary, "A summary in plain text &lt;not a tag&gt;", "a text summary is escaped");
+        assert_eq!(
+            second.summary, "A summary in plain text &lt;not a tag&gt;",
+            "a text summary is escaped"
+        );
         assert_eq!(second.excerpt, "A summary in plain text <not a tag>");
         assert_eq!(
             second.content,
@@ -910,21 +1079,36 @@ mod tests {
 
     #[test]
     fn a_youtube_feed_takes_its_picture_and_text_from_the_media_group() {
-        let feed = read(include_bytes!("../tests/fixtures/youtube_atom.xml"), "https://www.youtube.com/feeds/videos.xml");
+        let feed = read(
+            include_bytes!("../tests/fixtures/youtube_atom.xml"),
+            "https://www.youtube.com/feeds/videos.xml",
+        );
         assert_eq!(feed.title, "Example Talks");
-        assert_eq!(feed.site, "https://www.youtube.com/channel/UC0000000000000000000000");
+        assert_eq!(
+            feed.site,
+            "https://www.youtube.com/channel/UC0000000000000000000000"
+        );
         let video = &feed.items[0];
         assert_eq!(video.id, "yt:video:abcdefghijk");
         assert_eq!(video.link, "https://www.youtube.com/watch?v=abcdefghijk");
-        assert_eq!(video.image, "https://i1.ytimg.com/vi/abcdefghijk/hqdefault.jpg");
+        assert_eq!(
+            video.image,
+            "https://i1.ytimg.com/vi/abcdefghijk/hqdefault.jpg"
+        );
         assert_eq!(video.published, Some(1_790_757_720));
-        assert_eq!(video.summary, "A talk about feeds.<br/>Second line &amp; more.");
+        assert_eq!(
+            video.summary,
+            "A talk about feeds.<br/>Second line &amp; more."
+        );
         assert_eq!(video.excerpt, "A talk about feeds. Second line & more.");
     }
 
     #[test]
     fn an_rss_1_0_feed_reads_the_items_beside_its_channel() {
-        let feed = read(include_bytes!("../tests/fixtures/rss1_rdf.xml"), "https://lwn.example.org/headlines/rss");
+        let feed = read(
+            include_bytes!("../tests/fixtures/rss1_rdf.xml"),
+            "https://lwn.example.org/headlines/rss",
+        );
         assert_eq!(feed.format, Format::Rss1);
         assert_eq!(feed.title, "LWN.example");
         assert_eq!(feed.site, "https://lwn.example.org/");
@@ -940,7 +1124,10 @@ mod tests {
 
     #[test]
     fn a_json_feed_1_1_reads_its_authors_and_items_without_titles() {
-        let feed = read(include_bytes!("../tests/fixtures/json_feed_11.json"), "https://micro.example.org/feed.json");
+        let feed = read(
+            include_bytes!("../tests/fixtures/json_feed_11.json"),
+            "https://micro.example.org/feed.json",
+        );
         assert_eq!(feed.format, Format::JsonFeed);
         assert_eq!(feed.title, "Micro Notes");
         assert_eq!(feed.site, "https://micro.example.org/");
@@ -950,10 +1137,16 @@ mod tests {
         assert_eq!(note.author, "Nora Peters", "the feed's authors");
         assert_eq!(note.published, Some(1_790_757_720));
         assert_eq!(note.excerpt, "Coffee & feeds this morning.");
-        assert_eq!(note.categories, vec!["coffee".to_string(), "feeds".to_string()]);
+        assert_eq!(
+            note.categories,
+            vec!["coffee".to_string(), "feeds".to_string()]
+        );
         let post = &feed.items[1];
         assert_eq!(post.id, "1002", "a number for an id");
-        assert_eq!(post.link, "https://micro.example.org/2026/09/29/longer/", "against the feed's address");
+        assert_eq!(
+            post.link, "https://micro.example.org/2026/09/29/longer/",
+            "against the feed's address"
+        );
         assert_eq!(post.summary, "What this is about.");
         assert_eq!(post.content, "<p>Body.</p>");
         assert_eq!(post.image, "https://micro.example.org/uploads/banner.jpg");
@@ -963,68 +1156,113 @@ mod tests {
         assert_eq!(post.excerpt, "What this is about.");
         assert_eq!(
             post.enclosures,
-            vec![Enclosure { url: "https://micro.example.org/ep1.mp3".into(), mime: "audio/mpeg".into(), length: 1_234_567 }]
+            vec![Enclosure {
+                url: "https://micro.example.org/ep1.mp3".into(),
+                mime: "audio/mpeg".into(),
+                length: 1_234_567
+            }]
         );
     }
 
     #[test]
     fn a_json_feed_1_0_with_text_content_becomes_escaped_paragraphs() {
-        let feed = read(include_bytes!("../tests/fixtures/json_feed_10.json"), "https://old.example.org/feed.json");
+        let feed = read(
+            include_bytes!("../tests/fixtures/json_feed_10.json"),
+            "https://old.example.org/feed.json",
+        );
         let item = &feed.items[0];
-        assert_eq!(item.title, "First <post>", "a JSON title is plain text as written");
+        assert_eq!(
+            item.title, "First <post>",
+            "a JSON title is plain text as written"
+        );
         assert_eq!(item.author, "Karl Braun");
-        assert_eq!(item.content, "<p>Line one &amp; two.</p><p>Second paragraph.</p>");
+        assert_eq!(
+            item.content,
+            "<p>Line one &amp; two.</p><p>Second paragraph.</p>"
+        );
         assert_eq!(item.published, Some(1_790_622_000));
     }
 
     #[test]
     fn a_podcast_feed_keeps_its_enclosures_and_artwork() {
-        let feed = read(include_bytes!("../tests/fixtures/podcast_rss.xml"), "https://podcast.example.org/feed.xml");
+        let feed = read(
+            include_bytes!("../tests/fixtures/podcast_rss.xml"),
+            "https://podcast.example.org/feed.xml",
+        );
         assert_eq!(feed.icon, "https://podcast.example.org/artwork.jpg");
         let episode = &feed.items[0];
-        assert_eq!(episode.link, "https://podcast.example.org/12", "a permalink guid is the link");
+        assert_eq!(
+            episode.link, "https://podcast.example.org/12",
+            "a permalink guid is the link"
+        );
         assert_eq!(episode.author, "Emil Vogel", "the channel's itunes:author");
         assert_eq!(episode.summary, "<p>We talk about <em>OPML</em>.</p>");
         assert_eq!(episode.published, Some(1_790_757_720));
         assert_eq!(episode.image, "https://podcast.example.org/ep12.jpg");
         assert_eq!(
             episode.enclosures,
-            vec![Enclosure { url: "https://podcast.example.org/ep12.mp3".into(), mime: "audio/mpeg".into(), length: 34_216_300 }]
+            vec![Enclosure {
+                url: "https://podcast.example.org/ep12.mp3".into(),
+                mime: "audio/mpeg".into(),
+                length: 34_216_300
+            }]
         );
     }
 
     #[test]
     fn a_windows_1252_feed_is_decoded() {
-        let feed = read(include_bytes!("../tests/fixtures/latin1_rss.xml"), "https://cafe.example.de/feed");
+        let feed = read(
+            include_bytes!("../tests/fixtures/latin1_rss.xml"),
+            "https://cafe.example.de/feed",
+        );
         assert_eq!(feed.title, "Caf\u{e9} M\u{fc}ller");
         let item = &feed.items[0];
         assert_eq!(item.title, "Neue Torten f\u{fc}r den Herbst");
-        assert_eq!(item.excerpt, "K\u{e4}sekuchen & Apfelstrudel \u{2013} frisch.");
-        assert_eq!(item.published, Some(1_790_755_200), "a German weekday is ignored");
+        assert_eq!(
+            item.excerpt,
+            "K\u{e4}sekuchen & Apfelstrudel \u{2013} frisch."
+        );
+        assert_eq!(
+            item.published,
+            Some(1_790_755_200),
+            "a German weekday is ignored"
+        );
     }
 
     #[test]
     fn a_broken_hand_written_feed_is_read_as_far_as_it_goes() {
-        let feed = read(include_bytes!("../tests/fixtures/broken_unescaped.xml"), "http://news.example.net/rss.xml");
+        let feed = read(
+            include_bytes!("../tests/fixtures/broken_unescaped.xml"),
+            "http://news.example.net/rss.xml",
+        );
         assert_eq!(feed.title, "Local News & Weather");
         assert_eq!(feed.description, "A hand-written feed \u{a9} 2026");
         assert_eq!(feed.items.len(), 3, "{:#?}", feed.items);
         let bakery = &feed.items[0];
-        assert_eq!(bakery.link, "http://news.example.net/story.php?id=7&ref=rss");
+        assert_eq!(
+            bakery.link,
+            "http://news.example.net/story.php?id=7&ref=rss"
+        );
         assert_eq!(bakery.id, bakery.link, "no guid: the link");
         assert_eq!(
             bakery.summary,
             "<p>The bakery opened <b>today</b>.<br/>Queues all morning.</p><img src=\"/img/bread.jpg\"/>",
             "unescaped markup is written back"
         );
-        assert_eq!(bakery.image, "http://news.example.net/img/bread-small.jpg", "media: without its declaration");
+        assert_eq!(
+            bakery.image, "http://news.example.net/img/bread-small.jpg",
+            "media: without its declaration"
+        );
         assert_eq!(bakery.published, Some(1_790_769_600));
         let road = &feed.items[1];
         assert_eq!(road.title, "Road works on the B12", "an item closed early");
         assert!(road.id.starts_with("sha256:"), "{}", road.id);
         assert_eq!(road.published, None);
         let weather = &feed.items[2];
-        assert_eq!(weather.excerpt, "Sunny \u{2014} 24\u{b0}C", "HTML's names without a DTD");
+        assert_eq!(
+            weather.excerpt, "Sunny \u{2014} 24\u{b0}C",
+            "HTML's names without a DTD"
+        );
         assert_eq!(weather.published, Some(1_790_740_800));
     }
 
@@ -1039,7 +1277,10 @@ mod tests {
 
     #[test]
     fn a_cut_off_feed_keeps_the_entries_before_the_cut() {
-        let feed = read(include_bytes!("../tests/fixtures/truncated_atom.xml"), "https://science.example.org/atom.xml");
+        let feed = read(
+            include_bytes!("../tests/fixtures/truncated_atom.xml"),
+            "https://science.example.org/atom.xml",
+        );
         assert_eq!(feed.title, "Science Daily Example");
         assert_eq!(feed.items.len(), 2);
         assert_eq!(feed.items[0].link, "https://science.example.org/reefs");
@@ -1050,7 +1291,10 @@ mod tests {
 
     #[test]
     fn an_rss_0_91_feed_with_its_doctype_is_read() {
-        let feed = read(include_bytes!("../tests/fixtures/rss091.xml"), "http://cooking.example.com/rss.xml");
+        let feed = read(
+            include_bytes!("../tests/fixtures/rss091.xml"),
+            "http://cooking.example.com/rss.xml",
+        );
         assert_eq!(feed.format, Format::Rss09);
         assert_eq!(feed.icon, "http://cooking.example.com/logo.gif");
         assert_eq!(feed.items.len(), 2);
@@ -1062,16 +1306,37 @@ mod tests {
     #[test]
     fn a_web_page_and_other_data_are_no_feeds() {
         assert_eq!(
-            parse(include_bytes!("../tests/fixtures/html_page.html"), "text/html", "https://example.org/"),
+            parse(
+                include_bytes!("../tests/fixtures/html_page.html"),
+                "text/html",
+                "https://example.org/"
+            ),
             Err(FeedError::NotAFeed { html: true })
         );
         assert_eq!(
-            parse(include_bytes!("../tests/fixtures/garbage.txt"), "text/plain", "https://example.org/x"),
+            parse(
+                include_bytes!("../tests/fixtures/garbage.txt"),
+                "text/plain",
+                "https://example.org/x"
+            ),
             Err(FeedError::NotAFeed { html: false })
         );
-        assert_eq!(parse(b"{\"version\": \"x\"}", "application/json", "https://example.org/x"), Err(FeedError::NotAFeed { html: false }));
-        assert!(matches!(parse(b"{ not json", "", "https://example.org/x"), Err(FeedError::Invalid(_))));
-        assert_eq!(parse(b"", "", "https://example.org/x"), Err(FeedError::NotAFeed { html: false }));
+        assert_eq!(
+            parse(
+                b"{\"version\": \"x\"}",
+                "application/json",
+                "https://example.org/x"
+            ),
+            Err(FeedError::NotAFeed { html: false })
+        );
+        assert!(matches!(
+            parse(b"{ not json", "", "https://example.org/x"),
+            Err(FeedError::Invalid(_))
+        ));
+        assert_eq!(
+            parse(b"", "", "https://example.org/x"),
+            Err(FeedError::NotAFeed { html: false })
+        );
     }
 
     #[test]

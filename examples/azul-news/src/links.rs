@@ -22,8 +22,26 @@ pub fn resolve(base: &str, href: &str) -> String {
 
 /// The query parameters that only tell a site where a click came from.
 const TRACKING: &[&str] = &[
-    "fbclid", "gclid", "dclid", "msclkid", "yclid", "igshid", "mc_cid", "mc_eid", "_hsenc", "_hsmi", "mkt_tok", "oly_anon_id",
-    "oly_enc_id", "vero_id", "wickedid", "__s", "rb_clickid", "s_cid", "ncid", "sr_share",
+    "fbclid",
+    "gclid",
+    "dclid",
+    "msclkid",
+    "yclid",
+    "igshid",
+    "mc_cid",
+    "mc_eid",
+    "_hsenc",
+    "_hsmi",
+    "mkt_tok",
+    "oly_anon_id",
+    "oly_enc_id",
+    "vero_id",
+    "wickedid",
+    "__s",
+    "rb_clickid",
+    "s_cid",
+    "ncid",
+    "sr_share",
 ];
 
 /// Whether a query parameter's name is a tracking one (`utm_*` and the [`TRACKING`] list).
@@ -65,7 +83,10 @@ pub fn strip_tracking(link: &str) -> String {
 pub fn site_name(link: &str) -> String {
     url::Url::parse(link.trim())
         .ok()
-        .and_then(|u| u.host_str().map(|h| h.trim_start_matches("www.").to_string()))
+        .and_then(|u| {
+            u.host_str()
+                .map(|h| h.trim_start_matches("www.").to_string())
+        })
         .unwrap_or_default()
 }
 
@@ -83,24 +104,48 @@ mod tests {
     #[test]
     fn a_relative_link_is_made_absolute_against_its_base() {
         let base = "https://example.org/blog/2026/post.html";
-        assert_eq!(resolve(base, "images/a.png"), "https://example.org/blog/2026/images/a.png");
+        assert_eq!(
+            resolve(base, "images/a.png"),
+            "https://example.org/blog/2026/images/a.png"
+        );
         assert_eq!(resolve(base, "/feed/"), "https://example.org/feed/");
-        assert_eq!(resolve(base, "//cdn.example.net/x.jpg"), "https://cdn.example.net/x.jpg");
-        assert_eq!(resolve(base, "../up.html"), "https://example.org/blog/up.html");
-        assert_eq!(resolve(base, "  https://other.example.net/  "), "https://other.example.net/");
-        assert_eq!(resolve(base, "mailto:ida@example.org"), "mailto:ida@example.org");
+        assert_eq!(
+            resolve(base, "//cdn.example.net/x.jpg"),
+            "https://cdn.example.net/x.jpg"
+        );
+        assert_eq!(
+            resolve(base, "../up.html"),
+            "https://example.org/blog/up.html"
+        );
+        assert_eq!(
+            resolve(base, "  https://other.example.net/  "),
+            "https://other.example.net/"
+        );
+        assert_eq!(
+            resolve(base, "mailto:ida@example.org"),
+            "mailto:ida@example.org"
+        );
         assert_eq!(resolve(base, ""), "");
-        assert_eq!(resolve("", "relative.html"), "relative.html", "no base: as it is");
+        assert_eq!(
+            resolve("", "relative.html"),
+            "relative.html",
+            "no base: as it is"
+        );
         assert_eq!(resolve("not a url", "a.html"), "a.html");
     }
 
     #[test]
     fn tracking_parameters_are_taken_off_and_the_rest_stays() {
         assert_eq!(
-            strip_tracking("https://example.org/a?id=7&utm_source=rss&utm_medium=feed&fbclid=xyz#top"),
+            strip_tracking(
+                "https://example.org/a?id=7&utm_source=rss&utm_medium=feed&fbclid=xyz#top"
+            ),
             "https://example.org/a?id=7#top"
         );
-        assert_eq!(strip_tracking("https://example.org/a?utm_campaign=x"), "https://example.org/a");
+        assert_eq!(
+            strip_tracking("https://example.org/a?utm_campaign=x"),
+            "https://example.org/a"
+        );
         assert_eq!(
             strip_tracking("https://example.org/search?q=a+b&page=2"),
             "https://example.org/search?q=a+b&page=2",
@@ -114,7 +159,10 @@ mod tests {
     #[test]
     fn the_site_name_is_the_host_without_www() {
         assert_eq!(site_name("https://www.example.org/feed/"), "example.org");
-        assert_eq!(site_name("http://news.example.net:8080/x"), "news.example.net");
+        assert_eq!(
+            site_name("http://news.example.net:8080/x"),
+            "news.example.net"
+        );
         assert_eq!(site_name("not a link"), "");
         assert!(is_web("HTTPS://example.org"));
         assert!(!is_web("file:///etc/passwd"));

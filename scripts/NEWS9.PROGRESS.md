@@ -2,29 +2,62 @@
 
 Brief: scripts/waves/wave9/PLAN.md "NEWS9"; planning ../azul-apps/planning/core/news-reader.md;
 rules scripts/waves/house_rules.md ("Apps"). Never compile; never spawn subagents.
+On resume: read this file, `git -C <worktree> status`, `git log --oneline -12`, continue at NEXT.
 
-## DONE
-- a67d3ee9e skeleton (Cargo.toml, main/lib/ids), registered: root Cargo.toml, workspace_test_members,
-  rust.yml dll_tests step (runs `python3 examples/azul-news/scripts/test_feed_server.py` - MUST EXIST)
-- 646bdce18 RED / 46b7ae492 GREEN xmltree.rs (lenient XML on quick-xml 0.41)
-- 3d770602a RED dates.rs (GREEN written, not yet committed at the time of this note -> see git log)
-- 62b3c6a6b RED feed.rs + links.rs + reader.rs (plain_text / excerpt) + tests/fixtures/*
+## DONE (examples/azul-news)
+- a67d3ee9e skeleton (Cargo.toml, .cargo/config.toml, main/lib/ids), registered: root Cargo.toml,
+  scripts/workspace_test_members.txt, rust.yml dll_tests step. That step runs
+  `python3 examples/azul-news/scripts/test_feed_server.py` - THIS FILE MUST STILL BE WRITTEN.
+- 646bdce18 RED / 46b7ae492 GREEN src/xmltree.rs (lenient XML tree on quick-xml 0.41, decode()).
+- 3d770602a RED / 17f745cd0 GREEN src/dates.rs (parse_date, lenient RFC 822 / 3339 / US).
+- 62b3c6a6b RED / 627b4e9a2 GREEN src/feed.rs (RSS / Atom / JSON Feed -> Feed / Item),
+  src/links.rs (resolve, strip_tracking, site_name, is_web), src/reader.rs (collapse, plain_text,
+  excerpt, cut_at_word, text_to_html via Xml::create_from_html / Xml::encode_text),
+  tests/fixtures/* (13 fixture feeds incl. malformed ones).
+- then: rustfmt of feed/links/reader + this file (see git log).
+- feed.rs + links.rs + xmltree.rs + dates.rs TYPE-CHECK CLEAN (see "Type-check trick").
 
-## IN PROGRESS
-- GREEN: dates.rs (commit), links.rs, reader::plain_text / excerpt, feed.rs parse.
+## NEXT (in this order; RED commit with tests + stubs, then GREEN commit, each)
+1. src/opml.rs: `Subscription { id, title, url (xmlUrl), site (htmlUrl), folder }`,
+   `parse(bytes) -> Result<Vec<Subscription>, String>` via xmltree (nested outlines -> folder =
+   top-level outline text, deeper " / " joined; outlines without xmlUrl are folders; `azId`
+   attribute keeps our feed id), `write(subs, title) -> String` (OPML 2.0, folders as outlines,
+   attribute values through one escaper). Tests: round trip, nested folders, a malformed OPML
+   (bare &, missing head), duplicates by url.
+2. src/state.rs: `ReadState { read, starred, later: BTreeSet<String> }` per feed, mark / toggle,
+   `to_json` / `from_json`, prune(ids). Tests: read state round trip, prune keeps starred.
+3. azul-pim/src/dates.rs: move `DateGroup` + `date_group` from azul-mail/src/listing.rs (with its
+   tests); azul-mail listing.rs -> `pub use azul_pim::dates::{date_group, DateGroup};` (minimal
+   edit, say so in the report). AzNews list groups by it.
+4. src/library.rs: Library { subs, feeds: map id -> FeedData { meta, items, state } }, views
+   (All, Unread, Starred, Later, Folder, Feed, Broken), unread counts, search (azul_pim::search),
+   sections by DateGroup, merge(refresh result, now, keep_days) keeping starred, next / prev.
+5. src/store.rs: keys news/subscriptions.opml, news/feeds/<id>/{feed.json,items.json,state.json};
+   load from FileOutcome::GotAll; FileJob builders.
+6. src/fetch.rs: conditional GET (If-None-Match / If-Modified-Since) through
+   azul_storage::{Transport, HttpCall, HttpReply, Method}; 304 -> NotModified; discovery of
+   <link rel=alternate> feeds in an HTML page (Xml::create_from_html). Tests with a fake Transport.
+7. reader view: article(html, base, images policy) -> Xml (reader stylesheet in <style>, cleaned
+   tree, images resolved) + image URLs via Xml::scan_external_resources; tests.
+8. src/sample.rs (--sample: ~42 feeds / 6 folders, generated items), src/jobs.rs (refresh Thread
+   with AzulTransport, image Thread: fetch + RawImage::decode_image_bytes_any, writeback ->
+   info.add_image_to_cache(url, ImageRef)), src/ui.rs (PimShell like AzContacts ui.rs, ReadingPane,
+   settings via kit::settings_page, add-feed + OPML import in the reading pane, CloseGuard n/a).
+9. scripts/aznews_e2e.py (model on scripts/azcontacts_e2e.py + scripts/azlin_e2e.py),
+   examples/azul-news/scripts/feed_server.py (ETag / 304, a broken feed, an HTML page with links,
+   an image) + examples/azul-news/scripts/test_feed_server.py.
+10. Report scripts/NEWS9_2026_10_03.md (or the finishing date): api.json list (none planned so far),
+    new crates (quick-xml 0.41, encoding_rs 0.8, url 2.5: all already in Cargo.lock), the DateGroup
+    move, least-sure spots, test commands, what is left.
 
-## NEXT
-- opml.rs (RED: round trip, nested folders, malformed OPML), state.rs (read / starred / later),
-  library.rs (views, counts, day groups via azul_pim DateGroup - move it from AzMail), store.rs,
-  fetch.rs (conditional GET via azul_storage Transport, discovery), reader view (article Xml +
-  images via scan_external_resources), sample.rs, jobs.rs, ui.rs, E2E + feed_server.py + its test.
-
-## Type-check trick (no cargo)
-- Pure modules: `rustc --edition 2021 --crate-type lib --test --emit=metadata` on a harness in
-  /tmp/news9_check that #[path]-includes the module, with `--extern` the prebuilt rlibs in
-  /Users/fschutt/Development/azul/target/release/deps (quick_xml-b155ebc1b94015ba,
-  encoding_rs-6519d963c5c6c912, chrono-111531f69b7755d2, url-*, serde*). No azul rlib exists:
-  azul-dependent code is stubbed in the harness (e.g. `mod reader { pub fn plain_text }`).
+## Type-check trick (no cargo; LENIENT did the same)
+- /tmp/news9_check/check.sh <harness.rs>: `rustc --emit=metadata --test` against the prebuilt
+  rlibs in /Users/fschutt/Development/azul/target/release/deps. Harness = #[path] includes of the
+  pure modules + stub `mod reader { collapse, plain_text, excerpt, text_to_html }` (harness2.rs).
+  No azul rlib exists: azul-dependent code (reader.rs, ui.rs, jobs.rs) cannot be checked - read
+  the generated API in /Users/fschutt/Development/azul/target/codegen/dll_api_external.rs and
+  reexports.rs (python3 /tmp/news9_whereis.py Name -> azul::<module>::Name). /tmp may be gone on
+  resume: recreate from this description.
 
 ## Decisions
 - Feed parsing: own parser on quick-xml 0.41 (already in Cargo.lock via docx-parser / ooxml-common /
@@ -36,10 +69,14 @@ rules scripts/waves/house_rules.md ("Apps"). Never compile; never spawn subagent
   HttpRequestConfig from an azul Thread) - no second HTTP client; tests use a fake Transport.
 - Dates: own lenient reader; chrono only adds up the parts (its rfc2822 refuses wrong weekdays).
 - Titles / excerpts: plain text through azul's HTML parser (reader::plain_text) - the engine's one
-  entity table; item ids without guid/link: azul_storage::sigv4::sha256_hex (stable).
+  entity table; text -> HTML through Xml::encode_text (the one encoder); item ids without
+  guid/link: azul_storage::sigv4::sha256_hex (stable).
+- xmltree::push_escaped is NOT a twin of Xml::encode_text: it writes the lenient tree back and
+  keeps the HTML references (`&nbsp;`) the XML layer left undecoded. Say so in the report.
 - Shell: S4 PimShell (.office_shell()), like AzContacts; reading pane = azul's ReadingPane widget.
-- DateGroup twins: azul-mail listing.rs DateGroup, azul-notes model, azul-tasks list -> plan:
-  move AzMail's into azul-pim/dates.rs, AzMail re-exports it (minimal edit), AzNews uses it.
+- Data: news/subscriptions.opml (the list, user-facing), news/feeds/<uuid>/feed.json (url, title,
+  etag, last_modified, checked, error), items.json, state.json (read / starred / later ids).
+- DateGroup twins: azul-mail listing.rs DateGroup, azul-notes model, azul-tasks list.
 
 ## Open questions
-- (none yet)
+- (none)

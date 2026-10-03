@@ -12,9 +12,41 @@ const HIDDEN: &[&str] = &["script", "style", "noscript", "template", "head", "ti
 
 /// Elements that separate their text from the text around them (a space in plain text).
 const BLOCKS: &[&str] = &[
-    "p", "div", "br", "li", "ul", "ol", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre", "tr", "td", "th",
-    "table", "section", "article", "header", "footer", "figure", "figcaption", "hr", "dd", "dt", "dl", "main", "aside",
-    "nav", "address", "details", "summary", "caption",
+    "p",
+    "div",
+    "br",
+    "li",
+    "ul",
+    "ol",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "blockquote",
+    "pre",
+    "tr",
+    "td",
+    "th",
+    "table",
+    "section",
+    "article",
+    "header",
+    "footer",
+    "figure",
+    "figcaption",
+    "hr",
+    "dd",
+    "dt",
+    "dl",
+    "main",
+    "aside",
+    "nav",
+    "address",
+    "details",
+    "summary",
+    "caption",
 ];
 
 /// Deeper than this, an article's elements are not walked (the parser stops at 512).
@@ -78,7 +110,10 @@ pub fn cut_at_word(text: &str, max_chars: usize) -> String {
         return text.to_string();
     }
     let head: String = text.chars().take(max_chars).collect();
-    let at_word_end = text.chars().nth(max_chars).map_or(true, char::is_whitespace);
+    let at_word_end = text
+        .chars()
+        .nth(max_chars)
+        .map_or(true, char::is_whitespace);
     let kept = if at_word_end {
         head.trim_end().to_string()
     } else {
@@ -109,7 +144,10 @@ pub fn text_to_html(text: &str) -> String {
     match paragraphs.len() {
         0 => String::new(),
         1 => paragraphs.into_iter().next().unwrap_or_default(),
-        _ => paragraphs.into_iter().map(|p| format!("<p>{p}</p>")).collect(),
+        _ => paragraphs
+            .into_iter()
+            .map(|p| format!("<p>{p}</p>"))
+            .collect(),
     }
 }
 
@@ -119,19 +157,42 @@ mod tests {
 
     #[test]
     fn plain_text_decodes_references_and_keeps_blocks_apart() {
-        assert_eq!(plain_text("<p>Hello <b>world</b></p><p>Second</p>"), "Hello world Second");
-        assert_eq!(plain_text("Tom &amp; Jerry&rsquo;s &nbsp; caf&eacute;"), "Tom & Jerry\u{2019}s caf\u{e9}");
+        assert_eq!(
+            plain_text("<p>Hello <b>world</b></p><p>Second</p>"),
+            "Hello world Second"
+        );
+        assert_eq!(
+            plain_text("Tom &amp; Jerry&rsquo;s &nbsp; caf&eacute;"),
+            "Tom & Jerry\u{2019}s caf\u{e9}"
+        );
         assert_eq!(plain_text("a<br>b<script>x()</script>c"), "a bc");
-        assert_eq!(plain_text("<style>p { color: red }</style>  spaced \n\t out  "), "spaced out");
-        assert_eq!(plain_text("x < y & z"), "x < y & z", "text that only looks like markup");
-        assert_eq!(plain_text("Why <code>Option</code> matters"), "Why Option matters");
+        assert_eq!(
+            plain_text("<style>p { color: red }</style>  spaced \n\t out  "),
+            "spaced out"
+        );
+        assert_eq!(
+            plain_text("x < y & z"),
+            "x < y & z",
+            "text that only looks like markup"
+        );
+        assert_eq!(
+            plain_text("Why <code>Option</code> matters"),
+            "Why Option matters"
+        );
         assert_eq!(plain_text(""), "");
     }
 
     #[test]
     fn an_excerpt_ends_at_a_word() {
-        assert_eq!(excerpt("<p>one two three four</p>", 100), "one two three four");
+        assert_eq!(
+            excerpt("<p>one two three four</p>", 100),
+            "one two three four"
+        );
         assert_eq!(excerpt("<p>one two three four</p>", 9), "one two\u{2026}");
-        assert_eq!(excerpt("<p>abcdefghijkl</p>", 5), "abcde\u{2026}", "one long word is cut inside");
+        assert_eq!(
+            excerpt("<p>abcdefghijkl</p>", 5),
+            "abcde\u{2026}",
+            "one long word is cut inside"
+        );
     }
 }
