@@ -262,10 +262,24 @@ fn find_function_differences(
                 .filter(|arg_map| !arg_map.contains_key("self"))
                 .flat_map(|arg_map| arg_map.iter());
             for ((api_name, api_ty), source_arg) in api_args.zip(source_method.args.iter()) {
-                let (source_ty, _) = source_arg_ffi_type(source_arg);
+                let (source_ty, accessor) = source_arg_ffi_type(source_arg);
                 if !same_ffi_arg_type(api_ty, &source_ty) {
                     diffs.push(format!(
                         "argument `{api_name}`: api.json declares `{api_ty}`, source takes `{source_ty}`"
+                    ));
+                } else if accessor
+                    .as_deref()
+                    .is_some_and(|a| a.contains("into_library_owned_string"))
+                    && api_fn
+                        .fn_body
+                        .as_deref()
+                        .is_some_and(|body| passes_bare(body, api_name))
+                {
+                    // Same type on both sides (`String`), but the C side
+                    // passes an AzString and the method takes a std String.
+                    diffs.push(format!(
+                        "argument `{api_name}`: the source takes a std `String`, the fn_body \
+                         passes the AzString as it is (`{api_name}.into_library_owned_string()`)"
                     ));
                 }
             }
@@ -280,6 +294,19 @@ fn find_function_differences(
     }
 
     differences
+}
+
+/// Whether `body` passes the argument `name` to a call as it is
+/// (`f(name)`, `f(a, name, b)`), not through a method of its own.
+fn passes_bare(body: &str, name: &str) -> bool {
+    [
+        format!("({name})"),
+        format!("({name},"),
+        format!(", {name})"),
+        format!(", {name},"),
+    ]
+    .iter()
+    .any(|p| body.contains(p.as_str()))
 }
 
 /// Find a class/type in api.json for a specific version
@@ -967,6 +994,23 @@ pub fn generate_remove_type_patch(type_name: &str, module_name: &str, version: &
 /// must declare for it. Generic `C: Into<T>` parameters arrive here already
 /// resolved to `T` (`type_index::extract_into_bounds`).
 fn source_arg_ffi_type(arg: &super::type_index::MethodArg) -> (String, Option<String>) {
+    // A string argument crosses as an `AzString` (api.json `String`). The
+    // index spells both a std `String` and an `AzString` `String`; the type
+    // as written tells them apart. A std `String` is converted (passing the
+    // AzString as it is broke the dll: RichRun.set_text, wave 5), a borrowed
+    // one re-borrowed; a generic `S: Into<AzString>` takes it as it is.
+    if arg.ty == "String" {
+        let std_string = arg.source_ty == "String";
+        let accessor = match (&arg.ref_kind, std_string) {
+            (crate::api::RefKind::Value, true) => Some("{}.into_library_owned_string()"),
+            (crate::api::RefKind::Ref, true) => Some("&{}.into_library_owned_string()"),
+            (crate::api::RefKind::Ref, false) => Some("&{}"),
+            _ => None,
+        };
+        if accessor.is_some() || arg.ref_kind == crate::api::RefKind::Value {
+            return ("String".to_string(), accessor.map(str::to_string));
+        }
+    }
     let (ffi_type, accessor) = convert_arg_type_for_ffi(&arg.ty);
     // The source parser splits `&mut Dom` into ty="Dom" + ref_kind=RefMut
     // BEFORE this point, so the string-prefix arms in
