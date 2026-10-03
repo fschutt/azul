@@ -42,16 +42,17 @@ back" fix in compute_non_flex_layout - so the clear is no longer needed for corr
 - ifc_membership of cloned text nodes keeps the OLD tree's IFC-root index (stale after an index shift
   elsewhere) - a memo hit on a clean subtree keeps it stale (selection / caret lookups). GREEN (4) remaps.
 
+- 39f090082 GREEN: clone keeps taffy measurements (clear only under a restyle), anon wrapper carries its
+  layout, carried_indices + ifc_membership remap, vw guard (mod.rs Step 1.2), paged_layout clears all,
+  comments + dll ribbon test doc.
+
 ## IN PROGRESS
-- GREEN
+- deciding on LATENT BUG B (block margin change through css dirt does not move the box)
 
 ## NEXT
-- GREEN: (1) layout_tree.rs clone_node_from_old keeps taffy_cache + measured_content_sizes;
-  (2) cache.rs try_reuse_anon_wrapper carries the old wrapper's layout-derived state (+ recon arg);
-  (3) cache.rs reconcile_recursive clears the clone's taffy cache when subtree_style_changed;
-  (4) ReconciliationResult.old_to_new map + ifc_membership remap on clones;
-  (5) mod.rs Step 1.2: viewport size changed && uses_viewport_units -> clear every taffy cache.
-  Then update the dll ribbon test doc (headless/mod.rs switching_tabs_does_not_shift_the_other_tabs_text).
+- copy e2e probes to scripts/layoutperf8_e2e/ (with passing-when-fixed asserts)
+- bug B: RED + fix, or document only
+- re-review GREEN for compile risks; report scripts/LAYOUTPERF8_2026_10_03.md
 
 ## Decisions / open questions
 - Conservative: a clone under a restyled node (own or ancestor inline/class/state change) still clears
