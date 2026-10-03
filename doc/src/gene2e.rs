@@ -529,6 +529,10 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     // get_dom_tree. A multi-DOM scenario has no other way to learn the ids it
     // then addresses.
     ("list_doms",                 None),
+    // ALLOW: read-only enumeration of the windows the debug server reaches
+    // (a dialog, a menu the app opened). A multi-window scenario has no other
+    // way to learn the `window_id`s it then addresses.
+    ("list_windows",              None),
     ("get_node_hierarchy",        None),
     ("get_html_string",           None),
     ("get_node_css_properties",   None),

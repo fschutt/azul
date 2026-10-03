@@ -435,6 +435,8 @@ pub enum ResponseData {
     DomTree(DomTreeResponse),
     /// Every live DOM and its addressable id, see `DebugEvent::ListDoms`
     DomList(DomListResponse),
+    /// Every window the debug server reaches, see `DebugEvent::ListWindows`
+    WindowList(WindowListResponse),
     /// Node hierarchy
     NodeHierarchy(NodeHierarchyResponse),
     /// Layout tree
@@ -1440,6 +1442,39 @@ pub struct DomListEntry {
 pub struct DomListResponse {
     pub dom_count: usize,
     pub doms: Vec<DomListEntry>,
+}
+
+/// One window the debug server reaches, as reported by `list_windows`.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct WindowListEntry {
+    /// Pass this as the envelope's `window_id` to address this window.
+    pub window_id: String,
+    /// The window a request naming no `window_id` goes to (the app's first).
+    pub is_default: bool,
+    /// The window that answered this request.
+    pub is_this: bool,
+}
+
+/// Response for `list_windows`.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct WindowListResponse {
+    pub window_count: usize,
+    pub windows: Vec<WindowListEntry>,
+}
+
+/// The `list_windows` answer from the registered debug windows
+/// (`(slot, window id)` in registration order, [`registered_debug_windows`])
+/// and the id of the window answering.
+#[cfg(feature = "std")]
+#[must_use]
+pub fn window_list(windows: &[(u64, String)], this_window: &str) -> WindowListResponse {
+    let _ = (windows, this_window);
+    WindowListResponse {
+        window_count: 0,
+        windows: Vec::new(),
+    }
 }
 
 /// A `(dom, node)` pair in JSON.
@@ -2750,6 +2785,16 @@ pub enum DebugEvent {
     /// `dom_id` to reach the others — this op is how you learn the ids
     /// instead of guessing pixel coordinates.
     ListDoms,
+    /// List every window the debug server reaches, with the id to address
+    /// it by.
+    ///
+    /// `{ "op": "list_windows" }`
+    ///
+    /// An app's first window answers a request that names no window; every
+    /// other one - a dialog, a second editor, a menu the app opened
+    /// (`azul-menu`, `azul-menu-2` while a submenu is open) - takes the
+    /// envelope's `window_id`. This op is how a script learns those ids.
+    ListWindows,
     /// Get the raw node hierarchy (for debugging DOM structure issues).
     /// Address a child DOM (a VirtualView / transient-window document) with
     /// the envelope's `dom_id`, like every other node-addressing op.
@@ -16380,6 +16425,16 @@ pub fn process_debug_event(
             send_ok(request, None, Some(ResponseData::DomList(response)));
         }
 
+        DebugEvent::ListWindows => {
+            let this_window = callback_info
+                .get_current_window_state()
+                .window_id
+                .as_str()
+                .to_string();
+            let response = window_list(&registered_debug_windows(), &this_window);
+            send_ok(request, None, Some(ResponseData::WindowList(response)));
+        }
+
         DebugEvent::GetDomTree => {
             log(
                 LogLevel::Debug,
@@ -22278,5 +22333,29 @@ mod debug_routing_tests {
         assert_eq!(got, vec![1, 3]);
         assert!(take_forwarded_debug_requests(a).is_empty(), "taken once");
         assert_eq!(take_forwarded_debug_requests(b).len(), 1);
+    }
+
+    /// HEADLESS6: a script learns the ids of the windows it can address -
+    /// a dialog, a menu the app opened (`azul-menu`) - from `list_windows`.
+    #[test]
+    fn list_windows_names_every_window_and_the_default_one() {
+        let list = window_list(&windows(), "azmail-compose-1");
+        assert_eq!(list.window_count, 3);
+        let ids: Vec<&str> = list.windows.iter().map(|w| w.window_id.as_str()).collect();
+        assert_eq!(ids, vec!["azmail-main", "azmail-compose-1", "azmail-compose-2"]);
+        let default: Vec<&str> = list
+            .windows
+            .iter()
+            .filter(|w| w.is_default)
+            .map(|w| w.window_id.as_str())
+            .collect();
+        assert_eq!(default, vec!["azmail-main"], "a request naming no window goes there");
+        let this: Vec<&str> = list
+            .windows
+            .iter()
+            .filter(|w| w.is_this)
+            .map(|w| w.window_id.as_str())
+            .collect();
+        assert_eq!(this, vec!["azmail-compose-1"]);
     }
 }
