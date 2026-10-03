@@ -173,7 +173,21 @@ pub fn read_outside(path: &Path) -> Result<Vec<u8>, String> {
 /// folder that exists. Anything else (`javascript:`, `file:` addresses, a made-up path) is
 /// refused with a sentence.
 pub fn external_target(target: &str) -> Result<String, String> {
-    Err(format!("RED: {target}"))
+    let t = target.trim();
+    let lower = t.to_ascii_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") {
+        if t.chars().any(char::is_whitespace) {
+            return Err(format!("\u{201c}{t}\u{201d} is not a web address."));
+        }
+        return Ok(t.to_string());
+    }
+    if !t.is_empty() && !lower.contains(':') && Path::new(t).exists() {
+        return Ok(t.to_string());
+    }
+    if !t.is_empty() && cfg!(windows) && Path::new(t).exists() {
+        return Ok(t.to_string());
+    }
+    Err(format!("\u{201c}{t}\u{201d} cannot be opened."))
 }
 
 /// Opens a web address in the default browser, or a file / folder in its default app (`open` on
