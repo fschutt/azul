@@ -2284,7 +2284,18 @@ pub(crate) fn is_shrink_to_fit_context(
         // compute intrinsics for the auto-width case. Misses no work.
         return true;
     }
-    false
+    // A box sized by an intrinsic-size keyword (`width: min-content /
+    // max-content / fit-content`, css-sizing-3 3.2) reads its own min- and
+    // max-content: without them the static-DOM short-circuit of the
+    // intrinsic pass handed it zeros.
+    matches!(
+        get_css_width(styled_dom, dom_id, node_state),
+        MultiValue::Exact(
+            azul_css::props::layout::LayoutWidth::MinContent
+                | azul_css::props::layout::LayoutWidth::MaxContent
+                | azul_css::props::layout::LayoutWidth::FitContent(_)
+        )
+    )
 }
 
 /// Per-node bitmap of "this node or any descendant establishes a shrink-to-fit

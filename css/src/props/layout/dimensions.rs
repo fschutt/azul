@@ -502,6 +502,13 @@ pub mod parser {
                     "auto" => Ok($enum_name::Auto),
                     "min-content" => Ok($enum_name::MinContent),
                     "max-content" => Ok($enum_name::MaxContent),
+                    // The `fit-content` KEYWORD (css-sizing-3 3.2): min(max-content,
+                    // max(min-content, stretch-fit)). The layout takes the
+                    // function's argument as the available space, so the
+                    // keyword is `fit-content(100%)` (the containing block).
+                    // It did not parse at all: the declaration was dropped and
+                    // the box sized as `auto`.
+                    "fit-content" => Ok($enum_name::FitContent(PixelValue::percent(100.0))),
                     s if s.starts_with("fit-content(") && s.ends_with(')') => {
                         let inner = &s[12..s.len() - 1].trim();
                         parse_pixel_value(inner)

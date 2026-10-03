@@ -840,7 +840,18 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 // layout (`calculate_used_size_for_node` sizes a DOM-less box
                 // by these intrinsics under a measurement constraint).
                 let is_anonymous_wrapper = node.dom_node_id.is_none();
-                if is_text_node || has_text_in_subtree || is_anonymous_wrapper {
+                // Case 3 is an inline BOX (`display: inline` after
+                // blockification, e.g. a `<span>`), never a block container
+                // that establishes this IFC: a `<div style="width:
+                // max-content">` holding nothing but an inline-block has no
+                // text anywhere and was measured 0 wide (Chrome: the
+                // inline-block's width).
+                let is_inline_box = !is_text_node
+                    && !is_anonymous_wrapper
+                    && tree
+                        .warm(LayoutNodeId::new(node_index))
+                        .is_some_and(|w| w.computed_style.display == LayoutDisplay::Inline);
+                if is_text_node || has_text_in_subtree || is_anonymous_wrapper || !is_inline_box {
                     // Case 1, 2 or 4: measure the inline content
                     self.calculate_ifc_root_intrinsic_sizes(tree, node_index)
                 } else {
@@ -2162,15 +2173,16 @@ pub fn calculate_used_size_for_node(
 
     // +spec:intrinsic-sizing:9e1c9d - non-quantitative values (auto, min-content, max-content) are
     // not influenced by box-sizing
+    // `fit-content` is one of them: its size is a CONTENT size (the
+    // min/max-content clamp below), the padding and border go outside it
+    // whatever `box-sizing` says.
     let width_is_quantitative = matches!(
         &css_width,
-        MultiValue::Exact(LayoutWidth::Px(_) | LayoutWidth::FitContent(_) | LayoutWidth::Calc(_))
+        MultiValue::Exact(LayoutWidth::Px(_) | LayoutWidth::Calc(_))
     );
     let height_is_quantitative = matches!(
         &css_height,
-        MultiValue::Exact(
-            LayoutHeight::Px(_) | LayoutHeight::FitContent(_) | LayoutHeight::Calc(_)
-        )
+        MultiValue::Exact(LayoutHeight::Px(_) | LayoutHeight::Calc(_))
     );
 
     // +spec:width-calculation:50d67a - automatic sizing concepts (width/height auto resolution)
@@ -2414,9 +2426,34 @@ pub fn calculate_used_size_for_node(
                 viewport_size.width,
                 viewport_size.height,
             );
-            intrinsic
-                .max_content_width
-                .min(intrinsic.min_content_width.max(arg))
+            // The argument takes the place of the AVAILABLE space (css-sizing-3
+            // 3.2): the content box gets its stretch-fit size, the argument
+            // less this box's margins, borders and padding. So the
+            // `fit-content` keyword, parsed as `fit-content(100%)`, is
+            // min(max-content, max(min-content, stretch-fit)) - a padded
+            // fit-content box of wrapping text fits its container. The result
+            // is a content size whatever `box-sizing` says
+            // (`width_is_quantitative`).
+            if arg.is_finite() {
+                let stretch_fit = (arg
+                    - box_props.margin.left
+                    - box_props.margin.right
+                    - box_props.border.left
+                    - box_props.border.right
+                    - box_props.padding.left
+                    - box_props.padding.right)
+                    .max(0.0);
+                intrinsic
+                    .max_content_width
+                    .min(intrinsic.min_content_width.max(stretch_fit))
+            } else {
+                // Against an indefinite basis it behaves as auto: the
+                // contribution of the pass's kind.
+                match cb_w {
+                    Text3AvailableSpace::MinContent => intrinsic.min_content_width,
+                    _ => intrinsic.max_content_width,
+                }
+            }
         }
         LayoutWidth::Calc(items) => {
             use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
