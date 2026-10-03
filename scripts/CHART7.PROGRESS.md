@@ -17,16 +17,14 @@ Branch: wt/chart7 (base 2e55eef06)
 - b5b194787 examples/azul-dashboard/src/chart.rs (ChartSource trait, Charts state, line_points, bar_totals,
   charts_dom, on_point_select / on_bar_select, unit tests)
 - 8acd38111 doc/guide/en/dashboard-tutorial.md
+- ce6c58573 Rust-only helpers pub(crate); 0d4cf0713 rustfmt; the report scripts/CHART7_2026_10_03.md
 
 ## IN PROGRESS
-- item 1: layout/src/widgets/chart.rs, written in pieces (types -> math -> geometry -> build -> callbacks)
+- (none)
 
 ## NEXT
-- write the report scripts/CHART7_2026_10_03.md: built, commit list (git log 2e55eef06..HEAD), the api.json
-  list (Chart.*, ChartKind, ChartPoint, ChartSeries, ChartColor, ChartSelection, ChartOnSelect triple, the Vecs /
-  Options), the exact lib.rs lines for azul-dashboard (`mod chart;` + Charts in the app state + impl ChartSource +
-  charts_dom call), least-sure-to-compile spots, test commands, PAINT7 note (SVG masks re-rasterised per display
-  list, no cache), what is left. Commit it, update this file to DONE.
+- nothing: all items done; the report is scripts/CHART7_2026_10_03.md. If resumed: re-read the report's
+  "Least sure to compile" list and spot-check those lines.
 
 ## Design (decided, read before continuing)
 - DRAWING: the engine's SVG path - a plot div carries `SvgNodeData::ViewBox{0,0,pw,ph}` (1 unit = 1 px), every
