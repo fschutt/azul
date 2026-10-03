@@ -16,9 +16,13 @@ Report: `scripts/KEYS9_<date>.md` (when done). Never compile (house rules); rust
 - 46a58d5f7 GREEN store.rs; c91f0a2a0 sample.rs (+ tests, SAMPLE_PASSWORD "sample")
 - 007d2b35e ids.rs; ed43239d6 RED + 5adc26c13 GREEN session.rs (Session, OpenVault, Form, Reading, Reveal,
   ImportView: the plain window model; UI callbacks should only call these)
+- 1e6b65eb1 app.rs (SPEC/ABOUT/SHORTCUTS/APP_CATEGORIES, Settings, DeviceUnlock, KeysApp state, forms)
+- 161a2ebae jobs.rs (vault thread spawn/on_done/handle, save/lock/finish_lock, copy_secret/set_clipboard,
+  start_timer/on_tick, keyring + biometric (enable/disable/unlock_with_device, on_keyring_result,
+  on_biometric_result), on_window_created, on_close_requested, on_activity). NOT yet in lib.rs (needs ui.rs).
 - 9cbc73f1a registered: root Cargo.toml member, workspace_test_members.txt, rust.yml step (NEXT item 7 done)
 
-## NEXT (exact) - items 1, 2, 3 and 7 are DONE (+ session.rs); continue at 4
+## NEXT (exact) - items 1, 2, 3, 4 (app.rs), 5 (jobs.rs) and 7 are DONE (+ session.rs); continue at 6
 1. (done) GREEN `examples/azul-keys/src/store.rs`: fill `read_listing` (parse each `(key, bytes)` with
    `Envelope::parse`, problems "`<key>`: <VaultError>", sort by folded name) and `run` (List via
    `azul_appkit::files::list_all(drive, VAULTS)` + get each `.azkv`; Create: KdfParams::fresh() when None,
@@ -39,7 +43,14 @@ Report: `scripts/KEYS9_<date>.md` (when done). Never compile (house rules); rust
    auto-lock -> `vault.wipe()`), keyring ops (one in flight, like AzDrive lib.rs `KeyringOp`), biometric
    (`request_biometric_auth`, WindowEventFilter::BiometricResult / KeyringResult), CloseRequested (hold while
    saving), activity touch on window MouseDown / VirtualKeyDown.
-6. ui.rs: unlock screen (vault DropDown, TextInput::create_password, Unlock, "Use Touch ID", create-vault form,
+6. ui.rs (NEXT): must define `pub fn read_import_file(s: &mut KeysApp, info: &mut CallbackInfo, app: &RefAny,
+   path: &Path)` (jobs.rs calls it) and `pub extern "C" fn layout(RefAny, LayoutCallbackInfo) -> Dom`; body callbacks:
+   VirtualKeyDown (kit::handle_key first), MouseDown -> jobs::on_activity, KeyringResult -> jobs::on_keyring_result,
+   BiometricResult -> jobs::on_biometric_result, CloseRequested -> jobs::on_close_requested. Then lib.rs:
+   `mod jobs; pub mod ui;` + `pub fn start()` (AppArgs::from_env(&app::SPEC), kit::create_kit(SPEC, ABOUT, &SHORTCUTS,
+   &APP_CATEGORIES, args), Settings::from_values, KeysApp {..}, kit::window_options(&kit, ui::layout, (1180.0, 760.0),
+   (720.0, 480.0), jobs::on_window_created), App::create(..).run(window)); println!("AZKEYS_DATA {}").
+   Old plan for ui.rs: unlock screen (vault DropDown, TextInput::create_password, Unlock, "Use Touch ID", create-vault form,
    Attempts message), PimShell (nav: All / Favourites / kinds / One-time codes / tags; list with Avatar + search;
    reading pane: item detail with copy / reveal / TOTP code + ProgressBar ring `TODO(WIDGETS9B): Gauge`; edit form;
    generator panel (Segmented mode, Slider length, CheckBoxes, ProgressBar strength); import screen (FileDialog ->
@@ -66,6 +77,9 @@ Report: `scripts/KEYS9_<date>.md` (when done). Never compile (house rules); rust
 ## Least sure to compile (so far)
 - argon2 feature names `alloc`, `zeroize` (0.5.3); `argon2::Params::new(m, t, p, Some(32))`, `hash_password_into`.
 - chacha20poly1305 0.10 `aead::{Aead, Payload}` with feature `alloc`; `Key::from_slice`, `XNonce::from_slice`.
+
+- House rule (coordinator, 2026-10-03): never send personal data to an outside service; AzKeys makes no network
+  calls (no breach check, no favicon fetch) - keep it so.
 
 ## Open questions
 - (none)
