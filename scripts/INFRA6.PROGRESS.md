@@ -8,17 +8,14 @@ Commit messages go through `<scratchpad>/infra6/msg.txt` (the scratchpad root is
 - 4e79da6bc ids RED, e3ee94a56 ids GREEN (azul_storage::ids::new_uuid / uuid_from_words / is_uuid; appkit re-exports)
 - 433a82a16 manifest RED (src/tests/manifest.rs), fb7253e27 manifest GREEN (src/manifest.rs, LocalDrive hooks,
   without_manifest, config DriveEntry::open, sigv4 uri_decode + sha256_hex_of)
-- c9b579c04 sigv4 helper tests (+ this progress file)
-- LAST COMMIT: see `git log -1`; next step = migration RED (NEXT 1).
+- c9b579c04 sigv4 helper tests (+ progress d301b6153)
+- 9c5e32262 migration RED (appkit migrate.rs, stub + 8 tests), a639fc30a migration GREEN + hook in ui::create_kit
+- LAST COMMIT: see `git log -1`; next step = CLOSE investigation + RED (NEXT 2).
 
 ## IN PROGRESS
-- 2. migration (appkit)
+- 4. CLOSE
 
 ## NEXT
-1. migration: `examples/azul-appkit/src/migrate.rs` (RED tests on a temp folder), GREEN, hook in `ui::create_kit`.
-   Design: per APP (only the starting app's own folder `<os data>/<legacy>/<app_folder>/` moves, legacy =
-   `azul`, `Azul`, `AzNotes`), only when the root is the default `<os data>/Azlin`; never overwrite;
-   note file `MOVED-TO-AZLIN.txt` appended in the legacy folder when something moved.
 2. CLOSE: RED headless tests (`dll/tests/close_requested_headless.rs`); fix = `request_window_close` works for an
    app-raised flag (lower + rebaseline, then raise + pass), backends run the protocol for an app-raised flag
    instead of closing directly (headless phase 2b + HeadlessEvent::Close, Linux run.rs, macOS sync_window_state,
