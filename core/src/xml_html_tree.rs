@@ -16,7 +16,8 @@
 //!   when the block inside it does).
 //!
 //! What is simplified (see also the rule tables): comments are not nodes (text across a
-//! comment stays one run); `select` and `template` content is body content; `frameset` is
+//! comment stays one run); `select` content is body content (as in Chrome's current,
+//! customizable-select parser, but without "in select"'s own end tag rules); `frameset` is
 //! not modelled; SVG names are not case-adjusted (`lineargradient`); quirks mode only
 //! changes what the standard's tree construction changes (`<table>` in an open `<p>`).
 

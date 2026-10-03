@@ -27,8 +27,8 @@
 //! - [`XmlTreeSink`]: the tree construction's output as an [`XmlNode`] tree.
 //!
 //! What a browser does that this does not (see `xml_html_tree.rs`): comments are not nodes,
-//! `select` / `template` content is body content, `frameset`, SVG's camel-case names, script
-//! data's escapes.
+//! `select` content is body content, `frameset`, SVG's camel-case names, script data's
+//! escapes.
 
 use alloc::{borrow::Cow, string::String, vec::Vec};
 use core::cmp::Ordering;
