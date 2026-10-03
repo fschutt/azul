@@ -1334,7 +1334,7 @@ mod math_tests {
         assert_eq!(kept.first(), Some(&0));
         assert_eq!(kept.last(), Some(&(points.len() - 1)));
         let col = |p: &ChartPoint| f.px_x(p.x).floor() as i64;
-        let mut full = std::collections::BTreeMap::<i64, (u64, u64)>::new();
+        let mut full = alloc::collections::BTreeMap::<i64, (u64, u64)>::new();
         for p in &points {
             let e = full
                 .entry(col(p))
@@ -1342,7 +1342,7 @@ mod math_tests {
             e.0 = f64::from_bits(e.0).min(p.y).to_bits();
             e.1 = f64::from_bits(e.1).max(p.y).to_bits();
         }
-        let mut seen = std::collections::BTreeMap::<i64, (u64, u64)>::new();
+        let mut seen = alloc::collections::BTreeMap::<i64, (u64, u64)>::new();
         for &i in &kept {
             let p = &points[i];
             let e = seen
@@ -4342,5 +4342,206 @@ mod dom_tests {
             series_color(&series("a", &[]).with_color(own), 0, &skin),
             own
         );
+    }
+}
+
+#[cfg(test)]
+mod pointer_tests {
+    use azul_core::{
+        dom::{Dom, IdOrClass},
+        window::VirtualKeyCode,
+    };
+
+    use super::*;
+
+    fn series(name: &str, ys: &[f64]) -> ChartSeries {
+        ChartSeries::create(
+            AzString::from(name),
+            ChartPointVec::from_vec(
+                ys.iter()
+                    .enumerate()
+                    .map(|(i, y)| ChartPoint::create(i as f64, *y))
+                    .collect(),
+            ),
+        )
+    }
+
+    fn months() -> StringVec {
+        StringVec::from_vec(
+            ["Jan", "Feb", "Mar", "Apr"]
+                .iter()
+                .map(|s| AzString::from(*s))
+                .collect(),
+        )
+    }
+
+    fn chart(kind: ChartKind) -> Chart {
+        Chart::create(kind, 640.0, 320.0)
+            .with_categories(months())
+            .with_added_series(series("North", &[10.0, 40.0, 25.0, 60.0]))
+            .with_added_series(series("South", &[5.0, 15.0, 35.0, 30.0]))
+    }
+
+    fn overlay(dom: &Dom) -> &Dom {
+        fn find(d: &Dom) -> Option<&Dom> {
+            let is_overlay = d
+                .root
+                .get_ids_and_classes()
+                .as_ref()
+                .iter()
+                .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == OVERLAY_CLASS));
+            if is_overlay {
+                return Some(d);
+            }
+            d.children.as_ref().iter().find_map(find)
+        }
+        find(dom).expect("the chart has an overlay")
+    }
+
+    /// The state the built chart's overlay handlers hold.
+    fn with_state<T>(chart: Chart, f: impl FnOnce(&ChartState) -> T) -> T {
+        let dom = chart.dom();
+        let mut data = overlay(&dom).root.get_callbacks().as_ref()[0]
+            .refany
+            .clone();
+        let st = data
+            .downcast_ref::<ChartState>()
+            .expect("the overlay holds a ChartState");
+        f(&st)
+    }
+
+    #[test]
+    fn the_pointer_finds_the_nearest_point_of_the_nearest_line() {
+        with_state(chart(ChartKind::Line), |st| {
+            let (x, y) = st.point_px(1, 2).expect("South, Mar is drawn");
+            assert_eq!(st.hit(x + 3.0, y - 2.0), Some((1, 2)));
+            let (x, y) = st.point_px(0, 3).expect("North, Apr is drawn");
+            assert_eq!(st.hit(x, y + 4.0), Some((0, 3)));
+        });
+    }
+
+    #[test]
+    fn a_dot_out_of_reach_is_not_hovered() {
+        with_state(chart(ChartKind::Scatter), |st| {
+            let (x, y) = st.point_px(0, 1).expect("drawn");
+            assert_eq!(st.hit(x + 1.0, y + 1.0), Some((0, 1)));
+            assert_eq!(st.hit(x + HOVER_REACH_PX * 3.0, y), None);
+        });
+    }
+
+    #[test]
+    fn the_bar_under_the_pointer_is_hit_and_a_pointer_over_it_finds_it_too() {
+        with_state(chart(ChartKind::Bar), |st| {
+            let (x, top) = st.point_px(1, 2).expect("South, Mar is drawn");
+            assert_eq!(st.hit(x, top + 5.0), Some((1, 2)), "on the bar");
+            assert_eq!(
+                st.hit(x, top - 20.0),
+                Some((1, 2)),
+                "above it, in its column"
+            );
+        });
+    }
+
+    #[test]
+    fn the_slice_under_the_pointer_is_hit() {
+        let pie = Chart::create(ChartKind::Pie, 400.0, 300.0)
+            .with_categories(months())
+            .with_added_series(series("Share", &[1.0, 2.0, 3.0, 4.0]));
+        with_state(pie, |st| {
+            for c in 0..4 {
+                let (x, y) = st.point_px(0, c).expect("every slice is drawn");
+                assert_eq!(st.hit(x, y), Some((0, c)));
+            }
+            assert_eq!(
+                st.hit(st.pie.cx, st.pie.cy - st.pie.r_out - 5.0),
+                None,
+                "outside the disc"
+            );
+        });
+    }
+
+    #[test]
+    fn the_tooltip_names_the_series_the_category_and_the_value() {
+        with_state(chart(ChartKind::Line), |st| {
+            assert_eq!(st.tooltip_text(1, 2), "South, Mar: 35");
+        });
+        let pie = Chart::create(ChartKind::Donut, 400.0, 300.0)
+            .with_categories(months())
+            .with_added_series(series("Share", &[1.0, 2.0, 3.0, 4.0]));
+        with_state(pie, |st| {
+            assert_eq!(st.tooltip_text(0, 3), "Apr: 4 (40%)");
+        });
+    }
+
+    #[test]
+    fn a_click_reports_the_shown_point() {
+        with_state(chart(ChartKind::Bar), |st| {
+            assert_eq!(
+                st.selection(1, 2),
+                Some(ChartSelection::create(1, 2, 2.0, 35.0))
+            );
+            assert_eq!(st.selection(5, 0), None);
+        });
+    }
+
+    #[test]
+    fn the_keys_walk_the_points_and_the_series() {
+        with_state(chart(ChartKind::Line), |st| {
+            let mut probe = ChartState {
+                kind: st.kind,
+                frame: st.frame,
+                series: st.series.clone(),
+                sorted: st.sorted.clone(),
+                categories: st.categories.clone(),
+                bars: st.bars.clone(),
+                slices: st.slices.clone(),
+                pie: st.pie,
+                markers: st.markers,
+                on_select: OptionChartOnSelect::None,
+                hovered: None,
+            };
+            let mut press = |k: VirtualKeyCode| {
+                let next = probe.step(k);
+                if let Some(n) = next {
+                    probe.hovered = n;
+                }
+                next.map(|_| probe.hovered)
+            };
+            assert_eq!(
+                press(VirtualKeyCode::Escape),
+                None,
+                "nothing shown: Escape is not ours"
+            );
+            assert_eq!(
+                press(VirtualKeyCode::Right),
+                Some(Some((0, 0))),
+                "the first key shows the first point"
+            );
+            assert_eq!(press(VirtualKeyCode::Right), Some(Some((0, 1))));
+            assert_eq!(press(VirtualKeyCode::Down), Some(Some((1, 1))));
+            assert_eq!(press(VirtualKeyCode::End), Some(Some((1, 3))));
+            assert_eq!(
+                press(VirtualKeyCode::Right),
+                Some(Some((1, 3))),
+                "the last point stays"
+            );
+            assert_eq!(press(VirtualKeyCode::Up), Some(Some((0, 3))));
+            assert_eq!(press(VirtualKeyCode::Home), Some(Some((0, 0))));
+            assert_eq!(press(VirtualKeyCode::A), None, "letters are the app's");
+            assert_eq!(press(VirtualKeyCode::Escape), Some(None), "Escape hides");
+        });
+    }
+
+    #[test]
+    fn the_tooltip_stays_inside_the_plot() {
+        let (left, top) = tooltip_place(10.0, 100.0, "North, Mar: 1,234", 300.0);
+        assert!(left >= 10.0 && top < 100.0, "right of and above the point");
+        let (left, _) = tooltip_place(290.0, 100.0, "North, Mar: 1,234", 300.0);
+        assert!(
+            left < 290.0 && left >= 0.0,
+            "left of a point near the right edge"
+        );
+        let (_, top) = tooltip_place(100.0, 5.0, "x", 300.0);
+        assert!(top > 5.0, "below a point near the top");
     }
 }
