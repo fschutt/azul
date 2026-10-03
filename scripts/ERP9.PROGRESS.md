@@ -48,7 +48,17 @@ Crate: examples/azul-erp (package + bin AzERP, lib azerp). NEVER compile; parse-
 - D8 (coordinator rule 2026-10-03): nothing personal leaves the machine; AzERP talks to no outside service.
 - 228358a0a app.rs GREEN (+ csv_io::export_journal). 4a + 4b DONE.
 
-## NEXT = 4c the UI (azul), file by file, commit each:
+- c8e0e31e2 ids.rs; 91ae5d32d / a5fbe0c18 State::row_path RED / GREEN; ef1ca125b ui/mod.rs; 11de8317d ui/table.rs;
+  3a9f4b4b7 ui/form.rs; b2804e235 ui/detail.rs.
+- NEXT: src/ui/panels.rs with `overview(s: &Erp, asset: &Asset) -> Dom`, `schedule(s: &Erp, app, asset)`
+  (schedule DataTable via table::grid_table + detail::on_inner_event, Chart line of closing values),
+  `reports(s: &Erp, app, view)`, `run(s: &Erp, app, view)` (year TextInput, Next, preview, Run and post),
+  `import(s: &Erp, app, view)` (FileDialog -> kit::spawn_outside_read(.., TAG_IMPORT, on_files), mapping
+  DropDowns -> set_mapping, commit). Then lib.rs: `pub mod ui;`, SPEC (pub const, used as crate::SPEC), ABOUT
+  (app_folder "erp"), SHORTCUTS, start() (AZERP_TODAY env for E2E, --screen -> path, args.files csv ->
+  pending_import), on_window_created (kit::on_window_created + ui::spawn_load). Then E2E + report.
+
+## (old) 4c plan:
 - src/ids.rs: `names!` macro like examples/azul-dashboard/src/ids.rs, prefix `__azerp_` (TABLE, TOOLS, TAB_ROW,
   FORM, FORM_SAVE, FORM_CANCEL, FIELD_<name> made at run time? NO - ids for fields: one const per form field
   name is too many; use `field_id(name)` = AzString::from(format!("__azerp_field-{name}")) - ONE helper).
