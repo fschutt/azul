@@ -1875,6 +1875,13 @@ pub mod parser {
                 if expanded.is_empty() {
                     return Vec::new();
                 }
+                // CSS Images 4 s3.4: a single stop is valid and paints its
+                // colour everywhere - as a second stop of the same colour at
+                // the end of the line (every renderer needs two).
+                if expanded.len() == 1 {
+                    let only = expanded[0].0;
+                    expanded.push((only, None));
+                }
 
                 let pos_ctor: fn(f32) -> $pos_ty = $pos_ctor;
                 let pos_to_f32: fn(&$pos_ty) -> f32 = $pos_to_f32;
@@ -1976,6 +1983,14 @@ pub mod parser {
                     expanded.push((stop.color, Some(b)));
                 }
             }
+        }
+        // CSS Images 4 s3.4: a single stop is valid and paints its colour
+        // everywhere - as a second stop of the same colour at the end of the
+        // line (every renderer needs two; one painted nothing, WPT
+        // gradient-single-stop-001..003).
+        if expanded.len() == 1 {
+            let only = expanded[0].0;
+            expanded.push((only, None));
         }
         let Some(last_idx) = expanded.len().checked_sub(1) else {
             return Vec::new();
@@ -3482,15 +3497,17 @@ pub mod parser {
 
         #[test]
         fn autotest_parse_gradient_accepts_gradients_with_too_few_stops() {
-            // W3C requires >= 2 color stops. Pinned: this parser happily returns
-            // gradients with one or zero stops -- `TooFewGradientStops` is dead code.
+            // CSS Images 4 s3.4 allows ONE color stop (the gradient is then
+            // that colour): it normalizes to two stops of that colour, 0% and
+            // 100% - every renderer paints nothing for fewer than two (WPT
+            // gradient-single-stop-001). Zero stops still parse.
             let StyleBackgroundContent::LinearGradient(g) =
                 parse_gradient("red", GradientType::LinearGradient).unwrap()
             else {
                 panic!("expected a linear gradient");
             };
-            assert_eq!(g.stops.len(), 1);
-            assert_eq!(offsets(&g.stops), alloc::vec![0.0]);
+            assert_eq!(g.stops.len(), 2);
+            assert_eq!(offsets(&g.stops), alloc::vec![0.0, 100.0]);
 
             // A direction with no stops at all -> zero stops, still Ok.
             let StyleBackgroundContent::LinearGradient(g) =
@@ -3568,8 +3585,11 @@ pub mod parser {
             assert_eq!(g.stops.len(), 0);
 
             let g = radial("radial-gradient(!!!, red)");
-            assert_eq!(g.stops.len(), 1, "the junk item should have been dropped");
+            // The junk item is dropped; the one stop left is doubled (a
+            // single stop paints its colour, CSS Images 4 s3.4).
+            assert_eq!(g.stops.len(), 2, "the junk item should have been dropped");
             assert_eq!(g.stops.as_ref()[0].color, ColorOrSystem::Color(ColorU::RED));
+            assert_eq!(g.stops.as_ref()[1].color, ColorOrSystem::Color(ColorU::RED));
 
             // The same input is a hard error for a linear gradient.
             assert!(parse_style_background_content("linear-gradient(!!!, red)").is_err());
