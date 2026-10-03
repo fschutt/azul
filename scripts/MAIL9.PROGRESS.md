@@ -68,9 +68,31 @@ dumb as possible". Order now:
   fields (dkim_new_key, dkim_busy, dkim_report), sending_settings(), key to keyring on save (step 3 done,
   step 4 model half done)
 - 0752cc6fd Sending page DKIM view (step 4 done); 34b4a2431 compose job hands the DKIM key (step 5 done)
+- 0a00343db azmail-send --dkim-generate / --port25-probe; 0d2841208 E2E verifier + cases (step 6 done).
+  Ran `azmail_send_test.py --case dkim --case smtp` against the PREBUILT base azmail-send through the
+  capped runner with `--log /dev/stdout`: both PASS (micromail's signature verifies independently).
+- 0a9a8b771 interim report scripts/MAIL9_2026_10_03.md (update it at the end: commits, what is left)
 
 ## IN PROGRESS
-- step 6 (the CLI flags and the E2E)
+- nothing half-done. Monday: start step 7 below.
+
+## MONDAY - exact next step
+- Step 7a (secondary route, lettre): RED tests first in `examples/azul-mail/src/auth.rs`
+  (`ServerCaps` from an SMTP EHLO AUTH list; `choose_submission(kind, caps)`: password -> PLAIN, else
+  LOGIN, else Err; token -> XOAUTH2 only when offered) and in `send.rs` (`SendRoute::Submission`
+  `{"kind":"submission"}` = account.json's `smtp` server; `submission_security(host, port, tls)`: 465
+  implicit TLS, else STARTTLS required, `tls: off` only to a loopback host; `SendSettings::sign_in:
+  Option<Secret>` (serde skip); missing password / refused sign-in = waits (not counted, due at once);
+  `Transport::submit(&SubmitTarget, from, recipients, message) -> Result<Vec<RecipientOutcome>,
+  SubmitFailure>`; the Fake records submits). NOT the default route. Then GREEN with a new module
+  `src/submit.rs` (lettre `SmtpConnection`: connect with/without TLS, starttls, `auth(&[mechanism],
+  &Credentials)`, MAIL / RCPT per recipient / DATA via `commands::{Mail, Rcpt, Data}`, errors to micromail
+  `Reply`; install `rustls_rustcrypto::provider()` as the process default once), Cargo.toml `lettre =
+  { version = "0.11.23", default-features = false, features = ["smtp-transport", "rustls-no-provider",
+  "webpki-roots"] }`; the Sending page's third choice "Through my provider's server (sign in)"; the sink
+  `scripts/azmail_smtp_sink.py` grows `--auth user=secret`, `--auth-mechs`, `--implicit-tls`; E2E cases.
+- Step 7b: remote content (PLAN MAIL9 "REMOTE CONTENT") - html.rs pre-pass from
+  `Xml::scan_external_resources`, fetch on a Thread with caps, `cid:` parts always shown.
 
 ## NEXT (exact, in order; each its own commit)
 1. DONE - sending.rs: RED tests then GREEN for the DKIM part of the form: `SendingForm` gets `dkim: bool`,
