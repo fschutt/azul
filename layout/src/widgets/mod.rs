@@ -1835,6 +1835,9 @@ mod label_convention {
             "date_repeat_picker",
             super::date_repeat_picker::fixtures::sample().dom(),
         ));
+        // The chart: three series of bars over four categories, a legend and
+        // the table view.
+        all.push(("chart", super::chart::fixtures::sample().dom()));
         all
     }
 
@@ -2772,6 +2775,9 @@ mod theme_contrast {
         "call_shell_stage",
         // The spreadsheet grid: the surface of a document window.
         "cell_grid",
+        // A chart: a data surface like the grid (its title, ticks, legend
+        // and table text on the chart's own sheet).
+        "chart",
     ];
 
     /// A widget added to the manifest must land in a group, or it is simply

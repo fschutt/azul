@@ -3643,6 +3643,45 @@ pub extern "C" fn on_chart_click(mut data: RefAny, info: CallbackInfo) -> Update
     }
 }
 
+// ==== fixtures (the widget manifest's sample) ====
+
+/// The chart the widget manifest builds (`widgets::label_convention`): three
+/// series of bars over four categories, with a title, axis titles, a legend,
+/// a selected bar and the table view.
+#[cfg(test)]
+pub(crate) mod fixtures {
+    use super::*;
+
+    /// The sample chart.
+    pub(crate) fn sample() -> Chart {
+        let series = |name: &str, ys: [f64; 4]| {
+            ChartSeries::create(
+                AzString::from(name),
+                ChartPointVec::from_vec(
+                    ys.iter()
+                        .enumerate()
+                        .map(|(i, y)| ChartPoint::create(i as f64, *y))
+                        .collect(),
+                ),
+            )
+        };
+        Chart::create(ChartKind::Bar, 480.0, 280.0)
+            .with_title(AzString::from("Revenue by quarter"))
+            .with_axis_titles(AzString::from("Quarter"), AzString::from("Revenue"))
+            .with_categories(StringVec::from_vec(
+                ["Q1", "Q2", "Q3", "Q4"]
+                    .iter()
+                    .map(|s| AzString::from(*s))
+                    .collect(),
+            ))
+            .with_added_series(series("North", [120.0, 150.0, 90.0, 180.0]))
+            .with_added_series(series("South", [80.0, 95.0, 130.0, 110.0]))
+            .with_added_series(series("West", [60.0, 70.0, 75.0, 90.0]))
+            .with_selected(ChartSelection::create(0, 3, 3.0, 180.0))
+            .with_show_table(true)
+    }
+}
+
 // CHART7-NEXT: the geometry, the build, the pointer and the keys.
 #[cfg(test)]
 mod geometry_tests {
