@@ -1714,12 +1714,15 @@ fn sheet_tabs(s: &AppState, app: &RefAny) -> Dom {
              border-top: 1px solid rgba(128, 128, 128, 0.35);",
         )
         .with_accessibility_info(AccessibilityInfo::named(AzString::from("Sheets"), AccessibilityRole::PageTabList));
-    // An icon-only button: its `alt` names it ("New sheet").
-    let mut add = Button::create(AzString::from(""))
-        .with_icon(AzString::from("add"))
-        .with_on_click(action_ref(app, Action::InsertSheet), on_action as ButtonOnClickCallbackType);
-    add.alt = AzString::from("New sheet");
-    row.add_child(add.dom().with_css("flex-grow: 0; margin: 2px 6px 0px 0px;"));
+    // An icon-only button, named for assistive technology ("New sheet").
+    row.add_child(
+        Button::create(AzString::from(""))
+            .with_icon(AzString::from("add"))
+            .with_on_click(action_ref(app, Action::InsertSheet), on_action as ButtonOnClickCallbackType)
+            .dom()
+            .with_accessibility_name(AzString::from("New sheet"))
+            .with_css("flex-grow: 0; margin: 2px 6px 0px 0px;"),
+    );
     for (i, info) in s.cache.snapshot.sheets.iter().enumerate() {
         let sheet = u32::try_from(i).unwrap_or(0);
         if info.hidden {
