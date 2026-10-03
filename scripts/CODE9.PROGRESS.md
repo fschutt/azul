@@ -42,9 +42,12 @@ Branch: wt/code9 (base e537ddbe2). Brief: scripts/waves/wave9/PLAN.md "CODE9", p
   handle_key / on_drive_done / on_files_done / highlight_tick / on_highlight_done) + lib.rs (start, layout,
   on_window_created with the 250 ms highlight timer, on_close_guard, on_key). The app is complete.
 
+- bba770d0c scripts/azcode_e2e.py; 7faa33dd3 the report scripts/CODE9_2026_10_03.md (TASK COMPLETE; the
+  report lists what is left)
+
 ## IN PROGRESS
-- NEXT STEP: scripts/azcode_e2e.py (model: scripts/azdashboard_e2e.py), then a review pass over
-  code_view.rs + the app for compile risks, then the report scripts/CODE9_2026_10_03.md.
+- Optional polish only: a second review pass for compile risks (update the report's "Least sure" list if
+  anything is fixed). Nothing else is owed.
 - (done) ui.rs plan: src/ui.rs (DOM: activity bar, explorer TreeView (rows -> TreeViewNode, click index i ->
   rows[i-1]), search side panel, editor = TabHeader + find bar / go-to bar + CodeView (data_source =
   doc.text with app::doc_line, on_event = app with on_code_event) or ShellEmptyState, status bar; and the
