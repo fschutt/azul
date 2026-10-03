@@ -9,10 +9,8 @@ Branch `wt/widgets9a` from `e537ddbe2`. Nothing compiled (house rule). Report: `
   (`toolbar`, `toolbar (overflow)` in every_widget_dom + theme_contrast CHROME)
 
 ## IN PROGRESS
-- TokenInput: `layout/src/widgets/token_input.rs` - SKELETON committed (types, state, events, verdict, two callback
-  triples on_event / on_validate, builder, `pub mod token_input;` in mod.rs). The pure rules are STUBS:
-  `split_tokens`, `same_token`, `add_tokens`, `remove_token`, `matching_suggestions`, `step_active`, `entry_key`
-  (enum `EntryKey`), `look_for`, `build`.
+- TokenInput: `layout/src/widgets/token_input.rs` - skeleton abd8bf85c, RED tests b8bbd71c2, rules GREEN 87ee03dbb.
+  STILL STUBS: `look_for`, `build` (and the handlers). Step 2a is DONE; continue at 2b.
 
 ## NEXT (exact)
 2. TokenInput, in `layout/src/widgets/token_input.rs`:
