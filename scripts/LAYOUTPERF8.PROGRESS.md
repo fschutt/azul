@@ -33,3 +33,18 @@ deac0bebb's real cause (a memoised final served after a measure) is guarded sinc
 
 ## NEXT (for whoever resumes)
 - Nothing on this branch. Parent: build, run the test commands in the report, re-measure AzWidgets.
+
+# LAYOUTPERF8B (branch wt/layoutperf8b, base 3428223f1 = wave 8 integrated incl. LAYOUTPERF8)
+
+Coordinator re-measured on the wave-8 build: knob tick incremental_relayout 55-58 ms (one 23 ms), was
+157-309; root_layout_pass 19.2 ms (expected 2-5); text_layout_flow 288 (expected ~0); taffy misses 618;
+fc_inline 1234; fc_flex_grid 203 (26 ms); plus three VirtualView passes (23-86 ms) per tick. Task: find what
+still re-flows ~10% of the page every tick, why a knob tick lays out the VirtualView child DOMs at all; RED
+with counts, fix, expected numbers. Report scripts/LAYOUTPERF8B_<date>.md.
+
+## 8B DONE
+- (this section)
+
+## 8B NEXT
+- read /Users/fschutt/Development/azul-work/lp8/tick.log (a tick block: which spans), re-run with
+  AZ_TAFFY_DEBUG / AZ_RECON_DEBUG to name the missing nodes.
