@@ -32,10 +32,18 @@ Branch: wt/code9 (base e537ddbe2). Brief: scripts/waves/wave9/PLAN.md "CODE9", p
   spawn_drive_jobs(info, &Root, jobs, reply_to, on_done) / take_drive_reply; spawn_highlight(info, doc, job,
   reply_to, on_done) / take_highlight_reply) - items 3 and 4 DONE
 
+- 54cc2715b ids.rs; da8e023b8 app.rs (DocText, Doc { open, with_text, refresh, apply_edits, apply_own,
+  undo_redo, caret_label, file_bytes }, doc_line data callback, token_kind, AppState { refresh_find,
+  select_match, step_match, replace_current, replace_all, go_to, title, any_dirty }) + buffer depth() /
+  mark_saved_at()
+
 ## IN PROGRESS
-- NEXT STEP: item 5 - src/ids.rs (`__azcode_` const AzStrings), src/app.rs (AppState, DocText RefAny
-  payload for the CodeView data source, Doc, commands), src/ui.rs (the DeveloperShell window), lib.rs
-  start() / layout / callbacks; then 6 (scripts/azcode_e2e.py) and the report.
+- NEXT STEP: src/ui.rs (DOM: activity bar, explorer TreeView (rows -> TreeViewNode, click index i ->
+  rows[i-1]), search side panel, editor = TabHeader + find bar / go-to bar + CodeView (data_source =
+  doc.text with app::doc_line, on_event = app with on_code_event) or ShellEmptyState, status bar; and the
+  callbacks) then lib.rs start() / layout / on_window_created (highlight Timer 250 ms: docs with walk_to ->
+  storage::spawn_highlight) / on_drive_done / on_highlight_done / on_files_done (sample written) /
+  CloseGuard / keys; then scripts/azcode_e2e.py and the report.
   1. (DONE) src/search.rs: `find_all(&TextBuffer, needle, TextMatch) -> Vec<(line, start, end)>` (azul_appkit::find::
      matches per line), `next_after(matches, Pos) -> Option<..>` (wraps), `replace_all_edits(...) -> Vec<Edit>`
      (last-first) + `go_to_line(input "120" / "120:5", line_count) -> Option<Pos>`; tests.
