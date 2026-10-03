@@ -11321,11 +11321,13 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         None
     };
 
-    // The bottom of the lowest line box that holds NO item with a height (a
-    // line a lone `<br>` ends), in any column, horizontal modes: what the
-    // IFC's height is measured to, see below. A line with glyphs or an atomic
-    // inline keeps measuring by its items, as it always did.
+    // The bottom of the lowest line box that holds glyphs or NO item with a
+    // height (a line a lone `<br>` ends), in any column, horizontal modes:
+    // what the IFC's height is measured to, see below; and the top of the
+    // topmost line box that holds glyphs. A line of only atomic inlines keeps
+    // measuring by its items, as it always did.
     let mut line_box_extent = 0.0_f32;
+    let mut glyph_line_box_top: Option<f32> = None;
     // +spec:multi-column - this context's share of a multi-column BLOCK
     // container's flow (`ColumnFlow`): a further column starts at each of
     // the given line indices, `advance` further along the inline axis, its
@@ -11655,8 +11657,15 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             // line box height
             let band_height = line_height.max(fragment_constraints.resolved_line_height());
             line_bands.push((line_index, line_top_y, band_height));
+            let band_top = line_top_y;
             line_top_y += band_height;
-            if !line_pos_items
+            let holds_glyphs = line_pos_items
+                .iter()
+                .any(|item| matches!(&item.item, ShapedItem::Cluster(c) if !c.glyphs.is_empty()));
+            if holds_glyphs {
+                glyph_line_box_top = Some(glyph_line_box_top.map_or(band_top, |t| t.min(band_top)));
+                line_box_extent = line_box_extent.max(line_top_y);
+            } else if !line_pos_items
                 .iter()
                 .any(|item| item.item.bounds().height > 0.0)
             {
@@ -11706,18 +11715,24 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 
     // +spec:display-property:a0d0ab - an IFC is as tall as its LINE BOXES (CSS 2.2
     // 10.6.3: from the top of the topmost to the bottom of the bottommost). The
-    // items' bounds miss a line box that holds no glyph: the line a lone `<br>`
-    // ends (`<div><br></div>`, Gmail's blank line) is one line-height tall in
-    // every browser (a line ending in a forced break is not a zero-height line
-    // box, 9.4.2), and measured 0 here because a break has no geometry. Only
-    // such lines reach down here (`line_box_extent`): a line with glyphs or an
-    // atomic inline is measured by its items as before - an `<svg>` alone on a
-    // line keeps its box's height, and a text line its glyphs' (a line box
-    // pinned to the strut band would have grown every one of them). The top is
-    // that of the items WITH a height; a break positioned inside a `<span>`
-    // has none and sits at the baseline, and measuring from it left
-    // `<div><span><br></span></div>` a quarter of a line tall. The vertical
-    // modes stack their line boxes along x and keep the item bounds.
+    // items' bounds miss two kinds of line box:
+    // - one that holds no glyph: the line a lone `<br>` ends (`<div><br></div>`,
+    //   Gmail's blank line) is one line-height tall in every browser (a line
+    //   ending in a forced break is not a zero-height line box, 9.4.2), and
+    //   measured 0 here because a break has no geometry;
+    // - one of text smaller than its block: every line box holds the block's
+    //   strut (10.8.1), so `<td><span style="font-size: 13px">` in a 16px
+    //   document is one 16px line tall (Chrome 18px, the glyphs 15px - every
+    //   row of a receipt 3px short, MAILREF8 group E).
+    // Both reach down here (`line_box_extent`, from `glyph_line_box_top` for
+    // text). A line of only atomic inlines is still measured by its items - an
+    // `<svg>` alone on a line keeps its box's height (Chrome adds the strut's
+    // descent below it; that moves every icon button and is left for a look
+    // pass). The top is otherwise that of the items WITH a height; a break
+    // positioned inside a `<span>` has none and sits at the baseline, and
+    // measuring from it left `<div><span><br></span></div>` a quarter of a line
+    // tall. The vertical modes stack their line boxes along x and keep the item
+    // bounds.
     let horizontal = !matches!(
         fragment_constraints.writing_mode,
         Some(
@@ -11728,7 +11743,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         )
     );
     if horizontal && line_box_extent > 0.0 {
-        let top = layout
+        let items_top = layout
             .items
             .iter()
             .filter(|item| item.item.bounds().height > 0.0)
@@ -11736,8 +11751,17 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             .fold(None, |acc: Option<f32>, y| {
                 Some(acc.map_or(y, |a| a.min(y)))
             });
+        let top = match (items_top, glyph_line_box_top) {
+            (Some(items), Some(lines)) => Some(items.min(lines)),
+            (items, lines) => items.or(lines),
+        };
         match top {
             Some(top) => {
+                // A first line box above its (smaller) glyphs starts the IFC.
+                if top < calculated_bounds.y {
+                    calculated_bounds.height += calculated_bounds.y - top;
+                    calculated_bounds.y = top;
+                }
                 calculated_bounds.height = calculated_bounds.height.max(line_box_extent - top);
             }
             None => {
