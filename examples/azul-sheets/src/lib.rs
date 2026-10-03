@@ -63,15 +63,16 @@ use azul::{
         StandardDialogOnEventCallbackType,
         TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallbackType,
     },
-    css::HoverEventFilter,
+    css::{FocusEventFilter, HoverEventFilter},
     dialog::{FileDialog, FileOpenResult},
-    dom::VirtualKeyCode,
+    dom::{AccessibilityInfo, AccessibilityRole, AccessibilityState, DomId, TabIndex, VirtualKeyCode},
     option::{OptionColorU, OptionFileTypeList, OptionString},
     pdf::Pdf,
     prelude::*,
     shells::{DocumentShell, ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
-    vec::{BackstageNavItemVec, CellGridRangeVec, CellGridSizeVec},
+    svg::{CssPath, CssPathSelector},
+    vec::{AccessibilityStateVec, BackstageNavItemVec, CellGridRangeVec, CellGridSizeVec},
     widgets::{
         AboutDialog, Backstage, BackstageNavItem, Button, CellGrid, CellGridCell, CloseGuard,
         CloseGuardEvent, CloseGuardEventKind,
@@ -119,7 +120,7 @@ pub const ABOUT: AboutInfo = AboutInfo {
 /// The keys AzSheets answers, as the settings page lists them (`Mod` = Cmd
 /// on macOS, Ctrl elsewhere). The window's and the grid's handlers are the
 /// ones that act; this table is what they do.
-pub const SHORTCUTS: [Shortcut; 22] = [
+pub const SHORTCUTS: [Shortcut; 23] = [
     Shortcut::new("File", "Mod+S", "Save the workbook"),
     Shortcut::new("File", "Mod+O", "Open a workbook"),
     Shortcut::new("File", "Mod+N", "New blank workbook"),
@@ -140,6 +141,7 @@ pub const SHORTCUTS: [Shortcut; 22] = [
     Shortcut::new("Move", "Mod+Home / Mod+End", "To A1 / to the last cell with data"),
     Shortcut::new("Move", "PageUp / PageDown", "A screen up / down"),
     Shortcut::new("Select", "Mod+A", "Select the whole sheet"),
+    Shortcut::new("Sheets", "Mod+PageDown / Mod+PageUp", "The next / previous sheet"),
     Shortcut::new("Select", "Shift+Space / Mod+Space", "Select the row / the column"),
     Shortcut::new("Formulas", "F9", "Calculate now"),
 ];
@@ -1699,36 +1701,29 @@ struct TabRef {
     sheet: u32,
 }
 
+/// Excel's sheet tab strip under the grid: a tab list (one Tab stop - the
+/// active sheet's tab; Left / Right on it and Ctrl+PageUp / PageDown
+/// anywhere switch sheets), the active tab bold and underlined, a tab's
+/// colour under it, a double-click renames, "+" adds a sheet.
 fn sheet_tabs(s: &AppState, app: &RefAny) -> Dom {
-    let mut row = Dom::create_div().with_id(ids::SHEET_TABS).with_css(
-        "display: flex; flex-direction: row; align-items: center; flex-grow: 0; padding: 2px 8px; \
-         border-top: 1px solid rgba(128, 128, 128, 0.35);",
-    );
-    row.add_child(
-        Button::create(AzString::from(""))
-            .with_icon(AzString::from("add"))
-            .with_on_click(
-                RefAny::new(ActionRef {
-                    app: app.clone(),
-                    action: Action::InsertSheet,
-                }),
-                on_action as ButtonOnClickCallbackType,
-            )
-            .dom()
-            .with_css("flex-grow: 0; margin-right: 6px;"),
-    );
+    let mut row = Dom::create_div()
+        .with_id(ids::SHEET_TABS)
+        .with_css(
+            "display: flex; flex-direction: row; align-items: stretch; flex-grow: 0; padding: 0px 8px 2px 8px; \
+             border-top: 1px solid rgba(128, 128, 128, 0.35);",
+        )
+        .with_accessibility_info(AccessibilityInfo::named(AzString::from("Sheets"), AccessibilityRole::PageTabList));
+    // An icon-only button: its `alt` names it ("New sheet").
+    let mut add = Button::create(AzString::from(""))
+        .with_icon(AzString::from("add"))
+        .with_on_click(action_ref(app, Action::InsertSheet), on_action as ButtonOnClickCallbackType);
+    add.alt = AzString::from("New sheet");
+    row.add_child(add.dom().with_css("flex-grow: 0; margin: 2px 6px 0px 0px;"));
     for (i, info) in s.cache.snapshot.sheets.iter().enumerate() {
         let sheet = u32::try_from(i).unwrap_or(0);
         if info.hidden {
             continue;
         }
-        let underline = info
-            .color
-            .as_deref()
-            .and_then(|h| ColorU::parse_hex(h).into_option())
-            .map_or_else(String::new, |c| {
-                format!("border-bottom: 3px solid rgb({}, {}, {});", c.r, c.g, c.b)
-            });
         if let Some((renaming, text)) = &s.renaming {
             if *renaming == sheet {
                 row.add_child(
@@ -1736,30 +1731,57 @@ fn sheet_tabs(s: &AppState, app: &RefAny) -> Dom {
                         .with_accessibility_name(AzString::from("Sheet name"))
                         .dom()
                         .with_id(ids::SHEET_RENAME)
-                        .with_css("width: 140px; flex-grow: 0; margin-right: 4px;"),
+                        .with_css("width: 140px; flex-grow: 0; margin: 2px 4px 0px 0px;"),
                 );
                 continue;
             }
         }
-        let kind = if sheet == s.sheet {
-            azul::widgets::ButtonType::Primary
+        let active = sheet == s.sheet;
+        let tab_color = info
+            .color
+            .as_deref()
+            .and_then(|h| ColorU::parse_hex(h).into_option())
+            .map(|c| format!("rgb({}, {}, {})", c.r, c.g, c.b));
+        // The active tab: bold, attached to the grid (no top edge), its
+        // underline the tab colour or Excel's green; the others: flat, only
+        // their own colour under them.
+        let look = if active {
+            format!(
+                "font-weight: 600; border-left: 1px solid rgba(128, 128, 128, 0.5); \
+                 border-right: 1px solid rgba(128, 128, 128, 0.5); border-bottom: 3px solid {};",
+                tab_color.as_deref().unwrap_or("#217346")
+            )
         } else {
-            azul::widgets::ButtonType::Default
+            format!(
+                "border-left: 1px solid transparent; border-right: 1px solid transparent; border-bottom: 3px solid {};",
+                tab_color.as_deref().unwrap_or("transparent")
+            )
         };
         let data = RefAny::new(TabRef {
             app: app.clone(),
             sheet,
         });
+        let states = if active {
+            AccessibilityStateVec::from_vec(vec![AccessibilityState::Selected])
+        } else {
+            AccessibilityStateVec::from_vec(Vec::new())
+        };
         row.add_child(
-            Button::with_type(AzString::from(info.name.as_str()), kind)
-                .with_on_click(data.clone(), on_tab_click as ButtonOnClickCallbackType)
-                .dom()
-                .with_css(format!("flex-grow: 0; margin-right: 4px; {underline}"))
-                .with_callback(
-                    EventFilter::Hover(HoverEventFilter::DoubleClick),
-                    data,
-                    on_tab_double_click,
-                ),
+            Dom::create_div()
+                .with_id(ids::sheet_tab(sheet))
+                .with_css(format!(
+                    "display: flex; flex-direction: row; align-items: center; flex-grow: 0; padding: 3px 14px; \
+                     margin-right: 1px; cursor: pointer; {look}"
+                ))
+                .with_tab_index(if active { TabIndex::Auto } else { TabIndex::NoKeyboardFocus })
+                .with_accessibility_info(AccessibilityInfo {
+                    states,
+                    ..AccessibilityInfo::named(AzString::from(info.name.as_str()), AccessibilityRole::PageTab)
+                })
+                .with_child(Dom::create_p_with_text(AzString::from(info.name.as_str())).with_css("margin: 0px; font-size: 12px;"))
+                .with_callback(EventFilter::Hover(HoverEventFilter::MouseDown), data.clone(), on_tab_click)
+                .with_callback(EventFilter::Hover(HoverEventFilter::DoubleClick), data.clone(), on_tab_double_click)
+                .with_callback(EventFilter::Focus(FocusEventFilter::VirtualKeyDown), data, on_tab_key),
         );
     }
     row
@@ -2966,11 +2988,38 @@ extern "C" fn on_tab_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((mut app, sheet)) = data.downcast_ref::<TabRef>().map(|r| (r.app.clone(), r.sheet)) else {
         return Update::DoNothing;
     };
+    with_app(&mut app, &mut info, |info, app, s| switch_sheet(info, app, s, sheet))
+}
+
+/// Switches to `sheet`: a fresh view of it, fetched.
+fn switch_sheet(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, sheet: u32) {
+    if s.sheet != sheet {
+        s.sheet = sheet;
+        s.view = CellGridView::create();
+        send(info, app, s, Command::Fetch, Pending::Other, Post::None);
+    }
+}
+
+/// Left / Right on the active tab: the previous / next sheet, its tab the
+/// focused one (the list's one Tab stop moves with it).
+extern "C" fn on_tab_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(mut app) = data.downcast_ref::<TabRef>().map(|r| r.app.clone()) else {
+        return Update::DoNothing;
+    };
+    let forward = match info.get_current_keyboard_state().current_virtual_keycode.into_option() {
+        Some(VirtualKeyCode::Right) => true,
+        Some(VirtualKeyCode::Left) => false,
+        _ => return Update::DoNothing,
+    };
     with_app(&mut app, &mut info, |info, app, s| {
-        if s.sheet != sheet {
-            s.sheet = sheet;
-            s.view = CellGridView::create();
-            send(info, app, s, Command::Fetch, Pending::Other, Post::None);
+        if let Some(next) = model::step_sheet(&s.cache.snapshot.sheets, s.sheet, forward) {
+            switch_sheet(info, app, s, next);
+            info.set_focus_to_path(
+                DomId { inner: 0 },
+                CssPath {
+                    selectors: vec![CssPathSelector::Id(ids::sheet_tab(next))].into(),
+                },
+            );
         }
     })
 }
@@ -3206,6 +3255,15 @@ extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update 
         }
         Some(VirtualKeyCode::N) if command => {
             with_app(&mut data, &mut info, |info, app, s| new_workbook(info, app, s, false))
+        }
+        // Excel's sheet keys: the next / previous visible sheet.
+        Some(key @ (VirtualKeyCode::PageDown | VirtualKeyCode::PageUp)) if command => {
+            with_app(&mut data, &mut info, |info, app, s| {
+                let forward = key == VirtualKeyCode::PageDown;
+                if let Some(next) = model::step_sheet(&s.cache.snapshot.sheets, s.sheet, forward) {
+                    switch_sheet(info, app, s, next);
+                }
+            })
         }
         // F4 while a formula is being edited: the reference at the caret
         // cycles through $A$1, A$1, $A1, A1 (Excel).

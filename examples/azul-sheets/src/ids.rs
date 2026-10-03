@@ -31,6 +31,15 @@ pub const NEW_SAMPLE: AzString = AzString::from_const_str("__azsheets_new-sample
 /// The workbook screen (formula bar, grid, tabs).
 pub const WORKBOOK: AzString = AzString::from_const_str("__azsheets_workbook");
 
+/// The prefix of a sheet tab: `__azsheets_sheet-tab-<sheet index>`.
+pub const SHEET_TAB_PREFIX: &str = "__azsheets_sheet-tab-";
+
+/// The id of the tab of sheet `index`.
+#[must_use]
+pub fn sheet_tab(index: u32) -> AzString {
+    AzString::from(format!("{SHEET_TAB_PREFIX}{index}"))
+}
+
 /// The prefix of the Open list's rows: `__azsheets_open-<index>`.
 pub const OPEN_ROW_PREFIX: &str = "__azsheets_open-";
 
