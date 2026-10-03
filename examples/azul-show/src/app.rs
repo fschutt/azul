@@ -161,6 +161,44 @@ pub struct ShowRuntime {
     pub return_view: View,
 }
 
+/// Where the presenter view opens (PowerPoint's Slide Show > Monitors): on a
+/// screen of its own when there is one, or on the monitor the user picked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PresenterMonitor {
+    #[default]
+    Automatic,
+    /// The monitor with this index (`Monitor::monitor_id.index`).
+    Monitor(u32),
+}
+
+impl PresenterMonitor {
+    /// The key of the choice in the kit's settings.json.
+    pub const SETTING: &'static str = "presenter_monitor";
+
+    /// The choice a settings value names: a monitor index, else automatic.
+    #[must_use]
+    pub fn parse(value: Option<&str>) -> Self {
+        let _ = value;
+        PresenterMonitor::Automatic
+    }
+
+    /// The settings value of the choice.
+    #[must_use]
+    pub fn to_setting(self) -> String {
+        String::new()
+    }
+
+    /// The monitor the presenter window opens on, among the connected
+    /// `monitors` (their indices) while the show runs on `show`: the chosen
+    /// one while it is connected, else the first one that is not the show's;
+    /// `None` (the system's choice) with one screen.
+    #[must_use]
+    pub fn resolve(self, monitors: &[u32], show: Option<u32>) -> Option<u32> {
+        let _ = (monitors, show);
+        None
+    }
+}
+
 /// Everything the app holds.
 pub struct AppState {
     pub editor: Option<Editor>,
@@ -407,6 +445,32 @@ mod tests {
         let without_notes = fit_scale(1280.0, 800.0, 1920.0, 1080.0, false);
         assert!(without_notes >= s);
         assert_eq!(fit_scale(10.0, 10.0, 1920.0, 1080.0, true), 0.05, "never below 5%");
+    }
+
+    #[test]
+    fn the_presenter_view_opens_on_a_screen_of_its_own_or_on_the_chosen_one() {
+        let auto = PresenterMonitor::Automatic;
+        // The show on the primary (0): the presenter on the other screen.
+        assert_eq!(auto.resolve(&[0, 1], Some(0)), Some(1));
+        assert_eq!(auto.resolve(&[0, 1], Some(1)), Some(0));
+        assert_eq!(auto.resolve(&[0, 1, 2], Some(1)), Some(0));
+        // One screen: the system places it.
+        assert_eq!(auto.resolve(&[0], Some(0)), None);
+        assert_eq!(auto.resolve(&[], None), None);
+        // The show's monitor unknown: the second screen, if any.
+        assert_eq!(auto.resolve(&[0, 1], None), Some(1));
+        // A chosen monitor wins while it is connected, even the show's own.
+        let chosen = PresenterMonitor::Monitor(2);
+        assert_eq!(chosen.resolve(&[0, 1, 2], Some(0)), Some(2));
+        assert_eq!(PresenterMonitor::Monitor(0).resolve(&[0, 1], Some(0)), Some(0));
+        // Unplugged: automatic again.
+        assert_eq!(chosen.resolve(&[0, 1], Some(0)), Some(1));
+        // The choice survives settings.json.
+        for choice in [auto, chosen] {
+            assert_eq!(PresenterMonitor::parse(Some(&choice.to_setting())), choice);
+        }
+        assert_eq!(PresenterMonitor::parse(None), auto);
+        assert_eq!(PresenterMonitor::parse(Some("not a monitor")), auto);
     }
 
     #[test]
