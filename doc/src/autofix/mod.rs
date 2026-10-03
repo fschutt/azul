@@ -3361,8 +3361,53 @@ pub fn check_function_signatures(
 /// [`FfiSafetyWarningKind::BareObjectInFnBody`]. `object` cannot be
 /// rewritten blindly: GlContextPtr has real arguments of that name.
 pub fn check_fn_body_receivers(api_data: &ApiData) -> Vec<FfiSafetyWarning> {
-    let _ = api_data;
-    Vec::new()
+    let mut warnings = Vec::new();
+    for version in api_data.0.values() {
+        for (module_name, module) in &version.api {
+            for (class_name, class) in &module.classes {
+                let entries = class
+                    .constructors
+                    .iter()
+                    .chain(class.functions.iter())
+                    .flat_map(|map| map.iter());
+                for (fn_name, f) in entries {
+                    let arg_named = |name: &str| f.fn_args.iter().any(|a| a.contains_key(name));
+                    if !arg_named("self") || arg_named("object") {
+                        continue;
+                    }
+                    let Some(body) = f.fn_body.as_deref() else {
+                        continue;
+                    };
+                    if !uses_bare_object(body) {
+                        continue;
+                    }
+                    warnings.push(FfiSafetyWarning {
+                        type_name: format!("{}::{}", class_name, fn_name),
+                        file_path: format!("api.json - {}.{}", module_name, class_name),
+                        kind: FfiSafetyWarningKind::BareObjectInFnBody {
+                            fn_body: body.to_string(),
+                            receiver: crate::codegen::v2::ir::receiver_arg_name(class_name),
+                        },
+                    });
+                }
+            }
+        }
+    }
+    warnings
+}
+
+/// Whether `body` uses the variable `object` other than as `object.`: not
+/// part of another name, a path (`Json::object`), a field / method
+/// (`x.object`), a call or a macro (`object(`, `object!`).
+fn uses_bare_object(body: &str) -> bool {
+    let is_name = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    body.match_indices("object").any(|(at, word)| {
+        let before = body[..at].chars().next_back();
+        let after = body[at + word.len()..].chars().next();
+        let starts = before.map_or(true, |c| !is_name(c) && c != '.' && c != ':');
+        let ends = after.map_or(true, |c| !is_name(c) && !matches!(c, '.' | ':' | '(' | '!'));
+        starts && ends
+    })
 }
 
 /// Check for invalid characters in documentation strings
