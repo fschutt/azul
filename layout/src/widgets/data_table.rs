@@ -1051,8 +1051,54 @@ pub(crate) struct ColumnKeys {
 /// The plan of `view`'s query over `columns`: keys and filters on columns
 /// that do not exist (or do not sort / filter) are left out.
 pub(crate) fn plan_of(view: &DataTableView, columns: &[DataTableColumn]) -> QueryPlan {
-    let _ = (view, columns);
-    QueryPlan::default()
+    /// The slot of `column`, added (or widened) to read what is asked.
+    fn slot_for(plan: &mut QueryPlan, column: u32, texts: bool, values: bool) -> usize {
+        if let Some(i) = plan.columns.iter().position(|c| c.column == column) {
+            plan.columns[i].texts |= texts;
+            plan.columns[i].values |= values;
+            return i;
+        }
+        plan.columns.push(PlanColumn {
+            column,
+            texts,
+            values,
+        });
+        plan.columns.len() - 1
+    }
+
+    let mut plan = QueryPlan::default();
+    for key in view.sort.as_slice() {
+        let Some(c) = columns.get(key.column as usize) else {
+            continue;
+        };
+        if !c.sortable {
+            continue;
+        }
+        let by_text = c.sort_kind == DataTableSortKind::Text;
+        let slot = slot_for(&mut plan, key.column, by_text, !by_text);
+        plan.sort.push(PlanSort {
+            slot,
+            descending: key.direction == DataTableSortDirection::Descending,
+            by_text,
+        });
+    }
+    for filter in view.filters.as_slice() {
+        let Some(c) = columns.get(filter.column as usize) else {
+            continue;
+        };
+        if !c.filterable || filter.is_empty() {
+            continue;
+        }
+        let by_text = filter.reads_text(c.sort_kind);
+        let slot = slot_for(&mut plan, filter.column, by_text, !by_text);
+        plan.filters.push(PlanFilter {
+            slot,
+            filter: filter.clone(),
+            by_text,
+            needle: filter.needle(),
+        });
+    }
+    plan
 }
 
 /// Reads the keys of rows `from..to` through the data callback, appending
@@ -1064,15 +1110,115 @@ pub(crate) fn read_keys(
     from: u32,
     to: u32,
 ) {
-    let _ = (source, plan, keys, from, to);
+    if keys.len() < plan.columns.len() {
+        keys.resize_with(plan.columns.len(), ColumnKeys::default);
+    }
+    for row in from..to {
+        for (slot, pc) in plan.columns.iter().enumerate() {
+            let cell = cell_content(source, DataTableCellRef::create(row, pc.column));
+            let k = &mut keys[slot];
+            if pc.texts {
+                k.texts.push(fold(cell.text.as_str()));
+            }
+            if pc.values {
+                k.values.push(cell.value);
+            }
+        }
+    }
+}
+
+impl PlanFilter {
+    /// Whether row `row` passes (its keys in `keys`).
+    fn passes(&self, keys: &[ColumnKeys], row: usize) -> bool {
+        let Some(k) = keys.get(self.slot) else {
+            return true;
+        };
+        if self.by_text {
+            let text = k.texts.get(row).map_or("", String::as_str);
+            match self.filter.op {
+                DataTableFilterOp::Equals => text == self.needle,
+                DataTableFilterOp::Contains | DataTableFilterOp::Range => text.contains(self.needle.as_str()),
+            }
+        } else {
+            self.filter.admits(k.values.get(row).copied().unwrap_or(f64::NAN))
+        }
+    }
+}
+
+/// Two values, blanks (NaN) last whichever way the key runs.
+fn compare_values(a: f64, b: f64, descending: bool) -> core::cmp::Ordering {
+    use core::cmp::Ordering;
+    match (a.is_nan(), b.is_nan()) {
+        (true, true) => Ordering::Equal,
+        (true, false) => Ordering::Greater,
+        (false, true) => Ordering::Less,
+        (false, false) => {
+            let o = a.partial_cmp(&b).unwrap_or(Ordering::Equal);
+            if descending {
+                o.reverse()
+            } else {
+                o
+            }
+        }
+    }
+}
+
+/// Two folded texts, blanks ("") last whichever way the key runs.
+fn compare_texts(a: &str, b: &str, descending: bool) -> core::cmp::Ordering {
+    use core::cmp::Ordering;
+    match (a.is_empty(), b.is_empty()) {
+        (true, true) => Ordering::Equal,
+        (true, false) => Ordering::Greater,
+        (false, true) => Ordering::Less,
+        (false, false) => {
+            let o = a.cmp(b);
+            if descending {
+                o.reverse()
+            } else {
+                o
+            }
+        }
+    }
+}
+
+/// Rows `a` and `b` by the plan's sort keys, in turn.
+fn compare_rows(plan: &QueryPlan, keys: &[ColumnKeys], a: usize, b: usize) -> core::cmp::Ordering {
+    for s in &plan.sort {
+        let Some(k) = keys.get(s.slot) else {
+            continue;
+        };
+        let o = if s.by_text {
+            compare_texts(
+                k.texts.get(a).map_or("", String::as_str),
+                k.texts.get(b).map_or("", String::as_str),
+                s.descending,
+            )
+        } else {
+            compare_values(
+                k.values.get(a).copied().unwrap_or(f64::NAN),
+                k.values.get(b).copied().unwrap_or(f64::NAN),
+                s.descending,
+            )
+        };
+        if o != core::cmp::Ordering::Equal {
+            return o;
+        }
+    }
+    core::cmp::Ordering::Equal
 }
 
 /// The rows `0..row_count` that pass every filter, in the order of the
 /// sort keys (stable: rows with equal keys keep the app's order; blanks
 /// last in either direction).
 pub(crate) fn compute_order(row_count: u32, plan: &QueryPlan, keys: &[ColumnKeys]) -> Vec<u32> {
-    let _ = (plan, keys);
-    (0..row_count).collect()
+    let mut rows: Vec<u32> = (0..row_count)
+        .filter(|r| plan.filters.iter().all(|f| f.passes(keys, *r as usize)))
+        .collect();
+    if !plan.sort.is_empty() {
+        // `sort_by` is stable: equal keys keep the app's order.
+        rows.sort_by(|a, b| compare_rows(plan, keys, *a as usize, *b as usize));
+    }
+    rows
 }
 
 // ---- events ----
