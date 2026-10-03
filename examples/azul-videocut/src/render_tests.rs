@@ -131,3 +131,21 @@ fn a_picture_is_scaled_to_the_size_asked_for() {
     assert_eq!((s.width, s.height, s.rgba.len()), (10, 5, 200));
     assert!(near(pixel(&s, 9, 4), BLUE));
 }
+
+/// The monitors, the bin's thumbnails and the decoders' output sizes fit by
+/// azul's one rule (`RawImage::fit_within` / `thumbnail`), not a copy of it
+/// (DEDUP_OFFICE D15): the aspect kept, never scaled up, a frame buffer never
+/// empty.
+#[test]
+fn pictures_fit_by_azuls_rule_and_a_thumbnail_keeps_its_aspect() {
+    assert_eq!(fit_within(1920, 1080, 640, 360), (640, 360));
+    assert_eq!(fit_within(1280, 720, 96, 54), (96, 54));
+    assert_eq!(fit_within(1000, 1000, 640, 360), (360, 360));
+    assert_eq!(fit_within(320, 240, 640, 360), (320, 240), "never up");
+    assert_eq!(fit_within(0, 0, 640, 360), (1, 1), "a frame buffer is never empty");
+    let c = Canvas::filled(192, 108, RED);
+    let t = fit_to(&c, 96, 54);
+    assert_eq!((t.width, t.height), (96, 54));
+    assert_eq!(&t.rgba[..3], &RED, "a one-colour picture stays that colour");
+    assert_eq!(fit_to(&c, 400, 400), c, "a picture that fits is kept as it is");
+}
