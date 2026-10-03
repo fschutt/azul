@@ -290,6 +290,8 @@ pub struct KeysApp {
     pub save_again: bool,
     /// The window closes once the save on the way lands.
     pub close_after_save: bool,
+    /// The vault locks once the save on the way lands.
+    pub lock_pending: bool,
     /// The close guard asks "save the item?".
     pub asking_close: bool,
     pub keyring_waiting: Option<KeyringOp>,
