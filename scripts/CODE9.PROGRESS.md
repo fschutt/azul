@@ -23,8 +23,13 @@ Branch: wt/code9 (base e537ddbe2). Brief: scripts/waves/wave9/PLAN.md "CODE9", p
 
 - 76ca185ef search.rs RED, f5e24d9d4 search.rs GREEN (item 1 below is DONE)
 
+- 2e0140544 workspace.rs RED, 26ffdcb42 workspace.rs GREEN (item 2 DONE: Workspace { root: Root, rows(),
+  toggle(folder, open) -> needs listing, set_listing(folder, folders, files), drive_key / relative_key },
+  file_name, tab_label, Tabs<D: TabDoc> { open, close, find, active })
+
 ## IN PROGRESS
-- NEXT STEP: item 2, src/workspace.rs RED then GREEN; then 3..6.
+- NEXT STEP: item 3, src/sample.rs (sample files + `huge_rs(lines)` generator; a test that huge.rs has
+  100,000 lines), then 4 storage.rs, 5 ids.rs + app.rs/ui.rs + lib.rs start(), 6 E2E + report.
   1. (DONE) src/search.rs: `find_all(&TextBuffer, needle, TextMatch) -> Vec<(line, start, end)>` (azul_appkit::find::
      matches per line), `next_after(matches, Pos) -> Option<..>` (wraps), `replace_all_edits(...) -> Vec<Edit>`
      (last-first) + `go_to_line(input "120" / "120:5", line_count) -> Option<Pos>`; tests.
