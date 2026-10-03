@@ -340,9 +340,14 @@ def run(args, logs):
         log("1. This PC: drive tiles, the five ribbon tabs, the navigation and content panes")
 
         # 2. The Home drive.
+        # On the tile's icon: its centre is the capacity bar, a ProgressBar, which is a
+        # VirtualView of its own DOM - and a Hover event aimed into a child DOM does not
+        # bubble out to the tile in the parent DOM (engine, reported to HEADLESS6).
         tile = app.nodes_with_class("azdrive-drive")[0]
+        r = app.value("get_node_layout", node_id=tile)["rect"]
         listed = app.after("the Home drive's listing", "AZDRIVE_LISTED", r"home / \d+",
-                           lambda: (app.must("double_click", node_id=tile), app.frame()))
+                           lambda: (app.must("double_click", x=r["x"] + 24.0,
+                                             y=r["y"] + r["height"] / 2.0), app.frame()))
         log("2. opened the Home drive (%s)" % listed)
         app.until("Documents in the view", lambda: "Documents" in item_names(app))
         if ".hidden-settings" in item_names(app):
