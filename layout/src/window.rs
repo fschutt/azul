@@ -24905,6 +24905,20 @@ impl LayoutWindow {
                 None => *currently_dragging_thumb = None,
             }
         }
+
+        // The child DOMs of the VirtualViews this rebuild unmounted go with
+        // their hosts: every manager drops what it held for them - this same
+        // driver, with every node of the child unmounted - and the state keyed
+        // by the DOM itself (its GPU value cache, its texture table) goes too.
+        // Only the thread owners heard about these DOMs before, so a page whose
+        // DOM shared nothing with the old one (a ProgressBar's child DOM under
+        // the e2e `mount`) kept the child's GPU cache forever.
+        let gone = crate::managers::NodeIdMap::default();
+        for child in dropped_child_doms {
+            self.remap_node_ids(child, &gone);
+            self.gpu_state_manager.caches.remove(&child);
+            self.gl_texture_cache.solved_textures.remove(&child);
+        }
     }
 }
 
