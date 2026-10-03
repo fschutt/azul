@@ -168,6 +168,14 @@ pub fn save(s: &AppState) -> bool {
     std::fs::rename(&temp_path, &final_path).is_ok()
 }
 
+/// The archive's file name for the file under review (`src/lib.rs` ->
+/// `src_lib.rs.azreview.zip`; no file: `session.azreview.zip`).
+#[must_use]
+pub fn archive_name(display: Option<&str>) -> String {
+    let _ = display;
+    todo!()
+}
+
 fn archive_path(s: &AppState) -> std::path::PathBuf {
     let stem = s.file().map_or_else(
         || "session".to_string(),
@@ -179,6 +187,14 @@ fn archive_path(s: &AppState) -> std::path::PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_archive_is_named_after_the_file_under_review() {
+        assert_eq!(archive_name(Some("src/lib.rs")), "src_lib.rs.azreview.zip");
+        assert_eq!(archive_name(Some("a\\b.rs")), "a_b.rs.azreview.zip");
+        assert_eq!(archive_name(None), "session.azreview.zip");
+        assert_eq!(archive_name(Some("")), "session.azreview.zip");
+    }
 
     #[test]
     fn a_wav_header_declares_the_sample_count_it_actually_carries() {
