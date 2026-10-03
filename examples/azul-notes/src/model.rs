@@ -68,7 +68,7 @@ pub struct Note {
     /// The file's modified time (seconds) as last read or written: a
     /// rescan reads only files whose time differs.
     pub file_modified: u64,
-    /// Lowercased title, text, tags and notebook (the search's haystack).
+    /// Title, text, tags and notebook, folded (the search's haystack).
     pub haystack: String,
     /// The first line of text that is not the title.
     pub preview: String,
@@ -178,7 +178,7 @@ impl Note {
         }
         hay.push('\n');
         hay.push_str(self.home_notebook());
-        self.haystack = hay.to_lowercase();
+        self.haystack = azul_pim::search::fold(&hay);
         self.preview = self.doc.preview(self.meta.title.as_str()).as_str().to_string();
     }
 
@@ -216,7 +216,7 @@ impl Note {
 
     /// Adds `tag` (cleaned; once). Returns whether it was added.
     pub fn add_tag(&mut self, tag: &str) -> bool {
-        let tag = markdown::clean_tag(tag);
+        let tag = azul_pim::task::normalize_tag(tag);
         if tag.is_empty() || self.has_tag(&tag) {
             return false;
         }
@@ -520,21 +520,32 @@ pub fn in_scope(note: &Note, scope: &Scope) -> bool {
 }
 
 /// Whether `note` matches every word of `search`: a word anywhere in the
-/// title, text, tags or notebook (ignoring case); `#word` a tag that starts
-/// with it.
+/// title, text, tags or notebook; `#word` a tag that starts with it - in
+/// any case, diacritics folded (azul_pim's search, as every Azlin app).
 #[must_use]
 pub fn matches_search(note: &Note, search: &str) -> bool {
-    search.split_whitespace().all(|term| {
-        let term = term.to_lowercase();
-        match term.strip_prefix('#') {
-            Some(tag) if !tag.is_empty() => note
-                .meta
-                .tags
-                .iter()
-                .any(|t| t.to_lowercase().starts_with(tag)),
-            _ => note.haystack.contains(&term),
+    use azul_pim::search::{fold, Query};
+    search.split_whitespace().all(|term| match term.strip_prefix('#') {
+        Some(tag) if !tag.is_empty() => {
+            let tag = fold(tag);
+            note.meta.tags.iter().any(|t| fold(t).starts_with(&tag))
         }
+        _ => Query::parse(term).matches_folded(&note.haystack),
     })
+}
+
+/// `tags` cleaned (azul_pim's `normalize_tag`, as AzTasks cleans them),
+/// empty ones dropped, duplicates (ignoring case) once.
+#[must_use]
+pub fn clean_tags<'a>(tags: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for tag in tags {
+        let tag = azul_pim::task::normalize_tag(tag);
+        if !tag.is_empty() && !out.iter().any(|t| t.eq_ignore_ascii_case(&tag)) {
+            out.push(tag);
+        }
+    }
+    out
 }
 
 impl Library {
