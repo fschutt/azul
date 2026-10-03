@@ -22,9 +22,17 @@ Report: `scripts/KEYS9_<date>.md` (when done). Never compile (house rules); rust
   on_biometric_result), on_window_created, on_close_requested, on_activity). NOT yet in lib.rs (needs ui.rs).
 - 3127cacbd ui.rs part 1 (layout, unlock, create); 1aa0372bb ui.rs part 2 (vault PimShell, nav, list, toolbar,
   status, on_key, settings sections, read_import_file/on_import_read, close guard)
+- 6ed5bf219 / dd42887e1 / 1ebd7aff1 ui_item.rs (item view, edit form, generator, import preview, audit)
+- 19f2dc90b lib.rs start() + `pub mod jobs; ui; ui_item;` - THE APP IS COMPLETE IN CODE (uncompiled)
 - 9cbc73f1a registered: root Cargo.toml member, workspace_test_members.txt, rust.yml step (NEXT item 7 done)
 
-## NEXT (exact) - items 1, 2, 3, 4 (app.rs), 5 (jobs.rs) and 7 are DONE (+ session.rs); continue at 6
+## NEXT (exact) - items 1-7 are DONE; continue at 8
+- 8a. self-review pass over ui.rs / ui_item.rs / jobs.rs for compile errors (imports unused/missing, borrows).
+- 8b. scripts/azkeys_e2e.py (model on scripts/shells_e2e.py): --data-dir tmp --sample; wait AZKEYS_LISTED/CREATED;
+  lock (toolbar-lock), unlock with "sample" (focus + text_input __azkeys_unlock-password, click unlock-button),
+  wrong password message, search "codehost", click row, copy password (AZKEYS_COPIED), new login form + save,
+  generator panel, audit panel; assert node texts.
+- 8c. report scripts/KEYS9_2026_10_03.md (or the finish date).
 1. (done) GREEN `examples/azul-keys/src/store.rs`: fill `read_listing` (parse each `(key, bytes)` with
    `Envelope::parse`, problems "`<key>`: <VaultError>", sort by folded name) and `run` (List via
    `azul_appkit::files::list_all(drive, VAULTS)` + get each `.azkv`; Create: KdfParams::fresh() when None,
