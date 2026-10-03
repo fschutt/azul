@@ -24294,8 +24294,8 @@
                             }
                         }
                     },
-                    "RecurrenceEditorOnChangeCallbackType": {
-                        "external": "azul_layout::widgets::recurrence_editor::RecurrenceEditorOnChangeCallbackType",
+                    "DateRepeatPickerOnChangeCallbackType": {
+                        "external": "azul_layout::widgets::date_repeat_picker::DateRepeatPickerOnChangeCallbackType",
                         "callback_typedef": {
                             "fn_args": [
                                 {
@@ -24305,7 +24305,7 @@
                                     "type": "CallbackInfo"
                                 },
                                 {
-                                    "type": "RecurrenceRule"
+                                    "type": "DateRepeatRule"
                                 }
                             ],
                             "returns": {
@@ -36558,8 +36558,8 @@
                         ],
                         "repr": "C"
                     },
-                    "RecurrenceEditorOnChangeCallback": {
-                        "external": "azul_layout::widgets::recurrence_editor::RecurrenceEditorOnChangeCallback",
+                    "DateRepeatPickerOnChangeCallback": {
+                        "external": "azul_layout::widgets::date_repeat_picker::DateRepeatPickerOnChangeCallback",
                         "custom_impls": [
                             "Clone",
                             "Debug",
@@ -36581,7 +36581,7 @@
                         "struct_fields": [
                             {
                                 "cb": {
-                                    "type": "RecurrenceEditorOnChangeCallbackType"
+                                    "type": "DateRepeatPickerOnChangeCallbackType"
                                 },
                                 "callable": {
                                     "type": "OptionRefAny"
@@ -95270,8 +95270,8 @@
                         ],
                         "repr": "C"
                     },
-                    "RecurrenceEditor": {
-                        "external": "azul_layout::widgets::recurrence_editor::RecurrenceEditor",
+                    "DateRepeatPicker": {
+                        "external": "azul_layout::widgets::date_repeat_picker::DateRepeatPicker",
                         "custom_impls": [
                             "Default"
                         ],
@@ -95284,7 +95284,7 @@
                         "struct_fields": [
                             {
                                 "state": {
-                                    "type": "RecurrenceEditorStateWrapper"
+                                    "type": "DateRepeatPickerStateWrapper"
                                 },
                                 "accessibility_name": {
                                     "type": "OptionString"
@@ -95310,8 +95310,8 @@
                             "dom": {
                                 "doc": [
                                     "The editor's DOM. The look comes from the theme module",
-                                    "(`themes::flat::recurrence_editor` / `themes::flora::",
-                                    "recurrence_editor`); `None` carries both looks, each in its",
+                                    "(`themes::flat::date_repeat_picker` / `themes::flora::",
+                                    "date_repeat_picker`); `None` carries both looks, each in its",
                                     "`@theme(<name>)` block, and the app theme picks."
                                 ],
                                 "fn_args": [
@@ -95327,8 +95327,8 @@
                         },
                         "repr": "C"
                     },
-                    "RecurrenceEditorStateWrapper": {
-                        "external": "azul_layout::widgets::recurrence_editor::RecurrenceEditorStateWrapper",
+                    "DateRepeatPickerStateWrapper": {
+                        "external": "azul_layout::widgets::date_repeat_picker::DateRepeatPickerStateWrapper",
                         "derive": [
                             "Debug",
                             "Default",
@@ -95339,17 +95339,17 @@
                         "struct_fields": [
                             {
                                 "inner": {
-                                    "type": "RecurrenceRule"
+                                    "type": "DateRepeatRule"
                                 },
                                 "on_change": {
-                                    "type": "OptionRecurrenceEditorOnChange"
+                                    "type": "OptionDateRepeatPickerOnChange"
                                 }
                             }
                         ],
                         "repr": "C"
                     },
-                    "RecurrenceEditorOnChange": {
-                        "external": "azul_layout::widgets::recurrence_editor::RecurrenceEditorOnChange",
+                    "DateRepeatPickerOnChange": {
+                        "external": "azul_layout::widgets::date_repeat_picker::DateRepeatPickerOnChange",
                         "custom_impls": [
                             "Clone",
                             "Debug",
@@ -95374,14 +95374,14 @@
                                     "type": "RefAny"
                                 },
                                 "callback": {
-                                    "type": "RecurrenceEditorOnChangeCallback"
+                                    "type": "DateRepeatPickerOnChangeCallback"
                                 }
                             }
                         ],
                         "repr": "C"
                     },
-                    "RecurrenceRule": {
-                        "external": "azul_layout::widgets::recurrence_editor::RecurrenceRule",
+                    "DateRepeatRule": {
+                        "external": "azul_layout::widgets::date_repeat_picker::DateRepeatRule",
                         "custom_impls": [
                             "Default"
                         ],
@@ -95407,13 +95407,13 @@
                                     "type": "u32"
                                 },
                                 "frequency": {
-                                    "type": "RecurrenceFrequency"
+                                    "type": "DateRepeatFrequency"
                                 },
                                 "monthly": {
-                                    "type": "RecurrenceMonthly"
+                                    "type": "DateRepeatMonthly"
                                 },
                                 "end": {
-                                    "type": "RecurrenceEnd"
+                                    "type": "DateRepeatEnd"
                                 },
                                 "weekdays": {
                                     "type": "u8"
@@ -95441,15 +95441,15 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "OptionRecurrenceRule"
+                                    "type": "OptionDateRepeatRule"
                                 },
-                                "fn_body": "azul_layout::widgets::recurrence_editor::RecurrenceRule::from_rrule(rrule, start)"
+                                "fn_body": "azul_layout::widgets::date_repeat_picker::DateRepeatRule::from_rrule(rrule, start)"
                             }
                         },
                         "repr": "C"
                     },
-                    "RecurrenceEnd": {
-                        "external": "azul_layout::widgets::recurrence_editor::RecurrenceEnd",
+                    "DateRepeatEnd": {
+                        "external": "azul_layout::widgets::date_repeat_picker::DateRepeatEnd",
                         "derive": [
                             "Debug",
                             "Copy",
@@ -95470,8 +95470,8 @@
                         ],
                         "repr": "C"
                     },
-                    "RecurrenceMonthly": {
-                        "external": "azul_layout::widgets::recurrence_editor::RecurrenceMonthly",
+                    "DateRepeatMonthly": {
+                        "external": "azul_layout::widgets::date_repeat_picker::DateRepeatMonthly",
                         "derive": [
                             "Debug",
                             "Copy",
@@ -95491,8 +95491,8 @@
                         ],
                         "repr": "C"
                     },
-                    "RecurrenceFrequency": {
-                        "external": "azul_layout::widgets::recurrence_editor::RecurrenceFrequency",
+                    "DateRepeatFrequency": {
+                        "external": "azul_layout::widgets::date_repeat_picker::DateRepeatFrequency",
                         "derive": [
                             "Debug",
                             "Copy",
@@ -160133,8 +160133,8 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "OptionRecurrenceEditorOnChange": {
-                        "external": "azul_layout::widgets::recurrence_editor::OptionRecurrenceEditorOnChange",
+                    "OptionDateRepeatPickerOnChange": {
+                        "external": "azul_layout::widgets::date_repeat_picker::OptionDateRepeatPickerOnChange",
                         "custom_impls": [
                             "Clone",
                             "Debug",
@@ -160157,14 +160157,14 @@
                             {
                                 "None": {},
                                 "Some": {
-                                    "type": "RecurrenceEditorOnChange"
+                                    "type": "DateRepeatPickerOnChange"
                                 }
                             }
                         ],
                         "repr": "C, u8"
                     },
-                    "OptionRecurrenceRule": {
-                        "external": "azul_layout::widgets::recurrence_editor::OptionRecurrenceRule",
+                    "OptionDateRepeatRule": {
+                        "external": "azul_layout::widgets::date_repeat_picker::OptionDateRepeatRule",
                         "derive": [
                             "Debug",
                             "Copy",
@@ -160176,7 +160176,7 @@
                             {
                                 "None": {},
                                 "Some": {
-                                    "type": "RecurrenceRule"
+                                    "type": "DateRepeatRule"
                                 }
                             }
                         ],

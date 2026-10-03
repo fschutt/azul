@@ -14,7 +14,7 @@ use azul::{
     callbacks::{
         ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, ChipOnRemoveCallbackType,
         DatePickerOnChangeCallbackType, DropDownOnChoiceChangeCallbackType,
-        RecurrenceEditorOnChangeCallbackType, SegmentedOnChangeCallbackType,
+        DateRepeatPickerOnChangeCallbackType, SegmentedOnChangeCallbackType,
         SwitchOnToggleCallbackType, TextAreaOnFocusLostCallbackType,
         TextAreaOnTextInputCallbackType, TextInputOnFocusLostCallbackType,
         TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallbackType,
@@ -29,7 +29,7 @@ use azul::{
     vec::StringVec,
     widgets::{
         ButtonType, CheckBoxState, Chip, ChipState, DatePicker, DatePickerState, DropDown,
-        OnTextInputReturn, RecurrenceEditor, RecurrenceRule, Segmented, SegmentedState, Switch,
+        OnTextInputReturn, DateRepeatPicker, DateRepeatRule, Segmented, SegmentedState, Switch,
         SwitchState, TextArea, TextAreaState, TextInputState, TextInputValid, TimePicker,
         TimePickerState,
     },
@@ -395,12 +395,12 @@ fn repeat(s: &Tasks, app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
     ));
     let editing = s.drafts.custom_repeat && s.drafts.task == t.id;
     if let Some(rule) = t.repeat.as_ref().filter(|_| editing || preset == REPEATS.len() - 1) {
-        // The custom repeat is azul's RecurrenceEditor (AzCalendar's too): every N days /
+        // The custom repeat is azul's DateRepeatPicker (AzCalendar's too): every N days /
         // weeks on days / months / years, from completion; a to-do's repeat has no end and no
         // "second Wednesday", so the editor leaves those out.
         let due = t.due.unwrap_or(today);
         out.add_child(
-            RecurrenceEditor::create(repeat_form::rule_of(Some(rule), due))
+            DateRepeatPicker::create(repeat_form::rule_of(Some(rule), due))
                 .with_week_start(repeat_form::picker_week_start(s.settings.week_start))
                 .with_completion_option(true)
                 .with_end_option(false)
@@ -408,7 +408,7 @@ fn repeat(s: &Tasks, app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
                 .with_accessibility_name("Custom repeat")
                 .with_on_change(
                     detail_ref(app, &t.id, 0),
-                    on_repeat_rule as RecurrenceEditorOnChangeCallbackType,
+                    on_repeat_rule as DateRepeatPickerOnChangeCallbackType,
                 )
                 .dom()
                 .with_id("repeat-editor"),
@@ -828,7 +828,7 @@ extern "C" fn on_repeat(mut data: RefAny, mut info: CallbackInfo, index: usize) 
 
 /// The custom repeat's editor changed the rule: the task takes it ("Never" takes the repeat
 /// away). Typing the "every N" number does not rebuild the pane (the field keeps its caret).
-extern "C" fn on_repeat_rule(mut data: RefAny, mut info: CallbackInfo, rule: RecurrenceRule) -> Update {
+extern "C" fn on_repeat_rule(mut data: RefAny, mut info: CallbackInfo, rule: DateRepeatRule) -> Update {
     let mut rebuild = true;
     let update = with_task(&mut data, &mut info, |_info, _app, s, i, _| {
         let today = state::now().date();

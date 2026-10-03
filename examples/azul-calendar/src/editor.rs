@@ -396,7 +396,7 @@ impl EditorForm {
         edits(self) != edits(opened)
     }
 
-    /// The rule the recurrence editor shows: the form's choice made into a rule, or its own
+    /// The rule the date repeat picker shows: the form's choice made into a rule, or its own
     /// rule; `None` when it does not repeat.
     #[must_use]
     pub fn shown_rule(&self) -> Option<Rule> {
@@ -413,7 +413,7 @@ impl EditorForm {
         )
     }
 
-    /// Takes the rule the recurrence editor made (`None`: it does not repeat): a rule one of
+    /// Takes the rule the date repeat picker made (`None`: it does not repeat): a rule one of
     /// the choices makes shows as that choice, any other is kept as the form's own.
     pub fn set_rule(&mut self, rule: Option<Rule>) {
         let Some(rule) = rule else {
@@ -965,11 +965,11 @@ mod tests {
         assert!(g.changed_since(&opened), "a reminder taken away");
     }
 
-    /// The recurrence editor hands the form a rule: one of the form's choices shows as that
+    /// The date repeat picker hands the form a rule: one of the form's choices shows as that
     /// choice (any interval and end), any other - Monday and Wednesday every week - is kept as
     /// the form's own rule; the rule the editor shows is the form's.
     #[test]
-    fn a_rule_from_the_recurrence_editor_becomes_the_forms_repeat() {
+    fn a_rule_from_the_date_repeat_picker_becomes_the_forms_repeat() {
         let mut f = form();
         assert_eq!(f.shown_rule(), None, "a new appointment does not repeat");
         let every_two_weeks = Rule::parse("FREQ=WEEKLY;INTERVAL=2;COUNT=4;BYDAY=WE").unwrap();

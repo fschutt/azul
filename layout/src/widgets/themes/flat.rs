@@ -6260,17 +6260,17 @@ pub fn rich_text_editor(chrome: crate::widgets::rich_text_editor::RichTextEditor
     crate::widgets::rich_text_editor::build_chrome(chrome, &rich_text_editor_look())
 }
 
-// ==== recurrence_editor ====
+// ==== date_repeat_picker ====
 //
-// The flat recurrence editor is Outlook's "Appointment Recurrence" form:
+// The flat date repeat picker is Outlook's "Appointment Recurrence" form:
 // rows a few pixels apart, each a label column in the secondary ink, then
 // the controls 8 px apart; the units after a number in the secondary ink.
 // The controls are the toolkit's own widgets in flat. At night the
 // desktop's inks.
 
-/// Flat's recurrence-editor look.
+/// Flat's date-repeat-picker look.
 #[must_use]
-pub(crate) fn recurrence_editor_look() -> crate::widgets::recurrence_editor::RecurrenceEditorLook {
+pub(crate) fn date_repeat_picker_look() -> crate::widgets::date_repeat_picker::DateRepeatPickerLook {
     use super::decl;
 
     let gap = |px: isize| {
@@ -6291,7 +6291,7 @@ pub(crate) fn recurrence_editor_look() -> crate::widgets::recurrence_editor::Rec
     label.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
     let unit = decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1).to_vec();
 
-    crate::widgets::recurrence_editor::RecurrenceEditorLook {
+    crate::widgets::date_repeat_picker::DateRepeatPickerLook {
         editor,
         row,
         label,
@@ -6302,8 +6302,8 @@ pub(crate) fn recurrence_editor_look() -> crate::widgets::recurrence_editor::Rec
     }
 }
 
-/// The flat recurrence editor.
+/// The flat date repeat picker.
 #[must_use]
-pub fn recurrence_editor(e: crate::widgets::recurrence_editor::RecurrenceEditor) -> Dom {
-    crate::widgets::recurrence_editor::build(e, &recurrence_editor_look())
+pub fn date_repeat_picker(e: crate::widgets::date_repeat_picker::DateRepeatPicker) -> Dom {
+    crate::widgets::date_repeat_picker::build(e, &date_repeat_picker_look())
 }

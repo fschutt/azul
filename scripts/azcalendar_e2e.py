@@ -379,11 +379,11 @@ def stage_editor(app, ctx):
     )
     ed = reach_editor(app)
     ed.type_into("#editor-title", EDITOR_TITLE)
-    # The repeat row is the RecurrenceEditor (#editor-repeat): "Weekly" on its frequency row
+    # The repeat row is the DateRepeatPicker (#editor-repeat): "Weekly" on its frequency row
     # brings its "Ends" row and the weekday toggles.
     ed.wait_for("#editor-repeat")
     ed.click(text="Weekly")
-    ed.until("the recurrence editor's weekly rows", lambda: ed.shows("Ends"))
+    ed.until("the date repeat picker's weekly rows", lambda: ed.shows("Ends"))
     # Save & Close closes the editor window: no frames are asked of it after
     # the click (`click` waits two frames on the window it clicked, and a
     # closed window answers "No window has the id"). The main window waits.

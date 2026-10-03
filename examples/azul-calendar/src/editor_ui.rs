@@ -2,7 +2,7 @@
 //! scaffold as the main window - its title row, a ribbon (Save & Close, Delete, Delete This
 //! Occurrence, Add AzMeet Link, Close) and the form (`editor.rs` holds what it edits): subject,
 //! location, attendees, start and end (date and time), all day, repeat (azul's
-//! `RecurrenceEditor`: frequency, every N, weekdays or the month's day, the end), reminder,
+//! `DateRepeatPicker`: frequency, every N, weekdays or the month's day, the end), reminder,
 //! calendar, "Add AzMeet link", notes.
 //!
 //! One editor window at a time: the window's layout callback reads `CalState::editor`, so two
@@ -14,7 +14,7 @@
 use azul::{
     callbacks::{
         ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, CloseGuardOnEventCallbackType,
-        DatePickerOnChangeCallbackType, RecurrenceEditorOnChangeCallbackType,
+        DatePickerOnChangeCallbackType, DateRepeatPickerOnChangeCallbackType,
         SegmentedOnChangeCallbackType, TextAreaOnTextInputCallbackType,
         TimePickerOnChangeCallbackType,
     },
@@ -26,7 +26,7 @@ use azul::{
     widgets::{
         ButtonType, CheckBoxState, CloseGuard, CloseGuardEvent, CloseGuardEventKind, DatePicker,
         DatePickerState, DatePickerWeekStart,
-        OnTextInputReturn, RecurrenceEditor, RecurrenceRule, Ribbon, RibbonButton, RibbonGroup,
+        OnTextInputReturn, DateRepeatPicker, DateRepeatRule, Ribbon, RibbonButton, RibbonGroup,
         RibbonItem, RibbonTab, Segmented, SegmentedState, TextArea, TextAreaState,
         TextInputState, TimePicker, TimePickerState, Titlebar,
     },
@@ -340,7 +340,7 @@ fn picker_day(date: NaiveDate) -> DatePickerState {
     }
 }
 
-/// The repeat row's controls: the recurrence editor (`#editor-repeat`) on the form's rule, or -
+/// The repeat row's controls: the date repeat picker (`#editor-repeat`) on the form's rule, or -
 /// for a rule of the event's own it cannot show - what the rule says and "Replace", which
 /// starts a rule the editor can show.
 fn repeat_rows(form: &EditorForm, app: &RefAny) -> Vec<Dom> {
@@ -356,12 +356,12 @@ fn repeat_rows(form: &EditorForm, app: &RefAny) -> Vec<Dom> {
         .shown_rule()
         .map(|rule| rule.to_rrule(true))
         .unwrap_or_default();
-    match RecurrenceRule::from_rrule(text, picker_day(form.date)).into_option() {
-        Some(rule) => vec![RecurrenceEditor::create(rule)
+    match DateRepeatRule::from_rrule(text, picker_day(form.date)).into_option() {
+        Some(rule) => vec![DateRepeatPicker::create(rule)
             // The calendar's weeks run Monday to Sunday (`week::week_start`).
             .with_week_start(DatePickerWeekStart::Monday)
             .with_accessibility_name("Repeat")
-            .with_on_change(app.clone(), on_repeat_rule as RecurrenceEditorOnChangeCallbackType)
+            .with_on_change(app.clone(), on_repeat_rule as DateRepeatPickerOnChangeCallbackType)
             .dom()
             .with_id("editor-repeat")],
         None => vec![
@@ -488,7 +488,7 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
         ));
     }
     page.add_child(row("End", end));
-    // Repeat: the recurrence editor (daily / weekly on days / monthly / yearly, every N, the
+    // Repeat: the date repeat picker (daily / weekly on days / monthly / yearly, every N, the
     // end), or the event's own rule when it is one the editor cannot show.
     page.add_child(row("Repeat", repeat_rows(form, app)));
 
@@ -737,9 +737,9 @@ fn rows_of(rrule: &str) -> Vec<&str> {
         .collect()
 }
 
-/// The recurrence editor changed the rule: the form takes it (a rule of the form's choices,
+/// The date repeat picker changed the rule: the form takes it (a rule of the form's choices,
 /// or one of its own). The window is rebuilt unless only a number was typed.
-extern "C" fn on_repeat_rule(mut data: RefAny, _info: CallbackInfo, rule: RecurrenceRule) -> Update {
+extern "C" fn on_repeat_rule(mut data: RefAny, _info: CallbackInfo, rule: DateRepeatRule) -> Update {
     let text = rule.to_rrule().as_str().to_string();
     let parsed = if text.is_empty() {
         None
@@ -747,7 +747,7 @@ extern "C" fn on_repeat_rule(mut data: RefAny, _info: CallbackInfo, rule: Recurr
         match crate::rrule::Rule::parse(&text) {
             Ok(parsed) => Some(parsed),
             Err(e) => {
-                eprintln!("[azcalendar] the recurrence editor's rule {text:?}: {e}");
+                eprintln!("[azcalendar] the date repeat picker's rule {text:?}: {e}");
                 return Update::DoNothing;
             }
         }
@@ -780,7 +780,7 @@ extern "C" fn on_scope(mut data: RefAny, _info: CallbackInfo, state: SegmentedSt
     Update::RefreshDom
 }
 
-/// "Replace" beside a rule the recurrence editor cannot show: the event no longer repeats by
+/// "Replace" beside a rule the date repeat picker cannot show: the event no longer repeats by
 /// it, and the editor shows, to make a new rule with.
 extern "C" fn on_repeat_replace(mut data: RefAny, _info: CallbackInfo) -> Update {
     with_form(&mut data, |f| {

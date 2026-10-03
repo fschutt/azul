@@ -1,10 +1,10 @@
-//! A to-do's repeat (`azul_pim::repeat::Repeat`) as azul's `RecurrenceEditor` shows it, and
-//! back: the task detail's "Custom..." repeat is the toolkit's recurrence editor (the same one
+//! A to-do's repeat (`azul_pim::repeat::Repeat`) as azul's `DateRepeatPicker` shows it, and
+//! back: the task detail's "Custom..." repeat is the toolkit's date repeat picker (the same one
 //! AzCalendar's event editor uses - DEDUP_EDITORS C5), with "from completion" and without an
 //! end or a month's nth weekday (a to-do's repeat has neither).
 
 use azul::widgets::{
-    DatePickerState, DatePickerWeekStart, RecurrenceFrequency, RecurrenceRule,
+    DatePickerState, DatePickerWeekStart, DateRepeatFrequency, DateRepeatRule,
 };
 use chrono::{Datelike, NaiveDate, Weekday};
 
@@ -45,16 +45,16 @@ pub fn picker_week_start(week_start: Weekday) -> DatePickerWeekStart {
 /// The rule the editor shows for a task due on `due` that repeats by `repeat` (`None`: it
 /// does not repeat).
 #[must_use]
-pub fn rule_of(repeat: Option<&Repeat>, due: NaiveDate) -> RecurrenceRule {
-    let mut rule = RecurrenceRule::create(picker_day(due));
+pub fn rule_of(repeat: Option<&Repeat>, due: NaiveDate) -> DateRepeatRule {
+    let mut rule = DateRepeatRule::create(picker_day(due));
     let Some(r) = repeat else {
         return rule;
     };
     rule.frequency = match r.unit {
-        Unit::Day => RecurrenceFrequency::Daily,
-        Unit::Week => RecurrenceFrequency::Weekly,
-        Unit::Month => RecurrenceFrequency::Monthly,
-        Unit::Year => RecurrenceFrequency::Yearly,
+        Unit::Day => DateRepeatFrequency::Daily,
+        Unit::Week => DateRepeatFrequency::Weekly,
+        Unit::Month => DateRepeatFrequency::Monthly,
+        Unit::Year => DateRepeatFrequency::Yearly,
     };
     rule.interval = r.every.clamp(1, 999);
     // No days: the due date's weekday, as in the editor.
@@ -69,13 +69,13 @@ pub fn rule_of(repeat: Option<&Repeat>, due: NaiveDate) -> RecurrenceRule {
 /// The repeat the editor's `rule` makes for a task due on `due` that repeated by `before`
 /// (whose day of the month a month or year repeat keeps); `None` for "Never".
 #[must_use]
-pub fn repeat_of(rule: &RecurrenceRule, before: Option<&Repeat>, due: NaiveDate) -> Option<Repeat> {
+pub fn repeat_of(rule: &DateRepeatRule, before: Option<&Repeat>, due: NaiveDate) -> Option<Repeat> {
     let unit = match rule.frequency {
-        RecurrenceFrequency::Never => return None,
-        RecurrenceFrequency::Daily => Unit::Day,
-        RecurrenceFrequency::Weekly => Unit::Week,
-        RecurrenceFrequency::Monthly => Unit::Month,
-        RecurrenceFrequency::Yearly => Unit::Year,
+        DateRepeatFrequency::Never => return None,
+        DateRepeatFrequency::Daily => Unit::Day,
+        DateRepeatFrequency::Weekly => Unit::Week,
+        DateRepeatFrequency::Monthly => Unit::Month,
+        DateRepeatFrequency::Yearly => Unit::Year,
     };
     let mut repeat = Repeat::new(rule.interval.clamp(1, 999), unit);
     if unit == Unit::Week {
@@ -140,13 +140,13 @@ mod tests {
     fn the_editor_shows_a_repeat_as_its_frequency_interval_days_and_completion() {
         let due = d(2026, 10, 14); // a Wednesday
         let none = rule_of(None, due);
-        assert!(matches!(none.frequency, RecurrenceFrequency::Never));
+        assert!(matches!(none.frequency, DateRepeatFrequency::Never));
         assert_eq!((none.start.year, none.start.month, none.start.day), (2026, 10, 14));
         let r = Repeat::new(3, Unit::Week)
             .on_weekdays(&[Weekday::Mon, Weekday::Fri])
             .counting_from_completion(true);
         let rule = rule_of(Some(&r), due);
-        assert!(matches!(rule.frequency, RecurrenceFrequency::Weekly));
+        assert!(matches!(rule.frequency, DateRepeatFrequency::Weekly));
         assert_eq!(rule.interval, 3);
         assert_eq!(rule.weekdays, 0b001_0001);
         assert!(rule.from_completion);
@@ -165,12 +165,12 @@ mod tests {
         // A weekly repeat made monthly: on the due day.
         let weekly = Repeat::weekly();
         let mut rule = rule_of(Some(&weekly), due);
-        rule.frequency = RecurrenceFrequency::Monthly;
+        rule.frequency = DateRepeatFrequency::Monthly;
         let back = repeat_of(&rule, Some(&weekly), due).unwrap();
         assert_eq!((back.unit, back.month_day), (Unit::Month, Some(30)));
         assert!(back.weekdays.is_empty());
         // "Never" takes the repeat away.
-        rule.frequency = RecurrenceFrequency::Never;
+        rule.frequency = DateRepeatFrequency::Never;
         assert_eq!(repeat_of(&rule, Some(&weekly), due), None);
     }
 

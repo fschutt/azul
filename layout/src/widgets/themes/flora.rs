@@ -7837,15 +7837,15 @@ pub fn rich_text_editor(chrome: crate::widgets::rich_text_editor::RichTextEditor
     crate::widgets::rich_text_editor::build_chrome(chrome, &rich_text_editor_look())
 }
 
-// ==== recurrence_editor ====
+// ==== date_repeat_picker ====
 //
-// A flora recurrence editor is the same form on flora's paper: rows a
+// A flora date repeat picker is the same form on flora's paper: rows a
 // little further apart, the label column in the `.fl-label` tone, the
 // units in it too, the controls flora's own. At night the night inks.
 
-/// Flora's recurrence-editor look.
+/// Flora's date-repeat-picker look.
 #[must_use]
-pub(crate) fn recurrence_editor_look() -> crate::widgets::recurrence_editor::RecurrenceEditorLook {
+pub(crate) fn date_repeat_picker_look() -> crate::widgets::date_repeat_picker::DateRepeatPickerLook {
     use super::decl;
 
     let gap = |px: isize| {
@@ -7866,7 +7866,7 @@ pub(crate) fn recurrence_editor_look() -> crate::widgets::recurrence_editor::Rec
     label.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
     let unit = decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1).to_vec();
 
-    crate::widgets::recurrence_editor::RecurrenceEditorLook {
+    crate::widgets::date_repeat_picker::DateRepeatPickerLook {
         editor,
         row,
         label,
@@ -7877,8 +7877,8 @@ pub(crate) fn recurrence_editor_look() -> crate::widgets::recurrence_editor::Rec
     }
 }
 
-/// The flora recurrence editor.
+/// The flora date repeat picker.
 #[must_use]
-pub fn recurrence_editor(e: crate::widgets::recurrence_editor::RecurrenceEditor) -> Dom {
-    crate::widgets::recurrence_editor::build(e, &recurrence_editor_look())
+pub fn date_repeat_picker(e: crate::widgets::date_repeat_picker::DateRepeatPicker) -> Dom {
+    crate::widgets::date_repeat_picker::build(e, &date_repeat_picker_look())
 }
