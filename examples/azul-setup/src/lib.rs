@@ -626,8 +626,8 @@ fn modals(s_: &Setup, app: &RefAny) -> Vec<Dom> {
 }
 
 /// The window's root: the theme scope over the utility shell (the title row
-/// above the content), the modals, F1.
-fn window_root(content: Dom, title: &str, app: &RefAny, extra: Vec<Dom>) -> Dom {
+/// above the content), the modals; the wizard's keys (`wizard`).
+fn window_root(content: Dom, title: &str, app: &RefAny, extra: Vec<Dom>, wizard: bool) -> Dom {
     let shell = UtilityShell::create(content)
         .with_title_row(kit::title_row(title))
         .with_label(s(title))
@@ -640,14 +640,18 @@ fn window_root(content: Dom, title: &str, app: &RefAny, extra: Vec<Dom>) -> Dom 
     }
     // The scope as the window's body: no UA margin, the full window height
     // (the wizard's buttons stay in the window).
-    ShellThemeScope::create(column)
+    let body = ShellThemeScope::create(column)
         .with_accent(ShellThemeAccent::Blue)
-        .body()
-        .with_callback(
+        .body();
+    if wizard {
+        body.with_callback(
             EventFilter::Window(WindowEventFilter::VirtualKeyDown),
             app.clone(),
             on_key,
         )
+    } else {
+        body
+    }
 }
 
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
@@ -662,6 +666,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         "AzOffice Setup",
         &app,
         modals(&guard, &app),
+        true,
     )
 }
 
@@ -676,7 +681,7 @@ extern "C" fn settings_layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom
         .clone()
         .with_on_event(app.clone(), on_settings)
         .dom();
-    window_root(dialog, "AzOffice Settings", &app, Vec::new())
+    window_root(dialog, "AzOffice Settings", &app, Vec::new(), false)
 }
 
 // ==== Callbacks ====
@@ -828,8 +833,9 @@ extern "C" fn on_modal_close(mut data: RefAny, _info: CallbackInfo, _state: Moda
     Update::RefreshDom
 }
 
-/// F1 opens the About box.
-extern "C" fn on_key(mut data: RefAny, info: CallbackInfo) -> Update {
+/// The wizard's keys: F1 opens the About box; Escape closes it (or the
+/// exit question), else asks to exit Setup - an installer's Cancel.
+extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let key = info
         .get_current_keyboard_state()
         .current_virtual_keycode
@@ -837,11 +843,17 @@ extern "C" fn on_key(mut data: RefAny, info: CallbackInfo) -> Update {
     let Some(mut st) = data.downcast_mut::<Setup>() else {
         return Update::DoNothing;
     };
-    if key == Some(VirtualKeyCode::F1) && !st.about_open {
-        st.about_open = true;
-        return Update::RefreshDom;
+    match key {
+        Some(VirtualKeyCode::F1) if !st.about_open => st.about_open = true,
+        Some(VirtualKeyCode::Escape) if st.about_open || st.confirm_cancel => {
+            st.about_open = false;
+            st.confirm_cancel = false;
+        }
+        Some(VirtualKeyCode::Escape) if st.step != Step::Finish => st.confirm_cancel = true,
+        _ => return Update::DoNothing,
     }
-    Update::DoNothing
+    info.prevent_default();
+    Update::RefreshDom
 }
 
 /// The settings window's requests: the dialog keeps its rule; the
