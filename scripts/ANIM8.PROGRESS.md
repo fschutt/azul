@@ -52,30 +52,9 @@ button hover). Then the idle items (FLIP springs never settle; AzReview per-fram
 4. live_tracks = 23..27 at rest in AzWidgets (spinners etc.) - idle item.
 
 ## NEXT (exact)
-- NOW: idle items - measure AzWidgets at rest (get_frame_report over 2 s idle, get_animations live_tracks /
-  active); then write the report. (DONE: flora gradients, dedup refactor, Button fade.) RED layout/tests/a_button_fades_into_its_hover_face.rs (flat + flora Button:
-  hover seeds a BackgroundContent transition; press (ActiveChange) seeds none). GREEN: decl.rs
-  `state_fade(props, ms)` (APPEND at end, banner) = [simple(animation list ms), on_active(list 0ms)];
-  flat::button / flora::button push it when btn_owns_style && !disabled && type != Link.
-- Then flora gradients: BackgroundContent interpolate (css/src/props/property.rs ~5330) snaps at t=0.5 for
-  gradients -> tween layer by layer when the lists pair up (RED test in property.rs tests).
-- Then refactor the rebuild-diff + imperative seeding sites onto CssTransition::declared /
-  declared_animation_for (NO DUPLICATION).
-- OLD:
-- (finding 2 DONE, see above.) Next: finding 3 (per-tick relayout cost) - try AZ_PROFILE=cpu on the
-  scripted scenario to see which phase of incremental_relayout costs 120-290 ms; then hover fades.
-- OLD NOTE: Decide the fix for finding 2 (read: compute_subtree_hashes diff.rs:597, pass A2 diff.rs ~826,
-  NodeData Hash dom.rs:1878, upsert dom.rs:3538). Candidate: upsert REPLACES the declaration IN PLACE
-  when the property exists in an unconditional rule (so an imperative write leaves the node equal to a
-  fresh build in the same state), appending only when absent. Possibly also make the inline-prop hash
-  order-independent.
-- RED test (layout/tests/<name>.rs, APPEND #[path]+mod to layout/tests/all.rs): two identical switches;
-  toggle the first through the imperative path (upsert) then rebuild with the first OFF -> the new first
-  switch matches the OLD first (node_moves), no FLIP slide on its track, its transition stays on its knob.
-- Then: hover fades = engine: restyle_on_state_change changes honour a declared `animation` (seed
-  CssTransition like apply_node_css_change) + Button declares a short background animation (flat/flora,
-  APPEND at the end of the theme files).
-- Then the per-tick relayout cost (finding 3) - report unless a clear root cause; then the idle items.
+- DONE. Report: scripts/ANIM8_2026_10_03.md (dba531a16, fbb6f1551). Nothing left on this branch; the open
+  items (per-frame relayout cost of layout-property tweens = solver3; GPU verification) are in the
+  report's "Left" section for the parent.
 
 ## Decisions / open questions
 - Hover fade is a missing feature, not a regression; decided to implement it in the engine (the user
