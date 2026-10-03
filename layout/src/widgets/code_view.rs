@@ -976,58 +976,210 @@ pub(crate) fn len32(text: &str) -> u32 {
 /// The visual column of byte `byte` of `text`: tabs advance to the next
 /// multiple of `tab`, every other character is one column.
 pub(crate) fn visual_column(text: &str, byte: u32, tab: u32) -> u32 {
-    todo!("GREEN: visual_column {text} {byte} {tab}")
+    let tab = tab.max(1);
+    let mut column = 0_u32;
+    for (i, ch) in text.char_indices() {
+        if len32(&text[..i]) >= byte {
+            break;
+        }
+        column = advance(column, ch, tab);
+    }
+    column
+}
+
+/// The visual column after `ch`, which starts at `column`.
+fn advance(column: u32, ch: char, tab: u32) -> u32 {
+    if ch == '\t' {
+        (column / tab).saturating_add(1).saturating_mul(tab)
+    } else {
+        column.saturating_add(1)
+    }
 }
 
 /// The byte of `text` nearest to visual column `column` (a column inside a
 /// tab goes to the nearer side of it; past the end is the end).
 pub(crate) fn byte_at_visual(text: &str, column: u32, tab: u32) -> u32 {
-    todo!("GREEN: byte_at_visual {text} {column} {tab}")
+    let tab = tab.max(1);
+    let mut at = 0_u32;
+    for (i, ch) in text.char_indices() {
+        let next = advance(at, ch, tab);
+        if column < next {
+            let width = next - at;
+            let before = (column - at).saturating_mul(2) <= width;
+            let byte = if before { i } else { i + ch.len_utf8() };
+            return u32::try_from(byte).unwrap_or(u32::MAX);
+        }
+        at = next;
+    }
+    len32(text)
 }
 
 /// `byte` kept inside `text` and moved back onto a character boundary.
 pub(crate) fn clamp_to_char(text: &str, byte: u32) -> u32 {
-    todo!("GREEN: clamp_to_char {text} {byte}")
+    let mut b = (byte as usize).min(text.len());
+    while b > 0 && !text.is_char_boundary(b) {
+        b -= 1;
+    }
+    u32::try_from(b).unwrap_or(u32::MAX)
 }
 
 /// The boundary after the character at `byte` (the end stays the end).
 pub(crate) fn next_char(text: &str, byte: u32) -> u32 {
-    todo!("GREEN: next_char {text} {byte}")
+    let b = clamp_to_char(text, byte) as usize;
+    let next = text[b..].chars().next().map_or(b, |c| b + c.len_utf8());
+    u32::try_from(next).unwrap_or(u32::MAX)
 }
 
 /// The boundary before the character left of `byte` (0 stays 0).
 pub(crate) fn prev_char(text: &str, byte: u32) -> u32 {
-    todo!("GREEN: prev_char {text} {byte}")
+    let b = clamp_to_char(text, byte) as usize;
+    let prev = text[..b].chars().next_back().map_or(0, |c| b - c.len_utf8());
+    u32::try_from(prev).unwrap_or(u32::MAX)
+}
+
+/// What a character is to a word jump.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CharClass {
+    Blank,
+    Word,
+    Punct,
+}
+
+fn class_of(c: char) -> CharClass {
+    if c.is_whitespace() {
+        CharClass::Blank
+    } else if c.is_alphanumeric() || c == '_' {
+        CharClass::Word
+    } else {
+        CharClass::Punct
+    }
+}
+
+/// Byte `b` moved left over the characters of class `class`.
+fn skip_left(text: &str, mut b: usize, class: CharClass) -> usize {
+    while let Some(c) = text[..b].chars().next_back() {
+        if class_of(c) != class {
+            break;
+        }
+        b -= c.len_utf8();
+    }
+    b
+}
+
+/// Byte `b` moved right over the characters of class `class`.
+fn skip_right(text: &str, mut b: usize, class: CharClass) -> usize {
+    while let Some(c) = text[b..].chars().next() {
+        if class_of(c) != class {
+            break;
+        }
+        b += c.len_utf8();
+    }
+    b
 }
 
 /// Where a word jump to the left from `byte` lands: over blanks, then over
 /// one run of word characters or of punctuation.
 pub(crate) fn word_left(text: &str, byte: u32) -> u32 {
-    todo!("GREEN: word_left {text} {byte}")
+    let mut b = skip_left(text, clamp_to_char(text, byte) as usize, CharClass::Blank);
+    if let Some(c) = text[..b].chars().next_back() {
+        b = skip_left(text, b, class_of(c));
+    }
+    u32::try_from(b).unwrap_or(u32::MAX)
 }
 
 /// Where a word jump to the right from `byte` lands (the mirror of
 /// [`word_left`]).
 pub(crate) fn word_right(text: &str, byte: u32) -> u32 {
-    todo!("GREEN: word_right {text} {byte}")
+    let mut b = skip_right(text, clamp_to_char(text, byte) as usize, CharClass::Blank);
+    if let Some(c) = text[b..].chars().next() {
+        b = skip_right(text, b, class_of(c));
+    }
+    u32::try_from(b).unwrap_or(u32::MAX)
 }
 
 /// The word (a run of letters, digits and `_`) at or just left of `byte`;
 /// an empty range where there is none.
 pub(crate) fn word_at(text: &str, byte: u32) -> (u32, u32) {
-    todo!("GREEN: word_at {text} {byte}")
+    let b = clamp_to_char(text, byte) as usize;
+    let here = text[b..].chars().next().map(class_of) == Some(CharClass::Word);
+    let left = text[..b].chars().next_back().map(class_of) == Some(CharClass::Word);
+    if !here && !left {
+        let b = u32::try_from(b).unwrap_or(u32::MAX);
+        return (b, b);
+    }
+    let start = skip_left(text, b, CharClass::Word);
+    let end = skip_right(text, b, CharClass::Word);
+    (
+        u32::try_from(start).unwrap_or(u32::MAX),
+        u32::try_from(end).unwrap_or(u32::MAX),
+    )
 }
 
 /// The byte of the line's first character that is not blank (the end for
 /// a blank line).
 pub(crate) fn first_non_blank(text: &str) -> u32 {
-    todo!("GREEN: first_non_blank {text}")
+    text.char_indices()
+        .find(|(_, c)| !c.is_whitespace())
+        .map_or(len32(text), |(i, _)| u32::try_from(i).unwrap_or(u32::MAX))
 }
 
 /// `text` with its tabs expanded to spaces, `text` starting at visual
 /// column `start`.
 pub(crate) fn expand_tabs(text: &str, start: u32, tab: u32) -> String {
-    todo!("GREEN: expand_tabs {text} {start} {tab}")
+    let tab = tab.max(1);
+    let mut out = String::with_capacity(text.len());
+    let mut column = start;
+    for ch in text.chars() {
+        let next = advance(column, ch, tab);
+        if ch == '\t' {
+            for _ in column..next {
+                out.push(' ');
+            }
+        } else {
+            out.push(ch);
+        }
+        column = next;
+    }
+    out
+}
+
+/// Whether `c` is part of a word (whole-word matching).
+fn is_word_char(c: char) -> bool {
+    class_of(c) == CharClass::Word
+}
+
+/// `at` kept inside the text: its line on a line that exists, its column
+/// inside that line and on a character boundary.
+pub(crate) fn clamp_pos(lines: &dyn Lines, at: CodeViewPosition) -> CodeViewPosition {
+    let line = at.line.min(last_line(lines));
+    let text = lines.text(line);
+    CodeViewPosition::create(line, clamp_to_char(&text, at.column))
+}
+
+/// The text from `start` to `end` (`\n` between lines).
+pub(crate) fn range_text(lines: &dyn Lines, start: CodeViewPosition, end: CodeViewPosition) -> String {
+    let (start, end) = (clamp_pos(lines, start), clamp_pos(lines, end));
+    if end <= start {
+        return String::new();
+    }
+    if start.line == end.line {
+        let text = lines.text(start.line);
+        return String::from(&text[start.column as usize..end.column as usize]);
+    }
+    let mut out = String::new();
+    for line in start.line..=end.line {
+        let text = lines.text(line);
+        if line == start.line {
+            out.push_str(&text[start.column as usize..]);
+        } else if line == end.line {
+            out.push('\n');
+            out.push_str(&text[..end.column as usize]);
+        } else {
+            out.push('\n');
+            out.push_str(&text);
+        }
+    }
+    out
 }
 
 // ---- the window: which lines and columns are built ----
