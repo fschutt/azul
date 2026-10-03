@@ -252,6 +252,13 @@ impl SeekBar {
         self
     }
 
+    /// `seconds` as a media clock ("1:12", "1:02:11", "--:--"): [`media_time`] for the API, the
+    /// one format for an app's lists of durations too.
+    #[must_use]
+    pub fn media_time(seconds: f64) -> AzString {
+        AzString::from(media_time(seconds))
+    }
+
     /// Replaces `self` with an empty bar and returns the original.
     #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
