@@ -778,3 +778,5 @@ mod a_normal_line_is_as_tall_as_chromes;
 mod a_cell_of_only_inline_boxes_aligns_them_like_text;
 #[path = "a_right_to_left_collapsed_border_stays_on_its_side.rs"]
 mod a_right_to_left_collapsed_border_stays_on_its_side;
+#[path = "an_atomic_inline_inside_a_span_keeps_its_box.rs"]
+mod an_atomic_inline_inside_a_span_keeps_its_box;
