@@ -1780,3 +1780,294 @@ pub(crate) mod fixtures {
             .with_accessibility_name(AzString::from_const_str("Orders"))
     }
 }
+
+// ---- geometry: which rows and columns are in view, and where ----
+
+use crate::widgets::cell_grid::{axis_bands, band_at, size_at, Band, FREEZE_LINE_PX, RESIZE_GRIP_PX};
+
+/// The vertical scroll bar's width and the horizontal one's height, px.
+pub(crate) const SCROLLBAR_PX: f32 = 12.0;
+/// The shortest thumb a scroll bar draws, px.
+pub(crate) const MIN_THUMB_PX: f32 = 24.0;
+/// A column's width when nothing says otherwise, px.
+pub(crate) const DEFAULT_COLUMN_PX: f32 = 100.0;
+/// The narrowest a drag leaves a column, px.
+pub(crate) const MIN_COLUMN_PX: f32 = 24.0;
+/// A cell's left and right padding, px.
+pub(crate) const CELL_PADDING_PX: f32 = 6.0;
+
+/// One scroll bar: its track (px from the table's top-left) and its thumb
+/// along it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ScrollBar {
+    /// x, y, width, height.
+    pub track: (f32, f32, f32, f32),
+    /// The thumb's start, px from the track's start.
+    pub thumb_start: f32,
+    /// The thumb's length, px.
+    pub thumb_len: f32,
+}
+
+impl ScrollBar {
+    /// Whether `(x, y)` lies on the track.
+    pub(crate) fn contains(&self, x: f32, y: f32) -> bool {
+        let (tx, ty, tw, th) = self.track;
+        x >= tx && x < tx + tw && y >= ty && y < ty + th
+    }
+}
+
+/// Where everything the table shows sits.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Geometry {
+    /// The frozen columns, then the scrolled columns in view; `index` is
+    /// the column, `start` its x.
+    pub columns: Vec<Band>,
+    /// How many of `columns` are frozen (the freeze line follows them).
+    pub frozen_columns: usize,
+    /// The rows in view; `index` is the POSITION among the rows shown,
+    /// `start` its y.
+    pub rows: Vec<Band>,
+    /// The header row's height.
+    pub header_height: f32,
+    /// The filter row's height (0 without it).
+    pub filter_height: f32,
+    /// Where the rows start (under the header and the filter row).
+    pub body_top: f32,
+    /// Where the rows end (over the horizontal scroll bar, if any).
+    pub body_bottom: f32,
+    /// The width the columns get (left of the vertical scroll bar, if any).
+    pub body_width: f32,
+    /// The frozen columns' width, the freeze line included.
+    pub frozen_width: f32,
+    /// The rows that fit wholly (Page Up / Down move by that many).
+    pub page_rows: u32,
+    /// The scrolled columns that fit wholly.
+    pub page_columns: u32,
+    /// How many rows are shown (all of them, not just the ones in view).
+    pub shown: u32,
+    /// The first row in view (`view.top`, kept in range).
+    pub top: u32,
+    /// The last `top` there is (the last page).
+    pub max_top: u32,
+    /// The first scrolled column (`view.left_column`, kept in range).
+    pub left: u32,
+    /// The last `left` there is.
+    pub max_left: u32,
+    /// The vertical scroll bar, when not every row fits.
+    pub vbar: Option<ScrollBar>,
+    /// The horizontal scroll bar, when not every column fits.
+    pub hbar: Option<ScrollBar>,
+}
+
+/// Every column's width (px): its own, the user's resizing over it, a
+/// resize drag in progress over that.
+pub(crate) fn column_sizes(t: &DataTable) -> Vec<CellGridSize> {
+    let mut sizes: Vec<CellGridSize> = t
+        .columns
+        .as_slice()
+        .iter()
+        .enumerate()
+        .map(|(i, c)| CellGridSize::create(u32::try_from(i).unwrap_or(u32::MAX), c.width))
+        .collect();
+    sizes.extend(t.view.widths.as_slice().iter().copied());
+    if t.view.drag.kind == DataTableDragKind::ResizeColumn {
+        sizes.push(CellGridSize::create(t.view.drag.column, t.view.drag.size));
+    }
+    sizes
+}
+
+/// A scroll bar's thumb over a track of `len` px: `page` of `total`
+/// items shown from `at` (of `max` + 1 starting places).
+#[allow(clippy::cast_precision_loss)] // positions are far below 2^24 per px
+fn thumb(len: f32, page: f32, total: f32, at: u32, max: u32) -> (f32, f32) {
+    let size = if total > 0.0 {
+        (len * (page / total).min(1.0)).max(MIN_THUMB_PX.min(len))
+    } else {
+        len
+    };
+    let start = if max == 0 {
+        0.0
+    } else {
+        (len - size) * (at.min(max) as f32 / max as f32)
+    };
+    (start, size)
+}
+
+/// The geometry of `t` as it is built now.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+pub(crate) fn geometry(t: &DataTable) -> Geometry {
+    let width = t.viewport_width.max(0.0);
+    let height = t.viewport_height.max(0.0);
+    let header_height = t.header_height.max(0.0);
+    let row_h = t.row_height.max(1.0);
+    let filter_height = if t.show_filter_row { row_h } else { 0.0 };
+    let body_top = header_height + filter_height;
+    let shown = t.view.shown_count(t.row_count);
+    let sizes = column_sizes(t);
+    let ncols = u32::try_from(t.columns.len()).unwrap_or(u32::MAX);
+    let total_width: f32 = (0..ncols).map(|i| size_at(&sizes, i, DEFAULT_COLUMN_PX)).sum();
+
+    // The bars take room from each other: decide the vertical one, then the
+    // horizontal one, then the vertical one again in what is left.
+    let fits = |bottom: f32| ((bottom - body_top).max(0.0) / row_h).floor() as u32;
+    let mut has_vbar = shown > fits(height);
+    let has_hbar = total_width > width - if has_vbar { SCROLLBAR_PX } else { 0.0 };
+    if has_hbar && !has_vbar {
+        has_vbar = shown > fits(height - SCROLLBAR_PX);
+    }
+    let body_width = (width - if has_vbar { SCROLLBAR_PX } else { 0.0 }).max(0.0);
+    let body_bottom = (height - if has_hbar { SCROLLBAR_PX } else { 0.0 }).max(body_top);
+
+    // Rows: whole rows from `top`, the last page never scrolled past.
+    let page_rows = fits(body_bottom).max(1);
+    let max_top = shown.saturating_sub(page_rows);
+    let top = t.view.top.min(max_top);
+    let (rows, _, _) = axis_bands(shown, 0, top, &[], row_h, 1.0, body_top, body_bottom);
+
+    // Columns: the frozen ones, then whole columns from `left`; the last
+    // `left` is the first column of the widest tail that still fits.
+    let frozen = t.frozen_columns.min(ncols);
+    let frozen_width: f32 = (0..frozen).map(|i| size_at(&sizes, i, DEFAULT_COLUMN_PX)).sum::<f32>()
+        + if frozen > 0 { FREEZE_LINE_PX } else { 0.0 };
+    let room = (body_width - frozen_width).max(0.0);
+    let mut first_of_tail = ncols;
+    let mut tail = 0.0;
+    while first_of_tail > frozen {
+        let w = size_at(&sizes, first_of_tail - 1, DEFAULT_COLUMN_PX);
+        if tail + w > room {
+            break;
+        }
+        tail += w;
+        first_of_tail -= 1;
+    }
+    let max_left = first_of_tail.max(frozen).min(ncols.saturating_sub(1).max(frozen));
+    let left = t.view.left_column.max(frozen).min(max_left);
+    let (columns, frozen_columns, page_columns) =
+        axis_bands(ncols, frozen, left, &sizes, DEFAULT_COLUMN_PX, 1.0, 0.0, body_width);
+
+    let vbar = has_vbar.then(|| {
+        let len = body_bottom - body_top;
+        let (thumb_start, thumb_len) = thumb(len, page_rows as f32, shown as f32, top, max_top);
+        ScrollBar {
+            track: (body_width, body_top, SCROLLBAR_PX, len),
+            thumb_start,
+            thumb_len,
+        }
+    });
+    let hbar = has_hbar.then(|| {
+        let len = (body_width - frozen_width).max(0.0);
+        let scrolled = (total_width - frozen_width).max(1.0);
+        let (thumb_start, thumb_len) = thumb(len, room, scrolled, left - frozen, max_left - frozen);
+        ScrollBar {
+            track: (frozen_width, body_bottom, len, SCROLLBAR_PX),
+            thumb_start,
+            thumb_len,
+        }
+    });
+
+    Geometry {
+        columns,
+        frozen_columns,
+        rows,
+        header_height,
+        filter_height,
+        body_top,
+        body_bottom,
+        body_width,
+        frozen_width,
+        page_rows,
+        page_columns,
+        shown,
+        top,
+        max_top,
+        left,
+        max_left,
+        vbar,
+        hbar,
+    }
+}
+
+/// What a point of the table is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Hit {
+    /// A column's header: sort by it.
+    Header(u32),
+    /// The right edge of a column's header: resize it.
+    HeaderEdge(u32),
+    /// A column's filter.
+    Filter(u32),
+    /// A cell: its POSITION among the rows shown, its column.
+    Cell(u32, u32),
+    /// The vertical track, before (`false`) or after (`true`) the thumb.
+    RowsTrack(bool),
+    /// The vertical thumb.
+    RowsThumb,
+    /// The horizontal track, before or after the thumb.
+    ColumnsTrack(bool),
+    /// The horizontal thumb.
+    ColumnsThumb,
+    /// Nothing (past the last row or column, the corner of the bars).
+    Nothing,
+}
+
+/// What is at `(x, y)` - px relative to the table's top-left corner.
+pub(crate) fn hit_test(geo: &Geometry, x: f32, y: f32) -> Hit {
+    if let Some(v) = geo.vbar.filter(|v| v.contains(x, y)) {
+        let along = y - v.track.1;
+        return if along < v.thumb_start {
+            Hit::RowsTrack(false)
+        } else if along > v.thumb_start + v.thumb_len {
+            Hit::RowsTrack(true)
+        } else {
+            Hit::RowsThumb
+        };
+    }
+    if let Some(h) = geo.hbar.filter(|h| h.contains(x, y)) {
+        let along = x - h.track.0;
+        return if along < h.thumb_start {
+            Hit::ColumnsTrack(false)
+        } else if along > h.thumb_start + h.thumb_len {
+            Hit::ColumnsTrack(true)
+        } else {
+            Hit::ColumnsThumb
+        };
+    }
+    if x < 0.0 || y < 0.0 || x >= geo.body_width || y >= geo.body_bottom {
+        return Hit::Nothing;
+    }
+    if y < geo.header_height {
+        return match band_at(&geo.columns, x) {
+            Some(b) if b.end() - x <= RESIZE_GRIP_PX && x <= b.end() => Hit::HeaderEdge(b.index),
+            // The grip reaches a little into the NEXT column too.
+            Some(b) if x - b.start <= RESIZE_GRIP_PX / 2.0 => {
+                match geo.columns.iter().rev().find(|c| c.end() <= b.start + 0.5) {
+                    Some(prev) => Hit::HeaderEdge(prev.index),
+                    None => Hit::Header(b.index),
+                }
+            }
+            Some(b) => Hit::Header(b.index),
+            None => Hit::Nothing,
+        };
+    }
+    if y < geo.body_top {
+        return band_at(&geo.columns, x).map_or(Hit::Nothing, |b| Hit::Filter(b.index));
+    }
+    match (band_at(&geo.rows, y), band_at(&geo.columns, x)) {
+        (Some(r), Some(c)) => Hit::Cell(r.index, c.index),
+        _ => Hit::Nothing,
+    }
+}
+
+/// The rectangle `(x, y, w, h)` of the cell at `position` x `column` in
+/// view; `None` when it is not.
+pub(crate) fn cell_rect(geo: &Geometry, position: u32, column: u32) -> Option<(f32, f32, f32, f32)> {
+    let r = geo.rows.iter().find(|b| b.index == position)?;
+    let c = geo.columns.iter().find(|b| b.index == column)?;
+    Some((c.start, r.start, c.size, r.size))
+}
+
+/// The rectangle of `column`'s filter in view.
+pub(crate) fn filter_rect(geo: &Geometry, column: u32) -> Option<(f32, f32, f32, f32)> {
+    let c = geo.columns.iter().find(|b| b.index == column)?;
+    Some((c.start, geo.header_height, c.size, geo.filter_height))
+}
