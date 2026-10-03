@@ -149,6 +149,12 @@ impl ChatLog {
         true
     }
 
+    /// The chat of an earlier visit to this meeting (read from its `chat.jsonl`): listed before
+    /// what was said since, all of it read; the newest [`MAX_MESSAGES`] stay.
+    pub fn restore(&mut self, earlier: Vec<ChatMessage>) {
+        let _ = earlier;
+    }
+
     /// Lists `message`, dropping the oldest beyond [`MAX_MESSAGES`].
     fn push(&mut self, message: ChatMessage) {
         self.messages.push(message);
@@ -259,6 +265,26 @@ mod tests {
         assert!(ben.receive(ADA, "Ada", &more, true));
         assert_eq!(ben.unread(), 0, "read at once in an open panel");
         assert!(!ben.receive(BEN, "Ben", &[1, 0], true), "not a chat message");
+    }
+
+    #[test]
+    fn an_earlier_visits_chat_goes_before_what_was_said_since_and_is_read() {
+        let mut log = ChatLog::new();
+        log.compose(ADA, "Ada", "Back again", 30).unwrap();
+        let earlier = |text: &str, mine: bool| ChatMessage {
+            from: if mine { ADA } else { 0 },
+            mine,
+            name: String::from(if mine { "Ada" } else { "Ben" }),
+            text: text.to_string(),
+        };
+        log.restore(vec![earlier("Hello", true), earlier("Hi Ada", false)]);
+        let texts: Vec<&str> = log.messages().iter().map(|m| m.text.as_str()).collect();
+        assert_eq!(texts, vec!["Hello", "Hi Ada", "Back again"]);
+        assert_eq!(log.unread(), 0, "what was said before is read");
+        let many: Vec<ChatMessage> = (0..MAX_MESSAGES).map(|i| earlier(&format!("old {i}"), false)).collect();
+        log.restore(many);
+        assert_eq!(log.messages().len(), MAX_MESSAGES, "the newest stay");
+        assert_eq!(log.messages().last().map(|m| m.text.as_str()), Some("Back again"));
     }
 
     #[test]

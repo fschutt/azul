@@ -159,6 +159,22 @@ pub fn chat_lines(messages: &[ChatMessage]) -> String {
     out
 }
 
+/// The messages of a `chat.jsonl` (see [`chat_lines`]), oldest first: this side's (`mine`) sent
+/// by `me`, the others' by nobody known now (`from` 0, they are only listed). A line that is no
+/// such object is skipped.
+#[must_use]
+pub fn parse_chat(text: &str, me: u64) -> Vec<ChatMessage> {
+    let _ = (text, me);
+    Vec::new()
+}
+
+/// The people an earlier `meeting.json` lists (none for a file that does not read).
+#[must_use]
+pub fn record_people(text: &str) -> Vec<String> {
+    let _ = text;
+    Vec::new()
+}
+
 /// What `meeting.json` says about a meeting.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct MeetingRecord {
@@ -375,6 +391,32 @@ mod tests {
         assert_eq!(parsed[1]["text"], "line one\nline two", "a newline stays inside its line");
         assert!(lines.ends_with('\n'));
         assert_eq!(chat_lines(&[]), "");
+    }
+
+    #[test]
+    fn a_chat_file_reads_back_as_the_messages_it_holds() {
+        let messages = vec![
+            message("Ada", "Hello \"Ben\"", true),
+            message("Ben", "line one\nline two", false),
+        ];
+        let text = format!("{}not json\n\n{{\"name\": 3}}\n", chat_lines(&messages));
+        let back = parse_chat(&text, 7);
+        assert_eq!(back.len(), 2, "the broken lines are skipped: {back:?}");
+        assert_eq!((back[0].from, back[0].mine, back[0].name.as_str()), (7, true, "Ada"));
+        assert_eq!(back[0].text, "Hello \"Ben\"");
+        assert_eq!((back[1].from, back[1].mine, back[1].text.as_str()), (0, false, "line one\nline two"));
+    }
+
+    #[test]
+    fn an_earlier_record_says_who_was_there() {
+        let mut record = MeetingRecord {
+            meeting: String::from("abc"),
+            people: vec![String::from("Ada")],
+            ..MeetingRecord::default()
+        };
+        record.met("Ben");
+        assert_eq!(record_people(&record.to_json()), vec!["Ada", "Ben"]);
+        assert!(record_people("{").is_empty());
     }
 
     #[test]
