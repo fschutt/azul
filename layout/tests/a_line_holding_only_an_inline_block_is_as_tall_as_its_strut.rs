@@ -171,3 +171,24 @@ fn the_strut_takes_its_fonts_metrics_when_no_text_uses_that_font() {
         "Chrome: 4px down: {b:?} in {p:?}"
     );
 }
+
+#[test]
+fn a_line_holding_only_an_empty_inline_element_is_a_phantom_line() {
+    // CSS 2.1 s9.4.2: a line box with no text, no preserved white space, no
+    // inline element with non-zero margins, padding or borders and no other
+    // in-flow content is treated as zero-height. An empty `<span>` / `<a
+    // name>` (mail anchors) was emulated as a line-height-tall box on the
+    // baseline: 19.2px where Chrome has 0 - and with the strut in a line of
+    // boxes it would have grown to 23.2.
+    for empty in ["<span></span>", "<a name=\"top\"></a>"] {
+        let lw = body(&format!(
+            "<div id=\"p\" style=\"font-family: Arial; font-size: 16px\">{empty}</div>\
+             <div id=\"q\" style=\"font-family: Arial; font-size: 16px\">x</div>"
+        ));
+        let (p, q) = (rect(&lw, "p"), rect(&lw, "q"));
+        assert!(
+            near(p.size.height, 0.0, 0.5) && near(q.origin.y, p.origin.y, 0.5),
+            "{empty} alone makes no line (Chrome 0): {p:?}, the next block at its top {q:?}"
+        );
+    }
+}
