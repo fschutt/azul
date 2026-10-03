@@ -165,3 +165,55 @@ for a one-node change in a large tree (e.g. AzWidgets-sized: hundreds of paragra
 Owns: the layout cache / dirty-marking / reconcile paths (layout/src/solver3 cache + layout_tree reconcile,
 layout/src/window.rs relayout decisions, text3's cache keys for re-flow). MAILREF8 (sans-serif + <hr>) and RULINGS8
 (text3 atomic-inline line metric) still run - keep edits local, say so in the report. Never page_breaks.rs.
+
+## Wave-8 follow-ups (user, 2026-10-03 evening, after the knob tick measured 20-21 ms)
+User: "thats still pretty bad for animations, 20ms is not smooth. ... Debug the animations further: it should usually
+only patch the display list - do we have duplicated paths? accessibility tree should only send update patches and
+none if nothing rebuilt? transitions should be lightweight: new display list (patched) or not even that if its a GPU
+property (transform)? And why is it re-running every vv callback. I think most of that is useless for animations."
+Measure on the CURRENT build (base 0de2a2529; target/release + target/azul-lib are it): set env vars BEFORE the
+runner (`AZ_BACKEND=headless AZ_PROFILE=cpu AZ_E2E=<scenario> scripts/waves/tools/run_capped.sh ... -- <App>`);
+the [CPU] profile tables are MICROSECONDS; AZ_PROFILE=cpu itself adds ~15 ms per tick. Scenario + logs:
+/Users/fschutt/Development/azul-work/lp8/ (tick.json, tick3.log profiled, tick4.log unprofiled), the generator
+scripts/layoutperf8_tick_scenario_gen.py, LAYOUTPERF8's reports scripts/LAYOUTPERF8_2026_10_03.md + 8B (the remaining
+cost list: full display list ~6 ms, reconcile ~5 ms on a tick that changes no DOM node, a11y tree rebuild ~3 ms,
+css_transition_tick ~3 ms, every VirtualView callback re-invoked + re-laid out on every relayout).
+
+### ANIMFRAME8 - an animation frame must cost ~1-2 ms
+Target: a transform / opacity animation costs no layout and no display-list rebuild (the GPU property channel - the
+compositor moves the layer); a paint-only transition (a colour fade) patches the display list in place; only a
+transition of a LAYOUT property (left / width / margin) relayouts - and then only the dirty subtree. Find out what the
+AzWidgets switch knob actually animates (a layout property like `left` / `margin-left`, or `transform`?): if it is a
+layout property, move the widget to `transform: translateX(..)` (both themes) - the knob slide should then be a GPU
+property update. Answer the user's "do we have duplicated paths?": map every path a frame can take (full regenerate,
+incremental relayout, the resize fast path, the display-list patch path, the GPU-value-only path, the CPU renderer's
+incremental repaint) and which one an animation tick takes today and why; unify where two do the same job. Then: (1) a
+tick that changes no DOM node must not reconcile (5 ms); (2) style-only changes take the display-list PATCH path
+(today "passes with style changes never use the cheaper patch path"); (3) css_transition_tick lightweight (no per-tick
+allocation of the whole transition table, only active transitions touched); (4) VirtualView callbacks are NOT re-run on
+a relayout whose host node is unchanged - keep the child DOM + its layout (LAYOUTPERF8B's plan; "every relayout clears
+all child-page results and resets every view's already-invoked flags"). RED test per item with counts (profiler spans
+or counters: reconcile calls, display-list builds vs patches, VirtualView invocations per tick). Owns:
+layout/src/window.rs (frame / relayout / transition / VirtualView paths), dll/src/desktop/shell2/common/event.rs +
+the shells' frame driving, layout/src/solver3/display_list.rs patch path, core/src/gpu.rs, the switch widget's CSS.
+Not the a11y code (A11YPATCH8).
+
+### A11YPATCH8 - the accessibility tree sends patches, and nothing when nothing changed
+Today the a11y tree is rebuilt on every relayout (~3 ms per tick). Make it incremental: keep the previous tree, diff by
+node identity, send accesskit TreeUpdate with only the changed / added / removed nodes, and NOTHING when the frame
+changed nothing a11y-visible (an animation moving a box changes bounds - decide whether bounds updates for moving
+nodes are needed every frame (accesskit allows lazy bounds) and say so). Also on the platforms' adapters (macOS,
+Windows UIA, AT-SPI) that nothing re-sends the full tree. RED test: a tick that moves one node produces an update of at
+most that node (or none), a frame with no change produces none. Owns: layout/src/managers/a11y.rs (+ the a11y snapshot
+code), the dll's accesskit adapters; in window.rs only the call site (minimal).
+
+### SYSUI8 - `system-ui` is the real system UI font
+User: "system-ui should rather match the font of the normal system UI ... the fonts in the System Settings panel".
+On macOS that is San Francisco (SF Pro, `.AppleSystemUIFont` via CoreText's UI font API), which is also what Chrome's
+system-ui gives; MAILREF8 measured 16px text 139.16 px wide in Chrome vs 128.30 in azul (so azul resolves something
+else today). Make `system-ui` (and `-apple-system` / `BlinkMacSystemFont`) resolve to the OS UI font on each platform:
+macOS SF via CoreText (the font is not a normal installed family - check how rust-fontconfig / azul's font loader can
+load it), Windows Segoe UI Variable / Segoe UI, Linux the desktop's UI font (fontconfig `system-ui`, else the GNOME /
+KDE setting). RED test on macOS with Chrome's measured width. Then LOOK at the apps (capped, one at a time, wait_settled
+before screenshots) - every app's UI text uses system-ui, so widths change; fix any widget whose layout breaks (CSS,
+not engine workarounds). Owns: layout/src/font.rs + the font loading / generic-family code, the widgets' CSS for fixes.
