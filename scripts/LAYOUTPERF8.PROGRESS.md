@@ -105,5 +105,9 @@ RED that reproduces the real app, fix; append to scripts/LAYOUTPERF8B_2026_10_03
   column's two measures (basis at max-content, automatic minimum at min-content) asking its items' cross
   size at two different main sizes -> one slot class, two keys, evicting each other every pass.
 
-## 8C NEXT
-- append the 8C section to scripts/LAYOUTPERF8B_2026_10_03.md
+- 424c3c275 report: scripts/LAYOUTPERF8B_2026_10_03.md, section "LAYOUTPERF8C"
+
+## 8C STATUS: DONE
+Parent: merge, build, and measure with the SIP-safe invocation (or the fixed run_capped.sh) - check no
+font_chain_resolve in the root pass's [CPU] block, i.e. the new library is the one loaded. Expected per tick:
+~11 taffy misses, 0-3 text flows, root_layout_pass ~1-2 ms, ~22-25 ms unprofiled.
