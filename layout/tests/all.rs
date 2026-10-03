@@ -804,3 +804,5 @@ mod typing_stays_with_its_field_when_another_page_replaces_it;
 mod text_inside_an_opacity_group_keeps_its_colour;
 #[path = "a_long_list_of_avatar_rows_lays_out_in_linear_time.rs"]
 mod a_long_list_of_avatar_rows_lays_out_in_linear_time;
+#[path = "a_short_list_in_a_shell_pane_fills_its_pane_from_the_top.rs"]
+mod a_short_list_in_a_shell_pane_fills_its_pane_from_the_top;
