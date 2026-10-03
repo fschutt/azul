@@ -11072,18 +11072,38 @@ fn calculate_line_metrics(
 /// controls, which azul does not inject) two runs of the same direction are never
 /// visually adjacent — a higher even level nests inside its odd parent and a lower
 /// level separates two same-parity runs — so a "same-direction" group is always a
-/// single real level run. Non-cluster items (breaks/objects/tabs) act as run
-/// boundaries. Applied per line, so a wrapped RTL run reorders correctly per line.
-fn apply_l2_visual_reversal(line_items: &mut [ShapedItem]) {
-    let dir_of = |it: &ShapedItem| it.as_cluster().map(|c| c.direction);
+/// single real level run. An atomic inline (an `Object`, U+FFFC - a neutral)
+/// takes its direction from the clusters around it, rules N1 / N2: the
+/// direction of both neighbours where they agree, the paragraph's (`base`)
+/// otherwise and at the line's edges - so two inline-blocks of an RTL
+/// paragraph are reversed like its letters (Cerberus's `<td dir="rtl">`
+/// columns; they were run boundaries and stayed in logical order). Breaks and
+/// tabs act as run boundaries. Applied per line, so a wrapped RTL run reorders
+/// correctly per line.
+fn apply_l2_visual_reversal(line_items: &mut [ShapedItem], base: BidiDirection) {
+    let cluster_dir = |it: &ShapedItem| it.as_cluster().map(|c| c.direction);
+    let directions: Vec<Option<BidiDirection>> = (0..line_items.len())
+        .map(|k| match &line_items[k] {
+            ShapedItem::Cluster(c) => Some(c.direction),
+            ShapedItem::Object { .. } => {
+                let before = line_items[..k].iter().rev().find_map(cluster_dir);
+                let after = line_items[k + 1..].iter().find_map(cluster_dir);
+                match (before.unwrap_or(base), after.unwrap_or(base)) {
+                    (b, a) if b == a => Some(b),
+                    _ => Some(base),
+                }
+            }
+            _ => None,
+        })
+        .collect();
     let mut i = 0;
     while i < line_items.len() {
-        let Some(dir) = dir_of(&line_items[i]) else {
+        let Some(dir) = directions[i] else {
             i += 1;
             continue;
         };
         let mut j = i + 1;
-        while j < line_items.len() && dir_of(&line_items[j]) == Some(dir) {
+        while j < line_items.len() && directions[j] == Some(dir) {
             j += 1;
         }
         if dir == BidiDirection::Rtl {
@@ -11631,7 +11651,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             // already ordered the level RUNS visually; here we reverse the clusters
             // within each RTL run so an RTL run reads right-to-left. Applied per line
             // (after line breaking) so a wrapped RTL run reorders correctly per line.
-            apply_l2_visual_reversal(&mut line_items);
+            apply_l2_visual_reversal(&mut line_items, base_direction);
 
             if let Some(msgs) = debug_messages {
                 let after: String = line_items
