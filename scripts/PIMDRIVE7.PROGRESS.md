@@ -54,8 +54,10 @@ Scratch helpers (not committed): /tmp/pimdrive7/rep.py (exact replacements from 
   AzMeet (E2E shots), AzContacts flora light, AzTasks (items 2-3). Fixed: 585108542 / 2ceadc980 AzMeet Copy link.
   64edad9c3 e2e App.name kept the method (the capped change had shadowed it).
 
+- dd2f8b89e .. 69d793b3d the report scripts/PIMDRIVE7_2026_10_03.md
+
 ## IN PROGRESS
-- the report scripts/PIMDRIVE7_2026_10_03.md
+- (none - all brief items done; the report is committed)
 
 ## NEXT
 
