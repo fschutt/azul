@@ -3998,6 +3998,15 @@ struct StackingContext {
     child_contexts: Vec<StackingContext>,
     /// Children that do not create their own stacking contexts and are painted in DOM order.
     in_flow_children: Vec<usize>,
+    /// A positioned box with `z-index: auto` (`node_paints_as_positioned_box`),
+    /// not a stacking context: CSS 2.2 Appendix E paints it at step 8 of the
+    /// stacking context it is in, in tree order with the stacking contexts of
+    /// level 0, "as if it created a new stacking context, but any positioned
+    /// descendants and descendants which actually create a new stacking
+    /// context [are] part of the parent stacking context". So it has no
+    /// `child_contexts` of its own (they follow it in its parent's list) and
+    /// pushes no stacking context.
+    positioned_box: bool,
 }
 
 impl<'a, 'b, T> DisplayListGenerator<'a, 'b, T>
@@ -4762,15 +4771,12 @@ where
         let mut in_flow_children = Vec::new();
 
         for &child_index in self.positioned_tree.tree.children(node_index) {
-            if self.establishes_stacking_context(child_index) {
-                child_contexts.push(self.collect_stacking_contexts(child_index)?);
-            } else {
+            if !self.establishes_stacking_context(child_index)
+                && !self.paints_as_positioned_box(child_index)
+            {
                 in_flow_children.push(child_index);
-                // Recurse into non-stacking-context children to find nested
-                // stacking contexts. Per CSS 2.2 Appendix E, these are promoted
-                // to be child stacking contexts of the nearest ancestor SC.
-                self.find_nested_stacking_contexts(child_index, &mut child_contexts)?;
             }
+            self.file_into_context(child_index, &mut child_contexts)?;
         }
 
         Ok(StackingContext {
@@ -4778,22 +4784,52 @@ where
             z_index,
             child_contexts,
             in_flow_children,
+            positioned_box: false,
         })
     }
 
-    /// Recursively searches non-stacking-context subtrees for nested stacking
-    /// contexts, promoting them to the parent stacking context's child list.
+    /// Files the box at `index` - and what its subtree paints outside the
+    /// in-flow walk - into the stacking context being collected, in tree
+    /// order (CSS 2.2 Appendix E):
+    /// - a stacking context of its own goes into `child_contexts` whole;
+    /// - a positioned box with `z-index: auto` goes in as a positioned entry
+    ///   (painted at step 8, see [`StackingContext::positioned_box`]), and
+    ///   the positioned boxes and stacking contexts of its subtree FOLLOW it
+    ///   in the same list - they belong to this context, not to it;
+    /// - any other box is painted by the in-flow walk of its parent; only the
+    ///   positioned boxes and stacking contexts of its subtree are filed.
+    fn file_into_context(
+        &mut self,
+        index: usize,
+        child_contexts: &mut Vec<StackingContext>,
+    ) -> Result<()> {
+        if self.establishes_stacking_context(index) {
+            child_contexts.push(self.collect_stacking_contexts(index)?);
+            return Ok(());
+        }
+        if self.paints_as_positioned_box(index) {
+            child_contexts.push(StackingContext {
+                node_index: index,
+                z_index: 0,
+                child_contexts: Vec::new(),
+                in_flow_children: self.positioned_tree.tree.children(index).to_vec(),
+                positioned_box: true,
+            });
+        }
+        self.find_nested_stacking_contexts(index, child_contexts)
+    }
+
+    /// Files every child of `parent_index` (see [`Self::file_into_context`]):
+    /// the stacking contexts and positioned boxes of a subtree the in-flow
+    /// walk paints are promoted to the nearest ancestor stacking context
+    /// (CSS 2.2 Appendix E).
     fn find_nested_stacking_contexts(
         &mut self,
         parent_index: usize,
         child_contexts: &mut Vec<StackingContext>,
     ) -> Result<()> {
         for &child_index in self.positioned_tree.tree.children(parent_index) {
-            if self.establishes_stacking_context(child_index) {
-                child_contexts.push(self.collect_stacking_contexts(child_index)?);
-            } else {
-                self.find_nested_stacking_contexts(child_index, child_contexts)?;
-            }
+            self.file_into_context(child_index, child_contexts)?;
         }
         Ok(())
     }
@@ -4913,7 +4949,11 @@ where
             );
         }
 
-        builder.push_stacking_context(context.z_index, node_bounds);
+        // A positioned box with `z-index: auto` is painted as if it were a
+        // stacking context, but is none: no group of its own.
+        if !context.positioned_box {
+            builder.push_stacking_context(context.z_index, node_bounds);
+        }
 
         // Push opacity/filter effects if the node has them
         let mut pushed_opacity = false;
@@ -5079,8 +5119,16 @@ where
 
         // +spec:stacking-contexts:9a4eb3 - z-index:auto/0 positioned descendants painted in tree
         // order
-        // 5. Paint child stacking contexts with z-index: 0 / auto.
-        for child in context.child_contexts.iter().filter(|c| c.z_index == 0) {
+        // 5. Paint child stacking contexts with z-index: 0 / auto and the
+        // positioned boxes with z-index: auto, in tree order (CSS 2.2 E.2
+        // step 8) - a box being dragged last, over everything (W3C), as the
+        // in-flow walk paints its dragged children.
+        let (dragged, resting): (Vec<&StackingContext>, Vec<&StackingContext>) = context
+            .child_contexts
+            .iter()
+            .filter(|c| c.z_index == 0)
+            .partition(|c| self.is_being_dragged(c.node_index));
+        for child in resting.into_iter().chain(dragged) {
             self.paint_child_context(builder, child)?;
         }
 
@@ -5119,7 +5167,9 @@ where
         }
 
         // Pop the stacking context for WebRender
-        builder.pop_stacking_context();
+        if !context.positioned_box {
+            builder.pop_stacking_context();
+        }
 
         // Pop reference frame if we pushed one
         if has_reference_frame.is_some() {
@@ -5365,9 +5415,12 @@ where
         let mut dragging_children = Vec::new();
 
         for &child_index in children_indices {
-            // Skip stacking context children - they're painted by the stacking
-            // context tree traversal, not by the in-flow descendant path.
-            if self.establishes_stacking_context(child_index) {
+            // Skip stacking context children and positioned boxes - they're
+            // painted by the stacking context tree traversal (CSS 2.2 E.2
+            // step 8), not by the in-flow descendant path.
+            if self.establishes_stacking_context(child_index)
+                || self.paints_as_positioned_box(child_index)
+            {
                 continue;
             }
             let child_node = self
@@ -5377,12 +5430,7 @@ where
                 .ok_or(LayoutError::InvalidTree)?;
 
             // Check if this child is being dragged (paint last for z-order)
-            let is_dragging = child_node.dom_node_id.is_some_and(|dom_id| {
-                let styled_node_state = self.get_styled_node_state(dom_id);
-                styled_node_state.dragging
-            });
-
-            if is_dragging {
+            if self.is_being_dragged(child_index) {
                 dragging_children.push(child_index);
                 continue;
             }
@@ -8853,6 +8901,54 @@ where
             node_index,
         )
     }
+
+    /// Is the box at `node_index` a positioned box painted at step 8 of its
+    /// stacking context without being one (see
+    /// [`node_paints_as_positioned_box`])?
+    fn paints_as_positioned_box(&self, node_index: usize) -> bool {
+        node_paints_as_positioned_box(
+            self.ctx.styled_dom,
+            self.positioned_tree.tree,
+            node_index,
+        )
+    }
+
+    /// Is the box at `node_index` being dragged? Painted last among what its
+    /// walk paints at its level, over everything (W3C).
+    fn is_being_dragged(&self, node_index: usize) -> bool {
+        self.positioned_tree
+            .tree
+            .get(LayoutNodeId::new(node_index))
+            .and_then(|node| node.dom_node_id)
+            .is_some_and(|dom_id| self.get_styled_node_state(dom_id).dragging)
+    }
+}
+
+/// Is the box at `node_index` a positioned box with `z-index: auto` that is
+/// not a stacking context - `position: relative` or `absolute` and nothing
+/// else that makes one (opacity, a transform, a filter)?
+///
+/// CSS 2.2 Appendix E paints such a box at step 8 of its stacking context, in
+/// tree order with the stacking contexts of level 0 (a transformed or
+/// translucent box) and after every in-flow box of the context - not where
+/// the in-flow walk reaches it. (Fixed and sticky boxes are always stacking
+/// contexts: `node_establishes_stacking_context`.)
+pub(crate) fn node_paints_as_positioned_box(
+    styled_dom: &StyledDom,
+    tree: &LayoutTree,
+    node_index: usize,
+) -> bool {
+    let Some(dom_id) = tree
+        .get(LayoutNodeId::new(node_index))
+        .and_then(|node| node.dom_node_id)
+    else {
+        return false;
+    };
+    matches!(
+        get_position_type(styled_dom, Some(dom_id)),
+        LayoutPosition::Relative | LayoutPosition::Absolute
+    ) && crate::solver3::getters::is_z_index_auto(styled_dom, Some(dom_id))
+        && !node_establishes_stacking_context(styled_dom, tree, node_index)
 }
 
 /// Does the box at `node_index` paint as a stacking context of its own?
