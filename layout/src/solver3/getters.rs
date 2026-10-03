@@ -4353,6 +4353,21 @@ fn at_optical_size(mut stack: Vec<FontSelector>, font_size_px: f32) -> Vec<FontS
     stack
 }
 
+/// Whether `family` is an Apple name of the system UI font on `platform`:
+/// `-apple-system` (Safari's) and `BlinkMacSystemFont` (Chrome's), the heads
+/// of the "system font stack" in mail and web CSS. On macOS / iOS both are
+/// `system-ui` (Chrome 154 measures `BlinkMacSystemFont` as `system-ui` and no
+/// longer knows `-apple-system`; Safari draws it as the system font, and azul
+/// follows Safari there - SYSUI8). Elsewhere they are ordinary family names
+/// no system has, as in Chrome.
+fn is_apple_system_ui_alias(family: &str, platform: &azul_css::system::Platform) -> bool {
+    matches!(
+        platform,
+        azul_css::system::Platform::MacOs | azul_css::system::Platform::Ios
+    ) && (family.eq_ignore_ascii_case("-apple-system")
+        || family.eq_ignore_ascii_case("BlinkMacSystemFont"))
+}
+
 /// Build a fontconfig `FontSelector` stack from a list of CSS font families.
 ///
 /// Shared by `get_style_properties` and `collect_font_stacks_from_styled_dom`.
@@ -4383,6 +4398,14 @@ fn build_font_selector_stack(
     fc_style: FontStyle,
 ) -> Vec<FontSelector> {
     let mut stack = Vec::with_capacity(font_families.len() + 3);
+    let current;
+    let platform = if let Some(p) = platform {
+        p
+    } else {
+        current = azul_css::system::Platform::current();
+        &current
+    };
+    let system_ui = rust_fontconfig::GenericFamily::SystemUi.as_css();
 
     for i in 0..font_families.len() {
         let family = font_families.get(i).unwrap();
@@ -4401,14 +4424,6 @@ fn build_font_selector_stack(
             _ => None,
         };
         if let Some(system_type) = system_type {
-            let current;
-            let platform = if let Some(p) = platform {
-                p
-            } else {
-                current = azul_css::system::Platform::current();
-                &current
-            };
-            let font_names = system_type.get_fallback_chain(platform);
             let system_weight = if system_type.is_bold() {
                 FcWeight::Bold
             } else {
@@ -4419,21 +4434,45 @@ fn build_font_selector_stack(
             } else {
                 fc_style
             };
-            for font_name in font_names {
+            if matches!(
+                system_type,
+                azul_css::system::SystemFontType::Ui | azul_css::system::SystemFontType::UiBold
+            ) {
+                // The OS UI font is ONE generic, `system-ui`: the font cache
+                // resolves it to the platform's UI font list
+                // (`font::loading::browser_generic_families`; the desktop's
+                // own font setting first on Linux), so the widgets' role and
+                // a document's `system-ui` draw the same face (SYSUI8).
                 stack.push(FontSelector {
-                    family: font_name.to_string(),
+                    family: system_ui.to_string(),
                     weight: system_weight,
                     style: system_style,
                     unicode_ranges: Vec::new(),
                     optical_size: 0,
                 });
+            } else {
+                for font_name in system_type.get_fallback_chain(platform) {
+                    stack.push(FontSelector {
+                        family: font_name.to_string(),
+                        weight: system_weight,
+                        style: system_style,
+                        unicode_ranges: Vec::new(),
+                        optical_size: 0,
+                    });
+                }
             }
         } else {
             // as_query_string, NOT as_string: FontManager queries fontconfig with the
             // RAW name. as_string() CSS-quotes whitespace names ("Times New Roman" ->
             // "\"Times New Roman\""), which corrupts the query for every multi-word font.
+            let name = family.as_query_string();
+            let name = if is_apple_system_ui_alias(&name, platform) {
+                system_ui.to_string()
+            } else {
+                name
+            };
             stack.push(FontSelector {
-                family: family.as_query_string(),
+                family: name,
                 weight: fc_weight,
                 style: fc_style,
                 unicode_ranges: Vec::new(),

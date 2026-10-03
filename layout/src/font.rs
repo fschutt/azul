@@ -41,10 +41,20 @@ pub mod loading {
     ///   settings); the crate lists Helvetica Neue first. Helvetica moves to
     ///   the front, the rest keep their order behind it.
     ///
+    /// - every OS: `system-ui` is the font the OS draws its own UI in (user,
+    ///   SYSUI8: "the fonts in the System Settings panel"), the ONE list
+    ///   azul's `system:ui` role draws with too - `SystemFontType::Ui`'s
+    ///   chain (css/src/system.rs): "System Font" (San Francisco, SFNS.ttf)
+    ///   on macOS / iOS, Segoe UI Variable on Windows (the Windows 11
+    ///   Settings font; Chrome's `system-ui` is the older message font
+    ///   "Segoe UI"), Roboto on Android. On Linux a `system-ui` alias of the
+    ///   desktop's fontconfig stays first and the list follows it; the
+    ///   desktop's own font setting goes before both at runtime
+    ///   ([`use_system_ui_font`]).
+    ///
     /// Everything else stays: `serif` and `monospace` already resolve to
-    /// Chrome's faces on macOS (Times, Menlo - measured), `system-ui` is
-    /// another generic (the apps' UI text, SF), and on Linux the desktop's
-    /// fontconfig `<alias>` decides for both engines.
+    /// Chrome's faces on macOS (Times, Menlo - measured), and on Linux the
+    /// desktop's fontconfig `<alias>` decides for both engines. Idempotent.
     pub fn browser_generic_families(config: &mut FcFallbackConfig, os: OperatingSystem) {
         if matches!(os, OperatingSystem::MacOS | OperatingSystem::IOS) {
             let sans = config
@@ -53,6 +63,68 @@ pub mod loading {
                 .or_default();
             sans.retain(|family| !family.eq_ignore_ascii_case("Helvetica"));
             sans.insert(0, String::from("Helvetica"));
+        }
+        if let Some(platform) = platform_of(os) {
+            let ui = azul_css::system::SystemFontType::Ui.get_fallback_chain(&platform);
+            let system_ui = config
+                .generic_families
+                .entry(GenericFamily::SystemUi)
+                .or_default();
+            if os == OperatingSystem::Linux {
+                for family in ui {
+                    if !system_ui.iter().any(|f| f.eq_ignore_ascii_case(family)) {
+                        system_ui.push(family.to_string());
+                    }
+                }
+            } else {
+                *system_ui = ui.into_iter().map(String::from).collect();
+            }
+        }
+    }
+
+    /// The css crate's `Platform` whose system font chains describe `os`
+    /// (the Linux desktop does not change the UI font chain). `None` for
+    /// wasm: no OS UI font there.
+    fn platform_of(os: OperatingSystem) -> Option<azul_css::system::Platform> {
+        use azul_css::system::{DesktopEnvironment, Platform};
+        Some(match os {
+            OperatingSystem::MacOS => Platform::MacOs,
+            OperatingSystem::IOS => Platform::Ios,
+            OperatingSystem::Windows => Platform::Windows,
+            OperatingSystem::Linux => Platform::Linux(DesktopEnvironment::Gnome),
+            OperatingSystem::Android => Platform::Android,
+            OperatingSystem::Wasm => return None,
+        })
+    }
+
+    /// `family` - the desktop's own UI font setting, azul's detected
+    /// `SystemStyle::fonts.ui_font` (GNOME's / KDE's font) - first in the
+    /// `system-ui` list of `config`, once; the rest keep their order. A
+    /// blank name changes nothing.
+    pub fn prefer_system_ui_font(config: &mut FcFallbackConfig, family: &str) {
+        let family = family.trim();
+        if family.is_empty() {
+            return;
+        }
+        let inherited = config.generic_candidates(GenericFamily::SystemUi).to_vec();
+        let system_ui = config
+            .generic_families
+            .entry(GenericFamily::SystemUi)
+            .or_insert(inherited);
+        system_ui.retain(|f| !f.eq_ignore_ascii_case(family));
+        system_ui.insert(0, family.to_string());
+    }
+
+    /// [`prefer_system_ui_font`] applied to `cache` (shared state, as
+    /// [`use_browser_generic_families`]); a no-op when the font is first
+    /// already, so the memoized chains survive. The dll calls it on Linux
+    /// with the detected desktop font at the first layout.
+    pub fn use_system_ui_font(cache: &FcFontCache, family: &str) {
+        let current = cache.fallback_config();
+        let mut config = current.clone();
+        prefer_system_ui_font(&mut config, family);
+        if config != current {
+            let _ = cache.set_fallback_config(config);
         }
     }
 
