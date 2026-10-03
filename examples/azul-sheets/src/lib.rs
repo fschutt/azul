@@ -33,6 +33,7 @@ pub mod args;
 pub mod engine;
 pub mod fake_engine;
 pub mod format_cells;
+mod format_dialog;
 pub mod functions;
 pub mod ids;
 pub mod ironcalc_engine;
@@ -117,7 +118,7 @@ pub const ABOUT: AboutInfo = AboutInfo {
 /// The keys AzSheets answers, as the settings page lists them (`Mod` = Cmd
 /// on macOS, Ctrl elsewhere). The window's and the grid's handlers are the
 /// ones that act; this table is what they do.
-pub const SHORTCUTS: [Shortcut; 21] = [
+pub const SHORTCUTS: [Shortcut; 22] = [
     Shortcut::new("File", "Mod+S", "Save the workbook"),
     Shortcut::new("File", "Mod+O", "Open a workbook"),
     Shortcut::new("File", "Mod+N", "New blank workbook"),
@@ -127,6 +128,7 @@ pub const SHORTCUTS: [Shortcut; 21] = [
     Shortcut::new("Edit", "Delete", "Clear the selection's contents"),
     Shortcut::new("Edit", "Mod+F / Mod+H", "Find / replace"),
     Shortcut::new("Format", "Mod+B / Mod+I / Mod+U", "Bold / italic / underline"),
+    Shortcut::new("Format", "Mod+1", "Format Cells"),
     Shortcut::new("Cells", "F2", "Edit the active cell"),
     Shortcut::new("Cells", "F4 (editing)", "Cycle the reference at the caret: A1, $A$1, A$1, $A1"),
     Shortcut::new("Cells", "Enter / Tab", "Commit and move down / right (Shift: back)"),
@@ -315,6 +317,8 @@ pub struct AppState {
     pub window: (f32, f32),
     /// The command line, until the window's startup has acted on it.
     pub args: Option<Args>,
+    /// The Format Cells dialog, while it is open.
+    pub format: Option<format_cells::FormatDraft>,
     /// The window is asking "save changes?" (the close guard).
     pub asking_close: bool,
     /// The window closes once the save in flight is written.
@@ -360,6 +364,7 @@ impl AppState {
             workbooks: Vec::new(),
             window: (1280.0, 800.0),
             args: None,
+            format: None,
             asking_close: false,
             close_after_save: false,
         }
@@ -1151,6 +1156,8 @@ fn grid(s: &AppState, app: &RefAny) -> Dom {
 /// A command of the ribbon (and of the keyboard shortcuts).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
+    /// The Format Cells dialog on its tab (0 Number .. 4 Fill).
+    FormatCells(u8),
     Undo,
     Redo,
     Paste,
@@ -1277,6 +1284,12 @@ fn group(label: &str, items: Vec<RibbonItem>) -> RibbonGroup {
     RibbonGroup::create(AzString::from(label)).with_items(items)
 }
 
+/// A group whose launcher (the corner arrow) opens Format Cells on `tab`,
+/// as Excel's Font, Alignment and Number groups do.
+fn format_group(app: &RefAny, tab: u8, label: &str, items: Vec<RibbonItem>) -> RibbonGroup {
+    group(label, items).with_launcher(action_ref(app, Action::FormatCells(tab)), on_action as ButtonOnClickCallbackType)
+}
+
 fn tab(label: &str, groups: Vec<RibbonGroup>) -> RibbonTab {
     RibbonTab::create(AzString::from(label)).with_groups(groups)
 }
@@ -1310,7 +1323,9 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
                     ]),
                 ],
             ),
-            group(
+            format_group(
+                app,
+                2,
                 "Font",
                 vec![column(vec![
                     row(vec![
@@ -1335,7 +1350,9 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
                     ]),
                 ])],
             ),
-            group(
+            format_group(
+                app,
+                1,
                 "Alignment",
                 vec![column(vec![
                     row(vec![
@@ -1351,7 +1368,9 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
                     row(vec![icon(app, "wrap_text", "Wrap text", Action::Wrap, style.wrap)]),
                 ])],
             ),
-            group(
+            format_group(
+                app,
+                0,
                 "Number",
                 vec![column(vec![
                     row(vec![
@@ -1721,7 +1740,8 @@ const ZOOM_MIN: u32 = 10;
 /// See [`ZOOM_MIN`].
 const ZOOM_MAX: u32 = 400;
 
-fn zoom_action(app: &RefAny, action: Action) -> RefAny {
+/// The data of a button that runs `action`.
+fn action_ref(app: &RefAny, action: Action) -> RefAny {
     RefAny::new(ActionRef {
         app: app.clone(),
         action,
@@ -1740,8 +1760,8 @@ fn status_bar(s: &AppState, app: &RefAny) -> Dom {
     // The slider spans the buttons' whole range: a fixed 10..190 window
     // pinned a 400 % zoom's thumb to its end (DEDUP_OFFICE D28).
     let zoom = StatusBarZoom::create(s.zoom as f32, ZOOM_MIN as f32, ZOOM_MAX as f32)
-        .with_on_zoom_out(zoom_action(app, Action::ZoomOut), on_action as ButtonOnClickCallbackType)
-        .with_on_zoom_in(zoom_action(app, Action::ZoomIn), on_action as ButtonOnClickCallbackType)
+        .with_on_zoom_out(action_ref(app, Action::ZoomOut), on_action as ButtonOnClickCallbackType)
+        .with_on_zoom_in(action_ref(app, Action::ZoomIn), on_action as ButtonOnClickCallbackType)
         .with_on_slider_change(app.clone(), on_zoom_slider as SliderOnValueChangeCallbackType);
     StatusBar::create(segments).with_zoom(zoom).dom()
 }
@@ -2041,12 +2061,15 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         if let Some(p) = panel(s, &app) {
             middle.add_child(p);
         }
-        let document = Dom::create_div()
+        let mut document = Dom::create_div()
             .with_id(ids::WORKBOOK)
             .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
             .with_child(formula_bar(s, &app))
             .with_child(middle)
             .with_child(sheet_tabs(s, &app));
+        if let Some(d) = &s.format {
+            document.add_child(format_dialog::dialog(d, &app));
+        }
         DocumentShell::create(document)
             .office_shell()
             .with_title_row(title_row(s))
@@ -2334,6 +2357,7 @@ fn act(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, action: Action) 
         .unwrap_or_default();
     let color = |hex: &str| Some(String::from(hex));
     match action {
+        Action::FormatCells(tab) => format_dialog::open(s, style.clone(), usize::from(tab)),
         Action::Undo => run(info, app, s, Command::Undo),
         Action::Redo => run(info, app, s, Command::Redo),
         Action::Copy | Action::Cut => {
@@ -3124,6 +3148,7 @@ extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update 
         Some(VirtualKeyCode::U) if command => Some(Action::Underline),
         Some(VirtualKeyCode::F) if command => Some(Action::Find),
         Some(VirtualKeyCode::H) if command => Some(Action::Replace),
+        Some(VirtualKeyCode::Key1) if command => Some(Action::FormatCells(0)),
         Some(VirtualKeyCode::F9) => Some(Action::CalculateNow),
         _ => None,
     };
@@ -3160,7 +3185,9 @@ extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update 
             backstage_pane(info, app, s, OPTIONS_PANE);
         }),
         Some(VirtualKeyCode::Escape) => with_app(&mut data, &mut info, |_, _, s| {
-            if s.screen == Screen::Backstage {
+            if s.format.is_some() {
+                s.format = None;
+            } else if s.screen == Screen::Backstage {
                 s.screen = Screen::Workbook;
             }
         }),
