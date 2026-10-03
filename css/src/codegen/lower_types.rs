@@ -904,7 +904,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("DynamicSelectorVecDestructor", "vec"),
     ("DynamicSelectorVecDestructorType", "vec"),
     ("DynamicSelectorVecSlice", "css"),
-    ("EchoCanceller", "misc"),
+    ("EchoCanceller", "audio"),
     ("EdgeType", "callbacks"),
     ("EditResumePoint", "misc"),
     ("EmailAddress", "image"),

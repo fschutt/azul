@@ -172561,141 +172561,6 @@
                             }
                         ],
                         "repr": "C"
-                    },
-                    "EchoCanceller": {
-                        "external": "azul_dll::desktop::extra::audio::echo::EchoCanceller",
-                        "custom_impls": [
-                            "Clone",
-                            "Default",
-                            "Drop"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "c_void",
-                                    "ref_kind": "mutptr"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
-                                }
-                            }
-                        ],
-                        "constructors": {
-                            "create": {
-                                "doc": [
-                                    "A canceller for mono audio at `sample_rate` that removes echoes arriving up to `tail_ms`",
-                                    "after the sound was played (the audio buffers' delay plus the room's reverberation;",
-                                    "[`DEFAULT_TAIL_MS`] when unsure). Closed for a zero rate or tail."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "sample_rate": "u32"
-                                    },
-                                    {
-                                        "tail_ms": "u32"
-                                    }
-                                ],
-                                "fn_body": "azul_dll::desktop::extra::audio::echo::EchoCanceller::create(sample_rate, tail_ms)"
-                            }
-                        },
-                        "functions": {
-                            "close": {
-                                "doc": [
-                                    "Release the canceller. (Drop does this too.)"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    }
-                                ],
-                                "fn_body": "object.close()"
-                            },
-                            "erle_db": {
-                                "doc": [
-                                    "How much of the echo is removed right now, in dB (echo return loss enhancement, over the",
-                                    "last half second the far end played); 0 while nothing played."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "f32"
-                                },
-                                "fn_body": "object.erle_db()"
-                            },
-                            "far_end": {
-                                "doc": [
-                                    "The far end: `frame` is about to be played (mono, at the canceller's rate). Feed every",
-                                    "frame that goes to the speaker, in order, when it is handed to the output. False when the",
-                                    "canceller is not open or the frame is in another format."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "frame": "AudioFrame"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "object.far_end(frame)"
-                            },
-                            "is_open": {
-                                "doc": [
-                                    "Whether the canceller opened."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "object.is_open()"
-                            },
-                            "latency_samples": {
-                                "doc": [
-                                    "How many samples `process` delays the microphone by (one block)."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "u32"
-                                },
-                                "fn_body": "object.latency_samples()"
-                            },
-                            "process": {
-                                "doc": [
-                                    "The near end: `frame` as the microphone captured it (mono, at the canceller's rate),",
-                                    "returned with the echo of the far end removed - as many samples as came in, [`latency`]",
-                                    "samples later (one block). A frame in another format, or a closed canceller, returns",
-                                    "the frame unchanged.",
-                                    "",
-                                    "[`latency`]: Self::latency_samples"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "frame": "AudioFrame"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "AudioFrame"
-                                },
-                                "fn_body": "object.process(frame)"
-                            }
-                        },
-                        "repr": "C"
                     }
                 }
             },
@@ -177291,6 +177156,141 @@
                                     "type": "OptionU8Vec"
                                 },
                                 "fn_body": "object.recv_packet()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "EchoCanceller": {
+                        "external": "azul_dll::desktop::extra::audio::echo::EchoCanceller",
+                        "custom_impls": [
+                            "Clone",
+                            "Default",
+                            "Drop"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A canceller for mono audio at `sample_rate` that removes echoes arriving up to `tail_ms`",
+                                    "after the sound was played (the audio buffers' delay plus the room's reverberation;",
+                                    "[`DEFAULT_TAIL_MS`] when unsure). Closed for a zero rate or tail."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "sample_rate": "u32"
+                                    },
+                                    {
+                                        "tail_ms": "u32"
+                                    }
+                                ],
+                                "fn_body": "azul_dll::desktop::extra::audio::echo::EchoCanceller::create(sample_rate, tail_ms)"
+                            }
+                        },
+                        "functions": {
+                            "close": {
+                                "doc": [
+                                    "Release the canceller. (Drop does this too.)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.close()"
+                            },
+                            "erle_db": {
+                                "doc": [
+                                    "How much of the echo is removed right now, in dB (echo return loss enhancement, over the",
+                                    "last half second the far end played); 0 while nothing played."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f32"
+                                },
+                                "fn_body": "object.erle_db()"
+                            },
+                            "far_end": {
+                                "doc": [
+                                    "The far end: `frame` is about to be played (mono, at the canceller's rate). Feed every",
+                                    "frame that goes to the speaker, in order, when it is handed to the output. False when the",
+                                    "canceller is not open or the frame is in another format."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "frame": "AudioFrame"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.far_end(frame)"
+                            },
+                            "is_open": {
+                                "doc": [
+                                    "Whether the canceller opened."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_open()"
+                            },
+                            "latency_samples": {
+                                "doc": [
+                                    "How many samples `process` delays the microphone by (one block)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "u32"
+                                },
+                                "fn_body": "object.latency_samples()"
+                            },
+                            "process": {
+                                "doc": [
+                                    "The near end: `frame` as the microphone captured it (mono, at the canceller's rate),",
+                                    "returned with the echo of the far end removed - as many samples as came in, [`latency`]",
+                                    "samples later (one block). A frame in another format, or a closed canceller, returns",
+                                    "the frame unchanged.",
+                                    "",
+                                    "[`latency`]: Self::latency_samples"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "frame": "AudioFrame"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AudioFrame"
+                                },
+                                "fn_body": "object.process(frame)"
                             }
                         },
                         "repr": "C"

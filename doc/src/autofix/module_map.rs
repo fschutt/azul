@@ -683,6 +683,11 @@ const DIFFICULT_TYPE_MODULES: &[(&str, &str)] = &[
     // beside `RawImage` in image (MEDIA6). Spelled in full - "Text" alone
     // would capture every text type.
     ("TextRasterStyle", "image"),
+    // The voice echo canceller (VIDEO8): no keyword matched, so it landed in
+    // "misc" and AzMeet's `azul::audio::EchoCanceller` did not resolve; it
+    // belongs beside `AudioEncoder` / `AudioDecoder` in audio. In full - "Echo"
+    // alone is too broad.
+    ("EchoCanceller", "audio"),
 ];
 
 /// Module for a known-difficult type name, if it is one.
@@ -1780,6 +1785,7 @@ mod tests {
     fn the_media_session_entries_do_not_capture_the_css_media_type() {
         assert_eq!(difficult_type_module("MediaPlaybackState"), Some("audio"));
         assert_eq!(difficult_type_module("NowPlayingInfo"), Some("audio"));
+        assert_eq!(difficult_type_module("EchoCanceller"), Some("audio"));
         assert_eq!(difficult_type_module("MediaType"), None);
         assert_ne!(determine_module("MediaType").0, "audio");
     }
