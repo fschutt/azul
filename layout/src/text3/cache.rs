@@ -16662,10 +16662,12 @@ mod autotest_generated {
 
     #[test]
     fn get_item_vertical_metrics_approx_for_every_variant() {
-        // Cluster with real glyphs: ascent 12.8, descent 3.2, no leading (lh == a+d).
+        // Cluster with real glyphs: 800 / -200 at 1000 upem and 16px is 12.8 /
+        // 3.2, rounded to whole pixels as in Chrome (`line_metrics_px`): ascent
+        // 13, descent 3, no leading (`normal` == A + D + 0).
         let (a, d) = get_item_vertical_metrics_approx(&cl("a", 8.0));
-        approx(a, 12.8);
-        approx(d, 3.2);
+        approx(a, 13.0);
+        approx(d, 3.0);
 
         // Glyph-less cluster → 80/20 split of the fallback 1.2em line box.
         let (a, d) = get_item_vertical_metrics_approx(&cl_no_glyphs("", 0.0));
@@ -16701,9 +16703,11 @@ mod autotest_generated {
     fn get_item_vertical_metrics_uses_the_strut_for_glyphless_clusters() {
         let c = UnifiedConstraints::default();
         let (a, d) = get_item_vertical_metrics(&cl_no_glyphs("", 0.0), &c);
-        // resolved lh = 1.2 * 16 = 19.2; a+d = 16.0; half-leading = 1.6
-        approx(a, DEFAULT_STRUT_ASCENT + 1.6);
-        approx(d, DEFAULT_STRUT_DESCENT + 1.6);
+        // `normal` is the strut's own line height (A + D,
+        // `UnifiedConstraints::resolved_line_height`), not a 1.2em guess: no
+        // leading, the glyphless cluster IS the strut.
+        approx(a, DEFAULT_STRUT_ASCENT);
+        approx(d, DEFAULT_STRUT_DESCENT);
 
         assert_eq!(get_item_vertical_metrics(&brk(), &c), (0.0, 0.0));
         // Objects clamp negative ascent/descent at 0.
