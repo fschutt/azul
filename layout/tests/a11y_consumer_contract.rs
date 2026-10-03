@@ -263,12 +263,14 @@ fn a_focus_in_a_vanished_dom_never_reaches_the_consumer() {
 fn a_parked_full_tree_absorbs_a_later_incremental_update() {
     let mut h = Harness::new_with_text_area(400.0, 300.0, "alpha");
     let mut tree = None;
-    h.deliver(&mut tree);
+    // The first layout's full tree stays parked: no shell drained it yet.
+    // (A relayout no longer parks a full tree of its own - it publishes what
+    // changed, or nothing.)
     let end = h.end_of_text_cursor();
     h.start_editing(end);
 
-    // Relayout parks a full tree; the keystroke parks an increment BEFORE a
-    // shell drains the slot (the platform flush runs at end of pass).
+    // The relayout's patch and the keystroke's increment both arrive BEFORE
+    // a shell drains the slot (the platform flush runs at end of pass).
     h.relayout();
     h.type_str("z");
 
@@ -320,7 +322,7 @@ fn scrolling_moves_the_delivered_bounds_and_is_rebuilt_on_the_next_due_tick() {
     h.lw.update_a11y_tree();
     let after = h
         .deliver(&mut tree)
-        .expect("the scroll rebuild parks a full tree");
+        .expect("the scroll rebuild parks the nodes the scroll moved");
 
     let y1_after = bounds_y1(&after, label).expect("the label still has bounds");
     assert!(
