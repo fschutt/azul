@@ -38,16 +38,15 @@ noted in the report). Never compile; the parent runs `cargo test -p azul-doc --b
   function_diff.rs test `a_borrowed_str_return_is_exported_as_an_owned_string` (+ helpers `added`, `returns_of`)
 - 48ee23243 item 2 GREEN part 1: `check_function_signatures` in mod.rs (FFI_SCALARS, signature_base_type, is_raw_str)
 
-## IN PROGRESS
-- item 2 GREEN part 2 (NEXT, exact):
-  a) mod.rs `autofix_api`: call `check_function_signatures(api_data, &addition_names)` next to
-     `check_doc_characters` and extend ffi_warnings.
-  b) function_diff.rs: `convert_return_type_for_ffi` returns `(String, ReturnConversion)` (enum None / Into /
-     OwnedStr / OptionOwnedStr with `fn wrap(&self, call: String) -> String`): `str`/`&str` -> ("String",
-     OwnedStr = `azul_css::AzString::from(<call>)`); `Option<&str>` / `Option<str>` / `Option<String>` ->
-     ("OptionString", OptionOwnedStr = `<call>.map(|s| azul_css::AzString::from(s)).into()`); the rest as before
-     (needs_into -> Into). Callers: method_to_function_data (use wrap), find_method_dependent_types and
-     generate_add_type_patches (bind `_`).
+- item 2 GREEN part 2: scan calls check_function_signatures; convert_return_type_for_ffi -> ReturnConversion
+  (commits "the scan runs the function-signature check", "add exports a borrowed str as String ...")
 
-## NEXT
-- item 3 (gap 3, std String args), then 4, 5, 6, 7, 8, 9 as in the plan above.
+## IN PROGRESS
+
+## NEXT (exact)
+- item 3 RED: function_diff.rs tests `a_std_string_argument_is_converted_in_the_fn_body` (set_text(String) ->
+  `object.set_text(text.into_library_owned_string())`, AzString arg unchanged, `S: Into<AzString>` unchanged,
+  `&String` -> `&needle.into_library_owned_string()`) and `a_std_string_argument_passed_unconverted_is_reported`
+  (find_function_differences via `diffs`). Needs MethodArg.source_ty (type_index.rs: field + `written_type_name`
+  helper + 2 test literals at ~3675/3680).
+- then items 4, 5, 6, 7, 8, 9 as in the plan above.
