@@ -1475,7 +1475,7 @@ impl LayoutCallbackInfo {
     /// tells them apart here, where it decides which document to build.
     #[must_use]
     pub fn get_window_id(&self) -> AzString {
-        AzString::from_const_str("")
+        unsafe { (*self.ref_data).window_id.clone() }
     }
 
     /// Is the window's LOGICAL viewport wider than `width_px`?
