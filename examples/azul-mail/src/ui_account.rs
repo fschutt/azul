@@ -451,7 +451,7 @@ fn server_fields(s: &MailApp, editor: &AccountEditor, app: &RefAny) -> Dom {
     let f = &editor.form;
     let d = &editor.drawn;
     let default_folder = account::account_id(&f.email)
-        .map(|id| account::account_dir(&s.root, &id).display().to_string())
+        .map(|id| account::account_dir(&s.root, &id).path().display().to_string())
         .unwrap_or_default();
     Dom::create_div()
         .with_css("display: flex; flex-direction: column;")

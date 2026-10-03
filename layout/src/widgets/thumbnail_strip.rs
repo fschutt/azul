@@ -597,6 +597,9 @@ struct StripShared {
     visible: Vec<usize>,
     drag_from: Option<usize>,
     grid: bool,
+    /// The item showing the drop line, which side (`true`: after) and its
+    /// node.
+    indicated: Option<(usize, bool, azul_core::dom::DomNodeId)>,
 }
 
 /// An item's (or a section header's) payload: its index and the shared part.
@@ -639,6 +642,7 @@ pub(crate) fn build(strip: ThumbnailStrip, look: &ThumbnailStripLook) -> Dom {
         visible: visible.clone(),
         drag_from: None,
         grid,
+        indicated: None,
     });
 
     let mut children: Vec<Dom> = Vec::with_capacity(items.len() + 4);
@@ -751,6 +755,8 @@ pub(crate) fn build(strip: ThumbnailStrip, look: &ThumbnailStripLook) -> Dom {
             CoreCallbackData::create(EventFilter::Hover(HoverEventFilter::DoubleClick), data.clone(), on_item_double_click as usize),
             CoreCallbackData::create(EventFilter::Hover(HoverEventFilter::DragStart), data.clone(), on_item_drag_start as usize),
             CoreCallbackData::create(EventFilter::Hover(HoverEventFilter::DragOver), data.clone(), on_item_drag_over as usize),
+            CoreCallbackData::create(EventFilter::Hover(HoverEventFilter::DragLeave), data.clone(), on_item_drag_leave as usize),
+            CoreCallbackData::create(EventFilter::Hover(HoverEventFilter::DragEnd), data.clone(), on_item_drag_end as usize),
             CoreCallbackData::create(EventFilter::Hover(HoverEventFilter::Drop), data.clone(), on_item_drop as usize),
             CoreCallbackData::create(EventFilter::Focus(FocusEventFilter::VirtualKeyDown), data.clone(), on_item_key as usize),
         ];
@@ -873,25 +879,128 @@ extern "C" fn on_item_drag_start(mut data: RefAny, mut info: CallbackInfo) -> Up
     Update::DoNothing
 }
 
-/// A drag over an item: it takes a move.
-extern "C" fn on_item_drag_over(_data: RefAny, mut info: CallbackInfo) -> Update {
-    info.accept_drop();
-    info.set_drop_effect(azul_core::drag::DropEffect::Move);
-    Update::DoNothing
+/// The index of the dragged item the drag's data names.
+fn dragged_index(info: &CallbackInfo) -> Option<usize> {
+    info.get_drag_data(DRAG_MIME)
+        .into_option()
+        .and_then(|bytes| core::str::from_utf8(bytes.as_ref()).ok().and_then(|s| s.trim().parse::<usize>().ok()))
 }
 
-/// A drop on an item: move the dragged item next to it.
-extern "C" fn on_item_drop(mut data: RefAny, info: CallbackInfo) -> Update {
+/// The drop line of an item: 3 px in the system accent, inset on the side
+/// a drop lands (`Some(true)`: after it - the bottom in a column, the right
+/// in a grid); `None` takes it away. In the RIGHT shadow slot, which no
+/// item look uses, and as a transient override (a rebuild leaves no trace).
+fn drop_line(info: &CallbackInfo, grid: bool, after: Option<bool>) -> CssProperty {
+    use azul_css::{
+        css::CssPropertyValue,
+        props::{
+            basic::{color::ColorU, pixel::PixelValue, pixel::PixelValueNoPercent},
+            style::{BoxShadowClipMode, StyleBoxShadow},
+        },
+    };
+    let Some(after) = after else {
+        return CssProperty::BoxShadowRight(CssPropertyValue::Initial);
+    };
+    let accent = info
+        .get_system_style()
+        .colors
+        .accent
+        .into_option()
+        .unwrap_or(ColorU { r: 0, g: 120, b: 215, a: 255 });
+    let d: isize = if after { -3 } else { 3 };
+    let (x, y) = if grid { (d, 0) } else { (0, d) };
+    let px = |v: isize| PixelValueNoPercent {
+        inner: PixelValue::const_px(v),
+    };
+    CssProperty::box_shadow_right(StyleBoxShadow {
+        offset_x: px(x),
+        offset_y: px(y),
+        blur_radius: px(0),
+        spread_radius: px(0),
+        clip_mode: BoxShadowClipMode::Inset,
+        color: accent,
+    })
+}
+
+/// A drag over an item: it takes a move, and shows where the drop lands.
+extern "C" fn on_item_drag_over(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    info.accept_drop();
+    info.set_drop_effect(azul_core::drag::DropEffect::Move);
     let Some((on, mut shared)) = item_of(&mut data) else {
         return Update::DoNothing;
     };
-    let from_data = info
-        .get_drag_data(DRAG_MIME)
-        .into_option()
-        .and_then(|bytes| core::str::from_utf8(bytes.as_ref()).ok().and_then(|s| s.trim().parse::<usize>().ok()));
-    let from_drag = shared
-        .downcast_mut::<StripShared>()
-        .and_then(|mut s| s.drag_from.take());
+    let node = info.get_hit_node();
+    let from_data = dragged_index(&info);
+    let (grid, after) = {
+        let Some(mut s) = shared.downcast_mut::<StripShared>() else {
+            return Update::DoNothing;
+        };
+        let after = s.drag_from.or(from_data).filter(|f| *f != on).map(|f| drop_target(f, on) > on);
+        let now = after.map(|a| (on, a, node));
+        if s.indicated.map(|(i, a, _)| (i, a)) == now.map(|(i, a, _)| (i, a)) {
+            return Update::DoNothing;
+        }
+        s.indicated = now;
+        (s.grid, after)
+    };
+    let line = drop_line(&info, grid, after);
+    info.override_css_property(node, line);
+    Update::DoNothing
+}
+
+/// A drag leaves an item: its drop line goes.
+extern "C" fn on_item_drag_leave(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((on, mut shared)) = item_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let grid = match shared.downcast_mut::<StripShared>() {
+        Some(mut s) => {
+            if s.indicated.is_some_and(|(i, _, _)| i == on) {
+                s.indicated = None;
+            }
+            s.grid
+        }
+        None => return Update::DoNothing,
+    };
+    let node = info.get_hit_node();
+    let line = drop_line(&info, grid, None);
+    info.override_css_property(node, line);
+    Update::DoNothing
+}
+
+/// The drag ends without a drop on an item (cancelled, dropped elsewhere):
+/// the last drop line goes.
+extern "C" fn on_item_drag_end(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((_, mut shared)) = item_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let (grid, shown) = match shared.downcast_mut::<StripShared>() {
+        Some(mut s) => (s.grid, s.indicated.take()),
+        None => return Update::DoNothing,
+    };
+    if let Some((_, _, node)) = shown {
+        let line = drop_line(&info, grid, None);
+        info.override_css_property(node, line);
+    }
+    Update::DoNothing
+}
+
+/// A drop on an item: its drop line goes, the dragged item moves next to it.
+extern "C" fn on_item_drop(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((on, mut shared)) = item_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let from_data = dragged_index(&info);
+    let (grid, from_drag) = match shared.downcast_mut::<StripShared>() {
+        Some(mut s) => {
+            s.indicated = None;
+            (s.grid, s.drag_from.take())
+        }
+        None => (false, None),
+    };
+    let node = info.get_hit_node();
+    let line = drop_line(&info, grid, None);
+    info.override_css_property(node, line);
     let Some(from) = from_data.or(from_drag) else {
         return Update::DoNothing;
     };
@@ -1285,6 +1394,61 @@ mod thumbnail_strip_tests {
             *log.lock().expect("log"),
             vec!["Move 0 3", "Move 3 1"].into_iter().map(String::from).collect::<Vec<_>>()
         );
+    }
+
+    /// The drop indicator a change sets on a node: `(node, Some(offset_y))`
+    /// for a line (an inset shadow in the right slot), `(node, None)` for a
+    /// cleared one.
+    fn indicators(changes: &[CallbackChange]) -> Vec<(NodeId, Option<isize>)> {
+        use azul_css::props::basic::pixel::PixelValue;
+        let mut out = Vec::new();
+        for change in changes {
+            if let CallbackChange::OverrideNodeCssProperties { node_id, properties, .. } = change {
+                for p in properties.as_ref() {
+                    if let CssProperty::BoxShadowRight(value) = p {
+                        out.push((
+                            *node_id,
+                            value.get_property().map(|s| {
+                                let px: PixelValue = s.offset_y.inner;
+                                px.number.get() as isize
+                            }),
+                        ));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn a_drag_over_an_item_draws_a_line_where_the_drop_lands_and_leaving_clears_it() {
+        let log = log();
+        let styled = StyledDom::create_from_dom(strip(&log).with_theme(UiTheme::Flat).dom());
+        let kids = children(&styled);
+        let items = &kids[1..];
+        rv::fire(&styled, id(items[0]), EventFilter::Hover(HoverEventFilter::DragStart)).expect("a drag source");
+        // Slide 1 over slide 3: the drop lands after slide 3, the line is at its
+        // bottom (an inset shadow moved up).
+        let (_, changes) = rv::fire(&styled, id(items[2]), EventFilter::Hover(HoverEventFilter::DragOver))
+            .expect("a drop target");
+        let lines = indicators(&changes);
+        assert_eq!(lines.len(), 1, "one line: {lines:?}");
+        assert_eq!(lines[0].0, items[2]);
+        assert!(lines[0].1.is_some_and(|y| y < 0), "at the bottom: {lines:?}");
+        // Leaving the item takes it away.
+        let (_, changes) = rv::fire(&styled, id(items[2]), EventFilter::Hover(HoverEventFilter::DragLeave))
+            .expect("a drag-leave handler");
+        assert_eq!(indicators(&changes), vec![(items[2], None)]);
+        // Slide 4 over slide 2: the drop lands before it, the line is at its top.
+        rv::fire(&styled, id(items[3]), EventFilter::Hover(HoverEventFilter::DragStart));
+        let (_, changes) = rv::fire(&styled, id(items[1]), EventFilter::Hover(HoverEventFilter::DragOver))
+            .expect("a drop target");
+        let lines = indicators(&changes);
+        assert!(lines.len() == 1 && lines[0].1.is_some_and(|y| y > 0), "at the top: {lines:?}");
+        // The drop clears it too.
+        let (_, changes) = rv::fire(&styled, id(items[1]), EventFilter::Hover(HoverEventFilter::Drop))
+            .expect("a drop target");
+        assert_eq!(indicators(&changes), vec![(items[1], None)]);
     }
 
     #[test]

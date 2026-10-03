@@ -22,17 +22,14 @@ use azul::{
     widgets::{RichTextCommand, RichTextDoc, RichTextEditor, RichTextEditorState, RichTextSpan},
 };
 
-use crate::{model::Note, AppState};
-
-/// The DOM id of the editing host; its blocks are `#__aznotes_note-body-<index>`.
-pub const HOST_ID: &str = crate::ids::NOTE_BODY;
+use crate::{ids, model::Note, AppState};
 
 /// The editor state for `doc` (a note just opened): the host's id set, an
 /// empty history.
 #[must_use]
 pub fn state_for(doc: &RichTextDoc) -> RichTextEditorState {
     let mut state = RichTextEditorState::create(doc.clone());
-    state.host_id = AzString::from(HOST_ID);
+    state.host_id = ids::NOTE_BODY;
     state
 }
 
@@ -52,7 +49,7 @@ fn with_images(mut editor: RichTextEditor, s: &AppState, note: &Note, doc: &Rich
 #[must_use]
 pub fn editor_dom(s: &AppState, app: &RefAny, note: &Note) -> Dom {
     let editor = RichTextEditor::create(s.editor.clone())
-        .with_id(HOST_ID)
+        .with_id(ids::NOTE_BODY)
         .with_accessibility_name("Note text")
         .with_font_size(s.settings.text_size.px())
         .with_on_change(app.clone(), on_editor_change as RichTextEditorOnChangeCallbackType)
@@ -65,7 +62,7 @@ pub fn editor_dom(s: &AppState, app: &RefAny, note: &Note) -> Dom {
 #[must_use]
 pub fn print_dom(s: &AppState, note: &Note, doc: &RichTextDoc, title: &str, font_px: f32) -> Dom {
     let mut view = state_for(doc);
-    view.host_id = AzString::from(crate::ids::NOTE_PRINT);
+    view.host_id = ids::NOTE_PRINT;
     let editor = RichTextEditor::create(view)
         .with_read_only(true)
         .with_accessibility_name(title)
@@ -175,7 +172,7 @@ pub fn focus_editor(info: &mut CallbackInfo) {
     info.set_focus_to_path(
         root_dom(),
         CssPath {
-            selectors: vec![CssPathSelector::Id(HOST_ID.into())].into(),
+            selectors: vec![CssPathSelector::Id(ids::NOTE_BODY)].into(),
         },
     );
 }
@@ -183,7 +180,7 @@ pub fn focus_editor(info: &mut CallbackInfo) {
 /// The editing host of the window, if a note is open.
 #[must_use]
 pub fn host_node(info: &CallbackInfo, dom: DomId) -> Option<DomNodeId> {
-    let node = info.get_node_id_by_id_attribute(dom, HOST_ID);
+    let node = info.get_node_id_by_id_attribute(dom, ids::NOTE_BODY);
     (node.into_raw() != 0).then_some(DomNodeId { dom, node })
 }
 

@@ -22,18 +22,6 @@ use crate::{
     paginate, storage,
 };
 
-/// The stronger of two updates.
-#[must_use]
-pub fn merge(a: Update, b: Update) -> Update {
-    match (a, b) {
-        (Update::RefreshDomAllWindows, _) | (_, Update::RefreshDomAllWindows) => {
-            Update::RefreshDomAllWindows
-        }
-        (Update::RefreshDom, _) | (_, Update::RefreshDom) => Update::RefreshDom,
-        _ => Update::DoNothing,
-    }
-}
-
 /// A button's click: the command it carries.
 pub extern "C" fn on_command(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((mut app, cmd)) = data
@@ -137,6 +125,40 @@ pub fn import_bytes(name: &str, bytes: &[u8]) -> Result<azul::widgets::RichTextD
     }
 }
 
+/// What the read of a file to import answered (`name`: the file's name,
+/// Word by its `.docx`): the document, or the sentence the user reads.
+pub fn imported(name: &str, result: Result<Option<Vec<u8>>, String>) -> Result<azul::widgets::RichTextDoc, String> {
+    match result {
+        Ok(Some(bytes)) => {
+            import_bytes(name, &bytes).map_err(|e| format!("{name} could not be imported: {e}"))
+        }
+        Ok(None) => Err(format!("{name} is gone.")),
+        Err(e) => Err(format!("{name} could not be read: {e}")),
+    }
+}
+
+/// The read of a file to import answered (`crate::on_files_done`, tag
+/// `IMPORT`): the file becomes a new document of the data tree, saved at
+/// once (the open one saved first when it has changes).
+pub fn finish_import(
+    st: &mut AppState,
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    name: &str,
+    result: Result<Option<Vec<u8>>, String>,
+) {
+    match imported(name, result) {
+        Ok(doc) => {
+            save_if_dirty(st, info, app);
+            show_document(st, DocumentModel::from_doc(model::new_document_id(), doc, String::new()));
+            save(st, info, app, storage::tag::SAVE);
+            st.notice = format!("Imported {name}");
+            println!("AZWRITER_IMPORTED {name}");
+        }
+        Err(e) => st.notice = e,
+    }
+}
+
 /// The import dialog answered: the file becomes a new document of the data
 /// tree (saved at once).
 extern "C" fn on_import_picked(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
@@ -146,24 +168,21 @@ extern "C" fn on_import_picked(mut data: RefAny, mut info: CallbackInfo, result:
     let Some(path) = picked.path.into_option() else {
         return Update::DoNothing;
     };
-    let path = path.as_string().as_str().to_string();
+    let path = std::path::PathBuf::from(path.as_string().as_str());
     let handle = data.clone();
     let Some(mut guard) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
     let st = &mut *guard;
-    // A file the user picked outside the data tree: read once, then it
-    // lives in the tree like any document.
-    let read = std::fs::read(&path).map_err(|e| e.to_string());
-    match read.and_then(|bytes| import_bytes(&path, &bytes)) {
-        Ok(doc) => {
-            save_if_dirty(st, &mut info, &handle);
-            show_document(st, DocumentModel::from_doc(model::new_document_id(), doc, String::new()));
-            save(st, &mut info, &handle, storage::tag::SAVE);
-            st.notice = format!("Imported {path}");
-        }
-        Err(e) => st.notice = format!("{path} could not be imported: {e}"),
-    }
+    // A file the user picked outside the data tree: read on a Thread
+    // through a drive at its folder (no manifest there); the answer comes
+    // to on_files_done as IMPORT, then the file lives in the tree like any
+    // document.
+    st.notice = if kit::spawn_outside_read(&mut info, &path, handle, storage::tag::IMPORT, crate::on_files_done) {
+        format!("Importing {}...", path.display())
+    } else {
+        format!("{} is not a file that can be imported.", path.display())
+    };
     Update::RefreshDom
 }
 
@@ -312,17 +331,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_answer_of_an_import_read_is_a_document_or_a_sentence() {
+        let doc = imported("notes.md", Ok(Some(b"# Hello\n\nworld\n".to_vec()))).expect("markdown");
+        assert_eq!(crate::model::title_of(&doc), "Hello");
+        let docx = include_bytes!("../testdata/sample.docx").to_vec();
+        let doc = imported("Report.docx", Ok(Some(docx))).expect("word");
+        assert_eq!(crate::model::title_of(&doc), "A Real Heading");
+        assert_eq!(
+            imported("gone.md", Ok(None)).err().as_deref(),
+            Some("gone.md is gone.")
+        );
+        assert_eq!(
+            imported("locked.md", Err("permission denied".to_string())).err().as_deref(),
+            Some("locked.md could not be read: permission denied")
+        );
+        let broken = imported("broken.docx", Ok(Some(b"not a zip".to_vec()))).expect_err("not Word");
+        assert!(broken.starts_with("broken.docx could not be imported: "), "{broken}");
+    }
+
+    #[test]
     fn an_import_reads_word_by_name_and_markdown_otherwise() {
         let doc = import_bytes("notes.md", b"# Hello\n\nworld\n").expect("markdown");
         assert_eq!(crate::model::title_of(&doc), "Hello");
         let docx = include_bytes!("../testdata/sample.docx");
         let doc = import_bytes("Report.DOCX", docx).expect("word");
         assert_eq!(crate::model::title_of(&doc), "A Real Heading");
-    }
-
-    #[test]
-    fn the_stronger_update_wins() {
-        assert!(matches!(merge(Update::DoNothing, Update::RefreshDom), Update::RefreshDom));
-        assert!(matches!(merge(Update::DoNothing, Update::DoNothing), Update::DoNothing));
     }
 }

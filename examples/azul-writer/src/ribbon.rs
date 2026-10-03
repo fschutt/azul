@@ -139,7 +139,7 @@ extern "C" fn on_style(mut data: RefAny, mut info: CallbackInfo, index: usize) -
     let mut update = Update::DoNothing;
     for cmd in commands {
         let next = crate::commands::run(&mut app, Command::Rich(cmd), &mut info);
-        update = crate::commands::merge(update, next);
+        update.max_self(next);
     }
     update
 }
@@ -239,7 +239,10 @@ fn home_tab(app: &RefAny, editor: Option<&RichTextEditorState>) -> RibbonTab {
             RibbonGalleryCell::create(Dom::create_span_with_text(s("AaBbCc")).with_css(s(css)), s(name))
         })
         .collect();
+    // A row of three styles (the row with the caret's) and More, as Word's
+    // gallery: all six inline pushed the Editing group off a 1280 px window.
     let gallery = RibbonGallery::create(cells)
+        .with_visible(3)
         .with_selected(editor.map_or(0, current_style))
         .with_on_select(
             RefAny::new(GalleryRef { app: app.clone() }),

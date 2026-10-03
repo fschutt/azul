@@ -1,19 +1,21 @@
 //! The Format Cells dialog on screen (Ctrl+1, the launchers of HOME's Font,
 //! Alignment and Number groups): a `Modal` with a `TabHeader` over the five
 //! tabs of [`crate::format_cells`], each built from the standard widgets
-//! (`Segmented`, `CheckBox`, `Button`); OK applies the draft's patches to the
-//! selection, Cancel / Escape / the close button drop it.
+//! (`Segmented`, `CheckBox`, `Button`, `ColorInput` for any colour beyond the
+//! presets); OK applies the draft's patches to the selection as one undo
+//! step, Cancel / Escape / the close button drop it.
 
 use azul::{
     callbacks::{
-        ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, ModalOnCloseCallbackType,
-        SegmentedOnChangeCallbackType, TabOnClickCallbackType,
+        ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, ColorInputOnValueChangeCallbackType,
+        ModalOnCloseCallbackType, SegmentedOnChangeCallbackType, TabOnClickCallbackType,
     },
+    css::ColorU,
     prelude::*,
     str::String as AzString,
     widgets::{
-        Button, ButtonType, CheckBox, CheckBoxState, Modal, ModalState, Segmented, SegmentedState,
-        TabHeader, TabHeaderState,
+        Button, ButtonType, CheckBox, CheckBoxState, ColorInput, ColorInputState, Modal, ModalState, Segmented,
+        SegmentedState, TabHeader, TabHeaderState,
     },
 };
 
@@ -72,8 +74,14 @@ enum Control {
     HAlign,
     VAlign,
     FontColor,
+    /// The Font tab's picker: any colour.
+    FontColorPick,
     Fill,
+    /// The Fill tab's picker: any colour.
+    FillPick,
     Border,
+    /// The Border tab's picker: the colour of the borders drawn.
+    BorderColorPick,
     Wrap,
     Bold,
     Italic,
@@ -143,6 +151,20 @@ fn index_of<T: PartialEq + Copy>(items: &[(&str, T)], value: T) -> usize {
     items.iter().position(|(_, v)| *v == value).unwrap_or(0)
 }
 
+/// A picker of any colour, showing `current` (`fallback` when unset).
+fn color_picker(app: &RefAny, control: Control, name: &str, current: Option<&str>, fallback: &str) -> Dom {
+    let color = ColorU::parse_hex(current.unwrap_or(fallback))
+        .into_option()
+        .unwrap_or_else(ColorU::black);
+    row(vec![
+        note("More colors:  "),
+        ColorInput::create(color)
+            .with_accessibility_name(name)
+            .with_on_value_change(control_ref(app, control), on_color as ColorInputOnValueChangeCallbackType)
+            .dom(),
+    ])
+}
+
 fn color_index(items: &[(&str, Option<&str>)], value: Option<&str>) -> usize {
     items
         .iter()
@@ -201,14 +223,18 @@ fn tab_body(d: &FormatDraft, app: &RefAny) -> Dom {
                 Control::FontColor,
                 FONT_COLORS.iter().map(|x| x.0),
                 color_index(&FONT_COLORS, d.style.font_color.as_deref()),
-            )),
+            ))
+            .with_child(color_picker(app, Control::FontColorPick, "Font color", d.style.font_color.as_deref(), "#000000")),
         3 => body
             .with_child(label("Presets"))
             .with_child(segmented(app, Control::Border, BORDERS.iter().map(|x| x.0), index_of(&BORDERS, d.border)))
+            .with_child(label("Color"))
+            .with_child(color_picker(app, Control::BorderColorPick, "Border color", Some(d.border_color.as_str()), "#000000"))
             .with_child(note("The preset is drawn on the whole selection when you press OK.")),
         _ => body
             .with_child(label("Background color"))
-            .with_child(segmented(app, Control::Fill, FILLS.iter().map(|x| x.0), color_index(&FILLS, d.style.fill.as_deref()))),
+            .with_child(segmented(app, Control::Fill, FILLS.iter().map(|x| x.0), color_index(&FILLS, d.style.fill.as_deref())))
+            .with_child(color_picker(app, Control::FillPick, "Background color", d.style.fill.as_deref(), "#FFFFFF")),
     }
 }
 
@@ -244,8 +270,8 @@ pub(crate) fn open(s: &mut AppState, style: crate::engine::CellStyle, tab: usize
     s.format = Some(d);
 }
 
-/// Applies the draft to the selection (one style command per change) and
-/// closes the dialog.
+/// Applies the draft to the selection - every change at once, ONE undo
+/// step - and closes the dialog.
 fn apply(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState) {
     if let Some(d) = s.format.take() {
         let patches = d.patches();
@@ -288,6 +314,18 @@ extern "C" fn on_segment(mut data: RefAny, mut info: CallbackInfo, state: Segmen
         Control::FontColor => d.style.font_color = FONT_COLORS.get(i).and_then(|x| x.1).map(String::from),
         Control::Fill => d.style.fill = FILLS.get(i).and_then(|x| x.1).map(String::from),
         Control::Border => d.border = BORDERS.get(i).and_then(|x| x.1),
+        _ => {}
+    })
+}
+
+/// A picker's colour: the font colour, the fill or the border colour.
+extern "C" fn on_color(mut data: RefAny, mut info: CallbackInfo, state: ColorInputState) -> Update {
+    let hex = state.color.to_hex();
+    let hex = hex.as_str();
+    on_draft(&mut data, &mut info, |control, d| match control {
+        Control::FontColorPick => d.set_font_color(Some(hex)),
+        Control::FillPick => d.set_fill(Some(hex)),
+        Control::BorderColorPick => d.set_border_color(hex),
         _ => {}
     })
 }

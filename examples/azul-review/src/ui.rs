@@ -154,7 +154,7 @@ fn menu_bar(data: &RefAny) -> Menu {
 
 fn sidebar(s: &AppState, data: &RefAny) -> Dom {
     let mut col = Dom::create_div().with_css(COLUMN);
-    col.add_child(Dom::create_div_with_text("Name").with_css(
+    col.add_child(Dom::create_span_with_text("Name").with_css(
         "font-size: 11px; padding: 7px 10px; color: system:secondary-text; flex-shrink: 0; \
          border-bottom: 1px solid system:separator;",
     ));
@@ -239,7 +239,7 @@ fn finder_row(
             .as_str(),
         ),
     );
-    row.add_child(Dom::create_div_with_text(label));
+    row.add_child(Dom::create_span_with_text(label));
     match index {
         Some(i) => row
             .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: i })))
@@ -280,7 +280,7 @@ fn toolbar(s: &AppState, data: &RefAny) -> Dom {
         );
         swatch.add_child(Dom::create_icon(sem.icon()).with_css("font-size: 15px;"));
         swatch.add_child(
-            Dom::create_div_with_text(format!("{}", i + 1).as_str())
+            Dom::create_span_with_text(format!("{}", i + 1).as_str())
                 .with_css("font-size: 10px; opacity: 0.75;"),
         );
         bar.add_child(
@@ -300,7 +300,7 @@ fn toolbar(s: &AppState, data: &RefAny) -> Dom {
          dashed system:separator;",
     );
     nib.add_child(Dom::create_icon(s.tool.icon()).with_css("font-size: 15px;"));
-    nib.add_child(Dom::create_div_with_text(s.tool.label()));
+    nib.add_child(Dom::create_span_with_text(s.tool.label()));
     bar.add_child(nib);
 
     // The meter, then record, save and the settings at the end of the row.
@@ -341,7 +341,7 @@ fn meter(s: &AppState) -> Dom {
     let mut wrap = Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center; gap: 6px;");
     wrap.add_child(
-        Dom::create_div_with_text(format!("{packets} pkt").as_str())
+        Dom::create_span_with_text(format!("{packets} pkt").as_str())
             .with_css("font-size: 11px; color: system:secondary-text; font-family: monospace;"),
     );
     let mut holder = Dom::create_div().with_css("width: 160px;");
@@ -370,7 +370,7 @@ fn page_rail(s: &AppState, data: &RefAny) -> Dom {
              solid system:separator; flex-shrink: 0;"
         };
         rail.add_child(
-            Dom::create_div_with_text(format!("{}", page + 1).as_str())
+            Dom::create_span_with_text(format!("{}", page + 1).as_str())
                 .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: page })))
                 .with_css(css)
                 .with_callback(
@@ -400,8 +400,8 @@ fn sheet(s: &AppState, data: &RefAny) -> Dom {
     );
     if s.file().is_none() {
         area.add_child(
-            Dom::create_div_with_text("Open a file to begin")
-                .with_css("color: system:secondary-text; padding: 40px;"),
+            Dom::create_p_with_text("Open a file to begin")
+                .with_css("margin: 0px; color: system:secondary-text; padding: 40px;"),
         );
         return area;
     }
@@ -512,22 +512,7 @@ fn page_sheet(s: &AppState, data: &RefAny, file: &code::SourceFile, page: usize)
         .as_str(),
     );
     for (i, line) in lines.iter().enumerate() {
-        let mut row = Dom::create_div()
-            .with_css(format!("display: flex; flex-direction: row; height: {LINE_H}px;").as_str());
-        row.add_child(
-            Dom::create_div_with_text(format!("{}", first_line + i).as_str()).with_css(
-                format!(
-                    "width: {}px; flex-shrink: 0; text-align: right; padding-right: 10px; \
-                     font-family: monospace; font-size: 11px; color: #b0aaa0;",
-                    GUTTER_W as isize - 10,
-                )
-                .as_str(),
-            ),
-        );
-        row.add_child(Dom::create_div_with_text(line.as_str()).with_css(
-            "font-family: monospace; font-size: 11px; color: #1f1f1f; white-space: pre;",
-        ));
-        col.add_child(row);
+        col.add_child(code_row(first_line + i, line.as_str()));
     }
     sheet.add_child(col);
 
@@ -537,42 +522,68 @@ fn page_sheet(s: &AppState, data: &RefAny, file: &code::SourceFile, page: usize)
         strokes: page_strokes.into_iter().cloned().collect(),
         live: if has_live { s.live.clone() } else { None },
     });
-    sheet.add_child(
-        Dom::create_image(ImageRef::callback(
-            RenderImageCallback::create(render_ink).to_core(),
-            cache,
-        ))
-        .with_dataset(OptionRefAny::Some(RefAny::new(PageTag { page })))
-        .with_css(
+    sheet.add_child(ink_layer(data, cache, page));
+    sheet
+}
+
+/// One line of code: its number in the gutter, then the line.
+fn code_row(number: usize, line: &str) -> Dom {
+    let mut row = Dom::create_div()
+        .with_css(format!("display: flex; flex-direction: row; height: {LINE_H}px;").as_str());
+    row.add_child(
+        Dom::create_span_with_text(format!("{number}").as_str()).with_css(
             format!(
-                "position: absolute; top: 0px; left: 0px; width: {}px; height: {}px;",
-                PAGE_W as isize,
-                page_h() as isize,
+                "width: {}px; flex-shrink: 0; text-align: right; padding-right: 10px; \
+                 font-family: monospace; font-size: 11px; color: #b0aaa0;",
+                GUTTER_W as isize - 10,
             )
             .as_str(),
-        )
-        .with_callback(
-            EventFilter::Hover(HoverEventFilter::MouseDown),
-            data.clone(),
-            crate::on_ink_down,
-        )
-        .with_callback(
-            EventFilter::Hover(HoverEventFilter::MouseOver),
-            data.clone(),
-            crate::on_ink_move,
-        )
-        .with_callback(
-            EventFilter::Hover(HoverEventFilter::MouseUp),
-            data.clone(),
-            crate::on_ink_up,
-        )
-        .with_callback(
-            EventFilter::Hover(HoverEventFilter::RightMouseUp),
-            data.clone(),
-            crate::on_cycle_tool_back,
         ),
     );
-    sheet
+    row.add_child(Dom::create_span_with_text(line).with_css(
+        "font-family: monospace; font-size: 11px; color: #1f1f1f; white-space: pre;",
+    ));
+    row
+}
+
+/// The ink over page `page`: `cache` (an [`InkLayer`]) drawn by
+/// [`render_ink`], the pointer handlers of the app (`data`).
+fn ink_layer(data: &RefAny, cache: RefAny, page: usize) -> Dom {
+    Dom::create_image(ImageRef::callback(
+        RenderImageCallback::create(render_ink).to_core(),
+        cache,
+    ))
+    .with_dataset(OptionRefAny::Some(RefAny::new(PageTag { page })))
+    .with_css(
+        format!(
+            "position: absolute; top: 0px; left: 0px; width: {}px; height: {}px;",
+            PAGE_W as isize,
+            page_h() as isize,
+        )
+        .as_str(),
+    )
+    .with_callback(
+        EventFilter::Hover(HoverEventFilter::MouseDown),
+        data.clone(),
+        crate::on_ink_down,
+    )
+    // Movement: `MouseMove` (W3C `mouseover` fires once, on entry - with it
+    // a stroke kept only its first point).
+    .with_callback(
+        EventFilter::Hover(HoverEventFilter::MouseMove),
+        data.clone(),
+        crate::on_ink_move,
+    )
+    .with_callback(
+        EventFilter::Hover(HoverEventFilter::MouseUp),
+        data.clone(),
+        crate::on_ink_up,
+    )
+    .with_callback(
+        EventFilter::Hover(HoverEventFilter::RightMouseUp),
+        data.clone(),
+        crate::on_cycle_tool_back,
+    )
 }
 
 struct InkLayer {
@@ -619,4 +630,55 @@ fn status_bar(s: &AppState) -> Dom {
         StatusBarSegment::create(s.status.as_str()),
     ])
     .dom()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The events the ink layer hands to `handler`.
+    fn events_of(layer: &Dom, handler: azul::callbacks::CallbackType) -> Vec<EventFilter> {
+        layer
+            .root
+            .callbacks
+            .as_slice()
+            .iter()
+            .filter(|c| c.callback.cb == handler as usize)
+            .map(|c| c.event)
+            .collect()
+    }
+
+    /// A line of code and its number are text spans, not anonymous divs: a
+    /// screen reader is told what they are (and azul's div-as-text check stays
+    /// quiet).
+    #[test]
+    fn a_code_line_and_its_number_are_text_spans() {
+        let row = code_row(7, "fn main() {}");
+        let kinds: Vec<bool> = row
+            .children
+            .as_slice()
+            .iter()
+            .map(|c| matches!(c.root.node_type, NodeType::Span))
+            .collect();
+        assert_eq!(kinds, vec![true, true]);
+    }
+
+    /// W3C `mouseover` fires once, when the pointer ENTERS the page; the
+    /// points of a stroke between press and release come from `mousemove`.
+    #[test]
+    fn the_ink_layer_takes_the_points_of_a_stroke_from_every_pointer_move() {
+        let layer = ink_layer(&RefAny::new(0u8), RefAny::new(0u8), 0);
+        assert_eq!(
+            events_of(&layer, crate::on_ink_move),
+            vec![EventFilter::Hover(HoverEventFilter::MouseMove)]
+        );
+        assert_eq!(
+            events_of(&layer, crate::on_ink_down),
+            vec![EventFilter::Hover(HoverEventFilter::MouseDown)]
+        );
+        assert_eq!(
+            events_of(&layer, crate::on_ink_up),
+            vec![EventFilter::Hover(HoverEventFilter::MouseUp)]
+        );
+    }
 }

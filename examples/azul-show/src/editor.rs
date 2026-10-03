@@ -10,7 +10,7 @@ use crate::model::{
     Frame, ImageFit, LayoutKind, ShapeKind, Slide, SlideSize, TextBody, Theme, TransitionKind,
     VAlign, ZOrder,
 };
-use azul::widgets::ListSelection;
+use azul::widgets::{ListSelection, RichTextEditorState};
 use azul_appkit::UndoHistory;
 
 /// The most undo steps kept.
@@ -31,6 +31,10 @@ pub struct Editor {
     pub selection: ListSelection,
     /// The element whose text is being edited.
     pub editing: Option<u64>,
+    /// The shared rich-text editor's state of that text as the editor last
+    /// reported it (its caret, its ONE undo history): used while it still
+    /// shows what the body holds (`text::state_for`), the body is the truth.
+    pub text: Option<RichTextEditorState>,
     /// The slides (by id) whose section is folded in the rail.
     pub folded: Vec<u64>,
     /// Edited since the last save.
@@ -60,6 +64,7 @@ impl Editor {
             rail: rail_at(0),
             selection: ListSelection::create(),
             editing: None,
+            text: None,
             folded: Vec::new(),
             dirty: false,
             clipboard: Vec::new(),
@@ -325,8 +330,18 @@ impl Editor {
     }
 
     /// The canvas's Activate on element `index`: edit its text (text boxes
-    /// and shapes; a shape gets an empty paragraph to type into).
+    /// and shapes; a shape gets an empty paragraph to type into), or a
+    /// table's cells in place.
     pub fn activate(&mut self, index: usize) -> bool {
+        let table = match self.slide().elements.get(index) {
+            Some(e) if matches!(e.kind, ElementKind::Table { .. }) => Some(e.id),
+            _ => None,
+        };
+        if let Some(id) = table {
+            self.selection.click(id);
+            self.start_editing(id);
+            return true;
+        }
         let Some(e) = self.slide_mut().elements.get_mut(index) else {
             return false;
         };
@@ -341,13 +356,62 @@ impl Editor {
             body.size = 32.0;
         }
         self.selection.click(id);
-        self.editing = Some(id);
+        self.start_editing(id);
         true
+    }
+
+    /// Element `id`'s text is edited from now on (a fresh editor state).
+    fn start_editing(&mut self, id: u64) {
+        self.editing = Some(id);
+        self.text = None;
     }
 
     /// Ends the text editing (the text was synced by the caller).
     pub fn stop_editing(&mut self) {
         self.editing = None;
+        self.text = None;
+    }
+
+    /// Cell `row`, `col` of table `id` on the current slide takes `text`
+    /// (typed in place). Whether it changed.
+    pub fn set_cell(&mut self, id: u64, row: usize, col: usize, text: &str) -> bool {
+        let Some(cell) = self.table_rows_mut(id).and_then(|rows| rows.get_mut(row)?.get_mut(col)) else {
+            return false;
+        };
+        if cell.as_str() == text {
+            return false;
+        }
+        *cell = text.to_string();
+        self.dirty = true;
+        true
+    }
+
+    /// The rows of table `id` on the current slide.
+    fn table_rows_mut(&mut self, id: u64) -> Option<&mut Vec<Vec<String>>> {
+        match &mut self.slide_mut().elements.iter_mut().find(|e| e.id == id)?.kind {
+            ElementKind::Table { rows, .. } => Some(rows),
+            _ => None,
+        }
+    }
+
+    /// A row of empty cells at the end of table `id` (Tab in its last
+    /// cell); the new row's index.
+    pub fn add_table_row(&mut self, id: u64) -> Option<usize> {
+        self.checkpoint();
+        let rows = self.table_rows_mut(id)?;
+        let columns = rows.iter().map(Vec::len).max().unwrap_or(1).max(1);
+        rows.push(vec![String::new(); columns]);
+        Some(rows.len() - 1)
+    }
+
+    /// The body of the text being edited.
+    pub fn edited_body_mut(&mut self) -> Option<&mut TextBody> {
+        let id = self.editing?;
+        self.slide_mut()
+            .elements
+            .iter_mut()
+            .find(|e| e.id == id)
+            .and_then(|e| e.body_mut())
     }
 
     /// Puts `kind` on the current slide at `frame`, selected.
@@ -407,7 +471,7 @@ impl Editor {
         };
         body.paragraphs.push(crate::model::Paragraph::default());
         let id = self.insert(ElementKind::Text { body }, frame);
-        self.editing = Some(id);
+        self.start_editing(id);
         id
     }
 
@@ -974,6 +1038,30 @@ mod tests {
         let pic = ed.insert_image("media/a.png", 800.0, 600.0);
         let at = ed.slide().index_of(pic).expect("the picture");
         assert!(!ed.activate(at));
+    }
+
+    #[test]
+    fn a_table_is_edited_in_place_cell_by_cell() {
+        let mut ed = editor();
+        let table = ed.insert_table(3, 2);
+        let at = ed.slide().index_of(table).expect("the table");
+        assert!(ed.activate(at), "a double-click on a table edits its cells");
+        assert_eq!(ed.editing, Some(table));
+        let cells = |ed: &Editor| match &ed.slide().element(table).expect("the table").kind {
+            ElementKind::Table { rows, .. } => rows.clone(),
+            _ => Vec::new(),
+        };
+        ed.dirty = false;
+        assert!(ed.set_cell(table, 1, 0, "Budget"));
+        assert!(ed.dirty, "a typed cell is an edit of the deck");
+        assert_eq!(cells(&ed)[1][0], "Budget");
+        assert!(!ed.set_cell(table, 1, 0, "Budget"), "the same text is no change");
+        assert!(!ed.set_cell(table, 9, 0, "x"), "no such cell");
+        assert_eq!(ed.add_table_row(table), Some(3), "Tab in the last cell adds a row");
+        assert_eq!(cells(&ed).len(), 4);
+        assert_eq!(cells(&ed)[3], vec![String::new(), String::new()]);
+        ed.stop_editing();
+        assert_eq!(ed.editing, None);
     }
 
     #[test]

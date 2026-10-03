@@ -9,10 +9,10 @@
 use std::collections::HashMap;
 
 use azul::{
-    callbacks::RefAny,
-    css::{EventFilter, FocusEventFilter},
+    callbacks::{RefAny, RichTextEditorOnChangeCallbackType},
     dom::Dom,
     image::ImageRef,
+    widgets::RichTextEditorState,
 };
 
 use crate::{
@@ -29,6 +29,8 @@ pub struct RenderOptions<'a> {
     pub scale: f32,
     /// The element whose text is being edited (contenteditable), if any.
     pub editing: Option<u64>,
+    /// The shared editor's last state of that text (`Editor::text`).
+    pub text: Option<&'a RichTextEditorState>,
     /// Empty placeholders show their prompt and a dashed outline (the editor).
     pub prompts: bool,
     /// The show's build step: elements whose build has not played are left
@@ -38,8 +40,8 @@ pub struct RenderOptions<'a> {
     pub playing: Option<(&'a [u64], f32)>,
     /// The deck's pictures, by media key.
     pub media: &'a HashMap<String, ImageRef>,
-    /// The app, for the text being edited: its host gets the engine's
-    /// text-changed and document-edit hooks.
+    /// The app, for the text being edited: the editor reports every edit to
+    /// it (`views::on_text_change`).
     pub hooks: Option<&'a RefAny>,
 }
 
@@ -50,6 +52,7 @@ impl<'a> RenderOptions<'a> {
         Self {
             scale,
             editing: None,
+            text: None,
             prompts: false,
             step: None,
             playing: None,
@@ -182,21 +185,15 @@ fn text_block(deck: &Deck, element: &Element, body: &TextBody, opts: &RenderOpti
     if shown.paragraphs.is_empty() {
         shown.paragraphs.push(crate::model::Paragraph::default());
     }
-    let mut host = text::text_dom(&shown, element.id, editing, scale).with_css("width: 100%;");
-    if let (true, Some(app)) = (editing, opts.hooks) {
-        host = host
-            .with_callback(
-                EventFilter::Focus(FocusEventFilter::DocumentEdit),
-                app.clone(),
-                crate::views::on_document_edit,
-            )
-            .with_callback(
-                EventFilter::Focus(FocusEventFilter::TextChanged),
-                app.clone(),
-                crate::views::on_text_changed,
-            );
-    }
-    holder.with_child(host)
+    // The shared rich-text editor draws the text: editable (its own typing,
+    // structure, formats and history, every edit reported to the app) for
+    // the text being edited, read-only everywhere else.
+    let editor = match (editing, opts.hooks) {
+        (true, Some(app)) => text::editor(&shown, text::state_for(&shown, element.id, opts.text), scale, true)
+            .with_on_change(app.clone(), crate::views::on_text_change as RichTextEditorOnChangeCallbackType),
+        _ => text::editor(&shown, text::view_state(&shown, element.id), scale, false),
+    };
+    holder.with_child(text::content(editor))
 }
 
 /// The polygon of a shape inside a `w` x `h` px box, for `clip-path`.
@@ -346,6 +343,11 @@ pub fn element_dom(deck: &Deck, slide: &Slide, element: &Element, opts: &RenderO
             node.with_css(css).with_child(inner)
         }
         ElementKind::Table { rows, header } => {
+            // Edited in place: every cell its own editing host.
+            let editing = match opts.hooks {
+                Some(app) if opts.editing == Some(element.id) => Some(app),
+                _ => None,
+            };
             let size = (24.0 * scale).max(1.0);
             let mut table = Dom::create_table_no_a11y().with_css(format!(
                 "border-collapse: collapse; width: 100%; font-size: {size:.2}px; font-family: {}; color: {};",
@@ -355,7 +357,7 @@ pub fn element_dom(deck: &Deck, slide: &Slide, element: &Element, opts: &RenderO
             for (r, row) in rows.iter().enumerate() {
                 let is_head = *header && r == 0;
                 let mut tr = Dom::create_tr();
-                for cell in row {
+                for (c, cell) in row.iter().enumerate() {
                     let cell_css = if is_head {
                         format!(
                             "padding: {p:.2}px; border: 1px solid {b}; background: {bg}; color: {ink}; font-weight: bold;",
@@ -371,7 +373,11 @@ pub fn element_dom(deck: &Deck, slide: &Slide, element: &Element, opts: &RenderO
                             b = css_color(deck.theme.colors.accent.with_alpha(140)),
                         )
                     };
-                    tr.add_child(Dom::create_td_with_text(cell.as_str()).with_css(cell_css));
+                    let td = Dom::create_td_with_text(cell.as_str()).with_css(cell_css);
+                    tr.add_child(match editing {
+                        Some(app) => crate::views::editable_cell(td, app, element.id, r, c),
+                        None => td,
+                    });
                 }
                 table.add_child(tr);
             }

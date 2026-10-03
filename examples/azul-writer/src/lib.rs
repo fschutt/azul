@@ -99,19 +99,14 @@ pub const SHORTCUTS: [Shortcut; 14] = [
 // ==== Start ====
 
 /// Reads a file named on the command line as a document to import (at
-/// start, before the window - not from a callback).
+/// start, before the window - not from a callback), through the kit's one
+/// way to read a file outside the data tree.
 fn import_at_start(path: &std::path::Path) -> Option<azul::widgets::RichTextDoc> {
-    let bytes = match std::fs::read(path) {
-        Ok(b) => b,
-        Err(e) => {
-            eprintln!("[azwriter] cannot read {}: {e}", path.display());
-            return None;
-        }
-    };
-    match commands::import_bytes(&path.display().to_string(), &bytes) {
+    let read = azul_appkit::files::read_outside(path).map(Some);
+    match commands::imported(&path.display().to_string(), read) {
         Ok(doc) => Some(doc),
         Err(e) => {
-            eprintln!("[azwriter] cannot import {}: {e}", path.display());
+            eprintln!("[azwriter] {e}");
             None
         }
     }
@@ -296,6 +291,9 @@ pub extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Call
                     st.notice = format!("Some documents could not be read: {e}");
                 }
                 println!("AZWRITER_LISTED {}", st.docs.len());
+            }
+            FileOutcome::Got { key, result } if reply.tag == storage::tag::IMPORT => {
+                commands::finish_import(st, &mut info, &handle, &key, result);
             }
             FileOutcome::Got { key, result } => match result {
                 Ok(Some(bytes)) => {

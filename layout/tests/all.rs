@@ -828,3 +828,11 @@ mod a_sliding_box_moves_its_sliding_children_once;
 mod the_animation_channel_holds_only_what_an_animation_drives;
 #[path = "a_chart_paints_its_series_through_the_svg_path.rs"]
 mod a_chart_paints_its_series_through_the_svg_path;
+#[path = "a_text_field_takes_the_font_size_its_app_gives_it.rs"]
+mod a_text_field_takes_the_font_size_its_app_gives_it;
+#[path = "a_stretched_flex_container_keeps_its_min_height.rs"]
+mod a_stretched_flex_container_keeps_its_min_height;
+#[path = "a_rich_text_editor_sets_its_line_height_and_scales_its_indents_with_its_text.rs"]
+mod a_rich_text_editor_sets_its_line_height_and_scales_its_indents_with_its_text;
+#[path = "a_slide_rails_thumbnails_line_up_with_and_without_a_badge.rs"]
+mod a_slide_rails_thumbnails_line_up_with_and_without_a_badge;

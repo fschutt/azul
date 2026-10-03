@@ -2389,20 +2389,11 @@ extern "C" fn on_grid_event(mut data: RefAny, mut info: CallbackInfo, event: Cel
     with_app(&mut data, &mut info, |info, app, s| grid_event(info, app, s, event))
 }
 
-/// Several style changes to the selection.
+/// Style changes to the selection: ONE undo step per area, however many
+/// changes (a ribbon button's one, Format Cells' OK's several).
 fn restyle(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, patches: Vec<StylePatch>) {
     let areas = s.areas();
-    for patch in patches {
-        run(
-            info,
-            app,
-            s,
-            Command::Style {
-                areas: areas.clone(),
-                patch,
-            },
-        );
-    }
+    run(info, app, s, Command::Styles { areas, patches });
 }
 
 /// A ribbon command (or its keyboard shortcut).
@@ -3078,6 +3069,22 @@ extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, index: 
     })
 }
 
+/// Replace with the active cell in the grid's own edit: the replacement goes
+/// into the text being edited (committing the edit would overwrite a
+/// replacement made in the stored input). Whether it replaced; `false` with
+/// no edit in progress (the engine replaces) or no match in it.
+fn replace_in_edit(s: &mut AppState, needle: &str, replacement: &str, opts: ops::FindOptions) -> bool {
+    if s.view.edit_mode == CellGridEditMode::None {
+        return false;
+    }
+    let Some(text) = ops::replace_text(s.view.edit_text.as_str(), needle, replacement, opts) else {
+        return false;
+    };
+    s.view.edit_cursor = u32::try_from(text.chars().count()).unwrap_or(0);
+    s.view.edit_text = AzString::from(text);
+    true
+}
+
 /// The Find / Replace dialog: its fields and options are kept in the state
 /// (no rebuild while typing - the field shows its own text), its buttons ask
 /// the engine.
@@ -3111,6 +3118,15 @@ extern "C" fn on_find_event(mut data: RefAny, mut info: CallbackInfo, event: Sta
                 };
                 let from = s.active();
                 send(info, app, s, Command::Find { from, needle, opts }, Pending::Find, Post::None);
+            }
+            StandardDialogEventKind::Replace if !needle.is_empty() && s.view.edit_mode != CellGridEditMode::None => {
+                // The active cell is in the grid's own edit: replace there.
+                let replacement = s.replace.clone();
+                s.find_status = if replace_in_edit(s, &needle, &replacement, opts) {
+                    String::from("Replaced in the cell being edited.")
+                } else {
+                    format!("\"{needle}\" is not in the cell being edited.")
+                };
             }
             StandardDialogEventKind::Replace if !needle.is_empty() => {
                 let at = s.active();
@@ -3391,6 +3407,22 @@ mod tests {
                 hidden: false,
             })
             .collect()
+    }
+
+    #[test]
+    fn replace_with_a_cell_in_edit_replaces_in_the_edit() {
+        let mut s = AppState::new(PathBuf::from("/tmp/azsheets-test"));
+        let opts = ops::FindOptions::default();
+        s.view.edit_mode = CellGridEditMode::Edit;
+        s.view.edit_text = AzString::from("Total cost");
+        assert!(replace_in_edit(&mut s, "cost", "price", opts));
+        assert_eq!(s.view.edit_text.as_str(), "Total price", "the edit holds the replacement");
+        assert_eq!(s.view.edit_cursor, 11, "the caret after it");
+        assert_eq!(s.view.edit_mode, CellGridEditMode::Edit, "the edit stays open");
+        assert!(!replace_in_edit(&mut s, "nothing", "x", opts), "no match: the edit is unchanged");
+        assert_eq!(s.view.edit_text.as_str(), "Total price");
+        s.view.edit_mode = CellGridEditMode::None;
+        assert!(!replace_in_edit(&mut s, "Total", "Sum", opts), "no edit: the engine replaces");
     }
 
     #[test]

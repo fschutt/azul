@@ -69,7 +69,7 @@ use azul::{
 use azul_appkit::{ui as kit, AppArgs};
 use listing::{FolderInfo, ListRow, LocalFlags};
 use message::MessageView;
-use store::{FolderState, IndexEntry, LocalFolder};
+use store::{DriveFolder, FolderState, IndexEntry, MailStore};
 use sync::{Progress, SyncError, SyncOptions, SyncReport};
 
 /// The main window's id (the debug server addresses a window by it).
@@ -85,8 +85,9 @@ pub(crate) const WINDOW_BODY_CSS: &str =
 
 /// The app: one per process, shared by the main window and every compose window.
 pub(crate) struct MailApp {
-    /// The AzMail folder (`AZMAIL_DATA`).
-    pub(crate) root: PathBuf,
+    /// The AzMail folder (`AZMAIL_DATA`, else `mail` in the data root): a folder of the data
+    /// tree's one drive, which every file of AzMail is written through.
+    pub(crate) root: DriveFolder,
     /// The app kit (azul-appkit): settings.json, the data root, the settings page, the shortcut
     /// table.
     pub(crate) kit: RefAny,
@@ -203,7 +204,7 @@ pub(crate) enum KeyringOp {
 }
 
 impl MailApp {
-    fn create(root: PathBuf, kit: RefAny, screen: Screen, accounts: Vec<Account>) -> MailApp {
+    fn create(root: DriveFolder, kit: RefAny, screen: Screen, accounts: Vec<Account>) -> MailApp {
         let today = local_today();
         let n = accounts.len();
         let data_root = kit_data_root(&kit);
@@ -270,14 +271,14 @@ impl MailApp {
     }
 
     /// The synced files of account `index`.
-    pub(crate) fn store_of(&self, index: usize) -> Option<LocalFolder> {
+    pub(crate) fn store_of(&self, index: usize) -> Option<MailStore> {
         self.accounts
             .get(index)
-            .map(|a| LocalFolder::new(account::mail_root(&self.root, a)))
+            .map(|a| MailStore::new(account::mail_root(&self.root, a)))
     }
 
     /// The current account's synced files.
-    pub(crate) fn store(&self) -> Option<LocalFolder> {
+    pub(crate) fn store(&self) -> Option<MailStore> {
         self.current.and_then(|i| self.store_of(i))
     }
 
@@ -439,7 +440,7 @@ impl MailApp {
 }
 
 /// A folder's index, by UID; empty when there is none.
-pub(crate) fn read_index(store: &LocalFolder, folder: &str) -> Vec<IndexEntry> {
+pub(crate) fn read_index(store: &MailStore, folder: &str) -> Vec<IndexEntry> {
     store
         .get(&store::index_key(folder))
         .map(|bytes| store::index_from_jsonl(&String::from_utf8_lossy(&bytes)))
@@ -447,7 +448,7 @@ pub(crate) fn read_index(store: &LocalFolder, folder: &str) -> Vec<IndexEntry> {
 }
 
 /// A folder's local flags; none when there is no file.
-pub(crate) fn read_flags(store: &LocalFolder, folder: &str) -> LocalFlags {
+pub(crate) fn read_flags(store: &MailStore, folder: &str) -> LocalFlags {
     store
         .get(&listing::flags_key(folder))
         .ok()
@@ -457,7 +458,7 @@ pub(crate) fn read_flags(store: &LocalFolder, folder: &str) -> LocalFlags {
 }
 
 /// The synced folders of `store` with their unread counts.
-fn folder_infos(store: &LocalFolder) -> Vec<FolderInfo> {
+fn folder_infos(store: &MailStore) -> Vec<FolderInfo> {
     store
         .folders()
         .into_iter()
@@ -622,7 +623,7 @@ pub(crate) fn start_sync(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) 
         return;
     };
     let mail_root = account::mail_root(&s.root, &account);
-    println!("AZMAIL_SYNC_START {}", mail_root.display());
+    println!("AZMAIL_SYNC_START {}", mail_root.path().display());
     let thread = ThreadId::unique();
     s.sync = SyncState::Running {
         thread,
@@ -654,9 +655,9 @@ pub(crate) fn stop_sync(s: &mut MailApp, info: &mut CallbackInfo) {
 struct SyncInit {
     account: Account,
     secret: Secret,
-    mail_root: PathBuf,
+    mail_root: DriveFolder,
     /// The AzMail folder (for the outbox).
-    azmail_root: PathBuf,
+    azmail_root: DriveFolder,
     extra_ca: Option<PathBuf>,
 }
 
@@ -707,7 +708,7 @@ fn run_sync(
 ) -> Result<SyncReport, SyncError> {
     let mut source =
         imap_client::ImapSource::connect(&job.account, &job.secret, job.extra_ca.as_deref())?;
-    let store = LocalFolder::new(job.mail_root.clone());
+    let store = MailStore::new(job.mail_root.clone());
     let options = SyncOptions {
         now: now_unix(),
         ..SyncOptions::default()
@@ -836,14 +837,14 @@ extern "C" fn on_sync_event(mut app: RefAny, mut payload: RefAny, _info: Callbac
 pub(crate) enum IoJob {
     /// A new or edited account: `account.json` and SEND's `sending.json`.
     SaveAccount {
-        root: PathBuf,
+        root: DriveFolder,
         account: Account,
         settings: send::SendSettings,
         editing: bool,
     },
     /// A folder's read / flag marks.
     SaveFlags {
-        store_root: PathBuf,
+        store_root: DriveFolder,
         folder: String,
         flags: LocalFlags,
     },
@@ -892,10 +893,9 @@ extern "C" fn io_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: T
             store_root,
             folder,
             flags,
-        } => match LocalFolder::new(store_root).put(
+        } => match MailStore::new(store_root).put(
             &listing::flags_key(&folder),
             flags.to_json().as_bytes(),
-            true,
         ) {
             Ok(()) => IoDone::FlagsSaved,
             Err(e) => IoDone::Failed(format!("Could not save the read marks: {e}")),
@@ -919,7 +919,7 @@ pub(crate) fn save_flags(s: &MailApp, info: &mut CallbackInfo, app: RefAny, flag
         info,
         app,
         IoJob::SaveFlags {
-            store_root: store.root().to_path_buf(),
+            store_root: store.folder().clone(),
             folder,
             flags,
         },
@@ -998,17 +998,25 @@ pub fn start() {
         args.clone(),
     );
     let azmail_var = std::env::var(account::DATA_VAR).ok();
-    let root = account::data_root(azmail_var.as_deref(), &kit_data_root(&kit_ref));
+    let data_root = kit_data_root(&kit_ref);
+    let root_path = account::data_root(azmail_var.as_deref(), &data_root);
     if azmail_var.as_deref().map_or(true, |v| v.trim().is_empty()) {
         // Once: the folder an older AzMail kept in the user's data folder.
         if let Some(legacy) = account::legacy_root(user_data_dir().as_deref()) {
-            match account::migrate_legacy_root(&legacy, &root) {
-                Ok(true) => eprintln!("[azmail] moved {} to {}", legacy.display(), root.display()),
+            match account::migrate_legacy_root(&legacy, &root_path) {
+                Ok(true) => eprintln!(
+                    "[azmail] moved {} to {}",
+                    legacy.display(),
+                    root_path.display()
+                ),
                 Ok(false) => {}
                 Err(e) => eprintln!("[azmail] {} could not be moved: {e}", legacy.display()),
             }
         }
     }
+    // Every file of AzMail goes through the data tree's one drive (the AzMail folder is a
+    // folder of it); an AZMAIL_DATA outside the tree is a drive of its own.
+    let root = DriveFolder::of(&root_path, &data_root);
     if args.sample {
         match sample::install(&root) {
             Ok(path) => eprintln!("[azmail] sample account in {}", path.display()),
@@ -1022,7 +1030,7 @@ pub fn start() {
     eprintln!(
         "[azmail] {} account(s) in {}",
         accounts.len(),
-        root.display()
+        root_path.display()
     );
     let screen = Screen::of(&args);
     let first_run = accounts.is_empty();

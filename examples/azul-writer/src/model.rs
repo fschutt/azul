@@ -7,10 +7,7 @@
 //! written with `to_markdown` (headings, lists, check items, quotes, code,
 //! tables, rules and page breaks round-trip; alignment has no Markdown form).
 
-use azul::{
-    str::String as AzString,
-    widgets::{RichBlockKind, RichTextDoc, RichTextEditorState},
-};
+use azul::widgets::{RichBlockKind, RichTextDoc, RichTextEditorState};
 
 use crate::ids;
 
@@ -53,7 +50,7 @@ impl DocumentModel {
     #[must_use]
     pub fn from_doc(id: String, doc: RichTextDoc, saved: String) -> Self {
         let mut editor = RichTextEditorState::create(doc);
-        editor.host_id = AzString::from(ids::DOC_HOST);
+        editor.host_id = ids::DOC_HOST;
         Self {
             id,
             editor,

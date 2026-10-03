@@ -385,6 +385,9 @@ pub struct RichTextEditor {
     pub font_size: f32,
     /// The space under a paragraph in px (a note's 6, a mail's 0).
     pub paragraph_spacing: f32,
+    /// A line's height as a factor of the font size (a slide's 1.15);
+    /// 0 is the editor's own 1.5.
+    pub line_height: f32,
     /// The widget theme the frame and toolbar are PINNED to, or `None` to
     /// follow the app theme.
     pub theme: crate::widgets::themes::OptionUiTheme,
@@ -408,6 +411,7 @@ impl RichTextEditor {
             on_link: OptionRichTextEditorOnLink::None,
             font_size: 14.0,
             paragraph_spacing: 6.0,
+            line_height: 0.0,
             toolbar: RichTextToolbar::create_none(),
             markdown_shortcuts: true,
             read_only: false,
@@ -516,6 +520,19 @@ impl RichTextEditor {
     #[must_use]
     pub fn with_paragraph_spacing(mut self, px: f32) -> Self {
         self.set_paragraph_spacing(px);
+        self
+    }
+
+    /// A line's height as a factor of the font size (PowerPoint's single
+    /// spacing is 1.15); 0 (the default) is the editor's own 1.5.
+    pub fn set_line_height(&mut self, factor: f32) {
+        self.line_height = factor;
+    }
+
+    /// [`Self::set_line_height`] for the builder chain.
+    #[must_use]
+    pub fn with_line_height(mut self, factor: f32) -> Self {
+        self.set_line_height(factor);
         self
     }
 
@@ -806,6 +823,8 @@ struct RenderCtx<'a> {
     images: &'a [RichImageSource],
     font_px: f32,
     spacing: f32,
+    /// A line's height as a factor of `font_px`.
+    line_height: f32,
     /// The editor's shared data (`None` read-only: no callbacks).
     data: Option<&'a RefAny>,
 }
@@ -820,6 +839,11 @@ fn host_dom(editor: &RichTextEditor, data: Option<&RefAny>, range: Option<(usize
         images: editor.images.as_ref(),
         font_px: editor.font_size,
         spacing: editor.paragraph_spacing,
+        line_height: if editor.line_height > 0.0 {
+            editor.line_height
+        } else {
+            1.5
+        },
         data,
     };
     let (first, end, id) = match range {
@@ -989,11 +1013,14 @@ const fn number_style(indent: u8) -> &'static str {
 #[allow(clippy::too_many_lines)]
 fn block_dom(ctx: &RenderCtx<'_>, index: usize, block: &RichBlock) -> Dom {
     let px = ctx.font_px;
-    let line = (px * 1.5).round();
+    let line = (px * ctx.line_height).round();
+    // The indents are proportional to the text (an em of the editor's 14 px
+    // default): a zoomed page or a thumbnail keeps its proportions.
+    let em = px / 14.0;
     let depth = block.quote_depth;
     // A quoted block: a bar on its left, one level further in per level.
     let quote_left = if depth > 0 {
-        16.0 * f32::from(depth - 1)
+        16.0 * em * f32::from(depth - 1)
     } else {
         0.0
     };
@@ -1011,7 +1038,7 @@ fn block_dom(ctx: &RenderCtx<'_>, index: usize, block: &RichBlock) -> Dom {
         "margin: 0px; padding: 0px; white-space: pre-wrap; font-size: {px}px; \
          line-height: {line}px; min-height: {line}px; {align}"
     );
-    let indent_px = |indent: u8| quote_left + 26.0 + 24.0 * f32::from(indent);
+    let indent_px = |indent: u8| quote_left + (26.0 + 24.0 * f32::from(indent)) * em;
     let mut classes: Vec<String> = vec![rich_html::BLOCK_CLASS.to_string()];
     if depth > 0 {
         classes.push(rich_html::quote_class(depth));
@@ -1077,7 +1104,7 @@ fn block_dom(ctx: &RenderCtx<'_>, index: usize, block: &RichBlock) -> Dom {
             let item = with_runs(Dom::create_li(), ctx, block).with_css(&format!(
                 "{base} {quote_css} display: list-item; list-style-type: none; position: relative; \
                  padding-left: 28px; margin-left: {}px; margin-bottom: 2px; {checked_css}",
-                indent_px(check.indent) - 26.0
+                indent_px(check.indent) - 26.0 * em
             ));
             // The box comes AFTER the runs (they keep their child indices),
             // out of the text flow and out of the editable text.

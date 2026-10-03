@@ -372,6 +372,9 @@ pub trait SheetEngine: Send {
     fn cell_formatted(&self, at: CellAddr) -> String;
     fn cell_style(&self, at: CellAddr) -> CellStyle;
     fn update_style(&mut self, area: CellArea, patch: &StylePatch) -> Result<(), EngineError>;
+    /// Several style changes of one area as ONE undo step (Format Cells'
+    /// OK): undo takes them all back at once.
+    fn update_styles(&mut self, area: CellArea, patches: &[StylePatch]) -> Result<(), EngineError>;
     fn clear_contents(&mut self, area: CellArea) -> Result<(), EngineError>;
     fn clear_formats(&mut self, area: CellArea) -> Result<(), EngineError>;
     fn auto_fill(&mut self, source: CellArea, to: FillTo) -> Result<(), EngineError>;

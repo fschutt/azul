@@ -46,7 +46,7 @@ use azul::{
 use crate::{
     compose::{self, ComposeFields, ComposeKind, StartFields},
     ids, message, send,
-    store::LocalFolder,
+    store::{DriveFolder, MailStore},
     with_app, MailApp,
 };
 
@@ -1032,10 +1032,10 @@ struct OutgoingJob {
     compose_id: u64,
     window_id: String,
     /// The AzMail folder.
-    root: PathBuf,
+    root: DriveFolder,
     account_id: String,
     /// The account's mail folder (`mail/<folder>/...` under it).
-    store_root: PathBuf,
+    store_root: DriveFolder,
     fields: ComposeFields,
     attachments: Vec<AttachedFile>,
     /// The draft saved before (replaced by a save, removed once sent).
@@ -1084,7 +1084,9 @@ fn run_outgoing(job: &OutgoingJob) -> OutgoingDone {
     let mut attachments = Vec::with_capacity(job.attachments.len());
     for file in &job.attachments {
         match &file.source {
-            AttachSource::File(path) => match std::fs::read(path) {
+            // A file the user picked outside the data tree: the kit's one way to read one
+            // (a drive at its folder that keeps no manifest).
+            AttachSource::File(path) => match azul_appkit::files::read_outside(path) {
                 Ok(bytes) => attachments.push(send::Attachment {
                     file_name: file.name.clone(),
                     mime_type: compose::mime_type_for(&file.name).to_string(),
@@ -1118,7 +1120,7 @@ fn run_outgoing(job: &OutgoingJob) -> OutgoingDone {
     let status = send::send_mail(&job.root, &job.account_id, &settings, &mail);
     if let (send::SendStatus::Sent { .. }, Some(uid)) = (&status, job.draft_uid) {
         // Sent: the draft it was is not a draft any more.
-        let _ = compose::delete_draft(&LocalFolder::new(job.store_root.clone()), uid);
+        let _ = compose::delete_draft(&MailStore::new(job.store_root.clone()), uid);
     }
     OutgoingDone::Sent(status)
 }

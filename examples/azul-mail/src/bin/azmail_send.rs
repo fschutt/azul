@@ -135,7 +135,9 @@ fn main() {
         }
     }
 
-    let data = data.unwrap_or_else(|| usage("--data is missing"));
+    // The folder is a drive of its own (no data tree's manifest): this tool writes to the
+    // folder the test harness names.
+    let data = azmail::store::DriveFolder::outside(data.unwrap_or_else(|| usage("--data is missing")));
     let account = account.unwrap_or_else(|| usage("--account is missing"));
     let mut settings = SendSettings::load(&data, &account);
     if let Some(route) = route {

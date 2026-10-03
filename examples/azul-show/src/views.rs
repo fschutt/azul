@@ -4,6 +4,9 @@
 //! callbacks of their widgets.
 
 use azul::{
+    css::{EventFilter, FocusEventFilter},
+    dom::{DomId, VirtualKeyCode},
+    svg::{CssPath, CssPathSelector},
     callbacks::{
         ButtonOnClickCallbackType, CallbackInfo, NumberInputOnValueChangeCallbackType, RefAny,
         SelectionAdornerOnEventCallbackType, StatusBarOnViewSelectCallbackType, TextAreaOnFocusLostCallbackType, TextAreaOnTextInputCallbackType,
@@ -13,7 +16,7 @@ use azul::{
     str::String as AzString,
     widgets::{
         AdornerFrame, AdornerItem, Button, NumberInput, NumberInputState, OnTextInputReturn,
-        SelectionAdorner, SelectionAdornerEvent, SelectionAdornerEventKind, SliderState,
+        RichTextEditorState, SelectionAdorner, SelectionAdornerEvent, SelectionAdornerEventKind, SliderState,
         StatusBar, StatusBarSegment, StatusBarView, StatusBarViewSwitcher, StatusBarZoom, TextArea, TextAreaState,
         TextInput, TextInputState, TextInputValid, ThumbnailItem, ThumbnailStrip, ThumbnailStripEvent,
         ThumbnailStripEventKind, ThumbnailStripLayout,
@@ -26,7 +29,6 @@ use crate::{
     editor::Editor,
     model::{Background, Deck, ElementKind, Frame, PlaceholderRole, Slide, TextBody},
     render::{self, css_color, RenderOptions},
-    text,
 };
 
 
@@ -129,6 +131,7 @@ pub fn canvas(app: &RefAny, st: &AppState, ed: &Editor, scale: f32) -> Dom {
     let opts = RenderOptions {
         scale,
         editing: ed.editing,
+        text: ed.text.as_ref(),
         prompts: true,
         step: None,
         playing: None,
@@ -236,7 +239,11 @@ pub extern "C" fn on_adorner_event(mut data: RefAny, mut info: CallbackInfo, eve
         SelectionAdornerEventKind::Activate => {
             if let Some(&i) = indices.first() {
                 if ed.activate(i) {
-                    st.focus_text = ed.editing;
+                    // The text's editing host, or a table's first cell.
+                    st.focus_text = ed.editing.map(|id| match ed.slide().element(id).map(|e| &e.kind) {
+                        Some(ElementKind::Table { .. }) => crate::text::cell_id(id, 0, 0),
+                        _ => crate::text::host_id(id),
+                    });
                     crate::focus_text_soon(&mut info, &handle);
                 }
             }
@@ -253,48 +260,172 @@ pub extern "C" fn on_adorner_event(mut data: RefAny, mut info: CallbackInfo, eve
     Update::RefreshDom
 }
 
-/// The text being edited changed: mirror it (no rebuild, the engine shows it).
-pub extern "C" fn on_text_changed(mut data: RefAny, mut info: CallbackInfo) -> Update {
+/// The shared editor reports an edit of the text being edited (typing,
+/// Enter / Backspace across paragraphs, a format, its undo): the body takes
+/// the editor's document, the editor's state is kept for the next frame (no
+/// rebuild: the editor shows it).
+pub extern "C" fn on_text_change(mut data: RefAny, _info: CallbackInfo, state: RichTextEditorState) -> Update {
     let Some(mut guard) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
-    commands::sync_editing(&mut guard, &mut info);
+    let Some(ed) = guard.editor.as_mut() else {
+        return Update::DoNothing;
+    };
+    if let Some(body) = ed.edited_body_mut() {
+        if crate::text::set_from_rich(body, &state.doc) {
+            ed.dirty = true;
+        }
+    }
+    ed.text = Some(state);
     Update::DoNothing
 }
 
-/// Enter / Backspace across paragraphs in the text being edited: mirror the
-/// structural edit and hand the engine its inverse for undo.
-pub extern "C" fn on_document_edit(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some(changeset) = info.get_document_edit_clone().into_option() else {
+// ==== A table edited in place ====
+
+/// A cell's payload: the app and which cell it is.
+struct CellRef {
+    app: RefAny,
+    element: u64,
+    row: usize,
+    col: usize,
+}
+
+/// `td`, cell `row`, `col` of table `element`, as an editing host of its
+/// own: typing is folded into the cell, Enter stays in it, Tab / Shift+Tab
+/// go to the next / previous cell (Tab in the last cell adds a row).
+#[must_use]
+pub fn editable_cell(td: Dom, app: &RefAny, element: u64, row: usize, col: usize) -> Dom {
+    let data = RefAny::new(CellRef {
+        app: app.clone(),
+        element,
+        row,
+        col,
+    });
+    td.with_id(AzString::from(crate::text::cell_id(element, row, col)))
+        .with_contenteditable(true)
+        .with_css("cursor: text; min-width: 24px;")
+        .with_callback(EventFilter::Focus(FocusEventFilter::TextChanged), data.clone(), on_cell_text)
+        .with_callback(EventFilter::Focus(FocusEventFilter::VirtualKeyDown), data, on_cell_key)
+}
+
+fn cell_of(data: &mut RefAny) -> Option<(RefAny, u64, usize, usize)> {
+    let c = data.downcast_ref::<CellRef>()?;
+    Some((c.app.clone(), c.element, c.row, c.col))
+}
+
+/// Typing in a cell: its text (the engine's edit of the cell's text node)
+/// becomes the cell's.
+extern "C" fn on_cell_text(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, element, row, col)) = cell_of(&mut data) else {
         return Update::DoNothing;
     };
-    let Some(mut guard) = data.downcast_mut::<AppState>() else {
+    let cell = info.get_hit_node();
+    let edits = info.get_unsynced_text_edits();
+    let mut text = None;
+    let mut max_revision = 0u64;
+    for edit in edits.as_ref() {
+        max_revision = max_revision.max(edit.revision);
+        if info.get_node_child_index_path(cell, edit.node).into_option().is_some() {
+            text = Some(edit.text.as_str().to_string());
+        }
+    }
+    if max_revision > 0 {
+        info.mark_text_revision_synced(max_revision);
+    }
+    let Some(text) = text else {
         return Update::DoNothing;
     };
-    let st = &mut *guard;
-    commands::sync_editing(st, &mut info);
-    let Some(ed) = st.editor.as_mut() else {
+    if let Some(mut st) = app.downcast_mut::<AppState>() {
+        if let Some(ed) = st.editor.as_mut() {
+            if ed.set_cell(element, row, col, &text) {
+                println!("AZSHOW_CELL {element} {row} {col}");
+            }
+        }
+    }
+    Update::DoNothing
+}
+
+/// Enter stays in the cell; Tab / Shift+Tab move between the cells.
+extern "C" fn on_cell_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, element, row, col)) = cell_of(&mut data) else {
         return Update::DoNothing;
     };
-    let Some(id) = ed.editing else {
+    let keyboard = info.get_current_keyboard_state();
+    let Some(key) = keyboard.current_virtual_keycode.into_option() else {
         return Update::DoNothing;
     };
-    let resume: Vec<u32> = changeset.resume.node_path.as_ref().to_vec();
-    let Some(body) = ed
-        .slide_mut()
-        .elements
-        .iter_mut()
-        .find(|e| e.id == id)
-        .and_then(|e| e.body_mut())
-    else {
-        return Update::DoNothing;
-    };
-    let Some((inverse, _)) = text::apply_structural(body, &changeset.operation, &resume) else {
-        return Update::RefreshDom;
-    };
-    ed.dirty = true;
-    info.mark_document_edit_applied_with_inverse(changeset.id, inverse);
-    Update::RefreshDom
+    let shift = info.get_key_modifiers().shift;
+    match key {
+        VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter => {
+            info.prevent_default();
+            Update::DoNothing
+        }
+        VirtualKeyCode::Tab => {
+            info.prevent_default();
+            let back = shift;
+            let mut added = false;
+            let target = {
+                let Some(mut st) = app.downcast_mut::<AppState>() else {
+                    return Update::DoNothing;
+                };
+                let Some(ed) = st.editor.as_mut() else {
+                    return Update::DoNothing;
+                };
+                let shape = match ed.slide().element(element).map(|e| &e.kind) {
+                    Some(ElementKind::Table { rows, .. }) => {
+                        rows.iter().map(Vec::len).collect::<Vec<usize>>()
+                    }
+                    _ => return Update::DoNothing,
+                };
+                match next_cell(&shape, row, col, back) {
+                    Some(at) => Some(at),
+                    None if !back => {
+                        // Tab in the last cell: a new row, its first cell.
+                        added = true;
+                        ed.add_table_row(element).map(|r| (r, 0))
+                    }
+                    None => None,
+                }
+            };
+            let Some((r, c)) = target else {
+                return Update::DoNothing;
+            };
+            let id = crate::text::cell_id(element, r, c);
+            if added {
+                // The new row is there after the rebuild: focus it then.
+                if let Some(mut st) = app.downcast_mut::<AppState>() {
+                    st.focus_text = Some(id);
+                }
+                crate::focus_text_soon(&mut info, &app);
+                return Update::RefreshDom;
+            }
+            info.set_focus_to_path(
+                DomId { inner: 0 },
+                CssPath {
+                    selectors: vec![CssPathSelector::Id(AzString::from(id))].into(),
+                },
+            );
+            Update::DoNothing
+        }
+        _ => Update::DoNothing,
+    }
+}
+
+/// The cell after (`back`: before) `row`, `col` in a table whose rows have
+/// `shape[r]` cells, row by row; `None` past either end.
+#[must_use]
+pub fn next_cell(shape: &[usize], row: usize, col: usize, back: bool) -> Option<(usize, usize)> {
+    if back {
+        if col > 0 {
+            return Some((row, col - 1));
+        }
+        (0..row).rev().find(|r| shape[*r] > 0).map(|r| (r, shape[r] - 1))
+    } else {
+        if col + 1 < shape.get(row).copied().unwrap_or(0) {
+            return Some((row, col + 1));
+        }
+        (row + 1..shape.len()).find(|r| shape[*r] > 0).map(|r| (r, 0))
+    }
 }
 
 // ==== Notes ====
@@ -684,4 +815,20 @@ pub fn status_bar(app: &RefAny, st: &AppState, zoom_percent: f32) -> Dom {
         )
         .with_zoom(zoom)
         .dom()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::next_cell;
+
+    #[test]
+    fn the_next_cell_goes_row_by_row() {
+        let shape = [2, 2, 2];
+        assert_eq!(next_cell(&shape, 0, 0, false), Some((0, 1)));
+        assert_eq!(next_cell(&shape, 0, 1, false), Some((1, 0)), "the end of a row: the next row");
+        assert_eq!(next_cell(&shape, 2, 1, false), None, "past the last cell: a new row");
+        assert_eq!(next_cell(&shape, 1, 0, true), Some((0, 1)), "Shift+Tab: the previous row's last cell");
+        assert_eq!(next_cell(&shape, 0, 0, true), None);
+        assert_eq!(next_cell(&[2, 0, 1], 0, 1, false), Some((2, 0)), "an empty row is skipped");
+    }
 }

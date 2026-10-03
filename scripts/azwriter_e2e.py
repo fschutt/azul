@@ -106,6 +106,14 @@ def first_session(app, data, out):
         raise e.Failure("no first page host %s" % PAGE0)
     app.log("pages laid out (%s)" % app.printed("AZWRITER_PAGES", r"\d+")[-1])
 
+    # HOME fits a 1280 px window: the styles gallery shows a row of a few
+    # styles (More shows all), so the Editing group's Undo is on screen.
+    undo = app.value("get_node_layout", text="Undo")
+    rect = (undo or {}).get("rect") if isinstance(undo, dict) else None
+    if not rect or rect.get("x", 0) + rect.get("width", 0) > 1280:
+        raise e.Failure("HOME runs out of the 1280 px window: Undo at %s" % rect)
+    app.log("HOME fits the window (Undo at x %.0f)" % rect["x"])
+
     # Type into the second block (the first paragraph), save, read the file.
     app.click(BLOCK % 1)
     app.must("text_input", text="QUILL ")

@@ -3,17 +3,20 @@
 //! something is selected. Every button runs a [`Command`].
 
 use azul::{
-    callbacks::{ButtonOnClickCallbackType, CallbackInfo, RefAny, RibbonGalleryOnSelectCallbackType, RibbonOnTabClickCallbackType, Update},
+    callbacks::{
+        ButtonOnClickCallbackType, CallbackInfo, DropDownOnChoiceChangeCallbackType, RefAny,
+        RibbonGalleryOnSelectCallbackType, RibbonOnTabClickCallbackType, Update,
+    },
     dom::Dom,
     str::String as AzString,
     widgets::{
-        Ribbon, RibbonAppButton, RibbonButton, RibbonColumn, RibbonGallery, RibbonGalleryCell, RibbonGroup,
-        RibbonItem, RibbonRow, RibbonTab,
+        DropDown, Ribbon, RibbonAppButton, RibbonButton, RibbonColumn, RibbonGallery, RibbonGalleryCell,
+        RibbonGroup, RibbonItem, RibbonRow, RibbonTab,
     },
 };
 
 use crate::{
-    app::{command, AppState, BackstagePage, Command, View},
+    app::{command, AppState, BackstagePage, Command, PresenterMonitor, View},
     commands::on_command,
     editor::Editor,
     model::{
@@ -205,8 +208,14 @@ fn home_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
             .and_then(|id| e.slide().element(*id))
             .and_then(|el| el.body())
     });
-    let has = |axis| body.is_some_and(|b| text::all_have(b, axis));
-    use crate::ir::FormatAxis as F;
+    use azul::widgets::RichFormat as F;
+    // In the text being edited: the format at the caret or over the
+    // selection (the shared editor's); else the whole selected text's.
+    let edited = ed.and_then(|e| e.editing.and(e.text.as_ref()));
+    let has = |format: F| match edited {
+        Some(state) => state.is_current_format(format),
+        None => body.is_some_and(|b| text::all_have(b, format)),
+    };
     let align = body
         .and_then(|b| b.paragraphs.first())
         .map_or(Align::Left, |p| p.align);
@@ -515,7 +524,42 @@ fn animations_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
         ))
 }
 
-fn show_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
+/// Slide Show > Monitors: a pick of where the presenter view opens.
+extern "C" fn on_monitor_pick(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    let choice = match index {
+        0 => PresenterMonitor::Automatic,
+        n => match PresenterMonitor::choices(&info.get_monitors()).get(n - 1) {
+            Some((monitor, _)) => PresenterMonitor::Monitor(*monitor),
+            None => return Update::DoNothing,
+        },
+    };
+    crate::commands::run(&mut data, Command::PresenterMonitor(choice), &mut info)
+}
+
+/// The Monitors group: "Automatic", then every connected screen.
+fn monitors_group(app: &RefAny, chosen: PresenterMonitor, monitors: &[(u32, String)]) -> RibbonGroup {
+    let mut labels = vec![String::from("Automatic")];
+    labels.extend(monitors.iter().map(|(_, label)| label.clone()));
+    let selected = match chosen {
+        PresenterMonitor::Automatic => 0,
+        PresenterMonitor::Monitor(index) => monitors
+            .iter()
+            .position(|(m, _)| *m == index)
+            .map_or(0, |at| at + 1),
+    };
+    let names: Vec<AzString> = labels.iter().map(|l| s(l)).collect();
+    group(
+        "Monitors",
+        vec![RibbonItem::Drop(
+            DropDown::create(names)
+                .with_selected(selected)
+                .with_accessibility_name(s("Presenter View on"))
+                .with_on_choice_change(app.clone(), on_monitor_pick as DropDownOnChoiceChangeCallbackType),
+        )],
+    )
+}
+
+fn show_tab(app: &RefAny, ed: Option<&Editor>, chosen: PresenterMonitor, monitors: &[(u32, String)]) -> RibbonTab {
     let hidden = ed.is_some_and(|e| e.slide().hidden);
     RibbonTab::create(s("SLIDE SHOW"))
         .with_group(group(
@@ -529,6 +573,7 @@ fn show_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
             "Set Up",
             vec![toggle(app, "visibility_off", "Hide Slide", Command::ToggleHidden, hidden)],
         ))
+        .with_group(monitors_group(app, chosen, monitors))
 }
 
 fn view_tab(app: &RefAny, st: &AppState) -> RibbonTab {
@@ -628,7 +673,7 @@ fn format_tab(app: &RefAny, ed: &Editor) -> RibbonTab {
 
 /// The ribbon for the app's state.
 #[must_use]
-pub fn ribbon(app: &RefAny, st: &AppState) -> Dom {
+pub fn ribbon(app: &RefAny, st: &AppState, monitors: &[(u32, String)]) -> Dom {
     let ed = st.editor.as_ref();
     let mut tabs = vec![
         home_tab(app, ed),
@@ -636,7 +681,7 @@ pub fn ribbon(app: &RefAny, st: &AppState) -> Dom {
         design_tab(app, ed),
         transitions_tab(app, ed),
         animations_tab(app, ed),
-        show_tab(app, ed),
+        show_tab(app, ed, st.presenter_monitor, monitors),
         view_tab(app, st),
     ];
     if let Some(e) = ed.filter(|e| !e.selection.is_empty()) {
