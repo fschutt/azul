@@ -226,15 +226,29 @@ impl EditorForm {
     /// day, editing that occurrence alone until "The whole series" is chosen.
     #[must_use]
     pub fn from_occurrence(serial: u32, series: &Event, day: NaiveDate) -> EditorForm {
-        let _ = (serial, series, day);
-        todo!()
+        let mut form = EditorForm::from_event(serial, series);
+        form.occurrence = Some(day);
+        form.whole_series = false;
+        form.move_to(day);
+        form
     }
 
     /// Edits the whole series (`whole`, the form on the series' first day `series_first`) or
     /// the occurrence the form was opened on (on its day).
     pub fn set_whole_series(&mut self, whole: bool, series_first: NaiveDate) {
-        let _ = (whole, series_first);
-        todo!()
+        let Some(day) = self.occurrence else {
+            return;
+        };
+        self.whole_series = whole;
+        self.move_to(if whole { series_first } else { day });
+    }
+
+    /// Shows the form on `day`, its days after the first moving along (the repeat's last date
+    /// is the series', and stays).
+    fn move_to(&mut self, day: NaiveDate) {
+        let span = (self.last_day - self.date).num_days().max(0);
+        self.date = day;
+        self.last_day = day + Duration::days(span);
     }
 
     /// The form edits the occurrence it was opened on, not the series.
@@ -252,8 +266,25 @@ impl EditorForm {
         new_id: &str,
         meeting: Option<Meeting>,
     ) -> Result<(Event, Event), String> {
-        let _ = (series, new_id, meeting);
-        todo!()
+        let Some(day) = self.occurrence else {
+            return Err(String::from("This appointment is not an occurrence of a series."));
+        };
+        let one = EditorForm {
+            id: new_id.to_string(),
+            repeat: Repeat::Never,
+            custom: None,
+            except: Vec::new(),
+            uid: String::new(),
+            ..self.clone()
+        }
+        .event(meeting)?;
+        let mut kept = series.clone();
+        if !kept.except.contains(&day) {
+            kept.except.push(day);
+            kept.except.sort();
+        }
+        let kept = kept.check().map_err(|e| error_text(&e))?;
+        Ok((kept, one))
     }
 
     /// Moves the first day to `date`; an all-day event's last day moves along (the same number
