@@ -1876,6 +1876,16 @@ pub fn generate_add_type_patches(
             }
         };
 
+        // A path through a private module nothing re-exports: the bindings
+        // cannot name the type (TextRasterStyle, wave 6)
+        if let Some(private) = index.private_module_on(&type_def.full_path) {
+            return Err(format!(
+                "`{}` is behind the private module `{}` and no `pub use` re-exports it: \
+                 declare the module `pub` or re-export the type, then add",
+                type_def.full_path, private
+            ));
+        }
+
         // The module the scan keeps a new type in (see new_type_module)
         let (module_name, is_misc) =
             crate::autofix::module_map::new_type_module(&current_type, &type_def.full_path);
