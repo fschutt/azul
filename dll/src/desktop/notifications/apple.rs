@@ -651,6 +651,8 @@ struct PendingPost {
     actions: Vec<NotificationAction>,
     sound: NotificationSound,
     payload: String,
+    /// `Notification::deliver_at`: shown by a time-interval trigger.
+    deliver_at: Option<u64>,
 }
 
 impl PendingPost {
@@ -663,6 +665,7 @@ impl PendingPost {
             actions: n.actions.as_ref().to_vec(),
             sound: n.sound.clone(),
             payload: n.payload.as_str().to_string(),
+            deliver_at: n.deliver_at.into_option(),
         }
     }
 
@@ -842,13 +845,34 @@ unsafe fn add_request(center: *mut AnyObject, post: &PendingPost) {
             }
         }
 
-        // A nil trigger delivers at once. The same identifier REPLACES a
+        // A nil trigger delivers at once; a delivery time is a one-shot
+        // time-interval trigger, counted from now (the authorization answer
+        // may have taken a while), which UN keeps and fires also while the
+        // app is not running. The same identifier REPLACES a pending or
         // delivered notification - the app id is the request identifier.
+        let interval = wire::apple_trigger_interval(post.deliver_at, super::wall_clock_ms());
+        let trigger: *mut AnyObject = match interval {
+            None => core::ptr::null_mut(),
+            Some(seconds) => {
+                let Some(trigger_cls) = class("UNTimeIntervalNotificationTrigger") else {
+                    return post.fail("UNTimeIntervalNotificationTrigger is missing".to_string());
+                };
+                let trigger: *mut AnyObject = msg_send![
+                    trigger_cls,
+                    triggerWithTimeInterval: seconds,
+                    repeats: Bool::NO
+                ];
+                if trigger.is_null() {
+                    return post.fail("could not create the notification's trigger".to_string());
+                }
+                trigger
+            }
+        };
         let request: *mut AnyObject = msg_send![
             request_cls,
             requestWithIdentifier: nsstring(&post.id),
             content: &*content,
-            trigger: core::ptr::null_mut::<AnyObject>()
+            trigger: trigger
         ];
         if request.is_null() {
             return post.fail("could not create the notification request".to_string());

@@ -35,6 +35,17 @@
 //! 5. A loop with no window parks the deliveries with [`defer_deliveries`]; the next pump that has
 //!    one runs them.
 //!
+//! # Scheduled notifications (`Notification::deliver_at`)
+//!
+//! A notification with a delivery time is SCHEDULED: macOS / iOS hand it to UN with a
+//! `UNTimeIntervalNotificationTrigger`, a Windows toast becomes a `ScheduledToastNotification`
+//! (`ToastNotifier::AddToSchedule`) - both show it also while the app is not running. The
+//! freedesktop server, the portal, Android (until its alarm receiver exists) and the Windows
+//! balloon cannot schedule; the service HOLDS such a notification
+//! (`azul_layout::managers::notification::ScheduledNotifications`), a deadline thread wakes the
+//! run loop (`loop_waker::wake`) when the earliest is due, and the pump posts it then - it shows
+//! only while the process runs. A withdraw cancels a scheduled notification on every backend.
+//!
 //! # Failures are events
 //!
 //! A backend that cannot start (an unbundled macOS binary, no freedesktop server, an Android build
@@ -45,9 +56,12 @@ use core::cell::RefCell;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use azul_core::notification::{Notification, NotificationEvent, OptionNotificationCallback};
-use azul_css::AzString;
+use azul_css::{AzString, OptionU64};
 use azul_layout::managers::{
-    notification::{self as queue, NotificationDelivery, NotificationRegistry, NotificationRequest},
+    notification::{
+        self as queue, NotificationDelivery, NotificationRegistry, NotificationRequest,
+        ScheduledNotifications,
+    },
     permission::{push_async_result, Capability, PermissionQuality, PermissionState},
 };
 
@@ -242,6 +256,102 @@ fn platform_backend() -> Backend {
     Backend::Unavailable(UNSUPPORTED.to_string())
 }
 
+impl Backend {
+    /// Does this backend keep a notification's delivery time itself (the OS
+    /// shows it then), or must the process hold it until it is due? The
+    /// headless recorder records the time as it is; an unavailable backend
+    /// fails the post at once, which tells the app more than a failure at the
+    /// time it was due.
+    fn schedules_itself(&self) -> bool {
+        match self {
+            Backend::Headless | Backend::Unavailable(_) => true,
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            Backend::Apple(_) => true,
+            #[cfg(target_os = "windows")]
+            Backend::Windows(n) => n.can_schedule(),
+            #[cfg(all(target_os = "android", feature = "jni"))]
+            Backend::Android(_) => false,
+            #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+            Backend::Linux(_) => false,
+        }
+    }
+}
+
+/// Milliseconds since 1970 by the wall clock (a delivery time is wall time).
+fn wall_clock_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// The thread that wakes the run loop when a notification the process HOLDS
+/// is due (`ScheduledNotifications`): the loops park until an event comes,
+/// and nothing else would come at that time. It sleeps on the WALL clock,
+/// at most 30 s at a time, so a suspend or a clock change delays a
+/// notification by no more than that.
+mod deadline {
+    use std::sync::{Mutex, OnceLock, PoisonError};
+
+    /// The earliest held notification's time (ms since 1970).
+    static NEXT: Mutex<Option<u64>> = Mutex::new(None);
+    static THREAD: OnceLock<Option<std::thread::Thread>> = OnceLock::new();
+    const MAX_SLEEP_MS: u64 = 30_000;
+
+    /// The earliest due time changed (`None`: nothing is held).
+    pub(super) fn set(next: Option<u64>) {
+        *NEXT.lock().unwrap_or_else(PoisonError::into_inner) = next;
+        let thread = if next.is_some() {
+            THREAD.get_or_init(spawn).as_ref()
+        } else {
+            THREAD.get().and_then(Option::as_ref)
+        };
+        if let Some(thread) = thread {
+            thread.unpark();
+        }
+    }
+
+    fn spawn() -> Option<std::thread::Thread> {
+        match std::thread::Builder::new()
+            .name("azul-notification-deadline".to_string())
+            .spawn(run)
+        {
+            Ok(handle) => Some(handle.thread().clone()),
+            Err(e) => {
+                crate::plog_warn!(
+                    "[notifications] no deadline thread ({e}): a held notification shows at the \
+                     next event the loop wakes for"
+                );
+                None
+            }
+        }
+    }
+
+    fn run() {
+        loop {
+            let next = *NEXT.lock().unwrap_or_else(PoisonError::into_inner);
+            let Some(at) = next else {
+                std::thread::park();
+                continue;
+            };
+            let now = super::wall_clock_ms();
+            if now >= at {
+                {
+                    let mut slot = NEXT.lock().unwrap_or_else(PoisonError::into_inner);
+                    if *slot == Some(at) {
+                        // The pump sets the next one after it posted this.
+                        *slot = None;
+                    }
+                }
+                crate::desktop::loop_waker::wake();
+            } else {
+                std::thread::park_timeout(std::time::Duration::from_millis(
+                    (at - now).min(MAX_SLEEP_MS),
+                ));
+            }
+        }
+    }
+}
+
 fn start_backend() -> Backend {
     if HEADLESS.load(Ordering::Relaxed) {
         crate::plog_info!(
@@ -262,10 +372,19 @@ fn start_backend() -> Backend {
 struct NotificationService {
     backend: Backend,
     registry: NotificationRegistry,
+    /// Scheduled notifications the backend cannot keep, until they are due.
+    held: ScheduledNotifications,
 }
 
 impl NotificationService {
     fn post(&mut self, notification: Notification) {
+        let later =
+            queue::wire::delivery_delay_ms(notification.deliver_at.into_option(), wall_clock_ms())
+                .is_some();
+        if later && !self.backend.schedules_itself() {
+            self.hold(notification);
+            return;
+        }
         let notification = self.registry.admit(notification);
         let result: Result<(), String> = match &mut self.backend {
             Backend::Headless => {
@@ -302,8 +421,44 @@ impl NotificationService {
         }
     }
 
+    /// Keep a scheduled notification until it is due (a backend that cannot
+    /// schedule); the deadline thread wakes the loop then.
+    fn hold(&mut self, notification: Notification) {
+        let notification = self.registry.admit(notification);
+        if let Err(refused) = self.held.schedule(notification) {
+            crate::plog_warn!(
+                "[notifications] could not schedule {:?}: too many are waiting",
+                refused.id.as_str()
+            );
+            let mut event = NotificationEvent::failed(
+                refused.id.clone(),
+                AzString::from_const_str(
+                    "too many scheduled notifications are waiting in this process",
+                ),
+            );
+            event.payload = refused.payload.clone();
+            let _ = queue::queue_notification_event(event);
+        }
+        deadline::set(self.held.next_due_ms());
+    }
+
+    /// Post the held notifications that are due.
+    fn post_due(&mut self) {
+        if self.held.is_empty() {
+            return;
+        }
+        for mut notification in self.held.take_due(wall_clock_ms()) {
+            notification.deliver_at = OptionU64::None;
+            self.post(notification);
+        }
+        deadline::set(self.held.next_due_ms());
+    }
+
     fn withdraw(&mut self, id: &str) {
         self.registry.forget(id);
+        if self.held.withdraw(id) {
+            deadline::set(self.held.next_due_ms());
+        }
         match &mut self.backend {
             Backend::Headless => {
                 queue::record_withdrawn_notification(id);
@@ -358,6 +513,7 @@ fn with_service<R>(f: impl FnOnce(&mut NotificationService) -> R) -> Option<R> {
             let service = slot.get_or_insert_with(|| NotificationService {
                 backend: start_backend(),
                 registry: NotificationRegistry::new(),
+                held: ScheduledNotifications::new(),
             });
             Some(f(service))
         })
@@ -471,6 +627,7 @@ pub fn pump_notifications() -> Vec<NotificationDelivery> {
         return out;
     }
     let routed = with_service(|service| {
+        service.post_due();
         service.pump_platform();
         let events = queue::drain_notification_events();
         if events.is_empty() {

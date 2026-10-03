@@ -819,6 +819,7 @@ jobs:
 
       - name: Run AzTerm tests
       - name: Run AzPdf tests
+      - name: Run AzClock tests
         env:
           AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
         run: |
@@ -827,6 +828,8 @@ jobs:
           ./scripts/zero_test_guard.sh --strict azul-term-tests.txt
           cargo test -p AzPdf --lib --no-fail-fast 2>&1 | tee azul-pdf-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-pdf-tests.txt
+          cargo test -p AzClock --lib --no-fail-fast 2>&1 | tee azul-clock-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-clock-tests.txt
 
       - name: Check azul-dll (release feature set)
         run: cargo check -p azul-dll --no-default-features --features "link-static,logging,ico,tga,hdr,webp,pnm,gif,png,tiff,bmp,a11y"

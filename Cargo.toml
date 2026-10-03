@@ -28,6 +28,7 @@ members = [
     "examples/azul-dashboard", # AzDashboard: 500k orders in the virtualized DataTable (sort, filter, edit) + charts, on the S6 RecordsShell
     "examples/azul-term", # AzTerm: a terminal (alacritty_terminal VT engine + PTY) in azul's TerminalView, tabs on the S8 DeveloperShell
     "examples/azul-pdf", # AzPdf: the PDF viewer (ParsedPdf -> page SVG -> azul's SVG renderer on a Thread; thumbnails, outline, zoom, search) on the DocumentShell
+    "examples/azul-clock", # AzClock: alarms (RRULE repeats, DST-correct, OS-scheduled notifications), timers, stopwatch, world clock on the S9 UtilityShell
     "dll", # dll module with auto-gen C functions (optional pyO3 support), depends on layout, core and css
     "doc", # doc / test generator, depends on layout, core and css
     "layout", # layout depends on core + css

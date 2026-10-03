@@ -632,3 +632,56 @@ fn a_click_by_text_finds_the_label_inside_an_inline_span() {
         .collect();
     assert!(failed.is_empty(), "{failed:#?}");
 }
+
+// ==== `assert_notification` and a scheduled notification's delivery time (CLOCK9) ====
+
+/// A notification can be SCHEDULED (`Notification::with_deliver_at`: AzClock
+/// hands its next alarms to the OS that way), and a scenario must be able to
+/// tell a scheduled post from one shown at once, and check WHEN it shows:
+/// `scheduled` (bool) and `deliver_at` (ms since 1970, exact).
+#[test]
+fn assert_notification_checks_when_a_scheduled_notification_shows() {
+    use azul_core::notification::Notification;
+    use azul_css::AzString;
+    use crate::managers::notification::record_posted_notification;
+
+    let _globals = notification_globals();
+    record_posted_notification(
+        &Notification::create(AzString::from("clock9-alarm"), AzString::from("Gym"))
+            .with_deliver_at(1_790_985_600_000),
+    );
+    record_posted_notification(&Notification::create(
+        AzString::from("clock9-now"),
+        AzString::from("Now"),
+    ));
+
+    let passing = run_e2e_test(&every_step(
+        "scheduled_matches",
+        serde_json::json!([
+            { "op": "assert_notification", "id": "clock9-alarm", "scheduled": true,
+              "deliver_at": 1_790_985_600_000u64 },
+            { "op": "assert_notification", "id": "clock9-now", "scheduled": false }
+        ]),
+    ));
+    let wrong_time = run_e2e_test(&every_step(
+        "deliver_at_differs",
+        serde_json::json!([
+            { "op": "assert_notification", "id": "clock9-alarm", "deliver_at": 1_790_985_660_000u64 }
+        ]),
+    ));
+    let not_scheduled = run_e2e_test(&every_step(
+        "scheduled_differs",
+        serde_json::json!([
+            { "op": "assert_notification", "id": "clock9-now", "scheduled": true }
+        ]),
+    ));
+
+    assert_eq!(passing.status, "pass", "{:#?}", step_errors(&passing));
+    assert_eq!(wrong_time.status, "fail", "another time fails");
+    assert!(
+        step_errors(&wrong_time).iter().any(|e| e.contains("deliver_at")),
+        "{:#?}",
+        step_errors(&wrong_time)
+    );
+    assert_eq!(not_scheduled.status, "fail", "a post shown at once is not scheduled");
+}

@@ -1871,3 +1871,126 @@ mod platforms {
         assert!(!wire::in_flatpak_sandbox(false, Some("")));
     }
 }
+
+// ---------------------------------------------------------------------------
+// Scheduled notifications: a delivery time (AzClock's alarms, CLOCK9)
+// ---------------------------------------------------------------------------
+//
+// `Notification::deliver_at` is the instant (ms since 1970, UTC) to show a
+// notification at. The OS keeps it where it can - a
+// `UNTimeIntervalNotificationTrigger` on macOS / iOS, a scheduled toast on
+// Windows - so it shows while the app is not running; elsewhere the process
+// holds it (`ScheduledNotifications`) and posts it when it is due.
+
+mod scheduled {
+    use azul_core::notification::Notification;
+    use azul_css::{AzString, OptionU64};
+    use azul_layout::managers::notification::{
+        wire, NotificationRecorder, ScheduledNotifications,
+    };
+
+    fn s(v: &str) -> AzString {
+        AzString::from(v)
+    }
+
+    const NOW: u64 = 1_790_985_600_000; // 2026-10-03T00:00:00Z
+
+    #[test]
+    fn a_notification_shows_now_unless_it_is_given_a_delivery_time() {
+        let plain = Notification::create(s("n"), s("t"));
+        assert_eq!(plain.deliver_at, OptionU64::None, "created: shown at once");
+        let later = plain.with_deliver_at(NOW + 60_000);
+        assert_eq!(later.deliver_at, OptionU64::Some(NOW + 60_000));
+    }
+
+    #[test]
+    fn a_delivery_time_in_the_past_or_under_a_second_away_means_now() {
+        assert_eq!(wire::delivery_delay_ms(None, NOW), None);
+        assert_eq!(wire::delivery_delay_ms(Some(NOW - 5_000), NOW), None, "past: now");
+        assert_eq!(wire::delivery_delay_ms(Some(NOW + 999), NOW), None, "under a second");
+        assert_eq!(wire::delivery_delay_ms(Some(NOW + 1_000), NOW), Some(1_000));
+        assert_eq!(
+            wire::delivery_delay_ms(Some(NOW + 8 * 3_600_000), NOW),
+            Some(8 * 3_600_000)
+        );
+    }
+
+    #[test]
+    fn apple_schedules_by_a_time_interval_trigger_in_seconds() {
+        assert_eq!(wire::apple_trigger_interval(None, NOW), None, "a nil trigger: now");
+        assert_eq!(wire::apple_trigger_interval(Some(NOW + 90_500), NOW), Some(90.5));
+        assert_eq!(wire::apple_trigger_interval(Some(NOW - 1), NOW), None);
+    }
+
+    #[test]
+    fn windows_schedules_at_a_datetime_counted_in_100_ns_from_1601() {
+        assert_eq!(wire::windows_datetime(0), 116_444_736_000_000_000);
+        assert_eq!(wire::windows_datetime(1_000), 116_444_736_010_000_000);
+        assert_eq!(wire::windows_datetime(NOW), 134_354_592_000_000_000);
+    }
+
+    #[test]
+    fn the_process_holds_a_scheduled_notification_until_it_is_due() {
+        let at = |ms: u64| Notification::create(s(&format!("n{ms}")), s("t")).with_deliver_at(ms);
+        let mut held = ScheduledNotifications::new();
+        for ms in [NOW + 3_000, NOW + 1_000, NOW + 2_000] {
+            assert!(held.schedule(at(ms)).is_ok());
+        }
+        assert_eq!(held.len(), 3);
+        assert_eq!(held.next_due_ms(), Some(NOW + 1_000));
+        assert!(held.take_due(NOW + 999).is_empty(), "nothing due yet");
+        let due: Vec<String> = held
+            .take_due(NOW + 2_000)
+            .iter()
+            .map(|n| n.id.as_str().to_string())
+            .collect();
+        assert_eq!(
+            due,
+            vec![format!("n{}", NOW + 1_000), format!("n{}", NOW + 2_000)],
+            "the due ones, soonest first"
+        );
+        assert_eq!(held.next_due_ms(), Some(NOW + 3_000));
+        assert_eq!(held.len(), 1);
+    }
+
+    #[test]
+    fn scheduling_an_id_again_replaces_its_time_and_withdrawing_cancels_it() {
+        let mut held = ScheduledNotifications::new();
+        let _ = held.schedule(Notification::create(s("alarm"), s("06:30")).with_deliver_at(NOW + 5_000));
+        let _ = held.schedule(Notification::create(s("alarm"), s("07:00")).with_deliver_at(NOW + 9_000));
+        assert_eq!(held.len(), 1, "one per id");
+        assert_eq!(held.next_due_ms(), Some(NOW + 9_000));
+        assert!(held.withdraw("alarm"));
+        assert!(!held.withdraw("alarm"), "gone");
+        assert!(held.is_empty());
+        assert_eq!(held.next_due_ms(), None);
+        assert!(held.take_due(u64::MAX).is_empty());
+    }
+
+    #[test]
+    fn the_held_notifications_are_bounded_and_a_refused_one_comes_back() {
+        let mut held = ScheduledNotifications::new();
+        for i in 0..ScheduledNotifications::MAX_HELD {
+            let n = Notification::create(s(&format!("n{i}")), s("t")).with_deliver_at(NOW + 1_000);
+            assert!(held.schedule(n).is_ok());
+        }
+        let refused = held
+            .schedule(Notification::create(s("one-too-many"), s("t")).with_deliver_at(NOW + 1_000))
+            .expect_err("full");
+        assert_eq!(refused.id.as_str(), "one-too-many", "handed back to be reported as Failed");
+        // Replacing a held id still works when full.
+        assert!(held
+            .schedule(Notification::create(s("n0"), s("t")).with_deliver_at(NOW + 2_000))
+            .is_ok());
+    }
+
+    #[test]
+    fn the_recorder_keeps_a_scheduled_notifications_delivery_time() {
+        let mut recorder = NotificationRecorder::new();
+        recorder.record_post(&Notification::create(s("a"), s("t")).with_deliver_at(NOW + 42_000));
+        assert_eq!(
+            recorder.latest("a").map(|r| r.notification.deliver_at),
+            Some(OptionU64::Some(NOW + 42_000))
+        );
+    }
+}
