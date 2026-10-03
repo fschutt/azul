@@ -207,3 +207,113 @@ fn a_second_open_menu_gets_an_id_of_its_own() {
         vec!["azul-menu".to_string(), "azul-menu-2".to_string()]
     );
 }
+
+/// Layout passes so far (`FrameReport::layout_passes` counts every layout).
+fn layout_passes(window: &HeadlessWindow) -> u32 {
+    window
+        .common
+        .layout_window
+        .as_ref()
+        .expect("layout window")
+        .frame_report
+        .layout_passes
+}
+
+/// e2e/dl-text-patch, red against AzPaint and green in-process: a timer or
+/// debug-server edit is laid out by `process_timers_and_threads` BEFORE it
+/// raises the relayout-only request - the contract every desktop frame path
+/// keeps ("the event arm already re-ran layout: skip it, paint"). The
+/// headless frame laid the window out a SECOND time, and the second build -
+/// with nothing left to patch - replaced the patched display list
+/// (`layout_passes: 2`, `last_dl_build_patched: false`).
+#[test]
+fn a_relayout_only_frame_paints_the_layout_that_already_ran() {
+    let mut window = settled_window();
+    let before = layout_passes(&window);
+    // What `process_timers_and_threads` does for an in-place edit.
+    let mut debug_messages = None;
+    window
+        .incremental_relayout_dispatching(event::IncrementalRelayout::Restyle, &mut debug_messages)
+        .expect("the relayout");
+    window.common.request_relayout_only();
+    assert_eq!(
+        layout_passes(&window),
+        before + 1,
+        "harness: the edit's relayout ran"
+    );
+
+    window.service_frame(azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow);
+    assert_eq!(
+        layout_passes(&window),
+        before + 1,
+        "the frame paints the layout that already ran; it does not lay out again"
+    );
+}
+
+/// A box whose background is the css-id image `e2e-live-img`.
+extern "C" fn css_id_image_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    Dom::create_body().with_child(
+        Dom::create_div()
+            .with_css("width: 80px; height: 60px; background-image: url(\"e2e-live-img\");"),
+    )
+}
+
+/// Does the window's display list paint an image?
+fn paints_an_image(window: &HeadlessWindow) -> bool {
+    window
+        .common
+        .layout_window
+        .as_ref()
+        .and_then(|lw| lw.layout_results.get(&azul_core::dom::DomId::ROOT_ID))
+        .is_some_and(|r| {
+            r.display_list
+                .items
+                .iter()
+                .any(|item| matches!(item, DisplayListItem::Image { .. }))
+        })
+}
+
+/// e2e/op-image-cache-id-repaints, red against AzPaint and green in-process:
+/// registering an image under a css id a mounted node already references
+/// owes a display-list rebuild (`ContentDirtyTier::RebuildDisplayList`; the
+/// change marks the list dirty). The headless frame never consumed the flag:
+/// it re-laid-out the unchanged tree, kept the cached list, painted nothing.
+#[test]
+fn registering_a_css_id_image_repaints_the_box_that_uses_it() {
+    use azul_core::resources::{ImageRef, RawImage, RawImageData, RawImageFormat};
+
+    let state = Arc::new(RefCell::new(RefAny::new(())));
+    let mut window = make_window_with(&state, css_id_image_layout);
+    window.regenerate_layout().expect("a layout pass");
+    let _ = window.common.take_regeneration();
+    assert!(
+        !paints_an_image(&window),
+        "harness: nothing is registered under the id yet"
+    );
+
+    let image = ImageRef::new_rawimage(RawImage {
+        pixels: RawImageData::U8(vec![255u8; 16 * 16 * 4].into()),
+        width: 16,
+        height: 16,
+        premultiplied_alpha: false,
+        data_format: RawImageFormat::RGBA8,
+        tag: b"headless6-solid".to_vec().into(),
+    })
+    .expect("a solid image");
+    let tier = window.apply_user_change(&azul_layout::callbacks::CallbackChange::AddImageToCache {
+        id: "e2e-live-img".into(),
+        image,
+    });
+    assert_eq!(
+        tier,
+        azul_core::events::ProcessEventResult::ShouldUpdateDisplayListCurrentWindow,
+        "harness: the registration owes a display-list rebuild"
+    );
+    // What the loop's Phase 2 does once a timer (the debug server's) applied it.
+    window.service_frame(azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow);
+
+    assert!(
+        paints_an_image(&window),
+        "the box that references the id paints the image the frame after it was registered"
+    );
+}
