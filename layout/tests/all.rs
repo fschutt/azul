@@ -816,3 +816,5 @@ mod a_css_id_image_registration_rebuilds_the_display_list_itself;
 mod a_clipped_box_inside_a_scrolled_frame_shows_all_of_its_lines;
 #[path = "a_sliding_box_moves_its_sliding_children_once.rs"]
 mod a_sliding_box_moves_its_sliding_children_once;
+#[path = "the_animation_channel_holds_only_what_an_animation_drives.rs"]
+mod the_animation_channel_holds_only_what_an_animation_drives;
