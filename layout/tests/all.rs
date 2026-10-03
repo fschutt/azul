@@ -812,3 +812,5 @@ mod a_border_box_min_width_bounds_the_border_box;
 mod a_fit_content_width_shrinks_to_its_content;
 #[path = "an_anonymous_table_cell_keeps_its_blocks_margins.rs"]
 mod an_anonymous_table_cell_keeps_its_blocks_margins;
+#[path = "a_block_taller_than_a_page_is_split_across_pages.rs"]
+mod a_block_taller_than_a_page_is_split_across_pages;
