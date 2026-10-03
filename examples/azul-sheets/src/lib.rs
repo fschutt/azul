@@ -54,31 +54,27 @@ use azul::{
         BackstageOnNavSelectCallbackType, ButtonOnClickCallbackType,
         CellGridDataSourceCallbackType, CellGridOnEventCallbackType,
         CellGridStyleSourceCallbackType, RibbonOnTabClickCallbackType,
-        ShellSettingsLayoutOnCategoryCallbackType, SliderOnValueChangeCallbackType,
+        SliderOnValueChangeCallbackType, StandardDialogOnEventCallbackType,
         TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallbackType,
     },
-    css::{DarkLightMode, HoverEventFilter},
+    css::HoverEventFilter,
     dialog::{FileDialog, FileOpenResult},
     dom::VirtualKeyCode,
-    file::FilePath,
-    option::{OptionColorU, OptionDarkLightMode, OptionFileTypeList, OptionString},
+    option::{OptionColorU, OptionFileTypeList, OptionString},
     pdf::Pdf,
     prelude::*,
-    shells::{
-        DocumentShell, ShellSettingsLayout, ShellSettingsSection, ShellThemeAccent,
-        ShellThemeScope,
-    },
+    shells::{DocumentShell, ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
-    vec::{BackstageNavItemVec, CellGridRangeVec, CellGridSizeVec, StringVec},
+    vec::{BackstageNavItemVec, CellGridRangeVec, CellGridSizeVec},
     widgets::{
-        Backstage, BackstageNavItem, Button, CellGrid, CellGridCell,
+        AboutDialog, Backstage, BackstageNavItem, Button, CellGrid, CellGridCell,
         CellGridCellKind, CellGridCellRef, CellGridCellStyle, CellGridEditMode, CellGridEvent,
         CellGridEventKind, CellGridHorizontalAlign, CellGridRange, CellGridSize,
         CellGridVerticalAlign, CellGridView, OnTextInputReturn, Ribbon, RibbonAppButton,
         RibbonButton, RibbonColumn, RibbonGroup, RibbonItem, RibbonRow, RibbonTab, SliderState, StatusBar,
-        StatusBarSegment, StatusBarZoom, TextInput, TextInputState, TextInputValid, Titlebar,
+        StandardDialogEvent, StatusBarSegment, StatusBarZoom, TextInput, TextInputState,
+        TextInputValid, Titlebar,
     },
-    window::WindowDecorations,
 };
 use azul_appkit::{ui as kit, AboutInfo, Shortcut};
 use azul_storage::{local::LocalDrive, Drive};
@@ -1200,10 +1196,6 @@ pub enum Action {
     ZoomIn,
     ZoomOut,
     Zoom100,
-    ThemeFlat,
-    ThemeFlora,
-    ModeLight,
-    ModeDark,
     Save,
     ExportCsv,
     ExportPdf,
@@ -1486,19 +1478,6 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
                     small(app, "zoom_out", "Zoom out", Action::ZoomOut),
                     small(app, "fit_screen", "100%", Action::Zoom100),
                 ])],
-            ),
-            group(
-                "Look",
-                vec![
-                    column(vec![
-                        small(app, "crop_square", "Flat", Action::ThemeFlat),
-                        small(app, "spa", "Flora", Action::ThemeFlora),
-                    ]),
-                    column(vec![
-                        small(app, "light_mode", "Light", Action::ModeLight),
-                        small(app, "dark_mode", "Dark", Action::ModeDark),
-                    ]),
-                ],
             ),
         ],
     );
@@ -1966,33 +1945,26 @@ fn backstage(s: &AppState, app: &RefAny) -> Dom {
             );
         }
         "Options" => {
-            let mut appearance = Dom::create_div().with_css("display: flex; flex-direction: column;");
-            appearance.add_child(line("The look follows the app theme and the system's mode; pick them here."));
-            appearance.add_child(button("Flat", Action::ThemeFlat));
-            appearance.add_child(button("Flora", Action::ThemeFlora));
-            appearance.add_child(button("Light", Action::ModeLight));
-            appearance.add_child(button("Dark", Action::ModeDark));
-            let files = Dom::create_div()
-                .with_css("display: flex; flex-direction: column;")
-                .with_child(line(&format!("Data folder: {}", s.data_root.display())))
-                .with_child(line("Workbooks: sheets/<id>.xlsx with a sheets/<id>.json sidecar; exports: exports/."))
-                .with_child(line("Set AZSHEETS_DATA to use another folder."));
-            pane.add_child(
-                ShellSettingsLayout::create(StringVec::from_vec(vec![
-                    AzString::from("Appearance"),
-                    AzString::from("Files"),
-                ]))
-                .with_active_category(s.settings_category)
-                .with_on_category(app.clone(), on_settings_category as ShellSettingsLayoutOnCategoryCallbackType)
-                .with_section(ShellSettingsSection::create(AzString::from("Appearance"), appearance))
-                .with_section(ShellSettingsSection::create(AzString::from("Files"), files))
-                .dom(),
-            );
+            // appkit's settings page: Appearance (the app theme and the mode,
+            // saved and applied at once), Data (the folder), the shortcuts
+            // table, About - one page for every Azlin app (DEDUP_OFFICE D13).
+            match &s.kit {
+                Some(kit_ref) => pane.add_child(kit::settings_page(kit_ref, Vec::new())),
+                None => pane.add_child(line("The settings are not available.")),
+            }
         }
         _ => {
-            pane.add_child(line("AzSheets - a spreadsheet on azul."));
-            pane.add_child(line("Engine: IronCalc 0.8.3 (MIT OR Apache-2.0), on its own thread."));
-            pane.add_child(line("Shortcuts: Ctrl+S save, Ctrl+Z / Ctrl+Y undo / redo, Ctrl+B / I / U, Ctrl+F find, F9 calculate."));
+            // The standard About box (DEDUP_OFFICE D12); OK goes back.
+            pane.add_child(
+                AboutDialog::create(AzString::from(ABOUT.name), AzString::from(ABOUT.version))
+                    .with_icon(AzString::from("grid_on"))
+                    .with_description(AzString::from(ABOUT.summary))
+                    .with_copyright(AzString::from("Copyright 2026 Felix Schuett. MIT license."))
+                    .with_credit(AzString::from("IronCalc 0.8.3"), AzString::from("MIT OR Apache-2.0"))
+                    .with_credit(AzString::from("azul"), AzString::from("MIT"))
+                    .with_on_event(app.clone(), on_about_event as StandardDialogOnEventCallbackType)
+                    .dom(),
+            );
         }
     }
     Backstage::create(BackstageNavItemVec::from_vec(items))
@@ -2591,10 +2563,6 @@ fn act(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, action: Action) 
             };
             fetch_if_needed(info, app, s);
         }
-        Action::ThemeFlat => info.set_theme(AzString::from("flat")),
-        Action::ThemeFlora => info.set_theme(AzString::from("flora")),
-        Action::ModeLight => info.set_mode(OptionDarkLightMode::Some(DarkLightMode::Light)),
-        Action::ModeDark => info.set_mode(OptionDarkLightMode::Some(DarkLightMode::Dark)),
         Action::Save => save(info, app, s),
         Action::ExportCsv => {
             let post = Post::Csv {
@@ -2930,8 +2898,9 @@ extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, index: 
     })
 }
 
-extern "C" fn on_settings_category(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
-    with_app(&mut data, &mut info, |_, _, s| s.settings_category = index)
+/// The About box's OK: back to the workbook.
+extern "C" fn on_about_event(mut data: RefAny, mut info: CallbackInfo, _event: StandardDialogEvent) -> Update {
+    with_app(&mut data, &mut info, |_, _, s| s.screen = Screen::Workbook)
 }
 
 extern "C" fn on_backstage_back(mut data: RefAny, mut info: CallbackInfo) -> Update {
