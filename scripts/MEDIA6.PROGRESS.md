@@ -26,23 +26,18 @@ Branch `wt/media6` from `25d78e309`. Brief: `scripts/waves/wave6/MEDIA6.md`.
 - ENGINE `4192aa092` RED layout/tests/an_image_patched_in_place_survives_a_cached_relayout.rs,
   `a27ded13e` GREEN window.rs apply_image_change: patched DL handed to layout_cache.cached_display_list.
 - AzPhoto `796d2da1a` canvas on MouseMove (same W3C MouseOver bug).
+- AzPaint `849e39cd4` RED undo tests, `0846c9ed9` UndoHistory + accelerators, `7f923fdb3` appkit
+  (args/kit/settings page/AboutDialog/--sample/picture arg), `2f429b8d8` exports via kit file jobs.
 
 ## IN PROGRESS
 - (between units)
 
 ## NEXT (in order)
-4. AzPaint: B UndoHistory<Vec<Stroke>> + menu accelerators (Undo LWin+Z, Redo LWin+LShift+Z;
-   the engine dispatches menu accelerators, headless too - NOT in the key handler, double);
-   C appkit (Cargo azul-appkit features=["azul"] - link features already coexist on android;
-   args SPEC, kit, settings page, kit::handle_key in a window VirtualKeyDown handler,
-   on_window_created, AboutDialog from Help); D exports: CPU raster in the menu callback ->
-   encode_png -> kit::spawn_file_jobs Put paint/exports/canvas-<secs>.png / strokes-<secs>.svg,
-   AZPAINT_EXPORTED <key> <bytes> in on_files_done (pending map key->len); drop export_path /
-   export_png / std::fs::write; --sample strokes.
-5. AzPhoto leftovers: P1 private Palette (D16); P3 History undo/redo row cut off.
-6. Verify brief items: UndoHistory in Photo (engine.rs history) and VideoCut; VideoCut CloseGuard?
-   (project autosaved?); ids from Uuid::from_seed(random_seed()) in all three.
-7. Report scripts/MEDIA6_2026_10_03.md (api.json: TextRasterStyle + RawImage.from_text /
+5. AzPhoto leftovers: P1 private Palette (D16) - flora accent; P3 History undo/redo row cut off.
+6. Verify brief items: UndoHistory in Photo (engine.rs history) and VideoCut; VideoCut save-changes
+   (project autosaved?); ids from Uuid::from_seed(random_seed()) in all three; no ctrl||meta.
+7. LOOK again where the prebuilt binary still tells something (nothing new can be built here).
+8. Report scripts/MEDIA6_2026_10_03.md (api.json: TextRasterStyle + RawImage.from_text /
    draw_text, RawImage.fit_within; engine fix; AzReview ui.rs:547 still MouseOver - owner).
 
 ## Seen broken (LOOK)
