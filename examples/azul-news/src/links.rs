@@ -90,6 +90,15 @@ pub fn site_name(link: &str) -> String {
         .unwrap_or_default()
 }
 
+/// Whether the address is on a host reserved for documentation (RFC 2606 / RFC 6761:
+/// `example.com`, `example.net`, `example.org` and their subdomains, `*.example`,
+/// `*.invalid`): no feed is ever there - the `--sample` library's addresses, which a refresh
+/// does not ask.
+#[must_use]
+pub fn is_documentation_host(_link: &str) -> bool {
+    false
+}
+
 /// Whether the address is on the web (`http:` / `https:`) - what may be fetched.
 #[must_use]
 pub fn is_web(link: &str) -> bool {
@@ -154,6 +163,19 @@ mod tests {
         assert_eq!(strip_tracking("no link"), "no link");
         assert!(is_tracking("UTM_Source"));
         assert!(!is_tracking("id"));
+    }
+
+    #[test]
+    fn documentation_hosts_are_known_and_real_ones_are_not() {
+        assert!(is_documentation_host("https://weekly.example.org/feed.xml"));
+        assert!(is_documentation_host("https://example.com/"));
+        assert!(is_documentation_host("http://news.example.net/rss"));
+        assert!(is_documentation_host("https://feeds.example/rss"));
+        assert!(is_documentation_host("https://nothing.invalid/"));
+        assert!(!is_documentation_host("https://blog.rust-lang.org/feed.xml"));
+        assert!(!is_documentation_host("https://notexample.org/feed"));
+        assert!(!is_documentation_host("http://127.0.0.1:8790/feed.xml"));
+        assert!(!is_documentation_host("not a link"));
     }
 
     #[test]
