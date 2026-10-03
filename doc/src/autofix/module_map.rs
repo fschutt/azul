@@ -877,6 +877,16 @@ pub fn widget_module_for(type_name: &str, full_path: &str) -> Option<String> {
     Some(module.to_string())
 }
 
+/// THE module of a type api.json does not have yet, `(module, is_guess)`,
+/// for every path that adds one (`autofix add`, its dependency types, the
+/// scan's additions, an Add patch without a module).
+pub fn new_type_module(type_name: &str, full_path: &str) -> (String, bool) {
+    match widget_module_for(type_name, full_path) {
+        Some(module) => (module, false),
+        None => determine_module(type_name),
+    }
+}
+
 /// Check if a type is in the correct module and return the correct module if not.
 /// Uses the external path (if available) as the primary signal, falling back to
 /// keyword-based `determine_module` if no external path is provided.
@@ -1316,6 +1326,55 @@ mod tests {
                 get_correct_module_with_path(name, module, Some("azul_layout::widgets::button::X")),
                 None,
                 "{name} in {module}"
+            );
+        }
+    }
+
+    /// `autofix add` placed a new type by a rule of its own (the widget rule,
+    /// else the name's keywords) and the scan's move check by another: a name
+    /// no keyword knows went to `misc` and the next scan moved it to its
+    /// path's module; a widget's `*Error` went to `widgets` and the scan moved
+    /// it to `error`. One rule for a new type: the placement the scan keeps.
+    /// And `TextRasterStyle` (the CPU rasterizer's text style, beside
+    /// `RawImage`) went to `css` by the word "Style"; MEDIA6 wanted `image` -
+    /// the exceptions table names it, so the scan moves the one api.json has.
+    #[test]
+    fn a_new_type_goes_where_the_scan_keeps_it() {
+        let raster = "azul_layout::cpurender::text_raster::TextRasterStyle";
+        assert_eq!(new_type_module("TextRasterStyle", raster), ("image".to_string(), false));
+        assert_eq!(
+            get_correct_module_with_path("TextRasterStyle", "css", Some(raster)).as_deref(),
+            Some("image"),
+            "the one api.json already has moves to image"
+        );
+        assert_eq!(
+            new_type_module("Quux", "azul_layout::cpurender::quux::Quux").0,
+            "image",
+            "a name no keyword knows goes where it lives"
+        );
+        assert_eq!(
+            new_type_module("ListViewError", "azul_layout::widgets::list_view::ListViewError").0,
+            "error"
+        );
+        for (name, path) in [
+            ("TextRasterStyle", raster),
+            ("Quux", "azul_layout::cpurender::quux::Quux"),
+            ("OptionTextRasterStyle", "azul_layout::cpurender::text_raster::OptionTextRasterStyle"),
+            ("TextRasterError", "azul_layout::cpurender::text_raster::TextRasterError"),
+            ("ListViewError", "azul_layout::widgets::list_view::ListViewError"),
+            ("FocusTarget", "azul_core::dom::FocusTarget"),
+            ("ComponentFoo", "azul_core::xml::ComponentFoo"),
+            ("ButtonOnClickCallback", "azul_layout::widgets::button::ButtonOnClickCallback"),
+            ("ShellPaletteCommandVecSlice", "azul_layout::widgets::shells::p::ShellPaletteCommandVecSlice"),
+            ("WindowFlags", "azul_core::window::WindowFlags"),
+            ("SvgFillStyle", "azul_layout::svg::SvgFillStyle"),
+            ("Quux", "azul_layout::nowhere::Quux"),
+        ] {
+            let (module, _) = new_type_module(name, path);
+            assert_eq!(
+                get_correct_module_with_path(name, &module, Some(path)),
+                None,
+                "{name} added to {module} must stay there"
             );
         }
     }
