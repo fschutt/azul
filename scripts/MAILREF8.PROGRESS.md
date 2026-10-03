@@ -76,7 +76,12 @@ Never compile; never touch layout/src/solver3/page_breaks.rs (nor display_list.r
    fix is one line there (Helvetica first on macOS) or `FcFontCache::set_fallback_config` at startup -
    listed for the user in the report. Also seen: a family that is missing with NO generic falls back to
    sans-serif in azul, to the standard font (Times) in Chrome.
-7. NEXT: group E (04_receipt rows 31 vs 34, <hr> 1 vs 2), then F (leemunroe a x +4).
+7. group E: E1 (IFC height = glyph lines' line boxes incl. the strut): RED 7c0619af8
+   (layout/tests/a_line_of_small_text_is_as_tall_as_its_line_box.rs), GREEN 7c9224764 (text3 cache.rs
+   perform_fragment_layout: `glyph_line_box_top` + `line_box_extent` for lines holding glyphs; atomic-only
+   lines unchanged). NEXT E2: `<hr>` is 1px tall in azul, 2px in Chrome (UA: border 1px inset all
+   sides, height 0 -> 2px). Find the UA hr style (core ua css) / how azul paints hr; RED + fix.
+   Then F (leemunroe a x +4).
 - Group A expected effect (after the parent's build): cerberus x3 ~390 boxes y -14 -> 0, azr-1/azr-2
   heights fixed (paper = content). Left in A: an IFC's height is its items' bounds, not its line boxes
   (strut descent below an inline-block: t1 wrap 46 vs Chrome 60, t3 30 vs 34) - text3 cache.rs
