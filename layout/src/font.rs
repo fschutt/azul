@@ -259,6 +259,92 @@ pub mod parsed {
             .map(|(baked, _tuple)| baked)
     }
 
+    /// A face's AAT `trak` table, its NORMAL track (track value 0): how far
+    /// the face's designer opens or closes the spacing at each point size.
+    ///
+    /// Apple's system faces carry one (`SFNS.ttf` - San Francisco - and its
+    /// italic, SF Compact / Rounded / Hebrew / ..., New York, Apple Color
+    /// Emoji). CoreText adds the value at the font size to every glyph's
+    /// advance, and Chrome's `system-ui` measures the same: SF at 16px is -40
+    /// units per glyph, at 28px +28 (SYSUI8, "Hello world agenda" 139.15px
+    /// in both). Helvetica, Helvetica Neue, Menlo and every other face
+    /// without the table are untouched (CoreText's width = their advances).
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct Tracking {
+        /// `(point size, tracking in font units)`, by ascending size.
+        pub sizes: Vec<(f32, i16)>,
+    }
+
+    impl Tracking {
+        /// The normal track of a `trak` table's horizontal data. `None` when
+        /// the table has no horizontal data or no track 0, or does not parse.
+        /// (Offsets count from the start of the table: Apple's TrueType
+        /// Reference, `trak`.)
+        #[allow(clippy::cast_precision_loss)] // a 16.16 point size into f32
+        #[must_use]
+        pub fn parse(trak: &[u8]) -> Option<Self> {
+            let table = ReadScope::new(trak);
+            let mut header = table.ctxt();
+            let _version = header.read_u32be().ok()?;
+            let _format = header.read_u16be().ok()?;
+            let horiz_offset = usize::from(header.read_u16be().ok()?);
+            if horiz_offset == 0 {
+                return None;
+            }
+            let mut data = table.offset(horiz_offset).ctxt();
+            let n_tracks = data.read_u16be().ok()?;
+            let n_sizes = usize::from(data.read_u16be().ok()?);
+            let size_table_offset = usize::try_from(data.read_u32be().ok()?).ok()?;
+            if n_sizes == 0 {
+                return None;
+            }
+            let mut normal_values = None;
+            for _ in 0..n_tracks {
+                let track = data.read_i32be().ok()?;
+                let _name_index = data.read_u16be().ok()?;
+                let values_offset = usize::from(data.read_u16be().ok()?);
+                if track == 0 {
+                    normal_values = Some(values_offset);
+                }
+            }
+            let mut size_table = table.offset(size_table_offset).ctxt();
+            let mut values = table.offset(normal_values?).ctxt();
+            let mut sizes = Vec::with_capacity(n_sizes);
+            for _ in 0..n_sizes {
+                let size = size_table.read_i32be().ok()? as f32 / 65536.0;
+                let value = values.read_i16be().ok()?;
+                sizes.push((size, value));
+            }
+            sizes.sort_by(|a, b| a.0.total_cmp(&b.0));
+            Some(Self { sizes })
+        }
+
+        /// The tracking at `size` (CSS px, which are CoreText's points) in
+        /// font units: linear between the two table sizes around it, the end
+        /// value beyond the first or last size.
+        #[must_use]
+        pub fn at(&self, size: f32) -> f32 {
+            let Some(&(first_size, first)) = self.sizes.first() else {
+                return 0.0;
+            };
+            if size.is_nan() || size <= first_size {
+                return f32::from(first);
+            }
+            for pair in self.sizes.windows(2) {
+                let (s0, v0) = pair[0];
+                let (s1, v1) = pair[1];
+                if size <= s1 {
+                    if s1 <= s0 {
+                        return f32::from(v1);
+                    }
+                    let t = (size - s0) / (s1 - s0);
+                    return f32::from(v0) + t * (f32::from(v1) - f32::from(v0));
+                }
+            }
+            self.sizes.last().map_or(0.0, |&(_, v)| f32::from(v))
+        }
+    }
+
     /// Monotonic-clock nanos since process start. Used to timestamp
     /// `ParsedFont.last_used` for LRU eviction. Cheap (single
     /// `Instant::now`); resolution is plenty fine for "did this
@@ -491,6 +577,10 @@ pub mod parsed {
         /// application requires the source bytes to be retained,
         /// so it only fires on the `LocaGlyfState::Deferred` path.
         pub(crate) is_variable_font: bool,
+        /// The face's `trak` normal track ([`Tracking`]), added to every
+        /// glyph's advance at the font size when shaping. `None` for the
+        /// faces without the table (all but Apple's system faces).
+        pub tracking: Option<Arc<Tracking>>,
         /// Lazy outline cache. Populated on first
         /// [`ParsedFont::get_or_decode_glyph`] call per `gid`; entries
         /// are wrapped in `Arc` so callers can hold them without
@@ -582,6 +672,7 @@ pub mod parsed {
                 // same face.
                 last_used: Arc::clone(&self.last_used),
                 is_variable_font: self.is_variable_font,
+                tracking: self.tracking.clone(),
                 glyph_cache: Arc::clone(&self.glyph_cache),
                 // `LocaGlyfState` is `Clone` — for `Loaded` this is an
                 // `Arc::clone`; for `Deferred` it's an `Arc::clone` of
@@ -1355,6 +1446,14 @@ pub mod parsed {
             // avoids the borrow-after-move that a later
             // `provider.has_table(tag::GVAR)` would incur.
             let has_gvar = provider.has_table(tag::GVAR);
+            // The AAT tracking table (Apple's system faces), read before
+            // `provider` moves too.
+            let tracking = provider
+                .table_data(tag::TRAK)
+                .ok()
+                .flatten()
+                .and_then(|data| Tracking::parse(&data))
+                .map(Arc::new);
             let loca_glyf_opt: Option<Arc<std::sync::Mutex<LocaGlyf>>> =
                 if has_glyf && !defer_loca_glyf {
                     match LocaGlyf::load(&provider) {
@@ -1470,6 +1569,7 @@ pub mod parsed {
                 cmap_subtable,
                 last_used: Arc::new(std::sync::atomic::AtomicU64::new(0)),
                 is_variable_font: has_gvar,
+                tracking,
                 glyph_cache: Arc::new(rust_fontconfig::StLock::new(BTreeMap::new())),
                 // Eager path: `from_bytes` loaded LocaGlyf immediately
                 // (or set None if the font has no loca+glyf). Lazy
@@ -2801,6 +2901,7 @@ pub mod parsed {
                 opt_kern_table: None,
                 last_used: Arc::new(std::sync::atomic::AtomicU64::new(0)),
                 is_variable_font: false,
+                tracking: None,
                 glyph_cache: Arc::new(rust_fontconfig::StLock::new(BTreeMap::new())),
                 loca_glyf: LocaGlyfState::Loaded(None),
                 space_width: None,
@@ -4154,6 +4255,73 @@ pub mod parsed {
                 .font_metrics;
             assert_eq!(m.x_height, Some(1062.0), "Arial's OS/2 sxHeight");
             assert_eq!(m.cap_height, Some(1467.0), "Arial's OS/2 sCapHeight");
+        }
+
+        // ---------------------------------------------------------------
+        // Tracking (the AAT `trak` table, SYSUI8)
+        // ---------------------------------------------------------------
+
+        /// A `trak` table built by hand (Apple's TrueType Reference layout,
+        /// offsets from the table's start): sizes 10 and 20, three tracks;
+        /// only the normal one (track 0: +10 at 10pt, -10 at 20pt) is read.
+        #[test]
+        fn tracking_reads_the_normal_track_and_interpolates_between_sizes() {
+            let mut t: Vec<u8> = Vec::new();
+            // header: version 1.0, format 0, horizOffset 12, vertOffset 0, reserved
+            t.extend_from_slice(&[0, 1, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0]);
+            // track data: nTracks 3, nSizes 2, sizeTableOffset 44
+            t.extend_from_slice(&[0, 3, 0, 2, 0, 0, 0, 44]);
+            // tracks: (-1.0, name 256, values at 52), (0.0, 257, 56), (1.0, 258, 60)
+            t.extend_from_slice(&[0xFF, 0xFF, 0, 0, 1, 0, 0, 52]);
+            t.extend_from_slice(&[0, 0, 0, 0, 1, 1, 0, 56]);
+            t.extend_from_slice(&[0, 1, 0, 0, 1, 2, 0, 60]);
+            // size table: 10.0, 20.0 (16.16)
+            t.extend_from_slice(&[0, 10, 0, 0, 0, 20, 0, 0]);
+            // values: track -1 (-30, -40), track 0 (+10, -10), track 1 (50, 60)
+            t.extend_from_slice(&(-30i16).to_be_bytes());
+            t.extend_from_slice(&(-40i16).to_be_bytes());
+            t.extend_from_slice(&10i16.to_be_bytes());
+            t.extend_from_slice(&(-10i16).to_be_bytes());
+            t.extend_from_slice(&50i16.to_be_bytes());
+            t.extend_from_slice(&60i16.to_be_bytes());
+
+            let tracking = Tracking::parse(&t).expect("the table parses");
+            assert_eq!(tracking.sizes, vec![(10.0, 10), (20.0, -10)]);
+            assert_eq!(tracking.at(10.0), 10.0);
+            assert_eq!(tracking.at(15.0), 0.0, "halfway between the two sizes");
+            assert_eq!(tracking.at(20.0), -10.0);
+            assert_eq!(tracking.at(4.0), 10.0, "below the table: its first value");
+            assert_eq!(tracking.at(200.0), -10.0, "above the table: its last value");
+            assert_eq!(tracking.at(f32::NAN), 10.0);
+
+            // No horizontal data, a truncated table, no table at all.
+            let mut vertical_only = t.clone();
+            vertical_only[6] = 0;
+            vertical_only[7] = 0;
+            assert_eq!(Tracking::parse(&vertical_only), None);
+            assert_eq!(Tracking::parse(&t[..30]), None);
+            assert_eq!(Tracking::parse(&[]), None);
+        }
+
+        /// San Francisco (`SFNS.ttf`) tracks its glyphs by the values
+        /// CoreText applies: -40 units at 16px, -50 at 18 (between 17's -52
+        /// and 20's -46), +28 at 28. Helvetica has no `trak` table.
+        #[test]
+        fn the_system_font_carries_coretexts_tracking() {
+            let Ok(sf) = std::fs::read("/System/Library/Fonts/SFNS.ttf") else {
+                return;
+            };
+            let mut warnings = Vec::new();
+            let font = ParsedFont::from_bytes(&sf, 0, &mut warnings).expect("SFNS.ttf parses");
+            let tracking = font.tracking.as_ref().expect("SF has a trak table");
+            assert_eq!(tracking.at(16.0), -40.0);
+            assert_eq!(tracking.at(18.0), -50.0);
+            assert_eq!(tracking.at(28.0), 28.0);
+            if let Ok(helvetica) = std::fs::read("/System/Library/Fonts/Helvetica.ttc") {
+                let font =
+                    ParsedFont::from_bytes(&helvetica, 0, &mut warnings).expect("Helvetica parses");
+                assert!(font.tracking.is_none(), "Helvetica is not tracked");
+            }
         }
     }
 }
