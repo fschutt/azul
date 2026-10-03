@@ -225,6 +225,42 @@ class App:
     def shows(self, text):
         return any(text in t for t in self.texts())
 
+    def hierarchy(self):
+        """The window's nodes (`index`, `type`, `text`, `classes`, `parent`, `children`)."""
+        return [d for d in dicts(self.op("get_node_hierarchy")) if "index" in d and "type" in d]
+
+    def classes(self):
+        """Every class a node of the window carries."""
+        return {c for n in self.hierarchy() for c in (n.get("classes") or [])}
+
+    def nodes_with_class(self, cls):
+        return [n["index"] for n in self.hierarchy() if cls in (n.get("classes") or [])]
+
+    def exact(self, text):
+        """The node holding the text node whose text is exactly `text` (the first one)."""
+        for n in self.hierarchy():
+            if n.get("text") == text:
+                return n.get("parent", n["index"])
+        return None
+
+    def click_exact(self, text, button="left", double=False, frames=2):
+        """Clicks (or double-clicks) the node holding exactly `text`, once it is there."""
+        node = self.until('the text "%s"' % text, lambda: self.exact(text))
+        self.must("double_click" if double else "click", node_id=node, button=button)
+        self.frame(frames)
+
+    def settle(self, limit=3.0):
+        """Waits (at most `limit` seconds) until no animation, exit or transition runs, so a
+        screenshot does not catch a slide or a fade midway."""
+        end = time.time() + limit
+        while time.time() < end:
+            value = self.value("get_animations")
+            if not isinstance(value, dict) or not (
+                    value.get("active") or value.get("zombies") or value.get("transitions")):
+                return
+            time.sleep(0.1)
+            self.frame(1)
+
     def has_id(self, node_id):
         return self.has("#%s" % node_id)
 
@@ -345,6 +381,16 @@ class App:
         values = self.printed(key)
         return values[-1] if values else None
 
+    def count(self, key, pattern=r".*"):
+        return len(self.printed(key, pattern))
+
+    def after(self, what, key, pattern, action):
+        """Runs `action`, then waits for a new `<KEY> <pattern>` line; returns the last value."""
+        before = self.count(key, pattern)
+        action()
+        self.until(what, lambda: self.count(key, pattern) > before)
+        return self.printed(key, pattern)[-1]
+
     def until(self, what, check, interval=0.25):
         last = None
         while time.time() < self.deadline:
@@ -354,7 +400,7 @@ class App:
                 value = check()
                 if value:
                     return value
-            except (OSError, ValueError, urllib.error.URLError) as e:
+            except (OSError, ValueError, KeyError, urllib.error.URLError) as e:
                 last = e
             time.sleep(interval)
         raise Failure("timed out waiting for %s%s" % (what, " (last error: %s)" % last if last else ""))
