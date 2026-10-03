@@ -286,6 +286,16 @@ def run(args, logs, out, data_root):
             if node is None or not inside(rect, args.width, args.height):
                 raise Failure("#%s is missing or outside the window: %s" % (slot, rect))
             rects[slot] = rect
+        # The editor fills the window (2026-10-03 LOOK: the body was not
+        # stretched, every pane collapsed to 0 px under the menu row).
+        if float(rects["shell-program"].get("height", 0)) < 150:
+            raise Failure("the program monitor is %s px tall - the editor does not fill the window"
+                          % rects["shell-program"].get("height"))
+        if float(rects["shell-timeline"].get("height", 0)) < 120:
+            raise Failure("the timeline is %s px tall" % rects["shell-timeline"].get("height"))
+        timeline_bottom = float(rects["shell-timeline"]["y"]) + float(rects["shell-timeline"]["height"])
+        if timeline_bottom < args.height - 80:
+            raise Failure("the timeline ends at %.0f of %d px - the window is not filled" % (timeline_bottom, args.height))
         row = ["shell-media", "shell-source", "shell-program", "shell-inspector"]
         for i, a in enumerate(row):
             for b in row[i + 1:]:
