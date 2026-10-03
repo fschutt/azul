@@ -282,6 +282,7 @@ pub fn stop_all(threads: &mut BTreeMap<ThreadId, crate::thread::Thread>) {
         }
         std::thread::sleep(core::time::Duration::from_millis(2));
     }
+    drop(running);
     threads.clear();
 }
 
