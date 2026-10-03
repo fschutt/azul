@@ -868,3 +868,5 @@ mod an_inline_blocks_baseline_is_its_last_line_box;
 mod a_percentage_height_inline_block_in_an_auto_height_body_is_as_tall_as_its_content;
 #[path = "a_cells_row_is_as_tall_as_its_content_at_the_column_width.rs"]
 mod a_cells_row_is_as_tall_as_its_content_at_the_column_width;
+#[path = "a_line_of_small_text_is_as_tall_as_its_line_box.rs"]
+mod a_line_of_small_text_is_as_tall_as_its_line_box;
