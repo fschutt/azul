@@ -236,4 +236,56 @@ mod tests {
             "the type patch is there too"
         );
     }
+
+    /// `autofix add RawImage.draw_text --fn azul_layout::cpurender::draw_text`
+    /// writes one patch (named like every add's functions patch) into the
+    /// module the class is in, and the apply puts the entry there.
+    #[test]
+    fn an_add_with_fn_writes_the_entry_into_the_class() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let dir = root.path().join("layout/src/cpurender");
+        std::fs::create_dir_all(&dir).expect("dirs");
+        std::fs::write(dir.join("mod.rs"), "pub mod text_raster;\npub use text_raster::*;\n")
+            .expect("written");
+        std::fs::write(
+            dir.join("text_raster.rs"),
+            "pub fn draw_text(image: &mut RawImage, text: AzString, x: f32) -> bool { true }\n",
+        )
+        .expect("written");
+        let api: ApiData = serde_json::from_value(serde_json::json!({
+            "0.2.0": {"apiversion": 1, "git": "", "date": "", "api": {
+                "image": {"classes": {"RawImage": {"external": "azul_core::resources::RawImage"}}}
+            }}
+        }))
+        .expect("test api parses");
+        let v = api.get_version("0.2.0").expect("version");
+
+        let (file, _, free_fn) = free_fn_patch_file(
+            root.path(),
+            "RawImage.draw_text",
+            "azul_layout::cpurender::draw_text",
+            v,
+            "0.2.0",
+        )
+        .expect("the patch");
+        assert_eq!(file.name, "add_rawimage_draw_text.patch.json");
+        assert_eq!(free_fn.defined_in, "cpurender::text_raster");
+        assert!(
+            free_fn_patch_file(root.path(), "Nope.draw_text", "azul_layout::cpurender::draw_text", v, "0.2.0")
+                .is_err(),
+            "the class must be in api.json"
+        );
+
+        let patches = root.path().join("patches");
+        write_patch_files(&patches, &[file]).expect("written");
+        let mut api = api.clone();
+        let stats = crate::patch::apply_patches_from_directory(&mut api, &patches).expect("applies");
+        assert!(!stats.has_errors(), "{stats:?}");
+        let class = &api.get_version("0.2.0").expect("version").api["image"].classes["RawImage"];
+        let entry = &class.functions.as_ref().expect("functions")["draw_text"];
+        assert_eq!(
+            entry.fn_body.as_deref(),
+            Some("azul_layout::cpurender::draw_text(raw_image, text, x)")
+        );
+    }
 }
