@@ -72,34 +72,6 @@ pub fn stale_prefix(folder: &str, uidvalidity: u32) -> String {
     format!("{STALE_PREFIX}/{folder}/{uidvalidity}")
 }
 
-/// Writes `bytes` to `path` whole or not at all: a temporary dot file next to it, then a rename
-/// over it. Creates the folder. `durable` also flushes the file to the disk first (for the index
-/// and state files; a message whose write was lost is fetched again, its size tells).
-pub fn write_atomic(path: &Path, bytes: &[u8], durable: bool) -> std::io::Result<()> {
-    use std::io::Write;
-
-    let dir = path.parent().unwrap_or_else(|| Path::new("."));
-    std::fs::create_dir_all(dir)?;
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    // A dot name that no reader takes for a message, an index or a state file.
-    let temp = dir.join(format!(".{name}.{}.tmp", std::process::id()));
-    let written = std::fs::File::create(&temp).and_then(|mut file| {
-        file.write_all(bytes)?;
-        if durable {
-            file.sync_all()?;
-        }
-        Ok(())
-    });
-    if let Err(e) = written.and_then(|()| std::fs::rename(&temp, path)) {
-        let _ = std::fs::remove_file(&temp);
-        return Err(e);
-    }
-    Ok(())
-}
-
 /// A folder of AzMail's files on a drive: the drive's root on this computer, whether that root
 /// is the data tree (its drive keeps the `.azlin/cache` manifest) and the folder's key prefix in
 /// the drive (empty, or `/`-separated names each ending in `/`).

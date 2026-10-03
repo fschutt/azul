@@ -198,8 +198,8 @@ mod tests {
     fn the_settings_go_into_sends_file_next_to_the_account() {
         let dir = TempDir::new("sending");
         let local = smtp("localhost", 2525, TlsPolicy::Off);
-        let path = local.save(&dir.0, "ada@example.org").unwrap();
+        let path = local.save(&dir.folder(), "ada@example.org").unwrap();
         assert_eq!(path, dir.0.join("ada@example.org").join("sending.json"));
-        assert_eq!(SendSettings::load(&dir.0, "ada@example.org"), local);
+        assert_eq!(SendSettings::load(&dir.folder(), "ada@example.org"), local);
     }
 }

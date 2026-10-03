@@ -371,7 +371,7 @@ fn info_page(s: &MailApp, app: &RefAny) -> Dom {
             .with_child(button("Account Settings", Action::AccountSettings))
             .with_child(button("Send/Receive All Folders", Action::SendReceive)),
     )
-    .with_child(line(format!("Mail is kept in {}", s.root.display())))
+    .with_child(line(format!("Mail is kept in {}", s.root.path().display())))
 }
 
 /// File > About: the standard About dialog (the kit's About facts, the libraries AzMail is built
