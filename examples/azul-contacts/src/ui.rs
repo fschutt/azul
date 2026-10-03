@@ -1077,6 +1077,15 @@ fn csv_mapping(app: &RefAny, csv: &CsvImport) -> Dom {
     column("", rows).with_id(ids::IMPORT_COLUMNS)
 }
 
+/// A column of the import preview: `grow` shares of the row (a zero basis, so the shares hold
+/// whatever the values say), a value too long for its share cut with an ellipsis.
+fn preview_cell(grow: u32, css: &str) -> String {
+    format!(
+        "flex-grow: {grow}; flex-basis: 0px; min-width: 0px; white-space: nowrap; overflow: hidden; \
+         text-overflow: ellipsis; {css}"
+    )
+}
+
 fn import_view(s: &ContactsApp, app: &RefAny, st: &ImportState) -> Dom {
     let mut children = vec![
         block("font-size: 18px; font-weight: 600; padding: 10px 0px;", text("Import contacts")),
@@ -1111,10 +1120,10 @@ fn import_view(s: &ContactsApp, app: &RefAny, st: &ImportState) -> Dom {
                         .with_on_toggle(RefAny::new(ImportRowRef { app: app.clone(), index: i }), on_import_toggle as CheckBoxOnToggleCallbackType)
                         .dom()
                         .with_id(ids::import_row(i)),
-                    block("width: 180px;", text(c.display_name())),
-                    block("width: 200px; opacity: 0.8;", text(c.emails.first().map(|e| e.value.clone()).unwrap_or_else(|| "\u{2014}".into()))),
-                    block("width: 150px; opacity: 0.8;", text(c.phones.first().map(|p| p.value.clone()).unwrap_or_else(|| "\u{2014}".into()))),
-                    block("flex-grow: 1; opacity: 0.8;", text(status_text(&r.status, &s.book))),
+                    block(&preview_cell(3, ""), text(c.display_name())),
+                    block(&preview_cell(3, "opacity: 0.8;"), text(c.emails.first().map(|e| e.value.clone()).unwrap_or_else(|| "\u{2014}".into()))),
+                    block(&preview_cell(2, "opacity: 0.8;"), text(c.phones.first().map(|p| p.value.clone()).unwrap_or_else(|| "\u{2014}".into()))),
+                    block(&preview_cell(3, "opacity: 0.8;"), text(status_text(&r.status, &s.book))),
                 ],
             ));
         }
