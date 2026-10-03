@@ -44,11 +44,18 @@ Scratch helpers (not committed): /tmp/pimdrive7/rep.py (exact replacements from 
   Seen (engine, noted): edit form section laid out as a ROW (Add phone at x 1084) with a photo contact
   (LAYOUT7, E2E check in step 4); nav TreeView 24 px too wide -> sideways scrollbars (WIDGETS7)
 
+- item 6: fb2597704 / ebd633b44 / 01bbcc747 AzMeet chat + people come back on rejoin (read thread,
+  reading_history holds writes); 24efc29fb azdrive_e2e on azlin_e2e (PASS on the prebuilt);
+  b16d26528 azmeet_e2e on azlin_e2e + rejoin stage (PASS --skip rejoin on the prebuilt; rejoin RED there)
+- D6 AzDrive Details NOT moved: ListView lacks multi-select / resize; DATATABLE7's DataTable (wt/datatable7,
+  not in this base) lacks icon cells, row drag-out onto folders, a secondary-click event - spec in report
+
 ## IN PROGRESS
-- 6. AzDrive Details table on a widget; AzMeet chat on rejoin; azdrive / azmeet E2E onto azlin_e2e.py.
+- 7. LOOK at all five apps, flat / flora x light / dark (AzTasks, AzContacts partly done). Next: AzCalendar
+  (--screen week, month, backstage-options), AzDrive (E2E shots in /tmp/pimdrive7/azdrive_shots), AzMeet
+  (/tmp/pimdrive7/azmeet_shots).
 
 ## NEXT
-- 7. LOOK at all five apps.
 
 ## Decisions
 - D1 Prefix naming: `__az<app>_` + the old kebab name unchanged (AzCalculator / AzSheets style), so a script's
