@@ -1566,6 +1566,51 @@ mod tests {
         }
     }
 
+    fn stroke_at(s: &mut PaintState, x: f32) {
+        s.begin_stroke(pt(x, x, 0.5), false);
+        s.extend_stroke(pt(x + 10.0, x, 0.5));
+        s.end_stroke();
+    }
+
+    /// Undo / redo through azul_appkit::UndoHistory: a stroke and a Clear are
+    /// one step each, Clear can be undone, a new stroke drops the redo branch.
+    #[test]
+    fn undo_and_redo_walk_strokes_and_clear_through_the_history() {
+        let mut s = PaintState::new();
+        stroke_at(&mut s, 10.0);
+        stroke_at(&mut s, 20.0);
+        assert_eq!(s.strokes.len(), 2);
+        s.clear_all();
+        assert!(s.strokes.is_empty());
+
+        assert!(s.undo(), "the Clear is undone");
+        assert_eq!(s.strokes.len(), 2, "both strokes are back");
+        assert!(s.undo());
+        assert_eq!(s.strokes.len(), 1);
+        assert!(s.redo());
+        assert_eq!(s.strokes.len(), 2);
+        assert_eq!(s.history.redo_label(), Some("Clear"));
+
+        stroke_at(&mut s, 30.0);
+        assert_eq!(s.strokes.len(), 3);
+        assert!(!s.redo(), "a new stroke drops the redo branch");
+        assert!(s.undo() && s.undo() && s.undo());
+        assert!(s.strokes.is_empty());
+        assert!(!s.undo(), "nothing before the first stroke");
+    }
+
+    #[test]
+    fn a_press_without_a_stroke_or_a_clear_of_nothing_is_no_step() {
+        let mut s = PaintState::new();
+        s.end_stroke();
+        s.clear_all();
+        assert!(!s.history.can_undo());
+        stroke_at(&mut s, 5.0);
+        let rev = s.rev;
+        assert!(s.undo());
+        assert!(s.rev > rev, "an undo redraws the canvas");
+    }
+
     #[test]
     fn metaball_merges_have_no_box_edges_and_dabs_keep_their_size() {
         let bg = ColorU {
