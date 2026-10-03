@@ -22,6 +22,13 @@
 //!   enclosure, JSON `image` / `banner_image`.
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use crate::{
+    dates::parse_date,
+    links, reader,
+    xmltree::{self, Element},
+};
 
 /// The formats read.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -152,8 +159,662 @@ pub const EXCERPT_CHARS: usize = 240;
 
 /// Reads a feed. `content_type` is the HTTP `Content-Type` (empty for a file), `url` the
 /// address it came from (relative links resolve against it).
-pub fn parse(_bytes: &[u8], _content_type: &str, _url: &str) -> Result<Feed, FeedError> {
-    Err(FeedError::Invalid("RED".to_string()))
+pub fn parse(bytes: &[u8], content_type: &str, url: &str) -> Result<Feed, FeedError> {
+    let text = xmltree::decode(bytes, content_type);
+    let trimmed = text.trim_start();
+    if trimmed.starts_with('{') {
+        return parse_json(trimmed, url).map(|mut feed| {
+            dedup(&mut feed.items);
+            feed
+        });
+    }
+    let document = xmltree::parse(&text);
+    let Some(root) = document.root.as_ref() else {
+        return Err(FeedError::NotAFeed {
+            html: looks_like_html(&text),
+        });
+    };
+    let mut feed = match root.local_name().to_ascii_lowercase().as_str() {
+        "rss" => {
+            let format = match root.attr("version").map(str::trim) {
+                Some(v) if v.starts_with("0.9") => Format::Rss09,
+                _ => Format::Rss2,
+            };
+            parse_rss(root, child(root, "channel", rss_core), url, format)
+        }
+        "rdf" => {
+            let channel = child(root, "channel", rss_core);
+            let format = if channel.is_some_and(|c| ns(c) == Ns::Rss09) {
+                Format::Rss09
+            } else {
+                Format::Rss1
+            };
+            parse_rss(root, channel, url, format)
+        }
+        "feed" => parse_atom(root, url),
+        "html" => return Err(FeedError::NotAFeed { html: true }),
+        _ => {
+            return Err(FeedError::NotAFeed {
+                html: looks_like_html(&text),
+            })
+        }
+    };
+    feed.problems = document.problems.clone();
+    dedup(&mut feed.items);
+    Ok(feed)
+}
+
+/// Whether text that holds no feed is a web page.
+fn looks_like_html(text: &str) -> bool {
+    let head: String = text.chars().take(2048).collect::<String>().to_ascii_lowercase();
+    ["<!doctype html", "<html", "<head", "<body"].iter().any(|m| head.contains(m))
+}
+
+/// Each id once (the first item with it stays).
+fn dedup(items: &mut Vec<Item>) {
+    let mut seen = std::collections::HashSet::new();
+    items.retain(|i| seen.insert(i.id.clone()));
+}
+
+// ==== Namespaces ====
+
+/// The namespaces feeds use, by their URI - or, undeclared, by their usual prefix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ns {
+    /// No namespace, no prefix.
+    Plain,
+    Atom,
+    Atom03,
+    Content,
+    Dc,
+    Media,
+    Rdf,
+    Rss1,
+    Rss09,
+    Itunes,
+    Xhtml,
+    FeedBurner,
+    Other,
+}
+
+fn ns(e: &Element) -> Ns {
+    match e.namespace.as_str() {
+        "" => match e.prefix() {
+            "" => Ns::Plain,
+            "content" => Ns::Content,
+            "dc" | "dcterms" => Ns::Dc,
+            "media" => Ns::Media,
+            "atom" | "a10" => Ns::Atom,
+            "rdf" => Ns::Rdf,
+            "itunes" => Ns::Itunes,
+            "xhtml" => Ns::Xhtml,
+            "feedburner" => Ns::FeedBurner,
+            _ => Ns::Other,
+        },
+        "http://www.w3.org/2005/Atom" => Ns::Atom,
+        "http://purl.org/atom/ns#" => Ns::Atom03,
+        "http://purl.org/rss/1.0/modules/content/" => Ns::Content,
+        "http://purl.org/dc/elements/1.1/" | "http://purl.org/dc/terms/" => Ns::Dc,
+        "http://search.yahoo.com/mrss/" | "http://search.yahoo.com/mrss" => Ns::Media,
+        "http://www.w3.org/1999/02/22-rdf-syntax-ns#" => Ns::Rdf,
+        "http://purl.org/rss/1.0/" => Ns::Rss1,
+        "http://my.netscape.com/rdf/simple/0.9/" => Ns::Rss09,
+        "http://www.itunes.com/dtds/podcast-1.0.dtd" => Ns::Itunes,
+        "http://www.w3.org/1999/xhtml" => Ns::Xhtml,
+        "http://rssnamespace.org/feedburner/ext/1.0" => Ns::FeedBurner,
+        _ => Ns::Other,
+    }
+}
+
+/// RSS's own elements: no namespace, or RSS 1.0's / 0.90's.
+fn rss_core(e: &Element) -> bool {
+    matches!(ns(e), Ns::Plain | Ns::Rss1 | Ns::Rss09)
+}
+
+/// Atom's elements - and an Atom feed's that forgot its namespace.
+fn atomish(e: &Element) -> bool {
+    matches!(ns(e), Ns::Atom | Ns::Atom03 | Ns::Plain)
+}
+
+fn atom_ns(e: &Element) -> bool {
+    matches!(ns(e), Ns::Atom | Ns::Atom03)
+}
+
+fn dc(e: &Element) -> bool {
+    ns(e) == Ns::Dc
+}
+
+fn content_ns(e: &Element) -> bool {
+    ns(e) == Ns::Content
+}
+
+fn media(e: &Element) -> bool {
+    ns(e) == Ns::Media
+}
+
+fn itunes(e: &Element) -> bool {
+    ns(e) == Ns::Itunes
+}
+
+fn feedburner(e: &Element) -> bool {
+    ns(e) == Ns::FeedBurner
+}
+
+/// The first child element of this local name (any case) that `test` accepts.
+fn child<'a>(e: &'a Element, local: &str, test: fn(&Element) -> bool) -> Option<&'a Element> {
+    e.elements().find(|c| c.local_name().eq_ignore_ascii_case(local) && test(c))
+}
+
+/// Every child element of this local name (any case) that `test` accepts.
+fn children<'a>(e: &'a Element, local: &'a str, test: fn(&Element) -> bool) -> impl Iterator<Item = &'a Element> + 'a {
+    e.elements().filter(move |c| c.local_name().eq_ignore_ascii_case(local) && test(c))
+}
+
+// ==== Text ====
+
+/// The element's text, trimmed.
+fn text(e: &Element) -> String {
+    e.text().trim().to_string()
+}
+
+/// An RSS field that holds HTML: its text (escaped or CDATA HTML source), or - when a broken
+/// feed put the markup in unescaped - the markup written back from the tree.
+fn html_of(e: &Element) -> String {
+    if e.has_element_children() {
+        e.inner_markup().trim().to_string()
+    } else {
+        e.text().trim().to_string()
+    }
+}
+
+/// An RSS title as plain text (HTML in practice when it holds `&` or `<`).
+fn title_text(e: Option<&Element>) -> String {
+    let Some(e) = e else {
+        return String::new();
+    };
+    let raw = html_of(e);
+    if raw.contains('<') || raw.contains('&') {
+        reader::plain_text(&raw)
+    } else {
+        reader::collapse(&raw)
+    }
+}
+
+/// A person as RSS writes one: `mail@example.org (Name)` and `Name <mail@example.org>` are the
+/// name; anything else as written.
+fn person(raw: &str) -> String {
+    let t = reader::collapse(raw);
+    if let Some(open) = t.find('(') {
+        if t.ends_with(')') && t[..open].contains('@') {
+            let name = t[open + 1..t.len() - 1].trim();
+            if !name.is_empty() {
+                return name.to_string();
+            }
+        }
+    }
+    if let Some(open) = t.find('<') {
+        if t.ends_with('>') && t[open..].contains('@') {
+            let name = t[..open].trim().trim_matches('"').trim();
+            if !name.is_empty() {
+                return name.to_string();
+            }
+        }
+    }
+    t
+}
+
+/// The first value that is not blank.
+fn first_nonempty<const N: usize>(values: [String; N]) -> Option<String> {
+    values.into_iter().find(|v| !v.trim().is_empty())
+}
+
+/// The id of an item without guid, id or link: a hash of what it says (the same every time).
+fn hashed_id(title: &str, date: Option<i64>, summary: &str, content: &str) -> String {
+    let key = format!("{title}\n{}\n{summary}\n{content}", date.unwrap_or(0));
+    let hash = azul_storage::sigv4::sha256_hex(key.as_bytes());
+    format!("sha256:{}", &hash[..hash.len().min(32)])
+}
+
+/// An enclosure from its address, type and length (`None` without an address).
+fn enclosure(href: Option<&str>, mime: Option<&str>, length: Option<&str>, base: &str) -> Option<Enclosure> {
+    let url = links::resolve(base, href?);
+    if url.is_empty() {
+        return None;
+    }
+    Some(Enclosure {
+        url,
+        mime: mime.unwrap_or("").trim().to_string(),
+        length: length.and_then(|l| l.trim().parse().ok()).unwrap_or(0),
+    })
+}
+
+/// A Media RSS picture: `media:thumbnail`, an image `media:content`, the same in a
+/// `media:group` (YouTube).
+fn media_image(e: &Element, base: &str) -> Option<String> {
+    fn in_element(e: &Element) -> Option<&str> {
+        child(e, "thumbnail", media).and_then(|t| t.attr("url")).or_else(|| {
+            children(e, "content", media)
+                .find(|c| {
+                    c.attr("medium").is_some_and(|m| m.eq_ignore_ascii_case("image"))
+                        || c.attr("type").is_some_and(|t| t.trim().starts_with("image/"))
+                })
+                .and_then(|c| c.attr("url"))
+        })
+    }
+    in_element(e)
+        .or_else(|| child(e, "group", media).and_then(in_element))
+        .map(|u| links::resolve(base, u))
+        .filter(|u| !u.is_empty())
+}
+
+/// A Media RSS description (YouTube's text) as HTML.
+fn media_description(e: &Element) -> Option<String> {
+    child(e, "description", media)
+        .or_else(|| child(e, "group", media).and_then(|g| child(g, "description", media)))
+        .map(|d| reader::text_to_html(&d.text()))
+        .filter(|s| !s.is_empty())
+}
+
+/// The excerpt filled in; `None` for an item that says nothing at all.
+fn finish(mut item: Item) -> Option<Item> {
+    if item.title.is_empty() && item.link.is_empty() && item.summary.trim().is_empty() && item.content.trim().is_empty() {
+        return None;
+    }
+    let excerpt = {
+        let source = if item.summary.trim().is_empty() { &item.content } else { &item.summary };
+        reader::excerpt(source, EXCERPT_CHARS)
+    };
+    item.excerpt = excerpt;
+    Some(item)
+}
+
+// ==== RSS ====
+
+/// RSS 0.9x / 2.0 (`channel` holds the items) and RSS 1.0 (the items beside it); a broken
+/// feed's items right under the root are read too.
+fn parse_rss(root: &Element, channel: Option<&Element>, url: &str, format: Format) -> Feed {
+    let channel = channel.unwrap_or(root);
+    let site = child(channel, "link", rss_core)
+        .map(text)
+        .map(|l| links::resolve(url, &l))
+        .unwrap_or_default();
+    let icon = child(channel, "image", rss_core)
+        .and_then(|i| child(i, "url", rss_core))
+        .map(text)
+        .or_else(|| child(channel, "image", itunes).and_then(|i| i.attr("href")).map(str::to_string))
+        .map(|i| links::resolve(url, &i))
+        .unwrap_or_default();
+    let feed_author = child(channel, "author", itunes)
+        .or_else(|| child(channel, "creator", dc))
+        .map(|a| person(&a.text()))
+        .unwrap_or_default();
+    let mut elements: Vec<&Element> = children(channel, "item", rss_core).collect();
+    if !std::ptr::eq(channel, root) {
+        elements.extend(children(root, "item", rss_core));
+    }
+    let items = elements.into_iter().filter_map(|e| rss_item(e, url, &feed_author)).collect();
+    Feed {
+        format,
+        title: title_text(child(channel, "title", rss_core)),
+        site,
+        description: child(channel, "description", rss_core)
+            .map(|d| reader::plain_text(&html_of(d)))
+            .unwrap_or_default(),
+        icon,
+        items,
+        problems: Vec::new(),
+    }
+}
+
+fn rss_item(e: &Element, url: &str, feed_author: &str) -> Option<Item> {
+    let guid_element = child(e, "guid", rss_core);
+    let guid = guid_element.map(text).unwrap_or_default();
+    let permalink = guid_element
+        .is_some_and(|g| !g.attr("isPermaLink").is_some_and(|v| v.trim().eq_ignore_ascii_case("false")));
+    let link_text = child(e, "origLink", feedburner)
+        .map(text)
+        .filter(|l| !l.is_empty())
+        .or_else(|| child(e, "link", rss_core).map(text).filter(|l| !l.is_empty()))
+        .or_else(|| child(e, "link", atom_ns).and_then(|l| l.attr("href")).map(str::to_string))
+        .or_else(|| (permalink && links::is_web(&guid)).then(|| guid.clone()))
+        .unwrap_or_default();
+    let link = links::resolve(url, &link_text);
+    let about = e.attr("rdf:about").map(str::to_string).unwrap_or_default();
+    let title = title_text(child(e, "title", rss_core).or_else(|| child(e, "title", dc)));
+    let summary = child(e, "description", rss_core).map(html_of).unwrap_or_default();
+    let content = child(e, "encoded", content_ns).map(html_of).unwrap_or_default();
+    let author = child(e, "author", rss_core)
+        .or_else(|| child(e, "creator", dc))
+        .or_else(|| child(e, "author", itunes))
+        .map(|a| person(&a.text()))
+        .filter(|a| !a.is_empty())
+        .unwrap_or_else(|| feed_author.to_string());
+    let published = child(e, "pubDate", rss_core)
+        .or_else(|| child(e, "date", dc))
+        .or_else(|| child(e, "issued", dc))
+        .and_then(|d| parse_date(&d.text()));
+    let updated = child(e, "updated", atom_ns)
+        .or_else(|| child(e, "modified", dc))
+        .and_then(|d| parse_date(&d.text()));
+    let enclosures: Vec<Enclosure> = children(e, "enclosure", rss_core)
+        .filter_map(|x| enclosure(x.attr("url"), x.attr("type"), x.attr("length"), url))
+        .collect();
+    let image = media_image(e, url)
+        .or_else(|| child(e, "image", itunes).and_then(|i| i.attr("href")).map(|h| links::resolve(url, h)))
+        .or_else(|| enclosures.iter().find(|x| x.mime.starts_with("image/")).map(|x| x.url.clone()))
+        .unwrap_or_default();
+    let categories = children(e, "category", rss_core)
+        .chain(children(e, "subject", dc))
+        .map(text)
+        .filter(|c| !c.is_empty())
+        .collect();
+    let base = if link.is_empty() { url.to_string() } else { link.clone() };
+    let id = first_nonempty([guid, about, link.clone()])
+        .unwrap_or_else(|| hashed_id(&title, published.or(updated), &summary, &content));
+    finish(Item {
+        id,
+        title,
+        link,
+        author,
+        published,
+        updated,
+        summary,
+        content,
+        excerpt: String::new(),
+        base,
+        image,
+        enclosures,
+        categories,
+        seen: 0,
+    })
+}
+
+// ==== Atom ====
+
+/// How an Atom text construct is written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TextKind {
+    Text,
+    Html,
+    Xhtml,
+}
+
+/// The construct's kind: `type` (Atom 1.0: `text` / `html` / `xhtml`; 0.3: a MIME type) and
+/// 0.3's `mode` (`escaped` / `xml`); unsaid, markup inside it is XHTML.
+fn atom_kind(e: &Element) -> TextKind {
+    let kind = e.attr("type").unwrap_or("").trim().to_ascii_lowercase();
+    let mode = e.attr("mode").unwrap_or("").trim().to_ascii_lowercase();
+    if kind == "xhtml" || kind == "application/xhtml+xml" || mode == "xml" && e.has_element_children() {
+        TextKind::Xhtml
+    } else if kind == "html" || kind == "text/html" || mode == "escaped" {
+        TextKind::Html
+    } else if e.has_element_children() {
+        TextKind::Xhtml
+    } else {
+        TextKind::Text
+    }
+}
+
+/// An Atom text construct as plain text.
+fn atom_text(e: &Element) -> String {
+    match atom_kind(e) {
+        TextKind::Html => reader::plain_text(&e.text()),
+        TextKind::Text | TextKind::Xhtml => reader::collapse(&e.text()),
+    }
+}
+
+/// An Atom text construct as HTML (XHTML: the markup inside its `div`).
+fn atom_html(e: &Element) -> String {
+    match atom_kind(e) {
+        TextKind::Text => reader::text_to_html(&e.text()),
+        TextKind::Html => e.text().trim().to_string(),
+        TextKind::Xhtml => match e.elements().find(|c| c.local_name().eq_ignore_ascii_case("div")) {
+            Some(div) => div.inner_markup().trim().to_string(),
+            None => e.inner_markup().trim().to_string(),
+        },
+    }
+}
+
+/// An Atom person's name (else the email, else the text).
+fn atom_person(a: &Element) -> String {
+    child(a, "name", atomish)
+        .map(text)
+        .filter(|n| !n.is_empty())
+        .or_else(|| child(a, "email", atomish).map(text))
+        .unwrap_or_else(|| reader::collapse(&a.text()))
+}
+
+/// `base` with the element's `xml:base` applied.
+fn xml_base(base: &str, e: &Element) -> String {
+    match e.attr("xml:base") {
+        Some(b) => links::resolve(base, b),
+        None => base.to_string(),
+    }
+}
+
+/// The `alternate` link (a missing `rel` is one), an HTML one first.
+fn alternate_link(e: &Element) -> Option<&str> {
+    let mut any_alternate = None;
+    for l in children(e, "link", atomish) {
+        let rel = l.attr("rel").map_or_else(|| "alternate".to_string(), |r| r.trim().to_ascii_lowercase());
+        if rel != "alternate" {
+            continue;
+        }
+        let Some(href) = l.attr("href") else {
+            continue;
+        };
+        if l.attr("type").map_or(true, |t| t.contains("html")) {
+            return Some(href);
+        }
+        if any_alternate.is_none() {
+            any_alternate = Some(href);
+        }
+    }
+    any_alternate
+}
+
+fn parse_atom(root: &Element, url: &str) -> Feed {
+    let format = if ns(root) == Ns::Atom03 { Format::Atom03 } else { Format::Atom };
+    let base = xml_base(url, root);
+    let feed_author = child(root, "author", atomish).map(atom_person).unwrap_or_default();
+    let site = alternate_link(root).map(|h| links::resolve(&base, h)).unwrap_or_default();
+    let icon = child(root, "icon", atomish)
+        .or_else(|| child(root, "logo", atomish))
+        .map(|i| links::resolve(&base, &text(i)))
+        .unwrap_or_default();
+    let items = children(root, "entry", atomish)
+        .filter_map(|e| atom_entry(e, &base, &feed_author))
+        .collect();
+    Feed {
+        format,
+        title: child(root, "title", atomish).map(atom_text).unwrap_or_default(),
+        site,
+        description: child(root, "subtitle", atomish)
+            .or_else(|| child(root, "tagline", atomish))
+            .map(atom_text)
+            .unwrap_or_default(),
+        icon,
+        items,
+        problems: Vec::new(),
+    }
+}
+
+fn atom_entry(e: &Element, feed_base: &str, feed_author: &str) -> Option<Item> {
+    let base = xml_base(feed_base, e);
+    let link = alternate_link(e).map(|h| links::resolve(&base, h)).unwrap_or_default();
+    let id = child(e, "id", atomish).map(text).unwrap_or_default();
+    let title = child(e, "title", atomish).map(atom_text).unwrap_or_default();
+    let author = child(e, "author", atomish)
+        .map(atom_person)
+        .filter(|a| !a.is_empty())
+        .unwrap_or_else(|| feed_author.to_string());
+    let published = child(e, "published", atomish)
+        .or_else(|| child(e, "issued", atomish))
+        .or_else(|| child(e, "created", atomish))
+        .and_then(|d| parse_date(&d.text()));
+    let updated = child(e, "updated", atomish)
+        .or_else(|| child(e, "modified", atomish))
+        .and_then(|d| parse_date(&d.text()));
+    let content_element = child(e, "content", atomish);
+    let summary = child(e, "summary", atomish)
+        .map(atom_html)
+        .filter(|s| !s.is_empty())
+        .or_else(|| media_description(e))
+        .unwrap_or_default();
+    let content = content_element
+        .filter(|c| c.attr("src").is_none())
+        .map(atom_html)
+        .unwrap_or_default();
+    let content_base = content_element.map_or_else(|| base.clone(), |c| xml_base(&base, c));
+    let enclosures: Vec<Enclosure> = children(e, "link", atomish)
+        .filter(|l| l.attr("rel").is_some_and(|r| r.trim().eq_ignore_ascii_case("enclosure")))
+        .filter_map(|l| enclosure(l.attr("href"), l.attr("type"), l.attr("length"), &base))
+        .collect();
+    let image = media_image(e, &base)
+        .or_else(|| enclosures.iter().find(|x| x.mime.starts_with("image/")).map(|x| x.url.clone()))
+        .unwrap_or_default();
+    let categories = children(e, "category", atomish)
+        .filter_map(|c| c.attr("label").or_else(|| c.attr("term")).map(|t| t.trim().to_string()))
+        .filter(|c| !c.is_empty())
+        .collect();
+    let id = first_nonempty([id, link.clone()])
+        .unwrap_or_else(|| hashed_id(&title, published.or(updated), &summary, &content));
+    finish(Item {
+        id,
+        title,
+        link,
+        author,
+        published,
+        updated,
+        summary,
+        content,
+        excerpt: String::new(),
+        base: content_base,
+        image,
+        enclosures,
+        categories,
+        seen: 0,
+    })
+}
+
+// ==== JSON Feed ====
+
+/// A string field, trimmed (`""` when missing or not a string).
+fn json_str(v: &Value, key: &str) -> String {
+    v.get(key).and_then(Value::as_str).map(str::trim).unwrap_or("").to_string()
+}
+
+/// JSON Feed 1.1's `authors` (the first named) or 1.0's `author`.
+fn json_author(v: &Value) -> String {
+    v.get("authors")
+        .and_then(Value::as_array)
+        .and_then(|a| a.iter().find_map(|x| x.get("name").and_then(Value::as_str)))
+        .or_else(|| v.get("author").and_then(|a| a.get("name")).and_then(Value::as_str))
+        .map(|n| n.trim().to_string())
+        .unwrap_or_default()
+}
+
+fn parse_json(text: &str, url: &str) -> Result<Feed, FeedError> {
+    let value: Value = serde_json::from_str(text).map_err(|e| FeedError::Invalid(e.to_string()))?;
+    let version = value.get("version").and_then(Value::as_str).unwrap_or("");
+    if !version.contains("jsonfeed.org/version/1") {
+        return Err(FeedError::NotAFeed { html: false });
+    }
+    let feed_author = json_author(&value);
+    let items = value
+        .get("items")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(|i| json_item(i, url, &feed_author)).collect())
+        .unwrap_or_default();
+    Ok(Feed {
+        format: Format::JsonFeed,
+        title: json_str(&value, "title"),
+        site: links::resolve(url, &json_str(&value, "home_page_url")),
+        description: json_str(&value, "description"),
+        icon: links::resolve(
+            url,
+            &first_nonempty([json_str(&value, "icon"), json_str(&value, "favicon")]).unwrap_or_default(),
+        ),
+        items,
+        problems: Vec::new(),
+    })
+}
+
+fn json_item(i: &Value, url: &str, feed_author: &str) -> Option<Item> {
+    let id = match i.get("id") {
+        Some(Value::String(t)) => t.trim().to_string(),
+        Some(Value::Number(n)) => n.to_string(),
+        _ => String::new(),
+    };
+    let link = links::resolve(
+        url,
+        &first_nonempty([json_str(i, "url"), json_str(i, "external_url")]).unwrap_or_default(),
+    );
+    let content_html = json_str(i, "content_html");
+    let content = if content_html.is_empty() {
+        reader::text_to_html(&json_str(i, "content_text"))
+    } else {
+        content_html
+    };
+    let summary = reader::text_to_html(&json_str(i, "summary"));
+    let published = parse_date(&json_str(i, "date_published"));
+    let updated = parse_date(&json_str(i, "date_modified"));
+    let image = links::resolve(
+        url,
+        &first_nonempty([json_str(i, "image"), json_str(i, "banner_image")]).unwrap_or_default(),
+    );
+    let author = Some(json_author(i))
+        .filter(|a| !a.is_empty())
+        .unwrap_or_else(|| feed_author.to_string());
+    let categories = i
+        .get("tags")
+        .and_then(Value::as_array)
+        .map(|t| {
+            t.iter()
+                .filter_map(Value::as_str)
+                .map(|t| t.trim().to_string())
+                .filter(|t| !t.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    let enclosures = i
+        .get("attachments")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| {
+                    let mut e = enclosure(
+                        x.get("url").and_then(Value::as_str),
+                        x.get("mime_type").and_then(Value::as_str),
+                        None,
+                        url,
+                    )?;
+                    e.length = x.get("size_in_bytes").and_then(Value::as_u64).unwrap_or(0);
+                    Some(e)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let title = json_str(i, "title");
+    let base = if link.is_empty() { url.to_string() } else { link.clone() };
+    let id = first_nonempty([id, link.clone()])
+        .unwrap_or_else(|| hashed_id(&title, published.or(updated), &summary, &content));
+    finish(Item {
+        id,
+        title,
+        link,
+        author,
+        published,
+        updated,
+        summary,
+        content,
+        excerpt: String::new(),
+        base,
+        image,
+        enclosures,
+        categories,
+        seen: 0,
+    })
 }
 
 #[cfg(test)]

@@ -6,8 +6,18 @@
 /// an article's or an `xml:base` address); trimmed; `""` for an empty `href`; `href` as it is
 /// when neither makes an address.
 #[must_use]
-pub fn resolve(_base: &str, href: &str) -> String {
-    href.to_string()
+pub fn resolve(base: &str, href: &str) -> String {
+    let href = href.trim();
+    if href.is_empty() {
+        return String::new();
+    }
+    if let Ok(absolute) = url::Url::parse(href) {
+        return absolute.to_string();
+    }
+    match url::Url::parse(base.trim()).and_then(|b| b.join(href)) {
+        Ok(joined) => joined.to_string(),
+        Err(_) => href.to_string(),
+    }
 }
 
 /// The query parameters that only tell a site where a click came from.
@@ -27,13 +37,36 @@ pub fn is_tracking(name: &str) -> bool {
 /// when it has none or is no address.
 #[must_use]
 pub fn strip_tracking(link: &str) -> String {
-    link.to_string()
+    let Ok(mut url) = url::Url::parse(link.trim()) else {
+        return link.to_string();
+    };
+    let Some(query) = url.query().map(str::to_string) else {
+        return link.to_string();
+    };
+    let parts: Vec<&str> = query.split('&').filter(|p| !p.is_empty()).collect();
+    let kept: Vec<&str> = parts
+        .iter()
+        .copied()
+        .filter(|p| !is_tracking(p.split('=').next().unwrap_or("")))
+        .collect();
+    if kept.len() == parts.len() {
+        return link.to_string();
+    }
+    if kept.is_empty() {
+        url.set_query(None);
+    } else {
+        url.set_query(Some(kept.join("&").as_str()));
+    }
+    url.to_string()
 }
 
 /// The site's name for the list: the host without `www.` (`""` when there is none).
 #[must_use]
-pub fn site_name(_link: &str) -> String {
-    String::new()
+pub fn site_name(link: &str) -> String {
+    url::Url::parse(link.trim())
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.trim_start_matches("www.").to_string()))
+        .unwrap_or_default()
 }
 
 /// Whether the address is on the web (`http:` / `https:`) - what may be fetched.
