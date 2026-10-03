@@ -8,7 +8,14 @@
 //! on the network. The start screen's "Meeting server" field holds the Worker's address: prefilled
 //! with the one saved last time, else `AZMEET_WORKER`, else the built-in default; a new address
 //! is used for every request from Enter or leaving the field on, checked with `GET /health`, and
-//! saved (in the per-user config folder, `AzMeet/settings.txt`) once it answers.
+//! saved once it answers.
+//!
+//! Files (see `store.rs`): in the Azlin data tree (azul-appkit's data root: `--data-dir`,
+//! `AZLIN_DATA`, else `<data dir>/Azlin`), `meet/settings.json` keeps the app theme and mode, the
+//! meeting server, the name and the video quality; each meeting has a folder
+//! `meet/<meeting>/` with `meeting.json` (its link, server, when this side joined, who was there)
+//! and `chat.jsonl` (the chat, one message per line). Every write runs on an azul Thread through
+//! azul-storage's `LocalDrive`; stdout says `AZMEET_SAVED <key>` for each.
 //!
 //! Video (see `video_wire.rs`): each captured camera or screen frame, in every rendition someone
 //! shows, goes through an H.264 `VideoEncoder` where one works (VideoToolbox on Apple; found out at start by encoding a
@@ -48,8 +55,8 @@
 //! - `AZMEET_WORKER`: the meeting server when none was saved from the start screen, e.g.
 //!   `http://127.0.0.1:8787` (the local mock); else the `PRODUCTION_WORKER` constant, set at build
 //!   time with `AZMEET_DEFAULT_WORKER=<url>`, else `http://127.0.0.1:8787`. A headless run
-//!   (`AZ_BACKEND=headless`) neither reads nor writes the saved one, so the variable always wins
-//!   there. Only when nothing is saved or set and the built-in default does not answer does the
+//!   (`AZ_BACKEND=headless`) keeps no files unless it is given a data root (`--data-dir`,
+//!   `AZLIN_DATA`), so without one the variable always wins there. Only when nothing is saved or set and the built-in default does not answer does the
 //!   in-process demo open.
 //! - `AZMEET_NAME`: the name others see (default: `$USER`).
 //! - `AZMEET_AUTOCREATE=1`: create a meeting at start and print `AZMEET_LINK <link>` on stdout.
@@ -75,13 +82,26 @@
 //!   played, and the camera and the screen share are test patterns (off until switched on, unless
 //!   `AZMEET_TEST_PATTERN=1`).
 
+/// What AzMeet's About says (azul-appkit's facts, azul's AboutDialog shows them).
+pub(crate) const ABOUT: azul_appkit::AboutInfo = azul_appkit::AboutInfo {
+    name: "AzMeet",
+    version: env!("CARGO_PKG_VERSION"),
+    summary: "Video meetings over azul.iroh: camera, screen sharing, the people and a chat; each \
+              meeting's record and chat are files in the Azlin data tree.",
+    license: "MIT",
+    app_folder: store::APP_FOLDER,
+};
+
 mod args;
 mod audio;
 mod chat;
+mod ids;
+mod keys;
 mod pace;
 mod rooms;
 mod routes;
 mod speaker;
+mod store;
 mod tiles;
 mod ui;
 mod video_wire;
@@ -98,7 +118,6 @@ use azul::{
     css::{DarkLightMode, LogicalSize, PhysicalPositionI32, Srgb, WindowPosition},
     dom::{Callback, ClipboardContent, DomNodeId, NodeId, VirtualKeyCode},
     error::{HttpError, ResultRawImageDecodeImageError, ResultU8VecEncodeImageError},
-    file::FilePath,
     http::{HttpGetResult, HttpMethod, HttpRequestConfig},
     image::{ImageRef, RawImage, RawImageData, RawImageFormat},
     iroh::{
@@ -116,7 +135,7 @@ use azul::{
     video::{VideoDecoder, VideoEncoder, VideoFrame},
     widgets::{
         ConsumerFrame, FrameConsumer, OnTextInputReturn, ProgressBar, SegmentedState,
-        TextInputState, TextInputValid,
+        StandardDialogEvent, TextInput, TextInputState, TextInputValid,
     },
     window::{HwAcceleration, PlatformCapability, Vsync, WindowDecorations},
 };
@@ -477,6 +496,24 @@ struct MeetState {
     /// show.
     theme_index: usize,
     mode_index: usize,
+    /// This participant keeps the files of the data tree (`store`): the one window of a meeting
+    /// server run, Ada in the demo (both demo windows are one meeting on one machine).
+    keeps_files: bool,
+    /// `meet/settings.json` as this participant last wrote it: the saved one at start, then every
+    /// change made in the settings or the lobby.
+    settings: azul_appkit::AppSettings,
+    /// The meeting this side is in, as `meet/<meeting>/meeting.json` says; `None` outside one.
+    record: Option<store::MeetingRecord>,
+    /// The files that changed since they were written last (`flush_files`).
+    unsaved: Unsaved,
+}
+
+/// The files of the data tree that changed since the last [`flush_files`].
+#[derive(Debug, Default, Clone, Copy)]
+struct Unsaved {
+    settings: bool,
+    record: bool,
+    chat: bool,
 }
 
 impl MeetState {
@@ -546,6 +583,10 @@ impl MeetState {
             quality: 0,
             theme_index: 0,
             mode_index: 0,
+            keeps_files: true,
+            settings: azul_appkit::AppSettings::default(),
+            record: None,
+            unsaved: Unsaved::default(),
         }
     }
 }
@@ -731,7 +772,8 @@ fn people(s: &MeetState) -> Vec<ui::PersonView> {
     let now = now_ms(s);
     let me = my_state(s);
     let mut rows = vec![ui::PersonView {
-        name: format!("{} (you)", s.name),
+        name: s.name.clone(),
+        me: true,
         status: String::from(if s.cam_on { "camera on" } else { "camera off" }),
         muted: me.muted,
         deafened: me.deafened,
@@ -739,6 +781,7 @@ fn people(s: &MeetState) -> Vec<ui::PersonView> {
     }];
     let person = |name: String, status: &str, r: Option<&Remote>| ui::PersonView {
         name,
+        me: false,
         status: status.to_string(),
         muted: r.and_then(|r| r.state).is_some_and(|state| state.muted),
         deafened: r.and_then(|r| r.state).is_some_and(|state| state.deafened),
@@ -784,7 +827,7 @@ fn tile_view(s: &MeetState, tile: tiles::Tile, now: u64) -> ui::TileView {
         return ui::TileView {
             kind: tile.kind,
             me: true,
-            name: format!("{} (you)", s.name),
+            name: s.name.clone(),
             marker: None,
             muted: !s.mic_on,
             speaking: false,
@@ -848,8 +891,8 @@ fn roster_lines(s: &MeetState) -> Vec<String> {
     people(s)
         .into_iter()
         .map(|person| {
-            let label = if person.status.is_empty() || person.name.ends_with("(you)") {
-                person.name
+            let label = if person.status.is_empty() || person.me {
+                ui::shown_name(&person.name, person.me)
             } else {
                 format!("{} · {}", person.name, person.status)
             };
@@ -959,6 +1002,14 @@ fn snapshot(s: &MeetState) -> ui::CallView {
                 .unwrap_or_else(|| String::from("none (local demo)")),
             name: s.name.clone(),
             codec: codec_status(s),
+            data_folder: files_root().map_or_else(
+                || String::from("none (a headless run without --data-dir or AZLIN_DATA)"),
+                |root| {
+                    azul_appkit::data::local_path(root, store::APP_FOLDER)
+                        .display()
+                        .to_string()
+                },
+            ),
         },
     }
 }
@@ -980,6 +1031,8 @@ const ACTIONS: ui::Actions = ui::Actions {
     chat_text: on_chat_text,
     chat_key: on_chat_key,
     chat_send: on_chat_send,
+    chat_blur: on_chat_blur,
+    about_event: on_about_event,
     name_text: on_name_text,
     server_text: on_server_text,
     server_key: on_server_key,
@@ -1208,6 +1261,7 @@ extern "C" fn pump_link(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerC
         if !s.remotes.is_empty() && now.saturating_sub(s.stats_at_ms) >= STATS_EVERY_MS {
             s.stats_at_ms = now;
             network_tick(&mut s, &endpoint, &mut info.callback_info);
+            note_people(&mut s);
             let lines: Vec<String> = s
                 .remotes
                 .iter()
@@ -1242,6 +1296,8 @@ extern "C" fn pump_link(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerC
                 }
             }
         }
+        // The chat that arrived, the people met: into the meeting's folder.
+        flush_files(&mut s, &mut info.callback_info);
         // Media flows (or is due) when something arrived, this side sends audio or video to
         // someone, or a stream is being decoded: the pump runs fast; else it slows down.
         let busy = had_events
@@ -1549,6 +1605,7 @@ fn send_chat(s: &mut MeetState, text: &str) -> bool {
         return false;
     };
     send_message_to(s, &all_peers(s), &bytes);
+    s.unsaved.chat = true;
     true
 }
 
@@ -1560,6 +1617,7 @@ fn receive_chat(s: &mut MeetState, from: u64, bytes: &[u8]) -> bool {
     if !s.chat.receive(from, &name, bytes, open) {
         return false;
     }
+    s.unsaved.chat = true;
     if let Some(message) = s.chat.messages().last() {
         println!("AZMEET_CHAT {}: {}", message.name, message.text);
         eprintln!("[azmeet] {}: chat from {}: {}", s.name, message.name, message.text);
@@ -3726,7 +3784,10 @@ extern "C" fn on_room_opened(data: RefAny, mut info: CallbackInfo, result: RefAn
                 );
                 s.notice.clear();
                 s.link_status = String::from("waiting for others to join");
-                room.first_job()
+                let job = room.first_job();
+                enter_record(s);
+                flush_files(s, &mut info);
+                job
             }
             None => {
                 room.stage = Stage::Start;
@@ -4005,9 +4066,8 @@ fn rebind_for_server(s: &mut MeetState) {
 }
 
 /// The answer to a meeting server check: the line under the field says whether it answers, and a
-/// server that answers is remembered (not in a headless run: a test never touches the user's
-/// settings).
-extern "C" fn on_health(data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
+/// server that answers is remembered in `meet/settings.json` (`flush_files`).
+extern "C" fn on_health(data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
     let Some((mut data, check)) = reply_parts(data) else {
         return Update::DoNothing;
     };
@@ -4030,58 +4090,120 @@ extern "C" fn on_health(data: RefAny, _info: CallbackInfo, result: RefAny) -> Up
     }
     room.server_ok = true;
     room.server_status = String::from("The meeting server answers.");
-    if devices_allowed() {
-        match save_server(&room.worker) {
-            Ok(()) => eprintln!(
-                "[azmeet] {}: remembered the meeting server {}",
-                s.name, room.worker
-            ),
-            Err(e) => {
-                room.server_status =
-                    format!("The meeting server answers, but it could not be remembered: {e}");
-            }
-        }
-    }
+    let worker = room.worker.clone();
+    remember(s, |prefs| prefs.server = Some(worker));
+    flush_files(s, &mut info);
     Update::RefreshDom
 }
 
-/// The file the meeting server is remembered in: `AzMeet/settings.txt` in the per-user config
-/// folder (`FilePath::get_config_dir`).
-fn settings_path() -> Option<std::path::PathBuf> {
-    let dir = FilePath::get_config_dir().into_option()?;
-    let dir = dir.as_string().as_str().to_string();
-    if dir.is_empty() {
-        return None;
-    }
-    Some(
-        std::path::Path::new(&dir)
-            .join("AzMeet")
-            .join("settings.txt"),
-    )
+// ==== The data tree: the settings, each meeting's record and chat (`store.rs`) ====
+
+/// The data root this run keeps its files in: azul-appkit's (`--data-dir`, `AZLIN_DATA`, else
+/// `<data dir>/Azlin`). `None` in a headless run that was given none: a test never touches the
+/// user's files.
+fn files_root() -> Option<&'static std::path::Path> {
+    static ROOT: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
+    ROOT.get_or_init(|| {
+        let flag = launch_args().kit.data_dir.as_deref();
+        let given = flag.is_some() || std::env::var_os(azul_appkit::data::DATA_VAR).is_some();
+        (devices_allowed() || given).then(|| store::data_root(flag))
+    })
+    .as_deref()
 }
 
-/// The meeting server saved last time; `None` without a settings file, or with one that cannot be
-/// read, is too long, or names no meeting server.
-fn saved_server() -> Option<String> {
-    use std::io::Read;
-    let file = std::fs::File::open(settings_path()?).ok()?;
-    let mut text = String::new();
-    file.take(rooms::MAX_SETTINGS_BYTES as u64 + 1)
-        .read_to_string(&mut text)
-        .ok()?;
-    rooms::decode_settings(&text)
+/// `meet/settings.json` as it was at start (the defaults without one), read once before any
+/// window opens.
+fn saved_settings() -> &'static azul_appkit::AppSettings {
+    static SAVED: std::sync::OnceLock<azul_appkit::AppSettings> = std::sync::OnceLock::new();
+    SAVED.get_or_init(|| files_root().map(store::load_settings).unwrap_or_default())
 }
 
-/// Remembers `server`: written to a temporary file next to the settings file, then renamed over
-/// it, so the settings file is never half written.
-fn save_server(server: &str) -> Result<(), String> {
-    let path = settings_path().ok_or_else(|| String::from("there is no per-user config folder"))?;
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+/// Changes what AzMeet remembers besides the theme and the mode (`store::Prefs`); the settings
+/// file is written with the next [`flush_files`].
+fn remember(s: &mut MeetState, change: impl FnOnce(&mut store::Prefs)) {
+    let mut prefs = store::Prefs::read(&s.settings);
+    let before = prefs.clone();
+    change(&mut prefs);
+    if prefs != before {
+        prefs.write(&mut s.settings);
+        s.unsaved.settings = true;
     }
-    let temp = path.with_extension("txt.tmp");
-    std::fs::write(&temp, rooms::encode_settings(server)).map_err(|e| e.to_string())?;
-    std::fs::rename(&temp, &path).map_err(|e| e.to_string())
+}
+
+/// The folder name of the meeting this side is in: the meeting server's room id, or the demo's
+/// code.
+fn meeting_name(s: &MeetState) -> String {
+    match &s.room {
+        Some(room) => room.room_id.clone(),
+        None => s.meeting.clone(),
+    }
+}
+
+/// The record of the meeting just entered (`meeting.json`): this side first.
+fn enter_record(s: &mut MeetState) {
+    let (link, server) = match &s.room {
+        Some(room) => (room.link.clone(), room.worker.clone()),
+        None => (String::new(), String::new()),
+    };
+    s.record = Some(store::MeetingRecord {
+        meeting: meeting_name(s),
+        link,
+        server,
+        joined: azul_storage::time::now_unix(),
+        people: vec![s.name.clone()],
+    });
+    s.unsaved.record = true;
+}
+
+/// Everyone met in this meeting goes into its record, once, by the name they gave (a peer the
+/// meeting server has not named yet waits for the next round).
+fn note_people(s: &mut MeetState) {
+    let names: Vec<String> = s
+        .remotes
+        .iter()
+        .filter_map(|r| match &s.room {
+            Some(room) => room
+                .peers
+                .iter()
+                .find(|p| p.node_id == r.node_id)
+                .map(|p| p.name.clone()),
+            None => (!s.peer_name.is_empty()).then(|| s.peer_name.clone()),
+        })
+        .collect();
+    let Some(record) = s.record.as_mut() else {
+        return;
+    };
+    for name in names {
+        if record.met(&name) {
+            s.unsaved.record = true;
+        }
+    }
+}
+
+/// Writes what changed since the last call into the data tree, on the save thread (never here):
+/// the settings, the meeting's record, its chat. Nothing in a run without a data root, or for
+/// the demo's second window.
+fn flush_files(s: &mut MeetState, info: &mut CallbackInfo) {
+    let unsaved = std::mem::take(&mut s.unsaved);
+    let Some(root) = files_root().filter(|_| s.keeps_files) else {
+        return;
+    };
+    let mut files = Vec::new();
+    if unsaved.settings {
+        files.push(store::settings_file(&s.settings));
+    }
+    let meeting = meeting_name(s);
+    if unsaved.record {
+        if let (Some(key), Some(record)) = (store::meeting_key(&meeting), s.record.as_ref()) {
+            files.push((key, record.to_json().into_bytes()));
+        }
+    }
+    if unsaved.chat {
+        if let Some(key) = store::chat_key(&meeting) {
+            files.push((key, store::chat_lines(s.chat.messages()).into_bytes()));
+        }
+    }
+    store::save(info, root, files);
 }
 
 /// The answer to the leave request; nothing waits on it.
@@ -4343,6 +4465,9 @@ fn leave_meeting(s: &mut MeetState) -> Option<HttpJob> {
     s.plan = routes::Plan::default();
     s.relay = Relaying::default();
     s.chat = chat::ChatLog::new();
+    s.record = None;
+    s.unsaved.chat = false;
+    s.unsaved.record = false;
     s.speaker = speaker::ActiveSpeaker::new();
     s.link_status = String::from("not in a meeting");
     s.notice = String::from("You left the meeting.");
@@ -4360,7 +4485,11 @@ fn leave_meeting(s: &mut MeetState) -> Option<HttpJob> {
 
 extern "C" fn on_leave(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let job = match data.downcast_mut::<MeetState>() {
-        Some(mut guard) => leave_meeting(&mut guard),
+        Some(mut guard) => {
+            // The chat as it stands goes into the meeting's folder before it is cleared.
+            flush_files(&mut guard, &mut info);
+            leave_meeting(&mut guard)
+        }
         None => return Update::DoNothing,
     };
     if let Some(job) = job {
@@ -4447,7 +4576,7 @@ extern "C" fn on_chat_text(
 /// Enter in the chat field sends the message.
 extern "C" fn on_chat_key(
     mut data: RefAny,
-    info: CallbackInfo,
+    mut info: CallbackInfo,
     state: TextInputState,
 ) -> OnTextInputReturn {
     let key = info
@@ -4457,7 +4586,8 @@ extern "C" fn on_chat_key(
     let update = match key {
         Some(VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter) => {
             let text = state.get_text().as_str().to_string();
-            send_draft(&mut data, &text)
+            let field = info.get_hit_node();
+            send_draft(&mut data, &mut info, Some(field), &text)
         }
         _ => Update::DoNothing,
     };
@@ -4467,17 +4597,33 @@ extern "C" fn on_chat_key(
     }
 }
 
-/// The chat's Send button.
-extern "C" fn on_chat_send(mut data: RefAny, _info: CallbackInfo) -> Update {
+/// The chat's Send button (the field beside it, `ui::chat`, lost the focus first and handed
+/// over its text: `on_chat_blur`).
+extern "C" fn on_chat_send(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let text = data
         .downcast_ref::<MeetState>()
         .map(|s| s.chat_draft.clone())
         .unwrap_or_default();
-    send_draft(&mut data, &text)
+    let field = info.get_previous_sibling(info.get_hit_node()).into_option();
+    send_draft(&mut data, &mut info, field, &text)
 }
 
-/// Sends `text` to the chat and empties the field; nothing for an empty message.
-fn send_draft(data: &mut RefAny, text: &str) -> Update {
+/// The chat field lost the focus: the draft as the field holds it (deletions included).
+extern "C" fn on_chat_blur(mut data: RefAny, _info: CallbackInfo, state: TextInputState) -> Update {
+    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        s.chat_draft = state.get_text().as_str().to_string();
+    }
+    Update::DoNothing
+}
+
+/// Sends `text` to the chat and empties the field (`field`: the chat field, when known);
+/// nothing for an empty message. The meeting's `chat.jsonl` is written again.
+fn send_draft(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    field: Option<DomNodeId>,
+    text: &str,
+) -> Update {
     let Some(mut guard) = data.downcast_mut::<MeetState>() else {
         return Update::DoNothing;
     };
@@ -4486,13 +4632,19 @@ fn send_draft(data: &mut RefAny, text: &str) -> Update {
         return Update::DoNothing;
     }
     s.chat_draft.clear();
+    flush_files(s, info);
+    // Re-rendering the field with an empty draft is not enough: what the user typed outranks
+    // the DOM until the app SETS the text.
+    if let Some(field) = field {
+        TextInput::set_text_in(*info, field, AzString::from(""));
+    }
     Update::RefreshDom
 }
 
-/// The lobby's name field: the name others see (the next announcement carries it).
+/// The lobby's name field: the name others see (the next announcement carries it), remembered.
 extern "C" fn on_name_text(
     mut data: RefAny,
-    _info: CallbackInfo,
+    mut info: CallbackInfo,
     state: TextInputState,
 ) -> OnTextInputReturn {
     let text = state.get_text().as_str().trim().to_string();
@@ -4501,8 +4653,10 @@ extern "C" fn on_name_text(
         if !text.is_empty() {
             s.name = text.clone();
             if let Some(room) = s.room.as_mut() {
-                room.name = text;
+                room.name = text.clone();
             }
+            remember(s, |prefs| prefs.name = Some(text));
+            flush_files(s, &mut info);
         }
     }
     OnTextInputReturn {
@@ -4516,6 +4670,11 @@ extern "C" fn on_settings_open(mut data: RefAny, _info: CallbackInfo) -> Update 
         s.settings_open = true;
     }
     Update::RefreshDom
+}
+
+/// The About's OK (or its close box): closes the settings.
+extern "C" fn on_about_event(data: RefAny, info: CallbackInfo, _event: StandardDialogEvent) -> Update {
+    on_settings_back(data, info)
 }
 
 extern "C" fn on_settings_back(mut data: RefAny, _info: CallbackInfo) -> Update {
@@ -4560,53 +4719,79 @@ extern "C" fn on_camera_choice(mut data: RefAny, _info: CallbackInfo, index: usi
 /// The highest rendition this side asks for, by the quality picked in the settings.
 const QUALITY_CAPS: [u32; 3] = [720, 360, 180];
 
-/// The video quality picked in the settings: what this side asks for changes at once.
-extern "C" fn on_quality(mut data: RefAny, _info: CallbackInfo, index: usize) -> Update {
+/// The video quality picked in the settings: what this side asks for changes at once, and it is
+/// remembered.
+extern "C" fn on_quality(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
     if let Some(mut guard) = data.downcast_mut::<MeetState>() {
         let s = &mut *guard;
         s.quality = index.min(QUALITY_CAPS.len() - 1);
+        let quality = s.quality;
+        remember(s, |prefs| prefs.quality = quality);
+        flush_files(s, &mut info);
         network_changed(s, false);
     }
     Update::RefreshDom
 }
 
-/// The app theme picked in the settings: flat or flora, for every window.
+/// The app theme picked in the settings: flat or flora, for every window, remembered.
 extern "C" fn on_theme(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
-    let index = state.selected_index.min(1);
-    info.set_theme(AzString::from(if index == 1 { "flora" } else { "flat" }));
-    if let Some(mut s) = data.downcast_mut::<MeetState>() {
-        s.theme_index = index;
+    let theme = azul_appkit::Theme::ALL[state.selected_index.min(azul_appkit::Theme::ALL.len() - 1)];
+    info.set_theme(AzString::from(theme.name()));
+    if let Some(mut guard) = data.downcast_mut::<MeetState>() {
+        let s = &mut *guard;
+        s.theme_index = theme.index();
+        if s.settings.theme != theme {
+            s.settings.theme = theme;
+            s.unsaved.settings = true;
+            flush_files(s, &mut info);
+        }
     }
     Update::RefreshDom
 }
 
 /// Light, dark, or the system's, picked in the settings.
 extern "C" fn on_mode(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
-    let index = state.selected_index.min(2);
-    info.set_mode(match index {
-        1 => OptionDarkLightMode::Some(DarkLightMode::Light),
-        2 => OptionDarkLightMode::Some(DarkLightMode::Dark),
-        _ => OptionDarkLightMode::None,
-    });
-    if let Some(mut s) = data.downcast_mut::<MeetState>() {
-        s.mode_index = index;
+    let mode =
+        azul_appkit::ModePref::ALL[state.selected_index.min(azul_appkit::ModePref::ALL.len() - 1)];
+    info.set_mode(mode_option(mode.index()));
+    if let Some(mut guard) = data.downcast_mut::<MeetState>() {
+        let s = &mut *guard;
+        s.mode_index = mode.index();
+        if s.settings.mode != mode {
+            s.settings.mode = mode;
+            s.unsaved.settings = true;
+            flush_files(s, &mut info);
+        }
     }
     Update::RefreshDom
 }
 
-/// The keyboard shortcuts: Ctrl / Cmd + D the microphone, Ctrl / Cmd + E the camera, Escape
-/// closes the settings.
+/// The mode at `index` (`azul_appkit::ModePref` order: system, light, dark) as azul takes it.
+fn mode_option(index: usize) -> OptionDarkLightMode {
+    match index {
+        1 => OptionDarkLightMode::Some(DarkLightMode::Light),
+        2 => OptionDarkLightMode::Some(DarkLightMode::Dark),
+        _ => OptionDarkLightMode::None,
+    }
+}
+
+/// The keyboard shortcuts (`keys::SHORTCUTS`, the rule in `keys::command_for`): Ctrl / Cmd + D
+/// the microphone, Ctrl / Cmd + E the camera, Escape closes the settings.
 extern "C" fn on_key(mut data: RefAny, info: CallbackInfo) -> Update {
-    let key = info
+    let key = match info
         .get_current_keyboard_state()
         .current_virtual_keycode
-        .into_option();
-    let modifiers = info.get_key_modifiers();
-    let command = modifiers.primary_down();
-    match key {
-        Some(VirtualKeyCode::D) if command => mic_toggle(data, info),
-        Some(VirtualKeyCode::E) if command => cam_toggle(data, info),
-        Some(VirtualKeyCode::Escape) => {
+        .into_option()
+    {
+        Some(VirtualKeyCode::D) => keys::Key::D,
+        Some(VirtualKeyCode::E) => keys::Key::E,
+        Some(VirtualKeyCode::Escape) => keys::Key::Escape,
+        _ => keys::Key::Other,
+    };
+    match keys::command_for(key, info.get_key_modifiers().primary_down()) {
+        Some(keys::Command::ToggleMic) => mic_toggle(data, info),
+        Some(keys::Command::ToggleCamera) => cam_toggle(data, info),
+        Some(keys::Command::CloseSettings) => {
             let Some(mut s) = data.downcast_mut::<MeetState>() else {
                 return Update::DoNothing;
             };
@@ -4620,12 +4805,10 @@ extern "C" fn on_key(mut data: RefAny, info: CallbackInfo) -> Update {
     }
 }
 
+/// The demo meeting's code (`abc-defg-hij`): it names the meeting's folder in the data tree, so
+/// it comes from the seed for ids that leave the process, not from the clock.
 fn gen_link() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let n = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
+    let n = azul_storage::ids::random_seed();
     format!(
         "{:03x}-{:04x}-{:03x}",
         (n & 0xfff) as u16,
@@ -4653,10 +4836,14 @@ fn bind_failure(endpoint: &IrohEndpoint) -> String {
     }
 }
 
-/// The name others see: `AZMEET_NAME`, else the login name.
+/// The name others see: `--name`, else the one typed in the lobby last time, else
+/// `AZMEET_NAME`, else the login name.
 fn display_name() -> String {
     if let Some(name) = launch_args().name.clone().filter(|n| !n.trim().is_empty()) {
         return name.trim().to_string();
+    }
+    if let Some(name) = store::Prefs::read(saved_settings()).name {
+        return name;
     }
     ["AZMEET_NAME", "USER", "USERNAME"]
         .into_iter()
@@ -4712,13 +4899,10 @@ fn probe(url: &str) -> Result<(), String> {
 
 /// The meeting server at start (`rooms::server_prefill`: the one saved last time, else
 /// `AZMEET_WORKER`, else the built-in default), where it came from, and whether it accepts a
-/// connection. A headless run never reads the user's settings, so `AZMEET_WORKER` wins there.
+/// connection. A headless run without a data root of its own reads no settings, so
+/// `AZMEET_WORKER` wins there.
 fn meeting_server() -> (String, rooms::ServerSource, Result<(), String>) {
-    let saved = if devices_allowed() {
-        saved_server()
-    } else {
-        None
-    };
+    let saved = store::Prefs::read(saved_settings()).server;
     let env = std::env::var("AZMEET_WORKER").ok();
     let built_in = if PRODUCTION_WORKER.is_empty() {
         rooms::LOCAL_WORKER
@@ -4737,29 +4921,34 @@ fn launch_args() -> &'static args::Args {
     ARGS.get_or_init(args::Args::default)
 }
 
+/// The app theme and the mode of this run: `--theme` / `--mode` (this run only), else the saved
+/// ones.
+fn launch_look() -> (azul_appkit::Theme, azul_appkit::ModePref) {
+    saved_settings().effective(&launch_args().kit)
+}
+
 /// The settings screen, theme and mode the command line asked for, on a participant's state.
 fn apply_launch_args(s: &mut MeetState) {
     let args = launch_args();
     s.settings_open = args.screen == args::Screen::Settings;
-    s.theme_index = usize::from(args.theme.as_deref() == Some("flora"));
-    s.mode_index = match args.mode {
-        args::Mode::System => 0,
-        args::Mode::Light => 1,
-        args::Mode::Dark => 2,
-    };
+    let (theme, mode) = launch_look();
+    s.theme_index = theme.index();
+    s.mode_index = mode.index();
+    s.settings = saved_settings().clone();
+    s.quality = store::Prefs::read(&s.settings).quality;
 }
 
 pub fn start() {
     match args::parse(std::env::args().skip(1)) {
         Ok(parsed) if parsed.help => {
-            print!("{}", args::HELP);
+            print!("{}", args::usage());
             return;
         }
         Ok(parsed) => {
             let _ = ARGS.set(parsed);
         }
         Err(why) => {
-            eprintln!("AzMeet: {why}\n\n{}", args::HELP);
+            eprintln!("AzMeet: {why}");
             std::process::exit(2);
         }
     }
@@ -4853,6 +5042,9 @@ fn start_demo(notice: &str) {
         configure_network(&mut ben);
         apply_launch_args(&mut ada);
         apply_launch_args(&mut ben);
+        // One meeting on one machine: Ada keeps its folder.
+        ben.keeps_files = false;
+        enter_record(&mut ada);
         vec![RefAny::new(ada), RefAny::new(ben)]
     } else {
         let failure = bind_failure(&ada_link);
@@ -4865,6 +5057,7 @@ fn start_demo(notice: &str) {
         configure_video(&mut solo, &video);
         configure_network(&mut solo);
         apply_launch_args(&mut solo);
+        enter_record(&mut solo);
         vec![RefAny::new(solo)]
     };
     let linked = peers.len() == 2;
@@ -4872,16 +5065,10 @@ fn start_demo(notice: &str) {
 }
 
 fn run(peers: Vec<RefAny>, linked: bool) {
-    let args = launch_args();
-    let mut config = AppConfig::create();
-    if let Some(theme) = &args.theme {
-        config = config.with_theme(AzString::from(theme.as_str()));
-    }
-    config = config.with_mode(match args.mode {
-        args::Mode::System => OptionDarkLightMode::None,
-        args::Mode::Light => OptionDarkLightMode::Some(DarkLightMode::Light),
-        args::Mode::Dark => OptionDarkLightMode::Some(DarkLightMode::Dark),
-    });
+    let (theme, mode) = launch_look();
+    let config = AppConfig::create()
+        .with_theme(AzString::from(theme.name()))
+        .with_mode(mode_option(mode.index()));
     let mut app = App::create(RefAny::new(Room { peers }), config);
     let mut first = WindowCreateOptions::create(layout_first);
     first.window_state.flags.decorations = WindowDecorations::NoTitle;

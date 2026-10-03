@@ -1,9 +1,11 @@
-//! AzDrive's command line: `--screen <this-pc|quick-access|home|settings>`,
-//! `--theme <flat|flora>`, `--mode <light|dark>`, `--layout <name>`,
-//! `--sample` (sample files in the Home drive), like AzWriter's switches.
+//! AzDrive's command line: the switches every Azlin app understands (azul-appkit's
+//! `--screen`, `--size`, `--theme`, `--mode`, `--shot`, `--sample`, `--data-dir`) with
+//! AzDrive's screens (`this-pc | quick-access | home | settings`), plus its own `--layout <name>`.
+//! `--sample` writes the sample files into the Home drive.
 
 use std::path::Path;
 
+use azul_appkit::{args::help, AppArgs, AppSpec};
 use azul_storage::{Drive, LocalDrive};
 
 use crate::model::ViewLayout;
@@ -22,110 +24,97 @@ pub enum Screen {
     Settings,
 }
 
+/// The `--screen` names, in [`Screen`] order after `Default`.
+const SCREENS: [(&str, Screen); 4] = [
+    ("this-pc", Screen::ThisPc),
+    ("quick-access", Screen::QuickAccess),
+    ("home", Screen::Home),
+    ("settings", Screen::Settings),
+];
+
+/// What azul-appkit is told about AzDrive.
+pub const SPEC: AppSpec = AppSpec {
+    name: "AzDrive",
+    binary: "AzDrive",
+    summary: "a file manager like Windows Explorer, for local folders and S3 drives",
+    screens: &["this-pc", "quick-access", "home", "settings"],
+    files_help: "",
+};
+
+/// AzDrive's own switch, after appkit's in the usage text.
+const LAYOUT_HELP: &str = "\nAZDRIVE:\n    --layout <NAME>          extra-large-icons | large-icons | medium-icons | \
+                           small-icons |\n                             list | details | tiles | \
+                           content\n";
+
 /// The parsed command line.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Args {
     pub screen: Screen,
-    /// The app theme (`flat`, `flora`).
-    pub theme: Option<String>,
-    /// The mode: `Some(true)` dark, `Some(false)` light, `None` the OS's.
-    pub dark: Option<bool>,
     /// The layout to open folders in (instead of the saved one).
     pub layout: Option<ViewLayout>,
-    /// Write the sample files into the Home drive first.
-    pub sample: bool,
+    /// The switches every Azlin app understands (azul-appkit): `--theme`, `--mode`
+    /// (`system` too), `--size`, `--shot`, `--sample`, `--data-dir`.
+    pub kit: AppArgs,
 }
 
-pub const HELP: &str = "\
-AzDrive - a file manager like Windows Explorer, for local folders and S3 drives
-
-USAGE:
-    AzDrive [OPTIONS]
-
-OPTIONS:
-    --screen <NAME>    this-pc | quick-access | home | settings
-    --theme <NAME>     flat | flora
-    --mode <MODE>      light | dark (default: the system's)
-    --layout <NAME>    extra-large-icons | large-icons | medium-icons | small-icons |
-                       list | details | tiles | content
-    --sample           write sample files into the Home drive (never over a file)
-    -h, --help         print this help
-";
+/// The usage text: appkit's, then `--layout`.
+#[must_use]
+pub fn usage() -> String {
+    let mut text = help(&SPEC);
+    text.push_str(LAYOUT_HELP);
+    text
+}
 
 impl Args {
+    /// Parses `argv` without the program name: `--layout` here, the rest by
+    /// azul-appkit. `Err` carries the usage (`-h`) or what was wrong.
     pub fn parse<I, S>(argv: I) -> Result<Args, String>
     where
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
         let argv: Vec<String> = argv.into_iter().map(Into::into).collect();
-        let mut args = Args::default();
+        if argv.iter().any(|a| a == "-h" || a == "--help") {
+            return Err(usage());
+        }
+        let mut layout = None;
+        let mut rest = Vec::with_capacity(argv.len());
         let mut i = 0;
         while i < argv.len() {
             let arg = argv[i].as_str();
-            let (name, inline) = match arg.split_once('=') {
-                Some((n, v)) if n.starts_with("--") => (n, Some(v.to_string())),
-                _ => (arg, None),
-            };
-            let mut value = |what: &str| -> Result<String, String> {
-                if let Some(v) = inline.clone() {
-                    return Ok(v);
-                }
+            let value = if arg == "--layout" {
                 i += 1;
-                argv.get(i)
-                    .cloned()
-                    .ok_or_else(|| format!("{name} needs a {what}"))
+                Some(
+                    argv.get(i)
+                        .cloned()
+                        .ok_or_else(|| String::from("--layout needs a name"))?,
+                )
+            } else {
+                arg.strip_prefix("--layout=").map(str::to_string)
             };
-            match name {
-                "-h" | "--help" => return Err(HELP.to_string()),
-                "--screen" => {
-                    let v = value("name")?;
-                    args.screen = match v.as_str() {
-                        "this-pc" => Screen::ThisPc,
-                        "quick-access" => Screen::QuickAccess,
-                        "home" => Screen::Home,
-                        "settings" => Screen::Settings,
-                        other => {
-                            return Err(format!(
-                                "--screen: expected this-pc | quick-access | home | settings, \
-                                 got {other:?}"
-                            ))
-                        }
-                    };
-                }
-                "--theme" => {
-                    let v = value("name")?;
-                    match v.as_str() {
-                        "flat" | "flora" => args.theme = Some(v),
-                        other => {
-                            return Err(format!("--theme: expected flat | flora, got {other:?}"))
-                        }
-                    }
-                }
-                "--mode" => {
-                    let v = value("mode")?;
-                    args.dark = match v.as_str() {
-                        "dark" => Some(true),
-                        "light" => Some(false),
-                        other => {
-                            return Err(format!("--mode: expected light | dark, got {other:?}"))
-                        }
-                    };
-                }
-                "--layout" => {
-                    let v = value("name")?;
-                    args.layout = Some(ViewLayout::from_name(&v).ok_or_else(|| {
+            match value {
+                Some(v) => {
+                    layout = Some(ViewLayout::from_name(&v).ok_or_else(|| {
                         format!(
                             "--layout: expected large-icons, list, details, tiles, ... got {v:?}"
                         )
                     })?);
                 }
-                "--sample" => args.sample = true,
-                other => return Err(format!("unknown option {other:?}\n\n{HELP}")),
+                None => rest.push(argv[i].clone()),
             }
             i += 1;
         }
-        Ok(args)
+        let kit = AppArgs::parse(&SPEC, rest)?;
+        let screen = kit
+            .screen
+            .as_deref()
+            .and_then(|name| SCREENS.iter().find(|(n, _)| *n == name))
+            .map_or(Screen::Default, |(_, s)| *s);
+        Ok(Args {
+            screen,
+            layout,
+            kit,
+        })
     }
 }
 
@@ -220,9 +209,10 @@ fn sample_files() -> Vec<(&'static str, Vec<u8>)> {
 }
 
 /// Writes the sample files into the folder `home` through a `LocalDrive`
-/// (never over a file that is there). Returns how many it wrote.
+/// (never over a file that is there). Returns how many it wrote. The home
+/// folder is not the data tree: no `.azlin/` bookkeeping is left there.
 pub fn write_sample(home: &Path) -> Result<usize, String> {
-    let drive = LocalDrive::new(home);
+    let drive = LocalDrive::without_manifest(home);
     let mut written = 0;
     for (key, bytes) in sample_files() {
         if key.ends_with('/') {
@@ -243,6 +233,7 @@ pub fn write_sample(home: &Path) -> Result<usize, String> {
 mod tests {
     use super::*;
     use crate::model::ViewLayout;
+    use azul_appkit::{ModePref, Theme};
 
     fn parse(args: &[&str]) -> Result<Args, String> {
         Args::parse(args.iter().map(|s| s.to_string()))
@@ -252,10 +243,11 @@ mod tests {
     fn no_switches_start_where_the_settings_say() {
         let args = parse(&[]).unwrap();
         assert_eq!(args.screen, Screen::Default);
-        assert_eq!(args.theme, None);
-        assert_eq!(args.dark, None);
+        assert_eq!(args.kit.theme, None, "the settings file decides");
+        assert_eq!(args.kit.mode, None);
         assert_eq!(args.layout, None);
-        assert!(!args.sample);
+        assert!(!args.kit.sample);
+        assert_eq!(args.kit.data_dir, None);
     }
 
     #[test]
@@ -269,14 +261,23 @@ mod tests {
             "--layout",
             "large-icons",
             "--sample",
+            "--data-dir",
+            "/tmp/azlin",
         ])
         .unwrap();
         assert_eq!(args.screen, Screen::Home);
-        assert_eq!(args.theme.as_deref(), Some("flora"));
-        assert_eq!(args.dark, Some(true));
+        assert_eq!(args.kit.theme, Some(Theme::Flora));
+        assert_eq!(args.kit.mode, Some(ModePref::Dark));
         assert_eq!(args.layout, Some(ViewLayout::LargeIcons));
-        assert!(args.sample);
-        assert_eq!(parse(&["--mode", "light"]).unwrap().dark, Some(false));
+        assert!(args.kit.sample);
+        assert_eq!(args.kit.data_dir, Some(std::path::PathBuf::from("/tmp/azlin")));
+        assert_eq!(parse(&["--mode", "light"]).unwrap().kit.mode, Some(ModePref::Light));
+        assert_eq!(
+            parse(&["--mode", "system"]).unwrap().kit.mode,
+            Some(ModePref::System),
+            "the OS's mode, as in every Azlin app"
+        );
+        assert_eq!(parse(&["--layout=details"]).unwrap().layout, Some(ViewLayout::Details));
         assert_eq!(
             parse(&["--screen", "quick-access"]).unwrap().screen,
             Screen::QuickAccess
@@ -285,6 +286,7 @@ mod tests {
             parse(&["--screen=settings"]).unwrap().screen,
             Screen::Settings
         );
+        assert_eq!(parse(&["--size", "900x600"]).unwrap().kit.size, Some((900.0, 600.0)));
     }
 
     #[test]
@@ -293,8 +295,10 @@ mod tests {
         assert!(parse(&["--theme", "neon"]).unwrap_err().contains("flora"));
         assert!(parse(&["--mode"]).unwrap_err().contains("--mode"));
         assert!(parse(&["--layout", "huge"]).unwrap_err().contains("details"));
+        assert!(parse(&["--layout"]).unwrap_err().contains("--layout"));
         assert!(parse(&["--what"]).unwrap_err().contains("unknown"));
-        assert!(parse(&["--help"]).unwrap_err().contains("USAGE"));
+        let help = parse(&["--help"]).unwrap_err();
+        assert!(help.contains("USAGE") && help.contains("--layout") && help.contains("--data-dir"));
     }
 
     #[test]

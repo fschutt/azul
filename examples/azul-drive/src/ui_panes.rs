@@ -28,7 +28,7 @@ use azul_storage::{config::DriveLocation, key};
 use crate::{
     actions::{self, action_ref, menu_item, on_action, Action},
     browse::{self, Place},
-    go,
+    go, ids,
     jobs::PreviewContent,
     model::ViewLayout,
     place_up, start_tree_listing, ui_view, with_state, DriveState,
@@ -325,20 +325,26 @@ extern "C" fn on_nav_event(
 pub(crate) fn status_bar(s: &DriveState, app: &RefAny) -> Dom {
     let mut segments = Vec::new();
     let count = match &s.place {
-        Place::ThisPc => format!("{} drives", s.slots.len()),
-        Place::QuickAccess => format!("{} pinned folders", s.settings.pinned.len()),
+        Place::ThisPc => browse::counted(s.slots.len(), "drive", "drives"),
+        Place::QuickAccess => {
+            browse::counted(s.settings.pinned.len(), "pinned folder", "pinned folders")
+        }
         Place::Folder { .. } if s.loading => String::from("Loading..."),
         Place::Folder { .. } => {
             let shown = s.visible_entries().len();
             let more = if s.next.is_some() { "+" } else { "" };
-            format!("{shown}{more} items")
+            if more.is_empty() {
+                browse::counted(shown, "item", "items")
+            } else {
+                format!("{shown}{more} items")
+            }
         }
     };
     segments.push(StatusBarSegment::create(AzString::from(count)).with_marker(AzString::from("items")));
     let selected = s.selected_entries();
     if !selected.is_empty() {
         let bytes: u64 = selected.iter().filter_map(|e| e.size).sum();
-        let mut text = format!("{} items selected", selected.len());
+        let mut text = browse::counted(selected.len(), "item selected", "items selected");
         if bytes > 0 {
             text.push_str(&format!("  {}", browse::format_size(Some(bytes))));
         }
@@ -459,7 +465,7 @@ pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
                 None => note(&format!("Loading the preview of \"{name}\"...")),
                 Some(PreviewContent::Message(text)) => note(text),
                 Some(PreviewContent::Text(text)) => Dom::create_div()
-                    .with_id("preview-text")
+                    .with_id(ids::PREVIEW_TEXT)
                     .with_css(
                         "padding: 8px 12px; font-family: monospace; font-size: 12px; \
                          white-space: pre-wrap; overflow-y: auto; flex-grow: 1; min-height: 0px;",
@@ -476,7 +482,7 @@ pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
                     )
                     .with_child(
                         Dom::create_image(image.clone())
-                            .with_id("preview-image")
+                            .with_id(ids::PREVIEW_IMAGE)
                             .with_css("max-width: 100%; max-height: 420px;"),
                     )
                     .with_child(
@@ -499,7 +505,7 @@ pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
                         .as_ref()
                         .is_some_and(|sink| sink.frames_played() < wav.frames());
                     Dom::create_div()
-                        .with_id("preview-audio")
+                        .with_id(ids::PREVIEW_AUDIO)
                         .with_css("display: flex; flex-direction: column; padding: 16px;")
                         .with_child(
                             Dom::create_icon(AzString::from("music_note"))
@@ -521,7 +527,7 @@ pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
                                     on_play_audio as ButtonOnClickCallbackType,
                                 )
                                 .dom()
-                                .with_id("preview-play")
+                                .with_id(ids::PREVIEW_PLAY)
                                 .with_css("margin-top: 12px; align-self: flex-start;"),
                         )
                 }
@@ -539,7 +545,7 @@ pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
                         .with_child(
                             VideoWidget::create(config)
                                 .dom()
-                                .with_id("preview-video")
+                                .with_id(ids::PREVIEW_VIDEO)
                                 .with_css("width: 100%; height: 240px;"),
                         )
                         .with_child(
@@ -554,7 +560,7 @@ pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
         }
     };
     Dom::create_div()
-        .with_id("preview-pane")
+        .with_id(ids::PREVIEW_PANE)
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
         .with_child(body)
 }
@@ -606,7 +612,7 @@ pub(crate) fn details_pane(s: &DriveState) -> Dom {
             }
             None => DetailsPane::create(AzString::from(browse::THIS_PC))
                 .with_icon(AzString::from("computer"))
-                .with_subtitle(AzString::from(format!("{} drives", s.slots.len()))),
+                .with_subtitle(AzString::from(browse::counted(s.slots.len(), "drive", "drives"))),
         },
         Place::QuickAccess => DetailsPane::create(AzString::from(browse::QUICK_ACCESS))
             .with_icon(AzString::from("star"))
@@ -654,13 +660,9 @@ pub(crate) fn details_pane(s: &DriveState) -> Dom {
                         pane = pane.with_property(AzString::from("ETag"), AzString::from(etag.as_str()));
                     }
                     if let Some(Ok(pairs)) = s.metadata.get(&entry.key) {
-                        for (name, value) in pairs {
-                            if name != "ETag" {
-                                pane = pane.with_property(
-                                    AzString::from(name.as_str()),
-                                    AzString::from(value.as_str()),
-                                );
-                            }
+                        let shown = ["Size", "Date modified", "Location", "ETag"];
+                        for (name, value) in browse::metadata_rows(pairs, &shown, &chrono::Local) {
+                            pane = pane.with_property(AzString::from(name), AzString::from(value));
                         }
                     }
                     pane
@@ -683,5 +685,5 @@ pub(crate) fn details_pane(s: &DriveState) -> Dom {
             }
         }
     };
-    pane.dom().with_id("details")
+    pane.dom().with_id(ids::DETAILS)
 }

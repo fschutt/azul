@@ -1486,9 +1486,30 @@ fn mirror_insertion(state: &mut TextInputState, inserted: &str, caret: Option<us
 }
 
 /// The caret's byte offset inside the edited node, if the engine has one.
+/// The byte offset in `text` a caret stands at: a LEADING caret before its
+/// grapheme cluster, a TRAILING one after it.
+fn caret_byte(cursor: &azul_core::selection::TextCursor, text: &str) -> usize {
+    let start = (cursor.cluster_id.start_byte_in_run as usize).min(text.len());
+    match cursor.affinity {
+        azul_core::selection::CursorAffinity::Leading => start,
+        azul_core::selection::CursorAffinity::Trailing => text
+            .get(start..)
+            .and_then(|rest| rest.graphemes(true).next())
+            .map_or(start, |cluster| start + cluster.len()),
+    }
+}
+
+/// The engine's caret in `node`, as a byte offset into the engine's buffer
+/// (the bullets of a password).
 fn engine_caret(info: &CallbackInfo, node: DomNodeId) -> Option<usize> {
-    info.get_node_cursor_position(node)
-        .map(|c| c.cluster_id.start_byte_in_run as usize)
+    let cursor = info.get_node_cursor_position(node)?;
+    // An empty read is ambiguous (see `adopt_engine_text`): the cluster start then.
+    Some(
+        match info.get_node_text_content(node).filter(|t| !t.is_empty()) {
+            Some(text) => caret_byte(&cursor, &text),
+            None => cursor.cluster_id.start_byte_in_run as usize,
+        },
+    )
 }
 
 /// The engine's selection in the widget's public shape, as offsets into the
@@ -1596,6 +1617,25 @@ pub(crate) fn replace_engine_line(info: &mut CallbackInfo, container: DomNodeId,
         if let Some(leaf) = info.get_first_child(line) {
             info.change_node_text(leaf, AzString::from(shown));
         }
+    }
+}
+
+impl TextInput {
+    /// Sets the text of the field hosted at `container` from a callback, as the
+    /// app: it supersedes what the user typed there (a chat field emptied after
+    /// Send, a search box filled from a suggestion). Re-rendering the field
+    /// with `with_text` alone does not: the user's typing outranks the DOM
+    /// until the DOM catches up. A password field shows its mask.
+    pub fn set_text_in(info: &mut CallbackInfo, container: DomNodeId, text: AzString) {
+        let password = info
+            .get_node_attribute(container, "type")
+            .is_some_and(|t| t.as_str() == "password");
+        let shown = if password {
+            mask_for(text.as_str())
+        } else {
+            text.as_str().to_string()
+        };
+        replace_engine_line(info, container, &shown);
     }
 }
 
@@ -5113,6 +5153,20 @@ mod autotest_generated {
             );
         }
     }
+
+    #[test]
+    fn the_app_sets_a_fields_text_on_its_line_over_the_typing() {
+        let (styled_dom, _state) = rendered(TextInput::create().with_text("Hello Ben".into()));
+        let (_, changes, nodes) = run(Env::new(styled_dom), |mut info| {
+            TextInput::set_text_in(&mut info, dom_node(CONTAINER), AzString::from(""));
+        });
+        let leaf = nodes.label_text.expect("the value line has a text leaf");
+        assert_eq!(
+            pushed_texts(&changes),
+            vec![(leaf, String::new())],
+            "one write, on the line's text leaf (ChangeNodeText supersedes the typing)"
+        );
+    }
 }
 
 /// R5: a text field's STRUCTURE (display, flex, overflow, cursor, ...) is
@@ -5158,5 +5212,47 @@ mod structure_tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod caret_tests {
+    use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
+
+    use super::caret_byte;
+
+    fn at(start_byte_in_run: u32, affinity: CursorAffinity) -> TextCursor {
+        TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run,
+            },
+            affinity,
+        }
+    }
+
+    /// End puts the engine's caret on the LAST cluster, trailing: the widget's
+    /// mirror inserted one character early ("notes.txt", End, "X" mirrored as
+    /// "notes.txXt" while the field showed "notes.txtX").
+    #[test]
+    fn a_trailing_caret_stands_after_its_cluster() {
+        assert_eq!(caret_byte(&at(8, CursorAffinity::Trailing), "notes.txt"), 9);
+        assert_eq!(caret_byte(&at(0, CursorAffinity::Trailing), "notes.txt"), 1);
+        // A cluster of several bytes is stepped over whole.
+        assert_eq!(caret_byte(&at(1, CursorAffinity::Trailing), "a\u{e9}b"), 3);
+        assert_eq!(caret_byte(&at(1, CursorAffinity::Trailing), "ae\u{301}b"), 4);
+    }
+
+    #[test]
+    fn a_leading_caret_stands_before_its_cluster() {
+        assert_eq!(caret_byte(&at(8, CursorAffinity::Leading), "notes.txt"), 8);
+        assert_eq!(caret_byte(&at(0, CursorAffinity::Leading), "notes.txt"), 0);
+    }
+
+    #[test]
+    fn a_caret_past_the_text_stays_inside_it() {
+        assert_eq!(caret_byte(&at(9, CursorAffinity::Trailing), "notes.txt"), 9);
+        assert_eq!(caret_byte(&at(40, CursorAffinity::Leading), "notes.txt"), 9);
+        assert_eq!(caret_byte(&at(0, CursorAffinity::Trailing), ""), 0);
     }
 }

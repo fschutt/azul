@@ -1,32 +1,34 @@
 //! The dialogs (a modal window, or a sheet inside the window for scripts):
 //! Add drive, delete for good, remove a drive, Replace or Skip Files,
 //! Properties (General / Details), Choose location, the transfer queue;
-//! and the FILE backstage with the Options (ShellSettingsLayout) and About.
+//! and the FILE backstage with the Options (azul-appkit's settings page: View, Navigation and
+//! Drives, then the kit's Appearance, Data, Keyboard shortcuts and About) and azul's About box.
 
 use azul::{
     callbacks::{
         BackstageOnNavSelectCallbackType, ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType,
-        DropDownOnChoiceChangeCallbackType, ShellSettingsLayoutOnCategoryCallbackType,
-        ShellSettingsLayoutOnSearchCallbackType, TabOnClickCallbackType,
-        TextInputOnTextInputCallbackType,
+        DropDownOnChoiceChangeCallbackType, StandardDialogOnEventCallbackType,
+        TabOnClickCallbackType, TextInputOnTextInputCallbackType,
     },
     prelude::*,
-    shells::{ShellSettingsLayout, ShellSettingsSection},
     str::String as AzString,
     vec::{BackstageNavItemVec, StringVec},
     widgets::{
-        Backstage, BackstageNavItem, ButtonType, CheckBoxState, DialogState, DropDown,
-        OnTextInputReturn, TabHeader, TabHeaderState, TextInputState, TextInputValid,
+        AboutDialog, Backstage, BackstageNavItem, ButtonType, CheckBoxState, DialogState,
+        DropDown, MessageBox, MessageBoxKind, OnTextInputReturn, ProgressDialog, StandardDialogEvent,
+        StandardDialogEventKind, TabHeader, TabHeaderState, TextInputState, TextInputValid,
     },
 };
+use azul_appkit::ui::AppSection;
 use azul_storage::{config::DriveLocation, key};
 
 use crate::{
     actions::{self, action_ref, on_action, Action, ActionRef, Toggle},
     browse,
     fileops::{ConflictChoice, JobState},
+    ids,
     model::{StartPlace, ViewLayout},
-    save_settings, with_state, DriveState, Popup, PropertiesState, HOME_ID,
+    save_settings, with_state, DriveState, Popup, PropertiesState,
 };
 
 // ==== Pieces ====
@@ -114,7 +116,7 @@ struct FieldRef {
     field: Field,
 }
 
-fn input(app: &RefAny, value: &str, placeholder: &str, field: Field, id: &str, secret: bool) -> Dom {
+fn input(app: &RefAny, value: &str, placeholder: &str, field: Field, id: AzString, secret: bool) -> Dom {
     let base = if secret {
         TextInput::create_password()
     } else {
@@ -130,7 +132,7 @@ fn input(app: &RefAny, value: &str, placeholder: &str, field: Field, id: &str, s
             on_form_text as TextInputOnTextInputCallbackType,
         )
         .dom()
-        .with_id(AzString::from(id))
+        .with_id(id)
 }
 
 extern "C" fn on_form_text(
@@ -188,17 +190,17 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
             ..
         } => {
             let mut body = Dom::create_div()
-                .with_id("add-drive")
+                .with_id(ids::ADD_DRIVE)
                 .with_css("display: flex; flex-direction: column; min-width: 340px;")
                 .with_child(label("Name"))
-                .with_child(input(app, &form.name, "S3 Drive", Field::Name, "add-name", false))
+                .with_child(input(app, &form.name, "S3 Drive", Field::Name, ids::ADD_NAME, false))
                 .with_child(label("Endpoint"))
                 .with_child(input(
                     app,
                     &form.endpoint,
                     "https://s3.eu-central-1.amazonaws.com",
                     Field::Endpoint,
-                    "add-endpoint",
+                    ids::ADD_ENDPOINT,
                     false,
                 ))
                 .with_child(label("Region"))
@@ -207,18 +209,18 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
                     &form.region,
                     "us-east-1 (R2: auto)",
                     Field::Region,
-                    "add-region",
+                    ids::ADD_REGION,
                     false,
                 ))
                 .with_child(label("Bucket"))
-                .with_child(input(app, &form.bucket, "my-bucket", Field::Bucket, "add-bucket", false))
+                .with_child(input(app, &form.bucket, "my-bucket", Field::Bucket, ids::ADD_BUCKET, false))
                 .with_child(label("Access key"))
                 .with_child(input(
                     app,
                     &form.access_key,
                     "",
                     Field::AccessKey,
-                    "add-access-key",
+                    ids::ADD_ACCESS_KEY,
                     false,
                 ))
                 .with_child(label("Secret key (kept in the system keyring only)"))
@@ -227,7 +229,7 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
                     &form.secret_key,
                     "",
                     Field::SecretKey,
-                    "add-secret-key",
+                    ids::ADD_SECRET_KEY,
                     true,
                 ))
                 .with_child(
@@ -263,10 +265,10 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
                 }
             };
             if let Some(text) = status {
-                body.add_child(line(&text).with_id("add-status"));
+                body.add_child(line(&text).with_id(ids::ADD_STATUS));
             }
             if !error.is_empty() {
-                body.add_child(line(error).with_id("add-error").with_css("color: #C42B1C;"));
+                body.add_child(line(error).with_id(ids::ADD_ERROR).with_css("color: #C42B1C;"));
             }
             body.add_child(buttons(vec![
                 button("Test connection", app, on_test_connection),
@@ -286,35 +288,35 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
                 many => format!("these {} items", many.len()),
             };
             let drive = s.drive_name(&browse::Place::folder(drive_id, ""));
+            // azul's standard message box (DEDUP_OFFICE D12): Cancel (0) / Delete (1).
             (
                 String::from("Delete for good"),
-                Dom::create_div()
-                    .with_id("confirm-delete")
-                    .with_css("display: flex; flex-direction: column; min-width: 320px;")
-                    .with_child(line(&format!(
-                        "Are you sure you want to delete {what} from \"{drive}\" for good?"
-                    )))
-                    .with_child(line("This cannot be undone.").with_css("opacity: 0.75;"))
-                    .with_child(buttons(vec![
-                        button("Cancel", app, on_cancel_popup),
-                        typed_button("Delete", ButtonType::Danger, app, on_confirm_delete),
-                    ])),
+                MessageBox::create(
+                    MessageBoxKind::Warning,
+                    "Delete for good",
+                    format!("Are you sure you want to delete {what} from \"{drive}\" for good?"),
+                )
+                .with_detail("This cannot be undone.")
+                .with_buttons(vec![AzString::from("Cancel"), AzString::from("Delete")], 1)
+                .with_on_event(app.clone(), on_confirm_delete_event as StandardDialogOnEventCallbackType)
+                .dom()
+                .with_id(ids::CONFIRM_DELETE),
             )
         }
         Popup::ConfirmForget { drive_id } => {
             let name = s.drive_name(&browse::Place::folder(drive_id, ""));
+            let title = format!("Remove the drive \"{name}\"?");
             (
-                format!("Remove the drive \"{name}\"?"),
-                Dom::create_div()
-                    .with_css("display: flex; flex-direction: column; min-width: 320px;")
-                    .with_child(line(
-                        "AzDrive forgets the drive and removes its keys from the keyring. Its \
-                         files stay where they are.",
-                    ))
-                    .with_child(buttons(vec![
-                        button("Cancel", app, on_cancel_popup),
-                        typed_button("Remove", ButtonType::Danger, app, on_confirm_forget),
-                    ])),
+                title.clone(),
+                MessageBox::create(
+                    MessageBoxKind::Question,
+                    title,
+                    "AzDrive forgets the drive and removes its keys from the keyring.",
+                )
+                .with_detail("Its files stay where they are.")
+                .with_buttons(vec![AzString::from("Cancel"), AzString::from("Remove")], 1)
+                .with_on_event(app.clone(), on_confirm_forget_event as StandardDialogOnEventCallbackType)
+                .dom(),
             )
         }
         Popup::Conflict { id, apply_all } => conflict_dialog(s, app, *id, *apply_all),
@@ -325,10 +327,10 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
                 _ => "Copy",
             };
             let mut body = Dom::create_div()
-                .with_id("choose-location")
+                .with_id(ids::CHOOSE_LOCATION)
                 .with_css("display: flex; flex-direction: column; min-width: 360px;")
                 .with_child(label("The folder (a drive's name, then its folders: Home/docs)"))
-                .with_child(input(app, text, "Home/docs", Field::Location, "location-path", false));
+                .with_child(input(app, text, "Home/docs", Field::Location, ids::LOCATION_PATH, false));
             if !error.is_empty() {
                 body.add_child(line(error).with_css("color: #C42B1C;"));
             }
@@ -338,7 +340,7 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
             ]));
             (format!("{verb} the selected items to"), body)
         }
-        Popup::Transfers => transfers_dialog(s, app),
+        Popup::Transfers { .. } => transfers_dialog(s, app),
     }
 }
 
@@ -356,7 +358,7 @@ fn conflict_dialog(s: &DriveState, app: &RefAny, id: u64, apply_all: bool) -> (S
     let name = next.map_or_else(String::new, |f| key::last_segment(&f.target_key).to_string());
     let target = s.place_title(&browse::Place::folder(&job.target_id, &job.target_prefix));
     let mut body = Dom::create_div()
-        .with_id("conflict")
+        .with_id(ids::CONFLICT)
         .with_css("display: flex; flex-direction: column; min-width: 380px;")
         .with_child(line(&format!(
             "{} {} item(s) to \"{target}\"",
@@ -373,7 +375,7 @@ fn conflict_dialog(s: &DriveState, app: &RefAny, id: u64, apply_all: bool) -> (S
             browse::format_size(file.size)
         )));
     }
-    let choice = |text: &str, choice: ConflictChoice, id: &str| {
+    let choice = |text: &str, choice: ConflictChoice, id: AzString| {
         Button::create(AzString::from(text))
             .with_on_click(
                 RefAny::new(ChoiceRef {
@@ -383,16 +385,16 @@ fn conflict_dialog(s: &DriveState, app: &RefAny, id: u64, apply_all: bool) -> (S
                 on_conflict_choice as ButtonOnClickCallbackType,
             )
             .dom()
-            .with_id(AzString::from(id))
+            .with_id(id)
             .with_css("margin-top: 8px;")
     };
     body.add_child(choice(
         "Replace the file in the destination",
         ConflictChoice::Replace,
-        "conflict-replace",
+        ids::CONFLICT_REPLACE,
     ));
-    body.add_child(choice("Skip this file", ConflictChoice::Skip, "conflict-skip"));
-    body.add_child(choice("Keep both files", ConflictChoice::KeepBoth, "conflict-keep-both"));
+    body.add_child(choice("Skip this file", ConflictChoice::Skip, ids::CONFLICT_SKIP));
+    body.add_child(choice("Keep both files", ConflictChoice::KeepBoth, ids::CONFLICT_KEEP_BOTH));
     if left > 1 {
         body.add_child(
             Dom::create_div()
@@ -546,17 +548,8 @@ fn properties_dialog(s: &DriveState, app: &RefAny, props: &PropertiesState) -> (
                         details.push((String::from("Metadata"), String::from("Reading...")))
                     }
                     Some(Ok(pairs)) => {
-                        for (name, value) in pairs {
-                            let value = if name == "Created" {
-                                value
-                                    .parse::<u64>()
-                                    .map(|secs| browse::format_modified(Some(secs), &chrono::Local))
-                                    .unwrap_or_else(|_| value.clone())
-                            } else {
-                                value.clone()
-                            };
-                            details.push((name.clone(), value));
-                        }
+                        let shown = ["Name", "Key", "ETag"];
+                        details.extend(browse::metadata_rows(pairs, &shown, &chrono::Local));
                     }
                     Some(Err(e)) => details.push((String::from("Metadata"), e.clone())),
                     None => {}
@@ -580,7 +573,7 @@ fn properties_dialog(s: &DriveState, app: &RefAny, props: &PropertiesState) -> (
     }
     let rows = if props.tab == 0 { general } else { details };
     let body = Dom::create_div()
-        .with_id("properties")
+        .with_id(ids::PROPERTIES)
         .with_css("display: flex; flex-direction: column; min-width: 420px;")
         .with_child(tabs)
         .with_child(property_rows(rows))
@@ -604,12 +597,40 @@ extern "C" fn on_properties_tab(mut data: RefAny, mut info: CallbackInfo, state:
 /// The transfer queue: what runs, what waits, what ended; Cancel.
 fn transfers_dialog(s: &DriveState, app: &RefAny) -> (String, Dom) {
     let mut body = Dom::create_div()
-        .with_id("transfers")
+        .with_id(ids::TRANSFERS)
         .with_css("display: flex; flex-direction: column; min-width: 420px;");
     if s.queue.jobs().is_empty() {
         body.add_child(line("No transfers."));
     }
-    for job in s.queue.jobs() {
+    // The running transfer: azul's standard progress dialog (the bar, the files, the current
+    // name, Cancel).
+    if let Some(job) = s.queue.running() {
+        let p = &job.progress;
+        let mut text = format!("{} of {} item(s)", p.files_done, p.files_total);
+        if p.bytes_total > 0 {
+            text.push_str(&format!(
+                " - {} of {}",
+                browse::format_size(Some(p.bytes_done)),
+                browse::format_size(Some(p.bytes_total))
+            ));
+        }
+        body.add_child(
+            ProgressDialog::create(job.label.as_str(), p.percent())
+                .with_text(text)
+                .with_detail(p.current.as_str())
+                .with_indeterminate(p.files_total == 0 && p.bytes_total == 0)
+                .with_cancel("Cancel", true)
+                .with_on_event(
+                    RefAny::new(CancelRef {
+                        app: app.clone(),
+                        id: job.id,
+                    }),
+                    on_progress_event as StandardDialogOnEventCallbackType,
+                )
+                .dom(),
+        );
+    }
+    for job in s.queue.jobs().iter().filter(|j| j.state != JobState::Running) {
         let state = match &job.state {
             JobState::Waiting => String::from("waiting"),
             JobState::Running => format!("{:.0}%", job.progress.percent()),
@@ -659,6 +680,18 @@ extern "C" fn on_cancel_transfer(mut data: RefAny, mut info: CallbackInfo) -> Up
     })
 }
 
+/// The progress dialog's Cancel: cancels the running transfer.
+extern "C" fn on_progress_event(
+    data: RefAny,
+    info: CallbackInfo,
+    event: StandardDialogEvent,
+) -> Update {
+    if event.kind != StandardDialogEventKind::Cancel {
+        return Update::DoNothing;
+    }
+    on_cancel_transfer(data, info)
+}
+
 extern "C" fn on_clear_finished(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, |_info, _app, s| s.queue.clear_finished())
 }
@@ -666,9 +699,9 @@ extern "C" fn on_clear_finished(mut data: RefAny, mut info: CallbackInfo) -> Upd
 /// A dialog as a sheet inside the window (`AZDRIVE_DIALOGS=inline`).
 pub(crate) fn inline_sheet(title: String, panel: Dom) -> Dom {
     Dom::create_div()
-        .with_id("sheet")
+        .with_id(ids::SHEET)
         .with_css(
-            "position: absolute; top: 120px; right: 24px; width: 440px; padding: 16px; \
+            "position: absolute; z-index: 100; top: 120px; right: 24px; width: 440px; padding: 16px; \
              display: flex; flex-direction: column; background: system:window-background; \
              border: 1px solid system:separator; border-radius: 6px; \
              box-shadow: 0px 4px 16px rgba(0, 0, 0, 0.25);",
@@ -697,15 +730,39 @@ extern "C" fn on_cancel_popup(mut data: RefAny, mut info: CallbackInfo) -> Updat
     })
 }
 
-extern "C" fn on_confirm_delete(mut data: RefAny, mut info: CallbackInfo) -> Update {
+/// Whether a message box's event is its second button (Delete, Remove): every other answer
+/// (Cancel, Escape, the close box) keeps things as they are.
+fn confirmed(event: &StandardDialogEvent) -> bool {
+    event.kind == StandardDialogEventKind::Button && event.index == 1
+}
+
+extern "C" fn on_confirm_delete_event(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    event: StandardDialogEvent,
+) -> Update {
+    let yes = confirmed(&event);
     with_state(&mut data, &mut info, |info, app, s| {
-        actions::confirm_delete(info, app, s)
+        if yes {
+            actions::confirm_delete(info, app, s);
+        } else {
+            actions::close_popup(info, app, s);
+        }
     })
 }
 
-extern "C" fn on_confirm_forget(mut data: RefAny, mut info: CallbackInfo) -> Update {
+extern "C" fn on_confirm_forget_event(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    event: StandardDialogEvent,
+) -> Update {
+    let yes = confirmed(&event);
     with_state(&mut data, &mut info, |info, app, s| {
-        actions::forget_drive(info, app, s)
+        if yes {
+            actions::forget_drive(info, app, s);
+        } else {
+            actions::close_popup(info, app, s);
+        }
     })
 }
 
@@ -752,7 +809,7 @@ pub(crate) fn backstage(s: &DriveState, app: &RefAny, page: usize) -> Dom {
         BackstageNavItem::create(AzString::from("About")),
         BackstageNavItem::create(AzString::from("Close")).with_gap_before(),
     ];
-    let content = if page == 1 { about(s) } else { options(s, app) };
+    let content = if page == 1 { about(app) } else { options(s, app) };
     Backstage::create(BackstageNavItemVec::from(items))
         .with_active_item(page.min(1))
         .with_content(content)
@@ -766,6 +823,9 @@ extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, index: 
         if index == 2 {
             info.close_window();
         } else {
+            if index == 0 {
+                azul_appkit::ui::open_settings(&s.kit, None);
+            }
             s.backstage = Some(index);
         }
     })
@@ -775,8 +835,9 @@ extern "C" fn on_backstage_back(mut data: RefAny, mut info: CallbackInfo) -> Upd
     with_state(&mut data, &mut info, |_info, _app, s| s.backstage = None)
 }
 
-/// The Options' categories.
-const CATEGORIES: [&str; 4] = ["View", "Navigation", "Drives", "About"];
+/// AzDrive's own categories of the Options; azul-appkit adds Appearance, Data, Keyboard
+/// shortcuts and About after them.
+pub(crate) const CATEGORIES: [&str; 3] = ["View", "Navigation", "Drives"];
 
 /// A setting's check box with its label (both toggle it).
 fn setting_check(app: &RefAny, text: &str, which: Toggle, on: bool) -> Dom {
@@ -820,13 +881,35 @@ fn column_of(children: Vec<Dom>) -> Dom {
         .with_children(DomVec::from(children))
 }
 
-fn section(title: &str, content: Dom) -> ShellSettingsSection {
-    ShellSettingsSection::create(AzString::from(title), content)
+fn section(title: &str, content: Dom) -> (String, Dom) {
+    (title.to_string(), content)
 }
 
-/// The Options: the sections of the chosen category.
+/// The Options: azul-appkit's settings page with AzDrive's sections (View, Navigation, Drives)
+/// before the kit's (Appearance, Data, Keyboard shortcuts, About); the kit keeps the category
+/// and the search, and saves the theme and mode.
 fn options(s: &DriveState, app: &RefAny) -> Dom {
-    let sections: Vec<ShellSettingsSection> = match s.settings_category {
+    let mut sections = Vec::new();
+    for category in 0..CATEGORIES.len() {
+        sections.extend(
+            options_of(s, app, category)
+                .into_iter()
+                .map(|(title, content)| AppSection {
+                    category,
+                    title,
+                    content,
+                }),
+        );
+    }
+    Dom::create_div()
+        .with_id(ids::SETTINGS)
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
+        .with_child(azul_appkit::ui::settings_page(&s.kit, sections))
+}
+
+/// The sections of one of AzDrive's categories: (title, content).
+fn options_of(s: &DriveState, app: &RefAny, category: usize) -> Vec<(String, Dom)> {
+    match category {
         0 => {
             let layouts: Vec<AzString> = ViewLayout::ALL
                 .iter()
@@ -847,7 +930,7 @@ fn options(s: &DriveState, app: &RefAny) -> Dom {
                             on_default_layout as DropDownOnChoiceChangeCallbackType,
                         )
                         .dom()
-                        .with_id("setting-layout"),
+                        .with_id(ids::SETTING_LAYOUT),
                 ),
                 section(
                     "Show",
@@ -902,7 +985,7 @@ fn options(s: &DriveState, app: &RefAny) -> Dom {
                     on_start_place as DropDownOnChoiceChangeCallbackType,
                 )
                 .dom()
-                .with_id("setting-start"),
+                .with_id(ids::SETTING_START),
             ),
             section(
                 "Panes",
@@ -918,7 +1001,7 @@ fn options(s: &DriveState, app: &RefAny) -> Dom {
                 ]),
             ),
         ],
-        2 => {
+        _ => {
             let rows: Vec<Dom> = s
                 .slots
                 .iter()
@@ -953,7 +1036,7 @@ fn options(s: &DriveState, app: &RefAny) -> Dom {
                                     .with_css("font-size: 12px; opacity: 0.75;"),
                                 ),
                         );
-                    if slot.entry.id != HOME_ID {
+                    if !slot.is_built_in() {
                         row.add_child(
                             Button::create(AzString::from("Remove"))
                                 .with_on_click(
@@ -995,54 +1078,29 @@ fn options(s: &DriveState, app: &RefAny) -> Dom {
                 ),
             ]
         }
-        _ => vec![section("About AzDrive", about(s))],
-    };
-    let categories: Vec<AzString> = CATEGORIES.iter().map(|c| AzString::from(*c)).collect();
-    ShellSettingsLayout::create(StringVec::from(categories))
-        .with_sections(azul::vec::ShellSettingsSectionVec::from(sections))
-        .with_active_category(s.settings_category)
-        .with_search(AzString::from(s.settings_search.as_str()))
-        .with_search_placeholder(AzString::from("Search the options"))
-        .with_on_category(
-            app.clone(),
-            on_settings_category as ShellSettingsLayoutOnCategoryCallbackType,
-        )
-        .with_on_search(
-            app.clone(),
-            on_settings_search as ShellSettingsLayoutOnSearchCallbackType,
-        )
-        .dom()
-        .with_id("settings")
+    }
 }
 
-/// About AzDrive.
-fn about(s: &DriveState) -> Dom {
-    let settings_file = s
-        .settings_drive
-        .as_ref()
-        .map_or_else(|| String::from("(none)"), |d| {
-            d.root().join(crate::SETTINGS_KEY).display().to_string()
-        });
-    column_of(vec![
-        Dom::create_span_with_text(AzString::from(format!(
-            "AzDrive {}",
-            env!("CARGO_PKG_VERSION")
-        )))
-        .with_css("font-size: 18px; font-weight: bold;"),
-        line(
-            "A file manager like Windows Explorer for the folders of this computer and S3 \
-             buckets (AWS S3, Cloudflare R2, MinIO), built on azul: the BrowserShell, the Ribbon, \
-             the navigation pane, the address bar, tiles, the InfoBar and the status bar.",
-        ),
-        line(&format!("Settings: {settings_file}")).with_css("font-size: 12px; opacity: 0.75;"),
-        line(
-            "Keys: Enter opens, Backspace / Alt+Up goes up, Alt+Left / Alt+Right walk the \
-             history, F2 renames, Delete / Shift+Delete, Ctrl+C / Ctrl+X / Ctrl+V, Ctrl+A, \
-             Ctrl+Z, Ctrl+Shift+N, F5, Ctrl+F, the menu key; type a name to jump to it.",
-        )
-        .with_css("font-size: 12px; opacity: 0.75;"),
-    ])
-    .with_id("about")
+/// FILE > About: azul's standard About box (DEDUP_OFFICE D12); OK closes the backstage. The
+/// data folder and the keys are on the Options' Data and Keyboard shortcuts pages.
+fn about(app: &RefAny) -> Dom {
+    let about = crate::ABOUT;
+    AboutDialog::create(about.name, about.version)
+        .with_icon("folder_open")
+        .with_description(about.summary)
+        .with_credit("azul", "MIT")
+        .with_credit("azul-storage", about.license)
+        .with_on_event(app.clone(), on_about_event as StandardDialogOnEventCallbackType)
+        .dom()
+        .with_id(ids::ABOUT)
+}
+
+extern "C" fn on_about_event(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    _event: StandardDialogEvent,
+) -> Update {
+    with_state(&mut data, &mut info, |_info, _app, s| s.backstage = None)
 }
 
 struct DriveRef {
@@ -1083,11 +1141,3 @@ extern "C" fn on_start_place(mut data: RefAny, mut info: CallbackInfo, index: us
     })
 }
 
-extern "C" fn on_settings_category(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
-    with_state(&mut data, &mut info, |_info, _app, s| s.settings_category = index)
-}
-
-extern "C" fn on_settings_search(mut data: RefAny, mut info: CallbackInfo, text: AzString) -> Update {
-    let text = text.as_str().to_string();
-    with_state(&mut data, &mut info, |_info, _app, s| s.settings_search = text)
-}

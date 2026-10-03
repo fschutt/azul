@@ -86,7 +86,7 @@ def run_scenario(name, args, binary, worker, logs, extra):
             e2e.until("%s's debug server" % app.name, lambda app=app: app.op("wait_frame") is not None,
                       deadline, procs)
             e2e.until("%s's tile in %s" % (other, app.name),
-                      lambda app=app, other=other: app.rect("azmeet-tile-%s-camera" % other)[0] is not None,
+                      lambda app=app, other=other: app.rect(app.id("tile-%s-camera" % other))[0] is not None,
                       deadline, procs)
         if name == "video":
             for app, other in ((ada, "Ben"), (ben, "Ada")):
@@ -113,7 +113,7 @@ def run_scenario(name, args, binary, worker, logs, extra):
                 "frames": report.get("frames_since_reset"),
                 "damage": report.get("accumulated_paint_damage_rects"),
             }
-            _, tile = app.rect("azmeet-tile-%s-camera" % other)
+            _, tile = app.rect(app.id("tile-%s-camera" % other))
             entry["damage_inside_tile"] = all(inside(r, tile) for r in (entry["damage"] or []))
             if name == "video":
                 # `AZMEET_ENCODER <track-rendition> <w>x<h> hardware|software`, per encoder opened.

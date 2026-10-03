@@ -2303,6 +2303,12 @@ pub fn render_single_item(
                     (scroll_dx, scroll_dy),
                 );
             }
+            // LCD text needs an opaque backdrop (see `backdrop_is_opaque`): a
+            // run over a transparent layer pixel takes grayscale coverage.
+            let grayscale = item
+                .visual_bounds()
+                .and_then(|ink| text_run_clip(&scroll_rect(&ink), clip, dpi_factor))
+                .is_some_and(|run| !backdrop_is_opaque(pixmap, run));
             render_text_with_bg(
                 glyphs,
                 *font_hash,
@@ -2316,7 +2322,7 @@ pub fn render_single_item(
                 dpi_factor,
                 glyph_cache,
                 (scroll_dx, scroll_dy),
-                false,
+                grayscale,
                 item_uniform_bg,
             );
         }
@@ -3413,6 +3419,31 @@ fn text_run_clip(clip_rect: &LogicalRect, clip: Option<AzRect>, dpi_factor: f32)
         Some(c) => own.clip(&c),
         None => Some(own),
     }
+}
+
+/// Whether every pixel of `pixmap` under `rect` (device pixels) is opaque.
+///
+/// LCD subpixel text blends each colour stripe against the destination and
+/// stamps the pixel opaque, so it is only right over an opaque backdrop. An
+/// opacity / filter / transform layer starts TRANSPARENT (its content is
+/// composited through the effect): LCD glyph edges drawn there were blended
+/// against transparent black and stamped opaque - smeared, heavy text in every
+/// dimmed (disabled) control. A run over any transparent pixel takes
+/// grayscale coverage instead, as browsers draw text in a layer without an
+/// opaque background.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded pixel coords
+fn backdrop_is_opaque(pixmap: &AzulPixmap, rect: AzRect) -> bool {
+    let w = pixmap.width as usize;
+    let h = pixmap.height as usize;
+    let x0 = (rect.x.floor().max(0.0) as usize).min(w);
+    let y0 = (rect.y.floor().max(0.0) as usize).min(h);
+    let x1 = ((rect.x + rect.width).ceil().max(0.0) as usize).min(w).max(x0);
+    let y1 = ((rect.y + rect.height).ceil().max(0.0) as usize).min(h);
+    let data = pixmap.data();
+    (y0..y1).all(|y| {
+        data.get((y * w + x0) * 4..(y * w + x1) * 4)
+            .is_none_or(|row| row.chunks_exact(4).all(|p| p[3] == 255))
+    })
 }
 
 #[allow(clippy::too_many_arguments)] // mirrors render_text's font/metric plumbing

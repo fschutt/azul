@@ -18,6 +18,9 @@ publish = false
 [dependencies]
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
 azul-storage = { path = "../azul-storage", features = ["azul"] }
+# The Azlin app skeleton: the common switches, the data root, the settings page (Appearance,
+# Data, Shortcuts, About), the --shot timer.
+azul-appkit = { path = "../azul-appkit", features = ["azul"] }
 # The same features azul-layout and AzCalendar build chrono with (the local time of a date).
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 # The settings file (already in the tree through azul-storage and azul-layout).

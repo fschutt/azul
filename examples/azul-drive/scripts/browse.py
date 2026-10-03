@@ -309,14 +309,19 @@ def run(args, logs):
             dom = app.until("the dialog window's DOM (list_doms)", dialog_dom)
             log("the dialog is DOM %s" % dom)
         app.until("the Add drive form", lambda: app.shows("Test connection", dom_id=dom))
-        for selector, text in (
-            ("#add-name", DRIVE_NAME),
-            ("#add-endpoint", server.url),
-            ("#add-region", REGION),
-            ("#add-bucket", BUCKET),
-            ("#add-access-key", ACCESS),
-            ("#add-secret-key", SECRET),
+        # The form's ids carry the app prefix `__azdrive_` (src/ids.rs); an older build used
+        # the bare names.
+        found = app.op("get_node_layout", dom_id=dom, selector="#__azdrive_add_name")
+        prefixed = isinstance(found, dict) and found.get("status") != "error"
+        for short, text in (
+            ("add_name", DRIVE_NAME),
+            ("add_endpoint", server.url),
+            ("add_region", REGION),
+            ("add_bucket", BUCKET),
+            ("add_access_key", ACCESS),
+            ("add_secret_key", SECRET),
         ):
+            selector = "#__azdrive_" + short if prefixed else "#" + short.replace("_", "-")
             app.must("focus_node", dom_id=dom, selector=selector)
             time.sleep(0.15)
             app.must("text_input", dom_id=dom, text=text)

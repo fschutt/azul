@@ -7,13 +7,17 @@
        tone and the test pattern for their devices, each under the capped runner
        (run_capped.sh, 1000 MB and --app-seconds each: two apps run at once here, so each gets
        the smaller cap);
-    3. asserts each window has the other's camera tile (`#azmeet-tile-<name>-camera`, laid out
+    3. asserts each window has the other's camera tile (`#__azmeet_tile_<name>_camera`, laid out
        inside the window) and decodes the other's video (the statistics panel's "Video from
        <name> (camera ...): <codec>, decoded N" line, N > 0; H.264 with --require-h264);
     4. Ada opens the chat, types a message and presses Enter: Ben's process prints
        `AZMEET_CHAT Ada: <message>`, his chat tab counts it unread, and once he opens the chat
        his panel shows it; then he answers with the Send button and Ada sees the answer;
-    5. takes a screenshot of each window (--out), stops everything.
+    5. each side kept the meeting in its own data tree (AZLIN_DATA, one per app): a
+       `meet/<room>/chat.jsonl` with both messages, one JSON object per line, and a
+       `meet/<room>/meeting.json` that lists the other person (a build without the files says
+       so and the check is skipped);
+    6. takes a screenshot of each window (--out), stops everything.
 
 Usage (from the azul repository, after building libazul with the debug server and AzMeet):
 
@@ -41,10 +45,11 @@ import urllib.error
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_CAPPED = (
-    "/private/tmp/claude-501/-Users-fschutt-Development-azul/"
-    "344f2a1f-485e-4b53-8631-15c97f8eeca1/scratchpad/run_capped.sh"
-)
+# The capped runner (scripts/waves/tools/run_capped.sh) holds a machine-wide lock, so a second
+# runner inside one waits forever: run this WHOLE script under one runner (it caps the tree:
+# node, both apps and this script) and leave --capped empty. --capped / AZ_RUN_CAPPED still cap
+# each app on their own where no outer runner is used.
+DEFAULT_CAPPED = None
 MESSAGE = "Hello Ben, can you see me?"
 ANSWER = "Loud and clear, Ada"
 
@@ -204,8 +209,26 @@ class App(Process):
         return list(strings(self.op("get_node_hierarchy")))
 
     def rect(self, node_id):
-        value = self.value("get_node_layout", selector="#%s" % node_id)
+        """The node's id and rect, or (None, {}) while no node has that id (a tile appears once
+        the other side is connected)."""
+        answer = self.op("get_node_layout", selector="#%s" % node_id)
+        if not isinstance(answer, dict) or answer.get("status") == "error":
+            return None, {}
+        data = answer.get("data") or {}
+        value = data.get("value") if isinstance(data, dict) else None
+        value = value if isinstance(value, dict) else {}
         return value.get("node_id"), value.get("rect") or {}
+
+    def id(self, short):
+        """An AzMeet id by its short name (`chat-field`, `tile-ben-camera`): `__azmeet_chat_field`
+        since the wave-6 prefix ruling (src/ids.rs), `azmeet-chat-field` on an older build. The
+        naming is found once, from the Settings button every screen has."""
+        if getattr(self, "prefixed", None) is None:
+            found = self.op("get_node_layout", selector="#__azmeet_settings")
+            self.prefixed = isinstance(found, dict) and found.get("status") != "error"
+        if self.prefixed:
+            return "__azmeet_" + short.replace("-", "_")
+        return "azmeet-" + short
 
     def screenshot(self, path):
         value = self.value("take_screenshot")
@@ -274,11 +297,56 @@ def app_env(worker, name, port, extra):
     return env
 
 
+def meeting_files(data):
+    """The (chat lines, meeting record) of the one meeting folder under `data`/meet."""
+    meet = os.path.join(data, "meet")
+    if not os.path.isdir(meet):
+        return None
+    for name in sorted(os.listdir(meet)):
+        folder = os.path.join(meet, name)
+        chat_path = os.path.join(folder, "chat.jsonl")
+        record_path = os.path.join(folder, "meeting.json")
+        if os.path.isfile(chat_path) and os.path.isfile(record_path):
+            try:
+                with open(chat_path, encoding="utf-8") as f:
+                    lines = [json.loads(line) for line in f if line.strip()]
+                with open(record_path, encoding="utf-8") as f:
+                    record = json.load(f)
+            except (OSError, ValueError):
+                return None
+            return lines, record
+    return None
+
+
+def check_files(app, data, other, deadline, procs):
+    """`app` wrote the meeting's chat (both messages) and its record (`other` met) into `data`."""
+    grace = min(deadline, time.time() + 3)
+    while not app.printed("AZMEET_SAVED") and time.time() < grace:
+        time.sleep(0.25)
+    if not app.printed("AZMEET_SAVED"):
+        log("%s: no AZMEET_SAVED - a build without the meeting files; check skipped" % app.name)
+        return
+
+    def written():
+        found = meeting_files(data)
+        if not found:
+            return None
+        lines, record = found
+        texts = [line.get("text") for line in lines]
+        if MESSAGE in texts and ANSWER in texts and other in record.get("people", []):
+            return found
+        return None
+
+    lines, record = until("%s's chat.jsonl and meeting.json" % app.name, written, deadline, procs)
+    log("%s kept the meeting %s: %d chat lines, people %s"
+        % (app.name, record.get("meeting"), len(lines), record.get("people")))
+
+
 def chat(sender, receiver, sender_name, text, use_enter, deadline, procs):
     """`sender` opens the chat and sends `text`; `receiver` prints it, counts it, shows it."""
     sender.must("click", text="Chat")
     sender.frame()
-    sender.must("click", selector="#azmeet-chat-field")
+    sender.must("click", selector="#" + sender.id("chat-field"))
     sender.frame()
     sender.must("text_input", text=text)
     sender.frame()
@@ -286,7 +354,7 @@ def chat(sender, receiver, sender_name, text, use_enter, deadline, procs):
         sender.must("key_down", key="Return")
         sender.must("key_up", key="Return")
     else:
-        sender.must("click", selector="#azmeet-chat-send")
+        sender.must("click", selector="#" + sender.id("chat-send"))
     sender.frame()
     until("%s's message on %s's stdout" % (sender_name, receiver.name),
           lambda: "%s: %s" % (sender_name, text) in receiver.printed("AZMEET_CHAT"),
@@ -348,14 +416,18 @@ def main():
         until("the dev server", lambda: http_json(worker + "/health").get("ok") is True, deadline, procs)
         log("dev server up on %s" % worker)
 
-        ada = App("ada", binary, args.port_a, app_env(worker, "Ada", args.port_a, {"AZMEET_AUTOCREATE": "1"}),
+        data_ada = os.path.join(logs, "data-ada")
+        data_ben = os.path.join(logs, "data-ben")
+        ada = App("ada", binary, args.port_a,
+                  app_env(worker, "Ada", args.port_a, {"AZMEET_AUTOCREATE": "1", "AZLIN_DATA": data_ada}),
                   logs, capped, args.cap_mb, args.app_seconds)
         procs.append(ada)
         link = until("Ada's meeting link (AZMEET_LINK)", lambda: (ada.printed("AZMEET_LINK") or [None])[0],
                      deadline, procs)
         log("Ada created %s" % link)
 
-        ben = App("ben", binary, args.port_b, app_env(worker, "Ben", args.port_b, {"AZMEET_JOIN": link}),
+        ben = App("ben", binary, args.port_b,
+                  app_env(worker, "Ben", args.port_b, {"AZMEET_JOIN": link, "AZLIN_DATA": data_ben}),
                   logs, capped, args.cap_mb, args.app_seconds)
         procs.append(ben)
 
@@ -367,7 +439,7 @@ def main():
         # Each sees the other's camera tile, inside the window.
         for app, other in ((ada, "ben"), (ben, "ada")):
             def tile_shown(app=app, other=other):
-                node, rect = app.rect("azmeet-tile-%s-camera" % other)
+                node, rect = app.rect(app.id("tile-%s-camera" % other))
                 return node is not None and inside(rect, args.width, args.height)
             until("%s's tile in %s's window" % (other, app.name), tile_shown, deadline, procs)
             log("%s shows %s's tile" % (app.name, other))
@@ -384,6 +456,10 @@ def main():
         # Chat: Ada sends with Enter, Ben answers with the Send button.
         chat(ada, ben, "Ada", MESSAGE, True, deadline, procs)
         chat(ben, ada, "Ben", ANSWER, False, deadline, procs)
+
+        # The meeting's files in each side's data tree.
+        check_files(ada, data_ada, "Ben", deadline, procs)
+        check_files(ben, data_ben, "Ada", deadline, procs)
 
         for app in (ada, ben):
             app.screenshot(os.path.join(out, "azmeet-%s.png" % app.name))

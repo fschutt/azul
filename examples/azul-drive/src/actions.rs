@@ -36,7 +36,6 @@ use crate::{
     preview,
     refresh, save_settings, spawn, with_state, ClipboardItems, DriveState, KeyringCall,
     KeyringOp, Popup, PreviewState, PropertiesState, Renaming, Slot, TransferJob, UndoOp,
-    HOME_ID,
 };
 
 // ==== Actions ====
@@ -221,8 +220,8 @@ pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
             }
         }),
         Action::RemoveDrive => match s.selected_drive.or(s.current_drive()) {
-            Some(i) if s.slots.get(i).is_some_and(|slot| slot.entry.id == HOME_ID) => {
-                Some(String::from("The Home drive stays."))
+            Some(i) if s.slots.get(i).is_some_and(Slot::is_built_in) => {
+                Some(String::from("Home and the Azlin data folder stay."))
             }
             Some(_) => None,
             None => Some(String::from("Select a drive on This PC first.")),
@@ -415,7 +414,7 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         }
         Action::Options => {
             s.backstage = Some(0);
-            s.settings_category = 0;
+            azul_appkit::ui::open_settings(&s.kit, Some("View"));
         }
         Action::AddDrive => {
             if s.popup.is_none() {
@@ -464,7 +463,7 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         Action::CloseWindow => info.close_window(),
         Action::ShowTransfers => {
             s.popups_opened += 1;
-            s.popup = Some(Popup::Transfers);
+            s.popup = Some(Popup::Transfers { auto: false });
         }
     }
 }
@@ -573,6 +572,17 @@ pub(crate) extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -
         ctrl: m.primary_down(),
         alt: m.alt,
     };
+    // azul-appkit's keys first: Mod+, opens the Options, F1 at the keyboard shortcuts, Escape
+    // closes them.
+    let kit = data.downcast_ref::<DriveState>().map(|s| s.kit.clone());
+    if let Some(kit) = kit {
+        if let Some(update) = azul_appkit::ui::handle_key(&kit, &mut info) {
+            if let Some(mut s) = data.downcast_mut::<DriveState>() {
+                s.backstage = azul_appkit::ui::settings_open(&kit).then_some(0);
+            }
+            return update;
+        }
+    }
     if in_text_field(&info) {
         return Update::DoNothing;
     }
@@ -584,7 +594,7 @@ pub(crate) extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -
         return Update::DoNothing;
     };
     let s = &mut *guard;
-    if s.popup.is_some() || s.backstage.is_some() {
+    if s.popup.is_some() || s.backstage_shown().is_some() {
         if command == Command::Escape {
             close_popup(&mut info, &app, s);
             s.backstage = None;
@@ -609,17 +619,34 @@ pub(crate) extern "C" fn on_resized(mut data: RefAny, info: CallbackInfo) -> Upd
     Update::DoNothing
 }
 
-/// Milliseconds since 1970 (type-ahead's clock).
-fn now_ms() -> u64 {
+/// A transfer that runs this long shows Explorer's progress dialog (once).
+pub(crate) const PROGRESS_DIALOG_AFTER_MS: u64 = 2_000;
+
+/// A progress message arrived: a transfer that has run [`PROGRESS_DIALOG_AFTER_MS`] shows the
+/// progress dialog (azul's ProgressDialog over the queue), unless another dialog is open or it
+/// was shown for this transfer already. It closes by itself when the queue is done.
+pub(crate) fn show_progress_when_long(s: &mut DriveState) {
+    if s.popup.is_some() {
+        return;
+    }
+    if let Some(id) = s.queue.wants_progress_dialog(now_ms(), PROGRESS_DIALOG_AFTER_MS) {
+        s.queue.mark_dialog_shown(id);
+        s.popups_opened += 1;
+        s.popup = Some(Popup::Transfers { auto: true });
+    }
+}
+
+/// Milliseconds since 1970 (type-ahead's clock, the transfers' start times).
+pub(crate) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
 }
 
-/// Seconds since 1970.
+/// Seconds since 1970 (azul-storage's clock, DEDUP_OFFICE D23).
 pub(crate) fn now_secs() -> u64 {
-    now_ms() / 1000
+    azul_storage::time::now_unix()
 }
 
 /// Runs a keyboard command.
@@ -1095,7 +1122,7 @@ pub(crate) fn pump_queue(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         same_drive: job.same_drive,
         kind: job.kind,
     };
-    s.queue.start(id);
+    s.queue.start(id, now_ms());
     spawn(info, app, s, plan_job);
 }
 
@@ -1318,6 +1345,10 @@ pub(crate) fn transfer_ran(
         s.queue.clear_finished();
     }
     pump_queue(info, app, s);
+    // The progress dialog that opened by itself closes by itself once nothing runs or waits.
+    if matches!(s.popup, Some(Popup::Transfers { auto: true })) && s.queue.is_idle() {
+        s.popup = None;
+    }
 }
 
 /// Move to / Copy to: Quick access's pins, the drives, "Choose location".
@@ -1479,7 +1510,8 @@ pub(crate) fn upload_paths(
         }
     }
     for (parent, items) in groups {
-        let source: Arc<dyn Drive> = Arc::new(LocalDrive::new(parent.clone()));
+        // An OS folder, not the data tree: no `.azlin/` bookkeeping there.
+        let source: Arc<dyn Drive> = Arc::new(LocalDrive::without_manifest(parent.clone()));
         enqueue_with(
             info,
             app,
@@ -1541,7 +1573,7 @@ fn download_selected(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) 
     };
     let items = s.selected_items();
     let folder = s.downloads.clone();
-    let target: Arc<dyn Drive> = Arc::new(LocalDrive::new(folder.clone()));
+    let target: Arc<dyn Drive> = Arc::new(LocalDrive::without_manifest(folder.clone()));
     enqueue_with(
         info,
         app,

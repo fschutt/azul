@@ -5,6 +5,8 @@
 //! menu key, type-ahead). Cmd counts as Ctrl on macOS. No azul types: the app
 //! maps azul's key codes to [`Key`] and runs the [`Command`].
 
+use azul_appkit::Shortcut;
+
 /// A key, as far as the file view cares (the app maps azul's key codes).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Key {
@@ -109,6 +111,38 @@ pub enum Command {
     /// A letter or digit typed: jump to the name starting with it.
     TypeAhead(char),
 }
+
+/// The keyboard shortcuts as the Options' "Keyboard shortcuts" section lists them (azul-appkit's
+/// table, `Mod` = Cmd on macOS, Ctrl elsewhere). A test checks that every one of them runs a
+/// command in [`command_for`], so the list cannot drift from the keys (DEDUP_OFFICE D13).
+pub const SHORTCUTS: [Shortcut; 26] = [
+    Shortcut::new("Open and go", "Enter", "Open the selected item"),
+    Shortcut::new("Open and go", "Alt+Enter", "Properties"),
+    Shortcut::new("Open and go", "Backspace", "Up one level"),
+    Shortcut::new("Open and go", "Alt+Up", "Up one level"),
+    Shortcut::new("Open and go", "Alt+Left", "Back"),
+    Shortcut::new("Open and go", "Alt+Right", "Forward"),
+    Shortcut::new("Open and go", "F5", "Refresh"),
+    Shortcut::new("Open and go", "Mod+R", "Refresh"),
+    Shortcut::new("Open and go", "Mod+F", "Search this folder"),
+    Shortcut::new("Open and go", "F3", "Search this folder"),
+    Shortcut::new("Organize", "F2", "Rename in place"),
+    Shortcut::new("Organize", "Delete", "Delete (a local drive keeps it in its trash folder)"),
+    Shortcut::new("Organize", "Shift+Delete", "Delete for good"),
+    Shortcut::new("Organize", "Mod+C", "Copy"),
+    Shortcut::new("Organize", "Mod+X", "Cut"),
+    Shortcut::new("Organize", "Mod+V", "Paste"),
+    Shortcut::new("Organize", "Mod+Z", "Undo"),
+    Shortcut::new("Organize", "Mod+Shift+N", "New folder"),
+    Shortcut::new("Select", "Mod+A", "Select all"),
+    Shortcut::new("Select", "Mod+Space", "Select or clear the focused item"),
+    Shortcut::new("Select", "Shift+Down", "Extend the selection"),
+    Shortcut::new("Select", "Escape", "Select nothing"),
+    Shortcut::new("Select", "Shift+F10", "The context menu"),
+    Shortcut::new("View", "Mod+Shift+2", "Large icons"),
+    Shortcut::new("View", "Mod+Shift+5", "List"),
+    Shortcut::new("View", "Mod+Shift+6", "Details"),
+];
 
 /// Explorer's keyboard.
 #[must_use]
@@ -295,6 +329,59 @@ mod tests {
         }
         assert_eq!(command_for(Key::Char('9'), CTRL_SHIFT), None);
         assert_eq!(command_for(Key::Char('0'), CTRL_SHIFT), None);
+    }
+
+    /// `Mod+Shift+N` -> (`Char('n')`, Ctrl + Shift), as the table spells keys.
+    fn parse_keys(keys: &str) -> (Key, Mods) {
+        let mut mods = NONE;
+        let mut key = Key::Other;
+        for part in keys.split('+') {
+            match part {
+                "Mod" => mods.ctrl = true,
+                "Shift" => mods.shift = true,
+                "Alt" => mods.alt = true,
+                "Enter" => key = Key::Enter,
+                "Backspace" => key = Key::Back,
+                "Delete" => key = Key::Delete,
+                "Escape" => key = Key::Escape,
+                "Space" => key = Key::Space,
+                "Up" => key = Key::Up,
+                "Down" => key = Key::Down,
+                "Left" => key = Key::Left,
+                "Right" => key = Key::Right,
+                "F2" => key = Key::F2,
+                "F3" => key = Key::F3,
+                "F5" => key = Key::F5,
+                "F10" => key = Key::F10,
+                one if one.chars().count() == 1 => {
+                    key = Key::Char(one.chars().next().unwrap().to_ascii_lowercase());
+                }
+                other => panic!("the table spells a key this test does not know: {other}"),
+            }
+        }
+        (key, mods)
+    }
+
+    #[test]
+    fn every_listed_shortcut_runs_a_command_and_none_is_listed_twice() {
+        for s in SHORTCUTS {
+            let (key, mods) = parse_keys(s.keys);
+            let command = command_for(key, mods);
+            assert!(
+                command.is_some() && !matches!(command, Some(Command::TypeAhead(_))),
+                "{} ({}) runs nothing",
+                s.keys,
+                s.action
+            );
+        }
+        let mut keys: Vec<&str> = SHORTCUTS.iter().map(|s| s.keys).collect();
+        keys.sort_unstable();
+        keys.dedup();
+        assert_eq!(keys.len(), SHORTCUTS.len(), "a key listed twice");
+        assert_eq!(
+            command_for(parse_keys("Mod+Shift+6").0, parse_keys("Mod+Shift+6").1),
+            Some(Command::Layout(6))
+        );
     }
 
     #[test]

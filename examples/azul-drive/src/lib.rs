@@ -25,15 +25,18 @@
 //! InfoBar over the content.
 //!
 //! The drives list is `<config dir>/azul-storage/drives.json` WITHOUT
-//! secrets (shared with AzMail); the keys go to the OS keyring. The view
-//! settings and the Quick access pins are `<config dir>/azul-drive/settings.json`,
-//! written through a `LocalDrive` on a Thread.
+//! secrets (shared with AzMail); the keys go to the OS keyring. The Azlin
+//! data tree (azul-appkit's data root: `--data-dir`, `$AZLIN_DATA`, else
+//! `<data dir>/Azlin`) is a drive of its own, "Azlin", and holds AzDrive's
+//! files: `drive/settings.json` (the app theme and mode, azul-appkit's) and
+//! `drive/view.json` (layout, sort, columns, panes, the Quick access pins),
+//! written through the data tree's `LocalDrive` on a Thread.
 //!
 //! Environment:
 //! - `AZDRIVE_HOME`: the folder the Home drive shows (default: the user's home).
 //! - `AZUL_DRIVES`: the drives file (default: `<config dir>/azul-storage/drives.json`).
 //! - `AZDRIVE_DOWNLOADS`: where "Download" saves (default: the user's Downloads folder).
-//! - `AZDRIVE_SETTINGS`: the folder of the settings file (default `<config dir>/azul-drive`).
+//! - `AZLIN_DATA`: the data root (azul-appkit; `--data-dir` wins).
 //! - `AZDRIVE_DIALOGS=inline`: show the dialogs as a sheet inside the window
 //!   instead of a modal dialog window (scripts: the debug server drives the main window).
 //!
@@ -50,6 +53,7 @@ mod actions;
 pub mod args;
 pub mod browse;
 pub mod fileops;
+mod ids;
 mod jobs;
 pub mod keys;
 pub mod model;
@@ -69,13 +73,11 @@ use azul::{
     css::DarkLightMode,
     error::KeyringResult,
     file::FilePath,
-    option::OptionDarkLightMode,
     prelude::*,
     shells::{BrowserShell, ShellThemeScope},
     str::String as AzString,
     url::Url,
     widgets::{AlertKind, Dialog, Titlebar},
-    window::WindowDecorations,
 };
 use azul_storage::{
     azul_transport::AzulTransport,
@@ -90,10 +92,21 @@ use model::{Selection, Settings, TypeAhead};
 const HOME_VAR: &str = "AZDRIVE_HOME";
 const DOWNLOADS_VAR: &str = "AZDRIVE_DOWNLOADS";
 const DIALOGS_VAR: &str = "AZDRIVE_DIALOGS";
-const SETTINGS_VAR: &str = "AZDRIVE_SETTINGS";
 pub(crate) const USER_AGENT: &str = "AzDrive/0.2";
-/// The settings file's key in the settings folder's `LocalDrive`.
-pub(crate) const SETTINGS_KEY: &str = "settings.json";
+/// The view settings' key in the data tree (layout, sort, columns, panes, pins). The app theme
+/// and mode are azul-appkit's `drive/settings.json` beside it.
+pub(crate) const SETTINGS_KEY: &str = "drive/view.json";
+/// The data tree's drive id (the data root, a `LocalDrive` now, the user's bucket later).
+pub(crate) const DATA_ID: &str = "azlin";
+/// What the About page and azul-appkit say about AzDrive.
+pub(crate) const ABOUT: azul_appkit::AboutInfo = azul_appkit::AboutInfo {
+    name: "AzDrive",
+    version: env!("CARGO_PKG_VERSION"),
+    summary: "A file manager like Windows Explorer for the Azlin data tree, the folders of this \
+              computer and S3 buckets (AWS S3, Cloudflare R2, MinIO).",
+    license: "MIT",
+    app_folder: "drive",
+};
 /// Entries per listing page.
 const PAGE_SIZE: u32 = 500;
 /// Folders per tree listing (one listing per expand).
@@ -148,10 +161,17 @@ impl Slot {
         matches!(self.entry.location, DriveLocation::Local { .. })
     }
 
+    /// Home and the Azlin data tree: always there, never in the drives file, never removed.
+    pub fn is_built_in(&self) -> bool {
+        self.entry.id == HOME_ID || self.entry.id == DATA_ID
+    }
+
     /// The icon of the drive's tiles and tree rows.
     pub fn icon(&self) -> &'static str {
         if self.entry.id == HOME_ID {
             "home"
+        } else if self.entry.id == DATA_ID {
+            "folder_special"
         } else if self.is_local() {
             "storage"
         } else {
@@ -318,8 +338,9 @@ pub(crate) enum Popup {
         text: String,
         error: String,
     },
-    /// The transfer queue, with Cancel.
-    Transfers,
+    /// The transfer queue, with Cancel: the running transfer as azul's ProgressDialog over the
+    /// others. `auto`: it opened by itself (a long transfer) and closes when the queue is done.
+    Transfers { auto: bool },
 }
 
 /// The navigation tree: which nodes are open, whose children are listed
@@ -377,10 +398,8 @@ pub(crate) struct DriveState {
     /// Closed group headers (by label) of the folder view and This PC.
     pub groups_closed: HashSet<String>,
     pub ribbon_tab: usize,
-    /// The FILE backstage, open on its page.
+    /// The FILE backstage, open on its page (0 the Options, 1 About).
     pub backstage: Option<usize>,
-    pub settings_category: usize,
-    pub settings_search: String,
     pub clipboard: Option<ClipboardItems>,
     pub queue: TransferQueue,
     pub transfers: HashMap<u64, TransferJob>,
@@ -398,7 +417,7 @@ pub(crate) struct DriveState {
     pub keyring_waiting: Option<KeyringOp>,
     pub keyring_queue: VecDeque<(KeyringOp, KeyringCall)>,
     pub drives_file: Option<PathBuf>,
-    /// The folder of the settings file, as a drive.
+    /// The data tree (the data root) the view settings are written into.
     pub settings_drive: Option<LocalDrive>,
     pub downloads: PathBuf,
     pub open_dir: PathBuf,
@@ -415,9 +434,19 @@ pub(crate) struct DriveState {
     pub thumbnails_pending: HashSet<String>,
     /// The preview's sound while it plays (dropping it stops it).
     pub audio: Option<azul::audio::AudioSink>,
+    /// azul-appkit's kit: the data root, the theme and mode saved in `drive/settings.json`, the
+    /// Options' Appearance / Data / Shortcuts / About sections, the `--shot` timer.
+    pub kit: RefAny,
 }
 
 impl DriveState {
+    /// The backstage page showing: the Options only while azul-appkit's settings page is open
+    /// (its own Back closes it), About while it is chosen.
+    pub fn backstage_shown(&self) -> Option<usize> {
+        self.backstage
+            .filter(|page| *page != 0 || azul_appkit::ui::settings_open(&self.kit))
+    }
+
     /// No preview any more - and no sound from it.
     pub fn clear_preview(&mut self) {
         self.preview = None;
@@ -1119,6 +1148,7 @@ pub(crate) extern "C" fn on_job_done(
         }
         Outcome::Progress { id, progress } => {
             s.queue.progress(id, &progress);
+            actions::show_progress_when_long(s);
         }
         Outcome::Ran { id, report } => actions::transfer_ran(&mut info, &handle, s, id, report),
         Outcome::Deleted { drive_id, result } => {
@@ -1347,12 +1377,13 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .office_shell()
         .with_title_row(title_row(s))
         .with_status_bar(ui_panes::status_bar(s, &app));
-    if let Some(page) = s.backstage {
+    if let Some(page) = s.backstage_shown() {
         shell = shell.with_backstage(ui_dialogs::backstage(s, &app, page));
     }
     let mut body = Dom::create_body()
         .with_css(
-            "display: flex; flex-direction: column; height: 100%; margin: 0px; font-size: 13px;",
+            "display: flex; flex-direction: column; height: 100%; margin: 0px; font-size: 13px; \
+             font-family: system:ui; color: system:text;",
         )
         .with_child(
             Dom::create_div()
@@ -1431,12 +1462,27 @@ fn env_path(var: &str) -> Option<PathBuf> {
 
 extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, |info, app, s| {
+        azul_appkit::ui::on_window_created(&s.kit, info);
         let place = s.place.clone();
         // `--screen settings` opens on the backstage, which a visit closes.
         let backstage = s.backstage;
         go(info, app, s, place, false);
         s.backstage = backstage;
     })
+}
+
+/// The data tree as a drive: the data root, opened as the data tree's `LocalDrive` (the one that
+/// keeps its `.azlin/` bookkeeping, which it never lists), named "Azlin".
+fn data_slot(data_root: &Path) -> Slot {
+    let mut slot = Slot::new(DriveEntry {
+        id: DATA_ID.to_string(),
+        name: String::from("Azlin"),
+        location: DriveLocation::Local {
+            root: data_root.to_string_lossy().into_owned(),
+        },
+    });
+    slot.drive = Some(Arc::new(LocalDrive::new(data_root.to_path_buf())));
+    slot
 }
 
 pub fn start() {
@@ -1458,11 +1504,29 @@ pub fn start() {
         std::env::var(config::DRIVES_VAR).ok().as_deref(),
         config_dir.clone(),
     );
-    let settings_dir = env_path(SETTINGS_VAR).or_else(|| config_dir.map(|d| d.join("azul-drive")));
-    let settings_drive = settings_dir.map(LocalDrive::new);
+    // The kit resolves the data root (--data-dir, $AZLIN_DATA, <data dir>/Azlin) and reads the
+    // theme and mode saved last time, before the window exists.
+    let kit = azul_appkit::ui::create_kit(
+        args::SPEC,
+        ABOUT,
+        &keys::SHORTCUTS,
+        &ui_dialogs::CATEGORIES,
+        args.kit.clone(),
+    );
+    let data_root = {
+        let mut kit = kit.clone();
+        let root = kit
+            .downcast_ref::<azul_appkit::ui::Kit>()
+            .map(|k| k.data_root.clone());
+        root.unwrap_or_else(|| PathBuf::from(azul_appkit::data::ROOT_DIR))
+    };
+    let settings_drive = Some(LocalDrive::new(data_root.clone()));
+    if args.screen == args::Screen::Settings {
+        azul_appkit::ui::open_settings(&kit, None);
+    }
     let inline_dialogs = std::env::var(DIALOGS_VAR).is_ok_and(|v| v.trim() == "inline");
 
-    if args.sample {
+    if args.kit.sample {
         match args::write_sample(&home) {
             Ok(n) => eprintln!("[azdrive] {n} sample files in {}", home.display()),
             Err(e) => eprintln!("[azdrive] the sample files could not be written: {e}"),
@@ -1479,19 +1543,22 @@ pub fn start() {
         settings.layout = layout;
     }
 
-    let mut slots = vec![Slot::new(DriveEntry {
-        id: HOME_ID.to_string(),
-        name: String::from("Home"),
-        location: DriveLocation::Local {
-            root: home.to_string_lossy().into_owned(),
-        },
-    })];
+    let mut slots = vec![
+        Slot::new(DriveEntry {
+            id: HOME_ID.to_string(),
+            name: String::from("Home"),
+            location: DriveLocation::Local {
+                root: home.to_string_lossy().into_owned(),
+            },
+        }),
+        data_slot(&data_root),
+    ];
     let mut message = None;
     match drives_file.as_deref().map(DrivesFile::load) {
         Some(Ok(file)) => slots.extend(
             file.drives
                 .into_iter()
-                .filter(|d| d.id != HOME_ID)
+                .filter(|d| d.id != HOME_ID && d.id != DATA_ID)
                 .map(Slot::new),
         ),
         Some(Err(e)) => {
@@ -1547,8 +1614,6 @@ pub fn start() {
         groups_closed: HashSet::new(),
         ribbon_tab: 0,
         backstage: (args.screen == args::Screen::Settings).then_some(0),
-        settings_category: 0,
-        settings_search: String::new(),
         clipboard: None,
         queue: TransferQueue::default(),
         transfers: HashMap::new(),
@@ -1573,25 +1638,19 @@ pub fn start() {
         thumbnails: HashMap::new(),
         thumbnails_pending: HashSet::new(),
         audio: None,
+        kit,
     };
     refresh_disks(&mut state);
 
-    let mut config = AppConfig::create();
-    if let Some(theme) = args.theme.as_deref() {
-        config.set_theme(AzString::from(theme));
-    }
-    if let Some(dark) = args.dark {
-        config.set_mode(OptionDarkLightMode::Some(if dark {
-            DarkLightMode::Dark
-        } else {
-            DarkLightMode::Light
-        }));
-    }
+    // The theme and mode: a switch for this run, else the ones saved on the Options' Appearance.
+    let config = azul_appkit::ui::app_config(&kit);
+    let window = azul_appkit::ui::window_options(
+        &kit,
+        layout,
+        (1200.0, 760.0),
+        (640.0, 420.0),
+        startup,
+    );
     let app = App::create(RefAny::new(state), config);
-    let mut window = WindowCreateOptions::create(layout);
-    window.window_state.size.dimensions = LogicalSize::create(1200.0, 760.0);
-    window.window_state.title = AzString::from("AzDrive");
-    window.window_state.flags.decorations = WindowDecorations::NoTitle;
-    window.create_callback = Some(Callback::create(startup)).into();
     app.run(window);
 }

@@ -800,3 +800,5 @@ mod an_image_patched_in_place_survives_a_cached_relayout;
 mod the_undo_keys_are_a_default_action_an_editor_can_veto;
 #[path = "typing_stays_with_its_field_when_another_page_replaces_it.rs"]
 mod typing_stays_with_its_field_when_another_page_replaces_it;
+#[path = "text_inside_an_opacity_group_keeps_its_colour.rs"]
+mod text_inside_an_opacity_group_keeps_its_colour;

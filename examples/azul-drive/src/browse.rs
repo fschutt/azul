@@ -277,6 +277,32 @@ where
         .unwrap_or_default()
 }
 
+/// A drive's own metadata (`Drive::metadata`: `Location`, `Created`, `Read-only`, an S3
+/// object's headers) as the rows the details pane and Properties show: a name in `shown` (the
+/// rows they wrote themselves) is left out, a `Created` time - seconds since 1970 - is written
+/// as a date in `zone`, like the modified time.
+#[must_use]
+pub fn metadata_rows<Tz: chrono::TimeZone>(
+    pairs: &[(String, String)],
+    shown: &[&str],
+    zone: &Tz,
+) -> Vec<(String, String)>
+where
+    Tz::Offset: std::fmt::Display,
+{
+    pairs
+        .iter()
+        .filter(|(name, _)| !shown.contains(&name.as_str()))
+        .map(|(name, value)| {
+            let value = match value.parse::<u64>() {
+                Ok(secs) if name == "Created" => format_modified(Some(secs), zone),
+                _ => value.clone(),
+            };
+            (name.clone(), value)
+        })
+        .collect()
+}
+
 /// Where the window is: Quick access (the pinned folders), the "This PC"
 /// overview of the drives, or a folder of one drive (`prefix` `""` = its
 /// root).
@@ -432,32 +458,10 @@ pub fn crumbs_of(place: &Place, drive_name: &str) -> Vec<(String, Place)> {
     trail
 }
 
-/// The folder above `prefix`; `None` at the root.
+/// `n` things as Explorer counts them: "1 item", "3 items", "0 items".
 #[must_use]
-pub fn up(prefix: &str) -> Option<String> {
-    if prefix.is_empty() {
-        None
-    } else {
-        Some(key::parent_prefix(prefix))
-    }
-}
-
-/// The breadcrumb: the drive (its root), then every folder down to `prefix`,
-/// as `(label, prefix)`.
-#[must_use]
-pub fn crumbs(drive_name: &str, prefix: &str) -> Vec<(String, String)> {
-    let mut trail = vec![(drive_name.to_string(), String::new())];
-    trail.extend(key::folder_trail(prefix));
-    trail
-}
-
-/// The file an upload of `file_name` becomes in the folder `prefix`.
-#[must_use]
-pub fn upload_key(prefix: &str, file_name: &str) -> Option<String> {
-    if file_name.contains('/') || key::check_path_key(file_name).is_err() {
-        return None;
-    }
-    Some(format!("{prefix}{file_name}"))
+pub fn counted(n: usize, one: &str, many: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { many })
 }
 
 /// A `file://` URL of a local path, percent-encoded, for the OS to open.
@@ -731,6 +735,26 @@ mod tests {
     }
 
     #[test]
+    fn a_drives_metadata_shows_once_with_its_creation_as_a_date() {
+        let pairs = vec![
+            (String::from("Location"), String::from("/home/ada/notes.txt")),
+            (String::from("Created"), String::from("1255369830")),
+            (String::from("Read-only"), String::from("No")),
+            (String::from("ETag"), String::from("\"abc\"")),
+        ];
+        assert_eq!(
+            metadata_rows(&pairs, &["Location", "ETag"], &Utc),
+            vec![
+                (String::from("Created"), String::from("2009-10-12 17:50")),
+                (String::from("Read-only"), String::from("No")),
+            ],
+            "the rows already shown are not repeated; the creation is a date"
+        );
+        let odd = vec![(String::from("Created"), String::from("yesterday"))];
+        assert_eq!(metadata_rows(&odd, &[], &Utc), odd, "a value that is no time stays as it is");
+    }
+
+    #[test]
     fn dates_show_in_the_given_time_zone() {
         assert_eq!(
             format_modified(Some(1_255_369_830), &Utc),
@@ -828,35 +852,11 @@ mod tests {
     }
 
     #[test]
-    fn up_goes_to_the_parent_and_stops_at_the_root() {
-        assert_eq!(up("mail/inbox/").as_deref(), Some("mail/"));
-        assert_eq!(up("mail/").as_deref(), Some(""));
-        assert_eq!(up(""), None);
-    }
-
-    #[test]
-    fn the_breadcrumb_starts_at_the_drive_and_ends_at_the_folder() {
-        assert_eq!(
-            crumbs("S3 Drive", ""),
-            vec![("S3 Drive".to_string(), String::new())]
-        );
-        assert_eq!(
-            crumbs("S3 Drive", "mail/inbox/"),
-            vec![
-                ("S3 Drive".to_string(), String::new()),
-                ("mail".to_string(), "mail/".to_string()),
-                ("inbox".to_string(), "mail/inbox/".to_string()),
-            ]
-        );
-    }
-
-    #[test]
-    fn an_upload_goes_into_the_open_folder() {
-        assert_eq!(upload_key("mail/", "a.txt").as_deref(), Some("mail/a.txt"));
-        assert_eq!(upload_key("", "a.txt").as_deref(), Some("a.txt"));
-        assert_eq!(upload_key("mail/", ""), None);
-        assert_eq!(upload_key("", ".."), None);
-        assert_eq!(upload_key("", "a/b"), None);
+    fn one_thing_is_counted_in_the_singular_and_every_other_number_in_the_plural() {
+        assert_eq!(counted(1, "drive", "drives"), "1 drive");
+        assert_eq!(counted(2, "drive", "drives"), "2 drives");
+        assert_eq!(counted(0, "item", "items"), "0 items");
+        assert_eq!(counted(1, "item selected", "items selected"), "1 item selected");
     }
 
     #[cfg(not(windows))]

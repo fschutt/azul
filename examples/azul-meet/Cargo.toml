@@ -18,6 +18,16 @@ publish = false
 
 [dependencies]
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+# Plain Rust (no azul): the avatars' initials (azul_pim::initials, DEDUP_EDITORS B24).
+azul-pim = { path = "../azul-pim" }
+# The Azlin skeleton WITHOUT its `azul` feature (that one links libazul dynamically, which the
+# android / ios builds below must not): the switches, the data root, the settings file, the file
+# jobs. And the drive they run on.
+azul-appkit = { path = "../azul-appkit" }
+azul-storage = { path = "../azul-storage" }
+# chat.jsonl and meeting.json (already in the tree through azul-appkit).
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [lib]
 name = "azmeet"

@@ -24,6 +24,7 @@ use azul::{
     callbacks::{
         ButtonOnClickCallbackType, CallbackType, DropDownOnChoiceChangeCallbackType,
         SegmentedOnChangeCallbackType, ShellSettingsLayoutOnCategoryCallbackType,
+        StandardDialogOnEventCallbackType,
         TextInputOnFocusLostCallbackType, TextInputOnTextInputCallbackType,
         TextInputOnVirtualKeyDownCallbackType,
     },
@@ -36,12 +37,14 @@ use azul::{
     str::String as AzString,
     vec::{DomVec, StringVec, U8VecRef},
     widgets::{
-        Avatar, AvatarSize, Badge, Button, ButtonType, CameraWidget, DropDown, MicrophoneWidget,
-        ProgressBar, ScreenCaptureWidget, Segmented, Titlebar,
+        AboutDialog, Avatar, AvatarSize, Badge, Button, ButtonType, CameraWidget, DropDown,
+        MicrophoneWidget, ProgressBar, ScreenCaptureWidget, Segmented, Titlebar,
     },
 };
 
-use crate::tiles::TileKind;
+use azul_pim::initials::initials;
+
+use crate::{ids, tiles::TileKind};
 
 // ==== The view model: what the window shows, made by the app from its state ====
 
@@ -71,6 +74,8 @@ pub(crate) struct TileView {
 #[derive(Debug, Clone)]
 pub(crate) struct PersonView {
     pub name: String,
+    /// This side (shown as "<name> (you)").
+    pub me: bool,
     /// "connected", "connecting", "you" ...
     pub status: String,
     pub muted: bool,
@@ -132,6 +137,8 @@ pub(crate) struct SettingsView {
     pub name: String,
     /// "Video: H.264 (VideoToolbox)".
     pub codec: String,
+    /// Where this run keeps its files (`<data root>/meet`), or why it keeps none.
+    pub data_folder: String,
 }
 
 /// Everything the window shows.
@@ -194,6 +201,10 @@ pub(crate) struct Actions {
     pub chat_text: TextInputOnTextInputCallbackType,
     pub chat_key: TextInputOnVirtualKeyDownCallbackType,
     pub chat_send: ButtonOnClickCallbackType,
+    /// The chat field lost the focus (a click on Send): the draft as the field holds it.
+    pub chat_blur: TextInputOnFocusLostCallbackType,
+    /// The About's OK (it closes the settings).
+    pub about_event: StandardDialogOnEventCallbackType,
     pub name_text: TextInputOnTextInputCallbackType,
     pub server_text: TextInputOnTextInputCallbackType,
     pub server_key: TextInputOnVirtualKeyDownCallbackType,
@@ -337,8 +348,8 @@ fn tile(view: &CallView, t: &TileView, data: &RefAny, on_stage: bool) -> Dom {
         .with_child(text(&tile_label(t), TILE_LABEL))
 }
 
-/// A tile's DOM id, for scripts: `azmeet-tile-me-camera`, `azmeet-tile-ben-screen` (the name in
-/// lower case, every other character a dash).
+/// A tile's DOM id, for scripts: `__azmeet_tile_me_camera`, `__azmeet_tile_ben_screen` (the name
+/// in lower case, every other character an underscore; [`ids::TILE_PREFIX`]).
 pub(crate) fn tile_id(t: &TileView) -> String {
     let who = if t.me {
         String::from("me")
@@ -349,7 +360,7 @@ pub(crate) fn tile_id(t: &TileView) -> String {
                 if c.is_ascii_alphanumeric() {
                     c.to_ascii_lowercase()
                 } else {
-                    '-'
+                    '_'
                 }
             })
             .collect()
@@ -358,13 +369,23 @@ pub(crate) fn tile_id(t: &TileView) -> String {
         TileKind::Camera => "camera",
         TileKind::Screen => "screen",
     };
-    format!("azmeet-tile-{who}-{kind}")
+    format!("{}{who}_{kind}", ids::TILE_PREFIX)
 }
 
 /// "Ada", "Ada · muted", "Ada's screen", "You".
+/// A person's name as the window shows it: this side's own with "(you)" after it.
+pub(crate) fn shown_name(name: &str, me: bool) -> String {
+    if me {
+        format!("{name} (you)")
+    } else {
+        name.to_string()
+    }
+}
+
 fn tile_label(t: &TileView) -> String {
     let mut label = match t.kind {
-        TileKind::Camera => t.name.clone(),
+        TileKind::Camera => shown_name(&t.name, t.me),
+        TileKind::Screen if t.me => String::from("Your screen"),
         TileKind::Screen => format!("{}'s screen", t.name),
     };
     if t.muted && t.kind == TileKind::Camera {
@@ -436,20 +457,6 @@ fn own_picture(view: &CallView, t: &TileView, data: &RefAny) -> Dom {
     }
 }
 
-/// Up to two initials of `name` ("Ada Lovelace" -> "AL", "ben" -> "B").
-fn initials(name: &str) -> String {
-    let letters: String = name
-        .split_whitespace()
-        .filter_map(|word| word.chars().next())
-        .take(2)
-        .flat_map(char::to_uppercase)
-        .collect();
-    if letters.is_empty() {
-        String::from("?")
-    } else {
-        letters
-    }
-}
 
 // ==== The side panel: people, chat, statistics ====
 
@@ -493,7 +500,7 @@ fn side_panel(view: &CallView, data: &RefAny, actions: &Actions) -> Option<Dom> 
 fn people(view: &CallView) -> Dom {
     let mut list = Dom::create_div()
         .with_css(PANEL_SCROLL)
-        .with_id(AzString::from("azmeet-people"));
+        .with_id(ids::PEOPLE);
     for person in &view.people {
         let mut row = Dom::create_div()
             .with_css("display: flex; flex-direction: row; align-items: center; padding: 4px 0px;")
@@ -508,7 +515,7 @@ fn people(view: &CallView) -> Dom {
                         "display: flex; flex-direction: column; flex-grow: 1; min-width: 0px; \
                          margin-left: 8px;",
                     )
-                    .with_child(text(&person.name, "font-size: 13px;"))
+                    .with_child(text(&shown_name(&person.name, person.me), "font-size: 13px;"))
                     .with_child(text(&person.status, SECONDARY)),
             );
         if person.speaking {
@@ -529,7 +536,7 @@ fn people(view: &CallView) -> Dom {
 fn chat(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
     let mut messages = Dom::create_div()
         .with_css(PANEL_SCROLL)
-        .with_id(AzString::from("azmeet-chat-messages"));
+        .with_id(ids::CHAT_MESSAGES);
     if view.chat.is_empty() {
         messages = messages.with_child(text("No messages yet.", SECONDARY));
     }
@@ -547,13 +554,14 @@ fn chat(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
         .with_placeholder("Message everyone")
         .with_on_text_input(data.clone(), actions.chat_text)
         .with_on_virtual_key_down(data.clone(), actions.chat_key)
+        .with_on_focus_lost(data.clone(), actions.chat_blur)
         .dom()
         .with_css(CHAT_FIELD)
-        .with_id(AzString::from("azmeet-chat-field"));
+        .with_id(ids::CHAT_FIELD);
     let send = Button::with_type("Send", ButtonType::Primary)
         .with_on_click(data.clone(), actions.chat_send)
         .dom()
-        .with_id(AzString::from("azmeet-chat-send"));
+        .with_id(ids::CHAT_SEND);
     Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
         .with_child(messages)
@@ -569,7 +577,7 @@ fn chat(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
 fn statistics(view: &CallView) -> Dom {
     let mut panel = Dom::create_div()
         .with_css(PANEL_SCROLL)
-        .with_id(AzString::from("azmeet-statistics"));
+        .with_id(ids::STATISTICS);
     for section in &view.stats {
         panel = panel.with_child(text(&section.title, SECTION_TITLE));
         if section.lines.is_empty() {
@@ -651,7 +659,7 @@ fn level_meter(view: &CallView, data: &RefAny) -> Dom {
 // ==== The controls bar ====
 
 /// A control: a button with an id (the E2E finds it), primary while `on`.
-fn control(label: &str, id: &str, on: bool, data: &RefAny, action: ButtonOnClickCallbackType) -> Dom {
+fn control(label: &str, id: AzString, on: bool, data: &RefAny, action: ButtonOnClickCallbackType) -> Dom {
     let kind = if on {
         ButtonType::Primary
     } else {
@@ -660,7 +668,7 @@ fn control(label: &str, id: &str, on: bool, data: &RefAny, action: ButtonOnClick
     Button::with_type(label, kind)
         .with_on_click(data.clone(), action)
         .dom()
-        .with_id(AzString::from(id))
+        .with_id(id)
         .with_css("margin: 0px 4px; flex-shrink: 0;")
 }
 
@@ -674,7 +682,7 @@ fn controls(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
         )
         .with_child(control(
             if view.mic { "Mute" } else { "Unmute" },
-            "azmeet-mic",
+            ids::MIC,
             view.mic,
             data,
             actions.mic,
@@ -685,7 +693,7 @@ fn controls(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
                 (true, false) => "Stop video",
                 (false, _) => "Start video",
             },
-            "azmeet-cam",
+            ids::CAM,
             view.cam,
             data,
             actions.cam,
@@ -698,14 +706,14 @@ fn controls(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
                 } else {
                     "Share screen"
                 },
-                "azmeet-share",
+                ids::SHARE,
                 view.screen_on,
                 data,
                 actions.share,
             ))
             .with_child(control(
                 if view.deafened { "Undeafen" } else { "Deafen" },
-                "azmeet-deafen",
+                ids::DEAFEN,
                 view.deafened,
                 data,
                 actions.deafen,
@@ -716,7 +724,7 @@ fn controls(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
                 } else {
                     "Speaker view"
                 },
-                "azmeet-view",
+                ids::VIEW,
                 false,
                 data,
                 actions.view,
@@ -724,20 +732,20 @@ fn controls(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
         if view.video_debug {
             row = row.with_child(control(
                 "Drop a video packet",
-                "azmeet-drop",
+                ids::DROP,
                 false,
                 data,
                 actions.drop_packet,
             ));
         }
     }
-    row = row.with_child(control("Settings", "azmeet-settings", false, data, actions.settings));
+    row = row.with_child(control("Settings", ids::SETTINGS, false, data, actions.settings));
     if view.screen == UiScreen::Call && view.in_room {
         row = row.with_child(
             Button::with_type("Leave", ButtonType::Danger)
                 .with_on_click(data.clone(), actions.leave)
                 .dom()
-                .with_id(AzString::from("azmeet-leave"))
+                .with_id(ids::LEAVE)
                 .with_css("margin: 0px 4px 0px 16px; flex-shrink: 0;"),
         );
     }
@@ -786,7 +794,7 @@ fn join_form(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
         .with_placeholder("Your name")
         .with_on_text_input(data.clone(), actions.name_text)
         .dom()
-        .with_id(AzString::from("azmeet-name"));
+        .with_id(ids::NAME);
     let server = TextInput::create()
         .with_text(lobby.server_text.as_str())
         .with_placeholder(crate::rooms::LOCAL_WORKER)
@@ -794,14 +802,14 @@ fn join_form(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
         .with_on_virtual_key_down(data.clone(), actions.server_key)
         .with_on_focus_lost(data.clone(), actions.server_blur)
         .dom()
-        .with_id(AzString::from("azmeet-server"));
+        .with_id(ids::SERVER);
     let join_field = TextInput::create()
         .with_text(lobby.join_text.as_str())
         .with_placeholder("azlin://meet/... or a code")
         .with_on_text_input(data.clone(), actions.join_text)
         .dom()
         .with_css(CHAT_FIELD)
-        .with_id(AzString::from("azmeet-join-field"));
+        .with_id(ids::JOIN_FIELD);
     Dom::create_div()
         .with_css(PANEL_SCROLL)
         .with_child(text("Ready to join?", "font-size: 18px; margin-bottom: 12px;"))
@@ -826,7 +834,7 @@ fn join_form(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
             )
             .with_on_click(data.clone(), actions.new_meeting)
             .dom()
-            .with_id(AzString::from("azmeet-new"))
+            .with_id(ids::NEW_MEETING)
             .with_css("margin-bottom: 16px;"),
         )
         .with_child(labelled(
@@ -838,7 +846,7 @@ fn join_form(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
                     Button::create("Join")
                         .with_on_click(data.clone(), actions.join)
                         .dom()
-                        .with_id(AzString::from("azmeet-join")),
+                        .with_id(ids::JOIN),
                 ),
         ))
         .with_child(text("Devices", SECTION_TITLE))
@@ -866,7 +874,8 @@ fn device_pickers(s: &SettingsView, data: &RefAny, actions: &Actions) -> Dom {
 // ==== The settings ====
 
 /// The settings' categories, in order.
-pub(crate) const SETTINGS_CATEGORIES: [&str; 4] = ["Devices", "Video", "Appearance", "About"];
+pub(crate) const SETTINGS_CATEGORIES: [&str; 5] =
+    ["Devices", "Video", "Appearance", "Keyboard", "About"];
 
 /// The video quality choices, in `Quality` order.
 pub(crate) const QUALITY_LABELS: [&str; 3] = [
@@ -920,14 +929,16 @@ fn settings(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
                     .dom(),
                 )),
         ),
+        3 => ShellSettingsSection::create(AzString::from("Keyboard"), keyboard()),
         _ => ShellSettingsSection::create(
             AzString::from("About"),
             Dom::create_div()
                 .with_css("display: flex; flex-direction: column;")
-                .with_child(text("AzMeet - video meetings over azul.iroh", "font-size: 13px;"))
+                .with_child(about(data, actions))
                 .with_child(text(&format!("You appear as {}", s.name), SECONDARY))
                 .with_child(text(&format!("Meeting server: {}", s.server), SECONDARY))
-                .with_child(text(&s.codec, SECONDARY)),
+                .with_child(text(&s.codec, SECONDARY))
+                .with_child(text(&format!("Files: {}", s.data_folder), SECONDARY)),
         ),
     };
     let layout = ShellSettingsLayout::create(StringVec::from_vec(
@@ -945,10 +956,45 @@ fn settings(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
                 Button::create("Back")
                     .with_on_click(data.clone(), actions.settings_back)
                     .dom()
-                    .with_id(AzString::from("azmeet-settings-back")),
+                    .with_id(ids::SETTINGS_BACK),
             ),
         )
         .with_child(layout)
+}
+
+/// The keyboard shortcuts, by group: the table the key handler is checked against
+/// (`keys::SHORTCUTS`), "Mod" written as this platform's key.
+fn keyboard() -> Dom {
+    let mac = cfg!(any(target_os = "macos", target_os = "ios"));
+    let mut list = Dom::create_div().with_css("display: flex; flex-direction: column;");
+    for (group, shortcuts) in azul_appkit::shortcuts::groups(&crate::keys::SHORTCUTS) {
+        list = list.with_child(text(group, SECTION_TITLE));
+        for s in shortcuts {
+            list = list.with_child(text(
+                &format!(
+                    "{}  {}",
+                    azul_appkit::shortcuts::display_keys(s.keys, mac),
+                    s.action
+                ),
+                "font-size: 13px; padding: 2px 0px;",
+            ));
+        }
+    }
+    list
+}
+
+/// The About: azul's standard AboutDialog with AzMeet's facts (`crate::ABOUT`); OK closes the
+/// settings.
+fn about(data: &RefAny, actions: &Actions) -> Dom {
+    let facts = crate::ABOUT;
+    AboutDialog::create(facts.name, facts.version)
+        .with_icon("videocam")
+        .with_description(facts.summary)
+        .with_credit("azul", "MIT")
+        .with_credit("azul.iroh (iroh)", "MIT / Apache-2.0")
+        .with_on_event(data.clone(), actions.about_event)
+        .dom()
+        .with_id(ids::ABOUT)
 }
 
 /// A drop-down of `choices` with `selected` chosen.
@@ -983,20 +1029,24 @@ mod tests {
 
     #[test]
     fn a_tile_id_names_the_person_and_the_picture() {
-        assert_eq!(tile_id(&tile("Ada (you)", true, TileKind::Camera)), "azmeet-tile-me-camera");
-        assert_eq!(tile_id(&tile("Ben", false, TileKind::Screen)), "azmeet-tile-ben-screen");
+        assert_eq!(tile_id(&tile("Ada (you)", true, TileKind::Camera)), "__azmeet_tile_me_camera");
+        assert_eq!(tile_id(&tile("Ben", false, TileKind::Screen)), "__azmeet_tile_ben_screen");
         assert_eq!(
             tile_id(&tile("Cleo M.", false, TileKind::Camera)),
-            "azmeet-tile-cleo-m--camera"
+            "__azmeet_tile_cleo_m__camera",
+            "the app prefix, every character but a letter or digit an underscore"
         );
     }
 
+
     #[test]
-    fn initials_are_the_first_letters_of_up_to_two_words() {
-        assert_eq!(initials("Ada Lovelace"), "AL");
-        assert_eq!(initials("ben"), "B");
-        assert_eq!(initials("a b c"), "AB");
-        assert_eq!(initials("   "), "?");
+    fn this_sides_tile_says_you_and_its_avatar_keeps_the_names_initials() {
+        let mut me = tile("Ada Lovelace", true, TileKind::Camera);
+        me.muted = true;
+        assert_eq!(tile_label(&me), "Ada Lovelace (you) · muted");
+        assert_eq!(tile_label(&tile("Ada Lovelace", true, TileKind::Screen)), "Your screen");
+        assert_eq!(initials(&me.name), "AL", "the avatar reads the name, not the label (\"A(\")");
+        assert_eq!(shown_name("Ben", false), "Ben");
     }
 
     #[test]
