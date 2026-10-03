@@ -129,8 +129,56 @@ pub fn instant(ms: i64) -> DateTime<Utc> {
 /// earlier instant (RFC 5545 3.3.5).
 #[must_use]
 pub fn resolve_local<Tz: TimeZone>(tz: &Tz, local: NaiveDateTime) -> DateTime<Utc> {
-    let _ = (tz, local);
-    DateTime::<Utc>::default()
+    match tz.from_local_datetime(&local) {
+        LocalResult::Single(t) => t.with_timezone(&Utc),
+        LocalResult::Ambiguous(a, b) => {
+            let (a, b) = (a.with_timezone(&Utc), b.with_timezone(&Utc));
+            a.min(b)
+        }
+        LocalResult::None => {
+            // In a gap: the offset in force a day before (no zone changes
+            // its offset twice within a day).
+            let before = local - Duration::hours(24);
+            let offset = tz
+                .offset_from_local_datetime(&before)
+                .earliest()
+                .map_or(0, |o| o.fix().local_minus_utc());
+            Utc.from_utc_datetime(&(local - Duration::seconds(i64::from(offset))))
+        }
+    }
+}
+
+/// Whether a repeat's first day is one of its own days: a weekly repeat on
+/// Mon / Wed / Fri started on a Tuesday does not ring that Tuesday (RRULE
+/// counts DTSTART; an alarm made on any day must not).
+fn first_counts(rule: &Rule, first: NaiveDate) -> bool {
+    let weekday_ok = rule.by_day.is_empty()
+        || rule.by_day.iter().any(|d| {
+            if d.weekday != first.weekday() {
+                return false;
+            }
+            match d.nth {
+                0 => true,
+                nth if nth > 0 => azul_pim::dates::nth_weekday_of_month(first).0 == nth,
+                _ => {
+                    let left = azul_pim::dates::days_in_month(first.year(), first.month())
+                        - first.day();
+                    i8::try_from(left / 7 + 1).is_ok_and(|from_end| from_end == -d.nth)
+                }
+            }
+        });
+    let month_day_ok = rule.by_month_day.is_empty()
+        || rule.by_month_day.iter().any(|&d| {
+            let length = azul_pim::dates::days_in_month(first.year(), first.month());
+            let day = if d > 0 {
+                i64::from(d)
+            } else {
+                i64::from(length) + 1 + i64::from(d)
+            };
+            day == i64::from(first.day())
+        });
+    let month_ok = rule.by_month.is_empty() || rule.by_month.contains(&first.month());
+    weekday_ok && month_day_ok && month_ok
 }
 
 impl Alarm {
@@ -178,7 +226,10 @@ impl Alarm {
     /// does not parse (the alarm then rings once, on its first day).
     #[must_use]
     pub fn rule(&self) -> Option<Rule> {
-        None
+        if self.repeat.trim().is_empty() {
+            return None;
+        }
+        Rule::parse(&self.repeat).ok()
     }
 
     /// Whether it repeats.
@@ -196,8 +247,51 @@ impl Alarm {
         tz: &Tz,
         limit: usize,
     ) -> Vec<DateTime<Utc>> {
-        let _ = (after, tz, limit);
-        Vec::new()
+        let mut out = Vec::new();
+        if limit == 0 {
+            return out;
+        }
+        let time = self.time();
+        let at = |d: NaiveDate| resolve_local(tz, d.and_time(time));
+        let Some(mut rule) = self.rule() else {
+            let once = at(self.first);
+            if once > after {
+                out.push(once);
+            }
+            return out;
+        };
+        let counts = first_counts(&rule, self.first);
+        if !counts {
+            // The first day is no occurrence, so a COUNT counts one more day.
+            if let RepeatEnd::Count(n) = rule.end {
+                rule.end = RepeatEnd::Count(n.saturating_add(1));
+            }
+        }
+        // A day early: a zone behind UTC has the occurrence on the day before.
+        let after_day = after.with_timezone(tz).date_naive();
+        let mut from = (after_day - Duration::days(1)).max(self.first);
+        for _ in 0..MAX_WINDOWS {
+            let to = from + Duration::days(400);
+            for d in rule.dates(self.first, &[], from, to) {
+                if d == self.first && !counts {
+                    continue;
+                }
+                let o = at(d);
+                if o > after {
+                    out.push(o);
+                    if out.len() >= limit {
+                        return out;
+                    }
+                }
+            }
+            if let RepeatEnd::Until(until) = rule.end {
+                if to >= until {
+                    break;
+                }
+            }
+            from = to + Duration::days(1);
+        }
+        out
     }
 
     /// The first occurrence strictly after `after`.
@@ -211,8 +305,21 @@ impl Alarm {
     /// its repeat is over.
     #[must_use]
     pub fn next_ring<Tz: TimeZone>(&self, now: DateTime<Utc>, tz: &Tz) -> Option<DateTime<Utc>> {
-        let _ = (now, tz);
-        None
+        if !self.enabled {
+            return None;
+        }
+        let snooze = self.snoozed_until.map(instant).filter(|t| *t > now);
+        let next = self.next_unrung(now, tz);
+        match (snooze, next) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
+    }
+
+    /// The first occurrence after `from` that did not ring yet.
+    fn next_unrung<Tz: TimeZone>(&self, from: DateTime<Utc>, tz: &Tz) -> Option<DateTime<Utc>> {
+        let from = self.last_rang.map_or(from, |ms| instant(ms).max(from));
+        self.next_after(from, tz)
     }
 
     /// The ring due at `now`, if any: a snooze that ended, or the latest
@@ -220,8 +327,22 @@ impl Alarm {
     /// ring yet.
     #[must_use]
     pub fn due<Tz: TimeZone>(&self, now: DateTime<Utc>, tz: &Tz) -> Option<Ring> {
-        let _ = (now, tz);
-        None
+        if !self.enabled {
+            return None;
+        }
+        if let Some(at) = self.snoozed_until.map(instant).filter(|t| *t <= now) {
+            return Some(Ring {
+                at,
+                kind: RingKind::Snooze,
+            });
+        }
+        let earliest = now - Duration::minutes(LATE_RING_MINUTES);
+        // `next_after` is strict: one millisecond back finds an occurrence AT `earliest`.
+        let at = self.next_unrung(earliest - Duration::milliseconds(1), tz)?;
+        (at <= now).then_some(Ring {
+            at,
+            kind: RingKind::Occurrence,
+        })
     }
 
     /// Switches it on for the next time its time comes: a one-time alarm's
@@ -229,26 +350,77 @@ impl Alarm {
     /// repeating alarm keeps its day. A snooze and the memory of the last
     /// ring are dropped.
     pub fn arm<Tz: TimeZone>(&mut self, now: DateTime<Utc>, tz: &Tz) {
-        let _ = (now, tz);
+        self.enabled = true;
+        self.snoozed_until = None;
+        self.last_rang = None;
+        if self.repeats() {
+            return;
+        }
+        let today = now.with_timezone(tz).date_naive();
+        let at_today = resolve_local(tz, today.and_time(self.time()));
+        self.first = if at_today > now {
+            today
+        } else {
+            today.succ_opt().unwrap_or(today)
+        };
     }
 
     /// The ring `ring` happened (or was let go): it never rings again; a
     /// snooze is over; a one-time alarm switches itself off.
     pub fn rang(&mut self, ring: Ring) {
-        let _ = ring;
+        self.snoozed_until = None;
+        if ring.kind == RingKind::Occurrence {
+            let ms = ring.at.timestamp_millis();
+            self.last_rang = Some(self.last_rang.map_or(ms, |last| last.max(ms)));
+        }
+        if !self.repeats() {
+            self.enabled = false;
+        }
     }
 
     /// Snooze: it rings again `minutes` after `now` (1 to
     /// [`MAX_SNOOZE_MINUTES`]).
     pub fn snooze(&mut self, now: DateTime<Utc>, minutes: u32) {
-        let _ = (now, minutes);
+        let minutes = minutes.clamp(1, MAX_SNOOZE_MINUTES);
+        self.snoozed_until = Some((now + Duration::minutes(i64::from(minutes))).timestamp_millis());
+        // A one-time alarm that rang stays on for its snooze.
+        self.enabled = true;
     }
 
     /// The repeat for the list: "Once", "Every day", "Weekdays", "Weekends",
     /// "Mon Wed Fri", else what the rule says ("Every 2 weeks on Monday").
     #[must_use]
     pub fn repeat_label(&self) -> String {
-        String::new()
+        use azul_pim::rrule::Freq;
+        let Some(rule) = self.rule() else {
+            return "Once".to_string();
+        };
+        let plain = rule.interval <= 1 && rule.end == RepeatEnd::Never;
+        let every_day = |days: &[chrono::Weekday]| days.len() == 7;
+        if plain && rule.freq == Freq::Daily && rule.by_day.is_empty() {
+            return "Every day".to_string();
+        }
+        let simple_days = rule.by_day.iter().all(|d| d.nth == 0)
+            && rule.by_month_day.is_empty()
+            && rule.by_month.is_empty();
+        if plain && simple_days && matches!(rule.freq, Freq::Weekly | Freq::Daily) && !rule.by_day.is_empty() {
+            let mut days: Vec<chrono::Weekday> = rule.by_day.iter().map(|d| d.weekday).collect();
+            days.sort_by_key(chrono::Weekday::num_days_from_monday);
+            days.dedup();
+            let monday_based: Vec<u32> = days.iter().map(chrono::Weekday::num_days_from_monday).collect();
+            if every_day(&days) {
+                return "Every day".to_string();
+            }
+            if monday_based == [0, 1, 2, 3, 4] {
+                return "Weekdays".to_string();
+            }
+            if monday_based == [5, 6] {
+                return "Weekends".to_string();
+            }
+            let names: Vec<&str> = days.iter().map(|d| azul_pim::dates::weekday_short(*d)).collect();
+            return names.join(" ");
+        }
+        rule.describe(self.first)
     }
 }
 

@@ -49,8 +49,60 @@ impl Sound {
 /// (empty for [`Sound::Silent`]). `volume` is 0 to 1.
 #[must_use]
 pub fn pattern(sound: Sound, seconds: f32, volume: f32) -> Vec<f32> {
-    let _ = (sound, seconds, volume);
-    Vec::new()
+    if sound == Sound::Silent || !(seconds > 0.0) {
+        return Vec::new();
+    }
+    let rate = SAMPLE_RATE as f32;
+    let n = (seconds * rate).round() as usize;
+    let volume = volume.clamp(0.0, 1.0);
+    let tau = core::f32::consts::TAU;
+    (0..n)
+        .map(|i| {
+            let t = i as f32 / rate;
+            let v = match sound {
+                Sound::Bells => {
+                    // Struck twice a second; the partials of a small bell.
+                    let since = t % 0.5;
+                    let envelope = (-since * 6.0).exp();
+                    let tone = 0.6 * (tau * 880.0 * t).sin()
+                        + 0.3 * (tau * 1760.0 * t).sin()
+                        + 0.1 * (tau * 2640.0 * t).sin();
+                    0.8 * envelope * tone
+                }
+                Sound::Beep => {
+                    // Four 100 ms beeps 150 ms apart, then silence, every second.
+                    let ms = (t % 1.0) * 1000.0;
+                    let k = (ms / 150.0) as u32;
+                    let within = ms - k as f32 * 150.0;
+                    if k < 4 && within < 100.0 {
+                        // 5 ms ramps: no clicks.
+                        let ramp = (within / 5.0).min((100.0 - within) / 5.0).min(1.0);
+                        0.7 * ramp * (tau * 1000.0 * t).sin()
+                    } else {
+                        0.0
+                    }
+                }
+                Sound::Chime => {
+                    // E5 then C5, each ringing out over 0.6 s, then 0.4 s of rest.
+                    let cycle = t % 1.6;
+                    let (frequency, since) = if cycle < 0.6 {
+                        (659.25, cycle)
+                    } else if cycle < 1.2 {
+                        (523.25, cycle - 0.6)
+                    } else {
+                        (0.0, 0.0)
+                    };
+                    if frequency > 0.0 {
+                        0.6 * (-since * 3.0).exp() * (tau * frequency * t).sin()
+                    } else {
+                        0.0
+                    }
+                }
+                Sound::Silent => 0.0,
+            };
+            (v * volume).clamp(-1.0, 1.0)
+        })
+        .collect()
 }
 
 #[cfg(test)]
