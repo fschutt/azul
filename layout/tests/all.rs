@@ -804,3 +804,5 @@ mod typing_stays_with_its_field_when_another_page_replaces_it;
 mod text_inside_an_opacity_group_keeps_its_colour;
 #[path = "an_absolutely_positioned_child_does_not_split_its_parents_line.rs"]
 mod an_absolutely_positioned_child_does_not_split_its_parents_line;
+#[path = "a_block_inside_an_inline_splits_the_inline_around_it.rs"]
+mod a_block_inside_an_inline_splits_the_inline_around_it;
