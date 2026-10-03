@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, HashMap};
 use crate::{
     folders::{self, LocalMailbox, ServerMailbox},
     message,
-    store::{self, FolderState, IndexEntry, LocalFolder},
+    store::{self, FolderState, IndexEntry, MailStore},
 };
 
 /// What `SELECT` reports.
@@ -276,7 +276,7 @@ pub fn checkpoint_due(since: u64, index_len: usize) -> bool {
 /// answers `false`, the sync writes what it has and stops with [`SyncError::Stopped`].
 pub fn sync_account(
     source: &mut dyn MailSource,
-    store: &LocalFolder,
+    store: &MailStore,
     options: &SyncOptions,
     progress: &mut dyn FnMut(Progress) -> bool,
 ) -> Result<SyncReport, SyncError> {
@@ -302,7 +302,7 @@ pub fn sync_account(
 /// Syncs one folder (see the module documentation).
 pub fn sync_folder(
     source: &mut dyn MailSource,
-    store: &LocalFolder,
+    store: &MailStore,
     mailbox: &LocalMailbox,
     options: &SyncOptions,
     progress: &mut dyn FnMut(Progress) -> bool,
@@ -339,7 +339,7 @@ pub fn sync_folder(
     // A folder without an index file (new, or renumbered) gets one even when it is empty.
     let mut index_dirty = store.size_of(&store::index_key(key)).is_none();
     for (entry, bytes) in local {
-        store.put(&entry.path, &bytes, true).map_err(storage)?;
+        store.put(&entry.path, &bytes).map_err(storage)?;
         index.insert(entry.uid, entry);
         index_dirty = true;
     }
@@ -410,7 +410,7 @@ pub fn sync_folder(
                     let Some(bytes) = bodies.remove(&meta.uid) else {
                         continue;
                     };
-                    store.put(path, &bytes, false).map_err(storage)?;
+                    store.put(path, &bytes).map_err(storage)?;
                     report.fetched += 1;
                     bytes
                 } else {
@@ -464,7 +464,7 @@ fn message_path(folder: &str, meta: &MessageMeta) -> String {
 }
 
 /// Whether the message's file is there whole: not empty, and as big as the server says.
-fn already_written(store: &LocalFolder, path: &str, size: Option<u64>) -> bool {
+fn already_written(store: &MailStore, path: &str, size: Option<u64>) -> bool {
     match store.size_of(path) {
         Some(len) if len > 0 => size.is_none_or(|size| size == len),
         _ => false,
@@ -472,7 +472,7 @@ fn already_written(store: &LocalFolder, path: &str, size: Option<u64>) -> bool {
 }
 
 /// The folder's index, by UID; empty when there is none.
-fn read_index(store: &LocalFolder, folder: &str) -> BTreeMap<u32, IndexEntry> {
+fn read_index(store: &MailStore, folder: &str) -> BTreeMap<u32, IndexEntry> {
     store
         .get(&store::index_key(folder))
         .map(|bytes| store::index_from_jsonl(&String::from_utf8_lossy(&bytes)))
@@ -485,7 +485,7 @@ fn read_index(store: &LocalFolder, folder: &str) -> BTreeMap<u32, IndexEntry> {
 /// Writes the index (when `with_index`) and then the state: the state never names a UID the
 /// index file does not have.
 fn write_checkpoint(
-    store: &LocalFolder,
+    store: &MailStore,
     folder: &str,
     index: &BTreeMap<u32, IndexEntry>,
     state: &mut FolderState,
@@ -498,14 +498,13 @@ fn write_checkpoint(
             .put(
                 &store::index_key(folder),
                 store::index_to_jsonl(&entries).as_bytes(),
-                true,
             )
             .map_err(storage)?;
     }
     state.messages = index.len() as u64;
     state.synced_at = message::rfc3339_utc(now);
     store
-        .put(&store::state_key(folder), state.to_json().as_bytes(), true)
+        .put(&store::state_key(folder), state.to_json().as_bytes())
         .map_err(storage)
 }
 
@@ -672,15 +671,15 @@ mod tests {
         }
     }
 
-    fn run(server: &mut FakeServer, store: &LocalFolder) -> Result<SyncReport, SyncError> {
+    fn run(server: &mut FakeServer, store: &MailStore) -> Result<SyncReport, SyncError> {
         sync_account(server, store, &options(), &mut |_| true)
     }
 
-    fn index(store: &LocalFolder, folder: &str) -> Vec<IndexEntry> {
+    fn index(store: &MailStore, folder: &str) -> Vec<IndexEntry> {
         index_from_jsonl(&String::from_utf8(store.get(&index_key(folder)).unwrap()).unwrap())
     }
 
-    fn state(store: &LocalFolder, folder: &str) -> FolderState {
+    fn state(store: &MailStore, folder: &str) -> FolderState {
         FolderState::from_json(&String::from_utf8(store.get(&state_key(folder)).unwrap()).unwrap())
             .unwrap()
     }
@@ -688,7 +687,7 @@ mod tests {
     #[test]
     fn the_first_sync_writes_every_message_its_index_and_its_state() {
         let dir = TempDir::new("sync");
-        let store = LocalFolder::new(dir.0.clone());
+        let store = MailStore::new(dir.folder());
         let mut server = FakeServer::default()
             .with_folder("INBOX", &[], &[1, 2, 3, 5, 8])
             .with_folder("Junk", &["\\Junk"], &[4]);
@@ -730,7 +729,7 @@ mod tests {
     #[test]
     fn a_second_sync_fetches_nothing_twice() {
         let dir = TempDir::new("sync");
-        let store = LocalFolder::new(dir.0.clone());
+        let store = MailStore::new(dir.folder());
         let mut server = FakeServer::default()
             .with_folder("INBOX", &[], &[1, 2, 3])
             .with_folder("Spam", &[], &[7]);
@@ -747,7 +746,7 @@ mod tests {
     #[test]
     fn new_mail_is_fetched_alone_even_when_the_server_has_no_uidnext() {
         let dir = TempDir::new("sync");
-        let store = LocalFolder::new(dir.0.clone());
+        let store = MailStore::new(dir.folder());
         let mut server = FakeServer::default().with_folder("INBOX", &[], &[1, 2]);
         server.hide_uid_next = true;
         run(&mut server, &store).unwrap();
@@ -776,7 +775,7 @@ mod tests {
     #[test]
     fn a_renumbered_folder_moves_aside_and_syncs_from_the_start() {
         let dir = TempDir::new("sync");
-        let store = LocalFolder::new(dir.0.clone());
+        let store = MailStore::new(dir.folder());
         let mut server = FakeServer::default().with_folder("INBOX", &[], &[1, 2]);
         run(&mut server, &store).unwrap();
         {
@@ -806,15 +805,15 @@ mod tests {
 
     /// A mail sent from this computer, filed by SEND into Sent before that folder was ever
     /// synced (its state says UIDVALIDITY 0, its UID is a local one).
-    fn file_local_sent(store: &LocalFolder) -> IndexEntry {
+    fn file_local_sent(store: &MailStore) -> IndexEntry {
         let flags = [String::from("\\Seen")];
-        crate::send::file_message(store.root(), "sent", &message(99), &flags, SEP_30).unwrap()
+        crate::send::file_message(store.folder(), "sent", &message(99), &flags, SEP_30).unwrap()
     }
 
     #[test]
     fn mail_sent_from_here_stays_in_sent_when_the_first_sync_adopts_the_folder() {
         let dir = TempDir::new("sync");
-        let store = LocalFolder::new(dir.0.clone());
+        let store = MailStore::new(dir.folder());
         let local = file_local_sent(&store);
         assert_eq!(state(&store, "sent").uidvalidity, 0);
         let mut server = FakeServer::default().with_folder("Sent", &["\\Sent"], &[1, 2]);
@@ -832,7 +831,7 @@ mod tests {
     #[test]
     fn mail_sent_from_here_survives_the_server_renumbering_the_folder() {
         let dir = TempDir::new("sync");
-        let store = LocalFolder::new(dir.0.clone());
+        let store = MailStore::new(dir.folder());
         let mut server = FakeServer::default().with_folder("Sent", &["\\Sent"], &[1, 2]);
         run(&mut server, &store).unwrap();
         let local = file_local_sent(&store);
@@ -861,7 +860,7 @@ mod tests {
     #[test]
     fn a_sync_that_broke_off_is_picked_up_without_fetching_twice() {
         let dir = TempDir::new("sync");
-        let store = LocalFolder::new(dir.0.clone());
+        let store = MailStore::new(dir.folder());
         let mut server = FakeServer::default().with_folder("INBOX", &[], &[1, 2, 3, 4, 5]);
         // Batches of 2: the second body fetch (UIDs 3 and 4) fails.
         server.fail_body_fetch = Some(2);
@@ -882,17 +881,17 @@ mod tests {
     #[test]
     fn a_message_written_before_a_crash_is_read_back_not_fetched() {
         let dir = TempDir::new("sync");
-        let store = LocalFolder::new(dir.0.clone());
+        let store = MailStore::new(dir.folder());
         // UIDs 1 and 2 were written, but the index and state never were.
         store
-            .put(&message_key("inbox", 2026, 9, 1), &message(1), false)
+            .put(&message_key("inbox", 2026, 9, 1), &message(1))
             .unwrap();
         store
-            .put(&message_key("inbox", 2026, 9, 2), &message(2), false)
+            .put(&message_key("inbox", 2026, 9, 2), &message(2))
             .unwrap();
         // A file cut short is fetched again: its size is not the server's.
         store
-            .put(&message_key("inbox", 2026, 9, 3), b"From: a", false)
+            .put(&message_key("inbox", 2026, 9, 3), b"From: a")
             .unwrap();
         let mut server = FakeServer::default().with_folder("INBOX", &[], &[1, 2, 3]);
         let report = run(&mut server, &store).unwrap();
@@ -910,7 +909,7 @@ mod tests {
     #[test]
     fn a_message_gone_before_its_body_came_is_skipped() {
         let dir = TempDir::new("sync");
-        let store = LocalFolder::new(dir.0.clone());
+        let store = MailStore::new(dir.folder());
         let mut server = FakeServer::default().with_folder("INBOX", &[], &[1, 2, 3]);
         server.vanished = vec![2];
         run(&mut server, &store).unwrap();
@@ -927,7 +926,7 @@ mod tests {
     #[test]
     fn a_stopped_sync_keeps_what_it_wrote() {
         let dir = TempDir::new("sync");
-        let store = LocalFolder::new(dir.0.clone());
+        let store = MailStore::new(dir.folder());
         let mut server = FakeServer::default().with_folder("INBOX", &[], &[1, 2, 3, 4, 5]);
         let mut seen = Vec::new();
         let stopped = sync_account(&mut server, &store, &options(), &mut |p| {
@@ -950,7 +949,7 @@ mod tests {
     #[test]
     fn progress_counts_the_folders_new_messages() {
         let dir = TempDir::new("sync");
-        let store = LocalFolder::new(dir.0.clone());
+        let store = MailStore::new(dir.folder());
         let mut server = FakeServer::default().with_folder("INBOX", &[], &[1, 2, 3]);
         let mut seen = Vec::new();
         sync_account(&mut server, &store, &options(), &mut |p| {
@@ -972,7 +971,7 @@ mod tests {
     #[test]
     fn an_empty_folder_is_still_a_synced_folder() {
         let dir = TempDir::new("sync");
-        let store = LocalFolder::new(dir.0.clone());
+        let store = MailStore::new(dir.folder());
         let mut server = FakeServer::default()
             .with_folder("INBOX", &[], &[])
             .with_folder("Drafts", &["\\Drafts"], &[]);
