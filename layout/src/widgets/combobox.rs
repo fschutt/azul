@@ -120,6 +120,21 @@ static COMBOBOX_OPTION_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
 /// `aria-activedescendant`). It lives in the popup window's own dom, so a
 /// list shown afresh starts with none.
 const COMBOBOX_OPTION_ACTIVE_CLASS_NAME: &str = "__azul-native-combobox-option-active";
+/// The list's status line ([`ComboBox::status`]) - not an option.
+static COMBOBOX_STATUS_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-combobox-status",
+))];
+
+/// A quieter line in the row's own ink: `px` text at 70% opacity - an
+/// option's detail, the list's status. Inheriting the ink is what makes it
+/// right in every theme and mode without a colour of its own.
+fn quiet_line(px: isize) -> Vec<CssPropertyWithConditions> {
+    use azul_css::props::style::StyleOpacity;
+    alloc::vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(px))),
+        CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(70))),
+    ]
+}
 
 const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
 const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
@@ -989,6 +1004,8 @@ impl ComboBox {
 
         let open = self.combo_state.inner.open;
         let items = self.combo_state.items.clone();
+        let details = self.combo_state.item_details.clone();
+        let status = self.status.clone();
 
         // Resolved before `self.combo_state` is moved into the shared RefAny
         // below. A caller's style replaces the skin's part; the list's extras
@@ -1071,11 +1088,27 @@ impl ComboBox {
 
         // Build the option rows. Each carries a CLONE of the shared state so its
         // click handler can mutate selected/open and read the chosen label.
-        let mut option_doms: Vec<Dom> = Vec::with_capacity(items.as_ref().len());
-        for option in items.as_ref() {
+        let mut option_doms: Vec<Dom> = Vec::with_capacity(items.as_ref().len() + 1);
+        for (i, option) in items.as_ref().iter().enumerate() {
+            // An option with a detail is a box of two lines - the label, then
+            // the detail, smaller and quieter (it inherits the row's ink, so
+            // it follows every theme and mode); without one it is the label
+            // `<p>` itself, as it always was.
+            let detail = details
+                .as_ref()
+                .get(i)
+                .filter(|d| !d.as_str().is_empty())
+                .cloned();
+            let row = match detail {
+                Some(detail) => Dom::create_div().with_children(DomVec::from_vec(alloc::vec![
+                    crate::widgets::widget_p_with_text(option.clone()),
+                    crate::widgets::widget_p_with_text(detail)
+                        .with_css_props(CssPropertyWithConditionsVec::from_vec(quiet_line(11))),
+                ])),
+                None => crate::widgets::widget_p_with_text(option.clone()),
+            };
             option_doms.push(
-                crate::widgets::widget_p_with_text(option.clone())
-                    .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_OPTION_CLASS))
+                row.with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_OPTION_CLASS))
                     .with_css_props(option_style.clone())
                     // NOT a tab stop: an option is never focused - the field
                     // keeps focus and the list shows an ACTIVE option.
@@ -1095,6 +1128,24 @@ impl ComboBox {
                         }]
                         .into(),
                     ),
+            );
+        }
+        // The list's own word about its options ("Searching...", "No
+        // matches"): after them, so an option's index is still its place
+        // among its siblings; no option class, so the keys never make it
+        // active; no click. A live region: it changes while the app looks.
+        if let Some(status) = status.into_option() {
+            let mut style = quiet_line(12);
+            style.extend(crate::widgets::themes::decl::padding(6, 10, 6, 10));
+            option_doms.push(
+                crate::widgets::widget_p_with_text(status)
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_STATUS_CLASS))
+                    .with_css_props(CssPropertyWithConditionsVec::from_vec(style))
+                    .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                        role: azul_core::a11y::AccessibilityRole::StaticText,
+                        is_live_region: true,
+                        ..Default::default()
+                    }),
             );
         }
 
@@ -1176,12 +1227,16 @@ extern "C" fn on_combobox_toggle(mut data: RefAny, mut info: CallbackInfo) -> Up
     let Some(popup) = info.get_next_sibling(field) else {
         return Update::DoNothing;
     };
+    // The ENGINE knows whether the popup is open: its latch survives the
+    // app's rebuilds, the payload's flag does not (a rebuilt combobox starts
+    // "closed" over a list that is still showing).
+    let engine_open = info.is_transient_window_open(popup);
 
     let now_open = {
         let Some(mut combo) = data.downcast_mut::<ComboBoxStateWrapper>() else {
             return Update::DoNothing;
         };
-        combo.inner.open = !combo.inner.open;
+        combo.inner.open = !(combo.inner.open || engine_open);
         combo.inner.open
     };
 
@@ -1329,17 +1384,27 @@ fn on_combobox_text_input_inner(mut data: RefAny, mut info: CallbackInfo) -> Opt
         return None;
     }
 
-    let new_text = {
+    let (new_text, open_now) = {
         let mut combo = data.downcast_mut::<ComboBoxStateWrapper>()?;
         let mut s: String = combo.inner.text.as_str().into();
         s.push_str(&inserted_text);
         combo.inner.text = s.clone().into();
         // Typing clears the list's active option (WAI-ARIA combobox).
         combo.active_option_cleared = true;
-        s
+        // Suggestions as you type: the closed list opens.
+        let open_now = combo.open_on_type && !combo.inner.open;
+        if open_now {
+            combo.inner.open = true;
+        }
+        (s, open_now)
     };
 
     info.change_node_text(text_node, new_text.into());
+    if open_now {
+        if let Some(popup) = info.get_next_sibling(field) {
+            show_list(&mut info, field, popup, true);
+        }
+    }
     Some(report_typed_text(&mut data, info))
 }
 
