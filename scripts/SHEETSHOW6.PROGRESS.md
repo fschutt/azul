@@ -45,7 +45,7 @@ screenshots + hierarchy dumps under target/sheetshow6-shots/.
   crate, cf5d4b1ce new_uuid).
 
 ## IN PROGRESS
-- LOOK at AzShow (prebuilt aa59b2d84) via show_steps1.py in the background.
+- AzShow HOME width (see Broken below).
 
 ## NEXT (exact)
 1-3. (done)
@@ -68,6 +68,18 @@ AzSheets:
   geometry - ghost text drawn twice (ribbon labels garbled after a tab switch / theme switch), grid lines misaligned
   per row, the backstage nav painted on the RIGHT at x=1137 with a second title strip. Evidence:
   target/sheetshow6-shots/look1/{07-flat-dark,12-editing-suggestions,13-bs-info}.png vs the .json dumps beside them.
+
+AzShow (looked 2026-10-03, prebuilt aa59b2d84, --sample --no-presenter, 1280x800, target/sheetshow6-shots/show1/):
+- HOME is 1666 px wide (the Layout gallery alone 863 px: all 7 layouts inline): Font is cut at the window's edge,
+  Paragraph / Drawing / Editing are off-screen (02-normal.json group rects). PowerPoint has "Layout" as a dropdown
+  in the Slides group.
+- VIEW > Window had Flat / Flora / Light / Dark / System buttons (gone in cf3f7a6fa: Options).
+- New: the theme previews all look the same (beige ground, tiny title): the accent does not show.
+- ENGINE (HEADLESS6): the same stale / doubled paint as in Sheets - bold ghost labels after a theme switch
+  (14-flora-light-full), sorter thumbnails painted overlapping while their rects are adjacent 232 px tiles
+  (20-view-slidesorter-full.png vs .json), the show's text drawn twice (38-show-full), INSERT's groups garbled after
+  the tab switch (03-tab-insert).
+- Normal view, rail, task pane, selection handles, notes, status bar, backstage New look right.
 
 ## Decisions
 - LOOK sessions are scripted (one bounded run_capped call each), not interactive: the machine-wide lock had a queue
