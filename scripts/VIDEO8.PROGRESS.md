@@ -56,8 +56,17 @@ capture's CVPixelBuffer).
 - e5d869f5e docs
   => JPEG FALLBACK OFF APPLE DONE (Linux / Windows with a Vulkan Video encode GPU; not runnable here).
 
+- f7d24e783 test(audio): EchoCanceller RED (echo_tests: converge, double talk, path change,
+  passthrough, closed / other format)
+- 79b3dbce2 feat(audio): EchoCanceller GREEN (FFT, two-filter MDF, Speex foreground test, stream)
+- 17032ccc1 wasm stub
+- 951c6d12c feat(azmeet): echo of what plays cancelled from the mic (Playout.echo, far_end per turn,
+  cancel_echo in send_audio, AZMEET_ECHO_CANCEL=0)
+  => ECHO CANCELLATION DONE (needs api.json EchoCanceller). Python models in /tmp/video8/tc
+  (aec_proto*.py, fft_check.py) - not committed.
+
 ## IN PROGRESS
-- echo cancellation (next).
+- deciding on zero copy steps 2-3 (last item), then the report.
 
 ## NEXT (exact)
 1. (DONE) Opus through AudioToolbox on Apple: new file dll/src/desktop/extra/audio/opus_codec.rs (or
@@ -72,7 +81,7 @@ capture's CVPixelBuffer).
    mirroring decode_vulkan.rs (gpu-video `create_bytes_encoder_h264`, NV12 input via the core
    YCbCr table for RGBA/BGRA, RateControl::VariableBitrate; set_bitrate = re-create the encoder);
    EncoderInner gets an engine enum; encode_engine() honest.
-3. Echo cancellation: pure-Rust partitioned-block frequency-domain adaptive filter (needs an FFT:
+3. (DONE) Echo cancellation: pure-Rust partitioned-block frequency-domain adaptive filter (needs an FFT:
    search the tree first), synthetic-signal ERLE tests; AzMeet feeds the played far end.
 4. Zero copy steps 2-3 (last).
 5. Report scripts/VIDEO8_2026_10_03.md.
@@ -86,6 +95,11 @@ capture's CVPixelBuffer).
   decode(refmut, packet: U8Vec) -> OptionAudioFrame, close(refmut)).
 - `option.OptionAudioFrame` (external azul_core::audio::OptionAudioFrame, derive Clone Debug,
   None / Some(AudioFrame), repr "C, u8").
+- `audio.EchoCanceller` (external azul_dll::unified::audio::EchoCanceller; custom_impls Clone
+  Default Drop; ptr c_void mutptr, run_destructor bool; constructor create(sample_rate: u32,
+  tail_ms: u32); functions is_open(ref) -> bool, far_end(ref, frame: AudioFrame) -> bool,
+  process(ref, frame: AudioFrame) -> AudioFrame, latency_samples(ref) -> u32, erle_db(ref) -> f32,
+  close(refmut)).
 - `video.VideoEncoder.functions.set_bitrate`: `fn_args: [{"self": "ref"}, {"kbps": "u32"}]`,
   returns `bool`, `fn_body: "object.set_bitrate(kbps)"`, doc "Spend `kbps` kilobits a second from
   the next frame the encoder takes on (a call whose network got slower or faster). The stream goes
