@@ -209,7 +209,14 @@ class App(Process):
         return list(strings(self.op("get_node_hierarchy")))
 
     def rect(self, node_id):
-        value = self.value("get_node_layout", selector="#%s" % node_id)
+        """The node's id and rect, or (None, {}) while no node has that id (a tile appears once
+        the other side is connected)."""
+        answer = self.op("get_node_layout", selector="#%s" % node_id)
+        if not isinstance(answer, dict) or answer.get("status") == "error":
+            return None, {}
+        data = answer.get("data") or {}
+        value = data.get("value") if isinstance(data, dict) else None
+        value = value if isinstance(value, dict) else {}
         return value.get("node_id"), value.get("rect") or {}
 
     def id(self, short):
