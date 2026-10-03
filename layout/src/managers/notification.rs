@@ -556,6 +556,83 @@ pub fn clear_recorded_notifications() {
         .clear();
 }
 
+// ────────── Scheduled notifications the process holds ──────────────────
+
+/// Notifications with a delivery time ([`Notification::deliver_at`]) that the
+/// PROCESS keeps until they are due, for the backends that cannot schedule:
+/// freedesktop and the portal (neither has a delivery time), Android (until
+/// its alarm receiver exists) and the Windows balloon. The dll's service
+/// holds them here, wakes the run loop at the earliest due time and posts
+/// them through the backend then - so they show only while the app runs
+/// (AzClock stays resident on Linux for that). macOS / iOS and Windows toasts
+/// hand the time to the OS instead.
+///
+/// One entry per id (scheduling an id again replaces it, as a post does),
+/// soonest first, bounded by [`ScheduledNotifications::MAX_HELD`].
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct ScheduledNotifications {
+    /// Soonest first; equal times in the order they were scheduled.
+    held: Vec<Notification>,
+}
+
+impl ScheduledNotifications {
+    /// The most notifications held at once (Windows schedules up to 4096,
+    /// Apple keeps 64; a process holding more is a runaway loop).
+    pub const MAX_HELD: usize = 1024;
+
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { held: Vec::new() }
+    }
+
+    fn due_at(n: &Notification) -> u64 {
+        n.deliver_at.into_option().unwrap_or(0)
+    }
+
+    /// Hold `notification` until its `deliver_at`, replacing one held under
+    /// the same id. A new id beyond [`Self::MAX_HELD`] is handed back, to be
+    /// reported as `Failed`.
+    pub fn schedule(&mut self, notification: Notification) -> Result<(), Notification> {
+        let replaced = self.withdraw(notification.id.as_str());
+        if !replaced && self.held.len() >= Self::MAX_HELD {
+            return Err(notification);
+        }
+        let at = Self::due_at(&notification);
+        let index = self.held.partition_point(|n| Self::due_at(n) <= at);
+        self.held.insert(index, notification);
+        Ok(())
+    }
+
+    /// Cancel the one held under `id`. `true` if there was one.
+    pub fn withdraw(&mut self, id: &str) -> bool {
+        let before = self.held.len();
+        self.held.retain(|n| n.id.as_str() != id);
+        self.held.len() != before
+    }
+
+    /// Take every notification due at `now_ms`, soonest first.
+    pub fn take_due(&mut self, now_ms: u64) -> Vec<Notification> {
+        let due = self.held.partition_point(|n| Self::due_at(n) <= now_ms);
+        self.held.drain(..due).collect()
+    }
+
+    /// When the next one is due (ms since 1970).
+    #[must_use]
+    pub fn next_due_ms(&self) -> Option<u64> {
+        self.held.first().map(Self::due_at)
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.held.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.held.is_empty()
+    }
+}
+
 // ────────── Each platform's wire vocabulary ────────────────────────────
 
 /// Translation from what each OS says to [`NotificationEvent`], and the few
@@ -570,6 +647,39 @@ pub mod wire {
     use azul_css::AzString;
 
     use crate::managers::permission::{PermissionQuality, PermissionState};
+
+    // ---- scheduling (`Notification::deliver_at`) ----
+
+    /// A delivery time closer than this is "now": UN refuses a time
+    /// interval of 0, Windows a scheduled toast in the past.
+    pub const SCHEDULE_MIN_DELAY_MS: u64 = 1_000;
+
+    /// How long to wait before showing a notification that asked for
+    /// `deliver_at` (ms since 1970), posted at `now_ms`; `None` = show it now
+    /// (no time, a time in the past, or one under [`SCHEDULE_MIN_DELAY_MS`]
+    /// away).
+    #[must_use]
+    pub fn delivery_delay_ms(deliver_at: Option<u64>, now_ms: u64) -> Option<u64> {
+        let delay = deliver_at?.checked_sub(now_ms)?;
+        (delay >= SCHEDULE_MIN_DELAY_MS).then_some(delay)
+    }
+
+    /// The `timeInterval` (seconds) of the `UNTimeIntervalNotificationTrigger`
+    /// that shows it at `deliver_at`; `None` = a nil trigger (now).
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)] // milliseconds below 2^53 are exact
+    pub fn apple_trigger_interval(deliver_at: Option<u64>, now_ms: u64) -> Option<f64> {
+        delivery_delay_ms(deliver_at, now_ms).map(|ms| ms as f64 / 1000.0)
+    }
+
+    /// A WinRT `DateTime` (`UniversalTime`: 100 ns intervals since
+    /// 1601-01-01 UTC) for `unix_ms` - a scheduled toast's delivery time.
+    #[must_use]
+    pub fn windows_datetime(unix_ms: u64) -> i64 {
+        const UNIX_EPOCH_AS_FILETIME: i64 = 116_444_736_000_000_000;
+        let ms = i64::try_from(unix_ms).unwrap_or(i64::MAX);
+        UNIX_EPOCH_AS_FILETIME.saturating_add(ms.saturating_mul(10_000))
+    }
 
     /// FNV-1a, 64 bit: stable across runs and platforms, unlike the std
     /// hasher - a name derived from it by one launch is recognised by the next.

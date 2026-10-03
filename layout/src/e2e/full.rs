@@ -5978,7 +5978,7 @@ impl AssertionResult {
 /// | `assert_only_managers_changed` | `vs`, `changed`, `min_populated?`  |
 /// | `assert_composition` | `expect`, `fixpoint?`, `damage?`             |
 /// | `assert_damage_sound`| `vs`, `max_overpaint_ratio?`, `forbid_full?`, `pixel_identity?` |
-/// | `assert_notification`| `id?`, `title?`, `body?`, `action?`, `payload?`, `withdrawn?`, `count?` |
+/// | `assert_notification`| `id?`, `title?`, `body?`, `action?`, `payload?`, `withdrawn?`, `count?`, `scheduled?`, `deliver_at?` |
 /// | `assert_global_hotkeys` | `expect` (`[{accelerator, status?, owner?}]`), `count?` |
 #[cfg(feature = "std")]
 pub fn evaluate_assertion(
@@ -7834,7 +7834,10 @@ fn eval_assert_global_hotkeys(
 /// matching post; `action` requires a button with that id on it; `payload`
 /// requires it to carry exactly that payload (`Notification::with_payload`);
 /// `withdrawn` (bool) requires it to have been withdrawn or not; `count` is
-/// the exact number of recorded posts matching `id` (all posts without one).
+/// the exact number of recorded posts matching `id` (all posts without one);
+/// `scheduled` (bool) requires it to carry a delivery time or not, and
+/// `deliver_at` (ms since 1970) exactly that time
+/// (`Notification::with_deliver_at`).
 ///
 /// ```json
 /// { "op": "assert_notification", "id": "demo", "action": "open", "payload": "doc-42",
@@ -7842,7 +7845,8 @@ fn eval_assert_global_hotkeys(
 /// ```
 fn eval_assert_notification(params: &serde_json::Value) -> AssertionResult {
     const CONSTRAINTS: &[&str] = &[
-        "id", "title", "body", "action", "payload", "withdrawn", "count",
+        "id", "title", "body", "action", "payload", "withdrawn", "count", "scheduled",
+        "deliver_at",
     ];
     if let Some(bad) = reject_unknown_params("assert_notification", params, CONSTRAINTS) {
         return bad;
@@ -7854,6 +7858,8 @@ fn eval_assert_notification(params: &serde_json::Value) -> AssertionResult {
     let payload = params.get("payload").and_then(serde_json::Value::as_str);
     let withdrawn = params.get("withdrawn").and_then(serde_json::Value::as_bool);
     let count = params.get("count").and_then(serde_json::Value::as_u64);
+    let scheduled = params.get("scheduled").and_then(serde_json::Value::as_bool);
+    let deliver_at = params.get("deliver_at").and_then(serde_json::Value::as_u64);
 
     let recorded = azul_layout::managers::notification::recorded_notifications();
     let summary: Vec<String> = recorded
@@ -7886,6 +7892,8 @@ fn eval_assert_notification(params: &serde_json::Value) -> AssertionResult {
             && action.is_none()
             && payload.is_none()
             && withdrawn.is_none()
+            && scheduled.is_none()
+            && deliver_at.is_none()
         {
             return AssertionResult::pass(format!("{n} notification(s) recorded, as expected"));
         }
@@ -7943,6 +7951,25 @@ fn eval_assert_notification(params: &serde_json::Value) -> AssertionResult {
                 "the recorded notification's withdrawn state differs",
                 format!("withdrawn={want}"),
                 format!("withdrawn={}", entry.withdrawn),
+            );
+        }
+    }
+    let has_time = entry.notification.deliver_at.into_option();
+    if let Some(want) = scheduled {
+        if has_time.is_some() != want {
+            return AssertionResult::fail_with(
+                "the recorded notification's schedule differs",
+                format!("scheduled={want}"),
+                format!("deliver_at={has_time:?}"),
+            );
+        }
+    }
+    if let Some(want) = deliver_at {
+        if has_time != Some(want) {
+            return AssertionResult::fail_with(
+                "the recorded notification's deliver_at differs",
+                format!("deliver_at={want}"),
+                format!("deliver_at={has_time:?}"),
             );
         }
     }

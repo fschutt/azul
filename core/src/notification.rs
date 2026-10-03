@@ -35,7 +35,7 @@
 //!   one piece of app data that survives the restart is [`Notification::payload`], which comes
 //!   back as [`NotificationEvent::payload`].
 
-use azul_css::{AzString, OptionString};
+use azul_css::{AzString, OptionString, OptionU64};
 
 use crate::{callbacks::CoreCallback, refany::RefAny};
 
@@ -157,6 +157,16 @@ pub struct Notification {
     /// app-level handler (`AppConfig::notification_handler`) if the app set
     /// one, and nowhere otherwise (a fire-and-forget notification).
     pub callback: OptionNotificationCallback,
+    /// When to show it: an instant in milliseconds since 1970 (UTC). `None`
+    /// (the default) shows it at once, and so does a time in the past or
+    /// less than a second away. A later time SCHEDULES it: the OS keeps it
+    /// and shows it then - also while the app is not running - where it can
+    /// (macOS and iOS: a `UNTimeIntervalNotificationTrigger`; Windows: a
+    /// scheduled toast, delivered within about five minutes); elsewhere
+    /// (Linux, Android, the Windows balloon) the running process holds it and
+    /// posts it when it is due. Withdrawing the id cancels it. Repeats are
+    /// the app's: it schedules each occurrence (same id = replaced).
+    pub deliver_at: OptionU64,
 }
 
 impl Notification {
@@ -173,7 +183,16 @@ impl Notification {
             sound: NotificationSound::Default,
             payload: AzString::from_const_str(""),
             callback: OptionNotificationCallback::None,
+            deliver_at: OptionU64::None,
         }
+    }
+
+    /// Show it at `unix_ms` (milliseconds since 1970, UTC) instead of now -
+    /// see [`Notification::deliver_at`].
+    #[must_use]
+    pub fn with_deliver_at(mut self, unix_ms: u64) -> Self {
+        self.deliver_at = OptionU64::Some(unix_ms);
+        self
     }
 
     /// See [`Notification::payload`].
