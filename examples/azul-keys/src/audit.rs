@@ -104,15 +104,83 @@ pub struct Audit {
 /// Audits the logins of `vault` at `now`.
 #[must_use]
 pub fn audit(vault: &Vault, now: u64) -> Audit {
-    let _ = (vault, now);
-    todo!("GREEN")
+    let audited = |i: usize| {
+        let item = &vault.items[i];
+        item.kind == Kind::Login && !item.password.is_empty()
+    };
+    // How many audited logins use each password (compared in memory; nothing is kept).
+    let mut uses: HashMap<&str, usize> = HashMap::new();
+    for (i, item) in vault.items.iter().enumerate() {
+        if audited(i) {
+            *uses.entry(item.password.as_str()).or_insert(0) += 1;
+        }
+    }
+    let mut out = Audit::default();
+    for (index, item) in vault.items.iter().enumerate() {
+        if !audited(index) {
+            continue;
+        }
+        let strength = Strength::of_bits(estimate(&item.password));
+        let changed = if item.password_changed > 0 {
+            item.password_changed
+        } else {
+            item.modified.max(item.created)
+        };
+        let mut problems = Vec::new();
+        if strength <= Strength::Weak {
+            problems.push(Problem::Weak);
+            out.weak += 1;
+        }
+        let used = uses.get(item.password.as_str()).copied().unwrap_or(1);
+        if used > 1 {
+            problems.push(Problem::Reused(used));
+            out.reused += 1;
+        }
+        if changed > 0 && now.saturating_sub(changed) > OLD_SECONDS {
+            problems.push(Problem::Old);
+            out.old += 1;
+        }
+        if !item.urls.is_empty() && item.totp.trim().is_empty() {
+            problems.push(Problem::NoTwoFactor);
+            out.no_two_factor += 1;
+        }
+        if !problems.is_empty() {
+            out.findings.push(Finding {
+                index,
+                problems,
+                strength,
+                changed,
+            });
+        }
+    }
+    out
 }
 
 /// The audit as text for export: one line per finding, the item's title and its problems.
 #[must_use]
 pub fn report(audit: &Audit, vault: &Vault) -> String {
-    let _ = (audit, vault);
-    todo!("GREEN")
+    let mut text = format!(
+        "AzKeys security audit of \"{}\"\nweak: {}, reused: {}, older than 2 years: {}, no one-time code: {}\n\n",
+        vault.name, audit.weak, audit.reused, audit.old, audit.no_two_factor
+    );
+    for finding in &audit.findings {
+        let Some(item) = vault.items.get(finding.index) else {
+            continue;
+        };
+        let problems: Vec<String> = finding.problems.iter().map(|p| p.label()).collect();
+        text.push_str(&format!(
+            "{}\t{}\t{}\t{}\n",
+            item.title,
+            problems.join(", "),
+            finding.strength.label(),
+            if finding.changed > 0 {
+                azul_storage::time::iso8601(finding.changed)[..10].to_string()
+            } else {
+                String::new()
+            }
+        ));
+    }
+    text
 }
 
 #[cfg(test)]
