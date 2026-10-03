@@ -29,30 +29,28 @@ Brief: scripts/waves/wave8/PLAN.md section "WPT8". Items in order:
 - a3c2c5027 WPT runner `render_xml` uses `parse_xml_to_styled_dom` (core's tree loader drops `<html>`
   attributes - XML8's file core/src/xml.rs `str_to_dom_unstyled`, REPORT it, not edited)
 
-## IN PROGRESS - item 2 (inline boxes), ROOT CAUSES FOUND by probing the prebuilt AzPaint
-(probe tool: /tmp/wpt8/probe.py + pages in /tmp/wpt8/pages, may be gone after a reboot)
-- (a) a span's border/padding vanish (no paint, no pen shift) unless it also has a background or a
-  text-decoration: text3 stage-1 cache key `calculate_id(&content)` (text3/cache.rs ~8187) hashes
-  StyleProperties via its `Hash` impl (cache.rs ~4853) which OMITS border (InlineBorderInfo) and
-  background_content. The intrinsic-sizing collector (solver3/sizing.rs
-  `collect_inline_content_recursive`) styles span text with the TEXT node's own style (no border); its
-  logical items are cached first and reused by the final layout (same hash). Fix: hash border +
-  background_content in `impl Hash for StyleProperties`; layout_hash must include the inline insets
-  (they move the pen: inline_offsets in position_one_line ~12590).
-- (b) a span's background is painted TWICE (display_list `push_inline_backgrounds_and_border`: the
-  `background_color` rect AND the Color layer of `background_content`) - translucent doubles.
-- (c) inline margins are never applied (InlineBorderInfo has no margin; inline_offsets = border+padding).
-- (d) sizing collector should give text inside an inline span the span's style (like fc.rs CASE 1).
-- (e) nested inline chrome / an outer inline's bg spanning an inner one's margin
-  (inline-formatting-context-002) needs per-element inline fragments - bigger; maybe left.
-- (f) inline-block-baseline-001: `span {display:inline-block; overflow:visible}` with text sits ABOVE
-  the line (own line) - not yet investigated.
+- item 2 (inline boxes):
+  - 6bfe5ad17 RED layout/tests/an_inline_box_paints_its_border_padding_and_margin.rs (6 tests)
+  - 753dbc393 text3 StyleProperties Hash covers border/padding/bg-content (stage-1 cache key; the sizing
+    pass's border-less items were reused) + layout_hash covers horizontal advances; InlineBorderInfo
+    margin_left/right + left_advance/right_advance/moves_the_pen; get_inline_border_info reads margins
+  - 09e2d9d02 span background painted once (push_inline_backgrounds_and_border)
+  - 6b55fa613 sizing.rs `text_run_style`: span text carries the span style in intrinsic sizing
+    (MAILREF8 owns sizing.rs - minimal edit, say so in the report)
+  - 83164df5e RED layout/tests/an_inline_block_sits_on_its_last_lines_baseline.rs (2 tests)
+  - 90b7b1d8d text3 `baseline_in_layout`: first/last_baseline = item top + ascent (was ascent only)
+  - 418ddb4c7 fc.rs `last_line_box_baseline`: layout_bfc reports its last line box baseline
+  - LEFT for item 2: nested inline chrome / outer inline bg over an inner one's margin
+    (inline-formatting-context-002/006 need per-element inline fragments); line breaking ignores
+    inline insets; a span's several text children get insets each (Arc per text node in fc.rs CASE 1).
+
+## IN PROGRESS
+- item 3: counters / `inline list-item` (WPT css/CSS2/lists counter-*, css/css-lists counter-list-item,
+  inline-list, li-list-item-counter-*)
 
 ## NEXT
-- RED test file layout/tests/an_inline_box_paints_its_border_padding_and_margin.rs (crate::painted):
-  border-only span draws blue pixels; margin+border+padding push a following red inline-block by 55px vs
-  a chrome-less twin; a span's margin is not covered by its background; translucent span bg painted once.
-  Then GREEN (a), (b), (c), (d) in that order, one commit each.
+- item 3 RED, then 4 single-stop gradients, 5 background-clip, 6 border-width keywords, 7 box-shadow,
+  8 reftest budget (doc/src/reftest/pipeline.rs), then the report scripts/WPT8_2026_10_03.md.
 
 ## Decisions / open questions
 - Tests use the document loader (`parse_xml_to_styled_dom`), which keeps `<html>` attributes.
