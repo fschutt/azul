@@ -918,3 +918,5 @@ mod a_relayout_keeps_the_virtual_views_of_an_unchanged_host;
 mod an_animation_frame_sends_assistive_technology_only_what_moved;
 #[path = "a_frame_pump_leaves_the_cpu_profiles_spans_for_its_report.rs"]
 mod a_frame_pump_leaves_the_cpu_profiles_spans_for_its_report;
+#[path = "system_ui_is_the_system_font_at_its_optical_size.rs"]
+mod system_ui_is_the_system_font_at_its_optical_size;

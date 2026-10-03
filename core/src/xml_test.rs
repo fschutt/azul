@@ -3644,4 +3644,43 @@ mod autotest_generated {
         assert!(tr.is_localizable(), "tr() string MUST be localizable");
         assert_eq!(tr.as_str(), "greeting", "key stored correctly");
     }
+
+    /// A `style` attribute's value keeps every colon after the first: the
+    /// widgets' `font-family: system:ui` (SYSUI8) and `url(https://...)`
+    /// were cut at their second colon (`system`, `url(https`), so the
+    /// declaration named a family no font has, or did not parse at all.
+    #[test]
+    fn a_style_attribute_value_keeps_its_colons() {
+        use azul_css::props::{basic::font::StyleFontFamily, property::CssProperty};
+
+        let map = azul_css::props::property::get_css_key_map();
+        let decls = attributes::style_declarations(
+            "font-family: system:ui; background-image: url(https://example.com/a.png)",
+            &map,
+        );
+        let family = decls.iter().find_map(|d| match &d.property {
+            CssProperty::FontFamily(v) => v.get_property().cloned(),
+            _ => None,
+        });
+        let family = family.expect("the font-family declaration parses");
+        assert!(
+            matches!(
+                family.as_ref().first(),
+                Some(StyleFontFamily::SystemType(
+                    azul_css::system::SystemFontType::Ui
+                ))
+            ),
+            "font-family: system:ui is the system UI font role: {family:?}"
+        );
+        let background = decls
+            .iter()
+            .find(|d| matches!(d.property, CssProperty::BackgroundContent(_)))
+            .map(|d| format!("{:?}", d.property));
+        assert!(
+            background
+                .as_deref()
+                .is_some_and(|b| b.contains("https://example.com/a.png")),
+            "the image url keeps its scheme: {background:?}"
+        );
+    }
 }

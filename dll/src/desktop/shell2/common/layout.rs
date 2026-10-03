@@ -478,6 +478,20 @@ pub fn regenerate_layout(
     azul_layout::probe::emit_phase_heap("after_font_snapshot");
     phases.mark("after_font_snapshot");
 
+    // The desktop's own UI font setting (Linux: GNOME's / KDE's font, the
+    // detected `SystemStyle::fonts.ui_font`) is what `system-ui` and the
+    // widgets' `system:ui` draw with: it goes first in the cache's
+    // `system-ui` list (a no-op once it is). On macOS and Windows the
+    // platform list already is the OS UI font (SYSUI8).
+    if cfg!(target_os = "linux") {
+        if let Some(ui) = system_style.fonts.ui_font.as_ref() {
+            azul_layout::font::loading::use_system_ui_font(
+                &layout_window.font_manager.fc_cache,
+                ui.as_str(),
+            );
+        }
+    }
+
     // 1. Call user's layout callback to get new DOM
     log_debug!(
         LogCategory::Layout,

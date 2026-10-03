@@ -362,6 +362,11 @@ pub struct FontChainKey {
     pub weight: FcWeight,
     pub italic: bool,
     pub oblique: bool,
+    /// The optical size the chain's variable faces are drawn at: the used
+    /// font size in whole CSS px (`font-optical-sizing: auto`, as Chrome
+    /// and CoreText do it), 0 for "the face's default". See
+    /// [`FontSelector::optical_size`].
+    pub optical_size: u16,
 }
 
 /// Either a `FontChainKey` (resolved via fontconfig) or a direct `FontRef` hash.
@@ -444,12 +449,14 @@ impl FontChainKey {
         let is_oblique = font_stack
             .first()
             .is_some_and(|s| s.style == FontStyle::Oblique);
+        let optical_size = font_stack.first().map_or(0, |s| s.optical_size);
 
         Self {
             font_families,
             weight,
             italic: is_italic,
             oblique: is_oblique,
+            optical_size,
         }
     }
 }
@@ -487,8 +494,13 @@ pub(crate) fn resolve_chain_on_miss(
         None,
         &mut trace,
     );
-    // Same weight selection as the pre-pass, so a miss draws what a hit would.
-    crate::solver3::getters::select_variable_weight_instances(&mut chain, key.weight, fc_cache);
+    // Same instance selection as the pre-pass, so a miss draws what a hit would.
+    crate::solver3::getters::select_variable_instances(
+        &mut chain,
+        key.weight,
+        key.optical_size,
+        fc_cache,
+    );
     chain
 }
 
@@ -2683,6 +2695,15 @@ pub struct FontSelector {
     pub weight: FcWeight,
     pub style: FontStyle,
     pub unicode_ranges: Vec<UnicodeRange>,
+    /// The optical size to draw a variable face with an `opsz` axis at: the
+    /// used font size rounded to whole CSS px (CSS Fonts 4
+    /// `font-optical-sizing: auto`; Chrome and CoreText set `opsz` to the
+    /// font size). 0 = the face's default instance. Every selector of a
+    /// stack carries the same value; [`FontChainKey::from_selectors`] reads
+    /// the first. macOS draws its UI in ONE such face (`SFNS.ttf`, opsz
+    /// 17-96, default 28): 13px text is "SF Pro Text" (opsz 17), not the
+    /// default's wider-set "Display" design (SYSUI8).
+    pub optical_size: u16,
 }
 
 impl Default for FontSelector {
@@ -2692,7 +2713,21 @@ impl Default for FontSelector {
             weight: FcWeight::Normal,
             style: FontStyle::Normal,
             unicode_ranges: Vec::new(),
+            optical_size: 0,
         }
+    }
+}
+
+/// The optical size (`FontSelector::optical_size`) for text of
+/// `font_size_px`: the size in whole CSS px, 0 for a size that is not a
+/// positive finite number.
+#[must_use]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped to u16 first
+pub fn optical_size_for(font_size_px: f32) -> u16 {
+    if font_size_px.is_finite() && font_size_px > 0.0 {
+        font_size_px.round().clamp(1.0, f32::from(u16::MAX)) as u16
+    } else {
+        0
     }
 }
 
@@ -9576,6 +9611,8 @@ fn split_text_by_font_coverage<T: ParsedFontTrait>(
     // both and is a different, riskier change.
     let mut resolved: alloc::collections::BTreeMap<char, Option<FontId>> =
         alloc::collections::BTreeMap::new();
+    // Whether a char's covering face was not loaded (see below).
+    let mut short_of_a_face = false;
 
     for (byte_idx, ch) in text.char_indices() {
         let char_end = byte_idx + ch.len_utf8();
@@ -9597,7 +9634,17 @@ fn split_text_by_font_coverage<T: ParsedFontTrait>(
         // its cmap — e.g. Noto Sans CJK's JP face does not advertise the
         // Hangul OS/2 block, so 한국어 resolves to None here even though that
         // face's cmap covers it.
-        let font_id = covering_font(font_chain, ch)
+        //
+        // A covering face that is NOT LOADED cannot draw: its chain was
+        // resolved after the layout loaded its faces (a key the pre-pass
+        // never saw, resolved on the miss). The char takes the next face
+        // below that can draw it - shaped text, not nothing - and the call
+        // counts as short of its font (below), so its result is not cached
+        // and a pass with the face loaded shapes it again.
+        let covering = covering_font(font_chain, ch);
+        let covering_loaded = covering.filter(|id| loaded_fonts.get(id).is_some());
+        short_of_a_face |= covering.is_some() && covering_loaded.is_none();
+        let font_id = covering_loaded
             // The chain's OWN faces next, in chain order, by REAL cmap
             // coverage. The metadata behind the range walk is partial for a
             // face the fast probe found: it records only the codepoints the
@@ -9653,6 +9700,9 @@ fn split_text_by_font_coverage<T: ParsedFontTrait>(
                 }
             }
         }
+    }
+    if short_of_a_face {
+        note_font_shape_deficit();
     }
 
     segments
@@ -19488,6 +19538,98 @@ mod a_run_shaped_before_its_font_loads {
             glyph_count(&after),
             5,
             "the same run laid out again once its face is loaded draws its five glyphs"
+        );
+    }
+
+    /// A char whose covering face is NOT loaded - its chain resolved after
+    /// the layout loaded its faces, a key the pre-pass never saw (a run at a
+    /// new optical size, SYSUI8) - is drawn by the chain's next face that is
+    /// loaded, and the shaping counts as short of its font, so it is not
+    /// cached and a pass with the face loaded shapes it again. It shaped to
+    /// nothing.
+    #[test]
+    fn a_char_whose_covering_face_is_not_loaded_is_drawn_by_a_loaded_face() {
+        let fm: FontManager<FontRef> =
+            FontManager::new(FcFontCache::default()).expect("a font manager");
+        let selectors = vec![FontSelector {
+            family: "Azul Mock Mono".to_string(),
+            ..FontSelector::default()
+        }];
+        let key = FontChainKey::from_selectors(&selectors);
+        let chain = resolve_chain_on_miss(&key, &fm.fc_cache);
+        let mut resolved = crate::solver3::getters::ResolvedFontChains::default();
+        resolved
+            .chains
+            .insert(FontChainKeyOrRef::Chain(key.clone()), chain.clone());
+        let loader = crate::text3::default::PathLoader::new();
+        let failed = fm.load_missing_for_chains(&resolved, |bytes, index| {
+            loader.load_font_shared(bytes, index)
+        });
+        assert!(
+            failed.is_empty(),
+            "premise: the mock face loads: {failed:?}"
+        );
+
+        // A face nobody loaded, covering everything, ahead of the mock face.
+        let mut ahead = chain;
+        let group = ahead
+            .css_fallbacks
+            .iter_mut()
+            .find(|group| !group.fonts.is_empty())
+            .expect("premise: the mock family matched");
+        group.fonts.insert(
+            0,
+            rust_fontconfig::FontMatch {
+                id: FontId::new(),
+                unicode_ranges: vec![UnicodeRange {
+                    start: 0,
+                    end: 0x0010_FFFF,
+                }],
+                fallbacks: Vec::new(),
+            },
+        );
+        let mut chain_cache = HashMap::new();
+        chain_cache.insert(key, ahead);
+
+        let style = Arc::new(StyleProperties {
+            font_stack: FontStack::Stack(selectors),
+            font_size_px: 20.0,
+            ..StyleProperties::default()
+        });
+        let content = vec![InlineContent::Text(StyledRun {
+            text: Arc::from("HELLO"),
+            style,
+            logical_start_byte: 0,
+            source_node_id: None,
+        })];
+        let fragments = vec![LayoutFragment {
+            id: "main".to_string(),
+            constraints: UnifiedConstraints {
+                available_width: AvailableSpace::Definite(400.0),
+                ..UnifiedConstraints::default()
+            },
+        }];
+        let mut cache = TextShapingCache::new();
+        let deficit_before = thread_font_shape_deficit();
+        let flow = cache
+            .layout_flow(
+                &content,
+                &[],
+                &fragments,
+                &chain_cache,
+                &fm.fc_cache,
+                &fm.get_loaded_fonts(),
+                &mut None,
+            )
+            .expect("the run lays out");
+        assert_eq!(
+            glyph_count(&flow),
+            5,
+            "the run is drawn by the loaded face behind the unloaded one"
+        );
+        assert!(
+            thread_font_shape_deficit() > deficit_before,
+            "a run drawn without the face that covers it is short of its font"
         );
     }
 }

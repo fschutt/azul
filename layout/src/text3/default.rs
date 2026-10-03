@@ -83,6 +83,7 @@ impl PathLoader {
                 weight: rust_fontconfig::FcWeight::Normal,
                 style: crate::text3::cache::FontStyle::Normal,
                 unicode_ranges: Vec::new(),
+                optical_size: 0,
             })
         })?;
         let arc_owned = Arc::<[u8]>::from(font_bytes);
@@ -896,6 +897,13 @@ fn shape_text_internal(
         FALLBACK_SCALE
     };
 
+    // The face's own tracking at this size (its AAT `trak` table: Apple's
+    // system faces), as CoreText and Chrome add it to each glyph's advance.
+    let tracking = parsed_font
+        .tracking
+        .as_ref()
+        .map_or(0.0, |t| t.at(font_size) * scale_factor);
+
     let font_hash = parsed_font.get_hash();
     let font_metrics = LayoutFontMetrics {
         ascent: parsed_font.font_metrics.ascent,
@@ -971,6 +979,14 @@ fn shape_text_internal(
                     || f32::from(base_advance) * scale_factor,
                     |hinted| hinted * font_size / f32::from(ppem),
                 )
+        };
+        // Tracking goes on every glyph that starts a piece of the text and
+        // has an advance of its own - not on a zero-width mark, nor on a
+        // multiple-substitution duplicate (HarfBuzz tracks per grapheme).
+        let advance = if byte_len > 0 && base_advance > 0 {
+            advance + tracking
+        } else {
+            advance
         };
         let kerning = f32::from(info.kerning) * scale_factor;
 

@@ -6877,10 +6877,28 @@ impl LayoutWindow {
                 // which is collision-resistant enough for our one-at-a-time
                 // "did this DOM's font stacks change" comparison and an
                 // order of magnitude cheaper than SipHash for ~300 nodes.
+                //
+                // A chain key is more than the families: the weight, the
+                // style and - for the optical size of a variable face - the
+                // font size pick its faces too, so each node's weight, style
+                // and specified font size go in beside its family hash. With
+                // the families alone a relayout that only changed sizes (a
+                // zoom) or weights kept the old chains, and the runs whose
+                // new key no chain had shaped to nothing (SYSUI8).
                 let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-                for &fh in &cc.prev_font_hashes {
-                    h = h.rotate_left(13) ^ fh;
+                let mut mix = |v: u64| {
+                    h = h.rotate_left(13) ^ v;
                     h = h.wrapping_mul(0x0100_0000_01b3);
+                };
+                for (i, &fh) in cc.prev_font_hashes.iter().enumerate() {
+                    mix(fh);
+                    if i < cc.tier1_enums.len() {
+                        mix(cc.get_font_weight(i) as u64);
+                        mix(cc.get_font_style(i) as u64);
+                    }
+                    if i < cc.tier2_dims.len() {
+                        mix(u64::from(cc.get_font_size_raw(i)));
+                    }
                 }
                 h
             });
