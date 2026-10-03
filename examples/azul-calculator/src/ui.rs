@@ -51,6 +51,7 @@ use crate::calc::{char_command, named_command, CalcMode, Calculator, Cmd, NamedK
 use crate::datecalc::{self, Date};
 use crate::expr::{AngleUnit, BinOp, Const, Func, Post};
 use crate::history::{self, HistoryEntry};
+use crate::ids;
 use crate::num::Num;
 use crate::programmer::{self, Base, WordSize};
 use crate::units::{self, CATEGORIES};
@@ -586,7 +587,7 @@ struct KeyRef {
     action: Action,
 }
 
-fn grid(columns: usize, cells: Vec<Dom>, id: &str) -> Dom {
+fn grid(columns: usize, cells: Vec<Dom>, id: AzString) -> Dom {
     // `minmax(0, 1fr)`, not `1fr` (= `minmax(auto, 1fr)`): a bare `1fr` column
     // cannot shrink below its button's min-content, so the nine Scientific
     // columns of padded buttons outgrew the 404px keypad and its last column
@@ -602,7 +603,7 @@ fn grid(columns: usize, cells: Vec<Dom>, id: &str) -> Dom {
 
 /// A keypad of `keys` in `columns` columns. A digit the base does not take
 /// is a disabled key: dimmed, inert, and it says why.
-fn keypad(app: &RefAny, keys: &[KeyDef], columns: usize, base: Option<Base>, id: &str) -> Dom {
+fn keypad(app: &RefAny, keys: &[KeyDef], columns: usize, base: Option<Base>, id: AzString) -> Dom {
     let cells: Vec<Dom> = keys
         .iter()
         .map(|k| {
@@ -636,7 +637,7 @@ fn keypad(app: &RefAny, keys: &[KeyDef], columns: usize, base: Option<Base>, id:
             };
             button
                 .dom()
-                .with_id(k.id)
+                .with_id(ids::named(k.id))
                 .with_css("min-height: 34px; min-width: 0; padding-left: 2px; padding-right: 2px;")
         })
         .collect();
@@ -645,14 +646,13 @@ fn keypad(app: &RefAny, keys: &[KeyDef], columns: usize, base: Option<Base>, id:
 
 // ==== The display ====
 
-fn line(id: &str, text: &str, css: &str) -> Dom {
+fn line(id: Option<AzString>, text: &str, css: &str) -> Dom {
     let div = Dom::create_div()
         .with_css(format!("text-align: right; {css}"))
         .with_child(Dom::create_span_with_text(text));
-    if id.is_empty() {
-        div
-    } else {
-        div.with_id(id)
+    match id {
+        Some(id) => div.with_id(id),
+        None => div,
     }
 }
 
@@ -664,16 +664,16 @@ fn display(s: &CalcApp) -> Dom {
         expression.push_str(&format!("   ({open} open)"));
     }
     let mut column = Dom::create_div()
-        .with_id("calc-display")
+        .with_id(ids::DISPLAY)
         .with_css("display: flex; flex-direction: column; padding: 8px 12px 4px 12px; flex-shrink: 0;")
-        .with_child(line("calc-expression", &expression, "font-size: 14px; opacity: 0.7; min-height: 20px;"))
+        .with_child(line(Some(ids::EXPRESSION), &expression, "font-size: 14px; opacity: 0.7; min-height: 20px;"))
         .with_child(line(
-            "calc-result",
+            Some(ids::RESULT),
             &s.calc.result_line(),
             &format!("font-size: {big}px; font-weight: 600; min-height: {}px;", big + 8),
         ));
     if !s.notice.is_empty() {
-        column.add_child(line("calc-notice", &s.notice, "font-size: 12px; opacity: 0.8;"));
+        column.add_child(line(Some(ids::NOTICE), &s.notice, "font-size: 12px; opacity: 0.8;"));
     }
     column
 }
@@ -690,12 +690,12 @@ struct BitRef {
 
 /// Programmer: the four bases (click one to type in it), the word size and the bit field.
 fn programmer_panel(s: &CalcApp, app: &RefAny) -> Dom {
-    let mut rows = Dom::create_div().with_id("calc-bases").with_css("display: flex; flex-direction: column; padding: 0px 12px;");
+    let mut rows = Dom::create_div().with_id(ids::BASES).with_css("display: flex; flex-direction: column; padding: 0px 12px;");
     for (base, text) in s.calc.programmer_lines() {
         let selected = base == s.calc.base;
         rows.add_child(
             Dom::create_div()
-                .with_id(format!("base-{}", base.label().to_lowercase()))
+                .with_id(ids::named(&format!("base-{}", base.label().to_lowercase())))
                 .with_css(format!(
                     "display: flex; flex-direction: row; padding: 2px 4px; cursor: pointer; font-size: 13px; {}",
                     if selected { "font-weight: 700;" } else { "opacity: 0.8;" }
@@ -722,7 +722,7 @@ fn programmer_panel(s: &CalcApp, app: &RefAny) -> Dom {
                 .with_accessibility_name("Word size")
                 .with_on_choice_change(app.clone(), on_word as DropDownOnChoiceChangeCallbackType)
                 .dom()
-                .with_id("calc-word"),
+                .with_id(ids::WORD),
         );
     Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-shrink: 0;")
@@ -740,7 +740,7 @@ fn bit_field(s: &CalcApp, app: &RefAny) -> Dom {
     };
     let word = s.calc.word;
     let mut field = Dom::create_div()
-        .with_id("calc-bits")
+        .with_id(ids::BITS)
         .with_css("display: flex; flex-direction: column; padding: 4px 12px; font-size: 12px;");
     for row in 0..4u32 {
         let top = 63 - row * 16;
@@ -756,7 +756,7 @@ fn bit_field(s: &CalcApp, app: &RefAny) -> Dom {
             let set = programmer::bit(value, bit, word);
             let inside = bit < word.bits();
             let mut cell = Dom::create_div()
-                .with_id(format!("bit-{bit}"))
+                .with_id(ids::named(&format!("bit-{bit}")))
                 .with_css(format!(
                     "width: 14px; text-align: center; {}{}",
                     if inside { "cursor: pointer;" } else { "opacity: 0.3;" },
@@ -787,7 +787,7 @@ fn angle_row(s: &CalcApp, app: &RefAny) -> Dom {
                 .with_selected_index(s.calc.angle.index())
                 .with_on_change(app.clone(), on_angle as SegmentedOnChangeCallbackType)
                 .dom()
-                .with_id("calc-angle"),
+                .with_id(ids::ANGLE),
         )
 }
 
@@ -805,7 +805,7 @@ const PANEL_RESULT_CSS: &str = "font-size: 18px; font-weight: 600; overflow-wrap
 
 fn history_list(s: &CalcApp, app: &RefAny) -> Dom {
     let mut list = Dom::create_div()
-        .with_id("calc-history")
+        .with_id(ids::HISTORY)
         .with_css("display: flex; flex-direction: column; flex-grow: 1; overflow-y: auto; padding: 4px 8px;");
     if s.calc.history.is_empty() {
         list.add_child(
@@ -817,10 +817,10 @@ fn history_list(s: &CalcApp, app: &RefAny) -> Dom {
     for (index, e) in s.calc.history.iter().enumerate().rev() {
         list.add_child(
             Dom::create_div()
-                .with_class("calc-history-entry")
+                .with_class(ids::HISTORY_ENTRY)
                 .with_css("display: flex; flex-direction: column; padding: 6px 8px; cursor: pointer;")
-                .with_child(line("", &format!("{} =", e.expr), PANEL_EXPR_CSS))
-                .with_child(line("", &e.result, PANEL_RESULT_CSS))
+                .with_child(line(None, &format!("{} =", e.expr), PANEL_EXPR_CSS))
+                .with_child(line(None, &e.result, PANEL_RESULT_CSS))
                 .with_callback(
                     EventFilter::Hover(HoverEventFilter::MouseUp),
                     RefAny::new(HistoryRef { app: app.clone(), index }),
@@ -840,7 +840,7 @@ fn history_list(s: &CalcApp, app: &RefAny) -> Dom {
                         .with_icon("delete")
                         .with_on_click(app.clone(), on_clear_history as ButtonOnClickCallbackType)
                         .dom()
-                        .with_id("calc-clear-history"),
+                        .with_id(ids::CLEAR_HISTORY),
                 ),
         );
     }
@@ -849,7 +849,7 @@ fn history_list(s: &CalcApp, app: &RefAny) -> Dom {
 
 fn memory_list(s: &CalcApp, app: &RefAny) -> Dom {
     let mut list = Dom::create_div()
-        .with_id("calc-memory")
+        .with_id(ids::MEMORY)
         .with_css("display: flex; flex-direction: column; flex-grow: 1; overflow-y: auto; padding: 4px 8px;");
     if s.calc.memory.items.is_empty() {
         list.add_child(
@@ -864,9 +864,9 @@ fn memory_list(s: &CalcApp, app: &RefAny) -> Dom {
             .unwrap_or_else(|_| item.clone());
         list.add_child(
             Dom::create_div()
-                .with_class("calc-memory-entry")
+                .with_class(ids::MEMORY_ENTRY)
                 .with_css("padding: 6px 8px; cursor: pointer;")
-                .with_child(line("", &shown, PANEL_RESULT_CSS))
+                .with_child(line(None, &shown, PANEL_RESULT_CSS))
                 .with_callback(
                     EventFilter::Hover(HoverEventFilter::MouseUp),
                     RefAny::new(HistoryRef { app: app.clone(), index }),
@@ -887,7 +887,7 @@ fn side_panel(s: &CalcApp, app: &RefAny) -> Dom {
         Panel::Memory => memory_list(s, app),
     };
     Dom::create_aside()
-        .with_id("calc-panel")
+        .with_id(ids::PANEL)
         .with_accessibility_name("History and memory")
         .with_css("display: flex; flex-direction: column; width: 260px; flex-shrink: 0; min-height: 0px;")
         .with_child(
@@ -895,7 +895,7 @@ fn side_panel(s: &CalcApp, app: &RefAny) -> Dom {
                 .with_active_tab(active)
                 .with_on_click(app.clone(), on_panel_tab as TabOnClickCallbackType)
                 .dom()
-                .with_id("calc-panel-tabs"),
+                .with_id(ids::PANEL_TABS),
         )
         .with_child(body)
 }
@@ -913,16 +913,16 @@ fn calculator_view(s: &CalcApp, app: &RefAny, wide: bool) -> Dom {
         .with_child(display(s));
     match s.screen {
         Screen::Standard => {
-            column.add_child(keypad(app, &memory_keys(), 5, None, "calc-memory-row"));
-            column.add_child(keypad(app, &standard_keys(), 4, None, "calc-keypad"));
+            column.add_child(keypad(app, &memory_keys(), 5, None, ids::MEMORY_ROW));
+            column.add_child(keypad(app, &standard_keys(), 4, None, ids::KEYPAD));
         }
         Screen::Scientific => {
             column.add_child(angle_row(s, app));
-            column.add_child(keypad(app, &scientific_keys(s.calc.second, s.calc.fe), 9, None, "calc-keypad"));
+            column.add_child(keypad(app, &scientific_keys(s.calc.second, s.calc.fe), 9, None, ids::KEYPAD));
         }
         _ => {
             column.add_child(programmer_panel(s, app));
-            column.add_child(keypad(app, &programmer_keys(), 11, Some(s.calc.base), "calc-keypad"));
+            column.add_child(keypad(app, &programmer_keys(), 11, Some(s.calc.base), ids::KEYPAD));
         }
     }
     let mut row = Dom::create_div()
@@ -951,7 +951,7 @@ struct FieldRef {
     field: Field,
 }
 
-fn field_input(app: &RefAny, field: Field, text: &str, name: &str, id: &str) -> Dom {
+fn field_input(app: &RefAny, field: Field, text: &str, name: &str, id: AzString) -> Dom {
     TextInput::create()
         .with_text(text)
         .with_accessibility_name(name)
@@ -1006,18 +1006,18 @@ pub fn date_result(d: &DateState) -> Vec<String> {
 fn date_view(s: &CalcApp, app: &RefAny) -> Dom {
     let d = &s.date;
     let mut column = Dom::create_div()
-        .with_id("date-view")
+        .with_id(ids::DATE_VIEW)
         .with_css("display: flex; flex-direction: column; padding: 12px 16px; flex-grow: 1;")
         .with_child(
             Segmented::create(strs(&["Difference between dates", "Add or subtract days"]))
                 .with_selected_index(d.kind)
                 .with_on_change(app.clone(), on_date_kind as SegmentedOnChangeCallbackType)
                 .dom()
-                .with_id("date-kind"),
+                .with_id(ids::DATE_KIND),
         )
-        .with_child(labelled("From", field_input(app, Field::DateFrom, &d.from, "From date", "date-from")));
+        .with_child(labelled("From", field_input(app, Field::DateFrom, &d.from, "From date", ids::DATE_FROM)));
     if d.kind == 0 {
-        column.add_child(labelled("To", field_input(app, Field::DateTo, &d.to, "To date", "date-to")));
+        column.add_child(labelled("To", field_input(app, Field::DateTo, &d.to, "To date", ids::DATE_TO)));
     } else {
         column.add_child(labelled(
             "",
@@ -1025,11 +1025,11 @@ fn date_view(s: &CalcApp, app: &RefAny) -> Dom {
                 .with_selected_index(usize::from(d.subtract))
                 .with_on_change(app.clone(), on_date_sign as SegmentedOnChangeCallbackType)
                 .dom()
-                .with_id("date-sign"),
+                .with_id(ids::DATE_SIGN),
         ));
-        column.add_child(labelled("Years", field_input(app, Field::Years, &d.years, "Years", "date-years")));
-        column.add_child(labelled("Months", field_input(app, Field::Months, &d.months, "Months", "date-months")));
-        column.add_child(labelled("Days", field_input(app, Field::Days, &d.days, "Days", "date-days")));
+        column.add_child(labelled("Years", field_input(app, Field::Years, &d.years, "Years", ids::DATE_YEARS)));
+        column.add_child(labelled("Months", field_input(app, Field::Months, &d.months, "Months", ids::DATE_MONTHS)));
+        column.add_child(labelled("Days", field_input(app, Field::Days, &d.days, "Days", ids::DATE_DAYS)));
     }
     column.add_child(
         Dom::create_div().with_css("padding: 4px 0px 8px 110px;").with_child(
@@ -1037,11 +1037,11 @@ fn date_view(s: &CalcApp, app: &RefAny) -> Dom {
                 .with_icon("today")
                 .with_on_click(app.clone(), on_date_today as ButtonOnClickCallbackType)
                 .dom()
-                .with_id("date-today"),
+                .with_id(ids::DATE_TODAY),
         ),
     );
     let mut result = Dom::create_div()
-        .with_id("date-result")
+        .with_id(ids::DATE_RESULT)
         .with_css("display: flex; flex-direction: column; padding-top: 8px;");
     for (i, text) in date_result(d).into_iter().enumerate() {
         let css = if i == 0 { "font-size: 22px; font-weight: 600;" } else { "font-size: 14px; opacity: 0.8;" };
@@ -1080,7 +1080,7 @@ fn convert_view(s: &CalcApp, app: &RefAny) -> Dom {
     let unit_names: Vec<String> = category.units.iter().map(|u| format!("{} ({})", u.name, u.symbol)).collect();
     let unit_strs: Vec<&str> = unit_names.iter().map(String::as_str).collect();
     let (from_text, to_text) = convert_values(c);
-    let unit_drop = |selected: usize, id: &str, name: &str, cb: DropDownOnChoiceChangeCallbackType| {
+    let unit_drop = |selected: usize, id: AzString, name: &str, cb: DropDownOnChoiceChangeCallbackType| {
         DropDown::create(strs(&unit_strs))
             .with_selected(selected)
             .with_accessibility_name(name)
@@ -1090,7 +1090,7 @@ fn convert_view(s: &CalcApp, app: &RefAny) -> Dom {
     };
     let rate = units::rate_line(&category.units[c.from], &category.units[c.to]).unwrap_or_default();
     let mut recent = Dom::create_div()
-        .with_id("conv-recent")
+        .with_id(ids::CONV_RECENT)
         .with_css("display: flex; flex-direction: column; padding-top: 12px; font-size: 13px;");
     if !c.recent.is_empty() {
         recent.add_child(
@@ -1103,7 +1103,7 @@ fn convert_view(s: &CalcApp, app: &RefAny) -> Dom {
         recent.add_child(Dom::create_div().with_child(Dom::create_span_with_text(r.as_str())));
     }
     Dom::create_div()
-        .with_id("convert-view")
+        .with_id(ids::CONVERT_VIEW)
         .with_css("display: flex; flex-direction: column; padding: 12px 16px; flex-grow: 1;")
         .with_child(labelled(
             "Category",
@@ -1112,14 +1112,14 @@ fn convert_view(s: &CalcApp, app: &RefAny) -> Dom {
                 .with_accessibility_name("Category")
                 .with_on_choice_change(app.clone(), on_convert_category as DropDownOnChoiceChangeCallbackType)
                 .dom()
-                .with_id("conv-category"),
+                .with_id(ids::CONV_CATEGORY),
         ))
         .with_child(labelled(
             "From",
             Dom::create_div()
                 .with_css("display: flex; flex-direction: row; align-items: center;")
-                .with_child(field_input(app, Field::ConvertFrom, &from_text, "Value to convert", "conv-from-value"))
-                .with_child(unit_drop(c.from, "conv-from-unit", "From unit", on_convert_from_unit)),
+                .with_child(field_input(app, Field::ConvertFrom, &from_text, "Value to convert", ids::CONV_FROM_VALUE))
+                .with_child(unit_drop(c.from, ids::CONV_FROM_UNIT, "From unit", on_convert_from_unit)),
         ))
         .with_child(
             Dom::create_div().with_css("padding: 2px 0px 2px 110px;").with_child(
@@ -1127,19 +1127,19 @@ fn convert_view(s: &CalcApp, app: &RefAny) -> Dom {
                     .with_icon("swap_vert")
                     .with_on_click(app.clone(), on_convert_swap as ButtonOnClickCallbackType)
                     .dom()
-                    .with_id("conv-swap"),
+                    .with_id(ids::CONV_SWAP),
             ),
         )
         .with_child(labelled(
             "To",
             Dom::create_div()
                 .with_css("display: flex; flex-direction: row; align-items: center;")
-                .with_child(field_input(app, Field::ConvertTo, &to_text, "Converted value", "conv-to-value"))
-                .with_child(unit_drop(c.to, "conv-to-unit", "To unit", on_convert_to_unit)),
+                .with_child(field_input(app, Field::ConvertTo, &to_text, "Converted value", ids::CONV_TO_VALUE))
+                .with_child(unit_drop(c.to, ids::CONV_TO_UNIT, "To unit", on_convert_to_unit)),
         ))
         .with_child(
             Dom::create_div()
-                .with_id("conv-rate")
+                .with_id(ids::CONV_RATE)
                 .with_css("padding: 8px 0px 0px 110px; font-size: 13px; opacity: 0.8;")
                 .with_child(Dom::create_span_with_text(rate)),
         )
@@ -1160,7 +1160,7 @@ fn modes_row(s: &CalcApp, app: &RefAny) -> Dom {
                 .with_selected_index(s.screen.index())
                 .with_on_change(app.clone(), on_screen as SegmentedOnChangeCallbackType)
                 .dom()
-                .with_id("calc-modes"),
+                .with_id(ids::MODES),
         )
         .with_child(Dom::create_div().with_css("flex-grow: 1;"))
         .with_child(
@@ -1168,14 +1168,14 @@ fn modes_row(s: &CalcApp, app: &RefAny) -> Dom {
                 .with_icon("history")
                 .with_on_click(app.clone(), on_toggle_panel as ButtonOnClickCallbackType)
                 .dom()
-                .with_id("calc-toggle-panel"),
+                .with_id(ids::TOGGLE_PANEL),
         )
         .with_child(
             Button::create("Settings")
                 .with_icon("settings")
                 .with_on_click(app.clone(), on_open_settings as ButtonOnClickCallbackType)
                 .dom()
-                .with_id("calc-settings"),
+                .with_id(ids::SETTINGS),
         )
 }
 
@@ -1198,7 +1198,7 @@ fn settings_sections(s: &CalcApp, app: &RefAny) -> Vec<AppSection> {
                         .with_accessibility_name("Group thousands")
                         .with_on_toggle(app.clone(), on_grouping as SwitchOnToggleCallbackType)
                         .dom()
-                        .with_id("set-grouping"),
+                        .with_id(ids::SET_GROUPING),
                 ))
                 .with_child(kit::row(
                     "Angle unit",
@@ -1206,7 +1206,7 @@ fn settings_sections(s: &CalcApp, app: &RefAny) -> Vec<AppSection> {
                         .with_selected_index(s.calc.angle.index())
                         .with_on_change(app.clone(), on_angle as SegmentedOnChangeCallbackType)
                         .dom()
-                        .with_id("set-angle"),
+                        .with_id(ids::SET_ANGLE),
                 )),
         },
         AppSection {
@@ -1220,14 +1220,14 @@ fn settings_sections(s: &CalcApp, app: &RefAny) -> Vec<AppSection> {
                         .with_accessibility_name("Keep the history")
                         .with_on_toggle(app.clone(), on_keep_history as SwitchOnToggleCallbackType)
                         .dom()
-                        .with_id("set-keep-history"),
+                        .with_id(ids::SET_KEEP_HISTORY),
                 ))
                 .with_child(kit::row(
                     "",
                     Button::create("Clear history")
                         .with_on_click(app.clone(), on_clear_history as ButtonOnClickCallbackType)
                         .dom()
-                        .with_id("set-clear-history"),
+                        .with_id(ids::SET_CLEAR_HISTORY),
                 ))
                 .with_child(kit::note(&format!(
                     "{} calculations, kept in {}.",
