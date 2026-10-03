@@ -23,3 +23,4 @@ landed). NOT BUILT (user: wait for the last agent, then build). Still open: the 
 "lib.rs lines"), then PIMDRIVE7's merge + api entries, then dylib + apps + push.
 2026-10-03 integration round 2: PIMDRIVE7 merged + the dashboard chart wiring (9606ffebb); ALL TEN MERGED; autofix
 0 patches / 0 critical. dylib + 24 app crates building (no tests yet).
+2026-10-03 15:40: WAVE 7 COMPILES - dylib + all 24 crates (21 app binaries incl. AzDashboard). Tests / E2E not run yet.
