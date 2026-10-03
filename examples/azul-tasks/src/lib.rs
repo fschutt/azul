@@ -45,6 +45,7 @@ pub mod sample;
 pub mod state;
 pub mod store;
 pub mod views;
+pub mod vtodo;
 
 use std::{path::PathBuf, sync::Arc};
 
