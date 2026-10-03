@@ -571,6 +571,25 @@ class SampleRun(Run):
         except Failure as e:
             self.check('closing an edited mail asks "save changes?"', False, str(e))
 
+    def zoom_in(self):
+        # The status bar's + sits between the slider's track and the percent label: the
+        # reading pane's zoom, 100 % -> 110 %, remembered in settings.json.
+        try:
+            track = self.layout('.__azul-native-statusbar-zoom-track')
+            label = self.layout('.__azul-native-statusbar-zoom-label')
+        except Failure as e:
+            self.check('the status bar has the zoom', False, str(e))
+            return
+        if not track or not label:
+            self.check('the status bar has the zoom', False, f'(track {track}, label {label})')
+            return
+        self.check('the status bar shows the zoom at 100 %', self.shows('100%'))
+        x = (track['x'] + track['width'] + label['x']) / 2
+        y = label['y'] + label['height'] / 2
+        self.must('click', x=x, y=y)
+        self.frame(None, 2)
+        self.check("the status bar's + zooms the reading pane to 110 %", self.shows('110%'))
+
     def restart_keeps_tasks(self):
         for name, child in self.children:
             if name == 'azmail' and child.poll() is None:
@@ -591,7 +610,9 @@ class SampleRun(Run):
         window = self.compose_window()
         self.close_guard(window)
         self.check_open_newsletter()
+        self.zoom_in()
         self.restart_keeps_tasks()
+        self.check('the zoom is remembered across a restart', self.shows('110%'))
         if self.failures:
             raise Failure(f'{len(self.failures)} check(s) failed: ' + '; '.join(self.failures))
 
@@ -631,7 +652,8 @@ def main():
     passed = True
     if args.phase in ('all', 'sample'):
         passed &= run_phase(SampleRun, args, 'sample: the window fills, ids, To-Do bar store, '
-                                             'compose window, close guard, HTML mail, restart')
+                                             'compose window, close guard, HTML mail, zoom, '
+                                             'restart')
     if args.phase in ('all', 'account'):
         passed &= run_phase(Run, args, 'account, Send/Receive, reply window, send through SMTP, '
                                        'Sent, draft')
