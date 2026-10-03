@@ -14,18 +14,13 @@ On resume: read this file, `git -C <worktree> status`, `git log --oneline -12`, 
   src/links.rs (resolve, strip_tracking, site_name, is_web), src/reader.rs (collapse, plain_text,
   excerpt, cut_at_word, text_to_html via Xml::create_from_html / Xml::encode_text),
   tests/fixtures/* (13 fixture feeds incl. malformed ones).
-- then: rustfmt of feed/links/reader + this file (see git log).
-- feed.rs + links.rs + xmltree.rs + dates.rs TYPE-CHECK CLEAN (see "Type-check trick").
+- ed4fe2eec rustfmt + progress.
+- 34adfa6e8 RED / f02080a96 GREEN src/opml.rs (Subscription, parse, write; azId) and
+  src/state.rs (ReadState: read / starred / later, to_json / from_json, prune).
+- feed.rs + links.rs + xmltree.rs + dates.rs + state.rs TYPE-CHECK CLEAN (see "Type-check trick").
+  opml.rs / reader.rs use azul (Xml::encode_attribute / encode_text / create_from_html): unchecked.
 
 ## NEXT (in this order; RED commit with tests + stubs, then GREEN commit, each)
-1. src/opml.rs: `Subscription { id, title, url (xmlUrl), site (htmlUrl), folder }`,
-   `parse(bytes) -> Result<Vec<Subscription>, String>` via xmltree (nested outlines -> folder =
-   top-level outline text, deeper " / " joined; outlines without xmlUrl are folders; `azId`
-   attribute keeps our feed id), `write(subs, title) -> String` (OPML 2.0, folders as outlines,
-   attribute values through one escaper). Tests: round trip, nested folders, a malformed OPML
-   (bare &, missing head), duplicates by url.
-2. src/state.rs: `ReadState { read, starred, later: BTreeSet<String> }` per feed, mark / toggle,
-   `to_json` / `from_json`, prune(ids). Tests: read state round trip, prune keeps starred.
 3. azul-pim/src/dates.rs: move `DateGroup` + `date_group` from azul-mail/src/listing.rs (with its
    tests); azul-mail listing.rs -> `pub use azul_pim::dates::{date_group, DateGroup};` (minimal
    edit, say so in the report). AzNews list groups by it.
