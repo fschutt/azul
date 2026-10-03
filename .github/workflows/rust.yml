@@ -1953,6 +1953,14 @@ jobs:
           clang -I. hello-world.c -L../../target/debug -lazul \
             -Wl,-rpath,@executable_path/../../target/debug -o hw-clang
 
+      # A program built against this azul.h / azul17.hpp aborts before main,
+      # naming both hashes, when the libazul it loads reports another ABI
+      # hash, and runs when the hash matches (doc/src/codegen/v2/abi_guard.rs).
+      # (Windows: the hello-world steps compile and link the MSVC arm.)
+      - name: ABI guard - C / C++ refuse a libazul with another ABI hash
+        if: runner.os != 'Windows'
+        run: python3 scripts/abi_guard_e2e.py --only c,cpp --codegen target/codegen
+
       - name: Compile + link C hello-world (Windows)
         if: runner.os == 'Windows'
         shell: cmd

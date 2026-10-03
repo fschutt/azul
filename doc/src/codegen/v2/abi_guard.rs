@@ -30,12 +30,16 @@
 //!   `AzAbi_getHash()`, and the check helpers;
 //! - `dll_api_external.rs` / `azul.rs` (the Rust `azul` crate,
 //!   `link-dynamic`, and the pre-rendered release crate): `AZ_ABI_HASH`, the
-//!   `AzAbi_getHash` declaration and `az_abi_check()`, which every
-//!   constructor / static method wrapper and the `AzString` `From` impls call
-//!   before entering libazul (one relaxed atomic load after the first call);
+//!   `AzAbi_getHash` declaration and `az_abi_check()`, which the program's
+//!   loader runs before `main` (`AZ_ABI_CHECK_AT_LOAD`, an initializer-section
+//!   entry), and which every wrapper a program can call first (constructor,
+//!   static method, `create_default` / `impl Default`, enum-variant
+//!   constructor; [`is_first_call_kind`]) and the `AzString` `From` impls call
+//!   again before entering libazul (one relaxed atomic load after the first);
 //! - `azul.h` (C, and C++ through it): `AZ_ABI_HASH`, the declaration,
-//!   `AzAbi_check()`, and a load-time call of it (a GCC/Clang constructor, or
-//!   a static object in C++ on other compilers). `AZ_NO_ABI_CHECK` opts out.
+//!   `AzAbi_check()`, and a load-time call of it (a GCC/Clang constructor, a
+//!   static object in C++ on other compilers, a `.CRT$XCU` initializer entry
+//!   for MSVC compiling C). `AZ_NO_ABI_CHECK` opts out.
 //!
 //! The Python extension is not a separate binding in this sense: it is
 //! compiled INTO the library it calls (`python-extension` builds libazul
@@ -212,15 +216,32 @@ fn ret(r: &Option<String>) -> String {
 
 /// Does a Rust wrapper of `kind` call `az_abi_check()` before entering
 /// libazul? Only in a binding (`ExternalBindings`) and only for the functions
-/// a program can call without already holding a libazul value: constructors
-/// and static methods. The first call of any program is one of them (or an
-/// `AzString` `From` impl, which checks too), so checking them checks the
-/// first call.
+/// a program can call without already holding a libazul value
+/// ([`is_first_call_kind`]). The first call of any program is one of them (or
+/// an `AzString` `From` impl, which checks too), so checking them checks the
+/// first call. The trait bodies that call such a function (`impl Default` ->
+/// `AzX_createDefault`) ask the same question with the function's kind.
 pub fn rust_wrapper_checks(config: &CodegenConfig, kind: FunctionKind) -> bool {
     matches!(
         config.cabi_functions,
         CAbiFunctionMode::ExternalBindings { .. }
-    ) && matches!(kind, FunctionKind::Constructor | FunctionKind::StaticMethod)
+    ) && is_first_call_kind(kind)
+}
+
+/// Can a function of `kind` be a program's FIRST call into libazul - is it
+/// callable without a value libazul made (no `self`)? Constructors, static
+/// methods, `createDefault` (`X::create_default()`, `impl Default`) and the
+/// enum-variant constructors (`BorderStyle::none()`, `OptionX::some(..)`).
+/// Methods and the other trait functions (`clone`, `eq`, `hash`, `drop`, ...)
+/// need a value first.
+pub fn is_first_call_kind(kind: FunctionKind) -> bool {
+    matches!(
+        kind,
+        FunctionKind::Constructor
+            | FunctionKind::StaticMethod
+            | FunctionKind::Default
+            | FunctionKind::EnumVariantConstructor
+    )
 }
 
 /// The statement [`rust_wrapper_checks`] wrappers start with.
@@ -263,8 +284,10 @@ pub fn rust_items(ir: &CodegenIR, config: &CodegenConfig) -> String {
             b.blank();
             b.line("/// Aborts the process unless the loaded libazul has this binding's ABI");
             b.line("/// ([`az_abi_check_hash`]). Compares once per process; every later call is");
-            b.line("/// one relaxed atomic load. Every constructor and static method calls it");
-            b.line("/// before entering libazul, so the first call of a program is checked.");
+            b.line("/// one relaxed atomic load. The program's loader runs it before `main`");
+            b.line("/// (`AZ_ABI_CHECK_AT_LOAD`); every wrapper a program can call first (a");
+            b.line("/// constructor, static method, default or enum-variant constructor) calls it");
+            b.line("/// again before entering libazul, for a platform without a load-time entry.");
             b.line("#[inline]");
             b.line("pub fn az_abi_check() {");
             b.indent();
@@ -280,11 +303,15 @@ pub fn rust_items(ir: &CodegenIR, config: &CodegenConfig) -> String {
             b.line("#[inline(never)]");
             b.line("fn az_abi_check_slow() {");
             b.indent();
+            b.line("// Names the load-time entry below: a linker that pulls this code in");
+            b.line("// (every wrapper calls it) keeps the initializer entry too.");
+            b.line("let _ = unsafe { core::ptr::read_volatile(&AZ_ABI_CHECK_AT_LOAD) };");
             b.line("az_abi_check_hash(unsafe { AzAbi_getHash() });");
             b.line("AZ_ABI_CHECKED.store(true, core::sync::atomic::Ordering::Relaxed);");
             b.dedent();
             b.line("}");
             b.blank();
+            rust_load_time_check(&mut b);
         }
     }
     // Shared by both sides: the library's own tests drive them, and a host
@@ -321,6 +348,47 @@ pub fn rust_items(ir: &CodegenIR, config: &CodegenConfig) -> String {
     b.line("}");
     b.blank();
     b.finish()
+}
+
+/// The binding's load-time check: a `#[used]` entry in the platform loader's
+/// initializer section, which the loader calls before `main` (after libazul's
+/// own initializers - libazul is a dependency, so it is loaded first), as
+/// azul.h's constructor does. Apple: `__DATA,__mod_init_func` (typed
+/// `mod_init_funcs`, as the assembler types it); ELF systems:
+/// `.init_array` (the loader passes argc / argv / envp, which a C function
+/// without parameters may ignore); Windows (MSVC and MinGW CRTs): `.CRT$XCU`.
+/// Elsewhere it is a plain static and the per-wrapper checks remain.
+fn rust_load_time_check(b: &mut CodeBuilder) {
+    b.line("/// Runs [`az_abi_check`] when the program loads, before `main`, as azul.h's");
+    b.line("/// constructor does: a stale app aborts before its first line runs, whatever");
+    b.line("/// that line is. The loader calls every entry of its initializer section.");
+    b.line("#[used]");
+    b.line("#[cfg_attr(target_vendor = \"apple\", link_section = \"__DATA,__mod_init_func,mod_init_funcs\")]");
+    // One attribute per line (the test reads them back line by line).
+    let elf = [
+        "linux",
+        "android",
+        "freebsd",
+        "netbsd",
+        "openbsd",
+        "dragonfly",
+        "illumos",
+        "solaris",
+    ]
+    .map(|os| format!("target_os = \"{os}\""))
+    .join(", ");
+    b.line(&format!(
+        "#[cfg_attr(any({elf}), link_section = \".init_array\")]"
+    ));
+    b.line("#[cfg_attr(target_os = \"windows\", link_section = \".CRT$XCU\")]");
+    b.line("static AZ_ABI_CHECK_AT_LOAD: extern \"C\" fn() = az_abi_check_at_load;");
+    b.blank();
+    b.line("extern \"C\" fn az_abi_check_at_load() {");
+    b.indent();
+    b.line(RUST_CHECK_CALL);
+    b.dedent();
+    b.line("}");
+    b.blank();
 }
 
 fn rust_const(b: &mut CodeBuilder, hash: u64) {
@@ -414,6 +482,22 @@ pub fn c_items(ir: &CodegenIR) -> String {
     b.line("struct AzAbiCheckAtLoad { AzAbiCheckAtLoad() { AzAbi_check(); } };");
     b.line("static AzAbiCheckAtLoad az_abi_check_at_load;");
     b.line("}");
+    // MSVC compiling C: no constructor attribute, so an entry in the CRT's
+    // initializer table. `selectany`: every translation unit that includes
+    // azul.h defines the entry, the linker keeps one; `/include:` keeps that
+    // one although nothing references it (32-bit x86 C names carry a `_`).
+    b.line("#elif defined(_MSC_VER)");
+    b.line("#pragma section(\".CRT$XCU\", read)");
+    b.line("static void __cdecl AzAbi_checkAtLoad(void) { AzAbi_check(); }");
+    b.line(
+        "__declspec(selectany) __declspec(allocate(\".CRT$XCU\")) void (__cdecl \
+         *AzAbi_checkAtLoadEntry)(void) = AzAbi_checkAtLoad;",
+    );
+    b.line("#if defined(_M_IX86)");
+    b.line("#pragma comment(linker, \"/include:_AzAbi_checkAtLoadEntry\")");
+    b.line("#else");
+    b.line("#pragma comment(linker, \"/include:AzAbi_checkAtLoadEntry\")");
+    b.line("#endif");
     b.line("#endif");
     b.line("#endif /* AZ_NO_ABI_CHECK */");
     b.blank();
@@ -473,27 +557,35 @@ mod tests {
         );
     }
 
+    /// Every call into libazul that a program can make BEFORE it holds any
+    /// value libazul made - a wrapper without `self`: a constructor, a static
+    /// method, `create_default()` and `impl Default`, an enum-variant
+    /// constructor (`BorderStyle::none()`, `OptionX::some(..)`). Any of them
+    /// can be a program's first call, so each one checks the ABI first: a
+    /// stale app must abort before it reads a struct of another layout, not
+    /// after (audit 2026-10-03: `X::create_default()`, `impl Default` and the
+    /// enum-variant constructors entered libazul unchecked).
     #[test]
-    fn every_constructor_of_the_rust_binding_checks_the_abi_before_entering_libazul() {
+    fn every_wrapper_a_program_can_call_first_checks_the_abi_before_entering_libazul() {
         let ir = ir();
-        let entry: std::collections::BTreeSet<&str> = ir
+        let label = |k: FunctionKind| match k {
+            FunctionKind::Constructor => Some("constructor"),
+            FunctionKind::StaticMethod => Some("static method"),
+            FunctionKind::Default => Some("default"),
+            FunctionKind::EnumVariantConstructor => Some("enum variant constructor"),
+            _ => None,
+        };
+        let entry: std::collections::BTreeMap<&str, &str> = ir
             .functions
             .iter()
-            .filter(|f| {
-                matches!(
-                    f.kind,
-                    FunctionKind::Constructor | FunctionKind::StaticMethod
-                )
-            })
-            .map(|f| f.c_name.as_str())
+            .filter_map(|f| Some((f.c_name.as_str(), label(f.kind)?)))
             .collect();
         let text = CodeGenerator::generate(ir, &CodegenConfig::dll_dynamic()).unwrap();
-        let mut checked = 0usize;
+        let lines: Vec<&str> = text.lines().map(str::trim).collect();
+        let mut checked: std::collections::BTreeMap<&str, usize> = Default::default();
+        let mut trait_bodies_checked = 0usize;
         let mut offenders = Vec::new();
-        for line in text.lines().map(str::trim) {
-            if !line.starts_with("pub fn ") {
-                continue;
-            }
+        for (i, line) in lines.iter().enumerate() {
             let Some(p) = line.find("unsafe { Az") else {
                 continue;
             };
@@ -501,23 +593,45 @@ mod tests {
                 .chars()
                 .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
                 .collect();
-            if !entry.contains(callee.as_str()) {
+            let Some(&kind) = entry.get(callee.as_str()) else {
                 continue;
-            }
-            if line.contains(&format!("{{ {RUST_CHECK_CALL} unsafe {{ {callee}(")) {
-                checked += 1;
+            };
+            // A one-line wrapper: `pub fn x(..) -> T { az_abi_check(); unsafe { AzX_y(..) } }`;
+            // a trait body (`impl Default`): `az_abi_check();` on the line before.
+            let same_line = line.contains(&format!("{RUST_CHECK_CALL} unsafe {{ {callee}("));
+            let line_before = i > 0 && lines[i - 1] == RUST_CHECK_CALL;
+            if same_line || line_before {
+                *checked.entry(kind).or_default() += 1;
+                if !line.starts_with("pub fn ") {
+                    trait_bodies_checked += 1;
+                }
             } else {
-                offenders.push(line.to_string());
+                offenders.push(format!("{kind}: {line}"));
             }
         }
         assert!(
             offenders.is_empty(),
-            "wrappers without the ABI check:\n{}",
-            offenders.join("\n")
+            "{} wrappers enter libazul without the ABI check, e.g.:\n{}",
+            offenders.len(),
+            offenders
+                .iter()
+                .take(20)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("\n")
         );
+        for kind in [
+            "constructor",
+            "static method",
+            "default",
+            "enum variant constructor",
+        ] {
+            let n = checked.get(kind).copied().unwrap_or(0);
+            assert!(n > 100, "only {n} checked {kind} wrappers found");
+        }
         assert!(
-            checked > 100,
-            "only {checked} checked constructor wrappers found"
+            trait_bodies_checked > 100,
+            "only {trait_bodies_checked} checked `impl Default` bodies found"
         );
         // The internal bindings (link-static / libazul itself) never check.
         let dll = CodeGenerator::generate(ir, &CodegenConfig::dll_internal()).unwrap();
@@ -672,5 +786,115 @@ mod tests {
         assert_eq!(c_message_format().matches("%016llx").count(), 2);
         assert!(c.contains("abort();"));
         assert!(rust.contains("::std::process::abort();"));
+    }
+
+    /// The Rust binding checks the ABI when the program LOADS, before `main`,
+    /// as azul.h does with its constructor: the platform loader calls a
+    /// function from its initializer section (`__mod_init_func` on Apple,
+    /// `.init_array` on Linux / Android / the BSDs, `.CRT$XCU` on Windows).
+    /// A stale app then aborts before its first line runs, whatever that line
+    /// is - even a method on a value built from a struct literal, which no
+    /// wrapper check sees. The per-wrapper checks stay as the fallback on a
+    /// platform without such a section.
+    #[test]
+    fn the_rust_binding_checks_the_abi_when_the_program_loads() {
+        let ir = ir();
+        for (what, config) in [
+            ("dll_api_external.rs", CodegenConfig::dll_dynamic()),
+            ("azul.rs", CodegenConfig::rust_public_api(ir)),
+        ] {
+            let text = CodeGenerator::generate(ir, &config).expect(what);
+            let lines: Vec<&str> = text.lines().map(str::trim).collect();
+            let at = lines
+                .iter()
+                .position(|l| {
+                    *l == "static AZ_ABI_CHECK_AT_LOAD: extern \"C\" fn() = az_abi_check_at_load;"
+                })
+                .unwrap_or_else(|| panic!("{what}: no load-time ABI check static"));
+            // Its attributes: the lines above it, up to its doc comment.
+            let attrs: Vec<&str> = lines[..at]
+                .iter()
+                .rev()
+                .take_while(|l| l.starts_with("#["))
+                .copied()
+                .collect();
+            assert!(attrs.contains(&"#[used]"), "{what}: {attrs:?}");
+            for section in [
+                "__DATA,__mod_init_func,mod_init_funcs",
+                ".init_array",
+                ".CRT$XCU",
+            ] {
+                assert!(
+                    attrs
+                        .iter()
+                        .any(|a| a.contains(&format!("link_section = \"{section}\""))),
+                    "{what}: the check is not in the {section} initializer section: {attrs:?}"
+                );
+            }
+            // The function the loader calls runs the one check.
+            let f = lines
+                .iter()
+                .position(|l| *l == "extern \"C\" fn az_abi_check_at_load() {")
+                .unwrap_or_else(|| panic!("{what}: no az_abi_check_at_load"));
+            assert_eq!(lines[f + 1], RUST_CHECK_CALL, "{what}");
+            // The check every wrapper calls names the static, so a linker that
+            // pulls the binding's code in pulls the initializer entry in too.
+            let slow = lines
+                .iter()
+                .position(|l| *l == "fn az_abi_check_slow() {")
+                .unwrap_or_else(|| panic!("{what}: no az_abi_check_slow"));
+            assert!(
+                lines[slow..]
+                    .iter()
+                    .take_while(|l| **l != "}")
+                    .any(|l| l.contains("AZ_ABI_CHECK_AT_LOAD")),
+                "{what}: az_abi_check_slow must keep AZ_ABI_CHECK_AT_LOAD linked"
+            );
+        }
+        // libazul itself (and link-static) has nothing to check against.
+        let dll = CodeGenerator::generate(ir, &CodegenConfig::dll_internal()).unwrap();
+        assert!(!dll.contains("AZ_ABI_CHECK_AT_LOAD"));
+    }
+
+    /// azul.h checks the ABI when the program loads on every C compiler, not
+    /// only GCC / Clang: MSVC C (the C compiler of Windows) has no
+    /// constructor attribute, so the check is an entry in the CRT's
+    /// initializer table `.CRT$XCU`, one per program (`selectany`: every
+    /// translation unit that includes azul.h defines it), and kept by the
+    /// linker (`/include:`, with the leading underscore 32-bit x86 C names
+    /// carry). C++ keeps its static object, which MSVC C++ runs.
+    #[test]
+    fn azul_h_checks_the_abi_at_load_on_msvc_c_too() {
+        let c = c_items(ir());
+        let lines: Vec<&str> = c.lines().map(str::trim).collect();
+        let at = |l: &str| lines.iter().position(|x| *x == l);
+        let gnu = at("#if defined(__GNUC__) || defined(__clang__)").expect("the GCC / Clang arm");
+        let cpp = at("#elif defined(__cplusplus)").expect("the C++ arm");
+        let msvc = at("#elif defined(_MSC_VER)").expect("an MSVC C arm");
+        assert!(
+            gnu < cpp && cpp < msvc,
+            "GCC / Clang, then C++, then MSVC C"
+        );
+        let arm = &lines[msvc..];
+        let has = |s: &str| arm.iter().any(|l| l.contains(s));
+        assert!(has("#pragma section(\".CRT$XCU\", read)"), "{arm:?}");
+        assert!(
+            has("__declspec(selectany) __declspec(allocate(\".CRT$XCU\"))"),
+            "{arm:?}"
+        );
+        assert!(
+            has("AzAbi_checkAtLoadEntry)(void) = AzAbi_checkAtLoad;"),
+            "{arm:?}"
+        );
+        assert!(has(
+            "static void __cdecl AzAbi_checkAtLoad(void) { AzAbi_check(); }"
+        ));
+        assert!(has(
+            "#pragma comment(linker, \"/include:_AzAbi_checkAtLoadEntry\")"
+        ));
+        assert!(has(
+            "#pragma comment(linker, \"/include:AzAbi_checkAtLoadEntry\")"
+        ));
+        assert!(has("#if defined(_M_IX86)"), "32-bit x86 decorates C names");
     }
 }
