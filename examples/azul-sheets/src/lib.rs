@@ -116,7 +116,7 @@ pub const ABOUT: AboutInfo = AboutInfo {
 /// The keys AzSheets answers, as the settings page lists them (`Mod` = Cmd
 /// on macOS, Ctrl elsewhere). The window's and the grid's handlers are the
 /// ones that act; this table is what they do.
-pub const SHORTCUTS: [Shortcut; 20] = [
+pub const SHORTCUTS: [Shortcut; 21] = [
     Shortcut::new("File", "Mod+S", "Save the workbook"),
     Shortcut::new("File", "Mod+O", "Open a workbook"),
     Shortcut::new("File", "Mod+N", "New blank workbook"),
@@ -127,6 +127,7 @@ pub const SHORTCUTS: [Shortcut; 20] = [
     Shortcut::new("Edit", "Mod+F / Mod+H", "Find / replace"),
     Shortcut::new("Format", "Mod+B / Mod+I / Mod+U", "Bold / italic / underline"),
     Shortcut::new("Cells", "F2", "Edit the active cell"),
+    Shortcut::new("Cells", "F4 (editing)", "Cycle the reference at the caret: A1, $A$1, A$1, $A1"),
     Shortcut::new("Cells", "Enter / Tab", "Commit and move down / right (Shift: back)"),
     Shortcut::new("Cells", "Escape", "Cancel the edit (or leave the backstage)"),
     Shortcut::new("Move", "Arrows", "Move the cell cursor"),
@@ -3135,6 +3136,17 @@ extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update 
         Some(VirtualKeyCode::N) if command => {
             with_app(&mut data, &mut info, |info, app, s| new_workbook(info, app, s, false))
         }
+        // F4 while a formula is being edited: the reference at the caret
+        // cycles through $A$1, A$1, $A1, A1 (Excel).
+        Some(VirtualKeyCode::F4) => with_app(&mut data, &mut info, |_, _, s| {
+            if s.view.edit_mode != CellGridEditMode::None {
+                let cursor = s.view.edit_cursor as usize;
+                if let Some((text, caret)) = refs::cycle_reference(s.view.edit_text.as_str(), cursor) {
+                    s.view.edit_text = AzString::from(text);
+                    s.view.edit_cursor = u32::try_from(caret).unwrap_or(u32::MAX);
+                }
+            }
+        }),
         // The kit's keys (every Azlin app): Mod+, opens the settings, F1
         // opens them at the shortcuts - here, the backstage's Options pane.
         Some(VirtualKeyCode::Comma) if command => with_app(&mut data, &mut info, |info, app, s| {
