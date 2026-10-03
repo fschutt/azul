@@ -15,3 +15,7 @@ progress file"). Worktrees: /Users/fschutt/Development/azul/.claude/worktrees/ag
 | VIDEO8 | a6e731cce5b11a63a | wt/video8 | DONE (report scripts/VIDEO8_2026_10_03.md; listed correctness items were already fixed (MEET2); built: bitrate adaptation, Opus via AudioToolbox, Vulkan H.264 encode (untested), echo canceller; zero-copy designed only; api.json REQUIRED: VideoEncoder.set_bitrate, AudioEncoder, AudioDecoder, OptionAudioFrame, EchoCanceller) |
 | RULINGS8 | addd801aa5b76e026 | wt/rulings8 | DONE (report scripts/RULINGS8_2026_10_03.md; focus walks get_event_path across the VirtualView host; inline-block lines: strut, strut font, vertical-align middle, flex/grid baselines, empty inline = 0 height - 5 causes; widget CSS unchanged (none needed); 4 tests need MAILREF8 merged too; no api.json) |
 | LAYOUTPERF8 | a8bde8e3457166c14 | wt/layoutperf8 | running (worktree .claude/worktrees/agent-a8bde8e3457166c14; base e290321da) |
+
+2026-10-03 integration: 9 of 10 merged (THREADS8, ANIM8, XML8, ABI8, WAYLAND8, VIDEO8, MAILREF8, RULINGS8, WPT8 - only
+append conflicts); api.json converged 113ea54f1 (XML8's `Content` enum renamed ContentModel - autofix had proposed
+replacing the CSS Content type with it; ANIM8 closure lifetime fixed). NOT BUILT - waiting for LAYOUTPERF8.
