@@ -485,9 +485,11 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_child(title_row())
         .with_child(picker_row(s, &app))
         .with_child(area);
-    Dom::create_body()
-        .with_css("display: flex; flex-direction: column;")
-        .with_child(ShellThemeScope::create(column).with_accent(ShellThemeAccent::Blue).dom())
+    // The scope as the window's body: no UA margin, the full window height
+    // (the shells' panes take the window).
+    ShellThemeScope::create(column)
+        .with_accent(ShellThemeAccent::Blue)
+        .body()
         .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app, on_key)
 }
 
