@@ -172,16 +172,14 @@ pub fn save(s: &AppState) -> bool {
 /// `src_lib.rs.azreview.zip`; no file: `session.azreview.zip`).
 #[must_use]
 pub fn archive_name(display: Option<&str>) -> String {
-    let _ = display;
-    todo!()
+    let stem = display
+        .filter(|d| !d.is_empty())
+        .map_or_else(|| "session".to_string(), |d| d.replace(['/', '\\'], "_"));
+    format!("{stem}.azreview.zip")
 }
 
 fn archive_path(s: &AppState) -> std::path::PathBuf {
-    let stem = s.file().map_or_else(
-        || "session".to_string(),
-        |f| f.display.replace(['/', '\\'], "_"),
-    );
-    crate::scratch_dir().join(format!("{stem}.azreview.zip"))
+    crate::scratch_dir().join(archive_name(s.file().map(|f| f.display.as_str())))
 }
 
 #[cfg(test)]
