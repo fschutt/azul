@@ -9611,6 +9611,8 @@ fn split_text_by_font_coverage<T: ParsedFontTrait>(
     // both and is a different, riskier change.
     let mut resolved: alloc::collections::BTreeMap<char, Option<FontId>> =
         alloc::collections::BTreeMap::new();
+    // Whether a char's covering face was not loaded (see below).
+    let mut short_of_a_face = false;
 
     for (byte_idx, ch) in text.char_indices() {
         let char_end = byte_idx + ch.len_utf8();
@@ -9632,7 +9634,17 @@ fn split_text_by_font_coverage<T: ParsedFontTrait>(
         // its cmap — e.g. Noto Sans CJK's JP face does not advertise the
         // Hangul OS/2 block, so 한국어 resolves to None here even though that
         // face's cmap covers it.
-        let font_id = covering_font(font_chain, ch)
+        //
+        // A covering face that is NOT LOADED cannot draw: its chain was
+        // resolved after the layout loaded its faces (a key the pre-pass
+        // never saw, resolved on the miss). The char takes the next face
+        // below that can draw it - shaped text, not nothing - and the call
+        // counts as short of its font (below), so its result is not cached
+        // and a pass with the face loaded shapes it again.
+        let covering = covering_font(font_chain, ch);
+        let covering_loaded = covering.filter(|id| loaded_fonts.get(id).is_some());
+        short_of_a_face |= covering.is_some() && covering_loaded.is_none();
+        let font_id = covering_loaded
             // The chain's OWN faces next, in chain order, by REAL cmap
             // coverage. The metadata behind the range walk is partial for a
             // face the fast probe found: it records only the codepoints the
@@ -9688,6 +9700,9 @@ fn split_text_by_font_coverage<T: ParsedFontTrait>(
                 }
             }
         }
+    }
+    if short_of_a_face {
+        note_font_shape_deficit();
     }
 
     segments
