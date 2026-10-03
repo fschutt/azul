@@ -10066,3 +10066,93 @@ mod unresolved_family_reporting_tests {
         );
     }
 }
+
+/// MAILENG6 item 1 (the font bug TABLES left OPEN): the font stacks the
+/// document collects must include the face EVERY text node asks for, in
+/// particular a text node that follows an element of another weight or
+/// style (`<p><b>bold</b> tail</p>`). Font-independent: these read the
+/// collected selector stacks, not shaped glyphs.
+#[cfg(test)]
+mod text_node_font_stack_tests {
+    use azul_core::dom::Dom;
+    use azul_css::css::Css;
+
+    use super::*;
+
+    fn text(s: &str) -> Dom {
+        Dom::create_text_do_not_use_without_block_level_wrapper(s)
+    }
+
+    /// `<body><p>{children}</p></body>` with no author CSS (UA only).
+    fn paragraph(children: Vec<Dom>) -> StyledDom {
+        let mut dom = Dom::create_body()
+            .with_children(vec![Dom::create_p().with_children(children.into())].into());
+        StyledDom::create(&mut dom, Css::empty())
+    }
+
+    fn collected_weights_and_styles(sd: &StyledDom) -> Vec<(FcWeight, FontStyle)> {
+        let platform = azul_css::system::Platform::current();
+        collect_font_stacks_from_styled_dom(sd, &platform)
+            .font_stacks
+            .iter()
+            .map(|stack| (stack[0].weight, stack[0].style))
+            .collect()
+    }
+
+    #[test]
+    fn the_text_after_a_bold_element_collects_its_own_regular_font() {
+        let sd = paragraph(vec![
+            Dom::create_b().with_children(vec![text("bold")].into()),
+            text(" tail"),
+        ]);
+        let got = collected_weights_and_styles(&sd);
+        assert!(
+            got.iter()
+                .any(|(w, s)| *w == FcWeight::Normal && *s == FontStyle::Normal),
+            "\" tail\" is regular text: its regular stack must be collected, or its face is \
+             never loaded and the run shapes to nothing: {got:?}"
+        );
+        assert!(
+            got.iter().any(|(w, _)| *w >= FcWeight::Bold),
+            "\"bold\" keeps its bold stack: {got:?}"
+        );
+    }
+
+    #[test]
+    fn the_text_after_an_italic_element_collects_its_own_upright_font() {
+        let sd = paragraph(vec![
+            Dom::create_i().with_children(vec![text("it")].into()),
+            text(" tail"),
+        ]);
+        let got = collected_weights_and_styles(&sd);
+        assert!(
+            got.iter()
+                .any(|(w, s)| *w == FcWeight::Normal && *s == FontStyle::Normal),
+            "\" tail\" is upright: {got:?}"
+        );
+        assert!(
+            got.iter().any(|(_, s)| *s == FontStyle::Italic),
+            "\"it\" keeps its italic stack: {got:?}"
+        );
+    }
+
+    #[test]
+    fn a_text_nodes_font_is_read_from_the_text_node_itself_not_from_the_node_before_it() {
+        // `<b><i></i>bold</b>`: the only text is bold and upright; the node
+        // right before it in document order is an (empty) bold ITALIC
+        // element, whose style it must not take.
+        let sd = paragraph(vec![
+            Dom::create_b().with_children(vec![Dom::create_i(), text("bold")].into())
+        ]);
+        let got = collected_weights_and_styles(&sd);
+        assert!(
+            got.iter()
+                .any(|(w, s)| *w >= FcWeight::Bold && *s == FontStyle::Normal),
+            "the only text is bold and upright: {got:?}"
+        );
+        assert!(
+            !got.iter().any(|(_, s)| *s == FontStyle::Italic),
+            "no text of the document is italic, so no italic stack: {got:?}"
+        );
+    }
+}
