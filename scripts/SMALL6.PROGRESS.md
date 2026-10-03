@@ -28,8 +28,20 @@ Screenshots: target/small6-shots/ (not committed). Look driver: target/small6/lo
 - AzWidgets: 1c44c30e8 one crate::keep (DEDUP); 5a4e91e15 Building blocks section (blocks.rs); 0eba1189e
   Flat/Flora = the app theme (get_theme/set_theme); 84ddb8ad2 e2e/building_blocks.json; e22863a7a Titlebar.
 
+- AzMaps: 4d18cda71 / 2e0f66938 model.rs (pins file, kept viewport, pan math; RED/GREEN); a8759df48 WIP part 1
+  of the lib.rs rewrite (header doc, imports, SPEC/ABOUT/SHORTCUTS, MapState + methods, ids.rs). lib.rs is
+  INCOMPLETE until part 2: the old layout / callbacks / start / engine_feature_tests / android ctor are in
+  commit 2e0f66938, examples/azul-maps/src/lib.rs (port from there).
+
 ## NEXT (exact)
-- AzMaps (examples/azul-maps/src/lib.rs, 634 lines, hand-rolled header): on BrowserShell (S5) - address bar
+- AzMaps part 2 (examples/azul-maps/src/lib.rs, append after `// ==== LAYOUT (next commit) ====`): layout()
+  (BrowserShell: address bar = toolbar ids::PAN_*/ZOOM_*/RECENTRE/LOCATE/CLEAR_PINS/SETTINGS + coords; tree =
+  pins column; content = map area with MapWidget + compass + location dot; details = DetailsPane of the centre;
+  ShellThemeScope::body(); kit::settings_page when open), callbacks (buttons, on_key via kit::handle_key first,
+  on_viewport_changed, on_pin_tap -> save pins, the sensor timer also keeps the viewport after
+  VIEW_SAVE_IDLE_TICKS), on_window_created (kit + FileJob::Get pins), on_files_done, start() (AppArgs, kit,
+  parse_view(VIEW_KEY)), keep engine_feature_tests + android ctor. Then part 3: scripts/azmaps_e2e.py.
+- (old plan) AzMaps (examples/azul-maps/src/lib.rs, 634 lines, hand-rolled header): on BrowserShell (S5) - address bar
   slot = search/coords + zoom/pan Toolbar buttons, tree = pins list (TreeView), content = the MapWidget,
   details = selected pin (DetailsPane), status bar = centre/zoom; ShellThemeScope::body(); appkit (args,
   settings: last viewport; pins saved as maps/pins.json through kit::spawn_file_jobs); ids `__azmaps_`;
