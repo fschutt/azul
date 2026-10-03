@@ -7390,6 +7390,60 @@ mod tests {
         tap_key(&mut runner, VirtualKeyCode::Z, &[primary_key()]);
         assert_eq!(text_of(&runner), typed, "the editor's veto stands");
     }
+
+    /// The same through a JSON scenario's ops - click into an editable, type,
+    /// then `key_down z` with the primary modifier - the way a corpus
+    /// scenario drives it.
+    #[test]
+    fn a_json_scenarios_undo_key_undoes_the_typing() {
+        use azul_core::dom::IdOrClass;
+
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("ed".into())].into())
+                .with_contenteditable(true)
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "abc",
+                )),
+        );
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; } \
+             .ed { height: 40px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        let mac = azul_core::window::mac_shortcut_conventions();
+        let primary = serde_json::json!({ "ctrl": !mac, "meta": mac });
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "undo_key",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "click", "selector": ".ed" },
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "x", "text": "x" }, { "op": "key_up", "key": "x" },
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "z", "modifiers": primary.clone() },
+                { "op": "key_up", "key": "z", "modifiers": primary.clone() },
+                { "op": "wait_frame" }
+            ]
+        }))
+        .expect("scenario json");
+
+        let (_result, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        let focused = runner
+            .layout_window
+            .focus_manager
+            .get_focused_node()
+            .copied()
+            .expect("the click focuses the editable");
+        let node_id = focused.node.into_crate_internal().expect("focused node id");
+        assert_eq!(
+            text_input_value(&runner, focused.dom, node_id),
+            "abc",
+            "the scenario's primary + Z undoes the typed x"
+        );
+    }
 }
 
 // ==== E2E tooling follow-ups (E1): tests ====
