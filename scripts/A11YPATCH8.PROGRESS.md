@@ -17,10 +17,23 @@ NOTHING when a frame changed nothing a11y-visible. Brief: scripts/waves/wave8/PL
 - 6d7e41bba RED + 937db639f GREEN: telemetry FramePump no longer discards the AZ_PROFILE=cpu spans (drain_probe_events_for)
 
 ## IN PROGRESS
-- final review of the new code for compile errors; then the report
+- appending test `an_animation_frame_builds_only_the_nodes_it_changed` (asserts A11yManager::last_pass: a no-op
+  relayout built/sent 0, a knob frame built 1 sent 1) to the END of
+  layout/tests/an_animation_frame_sends_assistive_technology_only_what_moved.rs
 
-## NEXT
-- review a11y.rs new code once more (compile), write scripts/A11YPATCH8_2026_10_03.md
+## NEXT (exact)
+1. Commit that test (check the last 3 commits for "test(a11y): an animation frame builds only ...").
+2. Write the report scripts/A11YPATCH8_2026_10_03.md (what was built, measurement, commits, api.json: none -
+   A11yManager is Rust-only, least-sure-to-compile spots, test commands, left / follow-ups) and commit it.
+   Least-sure spots: a11y.rs `retain_or_build` match guard on `get_mut`; `published.is_some_and(..)` reading `r`
+   in the third pass of `rebuild_retained`; window.rs disjoint borrows (`inputs` borrows self fields while
+   `manager = &mut self.a11y_manager`); dll feed `tree.as_ref()` through the MutexGuard deref; the unit-test module
+   `retained_tree_tests` uses `super::autotest_generated::layout_result_of` (made pub(super)).
+3. Follow-ups for the report: dll `refill_a11y_tree_after_regeneration` (event.rs, ANIMFRAME8's file) is now a
+   redundant second pass per regenerate (finds nothing, ~1 ms of hashing); the mobile A11ySnapshot is still rebuilt
+   whole (could skip when `last_pass.published` is false); the remaining per-frame cost (~1 ms est.) is SipHash
+   signatures of ~3500 nodes + the structure pass - a per-node content epoch set by every NodeData mutation would
+   remove the hashing.
 
 ## Decisions
 - Bounds of a moving node are sent EVERY frame they change (a 1-node patch); no throttle: accesskit has no lazy bounds, the cost was the 3 ms full rebuild + full-tree consumer diff, not one node.
