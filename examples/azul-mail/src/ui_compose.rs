@@ -13,8 +13,8 @@
 //! closes and the mail is in Sent Items. Queued (it waits in the Outbox for the next Send /
 //! Receive) and Failed keep the window open and say why.
 //!
-//! Field ids for scripts: `#compose-to`, `#compose-cc`, `#compose-bcc`, `#compose-subject`,
-//! `#compose-body` (the editor), `#compose-link`; the window id is `azmail-compose-<n>`.
+//! Field ids for scripts (`ids.rs`): `#__azmail_compose_to`, `_cc`, `_bcc`, `_subject`, `_send`,
+//! `_body` (the editor), `_link`; the window id is `azmail-compose-<n>`.
 
 use std::path::PathBuf;
 
@@ -45,7 +45,7 @@ use azul::{
 
 use crate::{
     compose::{self, ComposeFields, ComposeKind, StartFields},
-    message, send,
+    ids, message, send,
     store::LocalFolder,
     with_app, MailApp,
 };
@@ -172,14 +172,11 @@ impl Compose {
     }
 }
 
-/// The editor host's DOM id (scripts focus it as `#compose-body`; its blocks are
-/// `#compose-body-<index>`).
-pub const HOST_ID: &str = "compose-body";
-
-/// The editor state of a body that is starting.
+/// The editor state of a body that is starting: its host is `ids::COMPOSE_BODY` (scripts
+/// focus it as `#__azmail_compose_body`; its blocks are `#__azmail_compose_body-<index>`).
 fn body_state(doc: RichTextDoc) -> RichTextEditorState {
     let mut state = RichTextEditorState::create(doc);
-    state.host_id = AzString::from(HOST_ID);
+    state.host_id = ids::COMPOSE_BODY;
     state
 }
 
@@ -299,7 +296,7 @@ extern "C" fn on_compose_created(mut data: RefAny, mut info: CallbackInfo) -> Up
 extern "C" fn on_caret_timer(_data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
     let mut callback_info = info.callback_info;
     let dom = DomId { inner: 0 };
-    let node = callback_info.get_node_id_by_id_attribute(dom, HOST_ID);
+    let node = callback_info.get_node_id_by_id_attribute(dom, ids::COMPOSE_BODY);
     if node.into_raw() == 0 {
         return if info.call_count > 50 {
             TimerCallbackReturn::terminate_unchanged()
@@ -502,7 +499,7 @@ struct ComposeFieldRef {
     field: ComposeField,
 }
 
-fn field_input(app: &RefAny, id: u64, field: ComposeField, value: &str, dom_id: &str) -> Dom {
+fn field_input(app: &RefAny, id: u64, field: ComposeField, value: &str, dom_id: AzString) -> Dom {
     TextInput::create()
         .with_text(value)
         .with_on_text_input(
@@ -541,7 +538,7 @@ fn header_block(c: &Compose, app: &RefAny) -> Dom {
             on_compose_action as ButtonOnClickCallbackType,
         )
         .dom()
-        .with_id("compose-send")
+        .with_id(ids::COMPOSE_SEND)
         .with_css("width: 72px; min-height: 64px; margin-right: 10px;");
     let fields = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1;")
@@ -551,19 +548,19 @@ fn header_block(c: &Compose, app: &RefAny) -> Dom {
         ))
         .with_child(row(
             "To...",
-            field_input(app, c.id, ComposeField::To, &c.to, "compose-to"),
+            field_input(app, c.id, ComposeField::To, &c.to, ids::COMPOSE_TO),
         ))
         .with_child(row(
             "Cc...",
-            field_input(app, c.id, ComposeField::Cc, &c.cc, "compose-cc"),
+            field_input(app, c.id, ComposeField::Cc, &c.cc, ids::COMPOSE_CC),
         ))
         .with_child(row(
             "Bcc...",
-            field_input(app, c.id, ComposeField::Bcc, &c.bcc, "compose-bcc"),
+            field_input(app, c.id, ComposeField::Bcc, &c.bcc, ids::COMPOSE_BCC),
         ))
         .with_child(row(
             "Subject:",
-            field_input(app, c.id, ComposeField::Subject, &c.subject, "compose-subject"),
+            field_input(app, c.id, ComposeField::Subject, &c.subject, ids::COMPOSE_SUBJECT),
         ));
     Dom::create_div()
         .with_css("display: flex; flex-direction: row; padding: 10px 14px 6px 14px; flex-shrink: 0;")
@@ -579,7 +576,7 @@ fn link_bar(c: &Compose, app: &RefAny) -> Dom {
              96px; flex-shrink: 0;",
         )
         .with_child(Dom::create_span_with_text("Address:").with_css("font-size: 13px; margin-right: 8px;"))
-        .with_child(field_input(app, c.id, ComposeField::Link, &c.link, "compose-link"))
+        .with_child(field_input(app, c.id, ComposeField::Link, &c.link, ids::COMPOSE_LINK))
         .with_child(
             Button::create("Insert Link")
                 .with_on_click(
@@ -650,7 +647,7 @@ fn attachments_row(c: &Compose, app: &RefAny) -> Dom {
 /// mode); every change comes back through `on_compose_body_change`.
 fn editor_dom(c: &Compose, app: &RefAny) -> Dom {
     let editor = RichTextEditor::create(c.body.clone())
-        .with_id(HOST_ID)
+        .with_id(ids::COMPOSE_BODY)
         .with_accessibility_name("Message body")
         .with_paragraph_spacing(0.0)
         .with_on_change(

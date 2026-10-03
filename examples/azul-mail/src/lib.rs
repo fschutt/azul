@@ -36,6 +36,7 @@ pub mod auth;
 pub mod compose;
 pub mod folders;
 pub mod html;
+pub mod ids;
 pub mod imap_client;
 pub mod listing;
 pub mod message;

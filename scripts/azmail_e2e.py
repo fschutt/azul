@@ -251,19 +251,19 @@ class Run:
 
     def add_account(self):
         self.until('the Add Account wizard', lambda: self.shows('Add Account'))
-        self.type_into('acct-name', NAME)
-        self.type_into('acct-email', USER)
+        self.type_into('__azmail_acct_name', NAME)
+        self.type_into('__azmail_acct_email', USER)
         self.click('Next >')
         self.until('the incoming server page', lambda: self.shows('Incoming mail server'))
-        self.type_into('acct-imap-host', '127.0.0.1')
-        self.type_into('acct-imap-port', str(self.imap_port))
+        self.type_into('__azmail_acct_imap_host', '127.0.0.1')
+        self.type_into('__azmail_acct_imap_port', str(self.imap_port))
         self.click('Unencrypted connection')
         self.click('Next >')
         self.until('the sending page', lambda: self.shows('Send mail:'))
         self.click('Through an SMTP server')
         self.until('the SMTP fields', lambda: self.shows('Outgoing mail server'))
-        self.type_into('send-host', '127.0.0.1')
-        self.type_into('send-port', str(self.smtp_port))
+        self.type_into('__azmail_send_host', '127.0.0.1')
+        self.type_into('__azmail_send_port', str(self.smtp_port))
         self.click('Use STARTTLS when the server offers it')
         self.click('Next >')
         self.until('the last page', lambda: self.shows('Finish adds the account'))
@@ -317,11 +317,11 @@ class Run:
                 raise Failure(f'the reply window does not show {want!r}')
         # The caret is in the editor, at the top (above the quote).
         self.until('the editor to take the focus',
-                   lambda: 'compose-body' in self.focused_selector(window) or self._focus_editor(window))
+                   lambda: '__azmail_compose_body' in self.focused_selector(window) or self._focus_editor(window))
         self.must('text_input', window, text=TYPED)
         self.frame(window, 2)
         self.until('the typed line in the editor', lambda: self.shows(TYPED, window))
-        self.click_id('compose-send', window)
+        self.click_id('__azmail_compose_send', window)
         sent = self.until('the send', lambda: [line for line in self.printed('AZMAIL_SEND_DONE')
                                                if line.startswith(window + ' ')])
         verdict = sent[-1].split(' ', 2)
@@ -333,7 +333,7 @@ class Run:
         return window
 
     def _focus_editor(self, window):
-        self.must('focus_node', window, selector='#compose-body')
+        self.must('focus_node', window, selector='#__azmail_compose_body')
         self.frame(window)
         return False
 
@@ -390,8 +390,8 @@ class Run:
             'AZMAIL_COMPOSE_OPEN', r'\S+ new'))
         window = opened[-1].split()[0]
         self.until('the new window', lambda: self.shows('Untitled - Message (HTML)', window))
-        self.type_into('compose-to', 'cleo@example.org', window)
-        self.type_into('compose-subject', 'Bulb order', window)
+        self.type_into('__azmail_compose_to', 'cleo@example.org', window)
+        self.type_into('__azmail_compose_subject', 'Bulb order', window)
         self.click('Save Draft', window)
         saved = self.until('the draft', lambda: [line for line in self.printed('AZMAIL_DRAFT_SAVED')
                                                  if line.startswith(window + ' ')])
@@ -499,7 +499,7 @@ class SampleRun(Run):
         answer = self.op('get_node_hierarchy')
         nodes = (((answer or {}).get('data') or {}).get('value') or {}).get('nodes') or []
         app_ids = [n['id'] for n in nodes if n.get('id') and not n['id'].startswith('__azul')
-                   and not n['id'].startswith('shell-')]
+                   and not n['id'].startswith(('shell-', 'appkit-'))]
         bad = [i for i in app_ids if not i.startswith(PREFIX)]
         self.check('every id AzMail sets carries the __azmail_ prefix', not bad, f'{bad}')
 
@@ -554,7 +554,7 @@ class SampleRun(Run):
         return window
 
     def close_guard(self, window):
-        self.type_into(PREFIX + 'compose-subject', 'Bulb order', window)
+        self.type_into(PREFIX + 'compose_subject', 'Bulb order', window)
         # The window's close (the title bar's button, Alt+F4): an edited mail is held and
         # asked about (CloseRequested + prevent_window_close, the CloseGuard widget).
         self.must('close', window)
