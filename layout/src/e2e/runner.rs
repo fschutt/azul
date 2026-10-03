@@ -7288,3 +7288,86 @@ mod tests {
 #[cfg(test)]
 #[path = "tooling_tests.rs"]
 mod tooling_tests;
+
+// The close protocol (INFRA6, user ruling 2026-10-02): a close the APP asks
+// for (`close_window`, the e2e `close` op, the CSD titlebar's close button)
+// is a REQUEST - `WindowEventFilter::CloseRequested` runs first, and
+// `prevent_window_close()` vetoes it - exactly as the headless backend runs
+// it (`PlatformWindow::confirm_app_close`).
+#[cfg(test)]
+mod close_protocol_tests {
+    use azul_core::{
+        callbacks::Update,
+        dom::Dom,
+        events::{EventFilter, WindowEventFilter},
+        refany::RefAny,
+        styled_dom::StyledDom,
+    };
+    use azul_layout::callbacks::CallbackInfo;
+
+    use super::run_e2e_test_keeping_runner;
+
+    /// How often the window was asked, and whether its answer is "no".
+    #[derive(Debug)]
+    struct Asked {
+        times: u32,
+        veto: bool,
+    }
+
+    extern "C" fn on_close_requested(mut data: RefAny, mut info: CallbackInfo) -> Update {
+        let veto = match data.downcast_mut::<Asked>() {
+            Some(mut asked) => {
+                asked.times += 1;
+                asked.veto
+            }
+            None => return Update::DoNothing,
+        };
+        if veto {
+            info.prevent_window_close();
+        }
+        Update::DoNothing
+    }
+
+    /// Run `close` against a window whose CloseRequested callback vetoes or
+    /// not: (how often it was asked, whether the close still stands).
+    fn close_once(veto: bool) -> (u32, bool) {
+        let mut asked = RefAny::new(Asked { times: 0, veto });
+        let mut dom = Dom::create_body().with_child(Dom::create_div().with_callback(
+            EventFilter::Window(WindowEventFilter::CloseRequested),
+            asked.clone(),
+            on_close_requested as usize,
+        ));
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { width: 400px; height: 200px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "close_protocol",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "close" },
+                { "op": "wait_frame" }
+            ]
+        }))
+        .expect("scenario json");
+        let (result, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        assert_eq!(result.status, "pass", "{:#?}", result.steps);
+        let times = asked.downcast_ref::<Asked>().expect("the probe").times;
+        (times, runner.window_state.flags.close_requested)
+    }
+
+    #[test]
+    fn a_close_the_app_asks_for_runs_close_requested_and_a_veto_keeps_the_window() {
+        let (asked, closing) = close_once(true);
+        assert_eq!(asked, 1, "CloseRequested ran exactly once before anything closed");
+        assert!(!closing, "prevent_window_close() kept the window open");
+    }
+
+    #[test]
+    fn an_unvetoed_close_asks_once_and_stands() {
+        let (asked, closing) = close_once(false);
+        assert_eq!(asked, 1, "CloseRequested ran exactly once");
+        assert!(closing, "nobody vetoed: the close stands");
+    }
+}
