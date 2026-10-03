@@ -22,13 +22,13 @@
 - (this commit) examples/azul-dashboard/src/table.rs for real: DataTable over the DataSet, on_event /
   on_edit / data callback, Clear filters / Clear sort (DataTable::start_query), status bar
 
-## IN PROGRESS / NEXT (exact)
-1. review examples/azul-dashboard/src/lib.rs against table.rs (table::view / tools / status_bar
-   signatures already match; nothing else expected)
-2. write scripts/azdashboard_e2e.py (model: scripts/azcalculator_e2e.py + scripts/azlin_e2e.py helpers):
-   wait AZDASH_READY, click a header (sort) -> wait AZDASH_SHOWN, Ctrl+F filter type -> AZDASH_SHOWN,
-   F2 edit (refused "0" then accepted "7") -> AZDASH_REFUSED / AZDASH_EDIT, Ctrl+End -> AZDASH_TOP last
-3. report scripts/DATATABLE7_2026_10_03.md (api.json list, least-sure spots, test commands, left)
+- 80517503c, 25ab9880d dashboard fixes (start_query takes CallbackInfo by value, as the bindings do)
+- a4520f9a5 scripts/azdashboard_e2e.py; 709e679b8 cleanup
+- (this commit) the report scripts/DATATABLE7_2026_10_03.md
+
+## IN PROGRESS / NEXT
+- DONE. Only if resumed with time left: a last read-through of data_table.rs for compile slips
+  (see the report's "least sure to compile").
 
 ## NEXT
 1. data_table.rs model: DataTableColumn / Cell / CellRef / SortKey / Filter (+ parse) / View / Event,
