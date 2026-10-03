@@ -1877,7 +1877,7 @@ pub(crate) fn column_sizes(t: &DataTable) -> Vec<CellGridSize> {
 /// A scroll bar's thumb over a track of `len` px: `page` of `total`
 /// items shown from `at` (of `max` + 1 starting places).
 #[allow(clippy::cast_precision_loss)] // positions are far below 2^24 per px
-fn thumb(len: f32, page: f32, total: f32, at: u32, max: u32) -> (f32, f32) {
+pub(crate) fn thumb(len: f32, page: f32, total: f32, at: u32, max: u32) -> (f32, f32) {
     let size = if total > 0.0 {
         (len * (page / total).min(1.0)).max(MIN_THUMB_PX.min(len))
     } else {

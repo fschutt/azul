@@ -515,6 +515,28 @@ pub mod data_table;
 /// view for screen readers; a long line decimated per pixel column. Drawn
 /// with the engine's SVG path; see `chart.rs`.
 pub mod chart;
+/// Toolbar widget.
+///
+/// A row of tool buttons, toggles, drop-down buttons, separators, spacers
+/// and embedded app controls; the items that do not fit move into a "more"
+/// menu when the bar is narrow; one Tab stop, the arrows walk the tools
+/// (WAI-ARIA APG toolbar); see `toolbar.rs`.
+pub mod toolbar;
+/// Token input widget.
+///
+/// Chips in a text field (mail recipients, attendees, tags): the tokens are
+/// removable `Chip`s, the entry follows them, suggestions show under the
+/// field; Enter / Tab / `,` commit, Backspace removes the last chip, a
+/// pasted list splits, the app validates each token; see `token_input.rs`.
+pub mod token_input;
+/// Icon grid widget.
+///
+/// Icons or thumbnails with labels in rows (a file manager's icon view, a
+/// photo library, an e-reader's shelf) over as many items as the app has:
+/// only the items in view are asked for and built, thumbnails arrive
+/// later, Explorer's selection with a rubber band, drag out, activate,
+/// context menu, the keyboard; see `icon_grid.rs`.
+pub mod icon_grid;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
@@ -1848,6 +1870,20 @@ mod label_convention {
         // The chart: three series of bars over four categories, a legend and
         // the table view.
         all.push(("chart", super::chart::fixtures::sample().dom()));
+        // The toolbar: a labelled button, toggles, a separator, a menu
+        // button, a disabled tool, a spacer and an embedded control; and the
+        // same bar too narrow for them (the more button).
+        all.push(("toolbar", super::toolbar::fixtures::sample().dom()));
+        all.push((
+            "toolbar (overflow)",
+            super::toolbar::fixtures::sample().with_available_width(240.0).dom(),
+        ));
+        // The token input: two chips, "al" typed, three suggestions showing
+        // (one highlighted).
+        all.push(("token_input", super::token_input::fixtures::sample().dom()));
+        // The icon grid: 40 files in a 400 x 300 viewport (the rows in view
+        // only), two selected, the scroll bar.
+        all.push(("icon_grid", super::icon_grid::fixtures::sample().dom()));
         all
     }
 
@@ -2233,6 +2269,8 @@ mod wheel_ownership {
                 "cell_grid".to_string(),
                 // The data table scrolls by whole rows too.
                 "data_table".to_string(),
+                // So does the icon grid.
+                "icon_grid".to_string(),
             ],
             "a widget started listening for the wheel: a closed control must leave the gesture to \
              the page under it",
@@ -2740,6 +2778,8 @@ mod theme_contrast {
         "shortcut_recorder",
         "shortcut_recorder (recording)",
         "date_repeat_picker",
+        // The token input: chips, the entry and its suggestions.
+        "token_input",
     ];
     /// Navigation and application chrome.
     const CHROME: &[&str] = &[
@@ -2792,6 +2832,11 @@ mod theme_contrast {
         // A chart: a data surface like the grid (its title, ticks, legend
         // and table text on the chart's own sheet).
         "chart",
+        // The toolbar: application chrome (its labels on the bar's strip).
+        "toolbar",
+        "toolbar (overflow)",
+        // The icon grid: a file manager's / photo library's surface.
+        "icon_grid",
     ];
 
     /// A widget added to the manifest must land in a group, or it is simply

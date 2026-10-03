@@ -6467,3 +6467,182 @@ pub(crate) fn chart_skin() -> crate::widgets::chart::ChartSkin {
         marker: None,
     }
 }
+
+// ==== toolbar ====
+//
+// The flat toolbar is Explorer's command bar on the window surface, closed
+// along its foot by a separator hairline. Its tools are quiet keys: no face
+// at rest (a transparent face in a transparent hairline), the row-hover
+// blue in Explorer's selection-blue hairline under the pointer, the
+// selection blue while held, the fields' ring on focus; a toggle that is on
+// rests on the selection blue in Explorer's deeper checked hairline. Icons
+// in the icon grey, a menu button's arrow in the secondary ink, separators
+// in the separator grey. At night the desktop's surfaces and inks, flat's
+// dark row hover, the tree's dark selection.
+
+/// Explorer's checked hairline (#99D1FF) around a toggle that is on.
+const TOOLBAR_CHECKED_EDGE_LIGHT: ColorU = ColorU::rgb(0x99, 0xD1, 0xFF);
+
+/// A flat tool's states - the hover face and hairline, the pressed face,
+/// the focus ring, the face's fade - appended after any resting face (a
+/// toggle that is on lays its own), so that face never shadows them.
+fn flat_toolbar_key_states(v: &mut Vec<CssPropertyWithConditions>) {
+    use super::decl;
+    v.extend(decl::hover_fill(LIGHT_ROW_HOVER, DARK_ROW_HOVER));
+    v.extend(decl::hover_border_color(TILE_SELECTED_LIGHT, DARK_BD));
+    v.extend(decl::active_fill(TILE_SELECTED_LIGHT, TILE_SELECTED_DARK));
+    v.extend(decl::focus_ring(FIELD_RING, DARK_ACC));
+    v.extend(decl::state_fade(decl::BUTTON_FACE, decl::BUTTON_FADE_MS));
+}
+
+/// Flat's toolbar look.
+#[must_use]
+pub(crate) fn toolbar_look() -> crate::widgets::toolbar::ToolbarLook {
+    use super::decl;
+
+    let font = CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY));
+    let mut bar = vec![font.clone()];
+    bar.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    bar.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    bar.extend(decl::padding(2, 4, 2, 4));
+    bar.extend(decl::border_bottom(1));
+    bar.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let mut item = decl::themed_ink(LIGHT_INK, DARK_INK).to_vec();
+    item.extend(decl::radius(2));
+    item.push(CssPropertyWithConditions::simple(decl::fill(ColorU::TRANSPARENT)));
+    item.extend(decl::border_colors(ColorU::TRANSPARENT).map(CssPropertyWithConditions::simple));
+    flat_toolbar_key_states(&mut item);
+
+    let mut item_pressed = decl::themed_fill(TILE_SELECTED_LIGHT, TILE_SELECTED_DARK).to_vec();
+    item_pressed.extend(decl::themed_border_color(TOOLBAR_CHECKED_EDGE_LIGHT, DARK_ACC));
+    flat_toolbar_key_states(&mut item_pressed);
+
+    crate::widgets::toolbar::ToolbarLook {
+        bar,
+        item,
+        item_pressed,
+        label: vec![font],
+        icon: decl::themed_ink(LIGHT_ICON, DARK_ICON).to_vec(),
+        arrow: decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1).to_vec(),
+        separator: decl::themed_fill(LIGHT_SEP, DARK_SEP).to_vec(),
+        marker: None,
+    }
+}
+
+// ==== token_input ====
+//
+// The flat token input is a flat text field holding the chips: the field's
+// paper in its hairline (the desktop's control background at night - the
+// entry inside it is the text input, which takes that background at night
+// too), the fields' ring blue under the pointer. The entry rings itself on
+// focus (an inset halo: the field cannot until the engine raises
+// `:focus-within`). The suggestions float on the page colour in a hairline
+// with a soft shadow; a suggestion washes to the row-hover blue under the
+// pointer, the highlighted one rests on the selection blue.
+
+/// The flat suggestions' shadow, by day and by night.
+const TOKEN_LIST_SHADOW_LIGHT: ColorU = ColorU::new(0, 0, 0, 40);
+const TOKEN_LIST_SHADOW_DARK: ColorU = ColorU::new(0, 0, 0, 120);
+
+/// Flat's token-input look.
+#[must_use]
+pub(crate) fn token_input_look() -> crate::widgets::token_input::TokenInputLook {
+    use super::decl;
+
+    let mut root = vec![CssPropertyWithConditions::simple(CssProperty::const_font_family(
+        SYSTEM_UI_FAMILY,
+    ))];
+    root.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    let mut field = vec![
+        CssPropertyWithConditions::simple(decl::fill(LIGHT_FLD)),
+        system_palette::DARK_CONTROL_BACKGROUND,
+    ];
+    field.extend(decl::border(1));
+    field.extend(decl::themed_border_color(LIGHT_BD, DARK_BD));
+    field.extend(decl::radius(3));
+    field.extend(decl::padding(2, 4, 2, 4));
+    field.extend(decl::hover_border_color(FIELD_RING, DARK_ACC));
+
+    let mut list = decl::themed_fill(LIGHT_PG, DARK_SUR).to_vec();
+    list.extend(decl::border(1));
+    list.extend(decl::themed_border_color(LIGHT_BD, DARK_BD));
+    list.extend(decl::radius(3));
+    list.extend(decl::padding(2, 0, 2, 0));
+    list.extend(decl::themed_shadow(2, 6, TOKEN_LIST_SHADOW_LIGHT, TOKEN_LIST_SHADOW_DARK));
+
+    let mut option = decl::padding(4, 8, 4, 8).to_vec();
+    option.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    option.extend(decl::hover_fill(LIGHT_ROW_HOVER, DARK_ROW_HOVER));
+
+    let mut option_active = decl::themed_fill(TILE_SELECTED_LIGHT, TILE_SELECTED_DARK).to_vec();
+    option_active.extend(decl::hover_fill(TILE_SELECTED_LIGHT, TILE_SELECTED_DARK));
+
+    crate::widgets::token_input::TokenInputLook {
+        root,
+        field,
+        entry: decl::focus_halo_inset(FIELD_RING, DARK_ACC).to_vec(),
+        list,
+        option,
+        option_active,
+        marker: None,
+    }
+}
+
+// ==== icon_grid ====
+//
+// The flat icon grid is Explorer's large-icons view on the page colour:
+// glyphs in Explorer's steel blue, labels in the ink under them; an item
+// washes to the row-hover blue under the pointer, a selected one rests on
+// the selection blue in the deeper checked hairline (the toolbar's), the
+// focused one is outlined in the fields' ring; the rubber band is the
+// selection adorner's marquee; the scroll bar is the data table's (a grey
+// thumb on the surface). The grid rings itself inside when it has the
+// focus. At night the desktop's page, the tree's dark selection.
+
+/// Flat's icon-grid look.
+#[must_use]
+pub(crate) fn icon_grid_look() -> crate::widgets::icon_grid::IconGridLook {
+    use super::decl;
+
+    let mut grid = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+        decl::font_size(12),
+    ];
+    grid.extend(decl::themed_fill(LIGHT_PG, DARK_PG));
+    grid.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    grid.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
+
+    let mut item = decl::padding(4, 2, 2, 2).to_vec();
+    item.extend(decl::radius(2));
+    item.push(CssPropertyWithConditions::simple(decl::fill(ColorU::TRANSPARENT)));
+    item.extend(decl::border_colors(ColorU::TRANSPARENT).map(CssPropertyWithConditions::simple));
+    item.extend(decl::hover_fill(LIGHT_ROW_HOVER, DARK_ROW_HOVER));
+
+    let mut item_selected = decl::themed_fill(TILE_SELECTED_LIGHT, TILE_SELECTED_DARK).to_vec();
+    item_selected.extend(decl::themed_border_color(TOOLBAR_CHECKED_EDGE_LIGHT, DARK_ACC));
+    // The hover face again after the resting one, so it is not shadowed.
+    item_selected.extend(decl::hover_fill(TILE_SELECTED_LIGHT, TILE_SELECTED_DARK));
+
+    let mut label = decl::margin(2, 0, 0, 0).to_vec();
+    label.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    let mut badge = vec![decl::font_size(16)];
+    badge.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    let mut thumb = decl::themed_fill(LIGHT_SOFT2, DARK_SOFT2).to_vec();
+    thumb.extend(decl::radius(4));
+
+    crate::widgets::icon_grid::IconGridLook {
+        grid,
+        item,
+        item_selected,
+        item_focused: decl::themed_border_color(FIELD_RING, DARK_ACC),
+        icon: decl::themed_ink(TILE_ICON_LIGHT, TILE_ICON_DARK).to_vec(),
+        label,
+        badge,
+        marquee: selection_adorner_look().marquee,
+        track: decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec(),
+        thumb,
+        marker: None,
+    }
+}
