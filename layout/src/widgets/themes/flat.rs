@@ -6307,3 +6307,62 @@ pub(crate) fn date_repeat_picker_look() -> crate::widgets::date_repeat_picker::D
 pub fn date_repeat_picker(e: crate::widgets::date_repeat_picker::DateRepeatPicker) -> Dom {
     crate::widgets::date_repeat_picker::build(e, &date_repeat_picker_look())
 }
+
+// ==== chart ====
+//
+// The flat chart is a white sheet (the page colour; flat's night page in
+// the dark) in the UI face at 12 px: the title semibold in the ink, tick
+// labels in the muted ink, legend names and axis titles in the secondary
+// ink. Gridlines are the faint separator, the baseline the strong border,
+// the crosshair the strong border too. The series wear the chart's
+// categorical palette (`chart::CHART_PALETTE`, the same in every theme: it
+// is checked for colour-blind separation, a theme's accent is not); the
+// selection and the focus ring wear flat's accent. The tooltip is the
+// tooltip widget's own chip.
+
+/// Flat's chart skin.
+#[must_use]
+pub(crate) fn chart_skin() -> crate::widgets::chart::ChartSkin {
+    use super::decl;
+    use crate::widgets::chart::{ChartColor, ChartSkin, CHART_PALETTE};
+
+    let mut root = decl::themed_fill(LIGHT_PG, DARK_PG).to_vec();
+    root.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    root.push(decl::font_size(12));
+    root.push(CssPropertyWithConditions::simple(CssProperty::const_font_family(
+        SYSTEM_UI_FAMILY,
+    )));
+    root.extend(decl::radius(4));
+
+    let mut title = vec![decl::font_size(14), decl::semibold()];
+    title.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    let mut tick = vec![decl::font_size(11)];
+    tick.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    let mut caption = vec![decl::font_size(12)];
+    caption.extend(decl::themed_ink(LIGHT_INTRO, DARK_INTRO));
+
+    let mut table_head = decl::padding(4, 8, 4, 8).to_vec();
+    table_head.push(decl::semibold());
+    table_head.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    table_head.extend(decl::border_bottom(1));
+    table_head.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+    let mut table_cell = decl::padding(3, 8, 3, 8).to_vec();
+    table_cell.extend(decl::themed_ink(LIGHT_INTRO, DARK_INTRO));
+
+    ChartSkin {
+        root,
+        title,
+        tick,
+        caption,
+        tip: tooltip_skin().tip.as_slice().to_vec(),
+        table_head,
+        table_cell,
+        surface: ChartColor::create(LIGHT_PG, DARK_PG),
+        grid: ChartColor::create(LIGHT_SEP2, DARK_SEP2),
+        axis: ChartColor::create(LIGHT_BD3, DARK_BD),
+        crosshair: ChartColor::create(LIGHT_BD3, DARK_BD3),
+        accent: ChartColor::create(LIGHT_ACC, DARK_ACC),
+        palette: CHART_PALETTE,
+        marker: None,
+    }
+}
