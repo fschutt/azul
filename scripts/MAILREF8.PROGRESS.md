@@ -45,7 +45,7 @@ Never compile; never touch layout/src/solver3/page_breaks.rs (nor display_list.r
    (e.g. `height_is_auto_for_children(fc, height, cb_definite)`), used by both sites.
 2. DONE - fc.rs `measure_atomic_inline`: `final_height` match - a % height with
    `atomic_inline_containing_block(constraints).height` not finite goes the `Auto` (content) arm.
-3. Baseline: text3 cache.rs new `UnifiedLayout::last_line_baseline()` (positioned: items of the max
+3. DONE 5bc033816 - Baseline: text3 cache.rs new `UnifiedLayout::last_line_baseline()` (positioned: items of the max
    line_index; prefer baseline-aligned (`get_item_vertical_align` None/Baseline); cluster with glyphs ->
    position.y + get_item_vertical_metrics_approx().0; Object/CombinedBlock -> position.y + (bounds.height -
    baseline_offset)). fc.rs new `inline_block_baseline(index, tree, depth) -> Option<f32>` next to
@@ -55,7 +55,13 @@ Never compile; never touch layout/src/solver3/page_breaks.rs (nor display_list.r
    bottom, Flex/Grid -> first_line_baseline(child), else recurse. measure_atomic_inline: for FC not
    Table/Flex/Grid use `inline_block_baseline(child_index, tree, 0).map(|b| b - (padding.top +
    border.top))` instead of `layout_result.output.baseline`.
-4. rustfmt --check the edited files, commit GREEN, then group B (postmark inner table azr-54/44).
+4. NEXT: group B (postmark invoice azr-54 / receipt azr-44: an inner table whose tbody is 183 wide and
+   whose th/td cells stack vertically). Look at target/refci/mail-wave8-base/postmark_receipt/chrome.html
+   around azr-44, reduce to a snippet, probe (target/mailref8/probe.py <json>), RED, fix.
+- Group A expected effect (after the parent's build): cerberus x3 ~390 boxes y -14 -> 0, azr-1/azr-2
+  heights fixed (paper = content). Left in A: an IFC's height is its items' bounds, not its line boxes
+  (strut descent below an inline-block: t1 wrap 46 vs Chrome 60, t3 30 vs 34) - text3 cache.rs
+  ~11660 (LAYOUT7 'seen broken', needs a LOOK pass); not compared by mail_boxes (no azr box).
 
 ## Decisions
 - (none yet)
