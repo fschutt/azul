@@ -232,6 +232,13 @@ impl LevelMeter {
     pub fn level_of(frame: azul_core::audio::AudioFrame) -> f32 {
         rms_percent(frame.samples.as_ref())
     }
+
+    /// A peak magnitude (`0.0..=1.0`, e.g. `AudioPlayerState::peak_left`) as a level
+    /// ([`peak_percent`]), for the API.
+    #[must_use]
+    pub fn peak_level(peak: f32) -> f32 {
+        peak_percent(peak)
+    }
 }
 
 impl Default for LevelMeter {
