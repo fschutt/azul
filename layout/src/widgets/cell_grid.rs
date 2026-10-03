@@ -872,7 +872,7 @@ impl CellGrid {
 
     /// The merged range holding `cell`, if any.
     #[must_use]
-    pub fn merge_of(&self, cell: CellGridCellRef) -> Option<CellGridRange> {
+    pub(crate) fn merge_of(&self, cell: CellGridCellRef) -> Option<CellGridRange> {
         self.merges.as_ref().iter().copied().find(|m| m.contains(cell))
     }
 
