@@ -9,10 +9,39 @@ Branch `wt/widgets9a` from `e537ddbe2`. Nothing compiled (house rule). Report: `
   (`toolbar`, `toolbar (overflow)` in every_widget_dom + theme_contrast CHROME)
 
 ## IN PROGRESS
-- TokenInput: `layout/src/widgets/token_input.rs`
+- TokenInput: `layout/src/widgets/token_input.rs` - SKELETON committed (types, state, events, verdict, two callback
+  triples on_event / on_validate, builder, `pub mod token_input;` in mod.rs). The pure rules are STUBS:
+  `split_tokens`, `same_token`, `add_tokens`, `remove_token`, `matching_suggestions`, `step_active`, `entry_key`
+  (enum `EntryKey`), `look_for`, `build`.
 
-## NEXT
-2. TokenInput: `layout/src/widgets/token_input.rs`: skeleton -> RED -> GREEN -> looks -> manifest (group INPUTS).
+## NEXT (exact)
+2. TokenInput, in `layout/src/widgets/token_input.rs`:
+   a. RED: append `#[cfg(test)] mod token_input_tests` (model on `toolbar.rs`'s tests): split_tokens ("a, b; c" ->
+      ["a","b"] + "c"), add_tokens (trim, case-folded dedupe, allow_duplicates), remove_token, matching_suggestions
+      (prefix first, then contains, no existing token, cap, empty text -> none), step_active (wraps), entry_key table
+      (Enter -> CommitSuggestion(active) / CommitText, Tab with text -> CommitText, Back on empty -> RemoveLast,
+      Down/Up -> Navigate, Escape -> Dismiss, Left on empty -> ToChips, modified -> Pass); DOM: root class + Grouping
+      + name, field holds one chip (CHIP_CLASS) per token whose "x" is NoKeyboardFocus, the entry (ENTRY_CLASS) the one
+      Tab stop, list (LIST_CLASS, role List) only when text matches, active option OPTION_ACTIVE_CLASS + Selected;
+      chip "x" click -> Remove event; suggestion click -> Add; key Back on the entry (empty) -> Remove last;
+      follows the app theme. Commit RED.
+   b. GREEN: implement the stubs; `build`: root (position relative, column) > [field (flex row wrap) > chips (Chip
+      removable, on_remove/on_click -> TokenData{index, shared}; x set NoKeyboardFocus + VirtualKeyDown handler) +
+      entry (TextInput::create().with_text(state.text).with_placeholder.with_accessibility_name + container style =
+      TextInput's default + overrides (no border, transparent, flex-grow 1, min-width 80) + look.entry; hooks
+      `with_on_text_input(shared, on_entry_text)` (separator typed/pasted -> validate -> Add/Refuse, veto with
+      valid No + TextInput::set_text_in) and `with_on_virtual_key_down(shared, on_entry_key)` (entry_key)), list
+      (absolute, top 100%, z-index) > options (Click -> commit, focus back to the entry)]. Shared:
+      `TokenShared { on_event, on_validate, state, shown: Vec<AzString>, allow_duplicates }`.
+   c. Theme appends `// ==== token_input ====` in flat.rs / flora.rs: `token_input_look()` (flat field LIGHT_FLD +
+      system_palette::DARK_CONTROL_BACKGROUND, flora field LIGHT_FLD / DARK_SUR - the entry's dark fills).
+   d. Manifest: `token_input::fixtures::sample()` (tokens + text "al" + suggestions) in every_widget_dom, group INPUTS.
+3. IconGrid (see design below), then the report `scripts/WIDGETS9A_2026_10_03.md`.
+
+## Engine gap seen (for the report)
+- `:focus-within` is parsed (PseudoStateType::FocusWithin) but never raised: `StyledNodeState::focus_within` is
+  never set (no restyle on focus change, not in prop_cache's tiers, not in apply_runtime_states_before_layout).
+  The token field therefore rings its ENTRY on focus (look.entry), not the whole field.
 3. IconGrid: `layout/src/widgets/icon_grid.rs`, same steps; manifest CHROME + wheel_ownership list.
 4. Report with the api.json list.
 

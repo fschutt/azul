@@ -522,6 +522,13 @@ pub mod chart;
 /// menu when the bar is narrow; one Tab stop, the arrows walk the tools
 /// (WAI-ARIA APG toolbar); see `toolbar.rs`.
 pub mod toolbar;
+/// Token input widget.
+///
+/// Chips in a text field (mail recipients, attendees, tags): the tokens are
+/// removable `Chip`s, the entry follows them, suggestions show under the
+/// field; Enter / Tab / `,` commit, Backspace removes the last chip, a
+/// pasted list splits, the app validates each token; see `token_input.rs`.
+pub mod token_input;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
