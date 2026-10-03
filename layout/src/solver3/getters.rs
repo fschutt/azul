@@ -6705,9 +6705,7 @@ pub fn resolve_text_indent(
         .ptr
         .compact_cache
         .as_ref()
-        .map_or(true, |cc| {
-            cc.dom_declared_flags & azul_css::compact_cache::DOM_HAS_TEXT_INDENT != 0
-        });
+        .is_none_or(|cc| cc.dom_declared_flags & azul_css::compact_cache::DOM_HAS_TEXT_INDENT != 0);
     if !declared {
         return (0.0, false, false);
     }
