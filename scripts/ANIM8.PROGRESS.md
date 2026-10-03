@@ -8,6 +8,12 @@ button hover). Then the idle items (FLIP springs never settle; AzReview per-fram
 - b57bb6bb7 RED core/src/diff_test.rs mod a_toggled_widget_keeps_its_identity (2 tests)
 - 1a2be0ff6 GREEN NodeData Hash (core/src/dom.rs ~1892): inline props hashed order-free (count + wrapping
   sum of per-property hashes) - finding 2 fixed at its root
+- 722726d66 RED e2e/css-hover-transition.json (RED on prebuilt AzCalculator via AZ_E2E: step 7 transitions 0)
+- 60f3f4580 GREEN 1/2 LayoutWindow::seed_state_change_transitions + node_states + CssTransition::declared +
+  declared_animation_for (window.rs)
+- d58dbdf13 GREEN 2/2 wired: dll common/event.rs apply_hover_restyle / apply_active_restyle /
+  apply_focus_restyle_in_dom; layout e2e/runner.rs hover + focus restyles
+- 063c009d8 a 0 ms state animation = at once (press instant, release fades)
 - ca8e4f111 scripts/anim8_probe.py (debug-server probe: knob x / pixels / get_animations per frame) and
   scripts/anim8_switch_scenario_gen.py (writes an AZ_E2E scenario: click the switch, tick_animations 1/3/30,
   each checkpoint ends in a failing assert_response that PRINTS the response). Run:
@@ -40,6 +46,15 @@ button hover). Then the idle items (FLIP springs never settle; AzReview per-fram
 4. live_tracks = 23..27 at rest in AzWidgets (spinners etc.) - idle item.
 
 ## NEXT (exact)
+- NOW: Button declares the fade. RED layout/tests/a_button_fades_into_its_hover_face.rs (flat + flora Button:
+  hover seeds a BackgroundContent transition; press (ActiveChange) seeds none). GREEN: decl.rs
+  `state_fade(props, ms)` (APPEND at end, banner) = [simple(animation list ms), on_active(list 0ms)];
+  flat::button / flora::button push it when btn_owns_style && !disabled && type != Link.
+- Then flora gradients: BackgroundContent interpolate (css/src/props/property.rs ~5330) snaps at t=0.5 for
+  gradients -> tween layer by layer when the lists pair up (RED test in property.rs tests).
+- Then refactor the rebuild-diff + imperative seeding sites onto CssTransition::declared /
+  declared_animation_for (NO DUPLICATION).
+- OLD:
 - (finding 2 DONE, see above.) Next: finding 3 (per-tick relayout cost) - try AZ_PROFILE=cpu on the
   scripted scenario to see which phase of incremental_relayout costs 120-290 ms; then hover fades.
 - OLD NOTE: Decide the fix for finding 2 (read: compute_subtree_hashes diff.rs:597, pass A2 diff.rs ~826,
