@@ -28,7 +28,7 @@ use azul_storage::{config::DriveLocation, key};
 use crate::{
     actions::{self, action_ref, menu_item, on_action, Action},
     browse::{self, Place},
-    go,
+    go, ids,
     jobs::PreviewContent,
     model::ViewLayout,
     place_up, start_tree_listing, ui_view, with_state, DriveState,
@@ -459,7 +459,7 @@ pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
                 None => note(&format!("Loading the preview of \"{name}\"...")),
                 Some(PreviewContent::Message(text)) => note(text),
                 Some(PreviewContent::Text(text)) => Dom::create_div()
-                    .with_id("preview-text")
+                    .with_id(ids::PREVIEW_TEXT)
                     .with_css(
                         "padding: 8px 12px; font-family: monospace; font-size: 12px; \
                          white-space: pre-wrap; overflow-y: auto; flex-grow: 1; min-height: 0px;",
@@ -476,7 +476,7 @@ pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
                     )
                     .with_child(
                         Dom::create_image(image.clone())
-                            .with_id("preview-image")
+                            .with_id(ids::PREVIEW_IMAGE)
                             .with_css("max-width: 100%; max-height: 420px;"),
                     )
                     .with_child(
@@ -499,7 +499,7 @@ pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
                         .as_ref()
                         .is_some_and(|sink| sink.frames_played() < wav.frames());
                     Dom::create_div()
-                        .with_id("preview-audio")
+                        .with_id(ids::PREVIEW_AUDIO)
                         .with_css("display: flex; flex-direction: column; padding: 16px;")
                         .with_child(
                             Dom::create_icon(AzString::from("music_note"))
@@ -521,7 +521,7 @@ pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
                                     on_play_audio as ButtonOnClickCallbackType,
                                 )
                                 .dom()
-                                .with_id("preview-play")
+                                .with_id(ids::PREVIEW_PLAY)
                                 .with_css("margin-top: 12px; align-self: flex-start;"),
                         )
                 }
@@ -539,7 +539,7 @@ pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
                         .with_child(
                             VideoWidget::create(config)
                                 .dom()
-                                .with_id("preview-video")
+                                .with_id(ids::PREVIEW_VIDEO)
                                 .with_css("width: 100%; height: 240px;"),
                         )
                         .with_child(
@@ -554,7 +554,7 @@ pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
         }
     };
     Dom::create_div()
-        .with_id("preview-pane")
+        .with_id(ids::PREVIEW_PANE)
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
         .with_child(body)
 }
@@ -683,5 +683,5 @@ pub(crate) fn details_pane(s: &DriveState) -> Dom {
             }
         }
     };
-    pane.dom().with_id("details")
+    pane.dom().with_id(ids::DETAILS)
 }
