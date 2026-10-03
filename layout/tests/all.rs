@@ -872,3 +872,5 @@ mod a_cells_row_is_as_tall_as_its_content_at_the_column_width;
 mod a_line_of_small_text_is_as_tall_as_its_line_box;
 #[path = "spaces_at_a_lines_edges_do_not_widen_its_max_content.rs"]
 mod spaces_at_a_lines_edges_do_not_widen_its_max_content;
+#[path = "inline_blocks_in_a_right_to_left_line_run_from_the_right.rs"]
+mod inline_blocks_in_a_right_to_left_line_run_from_the_right;
