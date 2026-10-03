@@ -15,6 +15,7 @@ use alacritty_terminal::{
         point_to_viewport, Term, TermMode,
     },
     vte::ansi::{Color, CursorShape, NamedColor},
+    Grid,
 };
 use azul::{
     css::ColorU,
@@ -63,8 +64,254 @@ impl Dimensions for GridSize {
 /// offset, the cursor and the selection in view, the scrollback, the modes
 /// (`alt_sends_escape` is the user's choice, not the program's).
 pub fn screen<T>(term: &Term<T>, alt_sends_escape: bool) -> TerminalScreen {
-    let _ = (term, alt_sends_escape);
-    TerminalScreen::create(TerminalLineVec::from_vec(Vec::new()))
+    let grid = term.grid();
+    let offset = grid.display_offset();
+    let rows = grid.screen_lines();
+    let columns = grid.columns();
+    let offset_i = i32::try_from(offset).unwrap_or(i32::MAX);
+    let lines: Vec<TerminalLine> = (0..rows)
+        .map(|r| {
+            line_of(
+                grid,
+                Line(i32::try_from(r).unwrap_or(i32::MAX) - offset_i),
+                columns,
+            )
+        })
+        .collect();
+    TerminalScreen {
+        lines: TerminalLineVec::from_vec(lines),
+        selection: selection_of(term, offset, rows, columns),
+        history: u32::try_from(grid.history_size()).unwrap_or(u32::MAX),
+        scroll: u32::try_from(offset).unwrap_or(u32::MAX),
+        cursor: cursor_of(term, offset, rows),
+        modes: modes_of(*term.mode(), alt_sends_escape),
+    }
+}
+
+/// A cell that draws nothing: a space on the default ground, no line.
+fn is_blank(cell: &Cell) -> bool {
+    cell.c == ' '
+        && cell.bg == Color::Named(NamedColor::Background)
+        && !cell
+            .flags
+            .intersects(Flags::INVERSE | Flags::ALL_UNDERLINES | Flags::STRIKEOUT)
+}
+
+/// Row `line` of `grid` as runs of one style and one width class, the
+/// trailing blanks left out.
+fn line_of(grid: &Grid<Cell>, line: Line, columns: usize) -> TerminalLine {
+    let cell = |c: usize| &grid[Point::new(line, Column(c))];
+    let end = (0..columns)
+        .rev()
+        .find(|&c| !is_blank(cell(c)))
+        .map_or(0, |c| c + 1);
+    let mut runs: Vec<TerminalRun> = Vec::new();
+    let mut text = String::new();
+    let mut run_columns = 0u32;
+    let mut current: Option<(TerminalStyle, bool)> = None;
+    for c in 0..end {
+        let cell = cell(c);
+        if cell
+            .flags
+            .intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER)
+        {
+            continue;
+        }
+        let wide = cell.flags.contains(Flags::WIDE_CHAR);
+        let key = (style_of(cell), wide);
+        if current != Some(key) {
+            if let Some((style, _)) = current.take() {
+                runs.push(TerminalRun {
+                    text: AzString::from(std::mem::take(&mut text)),
+                    columns: run_columns,
+                    style,
+                });
+            }
+            run_columns = 0;
+            current = Some(key);
+        }
+        text.push(cell.c);
+        if let Some(marks) = cell.zerowidth() {
+            text.extend(marks.iter());
+        }
+        run_columns += if wide { 2 } else { 1 };
+    }
+    if let Some((style, _)) = current {
+        runs.push(TerminalRun {
+            text: AzString::from(text),
+            columns: run_columns,
+            style,
+        });
+    }
+    let wrapped = columns > 0 && cell(columns - 1).flags.contains(Flags::WRAPLINE);
+    TerminalLine {
+        runs: TerminalRunVec::from_vec(runs),
+        wrapped,
+    }
+}
+
+/// A cell's colours and attributes.
+fn style_of(cell: &Cell) -> TerminalStyle {
+    let f = cell.flags;
+    TerminalStyle {
+        fg: color_of(cell.fg),
+        bg: color_of(cell.bg),
+        bold: f.contains(Flags::BOLD),
+        dim: f.contains(Flags::DIM),
+        italic: f.contains(Flags::ITALIC),
+        underline: f.intersects(Flags::ALL_UNDERLINES),
+        strikethrough: f.contains(Flags::STRIKEOUT),
+        inverse: f.contains(Flags::INVERSE),
+        hidden: f.contains(Flags::HIDDEN),
+    }
+}
+
+/// An engine colour as the view's: the 16 named ones (and their dim twins:
+/// the dim flag dims them) as indices, the default ink and ground as such.
+fn color_of(c: Color) -> TerminalColor {
+    match c {
+        Color::Spec(rgb) => TerminalColor::Rgb(ColorU {
+            r: rgb.r,
+            g: rgb.g,
+            b: rgb.b,
+            a: 255,
+        }),
+        Color::Indexed(i) => TerminalColor::Indexed(i),
+        Color::Named(n) => {
+            let i = n as usize;
+            let dim = NamedColor::DimBlack as usize..=NamedColor::DimWhite as usize;
+            if i < 16 {
+                TerminalColor::Indexed(u8::try_from(i).unwrap_or(15))
+            } else if dim.contains(&i) {
+                TerminalColor::Indexed(u8::try_from(i - NamedColor::DimBlack as usize).unwrap_or(7))
+            } else if n == NamedColor::Background {
+                TerminalColor::Background
+            } else {
+                TerminalColor::Foreground
+            }
+        }
+    }
+}
+
+/// The cursor in view: hidden when the program hid it or it is scrolled
+/// out of view.
+fn cursor_of<T>(term: &Term<T>, offset: usize, rows: usize) -> TerminalCursor {
+    let hidden = TerminalCursor {
+        line: 0,
+        column: 0,
+        shape: TerminalCursorShape::Hidden,
+    };
+    if !term.mode().contains(TermMode::SHOW_CURSOR) {
+        return hidden;
+    }
+    let mut point = term.grid().cursor.point;
+    if term.grid()[point].flags.contains(Flags::WIDE_CHAR_SPACER) {
+        point.column = Column(point.column.0.saturating_sub(1));
+    }
+    let Some(view) = point_to_viewport(offset, point) else {
+        return hidden;
+    };
+    if view.line >= rows {
+        return hidden;
+    }
+    let shape = match term.cursor_style().shape {
+        CursorShape::Block => TerminalCursorShape::Block,
+        CursorShape::Underline => TerminalCursorShape::Underline,
+        CursorShape::Beam => TerminalCursorShape::Bar,
+        CursorShape::HollowBlock => TerminalCursorShape::HollowBlock,
+        CursorShape::Hidden => TerminalCursorShape::Hidden,
+    };
+    TerminalCursor {
+        line: u32::try_from(view.line).unwrap_or(u32::MAX),
+        column: u32::try_from(view.column.0).unwrap_or(u32::MAX),
+        shape,
+    }
+}
+
+/// The selection in view rows: a part above the view starts at its top
+/// row, a part below it ends at its bottom row.
+fn selection_of<T>(
+    term: &Term<T>,
+    offset: usize,
+    rows: usize,
+    columns: usize,
+) -> OptionTerminalSelection {
+    let Some(range) = term.selection.as_ref().and_then(|s| s.to_range(term)) else {
+        return OptionTerminalSelection::None;
+    };
+    let offset_i = i32::try_from(offset).unwrap_or(i32::MAX);
+    let rows_i = i32::try_from(rows).unwrap_or(i32::MAX);
+    let top = Line(-offset_i);
+    let bottom = Line(rows_i - 1 - offset_i);
+    if range.end.line < top || range.start.line > bottom {
+        return OptionTerminalSelection::None;
+    }
+    let view = |p: Point| TerminalPoint {
+        line: u32::try_from(p.line.0 + offset_i).unwrap_or(0),
+        column: u32::try_from(p.column.0).unwrap_or(u32::MAX),
+    };
+    let last_row = u32::try_from(rows.saturating_sub(1)).unwrap_or(u32::MAX);
+    let last_column = u32::try_from(columns.saturating_sub(1)).unwrap_or(u32::MAX);
+    let start = if range.start.line < top {
+        TerminalPoint {
+            line: 0,
+            column: if range.is_block {
+                view(range.start).column
+            } else {
+                0
+            },
+        }
+    } else {
+        view(range.start)
+    };
+    let end = if range.end.line > bottom {
+        TerminalPoint {
+            line: last_row,
+            column: if range.is_block {
+                view(range.end).column
+            } else {
+                last_column
+            },
+        }
+    } else {
+        view(range.end)
+    };
+    OptionTerminalSelection::Some(TerminalSelection {
+        start,
+        end,
+        block: range.is_block,
+    })
+}
+
+/// The modes the program set, and the user's Alt.
+fn modes_of(mode: TermMode, alt_sends_escape: bool) -> TerminalModes {
+    let mouse = if mode.contains(TermMode::MOUSE_MOTION) {
+        TerminalMouseMode::Motion
+    } else if mode.contains(TermMode::MOUSE_DRAG) {
+        TerminalMouseMode::Drag
+    } else if mode.contains(TermMode::MOUSE_REPORT_CLICK) {
+        TerminalMouseMode::Click
+    } else {
+        TerminalMouseMode::Off
+    };
+    let mouse_encoding = if mode.contains(TermMode::SGR_MOUSE) {
+        TerminalMouseEncoding::Sgr
+    } else if mode.contains(TermMode::UTF8_MOUSE) {
+        TerminalMouseEncoding::Utf8
+    } else {
+        TerminalMouseEncoding::Default
+    };
+    TerminalModes {
+        mouse,
+        mouse_encoding,
+        application_cursor: mode.contains(TermMode::APP_CURSOR),
+        application_keypad: mode.contains(TermMode::APP_KEYPAD),
+        bracketed_paste: mode.contains(TermMode::BRACKETED_PASTE),
+        focus_reporting: mode.contains(TermMode::FOCUS_IN_OUT),
+        alternate_screen: mode.contains(TermMode::ALT_SCREEN),
+        alternate_scroll: mode.contains(TermMode::ALTERNATE_SCROLL),
+        alt_sends_escape,
+    }
 }
 
 #[cfg(test)]
