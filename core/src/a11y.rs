@@ -457,6 +457,12 @@ pub enum AccessibilityState {
     Multiselectable,
     /// The element contains protected content that should not be read aloud.
     Protected,
+    /// A column header whose column the rows are sorted by, ascending
+    /// (`aria-sort="ascending"`).
+    SortedAscending,
+    /// A column header whose column the rows are sorted by, descending
+    /// (`aria-sort="descending"`).
+    SortedDescending,
 }
 
 impl_option!(
