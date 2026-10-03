@@ -18,6 +18,7 @@ pub mod buffer;
 pub mod highlight;
 pub mod sample;
 pub mod search;
+pub mod storage;
 pub mod workspace;
 
 /// Starts the app (filled in by the UI half of this crate).
