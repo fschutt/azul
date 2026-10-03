@@ -4,6 +4,7 @@ Branch: wt/clock9 (base e537ddbe2). Brief: scripts/waves/wave9/PLAN.md "CLOCK9",
 ../azul-apps/planning/core/clock.md. Report: scripts/CLOCK9_2026_10_03.md.
 
 ## DONE
+- UI: 6c95b086d 17ee3cc7b 537ca9d09 2b3778521 7a76f49b8 41d6009cb dbd7263bd; 06e1b7bf6 arm fix; 4beef2d49 E2E
 - d2106068f progress file; 6c3d3daa2 plan
 - c4908aa79 RED crate skeleton + registration + alarm/tone tests
 - 7cb992a6c GREEN alarm.rs (occurrences, DST, due/snooze/arm, labels) + tone.rs
@@ -18,14 +19,11 @@ Branch: wt/clock9 (base e537ddbe2). Brief: scripts/waves/wave9/PLAN.md "CLOCK9",
 - ae51363d3 RED / 38c1661b6 GREEN store.rs (keys clock/alarms/<id>.json etc, load_jobs, read_loaded, sample)
 
 ## IN PROGRESS
-- A5 the window is written: ui/mod.rs, ui/actions.rs, ui/views.rs (2b3778521, 7a76f49b8), ids.rs, lib.rs start().
+- (none) - the report scripts/CLOCK9_2026_10_03.md is written.
 
-## NEXT (exact)
-1. scripts/azclock_e2e.py (model: scripts/shells_e2e.py / examples/azul-drive/scripts/browse.py): start
-   target/release/AzClock --sample --data-dir <tmp> headless with AZ_DEBUG, check ids __azclock_modes,
-   alarm rows (3), switch screens, the stopwatch, the editor Save, assert_notification scheduled.
-2. Report scripts/CLOCK9_2026_10_03.md (what, commits, api.json list, least-sure spots, test commands, left).
-3. Optional: a review pass over ui/*.rs for compile errors (generated-API names, borrows).
+## NEXT (if resumed)
+- Optional review pass over examples/azul-clock/src/ui/*.rs and dll/src/desktop/notifications/*.rs
+  for compile errors once the parent has built (the report's "least sure" list).
 
 ## Decisions
 - Time zones: chrono + chrono-tz 0.10 (both already in Cargo.lock: chrono-tz via ironcalc_base) and
