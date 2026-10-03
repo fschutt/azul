@@ -79,9 +79,17 @@ Never compile; never touch layout/src/solver3/page_breaks.rs (nor display_list.r
 7. group E: E1 (IFC height = glyph lines' line boxes incl. the strut): RED 7c0619af8
    (layout/tests/a_line_of_small_text_is_as_tall_as_its_line_box.rs), GREEN 7c9224764 (text3 cache.rs
    perform_fragment_layout: `glyph_line_box_top` + `line_box_extent` for lines holding glyphs; atomic-only
-   lines unchanged). NEXT E2: `<hr>` is 1px tall in azul, 2px in Chrome (UA: border 1px inset all
-   sides, height 0 -> 2px). Find the UA hr style (core ua css) / how azul paints hr; RED + fix.
-   Then F (leemunroe a x +4).
+   lines unchanged). E2 DECIDED not changed: `<hr>` is 1px (border-top only, width 100%) in core/src/
+   ua_css.rs - a deliberate azul UA choice pinned by ua_css_test `hr_line_comes_from_the_border_not_from_
+   height`; HTML 15.3.11 has a 1px inset border on all four sides (2px tall, width auto). 1px per hr is
+   inside the measure's tolerance; listed for the user.
+8. DONE group F: RED 37094ca16 (layout/tests/spaces_at_a_lines_edges_do_not_widen_its_max_content.rs),
+   GREEN cca5b355e (text3 measure_intrinsic_widths: collapsing modes skip leading collapsible spaces and
+   measure a line to its last non-space item).
+9. NEXT: write the report scripts/MAILREF8_2026_10_03.md (before 531; groups A-F with owners, expected
+   effects; commits; api.json none; least-sure spots; test commands). Then, if time: atomic-only line
+   strut (look pass) is NOT for this wave; maybe re-check other mismatch sources in cerberus after A
+   (hybrid had 6 boxes not in the -14 pattern?).
 - Group A expected effect (after the parent's build): cerberus x3 ~390 boxes y -14 -> 0, azr-1/azr-2
   heights fixed (paper = content). Left in A: an IFC's height is its items' bounds, not its line boxes
   (strut descent below an inline-block: t1 wrap 46 vs Chrome 60, t3 30 vs 34) - text3 cache.rs
