@@ -11,8 +11,14 @@ Report: scripts/MEDIA9_2026_10_03.md (date = the day it finishes).
 - A2 99fe01d4f RED / 67ccbdd80 GREEN AudioSink try_play / queued_frames / samples_played / pause /
   resume / clear / config; 25596e1f1 AVF + cpal + ALSA backends implement the seam
 
+- A3 a44e8a586 RED / 1a51a1205 GREEN decode.rs AudioFileDecoder + AudioFileInfo on symphonia 0.6.1
+  (feature audio-decode in dll/Cargo.toml + build-dll); 3a56ca085 / 4dd0d1818 waveform peaks
+  (layout/src/widgets/waveform.rs WaveformPeaks + resample_peaks). decode.rs compiled with rustc
+  against real symphonia (built in /tmp by /tmp/media9_tools/build_symphonia.sh) + stand-in azul
+  crates (/tmp/media9_tc/stubs): 5/5 tests pass. Harness: bash /tmp/media9_tools/test_decode.sh
+
 ## IN PROGRESS
-- A3 decode.rs (AudioFileDecoder on symphonia): RED tests next.
+- A4 player.rs (AudioPlayer handle + PlayerCore::pump): RED next.
 
 ## NEXT (in order)
 - A1 playback.rs pure pieces: Rechunker, LinearResampler, remix (channels), apply_gain,
