@@ -358,6 +358,35 @@ impl A11yTreeMirror {
     }
 }
 
+/// The hasher of the maps keyed by accessibility node id: one multiply
+/// (Fibonacci hashing). The ids are `(dom << 32) | (index + 1)` - distinct
+/// `u64`s that only need spreading into the high bits the table probes by.
+/// The default `SipHash` cost every pass a few lookups per node per frame.
+#[cfg(feature = "a11y")]
+#[derive(Debug, Default, Clone, Copy)]
+pub struct A11yIdHasher(u64);
+
+#[cfg(feature = "a11y")]
+impl core::hash::Hasher for A11yIdHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0.rotate_left(8) ^ u64::from(b)).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        }
+    }
+
+    fn write_u64(&mut self, n: u64) {
+        self.0 = (self.0 ^ n).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    }
+}
+
+/// A map keyed by accessibility node id ([`A11yIdHasher`]).
+#[cfg(feature = "a11y")]
+pub type A11yIdMap<V> = HashMap<A11yNodeId, V, core::hash::BuildHasherDefault<A11yIdHasher>>;
+
 /// One node of the accessibility tree as it was last published.
 #[cfg(feature = "a11y")]
 #[derive(Debug, Clone)]
@@ -396,7 +425,7 @@ impl RetainedA11yNode {
 #[cfg(feature = "a11y")]
 #[derive(Debug, Clone, Default)]
 pub struct A11yRetainedTree {
-    pub nodes: HashMap<A11yNodeId, RetainedA11yNode>,
+    pub nodes: A11yIdMap<RetainedA11yNode>,
     /// The ids in document order (the root first), as the last pass found
     /// them.
     pub order: Vec<A11yNodeId>,
@@ -813,14 +842,16 @@ impl A11yManager {
     ///
     /// Root's children win a tie (they are processed first). The result is a
     /// forest rooted at `root_id` with each node reachable exactly once.
-    fn enforce_child_invariants(
+    fn enforce_child_invariants<S: core::hash::BuildHasher>(
         node_ids: &[A11yNodeId],
         root_id: A11yNodeId,
         root_children: &mut Vec<A11yNodeId>,
-        parent_children_map: &mut HashMap<A11yNodeId, Vec<A11yNodeId>>,
+        parent_children_map: &mut HashMap<A11yNodeId, Vec<A11yNodeId>, S>,
     ) {
-        let valid: std::collections::HashSet<A11yNodeId> = node_ids.iter().copied().collect();
-        let mut claimed: std::collections::HashSet<A11yNodeId> = std::collections::HashSet::new();
+        type IdSet =
+            std::collections::HashSet<A11yNodeId, core::hash::BuildHasherDefault<A11yIdHasher>>;
+        let valid: IdSet = node_ids.iter().copied().collect();
+        let mut claimed = IdSet::default();
         root_children.retain(|c| valid.contains(c) && *c != root_id && claimed.insert(*c));
         for (parent, children) in parent_children_map.iter_mut() {
             if !valid.contains(parent) {
@@ -896,11 +927,11 @@ impl A11yManager {
         let mut built = 0usize;
         // For every node this pass built again: the node as it was published
         // before (`None`: it is new).
-        let mut rebuilt: HashMap<A11yNodeId, Option<PublishedContent>> = HashMap::new();
+        let mut rebuilt: A11yIdMap<Option<PublishedContent>> = A11yIdMap::default();
 
         let mut root_children = Vec::new();
         // Map to collect children for each parent
-        let mut parent_children_map: HashMap<A11yNodeId, Vec<A11yNodeId>> = HashMap::new();
+        let mut parent_children_map: A11yIdMap<Vec<A11yNodeId>> = A11yIdMap::default();
 
         // The root window node.
         order.push(root_id);
@@ -1175,7 +1206,7 @@ impl A11yManager {
         pass: u64,
         id: A11yNodeId,
         inputs: u64,
-        rebuilt: &mut HashMap<A11yNodeId, Option<PublishedContent>>,
+        rebuilt: &mut A11yIdMap<Option<PublishedContent>>,
         built: &mut usize,
         build: impl FnOnce() -> Node,
     ) {
