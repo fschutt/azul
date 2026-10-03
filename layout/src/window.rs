@@ -13806,6 +13806,14 @@ impl LayoutWindow {
                 ) else {
                     continue;
                 };
+                // The new node in the INTERACTION states it is about to get
+                // back: `layout()` builds every node at rest and the shell
+                // re-applies `:hover` / `:active` / `:focus` only after this
+                // diff, so read at rest a hovered button "changed" from its
+                // hover face to its resting one on every rebuild - and a
+                // declared fade walked it out under the pointer.
+                let new_node_state =
+                    with_interaction_of(new_state.styled_node_state, old_state.styled_node_state);
 
                 // `animation` on the OLD cascade (USER ruling 2026-08-17:
                 // the OLD tree governs — a diff that ADDS `animation` while
@@ -13837,12 +13845,8 @@ impl LayoutWindow {
                         &old_state.styled_node_state,
                         ty,
                     );
-                    let after = new_cache.get_property(
-                        new_nd,
-                        &m.new_node_id,
-                        &new_state.styled_node_state,
-                        ty,
-                    );
+                    let after =
+                        new_cache.get_property(new_nd, &m.new_node_id, &new_node_state, ty);
                     if before != after {
                         changed_any = true;
                         // IFC membership is not known here; `false` is the
@@ -28996,6 +29000,26 @@ impl CssTransition {
             keeps_target,
         }
     }
+}
+
+/// `state` with the INTERACTION states of `interaction` - the ones the
+/// WINDOW owns (the pointer's `:hover` / `:active`, the focus, a drag, the
+/// window's own `:backdrop`), not the DOM (`:disabled`, `:checked`): what a
+/// rebuilt node gets back from the node it replaces once the shell re-applies
+/// the runtime states.
+fn with_interaction_of(
+    mut state: azul_core::styled_dom::StyledNodeState,
+    interaction: azul_core::styled_dom::StyledNodeState,
+) -> azul_core::styled_dom::StyledNodeState {
+    state.hover = interaction.hover;
+    state.active = interaction.active;
+    state.focused = interaction.focused;
+    state.focus_within = interaction.focus_within;
+    state.backdrop = interaction.backdrop;
+    state.dragging = interaction.dragging;
+    state.drag_over = interaction.drag_over;
+    state.seat_focused = interaction.seat_focused;
+    state
 }
 
 /// The entry of a node's `animation` list that covers `ty`: the LAST one
