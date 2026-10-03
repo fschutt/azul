@@ -143,6 +143,9 @@ impl MacOSAccessibilityAdapter {
                 );
             }
             Err(e) => {
+                // The adapter did not take it: the next update must be the
+                // complete tree, not a patch against what it missed.
+                self.feed.missed();
                 let msg = e
                     .downcast_ref::<String>()
                     .cloned()

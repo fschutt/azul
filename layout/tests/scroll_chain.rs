@@ -542,20 +542,16 @@ fn a_fixed_boxs_focus_ring_is_painted_around_it_on_a_scrolled_page() {
 #[test]
 fn a_fixed_box_is_reported_to_assistive_technology_where_it_is_painted() {
     let mut lw = scrolled_page_with_a_fixed_focusable_box();
-    // Whatever the layout pass parked, then the tree the scroll rebuilds.
-    let _ = lw.a11y_manager.take_pending();
+    // The tree the scroll rebuilds, as a screen reader holds it once it took
+    // every update (a pass publishes only what changed - the fixed box, which
+    // the scroll does not move, is not in the scroll's patch).
     lw.update_a11y_tree();
-    let update = lw
-        .a11y_manager
-        .take_pending()
-        .expect("the rebuild parks a full tree");
     // A11y ids are `(dom << 32) | (node + 1)`.
     let id = accesskit::NodeId(FIXED_BOX.index() as u64 + 1);
-    let bounds = update
-        .nodes
-        .iter()
-        .find(|(node, _)| *node == id)
-        .and_then(|(_, node)| node.bounds())
+    let bounds = lw
+        .a11y_manager
+        .published_node(id)
+        .and_then(|node| node.bounds())
         .expect("the fixed box has bounds");
     assert!(
         bounds.y0.abs() < 0.5,

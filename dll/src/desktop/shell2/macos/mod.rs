@@ -9486,7 +9486,13 @@ impl MacOSWindow {
         }
 
         // Now transition Placeholder → Active with the real tree.
-        // This generates focus events that VoiceOver needs.
+        // This generates focus events that VoiceOver needs. The adapter is
+        // created after the first layout and holds nothing yet, while every
+        // a11y pass publishes only what changed since the last one: ask for
+        // the WHOLE tree.
+        if let Some(lw) = self.common.layout_window.as_mut() {
+            lw.a11y_manager.resend_full_tree();
+        }
         self.update_accessibility();
 
         // Set focus state after tree is active.

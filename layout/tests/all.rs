@@ -914,3 +914,7 @@ mod a_face_fade_frame_is_patched_in_place;
 mod a_layout_tween_frame_reuses_the_tree_and_patches_the_list;
 #[path = "a_relayout_keeps_the_virtual_views_of_an_unchanged_host.rs"]
 mod a_relayout_keeps_the_virtual_views_of_an_unchanged_host;
+#[path = "an_animation_frame_sends_assistive_technology_only_what_moved.rs"]
+mod an_animation_frame_sends_assistive_technology_only_what_moved;
+#[path = "a_frame_pump_leaves_the_cpu_profiles_spans_for_its_report.rs"]
+mod a_frame_pump_leaves_the_cpu_profiles_spans_for_its_report;

@@ -727,10 +727,30 @@ pub fn probe_bridge_enabled() -> bool {
 /// Returns the number of events consumed.
 #[must_use]
 pub fn drain_probe_events() -> usize {
-    let events = crate::probe::Probe::drain();
+    drain_probe_events_for(azul_core::profile::cpu_enabled())
+}
+
+/// [`drain_probe_events`], told whether the `AZ_PROFILE=cpu` report reads
+/// the same buffer (it prints and drains it once per layout pass).
+///
+/// Not collecting, this used to drain and DISCARD the buffer - every span a
+/// relayout recorded after its last DOM pass (the accessibility tree, the
+/// scroll registration, the hit-tester rebuild) vanished from the CPU report
+/// before the next pass could print it. Now the report keeps them; with no
+/// report the buffer is still emptied, so it stays bounded. A report that
+/// sees no layout pass for a long time (a video playing) could grow it, so
+/// past `CPU_REPORT_BACKLOG` events it is emptied anyway.
+#[doc(hidden)]
+#[must_use]
+pub fn drain_probe_events_for(cpu_report: bool) -> usize {
+    const CPU_REPORT_BACKLOG: usize = 1 << 20;
     if !is_collecting() {
+        if !cpu_report || crate::probe::Probe::peek_len() > CPU_REPORT_BACKLOG {
+            crate::probe::Probe::drop_events();
+        }
         return 0;
     }
+    let events = crate::probe::Probe::drain();
     // At most this many slow-SPAN warnings per drain: one slow frame can
     // contain a dozen slow nested spans, and the OUTERMOST ones carry the
     // diagnosis. The metric still counts every one.
