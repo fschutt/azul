@@ -17,9 +17,23 @@
 
 use alloc::vec::Vec;
 
-use azul_core::dom::{Dom, DomNodeId};
+use azul_core::{
+    dom::{Dom, DomNodeId, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec},
+    refany::RefAny,
+};
 use azul_css::{
-    dynamic_selector::CssPropertyWithConditions, impl_option, AzString, OptionF32, OptionString,
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    impl_option,
+    props::{
+        basic::{length::FloatValue, pixel::PixelValue},
+        layout::{
+            LayoutAlignItems, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow, LayoutFlexShrink,
+            LayoutHeight, LayoutMinHeight, LayoutMinWidth, LayoutOverflow, LayoutWidth,
+        },
+        property::{CssProperty, LayoutHeightValue, LayoutWidthValue},
+        style::StyleUserSelect,
+    },
+    AzString, OptionF32, OptionString,
 };
 
 use crate::{
@@ -37,30 +51,47 @@ pub const HOT_FROM: f32 = 90.0;
 /// A level in dB as the meter's percent: [`LEVEL_FLOOR_DB`] and below is 0, 0 dB and above 100.
 #[must_use]
 pub fn db_percent(db: f32) -> f32 {
-    let _ = db;
-    0.0
+    if !db.is_finite() {
+        // NaN is no level; +inf is past full scale.
+        return if db > 0.0 { 100.0 } else { 0.0 };
+    }
+    ((db - LEVEL_FLOOR_DB) / -LEVEL_FLOOR_DB * 100.0).clamp(0.0, 100.0)
 }
 
 /// The level of `samples` (any channel layout): their RMS on the dB scale, as a percent.
 #[must_use]
+#[allow(clippy::cast_precision_loss)]
 pub fn rms_percent(samples: &[f32]) -> f32 {
-    let _ = samples;
-    0.0
+    if samples.is_empty() {
+        return 0.0;
+    }
+    let mean_square = samples.iter().map(|s| s * s).sum::<f32>() / samples.len() as f32;
+    db_percent(20.0 * mean_square.sqrt().max(1e-6).log10())
 }
 
 /// A peak magnitude (`0.0..=1.0`, e.g. `AudioPlayerState::peak_left`) on the dB scale, as a
 /// percent.
 #[must_use]
 pub fn peak_percent(peak: f32) -> f32 {
-    let _ = peak;
-    0.0
+    if !(peak > 0.0) {
+        return 0.0;
+    }
+    db_percent(20.0 * peak.log10())
 }
 
 /// The sizes (percent of the trough) of the green, amber and red segments at `level` percent.
 #[must_use]
 pub fn zone_widths(level: f32) -> [f32; 3] {
-    let _ = level;
-    [0.0; 3]
+    let l = if level.is_finite() {
+        level.clamp(0.0, 100.0)
+    } else {
+        0.0
+    };
+    [
+        l.min(WARM_FROM),
+        (l - WARM_FROM).clamp(0.0, HOT_FROM - WARM_FROM),
+        (l - HOT_FROM).clamp(0.0, 100.0 - HOT_FROM),
+    ]
 }
 
 /// Which way a meter fills.
@@ -151,18 +182,46 @@ impl LevelMeter {
         s
     }
 
-    /// The meter's DOM.
+    /// The meter's DOM: the pinned theme's look, or (unpinned) both themes' looks in their
+    /// `@theme` blocks, the app theme picking.
     #[must_use]
     pub fn dom(self) -> Dom {
-        Dom::create_div()
+        use crate::widgets::themes::{flat, flora, theme_blocks};
+        match self.theme.into_option() {
+            Some(UiTheme::Flat) => flat::level_meter(self),
+            Some(UiTheme::Flora) => flora::level_meter(self),
+            None => theme_blocks::follow_app_theme(self, flat::level_meter, flora::level_meter),
+        }
     }
 
     /// Moves the meter built at `node` (the root of its `dom()`) to `level` percent in place: the
     /// three segments resize and the accessibility value follows, without a rebuild. False when
     /// `node` is not a meter's root.
     pub fn update_level(info: &mut CallbackInfo, node: DomNodeId, level: f32) -> bool {
-        let _ = (info, node, level);
-        false
+        let vertical = match info.get_dataset(node) {
+            Some(mut data) => match data.downcast_ref::<LevelMeterData>() {
+                Some(d) => d.vertical,
+                None => return false,
+            },
+            None => return false,
+        };
+        let Some(track) = info.get_first_child(node) else {
+            return false;
+        };
+        let Some(ok) = info.get_first_child(track) else {
+            return false;
+        };
+        let Some(warm) = info.get_next_sibling(ok) else {
+            return false;
+        };
+        let Some(hot) = info.get_next_sibling(warm) else {
+            return false;
+        };
+        for (segment, size) in [ok, warm, hot].into_iter().zip(zone_widths(level)) {
+            info.set_css_property(segment, segment_size(vertical, size));
+        }
+        info.set_accessibility_value(node, AzString::from(value_text(level)));
+        true
     }
 
     /// The level of an audio frame's samples ([`rms_percent`]), for the API.
@@ -225,8 +284,18 @@ impl LevelMeterThrottle {
     /// The level to show at `now_ms` for a measured `level`, or `None` when the meter should stay
     /// where it is (too soon, or too small a move).
     pub fn next(&mut self, level: f32, now_ms: u64) -> OptionF32 {
-        let _ = (level, now_ms);
-        OptionF32::None
+        if self.moved {
+            if (self.level - level).abs() < self.min_step {
+                return OptionF32::None;
+            }
+            if now_ms.saturating_sub(self.last_ms) < self.interval_ms {
+                return OptionF32::None;
+            }
+        }
+        self.moved = true;
+        self.last_ms = now_ms;
+        self.level = level;
+        OptionF32::Some(level)
     }
 }
 
@@ -247,6 +316,157 @@ pub(crate) struct LevelMeterLook {
     pub hot: Vec<CssPropertyWithConditions>,
     /// The theme's marker class on the root, if it has one.
     pub marker: Option<&'static str>,
+}
+
+// ==== The DOM ====
+
+static ROOT_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-level-meter"))];
+static TRACK_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-level-meter-track",
+))];
+static OK_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-level-meter-ok",
+))];
+static WARM_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-level-meter-warm",
+))];
+static HOT_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-level-meter-hot",
+))];
+
+/// What `update_level` needs to know of a built meter.
+struct LevelMeterData {
+    vertical: bool,
+}
+
+/// The thickness of the trough, px.
+const THICKNESS: isize = 8;
+
+const fn simple(p: CssProperty) -> CssPropertyWithConditions {
+    CssPropertyWithConditions::simple(p)
+}
+
+/// A horizontal meter: one row, the trough across it, at least 40 px long.
+pub(crate) static LEVEL_METER_ROW_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    simple(CssProperty::const_min_width(LayoutMinWidth::const_px(40))),
+    simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// A vertical meter: one column, the trough down it, at least 40 px tall.
+pub(crate) static LEVEL_METER_COLUMN_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    simple(CssProperty::const_flex_direction(
+        LayoutFlexDirection::Column,
+    )),
+    simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    simple(CssProperty::const_min_height(LayoutMinHeight::const_px(40))),
+    simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// The horizontal trough: the meter's length, `THICKNESS` thick, the segments left to right.
+pub(crate) static LEVEL_TRACK_ROW_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    simple(CssProperty::const_height(LayoutHeight::const_px(THICKNESS))),
+    simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+];
+
+/// The vertical trough: the meter's height, `THICKNESS` wide, the segments bottom to top.
+pub(crate) static LEVEL_TRACK_COLUMN_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    simple(CssProperty::const_flex_direction(
+        LayoutFlexDirection::ColumnReverse,
+    )),
+    simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    simple(CssProperty::const_width(LayoutWidth::const_px(THICKNESS))),
+    simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+];
+
+/// A segment keeps the size it is given.
+pub(crate) static LEVEL_SEGMENT_BASE: &[CssPropertyWithConditions] =
+    &[simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    }))];
+
+/// A segment's size along the trough: a width across a horizontal meter, a height up a vertical
+/// one, percent of the trough.
+fn segment_size(vertical: bool, percent: f32) -> CssProperty {
+    if vertical {
+        CssProperty::Height(LayoutHeightValue::Exact(LayoutHeight::Px(
+            PixelValue::percent(percent),
+        )))
+    } else {
+        CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth::Px(
+            PixelValue::percent(percent),
+        )))
+    }
+}
+
+/// The level as a screen reader says it ("42%"; an unknown level reads 0).
+fn value_text(level: f32) -> alloc::string::String {
+    let l = if level.is_finite() {
+        level.clamp(0.0, 100.0)
+    } else {
+        0.0
+    };
+    alloc::format!("{l:.0}%")
+}
+
+/// The meter's DOM in `look`: root > trough > green, amber, red.
+pub(crate) fn build(meter: LevelMeter, look: &LevelMeterLook) -> Dom {
+    let part = |base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]| {
+        CssPropertyWithConditionsVec::from_vec(crate::widgets::themes::decl::on_base(base, skin))
+    };
+    let vertical = meter.orientation == LevelMeterOrientation::Vertical;
+    let sizes = zone_widths(meter.level);
+    let segment = |class: &'static [IdOrClass], skin: &[CssPropertyWithConditions], size: f32| {
+        let mut props = crate::widgets::themes::decl::on_base(LEVEL_SEGMENT_BASE, skin);
+        props.push(simple(segment_size(vertical, size)));
+        Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(class))
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(props))
+    };
+    let track_base = if vertical {
+        LEVEL_TRACK_COLUMN_BASE
+    } else {
+        LEVEL_TRACK_ROW_BASE
+    };
+    let track = Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(TRACK_CLASS))
+        .with_css_props(part(track_base, &look.track))
+        .with_children(DomVec::from_vec(alloc::vec![
+            segment(OK_CLASS, &look.ok, sizes[0]),
+            segment(WARM_CLASS, &look.warm, sizes[1]),
+            segment(HOT_CLASS, &look.hot, sizes[2]),
+        ]));
+    let mut classes: Vec<IdOrClass> = ROOT_CLASS.to_vec();
+    if let Some(marker) = look.marker {
+        classes.push(Class(AzString::from_const_str(marker)));
+    }
+    let root_base = if vertical {
+        LEVEL_METER_COLUMN_BASE
+    } else {
+        LEVEL_METER_ROW_BASE
+    };
+    let data = RefAny::new(LevelMeterData { vertical });
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+        .with_css_props(part(root_base, &[]))
+        .with_dataset(Some(data).into())
+        // A meter is a VALUE: "42%" says what the coloured boxes show.
+        .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+            role: azul_core::a11y::AccessibilityRole::ProgressBar,
+            accessibility_name: meter.accessibility_name.clone(),
+            accessibility_value: Some(AzString::from(value_text(meter.level))).into(),
+            ..Default::default()
+        })
+        .with_child(track)
 }
 
 #[cfg(test)]
@@ -351,7 +571,7 @@ mod level_meter_tests {
             for (seg, want) in [(ok, "70"), (warm, "20"), (hot, "5")] {
                 let style = format!("{:?}", seg.root.get_style());
                 assert!(
-                    style.contains(&format!("{want}000")) || style.contains(&format!("{want}.0")),
+                    style.contains(&format!("Px({want}%)")),
                     "{}: a segment of {want}% in {style}",
                     theme.name()
                 );

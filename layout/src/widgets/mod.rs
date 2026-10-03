@@ -1862,6 +1862,13 @@ mod label_convention {
         // The chart: three series of bars over four categories, a legend and
         // the table view.
         all.push(("chart", super::chart::fixtures::sample().dom()));
+        // The level meter: well into the amber, named.
+        all.push((
+            "level_meter",
+            super::level_meter::LevelMeter::create(80.0)
+                .with_accessibility_name("Level")
+                .dom(),
+        ));
         all
     }
 
@@ -2754,6 +2761,8 @@ mod theme_contrast {
         "shortcut_recorder",
         "shortcut_recorder (recording)",
         "date_repeat_picker",
+        // A meter: a value shown like the progress bar.
+        "level_meter",
     ];
     /// Navigation and application chrome.
     const CHROME: &[&str] = &[

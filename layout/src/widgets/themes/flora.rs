@@ -8046,3 +8046,38 @@ pub(crate) fn chart_skin() -> crate::widgets::chart::ChartSkin {
         marker: Some("__azul-theme-flora"),
     }
 }
+
+// ==== level_meter ====
+//
+// The flora level meter sits in flora's stone: the trough is flora's track
+// with its 4 px corners, the level a sage green, ochre past -18 dB, a brick
+// red past -6 dB - flora's earth tones, saturated enough to read at a
+// glance. At night the trough is the dark track and the colours lift.
+
+const LEVEL_OK_LIGHT: ColorU = ColorU::new(0x4F, 0x8A, 0x45, 255);
+const LEVEL_OK_DARK: ColorU = ColorU::new(0x7F, 0xB8, 0x6F, 255);
+const LEVEL_WARM_LIGHT: ColorU = ColorU::new(0xC2, 0x8A, 0x1E, 255);
+const LEVEL_WARM_DARK: ColorU = ColorU::new(0xE0, 0xB0, 0x50, 255);
+const LEVEL_HOT_LIGHT: ColorU = ColorU::new(0xB0, 0x40, 0x32, 255);
+const LEVEL_HOT_DARK: ColorU = ColorU::new(0xD9, 0x70, 0x5F, 255);
+
+/// Flora's level-meter look.
+#[must_use]
+pub(crate) fn level_meter_look() -> crate::widgets::level_meter::LevelMeterLook {
+    use super::decl;
+    let mut track = decl::themed_fill(LIGHT_TRACK, DARK_TRACK).to_vec();
+    track.extend(decl::radius(4));
+    crate::widgets::level_meter::LevelMeterLook {
+        track,
+        ok: decl::themed_fill(LEVEL_OK_LIGHT, LEVEL_OK_DARK).to_vec(),
+        warm: decl::themed_fill(LEVEL_WARM_LIGHT, LEVEL_WARM_DARK).to_vec(),
+        hot: decl::themed_fill(LEVEL_HOT_LIGHT, LEVEL_HOT_DARK).to_vec(),
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
+}
+
+/// The flora level meter.
+#[must_use]
+pub fn level_meter(m: crate::widgets::level_meter::LevelMeter) -> Dom {
+    crate::widgets::level_meter::build(m, &level_meter_look())
+}

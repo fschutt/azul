@@ -6467,3 +6467,38 @@ pub(crate) fn chart_skin() -> crate::widgets::chart::ChartSkin {
         marker: None,
     }
 }
+
+// ==== level_meter ====
+//
+// The flat level meter is a mixing desk's on a Windows 7 dialog: a grey
+// trough (the slider's track) with flat's 3 px corners, the level in a
+// clear green, amber past -18 dB, red past -6 dB. At night the trough is
+// the dark track and the three colours lift.
+
+const LEVEL_OK_LIGHT: ColorU = ColorU::new(0x2E, 0x9E, 0x4F, 255);
+const LEVEL_OK_DARK: ColorU = ColorU::new(0x4C, 0xC4, 0x6B, 255);
+const LEVEL_WARM_LIGHT: ColorU = ColorU::new(0xE0, 0xA8, 0x00, 255);
+const LEVEL_WARM_DARK: ColorU = ColorU::new(0xF2, 0xC2, 0x30, 255);
+const LEVEL_HOT_LIGHT: ColorU = ColorU::new(0xD9, 0x30, 0x25, 255);
+const LEVEL_HOT_DARK: ColorU = ColorU::new(0xF0, 0x6A, 0x5F, 255);
+
+/// Flat's level-meter look.
+#[must_use]
+pub(crate) fn level_meter_look() -> crate::widgets::level_meter::LevelMeterLook {
+    use super::decl;
+    let mut track = decl::themed_fill(LIGHT_TRACK, DARK_TRACK).to_vec();
+    track.extend(decl::radius(3));
+    crate::widgets::level_meter::LevelMeterLook {
+        track,
+        ok: decl::themed_fill(LEVEL_OK_LIGHT, LEVEL_OK_DARK).to_vec(),
+        warm: decl::themed_fill(LEVEL_WARM_LIGHT, LEVEL_WARM_DARK).to_vec(),
+        hot: decl::themed_fill(LEVEL_HOT_LIGHT, LEVEL_HOT_DARK).to_vec(),
+        marker: None,
+    }
+}
+
+/// The flat level meter.
+#[must_use]
+pub fn level_meter(m: crate::widgets::level_meter::LevelMeter) -> Dom {
+    crate::widgets::level_meter::build(m, &level_meter_look())
+}
