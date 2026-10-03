@@ -17,10 +17,15 @@ agents - keep files under `m6/` (a `msg.txt` at the root got overwritten).
 - RED `b3f6847fb` (layout/tests/a_normal_line_is_as_tall_as_chromes.rs), GREEN 1 `789331579`
   (`LayoutFontMetrics::line_metrics_px` + field `browser_ascent_boost`; LineHeight::resolve*),
   GREEN 2 `c847b4b6c` (font.rs `browser_ascent_boost(family)` replaces `browser_compat_ascent`).
-- NEXT (GREEN 3): route the glyph A/D in text3/cache.rs `get_item_vertical_metrics` (~10750) and
-  `_approx` (~10640), the dense.rs twins (`let m = &run.font_metrics;` at ~691/952/1181/1296/1465)
-  and the fc.rs strut (~5391 `first_available_font_metrics`) through `line_metrics_px`; split the
-  half-leading floor((L - (A+D))/2) above / rest below.
+- GREEN 3a `38ed88fae` (glyph boxes via `inline_box_px`, `split_leading` floor-above, strut split
+  in `position_one_line`), 3b `047b32859` (fc.rs strut = rounded A/D, root `normal` = Px(A+D+G)),
+  3c `1bed4d66a` (dense.rs: 4 copies of the run ascent -> `resolved_run_ascent` -> `inline_box_px`).
+  Items 3 + 7 DONE.
+- Seen, not changed: `UnifiedLayout::first/last_baseline` report a cluster's RAW ascent
+  (`baseline_scaled`, no line y, no leading) as the IFC baseline (fc.rs 4551/4800) - inline-block
+  baseline alignment reads it; `editing_host_strut_height` (empty editable) still 1.2em for
+  `normal`.
+- NEXT: item 4 - verify on the prebuilt (short probe) or by TEXTENG's tests; then item 5.
 
 ## (older notes, items 3/7 plan)
 - item 3 + 7 (Chrome's rounded font metrics + the Times/Helvetica/Courier ascent hack).
