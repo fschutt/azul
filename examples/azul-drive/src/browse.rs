@@ -432,34 +432,6 @@ pub fn crumbs_of(place: &Place, drive_name: &str) -> Vec<(String, Place)> {
     trail
 }
 
-/// The folder above `prefix`; `None` at the root.
-#[must_use]
-pub fn up(prefix: &str) -> Option<String> {
-    if prefix.is_empty() {
-        None
-    } else {
-        Some(key::parent_prefix(prefix))
-    }
-}
-
-/// The breadcrumb: the drive (its root), then every folder down to `prefix`,
-/// as `(label, prefix)`.
-#[must_use]
-pub fn crumbs(drive_name: &str, prefix: &str) -> Vec<(String, String)> {
-    let mut trail = vec![(drive_name.to_string(), String::new())];
-    trail.extend(key::folder_trail(prefix));
-    trail
-}
-
-/// The file an upload of `file_name` becomes in the folder `prefix`.
-#[must_use]
-pub fn upload_key(prefix: &str, file_name: &str) -> Option<String> {
-    if file_name.contains('/') || key::check_path_key(file_name).is_err() {
-        return None;
-    }
-    Some(format!("{prefix}{file_name}"))
-}
-
 /// A `file://` URL of a local path, percent-encoded, for the OS to open.
 #[must_use]
 pub fn file_url(path: &Path) -> String {
@@ -825,38 +797,6 @@ mod tests {
                 ("inbox".to_string(), Place::folder("s3-1", "mail/inbox/")),
             ]
         );
-    }
-
-    #[test]
-    fn up_goes_to_the_parent_and_stops_at_the_root() {
-        assert_eq!(up("mail/inbox/").as_deref(), Some("mail/"));
-        assert_eq!(up("mail/").as_deref(), Some(""));
-        assert_eq!(up(""), None);
-    }
-
-    #[test]
-    fn the_breadcrumb_starts_at_the_drive_and_ends_at_the_folder() {
-        assert_eq!(
-            crumbs("S3 Drive", ""),
-            vec![("S3 Drive".to_string(), String::new())]
-        );
-        assert_eq!(
-            crumbs("S3 Drive", "mail/inbox/"),
-            vec![
-                ("S3 Drive".to_string(), String::new()),
-                ("mail".to_string(), "mail/".to_string()),
-                ("inbox".to_string(), "mail/inbox/".to_string()),
-            ]
-        );
-    }
-
-    #[test]
-    fn an_upload_goes_into_the_open_folder() {
-        assert_eq!(upload_key("mail/", "a.txt").as_deref(), Some("mail/a.txt"));
-        assert_eq!(upload_key("", "a.txt").as_deref(), Some("a.txt"));
-        assert_eq!(upload_key("mail/", ""), None);
-        assert_eq!(upload_key("", ".."), None);
-        assert_eq!(upload_key("", "a/b"), None);
     }
 
     #[cfg(not(windows))]

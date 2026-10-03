@@ -644,9 +644,9 @@ pub(crate) fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Seconds since 1970.
+/// Seconds since 1970 (azul-storage's clock, DEDUP_OFFICE D23).
 pub(crate) fn now_secs() -> u64 {
-    now_ms() / 1000
+    azul_storage::time::now_unix()
 }
 
 /// Runs a keyboard command.
