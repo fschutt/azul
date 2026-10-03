@@ -13,21 +13,22 @@ Branch `wt/media6` from `25d78e309`. Brief: `scripts/waves/wave6/MEDIA6.md`.
   azul_text on RawImage::from_text, on_text, Field::Text*), `aba432ca6` (ui Text bar, tool rail
   with_toggled/with_disabled; canvas Enter/Escape).
 - AzVideoCut V1/V3: `e73d06036` RED (E2E fills-the-window), `239cf5e5e` GREEN.
+- AzPhoto exports into the data tree: `64a35523b` RED, `88589a482` GREEN.
+- AzPhoto on appkit: `c958a70d5` args, `4fa9ff60f` start/kit/ABOUT/SHORTCUTS, `0234096e4` settings page +
+  Dialog sheets + AboutDialog, `6571f82fd` CloseGuard, `f111607bd` __azphoto_ ids + E2E (move, text).
 
 ## IN PROGRESS
 - (between units)
 
 ## NEXT (in order)
-2. AzPhoto: export into the data tree `photo/<uuid>/exports/` via Drive (storage::export_key,
-   RED in storage tests); close guard (CloseRequested + prevent_window_close when modified);
-   sheets -> Dialog, About -> AboutDialog; appkit (args/data root/settings/shortcuts); prefixes;
-   E2E (text tool + live move steps).
-3. AzVideoCut: fit_within ->
-   export core `image_scale::fit_within` as `RawImage::fit_size` or use `thumbnail`;
-   ProgressDialog for export; AboutDialog; appkit; prefixes.
-4. AzPaint: stroke not shown (poke_canvas passes `NodeId{inner: raw}` - off by one vs Photo /
-   VideoCut `raw - 1`; verify); appkit, `__azpaint_` prefixes (markers const, not Uuid::short),
-   UndoHistory, exports into the data tree, E2E script.
+3. AzVideoCut: fit_within -> core image_scale::fit_within exported (RawImage::fit_size? or
+   thumbnail); ProgressDialog for export; AboutDialog; appkit (args/data root/settings);
+   `__azvideocut_` prefixes; E2E data root.
+4. AzPaint: stroke not shown (poke_canvas `NodeId{inner: raw}` off by one); body margin;
+   appkit; `__azpaint_` prefixes; UndoHistory; exports into the data tree; E2E script.
+5. AzPhoto leftovers: P1 private Palette (D16) - not done yet.
+6. Report scripts/MEDIA6_2026_10_03.md (api.json list: TextRasterStyle + RawImage.from_text /
+   draw_text; RawImage.fit_size if added).
 POWER: Mac on battery (coordinator 14:xx) - no long headless runs, commit every unit.
 
 ## Seen broken (LOOK)
