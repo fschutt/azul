@@ -670,8 +670,7 @@ impl RecurrenceEditor {
 
     /// Show the "Ends" row; a repeat that cannot end leaves it out.
     pub const fn set_end_option(&mut self, shown: bool) {
-        let _ = shown;
-        todo!()
+        self.end_option = shown;
     }
 
     /// [`Self::set_end_option`] for the builder chain.
@@ -684,8 +683,7 @@ impl RecurrenceEditor {
     /// Offer a monthly rule on the start's nth weekday; without it, a monthly rule repeats on
     /// the start's day.
     pub const fn set_month_weekday_option(&mut self, shown: bool) {
-        let _ = shown;
-        todo!()
+        self.month_weekday_option = shown;
     }
 
     /// [`Self::set_month_weekday_option`] for the builder chain.
@@ -841,7 +839,6 @@ pub(crate) fn build(editor: RecurrenceEditor, look: &RecurrenceEditorLook) -> Do
         end_option,
         month_weekday_option,
     } = editor;
-    let _ = (end_option, month_weekday_option);
     let rule = state.inner;
     let theme = theme.into_option();
     let shared = RefAny::new(state);
@@ -895,11 +892,16 @@ pub(crate) fn build(editor: RecurrenceEditor, look: &RecurrenceEditorLook) -> Do
         ),
     ])];
     if rule.frequency != RecurrenceFrequency::Never {
-        rows.push(row(alloc::vec![
+        let mut every = alloc::vec![
             label("Every"),
             number(rule.interval, "Repeat every", on_interval_part),
             unit(unit_word(rule.frequency, rule.interval)),
-        ]));
+        ];
+        // Without the nth weekday a monthly rule repeats on the start's day: said here.
+        if rule.frequency == RecurrenceFrequency::Monthly && !month_weekday_option {
+            every.push(unit(&alloc::format!("on day {}", rule.start.day)));
+        }
+        rows.push(row(every));
         match rule.frequency {
             RecurrenceFrequency::Weekly => {
                 let chosen = rule.effective_weekdays();
@@ -931,7 +933,7 @@ pub(crate) fn build(editor: RecurrenceEditor, look: &RecurrenceEditorLook) -> Do
                         .with_children(DomVec::from_vec(toggles)),
                 ]));
             }
-            RecurrenceFrequency::Monthly => {
+            RecurrenceFrequency::Monthly if month_weekday_option => {
                 rows.push(row(alloc::vec![
                     label("On"),
                     segmented(monthly_labels(&rule), rule.monthly as usize, on_monthly_part),
@@ -964,7 +966,9 @@ pub(crate) fn build(editor: RecurrenceEditor, look: &RecurrenceEditorLook) -> Do
                 ends.push(picker.dom());
             }
         }
-        rows.push(row(ends));
+        if end_option {
+            rows.push(row(ends));
+        }
         if completion_option {
             let mut check = CheckBox::create(rule.from_completion)
                 .with_accessibility_name(AzString::from_const_str(COMPLETION_LABEL))
