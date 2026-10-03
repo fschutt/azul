@@ -373,6 +373,10 @@ def stage_editor(app, ctx):
         "AZCAL_EDITOR closed",
         lambda: "closed" in app.printed("AZCAL_EDITOR")[opened:],
     )
+    # Save & Close's own close_window goes through CloseRequested too: a saved form closes
+    # without asking.
+    if "asking" in app.printed("AZCAL_EDITOR")[opened:]:
+        raise Failure("Save & Close asked 'save changes?' after saving")
     new = w.until(
         "the editor's event file",
         lambda: [n for n in wi.event_files(app.data) if n not in before] or None,

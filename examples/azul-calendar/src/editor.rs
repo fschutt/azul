@@ -444,8 +444,10 @@ pub enum CloseAnswer {
 /// deleted - gone), which opened with `opened`.
 #[must_use]
 pub fn close_answer(form: Option<&EditorForm>, opened: Option<&EditorForm>) -> CloseAnswer {
-    let _ = (form, opened);
-    todo!()
+    match (form, opened) {
+        (Some(form), Some(opened)) if form.changed_since(opened) => CloseAnswer::Ask,
+        _ => CloseAnswer::Close,
+    }
 }
 
 /// What the editor says about an event it cannot save.

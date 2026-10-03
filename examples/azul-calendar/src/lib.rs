@@ -389,10 +389,8 @@ impl CalState {
     /// The open editor's form differs from the form it opened with: closing its window asks
     /// "save changes?" first.
     pub(crate) fn editor_dirty(&self) -> bool {
-        match (&self.editor, &self.editor_opened) {
-            (Some(form), Some(opened)) => form.changed_since(opened),
-            _ => false,
-        }
+        editor::close_answer(self.editor.as_ref(), self.editor_opened.as_ref())
+            == editor::CloseAnswer::Ask
     }
 
     /// How many meeting links wait for the meeting server.
