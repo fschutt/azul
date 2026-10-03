@@ -2984,6 +2984,13 @@ pub struct CommonWindowState {
     /// The clear colour WebRender was last told
     /// ([`Self::sync_renderer_clear_color`]); `None` before the first frame.
     renderer_clear_color: Option<azul_css::props::basic::ColorU>,
+    /// The APP raised `flags.close_requested` (`CallbackInfo::close_window`,
+    /// the CSD titlebar's close button) and no close-protocol pass has run
+    /// for it yet: the backend's loop owes it one
+    /// ([`PlatformWindow::confirm_app_close`]) before it may act on the flag.
+    /// A close the window manager asked for runs the protocol at once and
+    /// never sets this.
+    close_unconfirmed: bool,
 }
 
 impl CommonWindowState {
@@ -3137,6 +3144,25 @@ impl CommonWindowState {
     #[must_use]
     pub fn relayout_only_pending(&self) -> bool {
         self.regen.relayout_only
+    }
+
+    /// Is a DOM REBUILD owed (not just a relayout of the existing one)?
+    /// Read-only.
+    #[must_use]
+    pub fn rebuild_owed(&self) -> bool {
+        self.regen.rebuild_owed
+    }
+
+    /// Did the app raise a close the protocol has not run for yet (see the
+    /// field)? Read-only.
+    #[must_use]
+    pub fn close_unconfirmed(&self) -> bool {
+        self.close_unconfirmed
+    }
+
+    /// Take the app-raised close the protocol owes a pass (see the field).
+    pub fn take_close_unconfirmed(&mut self) -> bool {
+        core::mem::take(&mut self.close_unconfirmed)
     }
 
     /// Ask for the RESIZE fast path: the window size changed, no CSS
@@ -3302,6 +3328,7 @@ impl CommonWindowState {
             app_order: azul_layout::managers::app_target::WindowActivationOrder::for_new_window(),
             desktop_theme,
             renderer_clear_color: None,
+            close_unconfirmed: false,
         }
     }
 
@@ -4041,8 +4068,25 @@ pub trait PlatformWindow {
     /// pass having left the baselines equal instead of snapshotting, and macOS
     /// ran its copy TWICE for one user close. Backends now decide only what to
     /// DO with the verdict, not how to reach it.
+    ///
+    /// A close the APP raised (`CallbackInfo::close_window`, the CSD
+    /// titlebar's close button) arrives with the flag already UP - and its
+    /// transition maybe never consumed. Snapshotting that as the baseline left
+    /// no false -> true transition for the pass to see, so `WindowClose` never
+    /// fired and nothing could veto a close the app's own code asked for. The
+    /// flag is lowered and that state taken as the baseline instead.
     fn request_window_close(&mut self, site: &str) -> WindowCloseOutcome {
-        self.snapshot_window_state_baseline(site);
+        // The protocol runs now: nothing is owed any more.
+        let _ = self.get_common_mut().take_close_unconfirmed();
+        if self.get_current_window_state().flags.close_requested {
+            self.get_common_mut()
+                .update_window_state(WindowStateSource::App, |ws| {
+                    ws.flags.close_requested = false;
+                });
+            self.discard_input_delta(site);
+        } else {
+            self.snapshot_window_state_baseline(site);
+        }
         self.get_common_mut()
             .update_window_state(WindowStateSource::App, |ws| {
                 ws.flags.close_requested = true;
@@ -4050,6 +4094,57 @@ pub trait PlatformWindow {
         let result = self.process_window_events(0);
         let confirmed = self.get_current_window_state().flags.close_requested;
         WindowCloseOutcome { confirmed, result }
+    }
+
+    /// [`Self::request_window_close`] against the DOM the app's state
+    /// describes NOW: a rebuild the app's last callback asked for (and no
+    /// frame has built yet) is built first. A save that finished on a thread
+    /// marks the document clean, asks for a new DOM and closes in ONE
+    /// writeback; judged by the stale DOM, its "unsaved" `CloseGuard` held
+    /// the close and asked again. For the backends' loops and their
+    /// window-manager close handlers - NOT for paths inside
+    /// `regenerate_layout` (the transient mailbox), which would rebuild from
+    /// inside a rebuild.
+    fn run_close_protocol(&mut self, site: &str) -> WindowCloseOutcome {
+        if self.get_common_mut().rebuild_owed() {
+            let seen = self.get_common_mut().regen_epoch();
+            if let Err(e) = self.regenerate_layout() {
+                log_warn!(
+                    super::debug_server::LogCategory::Window,
+                    "[close] rebuilding the DOM before the close request failed: {}",
+                    e
+                );
+            }
+            self.get_common_mut()
+                .clear_regeneration_unless_reraised(seen);
+        }
+        self.request_window_close(site)
+    }
+
+    /// THE backend-loop half of the close protocol for a close the APP
+    /// raised (`CallbackInfo::close_window`, the CSD titlebar's close button
+    /// - see `CommonWindowState::close_unconfirmed`): it runs
+    /// [`Self::run_close_protocol`] once, so the app's
+    /// `WindowEventFilter::CloseRequested` callbacks (and `CloseGuard`) hear
+    /// it and can veto, exactly as for the window manager's close. Every
+    /// backend calls this from its loop BEFORE it acts on
+    /// `flags.close_requested`: after it the flag stands only if nobody
+    /// vetoed. `None` when no app close is owed (the flag, if up, is a
+    /// confirmed or a non-refusable close).
+    ///
+    /// The pass's own result (a vetoing callback that rebuilt its DOM: the
+    /// "Save changes?" question) is raised as a regeneration, which every
+    /// backend's frame gate reads.
+    fn confirm_app_close(&mut self, site: &str) -> Option<WindowCloseOutcome> {
+        if !self.get_common_mut().close_unconfirmed() {
+            return None;
+        }
+        let outcome = self.run_close_protocol(site);
+        if !outcome.confirmed && outcome.result != ProcessEventResult::DoNothing {
+            self.get_common_mut()
+                .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        }
+        Some(outcome)
     }
 
     /// Snapshot the EVENT-DIFF baseline, then mutate `current_window_state`,
@@ -5634,6 +5729,11 @@ pub trait PlatformWindow {
             // === Window State ===
             CallbackChange::ModifyWindowState { state } => {
                 let mut old_state = self.get_current_window_state().clone();
+                // A callback that RAISES the close flag (the CSD titlebar's
+                // close button) asks for a close, like `close_window`.
+                if state.flags.close_requested && !old_state.flags.close_requested {
+                    self.get_common_mut().close_unconfirmed = true;
+                }
 
                 // THE PRESS ROUTER, for a scripted pointer (`DebugEvent::MouseDown`,
                 // a `click` op, any callback that pushes a button): the same
@@ -5902,6 +6002,12 @@ pub trait PlatformWindow {
             }
 
             CallbackChange::CloseWindow => {
+                // A REQUEST, like the window manager's: the backend's loop runs
+                // the close protocol for it (`confirm_app_close`) after this
+                // frame, so the app's CloseRequested callbacks can veto it.
+                if !self.get_current_window_state().flags.close_requested {
+                    self.get_common_mut().close_unconfirmed = true;
+                }
                 self.get_common_mut()
                     .update_window_state(WindowStateSource::App, |ws| {
                         ws.flags.close_requested = true;
