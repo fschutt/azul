@@ -1152,6 +1152,10 @@ struct MergeRef {
     field: MergeField,
 }
 
+/// A merge field's left or right value: the two share the row's room evenly whatever they say
+/// (a zero basis), so every field's Left / Right picker stands in one column.
+const MERGE_VALUE: &str = "flex-grow: 1; flex-basis: 0px; min-width: 0px; font-size: 13px;";
+
 fn merge_view(s: &ContactsApp, app: &RefAny, st: &MergeState) -> Dom {
     let Some(pair) = st.pairs.get(st.index) else {
         return ShellEmptyState::create("No possible duplicates")
@@ -1166,13 +1170,13 @@ fn merge_view(s: &ContactsApp, app: &RefAny, st: &MergeState) -> Dom {
             "gap: 8px; padding: 4px 0px;",
             vec![
                 block("width: 90px; font-size: 12px; opacity: 0.7;", text(label)),
-                block("flex-grow: 1; font-size: 13px;", text(if left.is_empty() { "\u{2014}".to_string() } else { left })),
+                block(MERGE_VALUE, text(if left.is_empty() { "\u{2014}".to_string() } else { left })),
                 Segmented::create(strs(&["Left", "Right"]))
                     .with_selected_index(usize::from(pick == Pick::B))
                     .with_on_change(RefAny::new(MergeRef { app: app.clone(), field }), on_merge_pick as SegmentedOnChangeCallbackType)
                     .dom()
                     .with_id(id),
-                block("flex-grow: 1; font-size: 13px;", text(if right.is_empty() { "\u{2014}".to_string() } else { right })),
+                block(MERGE_VALUE, text(if right.is_empty() { "\u{2014}".to_string() } else { right })),
             ],
         )
     };
