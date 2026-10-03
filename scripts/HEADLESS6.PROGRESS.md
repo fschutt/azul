@@ -21,7 +21,10 @@ Branch `wt/headless6` from base 25d78e309. Brief: scripts/waves/wave6/HEADLESS6.
 - f8c17345e RED / 811d7c1a0 GREEN: VirtualView child-DOM state dropped with its host (category A)
 
 ## IN PROGRESS
-- category B (damage framebuffer publication in the dll headless host)
+- category B: find in layout/src/e2e/full.rs the `assert_damage_sound` 'pixel_identity' branch
+  ("does not publish the damage-driven framebuffer"), see how layout/src/e2e/runner.rs publishes it,
+  and make dll/src/desktop/shell2/headless/mod.rs `paint_cpu_frame` publish the same (RED first).
+  Last commit: 8383b8251 (progress). No uncommitted work.
 
 ## NEXT
 - C..G triage; 2. exit segfault; 3. headless menus; 4. window id on LayoutCallbackInfo; 5. child-window routing
@@ -29,4 +32,5 @@ Branch `wt/headless6` from base 25d78e309. Brief: scripts/waves/wave6/HEADLESS6.
 ## Decisions
 - Category A fix lives in layout/src/window.rs `remap_node_ids` (manager lifecycle, unowned by another
   wave-6 task); minimal edit at the end of the function.
+- POWER (coordinator, 02:45): on battery - no long headless runs until told otherwise; commit every unit.
 - Corpus runs: AZ_E2E=<dir> dispatcher under run_capped (cap 1500 MB covers the 7 parallel children).
