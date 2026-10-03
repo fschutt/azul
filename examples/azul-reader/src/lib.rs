@@ -6,6 +6,7 @@
 pub mod bookcss;
 pub mod content;
 pub mod epub;
+pub mod paginate;
 pub mod position;
 pub mod xmltree;
 
