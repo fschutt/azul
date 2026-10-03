@@ -13,25 +13,25 @@
 use azul::{
     callbacks::{
         ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, DatePickerOnChangeCallbackType,
-        SegmentedOnChangeCallbackType, TextAreaOnTextInputCallbackType,
+        RecurrenceEditorOnChangeCallbackType, TextAreaOnTextInputCallbackType,
         TimePickerOnChangeCallbackType,
     },
     dom::VirtualKeyCode,
     prelude::*,
     shells::{OfficeShell, ShellPane, ShellPaneKind, ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
-    vec::StringVec,
     widgets::{
-        ButtonType, CheckBoxState, DatePicker, DatePickerState, OnTextInputReturn, Ribbon,
-        RibbonButton, RibbonGroup, RibbonItem, RibbonTab, Segmented, SegmentedState, TextArea,
-        TextAreaState, TextInputState, TimePicker, TimePickerState, Titlebar,
+        ButtonType, CheckBoxState, DatePicker, DatePickerState, DatePickerWeekStart,
+        OnTextInputReturn, RecurrenceEditor, RecurrenceRule, Ribbon, RibbonButton, RibbonGroup,
+        RibbonItem, RibbonTab, TextArea, TextAreaState, TextInputState, TimePicker,
+        TimePickerState, Titlebar,
     },
     window::WindowDecorations,
 };
 use chrono::{Datelike, NaiveDate, NaiveTime, Timelike};
 
 use crate::{
-    editor::{self, EditorForm, Ends, Repeat, REMINDERS},
+    editor::{self, EditorForm, Repeat, REMINDERS},
     event, timegrid, week, CalState, BODY, EDITOR_WINDOW_ID, ERROR, LABEL, PAGE, SECONDARY,
 };
 
@@ -260,6 +260,8 @@ fn date_picker(
     cb: DatePickerOnChangeCallbackType,
 ) -> Dom {
     DatePicker::create(date.year().max(1) as u32, date.month(), date.day())
+        // The calendar's weeks run Monday to Sunday: so do its date pickers' rows.
+        .with_week_start(DatePickerWeekStart::Monday)
         .with_accessibility_name(name)
         .with_on_change(app.clone(), cb)
         .dom()
@@ -283,25 +285,6 @@ fn time_picker(
         .with_css("margin-right: 8px;")
 }
 
-fn segmented(
-    labels: Vec<String>,
-    selected: usize,
-    id: &str,
-    app: &RefAny,
-    cb: SegmentedOnChangeCallbackType,
-) -> Dom {
-    Segmented::create(StringVec::from(
-        labels
-            .into_iter()
-            .map(AzString::from)
-            .collect::<Vec<AzString>>(),
-    ))
-    .with_selected_index(selected)
-    .with_on_change(app.clone(), cb)
-    .dom()
-    .with_id(id)
-}
-
 fn check(
     checked: bool,
     label: &str,
@@ -319,6 +302,47 @@ fn check(
                 .with_id(id),
         )
         .with_child(Dom::create_span_with_text(label).with_css("margin-left: 6px;"))
+}
+
+/// The day a date picker shows for `date`.
+fn picker_day(date: NaiveDate) -> DatePickerState {
+    DatePickerState {
+        year: u32::try_from(date.year()).unwrap_or(1),
+        month: date.month(),
+        day: date.day(),
+    }
+}
+
+/// The repeat row's controls: the recurrence editor (`#editor-repeat`) on the form's rule, or -
+/// for a rule of the event's own it cannot show - what the rule says and "Replace", which
+/// starts a rule the editor can show.
+fn repeat_rows(form: &EditorForm, app: &RefAny) -> Vec<Dom> {
+    let text = form
+        .shown_rule()
+        .map(|rule| rule.to_rrule(true))
+        .unwrap_or_default();
+    match RecurrenceRule::from_rrule(text, picker_day(form.date)).into_option() {
+        Some(rule) => vec![RecurrenceEditor::create(rule)
+            // The calendar's weeks run Monday to Sunday (`week::week_start`).
+            .with_week_start(DatePickerWeekStart::Monday)
+            .with_accessibility_name("Repeat")
+            .with_on_change(app.clone(), on_repeat_rule as RecurrenceEditorOnChangeCallbackType)
+            .dom()
+            .with_id("editor-repeat")],
+        None => vec![
+            Dom::create_span_with_text(editor::repeat_label(
+                Repeat::Custom,
+                form.date,
+                form.custom.as_ref(),
+            ))
+            .with_id("editor-repeat-custom")
+            .with_css("margin-right: 8px;"),
+            Button::create("Replace")
+                .with_on_click(app.clone(), on_repeat_replace)
+                .dom()
+                .with_id("editor-repeat-replace"),
+        ],
+    }
 }
 
 /// The form (`#editor-form` holds it): every field of `editor.rs`'s form, the error line and
@@ -412,100 +436,9 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
         ));
     }
     page.add_child(row("End", end));
-
-    // Repeat: the five (six) segments, the weekly / monthly variant, every N, the end.
-    let segments = editor::repeat_segments(form.custom.is_some())
-        .into_iter()
-        .map(String::from)
-        .collect();
-    page.add_child(row(
-        "Repeat",
-        vec![segmented(
-            segments,
-            editor::repeat_segment(form.repeat),
-            "editor-repeat",
-            app,
-            on_repeat,
-        )],
-    ));
-    let variants = editor::repeat_variants(form.repeat, form.date);
-    if !variants.is_empty() {
-        let selected = variants
-            .iter()
-            .position(|(r, _)| *r == form.repeat)
-            .unwrap_or(0);
-        let labels = variants.into_iter().map(|(_, l)| l).collect();
-        page.add_child(row(
-            "",
-            vec![segmented(
-                labels,
-                selected,
-                "editor-repeat-variant",
-                app,
-                on_repeat_variant,
-            )],
-        ));
-    }
-    if form.repeat == Repeat::Custom {
-        page.add_child(row(
-            "",
-            vec![Dom::create_span_with_text(editor::repeat_label(
-                Repeat::Custom,
-                form.date,
-                form.custom.as_ref(),
-            ))],
-        ));
-    }
-    if !matches!(form.repeat, Repeat::Never | Repeat::Custom) {
-        page.add_child(row(
-            "Every",
-            vec![
-                Dom::create_div()
-                    .with_css("width: 64px; margin-right: 8px;")
-                    .with_child(
-                        TextInput::create()
-                            .with_text(form.interval.to_string().as_str())
-                            .with_accessibility_name("Repeat every")
-                            .with_on_text_input(app.clone(), on_interval)
-                            .dom()
-                            .with_id("editor-interval"),
-                    ),
-                Dom::create_span_with_text(editor::interval_unit(form.repeat)),
-            ],
-        ));
-        let ends: Vec<String> = Ends::CHOICES
-            .iter()
-            .map(|e| e.label().to_string())
-            .collect();
-        let selected = Ends::CHOICES
-            .iter()
-            .position(|e| *e == form.ends)
-            .unwrap_or(0);
-        let mut ends_row = vec![segmented(ends, selected, "editor-ends", app, on_ends)];
-        match form.ends {
-            Ends::Never => {}
-            Ends::After => ends_row.push(
-                Dom::create_div()
-                    .with_css("width: 64px; margin-left: 8px; margin-right: 8px;")
-                    .with_child(
-                        TextInput::create()
-                            .with_text(form.count.to_string().as_str())
-                            .with_accessibility_name("Number of times")
-                            .with_on_text_input(app.clone(), on_count)
-                            .dom()
-                            .with_id("editor-count"),
-                    ),
-            ),
-            Ends::On => ends_row.push(date_picker(
-                form.until,
-                "Last date",
-                "editor-until",
-                app,
-                on_until,
-            )),
-        }
-        page.add_child(row("Ends", ends_row));
-    }
+    // Repeat: the recurrence editor (daily / weekly on days / monthly / yearly, every N, the
+    // end), or the event's own rule when it is one the editor cannot show.
+    page.add_child(row("Repeat", repeat_rows(form, app)));
 
     let reminders: Vec<String> = REMINDERS.iter().map(|(_, l)| l.to_string()).collect();
     page.add_child(row(
@@ -669,36 +602,6 @@ extern "C" fn on_notes(
     crate::typed()
 }
 
-extern "C" fn on_interval(
-    mut data: RefAny,
-    _info: CallbackInfo,
-    state: TextInputState,
-) -> OnTextInputReturn {
-    let n = editor::parse_count(state.get_text().as_str());
-    with_form(&mut data, |f| {
-        if let Some(n) = n {
-            f.interval = n;
-        }
-        false
-    });
-    crate::typed()
-}
-
-extern "C" fn on_count(
-    mut data: RefAny,
-    _info: CallbackInfo,
-    state: TextInputState,
-) -> OnTextInputReturn {
-    let n = editor::parse_count(state.get_text().as_str());
-    with_form(&mut data, |f| {
-        if let Some(n) = n {
-            f.count = n;
-        }
-        false
-    });
-    crate::typed()
-}
-
 /// The start date: the end date (an all-day event's) and a repeat's last date move along; the
 /// repeat's labels name the new day.
 extern "C" fn on_start_date(
@@ -722,17 +625,6 @@ extern "C" fn on_end_date(mut data: RefAny, _info: CallbackInfo, state: DatePick
     with_form(&mut data, |f| {
         let turned = (date.year(), date.month()) != (f.last_day.year(), f.last_day.month());
         f.set_last_day(date);
-        turned
-    })
-}
-
-extern "C" fn on_until(mut data: RefAny, _info: CallbackInfo, state: DatePickerState) -> Update {
-    let Some(date) = crate::picked(state) else {
-        return Update::DoNothing;
-    };
-    with_form(&mut data, |f| {
-        let turned = (date.year(), date.month()) != (f.until.year(), f.until.month());
-        f.until = date;
         turned
     })
 }
@@ -781,37 +673,48 @@ extern "C" fn on_all_day(mut data: RefAny, _info: CallbackInfo, state: CheckBoxS
     })
 }
 
-extern "C" fn on_repeat(mut data: RefAny, _info: CallbackInfo, state: SegmentedState) -> Update {
-    with_form(&mut data, |f| {
-        f.repeat = editor::repeat_of_segment(state.selected_index, f.repeat);
-        if f.repeat == Repeat::Custom && f.custom.is_none() {
-            f.repeat = Repeat::Never;
+/// An RRULE's parts as the form's rows see them: INTERVAL and COUNT without their numbers
+/// (typing a number changes no row), every other part as it is.
+fn rows_of(rrule: &str) -> Vec<&str> {
+    rrule
+        .split(';')
+        .map(|part| match part.split_once('=') {
+            Some((key @ ("INTERVAL" | "COUNT"), _)) => key,
+            _ => part,
+        })
+        .collect()
+}
+
+/// The recurrence editor changed the rule: the form takes it (a rule of the form's choices,
+/// or one of its own). The window is rebuilt unless only a number was typed.
+extern "C" fn on_repeat_rule(mut data: RefAny, _info: CallbackInfo, rule: RecurrenceRule) -> Update {
+    let text = rule.to_rrule().as_str().to_string();
+    let parsed = if text.is_empty() {
+        None
+    } else {
+        match crate::rrule::Rule::parse(&text) {
+            Ok(parsed) => Some(parsed),
+            Err(e) => {
+                eprintln!("[azcalendar] the recurrence editor's rule {text:?}: {e}");
+                return Update::DoNothing;
+            }
         }
-        true
+    };
+    with_form(&mut data, |f| {
+        let before = f
+            .shown_rule()
+            .map(|r| r.to_rrule(true))
+            .unwrap_or_default();
+        f.set_rule(parsed);
+        rows_of(&before) != rows_of(&text)
     })
 }
 
-extern "C" fn on_repeat_variant(
-    mut data: RefAny,
-    _info: CallbackInfo,
-    state: SegmentedState,
-) -> Update {
+/// "Replace" beside a rule the recurrence editor cannot show: the event no longer repeats by
+/// it, and the editor shows, to make a new rule with.
+extern "C" fn on_repeat_replace(mut data: RefAny, _info: CallbackInfo) -> Update {
     with_form(&mut data, |f| {
-        if let Some((repeat, _)) = editor::repeat_variants(f.repeat, f.date)
-            .into_iter()
-            .nth(state.selected_index)
-        {
-            f.repeat = repeat;
-        }
-        true
-    })
-}
-
-extern "C" fn on_ends(mut data: RefAny, _info: CallbackInfo, state: SegmentedState) -> Update {
-    with_form(&mut data, |f| {
-        if let Some(ends) = Ends::CHOICES.get(state.selected_index) {
-            f.ends = *ends;
-        }
+        f.set_rule(None);
         true
     })
 }
