@@ -52,19 +52,20 @@ const HEIGHT: f32 = 600.0;
 
 /// An AzWidgets-like settings card: a heading, a label row with a button, a
 /// paragraph, and text beside a block (an anonymous block holds the text).
-fn card(i: usize) -> Dom {
+/// An `edited` card's label reads differently.
+fn card(i: usize, edited: bool) -> Dom {
+    let label = if edited {
+        format!("Label {i}: a setting whose description was edited")
+    } else {
+        format!("Label {i}: a setting with a longer description")
+    };
     Dom::create_div()
         .with_css("display: flex; flex-direction: column; padding: 12px; margin-top: 8px;")
         .with_child(Dom::create_div_with_text(format!("Card {i}")).with_css("font-size: 18px;"))
         .with_child(
             Dom::create_div()
                 .with_css("display: flex; flex-direction: row; align-items: center;")
-                .with_child(
-                    Dom::create_div_with_text(format!(
-                        "Label {i}: a setting with a longer description"
-                    ))
-                    .with_css("flex-grow: 1;"),
-                )
+                .with_child(Dom::create_div_with_text(label).with_css("flex-grow: 1;"))
                 .with_child(Dom::create_div_with_text("Press").with_css("padding: 4px 10px;")),
         )
         .with_child(Dom::create_p().with_child(
@@ -82,8 +83,9 @@ fn card(i: usize) -> Dom {
         )
 }
 
-/// The card holding the switch: a label and a fixed-size track with its knob.
-fn switch_card() -> Dom {
+/// The card holding the switch: a label and a fixed-size track with its knob,
+/// the knob `knob_px` from the track's left edge.
+fn switch_card(knob_px: isize) -> Dom {
     Dom::create_div()
         .with_css("display: flex; flex-direction: column; padding: 18px;")
         .with_child(
@@ -94,11 +96,9 @@ fn switch_card() -> Dom {
                     Dom::create_div()
                         .with_class("track".into())
                         .with_css("display: flex; width: 36px; height: 20px; padding: 2px;")
-                        .with_child(
-                            Dom::create_div()
-                                .with_class("knob".into())
-                                .with_css("width: 16px; height: 16px;"),
-                        ),
+                        .with_child(Dom::create_div().with_class("knob".into()).with_css(
+                            &format!("width: 16px; height: 16px; margin-left: {knob_px}px;"),
+                        )),
                 ),
         )
 }
@@ -106,14 +106,20 @@ fn switch_card() -> Dom {
 /// AzWidgets' shape: a menu bar above a full-height flex body, a scrolling
 /// flex column inside it, the switch card first and `cards` cards below.
 fn widgets_page(cards: usize) -> Dom {
+    widgets_page_with(cards, 0, None)
+}
+
+/// [`widgets_page`] with the knob `knob_px` into its track and card `edited`
+/// (if any) relabelled.
+fn widgets_page_with(cards: usize, knob_px: isize, edited: Option<usize>) -> Dom {
     let mut content = Dom::create_div()
         .with_css(
             "display: flex; flex-direction: column; flex-grow: 1; overflow-y: auto; \
              padding: 24px;",
         )
-        .with_child(switch_card());
+        .with_child(switch_card(knob_px));
     for i in 0..cards {
-        content = content.with_child(card(i));
+        content = content.with_child(card(i, edited == Some(i)));
     }
     Dom::create_html()
         .with_child(Dom::create_div().with_css("height: 26px;"))
@@ -194,6 +200,71 @@ fn restyle(lw: &mut LayoutWindow, node: NodeId, prop: CssProperty) {
     });
     lw.pending_css_dirty = Some((DomId::ROOT_ID, vec![(node, scope)]));
     relayout(lw);
+}
+
+/// Lay the window out with a REBUILT page - a new `StyledDom`, as an app's
+/// `RefreshDom` hands one over - through the reconcile.
+fn rebuild(lw: &mut LayoutWindow, mut dom: Dom) {
+    let styled_dom = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let window_state = lw.current_window_state.clone();
+    lw.layout_and_generate_display_list(
+        styled_dom,
+        &window_state,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the rebuilt page lays out");
+}
+
+/// Every node's box and every glyph `lw` paints are where a fresh window,
+/// which reuses nothing, puts them for `page`.
+fn assert_lays_out_like_a_fresh_window(lw: &LayoutWindow, page: Dom, what: &str) {
+    let fresh = window(page);
+    let nodes = |w: &LayoutWindow| {
+        w.layout_results[&DomId::ROOT_ID]
+            .styled_dom
+            .node_data
+            .as_container()
+            .len()
+    };
+    assert_eq!(nodes(lw), nodes(&fresh), "harness: {what}: the same page");
+    let close = |a: f32, b: f32| (a - b).abs() < 0.01;
+    for n in 0..nodes(lw) {
+        let id = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: Some(NodeId::new(n)).into(),
+        };
+        let (is, fresh_box) = (lw.get_node_layout_rect(id), fresh.get_node_layout_rect(id));
+        let same = match (is, fresh_box) {
+            (Some(a), Some(b)) => {
+                close(a.origin.x, b.origin.x)
+                    && close(a.origin.y, b.origin.y)
+                    && close(a.size.width, b.size.width)
+                    && close(a.size.height, b.size.height)
+            }
+            (None, None) => true,
+            _ => false,
+        };
+        assert!(
+            same,
+            "{what}: node {n} is laid out at {is:?}, a fresh window puts it at {fresh_box:?}"
+        );
+    }
+    let (painted, fresh_painted) = (painted_glyphs(lw), painted_glyphs(&fresh));
+    assert_eq!(
+        painted.len(),
+        fresh_painted.len(),
+        "{what}: the window paints {} glyphs, a fresh window {}",
+        painted.len(),
+        fresh_painted.len()
+    );
+    for (a, b) in painted.iter().zip(&fresh_painted) {
+        assert!(
+            a.0 == b.0 && close(a.1, b.1) && close(a.2, b.2),
+            "{what}: a glyph paints as {a:?}, a fresh window paints it as {b:?}"
+        );
+    }
 }
 
 /// Every glyph the window paints: `(glyph, x, y)`.
@@ -405,5 +476,43 @@ fn text_beside_a_block_keeps_painting_when_a_sibling_restyles() {
         painted_glyphs(&lw),
         before,
         "the text beside the block must paint where it painted before its sibling restyled"
+    );
+}
+
+/// A page laid out again - after a knob frame, after a rebuild that changes
+/// one card's text, after another knob frame - is laid out the way a fresh
+/// window lays out the same page: every node's box, every glyph.
+///
+/// The tests above prove the clean cards are reused; this proves that reusing
+/// them is right, against a window that reuses nothing.
+#[test]
+fn a_page_laid_out_again_matches_a_fresh_window() {
+    let mut lw = window(widgets_page(12));
+
+    let knob = with_class(&lw, "knob");
+    restyle(
+        &mut lw,
+        knob,
+        CssProperty::const_margin_left(LayoutMarginLeft::const_px(8)),
+    );
+    assert_lays_out_like_a_fresh_window(&lw, widgets_page_with(12, 8, None), "knob at 8 px");
+
+    rebuild(&mut lw, widgets_page_with(12, 8, Some(3)));
+    assert_lays_out_like_a_fresh_window(
+        &lw,
+        widgets_page_with(12, 8, Some(3)),
+        "card 3 relabelled",
+    );
+
+    let knob = with_class(&lw, "knob");
+    restyle(
+        &mut lw,
+        knob,
+        CssProperty::const_margin_left(LayoutMarginLeft::const_px(16)),
+    );
+    assert_lays_out_like_a_fresh_window(
+        &lw,
+        widgets_page_with(12, 16, Some(3)),
+        "knob at 16 px after the rebuild",
     );
 }
