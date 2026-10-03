@@ -118,6 +118,42 @@ fn blink_mac_system_font_and_apple_system_are_system_ui() {
     );
 }
 
+/// A document whose text only changes SIZE (a zoom, a heading that grows)
+/// draws it at the new size. The window's "the font stacks did not change"
+/// check hashed the families alone, so the second layout reused the first
+/// one's chains: the 20px run's key (optical size 20) was never resolved and
+/// its face never loaded, and the run shaped to nothing. Chrome: 116.27 at
+/// 13px, 168.02 at 20px.
+#[cfg(target_os = "macos")]
+#[test]
+fn text_that_only_changes_size_is_drawn_at_the_new_size() {
+    use crate::table_markup::lay_out_in;
+
+    if !has_sf() {
+        return;
+    }
+    let mut lw = body(&line("t", "system-ui", 13, 400));
+    let first = rect(&lw, "t").size.width;
+    lay_out_in(
+        &mut lw,
+        &format!(
+            "<html><head></head><body style=\"margin: 0\">{}</body></html>",
+            line("t", "system-ui", 20, 400)
+        ),
+        800.0,
+        600.0,
+    );
+    let second = rect(&lw, "t").size.width;
+    assert!(
+        near(first, 116.2656, 0.5),
+        "13px system-ui: azul {first:.3}, Chrome 116.266"
+    );
+    assert!(
+        near(second, 168.0156, 0.5),
+        "the same text at 20px in the same window: azul {second:.3}, Chrome 168.016"
+    );
+}
+
 /// The widgets' `system:ui` (azul's system font role) and CSS `system-ui` are
 /// ONE face at one size: every app's UI text and a mail's `system-ui` text
 /// look alike. (A pin: it holds before the fix too, both drew SFNS.ttf.)
