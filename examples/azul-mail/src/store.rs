@@ -314,6 +314,57 @@ mod tests {
         }
     }
 
+    /// The data tree's manifest (`<root>/.azlin/cache`), as text.
+    fn manifest_of(root: &Path) -> String {
+        std::fs::read_to_string(
+            root.join(azul_storage::manifest::MANIFEST_DIR)
+                .join(azul_storage::manifest::CACHE_FILE),
+        )
+        .unwrap_or_default()
+    }
+
+    #[test]
+    fn an_accounts_folder_in_the_data_tree_is_a_folder_of_the_trees_one_drive() {
+        let dir = TempDir::new("store-tree");
+        let account = dir.0.join("mail").join("ada@example.org");
+        let folder = DriveFolder::of(&account, &dir.0);
+        assert!(folder.is_data_tree());
+        assert_eq!(folder.path(), account);
+        assert_eq!(folder.child("outbox").path(), account.join("outbox"));
+        let store = MailStore::new(folder);
+        let key = message_key("inbox", 2026, 9, 1);
+        store.put(&key, b"From: a\r\n\r\nhi\r\n").unwrap();
+        assert!(account.join("mail/inbox/2026/09/1.eml").is_file());
+        // ONE manifest, the data tree's: the write is recorded under the account's prefix,
+        // and the account's folder holds no second one.
+        let manifest = manifest_of(&dir.0);
+        assert!(
+            manifest.contains("mail/ada%40example.org/mail/inbox/2026/09/1.eml")
+                || manifest.contains("mail/ada@example.org/mail/inbox/2026/09/1.eml"),
+            "the data tree's manifest does not record the message: {manifest}"
+        );
+        assert!(!account.join(azul_storage::manifest::MANIFEST_DIR).exists());
+    }
+
+    #[test]
+    fn a_folder_outside_the_data_tree_is_a_drive_of_its_own_without_a_manifest() {
+        let tree = TempDir::new("store-tree");
+        let elsewhere = TempDir::new("store-elsewhere");
+        let folder = DriveFolder::of(&elsewhere.0, &tree.0);
+        assert!(!folder.is_data_tree());
+        assert_eq!(folder.path(), elsewhere.0);
+        MailStore::new(folder)
+            .put(&state_key("inbox"), b"{}")
+            .unwrap();
+        assert!(elsewhere.0.join("mail/inbox/state.json").is_file());
+        assert!(!elsewhere.0.join(azul_storage::manifest::MANIFEST_DIR).exists());
+        assert!(!tree.0.join(azul_storage::manifest::MANIFEST_DIR).exists());
+        // Seen from the data tree's AzMail folder, a path is placed the same way.
+        let azmail = DriveFolder::of(&tree.0.join("mail"), &tree.0);
+        assert!(azmail.locate(&tree.0.join("mail").join("x")).is_data_tree());
+        assert!(!azmail.locate(&elsewhere.0).is_data_tree());
+    }
+
     #[test]
     fn keys_follow_the_object_store_layout() {
         assert_eq!(
