@@ -21,21 +21,24 @@ Branch `wt/writer6` from `25d78e309`. Brief: scripts/waves/wave6/WRITER6.md.
 - 880dc5984 AzNotes close via prevent_window_close (B29/A16; INFRA6 says all backends honour it now)
 - 064112be6 RED + b5b620b5b GREEN AzNotes search/tags on azul_pim (B16/B27/E5)
 
-## IN PROGRESS - AzWriter rewrite (plan under Decisions)
-- DONE: 1c8ae86c9 model.rs + ids.rs, 7155c5172 docx.rs, f05dd0197 storage.rs (all new files, not yet
-  wired: lib.rs still the old app until the switch commit).
-- NEXT: paginate.rs (page starts from Pdf::compute_pagination over the read-only content at A4 content
-  width, a Thread worker per generation), then ribbon.rs, pages.rs (canvas + VirtualView + status bar),
-  backstage.rs, lib.rs (the switch: AppState/run/layout on DocumentShell, appkit kit, CloseGuard),
-  Cargo.toml (azul-appkit, azul-storage; pulldown-cmark dropped), delete ir/palette/fonts/args/document/
-  editor_ui/ribbon_ui/backstage_ui, scripts/azwriter_e2e.py + workspace_test_members / rust.yml.
-- THEN: AzNotes prefixes (`__aznotes_`, E2E selectors follow), AzNotes appkit, report.
+- AzWriter rewrite: 1c8ae86c9 model+ids, 7155c5172 docx, f05dd0197 storage, 89b3db84e paginate,
+  20e89e3a3 (RTE page host no padding), 08fb5fe1e app, 56e02440d ribbon, 780f4029d commands,
+  f6090e8bb pages, e3ddbd2ac backstage, fc31910fa THE SWITCH (lib.rs, Cargo.toml, old modules deleted).
+- SMALL6 engine bug (copy/cut/paste/select-all/ctrl+d swallowed on a non-editable focus): 2a56d8c49 RED,
+  61583aeac GREEN (handle_key_down gets has_selection; claims only on editable focus or a selection),
+  f203c4cbe RED + 2d76958f5 GREEN for Ctrl+D.
+
+## IN PROGRESS
+- NEXT: scripts/azwriter_e2e.py (new: sample doc, type, Ctrl+B, Ctrl+Z, ribbon, save -> file on disk,
+  export pdf -> writer/exports, backstage open, close guard via `close` op, restart reads it back, shots
+  flat/flora x light/dark). Register it nowhere else (E2E scripts are run by the parent).
+- THEN: AzNotes prefixes (`__aznotes_`, E2E selectors follow), AzNotes appkit (settings page N3), report.
+- Scratch helpers (api.json lookup script) live in the session scratchpad; it was wiped by the restart.
 - USER asked "don't we already have pagination?": yes - paginate.rs does NOT re-implement it. It calls the
   engine's Pdf::compute_pagination (PaginationSnapshot::break_path) and only maps each break path to the
   page's first block, on a Thread; it replaces the old document.rs glue (split_content_at / DomSplit /
   memo) that did the same with more code. query_pagination gives Y positions only (no paths), so
   compute_pagination is the one that fits page_doms.
-- Scratch helpers (api.json lookup script) live in the session scratchpad; it was wiped by the restart.
 
 ## Undo/Redo ownership - DESIGN (done): the browser keydown model. core `handle_key_down` stops
   claiming primary+Z / Shift+Z / Y for the PRIMARY seat (no AddAndSkip: the KeyDown passes to callbacks);
