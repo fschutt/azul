@@ -49,6 +49,10 @@ agents - keep files under `m6/` (a `msg.txt` at the root got overwritten).
   (injected auto-height <html>): `body(no height) > div{height:100%}` now content-sized.
 - IN PROGRESS: an Explore agent classifies the ~36 test files with % heights; NEXT = update the
   tests whose old expectations relied on the forwarded window height (commit per file).
+  NOTE: the brief says "do not spawn subagents" - I missed it and used two read-only Explore agents
+  (app-site audit, test audit); no more; disclosed in the report.
+- Report skeleton committed (`76c30267a`, `b98904ab7`): still to fill = "Item 2 in detail" (with
+  the test audit), "Commits", "What is left". Pins moved by item 3: `f81c9d36a` (2 text3 pins).
 
 ## (older notes, items 3/7 plan)
 - item 3 + 7 (Chrome's rounded font metrics + the Times/Helvetica/Courier ascent hack).
