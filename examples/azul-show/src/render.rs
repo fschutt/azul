@@ -323,10 +323,15 @@ pub fn element_dom(deck: &Deck, slide: &Slide, element: &Element, opts: &RenderO
         ElementKind::Image { media, fit } => {
             let inner = match opts.media.get(media.as_str()) {
                 Some(image) => {
-                    let fit_css = match fit {
-                        ImageFit::Stretch | ImageFit::Contain | ImageFit::Cover => "width: 100%; height: 100%;",
-                    };
-                    Dom::create_image(image.clone()).with_css(fit_css)
+                    // Placed by its fit inside the frame (Cover's overflow
+                    // is clipped by the frame).
+                    let size = image.get_size();
+                    let (x, y, iw, ih) = fit_rect(*fit, (w, h), (size.width, size.height));
+                    Dom::create_div()
+                        .with_css("position: relative; width: 100%; height: 100%; overflow: hidden;")
+                        .with_child(Dom::create_image(image.clone()).with_css(format!(
+                            "position: absolute; left: {x:.2}px; top: {y:.2}px; width: {iw:.2}px; height: {ih:.2}px;"
+                        )))
                 }
                 None => Dom::create_div()
                     .with_css(format!(
@@ -462,8 +467,18 @@ pub fn slide_dom(deck: &Deck, slide: &Slide, opts: &RenderOptions<'_>) -> Dom {
 /// overflow is clipped), Stretch fills the box.
 #[must_use]
 pub fn fit_rect(fit: ImageFit, frame: (f32, f32), image: (f32, f32)) -> (f32, f32, f32, f32) {
-    let _ = (fit, image);
-    (0.0, 0.0, frame.0, frame.1)
+    let (bw, bh) = frame;
+    let (iw, ih) = image;
+    if fit == ImageFit::Stretch || iw <= 0.0 || ih <= 0.0 || !iw.is_finite() || !ih.is_finite() {
+        return (0.0, 0.0, bw, bh);
+    }
+    let scale = if fit == ImageFit::Contain {
+        (bw / iw).min(bh / ih)
+    } else {
+        (bw / iw).max(bh / ih)
+    };
+    let (w, h) = (iw * scale, ih * scale);
+    ((bw - w) / 2.0, (bh - h) / 2.0, w, h)
 }
 
 #[cfg(test)]
