@@ -785,6 +785,158 @@ fn svg_and_mathml_end_where_html_content_starts() {
     );
 }
 
+/// `markup` (tags without attributes, `<x/>`, `</x>`, `<!--x-->`, text) fed as the strict
+/// loaders feed their tokens into the tree construction under `rules`: the outline and
+/// how many elements were left open.
+fn strict(rules: TreeRules, markup: &str) -> (String, usize) {
+    let mut builder = TreeBuilder::new(rules);
+    let mut sink = XmlTreeSink::new();
+    let mut rest = markup;
+    while !rest.is_empty() {
+        if let Some(after) = rest.strip_prefix("<!--") {
+            let end = after.find("-->").unwrap();
+            builder.comment(&mut sink, &after[..end]);
+            rest = &after[end + 3..];
+        } else if let Some(after) = rest.strip_prefix("</") {
+            let end = after.find('>').unwrap();
+            builder.end_tag(&mut sink, &after[..end]);
+            rest = &after[end + 1..];
+        } else if let Some(after) = rest.strip_prefix('<') {
+            let end = after.find('>').unwrap();
+            let tag = &after[..end];
+            match tag.strip_suffix('/') {
+                Some(name) => builder.start_tag(&mut sink, name, Vec::new(), true),
+                None => builder.start_tag(&mut sink, tag, Vec::new(), false),
+            }
+            rest = &after[end + 1..];
+        } else {
+            let end = rest.find('<').unwrap_or(rest.len());
+            builder.text(&mut sink, &rest[..end]);
+            rest = &rest[end..];
+        }
+    }
+    let open = builder.finish(&mut sink);
+    (outline(&sink.finish(), false), open)
+}
+
+/// The strict loaders (`TreeRules::Xml` / `XmlFolded`) keep the XML conveniences they had
+/// before the tree construction became HTML's (XML8): void elements, implied end tags (also
+/// a cell's and a row's within their table), end tags matched within their scope, `<x/>` an
+/// empty element, a misnested formatting element closed with its block - and none of HTML's
+/// document repairs (no implied html / head / body / tbody, no quirks, no foster parenting,
+/// no adoption agency, no `<image>` alias, a line feed after `<pre>` kept).
+#[test]
+fn the_strict_loaders_keep_their_xml_conveniences() {
+    let rows: &[(&str, &str, usize)] = &[
+        ("<p>a<div>b</div></p>", "p{\"a\"} div{\"b\"}", 0),
+        ("<ul><li>a<li>b</ul>", "ul{li{\"a\"} li{\"b\"}}", 0),
+        (
+            "<table><tr><td>a<td>b</tr></table>",
+            "table{tr{td{\"a\"} td{\"b\"}}}",
+            0,
+        ),
+        ("<table><td>x</td></table>", "table{td{\"x\"}}", 0),
+        ("<td>x</td>", "td{\"x\"}", 0),
+        ("<b><p>x</b>y</p>", "b{p{\"xy\"}}", 0),
+        ("<div/>x<br>y", "div \"x\" br \"y\"", 0),
+        ("<div>a</span>b</div>", "div{\"ab\"}", 0),
+        (
+            "<select><option>a<option>b</select>",
+            "select{option{\"a\"} option{\"b\"}}",
+            0,
+        ),
+        ("<h1>a<h2>b</h2>", "h1{\"a\"} h2{\"b\"}", 0),
+        (
+            "<svg><image/><linearGradient/></svg>",
+            "svg{image linearGradient}",
+            0,
+        ),
+        ("a<p>b</p>c", "\"a\" p{\"b\"} \"c\"", 0),
+        ("<style><!--p{}--></style>", "style{\"<!--p{}-->\"}", 0),
+        ("<div><span>x", "div{span{\"x\"}}", 2),
+        ("<pre>\nx</pre>", "pre{\" x\"}", 0),
+        (
+            "<p>a<table><tr><td>x</td></tr></table>",
+            "p{\"a\"} table{tr{td{\"x\"}}}",
+            0,
+        ),
+        ("<a>1<a>2</a></a>", "a{\"1\" a{\"2\"}}", 0),
+        ("<p>a</p></p>", "p{\"a\"}", 0),
+        ("a</br>b", "\"ab\"", 0),
+        ("<DIV><Span>x</Span></DIV>", "DIV{Span{\"x\"}}", 0),
+    ];
+    let mut failures = Vec::new();
+    for (markup, expected, open) in rows {
+        let got = strict(TreeRules::Xml, markup);
+        if got != ((*expected).into(), *open) {
+            failures.push(alloc::format!(
+                "{markup:?}\n  expected {expected} ({open} open)\n  got      {} ({} open)",
+                got.0,
+                got.1
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    // The document loader's rules: the same, the names lower-cased.
+    assert_eq!(
+        strict(TreeRules::XmlFolded, "<DIV><Span>x</Span></DIV>"),
+        ("div{span{\"x\"}}".into(), 0)
+    );
+}
+
+/// The element table is sorted (it is binary-searched) and names every element once.
+#[test]
+fn the_element_table_is_sorted() {
+    for pair in rules::ELEMENTS.windows(2) {
+        assert!(
+            pair[0].name < pair[1].name,
+            "{} before {}",
+            pair[0].name,
+            pair[1].name
+        );
+    }
+}
+
+/// A doctype decides quirks mode by the HTML Standard's table (13.2.6.4.1).
+#[test]
+fn a_doctype_decides_quirks_mode_as_the_standard_lists_it() {
+    let quirky = |doctype: &str| {
+        let token = HtmlTokenizer::new(doctype).next();
+        let Some(HtmlToken::Doctype(d)) = &token else {
+            panic!("{doctype:?} is no doctype: {token:?}");
+        };
+        rules::doctype_is_quirky(
+            &d.name,
+            d.public_id.as_deref(),
+            d.system_id.as_deref(),
+            d.force_quirks,
+        )
+    };
+    assert!(!quirky("<!DOCTYPE html>"));
+    assert!(!quirky("<!doctype HTML>"));
+    assert!(!quirky("<!DOCTYPE html SYSTEM \"about:legacy-compat\">"));
+    assert!(quirky("<!DOCTYPE>"));
+    assert!(quirky("<!DOCTYPE foo>"));
+    assert!(quirky(
+        "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01 Transitional//EN\">"
+    ));
+    assert!(!quirky(
+        "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01 Transitional//EN\" \"http://www.w3.org/TR/html4/loose.dtd\">"
+    ));
+    assert!(!quirky(
+        "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">"
+    ));
+    assert!(quirky("<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\">"));
+    assert!(quirky("<!DOCTYPE html PUBLIC \"-//W3C//DTD HTML 3.2 Final//EN\">"));
+    assert!(quirky("<!DOCTYPE html PUBLIC \"html\">"));
+    // a missing quote, an unclosed identifier, a bogus keyword: quirks
+    assert!(quirky("<!DOCTYPE html PUBLIC -//W3C//DTD>"));
+    assert!(quirky("<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0>"));
+    assert!(quirky("<!DOCTYPE html bogus>"));
+    // the input ends in it
+    assert!(quirky("<!DOCTYPE html"));
+}
+
 /// The HTML Standard's named references (all 2231), the legacy ones without
 /// their `;`, and the numeric ones through the Windows-1252 repair.
 #[test]
