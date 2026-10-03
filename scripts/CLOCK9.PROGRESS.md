@@ -10,9 +10,14 @@ Branch: wt/clock9 (base e537ddbe2). Brief: scripts/waves/wave9/PLAN.md "CLOCK9",
 - f9f8e6149 RED / b0a6d4ee7 GREEN timer.rs, stopwatch.rs, fmt.rs
 - de56163d4 RED / 04941615e GREEN world.rs (chrono-tz zones, rows, search)
 - 9e6f356ec RED / cf8ab9ae9 GREEN schedule.rs (OS notification plan, diff, payloads)
+- 999c75f76 RED engine tests (layout/tests/native_notifications.rs mod scheduled; e2e tooling_tests)
+- ef410cccd GREEN core Notification::deliver_at + with_deliver_at, layout ScheduledNotifications + wire
+  (delivery_delay_ms, apple_trigger_interval, windows_datetime), assert_notification scheduled/deliver_at
+- a87ba8425 dll: Apple UNTimeIntervalNotificationTrigger, Windows ScheduledToastNotification, held queue +
+  deadline thread elsewhere, withdraw cancels
 
 ## IN PROGRESS
-- E1 RED engine tests (layout/tests/native_notifications.rs APPEND): deliver_at, scheduled queue, wire helpers
+- A4 store.rs (files in the data tree) + sample data, then A5 UI (ui/*.rs)
 
 ## NEXT (plan, in order)
 - A1 skeleton + register (root Cargo.toml members, scripts/workspace_test_members.txt, rust.yml dll_tests step)
