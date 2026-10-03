@@ -3652,6 +3652,12 @@ pub struct InlineBorderInfo {
     /// LTR: first fragment gets left edge, last gets right edge.
     /// RTL: first fragment gets right edge, last gets left edge.
     pub is_rtl: bool,
+    /// The left / right margins in pixels (CSS 2.2 s10.3.1: an inline box's
+    /// horizontal margins apply; vertical ones do not). They move the pen
+    /// like the border and padding but are not painted - the background
+    /// covers the border box only ([`Self::left_inset`]).
+    pub margin_left: f32,
+    pub margin_right: f32,
 }
 
 impl Default for InlineBorderInfo {
@@ -3673,6 +3679,8 @@ impl Default for InlineBorderInfo {
             is_first_fragment: true,
             is_last_fragment: true,
             is_rtl: false,
+            margin_left: 0.0,
+            margin_right: 0.0,
         }
     }
 }
@@ -3741,6 +3749,77 @@ impl InlineBorderInfo {
     #[must_use]
     pub fn bottom_inset(&self) -> f32 {
         self.bottom + self.padding_bottom
+    }
+
+    /// How far the box moves the pen before its content: the left margin
+    /// plus [`Self::left_inset`], suppressed at a split like the inset
+    /// (CSS 2.2 s9.4.2: margins, borders and padding have no effect where
+    /// an inline box is split).
+    #[must_use]
+    pub fn left_advance(&self) -> f32 {
+        let inset = self.left_inset();
+        let show = if self.is_rtl {
+            self.is_last_fragment
+        } else {
+            self.is_first_fragment
+        };
+        if show {
+            self.margin_left + inset
+        } else {
+            inset
+        }
+    }
+
+    /// How far the box moves the pen after its content: [`Self::right_inset`]
+    /// plus the right margin, suppressed at a split like the inset.
+    #[must_use]
+    pub fn right_advance(&self) -> f32 {
+        let inset = self.right_inset();
+        let show = if self.is_rtl {
+            self.is_first_fragment
+        } else {
+            self.is_last_fragment
+        };
+        if show {
+            inset + self.margin_right
+        } else {
+            inset
+        }
+    }
+
+    /// Whether the box moves the pen at all: a border, a padding or a
+    /// horizontal margin (a negative margin moves it too).
+    #[must_use]
+    pub fn moves_the_pen(&self) -> bool {
+        self.has_chrome() || self.margin_left != 0.0 || self.margin_right != 0.0
+    }
+
+    /// Every field into `state`, the floats by their bits. `StyleProperties`'
+    /// `Hash` is a cache KEY (the text cache's first stage), so two
+    /// decorations must hash apart.
+    pub fn hash_bits<H: Hasher>(&self, state: &mut H) {
+        for v in [
+            self.top,
+            self.right,
+            self.bottom,
+            self.left,
+            self.padding_top,
+            self.padding_right,
+            self.padding_bottom,
+            self.padding_left,
+            self.margin_left,
+            self.margin_right,
+        ] {
+            v.to_bits().hash(state);
+        }
+        self.radius.map(f32::to_bits).hash(state);
+        self.top_color.hash(state);
+        self.right_color.hash(state);
+        self.bottom_color.hash(state);
+        self.left_color.hash(state);
+        self.is_first_fragment.hash(state);
+        self.is_last_fragment.hash(state);
+        self.is_rtl.hash(state);
     }
 }
 
@@ -4868,6 +4947,23 @@ impl Hash for StyleProperties {
         // For f32 fields, round and cast to usize before hashing.
         (self.font_size_px.round() as isize).hash(state);
         self.line_height.hash(state);
+
+        // The inline box's decoration. This hash is a cache KEY - the text
+        // cache's first stage is `calculate_id(&content)` - so a span's text
+        // styled with the span's border / padding / background image must not
+        // hash like the same text styled with the text node's own style: the
+        // intrinsic-sizing pass collects it that way, and its border-less
+        // items were served to the final layout, so a span with a border
+        // but no background drew no border and moved nothing (WPT
+        // inline-formatting-context-004).
+        self.background_content.hash(state);
+        match &self.border {
+            None => 0_u8.hash(state),
+            Some(b) => {
+                1_u8.hash(state);
+                b.hash_bits(state);
+            }
+        }
     }
 }
 
@@ -4877,7 +4973,7 @@ impl StyleProperties {
     /// Properties that DON'T affect layout (only rendering):
     /// - color, `background_color`, `background_content`
     /// - `text_decoration` (underline, etc.)
-    /// - border (for inline elements)
+    /// - an inline box's border colours and its top / bottom border and padding
     ///
     /// Properties that DO affect layout:
     /// - `font_stack`, `font_size_px`, `font_features`, `font_variations`
@@ -4885,6 +4981,8 @@ impl StyleProperties {
     /// - `writing_mode`, `text_orientation`, `text_combine_upright`
     /// - `text_transform`
     /// - `font_variant`_* (affects glyph selection)
+    /// - an inline box's left / right border, padding and margin: they move
+    ///   the pen (`inline_offsets` in `position_one_line`)
     ///
     /// This allows the layout cache to reuse layouts when only rendering
     /// properties change (e.g., color changes on hover).
@@ -4928,6 +5026,16 @@ impl StyleProperties {
         self.font_variant_numeric.hash(&mut hasher);
         self.font_variant_ligatures.hash(&mut hasher);
         self.font_variant_east_asian.hash(&mut hasher);
+
+        // An inline box's horizontal margin + border + padding move the pen
+        // (`inline_offsets` in `position_one_line`): a span that gains one
+        // must not reuse the old positions. No box and a box of zeros hash
+        // alike.
+        let (start, end) = self.border.as_ref().map_or((0.0_f32, 0.0_f32), |b| {
+            (b.left_advance(), b.right_advance())
+        });
+        start.to_bits().hash(&mut hasher);
+        end.to_bits().hash(&mut hasher);
 
         hasher.finish()
     }
@@ -12583,10 +12691,10 @@ pub fn position_one_line<T: ParsedFontTrait>(
         // dominant-baseline/vertical-align +spec:line-height:e2253a - vertical-align
         // positioning within line boxes
 
-        // Pre-compute inline border/padding offsets at span boundaries.
-        // Only the FIRST cluster of each inline span gets left_inset, and only
-        // the LAST cluster gets right_inset. We detect span boundaries by comparing
-        // Arc<StyleProperties> pointers between consecutive clusters.
+        // Pre-compute inline margin/border/padding offsets at span boundaries.
+        // Only the FIRST cluster of each inline span gets the left advance, and
+        // only the LAST cluster the right one. We detect span boundaries by
+        // comparing Arc<StyleProperties> pointers between consecutive clusters.
         let inline_offsets: Vec<(f32, f32)> = {
             let items_slice: &[ShapedItem] = &justified_segment_items;
             items_slice
@@ -12595,7 +12703,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 .map(|(idx, item)| {
                     if let ShapedItem::Cluster(c) = item {
                         if let Some(border) = c.style.border.as_ref() {
-                            if border.has_chrome() {
+                            if border.moves_the_pen() {
                                 let style_ptr = Arc::as_ptr(&c.style);
                                 let prev_same_span = idx > 0
                                     && items_slice[idx - 1]
@@ -12608,12 +12716,12 @@ pub fn position_one_line<T: ParsedFontTrait>(
                                 let left = if prev_same_span {
                                     0.0
                                 } else {
-                                    border.left_inset()
+                                    border.left_advance()
                                 };
                                 let right = if next_same_span {
                                     0.0
                                 } else {
-                                    border.right_inset()
+                                    border.right_advance()
                                 };
                                 return (left, right);
                             }

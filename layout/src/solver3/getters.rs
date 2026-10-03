@@ -2818,10 +2818,22 @@ fn get_inline_border_info(
         viewport,
     );
 
-    // Only return Some if there's actually a border or padding
+    // CSS 2.2 s10.3.1: an inline box's left and right margins apply (its
+    // top and bottom ones do not). `auto` is 0.
+    let m_left = resolve_padding(
+        get_css_margin_left(styled_dom, node_id, node_state),
+        viewport,
+    );
+    let m_right = resolve_padding(
+        get_css_margin_right(styled_dom, node_id, node_state),
+        viewport,
+    );
+
+    // Only return Some if there's actually a border, padding or margin
     let has_border = top > 0.0 || right > 0.0 || bottom > 0.0 || left > 0.0;
     let has_padding = p_top > 0.0 || p_right > 0.0 || p_bottom > 0.0 || p_left > 0.0;
-    if !has_border && !has_padding {
+    let has_margin = m_left != 0.0 || m_right != 0.0;
+    if !has_border && !has_padding && !has_margin {
         return None;
     }
 
@@ -2848,6 +2860,8 @@ fn get_inline_border_info(
         is_first_fragment: true,
         is_last_fragment: true,
         is_rtl,
+        margin_left: m_left,
+        margin_right: m_right,
     })
 }
 
