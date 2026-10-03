@@ -151,9 +151,35 @@ pub fn text_to_html(text: &str) -> String {
     }
 }
 
+/// The feeds a web page names - `<link rel="alternate" type="application/rss+xml" (atom+xml,
+/// feed+json, json) href title>` - absolute against `base`, each once, in the page's order.
+#[must_use]
+pub fn feed_links(_html: &str, _base: &str) -> Vec<crate::fetch::FeedLink> {
+    Vec::new()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_web_page_names_its_feeds_in_alternate_links() {
+        let html = String::from_utf8_lossy(include_bytes!("../tests/fixtures/html_page.html")).into_owned();
+        let links = feed_links(&html, "https://example.org/");
+        let found: Vec<(&str, &str, &str)> =
+            links.iter().map(|l| (l.url.as_str(), l.title.as_str(), l.mime.as_str())).collect();
+        assert_eq!(
+            found,
+            vec![
+                ("https://example.org/feed/", "Example Weekly \u{bb} Feed", "application/rss+xml"),
+                ("https://example.org/comments/feed/", "Example Weekly \u{bb} Comments Feed", "application/rss+xml"),
+                ("https://example.org/feed/atom/", "Atom", "application/atom+xml"),
+                ("https://example.org/feed.json", "JSON", "application/feed+json"),
+            ],
+            "the stylesheet, the language version and the icon are no feeds"
+        );
+        assert!(feed_links("<p>no links</p>", "https://example.org/").is_empty());
+    }
 
     #[test]
     fn plain_text_decodes_references_and_keeps_blocks_apart() {
