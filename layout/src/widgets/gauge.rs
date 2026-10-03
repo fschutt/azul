@@ -272,6 +272,182 @@ impl Gauge {
         g.thickness = DEFAULT_LINEAR_THICKNESS;
         g
     }
+
+    /// Name this gauge for assistive technology (default: its label).
+    #[must_use]
+    pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
+        self.accessibility_name = Some(name.into()).into();
+        self
+    }
+
+    /// The value shown.
+    pub const fn set_value(&mut self, value: f64) {
+        self.value = value;
+    }
+
+    /// [`Self::set_value`] for the builder chain.
+    #[must_use]
+    pub const fn with_value(mut self, value: f64) -> Self {
+        self.set_value(value);
+        self
+    }
+
+    /// The range, `min` to `max`.
+    pub const fn set_range(&mut self, min: f64, max: f64) {
+        self.min = min;
+        self.max = max;
+    }
+
+    /// [`Self::set_range`] for the builder chain.
+    #[must_use]
+    pub const fn with_range(mut self, min: f64, max: f64) -> Self {
+        self.set_range(min, max);
+        self
+    }
+
+    /// How the range is drawn (the size and thickness stay as set).
+    pub const fn set_kind(&mut self, kind: GaugeKind) {
+        self.kind = kind;
+    }
+
+    /// [`Self::set_kind`] for the builder chain.
+    #[must_use]
+    pub const fn with_kind(mut self, kind: GaugeKind) -> Self {
+        self.set_kind(kind);
+        self
+    }
+
+    /// Every band, in order (a later band wins where two overlap).
+    pub fn set_bands(&mut self, bands: GaugeBandVec) {
+        self.bands = bands;
+    }
+
+    /// [`Self::set_bands`] for the builder chain.
+    #[must_use]
+    pub fn with_bands(mut self, bands: GaugeBandVec) -> Self {
+        self.set_bands(bands);
+        self
+    }
+
+    /// One more band, after the others.
+    pub fn add_band(&mut self, band: GaugeBand) {
+        let mut v = self.bands.as_slice().to_vec();
+        v.push(band);
+        self.bands = GaugeBandVec::from_vec(v);
+    }
+
+    /// [`Self::add_band`] for the builder chain.
+    #[must_use]
+    pub fn with_band(mut self, band: GaugeBand) -> Self {
+        self.add_band(band);
+        self
+    }
+
+    /// What the gauge measures ("CPU").
+    pub fn set_label(&mut self, label: AzString) {
+        self.label = label;
+    }
+
+    /// [`Self::set_label`] for the builder chain.
+    #[must_use]
+    pub fn with_label(mut self, label: AzString) -> Self {
+        self.set_label(label);
+        self
+    }
+
+    /// The text shown as the value instead of the number and its unit.
+    pub fn set_value_text(&mut self, text: AzString) {
+        self.value_text = OptionString::Some(text);
+    }
+
+    /// [`Self::set_value_text`] for the builder chain.
+    #[must_use]
+    pub fn with_value_text(mut self, text: AzString) -> Self {
+        self.set_value_text(text);
+        self
+    }
+
+    /// The unit written after the value ("%", " GB").
+    pub fn set_unit(&mut self, unit: AzString) {
+        self.unit = unit;
+    }
+
+    /// [`Self::set_unit`] for the builder chain.
+    #[must_use]
+    pub fn with_unit(mut self, unit: AzString) -> Self {
+        self.set_unit(unit);
+        self
+    }
+
+    /// The diameter (radial) or width (linear) in px, at least
+    /// [`MIN_SIZE`].
+    pub const fn set_size(&mut self, size: f32) {
+        self.size = size;
+    }
+
+    /// [`Self::set_size`] for the builder chain.
+    #[must_use]
+    pub const fn with_size(mut self, size: f32) -> Self {
+        self.set_size(size);
+        self
+    }
+
+    /// The ring's thickness (radial) or the bar's height (linear) in px.
+    pub const fn set_thickness(&mut self, thickness: f32) {
+        self.thickness = thickness;
+    }
+
+    /// [`Self::set_thickness`] for the builder chain.
+    #[must_use]
+    pub const fn with_thickness(mut self, thickness: f32) -> Self {
+        self.set_thickness(thickness);
+        self
+    }
+
+    /// The value's colour outside every band (default: the theme's accent).
+    pub const fn set_accent(&mut self, accent: ChartColor) {
+        self.accent = OptionChartColor::Some(accent);
+    }
+
+    /// [`Self::set_accent`] for the builder chain.
+    #[must_use]
+    pub const fn with_accent(mut self, accent: ChartColor) -> Self {
+        self.set_accent(accent);
+        self
+    }
+
+    /// Wash the bands over the track (default on).
+    pub const fn set_show_bands(&mut self, show_bands: bool) {
+        self.show_bands = show_bands;
+    }
+
+    /// [`Self::set_show_bands`] for the builder chain.
+    #[must_use]
+    pub const fn with_show_bands(mut self, show_bands: bool) -> Self {
+        self.set_show_bands(show_bands);
+        self
+    }
+
+    /// Pin the widget theme. Unset (`None`), the gauge follows the app
+    /// theme.
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
+    /// Replaces `self` with an empty dial and returns the original.
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
+        let mut s = Self::default();
+        core::mem::swap(&mut s, self);
+        s
+    }
 }
 
 // ---- the geometry (the pure half) ----
@@ -332,5 +508,140 @@ impl Gauge {
     #[must_use]
     pub fn summary(&self) -> AzString {
         AzString::from_const_str("")
+    }
+}
+
+#[cfg(test)]
+mod geometry_tests {
+    use core::f32::consts::PI;
+
+    use super::*;
+
+    fn close(a: f32, b: f32) -> bool {
+        (a - b).abs() < 1e-4
+    }
+
+    #[test]
+    fn a_value_sits_at_its_fraction_of_the_range() {
+        assert!(close(fraction(50.0, 0.0, 100.0), 0.5));
+        assert!(close(fraction(0.0, 0.0, 100.0), 0.0));
+        assert!(close(fraction(100.0, 0.0, 100.0), 1.0));
+        assert!(close(fraction(-5.0, -10.0, 10.0), 0.25));
+    }
+
+    #[test]
+    fn a_value_outside_the_range_holds_at_its_end() {
+        assert!(close(fraction(150.0, 0.0, 100.0), 1.0));
+        assert!(close(fraction(-1.0, 0.0, 100.0), 0.0));
+        assert!(close(fraction(f64::INFINITY, 0.0, 100.0), 1.0));
+        assert!(close(fraction(f64::NEG_INFINITY, 0.0, 100.0), 0.0));
+    }
+
+    #[test]
+    fn a_broken_value_or_range_draws_nothing_and_an_inverted_range_reads_right() {
+        assert!(close(fraction(f64::NAN, 0.0, 100.0), 0.0));
+        assert!(close(fraction(5.0, 5.0, 5.0), 0.0));
+        assert!(close(fraction(5.0, f64::NAN, 10.0), 0.0));
+        assert!(close(fraction(25.0, 100.0, 0.0), 0.25));
+    }
+
+    #[test]
+    fn the_arc_sweeps_270_degrees_from_half_past_seven() {
+        let (start, sweep) = sweep_of(GaugeKind::Arc);
+        assert!(close(start, -0.75 * PI));
+        assert!(close(sweep, 1.5 * PI));
+        assert!(close(angle_at(GaugeKind::Arc, 0.0), -0.75 * PI));
+        assert!(
+            close(angle_at(GaugeKind::Arc, 0.5), 0.0),
+            "the middle is at twelve"
+        );
+        assert!(close(angle_at(GaugeKind::Arc, 1.0), 0.75 * PI));
+    }
+
+    #[test]
+    fn the_ring_goes_all_the_way_round_from_twelve() {
+        let (start, sweep) = sweep_of(GaugeKind::Ring);
+        assert!(close(start, 0.0));
+        assert!(close(sweep, 2.0 * PI));
+        assert!(
+            close(angle_at(GaugeKind::Ring, 0.25), 0.5 * PI),
+            "a quarter is at three"
+        );
+    }
+
+    #[test]
+    fn a_bar_has_no_angles() {
+        assert_eq!(sweep_of(GaugeKind::Linear), (0.0, 0.0));
+    }
+
+    #[test]
+    fn a_band_holds_both_its_ends_either_way_round() {
+        let b = GaugeBand::create(60.0, 80.0, GaugeBandKind::Warn);
+        assert!(b.contains(60.0) && b.contains(70.0) && b.contains(80.0));
+        assert!(!b.contains(59.9) && !b.contains(80.1) && !b.contains(f64::NAN));
+        let reversed = GaugeBand::create(80.0, 60.0, GaugeBandKind::Warn);
+        assert!(reversed.contains(70.0));
+    }
+
+    #[test]
+    fn the_value_takes_the_last_band_that_holds_it() {
+        let bands = [
+            GaugeBand::create(0.0, 100.0, GaugeBandKind::Ok),
+            GaugeBand::create(70.0, 90.0, GaugeBandKind::Warn),
+            GaugeBand::create(90.0, 100.0, GaugeBandKind::Bad),
+        ];
+        assert_eq!(
+            band_of(&bands, 50.0).map(|b| b.kind),
+            Some(GaugeBandKind::Ok)
+        );
+        assert_eq!(
+            band_of(&bands, 75.0).map(|b| b.kind),
+            Some(GaugeBandKind::Warn)
+        );
+        assert_eq!(
+            band_of(&bands, 90.0).map(|b| b.kind),
+            Some(GaugeBandKind::Bad)
+        );
+        assert_eq!(band_of(&bands, 120.0).map(|b| b.kind), None);
+        assert_eq!(band_of(&[], 50.0).map(|b| b.kind), None);
+    }
+
+    #[test]
+    fn a_band_spans_its_part_of_the_range_clipped_to_it() {
+        let span =
+            |from, to| band_span(&GaugeBand::create(from, to, GaugeBandKind::Ok), 0.0, 100.0);
+        assert_eq!(span(25.0, 75.0), Some((0.25, 0.75)));
+        assert_eq!(span(75.0, 25.0), Some((0.25, 0.75)));
+        assert_eq!(span(-50.0, 50.0), Some((0.0, 0.5)));
+        assert_eq!(span(90.0, 150.0), Some((0.9, 1.0)));
+        assert_eq!(span(120.0, 150.0), None, "outside the range");
+        assert_eq!(span(40.0, 40.0), None, "no width");
+        assert_eq!(span(f64::NAN, 40.0), None);
+    }
+
+    #[test]
+    fn the_shown_value_is_the_number_with_its_unit_or_the_apps_text() {
+        let g = Gauge::create(73.0, 0.0, 100.0).with_unit(AzString::from_const_str("%"));
+        assert_eq!(g.shown_value().as_str(), "73%");
+        let g = Gauge::create(1234.5, 0.0, 2000.0).with_unit(AzString::from_const_str(" GB"));
+        assert_eq!(g.shown_value().as_str(), "1,234.5 GB");
+        let g = Gauge::create(0.5, 0.0, 1.0).with_value_text(AzString::from_const_str("Half full"));
+        assert_eq!(g.shown_value().as_str(), "Half full");
+    }
+
+    #[test]
+    fn the_summary_names_the_band_the_value_is_in() {
+        let g = Gauge::create(73.0, 0.0, 100.0)
+            .with_unit(AzString::from_const_str("%"))
+            .with_band(GaugeBand::create(0.0, 70.0, GaugeBandKind::Ok))
+            .with_band(GaugeBand::create(70.0, 90.0, GaugeBandKind::Warn))
+            .with_band(GaugeBand::create(90.0, 100.0, GaugeBandKind::Bad));
+        assert_eq!(g.summary().as_str(), "73% (warning)");
+        let g = g.with_value(95.0);
+        assert_eq!(g.summary().as_str(), "95% (critical)");
+        let plain = Gauge::create(10.0, 0.0, 100.0).with_unit(AzString::from_const_str("%"));
+        assert_eq!(plain.summary().as_str(), "10%");
+        let neutral = plain.with_band(GaugeBand::create(0.0, 50.0, GaugeBandKind::Neutral));
+        assert_eq!(neutral.summary().as_str(), "10%");
     }
 }
