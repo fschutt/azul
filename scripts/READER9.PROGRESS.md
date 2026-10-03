@@ -55,7 +55,9 @@ AzReader, lib azreader). Never compile; rustfmt --edition 2021 <file> as the par
    d) Chapter{...} lives in paginate.rs (step 3);
    e) SaveState{id, BookState} -> Put state.json (via azul_appkit::ui::spawn_file_jobs is enough).
 6. DONE 96cda63f5 src/settings.rs.
-7. UI (NEXT). Order: (a) src/ids.rs consts; (b) src/app.rs AppState {kit, data_root, screen
+7. UI (NEXT = (c) src/commands.rs). DONE: (a) 4b69423fe src/ids.rs, (b) 8e11cd9e0 src/app.rs
+   (AppState with area/area_marker measured via get_node_id_by_marker + get_node_rect on a
+   timer, Target, OpenBook, Command, command()). Order: (a) src/ids.rs consts; (b) src/app.rs AppState {kit, data_root, screen
    Library|Reader, library entries + covers + shelf/sort/query, open book {id, info, state,
    Arc<Container>, Book, weights}, chapters cache {chapter -> ChapterReady} for the current
    layout_key, page (index in the current chapter), generation, fonts, window size, pane
