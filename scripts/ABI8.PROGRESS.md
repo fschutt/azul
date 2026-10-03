@@ -42,8 +42,10 @@ Brief: scripts/waves/wave8/PLAN.md section "ABI8". Report: scripts/ABI8_2026_10_
 - Verified the Rust load-time static with rustc 1.91 in /tmp/abi8/rs (rlib dep, cgu 16, -O; and fat LTO):
   the check runs before main on macOS arm64, even when main uses nothing from the rlib.
 
+- Report scripts/ABI8_2026_10_03.md committed. TASK DONE.
+
 ## IN PROGRESS
-- Report scripts/ABI8_2026_10_03.md (write, commit).
+- (nothing)
 
 ## NEXT
 - Left for later (in the report): managed bindings (Lua/PHP declare AzAbi_getHash, do not compare; C#, Ruby,
