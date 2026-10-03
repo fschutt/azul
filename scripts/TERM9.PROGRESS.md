@@ -25,17 +25,16 @@ if /tmp was wiped).
   (write / scroll / select / copy), the 16 ms output timer, window keys, About, settings; tests
 - f208e30fd registration (root Cargo.toml member, workspace_test_members.txt, rust.yml dll_tests step)
 
+- 59264ae05 scripts/azterm_e2e.py; 52ffe8488 wheel_ownership list; 975d682a9 Rust-only helpers pub(crate)
+- REPORT: scripts/TERM9_2026_10_03.md (committed with this progress update)
+
 ## IN PROGRESS
-- (none - between units)
+- (none) - the task is complete as far as it can go without compiling.
 
 ## NEXT
-1. scripts/azterm_e2e.py (model: scripts/shells_e2e.py): start `AzTerm --sample` headless (capped runner), wait for
-   AZTERM_READY, get_node_hierarchy / get_node_layout of `__azterm_terminal`, `__azterm_tabs`; text_input "echo hi"
-   + key Return (the replay echoes) -> wait_frame -> screenshot; click `__azterm_new-tab` -> AZTERM_TABS 2; click
-   `__azterm_tab-0`; set_mode dark + wait_settled + screenshot. Commit.
-2. Report scripts/TERM9_2026_10_03.md (what was built, commits, the api.json list from "API" below, least-sure spots,
-   test commands, what is left). Commit.
-3. Left for later (put in the report): profiles / settings files through the Drive (settings page sections:
+- Only if resumed with more work: the "Left" items (in the report and below), starting with profiles / settings
+  files through the Drive (appkit settings page sections), then FindBar-based find in the scrollback.
+- Left for later (in the report): profiles / settings files through the Drive (settings page sections:
    font size, Alt as Meta, scrollback, shell command), split panes, find in scrollback (FindBar), tab tear-off,
    URL Ctrl+click, the bell flashing the tab, Shift+Insert paste (no engine paste for it), triple-click line select,
    motion reports with no button held (1003), cursor blink, IME preedit drawing, a CloseGuard for running commands.
