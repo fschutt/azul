@@ -72,14 +72,14 @@ dumb as possible". Order now:
   Ran `azmail_send_test.py --case dkim --case smtp` against the PREBUILT base azmail-send through the
   capped runner with `--log /dev/stdout`: both PASS (micromail's signature verifies independently).
 - 0a9a8b771 interim report scripts/MAIL9_2026_10_03.md (update it at the end: commits, what is left)
+- 0278ac528 RED / 14991e968 GREEN auth.rs `ServerCaps::from_smtp_auth`, `choose_submission` (the auth.rs
+  half of step 7a is DONE; f5fd901a0 test helper)
 
 ## IN PROGRESS
 - nothing half-done. Monday: start step 7 below.
 
 ## MONDAY - exact next step
-- Step 7a (secondary route, lettre): RED tests first in `examples/azul-mail/src/auth.rs`
-  (`ServerCaps` from an SMTP EHLO AUTH list; `choose_submission(kind, caps)`: password -> PLAIN, else
-  LOGIN, else Err; token -> XOAUTH2 only when offered) and in `send.rs` (`SendRoute::Submission`
+- Step 7a (secondary route, lettre): auth.rs part DONE. NEXT: RED tests in `send.rs` (`SendRoute::Submission`
   `{"kind":"submission"}` = account.json's `smtp` server; `submission_security(host, port, tls)`: 465
   implicit TLS, else STARTTLS required, `tls: off` only to a loopback host; `SendSettings::sign_in:
   Option<Secret>` (serde skip); missing password / refused sign-in = waits (not counted, due at once);
