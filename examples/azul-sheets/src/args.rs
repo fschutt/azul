@@ -1,6 +1,29 @@
-//! The command line: what AzSheets opens and how it looks.
+//! The command line: azul-appkit's switches, the one parser every Azlin app
+//! shares (DEDUP_OFFICE D2) - `--screen`, `--size`, `--theme`, `--mode`
+//! (`system` too), `--shot`, `--sample`, `--data-dir` and a bare `.xlsx` to
+//! open - read into what AzSheets starts on.
 
 use std::path::PathBuf;
+
+use azul_appkit::{AppArgs, AppSpec};
+
+/// The names `--screen` takes; the first is the default.
+pub const SCREENS: [&str; 5] = [
+    "workbook",
+    "backstage-info",
+    "backstage-new",
+    "backstage-open",
+    "settings",
+];
+
+/// What AzSheets tells the parser (and the usage text) about itself.
+pub const SPEC: AppSpec = AppSpec {
+    name: "AzSheets",
+    binary: "AzSheets",
+    summary: "a spreadsheet: IronCalc behind the CellGrid widget, workbooks as .xlsx files",
+    screens: &SCREENS,
+    files_help: "an .xlsx workbook to open",
+};
 
 /// The screen AzSheets starts on.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -14,160 +37,85 @@ pub enum Screen {
     BackstageNew,
     /// The backstage on "Open" (the workbooks in the data folder).
     BackstageOpen,
+    /// The backstage on "Options" (the settings).
+    Options,
 }
 
-/// The app theme (`--theme`).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Theme {
-    Flat,
-    Flora,
-}
-
-/// The mode (`--mode`); unset follows the system.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Mode {
-    Light,
-    Dark,
-}
-
+/// The parsed command line.
 #[derive(Clone, Debug, Default)]
 pub struct Args {
-    /// Open the "Budget 2027" sample (`--sample`).
-    pub sample: bool,
-    /// Import this `.xlsx` from disk (`--open`, or the positional file).
-    pub open: Option<PathBuf>,
+    /// appkit's switches as given (the kit reads the theme, the mode, the
+    /// size, the data folder and `--shot` from them).
+    pub kit: AppArgs,
     pub screen: Screen,
-    pub theme: Option<Theme>,
-    pub mode: Option<Mode>,
-    /// The window size (`--size 1280x800`).
-    pub size: Option<(f32, f32)>,
+    /// The `.xlsx` to import (the bare argument).
+    pub open: Option<PathBuf>,
 }
 
-pub const HELP: &str = "\
-azsheets - a spreadsheet (IronCalc behind the CellGrid widget)
-
-USAGE:
-    azsheets [OPTIONS] [FILE.xlsx]
-
-OPTIONS:
-    --sample                 Open the \"Budget 2027\" sample workbook
-    --open <FILE>            Import an .xlsx file (same as the positional form)
-    --screen <NAME>          workbook | backstage-info | backstage-new | backstage-open
-    --theme <NAME>           flat | flora
-    --mode <NAME>            light | dark
-    --size <WxH>             Initial window size, e.g. --size 1280x800
-    -h, --help               Print this help
-
-ENVIRONMENT:
-    AZSHEETS_DATA            The data folder (workbooks are sheets/<uuid>.xlsx in it)
-";
-
-pub type ParseError = String;
-
 impl Args {
-    pub fn parse<I, S>(argv: I) -> Result<Self, ParseError>
+    /// Parses `argv` WITHOUT the program name. `Err` carries what to print:
+    /// the usage for `-h` / `--help` (it contains "USAGE"), else the mistake.
+    pub fn parse<I, S>(argv: I) -> Result<Self, String>
     where
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        let mut a = Self::default();
-        let argv: Vec<String> = argv.into_iter().map(Into::into).collect();
-        let mut i = 0;
-        while i < argv.len() {
-            let arg = argv[i].as_str();
-            let (name, inline) = match arg.split_once('=') {
-                Some((n, v)) if n.starts_with("--") => (n, Some(v.to_string())),
-                _ => (arg, None),
-            };
-            let mut value = |what: &str| -> Result<String, ParseError> {
-                if let Some(v) = inline.clone() {
-                    return Ok(v);
-                }
-                i += 1;
-                argv.get(i)
-                    .cloned()
-                    .ok_or_else(|| format!("{name} needs a {what}"))
-            };
-            match name {
-                "-h" | "--help" => return Err(HELP.to_string()),
-                "--sample" => a.sample = true,
-                "--open" => a.open = Some(PathBuf::from(value("file")?)),
-                "--screen" => {
-                    let v = value("name")?;
-                    a.screen = match v.as_str() {
-                        "workbook" => Screen::Workbook,
-                        "backstage-info" => Screen::BackstageInfo,
-                        "backstage-new" => Screen::BackstageNew,
-                        "backstage-open" => Screen::BackstageOpen,
-                        other => {
-                            return Err(format!(
-                                "--screen: expected workbook|backstage-info|backstage-new|\
-                                 backstage-open, got {other:?}"
-                            ))
-                        }
-                    };
-                }
-                "--theme" => {
-                    let v = value("name")?;
-                    a.theme = Some(match v.as_str() {
-                        "flat" => Theme::Flat,
-                        "flora" => Theme::Flora,
-                        other => return Err(format!("--theme: expected flat|flora, got {other:?}")),
-                    });
-                }
-                "--mode" => {
-                    let v = value("name")?;
-                    a.mode = Some(match v.as_str() {
-                        "light" => Mode::Light,
-                        "dark" => Mode::Dark,
-                        other => return Err(format!("--mode: expected light|dark, got {other:?}")),
-                    });
-                }
-                "--size" => {
-                    let v = value("WxH")?;
-                    let (w, h) = v
-                        .split_once('x')
-                        .ok_or_else(|| format!("--size: expected WxH, got {v:?}"))?;
-                    match (w.parse::<f32>(), h.parse::<f32>()) {
-                        (Ok(w), Ok(h)) if w > 0.0 && h > 0.0 => a.size = Some((w, h)),
-                        _ => return Err(format!("--size: expected WxH in pixels, got {v:?}")),
-                    }
-                }
-                other if other.starts_with('-') => {
-                    return Err(format!("unknown option {other:?}\n\n{HELP}"))
-                }
-                positional => {
-                    if a.open.is_some() {
-                        return Err(format!("more than one file given ({positional:?})"));
-                    }
-                    a.open = Some(PathBuf::from(positional));
-                }
-            }
-            i += 1;
+        Self::from_kit(AppArgs::parse(&SPEC, argv)?)
+    }
+
+    /// AzSheets' reading of appkit's switches.
+    pub fn from_kit(kit: AppArgs) -> Result<Self, String> {
+        if kit.files.len() > 1 {
+            return Err(format!("one workbook at a time, not {:?}", kit.files));
         }
-        Ok(a)
+        let screen = match kit.screen_or_default(&SPEC) {
+            "backstage-info" => Screen::BackstageInfo,
+            "backstage-new" => Screen::BackstageNew,
+            "backstage-open" => Screen::BackstageOpen,
+            "settings" => Screen::Options,
+            _ => Screen::Workbook,
+        };
+        Ok(Self {
+            open: kit.files.first().cloned(),
+            screen,
+            kit,
+        })
+    }
+
+    /// `--sample`: open the "Budget 2027" workbook.
+    #[must_use]
+    pub fn sample(&self) -> bool {
+        self.kit.sample
+    }
+
+    /// `--size`.
+    #[must_use]
+    pub fn size(&self) -> Option<(f32, f32)> {
+        self.kit.size
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use azul_appkit::{ModePref, Theme};
+
     use super::*;
 
-    fn parse(args: &[&str]) -> Result<Args, ParseError> {
+    fn parse(args: &[&str]) -> Result<Args, String> {
         Args::parse(args.iter().copied())
     }
 
     #[test]
-    fn no_arguments_open_an_empty_workbook_in_the_system_look() {
+    fn no_arguments_open_an_empty_workbook_in_the_saved_look() {
         let a = parse(&[]).unwrap();
-        assert!(!a.sample);
+        assert!(!a.sample());
         assert!(a.open.is_none());
         assert_eq!(a.screen, Screen::Workbook);
-        assert!(a.theme.is_none() && a.mode.is_none());
+        assert!(a.kit.theme.is_none() && a.kit.mode.is_none(), "the settings file decides");
     }
 
     #[test]
-    fn the_sample_screen_theme_mode_and_size_switches_parse() {
+    fn the_sample_screen_theme_mode_size_and_data_folder_switches_parse() {
         let a = parse(&[
             "--sample",
             "--screen",
@@ -177,17 +125,21 @@ mod tests {
             "dark",
             "--size",
             "1280x800",
+            "--data-dir",
+            "/tmp/azlin",
         ])
         .unwrap();
-        assert!(a.sample);
+        assert!(a.sample());
         assert_eq!(a.screen, Screen::BackstageOpen);
-        assert_eq!(a.theme, Some(Theme::Flora));
-        assert_eq!(a.mode, Some(Mode::Dark));
-        assert_eq!(a.size, Some((1280.0, 800.0)));
+        assert_eq!(a.kit.theme, Some(Theme::Flora));
+        assert_eq!(a.kit.mode, Some(ModePref::Dark));
+        assert_eq!(a.size(), Some((1280.0, 800.0)));
+        assert_eq!(a.kit.data_dir, Some(PathBuf::from("/tmp/azlin")));
+        assert_eq!(parse(&["--screen", "settings"]).unwrap().screen, Screen::Options);
     }
 
     #[test]
-    fn a_positional_file_is_opened_and_a_second_one_is_an_error() {
+    fn a_bare_file_is_opened_and_a_second_one_is_an_error() {
         let a = parse(&["budget.xlsx"]).unwrap();
         assert_eq!(a.open, Some(PathBuf::from("budget.xlsx")));
         assert!(parse(&["a.xlsx", "b.xlsx"]).is_err());
@@ -199,6 +151,7 @@ mod tests {
         assert!(parse(&["--mode"]).is_err());
         assert!(parse(&["--size", "big"]).is_err());
         assert!(parse(&["--frobnicate"]).is_err());
-        assert!(parse(&["--help"]).unwrap_err().starts_with("azsheets -"));
+        assert!(parse(&["--screen", "nowhere"]).is_err());
+        assert!(parse(&["--help"]).unwrap_err().contains("USAGE"));
     }
 }
