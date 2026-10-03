@@ -17,6 +17,8 @@ headless Chrome and the prebuilt azul (AzPaint `mount`, capped runner), prints r
   GREEN d6016967a (border-box min/max clamp on auto widths + intrinsic min-width floor), cc44b5c48
   (fit-content keyword parses as fit-content(100%), argument = available space, content size; IFC root of
   only atomics measured; intrinsic-keyword boxes are STF).
+- item 5: RED ff7f62126 (an_anonymous_table_cell_keeps_its_blocks_margins.rs); GREEN dd3412ea4
+  (establishes_new_bfc: FormattingContext::TableCell, anonymous cells included).
 
 ## NOTES item 1 (done)
 - item 1: abspos child treated as in-flow + ::marker with list-style-type none.
@@ -43,7 +45,11 @@ headless Chrome and the prebuilt azul (AzPaint `mount`, capped runner), prints r
   skip a marker that has a host, a marker IFC collects only its marker; no marker box for none.
 
 ## IN PROGRESS
-- item 5: display:table drops a child p's margins (Chrome tb 76 / azul 44; p y 28 / 12) - RED next
+- item 7: AzMail wizard page 2 (RED cc7040ae5) - read the test, root-cause
+- DECISION: item 6 (CSS zoom) moved after items 7-10: a new CssProperty touches property.rs (~30 spots),
+  css codegen (format.rs, lower_types.rs ~9 lists), core prop_cache, 30 codegen golden files, and the
+  used-length effect needs ~140 resolution sites or a paint transform in core/gpu.rs + display_list
+  (PAINT7). Bounded bug fixes first.
 
 ## NEXT
 - items 6..10 in brief order
