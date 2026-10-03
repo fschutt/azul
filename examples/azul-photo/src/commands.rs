@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use azul::{
     css::DarkLightMode,
-    dialog::{FileDialog, FileOpenResult, SaveTargetResult},
+    dialog::{FileDialog, FileOpenResult},
     image::{RawImage, RawImageData, TextRasterStyle},
     option::{OptionDarkLightMode, OptionFileTypeList},
     prelude::*,
@@ -510,49 +510,23 @@ pub fn file_name(name: &str, extension: &str) -> String {
     format!("{}.{extension}", if base.is_empty() { "Untitled" } else { base })
 }
 
-/// Export the flattened image: straight into the export folder, or through
-/// the save dialog.
+/// Export the flattened image into the data tree, beside the document
+/// (`photo/<uuid>/exports/<name>.png|jpg`, through the Drive on a job).
 fn export(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo) {
-    let name = file_name(&app.s.name, app.export_format.extension());
-    match app.export_dir.clone() {
-        Some(dir) => start_export(app, app_ref, info, dir.join(name)),
-        None => {
-            let _ = FileDialog::save_file("Export", name, app_ref.clone(), on_export_target);
-        }
-    }
-}
-
-fn start_export(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo, path: PathBuf) {
+    let file = file_name(&app.s.name, app.export_format.extension());
     let (width, height, rgba) = app.s.engine.flatten_rgba();
     app.busy += 1;
-    app.status(format!("Exporting {}...", path.display()));
+    app.status(format!("Exporting {file}..."));
     jobs::spawn(info, app_ref, Job::Export {
-        path,
+        drive: app.drive.clone(),
+        uuid: app.s.uuid.clone(),
+        file,
         format: app.export_format,
         quality: app.jpeg_quality,
         width,
         height,
         rgba,
     });
-}
-
-extern "C" fn on_export_target(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
-    let Some(picked) = SaveTargetResult::downcast(result).into_option() else {
-        return Update::DoNothing;
-    };
-    let Some(target) = picked.target.into_option() else {
-        return Update::DoNothing;
-    };
-    let Some(path) = target.as_path().into_option() else {
-        return Update::DoNothing;
-    };
-    let path = PathBuf::from(path.as_string().as_str());
-    let app_ref = data.clone();
-    let Some(mut guard) = data.downcast_mut::<PhotoApp>() else {
-        return Update::DoNothing;
-    };
-    start_export(&mut guard, &app_ref, &mut info, path);
-    Update::RefreshDom
 }
 
 fn picked_path(result: RefAny) -> Option<PathBuf> {

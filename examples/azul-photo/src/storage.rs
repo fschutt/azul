@@ -3,6 +3,7 @@
 //! ```text
 //! photo/<uuid>/doc.json                         the layer tree, sizes, settings
 //! photo/<uuid>/layers/<layer id>/<tx>_<ty>.png  one PNG per non-empty tile
+//! photo/<uuid>/exports/<name>.png|jpg           the document's exports
 //! ```
 //!
 //! Written through `azul_storage::Drive` (a `LocalDrive` on the user's data
@@ -44,6 +45,24 @@ pub fn layers_prefix(uuid: &str) -> String {
 #[must_use]
 pub fn tile_key(uuid: &str, layer: LayerId, tx: u32, ty: u32) -> String {
     format!("{}{layer}/{tx}_{ty}.png", layers_prefix(uuid))
+}
+
+/// `photo/<uuid>/exports/<file>`: an export of document `uuid`, `file` as one
+/// key segment (separators become `_`).
+#[must_use]
+pub fn export_key(uuid: &str, file: &str) -> String {
+    let file: String = file
+        .chars()
+        .map(|c| if matches!(c, '/' | '\\' | ':' | '\0') { '_' } else { c })
+        .collect();
+    format!("{PREFIX}{uuid}/exports/{file}")
+}
+
+/// Write an export of document `uuid` into the data tree; its key.
+pub fn export(drive: &dyn Drive, uuid: &str, file: &str, bytes: &[u8]) -> Result<String, String> {
+    let key = export_key(uuid, file);
+    drive.put(&key, bytes).map_err(|e| e.to_string())?;
+    Ok(key)
 }
 
 /// `doc.json`.

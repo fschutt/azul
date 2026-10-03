@@ -983,10 +983,10 @@ fn sheet_dom(app: &RefAny, a: &PhotoApp, p: &Palette, sheet: Sheet) -> Dom {
             }
             let (w, h) = a.s.engine.size();
             body.add_child(hint(&format!("{w} x {h} px, all visible layers flattened")));
-            body.add_child(hint(&match &a.export_dir {
-                Some(dir) => format!("Into {}", dir.display()),
-                None => "A dialog asks where to save.".to_string(),
-            }));
+            body.add_child(hint(&format!(
+                "Into the data folder: {}",
+                crate::storage::export_key(&a.s.uuid, &commands::file_name(&a.s.name, a.export_format.extension()))
+            )));
             sheet_frame(app, p, "Export", body, Some(("Export", Command::ExportApply)))
         }
         Sheet::ImageSize => {

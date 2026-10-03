@@ -314,14 +314,10 @@ extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackIn
             Ok(list) => a.recent = list,
             Err(e) => a.status(format!("The documents could not be listed: {e}")),
         },
-        Outcome::Exported { path, result } => match result {
+        Outcome::Exported { key, result } => match result {
             Ok(bytes) => {
-                a.status(format!(
-                    "Exported {} ({}).",
-                    path.display(),
-                    azul::file::DiskSpace::format_bytes(bytes)
-                ));
-                say(&format!("AZPHOTO_EXPORTED {bytes} {}", path.display()));
+                a.status(format!("Exported {key} ({}).", azul::file::DiskSpace::format_bytes(bytes)));
+                say(&format!("AZPHOTO_EXPORTED {bytes} {key}"));
             }
             Err(e) => a.status(format!("Export failed: {e}")),
         },
