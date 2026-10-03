@@ -2499,6 +2499,9 @@ fn run_linux_windows(
                 // click closing the menu, or a CSD close button). Honor it here so the
                 // pass below unregisters + drops the window (destroying it and ungrabbing
                 // a menu's pointer grab). X11/Wayland have no native close-flag path.
+                // An app-raised close is a REQUEST: the close protocol runs first, and
+                // a CloseRequested callback that vetoes ("Save changes?") lowers the flag.
+                window.confirm_app_close();
                 if window.close_requested() {
                     // A menu item's click closes the window the ITEM is in.
                     // Its parent menu is just as finished - the user has
