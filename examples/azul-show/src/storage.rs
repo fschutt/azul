@@ -349,6 +349,30 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    /// User ruling 2026-10-02: every durable write - exports included - goes
+    /// INTO the data tree through the drive (the PDF / PNG went to a save
+    /// dialog's path, outside the tree a later S3 sync diffs).
+    #[test]
+    fn an_export_is_written_into_show_exports_in_the_data_tree() {
+        let root = temp_root("export");
+        let drive = local_drive(root.clone());
+        match run_job(
+            &drive,
+            Job::Export {
+                name: String::from("Azlin Workspace.pdf"),
+                bytes: vec![b'%', b'P', b'D', b'F'],
+            },
+        ) {
+            Outcome::Exported(Ok(key)) => assert_eq!(key, "show/exports/Azlin Workspace.pdf"),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(
+            std::fs::read(root.join("show/exports/Azlin Workspace.pdf")).expect("the file"),
+            b"%PDF".to_vec()
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     #[test]
     fn a_missing_deck_is_an_error_not_a_panic() {
         let root = temp_root("missing");
