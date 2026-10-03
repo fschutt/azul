@@ -529,6 +529,13 @@ pub mod waveform;
 /// horizontal or vertical, moved in place without a rebuild
 /// (`LevelMeter::update_level`, `LevelMeterThrottle`); see `level_meter.rs`.
 pub mod level_meter;
+/// Seek bar widget.
+///
+/// Where a track or a video is: the time played, a trough with the played
+/// and buffered parts and a thumb, the length, chapter ticks; press, drag,
+/// keys seek; moved in place by a player (`SeekBar::update_position`);
+/// `media_time` is the one media clock format; see `seek_bar.rs`.
+pub mod seek_bar;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
