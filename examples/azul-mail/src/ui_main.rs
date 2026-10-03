@@ -18,16 +18,14 @@
 
 use azul::{
     callbacks::{
-        BackstageOnNavSelectCallbackType, ButtonOnClickCallbackType,
+        BackstageOnNavSelectCallbackType, ButtonOnClickCallbackType, ModalOnCloseCallbackType,
         MessageListOnEventCallbackType, ReadingPaneOnEventCallbackType, ResumeCallbackType,
         RibbonOnTabClickCallbackType, ShellNavigationPaneOnEventCallbackType,
-        ToDoBarOnEventCallbackType, WriteBackCallbackType,
+        StandardDialogOnEventCallbackType, ToDoBarOnEventCallbackType, WriteBackCallbackType,
     },
-    css::DarkLightMode,
     dom::VirtualKeyCode,
     http::{HttpBytesResult, HttpRequestConfig},
     image::{ImageDecodeResult, ImageRef, RawImage},
-    option::OptionDarkLightMode,
     prelude::*,
     shells::{
         PimShell, ShellEmptyState, ShellNavigationGroup, ShellNavigationModule,
@@ -36,7 +34,8 @@ use azul::{
     },
     str::String as AzString,
     widgets::{
-        Backstage, BackstageNavItem, InfoBar, MessageList, MessageListEvent,
+        AboutDialog, Backstage, BackstageNavItem, InfoBar, MessageList, MessageListEvent, Modal,
+        ModalState, StandardDialogEvent,
         MessageListEventKind, MessageRow, ReadingPane, ReadingPaneEvent, ReadingPaneEventKind,
         Ribbon, RibbonAppButton, RibbonButton, RibbonGroup, RibbonItem, RibbonTab, StatusBar,
         StatusBarSegment, StatusBarSync, StatusBarSyncKind, Titlebar, ToDoBar, ToDoBarEvent,
@@ -56,9 +55,27 @@ use crate::{
 pub(crate) const PAGE_INFO: usize = 0;
 pub(crate) const PAGE_ADD_ACCOUNT: usize = 1;
 pub(crate) const PAGE_SETTINGS: usize = 2;
-pub(crate) const PAGE_ABOUT: usize = 3;
-pub(crate) const PAGE_EXIT: usize = 4;
-const BACKSTAGE_PAGES: [&str; 5] = ["Info", "Add Account", "Account Settings", "About", "Exit"];
+/// File > Options: the kit's settings page (Appearance, Data, Shortcuts, About).
+pub(crate) const PAGE_OPTIONS: usize = 3;
+/// File > About: the standard About dialog over the window.
+pub(crate) const PAGE_ABOUT: usize = 4;
+pub(crate) const PAGE_EXIT: usize = 5;
+const BACKSTAGE_PAGES: [&str; 6] = [
+    "Info",
+    "Add Account",
+    "Account Settings",
+    "Options",
+    "About",
+    "Exit",
+];
+
+/// The view settings remembered across restarts (the kit's settings.json `values`).
+pub(crate) const SET_READING_PANE: &str = "reading_pane";
+pub(crate) const SET_TODO_BAR: &str = "todo_bar";
+pub(crate) const SET_NAVIGATION_COLLAPSED: &str = "navigation_collapsed";
+pub(crate) const SET_PLAIN_TEXT: &str = "plain_text";
+pub(crate) const SET_NEWEST_FIRST: &str = "newest_first";
+pub(crate) const SET_ZOOM: &str = "zoom";
 
 /// Rows the list renders at once around what is in view (the list is virtualised).
 const LIST_WINDOW: usize = 200;
@@ -85,6 +102,25 @@ pub(crate) extern "C" fn layout_main(mut data: RefAny, info: LayoutCallbackInfo)
         return Dom::create_body();
     };
     let s = &*guard;
+    // File > Options: the kit's settings page fills the window (Back or Escape leaves it).
+    if azul_appkit::ui::settings_open(&s.kit) {
+        let page = Dom::create_div()
+            .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
+            .with_child(title_row(s))
+            .with_child(azul_appkit::ui::settings_page(&s.kit, Vec::new()));
+        return Dom::create_body()
+            .with_css(crate::WINDOW_BODY_CSS)
+            .with_child(
+                ShellThemeScope::create(page)
+                    .with_accent(ShellThemeAccent::Blue)
+                    .dom(),
+            )
+            .with_callback(
+                EventFilter::Window(WindowEventFilter::VirtualKeyDown),
+                app,
+                on_main_key,
+            );
+    }
     let shell = match s.backstage {
         Some(page) => PimShell::create(Dom::create_div(), Dom::create_div(), Dom::create_div())
             .office_shell()
@@ -107,10 +143,13 @@ pub(crate) extern "C" fn layout_main(mut data: RefAny, info: LayoutCallbackInfo)
                 .with_status_bar(status_bar(s, &app))
         }
     };
-    let column = Dom::create_div()
+    let mut column = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
         .with_child(title_row(s))
         .with_child(shell.dom());
+    if s.about_open {
+        column.add_child(about_dialog(&app));
+    }
     Dom::create_body()
         .with_css(crate::WINDOW_BODY_CSS)
         .with_child(
@@ -183,6 +222,11 @@ pub(crate) extern "C" fn on_main_window_created(mut data: RefAny, mut info: Call
 /// Window keys: Ctrl/Cmd+N new mail, Ctrl/Cmd+R reply, Ctrl/Cmd+Shift+R reply all, Ctrl/Cmd+F
 /// forward, F9 Send / Receive, Escape leaves the backstage.
 extern "C" fn on_main_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    // The kit's keys first: Mod+, (File > Options), F1 (the shortcuts), Escape (leave them).
+    let kit_ref = data.downcast_ref::<MailApp>().map(|s| s.kit.clone());
+    if let Some(update) = kit_ref.and_then(|k| azul_appkit::ui::handle_key(&k, &mut info)) {
+        return update;
+    }
     let keyboard = info.get_current_keyboard_state();
     let Some(key) = keyboard.current_virtual_keycode.into_option() else {
         return Update::DoNothing;
@@ -207,7 +251,6 @@ fn backstage(s: &MailApp, app: &RefAny, page: usize) -> Dom {
     let content = match page {
         PAGE_ADD_ACCOUNT => ui_account::wizard_page(s, app),
         PAGE_SETTINGS => ui_account::settings_page(s, app),
-        PAGE_ABOUT => about_page(s),
         _ => info_page(s, app),
     };
     let items: Vec<BackstageNavItem> = BACKSTAGE_PAGES
@@ -292,33 +335,42 @@ fn info_page(s: &MailApp, app: &RefAny) -> Dom {
     .with_child(line(format!("Mail is kept in {}", s.root.display())))
 }
 
-/// File > About.
-fn about_page(s: &MailApp) -> Dom {
-    let keys = [
-        "Ctrl+N  New E-mail",
-        "Ctrl+R  Reply",
-        "Ctrl+Shift+R  Reply All",
-        "Ctrl+F  Forward",
-        "F9  Send/Receive All Folders",
-        "In a message: Ctrl+B / I / U  Bold, Italic, Underline; Ctrl+Enter  Send; Ctrl+S  Save",
-    ];
-    let mut page = Dom::create_div()
-        .with_css("display: flex; flex-direction: column;")
-        .with_child(heading("About AzMail"))
-        .with_child(line(
-            "A mail client on the azul toolkit: IMAP to files on this computer, sending \
-             directly or through an SMTP server, the rich editor of azul.",
-        ))
-        .with_child(line(format!("Version {}", env!("CARGO_PKG_VERSION"))))
-        .with_child(line(format!("AzMail folder: {}", s.root.display())))
-        .with_child(
-            Dom::create_span_with_text("Keyboard shortcuts")
-                .with_css("font-size: 15px; font-weight: bold; margin-top: 18px;"),
-        );
-    for key in keys {
-        page.add_child(line(key));
-    }
-    page
+/// File > About: the standard About dialog (the kit's About facts, the libraries AzMail is built
+/// on) in a modal over the window. The keyboard shortcuts are the kit's table (F1).
+fn about_dialog(app: &RefAny) -> Dom {
+    let about = crate::args::ABOUT;
+    let dialog = AboutDialog::create(about.name, format!("Version {}", about.version))
+        .with_icon("mail")
+        .with_description(about.summary)
+        .with_credit("azul", "MIT")
+        .with_credit("imap", "MIT / Apache-2.0")
+        .with_credit("mail-parser", "MIT / Apache-2.0")
+        .with_credit("micromail", "MIT")
+        .with_credit("rustls", "MIT / Apache-2.0 / ISC")
+        .with_on_event(app.clone(), on_about_event as StandardDialogOnEventCallbackType);
+    Modal::create(dialog.dom())
+        .with_title(format!("About {}", about.name))
+        .with_open(true)
+        .with_on_close(app.clone(), on_about_closed as ModalOnCloseCallbackType)
+        .dom()
+}
+
+/// The About dialog's OK.
+extern "C" fn on_about_event(mut data: RefAny, _info: CallbackInfo, _event: StandardDialogEvent) -> Update {
+    with_app(&mut data, |s, _| {
+        s.about_open = false;
+        Update::RefreshDom
+    })
+    .unwrap_or(Update::DoNothing)
+}
+
+/// The About dialog's modal closed (its close button, Escape).
+extern "C" fn on_about_closed(mut data: RefAny, _info: CallbackInfo, _state: ModalState) -> Update {
+    with_app(&mut data, |s, _| {
+        s.about_open = false;
+        Update::RefreshDom
+    })
+    .unwrap_or(Update::DoNothing)
 }
 
 extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
@@ -326,6 +378,13 @@ extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, index: 
         match index {
             PAGE_ADD_ACCOUNT => ui_account::open_wizard(s, None),
             PAGE_SETTINGS => ui_account::open_settings(s),
+            PAGE_OPTIONS => {
+                // The kit's settings page fills the window; Back returns to the mail.
+                azul_appkit::ui::open_settings(&s.kit, None);
+                s.backstage = None;
+                s.editor = None;
+            }
+            PAGE_ABOUT => s.about_open = true,
             PAGE_EXIT => {
                 info.close_window();
             }
@@ -369,10 +428,6 @@ pub(crate) enum Action {
     ToggleReading,
     ToggleTodo,
     PlainText,
-    ThemeFlat,
-    ThemeFlora,
-    ModeLight,
-    ModeDark,
     OpenFile,
     AddAccount,
     AccountSettings,
@@ -425,6 +480,11 @@ fn mark_read(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny, uids: &[u32]
     s.refresh_unread_count();
     let flags = s.flags.clone();
     crate::save_flags(s, info, app, flags);
+}
+
+/// Remembers a view setting across restarts: the kit's settings.json, written on a Thread.
+fn remember(s: &MailApp, info: &mut CallbackInfo, key: &str, on: bool) {
+    azul_appkit::ui::set_value(&s.kit, info, key, if on { "true" } else { "false" });
 }
 
 /// Runs `action` on the app.
@@ -494,15 +554,24 @@ pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Act
                 s.newest_first = !s.newest_first;
                 s.first_row = 0;
                 s.rebuild_view();
+                remember(s, info, SET_NEWEST_FIRST, s.newest_first);
             }
-            Action::ToggleNavigation => s.nav_collapsed = !s.nav_collapsed,
-            Action::ToggleReading => s.show_reading = !s.show_reading,
-            Action::ToggleTodo => s.show_todo = !s.show_todo,
-            Action::PlainText => s.plain_text = !s.plain_text,
-            Action::ThemeFlat => info.set_theme("flat"),
-            Action::ThemeFlora => info.set_theme("flora"),
-            Action::ModeLight => info.set_mode(OptionDarkLightMode::Some(DarkLightMode::Light)),
-            Action::ModeDark => info.set_mode(OptionDarkLightMode::Some(DarkLightMode::Dark)),
+            Action::ToggleNavigation => {
+                s.nav_collapsed = !s.nav_collapsed;
+                remember(s, info, SET_NAVIGATION_COLLAPSED, s.nav_collapsed);
+            }
+            Action::ToggleReading => {
+                s.show_reading = !s.show_reading;
+                remember(s, info, SET_READING_PANE, s.show_reading);
+            }
+            Action::ToggleTodo => {
+                s.show_todo = !s.show_todo;
+                remember(s, info, SET_TODO_BAR, s.show_todo);
+            }
+            Action::PlainText => {
+                s.plain_text = !s.plain_text;
+                remember(s, info, SET_PLAIN_TEXT, s.plain_text);
+            }
             Action::OpenFile => s.backstage = Some(PAGE_INFO),
             Action::AddAccount => ui_account::open_wizard(s, None),
             Action::AccountSettings => ui_account::open_settings(s),
@@ -612,13 +681,6 @@ fn ribbon(s: &MailApp, app: &RefAny) -> Dom {
         .with_group(
             RibbonGroup::create("Message")
                 .with_item(toggle("notes", "Plain Text", Action::PlainText, s.plain_text)),
-        )
-        .with_group(
-            RibbonGroup::create("Look")
-                .with_item(small("crop_square", "Flat", Action::ThemeFlat))
-                .with_item(small("spa", "Flora", Action::ThemeFlora))
-                .with_item(small("light_mode", "Light", Action::ModeLight))
-                .with_item(small("dark_mode", "Dark", Action::ModeDark)),
         );
     Ribbon::create(vec![home, send_receive, folder, view])
         .with_app_button(RibbonAppButton::create("File").with_on_click(
@@ -991,7 +1053,7 @@ fn message_list(s: &MailApp, app: &RefAny) -> Dom {
         .with_window(first, total)
         .with_row_height(ROW_HEIGHT)
         .with_search(s.search.as_str())
-        .with_search_placeholder(format!("Search {folder} (Ctrl+E)"))
+        .with_search_placeholder(format!("Search {folder}"))
         .with_scopes(
             vec![AzString::from("All"), AzString::from("Unread")],
             s.scope,

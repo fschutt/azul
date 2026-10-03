@@ -40,12 +40,11 @@ pub const ABOUT: AboutInfo = AboutInfo {
 /// The keyboard shortcuts (`Mod` = Cmd on macOS, Ctrl elsewhere). The key handlers of the
 /// main window (`ui_main::on_main_key`) and of a message window (`ui_compose::on_compose_key`)
 /// act on exactly these; the kit adds Mod+, (settings), F1 (this table) and Escape.
-pub const SHORTCUTS: [Shortcut; 12] = [
+pub const SHORTCUTS: [Shortcut; 11] = [
     Shortcut::new("Mail", "Mod+N", "New E-mail"),
     Shortcut::new("Mail", "Mod+R", "Reply"),
     Shortcut::new("Mail", "Mod+Shift+R", "Reply All"),
     Shortcut::new("Mail", "Mod+F", "Forward"),
-    Shortcut::new("Mail", "Mod+E", "Search the folder"),
     Shortcut::new("Mail", "F9", "Send/Receive All Folders"),
     Shortcut::new("Mail", "Escape", "Leave the File tab"),
     Shortcut::new("Message", "Mod+Enter", "Send"),

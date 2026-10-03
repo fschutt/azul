@@ -136,6 +136,8 @@ pub(crate) struct MailApp {
     pub(crate) show_reading: bool,
     pub(crate) show_todo: bool,
     pub(crate) plain_text: bool,
+    /// File > About is open (the standard About dialog).
+    pub(crate) about_open: bool,
 
     // -- the ribbon and the backstage --
     pub(crate) ribbon_tab: usize,
@@ -204,6 +206,17 @@ impl MailApp {
         let data_root = kit_data_root(&kit);
         // Read once, before the window (as the kit reads settings.json).
         let todo = todo::load(&data_root);
+        // The view as it was left (File > Options shows theme and mode; these are the View
+        // tab's toggles, in the same settings.json).
+        let settings = {
+            let mut kit = kit.clone();
+            let settings = kit
+                .downcast_ref::<kit::Kit>()
+                .map(|k| k.settings.clone())
+                .unwrap_or_default();
+            settings
+        };
+        let view = |key: &str, default: bool| settings.get_bool(key, default);
         MailApp {
             root,
             kit,
@@ -216,7 +229,7 @@ impl MailApp {
             folder: None,
             favorite_picked: false,
             groups_open: vec![true; n + 1],
-            nav_collapsed: false,
+            nav_collapsed: view(ui_main::SET_NAVIGATION_COLLAPSED, false),
             module: 0,
             entries: Vec::new(),
             flags: LocalFlags::create(),
@@ -226,11 +239,12 @@ impl MailApp {
             selection: ListSelection::create(),
             search: String::new(),
             scope: 0,
-            newest_first: true,
+            newest_first: view(ui_main::SET_NEWEST_FIRST, true),
             open: None,
-            show_reading: true,
-            show_todo: true,
-            plain_text: false,
+            show_reading: view(ui_main::SET_READING_PANE, true),
+            show_todo: view(ui_main::SET_TODO_BAR, true),
+            about_open: false,
+            plain_text: view(ui_main::SET_PLAIN_TEXT, false),
             ribbon_tab: 0,
             backstage: None,
             editor: None,
