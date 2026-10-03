@@ -7973,7 +7973,9 @@ impl WaylandWindow {
                                                     ))
                                                     .collect()
                                             };
-                                            let dst_stride = (cpu_state.width.max(0) as usize) * 4;
+                                            // The pool's own pitch (shm.rs owns
+                                            // the layout), never width * 4.
+                                            let dst_stride = cpu_state.stride.max(0) as usize;
                                             let src_stride = (src_w as usize) * 4;
                                             // #27: ABGR pool = renderer byte
                                             // order → rows copy verbatim (this
@@ -8948,59 +8950,25 @@ impl CpuFallbackState {
         let scale = scale.max(1);
         let width = physical_width.max(1);
         let height = physical_height.max(1);
-        let stride = width * 4;
-        let size = stride * height * 2; // TWO buffers in one pool
+        // TWO buffers in one pool, each on whole pages, inside a memfd sealed
+        // against shrinking (shm.rs): that is what lets a compositor wrap a
+        // buffer as a udmabuf and sample it in place (KWin 6.7+) instead of
+        // copying every frame on its main thread. The pitch stays tight -
+        // the renderer draws straight into a slot.
+        let page = shm::page_size();
+        let layout = shm::pool_layout(width, height, 2, page).ok_or_else(|| {
+            WindowError::PlatformError(format!("shm pool for {width}x{height} exceeds 2 GiB"))
+        })?;
+        let stride = layout.stride;
+        let size = layout.pool_bytes as i32;
 
-        // Try memfd_create first (Linux 3.17+, glibc 2.27+)
-        // Fall back to shm_open for older systems
-        let fd = unsafe {
-            #[cfg(target_os = "linux")]
-            {
-                // Try memfd_create via syscall if libc doesn't have it
-                let result = libc::syscall(
-                    libc::SYS_memfd_create,
-                    CString::new("azul-fb").unwrap().as_ptr(),
-                    1 as libc::c_int,
-                ); // MFD_CLOEXEC = 1
-
-                if result != -1 {
-                    result as libc::c_int
-                } else {
-                    // Fallback to shm_open for older glibc
-                    let name = CString::new(format!("/azul-fb-{}", std::process::id())).unwrap();
-                    let fd = libc::shm_open(
-                        name.as_ptr(),
-                        libc::O_CREAT | libc::O_RDWR | libc::O_EXCL,
-                        0o600,
-                    );
-                    if fd != -1 {
-                        // Unlink immediately so it's cleaned up when closed
-                        libc::shm_unlink(name.as_ptr());
-                    }
-                    fd
-                }
-            }
-            #[cfg(not(target_os = "linux"))]
-            {
-                -1
-            }
-        };
-
-        if fd == -1 {
-            return Err(WindowError::PlatformError(
-                "Failed to create shared memory".into(),
-            ));
-        }
-
-        if unsafe { libc::ftruncate(fd, size as libc::off_t) } == -1 {
-            unsafe { libc::close(fd) };
-            return Err(WindowError::PlatformError("ftruncate failed".into()));
-        }
+        let fd = shm::create_shm_file("azul-fb", layout.pool_bytes)
+            .map_err(|e| WindowError::PlatformError(e.into()))?;
 
         let data = unsafe {
             libc::mmap(
                 std::ptr::null_mut(),
-                size as usize,
+                layout.pool_bytes,
                 libc::PROT_READ | libc::PROT_WRITE,
                 libc::MAP_SHARED,
                 fd,
@@ -9026,9 +8994,8 @@ impl CpuFallbackState {
         } else {
             WL_SHM_FORMAT_ARGB8888
         };
-        let buf_bytes = (stride * height) as usize;
         let make_slot = |idx: usize| -> ShmSlot {
-            let offset = idx * buf_bytes;
+            let offset = layout.offset_of(idx);
             let buffer = unsafe {
                 (wayland.wl_shm_pool_create_buffer)(
                     pool,
@@ -9059,14 +9026,30 @@ impl CpuFallbackState {
         };
 
         POOLS_CREATED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        // Whether a udmabuf-capable compositor can sample these buffers in
+        // place: the import rule (layout + the seals the file really got) and
+        // the 256-byte pitch every common GPU samples (widths % 64 == 0).
+        let seals = unsafe { libc::fcntl(fd, libc::F_GET_SEALS) };
+        let importable = (0..2).all(|i| {
+            shm::udmabuf_importable(
+                layout.offset_of(i),
+                stride,
+                height,
+                page,
+                layout.pool_bytes,
+                seals,
+            )
+        });
         wl_trace!(
             "shm pool CREATE pool={pool:p} {width}x{height} stride={stride} scale={scale} \
-             bytes={size} fd={fd} fmt={} — {}",
+             bytes={size} fd={fd} fmt={} udmabuf={} pitch256={} — {}",
             if format == WL_SHM_FORMAT_ABGR8888 {
                 "ABGR(native)"
             } else {
                 "ARGB(legacy)"
             },
+            if importable { "yes" } else { "no" },
+            if stride % 256 == 0 { "yes" } else { "no" },
             pool_census()
         );
         log_debug!(
@@ -9090,7 +9073,7 @@ impl CpuFallbackState {
             slots: [make_slot(0), make_slot(1)],
             active: 0,
             data: data as *mut u8,
-            pool_size: size as usize,
+            pool_size: layout.pool_bytes,
             width,
             height,
             stride,
