@@ -818,3 +818,5 @@ mod a_block_taller_than_a_page_is_split_across_pages;
 mod css_zoom_scales_the_lengths_of_its_subtree;
 #[path = "text_after_a_nested_block_is_not_indented.rs"]
 mod text_after_a_nested_block_is_not_indented;
+#[path = "a_vertical_align_in_viewport_units_resolves_against_the_viewport.rs"]
+mod a_vertical_align_in_viewport_units_resolves_against_the_viewport;
