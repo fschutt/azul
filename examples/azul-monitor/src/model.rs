@@ -620,7 +620,22 @@ impl Model {
     pub fn selected_position(&self) -> Option<usize> {
         self.selected.and_then(|pid| self.position_of(pid))
     }
+
+    /// The histories as CSV, oldest reading first: one row per reading,
+    /// `seconds_ago` counted back from the newest (0), then the CPU and
+    /// memory in percent and the four rates in bytes per second. What
+    /// "Export the last minute" writes into the data tree.
+    #[must_use]
+    pub fn history_csv(&self, seconds_per_reading: f64) -> String {
+        let _ = seconds_per_reading;
+        todo!("GREEN: Model::history_csv")
+    }
 }
+
+/// The header row of [`Model::history_csv`].
+pub const HISTORY_CSV_HEADER: &str =
+    "seconds_ago,cpu_percent,memory_percent,disk_read_bytes_per_s,\
+     disk_write_bytes_per_s,net_in_bytes_per_s,net_out_bytes_per_s";
 
 #[cfg(test)]
 mod tests {
@@ -1039,5 +1054,41 @@ mod tests {
         // A reading without notices keeps the last ones (the status bar says it until the next).
         m.apply(reading(1000, vec![]));
         assert_eq!(m.notices, vec!["Ended b (2)".to_string()]);
+    }
+
+    #[test]
+    fn the_history_exports_as_csv_oldest_first() {
+        let mut m = Model::new();
+        assert_eq!(m.history_csv(1.0), format!("{HISTORY_CSV_HEADER}\n"));
+        let mut a = reading(1000, vec![]);
+        a.cpu = 10.0;
+        a.disk_read = 1024;
+        m.apply(a);
+        let mut b = reading(500, vec![]);
+        b.cpu = 20.5;
+        b.net_sent = 100;
+        m.apply(b);
+        let csv = m.history_csv(1.0);
+        let lines: Vec<&str> = csv.lines().collect();
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0], HISTORY_CSV_HEADER);
+        assert_eq!(lines[1], "1,10.0,25.0,1024,0,0,0");
+        assert_eq!(lines[2], "0,20.5,25.0,0,0,0,200");
+        assert!(csv.ends_with('\n'));
+    }
+
+    #[test]
+    fn the_csv_counts_back_in_the_update_speed() {
+        let mut m = Model::new();
+        for _ in 0..3 {
+            m.apply(reading(2000, vec![]));
+        }
+        let csv = m.history_csv(2.0);
+        let ages: Vec<&str> = csv
+            .lines()
+            .skip(1)
+            .map(|l| l.split(',').next().unwrap_or(""))
+            .collect();
+        assert_eq!(ages, vec!["4", "2", "0"]);
     }
 }
