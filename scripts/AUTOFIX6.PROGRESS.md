@@ -43,10 +43,13 @@ noted in the report). Never compile; the parent runs `cargo test -p azul-doc --b
 
 ## IN PROGRESS
 
+- item 3 RED + GREEN (MethodArg.source_ty + written_type_name in type_index.rs; source_arg_ffi_type string rules;
+  passes_bare drift report in find_function_differences)
+
 ## NEXT (exact)
-- item 3 RED: function_diff.rs tests `a_std_string_argument_is_converted_in_the_fn_body` (set_text(String) ->
-  `object.set_text(text.into_library_owned_string())`, AzString arg unchanged, `S: Into<AzString>` unchanged,
-  `&String` -> `&needle.into_library_owned_string()`) and `a_std_string_argument_passed_unconverted_is_reported`
-  (find_function_differences via `diffs`). Needs MethodArg.source_ty (type_index.rs: field + `written_type_name`
-  helper + 2 test literals at ~3675/3680).
-- then items 4, 5, 6, 7, 8, 9 as in the plan above.
+- item 4 (gap 5) RED: function_diff.rs test `the_wildcard_exports_only_methods_whose_signature_crosses_the_ffi`
+  calling `api_candidate_methods(type, refs, "*", None, &carries)` (new 5th param `carries: &dyn Fn(&str) -> bool`);
+  stub param in RED. GREEN: `wildcard_skip_reason`, `ffi_type_is_carried`, `pub fn ffi_carries(t, version_data,
+  index)`; update callers: function_diff.rs generate_add_type_patches (~line 1500), main.rs lines ~1077 and ~1131,
+  and the 4 existing test calls (pass `&|_: &str| true`).
+- then items 5, 6, 7, 8, 9 as in the plan above.
