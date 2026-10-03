@@ -1885,6 +1885,15 @@ mod label_convention {
                 .with_accessibility_name("Playback position")
                 .dom(),
         ));
+        // The media controls: playing, shuffle and repeat, a volume.
+        all.push((
+            "media_controls",
+            super::media_controls::MediaControls::create(true)
+                .with_shuffle_repeat(true, super::media_controls::MediaRepeat::All)
+                .with_volume(0.8)
+                .with_accessibility_name("Player")
+                .dom(),
+        ));
         // The level meter: well into the amber, named.
         all.push((
             "level_meter",
@@ -2788,6 +2797,8 @@ mod theme_contrast {
         "level_meter",
         // A seek bar: a slider over time.
         "seek_bar",
+        // A transport: a row of buttons and a slider.
+        "media_controls",
     ];
     /// Navigation and application chrome.
     const CHROME: &[&str] = &[

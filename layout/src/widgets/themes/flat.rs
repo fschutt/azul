@@ -6547,3 +6547,27 @@ pub(crate) fn seek_bar_look() -> crate::widgets::seek_bar::SeekBarLook {
 pub fn seek_bar(b: crate::widgets::seek_bar::SeekBar) -> Dom {
     crate::widgets::seek_bar::build(b, &seek_bar_look())
 }
+
+// ==== media_controls ====
+//
+// The flat transport is Windows Media Player 12's row: link-style icon
+// buttons (flat's own button faces), the play button the primary one, the
+// volume slider set off by a gap. The buttons and the slider carry the
+// theme; the row only spaces them.
+
+/// Flat's media-controls look.
+#[must_use]
+pub(crate) fn media_controls_look() -> crate::widgets::media_controls::MediaControlsLook {
+    use super::decl;
+    crate::widgets::media_controls::MediaControlsLook {
+        row: decl::padding(2, 4, 2, 4).to_vec(),
+        volume: decl::margin(0, 0, 0, 12).to_vec(),
+        marker: None,
+    }
+}
+
+/// The flat media controls.
+#[must_use]
+pub fn media_controls(c: crate::widgets::media_controls::MediaControls) -> Dom {
+    crate::widgets::media_controls::build(c, &media_controls_look())
+}

@@ -8125,3 +8125,26 @@ pub(crate) fn seek_bar_look() -> crate::widgets::seek_bar::SeekBarLook {
 pub fn seek_bar(b: crate::widgets::seek_bar::SeekBar) -> Dom {
     crate::widgets::seek_bar::build(b, &seek_bar_look())
 }
+
+// ==== media_controls ====
+//
+// The flora transport: flora's link-style icon buttons and its primary
+// play button, a little more air between them than flat's, the volume slider
+// set off by a gap. The buttons and the slider carry the theme.
+
+/// Flora's media-controls look.
+#[must_use]
+pub(crate) fn media_controls_look() -> crate::widgets::media_controls::MediaControlsLook {
+    use super::decl;
+    crate::widgets::media_controls::MediaControlsLook {
+        row: decl::padding(4, 6, 4, 6).to_vec(),
+        volume: decl::margin(0, 0, 0, 16).to_vec(),
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
+}
+
+/// The flora media controls.
+#[must_use]
+pub fn media_controls(c: crate::widgets::media_controls::MediaControls) -> Dom {
+    crate::widgets::media_controls::build(c, &media_controls_look())
+}

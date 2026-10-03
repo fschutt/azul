@@ -12,8 +12,22 @@
 
 use alloc::vec::Vec;
 
-use azul_core::{callbacks::Update, dom::Dom, refany::RefAny};
-use azul_css::{dynamic_selector::CssPropertyWithConditions, impl_option, AzString, OptionString};
+use azul_core::{
+    callbacks::Update,
+    dom::{Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec},
+    refany::RefAny,
+};
+use azul_css::{
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    impl_option,
+    props::{
+        basic::length::FloatValue,
+        layout::{LayoutAlignItems, LayoutDisplay, LayoutFlexDirection, LayoutFlexShrink},
+        property::CssProperty,
+        style::StyleUserSelect,
+    },
+    AzString, OptionString,
+};
 
 use crate::{
     callbacks::CallbackInfo,
@@ -59,7 +73,11 @@ impl MediaRepeat {
     /// The mode the repeat button goes to next: off -> all -> one -> off.
     #[must_use]
     pub const fn next(self) -> Self {
-        self
+        match self {
+            MediaRepeat::Off => MediaRepeat::All,
+            MediaRepeat::All => MediaRepeat::One,
+            MediaRepeat::One => MediaRepeat::Off,
+        }
     }
 }
 
@@ -228,10 +246,18 @@ impl MediaControls {
         s
     }
 
-    /// The controls' DOM.
+    /// The controls' DOM: the pinned theme's look, or (unpinned) both looks in their `@theme`
+    /// blocks, the app theme picking.
     #[must_use]
     pub fn dom(self) -> Dom {
-        Dom::create_div()
+        use crate::widgets::themes::{flat, flora, theme_blocks};
+        match self.theme.into_option() {
+            Some(UiTheme::Flat) => flat::media_controls(self),
+            Some(UiTheme::Flora) => flora::media_controls(self),
+            None => {
+                theme_blocks::follow_app_theme(self, flat::media_controls, flora::media_controls)
+            }
+        }
     }
 }
 
@@ -253,6 +279,228 @@ impl_option!(
     copy = false,
     [Debug, Clone, PartialEq]
 );
+
+// ==== Interaction ====
+
+/// What every control of one row shares: the app's hook.
+struct ControlsShared {
+    on_action: OptionMediaControlsOnAction,
+}
+
+/// A button's payload: the row's shared part and what the button asks for.
+struct ActionData {
+    shared: RefAny,
+    action: MediaControlsAction,
+}
+
+/// Tells the app `event`.
+fn fire(mut shared: RefAny, info: &mut CallbackInfo, event: MediaControlsEvent) -> Update {
+    let Some(mut s) = shared.downcast_mut::<ControlsShared>() else {
+        return Update::DoNothing;
+    };
+    let result = match s.on_action.as_mut() {
+        Some(MediaControlsOnAction { callback, refany }) => {
+            callback.invoke(refany.clone(), *info, event)
+        }
+        None => Update::DoNothing,
+    };
+    result
+}
+
+/// A control button was clicked.
+pub extern "C" fn on_media_button(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((shared, action)) = data
+        .downcast_ref::<ActionData>()
+        .map(|d| (d.shared.clone(), d.action))
+    else {
+        return Update::DoNothing;
+    };
+    fire(shared, &mut info, MediaControlsEvent { value: 0.0, action })
+}
+
+/// The volume slider moved.
+pub extern "C" fn on_media_volume(
+    data: RefAny,
+    mut info: CallbackInfo,
+    state: crate::widgets::slider::SliderState,
+) -> Update {
+    let span = state.max - state.min;
+    let value = if span > 0.0 {
+        ((state.value - state.min) / span).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    fire(
+        data,
+        &mut info,
+        MediaControlsEvent {
+            value,
+            action: MediaControlsAction::Volume,
+        },
+    )
+}
+
+// ==== The DOM ====
+
+static ROW_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-media-controls",
+))];
+static VOLUME_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-media-controls-volume",
+))];
+
+/// The row: the controls side by side on one midline, no text selection.
+pub(crate) static MEDIA_CONTROLS_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// The volume box keeps its size.
+pub(crate) static MEDIA_VOLUME_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+];
+
+/// The controls' DOM in `look`: [shuffle] previous [back] play [forward] next [repeat] [volume].
+pub(crate) fn build(controls: MediaControls, look: &MediaControlsLook) -> Dom {
+    use crate::widgets::{
+        button::{Button, ButtonOnClickCallbackType, ButtonType},
+        slider::{Slider, SliderOnValueChangeCallbackType},
+    };
+    let MediaControls {
+        on_action,
+        accessibility_name,
+        theme,
+        volume,
+        repeat,
+        playing,
+        shuffle,
+        show_skip,
+        show_shuffle_repeat,
+    } = controls;
+    let shared = RefAny::new(ControlsShared { on_action });
+    let button = |icon: &'static str,
+                  name: &'static str,
+                  action: MediaControlsAction,
+                  kind: ButtonType,
+                  toggled: Option<bool>| {
+        let mut b = Button::with_type(AzString::from_const_str(""), kind)
+            .with_icon(AzString::from_const_str(icon));
+        b.alt = AzString::from_const_str(name);
+        if let Some(on) = toggled {
+            b = b.with_toggled(on);
+        }
+        b.set_on_click(
+            RefAny::new(ActionData {
+                shared: shared.clone(),
+                action,
+            }),
+            on_media_button as ButtonOnClickCallbackType,
+        );
+        if let Some(t) = theme.into_option() {
+            b = b.with_theme(t);
+        }
+        b.dom()
+    };
+    use MediaControlsAction as A;
+    let mut children: Vec<Dom> = Vec::with_capacity(8);
+    if show_shuffle_repeat {
+        let name = if shuffle { "Shuffle on" } else { "Shuffle off" };
+        children.push(button(
+            "shuffle",
+            name,
+            A::Shuffle,
+            ButtonType::Link,
+            Some(shuffle),
+        ));
+    }
+    children.push(button(
+        "skip_previous",
+        "Previous",
+        A::Previous,
+        ButtonType::Link,
+        None,
+    ));
+    if show_skip {
+        children.push(button(
+            "replay",
+            "Back 15 seconds",
+            A::SkipBack,
+            ButtonType::Link,
+            None,
+        ));
+    }
+    let (icon, name) = if playing {
+        ("pause", "Pause")
+    } else {
+        ("play_arrow", "Play")
+    };
+    children.push(button(icon, name, A::PlayPause, ButtonType::Primary, None));
+    if show_skip {
+        children.push(button(
+            "forward_30",
+            "Forward 30 seconds",
+            A::SkipForward,
+            ButtonType::Link,
+            None,
+        ));
+    }
+    children.push(button("skip_next", "Next", A::Next, ButtonType::Link, None));
+    if show_shuffle_repeat {
+        let (icon, name) = match repeat {
+            MediaRepeat::Off => ("repeat", "Repeat off"),
+            MediaRepeat::All => ("repeat", "Repeat all"),
+            MediaRepeat::One => ("repeat_one", "Repeat one"),
+        };
+        children.push(button(
+            icon,
+            name,
+            A::Repeat,
+            ButtonType::Link,
+            Some(repeat != MediaRepeat::Off),
+        ));
+    }
+    if volume >= 0.0 {
+        let mut slider = Slider::create(volume.clamp(0.0, 1.0) * 100.0, 0.0, 100.0)
+            .with_accessibility_name("Volume")
+            .with_on_value_change(
+                shared.clone(),
+                on_media_volume as SliderOnValueChangeCallbackType,
+            );
+        if let Some(t) = theme.into_option() {
+            slider = slider.with_theme(t);
+        }
+        children.push(
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(VOLUME_CLASS))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(
+                    crate::widgets::themes::decl::on_base(MEDIA_VOLUME_BASE, &look.volume),
+                ))
+                .with_child(slider.dom()),
+        );
+    }
+    let mut classes: Vec<IdOrClass> = ROW_CLASS.to_vec();
+    if let Some(marker) = look.marker {
+        classes.push(Class(AzString::from_const_str(marker)));
+    }
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(
+            crate::widgets::themes::decl::on_base(MEDIA_CONTROLS_BASE, &look.row),
+        ))
+        // A toolbar: arrow keys between the controls are the buttons' own Tab order today.
+        .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+            role: azul_core::a11y::AccessibilityRole::Toolbar,
+            accessibility_name,
+            ..Default::default()
+        })
+        .with_children(DomVec::from_vec(children))
+}
 
 /// What a theme decides about the controls: the SKIN of each part.
 #[derive(Debug, Clone, Default)]
