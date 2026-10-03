@@ -233,6 +233,34 @@ class App:
         value = self.value("get_node_layout", selector="#%s" % node_id)
         return value.get("rect") or {}
 
+    # ---- the app's DOM names ----
+    # Every Azlin app's ids and classes carry its prefix (`__azcontacts_`, ...: the wave-6 prefix
+    # ruling, each app's src/ids.rs); a build from before the ruling used the bare names.
+    # `detect_naming` notes which one is running, `sel(stem)` / `name(stem)` give the app's
+    # selector / name of `stem` either way.
+    prefix = ""
+
+    def detect_naming(self, prefix, probe):
+        """Waits for the app's id `probe` (a stem), under `prefix` or bare; returns the prefix
+        the app uses from now on ("" for an older build)."""
+        def found():
+            if self.has_id(prefix + probe):
+                return (prefix,)
+            if self.has_id(probe):
+                return ("",)
+            return None
+        self.prefix = self.until("#%s%s (or #%s)" % (prefix, probe, probe), found)[0]
+        self.log("names: %s" % ("%s prefixed" % prefix if self.prefix else "unprefixed (older build)"))
+        return self.prefix
+
+    def name(self, stem):
+        """The app's id or class `stem`, with the app's prefix."""
+        return self.prefix + stem
+
+    def sel(self, stem):
+        """The selector of the app's id `stem` (`#<prefix><stem>`)."""
+        return "#" + self.name(stem)
+
     # ---- input ----
 
     def click(self, selector=None, text=None, frames=2):
