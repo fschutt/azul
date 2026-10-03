@@ -27,6 +27,7 @@ use azul::{
 use chrono::NaiveDate;
 
 use crate::{
+    ids,
     model::TaskList,
     state::{self, Tasks},
     views::{self, NavEntry, Smart, View},
@@ -156,12 +157,12 @@ fn header(s: &Tasks, app: &RefAny) -> Dom {
         .with_on_text_input(app.clone(), on_search_text as TextInputOnTextInputCallbackType)
         .with_on_virtual_key_down(app.clone(), on_search_key as TextInputOnVirtualKeyDownCallbackType)
         .dom()
-        .with_id("search");
+        .with_id(ids::SEARCH);
     let new_list = Button::create("New list")
         .with_icon("playlist_add")
         .with_on_click(app.clone(), on_new_list as ButtonOnClickCallbackType)
         .dom()
-        .with_id("new-list");
+        .with_id(ids::NEW_LIST);
     Dom::create_div()
         .with_css("display: flex; flex-direction: column; padding: 8px; gap: 6px;")
         .with_child(search)

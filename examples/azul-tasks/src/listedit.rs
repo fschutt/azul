@@ -18,6 +18,7 @@ use azul::{
 };
 
 use crate::{
+    ids,
     model::ListColor,
     state::{self, Confirm, Tasks},
     views,
@@ -77,7 +78,7 @@ pub fn pane(s: &Tasks, app: &RefAny, list: &str) -> Dom {
     }
     let is_default = s.default_list().as_deref() == Some(l.id.as_str());
     Dom::create_div()
-        .with_id("list-edit")
+        .with_id(ids::LIST_EDIT)
         .with_css(PANE)
         .with_child(Dom::create_h2_with_text("List settings").with_css("font-size: 18px; font-weight: bold;"))
         .with_child(
@@ -90,7 +91,7 @@ pub fn pane(s: &Tasks, app: &RefAny, list: &str) -> Dom {
                     .with_on_virtual_key_down(app.clone(), on_field_key as TextInputOnVirtualKeyDownCallbackType)
                     .with_on_focus_lost(app.clone(), on_field_blur as TextInputOnFocusLostCallbackType)
                     .dom()
-                    .with_id("list-name")
+                    .with_id(ids::LIST_NAME)
                     .with_css("flex-grow: 1;"),
             ),
         )
@@ -104,7 +105,7 @@ pub fn pane(s: &Tasks, app: &RefAny, list: &str) -> Dom {
                     .with_on_virtual_key_down(app.clone(), on_field_key as TextInputOnVirtualKeyDownCallbackType)
                     .with_on_focus_lost(app.clone(), on_field_blur as TextInputOnFocusLostCallbackType)
                     .dom()
-                    .with_id("list-group")
+                    .with_id(ids::LIST_GROUP)
                     .with_css("flex-grow: 1;"),
             ),
         )
@@ -118,7 +119,7 @@ pub fn pane(s: &Tasks, app: &RefAny, list: &str) -> Dom {
                         .with_accessibility_name("New tasks outside a list go here")
                         .with_on_toggle(app.clone(), on_default as SwitchOnToggleCallbackType)
                         .dom()
-                        .with_id("list-default"),
+                        .with_id(ids::LIST_DEFAULT),
                 )
                 .with_child(Dom::create_span_with_text("New tasks outside a list go here").with_css(LABEL)),
         )
@@ -129,14 +130,14 @@ pub fn pane(s: &Tasks, app: &RefAny, list: &str) -> Dom {
                     Button::with_type("Done", ButtonType::Primary)
                         .with_on_click(app.clone(), on_done as ButtonOnClickCallbackType)
                         .dom()
-                        .with_id("list-done"),
+                        .with_id(ids::LIST_DONE),
                 )
                 .with_child(
                     Button::with_type("Delete list...", ButtonType::Danger)
                         .with_icon("delete")
                         .with_on_click(app.clone(), on_delete as ButtonOnClickCallbackType)
                         .dom()
-                        .with_id("list-delete"),
+                        .with_id(ids::LIST_DELETE),
                 ),
         )
 }
@@ -150,7 +151,7 @@ pub fn bulk(s: &Tasks, app: &RefAny) -> Dom {
     let mut names = vec![AzString::from("Move to...")];
     names.extend(order.iter().map(|&i| AzString::from(s.lists[i].name.as_str())));
     Dom::create_div()
-        .with_id("bulk")
+        .with_id(ids::BULK)
         .with_css(PANE)
         .with_child(
             Dom::create_h2_with_text(format!("{} tasks selected", picked.len()))
@@ -164,14 +165,14 @@ pub fn bulk(s: &Tasks, app: &RefAny) -> Dom {
                         .with_icon("task_alt")
                         .with_on_click(app.clone(), on_bulk_complete as ButtonOnClickCallbackType)
                         .dom()
-                        .with_id("bulk-complete"),
+                        .with_id(ids::BULK_COMPLETE),
                 )
                 .with_child(
                     Button::create(if all_flagged { "Unflag" } else { "Flag" })
                         .with_icon("flag")
                         .with_on_click(app.clone(), on_bulk_flag as ButtonOnClickCallbackType)
                         .dom()
-                        .with_id("bulk-flag"),
+                        .with_id(ids::BULK_FLAG),
                 )
                 .with_child(
                     DropDown::create(StringVec::from(names))
@@ -179,14 +180,14 @@ pub fn bulk(s: &Tasks, app: &RefAny) -> Dom {
                         .with_accessibility_name("Move to")
                         .with_on_choice_change(app.clone(), on_bulk_move as DropDownOnChoiceChangeCallbackType)
                         .dom()
-                        .with_id("bulk-move"),
+                        .with_id(ids::BULK_MOVE),
                 )
                 .with_child(
                     Button::with_type("Delete", ButtonType::Danger)
                         .with_icon("delete")
                         .with_on_click(app.clone(), on_bulk_delete as ButtonOnClickCallbackType)
                         .dom()
-                        .with_id("bulk-delete"),
+                        .with_id(ids::BULK_DELETE),
                 ),
         )
         .with_child(

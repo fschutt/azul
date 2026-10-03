@@ -28,6 +28,7 @@ use azul::{
 use chrono::{Datelike, NaiveDate, NaiveDateTime};
 
 use crate::{
+    ids,
     model::{self, SortMode},
     reminders,
     state::{self, Confirm, Page, Tasks},
@@ -192,8 +193,8 @@ impl Command {
     }
 }
 
-/// Focuses the element with DOM id `id` in the window's DOM.
-pub fn focus_id(info: &mut CallbackInfo, id: &str) {
+/// Focuses the element with DOM id `id` (an `ids` name) in the window's DOM.
+pub fn focus_id(info: &mut CallbackInfo, id: AzString) {
     let dom = info.get_hit_node().dom;
     let node = info.get_node_id_by_id_attribute(dom, id);
     info.set_focus(FocusTarget::Id(DomNodeId { dom, node }));
@@ -207,7 +208,7 @@ pub fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut Tasks, command: Comman
         Command::NewTask => {
             s.page = None;
             s.editing_list = None;
-            focus_id(info, "quick-add");
+            focus_id(info, ids::QUICK_ADD);
         }
         Command::NewList => {
             let id = s.new_list("New list", "");
@@ -236,7 +237,7 @@ pub fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut Tasks, command: Comman
         Command::Show(smart) => s.show(View::Smart(smart)),
         Command::Search => {
             s.page = None;
-            focus_id(info, "search");
+            focus_id(info, ids::SEARCH);
         }
         Command::Settings => s.page = Some(Page::Settings),
         Command::Shortcuts => s.page = Some(Page::Shortcuts),
@@ -625,7 +626,7 @@ pub fn confirm_bar(s: &Tasks, app: &RefAny, now: NaiveDateTime) -> Option<Dom> {
     };
     Some(
         Dom::create_div()
-            .with_id("confirm")
+            .with_id(ids::CONFIRM)
             .with_css("display: flex; flex-direction: row; align-items: center; gap: 8px; padding: 6px 16px 0px 16px;")
             .with_child(
                 InfoBar::create(question)
@@ -638,13 +639,13 @@ pub fn confirm_bar(s: &Tasks, app: &RefAny, now: NaiveDateTime) -> Option<Dom> {
                 Button::with_type("Delete", ButtonType::Danger)
                     .with_on_click(app.clone(), on_confirm_yes as ButtonOnClickCallbackType)
                     .dom()
-                    .with_id("confirm-yes"),
+                    .with_id(ids::CONFIRM_YES),
             )
             .with_child(
                 Button::create("Cancel")
                     .with_on_click(app.clone(), on_confirm_no as ButtonOnClickCallbackType)
                     .dom()
-                    .with_id("confirm-no"),
+                    .with_id(ids::CONFIRM_NO),
             ),
     )
 }

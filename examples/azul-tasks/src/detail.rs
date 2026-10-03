@@ -37,6 +37,7 @@ use azul::{
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Timelike, Weekday};
 
 use crate::{
+    ids,
     model::{self, Priority, Reminder, Subtask, Task},
     recur::{Repeat, Unit},
     reminders::{self, Preset},
@@ -180,7 +181,7 @@ pub fn pane(s: &Tasks, app: &RefAny, now: NaiveDateTime) -> Dom {
             .dom()
     };
     Dom::create_div()
-        .with_id("detail")
+        .with_id(ids::DETAIL)
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
         .with_child(body)
         .with_callback(
@@ -213,7 +214,7 @@ fn task_pane(s: &Tasks, app: &RefAny, t: &Task, now: NaiveDateTime) -> Dom {
                     .with_accessibility_name("Completed")
                     .with_on_toggle(detail_ref(app, &t.id, 0), on_done as CheckBoxOnToggleCallbackType)
                     .dom()
-                    .with_id("detail-done"),
+                    .with_id(ids::DETAIL_DONE),
             )
             .with_child(
                 TextInput::create()
@@ -224,7 +225,7 @@ fn task_pane(s: &Tasks, app: &RefAny, t: &Task, now: NaiveDateTime) -> Dom {
                     .with_on_virtual_key_down(app.clone(), on_title_key as TextInputOnVirtualKeyDownCallbackType)
                     .with_on_focus_lost(app.clone(), on_title_blur as TextInputOnFocusLostCallbackType)
                     .dom()
-                    .with_id("detail-title")
+                    .with_id(ids::DETAIL_TITLE)
                     .with_css("flex-grow: 1; font-size: 16px;"),
             ),
     );
@@ -234,7 +235,7 @@ fn task_pane(s: &Tasks, app: &RefAny, t: &Task, now: NaiveDateTime) -> Dom {
             .with_selected_index(t.priority.index())
             .with_on_change(detail_ref(app, &t.id, 0), on_priority as SegmentedOnChangeCallbackType)
             .dom()
-            .with_id("detail-priority"),
+            .with_id(ids::DETAIL_PRIORITY),
     ));
     pane.add_child(field(
         "Flagged",
@@ -242,7 +243,7 @@ fn task_pane(s: &Tasks, app: &RefAny, t: &Task, now: NaiveDateTime) -> Dom {
             .with_accessibility_name("Flagged")
             .with_on_toggle(detail_ref(app, &t.id, 0), on_flag as SwitchOnToggleCallbackType)
             .dom()
-            .with_id("detail-flag"),
+            .with_id(ids::DETAIL_FLAG),
     ));
 
     pane.add_child(steps(app, t));
@@ -262,7 +263,7 @@ fn task_pane(s: &Tasks, app: &RefAny, t: &Task, now: NaiveDateTime) -> Dom {
             .with_on_text_input(app.clone(), on_notes_text as TextAreaOnTextInputCallbackType)
             .with_on_focus_lost(app.clone(), on_notes_blur as TextAreaOnFocusLostCallbackType)
             .dom()
-            .with_id("detail-notes")
+            .with_id(ids::DETAIL_NOTES)
             .with_css("min-height: 96px;"),
     );
     pane.add_child(attachments(app, t));
@@ -278,7 +279,7 @@ fn steps(app: &RefAny, t: &Task) -> Dom {
         None => "STEPS".to_string(),
     };
     let mut out = Dom::create_div()
-        .with_id("steps")
+        .with_id(ids::STEPS)
         .with_css("display: flex; flex-direction: column;")
         .with_child(Dom::create_span_with_text(heading).with_css(GROUP_TITLE));
     for (n, step) in t.subtasks.iter().enumerate() {
@@ -290,7 +291,7 @@ fn steps(app: &RefAny, t: &Task) -> Dom {
                         .with_accessibility_name(format!("Done: {}", step.title))
                         .with_on_toggle(detail_ref(app, &t.id, n), on_step_done as CheckBoxOnToggleCallbackType)
                         .dom()
-                        .with_id(format!("step-{n}")),
+                        .with_id(ids::step(n)),
                 )
                 .with_child(
                     Dom::create_span_with_text(step.title.as_str())
@@ -312,7 +313,7 @@ fn steps(app: &RefAny, t: &Task) -> Dom {
             .with_on_text_input(app.clone(), on_step_text as TextInputOnTextInputCallbackType)
             .with_on_virtual_key_down(app.clone(), on_step_key as TextInputOnVirtualKeyDownCallbackType)
             .dom()
-            .with_id("add-step"),
+            .with_id(ids::ADD_STEP),
     )
 }
 
@@ -327,7 +328,7 @@ fn due(s: &Tasks, app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
                     Button::create(*name)
                         .with_on_click(detail_ref(app, &t.id, n), on_due_quick as ButtonOnClickCallbackType)
                         .dom()
-                        .with_id(format!("due-quick-{n}")),
+                        .with_id(ids::due_quick(n)),
                 );
             }
         }
@@ -340,7 +341,7 @@ fn due(s: &Tasks, app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
                     .with_accessibility_name("Due date")
                     .with_on_change(detail_ref(app, &t.id, 0), on_due_date as DatePickerOnChangeCallbackType)
                     .dom()
-                    .with_id("detail-due"),
+                    .with_id(ids::DETAIL_DUE),
             );
             match t.due_time {
                 Some(time) => row.add_child(
@@ -349,14 +350,14 @@ fn due(s: &Tasks, app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
                         .with_accessibility_name("Due time")
                         .with_on_change(detail_ref(app, &t.id, 0), on_due_time as TimePickerOnChangeCallbackType)
                         .dom()
-                        .with_id("detail-time"),
+                        .with_id(ids::DETAIL_TIME),
                 ),
                 None => row.add_child(
                     Button::create("Add time")
                         .with_icon("schedule")
                         .with_on_click(detail_ref(app, &t.id, 0), on_add_time as ButtonOnClickCallbackType)
                         .dom()
-                        .with_id("add-time"),
+                        .with_id(ids::ADD_TIME),
                 ),
             }
             if t.due_time.is_some() {
@@ -370,7 +371,7 @@ fn due(s: &Tasks, app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
                 Button::create("Clear")
                     .with_on_click(detail_ref(app, &t.id, 3), on_due_quick as ButtonOnClickCallbackType)
                     .dom()
-                    .with_id("due-clear"),
+                    .with_id(ids::DUE_CLEAR),
             );
             row.add_child(
                 Dom::create_span_with_text(model::day_label(date, today)).with_css(META),
@@ -391,7 +392,7 @@ fn repeat(s: &Tasks, app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
             .with_accessibility_name("Repeat")
             .with_on_choice_change(detail_ref(app, &t.id, 0), on_repeat as DropDownOnChoiceChangeCallbackType)
             .dom()
-            .with_id("detail-repeat"),
+            .with_id(ids::DETAIL_REPEAT),
     ));
     let editing = s.drafts.custom_repeat && s.drafts.task == t.id;
     if let Some(rule) = t.repeat.as_ref().filter(|_| editing || preset == REPEATS.len() - 1) {
@@ -411,7 +412,7 @@ fn repeat(s: &Tasks, app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
                     on_repeat_rule as DateRepeatPickerOnChangeCallbackType,
                 )
                 .dom()
-                .with_id("repeat-editor"),
+                .with_id(ids::REPEAT_EDITOR),
         );
         out.add_child(Dom::create_span_with_text(rule.label()).with_css(META));
     }
@@ -427,7 +428,7 @@ fn reminder(s: &Tasks, app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
             .with_accessibility_name("Reminder")
             .with_on_choice_change(detail_ref(app, &t.id, 0), on_reminder as DropDownOnChoiceChangeCallbackType)
             .dom()
-            .with_id("detail-reminder"),
+            .with_id(ids::DETAIL_REMINDER),
     );
     if let Some(Reminder::At(at)) = t.reminder {
         row.add_child(
@@ -476,13 +477,13 @@ fn list_field(s: &Tasks, app: &RefAny, t: &Task) -> Dom {
             .with_accessibility_name("List")
             .with_on_choice_change(detail_ref(app, &t.id, 0), on_list_change as DropDownOnChoiceChangeCallbackType)
             .dom()
-            .with_id("detail-list"),
+            .with_id(ids::DETAIL_LIST),
     )
 }
 
 /// The tags as removable chips, and "Add a tag".
 fn tags(s: &Tasks, app: &RefAny, t: &Task) -> Dom {
-    let mut row = Dom::create_div().with_id("detail-tags").with_css(FIELD).with_child(label("Tags"));
+    let mut row = Dom::create_div().with_id(ids::DETAIL_TAGS).with_css(FIELD).with_child(label("Tags"));
     for (n, tag) in t.tags.iter().enumerate() {
         row.add_child(
             Chip::create(format!("#{tag}"))
@@ -499,7 +500,7 @@ fn tags(s: &Tasks, app: &RefAny, t: &Task) -> Dom {
             .with_on_text_input(app.clone(), on_tag_text as TextInputOnTextInputCallbackType)
             .with_on_virtual_key_down(app.clone(), on_tag_key as TextInputOnVirtualKeyDownCallbackType)
             .dom()
-            .with_id("add-tag")
+            .with_id(ids::ADD_TAG)
             .with_css("min-width: 120px;"),
     )
 }
@@ -507,7 +508,7 @@ fn tags(s: &Tasks, app: &RefAny, t: &Task) -> Dom {
 /// The files next to the task: open, remove, "Attach a file..." (or drop one here).
 fn attachments(app: &RefAny, t: &Task) -> Dom {
     let mut out = Dom::create_div()
-        .with_id("attachments")
+        .with_id(ids::ATTACHMENTS)
         .with_css("display: flex; flex-direction: column; gap: 4px;")
         .with_child(Dom::create_span_with_text("FILES").with_css(GROUP_TITLE));
     for (n, a) in t.attachments.iter().enumerate() {
@@ -539,7 +540,7 @@ fn attachments(app: &RefAny, t: &Task) -> Dom {
                     .with_icon("attach_file")
                     .with_on_click(detail_ref(app, &t.id, 0), on_attach as ButtonOnClickCallbackType)
                     .dom()
-                    .with_id("attach"),
+                    .with_id(ids::ATTACH),
             )
             .with_child(Dom::create_span_with_text("or drop files on the window").with_css(META)),
     )
@@ -562,7 +563,7 @@ fn footer(app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
                 .with_icon("delete")
                 .with_on_click(detail_ref(app, &t.id, 0), on_delete as ButtonOnClickCallbackType)
                 .dom()
-                .with_id("detail-delete"),
+                .with_id(ids::DETAIL_DELETE),
         )
 }
 

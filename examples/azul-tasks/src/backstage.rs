@@ -32,6 +32,7 @@ use azul_appkit::args::{ModePref, Theme};
 use crate::{
     appearance,
     chrome::Command,
+    ids,
     state::{Page, Tasks},
     views,
 };
@@ -82,7 +83,7 @@ pub fn backstage(s: &Tasks, app: &RefAny, page: Page, theme: &str, dark: bool) -
         .with_on_back(app.clone(), on_back as ButtonOnClickCallbackType)
         .with_content(content)
         .dom()
-        .with_id("backstage")
+        .with_id(ids::BACKSTAGE)
 }
 
 // ==== Settings ====
@@ -131,7 +132,7 @@ fn general(s: &Tasks, app: &RefAny) -> Vec<ShellSettingsSection> {
                     .with_accessibility_name("Default list")
                     .with_on_choice_change(app.clone(), on_default_list as DropDownOnChoiceChangeCallbackType)
                     .dom()
-                    .with_id("settings-default-list"),
+                    .with_id(ids::SETTINGS_DEFAULT_LIST),
                 "where a new task goes from Today, All or a tag",
             ),
         ),
@@ -141,7 +142,7 @@ fn general(s: &Tasks, app: &RefAny) -> Vec<ShellSettingsSection> {
                 .with_selected_index(week)
                 .with_on_change(app.clone(), on_week_start as SegmentedOnChangeCallbackType)
                 .dom()
-                .with_id("settings-week-start"),
+                .with_id(ids::SETTINGS_WEEK_START),
         ),
         ShellSettingsSection::create(
             "Completed tasks",
@@ -150,7 +151,7 @@ fn general(s: &Tasks, app: &RefAny) -> Vec<ShellSettingsSection> {
                     .with_accessibility_name("Show completed tasks under a list")
                     .with_on_toggle(app.clone(), on_show_completed as SwitchOnToggleCallbackType)
                     .dom()
-                    .with_id("settings-show-completed"),
+                    .with_id(ids::SETTINGS_SHOW_COMPLETED),
                 "show them under a list's open tasks (folded)",
             ),
         ),
@@ -174,7 +175,7 @@ fn reminder_settings(s: &Tasks, app: &RefAny) -> Vec<ShellSettingsSection> {
                     .with_accessibility_name("Reminder time")
                     .with_on_change(app.clone(), on_reminder_time as TimePickerOnChangeCallbackType)
                     .dom()
-                    .with_id("settings-reminder-time"),
+                    .with_id(ids::SETTINGS_REMINDER_TIME),
                 "for tasks due on a day without a time, and a new due time",
             ),
         ),
@@ -185,7 +186,7 @@ fn reminder_settings(s: &Tasks, app: &RefAny) -> Vec<ShellSettingsSection> {
                     .with_accessibility_name("Play a sound with a reminder")
                     .with_on_toggle(app.clone(), on_sounds as SwitchOnToggleCallbackType)
                     .dom()
-                    .with_id("settings-sounds"),
+                    .with_id(ids::SETTINGS_SOUNDS),
                 "play the system's sound with a reminder",
             ),
         ),
@@ -198,7 +199,7 @@ fn reminder_settings(s: &Tasks, app: &RefAny) -> Vec<ShellSettingsSection> {
                         .with_accessibility_name("Show reminders as notifications")
                         .with_on_toggle(app.clone(), on_notifications as SwitchOnToggleCallbackType)
                         .dom()
-                        .with_id("settings-notifications"),
+                        .with_id(ids::SETTINGS_NOTIFICATIONS),
                     "show a reminder as a notification of the system too",
                 ))
                 .with_child(line(os_line, SOFT)),
@@ -214,7 +215,7 @@ fn appearance_settings(app: &RefAny, theme: &str, mode: ModePref) -> Vec<ShellSe
                 .with_selected_index(usize::from(theme == "flora"))
                 .with_on_change(app.clone(), on_theme as SegmentedOnChangeCallbackType)
                 .dom()
-                .with_id("settings-theme"),
+                .with_id(ids::SETTINGS_THEME),
         ),
         ShellSettingsSection::create(
             "Mode",
@@ -223,7 +224,7 @@ fn appearance_settings(app: &RefAny, theme: &str, mode: ModePref) -> Vec<ShellSe
                 .with_selected_index(appearance::mode_index(mode))
                 .with_on_change(app.clone(), on_mode as SegmentedOnChangeCallbackType)
                 .dom()
-                .with_id("settings-mode"),
+                .with_id(ids::SETTINGS_MODE),
         ),
     ]
 }
@@ -265,7 +266,7 @@ fn data(s: &Tasks, app: &RefAny) -> Vec<ShellSettingsSection> {
                 Button::create("Add the sample tasks")
                     .with_on_click(app.clone(), on_sample as ButtonOnClickCallbackType)
                     .dom()
-                    .with_id("settings-sample"),
+                    .with_id(ids::SETTINGS_SAMPLE),
                 "lists and tasks to try AzTasks with",
             ),
         ),
@@ -290,20 +291,20 @@ fn import_export(s: &Tasks, app: &RefAny) -> Dom {
                             on_import_path as TextInputOnTextInputCallbackType,
                         )
                         .dom()
-                        .with_id("settings-import-path")
+                        .with_id(ids::SETTINGS_IMPORT_PATH)
                         .with_css("flex-grow: 1; min-width: 200px;"),
                 )
                 .with_child(
                     Button::create("Browse...")
                         .with_on_click(app.clone(), on_import_browse as ButtonOnClickCallbackType)
                         .dom()
-                        .with_id("settings-import-browse"),
+                        .with_id(ids::SETTINGS_IMPORT_BROWSE),
                 )
                 .with_child(
                     Button::create("Import")
                         .with_on_click(app.clone(), on_import as ButtonOnClickCallbackType)
                         .dom()
-                        .with_id("settings-import"),
+                        .with_id(ids::SETTINGS_IMPORT),
                 ),
         )
         .with_child(line(
@@ -315,11 +316,11 @@ fn import_export(s: &Tasks, app: &RefAny) -> Dom {
             Button::create("Export")
                 .with_on_click(app.clone(), on_export as ButtonOnClickCallbackType)
                 .dom()
-                .with_id("settings-export"),
+                .with_id(ids::SETTINGS_EXPORT),
             "the list shown (or every task) as an iCalendar file in aztasks/exports",
         ));
     if !s.io_message.is_empty() {
-        out.add_child(line(s.io_message.as_str(), TEXT).with_id("settings-io-message"));
+        out.add_child(line(s.io_message.as_str(), TEXT).with_id(ids::SETTINGS_IO_MESSAGE));
     }
     out
 }
@@ -328,7 +329,7 @@ fn import_export(s: &Tasks, app: &RefAny) -> Dom {
 
 fn shortcuts() -> Dom {
     let mut page = Dom::create_div()
-        .with_id("shortcuts")
+        .with_id(ids::SHORTCUTS)
         .with_css(PAGE)
         .with_child(Dom::create_h2_with_text("Keyboard shortcuts").with_css("font-size: 20px;"));
     let mut rows: Vec<(String, String)> = Command::ALL
@@ -366,7 +367,7 @@ fn shortcuts() -> Dom {
 fn about(s: &Tasks) -> Dom {
     let (available, why) = &s.os_notifications;
     Dom::create_div()
-        .with_id("about")
+        .with_id(ids::ABOUT)
         .with_css(PAGE)
         .with_child(Dom::create_h2_with_text("AzTasks").with_css("font-size: 24px;"))
         .with_child(line(format!("Version {}", env!("CARGO_PKG_VERSION")), TEXT))
