@@ -306,6 +306,9 @@ pub fn take_reply(msg: &mut RefAny) -> Option<FileReply> {
 
 struct FileThreadInit {
     root: PathBuf,
+    /// `root` is the data tree (its drive keeps the `.azlin/cache`
+    /// manifest); `false` for a folder outside it (`spawn_outside_read`).
+    data_tree: bool,
     jobs: Option<Vec<FileJob>>,
     tag: u64,
     on_done: WriteBackCallbackType,
@@ -314,13 +317,17 @@ struct FileThreadInit {
 /// Runs on the worker thread: the jobs on the data root's drive, then the
 /// outcomes to the UI thread.
 extern "C" fn file_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: ThreadReceiver) {
-    let Some((root, jobs, tag, on_done)) = init.downcast_mut::<FileThreadInit>().and_then(|mut i| {
+    let Some((root, data_tree, jobs, tag, on_done)) = init.downcast_mut::<FileThreadInit>().and_then(|mut i| {
         let jobs = i.jobs.take()?;
-        Some((i.root.clone(), jobs, i.tag, i.on_done))
+        Some((i.root.clone(), i.data_tree, jobs, i.tag, i.on_done))
     }) else {
         return;
     };
-    let drive = LocalDrive::new(root);
+    let drive = if data_tree {
+        LocalDrive::new(root)
+    } else {
+        LocalDrive::without_manifest(root)
+    };
     let outcomes = run_jobs(&drive, jobs);
     let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::create(
         on_done,
@@ -341,11 +348,45 @@ pub fn spawn_file_jobs(
     if jobs.is_empty() {
         return;
     }
+    spawn_jobs_at(info, root, true, jobs, reply_to, tag, on_done);
+}
+
+/// Reads `path` - a file the user picked OUTSIDE the data tree (a file to
+/// import) - on an azul `Thread`, through a drive at its folder that keeps
+/// no manifest ([`crate::files::outside_read`]); `on_done` gets one
+/// `FileOutcome::Got` whose key is the file's name. `false` (nothing
+/// spawned) for a path without a UTF-8 file name.
+pub fn spawn_outside_read(
+    info: &mut CallbackInfo,
+    path: &Path,
+    reply_to: RefAny,
+    tag: u64,
+    on_done: WriteBackCallbackType,
+) -> bool {
+    let Some((folder, job)) = crate::files::outside_read(path) else {
+        return false;
+    };
+    spawn_jobs_at(info, &folder, false, vec![job], reply_to, tag, on_done);
+    true
+}
+
+/// The one file thread: `jobs` on the drive at `root` (`data_tree`: the
+/// data root's drive with its manifest; else a folder outside it).
+fn spawn_jobs_at(
+    info: &mut CallbackInfo,
+    root: &Path,
+    data_tree: bool,
+    jobs: Vec<FileJob>,
+    reply_to: RefAny,
+    tag: u64,
+    on_done: WriteBackCallbackType,
+) {
     info.add_thread(
         ThreadId::unique(),
         Thread::create(
             RefAny::new(FileThreadInit {
                 root: root.to_path_buf(),
+                data_tree,
                 jobs: Some(jobs),
                 tag,
                 on_done,

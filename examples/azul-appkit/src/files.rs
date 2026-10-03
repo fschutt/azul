@@ -140,15 +140,33 @@ pub fn run_jobs(drive: &dyn Drive, jobs: Vec<FileJob>) -> Vec<FileOutcome> {
 /// (`LocalDrive::without_manifest`), so the user's folder gets no `.azlin/`.
 #[must_use]
 pub fn outside_read(path: &Path) -> Option<(PathBuf, FileJob)> {
-    let _ = path;
-    None
+    let name = path.file_name()?.to_str()?.to_string();
+    let folder = match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
+        _ => PathBuf::from("."),
+    };
+    Some((folder, FileJob::Get { key: name }))
 }
 
 /// Reads a file outside the data tree NOW (before the window opens: a file
 /// named on the command line), the same way: [`outside_read`] on a drive
 /// without a manifest. A missing file is an error here.
 pub fn read_outside(path: &Path) -> Result<Vec<u8>, String> {
-    Err(format!("{} could not be read", path.display()))
+    let Some((folder, job)) = outside_read(path) else {
+        return Err(format!("{} is not a file", path.display()));
+    };
+    match run_job(&azul_storage::LocalDrive::without_manifest(folder), job) {
+        FileOutcome::Got {
+            result: Ok(Some(bytes)),
+            ..
+        } => Ok(bytes),
+        FileOutcome::Got { result: Ok(None), .. } => {
+            Err(format!("{} does not exist", path.display()))
+        }
+        other => Err(other
+            .error()
+            .unwrap_or_else(|| format!("{} could not be read", path.display()))),
+    }
 }
 
 #[cfg(test)]
