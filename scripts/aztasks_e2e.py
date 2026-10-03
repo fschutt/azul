@@ -14,7 +14,10 @@
     5. completes the repeating task (its check box) -> `AZTASKS_COMPLETED`, `AZTASKS_SPAWNED
        <new> <tomorrow + 7>`, both files on disk, the old one `completed`, the new one
        repeating;
-    6. Settings (FILE) opens the backstage, Escape closes it; flora + dark screenshot;
+    6. Settings (FILE) opens the backstage; Data: Export (`AZTASKS_EXPORTED <n> <key>`, the
+       file lands in `aztasks/exports/` of the data tree with n VTODOs), Import of a one-to-do
+       .ics (`AZTASKS_IMPORTED 1 <path>`); Appearance: Flora is kept in
+       `aztasks/settings.json`; Escape closes it; flora + dark screenshot;
     7. restarts AzTasks on the same folder without `--sample` and `--view scheduled`: the
        spawned task is listed (`#task-<new>`), the completed one is in Completed (Cmd+6), and
        the counts match the files.
@@ -324,6 +327,61 @@ def run(args, logs, out, data_dir):
         app.frame(2)
         app.until("the backstage", lambda: app.has("#backstage"))
         app.screenshot(os.path.join(out, "settings.png"))
+
+        # Settings > Data: export the tasks into the data tree, import an iCalendar to-do.
+        app.must("click", text="Data")
+        app.frame(2)
+        app.until("the import and export controls", lambda: app.has("#settings-export"))
+        app.must("click", selector="#settings-export")
+        app.frame(2)
+        exported = app.until("AZTASKS_EXPORTED", lambda: app.printed("AZTASKS_EXPORTED", r"\d+ \S+"))
+        count, key = exported[-1].split(" ", 1)
+        export_path = os.path.join(data_dir, *key.split("/"))
+
+        def export_landed():
+            try:
+                with open(export_path, "r", encoding="utf-8") as f:
+                    text = f.read()
+            except OSError:
+                return None
+            return text if text.count("BEGIN:VTODO") == int(count) else None
+
+        app.until("the export file %s" % key, export_landed)
+        if not key.startswith("aztasks/exports/"):
+            raise Failure("the export %s is not in aztasks/exports of the data tree" % key)
+        ics = os.path.join(logs, "import.ics")
+        with open(ics, "w", encoding="utf-8", newline="") as f:
+            f.write("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//e2e//EN\r\nBEGIN:VTODO\r\n"
+                    "UID:e2e-1@example.org\r\nSUMMARY:Imported from iCal\r\n"
+                    "DUE;VALUE=DATE:%s\r\nPRIORITY:1\r\nEND:VTODO\r\nEND:VCALENDAR\r\n"
+                    % tomorrow.strftime("%Y%m%d"))
+        app.must("click", selector="#settings-import-path")
+        app.frame(1)
+        app.must("text_input", text=ics)
+        app.frame(2)
+        app.must("click", selector="#settings-import")
+        app.frame(2)
+        imported = app.until("AZTASKS_IMPORTED", lambda: app.printed("AZTASKS_IMPORTED", r"\d+ .+"))
+        if not imported[-1].startswith("1 "):
+            raise Failure("AZTASKS_IMPORTED %s: expected the one to-do" % imported[-1])
+        log("exported %s to-do(s) to %s; imported 1 from %s" % (count, key, ics))
+
+        # Settings > Appearance: Flora is kept for the next start (aztasks/settings.json).
+        app.must("click", text="Appearance")
+        app.frame(2)
+        app.until("the theme control", lambda: app.has("#settings-theme"))
+        app.must("click", text="Flora")
+        app.frame(2)
+        appearance_file = os.path.join(data_dir, "aztasks", "settings.json")
+
+        def kept_flora():
+            try:
+                with open(appearance_file, "r", encoding="utf-8") as f:
+                    return json.load(f).get("theme") == "flora"
+            except (OSError, ValueError):
+                return False
+
+        app.until("flora in aztasks/settings.json", kept_flora)
         app.key("Escape")
         app.until("the backstage to close", lambda: not app.has("#backstage"))
 
@@ -358,8 +416,8 @@ def run(args, logs, out, data_dir):
         log("restart: %d lists, %d tasks (%d task files), %d skipped" % (lists2, tasks2, files, skipped2))
         if tasks2 != files or skipped2 != 0:
             raise Failure("the restart read %d tasks from %d files (%d skipped)" % (tasks2, files, skipped2))
-        if tasks2 != tasks + 3:
-            raise Failure("expected the %d sample tasks + 3 (two added, one spawned), read %d" % (tasks, tasks2))
+        if tasks2 != tasks + 4:
+            raise Failure("expected the %d sample tasks + 4 (two added, one spawned, one imported), read %d" % (tasks, tasks2))
         app.until("the window", lambda: app.has("#quick-add"))
         app.until("the next occurrence in Scheduled", lambda: app.has("#task-%s" % new_id))
         app.cmd("6")
