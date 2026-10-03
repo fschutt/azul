@@ -766,6 +766,8 @@ fn apply_focus_restyle_in_dom(
 ) -> ProcessEventResult {
     use azul_core::styled_dom::FocusChange;
 
+    // The states before the flip: a declared `animation` fades from them.
+    let before = layout_window.node_states(dom_id, old_focus.into_iter().chain(new_focus));
     let Some(layout_result) = layout_window.layout_results.get_mut(&dom_id) else {
         return ProcessEventResult::ShouldReRenderCurrentWindow;
     };
@@ -779,6 +781,7 @@ fn apply_focus_restyle_in_dom(
         None, // hover
         None, // active
     );
+    let _faded = layout_window.seed_state_change_transitions(dom_id, &before);
 
     log_debug!(
         super::debug_server::LogCategory::Input,
@@ -966,6 +969,14 @@ fn apply_active_restyle(
         if deactivated.is_empty() && activated.is_empty() {
             continue;
         }
+        // The states before the flip: a declared `animation` fades from them.
+        let before = layout_window.node_states(
+            dom_id,
+            deactivated.iter().chain(activated.iter()).copied(),
+        );
+        let Some(layout_result) = layout_window.layout_results.get_mut(&dom_id) else {
+            continue;
+        };
         let restyle_result = layout_result.styled_dom.restyle_on_state_change(
             None, // focus
             None, // hover
@@ -974,6 +985,7 @@ fn apply_active_restyle(
                 activated,
             }),
         );
+        let _faded = layout_window.seed_state_change_transitions(dom_id, &before);
 
         if restyle_result.changed_nodes.is_empty() {
             continue;
@@ -1015,6 +1027,15 @@ fn apply_hover_restyle(
 
     let mut result = ProcessEventResult::DoNothing;
     for (dom_id, hover_change) in changes_per_dom {
+        // The states before the flip: a declared `animation` fades from them.
+        let before = layout_window.node_states(
+            dom_id,
+            hover_change
+                .left_nodes
+                .iter()
+                .chain(hover_change.entered_nodes.iter())
+                .copied(),
+        );
         let Some(layout_result) = layout_window.layout_results.get_mut(&dom_id) else {
             continue;
         };
@@ -1023,6 +1044,10 @@ fn apply_hover_restyle(
             Some(hover_change),
             None, // active
         );
+        // Before the empty check: a property in mid-fade is invisible to the
+        // restyle's diff (its override answers for both states), and its
+        // reversal is still owed.
+        let _faded = layout_window.seed_state_change_transitions(dom_id, &before);
         if restyle_result.changed_nodes.is_empty() {
             continue;
         }

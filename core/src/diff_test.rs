@@ -3042,3 +3042,141 @@ mod dom_fingerprint_tests {
         assert!(transfers.callbacks.is_empty());
     }
 }
+
+/// A widget toggled through `set_css_property` keeps its identity across the
+/// rebuild that follows (ANIM8, 2026-10-03).
+///
+/// The engine writes an imperative patch with
+/// `NodeData::upsert_inline_css_property`: the declaration is removed where it
+/// stood and appended as a rule of its own. The node then declares the same
+/// properties as a fresh build of the same widget, in another ORDER - and the
+/// identity hash read the order. So the rebuilt switch no longer hashed like
+/// its old self but exactly like an untouched twin elsewhere in the document,
+/// and `reconcile_dom`'s subtree pass handed it the twin's identity:
+/// AzWidgets' Switch matched the ShellSettingsDialog's switch 7400 px further
+/// down, flew in from there (a FLIP slide from the twin's rect) and its tween
+/// went to the other switch - "the toggle immediately transitions".
+#[cfg(test)]
+mod a_toggled_widget_keeps_its_identity {
+    use azul_css::{
+        dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+        props::{
+            layout::{LayoutFlexGrow, LayoutHeight, LayoutWidth},
+            property::CssProperty,
+        },
+    };
+
+    use super::*;
+    use crate::{dom::NodeData, styled_dom::NodeHierarchyItem};
+
+    fn hitem(
+        parent: Option<usize>,
+        prev: Option<usize>,
+        next: Option<usize>,
+        last_child: Option<usize>,
+    ) -> NodeHierarchyItem {
+        NodeHierarchyItem {
+            parent: parent.map_or(0, |p| p + 1),
+            previous_sibling: prev.map_or(0, |p| p + 1),
+            next_sibling: next.map_or(0, |p| p + 1),
+            last_child: last_child.map_or(0, |p| p + 1),
+        }
+    }
+
+    /// A switch track as its widget builds it: width, height, flex-grow -
+    /// `height` stands for the state-dependent property (the real track's
+    /// background), declared in the MIDDLE of the list.
+    fn fresh_track(height: isize) -> NodeData {
+        NodeData::create_div().with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+            CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(36))),
+            CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(
+                height,
+            ))),
+            CssPropertyWithConditions::simple(CssProperty::const_flex_grow(
+                LayoutFlexGrow::const_new(0),
+            )),
+        ]))
+    }
+
+    /// The same track after its click handler patched the state property
+    /// in place (`set_css_property` -> `upsert_inline_css_property`).
+    fn toggled_track(from: isize, to: isize) -> NodeData {
+        let mut nd = fresh_track(from);
+        nd.upsert_inline_css_property(CssProperty::const_height(LayoutHeight::const_px(to)));
+        nd
+    }
+
+    fn knob() -> NodeData {
+        NodeData::create_div().with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+            CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(16))),
+        ]))
+    }
+
+    /// root > [track A > knob A, track B > knob B]
+    fn hierarchy() -> Vec<NodeHierarchyItem> {
+        vec![
+            hitem(None, None, None, Some(3)),
+            hitem(Some(0), None, Some(3), Some(2)),
+            hitem(Some(1), None, None, None),
+            hitem(Some(0), Some(1), None, Some(4)),
+            hitem(Some(3), None, None, None),
+        ]
+    }
+
+    #[test]
+    fn a_patched_declaration_keeps_the_nodes_identity_hash() {
+        // Values are not part of the identity hash (a toggle is the same
+        // node); WHICH properties are declared is. A patch of a property the
+        // node already declares changes neither.
+        assert_eq!(
+            toggled_track(20, 21).calculate_node_data_hash(),
+            fresh_track(21).calculate_node_data_hash(),
+            "an imperatively patched track hashes like a fresh build of the same track"
+        );
+    }
+
+    #[test]
+    fn the_toggled_switch_is_not_matched_with_its_untouched_twin() {
+        // OLD frame: switch A was clicked (its track patched to 21), switch B
+        // never touched. NEW frame: the app rebuilt both, A in its new state.
+        let old = vec![
+            NodeData::create_div(),
+            toggled_track(20, 21),
+            knob(),
+            fresh_track(20),
+            knob(),
+        ];
+        let new = vec![
+            NodeData::create_div(),
+            fresh_track(21),
+            knob(),
+            fresh_track(20),
+            knob(),
+        ];
+        let h = hierarchy();
+        let diff = reconcile_dom(
+            &old,
+            &new,
+            &h,
+            &h,
+            &OrderedMap::default(),
+            &OrderedMap::default(),
+            DomId::ROOT_ID,
+            Instant::now(),
+        );
+        let old_of = |new_idx: usize| {
+            diff.node_moves
+                .iter()
+                .find(|m| m.new_node_id == NodeId::new(new_idx))
+                .map(|m| m.old_node_id.index())
+        };
+        assert_eq!(
+            old_of(1),
+            Some(1),
+            "the toggled track (A) is still A after the rebuild, not its twin B"
+        );
+        assert_eq!(old_of(2), Some(2), "A's knob is still A's knob");
+        assert_eq!(old_of(3), Some(3), "the untouched track B is still B");
+        assert_eq!(old_of(4), Some(4), "B's knob is still B's knob");
+    }
+}

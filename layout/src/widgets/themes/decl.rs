@@ -922,3 +922,63 @@ pub(crate) fn face(top: ColorU, bottom: ColorU) -> StyleBackgroundContent {
 pub(crate) fn push<const N: usize>(v: &mut Vec<CssPropertyWithConditions>, items: [CssPropertyWithConditions; N]) {
     v.extend(items);
 }
+
+// ==== state fades: a control's face fades between pointer states (ANIM8) ====
+
+/// The pointer-state fade a control declares: the `props` it names (CSS
+/// names: `background`, `border-top-color`, ...) tween over `ms` (ease-out)
+/// when the pointer enters or leaves (`:hover`) and when a press ends - and a
+/// PRESS shows at once: `:active` declares the same list at 0 ms, and the
+/// after-change style governs (`LayoutWindow::seed_state_change_transitions`,
+/// the engine half). That is how a native button reacts: it lights up under
+/// the pointer, darkens the instant it is pressed, and eases back.
+///
+/// Push it with the control's state declarations; a disabled control (no
+/// states) and a link (an underline - discrete, nothing to fade) need none.
+#[must_use]
+pub(crate) fn state_fade(props: &[&'static str], ms: u32) -> [CssPropertyWithConditions; 2] {
+    use azul_css::{
+        props::{
+            basic::{
+                animation::{
+                    AnimationIterationCount, AnimationTiming, StyleAnimation, StyleAnimationVec,
+                },
+                time::CssDuration,
+            },
+            property::StyleAnimationVecValue,
+        },
+        AzString,
+    };
+    let list = |duration: u32| {
+        CssProperty::Animation(StyleAnimationVecValue::Exact(StyleAnimationVec::from_vec(
+            props
+                .iter()
+                .map(|name| StyleAnimation {
+                    name: AzString::from_const_str(*name),
+                    duration: CssDuration::from_millis(duration),
+                    delay: CssDuration::from_millis(0),
+                    iterations: AnimationIterationCount::Count(1),
+                    timing: AnimationTiming::EaseOut,
+                    clip: true,
+                })
+                .collect(),
+        )))
+    };
+    [
+        CssPropertyWithConditions::simple(list(ms)),
+        CssPropertyWithConditions::on_active(list(0)),
+    ]
+}
+
+/// What a button's face is made of: the properties [`state_fade`] tweens for
+/// flat's and flora's Button (its fill and its four border colours).
+pub(crate) const BUTTON_FACE: &[&str] = &[
+    "background",
+    "border-top-color",
+    "border-right-color",
+    "border-bottom-color",
+    "border-left-color",
+];
+
+/// How long a button's face takes to follow the pointer.
+pub(crate) const BUTTON_FADE_MS: u32 = 120;

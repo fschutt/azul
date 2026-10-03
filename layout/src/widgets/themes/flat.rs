@@ -701,6 +701,14 @@ pub fn button(btn: Button) -> Dom {
         // dark resting colour pushed after a `dark_on_hover` / `dark_on_focus` twin
         // would shadow it — no ring, no hover face, in dark mode.
         container_style.extend(button_states(btn_type));
+        // The face follows the pointer in a short fade and darkens the
+        // instant it is pressed (`decl::state_fade`). A link only underlines.
+        if btn_type != crate::widgets::button::ButtonType::Link {
+            container_style.extend(super::decl::state_fade(
+                super::decl::BUTTON_FACE,
+                super::decl::BUTTON_FADE_MS,
+            ));
+        }
     }
 
     // A disabled button has no hover / pressed paint and is dimmed - whoever

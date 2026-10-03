@@ -8808,22 +8808,7 @@ impl LayoutWindow {
                     .iter()
                     .filter_map(|prop| {
                         let ty = prop.get_type();
-                        // The animation meta-properties are a mode switch, not
-                        // a value to tween.
-                        if matches!(
-                            ty,
-                            azul_css::props::property::CssPropertyType::Animation
-                                | azul_css::props::property::CssPropertyType::AnimationIn
-                                | azul_css::props::property::CssPropertyType::AnimationOut
-                        ) {
-                            return None;
-                        }
-                        // A LIST scopes properties independently; the last
-                        // covering entry wins, web-cascade style.
-                        let anim =
-                            anims.as_ref().iter().rev().find(|a| {
-                                a.name.as_str() == "all" || a.name.as_str() == ty.to_str()
-                            })?;
+                        let anim = declared_animation_for(&anims, ty)?;
                         let from = cache
                             .get_property(nd, &node_id, &state.styled_node_state, &ty)
                             .cloned()
@@ -8837,19 +8822,14 @@ impl LayoutWindow {
                         if from == *prop {
                             return None;
                         }
-                        Some(CssTransition {
-                            node: node_id,
-                            prop_type: ty,
-                            from: from.resolve_system_colors(sys_ctx),
-                            to: prop.clone().resolve_system_colors(sys_ctx),
-                            t: 0.0,
-                            duration_s: anim.duration.millis() as f32 / 1000.0,
-                            delay_s: anim.delay.millis() as f32 / 1000.0,
-                            timing: anim.timing,
-                            scope: ty.relayout_scope(false),
-                            last_color: None,
-                            keeps_target: true,
-                        })
+                        Some(CssTransition::declared(
+                            node_id,
+                            ty,
+                            from.resolve_system_colors(sys_ctx),
+                            prop.clone().resolve_system_colors(sys_ctx),
+                            anim,
+                            true,
+                        ))
                     })
                     .collect(),
             }
@@ -8941,6 +8921,202 @@ impl LayoutWindow {
                 tier: ContentDirtyTier::RebuildDisplayList,
             }
         }
+    }
+
+    /// The states `nodes` of `dom_id` are in RIGHT NOW - what a pointer /
+    /// focus restyle hands [`Self::seed_state_change_transitions`] before it
+    /// flips them. Nodes that do not exist are left out.
+    #[must_use]
+    pub fn node_states(
+        &self,
+        dom_id: DomId,
+        nodes: impl IntoIterator<Item = NodeId>,
+    ) -> Vec<(NodeId, azul_core::styled_dom::StyledNodeState)> {
+        let Some(result) = self.layout_results.get(&dom_id) else {
+            return Vec::new();
+        };
+        let states = result.styled_dom.styled_nodes.as_container();
+        nodes
+            .into_iter()
+            .filter_map(|node| states.get(node).map(|s| (node, s.styled_node_state)))
+            .collect()
+    }
+
+    /// A POINTER / FOCUS STATE change (`:hover`, `:active`, `:focus`)
+    /// honours a declared `animation` exactly like a rebuild
+    /// ([`Self::begin_reconciliation`]) or an imperative write
+    /// (`apply_node_css_change`) does: a button that declares
+    /// `animation: background 150ms` and a `:hover` background FADES to it
+    /// and back, instead of snapping on the first frame. The restyle
+    /// (`StyledDom::restyle_on_state_change`) never seeded a transition, so
+    /// every hover colour in every app snapped ("the hover animation over
+    /// buttons, it immediately transitions", 2026-10-03).
+    ///
+    /// `before`: each restyled node with its state BEFORE the change
+    /// ([`Self::node_states`]); the styled DOM already holds the new one. The
+    /// NEW state's `animation` governs, as in CSS (the after-change style).
+    ///
+    /// A property whose transition is still in flight (the pointer leaves
+    /// half-way through the fade in) restarts from the value ON SCREEN - the
+    /// transition's override - toward what the new state cascades to, so the
+    /// fade reverses where it stands. The restyle's own diff cannot see such
+    /// a property at all: the override answers for the old and the new state
+    /// alike. A value the APP wrote (`set_css_property`, an override with no
+    /// transition behind it) outranks every state style, so a state change
+    /// shows nothing to tween there; an imperative tween in flight
+    /// (`keeps_target`) is left to finish. A 0 ms declaration in the new
+    /// state means "at once": no tween, and one in flight ends.
+    ///
+    /// Only the root DOM's transitions are driven (`tick_animations`).
+    /// Returns whether a transition was started.
+    pub fn seed_state_change_transitions(
+        &mut self,
+        dom_id: DomId,
+        before: &[(NodeId, azul_core::styled_dom::StyledNodeState)],
+    ) -> bool {
+        use azul_css::{
+            dynamic_selector::ResolveSystemColors,
+            props::property::{CssProperty, CssPropertyType},
+        };
+
+        if dom_id != DomId::ROOT_ID || before.is_empty() {
+            return false;
+        }
+        let Some(result) = self.layout_results.get_mut(&dom_id) else {
+            return false;
+        };
+        let mut seeded: Vec<CssTransition> = Vec::new();
+        // In-flight transitions whose node already shows the new state's
+        // value: they end here, their override goes.
+        let mut settled: Vec<(NodeId, CssPropertyType)> = Vec::new();
+        for &(node, old_state) in before {
+            let Some(new_state) = result
+                .styled_dom
+                .styled_nodes
+                .as_container()
+                .get(node)
+                .map(|s| s.styled_node_state)
+            else {
+                continue;
+            };
+            if new_state == old_state {
+                continue;
+            }
+            let anims = {
+                let cache = &result.styled_dom.css_property_cache.ptr;
+                let node_data = result.styled_dom.node_data.as_container();
+                node_data.get(node).and_then(|nd| {
+                    cache
+                        .get_property(nd, &node, &new_state, &CssPropertyType::Animation)
+                        .and_then(|p| match p {
+                            CssProperty::Animation(v) => v.get_property().cloned(),
+                            _ => None,
+                        })
+                })
+            };
+            let Some(anims) = anims else {
+                continue;
+            };
+            for ty in CssPropertyType::ALL {
+                let Some(anim) = declared_animation_for(&anims, *ty) else {
+                    continue;
+                };
+                let in_flight = self
+                    .css_transitions
+                    .iter()
+                    .find(|t| t.node == node && t.prop_type == *ty)
+                    .map(|t| t.keeps_target);
+                if in_flight == Some(true) {
+                    // An imperative tween: its target lives in the override.
+                    continue;
+                }
+                let shown = result
+                    .styled_dom
+                    .css_property_cache
+                    .ptr
+                    .get_user_override(&node, ty)
+                    .cloned();
+                if shown.is_some() && in_flight.is_none() {
+                    // The app's own value outranks the state styles.
+                    continue;
+                }
+                // The cascade UNDER a transition's override: lift the
+                // override for the read, put it back after.
+                if shown.is_some() {
+                    drop(
+                        result
+                            .styled_dom
+                            .restyle_user_property(&node, &[CssProperty::initial(*ty)]),
+                    );
+                }
+                let endpoints = {
+                    let cache = &result.styled_dom.css_property_cache.ptr;
+                    let sys_ctx = cache.dynamic_context.as_deref();
+                    let node_data = result.styled_dom.node_data.as_container();
+                    node_data.get(node).map(|nd| {
+                        let read = |state: &azul_core::styled_dom::StyledNodeState| {
+                            cache
+                                .get_property(nd, &node, state, ty)
+                                .map_or_else(|| CssProperty::auto(*ty), Clone::clone)
+                        };
+                        let to = read(&new_state).resolve_system_colors(sys_ctx);
+                        let from = shown
+                            .clone()
+                            .unwrap_or_else(|| read(&old_state))
+                            .resolve_system_colors(sys_ctx);
+                        (from, to)
+                    })
+                };
+                if let Some(s) = &shown {
+                    drop(
+                        result
+                            .styled_dom
+                            .restyle_user_property(&node, core::slice::from_ref(s)),
+                    );
+                }
+                let Some((from, to)) = endpoints else {
+                    continue;
+                };
+                // A 0 ms declaration is the state saying "at once" (a
+                // control's `:active` - a press shows immediately, its
+                // release fades): no tween, and one in flight ends here.
+                let instant = anim.duration.millis() == 0 && anim.delay.millis() == 0;
+                if from == to || instant {
+                    if in_flight.is_some() {
+                        settled.push((node, *ty));
+                    }
+                    continue;
+                }
+                seeded.push(CssTransition::declared(node, *ty, from, to, anim, false));
+            }
+        }
+        // Frame 0 holds `from`, so the change never flashes its target - the
+        // same hold the rebuild and the imperative path apply.
+        for tr in &seeded {
+            drop(
+                result
+                    .styled_dom
+                    .restyle_user_property(&tr.node, core::slice::from_ref(&tr.from)),
+            );
+        }
+        for (node, ty) in &settled {
+            drop(
+                result
+                    .styled_dom
+                    .restyle_user_property(node, &[CssProperty::initial(*ty)]),
+            );
+        }
+        // One transition per (node, property): a retarget replaces the
+        // record in flight.
+        self.css_transitions.retain(|t| {
+            !settled.contains(&(t.node, t.prop_type))
+                && !seeded
+                    .iter()
+                    .any(|s| s.node == t.node && s.prop_type == t.prop_type)
+        });
+        let started = !seeded.is_empty();
+        self.css_transitions.extend(seeded);
+        started
     }
 
     /// Re-runs layout for the root DOM over its EXISTING `StyledDom` (no
@@ -13624,6 +13800,14 @@ impl LayoutWindow {
                 ) else {
                     continue;
                 };
+                // The new node in the INTERACTION states it is about to get
+                // back: `layout()` builds every node at rest and the shell
+                // re-applies `:hover` / `:active` / `:focus` only after this
+                // diff, so read at rest a hovered button "changed" from its
+                // hover face to its resting one on every rebuild - and a
+                // declared fade walked it out under the pointer.
+                let new_node_state =
+                    with_interaction_of(new_state.styled_node_state, old_state.styled_node_state);
 
                 // `animation` on the OLD cascade (USER ruling 2026-08-17:
                 // the OLD tree governs — a diff that ADDS `animation` while
@@ -13655,12 +13839,8 @@ impl LayoutWindow {
                         &old_state.styled_node_state,
                         ty,
                     );
-                    let after = new_cache.get_property(
-                        new_nd,
-                        &m.new_node_id,
-                        &new_state.styled_node_state,
-                        ty,
-                    );
+                    let after =
+                        new_cache.get_property(new_nd, &m.new_node_id, &new_node_state, ty);
                     if before != after {
                         changed_any = true;
                         // IFC membership is not known here; `false` is the
@@ -13668,56 +13848,31 @@ impl LayoutWindow {
                         // arm, which upgrades rather than downgrades.
                         worst = worst.max(ty.relayout_scope(false));
 
-                        if let Some(anims) = &old_anims {
-                            // The animation meta-properties themselves never
-                            // transition — `animation` appearing/disappearing
-                            // is a mode switch, not a value to tween.
-                            let meta = matches!(
-                                ty,
-                                azul_css::props::property::CssPropertyType::Animation
-                                    | azul_css::props::property::CssPropertyType::AnimationIn
-                                    | azul_css::props::property::CssPropertyType::AnimationOut
-                            );
-                            // A LIST scopes properties independently
-                            // (`animation: width 1s, color 2s`): the LAST
-                            // covering entry wins, web-cascade style.
-                            let winner = anims.as_ref().iter().rev().find(|anim| {
-                                anim.name.as_str() == "all" || anim.name.as_str() == ty.to_str()
-                            });
-                            if let (Some(anim), false) = (winner, meta) {
-                                use azul_css::dynamic_selector::ResolveSystemColors;
-                                // Endpoints with their `system:` colours
-                                // resolved, each against its own cascade's
-                                // theme: the frames interpolate colours,
-                                // never keyword tokens.
-                                captured_transitions.push(CssTransition {
-                                    node: m.new_node_id,
-                                    prop_type: *ty,
-                                    from: before
-                                        .map_or_else(
-                                            || azul_css::props::property::CssProperty::auto(*ty),
-                                            Clone::clone,
-                                        )
-                                        .resolve_system_colors(
-                                            old_cache.dynamic_context.as_deref(),
-                                        ),
-                                    to: after
-                                        .map_or_else(
-                                            || azul_css::props::property::CssProperty::auto(*ty),
-                                            Clone::clone,
-                                        )
-                                        .resolve_system_colors(
-                                            new_cache.dynamic_context.as_deref(),
-                                        ),
-                                    t: 0.0,
-                                    duration_s: anim.duration.millis() as f32 / 1000.0,
-                                    delay_s: anim.delay.millis() as f32 / 1000.0,
-                                    timing: anim.timing,
-                                    scope: ty.relayout_scope(false),
-                                    last_color: None,
-                                    keeps_target: false,
-                                });
-                            }
+                        // The entry of the OLD tree's `animation` covering
+                        // this property, if any (`declared_animation_for`).
+                        if let Some(anim) =
+                            old_anims.as_ref().and_then(|a| declared_animation_for(a, *ty))
+                        {
+                            use azul_css::dynamic_selector::ResolveSystemColors;
+                            // Endpoints with their `system:` colours resolved,
+                            // each against its own cascade's theme: the frames
+                            // interpolate colours, never keyword tokens.
+                            let value = |v: Option<&azul_css::props::property::CssProperty>| {
+                                v.map_or_else(
+                                    || azul_css::props::property::CssProperty::auto(*ty),
+                                    Clone::clone,
+                                )
+                            };
+                            captured_transitions.push(CssTransition::declared(
+                                m.new_node_id,
+                                *ty,
+                                value(before)
+                                    .resolve_system_colors(old_cache.dynamic_context.as_deref()),
+                                value(after)
+                                    .resolve_system_colors(new_cache.dynamic_context.as_deref()),
+                                anim,
+                                false,
+                            ));
                         }
                     }
                 }
@@ -28793,6 +28948,75 @@ pub struct CssTransition {
     /// itself - an accordion body tweened its padding to 12px and then showed
     /// the 0px its DOM was built with.
     pub keeps_target: bool,
+}
+
+impl CssTransition {
+    /// A transition of `prop_type` on `node` from `from` to `to`, timed by
+    /// the declared `anim`, at t = 0 - the one constructor every seeding
+    /// path (rebuild diff, imperative write, state change) uses.
+    #[allow(clippy::cast_precision_loss)] // a duration in ms fits an f32
+    fn declared(
+        node: NodeId,
+        prop_type: azul_css::props::property::CssPropertyType,
+        from: azul_css::props::property::CssProperty,
+        to: azul_css::props::property::CssProperty,
+        anim: &azul_css::props::basic::animation::StyleAnimation,
+        keeps_target: bool,
+    ) -> Self {
+        Self {
+            node,
+            prop_type,
+            from,
+            to,
+            t: 0.0,
+            duration_s: anim.duration.millis() as f32 / 1000.0,
+            delay_s: anim.delay.millis() as f32 / 1000.0,
+            timing: anim.timing,
+            scope: prop_type.relayout_scope(false),
+            last_color: None,
+            keeps_target,
+        }
+    }
+}
+
+/// `state` with the INTERACTION states of `interaction` - the ones the
+/// WINDOW owns (the pointer's `:hover` / `:active`, the focus, a drag, the
+/// window's own `:backdrop`), not the DOM (`:disabled`, `:checked`): what a
+/// rebuilt node gets back from the node it replaces once the shell re-applies
+/// the runtime states.
+fn with_interaction_of(
+    mut state: azul_core::styled_dom::StyledNodeState,
+    interaction: azul_core::styled_dom::StyledNodeState,
+) -> azul_core::styled_dom::StyledNodeState {
+    state.hover = interaction.hover;
+    state.active = interaction.active;
+    state.focused = interaction.focused;
+    state.focus_within = interaction.focus_within;
+    state.backdrop = interaction.backdrop;
+    state.dragging = interaction.dragging;
+    state.drag_over = interaction.drag_over;
+    state.seat_focused = interaction.seat_focused;
+    state
+}
+
+/// The entry of a node's `animation` list that covers `ty`: the LAST one
+/// naming `ty` or `all` (a list scopes properties independently -
+/// `animation: width 1s, color 2s` - web-cascade style). The animation
+/// meta-properties never transition: `animation` appearing or disappearing
+/// is a mode switch, not a value to tween.
+fn declared_animation_for(
+    anims: &azul_css::props::basic::animation::StyleAnimationVec,
+    ty: azul_css::props::property::CssPropertyType,
+) -> Option<&azul_css::props::basic::animation::StyleAnimation> {
+    use azul_css::props::property::CssPropertyType as T;
+    if matches!(ty, T::Animation | T::AnimationIn | T::AnimationOut) {
+        return None;
+    }
+    anims
+        .as_ref()
+        .iter()
+        .rev()
+        .find(|anim| anim.name.as_str() == "all" || anim.name.as_str() == ty.to_str())
 }
 
 /// Where a `width` / `height` transition toward a LENGTH starts when the
