@@ -3119,12 +3119,128 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
     println!();
 }
 
-/// Every type an api.json function signature names must cross the FFI.
+/// The C-ABI scalars a function signature may name without an api.json class
+/// (the `core::ffi` family included: `GlContextPtr.get_uniform_location`
+/// returns `c_int`).
+const FFI_SCALARS: &[&str] = &[
+    "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128", "usize",
+    "f32", "f64", "bool", "char", "c_void", "c_char", "c_schar", "c_uchar", "c_int", "c_uint",
+    "c_short", "c_ushort", "c_long", "c_ulong", "c_longlong", "c_ulonglong", "c_float",
+    "c_double",
+];
+
+/// A signature type without its pointer / reference prefixes
+/// (`*const Foo` -> `Foo`, `&mut str` -> `str`).
+fn signature_base_type(ty: &str) -> &str {
+    let mut base = ty.trim();
+    loop {
+        let stripped = base
+            .strip_prefix("*const ")
+            .or_else(|| base.strip_prefix("*mut "))
+            .or_else(|| base.strip_prefix("&mut "))
+            .or_else(|| base.strip_prefix('&'));
+        match stripped {
+            Some(rest) => base = rest.trim(),
+            None => return base,
+        }
+    }
+}
+
+/// Whether `base` (a type without pointer prefixes) is a raw `str` in any
+/// spelling: `str`, `Optionstr`, `OptionStr`, `Option<&str>`, `Option<str>`.
+fn is_raw_str(base: &str) -> bool {
+    if base == "str" {
+        return true;
+    }
+    base.strip_prefix("Option").is_some_and(|rest| {
+        let inner = rest.trim().trim_start_matches('<').trim_end_matches('>').trim();
+        signature_base_type(inner).eq_ignore_ascii_case("str")
+    })
+}
+
+/// Every type an api.json function signature names must cross the FFI: a
+/// raw `str` in any spelling is a [`FfiSafetyWarningKind::RawStrInSignature`]
+/// (RichRun's `as_str -> str` / `link_str -> Optionstr` made the codegen
+/// emit `Azstr` / `AzOptionstr` and broke the dylib, wave 5), and any other
+/// name that is not a C scalar, an api.json class, one of the class's or
+/// function's generic parameters, or a type this round's patches add
+/// (`additional_type_names`) is a
+/// [`FfiSafetyWarningKind::UndefinedTypeReference`]. `()` is left to
+/// `UnitTypeInSignature`.
 pub fn check_function_signatures(
-    _api_data: &ApiData,
-    _additional_type_names: &[String],
+    api_data: &ApiData,
+    additional_type_names: &[String],
 ) -> Vec<FfiSafetyWarning> {
-    Vec::new()
+    use std::collections::BTreeSet;
+
+    let defined: BTreeSet<&str> = api_data
+        .0
+        .values()
+        .flat_map(|version| version.api.values())
+        .flat_map(|module| module.classes.keys())
+        .map(String::as_str)
+        .chain(additional_type_names.iter().map(String::as_str))
+        .chain(FFI_SCALARS.iter().copied())
+        .collect();
+
+    let mut warnings = Vec::new();
+    for version in api_data.0.values() {
+        for (module_name, module) in &version.api {
+            for (class_name, class) in &module.classes {
+                let file_path = format!("api.json - {}.{}", module_name, class_name);
+                let entries = class
+                    .constructors
+                    .iter()
+                    .chain(class.functions.iter())
+                    .flat_map(|map| map.iter());
+                for (fn_name, f) in entries {
+                    let generic: BTreeSet<&str> = class
+                        .generic_params
+                        .iter()
+                        .flatten()
+                        .chain(f.generic_params.iter().flatten())
+                        .map(String::as_str)
+                        .collect();
+                    let args = f.fn_args.iter().flat_map(|arg| arg.iter()).filter_map(
+                        |(name, ty)| (name != "self").then(|| (format!("argument '{}'", name), ty)),
+                    );
+                    let ret = f.returns.iter().map(|r| ("return type".to_string(), &r.r#type));
+                    for (location, ty) in args.chain(ret) {
+                        if contains_unit_type(ty) {
+                            continue;
+                        }
+                        let base = signature_base_type(ty);
+                        let kind = if is_raw_str(base) {
+                            FfiSafetyWarningKind::RawStrInSignature {
+                                location,
+                                raw_type: ty.clone(),
+                            }
+                        } else {
+                            // `[T; N]` names T
+                            let named = base
+                                .strip_prefix('[')
+                                .and_then(|rest| rest.split(';').next())
+                                .map(str::trim)
+                                .unwrap_or(base);
+                            if defined.contains(named) || generic.contains(named) {
+                                continue;
+                            }
+                            FfiSafetyWarningKind::UndefinedTypeReference {
+                                location,
+                                referenced_type: ty.clone(),
+                            }
+                        };
+                        warnings.push(FfiSafetyWarning {
+                            type_name: format!("{}::{}", class_name, fn_name),
+                            file_path: file_path.clone(),
+                            kind,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    warnings
 }
 
 /// Check for invalid characters in documentation strings
