@@ -1854,6 +1854,16 @@ mod label_convention {
         // The chart: three series of bars over four categories, a legend and
         // the table view.
         all.push(("chart", super::chart::fixtures::sample().dom()));
+        // The money input: 1.234,56 EUR in German (the code after the
+        // field), and an empty dollar field (the code before it).
+        all.push((
+            "money_input",
+            super::money_input::fixtures::sample().dom(),
+        ));
+        all.push((
+            "money_input (empty, en)",
+            super::money_input::fixtures::empty_dollars().dom(),
+        ));
         all
     }
 
@@ -2746,6 +2756,8 @@ mod theme_contrast {
         "shortcut_recorder",
         "shortcut_recorder (recording)",
         "date_repeat_picker",
+        "money_input",
+        "money_input (empty, en)",
     ];
     /// Navigation and application chrome.
     const CHROME: &[&str] = &[

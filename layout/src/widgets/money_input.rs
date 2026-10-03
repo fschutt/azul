@@ -984,15 +984,22 @@ pub(crate) struct MoneyInputSkin {
 /// The row's structure, the same in every theme: the field and the addon
 /// side by side, as tall as each other.
 fn root_base() -> Vec<CssPropertyWithConditions> {
-    use azul_css::props::layout::{LayoutAlignItems, LayoutFlexDirection};
+    use azul_css::props::{
+        basic::PixelValue,
+        layout::{LayoutAlignItems, LayoutColumnGap, LayoutFlexDirection},
+        property::{CssProperty, LayoutColumnGapValue},
+    };
 
     use crate::widgets::themes::decl;
     alloc::vec![
         decl::display_flex(),
         decl::flex_direction(LayoutFlexDirection::Row),
-        decl::simple(azul_css::props::property::CssProperty::const_align_items(
-            LayoutAlignItems::Stretch
-        )),
+        decl::simple(CssProperty::const_align_items(LayoutAlignItems::Stretch)),
+        decl::simple(CssProperty::ColumnGap(LayoutColumnGapValue::Exact(
+            LayoutColumnGap {
+                inner: PixelValue::const_px(4),
+            }
+        ))),
     ]
 }
 
@@ -1238,12 +1245,18 @@ impl MoneyInput {
         }
     }
 
-    /// The field's text for the state's amount: canonical (grouped, every
-    /// decimal), or empty.
-    fn amount_text(&self) -> String {
+    /// The field's text for the state's amount, canonical (grouped, every
+    /// decimal); `None` without an amount - the field then keeps the text it
+    /// was given (what the user typed, handed back on a rebuild).
+    fn amount_text(&self) -> Option<String> {
         match self.money_state.inner.amount {
-            OptionI64::Some(a) => format_money(a, &self.locale, self.currency.minor_digits, None),
-            OptionI64::None => String::new(),
+            OptionI64::Some(a) => Some(format_money(
+                a,
+                &self.locale,
+                self.currency.minor_digits,
+                None,
+            )),
+            OptionI64::None => None,
         }
     }
 
@@ -1274,8 +1287,9 @@ impl MoneyInput {
 
         // The field: the amount's canonical text, the locale's zero as its
         // prompt, named with the currency, the two hooks.
-        let text = self.amount_text();
-        self.text_input.set_text(AzString::from(text));
+        if let Some(text) = self.amount_text() {
+            self.text_input.set_text(AzString::from(text));
+        }
         if self.text_input.text_input_state.inner.placeholder.is_none() {
             let zero = format_money(0, &self.locale, self.currency.minor_digits, None);
             self.text_input.set_placeholder(AzString::from(zero));
@@ -1793,5 +1807,238 @@ mod money_tests {
         assert_eq!(e.state.error, MoneyInputError::AboveMax);
         let e = edit("75", bounded);
         assert_eq!(e.state.error, MoneyInputError::None);
+    }
+}
+
+// ==== fixtures (the widget manifest's sample) ====
+
+/// Samples for the widget manifest (`widgets::label_convention`) and the
+/// tests.
+#[cfg(test)]
+pub(crate) mod fixtures {
+    use super::*;
+
+    /// 1.234,56 EUR in German, named "Amount".
+    pub(crate) fn sample() -> MoneyInput {
+        MoneyInput::create(
+            123_456,
+            MoneyCurrency::from_code(AzString::from_const_str("EUR")),
+        )
+        .with_locale(MoneyLocale::de_de())
+        .with_accessibility_name("Amount")
+    }
+
+    /// An empty dollar amount in English: the currency before the field.
+    pub(crate) fn empty_dollars() -> MoneyInput {
+        MoneyInput::create_empty(MoneyCurrency::from_code(AzString::from_const_str("USD")))
+            .with_accessibility_name("Price")
+    }
+}
+
+#[cfg(test)]
+mod dom_tests {
+    use std::sync::{Arc, Mutex};
+
+    use azul_core::{
+        dom::{DomId, DomNodeId, EventFilter, NodeType},
+        events::FocusEventFilter,
+        id::NodeId,
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+    };
+
+    use super::{fixtures::*, *};
+    use crate::{
+        callbacks::CallbackChange,
+        widgets::{
+            roving::test_support as rv,
+            text_input::{TextInputStateWrapper, TEXT_INPUT_CONTAINER_CLASS},
+            themes::{theme_blocks::checks, theme_checks as tc},
+        },
+    };
+
+    /// The text input's own state, as the field carries it.
+    fn field_state(dom: &Dom) -> TextInputStateWrapper {
+        let field = tc::find(dom, TEXT_INPUT_CONTAINER_CLASS).expect("the field");
+        let mut data = field
+            .root
+            .get_dataset()
+            .cloned()
+            .expect("the field's state");
+        let state = data
+            .downcast_ref::<TextInputStateWrapper>()
+            .map(|s| (*s).clone())
+            .expect("a text input state");
+        state
+    }
+
+    /// The texts of the tree, in order.
+    fn texts(dom: &Dom) -> Vec<String> {
+        tc::nodes(dom)
+            .into_iter()
+            .filter_map(|(_, n)| match n.root.get_node_type() {
+                NodeType::Text(s) => Some(s.as_str().to_string()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_field_shows_the_amount_in_the_locales_canonical_form() {
+        let state = field_state(&sample().dom());
+        assert_eq!(state.inner.get_text(), "1.234,56");
+    }
+
+    #[test]
+    fn the_currency_code_sits_on_the_locales_side_of_the_field() {
+        let de = sample().with_theme(UiTheme::Flat).dom();
+        let kids = de.children.as_ref();
+        assert_eq!(kids.len(), 2);
+        assert!(
+            tc::find(&kids[0], TEXT_INPUT_CONTAINER_CLASS).is_some(),
+            "de: field first"
+        );
+        assert!(
+            tc::has_class(&kids[1], MONEY_INPUT_ADDON_CLASS),
+            "de: EUR after"
+        );
+        let en = empty_dollars().with_theme(UiTheme::Flat).dom();
+        let kids = en.children.as_ref();
+        assert!(
+            tc::has_class(&kids[0], MONEY_INPUT_ADDON_CLASS),
+            "en: USD before"
+        );
+        assert!(tc::find(&kids[1], TEXT_INPUT_CONTAINER_CLASS).is_some());
+        assert!(texts(&en).iter().any(|t| t == "USD"));
+    }
+
+    #[test]
+    fn without_the_currency_there_is_no_addon() {
+        let dom = sample().with_show_currency(false).dom();
+        assert!(tc::find(&dom, MONEY_INPUT_ADDON_CLASS).is_none());
+        assert_eq!(dom.children.as_ref().len(), 1);
+    }
+
+    #[test]
+    fn the_field_is_named_with_its_currency() {
+        let dom = sample().dom();
+        let field = tc::find(&dom, TEXT_INPUT_CONTAINER_CLASS).expect("the field");
+        let name = field.root.get_accessibility_info().and_then(|a| {
+            a.accessibility_name
+                .as_ref()
+                .map(|n| n.as_str().to_string())
+        });
+        assert_eq!(name.as_deref(), Some("Amount (EUR)"));
+    }
+
+    #[test]
+    fn the_empty_field_prompts_with_the_locales_zero_and_keeps_its_text() {
+        let state = field_state(&empty_dollars().dom());
+        assert_eq!(
+            state
+                .inner
+                .placeholder
+                .as_ref()
+                .map(|p| p.as_str().to_string()),
+            Some(String::from("0.00"))
+        );
+        let mut typed = empty_dollars();
+        typed.text_input.set_text(AzString::from_const_str("12,"));
+        assert_eq!(field_state(&typed.dom()).inner.get_text(), "12,");
+    }
+
+    #[test]
+    fn the_field_carries_the_money_hooks() {
+        let state = field_state(&sample().dom());
+        assert!(state.on_text_input.as_ref().is_some(), "the keystroke rule");
+        assert!(state.on_focus_lost.as_ref().is_some(), "the commit");
+    }
+
+    type Log = Arc<Mutex<Vec<MoneyInputState>>>;
+
+    extern "C" fn record(mut data: RefAny, _info: CallbackInfo, state: MoneyInputState) -> Update {
+        if let Some(log) = data.downcast_ref::<Log>() {
+            log.lock().expect("log").push(state);
+        }
+        Update::RefreshDom
+    }
+
+    #[test]
+    fn leaving_the_field_shows_the_amount_canonical_and_reports_the_commit() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let mut m =
+            MoneyInput::create_empty(MoneyCurrency::from_code(AzString::from_const_str("EUR")))
+                .with_locale(MoneyLocale::de_de())
+                .with_theme(UiTheme::Flat)
+                .with_on_commit(
+                    RefAny::new(log.clone()),
+                    record as MoneyInputOnCommitCallbackType,
+                );
+        m.text_input.set_text(AzString::from_const_str("1234,5"));
+        let styled = StyledDom::create_from_dom(m.dom());
+        let container = styled
+            .node_data
+            .as_ref()
+            .iter()
+            .position(|n| n.has_class(TEXT_INPUT_CONTAINER_CLASS))
+            .expect("the field");
+        let target = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(container))),
+        };
+        let (update, changes) = rv::fire(
+            &styled,
+            target,
+            EventFilter::Focus(FocusEventFilter::FocusLost),
+        )
+        .expect("the field hears the blur");
+        assert_eq!(update, Update::RefreshDom, "the app's commit hook ran");
+        let written: Vec<String> = changes
+            .iter()
+            .filter_map(|c| match c {
+                CallbackChange::ChangeNodeText { text, .. } => Some(text.as_str().to_string()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(written, vec![String::from("1.234,50")]);
+        let committed = log.lock().expect("log").clone();
+        assert_eq!(committed.len(), 1);
+        assert_eq!(committed[0].amount, OptionI64::Some(123_450));
+        assert_eq!(committed[0].error, MoneyInputError::None);
+    }
+
+    #[test]
+    fn a_money_input_follows_the_app_theme() {
+        checks::assert_follows_the_app_theme(
+            "money input",
+            || sample().dom(),
+            |theme| sample().with_theme(theme).dom(),
+        );
+    }
+
+    #[test]
+    fn a_pinned_money_input_keeps_its_theme_invariants() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            tc::assert_theme_invariants("money input", &sample().with_theme(theme).dom());
+        }
+    }
+
+    #[test]
+    fn the_amount_formats_and_parses_through_the_api() {
+        let eur = MoneyCurrency::from_code(AzString::from_const_str("EUR"));
+        assert_eq!(
+            MoneyInput::format_amount(123_456, eur.clone(), MoneyLocale::de_de()).as_str(),
+            "1.234,56\u{a0}\u{20ac}"
+        );
+        let parsed = MoneyInput::parse_amount(
+            AzString::from_const_str("1.234,56 \u{20ac}"),
+            eur.clone(),
+            MoneyLocale::de_de(),
+        );
+        assert_eq!(parsed.amount, OptionI64::Some(123_456));
+        assert_eq!(parsed.error, MoneyInputError::None);
+        let bad =
+            MoneyInput::parse_amount(AzString::from_const_str("1,2,3"), eur, MoneyLocale::de_de());
+        assert_eq!(bad.amount, OptionI64::None);
+        assert_eq!(bad.error, MoneyInputError::Invalid);
     }
 }
