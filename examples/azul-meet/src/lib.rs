@@ -4585,15 +4585,20 @@ extern "C" fn on_theme(mut data: RefAny, mut info: CallbackInfo, state: Segmente
 /// Light, dark, or the system's, picked in the settings.
 extern "C" fn on_mode(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
     let index = state.selected_index.min(2);
-    info.set_mode(match index {
-        1 => OptionDarkLightMode::Some(DarkLightMode::Light),
-        2 => OptionDarkLightMode::Some(DarkLightMode::Dark),
-        _ => OptionDarkLightMode::None,
-    });
+    info.set_mode(mode_option(index));
     if let Some(mut s) = data.downcast_mut::<MeetState>() {
         s.mode_index = index;
     }
     Update::RefreshDom
+}
+
+/// The mode at `index` (`azul_appkit::ModePref` order: system, light, dark) as azul takes it.
+fn mode_option(index: usize) -> OptionDarkLightMode {
+    match index {
+        1 => OptionDarkLightMode::Some(DarkLightMode::Light),
+        2 => OptionDarkLightMode::Some(DarkLightMode::Dark),
+        _ => OptionDarkLightMode::None,
+    }
 }
 
 /// The keyboard shortcuts: Ctrl / Cmd + D the microphone, Ctrl / Cmd + E the camera, Escape
@@ -4739,29 +4744,32 @@ fn launch_args() -> &'static args::Args {
     ARGS.get_or_init(args::Args::default)
 }
 
+/// The app theme and the mode of this run: `--theme` / `--mode` (this run only), else the saved
+/// ones.
+fn launch_look() -> (azul_appkit::Theme, azul_appkit::ModePref) {
+    azul_appkit::AppSettings::default().effective(&launch_args().kit)
+}
+
 /// The settings screen, theme and mode the command line asked for, on a participant's state.
 fn apply_launch_args(s: &mut MeetState) {
     let args = launch_args();
     s.settings_open = args.screen == args::Screen::Settings;
-    s.theme_index = usize::from(args.theme.as_deref() == Some("flora"));
-    s.mode_index = match args.mode {
-        args::Mode::System => 0,
-        args::Mode::Light => 1,
-        args::Mode::Dark => 2,
-    };
+    let (theme, mode) = launch_look();
+    s.theme_index = theme.index();
+    s.mode_index = mode.index();
 }
 
 pub fn start() {
     match args::parse(std::env::args().skip(1)) {
         Ok(parsed) if parsed.help => {
-            print!("{}", args::HELP);
+            print!("{}", args::usage());
             return;
         }
         Ok(parsed) => {
             let _ = ARGS.set(parsed);
         }
         Err(why) => {
-            eprintln!("AzMeet: {why}\n\n{}", args::HELP);
+            eprintln!("AzMeet: {why}");
             std::process::exit(2);
         }
     }
@@ -4874,16 +4882,10 @@ fn start_demo(notice: &str) {
 }
 
 fn run(peers: Vec<RefAny>, linked: bool) {
-    let args = launch_args();
-    let mut config = AppConfig::create();
-    if let Some(theme) = &args.theme {
-        config = config.with_theme(AzString::from(theme.as_str()));
-    }
-    config = config.with_mode(match args.mode {
-        args::Mode::System => OptionDarkLightMode::None,
-        args::Mode::Light => OptionDarkLightMode::Some(DarkLightMode::Light),
-        args::Mode::Dark => OptionDarkLightMode::Some(DarkLightMode::Dark),
-    });
+    let (theme, mode) = launch_look();
+    let config = AppConfig::create()
+        .with_theme(AzString::from(theme.name()))
+        .with_mode(mode_option(mode.index()));
     let mut app = App::create(RefAny::new(Room { peers }), config);
     let mut first = WindowCreateOptions::create(layout_first);
     first.window_state.flags.decorations = WindowDecorations::NoTitle;
