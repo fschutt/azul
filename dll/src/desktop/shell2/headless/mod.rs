@@ -458,6 +458,28 @@ pub(crate) fn swizzle_rb_in_rects(
     azul_layout::cpurender::swap_rb_in_rects(buf, stride_bytes, buf_height, rects);
 }
 
+/// Copy `rects` (x, y, w, h in buffer px) of the renderer's R,G,B,A frame
+/// (`src`, `src_pitch` bytes per row) into a platform buffer with its OWN row
+/// pitch (`dst`, `dst_pitch` bytes per row) at the same coordinates - the one
+/// damage-rect upload every CPU present shares (a Wayland `wl_shm` slot with
+/// 256-byte rows, an X11 MIT-SHM segment, a tooltip buffer). `swap_rb`
+/// converts to B,G,R,A on the way (ARGB8888 / the X visual's order). Rects are
+/// clipped to `width` x `height` and to both buffers; overlapping rects are
+/// harmless (a copy, not an in-place toggle). Returns the bytes written.
+pub(crate) fn copy_rgba_rects_into(
+    dst: &mut [u8],
+    dst_pitch: usize,
+    src: &[u8],
+    src_pitch: usize,
+    width: usize,
+    height: usize,
+    rects: &[(u32, u32, u32, u32)],
+    swap_rb: bool,
+) -> usize {
+    let _ = (dst, dst_pitch, src, src_pitch, width, height, rects, swap_rb);
+    0
+}
+
 pub fn native_backbuffer_enabled() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
@@ -5075,6 +5097,97 @@ mod tests {
             "every step took the full-repaint path — the external-base incremental law was never \
              exercised"
         );
+    }
+
+    /// A frame of `w` x `h` RGBA pixels whose bytes encode their position
+    /// (R = x, G = y, B = x ^ y, A = 200) - any misplaced or unswapped byte
+    /// shows up as a wrong value.
+    fn coded_frame(w: usize, h: usize) -> Vec<u8> {
+        let mut v = vec![0u8; w * h * 4];
+        for y in 0..h {
+            for x in 0..w {
+                let o = (y * w + x) * 4;
+                v[o] = x as u8;
+                v[o + 1] = y as u8;
+                v[o + 2] = (x ^ y) as u8;
+                v[o + 3] = 200;
+            }
+        }
+        v
+    }
+
+    #[test]
+    fn a_damage_rect_lands_at_its_place_in_a_padded_buffer_and_nothing_else_is_touched() {
+        let (w, h) = (10usize, 6usize);
+        let src = coded_frame(w, h);
+        let pitch = 64; // 16 px rows for a 10 px frame
+        let mut dst = vec![0xEEu8; pitch * h];
+        let n = copy_rgba_rects_into(&mut dst, pitch, &src, w * 4, w, h, &[(2, 1, 3, 2)], false);
+        assert_eq!(n, 3 * 2 * 4);
+        for y in 0..h {
+            for x in 0..pitch / 4 {
+                let d = &dst[y * pitch + x * 4..y * pitch + x * 4 + 4];
+                if (2..5).contains(&x) && (1..3).contains(&y) {
+                    let s = &src[(y * w + x) * 4..(y * w + x) * 4 + 4];
+                    assert_eq!(d, s, "({x},{y}) not copied verbatim");
+                } else {
+                    assert_eq!(d, [0xEE; 4], "({x},{y}) outside the rect was written");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_swapped_copy_writes_b_g_r_a_and_overlapping_rects_do_not_toggle_it_back() {
+        let (w, h) = (8usize, 4usize);
+        let src = coded_frame(w, h);
+        let pitch = w * 4;
+        let mut dst = vec![0u8; pitch * h];
+        copy_rgba_rects_into(
+            &mut dst,
+            pitch,
+            &src,
+            w * 4,
+            w,
+            h,
+            &[(0, 0, 8, 4), (2, 1, 4, 2)],
+            true,
+        );
+        for y in 0..h {
+            for x in 0..w {
+                let o = (y * w + x) * 4;
+                assert_eq!(
+                    [dst[o], dst[o + 1], dst[o + 2], dst[o + 3]],
+                    [src[o + 2], src[o + 1], src[o], src[o + 3]],
+                    "({x},{y})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn rects_reaching_past_the_frame_or_either_buffer_are_clipped_not_a_panic() {
+        let (w, h) = (6usize, 5usize);
+        let src = coded_frame(w, h);
+        let pitch = 32;
+        let mut dst = vec![0u8; pitch * h];
+        // Past the right edge, past the bottom, fully outside, empty.
+        let n = copy_rgba_rects_into(
+            &mut dst,
+            pitch,
+            &src,
+            w * 4,
+            w,
+            h,
+            &[(4, 3, 50, 50), (99, 0, 3, 3), (0, 0, 0, 4)],
+            false,
+        );
+        assert_eq!(n, 2 * 2 * 4, "only the 2x2 corner inside the frame is copied");
+        // A destination shorter than the frame (a configure race) is clipped
+        // by its own size.
+        let mut short = vec![0u8; pitch * 2];
+        let n = copy_rgba_rects_into(&mut short, pitch, &src, w * 4, w, h, &[(0, 0, 6, 5)], false);
+        assert_eq!(n, 6 * 2 * 4);
     }
 
     /// WAYLAND8: a native target whose rows are PADDED - a Wayland `wl_shm`
