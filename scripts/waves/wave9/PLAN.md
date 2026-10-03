@@ -159,3 +159,10 @@ view-JSON interpreter idea) and the asset-management plan; build it on RecordsSh
 MoneyInput / ReferencePicker / DateRangePicker): assets, categories, locations, depreciation schedules (straight-line,
 declining balance), maintenance log, check-out / check-in, CSV import / export, reports (Chart). Records as files in the
 data tree (one JSON per record, per the S3 split), not a database.
+
+## MAIL9 - re-ordered by the user (2026-10-03, after the start)
+"client-side DKIM ... I'd really like to have this first. later on we can relay, goal is to keep the server as dumb as
+possible." -> (1) DIRECT delivery with client-side DKIM end to end first (micromail's existing path: key in the
+keyring, the DNS TXT record shown, signatures verified by an independent verifier in tests, port-25 / PBL / PTR
+failures detected and recorded in the per-domain policy list for the later relay); (2) authenticated submission via a
+crate = optional, secondary; (3) the remote-content pre-pass unchanged.
