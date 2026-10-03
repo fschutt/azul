@@ -17,8 +17,8 @@ use crate::{
     commands::on_command,
     editor::Editor,
     model::{
-        Align, AnimationEffect, Background, ChartKind, Color, ElementKind, FontScheme, LayoutKind, ShapeKind,
-        SlideSize, TransitionKind, ZOrder,
+        Align, AnimationEffect, Background, ChartKind, Color, ElementKind, FontScheme, ImageFit, LayoutKind,
+        ShapeKind, SlideSize, TransitionKind, ZOrder,
     },
     render::{css_color, css_font_family},
     text, themes,
@@ -585,6 +585,28 @@ fn format_tab(app: &RefAny, ed: &Editor) -> RibbonTab {
             ]),
         ],
     ));
+    // A selected picture: how it fills its frame (PowerPoint's Crop > Fit /
+    // Fill).
+    let picture_fit = ed
+        .selection
+        .keys
+        .as_ref()
+        .iter()
+        .filter_map(|id| ed.slide().element(*id))
+        .find_map(|e| match e.kind {
+            ElementKind::Image { fit, .. } => Some(fit),
+            _ => None,
+        });
+    if let Some(fit) = picture_fit {
+        tab = tab.with_group(group(
+            "Picture",
+            vec![column(vec![
+                toggle(app, "fit_screen", "Fit", Command::ImageFit(ImageFit::Contain), fit == ImageFit::Contain),
+                toggle(app, "crop", "Fill", Command::ImageFit(ImageFit::Cover), fit == ImageFit::Cover),
+                toggle(app, "aspect_ratio", "Stretch", Command::ImageFit(ImageFit::Stretch), fit == ImageFit::Stretch),
+            ])],
+        ));
+    }
     if shapes {
         tab = tab.with_group(group(
             "Shape Styles",

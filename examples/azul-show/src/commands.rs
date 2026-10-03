@@ -653,6 +653,7 @@ pub fn apply(app: &RefAny, s: &mut AppState, cmd: Command, info: &mut CallbackIn
             ed.insert_video("");
         }
         C::Arrange(how) => ed.arrange(how),
+        C::ImageFit(fit) => ed.set_image_fit(fit),
         C::Group => ed.group(),
         C::Ungroup => ed.ungroup(),
         C::Fill(c) => ed.set_fill(c),

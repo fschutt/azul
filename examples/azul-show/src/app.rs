@@ -16,7 +16,7 @@ use crate::{
     args::Args,
     editor::Editor,
     model::{
-        Align, AnimationEffect, Background, Blank, ChartKind, Color, LayoutKind, ShapeKind,
+        Align, AnimationEffect, Background, Blank, ChartKind, Color, ImageFit, LayoutKind, ShapeKind,
         ShowState, SlideSize, TransitionKind, ZOrder,
     },
     storage::DeckSummary,
@@ -346,6 +346,8 @@ pub enum Command {
     Video,
     Picture,
     Arrange(ZOrder),
+    /// The selected pictures' fit (FORMAT > Picture).
+    ImageFit(ImageFit),
     Group,
     Ungroup,
     Fill(Option<Color>),
