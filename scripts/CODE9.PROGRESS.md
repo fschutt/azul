@@ -9,8 +9,14 @@ Branch: wt/code9 (base e537ddbe2). Brief: scripts/waves/wave9/PLAN.md "CODE9", p
   as `todo!("GREEN: ...")` stubs, fixtures, class-name consts) + layout/src/widgets/code_view_tests.rs
   (31 tests) + `pub mod code_view;` in widgets/mod.rs
 
+- GREEN code_view.rs (no todo!() left): d72494c31 columns, 910520ddc window + pieces, 448d88861 edit
+  engine, ae70e2b8d keys, af901ab31 pointer, fe48c679d build + flat / flora looks + handlers + manifest
+
 ## IN PROGRESS
-- GREEN in layout/src/widgets/code_view.rs: replace every `todo!("GREEN: ...")` stub, top to bottom.
+- AzCode app: examples/azul-code (see NEXT 4). Next file to write: examples/azul-code/Cargo.toml, then
+  src/buffer.rs RED tests.
+
+## (done) design notes of the CodeView GREEN, kept for review:
   Design notes for each (so a resumed agent need not re-derive them):
   - columns: visual_column/byte_at_visual (tie in a tab goes left), clamp_to_char, next/prev_char,
     word_left/right (blank, word = alnum|_, punct runs), word_at, first_non_blank, expand_tabs.
