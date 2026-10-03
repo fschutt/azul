@@ -17,7 +17,7 @@ if /tmp was wiped).
 - (none - between units)
 
 ## NEXT
-1. Manifest: APPEND to layout/src/widgets/mod.rs `label_convention::every_widget_dom` (after the chart push):
+1. (done 09d398619) Manifest.
    `all.push(("terminal_view", super::terminal_view::fixtures::sample().dom()));` and check the theme_contrast
    groups (~line 2775 in mod.rs) to see whether a new widget must be listed there.
 2. Engine (paste): core/src/events.rs `handle_key_down` returns None for Cmd/Ctrl+V on a non-editable focus without
