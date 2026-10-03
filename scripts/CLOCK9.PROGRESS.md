@@ -18,23 +18,14 @@ Branch: wt/clock9 (base e537ddbe2). Brief: scripts/waves/wave9/PLAN.md "CLOCK9",
 - ae51363d3 RED / 38c1661b6 GREEN store.rs (keys clock/alarms/<id>.json etc, load_jobs, read_loaded, sample)
 
 ## IN PROGRESS
-- A5 the window. DONE: ui/mod.rs (6c95b086d, 17ee3cc7b: state, start, writes, OS schedule, ringing, ticks,
-  loading, notification handler, layout, close->minimize), ui/actions.rs (537ca9d09: Action enum + on_act,
-  switches, editor callbacks, city search, keys), 06e1b7bf6 alarm arm() fix.
+- A5 the window is written: ui/mod.rs, ui/actions.rs, ui/views.rs (2b3778521, 7a76f49b8), ids.rs, lib.rs start().
 
 ## NEXT (exact)
-1. Write examples/azul-clock/src/ui/views.rs - what mod.rs / actions.rs call and that does not exist yet:
-   `pub const WIDE: f32`, `pub const RING_MINUTES: [u32; N]`, `pub fn screen(s, app, now, wide) -> Dom`,
-   `pub fn modes_row(s, app) -> Dom`, `pub fn overlays(s, app, now) -> Vec<Dom>` (editor Modal, city-search
-   Modal, ringing Modal, toast), `pub fn settings_sections(s, app) -> Vec<kit::AppSection>` (switches with
-   Action::Setting("twelve-hour" | "os-alarms" | "keep-running") -> actions::on_setting_switch, DropDown
-   RING_MINUTES -> actions::on_ring_minutes, a note with s.os_rings). Screens: world (analog face via CSS
-   rotate + city rows), alarms (rows: time, label, repeat, Switch -> actions::on_alarm_switch, click -> EditAlarm),
-   timer (big countdown + ProgressBar TODO(WIDGETS9B) Gauge, Start/Pause/Reset/+1 min, presets, list),
-   stopwatch (text node with marker ids::STOPWATCH_TIME, Lap/Start/Reset/Copy, lap rows).
-2. ids.rs: add every id views.rs uses (STOPWATCH_TIME marker etc.).
-3. lib.rs: `pub mod ui;` and start() -> ui::start().
-4. scripts/azclock_e2e.py; report scripts/CLOCK9_2026_10_03.md.
+1. scripts/azclock_e2e.py (model: scripts/shells_e2e.py / examples/azul-drive/scripts/browse.py): start
+   target/release/AzClock --sample --data-dir <tmp> headless with AZ_DEBUG, check ids __azclock_modes,
+   alarm rows (3), switch screens, the stopwatch, the editor Save, assert_notification scheduled.
+2. Report scripts/CLOCK9_2026_10_03.md (what, commits, api.json list, least-sure spots, test commands, left).
+3. Optional: a review pass over ui/*.rs for compile errors (generated-API names, borrows).
 
 ## Decisions
 - Time zones: chrono + chrono-tz 0.10 (both already in Cargo.lock: chrono-tz via ironcalc_base) and
