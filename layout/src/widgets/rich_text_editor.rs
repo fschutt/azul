@@ -713,7 +713,7 @@ impl RichTextEditor {
             ),
         };
         let data = self.editor_data();
-        let host = host_dom(&self, data.as_ref());
+        let host = host_dom(&self, data.as_ref(), None);
         let toolbar = if chrome.toolbar {
             data.as_ref()
                 .map(|data| toolbar_buttons(&self, data))
@@ -746,7 +746,36 @@ impl RichTextEditor {
     #[must_use]
     pub fn content_dom(self) -> Dom {
         let data = self.editor_data();
-        host_dom(&self, data.as_ref())
+        host_dom(&self, data.as_ref(), None)
+    }
+
+    /// The editing hosts of pages `first_page..first_page + page_count` of
+    /// a paginated document (AzWriter's A4 sheets). `page_starts` holds the
+    /// first block of every page, in order (page `k` is the blocks from
+    /// `page_starts[k]` to the next page's first). A page's blocks are named
+    /// by their index in the whole document (`<host id>-<index>`), its host
+    /// `<host id>-page-<first block>`. The pages share ONE editor state:
+    /// typing, structural edits and commands on any page land in the one
+    /// document and its one history. No frame and no toolbar (the app draws
+    /// the sheets and the ribbon).
+    #[must_use]
+    pub fn page_doms(
+        self,
+        page_starts: azul_css::corety::U32Vec,
+        first_page: usize,
+        page_count: usize,
+    ) -> azul_core::dom::DomVec {
+        let data = self.editor_data();
+        let starts: Vec<usize> = page_starts.as_ref().iter().map(|s| *s as usize).collect();
+        let blocks = self.state.doc.block_count();
+        let last = first_page.saturating_add(page_count).min(starts.len());
+        let mut pages = Vec::new();
+        for page in first_page.min(last)..last {
+            let first = starts[page];
+            let end = starts.get(page + 1).copied().unwrap_or(blocks).max(first);
+            pages.push(host_dom(&self, data.as_ref(), Some((first, end - first))));
+        }
+        azul_core::dom::DomVec::from_vec(pages)
     }
 
     /// The data every callback of this editor shares (none read-only).
@@ -781,8 +810,10 @@ struct RenderCtx<'a> {
     data: Option<&'a RefAny>,
 }
 
-/// The editing host with every block of the document.
-fn host_dom(editor: &RichTextEditor, data: Option<&RefAny>) -> Dom {
+/// The editing host with the blocks `range` of the document (every block
+/// for `None`; a page's blocks, its host named `<host id>-page-<first>`,
+/// for `Some((first, count))`).
+fn host_dom(editor: &RichTextEditor, data: Option<&RefAny>, range: Option<(usize, usize)>) -> Dom {
     let ctx = RenderCtx {
         doc: &editor.state.doc,
         host_id: editor.state.host_id.as_str(),
@@ -791,8 +822,16 @@ fn host_dom(editor: &RichTextEditor, data: Option<&RefAny>) -> Dom {
         spacing: editor.paragraph_spacing,
         data,
     };
+    let (first, end, id) = match range {
+        Some((first, count)) => (
+            first,
+            first.saturating_add(count),
+            AzString::from(page_host_id(ctx.host_id, first)),
+        ),
+        None => (0, usize::MAX, editor.state.host_id.clone()),
+    };
     let mut host = Dom::create_div()
-        .with_id(editor.state.host_id.clone())
+        .with_id(id)
         .with_class(AzString::from_const_str(RICH_TEXT_HOST_CLASS))
         .with_accessibility_name(editor.accessibility_name.clone())
         .with_css(&format!(
@@ -804,7 +843,9 @@ fn host_dom(editor: &RichTextEditor, data: Option<&RefAny>) -> Dom {
         host = host.with_contenteditable(true);
     }
     for (index, block) in ctx.doc.blocks().iter().enumerate() {
-        host.add_child(block_dom(&ctx, index, block));
+        if index >= first && index < end {
+            host.add_child(block_dom(&ctx, index, block));
+        }
     }
     if let Some(data) = data {
         host = host
@@ -1327,9 +1368,7 @@ impl RichTextEditorState {
     /// old content's editing state. Returns `RefreshDom`.
     pub fn replace_doc(&mut self, mut info: CallbackInfo, doc: RichTextDoc) -> Update {
         let host = self.host_node(&info);
-        if let Some(host) = host {
-            let _ = self.sync_text(&mut info, host, false);
-        }
+        let _ = self.sync_text(&mut info, false);
         let mut doc = doc;
         doc.normalize();
         self.history.record(&self.doc, RichEditGroup::None);
@@ -1390,18 +1429,24 @@ impl RichTextEditorState {
     }
 
     /// The editing host in the window `info` runs in (looked up by
-    /// [`Self::host_id`]), if the editor is there.
+    /// [`Self::host_id`]), if the editor is there. A paged editor
+    /// ([`RichTextEditor::page_doms`]) has one host per page: the page the
+    /// callback runs on, else the page the caret is in.
     #[must_use]
     pub fn host_node(&self, info: &CallbackInfo) -> Option<DomNodeId> {
         let id = self.host_id.as_str();
-        let hit_dom = info.get_hit_node().dom;
-        [hit_dom, DomId::ROOT_ID].into_iter().find_map(|dom| {
-            let node = info.get_node_id_by_id_attribute(dom, id)?;
-            Some(DomNodeId {
-                dom,
-                node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+        let hit = info.get_hit_node();
+        [hit.dom, DomId::ROOT_ID]
+            .into_iter()
+            .find_map(|dom| {
+                let node = info.get_node_id_by_id_attribute(dom, id)?;
+                Some(DomNodeId {
+                    dom,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+                })
             })
-        })
+            .or_else(|| host_of(info, id, hit).map(|(host, _)| host))
+            .or_else(|| caret_host(info, id))
     }
 
     /// Puts the keyboard focus into the editor (after a button of the app
@@ -1416,10 +1461,7 @@ impl RichTextEditorState {
     /// it before reading [`Self::doc`] in a callback that is not the
     /// editor's (Send, Save). Returns whether the document changed.
     pub fn sync(&mut self, mut info: CallbackInfo) -> bool {
-        match self.host_node(&info) {
-            Some(host) => self.sync_text(&mut info, host, false).0,
-            None => false,
-        }
+        self.sync_text(&mut info, false).0
     }
 
     /// The selection in the editor now, as spans of block text (empty for a
@@ -1427,13 +1469,10 @@ impl RichTextEditorState {
     /// [`Self::set_link_on`].
     #[must_use]
     pub fn get_selection(&self, info: CallbackInfo) -> RichTextSpanVec {
-        let spans: Vec<RichTextSpan> = match self.host_node(&info) {
-            Some(host) => selection_in(&info, host)
-                .into_iter()
-                .map(|(block, start, end)| RichTextSpan { block, start, end })
-                .collect(),
-            None => Vec::new(),
-        };
+        let spans: Vec<RichTextSpan> = selection_in(&info, self.host_id.as_str())
+            .into_iter()
+            .map(|(block, start, end)| RichTextSpan { block, start, end })
+            .collect();
         RichTextSpanVec::from_vec(spans)
     }
 
@@ -1447,9 +1486,7 @@ impl RichTextEditorState {
         spans: RichTextSpanVec,
         url: AzString,
     ) -> Update {
-        if let Some(host) = self.host_node(&info) {
-            let _ = self.sync_text(&mut info, host, false);
-        }
+        let _ = self.sync_text(&mut info, false);
         let spans: Vec<(usize, usize, usize)> = spans
             .as_ref()
             .iter()
@@ -1472,9 +1509,7 @@ impl RichTextEditorState {
     /// changed (the app rebuilds the editor from this state).
     pub fn apply_command(&mut self, mut info: CallbackInfo, command: RichTextCommand) -> Update {
         let host = self.host_node(&info);
-        if let Some(host) = host {
-            let _ = self.sync_text(&mut info, host, false);
-        }
+        let _ = self.sync_text(&mut info, false);
         self.run_command(&mut info, host, &command, true)
     }
 }
@@ -1491,37 +1526,86 @@ fn path_in_host(info: &CallbackInfo, host: DomNodeId, node: DomNodeId) -> Option
         .map(|path| path.as_ref().to_vec())
 }
 
-/// The block `node` is (or is in).
-fn block_of(info: &CallbackInfo, host: DomNodeId, node: DomNodeId) -> Option<usize> {
-    path_in_host(info, host, node)?
+/// The DOM id of the editing host of the page whose first block is `first`
+/// ([`RichTextEditor::page_doms`]): `<host id>-page-<first>`.
+fn page_host_id(host_id: &str, first: usize) -> String {
+    format!("{host_id}-page-{first}")
+}
+
+/// The editing host `node` is in (or is) - the editor's one host (DOM id
+/// `host_id`) or one of its pages (`<host_id>-page-<first>`) - and the
+/// document index of that host's first block (0 for the one host).
+fn host_of(info: &CallbackInfo, host_id: &str, node: DomNodeId) -> Option<(DomNodeId, usize)> {
+    let page_prefix = format!("{host_id}-page-");
+    let page_prefix = page_prefix.as_str();
+    let mut current = Some(node);
+    while let Some(n) = current {
+        if let Some(id) = info.get_node_id(n) {
+            let id = id.as_str();
+            if id == host_id {
+                return Some((n, 0));
+            }
+            if let Some(first) = id
+                .strip_prefix(page_prefix)
+                .and_then(|first| first.parse::<usize>().ok())
+            {
+                return Some((n, first));
+            }
+        }
+        current = info.get_parent(n);
+    }
+    None
+}
+
+/// The model path of `node`: `[block, ...]` with the block's index in the
+/// DOCUMENT (a page's first block added to its index on the page); empty
+/// for a host. `None` for a node outside every host of this editor.
+fn model_path(info: &CallbackInfo, host_id: &str, node: DomNodeId) -> Option<Vec<u32>> {
+    let (host, first) = host_of(info, host_id, node)?;
+    let mut path = path_in_host(info, host, node)?;
+    if let Some(block) = path.first_mut() {
+        *block += first as u32;
+    }
+    Some(path)
+}
+
+/// The document block `node` is (or is in).
+fn block_of(info: &CallbackInfo, host_id: &str, node: DomNodeId) -> Option<usize> {
+    model_path(info, host_id, node)?
         .first()
         .map(|b| *b as usize)
 }
 
 /// The caret as `(block, byte in the block's text)`, when there is one in
-/// the host.
-fn caret_in(info: &CallbackInfo, host: DomNodeId) -> Option<(usize, usize)> {
+/// a host of this editor.
+fn caret_in(info: &CallbackInfo, host_id: &str) -> Option<(usize, usize)> {
     let position = info.get_document_caret().into_option()?;
-    let block = block_of(info, host, position.node)?;
+    let block = block_of(info, host_id, position.node)?;
     Some((block, position.text_byte as usize))
 }
 
-/// The caret's child-index path below the host (`[block, row, cell]` in a
-/// table).
-fn caret_path(info: &CallbackInfo, host: DomNodeId) -> Option<(Vec<u32>, usize)> {
+/// The caret's model path (`[block, row, cell]` in a table).
+fn caret_path(info: &CallbackInfo, host_id: &str) -> Option<(Vec<u32>, usize)> {
     let position = info.get_document_caret().into_option()?;
-    let path = path_in_host(info, host, position.node)?;
+    let path = model_path(info, host_id, position.node)?;
     Some((path, position.text_byte as usize))
 }
 
+/// The host of this editor the caret is in (a page's, in a paged editor).
+fn caret_host(info: &CallbackInfo, host_id: &str) -> Option<DomNodeId> {
+    let position = info.get_document_caret().into_option()?;
+    host_of(info, host_id, position.node).map(|(host, _)| host)
+}
+
 /// The selection as `(block, start, end)` spans; empty for a caret.
-fn selection_in(info: &CallbackInfo, host: DomNodeId) -> Vec<(usize, usize, usize)> {
+fn selection_in(info: &CallbackInfo, host_id: &str) -> Vec<(usize, usize, usize)> {
     info.get_document_selection()
         .as_ref()
         .iter()
         .filter(|s| s.end_byte > s.start_byte)
         .filter_map(|s| {
-            block_of(info, host, s.node).map(|b| (b, s.start_byte as usize, s.end_byte as usize))
+            block_of(info, host_id, s.node)
+                .map(|b| (b, s.start_byte as usize, s.end_byte as usize))
         })
         .collect()
 }
@@ -1593,8 +1677,8 @@ impl RichTextEditorState {
     }
 
     /// Remembers where the engine's caret is.
-    fn track_caret(&mut self, info: &CallbackInfo, host: DomNodeId) {
-        if let Some((block, byte)) = caret_in(info, host) {
+    fn track_caret(&mut self, info: &CallbackInfo) {
+        if let Some((block, byte)) = caret_in(info, self.host_id.as_str()) {
             self.caret_block = block;
             self.caret_byte = byte;
         }
@@ -1622,23 +1706,20 @@ impl RichTextEditorState {
     /// and acks them. Returns `(changed, rebuild)`: a Markdown shortcut (with
     /// `shortcuts`) or a typing style the engine cannot paint (inline code)
     /// asks for a new DOM.
-    pub(crate) fn sync_text(
-        &mut self,
-        info: &mut CallbackInfo,
-        host: DomNodeId,
-        shortcuts: bool,
-    ) -> (bool, bool) {
+    pub(crate) fn sync_text(&mut self, info: &mut CallbackInfo, shortcuts: bool) -> (bool, bool) {
         let edits = info.get_unsynced_text_edits();
         let edits = edits.as_ref();
         if edits.is_empty() {
             return (false, false);
         }
+        // Every host of this editor (its one host, or its pages).
+        let host_id = self.host_id.as_str().to_string();
         let mut max_revision = 0u64;
         let mut changed = false;
         let mut rebuild = false;
         for edit in edits {
             max_revision = max_revision.max(edit.revision);
-            let Some(path) = path_in_host(info, host, edit.node) else {
+            let Some(path) = model_path(info, &host_id, edit.node) else {
                 continue; // not this editor's text (a text field beside it)
             };
             let Some(&first) = path.first() else {
@@ -1711,18 +1792,20 @@ impl RichTextEditorState {
     /// document and acknowledged - WITHOUT an inverse: the editor's history
     /// is the one history. Returns whether the document changed (the edit,
     /// or typing folded in first).
-    fn apply_document_edit(&mut self, info: &mut CallbackInfo, host: DomNodeId) -> bool {
+    fn apply_document_edit(&mut self, info: &mut CallbackInfo) -> bool {
         use crate::managers::changeset::DocumentOperation;
 
         let Some(changeset) = info.get_document_edit_clone().into_option() else {
             return false;
         };
-        let (synced, _) = self.sync_text(info, host, false);
-        let caret = caret_in(info, host);
+        let (synced, _) = self.sync_text(info, false);
+        let host_id = self.host_id.as_str().to_string();
+        let host_id = host_id.as_str();
+        let caret = caret_in(info, host_id);
         let before = self.doc.clone();
         let applied = match &changeset.operation {
             DocumentOperation::SplitNode(split) => {
-                let target = block_of(info, host, split.node);
+                let target = block_of(info, host_id, split.node);
                 target
                     .and_then(|b| {
                         let at = match caret {
@@ -1738,8 +1821,8 @@ impl RichTextEditorState {
             }
             DocumentOperation::MergeNodes(merge) => {
                 match (
-                    block_of(info, host, merge.first),
-                    block_of(info, host, merge.second),
+                    block_of(info, host_id, merge.first),
+                    block_of(info, host_id, merge.second),
                 ) {
                     (Some(first), Some(second)) if second == first + 1 => self
                         .doc
@@ -1749,9 +1832,11 @@ impl RichTextEditorState {
                 }
             }
             DocumentOperation::ReplaceChildren(replace)
-                if path_in_host(info, host, replace.parent).is_some_and(|p| p.is_empty()) =>
+                if host_of(info, host_id, replace.parent).is_some_and(|(h, _)| h == replace.parent) =>
             {
-                let (start, end) = (replace.start as usize, replace.end as usize);
+                // The host's (a page's) children are blocks `first..`.
+                let first = host_of(info, host_id, replace.parent).map_or(0, |(_, first)| first);
+                let (start, end) = (first + replace.start as usize, first + replace.end as usize);
                 let parts: &[Dom] = replace.content.children.as_ref();
                 if parts.len() <= 1 {
                     // A delete or a type-over across blocks: one block whose
@@ -1791,10 +1876,8 @@ impl RichTextEditorState {
     }
 
     /// The caret's block and byte (the engine's, else the last seen).
-    fn caret_target(&mut self, info: &CallbackInfo, host: Option<DomNodeId>) -> (usize, usize) {
-        if let Some(host) = host {
-            self.track_caret(info, host);
-        }
+    fn caret_target(&mut self, info: &CallbackInfo) -> (usize, usize) {
+        self.track_caret(info);
         let last = self.doc.block_count().saturating_sub(1);
         if self.caret_block > last {
             self.caret_block = last;
@@ -1860,8 +1943,8 @@ impl RichTextEditorState {
         command: &RichTextCommand,
         paint: bool,
     ) -> Update {
-        let (block, byte) = self.caret_target(info, host);
-        let spans = host.map(|h| selection_in(info, h)).unwrap_or_default();
+        let (block, byte) = self.caret_target(info);
+        let spans = selection_in(info, self.host_id.as_str());
         let before = self.doc.clone();
         let depth = self.doc.block(block).map_or(0, |b| b.quote_depth);
         let changed = match command {
@@ -1890,8 +1973,10 @@ impl RichTextEditorState {
                     // At a caret: the typing style of what is typed next -
                     // the engine's pending format there (the run under the
                     // caret with a toggled style on top), toggled.
+                    let target = caret_host(info, self.host_id.as_str()).or(host);
                     let mut formats = self.formats_at(block, byte);
-                    if let Some(engine) = host.and_then(|h| info.get_typing_formats(h).into_option())
+                    if let Some(engine) =
+                        target.and_then(|h| info.get_typing_formats(h).into_option())
                     {
                         formats = with_engine_formats(formats, engine);
                     }
@@ -1902,7 +1987,7 @@ impl RichTextEditorState {
                         formats,
                     });
                     if paint {
-                        if let (Some(host), Some(f)) = (host, engine_format(*format)) {
+                        if let (Some(host), Some(f)) = (target, engine_format(*format)) {
                             info.toggle_text_format(host, f);
                         }
                     }
@@ -2048,12 +2133,9 @@ extern "C" fn on_text_changed(mut data: RefAny, mut info: CallbackInfo) -> Updat
         return Update::DoNothing;
     };
     let editor = &mut *guard;
-    let Some(host) = editor.state.host_node(&info) else {
-        return Update::DoNothing;
-    };
     let shortcuts = editor.markdown_shortcuts;
-    let (changed, rebuild) = editor.state.sync_text(&mut info, host, shortcuts);
-    editor.state.track_caret(&info, host);
+    let (changed, rebuild) = editor.state.sync_text(&mut info, shortcuts);
+    editor.state.track_caret(&info);
     let mut update = if rebuild {
         Update::RefreshDom
     } else {
@@ -2074,10 +2156,7 @@ extern "C" fn on_document_edit(mut data: RefAny, mut info: CallbackInfo) -> Upda
         return Update::DoNothing;
     };
     let editor = &mut *guard;
-    let Some(host) = editor.state.host_node(&info) else {
-        return Update::DoNothing;
-    };
-    if editor.state.apply_document_edit(&mut info, host) {
+    if editor.state.apply_document_edit(&mut info) {
         let _ = editor.notify(info);
     }
     Update::RefreshDom
@@ -2095,11 +2174,8 @@ extern "C" fn on_check_click(mut data: RefAny, mut info: CallbackInfo) -> Update
         return Update::DoNothing;
     };
     let editor = &mut *guard;
-    let host = editor.state.host_node(&info);
-    if let Some(host) = host {
-        // Typing not folded in yet goes in first.
-        let _ = editor.state.sync_text(&mut info, host, false);
-    }
+    // Typing not folded in yet goes in first.
+    let _ = editor.state.sync_text(&mut info, false);
     let before = editor.state.doc.clone();
     if !editor.state.doc.toggle_check(block) {
         return Update::DoNothing;
@@ -2155,10 +2231,7 @@ extern "C" fn on_toolbar_click(mut data: RefAny, mut info: CallbackInfo) -> Upda
     };
     let editor = &mut *guard;
     let host = editor.state.host_node(&info);
-    let mut synced = false;
-    if let Some(host) = host {
-        synced = editor.state.sync_text(&mut info, host, false).0;
-    }
+    let synced = editor.state.sync_text(&mut info, false).0;
     let typing_before = editor.state.typing.clone();
     let mut update = editor
         .state
@@ -2193,8 +2266,8 @@ extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(host) = editor.state.host_node(&info) else {
         return Update::DoNothing;
     };
-    editor.state.track_caret(&info, host);
-    let collapsed = selection_in(&info, host).is_empty();
+    editor.state.track_caret(&info);
+    let collapsed = selection_in(&info, editor.state.host_id.as_str()).is_empty();
 
     if primary && !alt {
         // `(command, paint)`: paint = no key default of the engine paints
@@ -2249,7 +2322,7 @@ extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
         let Some((command, paint)) = command else {
             return Update::DoNothing;
         };
-        let synced = editor.state.sync_text(&mut info, host, false).0;
+        let synced = editor.state.sync_text(&mut info, false).0;
         // B / I / U at a caret: the engine's default action paints the
         // typing style, the model records it. Everything else - a format
         // over a selection in particular - is the editor's, and the
@@ -2266,7 +2339,7 @@ extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return update;
     }
 
-    let Some((path, byte)) = caret_path(&info, host) else {
+    let Some((path, byte)) = caret_path(&info, editor.state.host_id.as_str()) else {
         return Update::DoNothing;
     };
     let Some(&first) = path.first() else {
@@ -2309,7 +2382,7 @@ extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
                 // A code block takes line breaks; Enter on its empty last
                 // line (the text ends in "\n") leaves it.
                 info.prevent_default();
-                let _ = editor.state.sync_text(&mut info, host, false);
+                let _ = editor.state.sync_text(&mut info, false);
                 let text = editor
                     .state
                     .doc
@@ -2375,7 +2448,7 @@ extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     }
     info.prevent_default();
-    let synced = editor.state.sync_text(&mut info, host, false).0;
+    let synced = editor.state.sync_text(&mut info, false).0;
     let before = editor.state.doc.clone();
     let changed = match action {
         KeyAction::Indent(delta) => editor.state.doc.indent(block, delta),
@@ -2567,6 +2640,24 @@ mod tests {
         assert_eq!(kinds, want);
         assert_eq!(blocks[1].runs, doc.blocks()[1].runs_vec());
         assert_eq!(blocks[6].quote_depth, 1);
+    }
+
+    #[test]
+    fn a_page_holds_its_blocks_under_their_document_indices() {
+        let pages = fixtures::sample().page_doms(
+            azul_css::corety::U32Vec::from_vec(vec![0, 3, 7]),
+            1,
+            5,
+        );
+        let pages = pages.as_ref();
+        assert_eq!(pages.len(), 2, "pages 1 and 2 of 3");
+        assert!(pages[0].root.has_id("az-rich-text-page-3"));
+        assert!(pages[0].root.is_contenteditable());
+        assert_eq!(pages[0].children.as_ref().len(), 4, "blocks 3..7");
+        assert!(pages[0].children.as_ref()[0].root.has_id("az-rich-text-3"));
+        assert!(pages[1].root.has_id("az-rich-text-page-7"));
+        assert_eq!(pages[1].children.as_ref().len(), 3, "blocks 7..10");
+        assert!(pages[1].children.as_ref()[2].root.has_id("az-rich-text-9"));
     }
 
     #[test]
