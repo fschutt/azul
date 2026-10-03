@@ -17,7 +17,7 @@
 //!   `MAX_IN_FLIGHT` the frame is dropped.
 
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicU64, AtomicUsize, Ordering},
     Arc, Once,
 };
 
@@ -39,6 +39,13 @@ pub(super) struct AvfSink {
     /// Buffers scheduled on the player node whose completion handler hasn't
     /// fired yet — the backpressure gauge for `play`.
     in_flight: Arc<AtomicUsize>,
+    /// Sample frames in those buffers: what is queued and not heard yet
+    /// (`OutputDevice::queued_frames`, a player's clock).
+    frames_in_flight: Arc<AtomicU64>,
+    /// Bumped by `clear`: the completion of a buffer scheduled before it
+    /// (fired by the `stop` that dropped it) counts nothing, so the gauges
+    /// reset to zero stay right.
+    generation: Arc<AtomicU64>,
 }
 
 // Single-threaded use assumed (same assertion as the cpal/AAudio sinks).
@@ -87,6 +94,8 @@ impl AvfSink {
                 format,
                 channels: channels.max(1),
                 in_flight: Arc::new(AtomicUsize::new(0)),
+                frames_in_flight: Arc::new(AtomicU64::new(0)),
+                generation: Arc::new(AtomicU64::new(0)),
             })
         }
     }
@@ -141,15 +150,52 @@ impl super::OutputDevice for AvfSink {
 
             // Count the buffer in-flight until its completion block fires
             // (AVFoundation copies the block, so the RcBlock ref we drop at
-            // the end of this scope isn't the last one).
+            // the end of this scope isn't the last one). A buffer scheduled
+            // before a `clear` counts nothing when `stop` completes it.
             self.in_flight.fetch_add(1, Ordering::AcqRel);
+            self.frames_in_flight
+                .fetch_add(frames as u64, Ordering::AcqRel);
             let in_flight = self.in_flight.clone();
+            let frames_in_flight = self.frames_in_flight.clone();
+            let generation = self.generation.clone();
+            let scheduled_in = generation.load(Ordering::Acquire);
             let done = RcBlock::new(move || {
-                in_flight.fetch_sub(1, Ordering::AcqRel);
+                if generation.load(Ordering::Acquire) == scheduled_in {
+                    in_flight.fetch_sub(1, Ordering::AcqRel);
+                    frames_in_flight.fetch_sub(frames as u64, Ordering::AcqRel);
+                }
             });
             self.player
                 .scheduleBuffer_completionHandler(&buf, RcBlock::as_ptr(&done));
         }
+        true
+    }
+
+    fn queued_frames(&self) -> Option<u64> {
+        Some(self.frames_in_flight.load(Ordering::Acquire))
+    }
+
+    /// `pause` holds the player node's time and its scheduled buffers;
+    /// `play` resumes them.
+    fn set_paused(&self, paused: bool) -> bool {
+        unsafe {
+            if paused {
+                self.player.pause();
+            } else {
+                self.player.play();
+            }
+        }
+        true
+    }
+
+    /// `stop` drops every scheduled buffer (their completions fire and count
+    /// nothing: the generation moved on), then `play` takes new ones.
+    fn clear(&self) -> bool {
+        self.generation.fetch_add(1, Ordering::AcqRel);
+        unsafe { self.player.stop() };
+        self.in_flight.store(0, Ordering::Release);
+        self.frames_in_flight.store(0, Ordering::Release);
+        unsafe { self.player.play() };
         true
     }
 }

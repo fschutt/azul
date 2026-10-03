@@ -5,7 +5,10 @@
 
 use std::{
     collections::VecDeque,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
 };
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -14,6 +17,10 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 pub struct CpalSink {
     _stream: cpal::Stream,
     queue: Arc<Mutex<VecDeque<f32>>>,
+    /// Held: the output callback plays silence and takes nothing from the
+    /// queue (`OutputDevice::set_paused`).
+    paused: Arc<AtomicBool>,
+    channels: usize,
 }
 
 // The cpal Stream is `!Send`, but `AudioSink` follows the FFI handle convention
@@ -39,16 +46,24 @@ impl CpalSink {
         };
         let queue = Arc::new(Mutex::new(VecDeque::<f32>::new()));
         let q = queue.clone();
+        let paused = Arc::new(AtomicBool::new(false));
+        let held = paused.clone();
         let stream = device
             .build_output_stream(
                 &config,
-                move |out: &mut [f32], _: &cpal::OutputCallbackInfo| match q.lock() {
-                    Ok(mut qq) => {
-                        for s in out.iter_mut() {
-                            *s = qq.pop_front().unwrap_or(0.0);
-                        }
+                move |out: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                    if held.load(Ordering::Acquire) {
+                        out.iter_mut().for_each(|s| *s = 0.0);
+                        return;
                     }
-                    Err(_) => out.iter_mut().for_each(|s| *s = 0.0),
+                    match q.lock() {
+                        Ok(mut qq) => {
+                            for s in out.iter_mut() {
+                                *s = qq.pop_front().unwrap_or(0.0);
+                            }
+                        }
+                        Err(_) => out.iter_mut().for_each(|s| *s = 0.0),
+                    }
                 },
                 |e: cpal::StreamError| {
                     // Was a no-op: a device unplug mid-playback silently
@@ -72,6 +87,8 @@ impl CpalSink {
         Ok(CpalSink {
             _stream: stream,
             queue,
+            paused,
+            channels: usize::from(config.channels.max(1)),
         })
     }
 }
@@ -88,5 +105,27 @@ impl super::OutputDevice for CpalSink {
             }
         }
         false
+    }
+
+    fn queued_frames(&self) -> Option<u64> {
+        self.queue
+            .lock()
+            .ok()
+            .map(|q| (q.len() / self.channels) as u64)
+    }
+
+    fn set_paused(&self, paused: bool) -> bool {
+        self.paused.store(paused, Ordering::Release);
+        true
+    }
+
+    fn clear(&self) -> bool {
+        match self.queue.lock() {
+            Ok(mut q) => {
+                q.clear();
+                true
+            }
+            Err(_) => false,
+        }
     }
 }

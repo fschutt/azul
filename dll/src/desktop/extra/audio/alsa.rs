@@ -25,6 +25,12 @@ struct AlsaFns {
     recover: unsafe extern "C" fn(*mut c_void, c_int, c_int) -> c_int,
     drain: unsafe extern "C" fn(*mut c_void) -> c_int,
     close: unsafe extern "C" fn(*mut c_void) -> c_int,
+    /// The player's seam (`OutputDevice::queued_frames` / `set_paused` /
+    /// `clear`); optional, so a libasound without one still plays.
+    delay: Option<unsafe extern "C" fn(*mut c_void, *mut c_long) -> c_int>,
+    pause: Option<unsafe extern "C" fn(*mut c_void, c_int) -> c_int>,
+    drop_queue: Option<unsafe extern "C" fn(*mut c_void) -> c_int>,
+    prepare: Option<unsafe extern "C" fn(*mut c_void) -> c_int>,
 }
 
 static ALSA: OnceLock<Option<(libloading::Library, AlsaFns)>> = OnceLock::new();
@@ -40,6 +46,10 @@ fn alsa() -> Option<&'static AlsaFns> {
             recover: *lib.get(b"snd_pcm_recover\0").ok()?,
             drain: *lib.get(b"snd_pcm_drain\0").ok()?,
             close: *lib.get(b"snd_pcm_close\0").ok()?,
+            delay: lib.get(b"snd_pcm_delay\0").ok().map(|s| *s),
+            pause: lib.get(b"snd_pcm_pause\0").ok().map(|s| *s),
+            drop_queue: lib.get(b"snd_pcm_drop\0").ok().map(|s| *s),
+            prepare: lib.get(b"snd_pcm_prepare\0").ok().map(|s| *s),
         };
         Some((lib, fns))
     })
@@ -138,6 +148,37 @@ impl super::OutputDevice for AlsaPcm {
             }
             n > 0
         }
+    }
+
+    /// `snd_pcm_delay`: the frames written and not yet out of the speaker.
+    fn queued_frames(&self) -> Option<u64> {
+        let delay = alsa()?.delay?;
+        if self.pcm.is_null() {
+            return None;
+        }
+        let mut frames: c_long = 0;
+        let rc = unsafe { delay(self.pcm, &mut frames) };
+        (rc == 0).then(|| u64::try_from(frames.max(0)).unwrap_or(0))
+    }
+
+    /// `snd_pcm_pause` - only where the device supports it (dmix and the
+    /// PulseAudio / PipeWire plugins do); false otherwise.
+    fn set_paused(&self, paused: bool) -> bool {
+        let Some(pause) = alsa().and_then(|f| f.pause) else {
+            return false;
+        };
+        !self.pcm.is_null() && unsafe { pause(self.pcm, c_int::from(paused)) } == 0
+    }
+
+    /// `snd_pcm_drop` drops what is queued, `snd_pcm_prepare` makes the PCM
+    /// take writes again.
+    fn clear(&self) -> bool {
+        let Some((drop_queue, prepare)) = alsa().and_then(|f| f.drop_queue.zip(f.prepare)) else {
+            return false;
+        };
+        !self.pcm.is_null()
+            && unsafe { drop_queue(self.pcm) } == 0
+            && unsafe { prepare(self.pcm) } == 0
     }
 }
 
