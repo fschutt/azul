@@ -499,6 +499,14 @@ pub mod rich_text_editor;
 /// times / on a date (and "from completion" for a to-do), producing an
 /// RFC 5545 RRULE; see `date_repeat_picker.rs`.
 pub mod date_repeat_picker;
+/// Data table widget.
+///
+/// Records under a header of column titles over as many rows as the app has
+/// (500,000 is the yardstick): only the rows in view are built, a header
+/// click sorts (Shift adds a key), a filter row filters, cells edit in place
+/// (the app validates), the keyboard moves a cell cursor and selects rows;
+/// a big table is sorted off the UI thread. See `data_table.rs`.
+pub mod data_table;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and

@@ -86,6 +86,10 @@ use crate::widgets::{
     themes::decl::{px_height, px_left, px_top, px_width, simple},
 };
 
+#[cfg(test)]
+#[path = "data_table_tests.rs"]
+mod data_table_tests;
+
 // ---- the types the app sees ----
 
 /// What a column holds: how it sorts and how its filter reads.
@@ -980,4 +984,653 @@ fn date_bounds(typed: &str) -> Option<Bounds> {
         };
     }
     Some(b)
+}
+
+// ---- the order: which rows show, in which order ----
+
+/// A table of at most this many rows is sorted and filtered at once, in the
+/// handler; a bigger one off the UI thread (see the module).
+pub const DATA_TABLE_SYNC_ROWS: u32 = 20_000;
+
+/// One column a query reads, and what of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PlanColumn {
+    /// The table's column.
+    pub column: u32,
+    /// Its folded texts are needed (a text sort or a text filter).
+    pub texts: bool,
+    /// Its values are needed (a number / date sort or range).
+    pub values: bool,
+}
+
+/// One sort key of a plan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PlanSort {
+    /// The plan column (an index into [`QueryPlan::columns`]).
+    pub slot: usize,
+    pub descending: bool,
+    /// By the folded text (a Text column), else by the value.
+    pub by_text: bool,
+}
+
+/// One filter of a plan.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct PlanFilter {
+    /// The plan column.
+    pub slot: usize,
+    /// The filter, as typed and parsed.
+    pub filter: DataTableFilter,
+    /// It reads the folded text (else the value).
+    pub by_text: bool,
+    /// The folded text a text filter looks for.
+    pub needle: String,
+}
+
+/// What a query needs: the columns it reads, its keys, its filters.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct QueryPlan {
+    pub columns: Vec<PlanColumn>,
+    pub sort: Vec<PlanSort>,
+    pub filters: Vec<PlanFilter>,
+}
+
+impl QueryPlan {
+    /// Whether the query keeps every row in the app's order.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.sort.is_empty() && self.filters.is_empty()
+    }
+}
+
+/// The keys of one plan column, row by row (only what the plan needs).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct ColumnKeys {
+    pub texts: Vec<String>,
+    pub values: Vec<f64>,
+}
+
+/// The plan of `view`'s query over `columns`: keys and filters on columns
+/// that do not exist (or do not sort / filter) are left out.
+pub(crate) fn plan_of(view: &DataTableView, columns: &[DataTableColumn]) -> QueryPlan {
+    let _ = (view, columns);
+    QueryPlan::default()
+}
+
+/// Reads the keys of rows `from..to` through the data callback, appending
+/// them to `keys` (one entry per plan column).
+pub(crate) fn read_keys(
+    source: &OptionDataTableDataSource,
+    plan: &QueryPlan,
+    keys: &mut Vec<ColumnKeys>,
+    from: u32,
+    to: u32,
+) {
+    let _ = (source, plan, keys, from, to);
+}
+
+/// The rows `0..row_count` that pass every filter, in the order of the
+/// sort keys (stable: rows with equal keys keep the app's order; blanks
+/// last in either direction).
+pub(crate) fn compute_order(row_count: u32, plan: &QueryPlan, keys: &[ColumnKeys]) -> Vec<u32> {
+    let _ = (plan, keys);
+    (0..row_count).collect()
+}
+
+// ---- events ----
+
+/// What happened in the table. Every event carries the next
+/// [`DataTableView`]; the kinds below say what ELSE the app does.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DataTableEventKind {
+    /// The selection or the cell cursor changed: store the view.
+    Select,
+    /// The table scrolled (`top` / `left_column` moved): store the view.
+    Scroll,
+    /// The sort changed (`index` = the clicked column): store the view; the
+    /// rows' new order follows with `OrderReady` (at once for a small table:
+    /// then this view has it already).
+    Sort,
+    /// A filter changed (`index` = its column): as `Sort`.
+    Filter,
+    /// The rows' new order is in the view (`view.order`): store it.
+    OrderReady,
+    /// An edit started (`cell`; `view.edit_text` holds the cell's text, or
+    /// the typed character that replaces it).
+    EditStart,
+    /// The edit's text or caret changed.
+    EditText,
+    /// The edit of `cell` was kept: `text` is the new text. The app's
+    /// `on_edit` accepted it already (when there is one).
+    EditCommit,
+    /// The edit was cancelled (Escape).
+    EditCancel,
+    /// The app's `on_edit` refused `text` for `cell`: the edit stays open;
+    /// `text` is the app's reason.
+    EditRefused,
+    /// Column `index` was resized to `size` px (the view keeps the width).
+    ResizeColumn,
+    /// Enter or a double-click on a cell that is not editable: open the
+    /// record (`cell`).
+    Activate,
+    /// Ctrl+C: the selected rows are on the clipboard already (`text` is
+    /// the tab-separated text).
+    Copy,
+    /// A drag started, moved or ended without anything else to do: store
+    /// the view (its `drag`).
+    Drag,
+}
+
+/// One action in the table.
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct DataTableEvent {
+    /// The view after the action: store it.
+    pub view: DataTableView,
+    /// `EditCommit`: the kept text; `EditRefused`: the reason; `Copy`: the
+    /// copied text.
+    pub text: AzString,
+    /// `EditStart` / `EditCommit` / `EditRefused` / `Activate`: the cell
+    /// (the app's row).
+    pub cell: DataTableCellRef,
+    /// `ResizeColumn`: the new width in px.
+    pub size: f32,
+    /// `Sort` / `Filter` / `ResizeColumn`: the column.
+    pub index: u32,
+    /// What happened.
+    pub kind: DataTableEventKind,
+    /// Shift was held.
+    pub shift: bool,
+    /// The primary modifier was held: Cmd on macOS, Ctrl elsewhere.
+    pub ctrl: bool,
+}
+
+impl DataTableEvent {
+    /// A `kind` event leaving `view`, nothing else set.
+    #[must_use]
+    pub const fn create(kind: DataTableEventKind, view: DataTableView) -> Self {
+        Self {
+            view,
+            text: AzString::from_const_str(""),
+            cell: DataTableCellRef { row: 0, column: 0 },
+            size: 0.0,
+            index: 0,
+            kind,
+            shift: false,
+            ctrl: false,
+        }
+    }
+}
+
+/// An edit the app is asked to accept: the typed `text` for `cell`.
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DataTableEdit {
+    /// What the user typed.
+    pub text: AzString,
+    /// The cell (the app's row).
+    pub cell: DataTableCellRef,
+}
+
+/// The app's answer to an edit.
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DataTableEditResult {
+    /// Why the edit is refused (shown to the user; empty when accepted).
+    pub message: AzString,
+    /// The app stored the value.
+    pub accepted: bool,
+}
+
+impl DataTableEditResult {
+    /// The edit is taken.
+    #[must_use]
+    pub const fn create_accepted() -> Self {
+        Self {
+            message: AzString::from_const_str(""),
+            accepted: true,
+        }
+    }
+
+    /// The edit is refused, for `message`.
+    #[must_use]
+    pub const fn create_refused(message: AzString) -> Self {
+        Self {
+            message,
+            accepted: false,
+        }
+    }
+}
+
+impl azul_core::host_invoker::HostOut for DataTableEditResult {
+    fn unwritten() -> Self {
+        Self::create_refused(AzString::from_const_str(""))
+    }
+}
+
+// ---- callbacks ----
+
+/// Callback invoked for an action in the table.
+pub type DataTableOnEventCallbackType =
+    extern "C" fn(RefAny, CallbackInfo, DataTableEvent) -> Update;
+impl_widget_callback!(
+    DataTableOnEvent,
+    OptionDataTableOnEvent,
+    DataTableOnEventCallback,
+    DataTableOnEventCallbackType
+);
+
+azul_core::impl_managed_callback! {
+    wrapper:        DataTableOnEventCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: DATA_TABLE_ON_EVENT_INVOKER,
+    invoker_ty:     AzDataTableOnEventCallbackInvoker,
+    thunk_fn:       az_data_table_on_event_callback_thunk,
+    setter_fn:      AzApp_setDataTableOnEventCallbackInvoker,
+    from_handle_fn: AzDataTableOnEventCallback_createFromHostHandle,
+    from_handle_byref_fn: AzDataTableOnEventCallback_createFromHostHandleByref,
+    extra_args:     [ event: DataTableEvent ],
+}
+
+/// The EDIT callback: the app validates (and stores) an edit.
+pub type DataTableOnEditCallbackType =
+    extern "C" fn(RefAny, CallbackInfo, DataTableEdit) -> DataTableEditResult;
+impl_widget_callback!(
+    DataTableOnEdit,
+    OptionDataTableOnEdit,
+    DataTableOnEditCallback,
+    DataTableOnEditCallbackType
+);
+
+azul_core::impl_managed_callback! {
+    wrapper:        DataTableOnEditCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      DataTableEditResult,
+    default_ret:    DataTableEditResult::create_refused(AzString::from_const_str("The edit could not be checked.")),
+    invoker_static: DATA_TABLE_ON_EDIT_INVOKER,
+    invoker_ty:     AzDataTableOnEditCallbackInvoker,
+    thunk_fn:       az_data_table_on_edit_callback_thunk,
+    setter_fn:      AzApp_setDataTableOnEditCallbackInvoker,
+    from_handle_fn: AzDataTableOnEditCallback_createFromHostHandle,
+    from_handle_byref_fn: AzDataTableOnEditCallback_createFromHostHandleByref,
+    extra_args:     [ edit: DataTableEdit ],
+}
+
+/// The DATA callback: the content of one cell (the app's row).
+pub type DataTableDataSourceCallbackType = extern "C" fn(RefAny, DataTableCellRef) -> DataTableCell;
+impl_widget_callback!(
+    DataTableDataSource,
+    OptionDataTableDataSource,
+    DataTableDataSourceCallback,
+    DataTableDataSourceCallbackType
+);
+
+// Host-invoker plumbing: the cell carries no context, so the thunk reads it
+// from the invocation slot.
+azul_core::impl_managed_callback! {
+    wrapper:        DataTableDataSourceCallback,
+    ctx_field:      ctx,
+    data:           data: RefAny,
+    args:           [cell: DataTableCellRef],
+    return_ty:      DataTableCell,
+    default_ret:    DataTableCell::empty(),
+    invoker_static: DATA_TABLE_DATA_SOURCE_INVOKER,
+    invoker_ty:     AzDataTableDataSourceCallbackInvoker,
+    thunk_fn:       az_data_table_data_source_callback_thunk,
+    setter_fn:      AzApp_setDataTableDataSourceCallbackInvoker,
+    from_handle_fn: AzDataTableDataSourceCallback_createFromHostHandle,
+    from_handle_byref_fn: AzDataTableDataSourceCallback_createFromHostHandleByref,
+}
+
+/// The content of `at`, from the data callback.
+pub(crate) fn cell_content(source: &OptionDataTableDataSource, at: DataTableCellRef) -> DataTableCell {
+    match source.as_ref() {
+        Some(DataTableDataSource { refany, callback }) => callback.invoke(refany.clone(), at),
+        None => DataTableCell::empty(),
+    }
+}
+
+// ---- the widget ----
+
+/// The data table. See the module documentation.
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct DataTable {
+    /// The app-owned state: sort, filters, order, selection, scroll, edit.
+    pub view: DataTableView,
+    /// The columns.
+    pub columns: DataTableColumnVec,
+    /// The `id` of the table's node (default "data-table"): what an app or
+    /// a script focuses it by, and how the table finds itself again when a
+    /// sort finishes - two tables in one window need two ids.
+    pub id: AzString,
+    /// What a screen reader calls the table ("Orders").
+    pub accessibility_name: AzString,
+    /// Where the cells come from; none = an empty table.
+    pub data_source: OptionDataTableDataSource,
+    /// Hears every action.
+    pub on_event: OptionDataTableOnEvent,
+    /// Validates every edit; none = every edit is kept (the app still hears
+    /// `EditCommit`).
+    pub on_edit: OptionDataTableOnEdit,
+    /// The px the table fills (header, filter row and scroll bars
+    /// included): how many rows and columns it builds.
+    pub viewport_width: f32,
+    /// See `viewport_width`.
+    pub viewport_height: f32,
+    /// A row's height in px.
+    pub row_height: f32,
+    /// The header's height in px.
+    pub header_height: f32,
+    /// The cells' font size in px.
+    pub font_size: f32,
+    /// How many rows the app has.
+    pub row_count: u32,
+    /// The columns frozen at the left (always shown, never scrolled).
+    pub frozen_columns: u32,
+    /// The widget theme this table is PINNED to (`with_theme`), or `None`
+    /// to follow the app theme.
+    pub theme: crate::widgets::themes::OptionUiTheme,
+    /// Show the filter row under the header (default on).
+    pub show_filter_row: bool,
+    /// A table that is looked at, not edited: no edits (sorting, filtering,
+    /// selecting, resizing and copying still work).
+    pub read_only: bool,
+}
+
+impl Default for DataTable {
+    fn default() -> Self {
+        Self::create(DataTableColumnVec::from_const_slice(&[]), 0)
+    }
+}
+
+impl DataTable {
+    /// A table of `columns` over `row_count` rows: 26 px rows, a filter row,
+    /// no data until [`Self::with_data_source`].
+    #[must_use]
+    pub fn create(columns: DataTableColumnVec, row_count: u32) -> Self {
+        Self {
+            view: DataTableView::create(),
+            columns,
+            id: AzString::from_const_str("data-table"),
+            accessibility_name: AzString::from_const_str("Table"),
+            data_source: None.into(),
+            on_event: None.into(),
+            on_edit: None.into(),
+            viewport_width: 1200.0,
+            viewport_height: 800.0,
+            row_height: 26.0,
+            header_height: 30.0,
+            font_size: 13.0,
+            row_count,
+            frozen_columns: 0,
+            theme: None.into(),
+            show_filter_row: true,
+            read_only: false,
+        }
+    }
+
+    /// The state the app keeps (store every event's `view`).
+    pub fn set_view(&mut self, view: DataTableView) {
+        self.view = view;
+    }
+
+    /// [`Self::set_view`] for the builder chain.
+    #[must_use]
+    pub fn with_view(mut self, view: DataTableView) -> Self {
+        self.set_view(view);
+        self
+    }
+
+    /// The node's `id` (unique in the window).
+    pub fn set_id(&mut self, id: AzString) {
+        self.id = id;
+    }
+
+    /// [`Self::set_id`] for the builder chain.
+    #[must_use]
+    pub fn with_id(mut self, id: AzString) -> Self {
+        self.set_id(id);
+        self
+    }
+
+    /// What a screen reader calls the table.
+    pub fn set_accessibility_name(&mut self, name: AzString) {
+        self.accessibility_name = name;
+    }
+
+    /// [`Self::set_accessibility_name`] for the builder chain.
+    #[must_use]
+    pub fn with_accessibility_name(mut self, name: AzString) -> Self {
+        self.set_accessibility_name(name);
+        self
+    }
+
+    /// How many rows the app has.
+    pub fn set_row_count(&mut self, row_count: u32) {
+        self.row_count = row_count;
+    }
+
+    /// [`Self::set_row_count`] for the builder chain.
+    #[must_use]
+    pub fn with_row_count(mut self, row_count: u32) -> Self {
+        self.set_row_count(row_count);
+        self
+    }
+
+    /// Where the cells come from: `callback(data, cell)` for every cell in
+    /// view, and for the keys of a sort or a filter.
+    pub fn set_data_source<C: Into<DataTableDataSourceCallback>>(&mut self, data: RefAny, callback: C) {
+        self.data_source = Some(DataTableDataSource {
+            refany: data,
+            callback: callback.into(),
+        })
+        .into();
+    }
+
+    /// [`Self::set_data_source`] for the builder chain.
+    #[must_use]
+    pub fn with_data_source<C: Into<DataTableDataSourceCallback>>(mut self, data: RefAny, callback: C) -> Self {
+        self.set_data_source(data, callback);
+        self
+    }
+
+    /// The callback that hears every action.
+    pub fn set_on_event<C: Into<DataTableOnEventCallback>>(&mut self, data: RefAny, callback: C) {
+        self.on_event = Some(DataTableOnEvent {
+            refany: data,
+            callback: callback.into(),
+        })
+        .into();
+    }
+
+    /// [`Self::set_on_event`] for the builder chain.
+    #[must_use]
+    pub fn with_on_event<C: Into<DataTableOnEventCallback>>(mut self, data: RefAny, callback: C) -> Self {
+        self.set_on_event(data, callback);
+        self
+    }
+
+    /// The callback that validates (and stores) every edit.
+    pub fn set_on_edit<C: Into<DataTableOnEditCallback>>(&mut self, data: RefAny, callback: C) {
+        self.on_edit = Some(DataTableOnEdit {
+            refany: data,
+            callback: callback.into(),
+        })
+        .into();
+    }
+
+    /// [`Self::set_on_edit`] for the builder chain.
+    #[must_use]
+    pub fn with_on_edit<C: Into<DataTableOnEditCallback>>(mut self, data: RefAny, callback: C) -> Self {
+        self.set_on_edit(data, callback);
+        self
+    }
+
+    /// The px the table fills.
+    pub fn set_viewport(&mut self, width: f32, height: f32) {
+        self.viewport_width = width;
+        self.viewport_height = height;
+    }
+
+    /// [`Self::set_viewport`] for the builder chain.
+    #[must_use]
+    pub fn with_viewport(mut self, width: f32, height: f32) -> Self {
+        self.set_viewport(width, height);
+        self
+    }
+
+    /// A row's height in px.
+    pub fn set_row_height(&mut self, px: f32) {
+        self.row_height = px;
+    }
+
+    /// [`Self::set_row_height`] for the builder chain.
+    #[must_use]
+    pub fn with_row_height(mut self, px: f32) -> Self {
+        self.set_row_height(px);
+        self
+    }
+
+    /// The cells' font size in px.
+    pub fn set_font_size(&mut self, px: f32) {
+        self.font_size = px;
+    }
+
+    /// [`Self::set_font_size`] for the builder chain.
+    #[must_use]
+    pub fn with_font_size(mut self, px: f32) -> Self {
+        self.set_font_size(px);
+        self
+    }
+
+    /// The columns frozen at the left.
+    pub fn set_frozen_columns(&mut self, columns: u32) {
+        self.frozen_columns = columns;
+    }
+
+    /// [`Self::set_frozen_columns`] for the builder chain.
+    #[must_use]
+    pub fn with_frozen_columns(mut self, columns: u32) -> Self {
+        self.set_frozen_columns(columns);
+        self
+    }
+
+    /// Shows or hides the filter row.
+    pub fn set_show_filter_row(&mut self, show: bool) {
+        self.show_filter_row = show;
+    }
+
+    /// [`Self::set_show_filter_row`] for the builder chain.
+    #[must_use]
+    pub fn with_show_filter_row(mut self, show: bool) -> Self {
+        self.set_show_filter_row(show);
+        self
+    }
+
+    /// Makes the table read-only (or editable again).
+    pub fn set_read_only(&mut self, read_only: bool) {
+        self.read_only = read_only;
+    }
+
+    /// [`Self::set_read_only`] for the builder chain.
+    #[must_use]
+    pub fn with_read_only(mut self, read_only: bool) -> Self {
+        self.set_read_only(read_only);
+        self
+    }
+
+    /// Pins the widget theme; unset, the table follows the app theme.
+    pub fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = Some(theme).into();
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
+    /// Replaces `self` with an empty table and returns the original.
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
+        let mut s = Self::default();
+        core::mem::swap(&mut s, self);
+        s
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod fixtures {
+    //! A small table with data, for the widget's own tests and the lint
+    //! manifest (`widgets::label_convention::every_widget_dom`).
+    use super::*;
+
+    /// The names column: case variants and a blank, so the sort shows its
+    /// folding and its blanks.
+    pub(crate) const NAMES: [&str; 7] = ["Delta", "alpha", "Charlie", "bravo", "Echo", "", "Alpha"];
+    /// The cities column.
+    pub(crate) const CITIES: [&str; 3] = ["Berlin", "Paris", "Rome"];
+    /// 2024-01-01, days since 1970-01-01.
+    pub(crate) const NEW_YEAR_2024: i64 = 19_723;
+
+    /// Row `row`'s amount: a quarter step from 0 to 25, blank on every
+    /// eleventh row from the fifth.
+    #[allow(clippy::cast_precision_loss)]
+    pub(crate) fn amount(row: u32) -> f64 {
+        if row % 11 == 5 {
+            f64::NAN
+        } else {
+            f64::from((row * 37) % 101) / 4.0
+        }
+    }
+
+    /// Row `row`'s day (days since 1970-01-01): somewhere in 2024.
+    #[allow(clippy::cast_precision_loss)]
+    pub(crate) fn day(row: u32) -> f64 {
+        (NEW_YEAR_2024 + i64::from((row * 13) % 366)) as f64
+    }
+
+    /// Name, Amount, Date, City, Code.
+    pub(crate) extern "C" fn cells(_: RefAny, at: DataTableCellRef) -> DataTableCell {
+        let row = at.row;
+        match at.column {
+            0 => DataTableCell::create_text(AzString::from(NAMES[(row % 7) as usize])),
+            1 => {
+                let v = amount(row);
+                if v.is_nan() {
+                    DataTableCell::empty()
+                } else {
+                    DataTableCell::create(AzString::from(alloc::format!("{v:.2}")), v)
+                }
+            }
+            2 => DataTableCell::create(AzString::from(alloc::format!("{}", day(row))), day(row)),
+            3 => DataTableCell::create_text(AzString::from(CITIES[(row % 3) as usize])),
+            4 => DataTableCell::create_text(AzString::from(alloc::format!("C{row:04}"))),
+            _ => DataTableCell::empty(),
+        }
+    }
+
+    /// The five columns (Amount and Date editable).
+    pub(crate) fn columns() -> DataTableColumnVec {
+        DataTableColumnVec::from_vec(alloc::vec![
+            DataTableColumn::create(AzString::from_const_str("Name"), 120.0, DataTableSortKind::Text),
+            DataTableColumn::create(AzString::from_const_str("Amount"), 90.0, DataTableSortKind::Number)
+                .with_editable(true),
+            DataTableColumn::create(AzString::from_const_str("Date"), 100.0, DataTableSortKind::Date)
+                .with_editable(true),
+            DataTableColumn::create(AzString::from_const_str("City"), 100.0, DataTableSortKind::Text),
+            DataTableColumn::create(AzString::from_const_str("Code"), 80.0, DataTableSortKind::Text),
+        ])
+    }
+
+    /// A 1000-row table, 400 x 300 px, the columns above.
+    pub(crate) fn small() -> DataTable {
+        DataTable::create(columns(), 1000)
+            .with_viewport(400.0, 300.0)
+            .with_data_source(RefAny::new(()), cells as DataTableDataSourceCallbackType)
+            .with_accessibility_name(AzString::from_const_str("Orders"))
+    }
 }
