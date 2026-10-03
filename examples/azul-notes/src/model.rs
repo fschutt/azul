@@ -961,6 +961,42 @@ mod tests {
         assert_eq!(hit("").len(), 4);
     }
 
+    /// The search box of every Azlin app folds diacritics (azul_pim::search,
+    /// DEDUP_EDITORS B16): "kruger" finds Krüger, "#cafe" the tag "Café".
+    #[test]
+    fn search_folds_diacritics_in_words_and_tags() {
+        let mut lib = library();
+        let mut visit = note("f", "Personal", "Visit Krüger", NOW - 60);
+        visit.meta.tags = vec!["Café".to_string()];
+        visit.refresh();
+        lib.notes.push(visit);
+        let hit = |q: &str| -> Vec<String> {
+            let query = Query {
+                search: q.to_string(),
+                ..Query::default()
+            };
+            lib.matching(&query).iter().map(|&i| lib.notes[i].id.clone()).collect()
+        };
+        assert_eq!(hit("kruger"), vec!["f"]);
+        assert_eq!(hit("KRÜGER visit"), vec!["f"]);
+        assert_eq!(hit("#cafe"), vec!["f"], "a tag prefix, diacritics folded");
+    }
+
+    /// Tags are cleaned as every Azlin app cleans them
+    /// (azul_pim::task::normalize_tag, DEDUP_EDITORS B27 / E5).
+    #[test]
+    fn a_tag_is_cleaned_once_and_kept_once() {
+        let mut n = note("g", "Work", "Tags", NOW);
+        assert!(n.add_tag("  #Work "));
+        assert!(!n.add_tag("work"), "ignoring case, once");
+        assert!(!n.add_tag("#"), "nothing left");
+        assert_eq!(n.meta.tags, vec!["Work".to_string()]);
+        assert_eq!(
+            clean_tags(["#Work", "work", " ideas ", "", "#"]),
+            vec!["Work".to_string(), "ideas".to_string()]
+        );
+    }
+
     #[test]
     fn scopes_pick_pinned_notebooks_with_their_children_tags_and_the_trash() {
         let lib = library();
