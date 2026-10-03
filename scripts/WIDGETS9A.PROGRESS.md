@@ -17,9 +17,11 @@ Commit messages via `printf ... > /tmp/w9a_msg.txt && git commit -F /tmp/w9a_msg
 ## IN PROGRESS
 - IconGrid: a DONE (20a1edf3d skeleton), b DONE (2bb488537 RED), c PARTLY: db91378c9 geometry / hit_test / item_rect
   / marquee_keys / scroll_by GREEN (+ data_table `thumb()` pub(crate)), ff81da335 press / drag_move / drag_end /
-  grid_key GREEN. STILL STUBS: `look_for`, `build` and the handlers (grid node: VirtualKeyDown, LeftMouseDown,
-  MouseMove, MouseUp, DoubleClick, RightMouseUp, Scroll; item: DragStart -> MIME "i,j" + DragStart event;
-  `GridShared { grid, geo }` + store_view like data_table). Continue at c (build), then d, e, f.
+  grid_key GREEN, b23d7f92c build + handlers + look_for GREEN. Step c DONE. NEXT: d - append `icon_grid_look()`
+  (`crate::widgets::icon_grid::IconGridLook { grid, item, item_selected, item_focused, icon, label, badge, marquee,
+  track, thumb, marker }`) in flat.rs / flora.rs; grid MUST have a focus ring (focus_halo_inset: it is the Tab
+  stop); item_selected must re-append the hover fill after its resting fill (shadowed_states); item must not
+  declare hover border colours (item_focused lays resting border colours). Then e, f.
 
 ## NEXT (exact) - IconGrid in `layout/src/widgets/icon_grid.rs` (model: `data_table.rs`, `thumbnail_strip.rs`)
 a. Skeleton + `pub mod icon_grid;` APPENDED after `pub mod token_input;` in widgets/mod.rs. Types (all repr C):
