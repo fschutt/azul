@@ -44,8 +44,16 @@ impl ServerCaps {
     /// mechanisms in any case): SMTP has no LOGINDISABLED, so a server that does not list LOGIN
     /// counts as one that refuses it.
     pub fn from_smtp_auth(mechanisms: &[&str]) -> ServerCaps {
-        let _ = mechanisms;
-        ServerCaps::default()
+        let offers = |name: &str| {
+            mechanisms
+                .iter()
+                .any(|m| m.trim().eq_ignore_ascii_case(name))
+        };
+        ServerCaps {
+            auth_plain: offers("PLAIN"),
+            auth_xoauth2: offers("XOAUTH2"),
+            login_disabled: !offers("LOGIN"),
+        }
     }
 }
 
@@ -54,10 +62,16 @@ impl ServerCaps {
 /// server that does not list a mechanism refuses it, and a refused token would be asked again
 /// and again).
 pub fn choose_submission(kind: AuthKind, caps: ServerCaps) -> Result<AuthMethod, String> {
-    let _ = caps;
     match kind {
-        AuthKind::Xoauth2 => Ok(AuthMethod::Xoauth2),
-        AuthKind::Password => Ok(AuthMethod::Plain),
+        AuthKind::Xoauth2 if !caps.auth_xoauth2 => Err(String::from(
+            "the outgoing server does not offer XOAUTH2: sign in with an app password, or check \
+             the server and port",
+        )),
+        AuthKind::Password if !caps.auth_plain && caps.login_disabled => Err(String::from(
+            "the outgoing server offers neither AUTH PLAIN nor AUTH LOGIN: it may only take OAuth, \
+             or want STARTTLS first",
+        )),
+        _ => choose(kind, caps),
     }
 }
 
