@@ -63,7 +63,7 @@ pub use decode::{AudioFileDecoder, AudioFileInfo, OptionAudioFileInfo};
 // Playing audio files (gapless queue, seek, pause, volume, what is heard):
 // the `AudioPlayer` handle, a decode thread feeding an `AudioSink`.
 pub mod player;
-pub use player::AudioPlayerState;
+pub use player::{AudioPlayer, AudioPlayerState};
 
 /// Internal playback state behind an open `AudioSink` handle.
 struct AudioSinkInner {

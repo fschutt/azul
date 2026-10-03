@@ -433,6 +433,240 @@ impl PlayerCore {
     }
 }
 
+// ==== The AudioPlayer handle: PlayerCore on a thread, feeding an AudioSink ====
+
+/// Opens the output a player plays on: the platform's (`AudioSink::open`), or a test's.
+pub(crate) type OpenOutput = fn(azul_core::audio::AudioConfig) -> super::AudioSink;
+
+/// A music player: hand it audio files, it decodes and plays them on its own thread through an
+/// `AudioSink` - gapless from one queued file to the next - and says what is heard
+/// ([`get_state`](Self::get_state)). Every call returns at once; a file opens on the player's
+/// thread (one that does not open shows up as `AudioPlayerState::failed_track` and
+/// [`error_message`](Self::error_message)). Dropping the handle stops playback.
+#[repr(C)]
+pub struct AudioPlayer {
+    /// Opaque pointer to the engine-side state (null when closed).
+    pub ptr: *mut core::ffi::c_void,
+    /// Whether this handle owns (and on drop stops) the player.
+    pub run_destructor: bool,
+}
+
+impl Clone for AudioPlayer {
+    fn clone(&self) -> Self {
+        // Non-owning shallow copy (the FFI handle convention): only the original stops it.
+        AudioPlayer {
+            ptr: self.ptr,
+            run_destructor: false,
+        }
+    }
+}
+
+impl Default for AudioPlayer {
+    fn default() -> Self {
+        AudioPlayer {
+            ptr: core::ptr::null_mut(),
+            run_destructor: false,
+        }
+    }
+}
+
+impl Drop for AudioPlayer {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
+impl AudioPlayer {
+    /// A player on the platform's audio output (opened with the first file). In a headless run
+    /// it plays on the synthetic sink when one was asked for (`AZ_SYNTHETIC_DEVICES=audio_sink`),
+    /// else it has no output (`AudioPlayerState::has_output` false, `error_message` says why).
+    pub fn create() -> AudioPlayer {
+        Self::create_with(super::AudioSink::open)
+    }
+
+    /// A player on the outputs `open` makes.
+    pub(crate) fn create_with(open: OpenOutput) -> AudioPlayer {
+        let _ = open;
+        AudioPlayer::default()
+    }
+
+    /// Plays the audio file at `path` now (what was playing and queued is dropped). Returns the
+    /// track's id (what `AudioPlayerState::track` names while it is heard); 0 when closed.
+    pub fn load_file(&self, path: azul_css::AzString) -> u64 {
+        let _ = path;
+        0
+    }
+
+    /// Plays an audio file from its `bytes` now (`extension`: "mp3", "flac", ... - a hint, may
+    /// be empty). Returns the track's id; 0 when closed.
+    pub fn load_bytes(&self, bytes: azul_css::U8Vec, extension: azul_css::AzString) -> u64 {
+        let _ = (bytes, extension);
+        0
+    }
+
+    /// Plays the audio file at `path` after the queued ones, gaplessly. Returns its id.
+    pub fn queue_file(&self, path: azul_css::AzString) -> u64 {
+        let _ = path;
+        0
+    }
+
+    /// Plays an audio file from its `bytes` after the queued ones, gaplessly. Returns its id.
+    pub fn queue_bytes(&self, bytes: azul_css::U8Vec, extension: azul_css::AzString) -> u64 {
+        let _ = (bytes, extension);
+        0
+    }
+
+    /// Drops the queued files (the one playing plays on).
+    pub fn clear_queue(&self) {}
+
+    /// Plays on (after `pause`).
+    pub fn play(&self) {}
+
+    /// Holds playback where it is.
+    pub fn pause(&self) {}
+
+    /// Plays if paused, pauses if playing.
+    pub fn toggle(&self) {}
+
+    /// Stops: nothing plays, nothing is queued.
+    pub fn stop(&self) {}
+
+    /// Goes to `position_s` seconds in the file playing.
+    pub fn seek(&self, position_s: f64) {
+        let _ = position_s;
+    }
+
+    /// Goes on with the next queued file now.
+    pub fn skip(&self) {}
+
+    /// The volume, `0.0` (silent) to `1.0` (as decoded).
+    pub fn set_volume(&self, volume: f32) {
+        let _ = volume;
+    }
+
+    /// What the listener hears now: the track, the position in it, its length, the level, and
+    /// whether it plays, finished, or has no output.
+    pub fn get_state(&self) -> AudioPlayerState {
+        AudioPlayerState::default()
+    }
+
+    /// Why the last file did not open, or why there is no audio output; `None` when all is well.
+    pub fn error_message(&self) -> azul_css::OptionString {
+        azul_css::OptionString::None
+    }
+
+    /// Stops playback and ends the player's thread. (Dropping the handle does this too.)
+    pub fn close(&mut self) {}
+}
+
+#[cfg(all(test, feature = "audio-decode"))]
+mod handle_tests {
+    use std::time::{Duration, Instant};
+
+    use azul_core::audio::AudioConfig;
+    use azul_css::{AzString, U8Vec};
+    use azul_layout::request::mock::MockDevice;
+
+    use super::{AudioPlayer, AudioPlayerState};
+    use crate::desktop::extra::audio::{decode::fixtures, AudioSink};
+
+    /// The headless synthetic output: plays in real time, hears nothing.
+    fn synthetic(config: AudioConfig) -> AudioSink {
+        AudioSink::open_as(config, MockDevice::Synthetic)
+    }
+
+    /// `seconds` of a 8 kHz mono tone, as a WAV file.
+    fn tone(seconds: f64) -> U8Vec {
+        let frames = (seconds * 8000.0) as usize;
+        U8Vec::from_vec(fixtures::wav(8000, 1, frames, |i, _| {
+            fixtures::sine16(i, 8000, 440.0, 0.5)
+        }))
+    }
+
+    /// The player's state once `done` holds (or after `limit`).
+    fn wait(
+        player: &AudioPlayer,
+        limit: Duration,
+        done: impl Fn(&AudioPlayerState) -> bool,
+    ) -> AudioPlayerState {
+        let start = Instant::now();
+        loop {
+            let s = player.get_state();
+            if done(&s) || start.elapsed() > limit {
+                return s;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn a_player_plays_a_file_to_its_end_on_its_own_thread() {
+        let player = AudioPlayer::create_with(synthetic);
+        assert_eq!(player.get_state().track, 0, "nothing loaded yet");
+        let id = player.load_bytes(tone(0.3), AzString::from("wav"));
+        assert!(id > 0);
+        let playing = wait(&player, Duration::from_secs(2), |s| s.playing);
+        assert_eq!(playing.track, id);
+        assert!(playing.has_output);
+        assert!((playing.duration_s - 0.3).abs() < 1e-3);
+        let s = wait(&player, Duration::from_secs(3), |s| s.finished);
+        assert!(s.finished, "{s:?}");
+        assert_eq!(s.track, id);
+        assert!((s.position_s - 0.3).abs() < 0.02, "{s:?}");
+    }
+
+    #[test]
+    fn a_queued_file_plays_after_the_first_and_the_state_follows_it() {
+        let player = AudioPlayer::create_with(synthetic);
+        let first = player.load_bytes(tone(0.2), AzString::from("wav"));
+        let second = player.queue_bytes(tone(0.2), AzString::from("wav"));
+        assert!(second > first);
+        let s = wait(&player, Duration::from_secs(3), |s| s.track == second);
+        assert_eq!(s.track, second, "the second file is heard after the first");
+        let s = wait(&player, Duration::from_secs(3), |s| s.finished);
+        assert!(s.finished && s.track == second, "{s:?}");
+    }
+
+    #[test]
+    fn a_file_that_does_not_open_is_reported_with_its_id_and_reason() {
+        let player = AudioPlayer::create_with(synthetic);
+        let id = player.load_file(AzString::from("/nonexistent/missing-song.mp3"));
+        let s = wait(&player, Duration::from_secs(2), |s| s.failed_track == id);
+        assert_eq!(s.failed_track, id);
+        let why = player.error_message().into_option().expect("a reason");
+        assert!(
+            why.as_str().contains("missing-song.mp3"),
+            "{}",
+            why.as_str()
+        );
+    }
+
+    #[test]
+    fn a_pause_holds_the_position_and_a_seek_moves_it() {
+        let player = AudioPlayer::create_with(synthetic);
+        player.load_bytes(tone(3.0), AzString::from("wav"));
+        wait(&player, Duration::from_secs(2), |s| s.position_s > 0.1);
+        player.pause();
+        let held = wait(&player, Duration::from_secs(1), |s| !s.playing);
+        assert!(!held.playing);
+        std::thread::sleep(Duration::from_millis(100));
+        assert!((player.get_state().position_s - held.position_s).abs() < 1e-6);
+        player.seek(2.0);
+        let s = wait(&player, Duration::from_secs(1), |s| {
+            (s.position_s - 2.0).abs() < 1e-3
+        });
+        assert!((s.position_s - 2.0).abs() < 1e-3, "{s:?}");
+        player.play();
+        let s = wait(&player, Duration::from_secs(1), |s| s.position_s > 2.05);
+        assert!(s.playing && s.position_s > 2.05, "{s:?}");
+        player.set_volume(0.25);
+        let s = wait(&player, Duration::from_secs(1), |s| {
+            (s.volume - 0.25).abs() < 1e-6
+        });
+        assert!((s.volume - 0.25).abs() < 1e-6);
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod player_tests {
     use std::cell::{Cell, RefCell};
