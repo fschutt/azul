@@ -2671,6 +2671,18 @@ impl HeadlessWindow {
             if let Some(lw) = self.common.layout_window.as_mut() {
                 lw.record_frame(paint, present);
             }
+            // And the damage-driven framebuffer itself, for the E2E
+            // `assert_damage_sound` `pixel_identity` check - as the in-process
+            // runner publishes it, so a scenario green there is answerable here.
+            #[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
+            if self.publish_presented_frame {
+                if let (Some(lw), Some(frame)) = (
+                    self.common.layout_window.as_ref(),
+                    self.cpu_backend.last_frame.as_ref(),
+                ) {
+                    debug_server::e2e_set_presented_frame(lw, frame);
+                }
+            }
         }
     }
 
