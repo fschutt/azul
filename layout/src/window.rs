@@ -15566,9 +15566,13 @@ impl LayoutWindow {
     /// and cursor state.  Called after full layout AND after display-list-only
     /// regeneration so that screen readers see up-to-date bounds, cursor, and
     /// focus information.
+    ///
+    /// Runs after EVERY layout, animation frames included, and publishes only
+    /// what changed since the last pass - a patch, or nothing at all
+    /// (`A11yManager::refresh`). It used to rebuild and publish the whole
+    /// tree each time: ~3 ms per frame of a tween on `AzWidgets`.
     #[cfg(feature = "a11y")]
     pub fn update_a11y_tree(&mut self) {
-        // After EVERY layout, animation frames included - the whole tree.
         let _p = crate::probe::Probe::span("a11y_update_tree");
         // The selection on the node a screen reader reads it on - the
         // session's editing host - in that node's text, every paragraph of it
@@ -15602,29 +15606,32 @@ impl LayoutWindow {
             }
         }
 
-        let a11y_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            crate::managers::a11y::A11yManager::update_tree(
-                self.a11y_manager.root_id,
-                &self.layout_results,
-                &self.scroll_manager,
-                &self.current_window_state.title,
-                self.current_window_state.size.dimensions,
-                self.focus_manager.get_focused_node().copied(),
-                self.current_window_state
-                    .size
-                    .get_hidpi_factor()
-                    .inner
-                    .get(),
-                &dirty_text_overrides,
-                cursor_a11y_info,
-            )
+        let inputs = crate::managers::a11y::A11yTreeInputs {
+            layout_results: &self.layout_results,
+            scroll_manager: &self.scroll_manager,
+            window_title: &self.current_window_state.title,
+            window_size: self.current_window_state.size.dimensions,
+            focused_node: self.focus_manager.get_focused_node().copied(),
+            hidpi_factor: self
+                .current_window_state
+                .size
+                .get_hidpi_factor()
+                .inner
+                .get(),
+            dirty_text_overrides: &dirty_text_overrides,
+            cursor_info: cursor_a11y_info,
+        };
+        // A refused update keeps the last good state parked/delivered and the
+        // next pass resends the whole tree; `last_rejection` records why (the
+        // e2e digest and the contract tests read it). Nothing malformed
+        // reaches an adapter.
+        let manager = &mut self.a11y_manager;
+        let refreshed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            manager.refresh(&inputs)
         }));
-
-        if let Ok(tree_update) = a11y_result {
-            // A refused FULL tree keeps the last good state parked/delivered;
-            // `last_rejection` records why (the e2e digest and the contract
-            // tests read it). Nothing malformed reaches an adapter.
-            let _ = self.a11y_manager.publish(tree_update);
+        if refreshed.is_err() {
+            // A panic mid-pass leaves the retained tree half updated.
+            self.a11y_manager.resend_full_tree();
         }
     }
 
@@ -15779,7 +15786,7 @@ impl LayoutWindow {
             .unwrap_or(self.a11y_manager.root_id);
 
         let update = accesskit::TreeUpdate {
-            nodes: vec![(a11y_node_id, node)],
+            nodes: vec![(a11y_node_id, node.clone())],
             tree: None, // Incremental — tree structure unchanged
             focus,
             tree_id: accesskit::TreeId::ROOT,
@@ -15791,7 +15798,13 @@ impl LayoutWindow {
         // the process on exactly that (2026-08-29 AzWriter crash), so the
         // manager refuses it here and the full rebuild — whose own guard
         // degrades an unresolvable focus to the root — takes over.
-        if self.a11y_manager.publish(update).is_err() {
+        if self.a11y_manager.publish(update).is_ok() {
+            // The retained tree records what the adapter now holds, so the
+            // next pass diffs against it.
+            self.a11y_manager
+                .note_published_node(a11y_node_id, node, focus);
+        } else {
+            self.a11y_manager.resend_full_tree();
             self.update_a11y_tree();
         }
     }
