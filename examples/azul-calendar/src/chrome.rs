@@ -13,9 +13,8 @@ use azul::{
         TextInputOnVirtualKeyDownCallbackType,
     },
     css::DarkLightMode,
-    dialog::{FileDialog, FileOpenResult, SaveTargetResult},
+    dialog::{FileDialog, FileOpenResult},
     dom::VirtualKeyCode,
-    file::FilePath,
     option::{OptionDarkLightMode, OptionFileTypeList, OptionString},
     prelude::*,
     shells::{
@@ -543,15 +542,15 @@ fn open_page(s: &CalState, app: &RefAny) -> Dom {
         ]))
         .with_child(heading("Export a calendar as an iCalendar file"))
         .with_child(line(vec![
+            // Exports go into the data folder's `exports` folder (the data tree a sync sees).
             crate::text_field(
                 &s.export_path,
-                "/path/to/calendar.ics",
-                "File to export to",
+                "calendar.ics (in the exports folder)",
+                "File name to export to",
                 "export-path",
                 app.clone(),
                 on_export_path,
             ),
-            button("Browse\u{2026}", "export-browse", app, on_export_browse),
         ]))
         .with_child(line(vec![
             Dom::create_span_with_text("Calendar")
@@ -1220,35 +1219,6 @@ extern "C" fn on_import_picked(mut data: RefAny, _info: CallbackInfo, result: Re
     })
 }
 
-/// Browse: the system's save dialog; the file chosen goes into the path field.
-extern "C" fn on_export_browse(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let suggested = data
-        .downcast_ref::<CalState>()
-        .map(|s| ics::file_name_for(&export_name(&s)))
-        .unwrap_or_else(|| String::from("calendar.ics"));
-    let _request = FileDialog::save_file(
-        "Export an iCalendar file",
-        suggested.as_str(),
-        data,
-        on_export_picked as ResumeCallbackType,
-    );
-    Update::DoNothing
-}
-
-extern "C" fn on_export_picked(mut data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
-    let Some(path) = SaveTargetResult::downcast(result)
-        .into_option()
-        .and_then(|picked| picked.target.into_option())
-        .and_then(|target| target.as_path().into_option())
-    else {
-        return Update::DoNothing;
-    };
-    with_state(&mut data, |s| {
-        s.export_path = path.inner.as_str().to_string();
-        Update::RefreshDom
-    })
-}
-
 /// Says what an import or export did (or why it did not).
 pub(crate) fn report(s: &mut CalState, failed: bool, message: String) {
     if failed {
@@ -1369,28 +1339,24 @@ fn export_name(s: &CalState) -> String {
 
 /// Export: the chosen calendar's events (or all) as an .ics file, at the path given (else in
 /// the Documents folder, named after the calendar).
-extern "C" fn on_export_run(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let app = data.clone();
+extern "C" fn on_export_run(mut data: RefAny, _info: CallbackInfo) -> Update {
     with_state(&mut data, |s| {
-        export(s, &mut info, &app);
+        export(s);
         Update::RefreshDom
     })
 }
 
-/// The export file is written on a file thread (`writes::export`); `AZCAL_EXPORTED` and the
-/// report line once it landed.
-fn export(s: &mut CalState, info: &mut CallbackInfo, app: &RefAny) {
+/// The export goes INTO the data tree (user ruling 2026-10-02: every durable write, exports
+/// included, through the drive, so the later sync sees it): `exports/<file name>`, written by
+/// the file thread; `AZCAL_EXPORTED <count> <path>` once it landed.
+fn export(s: &mut CalState) {
     let name = export_name(s);
-    let path = if s.export_path.trim().is_empty() {
-        // The Documents folder, else the data tree's exports folder.
-        let file = ics::file_name_for(&name);
-        match FilePath::get_document_dir().into_option() {
-            Some(dir) => PathBuf::from(dir.inner.as_str()).join(file),
-            None => s.data_dir.join(crate::store::export_key(&file)),
-        }
-    } else {
-        PathBuf::from(s.export_path.trim())
+    let file = match s.export_path.trim() {
+        "" => ics::file_name_for(&name),
+        typed => typed.to_string(),
     };
+    let key = crate::store::export_key(&file);
+    let path = s.data_dir.join(&key);
     let chosen = s.calendars.get(s.export_calendar).map(|c| c.id.clone());
     let events: Vec<&event::Event> = s
         .events
@@ -1403,8 +1369,13 @@ fn export(s: &mut CalState, info: &mut CallbackInfo, app: &RefAny) {
         .collect();
     let text = ics::write(&events, &name, chrono::Utc::now().naive_utc());
     let count = events.len();
-    report(s, false, format!("Exporting {count} event(s) to {}...", path.display()));
-    crate::writes::export(s, info, app, path, text, count);
+    s.data_writes.put(key.clone(), text.into_bytes());
+    s.announce_on_landing(&key, format!("AZCAL_EXPORTED {count} {}", path.display()));
+    report(
+        s,
+        false,
+        format!("Exported {count} event(s) to {}.", path.display()),
+    );
 }
 
 // ==== Callbacks: Calendars ====

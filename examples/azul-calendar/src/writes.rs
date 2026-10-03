@@ -71,38 +71,6 @@ pub(crate) fn pump(s: &mut CalState, info: &mut CallbackInfo, app: &RefAny) {
     }
 }
 
-/// Writes `text` to the export file `path` on a file thread (a drive on its folder); its
-/// answer says `AZCAL_EXPORTED <count> <path>`. Called from the main window only.
-pub(crate) fn export(
-    s: &mut CalState,
-    info: &mut CallbackInfo,
-    app: &RefAny,
-    path: PathBuf,
-    text: String,
-    count: usize,
-) {
-    let folder = path
-        .parent()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| s.data_dir.clone());
-    let key = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| String::from("AzCalendar.ics"));
-    s.export_pending = Some((count, folder.join(&key)));
-    kit::spawn_file_jobs(
-        info,
-        &folder,
-        vec![FileJob::Put {
-            key,
-            bytes: text.into_bytes(),
-        }],
-        app.clone(),
-        store::TAG_EXPORT,
-        on_writes_done,
-    );
-}
-
 /// Reads the .ics file at `path` on a file thread (a drive on its folder); its answer hands
 /// the text to `chrome::import`. Called from the main window only.
 pub(crate) fn read_import(s: &mut CalState, info: &mut CallbackInfo, app: &RefAny, path: PathBuf) {
@@ -174,28 +142,6 @@ extern "C" fn on_writes_done(mut app: RefAny, mut msg: RefAny, mut info: Callbac
                     s,
                     true,
                     format!("Could not read {}.", path.display()),
-                ),
-            }
-            refresh = true;
-        }
-        store::TAG_EXPORT => {
-            let Some((count, path)) = s.export_pending.take() else {
-                return Update::DoNothing;
-            };
-            match reply.outcomes.iter().find_map(FileOutcome::error) {
-                None => {
-                    println!("AZCAL_EXPORTED {count} {}", path.display());
-                    s.export_path = path.display().to_string();
-                    crate::chrome::report(
-                        s,
-                        false,
-                        format!("Exported {count} event(s) to {}.", path.display()),
-                    );
-                }
-                Some(e) => crate::chrome::report(
-                    s,
-                    true,
-                    format!("Could not write {}: {e}", path.display()),
                 ),
             }
             refresh = true;

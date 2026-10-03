@@ -16,8 +16,6 @@ use azul_pim::write_queue::Write;
 pub const TAG_DATA: u64 = 1;
 /// The reply tag of a batch written into the task store.
 pub const TAG_TASKS: u64 = 2;
-/// The reply tag of an export file's write.
-pub const TAG_EXPORT: u64 = 3;
 /// The reply tag of an import file's read.
 pub const TAG_IMPORT: u64 = 4;
 
