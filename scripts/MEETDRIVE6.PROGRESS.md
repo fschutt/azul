@@ -65,8 +65,8 @@ scratchpad/msg.txt).
 - LOOK (paused: battery warning - no long headless runs until told otherwise)
 
 ## NEXT
-- AzDrive: Quick access (0) row; look at 14-options / 15-flora-dark shots
-- AzMeet: LOOK (headless lobby / settings / demo call, flat+flora light+dark); About section =
+- (Quick access row is Explorer's root item - not a bug.)
+- AzMeet: About section =
   AboutDialog (ui.rs settings `_ =>` arm); shortcuts as an appkit Shortcut table checked by a
   test; E2E: AZLIN_DATA per app, check meet/<room>/chat.jsonl + meet/settings.json
 - then the report scripts/MEETDRIVE6_2026_10_03.md
@@ -128,6 +128,12 @@ scratchpad/msg.txt).
   13-properties.png: after the pane toggles of step 12 the details list drew shifted left
   under the navigation pane (clip / layer offset); status-bar segments overlapped mid-animation
   (settles); ribbon VIEW tab clips its last group at 1280 px.
+
+- AzMeet LOOK (prebuilt): lobby flat-light OK, settings flora-dark OK, demo call OK; fixed:
+  7009fa5fb RED / 3cce67ead names carry `me` (avatar "A(" -> "A"); b067beec3 RED / 5be71f81e
+  TextInput::set_text_in (NEW API); 57e3702f0 chat field emptied on Send + draft from blur.
+  Seen, not fixed: the side panel's Statistics tab clipped at the panel edge; the lobby's
+  "server does not answer" line in the accent colour.
 
 ## Decisions
 - AzMeet keeps android/ios link-static targets: use azul-appkit WITHOUT its `azul` feature
