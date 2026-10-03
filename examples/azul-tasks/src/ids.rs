@@ -75,6 +75,9 @@ names! {
     DETAIL_LIST = "detail-list";
     DETAIL_TAGS = "detail-tags";
     ADD_TAG = "add-tag";
+    /// The other tags offered under the tag field, and the class of each.
+    TAG_SUGGESTIONS = "tag-suggestions";
+    TAG_SUGGESTION_CLASS = "tag-suggestion";
     ATTACHMENTS = "attachments";
     ATTACH = "attach";
     DETAIL_DELETE = "detail-delete";

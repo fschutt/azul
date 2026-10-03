@@ -12,7 +12,8 @@ use std::path::PathBuf;
 
 use azul::{
     callbacks::{
-        ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, ChipOnRemoveCallbackType,
+        ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, ChipOnClickCallbackType,
+        ChipOnRemoveCallbackType,
         DatePickerOnChangeCallbackType, DropDownOnChoiceChangeCallbackType,
         DateRepeatPickerOnChangeCallbackType, SegmentedOnChangeCallbackType,
         SwitchOnToggleCallbackType, TextAreaOnFocusLostCallbackType,
@@ -503,6 +504,42 @@ fn tags(s: &Tasks, app: &RefAny, t: &Task) -> Dom {
             .with_id(ids::ADD_TAG)
             .with_css("min-width: 120px;"),
     )
+    .with_child(tag_suggestions(s, app, t))
+}
+
+/// How many of the other tags the tag field offers.
+const TAG_SUGGESTIONS: usize = 6;
+
+/// The tags the user gives other tasks, the most used first, as chips a click adds - the
+/// suggestions a token field would show (azul has no TokenInput widget yet: chips, the field
+/// and these).
+fn tag_suggestions(s: &Tasks, app: &RefAny, t: &Task) -> Dom {
+    let mut row = Dom::create_div()
+        .with_id(ids::TAG_SUGGESTIONS)
+        .with_css("display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px;");
+    for tag in views::tag_suggestions(&s.tasks, t, TAG_SUGGESTIONS) {
+        row.add_child(
+            Chip::create(format!("+ #{tag}"))
+                .with_on_click(
+                    RefAny::new(TagRef {
+                        app: app.clone(),
+                        task: t.id.clone(),
+                        tag,
+                    }),
+                    on_tag_suggestion as ChipOnClickCallbackType,
+                )
+                .dom()
+                .with_class(ids::TAG_SUGGESTION_CLASS),
+        );
+    }
+    row
+}
+
+/// What a suggested tag's chip carries.
+struct TagRef {
+    app: RefAny,
+    task: String,
+    tag: String,
 }
 
 /// The files next to the task: open, remove, "Attach a file..." (or drop one here).
@@ -902,6 +939,23 @@ extern "C" fn on_tag_remove(mut data: RefAny, mut info: CallbackInfo, _state: Ch
     with_task(&mut data, &mut info, |_info, _app, s, i, n| {
         if n < s.tasks[i].tags.len() {
             s.tasks[i].tags.remove(n);
+        }
+    })
+}
+
+/// A click on a suggested tag adds it to the task.
+extern "C" fn on_tag_suggestion(mut data: RefAny, mut info: CallbackInfo, _state: ChipState) -> Update {
+    let Some((mut app, task, tag)) = data
+        .downcast_ref::<TagRef>()
+        .map(|r| (r.app.clone(), r.task.clone(), r.tag.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    crate::with_tasks(&mut app, &mut info, |_info, _app, s| {
+        if let Some(i) = s.index_of(&task) {
+            if s.tasks[i].add_tag(&tag) {
+                s.save_task(i);
+            }
         }
     })
 }

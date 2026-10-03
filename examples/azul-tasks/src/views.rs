@@ -235,8 +235,13 @@ pub fn tags(tasks: &[Task]) -> Vec<(String, usize)> {
 /// (then by name), at most `max` - the tag field's suggestions.
 #[must_use]
 pub fn tag_suggestions(tasks: &[Task], t: &Task, max: usize) -> Vec<String> {
-    let _ = (tasks, t, max);
-    Vec::new()
+    let mut all = tags(tasks);
+    all.retain(|(tag, _)| !t.has_tag(tag));
+    all.sort_by(|a, b| {
+        b.1.cmp(&a.1)
+            .then_with(|| a.0.to_lowercase().cmp(&b.0.to_lowercase()))
+    });
+    all.into_iter().take(max).map(|(tag, _)| tag).collect()
 }
 
 /// Whether every word of `query` is in the task's title, notes, tags or steps (any case,
