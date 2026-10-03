@@ -12,14 +12,18 @@
 //!   `input` are dropped too, since azul would make them live widgets), frames, SVG and MathML
 //!   go with their content; comments, doctypes and processing instructions go;
 //! - a `<style>` keeps only safe rules (the declarations `style` attributes keep, plain or in
-//!   `@media`), each scoped to the paper (below); `@import`, `@font-face`, any URL, positioning
-//!   and the `<!--` / `-->` wrapping go;
+//!   `@media`), each scoped to the paper (below), its class selectors renamed to the message's
+//!   class prefix; `@import`, `@font-face`, any URL, positioning and the `<!--` / `-->`
+//!   wrapping go;
 //! - images are NOT loaded (remote images are off): each becomes a grey `[image: alt]` text,
 //!   and a tracking pixel (1x1 or hidden) not even that;
 //! - only presentational tags stay (`p div span b i u a table tr td ul li h1 ...`); `font`
 //!   becomes a `span`, `center` a centred `div`, a `body` with something to say (a `style`, a
 //!   `bgcolor` ...) a `div`, and any other tag is dropped with its text kept;
-//! - attributes: `href` (http, https and mailto only), `colspan`, `rowspan`, `dir`, and `style`
+//! - attributes: `class` (each name behind the message's own prefix,
+//!   [`Sanitized::class_prefix`], so the mail's sheet applies as written and can never reach
+//!   the app's `__azmail_` classes), `href` (http, https and mailto only), `colspan`,
+//!   `rowspan`, `dir`, and `style`
 //!   with a short list of properties whose values name no URL (and no negative margin); the
 //!   presentational ones of tables, cells and blocks (`align`, `valign`, `width`, `height`,
 //!   `bgcolor`, `border`, `bordercolor`, `cellpadding`, `cellspacing`, `nowrap`) as written, for
@@ -29,19 +33,21 @@
 //! - nesting deeper than 200 keeps the text only;
 //! - the text (its character references decoded by the parser) is re-escaped.
 //!
-//! The mail is read on PAPER, a `<div class="azmail-paper">`: a mail that says nothing about
+//! The mail is read on PAPER, a `<div class="__azmail_paper">` ([`ids::PAPER`]): a mail that says nothing about
 //! the dark mode was designed on white, so its paper is white with dark text in either mode (and
 //! its links a blue readable on white). A mail with its own dark rules
 //! ([`Sanitized::has_dark_rules`]) keeps them, and its paper follows the app's mode through a
 //! `prefers-color-scheme` rule of its own, so the mail's dark rules fire on a dark sheet.
 //!
-//! The result is `<html><head><style>...</style></head><body><div class="azmail-paper">...
+//! The result is `<html><head><style>...</style></head><body><div class="__azmail_paper">...
 //! </div></body></html>` for `Dom::create_from_parsed_xml`.
 
 use azul::{
     dom::{XmlNode, XmlNodeChild},
     xml::Xml,
 };
+
+use crate::ids;
 
 /// The sanitized document and what was left out.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -74,6 +80,7 @@ pub fn sanitize(html: &str) -> Sanitized {
 pub fn sanitize_with(html: &str, pictures: bool) -> Sanitized {
     let mut s = Sanitizer {
         pictures,
+        prefix: class_prefix(html),
         ..Sanitizer::default()
     };
     let document = Xml::create_from_html(html);
@@ -86,17 +93,34 @@ const MAX_DEPTH: usize = 200;
 /// How a blocked image's placeholder looks.
 const BLOCKED_IMAGE_STYLE: &str = "color: #6b7385";
 
-/// The class of the paper the mail is read on (see the module documentation).
-const PAPER_CLASS: &str = "azmail-paper";
-/// The paper in the light mode - and always, for a mail without dark rules.
-const PAPER_LIGHT: &str =
-    ".azmail-paper { background-color: #ffffff; color: #1a1a1a; padding: 12px; } ";
-/// The paper in the dark mode, for a mail with dark rules.
-const PAPER_DARK: &str = "@media (prefers-color-scheme: dark) { .azmail-paper { \
-                          background-color: #1e1e1e; color: #e8e8e8; } } ";
+/// The paper in the light mode - and always, for a mail without dark rules: the declarations
+/// of the paper's class ([`ids::PAPER`]).
+const PAPER_LIGHT: &str = "background-color: #ffffff; color: #1a1a1a; padding: 12px;";
+/// The paper in the dark mode, for a mail with dark rules (inside a `prefers-color-scheme:
+/// dark` rule).
+const PAPER_DARK: &str = "background-color: #1e1e1e; color: #e8e8e8;";
 /// A link on white paper: a blue readable on white (the UA's dark-mode link colour is not).
 /// Before the mail's own rules, which win over it.
-const PAPER_LINK: &str = ".azmail-paper a { color: #0b57d0; } ";
+const PAPER_LINK: &str = "color: #0b57d0;";
+
+/// The prefix of one message's classes ([`Sanitized::class_prefix`]): `m`, eight hex digits of
+/// a hash of the mail's HTML, `_` - the same for the same mail (pictures on or off), another
+/// for another one, and never the app's `__azmail_`.
+fn class_prefix(html: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    html.hash(&mut hasher);
+    format!("m{:08x}_", hasher.finish() & 0xffff_ffff)
+}
+
+/// Whether a mail's class name stays: one a selector names without an escape (letters,
+/// digits, `-`, `_`, any non-ASCII letter).
+fn is_class_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.chars().all(|c| {
+            c.is_ascii_alphanumeric() || c == '-' || c == '_' || (!c.is_ascii() && !c.is_control())
+        })
+}
 
 /// Elements that go with everything inside them.
 const SKIP_WITH_CONTENT: &[&str] = &[
@@ -242,6 +266,8 @@ struct Sanitizer {
     pictures: bool,
     /// The web pictures kept, each once.
     remote_images: Vec<String>,
+    /// The prefix of this message's classes ([`class_prefix`]).
+    prefix: String,
 }
 
 impl Sanitizer {
@@ -292,7 +318,7 @@ impl Sanitizer {
             }
             Tag::Keep(tag) => {
                 let mut kept = String::new();
-                push_attributes(&mut kept, name, tag, &attributes);
+                push_attributes(&mut kept, name, tag, &attributes, &self.prefix);
                 // Every document has a `<body>` (the parser implies one around a fragment): only
                 // one with something to say - a style, a background - becomes a `div`.
                 if (name == "body" && kept.is_empty()) || self.depth >= MAX_DEPTH {
@@ -331,7 +357,7 @@ impl Sanitizer {
 
     /// A `<style>`'s sheet: its safe rules, scoped to the paper, join the document's.
     fn style_sheet(&mut self, css: &str) {
-        let (safe, dark) = sanitize_style_sheet(css);
+        let (safe, dark) = sanitize_style_sheet(css, &self.prefix);
         self.styles.push_str(&safe);
         self.has_dark_rules |= dark;
     }
@@ -426,17 +452,21 @@ impl Sanitizer {
 
     fn finish(self) -> Sanitized {
         // The paper first, the mail's rules after it (they win where they say something).
-        let mut sheet = String::from(PAPER_LIGHT);
+        let paper = ids::PAPER;
+        let paper = paper.as_str();
+        let mut sheet = format!(".{paper} {{ {PAPER_LIGHT} }} ");
         if self.has_dark_rules {
-            sheet.push_str(PAPER_DARK);
+            sheet.push_str(&format!(
+                "@media (prefers-color-scheme: dark) {{ .{paper} {{ {PAPER_DARK} }} }} "
+            ));
         } else {
-            sheet.push_str(PAPER_LINK);
+            sheet.push_str(&format!(".{paper} a {{ {PAPER_LINK} }} "));
         }
         sheet.push_str(&self.styles);
         let mut xhtml = String::from("<html><head><style>");
         escape_into(&mut xhtml, sheet.trim_end(), false);
         xhtml.push_str("</style></head><body><div class=\"");
-        xhtml.push_str(PAPER_CLASS);
+        xhtml.push_str(paper);
         xhtml.push_str("\">");
         xhtml.push_str(&self.out);
         xhtml.push_str("</div></body></html>");
@@ -445,7 +475,7 @@ impl Sanitizer {
             blocked_images: self.blocked_images,
             has_dark_rules: self.has_dark_rules,
             remote_images: self.remote_images,
-            class_prefix: String::new(),
+            class_prefix: self.prefix,
         }
     }
 }
@@ -466,10 +496,17 @@ const PRESENTATIONAL: &[&str] = &[
     "nowrap",
 ];
 
-/// Writes the attributes an output tag keeps: `href`, `colspan`, `rowspan`, `dir`, the
-/// presentational attributes ([`PRESENTATIONAL`]) for azul's HTML hints, and one `style`: what a
-/// renamed element said with its attributes, then the safe style declarations.
-fn push_attributes(out: &mut String, source: &str, tag: &str, attributes: &[(&str, &str)]) {
+/// Writes the attributes an output tag keeps: `class` (each name that stays behind the
+/// message's `prefix`), `href`, `colspan`, `rowspan`, `dir`, the presentational attributes
+/// ([`PRESENTATIONAL`]) for azul's HTML hints, and one `style`: what a renamed element said
+/// with its attributes, then the safe style declarations.
+fn push_attributes(
+    out: &mut String,
+    source: &str,
+    tag: &str,
+    attributes: &[(&str, &str)],
+    prefix: &str,
+) {
     let mut kept: Vec<(&str, String)> = Vec::new();
     let mut styles: Vec<(String, String)> = Vec::new();
     if source == "center" {
@@ -483,6 +520,16 @@ fn push_attributes(out: &mut String, source: &str, tag: &str, attributes: &[(&st
         let value = value.trim();
         let lower = value.to_ascii_lowercase();
         match name {
+            "class" => {
+                let classes: Vec<String> = value
+                    .split_ascii_whitespace()
+                    .filter(|class| is_class_name(class))
+                    .map(|class| format!("{prefix}{class}"))
+                    .collect();
+                if !classes.is_empty() {
+                    kept.push(("class", classes.join(" ")));
+                }
+            }
             "href" if tag == "a" => {
                 if ["http://", "https://", "mailto:"]
                     .iter()
@@ -581,12 +628,12 @@ fn names_dark(value: &str) -> bool {
 /// A mail's style sheet made safe, and whether it has rules for the dark mode.
 ///
 /// Kept: rules (`selectors { declarations }`) with the declarations [`parse_style`] keeps, and
-/// `@media` blocks of such rules, every selector scoped to the paper
-/// ([`scope_selectors`]). Gone: every other at-rule (`@import`, `@font-face`, `@page`,
+/// `@media` blocks of such rules, every selector scoped to the paper and its classes renamed to
+/// the message's `prefix` ([`scope_selectors`]). Gone: every other at-rule (`@import`, `@font-face`, `@page`,
 /// `@keyframes`, `@supports`, `@charset`), comments, the `<!--` / `-->` wrapping, a rule
 /// left with no declaration. Dark rules: a kept `@media` whose condition says
 /// `prefers-color-scheme: dark`, or a `color-scheme` declaration that names `dark`.
-fn sanitize_style_sheet(css: &str) -> (String, bool) {
+fn sanitize_style_sheet(css: &str, prefix: &str) -> (String, bool) {
     let mut plain = String::with_capacity(css.len());
     let mut rest = css;
     while let Some(at) = rest.find("/*") {
@@ -601,13 +648,13 @@ fn sanitize_style_sheet(css: &str) -> (String, bool) {
     let plain = plain.replace("<!--", " ").replace("-->", " ");
     let mut out = String::new();
     let mut dark = false;
-    sanitize_rules(&plain, &mut out, &mut dark, false);
+    sanitize_rules(&plain, &mut out, &mut dark, false, prefix);
     (out, dark)
 }
 
 /// The rules of `css` (a sheet, or the inside of an `@media` block when `nested`), made safe
 /// into `out`.
-fn sanitize_rules(css: &str, out: &mut String, dark: &mut bool, nested: bool) {
+fn sanitize_rules(css: &str, out: &mut String, dark: &mut bool, nested: bool, prefix: &str) {
     let mut rest = css.trim_start();
     while !rest.is_empty() {
         let brace = rest.find('{');
@@ -630,7 +677,7 @@ fn sanitize_rules(css: &str, out: &mut String, dark: &mut bool, nested: bool) {
                     let (body, after) = block_body(&rest[b..]);
                     if name == "media" && !nested && safe_style_value(condition) {
                         let mut inner = String::new();
-                        sanitize_rules(body, &mut inner, dark, true);
+                        sanitize_rules(body, &mut inner, dark, true, prefix);
                         if !inner.is_empty() {
                             let lower = condition.to_ascii_lowercase();
                             if lower.contains("prefers-color-scheme") && lower.contains("dark") {
@@ -662,7 +709,10 @@ fn sanitize_rules(css: &str, out: &mut String, dark: &mut bool, nested: bool) {
             }
         }
         let declarations = parse_style(body);
-        if let (false, Some(scoped)) = (declarations.is_empty(), scope_selectors(selectors)) {
+        if let (false, Some(scoped)) = (
+            declarations.is_empty(),
+            scope_selectors(selectors, prefix),
+        ) {
             out.push_str(&scoped);
             out.push_str(" { ");
             for (property, value) in &declarations {
@@ -697,10 +747,13 @@ fn block_body(s: &str) -> (&str, &str) {
 }
 
 /// A rule's selectors scoped to the paper, so a mail's sheet cannot restyle the app around
-/// it: `body`, `html` and `:root` ARE the paper, every other selector is a descendant of it
-/// (`.x` becomes `.azmail-paper .x`). `None` for a selector list that is empty or holds what
-/// no selector needs (`<`, `\`, `{`, `@`, a URL or a control character).
-fn scope_selectors(selectors: &str) -> Option<String> {
+/// it: `body`, `html` and `:root` ARE the paper, every other selector is a descendant of it,
+/// and its classes are the message's ([`rename_classes`]): `.x` becomes
+/// `.__azmail_paper .<prefix>x`. `None` for a selector list that is empty or holds what no
+/// selector needs (`<`, `\`, `{`, `@`, a URL or a control character).
+fn scope_selectors(selectors: &str, prefix: &str) -> Option<String> {
+    let paper = ids::PAPER;
+    let paper = paper.as_str();
     let bad = |s: &str| {
         s.is_empty()
             || s.contains(['<', '\\', '{', '}', '@'])
@@ -714,6 +767,7 @@ fn scope_selectors(selectors: &str) -> Option<String> {
             if bad(sel) {
                 return None;
             }
+            let sel = rename_classes(sel, prefix);
             let first_len = sel.find(char::is_whitespace).unwrap_or(sel.len());
             let (first, tail) = sel.split_at(first_len);
             Some(
@@ -721,14 +775,45 @@ fn scope_selectors(selectors: &str) -> Option<String> {
                     first.to_ascii_lowercase().as_str(),
                     "body" | "html" | ":root"
                 ) {
-                    format!(".{PAPER_CLASS}{tail}")
+                    format!(".{paper}{tail}")
                 } else {
-                    format!(".{PAPER_CLASS} {sel}")
+                    format!(".{paper} {sel}")
                 },
             )
         })
         .collect::<Option<Vec<String>>>()?;
     Some(scoped.join(", "))
+}
+
+/// One selector with each class it names (a `.` that starts a name, outside an attribute
+/// selector and its quotes) renamed to the message's: `p.x:not(.y)` becomes
+/// `p.<prefix>x:not(.<prefix>y)`, `a[href$=".pdf"]` stays. A `.` before a digit starts no
+/// class (the selector is invalid, as in a browser), so it stays as written.
+fn rename_classes(selector: &str, prefix: &str) -> String {
+    let mut out = String::with_capacity(selector.len() + prefix.len());
+    let mut chars = selector.chars().peekable();
+    let mut brackets = 0_usize;
+    let mut quote: Option<char> = None;
+    while let Some(c) = chars.next() {
+        out.push(c);
+        match (quote, c) {
+            (Some(q), _) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '[') => brackets += 1,
+            (None, ']') => brackets = brackets.saturating_sub(1),
+            (None, '.') if brackets == 0 => {
+                let starts_name = chars.peek().is_some_and(|&n| {
+                    n.is_ascii_alphabetic() || n == '_' || n == '-' || !n.is_ascii()
+                });
+                if starts_name {
+                    out.push_str(prefix);
+                }
+            }
+            _ => {}
+        }
+    }
+    out
 }
 
 /// The safe declarations of a `style` attribute, property names in lower case, `!important`
