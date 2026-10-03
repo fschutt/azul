@@ -71,6 +71,22 @@ impl PendingRemovals {
     }
 }
 
+/// What the pending patches remove from `class_name`, for an add to it in
+/// this round. A pending removal of the WHOLE class becomes a removal of
+/// every function and constructor api.json has for it (`version_data`):
+/// "remove the class, then add to it" replaces the class's entries in one
+/// round - the add supersedes the removal of what it re-adds, the rest
+/// stays removed. The add used to stop and ask for an `autofix apply`
+/// first (AUTOFIX6 "left").
+pub fn prepare_add(
+    dir: &Path,
+    class_name: &str,
+    version_data: &crate::api::VersionData,
+) -> anyhow::Result<PendingRemovals> {
+    let _ = version_data;
+    Ok(PendingRemovals::read(dir, class_name))
+}
+
 /// The patch files of `dir`, in the order `autofix apply` applies them.
 fn patch_files(dir: &Path) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = fs::read_dir(dir)
@@ -272,6 +288,52 @@ mod tests {
                 functions["with_text"].fn_body.as_deref(),
                 Some(NEW_BODY),
                 "add first: {add_first}"
+            );
+        }
+    }
+
+    /// `autofix remove widgets.RichRun` (the whole class), then `autofix add
+    /// RichRun.with_text`, then one `autofix apply`: the add stopped and asked
+    /// for an apply first. Now the class removal becomes a removal of the
+    /// class's entries, the add supersedes the one it re-adds, and after the
+    /// round the class has exactly what the round added.
+    #[test]
+    fn an_add_after_a_pending_removal_of_the_whole_class_replaces_its_entries() {
+        use crate::autofix::function_diff::generate_remove_type_patch;
+        let dir = tempfile::tempdir().expect("temp dir");
+        let removal = generate_remove_type_patch("RichRun", "widgets", "0.2.0");
+        fs::write(
+            dir.path().join("remove_richrun.patch.json"),
+            serde_json::to_string_pretty(&removal).expect("serializes"),
+        )
+        .expect("written");
+
+        let api = api();
+        let v = api.get_version("0.2.0").expect("version");
+        let pending = prepare_add(dir.path(), "RichRun", v).expect("prepared");
+        assert!(!pending.class, "no longer a whole-class removal: {pending:?}");
+        assert!(pending.functions.contains("with_text") && pending.functions.contains("is_plain"));
+
+        let add = add_patch();
+        supersede_pending_removals(dir.path(), "RichRun", &add).expect("supersedes");
+        let remaining = ApiPatch::from_file(&dir.path().join("remove_richrun.patch.json")).ok();
+        for add_first in [true, false] {
+            let mut api = api.clone();
+            let mut order: Vec<&ApiPatch> = remaining.iter().collect();
+            if add_first {
+                order.insert(0, &add);
+            } else {
+                order.push(&add);
+            }
+            for patch in order {
+                patch.apply(&mut api).expect("applies");
+            }
+            let class = &api.get_version("0.2.0").expect("version").api["widgets"].classes["RichRun"];
+            let functions: Vec<&String> = class.functions.iter().flat_map(|f| f.keys()).collect();
+            assert_eq!(functions, vec!["with_text"], "add first: {add_first}");
+            assert_eq!(
+                class.functions.as_ref().expect("functions")["with_text"].fn_body.as_deref(),
+                Some(NEW_BODY)
             );
         }
     }
