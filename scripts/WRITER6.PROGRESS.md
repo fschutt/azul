@@ -72,4 +72,26 @@ AzWriter (no E2E script exists):
   check on close, no `__azwriter_` prefixes, no E2E script.
 
 ## Decisions
-- (to fill)
+- Undo ownership = browser keydown model (see DONE design notes). macOS Edit-menu path left (report).
+- RichTypingStyle stays (api.json field; inline code; pressed state); B/I/U/S of new text from the engine.
+- Prefix names: the generated Rust API (link-dynamic, target/codegen/dll_api_external.rs) has NO const
+  `AzString::from_const_str`, so app names are `pub const X: &str = "__azapp_..."` in an `ids` module
+  (one definition each; `.with_id(ids::X)` via From<&str>). Report: codegen should emit the const fn
+  (doc/src/codegen/v2/lang_rust.rs AzString impl block), then the consts become AzString.
+- AzWriter rewrite (examples/azul-writer), files:
+  model.rs (DocumentModel: id, RichTextEditorState, dirty, saved text; Markdown via RichTextDoc;
+  title = first heading / first line), docx.rs (wire JSON -> RichTextDoc; was ir.rs), paginate.rs
+  (read-only RTE content_dom at A4 content width -> Pdf::compute_pagination -> page_starts = first path
+  component of each break; memo per generation; Thread worker), storage.rs (keys `writer/<uuid>.md`,
+  exports `writer/exports/<name>.pdf`, appkit FileJob on a Thread), ribbon.rs (Command enum +
+  CommandRef/on_command; HOME/INSERT/VIEW only, fake tabs dropped; gallery = Normal/H1/H2/H3/Quote/Code
+  each unique; B/I/U/S pressed from is_current_format; align from the caret block), pages.rs (canvas
+  VirtualView: page_doms per visible page in a sheet div; status bar), backstage.rs (Info/New/Open/
+  Save/Export/Close), lib.rs (AppState, run(), layout on DocumentShell+OfficeShell+Titlebar+
+  ShellThemeScope, CloseGuard, appkit kit/settings/about/shortcuts). Deleted: ir.rs, palette.rs,
+  fonts.rs, args.rs (appkit), document.rs, editor_ui.rs, ribbon_ui.rs, backstage_ui.rs.
+  Paper follows the mode (sheet = system window background, ink = system text) like the RTE's
+  content colours; the PDF export is the document on white.
+  Dropped dev flags: --paginate-twice, --dump-xml; --frame-log -> env AZWRITER_FRAME_LOG.
+  Paragraph split across pages: a page holds whole blocks (break path's first component); a block taller
+  than a page overflows its sheet (report).
