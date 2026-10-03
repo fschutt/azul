@@ -8,14 +8,14 @@ presets"; MoneyInput "fixed-precision decimal input with currency suffix, locale
 
 ## DONE
 - 6719c21b2 progress file
+- MoneyInput: 8c30cb223 types/stubs, 24196ba32 RED pure tests, b39859f4e GREEN, d873279dc widget + hooks,
+  176b6ff6d flat/flora skins, 9abb473ce DOM tests + manifest (INPUTS: "money_input", "money_input (empty, en)")
+- 6992fc8c6 theme_blocks::{skins_of, structure_skin, part_of} (ChartLook::part delegates)
 
 ## IN PROGRESS
-- MoneyInput (layout/src/widgets/money_input.rs)
+- Gauge (layout/src/widgets/gauge.rs)
 
 ## NEXT (order)
-1. MoneyInput: types + stubs -> RED pure tests (parse / format / locale / validation) -> GREEN -> widget DOM +
-   handlers -> theme appends (`// ==== money_input ====`) -> manifest + INPUTS group.
-2. theme_blocks: generic `skins_of` / `part_of_skins` (the ChartLook merge, generalised; ChartLook delegates).
 3. Gauge (gauge.rs): geometry RED/GREEN (angles, fractions, band of value) -> DOM (chart's `wedge_ring` +
    SvgNodeData) -> a11y (Indicator role = accesskit Meter) -> theme appends -> manifest (STATUS group).
 4. DateRangePicker (date_range_picker.rs): range logic RED/GREEN (click sequence, preview, presets, keys) ->
