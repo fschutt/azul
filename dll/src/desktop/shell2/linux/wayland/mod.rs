@@ -7713,10 +7713,18 @@ impl WaylandWindow {
                                                 cpu_state.slots[slot].valid;
                                             self.cpu_backend.native_target_pool_order =
                                                 cpu_state.needs_commit_swizzle();
+                                            // The slot's rows are padded to a
+                                            // 256-byte pitch (shm.rs): the
+                                            // renderer sees a pixmap as wide
+                                            // as the pitch and is told how
+                                            // much of it is padding.
+                                            let pitch_px = cpu_state.pitch_px();
+                                            self.cpu_backend.native_target_row_padding_px =
+                                                pitch_px.saturating_sub(native_expected_w);
                                             self.cpu_backend.native_target = unsafe {
                                                 azul_layout::cpurender::AzulPixmap::from_external(
                                                     cpu_state.slot_ptr(slot),
-                                                    native_expected_w,
+                                                    pitch_px,
                                                     native_expected_h,
                                                 )
                                             };
@@ -9131,6 +9139,12 @@ impl CpuFallbackState {
     /// whichever path (native+swizzle or legacy copy) produced them.
     fn needs_commit_swizzle(&self) -> bool {
         self.format == WL_SHM_FORMAT_ARGB8888 && native_backbuffer_enabled()
+    }
+
+    /// One row of a slot in pixels, the 256-byte padding included (shm.rs) -
+    /// the width of the renderer's view of a slot. `>= self.width`.
+    fn pitch_px(&self) -> u32 {
+        (self.stride.max(0) as usize / shm::BYTES_PER_PIXEL) as u32
     }
 
     /// Raw pointer to `slot`'s first pixel inside the pool mapping.
