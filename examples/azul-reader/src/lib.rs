@@ -13,6 +13,7 @@ pub mod jobs;
 pub mod library;
 pub mod paginate;
 pub mod plainbook;
+mod ribbon;
 pub mod sample;
 pub mod position;
 pub mod settings;
