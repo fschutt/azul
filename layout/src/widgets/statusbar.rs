@@ -2245,6 +2245,18 @@ mod tests {
         dom.children.as_ref().iter().find_map(slider_state)
     }
 
+    /// Seen in the wave-6 look at AzSheets / AzShow: the zoom cluster's
+    /// slider was unnamed (an a11y-widget warning every frame; a screen
+    /// reader said "slider" and nothing else). It is the bar's own slider,
+    /// so the bar names it: "Zoom".
+    #[test]
+    fn the_zoom_slider_is_named_zoom() {
+        let dom = StatusBar::new(segs(0))
+            .with_zoom(StatusBarZoom::create(100.0, 10.0, 400.0))
+            .dom();
+        assert!(named(&dom, "Zoom"), "the zoom slider names itself");
+    }
+
     /// AzShow and AzSheets zoom to 400 %, but the cluster's slider window was
     /// fixed at 10..190: the thumb sat pinned at the end and the first drag
     /// snapped the zoom back below 190 % (DEDUP_OFFICE D28). The app gives
