@@ -121,7 +121,11 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         list_column,
         detail::pane(s, &app, now),
     )
-    .with_list_label("Tasks");
+    .with_list_label("Tasks")
+    // LOOK 2026-10-03: the list was narrow (the reminder banner wrapped, "Dismiss" was cut) and
+    // the reading pane far too wide; the navigation pane's lists were cut at its right edge.
+    .with_navigation_ratio(0.22)
+    .with_list_ratio(0.6);
     if s.show_todo_bar {
         pim = pim.with_todo_bar(chrome::todo_bar(s, &app, now));
     }
@@ -139,7 +143,8 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_child(shell.dom())
         .with_child(chrome::palette(s, &app));
     Dom::create_body()
-        .with_css("display: flex; flex-direction: column;")
+        // LOOK: without `margin: 0` the body kept a white 8 px strip at the left and bottom.
+        .with_css("display: flex; flex-direction: column; margin: 0px;")
         .with_child(
             ShellThemeScope::create(root)
                 .with_accent(ShellThemeAccent::Leaf)
