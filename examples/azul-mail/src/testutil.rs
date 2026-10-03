@@ -20,6 +20,12 @@ impl TempDir {
         std::fs::create_dir_all(&path).unwrap();
         TempDir(path)
     }
+
+    /// The folder as the root of a drive of its own (no manifest): the AzMail folder or an
+    /// account's folder the tests write through `MailStore`.
+    pub fn folder(&self) -> crate::store::DriveFolder {
+        crate::store::DriveFolder::outside(self.0.clone())
+    }
 }
 
 impl Drop for TempDir {

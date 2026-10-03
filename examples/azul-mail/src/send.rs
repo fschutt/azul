@@ -30,11 +30,7 @@
 //! caller reads in a callback and hands over in [`SendSettings::dkim_key`]; it is never
 //! written, logged or printed by this module.
 
-use std::{
-    collections::BTreeMap,
-    path::{Path, PathBuf},
-    sync::Mutex,
-};
+use std::{collections::BTreeMap, path::PathBuf, sync::Mutex};
 
 use micromail::{RecipientOutcome, RecipientStatus, Reply};
 use serde::{Deserialize, Serialize};
@@ -43,7 +39,7 @@ use crate::{
     account::{self, Secret},
     folders::Role,
     message,
-    store::{self, FolderState, IndexEntry, LocalFolder},
+    store::{self, DriveFolder, FolderState, IndexEntry, MailStore},
 };
 
 // ==== the interface AzMail's windows code against ====
@@ -149,17 +145,17 @@ pub enum SendStatus {
     Failed { reason: String },
 }
 
-/// Builds, stores, delivers and files `mail` for the account `account_id` under `mail_root`
-/// (the AzMail folder). Blocking (DNS and SMTP): call it from an azul `Thread`.
+/// Builds, stores, delivers and files `mail` for the account `account_id` under `root` (the
+/// AzMail folder). Blocking (DNS and SMTP): call it from an azul `Thread`.
 pub fn send_mail(
-    mail_root: &Path,
+    root: &DriveFolder,
     account_id: &str,
     settings: &SendSettings,
     mail: &OutgoingMail,
 ) -> SendStatus {
     let mut transport = Micromail { settings };
     send_mail_with(
-        mail_root,
+        root,
         account_id,
         settings,
         mail,
@@ -171,14 +167,14 @@ pub fn send_mail(
 /// Tries every queued outbox entry again whose time has come (all of them with `force`), and
 /// returns each entry's id with its new status. Blocking, like [`send_mail`].
 pub fn retry_outbox(
-    mail_root: &Path,
+    root: &DriveFolder,
     account_id: &str,
     settings: &SendSettings,
     force: bool,
 ) -> Vec<(String, SendStatus)> {
     let mut transport = Micromail { settings };
     retry_outbox_with(
-        mail_root,
+        root,
         account_id,
         settings,
         force,
@@ -213,20 +209,22 @@ pub fn dkim_keyring_key(account_id: &str) -> String {
 impl SendSettings {
     /// The account's settings (`<AzMail folder>/<account>/sending.json`); the defaults when
     /// there is no such file or it cannot be read.
-    pub fn load(mail_root: &Path, account_id: &str) -> SendSettings {
-        std::fs::read_to_string(account::account_dir(mail_root, account_id).join(SETTINGS_FILE))
+    pub fn load(root: &DriveFolder, account_id: &str) -> SendSettings {
+        MailStore::new(account::account_dir(root, account_id))
+            .get(SETTINGS_FILE)
             .ok()
-            .and_then(|text| serde_json::from_str(&text).ok())
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default()
     }
 
-    /// Writes the settings file (atomically). The DKIM key in memory is not part of it.
-    pub fn save(&self, mail_root: &Path, account_id: &str) -> std::io::Result<PathBuf> {
-        let path = account::account_dir(mail_root, account_id).join(SETTINGS_FILE);
+    /// Writes the settings file through the AzMail folder's drive and returns where it is. The
+    /// DKIM key in memory is not part of it.
+    pub fn save(&self, root: &DriveFolder, account_id: &str) -> std::io::Result<PathBuf> {
+        let folder = account::account_dir(root, account_id);
         let mut text = serde_json::to_string_pretty(self).unwrap_or_default();
         text.push('\n');
-        store::write_atomic(&path, text.as_bytes(), true)?;
-        Ok(path)
+        MailStore::new(folder.clone()).put(SETTINGS_FILE, text.as_bytes())?;
+        Ok(folder.path().join(SETTINGS_FILE))
     }
 
     /// The port direct delivery uses.
@@ -326,11 +324,11 @@ impl Default for PolicyList {
 impl PolicyList {
     /// The account's list; written with the defaults when there is none yet (or it cannot be
     /// read).
-    pub fn load(account_dir: &Path) -> PolicyList {
-        let path = account_dir.join(POLICY_FILE);
-        let read = std::fs::read_to_string(&path)
+    pub fn load(account_dir: &DriveFolder) -> PolicyList {
+        let read = MailStore::new(account_dir.clone())
+            .get(POLICY_FILE)
             .ok()
-            .and_then(|text| serde_json::from_str::<PolicyList>(&text).ok())
+            .and_then(|bytes| serde_json::from_slice::<PolicyList>(&bytes).ok())
             .filter(|list| list.format == POLICY_FORMAT);
         match read {
             Some(list) => list,
@@ -342,10 +340,10 @@ impl PolicyList {
         }
     }
 
-    pub fn save(&self, account_dir: &Path) -> std::io::Result<()> {
+    pub fn save(&self, account_dir: &DriveFolder) -> std::io::Result<()> {
         let mut text = serde_json::to_string_pretty(self).unwrap_or_default();
         text.push('\n');
-        store::write_atomic(&account_dir.join(POLICY_FILE), text.as_bytes(), true)
+        MailStore::new(account_dir.clone()).put(POLICY_FILE, text.as_bytes())
     }
 
     /// The entry for `domain` or the nearest parent domain that has one.
@@ -559,21 +557,19 @@ impl OutboxEntry {
 }
 
 /// The outbox folder of an account.
-pub fn outbox_dir(mail_root: &Path, account_id: &str) -> PathBuf {
-    account::account_dir(mail_root, account_id).join(OUTBOX_DIR)
+pub fn outbox_dir(root: &DriveFolder, account_id: &str) -> DriveFolder {
+    account::account_dir(root, account_id).child(OUTBOX_DIR)
 }
 
 /// The account's outbox entries, oldest first.
-pub fn outbox_entries(mail_root: &Path, account_id: &str) -> Vec<OutboxEntry> {
-    let Ok(dir) = std::fs::read_dir(outbox_dir(mail_root, account_id)) else {
-        return Vec::new();
-    };
-    let mut entries: Vec<OutboxEntry> = dir
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|x| x == "json"))
-        .filter_map(|p| std::fs::read_to_string(p).ok())
-        .filter_map(|text| serde_json::from_str::<OutboxEntry>(&text).ok())
+pub fn outbox_entries(root: &DriveFolder, account_id: &str) -> Vec<OutboxEntry> {
+    let account = MailStore::new(account::account_dir(root, account_id));
+    let mut entries: Vec<OutboxEntry> = account
+        .keys(OUTBOX_DIR)
+        .into_iter()
+        .filter(|key| key.ends_with(".json"))
+        .filter_map(|key| account.get(&key).ok())
+        .filter_map(|bytes| serde_json::from_slice::<OutboxEntry>(&bytes).ok())
         .filter(|entry| entry.format == OUTBOX_FORMAT)
         .collect();
     entries.sort_by(|a, b| (a.created, &a.id).cmp(&(b.created, &b.id)));
@@ -667,7 +663,7 @@ fn micromail_config(
 }
 
 pub(crate) fn send_mail_with(
-    mail_root: &Path,
+    root: &DriveFolder,
     account_id: &str,
     settings: &SendSettings,
     mail: &OutgoingMail,
@@ -728,22 +724,23 @@ pub(crate) fn send_mail_with(
         state: OutboxState::Queued,
         recipients,
     };
-    let dir = outbox_dir(mail_root, account_id);
-    if let Err(e) = store::write_atomic(&dir.join(format!("{}.eml", entry.id)), &bytes, true)
-        .and_then(|()| write_entry(&dir, &entry))
+    let outbox = MailStore::new(outbox_dir(root, account_id));
+    if let Err(e) = outbox
+        .put(&format!("{}.eml", entry.id), &bytes)
+        .and_then(|()| write_entry(&outbox, &entry))
     {
         return SendStatus::Failed {
             reason: format!("The outbox cannot be written: {e}"),
         };
     }
     attempt(
-        mail_root, account_id, settings, &mut entry, &bytes, now, transport,
+        root, account_id, settings, &mut entry, &bytes, now, transport,
     );
-    finish(mail_root, account_id, &mut entry, &bytes, now)
+    finish(root, account_id, &mut entry, &bytes, now)
 }
 
 pub(crate) fn retry_outbox_with(
-    mail_root: &Path,
+    root: &DriveFolder,
     account_id: &str,
     settings: &SendSettings,
     force: bool,
@@ -751,21 +748,21 @@ pub(crate) fn retry_outbox_with(
     transport: &mut dyn Transport,
 ) -> Vec<(String, SendStatus)> {
     let _lock = OUTBOX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let dir = outbox_dir(mail_root, account_id);
+    let outbox = MailStore::new(outbox_dir(root, account_id));
     let mut results = Vec::new();
-    for mut entry in outbox_entries(mail_root, account_id) {
+    for mut entry in outbox_entries(root, account_id) {
         if entry.state != OutboxState::Queued || (!force && entry.next_attempt > now) {
             continue;
         }
-        let Ok(bytes) = std::fs::read(dir.join(format!("{}.eml", entry.id))) else {
+        let Ok(bytes) = outbox.get(&format!("{}.eml", entry.id)) else {
             // The message is gone (deleted by hand): so is the entry.
-            let _ = std::fs::remove_file(dir.join(format!("{}.json", entry.id)));
+            let _ = outbox.delete(&format!("{}.json", entry.id));
             continue;
         };
         attempt(
-            mail_root, account_id, settings, &mut entry, &bytes, now, transport,
+            root, account_id, settings, &mut entry, &bytes, now, transport,
         );
-        let status = finish(mail_root, account_id, &mut entry, &bytes, now);
+        let status = finish(root, account_id, &mut entry, &bytes, now);
         results.push((entry.id.clone(), status));
     }
     results
@@ -781,20 +778,16 @@ fn outbox_id(now: i64, message_id: &str) -> String {
     format!("{stamp}-{:08x}", hasher.finish() as u32)
 }
 
-fn write_entry(dir: &Path, entry: &OutboxEntry) -> std::io::Result<()> {
+fn write_entry(outbox: &MailStore, entry: &OutboxEntry) -> std::io::Result<()> {
     let mut text = serde_json::to_string_pretty(entry).unwrap_or_default();
     text.push('\n');
-    store::write_atomic(
-        &dir.join(format!("{}.json", entry.id)),
-        text.as_bytes(),
-        true,
-    )
+    outbox.put(&format!("{}.json", entry.id), text.as_bytes())
 }
 
 /// Sends to the entry's pending recipients and records each outcome.
 #[allow(clippy::too_many_arguments)]
 fn attempt(
-    mail_root: &Path,
+    root: &DriveFolder,
     account_id: &str,
     settings: &SendSettings,
     entry: &mut OutboxEntry,
@@ -815,7 +808,7 @@ fn attempt(
             record(entry, &outcomes);
         }
         SendRoute::Direct => {
-            let account_dir = account::account_dir(mail_root, account_id);
+            let account_dir = account::account_dir(root, account_id);
             let mut policy = PolicyList::load(&account_dir);
             let mut learned = false;
             let mut domains: Vec<(String, Vec<String>)> = Vec::new();
@@ -902,13 +895,13 @@ fn backoff_secs(attempts: u32) -> i64 {
 
 /// Files the entry by its recipients' states and says what became of the mail.
 fn finish(
-    mail_root: &Path,
+    root: &DriveFolder,
     account_id: &str,
     entry: &mut OutboxEntry,
     bytes: &[u8],
     now: i64,
 ) -> SendStatus {
-    let dir = outbox_dir(mail_root, account_id);
+    let outbox = MailStore::new(outbox_dir(root, account_id));
     if entry.count(RecipientProgress::Pending) > 0 && now - entry.created >= GIVE_UP_AFTER_SECS {
         for recipient in entry
             .recipients
@@ -932,7 +925,7 @@ fn finish(
     if pending == 0 && sent > 0 {
         // Out of the outbox, into Sent.
         let filed = file_message(
-            &sent_store_root(mail_root, account_id),
+            &sent_store_root(root, account_id),
             Role::Sent.key().unwrap_or("sent"),
             bytes,
             &[String::from("\\Seen")],
@@ -941,13 +934,13 @@ fn finish(
         if let Err(e) = filed {
             // Delivered, but not filed: keep it in the outbox (not queued) rather than lose it.
             entry.state = OutboxState::Failed;
-            let _ = write_entry(&dir, entry);
+            let _ = write_entry(&outbox, entry);
             return SendStatus::Failed {
                 reason: format!("Sent, but it could not be put into the Sent folder: {e}"),
             };
         }
-        let _ = std::fs::remove_file(dir.join(format!("{}.eml", entry.id)));
-        let _ = std::fs::remove_file(dir.join(format!("{}.json", entry.id)));
+        let _ = outbox.delete(&format!("{}.eml", entry.id));
+        let _ = outbox.delete(&format!("{}.json", entry.id));
         if failed == 0 {
             return SendStatus::Sent {
                 message_id: entry.message_id.clone(),
@@ -963,7 +956,7 @@ fn finish(
 
     if pending == 0 {
         entry.state = OutboxState::Failed;
-        let _ = write_entry(&dir, entry);
+        let _ = write_entry(&outbox, entry);
         return SendStatus::Failed {
             reason: format!("Not delivered to {}.", failures.join(", ")),
         };
@@ -971,7 +964,7 @@ fn finish(
 
     entry.state = OutboxState::Queued;
     entry.next_attempt = now + backoff_secs(entry.attempts);
-    let _ = write_entry(&dir, entry);
+    let _ = write_entry(&outbox, entry);
     let waiting: Vec<String> = entry
         .recipients
         .iter()
@@ -1001,27 +994,26 @@ fn finish(
 // ==== the Sent folder ====
 
 /// Where the account's mail folders are (its `folder` in `account.json`, else its own folder).
-fn sent_store_root(mail_root: &Path, account_id: &str) -> PathBuf {
-    let dir = account::account_dir(mail_root, account_id);
-    std::fs::read_to_string(dir.join(account::ACCOUNT_FILE))
-        .ok()
-        .and_then(|text| account::from_json(&text).ok())
-        .map_or(dir, |account| account::mail_root(mail_root, &account))
+fn sent_store_root(root: &DriveFolder, account_id: &str) -> DriveFolder {
+    match account::load(root, account_id) {
+        Some(Ok(account)) => account::mail_root(root, &account),
+        _ => account::account_dir(root, account_id),
+    }
 }
 
-/// Files a message written on this computer into the folder `folder_key` of the mail store at
+/// Files a message written on this computer into the folder `folder_key` of the mail store in
 /// `store_root`, as a synced message is: `mail/<folder>/<yyyy>/<mm>/<uid>.eml` (the month of
 /// `now`), its line in `index.jsonl`, and a `state.json` (created for a folder never synced;
 /// a synced folder's UIDVALIDITY and last UID stay as they are). The UID comes from
 /// [`LOCAL_UID_FLOOR`] up. AzMail files sent mail this way; drafts can be filed the same way.
 pub fn file_message(
-    store_root: &Path,
+    store_root: &DriveFolder,
     folder_key: &str,
     bytes: &[u8],
     flags: &[String],
     now: i64,
 ) -> std::io::Result<IndexEntry> {
-    let store = LocalFolder::new(store_root.to_path_buf());
+    let store = MailStore::new(store_root.clone());
     let index_key = store::index_key(folder_key);
     let mut entries: Vec<IndexEntry> = store
         .get(&index_key)
@@ -1035,10 +1027,10 @@ pub fn file_message(
         .map_or(LOCAL_UID_FLOOR, |uid| uid.saturating_add(1));
     let (year, month) = message::year_month(now);
     let path = store::message_key(folder_key, year, month, uid);
-    store.put(&path, bytes, true)?;
+    store.put(&path, bytes)?;
     let entry = message::index_entry(uid, bytes, flags, Some(now), &path);
     entries.push(entry.clone());
-    store.put(&index_key, store::index_to_jsonl(&entries).as_bytes(), true)?;
+    store.put(&index_key, store::index_to_jsonl(&entries).as_bytes())?;
     let state_key = store::state_key(folder_key);
     let mut state = store
         .get(&state_key)
@@ -1050,7 +1042,7 @@ pub fn file_message(
             FolderState::create(display, display, 0)
         });
     state.messages = entries.len() as u64;
-    store.put(&state_key, state.to_json().as_bytes(), true)?;
+    store.put(&state_key, state.to_json().as_bytes())?;
     Ok(entry)
 }
 
@@ -1062,6 +1054,8 @@ fn now_secs() -> i64 {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
     use crate::testutil::TempDir;
 
@@ -1171,15 +1165,13 @@ mod tests {
     }
 
     fn sent_index(root: &Path) -> Vec<IndexEntry> {
-        let text = std::fs::read_to_string(
-            account::account_dir(root, ACCOUNT).join("mail/sent/index.jsonl"),
-        )
+        let text = std::fs::read_to_string(root.join(ACCOUNT).join("mail/sent/index.jsonl"))
         .unwrap_or_default();
         store::index_from_jsonl(&text)
     }
 
     fn outbox_files(root: &Path) -> Vec<String> {
-        let mut names: Vec<String> = std::fs::read_dir(outbox_dir(root, ACCOUNT))
+        let mut names: Vec<String> = std::fs::read_dir(root.join(ACCOUNT).join(OUTBOX_DIR))
             .map(|dir| {
                 dir.flatten()
                     .map(|e| e.file_name().to_string_lossy().into_owned())
@@ -1319,14 +1311,14 @@ mod tests {
         )
         .unwrap()
         .starts_with(b"DKIM-Signature:"));
-        let saved = from_keyring.save(&dir.0, ACCOUNT).unwrap();
+        let saved = from_keyring.save(&dir.folder(), ACCOUNT).unwrap();
         let json = std::fs::read_to_string(saved).unwrap();
         assert!(
             !json.contains("PRIVATE KEY") && !json.contains("MIIC"),
             "{json}"
         );
         assert_eq!(
-            SendSettings::load(&dir.0, ACCOUNT),
+            SendSettings::load(&dir.folder(), ACCOUNT),
             SendSettings {
                 dkim_key: None,
                 ..from_keyring.clone()
@@ -1365,7 +1357,10 @@ mod tests {
             SendSettings::default()
         );
         assert_eq!(
-            SendSettings::load(Path::new("/nonexistent/azmail"), ACCOUNT),
+            SendSettings::load(
+                &DriveFolder::outside(PathBuf::from("/nonexistent/azmail")),
+                ACCOUNT
+            ),
             SendSettings::default()
         );
     }
@@ -1375,7 +1370,7 @@ mod tests {
     #[test]
     fn the_policy_list_ships_with_defaults_in_the_account_folder() {
         let dir = TempDir::new("send");
-        let list = PolicyList::load(&dir.0);
+        let list = PolicyList::load(&dir.folder());
         assert_eq!(list.route_for("gmail.com"), DomainRoute::Relay);
         assert_eq!(list.route_for("GoogleMail.com."), DomainRoute::Relay);
         assert_eq!(list.route_for("yahoo.com"), DomainRoute::Relay);
@@ -1389,7 +1384,7 @@ mod tests {
         assert_eq!(value["format"], "azmail.send-policy");
         assert_eq!(value["domains"]["gmail.com"]["route"], "relay");
         assert_eq!(value["domains"]["outlook.com"]["route"], "direct");
-        assert_eq!(PolicyList::load(&dir.0), list);
+        assert_eq!(PolicyList::load(&dir.folder()), list);
     }
 
     #[test]
@@ -1444,7 +1439,7 @@ mod tests {
             "dee@example.com".to_string(),
         ];
         let status = send_mail_with(
-            &dir.0,
+            &dir.folder(),
             ACCOUNT,
             &SendSettings::default(),
             &mail,
@@ -1481,13 +1476,13 @@ mod tests {
             format!("mail/sent/2026/10/{LOCAL_UID_FLOOR}.eml")
         );
         let eml =
-            std::fs::read(account::account_dir(&dir.0, ACCOUNT).join(&index[0].path)).unwrap();
+            std::fs::read(dir.0.join(ACCOUNT).join(&index[0].path)).unwrap();
         assert!(
             !String::from_utf8_lossy(&eml).contains("dee@example.com"),
             "Bcc leaked"
         );
         let state = std::fs::read_to_string(
-            account::account_dir(&dir.0, ACCOUNT).join("mail/sent/state.json"),
+            dir.0.join(ACCOUNT).join("mail/sent/state.json"),
         )
         .unwrap();
         let state = FolderState::from_json(&state).expect("a state file MAIL1 reads");
@@ -1495,7 +1490,7 @@ mod tests {
         assert_eq!(state.display, "Sent");
         // A second mail gets the next local UID.
         send_mail_with(
-            &dir.0,
+            &dir.folder(),
             ACCOUNT,
             &SendSettings::default(),
             &mail,
@@ -1528,7 +1523,7 @@ mod tests {
             }
         });
         let status = send_mail_with(
-            &dir.0,
+            &dir.folder(),
             ACCOUNT,
             &SendSettings::default(),
             &mail,
@@ -1545,7 +1540,7 @@ mod tests {
         let files = outbox_files(&dir.0);
         assert_eq!(files.len(), 2, "{files:?}");
         assert!(files[0].ends_with(".eml") && files[1].ends_with(".json"));
-        let entries = outbox_entries(&dir.0, ACCOUNT);
+        let entries = outbox_entries(&dir.folder(), ACCOUNT);
         assert_eq!(entries.len(), 1);
         let entry = &entries[0];
         assert_eq!(entry.state, OutboxState::Queued);
@@ -1559,7 +1554,7 @@ mod tests {
         // Not due yet: nothing happens.
         let mut second = take_all();
         assert!(retry_outbox_with(
-            &dir.0,
+            &dir.folder(),
             ACCOUNT,
             &SendSettings::default(),
             false,
@@ -1570,7 +1565,7 @@ mod tests {
         assert!(second.calls.is_empty());
         // Due: only the one still pending is sent to, and the mail lands in Sent.
         let results = retry_outbox_with(
-            &dir.0,
+            &dir.folder(),
             ACCOUNT,
             &SendSettings::default(),
             false,
@@ -1602,7 +1597,7 @@ mod tests {
             server: "mx.example.net".to_string(),
         });
         let status = send_mail_with(
-            &dir.0,
+            &dir.folder(),
             ACCOUNT,
             &SendSettings::default(),
             &mail(),
@@ -1616,17 +1611,17 @@ mod tests {
             reason.contains("ben@example.net") && reason.contains("5.7.26"),
             "{reason}"
         );
-        let policy = PolicyList::load(&account::account_dir(&dir.0, ACCOUNT));
+        let policy = PolicyList::load(&account::account_dir(&dir.folder(), ACCOUNT));
         assert_eq!(policy.route_for("example.net"), DomainRoute::Relay);
         // Nobody got it: it stays in the outbox, failed, for the user to fix or delete.
-        let entries = outbox_entries(&dir.0, ACCOUNT);
+        let entries = outbox_entries(&dir.folder(), ACCOUNT);
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].state, OutboxState::Failed);
         assert!(sent_index(&dir.0).is_empty());
         // A failed entry is not retried.
         let mut again = take_all();
         assert!(retry_outbox_with(
-            &dir.0,
+            &dir.folder(),
             ACCOUNT,
             &SendSettings::default(),
             true,
@@ -1659,7 +1654,7 @@ mod tests {
             }
         });
         let status = send_mail_with(
-            &dir.0,
+            &dir.folder(),
             ACCOUNT,
             &SendSettings::default(),
             &mail,
@@ -1677,7 +1672,7 @@ mod tests {
         assert!(outbox_files(&dir.0).is_empty());
         // "no such user" says nothing about the route.
         assert_eq!(
-            PolicyList::load(&account::account_dir(&dir.0, ACCOUNT)).route_for("example.net"),
+            PolicyList::load(&account::account_dir(&dir.folder(), ACCOUNT)).route_for("example.net"),
             DomainRoute::Direct
         );
     }
@@ -1689,7 +1684,7 @@ mod tests {
         mail.to = vec!["someone@gmail.com".to_string()];
         let mut fake = take_all();
         let status = send_mail_with(
-            &dir.0,
+            &dir.folder(),
             ACCOUNT,
             &SendSettings::default(),
             &mail,
@@ -1709,7 +1704,7 @@ mod tests {
             ignore_policy: true,
             ..SendSettings::default()
         };
-        let results = retry_outbox_with(&dir.0, ACCOUNT, &nerd, true, OCT_1 + 1, &mut fake);
+        let results = retry_outbox_with(&dir.folder(), ACCOUNT, &nerd, true, OCT_1 + 1, &mut fake);
         assert!(
             matches!(results[0].1, SendStatus::Sent { .. }),
             "{results:?}"
@@ -1745,7 +1740,7 @@ mod tests {
                 }
             }
         });
-        let status = send_mail_with(&dir.0, ACCOUNT, &settings, &mail, OCT_1, &mut fake);
+        let status = send_mail_with(&dir.folder(), ACCOUNT, &settings, &mail, OCT_1, &mut fake);
         assert!(matches!(status, SendStatus::Failed { .. }), "{status:?}");
         assert_eq!(
             fake.calls,
@@ -1759,7 +1754,7 @@ mod tests {
         );
         // The relay's 5xx says nothing about example.net.
         assert_eq!(
-            PolicyList::load(&account::account_dir(&dir.0, ACCOUNT)).route_for("example.net"),
+            PolicyList::load(&account::account_dir(&dir.folder(), ACCOUNT)).route_for("example.net"),
             DomainRoute::Direct
         );
     }
@@ -1772,7 +1767,7 @@ mod tests {
             reason: "could not connect to mx.example.net port 25".to_string(),
         });
         let status = send_mail_with(
-            &dir.0,
+            &dir.folder(),
             ACCOUNT,
             &SendSettings::default(),
             &mail(),
@@ -1781,7 +1776,7 @@ mod tests {
         );
         assert!(matches!(status, SendStatus::Queued { .. }), "{status:?}");
         let results = retry_outbox_with(
-            &dir.0,
+            &dir.folder(),
             ACCOUNT,
             &SendSettings::default(),
             false,
@@ -1793,7 +1788,7 @@ mod tests {
         };
         assert!(reason.contains("given up after 5 days"), "{reason}");
         assert_eq!(
-            outbox_entries(&dir.0, ACCOUNT)[0].state,
+            outbox_entries(&dir.folder(), ACCOUNT)[0].state,
             OutboxState::Failed
         );
     }
@@ -1806,7 +1801,7 @@ mod tests {
         no_from.from = String::new();
         assert!(matches!(
             send_mail_with(
-                &dir.0,
+                &dir.folder(),
                 ACCOUNT,
                 &SendSettings::default(),
                 &no_from,
@@ -1819,7 +1814,7 @@ mod tests {
         no_to.to.clear();
         assert!(matches!(
             send_mail_with(
-                &dir.0,
+                &dir.folder(),
                 ACCOUNT,
                 &SendSettings::default(),
                 &no_to,
@@ -1912,7 +1907,7 @@ mod tests {
         let mut mail = mail();
         mail.bcc = vec!["hidden@example.com".to_string()];
         mail.text_body = "line one\n.dotted\nline three".to_string();
-        let status = send_mail(&dir.0, ACCOUNT, &settings, &mail);
+        let status = send_mail(&dir.folder(), ACCOUNT, &settings, &mail);
         assert!(matches!(status, SendStatus::Sent { .. }), "{status:?}");
         let session = rx
             .recv_timeout(std::time::Duration::from_secs(30))
@@ -1939,7 +1934,7 @@ mod tests {
         let index = sent_index(&dir.0);
         assert_eq!(index.len(), 1);
         let filed =
-            std::fs::read(account::account_dir(&dir.0, ACCOUNT).join(&index[0].path)).unwrap();
+            std::fs::read(dir.0.join(ACCOUNT).join(&index[0].path)).unwrap();
         assert_eq!(String::from_utf8(filed).unwrap(), session.message);
     }
 }
