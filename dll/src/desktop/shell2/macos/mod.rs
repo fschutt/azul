@@ -6671,8 +6671,16 @@ impl MacOSWindow {
             None => return, // First frame, nothing to sync
         };
 
-        // Close requested?
-        if !previous.flags.close_requested && current.flags.close_requested {
+        // Close requested? Only a close the protocol CONFIRMED is acted on
+        // here. One the app raised (`close_window`, the CSD titlebar's close
+        // button) is a request: `drain_loop_work` runs the close protocol for
+        // it, a CloseRequested callback may veto it - so the rest (a title it
+        // set) is synced as for any other state change. Closing here, straight
+        // from the diff, closed with no CloseRequested at all.
+        if !previous.flags.close_requested
+            && current.flags.close_requested
+            && !self.common.close_unconfirmed()
+        {
             self.close_window();
             return; // Don't sync other state if closing
         }
@@ -6934,7 +6942,9 @@ impl MacOSWindow {
     /// Process close event: save state, set flag, run callbacks, handle result.
     /// Returns true if the close was confirmed (callback did not clear the flag).
     fn process_close_event(&mut self) -> bool {
-        let outcome = self.request_window_close("macos.process_close_event");
+        // Against the DOM the app's state describes now (a rebuild its last
+        // callback asked for is built first).
+        let outcome = self.run_close_protocol("macos.process_close_event");
 
         match outcome.result {
             azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
@@ -8979,9 +8989,10 @@ impl MacOSWindow {
         if self.common.current_window_state().flags.close_requested {
             if self.is_open {
                 // Nobody has run the protocol for this one yet — it came from
-                // app code (info.close_window()), not from the title bar. Run
-                // it, so the app's close callback still gets its veto. It
-                // re-sets and then consumes the flag itself.
+                // app code (info.close_window(), the CSD close button), not
+                // from the title bar. Run it, so the app's CloseRequested
+                // callbacks still get their veto: `request_window_close`
+                // lowers the raised flag and raises it again inside its pass.
                 self.handle_close_request();
             } else {
                 // `windowShouldClose:` already ran the whole protocol and
