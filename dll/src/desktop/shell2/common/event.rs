@@ -12437,10 +12437,12 @@ pub trait PlatformWindow {
 
             if has_mouse_down {
                 // Pure detection: the nearest focusable ancestor of the
-                // FRONT-MOST hit, in that hit's own DOM - ONE rule shared with
-                // the e2e runner (9g-ii-e-ii). This used to walk every hit DOM
-                // and let the last focusable win, so a focusable host node
-                // under a VirtualView page took a click meant for the page.
+                // FRONT-MOST hit, along its event path - its own DOM, then on
+                // through the node hosting a VirtualView page (user ruling
+                // 2026-10-03) - ONE rule shared with the e2e runner
+                // (9g-ii-e-ii). This used to walk every hit DOM and let the
+                // last focusable win, so a focusable node merely UNDER a
+                // VirtualView page took a click meant for the page.
                 // The hit test of the seat that PRESSED (9b-ii-c), which is the
                 // primary's unless a second cursor pressed.
                 let press_seat = synthetic_events
@@ -12462,6 +12464,7 @@ pub trait PlatformWindow {
                 let clicked_focusable_node = match (&hit_for_focus, self.get_layout_window()) {
                     (Some(hit_test), Some(layout_window)) => {
                         let results = &layout_window.layout_results;
+                        let virtual_views = &layout_window.virtual_view_manager;
                         azul_layout::managers::hover::focusable_under_pointer(
                             hit_test,
                             |dom_id, nid| {
@@ -12482,6 +12485,9 @@ pub trait PlatformWindow {
                                         .and_then(|h| h.parent_id())
                                 })
                             },
+                            // Past a VirtualView page's root the walk goes on
+                            // at its host (user ruling 2026-10-03).
+                            |dom_id| virtual_views.host_of_nested_dom(dom_id),
                         )
                     }
                     _ => None,
