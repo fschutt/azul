@@ -8,13 +8,13 @@
 //! newsletter with pictures, an attachment, a Latin-1 message, Sent, a phishing mail in Junk,
 //! a draft and a nested folder. Nothing is written when the account is there already.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::{
     account::{self, Account, AuthKind, Security, Server},
     message,
     send::{SendRoute, SendSettings, TlsPolicy},
-    store::{self, FolderState, IndexEntry, LocalFolder},
+    store::{self, DriveFolder, FolderState, IndexEntry, MailStore},
 };
 
 /// The sample account's address.
@@ -81,15 +81,15 @@ pub fn sample_account() -> Account {
     }
 }
 
-/// Writes the sample account and its mail under the AzMail folder `root` (nothing when the
-/// account is there already). Returns the account's folder.
-pub fn install(root: &Path) -> std::io::Result<PathBuf> {
+/// Writes the sample account and its mail under the AzMail folder `root`, through its drive
+/// (nothing when the account is there already). Returns the account's folder.
+pub fn install(root: &DriveFolder) -> std::io::Result<PathBuf> {
     let account = sample_account();
-    let dir = account::account_dir(root, &account.id);
-    if dir.join(account::ACCOUNT_FILE).is_file() {
+    let dir = account::account_dir(root, &account.id).path();
+    if account::load(root, &account.id).is_some() {
         return Ok(dir);
     }
-    let store = LocalFolder::new(account::mail_root(root, &account));
+    let store = MailStore::new(account::mail_root(root, &account));
     for (key, server_name, display, messages) in MAIL {
         file_folder(&store, key, server_name, display, messages)?;
     }
@@ -108,7 +108,7 @@ pub fn install(root: &Path) -> std::io::Result<PathBuf> {
 
 /// One folder: every message under UIDs 1.., its index and its state.
 fn file_folder(
-    store: &LocalFolder,
+    store: &MailStore,
     key: &str,
     server_name: &str,
     display: &str,
@@ -132,18 +132,17 @@ fn file_folder(
             .unwrap_or(0);
         let (year, month) = message::year_month(secs);
         let path = store::message_key(key, year, month, uid);
-        store.put(&path, bytes, true)?;
+        store.put(&path, bytes)?;
         index.push(message::index_entry(uid, bytes, &flags, Some(secs), &path));
     }
     store.put(
         &store::index_key(key),
         store::index_to_jsonl(&index).as_bytes(),
-        true,
     )?;
     let mut state = FolderState::create(server_name, display, 1);
     state.last_uid = messages.len() as u32;
     state.messages = messages.len() as u64;
-    store.put(&store::state_key(key), state.to_json().as_bytes(), true)
+    store.put(&store::state_key(key), state.to_json().as_bytes())
 }
 
 #[cfg(test)]
@@ -154,12 +153,12 @@ mod tests {
     #[test]
     fn the_sample_account_is_filed_like_a_synced_one_once() {
         let dir = TempDir::new("sample");
-        let at = install(&dir.0).unwrap();
+        let at = install(&dir.folder()).unwrap();
         assert_eq!(at, dir.0.join(SAMPLE_EMAIL));
-        let (accounts, skipped) = account::load_all(&dir.0);
+        let (accounts, skipped) = account::load_all(&dir.folder());
         assert!(skipped.is_empty());
         assert_eq!(accounts, vec![sample_account()]);
-        let store = LocalFolder::new(at.clone());
+        let store = MailStore::new(account::mail_root(&dir.folder(), &sample_account()));
         assert_eq!(
             store.folders(),
             vec!["Work", "Work.Projects", "drafts", "inbox", "sent", "spam"]
@@ -170,11 +169,11 @@ mod tests {
         assert_eq!(inbox.len(), 4);
         assert!(inbox.iter().any(|e| e.subject == "Garden Weekly: bulbs, frost and a sale"));
         assert!(inbox.iter().all(|e| e.flags.is_empty()), "the inbox is unread");
-        let settings = SendSettings::load(&dir.0, SAMPLE_EMAIL);
+        let settings = SendSettings::load(&dir.folder(), SAMPLE_EMAIL);
         assert_eq!(settings.tls, TlsPolicy::Off);
         // A second run leaves it alone.
         std::fs::write(at.join("marker"), b"x").unwrap();
-        install(&dir.0).unwrap();
+        install(&dir.folder()).unwrap();
         assert!(at.join("marker").is_file());
     }
 }
