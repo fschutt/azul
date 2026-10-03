@@ -3946,7 +3946,8 @@ pub fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
 /// nodes never are.
 #[must_use]
 pub(crate) fn is_out_of_flow_positioned(styled_dom: &StyledDom, node_id: NodeId) -> bool {
-    let Some(node_data) = styled_dom.node_data.as_container().get(node_id) else {
+    let node_data_container = styled_dom.node_data.as_container();
+    let Some(node_data) = node_data_container.get(node_id) else {
         return false;
     };
     if matches!(node_data.get_node_type(), NodeType::Text(_))
@@ -4030,7 +4031,8 @@ fn is_floated(styled_dom: &StyledDom, node_id: NodeId) -> bool {
 /// picture of a newsletter; `<span><a><div>..</div></a></span>`).
 #[must_use]
 pub(crate) fn inline_holds_a_block(styled_dom: &StyledDom, node_id: NodeId) -> bool {
-    let Some(node_data) = styled_dom.node_data.as_container().get(node_id) else {
+    let node_data_container = styled_dom.node_data.as_container();
+    let Some(node_data) = node_data_container.get(node_id) else {
         return false;
     };
     if matches!(node_data.get_node_type(), NodeType::Text(_))

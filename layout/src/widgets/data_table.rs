@@ -3681,7 +3681,8 @@ fn commit_edit(data: &mut RefAny, t: &DataTable, geo: &Geometry, info: CallbackI
         let last = i64::try_from(t.columns.len()).unwrap_or(1).saturating_sub(1).max(0);
         let column = (i64::from(view.edit_column) + i64::from(step)).clamp(0, last);
         next.active_column = u32::try_from(column).unwrap_or(0);
-        reveal_column(t, &mut next, geo, next.active_column);
+        let active = next.active_column;
+        reveal_column(t, &mut next, geo, active);
     }
     let mut e = DataTableEvent::create(DataTableEventKind::EditCommit, next);
     e.text = text;

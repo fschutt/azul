@@ -45,6 +45,9 @@ LAYOUT_ONLY = [
     ("message_rows", "summary_rows"),
 ]
 API = [
+    # fn bodies name `self` by the class in snake case (the generator's variable):
+    # SummaryRowVec's `message_row_vec.len()` broke the dylib at the wave-7 integration.
+    ("message_row_vec", "summary_row_vec"),
     ("widgets::message_list::", "widgets::summary_list::"),
     ("themes::flat::message_list", "themes::flat::summary_list"),
     ("themes::flora::message_list", "themes::flora::summary_list"),

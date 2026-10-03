@@ -150139,7 +150139,7 @@
                                 "returns": {
                                     "type": "usize"
                                 },
-                                "fn_body": "message_row_vec.len()"
+                                "fn_body": "summary_row_vec.len()"
                             },
                             "capacity": {
                                 "doc": [
@@ -150153,7 +150153,7 @@
                                 "returns": {
                                     "type": "usize"
                                 },
-                                "fn_body": "message_row_vec.capacity()"
+                                "fn_body": "summary_row_vec.capacity()"
                             },
                             "is_empty": {
                                 "doc": [
@@ -150167,7 +150167,7 @@
                                 "returns": {
                                     "type": "bool"
                                 },
-                                "fn_body": "message_row_vec.is_empty()"
+                                "fn_body": "summary_row_vec.is_empty()"
                             },
                             "from_item": {
                                 "doc": [
@@ -150215,7 +150215,7 @@
                                 "returns": {
                                     "type": "OptionSummaryRow"
                                 },
-                                "fn_body": "message_row_vec.c_get(index).into()"
+                                "fn_body": "summary_row_vec.c_get(index).into()"
                             },
                             "as_c_slice": {
                                 "doc": [
@@ -150229,7 +150229,7 @@
                                 "returns": {
                                     "type": "SummaryRowVecSlice"
                                 },
-                                "fn_body": "message_row_vec.as_c_slice()"
+                                "fn_body": "summary_row_vec.as_c_slice()"
                             },
                             "as_c_slice_range": {
                                 "doc": [
@@ -150249,7 +150249,7 @@
                                 "returns": {
                                     "type": "SummaryRowVecSlice"
                                 },
-                                "fn_body": "message_row_vec.as_c_slice_range(start, end)"
+                                "fn_body": "summary_row_vec.as_c_slice_range(start, end)"
                             }
                         },
                         "repr": "C"

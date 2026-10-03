@@ -122,9 +122,11 @@ pub fn get_element_font_size(
 
 /// A node's own `zoom` factor in the `Normal` state, 1.0 without one.
 fn own_zoom(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
+    let node_data_container = styled_dom.node_data.as_container();
+    let styled_container = styled_dom.styled_nodes.as_container();
     let (Some(node_data), Some(styled)) = (
-        styled_dom.node_data.as_container().get(dom_id),
-        styled_dom.styled_nodes.as_container().get(dom_id),
+        node_data_container.get(dom_id),
+        styled_container.get(dom_id),
     ) else {
         return 1.0;
     };
