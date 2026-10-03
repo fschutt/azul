@@ -1321,6 +1321,30 @@ mod honest_handle_tests {
         );
     }
 
+    /// Off Apple a GPU whose Vulkan driver encodes H.264
+    /// (`VK_KHR_video_encode_h264`) gets an open encoder that gives packets
+    /// back: a call there sends H.264, not JPEG. (Before, Linux and Windows
+    /// had no encode engine at all, whatever the GPU.) A machine without such
+    /// a GPU, or a build without Vulkan Video, has nothing to check.
+    #[test]
+    fn a_gpu_whose_driver_encodes_h264_gets_an_open_encoder() {
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        {
+            if !cfg!(az_gpu_video) || super::provision::vulkan_encode_h264() != Some(true) {
+                return;
+            }
+            let mut encoder = VideoEncoder::open(W, H, false, 400);
+            assert!(
+                encoder.is_open(),
+                "the driver encodes H.264, and VideoEncoder::open handed out no encoder"
+            );
+            assert!(
+                !encode_some(&mut encoder).is_empty(),
+                "an open encoder gives packets back"
+            );
+        }
+    }
+
     /// `VideoEncoder::open` hands out an open handle only where this build
     /// encodes: an engine is compiled in and works on this machine. An open
     /// handle gives packets back; everywhere else (no engine in this build,
