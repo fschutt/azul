@@ -103,6 +103,11 @@ pub(crate) struct MailApp {
     /// The keyring operation whose answer is awaited (one at a time: azul keeps only the last
     /// answer).
     pub(crate) keyring: Option<KeyringOp>,
+    /// Keyring calls waiting for the one in flight ([`keyring_call`]).
+    pub(crate) keyring_queue: std::collections::VecDeque<KeyringCall>,
+    /// DKIM private keys in memory for this run, by account id: made under Account Settings,
+    /// Sending, or read from the keyring at Send / Receive; `None`: the keyring has none.
+    pub(crate) dkim_keys: HashMap<String, Option<Secret>>,
 
     // -- the navigation pane --
     /// Every account's synced folders with their unread counts, by account index.
@@ -202,6 +207,17 @@ pub(crate) enum KeyringOp {
     Store,
     /// A secret read to sync this account.
     Get { account: String },
+    /// A DKIM private key stored.
+    StoreDkim,
+    /// The DKIM private key read to sign this account's mail.
+    GetDkim { account: String },
+}
+
+/// A keyring call: store `secret` under `key`, or (`secret` is `None`) read `key`.
+pub(crate) struct KeyringCall {
+    pub(crate) op: KeyringOp,
+    pub(crate) key: String,
+    pub(crate) secret: Option<Secret>,
 }
 
 impl MailApp {
@@ -230,6 +246,8 @@ impl MailApp {
             current: None,
             secrets: HashMap::new(),
             keyring: None,
+            keyring_queue: std::collections::VecDeque::new(),
+            dkim_keys: HashMap::new(),
             folders: vec![Vec::new(); n],
             folder: None,
             favorite_picked: false,
@@ -583,20 +601,101 @@ pub(crate) extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackI
                     ),
                 );
             }
+            (Some(KeyringOp::StoreDkim), KeyringResult::Stored) => {
+                s.notice = String::from("The DKIM key is saved in the system keyring.");
+            }
+            (Some(KeyringOp::StoreDkim), _) => {
+                s.notice = format!(
+                    "The DKIM key could not be saved in the system keyring ({outcome}): AzMail \
+                     keeps it only until it is closed - create a new key then."
+                );
+            }
+            (Some(KeyringOp::GetDkim { account }), KeyringResult::Retrieved(secret)) => {
+                s.dkim_keys
+                    .insert(account.clone(), Some(Secret::new(secret.as_str().to_string())));
+                if s.current_account().map(|a| a.id.as_str()) == Some(account.as_str()) {
+                    start_sync(s, &mut info, app);
+                }
+            }
+            (Some(KeyringOp::GetDkim { account }), _) => {
+                // Asked once per run: signed mail waits in the Outbox until a new key is made.
+                s.dkim_keys.insert(account.clone(), None);
+                s.notice = format!(
+                    "The system keyring has no DKIM key for this account ({outcome}): signed \
+                     mail waits in the Outbox until you create a new key under Account \
+                     Settings, Sending."
+                );
+                if s.current_account().map(|a| a.id.as_str()) == Some(account.as_str()) {
+                    start_sync(s, &mut info, app);
+                }
+            }
         }
+        keyring_next(s, &mut info);
         Update::RefreshDom
     })
     .unwrap_or(Update::DoNothing)
 }
 
-/// Puts `secret` for `account_id` into the OS keyring (when no other keyring call is pending)
-/// and keeps it in memory for this run.
-pub(crate) fn remember_secret(s: &mut MailApp, info: &mut CallbackInfo, account_id: &str, secret: Secret) {
-    if s.keyring.is_none() {
-        info.keyring_store(account::keyring_key(account_id), secret.expose(), false);
-        s.keyring = Some(KeyringOp::Store);
+/// Asks the keyring now, or after the call in flight (azul keeps only the last answer, so
+/// the calls go one at a time; [`on_keyring_result`] starts the next).
+pub(crate) fn keyring_call(s: &mut MailApp, info: &mut CallbackInfo, call: KeyringCall) {
+    s.keyring_queue.push_back(call);
+    keyring_next(s, info);
+}
+
+/// Starts the next queued keyring call when none is in flight.
+fn keyring_next(s: &mut MailApp, info: &mut CallbackInfo) {
+    if s.keyring.is_some() {
+        return;
     }
+    let Some(call) = s.keyring_queue.pop_front() else {
+        return;
+    };
+    match &call.secret {
+        Some(secret) => info.keyring_store(call.key.clone(), secret.expose(), false),
+        None => info.keyring_get(call.key.clone()),
+    }
+    s.keyring = Some(call.op);
+}
+
+/// Whether a keyring read for `account` (the sign-in secret, or with `dkim` the DKIM key) is
+/// in flight or queued.
+fn keyring_reading(s: &MailApp, account: &str, dkim: bool) -> bool {
+    let reads = |op: &KeyringOp| match op {
+        KeyringOp::Get { account: a } => !dkim && a == account,
+        KeyringOp::GetDkim { account: a } => dkim && a == account,
+        _ => false,
+    };
+    s.keyring.as_ref().is_some_and(|op| reads(op)) || s.keyring_queue.iter().any(|c| reads(&c.op))
+}
+
+/// Puts `secret` for `account_id` into the OS keyring and keeps it in memory for this run.
+pub(crate) fn remember_secret(s: &mut MailApp, info: &mut CallbackInfo, account_id: &str, secret: Secret) {
+    keyring_call(
+        s,
+        info,
+        KeyringCall {
+            op: KeyringOp::Store,
+            key: account::keyring_key(account_id),
+            secret: Some(secret.clone()),
+        },
+    );
     s.secrets.insert(account_id.to_string(), secret);
+}
+
+/// Puts a new DKIM private key for `account_id` into the OS keyring and keeps it in memory for
+/// this run.
+pub(crate) fn remember_dkim_key(s: &mut MailApp, info: &mut CallbackInfo, account_id: &str, key: Secret) {
+    keyring_call(
+        s,
+        info,
+        KeyringCall {
+            op: KeyringOp::StoreDkim,
+            key: send::dkim_keyring_key(account_id),
+            secret: Some(key.clone()),
+        },
+    );
+    s.dkim_keys.insert(account_id.to_string(), Some(key));
 }
 
 // ==== Send / Receive: on an azul Thread, progress back through write-backs ====
@@ -612,17 +711,49 @@ pub(crate) fn start_sync(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) 
     };
     let secret = s.secrets.get(&account.id).cloned().or_else(test_secret);
     let Some(secret) = secret else {
-        if s.keyring.is_none() {
-            info.keyring_get(account::keyring_key(&account.id));
-            s.keyring = Some(KeyringOp::Get {
-                account: account.id.clone(),
-            });
+        if !keyring_reading(s, &account.id, false) {
+            keyring_call(
+                s,
+                info,
+                KeyringCall {
+                    op: KeyringOp::Get {
+                        account: account.id.clone(),
+                    },
+                    key: account::keyring_key(&account.id),
+                    secret: None,
+                },
+            );
         }
         s.sync = SyncState::Done(String::from(
             "Reading the password from the system keyring...",
         ));
         return;
     };
+    // An account that signs its mail (client-side DKIM) needs its key for the Outbox: read
+    // once per run, after the password.
+    let signs_from_keyring = send::SendSettings::load(&s.root, &account.id)
+        .dkim
+        .is_some_and(|dkim| dkim.key_file.is_none());
+    if signs_from_keyring && !s.dkim_keys.contains_key(&account.id) {
+        if !keyring_reading(s, &account.id, true) {
+            keyring_call(
+                s,
+                info,
+                KeyringCall {
+                    op: KeyringOp::GetDkim {
+                        account: account.id.clone(),
+                    },
+                    key: send::dkim_keyring_key(&account.id),
+                    secret: None,
+                },
+            );
+        }
+        s.sync = SyncState::Done(String::from(
+            "Reading the DKIM key from the system keyring...",
+        ));
+        return;
+    }
+    let dkim_key = s.dkim_keys.get(&account.id).cloned().flatten();
     let mail_root = account::mail_root(&s.root, &account);
     println!("AZMAIL_SYNC_START {}", mail_root.path().display());
     let thread = ThreadId::unique();
@@ -638,6 +769,7 @@ pub(crate) fn start_sync(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) 
         mail_root,
         azmail_root: s.root.clone(),
         extra_ca: test_ca(),
+        dkim_key,
     };
     info.add_thread(thread, Thread::create(RefAny::new(init), app, sync_thread));
 }
@@ -660,6 +792,8 @@ struct SyncInit {
     /// The AzMail folder (for the outbox).
     azmail_root: DriveFolder,
     extra_ca: Option<PathBuf>,
+    /// The DKIM private key the Outbox's mail is signed with, when the account signs.
+    dkim_key: Option<Secret>,
 }
 
 /// What the thread reports.
@@ -686,7 +820,8 @@ extern "C" fn sync_thread(mut init: RefAny, mut sender: ThreadSender, mut receiv
     };
     let outcome = run_sync(&job, &mut sender, &mut receiver);
     // "Send" of Send / Receive: whatever waits in the outbox gets another try.
-    let settings = send::SendSettings::load(&job.azmail_root, &job.account.id);
+    let mut settings = send::SendSettings::load(&job.azmail_root, &job.account.id);
+    settings.dkim_key = job.dkim_key.clone();
     let mut outbox = (0, 0, 0);
     for (_, status) in send::retry_outbox(&job.azmail_root, &job.account.id, &settings, false) {
         match status {
