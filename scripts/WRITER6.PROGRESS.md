@@ -3,14 +3,27 @@
 Branch `wt/writer6` from `25d78e309`. Brief: scripts/waves/wave6/WRITER6.md.
 
 ## DONE (commits)
-- (none yet)
+- 8ffc4f4fd LOOK findings (AzNotes E2E passes on the prebuilt; screenshots in target/writer6-look/, not committed)
 
 ## IN PROGRESS
-- LOOK: run AzWriter / AzNotes headless (prebuilt aa59b2d84), screenshots under target/writer6-look/ (not committed).
+- Undo/Redo ownership. DESIGN (decided): the browser keydown model. core `handle_key_down` stops
+  claiming primary+Z / Shift+Z / Y for the PRIMARY seat (no AddAndSkip: the KeyDown passes to callbacks);
+  the engine's text undo becomes the key's DEFAULT ACTION (`DefaultAction::UndoTextEdit { target }` /
+  `RedoTextEdit { target }`, appended to core's DefaultAction) decided in layout/src/default_actions.rs
+  for an editable focus, run by the dll (event.rs DefaultAction match -> apply_system_change(UndoTextEdit))
+  and the e2e runner (runner.rs DefaultAction match) after the callbacks, VETOED by prevent_default -
+  exactly like Ctrl+B ToggleTextFormat. An app that owns its history (the RichTextEditor) handles Ctrl+Z in
+  its VirtualKeyDown and calls prevent_default. Non-primary seats keep SeatShortcut. macOS Edit-menu
+  `undo:` path (macos/mod.rs edit_command) still applies UndoTextEdit directly - follow-up in the report.
+- NEXT STEP: RED tests: core/src/events_test.rs (near line 3790: primary+Z on an editable focus yields no
+  UndoTextEdit system change and the KeyDown reaches the user events) + layout/tests/<new>.rs
+  (determine_keyboard_default_action_with_editing for primary+Z / Shift+Z / Y in a contenteditable host
+  = UndoTextEdit / RedoTextEdit; prevented -> no action), pattern of
+  layout/tests/a_format_toggle_at_a_caret_styles_what_is_typed_next.rs.
 
 ## NEXT
-1. LOOK AzWriter + AzNotes, write the broken list below.
-2. Undo/Redo shortcut ownership (core/src/events.rs) - RED tests core + layout, then the design.
+1. (done) LOOK.
+2. Undo/Redo shortcut ownership (see IN PROGRESS).
 3. Engine formats into the editor (DocumentTextEdit.runs, get_typing_formats) - RED in layout, then rich_text_editor.rs.
 4. AzWriter on RichTextEditor + RichTextDoc (RTE section 8 a-e).
 5. AzNotes polish (close via CloseRequested, azul_pim search/tags, prefixes, appkit).
