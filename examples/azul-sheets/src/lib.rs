@@ -30,6 +30,7 @@
 //! `AZSHEETS_SHEETS <name>,..`.
 
 pub mod args;
+pub mod conditional_panel;
 pub mod engine;
 pub mod fake_engine;
 pub mod format_cells;
@@ -171,6 +172,8 @@ pub enum Panel {
     Find,
     /// The chart placeholder (the engine has no charts).
     Chart,
+    /// Conditional Formatting: add a rule to the selection, clear, list.
+    Conditional,
 }
 
 /// What a message to the engine was for.
@@ -319,6 +322,8 @@ pub struct AppState {
     pub args: Option<Args>,
     /// The Format Cells dialog, while it is open.
     pub format: Option<format_cells::FormatDraft>,
+    /// The Conditional Formatting panel's choices.
+    pub cond: conditional_panel::CondDraft,
     /// The window is asking "save changes?" (the close guard).
     pub asking_close: bool,
     /// The window closes once the save in flight is written.
@@ -365,6 +370,7 @@ impl AppState {
             window: (1280.0, 800.0),
             args: None,
             format: None,
+            cond: conditional_panel::CondDraft::default(),
             asking_close: false,
             close_after_save: false,
         }
@@ -1172,6 +1178,8 @@ pub enum Action {
     FormatCells(u8),
     /// Merge & Center the selection, or unmerge the merge the cursor is in.
     MergeCenter,
+    /// The Conditional Formatting panel.
+    Conditional,
     Undo,
     Redo,
     Paste,
@@ -1415,6 +1423,7 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
             group(
                 "Styles",
                 vec![
+                    large(app, "rule", "Conditional Formatting", Action::Conditional),
                     column(vec![
                         small(app, "title", "Heading", Action::StyleHeading),
                         small(app, "functions", "Total", Action::StyleTotal),
@@ -1836,6 +1845,7 @@ fn panel(s: &AppState, app: &RefAny) -> Option<Dom> {
     let line = |text: &str| Dom::create_p_with_text(AzString::from(text)).with_css("font-size: 12px; margin: 2px 0px;");
     match s.panel {
         Panel::None => None,
+        Panel::Conditional => Some(conditional_panel::panel(s, app)),
         Panel::Functions => {
             let mut p = frame("Insert Function");
             for category in functions::Category::ALL {
@@ -2382,6 +2392,7 @@ fn act(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, action: Action) 
     let color = |hex: &str| Some(String::from(hex));
     match action {
         Action::FormatCells(tab) => format_dialog::open(s, style.clone(), usize::from(tab)),
+        Action::Conditional => s.panel = Panel::Conditional,
         Action::MergeCenter => {
             let merged = s
                 .cache
