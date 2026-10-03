@@ -23,7 +23,10 @@ use azul::{
 };
 use chrono::{NaiveTime, Timelike, Weekday};
 
+use azul_appkit::args::{ModePref, Theme};
+
 use crate::{
+    appearance,
     chrome::Command,
     state::{Page, Tasks},
     views,
@@ -80,7 +83,7 @@ pub fn backstage(s: &Tasks, app: &RefAny, page: Page, theme: &str, dark: bool) -
 
 // ==== Settings ====
 
-fn settings(s: &Tasks, app: &RefAny, theme: &str, dark: bool) -> Dom {
+fn settings(s: &Tasks, app: &RefAny, theme: &str, _dark: bool) -> Dom {
     let searching = !s.settings_search.trim().is_empty();
     let mut layout = ShellSettingsLayout::create(strings(&CATEGORIES))
         .with_active_category(s.settings_category)
@@ -91,7 +94,7 @@ fn settings(s: &Tasks, app: &RefAny, theme: &str, dark: bool) -> Dom {
     for (category, sections) in [
         (0, general(s, app)),
         (1, reminder_settings(s, app)),
-        (2, appearance(app, theme, dark)),
+        (2, appearance_settings(app, theme, s.appearance.mode)),
         (3, data(s, app)),
     ] {
         if searching || category == s.settings_category {
@@ -199,7 +202,7 @@ fn reminder_settings(s: &Tasks, app: &RefAny) -> Vec<ShellSettingsSection> {
     ]
 }
 
-fn appearance(app: &RefAny, theme: &str, dark: bool) -> Vec<ShellSettingsSection> {
+fn appearance_settings(app: &RefAny, theme: &str, mode: ModePref) -> Vec<ShellSettingsSection> {
     vec![
         ShellSettingsSection::create(
             "Theme",
@@ -212,7 +215,8 @@ fn appearance(app: &RefAny, theme: &str, dark: bool) -> Vec<ShellSettingsSection
         ShellSettingsSection::create(
             "Mode",
             Segmented::create(strings(&["System", "Light", "Dark"]))
-                .with_selected_index(if dark { 2 } else { 1 })
+                // The kept choice (System follows the OS), not only what is shown now.
+                .with_selected_index(appearance::mode_index(mode))
                 .with_on_change(app.clone(), on_mode as SegmentedOnChangeCallbackType)
                 .dom()
                 .with_id("settings-mode"),
@@ -418,18 +422,32 @@ extern "C" fn on_notifications(mut data: RefAny, mut info: CallbackInfo, state: 
     })
 }
 
-extern "C" fn on_theme(_data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
-    info.set_theme(if state.selected_index == 1 { "flora" } else { "flat" });
-    Update::RefreshDom
+/// The theme: shown now and kept for the next start (`appearance.rs`).
+extern "C" fn on_theme(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    let theme = if state.selected_index == 1 {
+        Theme::Flora
+    } else {
+        Theme::Flat
+    };
+    info.set_theme(theme.name());
+    crate::with_tasks(&mut data, &mut info, |_info, _app, s| {
+        s.appearance.theme = theme;
+        s.save_appearance();
+    })
 }
 
-extern "C" fn on_mode(_data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
-    info.set_mode(match state.selected_index {
-        1 => OptionDarkLightMode::Some(DarkLightMode::Light),
-        2 => OptionDarkLightMode::Some(DarkLightMode::Dark),
-        _ => OptionDarkLightMode::None,
+/// The mode: System (the OS's), Light or Dark, shown now and kept for the next start.
+extern "C" fn on_mode(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    let mode = appearance::mode_of_index(state.selected_index);
+    info.set_mode(match mode {
+        ModePref::Light => OptionDarkLightMode::Some(DarkLightMode::Light),
+        ModePref::Dark => OptionDarkLightMode::Some(DarkLightMode::Dark),
+        ModePref::System => OptionDarkLightMode::None,
     });
-    Update::RefreshDom
+    crate::with_tasks(&mut data, &mut info, |_info, _app, s| {
+        s.appearance.mode = mode;
+        s.save_appearance();
+    })
 }
 
 extern "C" fn on_sample(mut data: RefAny, mut info: CallbackInfo) -> Update {

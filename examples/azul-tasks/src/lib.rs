@@ -63,7 +63,7 @@ use azul::{
 use azul_storage::{Drive, LocalDrive};
 
 use crate::{
-    args::{Args, Mode, Screen},
+    args::{Args, Screen},
     chrome::Command,
     model::Reminder,
     state::{Page, Tasks},
@@ -469,15 +469,23 @@ pub fn start() {
         s.os_notifications.1
     );
 
-    let mut config = AppConfig::create();
-    if let Some(theme) = &args.theme {
-        config = config.with_theme(theme.as_str());
+    // The appearance kept from the last run (read before the window: the first frame needs
+    // it); `--theme` / `--mode` win for this run.
+    if let Ok(bytes) = s.drive.get(&appearance::settings_key()) {
+        let (saved, problem) = azul_appkit::settings::AppSettings::parse(&String::from_utf8_lossy(&bytes));
+        if let Some(problem) = problem {
+            eprintln!("[aztasks] {}: {problem}", appearance::settings_key());
+        }
+        s.appearance = saved;
     }
-    match args.mode {
-        Some(Mode::Light) => config = config.with_mode(OptionDarkLightMode::Some(DarkLightMode::Light)),
-        Some(Mode::Dark) => config = config.with_mode(OptionDarkLightMode::Some(DarkLightMode::Dark)),
-        Some(Mode::System) | None => {}
-    }
+    let (theme, mode) = appearance::effective(&args, &s.appearance);
+    let config = AppConfig::create()
+        .with_theme(theme.name())
+        .with_mode(match mode {
+            azul_appkit::args::ModePref::Light => OptionDarkLightMode::Some(DarkLightMode::Light),
+            azul_appkit::args::ModePref::Dark => OptionDarkLightMode::Some(DarkLightMode::Dark),
+            azul_appkit::args::ModePref::System => OptionDarkLightMode::None,
+        });
     let app = App::create(RefAny::new(s), config);
     let mut window = WindowCreateOptions::create(layout);
     let (w, h) = args.size.unwrap_or((1280.0, 800.0));

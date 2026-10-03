@@ -114,6 +114,8 @@ pub struct Tasks {
     pub root: PathBuf,
     pub queue: WriteQueue,
     pub files: FileWork,
+    /// The appearance kept across restarts (`aztasks/settings.json`, `appearance.rs`).
+    pub appearance: azul_appkit::settings::AppSettings,
     /// Fill an empty data folder with the sample once it is read.
     pub sample_requested: bool,
     // ---- what is shown
@@ -175,6 +177,14 @@ pub fn new_id() -> String {
 
 impl Tasks {
     /// An empty state over `drive`, before the files are read.
+    /// Keeps the appearance for the next start: its file goes to the write queue.
+    pub fn save_appearance(&mut self) {
+        self.queue.put(
+            crate::appearance::settings_key(),
+            self.appearance.to_json().into_bytes(),
+        );
+    }
+
     pub fn new(drive: Arc<dyn Drive>, root: PathBuf, view: View) -> Tasks {
         let clock = now();
         Tasks {
@@ -188,6 +198,7 @@ impl Tasks {
             root,
             queue: WriteQueue::new(),
             files: FileWork::default(),
+            appearance: azul_appkit::settings::AppSettings::default(),
             sample_requested: false,
             view,
             selection: ListSelection::create(),
