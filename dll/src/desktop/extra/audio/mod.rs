@@ -41,6 +41,19 @@ mod cpal_mic;
 #[cfg(target_os = "windows")]
 mod cpal_sink;
 
+// Opus voice coding: the `AudioEncoder` / `AudioDecoder` handles. Always
+// present (codegen exposes them); open only where the platform ships an Opus
+// engine (AudioToolbox on Apple).
+pub mod codec;
+pub use codec::{AudioDecoder, AudioEncoder};
+// The AudioToolbox Opus engine behind them (dlopen'd, like VideoToolbox).
+#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+mod opus_apple;
+// Acoustic echo cancellation: the `EchoCanceller` handle (pure Rust, every
+// target).
+pub mod echo;
+pub use echo::EchoCanceller;
+
 /// Internal playback state behind an open `AudioSink` handle.
 struct AudioSinkInner {
     /// The platform output; `None` for a headless run's synthetic sink, which

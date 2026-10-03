@@ -312,6 +312,16 @@ fn vulkan_has_ext(want: &[u8]) -> Option<bool> {
     }
 }
 
+/// Whether the Vulkan driver exposes H.264 ENCODE (`VK_KHR_video_encode_h264`):
+/// `None` without a Vulkan loader or a usable GPU. What `encode_engine` asks
+/// before a `VideoEncoder` opens on Vulkan Video (a build without
+/// `az_gpu_video` never asks).
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg_attr(not(az_gpu_video), allow(dead_code))]
+pub(crate) fn vulkan_encode_h264() -> Option<bool> {
+    vulkan_has_ext(VK_EXT_VIDEO_ENCODE_H264)
+}
+
 /// Compare a NUL-terminated `extensionName[256]` (as `c_char`) against `want`.
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 fn ext_name_matches(name: &[core::ffi::c_char; 256], want: &[u8]) -> bool {

@@ -701,6 +701,14 @@ fn session_source(format: RawImageFormat) -> RawImageFormat {
 
 unsafe impl Send for VtEncoder {}
 
+/// `kVTCompressionPropertyKey_AverageBitRate`'s value (bits a second, an
+/// SInt32) for `kbps`: at least 64 kbit/s, saturating at the SInt32 range.
+fn average_bitrate_bps(kbps: u32) -> i32 {
+    i32::try_from(kbps.max(64))
+        .unwrap_or(i32::MAX)
+        .saturating_mul(1000)
+}
+
 /// A CFNumber (SInt32), or null. The caller releases it.
 unsafe fn cf_i32(lib: &VtLib, value: i32) -> *const c_void {
     unsafe {
@@ -922,7 +930,7 @@ impl VtEncoder {
                 lib,
                 session,
                 lib.kVTCompressionPropertyKey_AverageBitRate,
-                (bitrate_kbps.max(64) as i32).saturating_mul(1000),
+                average_bitrate_bps(bitrate_kbps),
             );
             set_i32_property(lib, session, lib.kVTCompressionPropertyKey_MaxKeyFrameInterval, 60);
             set_i32_property(lib, session, lib.kVTCompressionPropertyKey_ExpectedFrameRate, 30);
@@ -998,6 +1006,29 @@ impl VtEncoder {
     /// What this session got (hardware, low latency, profile).
     pub(super) fn settings(&self) -> EncoderSettings {
         self.settings
+    }
+
+    /// The bitrate the session spends, in kbit/s.
+    pub(super) fn bitrate_kbps(&self) -> u32 {
+        self.bitrate_kbps
+    }
+
+    /// Spend `kbps` from the next frame on: the live session's average
+    /// bitrate (VideoToolbox's rate control takes a new one mid-stream - the
+    /// session, its reference frames and the stream go on), and the rate a
+    /// session re-made for frames in another format starts at.
+    pub(super) fn set_bitrate(&mut self, kbps: u32) {
+        self.bitrate_kbps = kbps;
+        if let Some(lib) = VtLib::get() {
+            unsafe {
+                set_i32_property(
+                    lib,
+                    self.session,
+                    lib.kVTCompressionPropertyKey_AverageBitRate,
+                    average_bitrate_bps(kbps),
+                );
+            }
+        }
     }
 
     /// An empty source buffer for this session's frames: from the session's
@@ -2038,6 +2069,61 @@ mod vt_tests {
             offline_bytes * 10 >= budget * 8 && offline_bytes * 10 <= budget * 12,
             "frames 1/30 s apart must get their duration's bits ({budget} B): {offline_bytes} B \
              ({live_bytes} B stamped with the wall clock)"
+        );
+    }
+
+    /// A call's encoder follows its network: told a lower bitrate in the
+    /// middle of a stream, it spends that rate from then on - the same
+    /// stream, nothing re-opened. Noise frames stamped 1/30 s apart (the rate
+    /// control spends bits by the stamps): two seconds at 8000 kbps, then
+    /// the change to 3000 kbps; the first second after it is the rate
+    /// control settling and is not counted, the two seconds after that are.
+    #[test]
+    fn an_encoder_told_a_lower_bitrate_mid_stream_spends_it_from_then_on() {
+        use azul_css::corety::OptionU8Vec;
+
+        use crate::desktop::extra::video_codec::VideoEncoder;
+
+        if VtLib::get().is_none() {
+            eprintln!("VideoToolbox unavailable — skipping");
+            return;
+        }
+        let (w, h, high, low) = (320u32, 240u32, 8000u32, 3000u32);
+        let mut encoder = VideoEncoder::open(w, h, false, high);
+        assert!(encoder.is_open(), "an H.264 encoder opens on this Mac");
+        let (mut before, mut after) = (0usize, 0usize);
+        for f in 0..150u32 {
+            if f == 60 {
+                assert!(
+                    encoder.set_bitrate(low),
+                    "an open encoder takes a new bitrate"
+                );
+            }
+            assert!(encoder.encode_at(noise_frame(f, w, h), u64::from(f) * 33_333, f == 0));
+            encoder.flush();
+            let mut bytes = 0usize;
+            while let OptionU8Vec::Some(packet) = encoder.recv_packet() {
+                bytes += packet.as_ref().len();
+            }
+            match f {
+                0..=59 => before += bytes,
+                90.. => after += bytes,
+                _ => {}
+            }
+        }
+        let low_budget = 2 * low as usize * 1000 / 8;
+        eprintln!(
+            "two seconds of noise: {before} B at {high} kbps, {after} B after the change to \
+             {low} kbps (budget {low_budget} B)"
+        );
+        assert!(
+            after * 10 <= before * 6,
+            "after the change to {low} kbps the encoder still spends about what it did at \
+             {high} kbps: {after} B against {before} B"
+        );
+        assert!(
+            after * 10 >= low_budget * 5,
+            "the encoder spends far less than {low} kbps: {after} B of {low_budget} B"
         );
     }
 

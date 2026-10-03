@@ -40,7 +40,8 @@
 //! ```text
 //! [3][track u32][height u16]           keyframe request: the receiver waits for a keyframe (a PLI)
 //! [4][track u32][seq u32][height u16]  received: every H.264 packet through `seq` arrived
-//! [5][flags u8]   the sender of this message decodes H.264 (bit 0; JPEG always), encodes it (bit 1)
+//! [5][flags u8]   the sender of this message decodes H.264 (bit 0; JPEG always), encodes it (bit 1),
+//!                 decodes Opus audio (bit 2; 16-bit PCM always)
 //! ```
 //!
 //! A control names the rendition it is about; a missing height reads as 0. Kind 1 is the audio
@@ -205,12 +206,18 @@ pub enum Control {
     KeyframeRequest { track: u32, height: u16 },
     /// Every H.264 packet of the `height` rendition of `track` through `seq` arrived.
     Received { track: u32, seq: u32, height: u16 },
-    /// Whether the sender of this message decodes H.264, and whether it encodes it.
-    Caps { h264: bool, encodes: bool },
+    /// Whether the sender of this message decodes H.264, whether it encodes it, and whether it
+    /// decodes Opus audio (`audio::CODEC_OPUS`).
+    Caps {
+        h264: bool,
+        encodes: bool,
+        opus: bool,
+    },
 }
 
 const CAPS_H264: u8 = 1;
 const CAPS_ENCODES: u8 = 2;
+const CAPS_OPUS: u8 = 4;
 
 /// The request for a keyframe on the `height` rendition of `track`.
 pub fn encode_keyframe_request(track: u32, height: u16) -> Vec<u8> {
@@ -229,14 +236,18 @@ pub fn encode_received(track: u32, seq: u32, height: u16) -> Vec<u8> {
     out
 }
 
-/// The message saying whether this side decodes H.264 and whether it encodes it.
-pub fn encode_caps(h264: bool, encodes: bool) -> Vec<u8> {
+/// The message saying whether this side decodes H.264, whether it encodes it, and whether it
+/// decodes Opus audio.
+pub fn encode_caps(h264: bool, encodes: bool, opus: bool) -> Vec<u8> {
     let mut flags = 0;
     if h264 {
         flags |= CAPS_H264;
     }
     if encodes {
         flags |= CAPS_ENCODES;
+    }
+    if opus {
+        flags |= CAPS_OPUS;
     }
     vec![KIND_CAPS, flags]
 }
@@ -259,6 +270,7 @@ pub fn decode_control(bytes: &[u8]) -> Option<Control> {
             Some(Control::Caps {
                 h264: flags & CAPS_H264 != 0,
                 encodes: flags & CAPS_ENCODES != 0,
+                opus: flags & CAPS_OPUS != 0,
             })
         }
         _ => None,
@@ -912,28 +924,31 @@ mod tests {
                 height: 0
             })
         );
-        assert_eq!(encode_caps(true, false), vec![5, 1]);
-        assert_eq!(encode_caps(false, false), vec![5, 0]);
-        assert_eq!(encode_caps(true, true), vec![5, 3]);
+        assert_eq!(encode_caps(true, false, false), vec![5, 1]);
+        assert_eq!(encode_caps(false, false, false), vec![5, 0]);
+        assert_eq!(encode_caps(true, true, false), vec![5, 3]);
         assert_eq!(
-            decode_control(&encode_caps(true, false)),
+            decode_control(&encode_caps(true, false, false)),
             Some(Control::Caps {
                 h264: true,
-                encodes: false
+                encodes: false,
+                opus: false
             })
         );
         assert_eq!(
-            decode_control(&encode_caps(false, true)),
+            decode_control(&encode_caps(false, true, false)),
             Some(Control::Caps {
                 h264: false,
-                encodes: true
+                encodes: true,
+                opus: false
             })
         );
         assert_eq!(
-            decode_message(&encode_caps(true, true)),
+            decode_message(&encode_caps(true, true, false)),
             Some(Message::Control(Control::Caps {
                 h264: true,
-                encodes: true
+                encodes: true,
+                opus: false
             }))
         );
         // Later versions may append fields.
@@ -1518,6 +1533,31 @@ mod tests {
             send_line("camera", 450, 0, &keys, 1),
             "Sending camera: 450 H.264 packets, 0 JPEG frames, 8 keyframes, 2 on request, 5 \
              periodic, 0 reopens, 1 dropped on purpose"
+        );
+    }
+
+    /// Bit 2 of the caps says the sender decodes Opus; an older AzMeet never sets it, so it reads
+    /// as "PCM only" there.
+    #[test]
+    fn the_caps_say_whether_the_sender_decodes_opus() {
+        assert_eq!(encode_caps(false, false, true), vec![5, 4]);
+        assert_eq!(encode_caps(true, true, true), vec![5, 7]);
+        assert_eq!(
+            decode_control(&encode_caps(true, false, true)),
+            Some(Control::Caps {
+                h264: true,
+                encodes: false,
+                opus: true
+            })
+        );
+        assert_eq!(
+            decode_control(&[5, 3]),
+            Some(Control::Caps {
+                h264: true,
+                encodes: true,
+                opus: false
+            }),
+            "an older AzMeet's caps"
         );
     }
 }

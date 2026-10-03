@@ -163,6 +163,9 @@ impl VideoEncoder {
     pub fn encode_at(&self, _frame: VideoFrame, _timestamp_us: u64, _force_keyframe: bool) -> bool {
         false
     }
+    pub fn set_bitrate(&self, _kbps: u32) -> bool {
+        false
+    }
     pub fn recv_packet(&mut self) -> azul_css::corety::OptionU8Vec {
         azul_css::corety::OptionU8Vec::None
     }

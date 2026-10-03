@@ -2659,3 +2659,144 @@ mod nv12_tests {
         );
     }
 }
+
+/// RGB(A) frames into NV12: the conversion an NV12-only H.264 encoder
+/// (Vulkan Video) needs for a frame that is not NV12 already - the inverse
+/// of the one YCbCr table the decode side uses.
+#[cfg(test)]
+mod rgba_to_nv12_tests {
+    use super::*;
+
+    const FORMATS: [RawImageFormat; 4] = [
+        RawImageFormat::NV12Rec601Video,
+        RawImageFormat::NV12Rec601Full,
+        RawImageFormat::NV12Rec709Video,
+        RawImageFormat::NV12Rec709Full,
+    ];
+
+    fn flat(rgb: [u8; 3], width: usize, height: usize) -> Vec<u8> {
+        [rgb[0], rgb[1], rgb[2], 255].repeat(width * height)
+    }
+
+    #[test]
+    fn white_black_and_red_land_on_the_studio_values_of_each_matrix_and_range() {
+        // (format, colour) -> (Y, Cb, Cr): the reference values of BT.601 / BT.709.
+        let cases = [
+            (
+                RawImageFormat::NV12Rec601Video,
+                [255, 255, 255],
+                (235, 128, 128),
+            ),
+            (RawImageFormat::NV12Rec601Video, [0, 0, 0], (16, 128, 128)),
+            (RawImageFormat::NV12Rec601Video, [255, 0, 0], (81, 90, 240)),
+            (RawImageFormat::NV12Rec709Video, [255, 0, 0], (63, 102, 240)),
+            (
+                RawImageFormat::NV12Rec601Full,
+                [255, 255, 255],
+                (255, 128, 128),
+            ),
+            (RawImageFormat::NV12Rec601Full, [255, 0, 0], (76, 85, 255)),
+            (RawImageFormat::NV12Rec709Full, [0, 0, 0], (0, 128, 128)),
+        ];
+        for (format, rgb, (y, cb, cr)) in cases {
+            let nv12 = rgba_to_nv12(&flat(rgb, 4, 2), 4, 2, RawImageFormat::RGBA8, format)
+                .expect("an RGBA8 image converts");
+            assert_eq!(nv12.len(), 8 + 4, "4x2: eight luma bytes, two Cb,Cr pairs");
+            assert!(
+                nv12[..8].iter().all(|v| *v == y),
+                "{format:?} {rgb:?}: Y {:?}",
+                &nv12[..8]
+            );
+            assert_eq!(&nv12[8..], &[cb, cr, cb, cr], "{format:?} {rgb:?}: Cb,Cr");
+        }
+    }
+
+    #[test]
+    fn bgra_reads_its_own_channel_order() {
+        let red_bgra = [0u8, 0, 255, 255].repeat(4);
+        let from_bgra = rgba_to_nv12(
+            &red_bgra,
+            2,
+            2,
+            RawImageFormat::BGRA8,
+            RawImageFormat::NV12Rec601Video,
+        );
+        let from_rgba = rgba_to_nv12(
+            &flat([255, 0, 0], 2, 2),
+            2,
+            2,
+            RawImageFormat::RGBA8,
+            RawImageFormat::NV12Rec601Video,
+        );
+        assert_eq!(from_bgra, from_rgba);
+        assert!(from_bgra.is_some());
+    }
+
+    #[test]
+    fn a_picture_comes_back_through_the_decode_table_within_a_few_levels() {
+        // Colour ramps that step once per 2x2 block: 4:2:0 keeps one chroma
+        // pair per block, so what comes back differs only by the rounding of
+        // the two tables (a colour that changes inside a block loses that
+        // change to the block's average - 4:2:0 itself, not this function).
+        let (w, h) = (16usize, 8usize);
+        let mut rgba = Vec::with_capacity(w * h * 4);
+        for y in 0..h {
+            for x in 0..w {
+                let (bx, by) = (x / 2, y / 2);
+                rgba.extend_from_slice(&[
+                    (bx * 24) as u8,
+                    (by * 48) as u8,
+                    200 - (bx * 12) as u8,
+                    255,
+                ]);
+            }
+        }
+        for format in FORMATS {
+            let nv12 = rgba_to_nv12(&rgba, w, h, RawImageFormat::RGBA8, format).expect("converts");
+            let back = nv12_to_rgba(&nv12, w, h, format).expect("decodes");
+            let worst = rgba
+                .iter()
+                .zip(back.iter())
+                .map(|(a, b)| (i32::from(*a) - i32::from(*b)).abs())
+                .max()
+                .unwrap_or(0);
+            // Video range quantizes to 219 / 224 levels: a level or two.
+            assert!(worst <= 2, "{format:?}: off by {worst} levels");
+        }
+    }
+
+    #[test]
+    fn an_odd_sized_picture_keeps_its_last_column_and_row() {
+        let nv12 = rgba_to_nv12(
+            &flat([0, 0, 255], 3, 3),
+            3,
+            3,
+            RawImageFormat::RGBA8,
+            RawImageFormat::NV12Rec601Full,
+        )
+        .expect("converts");
+        assert_eq!(Some(nv12.len()), Nv12Layout::new(3, 3).checked_total_len());
+        let back = nv12_to_rgba(&nv12, 3, 3, RawImageFormat::NV12Rec601Full).expect("decodes");
+        for px in back.chunks_exact(4) {
+            assert!(
+                px[0] <= 2 && px[1] <= 2 && px[2] >= 253,
+                "blue came back as {px:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn what_is_not_rgb_in_or_nv12_out_or_too_short_is_refused() {
+        let rgba = flat([1, 2, 3], 2, 2);
+        let to = RawImageFormat::NV12Rec709Video;
+        assert!(rgba_to_nv12(&rgba, 2, 2, RawImageFormat::R8, to).is_none());
+        assert!(rgba_to_nv12(&rgba, 2, 2, to, to).is_none(), "NV12 in");
+        assert!(rgba_to_nv12(&rgba, 2, 2, RawImageFormat::RGBA8, RawImageFormat::RGBA8).is_none());
+        assert!(rgba_to_nv12(&rgba[..15], 2, 2, RawImageFormat::RGBA8, to).is_none());
+        assert_eq!(
+            rgba_to_nv12(&[], 0, 0, RawImageFormat::RGBA8, to),
+            Some(Vec::new()),
+            "an empty image is an empty NV12 image"
+        );
+    }
+}
