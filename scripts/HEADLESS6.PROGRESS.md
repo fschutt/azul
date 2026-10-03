@@ -46,19 +46,17 @@ Branch `wt/headless6` from base 25d78e309. Brief: scripts/waves/wave6/HEADLESS6.
 - E: 5dfd0ca5d RED / 58b722ef2 GREEN: begin_reconciliation installs the window context on the new
   StyledDom before the transition capture (2nd transition = inherited color #e8e8e8 -> light black;
   probe_e.py). Test layout/tests/a_rebuild_transitions_only_what_its_window_sees_change.rs.
+- SMALL6 screenshot bug: NOT a stale frame. Probe (AzShells, click S4, set_theme/set_mode): display lists
+  of consecutive screenshots identical; get_animations: 26 layout animations (FLIP slides from the
+  picker click's rebuild) decaying over ~300 ms wall clock. a9867c02e RED / ecb58ec9d GREEN
+  window_still_moving + settle_verdict; 2c782047c `wait_settled` op (debug timer queues the request in
+  E2eSession.settle_waiters, answers when settled or at timeout_ms, default 3000); gene2e OP_POLICY row.
 - coordinator (INFRA6 note): runner close protocol. 021331d4c RED / b150ef6ba GREEN
   (runner.rs close_unconfirmed + confirm_app_close + run_frame extracted; tests mod close_protocol_tests).
 
 ## IN PROGRESS
-- RESUMED after the power loss (coordinator: power back, probe runs allowed again, one at a time, capped).
-  Scratchpad was wiped: probes now in <scratchpad>/headless6/probe (client.py = debug-server client).
-  In-process check: `target/release/azul-doc e2e <dir>` (prebuilt) -> D, E, F, G PASS in-process, so they
-  are host-only. Solo runs (fresh process each, solo.sh) fail the same way -> not cross-scenario leaks.
-  NOW: SMALL6's bug (coordinator): first take_screenshot after set_theme + set_mode shows two layouts.
-  Repro: probe_s4.py (AzShells, click S4, set_theme same + set_mode light, shots b vs c differ: pane
-  splits move frame to frame; status-bar text drawn above its band). set_theme SAME is a no-op
-  (lw.app_theme == app_theme -> DoNothing). Dumping DLs (dl_N.json) to find duplicated / stale text. Then D (live CSS driver steps on the
-  wall clock under AZ_E2E: decide), then the report.
+- D: the live CSS animation driver steps on the wall clock under AZ_E2E (css-animation-multi: 197.333 /
+  117.336 = one extra 16.666 ms frame). Decide + implement, RED first. Then the report.
 
 ## NEXT
 - C..G need a probe run (power permitting): probe scenarios in scratchpad/probe.
