@@ -232,6 +232,19 @@ def stage_views(app, ctx):
     w.wait_for("#view-schedule")
     w.key("3", primary=True, alt=True)
     w.wait_for("#view-week")
+    # The view is kept for the next start: the file thread writes it into settings.txt.
+    settings_file = os.path.join(app.data, "settings.txt")
+
+    def kept_view():
+        try:
+            with open(settings_file, encoding="utf-8") as f:
+                lines = f.read().splitlines()
+        except FileNotFoundError:
+            return None
+        views = [l for l in lines if l.startswith("view=")]
+        return views[-1] if views else None
+
+    w.until("view=week in settings.txt", lambda: kept_view() == "view=week")
     # FILE opens the backstage over the window; Escape closes it.
     w.click(text="FILE")
     w.wait_for("#shell-backstage")
