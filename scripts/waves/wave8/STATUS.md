@@ -5,7 +5,7 @@ progress file"). Worktrees: /Users/fschutt/Development/azul/.claude/worktrees/ag
 
 | Task | Agent id | Branch | State |
 |---|---|---|---|
-| ANIM8 | a69fbac481ec54de5 | wt/anim8 | running (worktree .claude/worktrees/agent-a69fbac481ec54de5) |
+| ANIM8 | a69fbac481ec54de5 | wt/anim8 | DONE (22 commits; report scripts/ANIM8_2026_10_03.md; toggle: node hash was order-dependent -> reconcile swapped twin switches (core/src/dom.rs); hover fades never existed -> seed_state_change_transitions + 120 ms button fades; rebuild compares against restored states; no api.json; OPEN: a knob slide relayouts the whole page, 118-290 ms/frame -> LAYOUTPERF8) |
 | MAILREF8 | aac256efd68cb4d1a | wt/mailref8 | DONE then RESUMED for 2 ruling items (report scripts/MAILREF8_2026_10_03.md; base measure 531 boxes (target/refci/mail-wave8-base), ~95 expected; groups A/C/G/E1/F fixed; B Postmark -> XML8; now: sans-serif -> Helvetica on macOS, <hr> 2px) |
 | WPT8 | ab3291d23e4f4deb8 | wt/wpt8 | running (worktree .claude/worktrees/agent-ab3291d23e4f4deb8) |
 | WAYLAND8 | a5a0fcdd7da40495e | wt/wayland8 | DONE (38 commits; report scripts/WAYLAND8_2026_10_03.md; udmabuf-ready shm (sealed memfd, 256-byte pitch, page-aligned slots), idle spare slot released, one shm allocator, X11 MIT-SHM with XPutImage fallback; no api.json; needs a Linux run) |
