@@ -17,6 +17,7 @@
 //!   its pictures (`Xml::scan_external_resources`);
 //! - [`sample`]: the `--sample` library.
 
+pub mod dates;
 pub mod ids;
 pub mod xmltree;
 
