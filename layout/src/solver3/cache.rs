@@ -1555,6 +1555,30 @@ impl TableParent {
 /// tree: an anonymous box above it has no DOM id to be matched by) and
 /// record its subtree hash.
 #[allow(clippy::too_many_arguments)] // reconcile_recursive's own state, passed through
+/// The old layout node a child of a reconciled parent is matched with: the
+/// parent's direct old child of the same DOM node, or - for a child that sat
+/// in a box the parent's layout built around it (an anonymous block holding
+/// an inline run, an anonymous table box) - that DOM node's first layout
+/// node anywhere in the old tree.
+///
+/// The ONE lookup for such children. The run that ENDS a box after a block
+/// used the direct-children map alone and never found its children (they
+/// are in the anonymous block, not under the parent): they were rebuilt
+/// fresh by every reconcile, and every relayout re-laid out their ancestors
+/// up to the root - AzWidgets' form column, which ends with its "Send the
+/// raw form" button, on every switch-knob frame.
+fn old_layout_index_of(
+    old_children_by_dom: &BTreeMap<NodeId, usize>,
+    old_tree: Option<&LayoutTree>,
+    dom_id: NodeId,
+) -> Option<usize> {
+    old_children_by_dom.get(&dom_id).copied().or_else(|| {
+        old_tree
+            .and_then(|t| t.dom_to_layout.get(&dom_id))
+            .and_then(|v| v.first().copied().map(LayoutNodeId::index))
+    })
+}
+
 fn reconcile_child_under(
     styled_dom: &StyledDom,
     child_dom_id: NodeId,
@@ -1568,11 +1592,7 @@ fn reconcile_child_under(
     dom_diff_clean: Option<&[bool]>,
     new_child_hashes: &mut Vec<u64>,
 ) -> Result<usize> {
-    let old_child_idx = old_children_by_dom.get(&child_dom_id).copied().or_else(|| {
-        old_tree
-            .and_then(|t| t.dom_to_layout.get(&child_dom_id))
-            .and_then(|v| v.first().copied().map(LayoutNodeId::index))
-    });
+    let old_child_idx = old_layout_index_of(old_children_by_dom, old_tree, child_dom_id);
     let child_idx = reconcile_recursive(
         styled_dom,
         child_dom_id,
@@ -2462,19 +2482,10 @@ pub fn reconcile_recursive(
                         for (pos, inline_dom_id) in inline_run.drain(..) {
                             // Inline children live under the anon wrapper
                             // in the old tree, so the parent's direct
-                            // `old_children_by_dom` map won't hit them.
-                            // Fall through to the global `dom_to_layout`
-                            // map; we don't care which anon wrapper they
-                            // were under, only that their cold data
-                            // (fingerprint) gets matched correctly.
-                            let old_child_idx = old_children_by_dom
-                                .get(&inline_dom_id)
-                                .copied()
-                                .or_else(|| {
-                                    old_tree
-                                        .and_then(|t| t.dom_to_layout.get(&inline_dom_id))
-                                        .and_then(|v| v.first().copied().map(LayoutNodeId::index))
-                                });
+                            // `old_children_by_dom` map won't hit them; the
+                            // lookup falls through to the whole old tree.
+                            let old_child_idx =
+                                old_layout_index_of(&old_children_by_dom, old_tree, inline_dom_id);
                             let reconciled_child_idx = reconcile_recursive(
                                 styled_dom,
                                 inline_dom_id,
@@ -2616,7 +2627,10 @@ pub fn reconcile_recursive(
                 // accumulator Vec reused across runs; drain(..) empties it while retaining the
                 // allocation
                 for (pos, inline_dom_id) in inline_run.drain(..) {
-                    let old_child_idx = old_children_by_dom.get(&inline_dom_id).copied();
+                    // In the anonymous block, not under the parent: the same
+                    // lookup as the runs before a block (`old_layout_index_of`).
+                    let old_child_idx =
+                        old_layout_index_of(&old_children_by_dom, old_tree, inline_dom_id);
                     let reconciled_child_idx = reconcile_recursive(
                         styled_dom,
                         inline_dom_id,
