@@ -467,6 +467,9 @@ pub struct Chart {
     /// The widget theme this chart is PINNED to (`with_theme`), or `None` to
     /// follow the app theme.
     pub theme: OptionUiTheme,
+    /// The accent the selection ring and the focus ring wear, or `None` for
+    /// the theme's (`with_shell_accent`: the app's accent family).
+    pub accent: OptionChartColor,
     /// The legend under the plot (shown for two or more series, and for a
     /// pie's slices).
     pub show_legend: bool,
@@ -495,6 +498,7 @@ impl Chart {
             height,
             kind,
             theme: OptionUiTheme::None,
+            accent: OptionChartColor::None,
             show_legend: true,
             show_grid: true,
             show_table: false,
@@ -682,6 +686,38 @@ impl Chart {
     #[must_use]
     pub const fn with_theme(mut self, theme: UiTheme) -> Self {
         self.set_theme(theme);
+        self
+    }
+
+    /// The accent of the selection ring and the focus ring (never of a
+    /// series: an accent is one colour, a palette many).
+    pub const fn set_accent(&mut self, accent: ChartColor) {
+        self.accent = OptionChartColor::Some(accent);
+    }
+
+    /// [`Self::set_accent`] for the builder chain.
+    #[must_use]
+    pub const fn with_accent(mut self, accent: ChartColor) -> Self {
+        self.set_accent(accent);
+        self
+    }
+
+    /// The app's accent family as the chart's accent: its stone by day,
+    /// its glow at night (`ShellThemeAccent::colors`).
+    pub const fn set_shell_accent(&mut self, accent: crate::widgets::shells::ShellThemeAccent) {
+        self.set_accent(ChartColor::create(
+            accent.colors(false).accent,
+            accent.colors(true).glow,
+        ));
+    }
+
+    /// [`Self::set_shell_accent`] for the builder chain.
+    #[must_use]
+    pub const fn with_shell_accent(
+        mut self,
+        accent: crate::widgets::shells::ShellThemeAccent,
+    ) -> Self {
+        self.set_shell_accent(accent);
         self
     }
 
@@ -2040,6 +2076,428 @@ pub(crate) fn wedge_ring(cx: f32, cy: f32, r_out: f32, r_in: f32, a0: f32, a1: f
         pts.push(pt(cx, cy));
     }
     ring(&pts, true)
+}
+
+// ==== the look ====
+
+/// The series colours in their fixed order - blue, orange, aqua, yellow,
+/// magenta, green, violet, red - each a light-mode step and its dark-mode
+/// step. The ORDER is what keeps neighbours apart for colour-blind readers
+/// (checked with the dataviz validator on the flat and flora surfaces in
+/// both modes: every adjacent pair clears 8 dE under deutan / protan /
+/// tritan simulation and 15 dE in full colour); three light steps sit under
+/// 3:1 on a light surface, which is why the legend and the table view are
+/// there.
+pub const CHART_PALETTE: [ChartColor; PALETTE_LEN] = [
+    ChartColor::create(ColorU::rgb(0x2A, 0x78, 0xD6), ColorU::rgb(0x39, 0x87, 0xE5)),
+    ChartColor::create(ColorU::rgb(0xEB, 0x68, 0x34), ColorU::rgb(0xD9, 0x59, 0x26)),
+    ChartColor::create(ColorU::rgb(0x1B, 0xAF, 0x7A), ColorU::rgb(0x19, 0x9E, 0x70)),
+    ChartColor::create(ColorU::rgb(0xED, 0xA1, 0x00), ColorU::rgb(0xC9, 0x85, 0x00)),
+    ChartColor::create(ColorU::rgb(0xE8, 0x7B, 0xA4), ColorU::rgb(0xD5, 0x51, 0x81)),
+    ChartColor::create(ColorU::rgb(0x00, 0x83, 0x00), ColorU::rgb(0x00, 0x83, 0x00)),
+    ChartColor::create(ColorU::rgb(0x4A, 0x3A, 0xA7), ColorU::rgb(0x90, 0x85, 0xE9)),
+    ChartColor::create(ColorU::rgb(0xE3, 0x49, 0x48), ColorU::rgb(0xE6, 0x67, 0x67)),
+];
+
+/// What one widget theme decides about a chart: its surface, inks and
+/// metrics. Built by `themes::flat::chart_skin` and
+/// `themes::flora::chart_skin`; [`ChartLook`] builds every part from it.
+#[derive(Debug, Clone)]
+pub(crate) struct ChartSkin {
+    /// The root: the chart's surface, its face (family and size), its ink
+    /// and its corners.
+    pub(crate) root: Vec<CssPropertyWithConditions>,
+    /// The title: its size, weight and ink.
+    pub(crate) title: Vec<CssPropertyWithConditions>,
+    /// A tick label: the muted ink, a small size.
+    pub(crate) tick: Vec<CssPropertyWithConditions>,
+    /// An axis title and a legend name: the secondary ink.
+    pub(crate) caption: Vec<CssPropertyWithConditions>,
+    /// The tooltip's tip: the tooltip widget's own skin.
+    pub(crate) tip: Vec<CssPropertyWithConditions>,
+    /// The table view's header cells.
+    pub(crate) table_head: Vec<CssPropertyWithConditions>,
+    /// The table view's cells.
+    pub(crate) table_cell: Vec<CssPropertyWithConditions>,
+    /// The surface under the plot: the gap between touching marks and the
+    /// ring around a dot or a marker are this colour.
+    pub(crate) surface: ChartColor,
+    /// A gridline.
+    pub(crate) grid: ChartColor,
+    /// The baseline.
+    pub(crate) axis: ChartColor,
+    /// The crosshair at the hovered x.
+    pub(crate) crosshair: ChartColor,
+    /// The selection ring and the plot's focus ring.
+    pub(crate) accent: ChartColor,
+    /// The series colours, in order.
+    pub(crate) palette: [ChartColor; PALETTE_LEN],
+    /// The theme's marker class on the root, if it has one.
+    pub(crate) marker: Option<&'static str>,
+}
+
+/// The skins a chart is built with: the pinned theme's, or - unpinned -
+/// flat's and flora's, every part carrying both, each theme's declarations
+/// in its `@theme(<name>)` block (`theme_blocks::follow_props`). The DOM is
+/// built ONCE either way: a chart of 500k points is not decimated twice.
+#[derive(Debug, Clone)]
+pub(crate) struct ChartLook {
+    skins: Vec<ChartSkin>,
+    /// The theme marker on the root: the pinned theme's, or the one of the
+    /// theme the DOM is built for.
+    pub(crate) marker: Option<&'static str>,
+    /// The accent the app chose (`Chart::with_accent`), over the skins'.
+    accent: Option<ChartColor>,
+}
+
+impl ChartLook {
+    /// The look `theme` pins, or the look that follows the app theme.
+    pub(crate) fn of(theme: OptionUiTheme, accent: Option<ChartColor>) -> Self {
+        use crate::widgets::themes::{flat, flora};
+        match theme.into_option() {
+            Some(UiTheme::Flat) => {
+                let s = flat::chart_skin();
+                Self {
+                    marker: s.marker,
+                    skins: alloc::vec![s],
+                    accent,
+                }
+            }
+            Some(UiTheme::Flora) => {
+                let s = flora::chart_skin();
+                Self {
+                    marker: s.marker,
+                    skins: alloc::vec![s],
+                    accent,
+                }
+            }
+            None => {
+                let (a, b) = (flat::chart_skin(), flora::chart_skin());
+                let marker = match UiTheme::current() {
+                    UiTheme::Flat => a.marker,
+                    UiTheme::Flora => b.marker,
+                };
+                Self {
+                    skins: alloc::vec![a, b],
+                    marker,
+                    accent,
+                }
+            }
+        }
+    }
+
+    /// One part, built from every skin by `f` and merged.
+    pub(crate) fn part(
+        &self,
+        f: impl Fn(&ChartSkin) -> Vec<CssPropertyWithConditions>,
+    ) -> CssPropertyWithConditionsVec {
+        use crate::widgets::themes::theme_blocks::follow_props;
+        match self.skins.as_slice() {
+            [one] => CssPropertyWithConditionsVec::from_vec(f(one)),
+            [flat, flora] => follow_props(&f(flat), &f(flora)),
+            _ => CssPropertyWithConditionsVec::from_const_slice(&[]),
+        }
+    }
+
+    /// `base` (the part's structure, the same in every theme), then the
+    /// skin's paint `f` - the base declared once, outside every block.
+    pub(crate) fn on_base(
+        &self,
+        base: &[CssPropertyWithConditions],
+        f: impl Fn(&ChartSkin) -> Vec<CssPropertyWithConditions>,
+    ) -> CssPropertyWithConditionsVec {
+        self.part(|s| {
+            let mut v = base.to_vec();
+            v.extend(f(s));
+            v
+        })
+    }
+
+    /// The accent in `skin`: the app's if it chose one.
+    fn accent_of(&self, skin: &ChartSkin) -> ChartColor {
+        self.accent.unwrap_or(skin.accent)
+    }
+}
+
+/// Series `index`'s colour in `skin`: its own, or its slot in the palette
+/// (a ninth series starts the order again).
+#[must_use]
+pub(crate) fn series_color(series: &ChartSeries, index: usize, skin: &ChartSkin) -> ChartColor {
+    series
+        .color
+        .into_option()
+        .unwrap_or(skin.palette[index % PALETTE_LEN])
+}
+
+/// A fill in `color`, with its dark step.
+fn fill_of(color: ChartColor) -> Vec<CssPropertyWithConditions> {
+    crate::widgets::themes::decl::themed_fill(color.light, color.dark).to_vec()
+}
+
+/// A wash of `color`: the fill at about a tenth of its strength (a sixth
+/// at night, where a tenth vanishes).
+fn wash_of(color: ChartColor) -> Vec<CssPropertyWithConditions> {
+    crate::widgets::themes::decl::themed_fill(
+        ColorU {
+            a: 26,
+            ..color.light
+        },
+        ColorU {
+            a: 42,
+            ..color.dark
+        },
+    )
+    .to_vec()
+}
+
+/// A stroke of `width` px in `color`: `stroke` / `stroke-width` are the
+/// border's spellings, and on a node with an SVG path the display list
+/// strokes the path with them instead of drawing a box border.
+fn stroke_of(color: ChartColor, width: isize) -> Vec<CssPropertyWithConditions> {
+    use crate::widgets::themes::decl;
+    let mut v = decl::border(width).to_vec();
+    v.extend(decl::themed_border_color(color.light, color.dark));
+    v
+}
+
+// ==== the text summary and the table view ====
+
+impl Chart {
+    /// The chart in words, for a screen reader (the plot's description):
+    /// what it is, its series and their ranges ("Revenue: line chart of 2
+    /// series over 12 categories, Jan to Dec. North: 12 points, lowest 10,
+    /// highest 98, last 54. ...").
+    #[must_use]
+    pub fn summary(&self) -> AzString {
+        AzString::from(summary_text(self))
+    }
+}
+
+/// The name of category `c`: its name, or its number counted from 1.
+fn category_name(categories: &[AzString], c: usize) -> String {
+    categories
+        .get(c)
+        .map_or_else(|| format!("{}", c + 1), |s| String::from(s.as_str()))
+}
+
+/// The finite (lowest, highest, sum, count, last) of a series' y.
+fn y_stats(points: &[ChartPoint]) -> Option<(f64, f64, f64, usize, f64)> {
+    let mut lo = f64::INFINITY;
+    let mut hi = f64::NEG_INFINITY;
+    let mut sum = 0.0;
+    let mut n = 0usize;
+    let mut last = f64::NAN;
+    for p in points {
+        if p.y.is_finite() {
+            lo = lo.min(p.y);
+            hi = hi.max(p.y);
+            sum += p.y;
+            n += 1;
+            last = p.y;
+        }
+    }
+    (n > 0).then_some((lo, hi, sum, n, last))
+}
+
+/// The values a pie shows: series 0's y per category.
+fn pie_values(chart: &Chart) -> Vec<f64> {
+    let bands = band_count(chart);
+    let mut values = alloc::vec![f64::NAN; bands];
+    if let Some(s) = chart.series.as_slice().first() {
+        for p in s.points.as_slice() {
+            if let Some(c) = category_of(p.x, bands) {
+                values[c] = p.y;
+            }
+        }
+    }
+    values
+}
+
+/// [`Chart::summary`].
+fn summary_text(chart: &Chart) -> String {
+    let categories = chart.categories.as_slice();
+    let mut out = String::new();
+    if !chart.title.as_str().is_empty() {
+        out.push_str(chart.title.as_str());
+        out.push_str(": ");
+    }
+    let series = chart.series.as_slice();
+    if chart.kind.is_round() {
+        let values = pie_values(chart);
+        let slices = pie_slices(&values);
+        let total: f64 = slices.iter().map(|s| s.value).sum();
+        out.push_str(&format!(
+            "{} of {} categories",
+            chart.kind.noun(),
+            values.len()
+        ));
+        for s in slices.iter().filter(|s| s.value > 0.0) {
+            let name = if s.other {
+                String::from("Other")
+            } else {
+                category_name(categories, s.index)
+            };
+            let share = if total > 0.0 {
+                s.value / total * 100.0
+            } else {
+                0.0
+            };
+            out.push_str(&format!(
+                ". {name}: {} ({share:.0}%)",
+                format_value(s.value)
+            ));
+        }
+        out.push('.');
+        return out;
+    }
+    out.push_str(&format!("{} of {} series", chart.kind.noun(), series.len()));
+    let bands = band_count(chart);
+    if bands > 0 {
+        out.push_str(&format!(
+            " over {bands} categories, {} to {}",
+            category_name(categories, 0),
+            category_name(categories, bands - 1)
+        ));
+    } else if let Some((lo, hi)) = x_extent(chart) {
+        out.push_str(&format!(
+            ", x from {} to {}",
+            format_value(lo),
+            format_value(hi)
+        ));
+    }
+    for s in series.iter().take(PALETTE_LEN) {
+        let points = s.points.as_slice();
+        out.push_str(&format!(". {}: ", s.name.as_str()));
+        match y_stats(points) {
+            Some((lo, hi, _, n, last)) => {
+                out.push_str(&format!(
+                    "{} points, lowest {}, highest {}",
+                    format_value(n as f64),
+                    format_value(lo),
+                    format_value(hi)
+                ));
+                if matches!(chart.kind, ChartKind::Line | ChartKind::Area) {
+                    out.push_str(&format!(", last {}", format_value(last)));
+                }
+            }
+            None => out.push_str("no values"),
+        }
+    }
+    if series.len() > PALETTE_LEN {
+        out.push_str(&format!(". And {} more series", series.len() - PALETTE_LEN));
+    }
+    out.push('.');
+    out
+}
+
+/// The table view's header and rows: a row per category (a pie: the
+/// category, its value and its share); on a number axis a row per point -
+/// or, past [`MAX_TABLE_ROWS`] points in a series, one summary row per
+/// series (its points, lowest, highest, mean and last value).
+#[must_use]
+pub(crate) fn table_rows(chart: &Chart) -> (Vec<String>, Vec<Vec<String>>) {
+    let categories = chart.categories.as_slice();
+    let series = chart.series.as_slice();
+    if chart.kind.is_round() {
+        let values = pie_values(chart);
+        let total: f64 = values.iter().filter(|v| v.is_finite() && **v > 0.0).sum();
+        let rows = values
+            .iter()
+            .enumerate()
+            .take(MAX_TABLE_ROWS)
+            .map(|(c, v)| {
+                let share = if total > 0.0 && v.is_finite() && *v > 0.0 {
+                    format!("{:.0}%", v / total * 100.0)
+                } else {
+                    String::from("-")
+                };
+                alloc::vec![category_name(categories, c), format_value(*v), share]
+            })
+            .collect();
+        let head = alloc::vec![
+            String::from("Category"),
+            series
+                .first()
+                .map_or_else(|| String::from("Value"), |s| String::from(s.name.as_str())),
+            String::from("Share"),
+        ];
+        return (head, rows);
+    }
+    let bands = band_count(chart);
+    if bands > 0 {
+        let mut head = alloc::vec![String::from("Category")];
+        head.extend(series.iter().map(|s| String::from(s.name.as_str())));
+        let mut grid =
+            alloc::vec![alloc::vec![String::from("-"); series.len()]; bands.min(MAX_TABLE_ROWS)];
+        for (s, ser) in series.iter().enumerate() {
+            for p in ser.points.as_slice() {
+                if let Some(c) = category_of(p.x, bands) {
+                    if let Some(row) = grid.get_mut(c) {
+                        row[s] = format_value(p.y);
+                    }
+                }
+            }
+        }
+        let rows = grid
+            .into_iter()
+            .enumerate()
+            .map(|(c, values)| {
+                let mut row = alloc::vec![category_name(categories, c)];
+                row.extend(values);
+                row
+            })
+            .collect();
+        return (head, rows);
+    }
+    let big = series.iter().any(|s| s.points.len() > MAX_TABLE_ROWS);
+    if big {
+        let head = ["Series", "Points", "Lowest", "Highest", "Mean", "Last"]
+            .iter()
+            .map(|s| String::from(*s))
+            .collect();
+        let rows = series
+            .iter()
+            .map(|s| {
+                let name = String::from(s.name.as_str());
+                match y_stats(s.points.as_slice()) {
+                    Some((lo, hi, sum, n, last)) => alloc::vec![
+                        name,
+                        format_value(n as f64),
+                        format_value(lo),
+                        format_value(hi),
+                        format_value(sum / n as f64),
+                        format_value(last),
+                    ],
+                    None => alloc::vec![
+                        name,
+                        String::from("0"),
+                        String::from("-"),
+                        String::from("-"),
+                        String::from("-"),
+                        String::from("-"),
+                    ],
+                }
+            })
+            .collect();
+        return (head, rows);
+    }
+    let head = ["Series", "x", "y"]
+        .iter()
+        .map(|s| String::from(*s))
+        .collect();
+    let rows = series
+        .iter()
+        .flat_map(|s| {
+            s.points.as_slice().iter().map(move |p| {
+                alloc::vec![
+                    String::from(s.name.as_str()),
+                    format_value(p.x),
+                    format_value(p.y)
+                ]
+            })
+        })
+        .collect();
+    (head, rows)
 }
 
 // CHART7-NEXT: the geometry, the build, the pointer and the keys.
