@@ -515,6 +515,13 @@ pub mod data_table;
 /// view for screen readers; a long line decimated per pixel column. Drawn
 /// with the engine's SVG path; see `chart.rs`.
 pub mod chart;
+/// Toolbar widget.
+///
+/// A row of tool buttons, toggles, drop-down buttons, separators, spacers
+/// and embedded app controls; the items that do not fit move into a "more"
+/// menu when the bar is narrow; one Tab stop, the arrows walk the tools
+/// (WAI-ARIA APG toolbar); see `toolbar.rs`.
+pub mod toolbar;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
