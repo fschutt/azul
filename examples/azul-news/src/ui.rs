@@ -506,6 +506,801 @@ fn input(value: &str, placeholder: &str, id: AzString, app: &RefAny, cb: TextInp
         .with_id(id)
 }
 
+// ==== Navigation ====
+
+/// A badge's text: the count, nothing for none.
+fn badge(n: usize) -> String {
+    if n == 0 {
+        String::new()
+    } else {
+        n.to_string()
+    }
+}
+
+/// The view of each node of the navigation pane's two groups, in the depth-first order the
+/// pane's events count in (collapsed subtrees included): the order [`navigation`] adds them.
+#[must_use]
+pub fn navigation_views(lib: &Library) -> [Vec<View>; 2] {
+    let mut articles = vec![View::All, View::Unread, View::Starred, View::Later];
+    if !lib.broken().is_empty() {
+        articles.push(View::Broken);
+    }
+    let mut feeds = vec![View::All];
+    for folder in lib.folders() {
+        feeds.push(View::Folder(folder.clone()));
+        for f in lib.feeds.iter().filter(|f| f.sub.folder == folder) {
+            feeds.push(View::Feed(f.sub.id.clone()));
+        }
+    }
+    for f in lib.feeds.iter().filter(|f| f.sub.folder.is_empty()) {
+        feeds.push(View::Feed(f.sub.id.clone()));
+    }
+    [articles, feeds]
+}
+
+fn navigation(s: &NewsApp, app: &RefAny) -> Dom {
+    let lib = &s.library;
+    let reading_articles = matches!(s.reading, Reading::Article);
+    let sel = |v: &View| reading_articles && s.view == *v;
+    let mut articles = TreeViewNode::create("All articles")
+        .with_icon("inbox")
+        .with_badge(badge(lib.unread_total()))
+        .with_expanded(true)
+        .with_selected(sel(&View::All))
+        .with_child(
+            TreeViewNode::create("Unread")
+                .with_icon("mark_email_unread")
+                .with_badge(badge(lib.unread_total()))
+                .with_selected(sel(&View::Unread)),
+        )
+        .with_child(
+            TreeViewNode::create("Starred")
+                .with_icon("star")
+                .with_badge(badge(lib.starred_count()))
+                .with_selected(sel(&View::Starred)),
+        )
+        .with_child(
+            TreeViewNode::create("Read later")
+                .with_icon("bookmark")
+                .with_badge(badge(lib.later_count()))
+                .with_selected(sel(&View::Later)),
+        );
+    let broken = lib.broken();
+    if !broken.is_empty() {
+        articles = articles.with_child(
+            TreeViewNode::create("Broken feeds")
+                .with_icon("error")
+                .with_badge(badge(broken.len()))
+                .with_selected(sel(&View::Broken)),
+        );
+    }
+    let feed_node = |i: usize| -> TreeViewNode {
+        let f = &lib.feeds[i];
+        let page_open = matches!(&s.reading, Reading::Feed(id) if *id == f.sub.id);
+        TreeViewNode::create(f.name())
+            .with_icon(if f.meta.error.is_empty() { "rss_feed" } else { "error" })
+            .with_badge(badge(lib.unread(i)))
+            .with_selected(sel(&View::Feed(f.sub.id.clone())) || page_open)
+    };
+    let mut feeds = TreeViewNode::create("Subscriptions").with_icon("rss_feed").with_expanded(true);
+    for folder in lib.folders() {
+        let mut node = TreeViewNode::create(folder.as_str())
+            .with_icon("folder")
+            .with_expanded(true)
+            .with_badge(badge(lib.unread_in_folder(&folder)))
+            .with_selected(sel(&View::Folder(folder.clone())));
+        for i in (0..lib.feeds.len()).filter(|&i| lib.feeds[i].sub.folder == folder) {
+            node = node.with_child(feed_node(i));
+        }
+        feeds = feeds.with_child(node);
+    }
+    for i in (0..lib.feeds.len()).filter(|&i| lib.feeds[i].sub.folder.is_empty()) {
+        feeds = feeds.with_child(feed_node(i));
+    }
+    ShellNavigationPane::create()
+        .with_header(primary("Add feed", ids::NAV_ADD, app, on_add_open))
+        .with_group(
+            ShellNavigationGroup::create("Articles", articles)
+                .with_count(lib.unread_total())
+                .with_open(s.nav_open[0]),
+        )
+        .with_group(
+            ShellNavigationGroup::create("Feeds", feeds)
+                .with_count(lib.feeds.len())
+                .with_open(s.nav_open[1]),
+        )
+        .with_label("Feeds and folders")
+        .with_on_event(app.clone(), on_nav as ShellNavigationPaneOnEventCallbackType)
+        .dom()
+}
+
+// ==== The list ====
+
+struct RowRef {
+    app: RefAny,
+    feed: String,
+    item: String,
+}
+
+/// The list's heading for the view.
+fn view_title(s: &NewsApp) -> String {
+    match &s.view {
+        View::All => "All articles".to_string(),
+        View::Unread => "Unread".to_string(),
+        View::Starred => "Starred".to_string(),
+        View::Later => "Read later".to_string(),
+        View::Broken => "Broken feeds".to_string(),
+        View::Folder(name) => name.clone(),
+        View::Feed(id) => s
+            .library
+            .feed_index(id)
+            .map_or_else(String::new, |i| s.library.feeds[i].name().to_string()),
+    }
+}
+
+/// An article's title for the list and the pane: its own, else the start of its text.
+fn title_of(item: &Item) -> String {
+    if item.title.trim().is_empty() {
+        let start = reader::cut_at_word(&item.excerpt, 80);
+        if start.is_empty() {
+            "(no title)".to_string()
+        } else {
+            start
+        }
+    } else {
+        item.title.clone()
+    }
+}
+
+fn article_row(s: &NewsApp, app: &RefAny, r: ArticleRef, index: usize, now: i64, selected: Option<ArticleRef>) -> Dom {
+    let lib = &s.library;
+    let feed = &lib.feeds[r.feed];
+    let item = &feed.items[r.item];
+    let unread = !lib.is_read(r);
+    let title = title_of(item);
+    let mut head = vec![
+        block(
+            "width: 12px; flex-shrink: 0; font-size: 10px; color: #2f74d0;",
+            text(if unread { "\u{25cf}" } else { "" }),
+        ),
+        block(
+            &format!(
+                "flex-grow: 1; min-width: 0px; font-size: 13px; {}",
+                if unread { "font-weight: 700;" } else { "" }
+            ),
+            text(title.as_str()),
+        ),
+    ];
+    if lib.is_starred(r) {
+        head.push(block("padding-left: 4px; font-size: 12px;", text("\u{2605}")));
+    }
+    let meta = format!("{} \u{b7} {}", feed.name(), age(item.date(), now));
+    column(
+        &format!(
+            "padding: 6px 8px; cursor: pointer; border-bottom: 1px solid rgba(128, 128, 128, 0.15); {}",
+            if selected == Some(r) { "background-color: rgba(64, 128, 255, 0.18);" } else { "" }
+        ),
+        vec![
+            row("", head),
+            block("padding-left: 12px; font-size: 11px; opacity: 0.7;", text(meta)),
+            block(
+                "padding-left: 12px; font-size: 12px; opacity: 0.8; max-height: 2.9em; overflow: hidden;",
+                text(item.excerpt.as_str()),
+            ),
+        ],
+    )
+    .with_id(ids::article(index))
+    .with_class(ids::ARTICLE_ROW_CLASS)
+    .with_accessibility_name(title)
+    .with_callback(
+        EventFilter::Hover(HoverEventFilter::MouseUp),
+        RefAny::new(RowRef {
+            app: app.clone(),
+            feed: feed.sub.id.clone(),
+            item: item.id.clone(),
+        }),
+        on_row,
+    )
+}
+
+fn list_pane(s: &NewsApp, app: &RefAny) -> Dom {
+    let now = now_secs();
+    let list = s.list();
+    let selected = s.selected_ref();
+    let search = TextInput::create_search()
+        .with_text(s.query.as_str())
+        .with_placeholder("Search articles")
+        .with_accessibility_name("Search articles")
+        .with_on_text_input(app.clone(), on_search as TextInputOnTextInputCallbackType)
+        .dom()
+        .with_id(ids::LIST_SEARCH);
+    let filter = Segmented::create(strs(&["All", "Unread"]))
+        .with_selected_index(usize::from(s.unread_only))
+        .with_on_change(app.clone(), on_filter as SegmentedOnChangeCallbackType)
+        .dom()
+        .with_id(ids::LIST_FILTER);
+    let heading = block(
+        "padding: 6px 8px 2px 8px; font-size: 12px; font-weight: 600;",
+        text(format!("{} \u{b7} {}", view_title(s), list.len())),
+    )
+    .with_id(ids::LIST_HEADING);
+    let body = if !s.loaded {
+        block("padding: 16px; opacity: 0.7;", text("Reading your feeds\u{2026}"))
+    } else if s.library.feeds.is_empty() {
+        ShellEmptyState::create("No feeds yet")
+            .with_icon("rss_feed")
+            .with_detail("Add a feed by its address or a website's, or import an OPML file from another reader.")
+            .with_action_label("Add feed")
+            .with_on_action(app.clone(), on_add_open as ButtonOnClickCallbackType)
+            .dom()
+    } else if list.is_empty() {
+        ShellEmptyState::create("Nothing here")
+            .with_icon("search")
+            .with_detail(if s.query.trim().is_empty() {
+                "No articles in this view.".to_string()
+            } else {
+                format!("No article matches \u{201c}{}\u{201d}.", s.query.trim())
+            })
+            .dom()
+    } else {
+        let mut out = Dom::create_div()
+            .with_id(ids::ARTICLE_LIST)
+            .with_css("display: flex; flex-direction: column; flex-grow: 1; overflow-y: auto; min-height: 0px;");
+        let shown = &list[..list.len().min(s.list_limit)];
+        let today = chrono::Local::now().date_naive();
+        let mut index = 0;
+        for (group, members) in s.library.sections(shown, today, local_offset_secs()) {
+            out.add_child(
+                block(
+                    "padding: 8px 8px 2px 8px; font-size: 11px; font-weight: 700; opacity: 0.8;",
+                    text(group.label()),
+                )
+                .with_class(ids::DAY_HEADER_CLASS),
+            );
+            for r in members {
+                out.add_child(article_row(s, app, r, index, now, selected));
+                index += 1;
+            }
+        }
+        if list.len() > shown.len() {
+            out.add_child(block(
+                "padding: 8px;",
+                Button::create(format!("Show {} more", (list.len() - shown.len()).min(LIST_PAGE)))
+                    .with_on_click(app.clone(), on_show_more as ButtonOnClickCallbackType)
+                    .dom(),
+            ));
+        }
+        out
+    };
+    let mut children = vec![
+        row("padding: 6px 8px; gap: 6px;", vec![block("flex-grow: 1;", search), filter]),
+        heading,
+    ];
+    if s.confirm_mark_all {
+        children.push(
+            row(
+                "padding: 6px 8px; gap: 6px; font-size: 12px;",
+                vec![
+                    block("flex-grow: 1;", text(format!("Mark the {} articles here as read?", list.len()))),
+                    primary("Mark as read", ids::MARK_ALL_YES, app, on_mark_all_yes),
+                    button("Cancel", ids::MARK_ALL_NO, app, on_mark_all_no),
+                ],
+            )
+            .with_id(ids::MARK_ALL_CONFIRM),
+        );
+    }
+    children.push(body);
+    column("flex-grow: 1; min-height: 0px;", children)
+}
+
+// ==== The reading pane ====
+
+fn empty_reading(app: &RefAny) -> Dom {
+    ShellEmptyState::create("No article selected")
+        .with_icon("article")
+        .with_detail("Pick an article in the list, or add a feed.")
+        .with_action_label("Add feed")
+        .with_on_action(app.clone(), on_add_open as ButtonOnClickCallbackType)
+        .dom()
+}
+
+fn article_view(s: &NewsApp, app: &RefAny, r: ArticleRef) -> Dom {
+    let lib = &s.library;
+    let feed = &lib.feeds[r.feed];
+    let item = &feed.items[r.item];
+    let article = s.article_view(item);
+    let actions = row(
+        "gap: 4px; padding: 4px 8px; flex-wrap: wrap;",
+        vec![
+            button("Previous", ids::READER_PREV, app, on_prev),
+            button("Next", ids::READER_NEXT, app, on_next),
+            block("flex-grow: 1;", Dom::create_div()),
+            button("Open original", ids::READER_OPEN, app, on_open_original),
+            button(
+                if lib.is_starred(r) { "Unstar" } else { "Star" },
+                ids::READER_STAR,
+                app,
+                on_star,
+            ),
+            button(
+                if lib.is_later(r) { "Not later" } else { "Read later" },
+                ids::READER_LATER,
+                app,
+                on_later,
+            ),
+            button(
+                if lib.is_read(r) { "Mark unread" } else { "Mark read" },
+                ids::READER_UNREAD,
+                app,
+                on_toggle_read,
+            ),
+        ],
+    );
+    let title = title_of(item);
+    let mut pane = ReadingPane::create(title.as_str(), feed.name())
+        .with_date(long_date(item.date()))
+        .with_field("Reading time", format!("{} min", reader::reading_minutes(article.words)));
+    if !item.author.is_empty() {
+        pane = pane.with_field("Author", item.author.as_str());
+    }
+    if !item.link.is_empty() {
+        pane = pane.with_field("Link", item.link.as_str());
+    }
+    if article.blocked > 0 {
+        let notice = match s.settings.pictures {
+            Pictures::Never => InfoBar::create(format!(
+                "{} picture(s) are not shown (Settings, Reading, Pictures).",
+                article.blocked
+            ))
+            .with_icon("info"),
+            _ => InfoBar::create(format!(
+                "{} picture(s) were not loaded: the sites they are on learn nothing of what you read.",
+                article.blocked
+            ))
+            .with_icon("info")
+            .with_action("Load pictures"),
+        };
+        pane = pane.with_info_bar(notice);
+    }
+    let body = Dom::create_div()
+        .with_css("overflow-x: auto;")
+        .with_child(Dom::create_from_parsed_xml(article.xml))
+        .with_id(ids::READER);
+    let pane = pane
+        .with_body(body)
+        .with_on_load_images(app.clone(), on_reading_event as ReadingPaneOnEventCallbackType)
+        .with_on_link(app.clone(), on_reading_event as ReadingPaneOnEventCallbackType)
+        .dom();
+    column(
+        "flex-grow: 1; min-height: 0px;",
+        vec![actions, block("flex-grow: 1; min-height: 0px; overflow-y: auto;", pane)],
+    )
+}
+
+/// A form's section title.
+fn section_title(title: &str) -> Dom {
+    block(
+        "padding: 12px 0px 4px 0px; font-size: 11px; font-weight: 700; opacity: 0.7;",
+        text(title.to_uppercase()),
+    )
+}
+
+fn problem_line(problem: &str, id: AzString) -> Dom {
+    block("color: #b3261e; padding: 4px 0px; font-size: 13px;", text(problem)).with_id(id)
+}
+
+struct PickRef {
+    app: RefAny,
+    index: usize,
+}
+
+fn add_feed_view(app: &RefAny, st: &AddFeed) -> Dom {
+    let mut children = vec![
+        block("font-size: 18px; font-weight: 600; padding-bottom: 8px;", text("Add a feed")),
+        kit::row(
+            "Website or feed",
+            row(
+                "gap: 6px; flex-grow: 1;",
+                vec![
+                    block(
+                        "flex-grow: 1;",
+                        input(&st.input, "https://example.org", ids::ADD_URL, app, on_add_input),
+                    ),
+                    primary("Find", ids::ADD_FIND, app, on_add_find),
+                ],
+            ),
+        ),
+    ];
+    if st.finding {
+        children.push(kit::note("Looking for feeds\u{2026}"));
+    }
+    if !st.problem.is_empty() {
+        children.push(problem_line(&st.problem, ids::ADD_PROBLEM));
+    }
+    let mut actions = Vec::new();
+    if !st.candidates.is_empty() {
+        children.push(section_title(&format!(
+            "Found {} feed{}",
+            st.candidates.len(),
+            if st.candidates.len() == 1 { "" } else { "s" }
+        )));
+        for (i, c) in st.candidates.iter().enumerate() {
+            let chosen = i == st.chosen;
+            let name = if !c.feed.title.is_empty() {
+                c.feed.title.clone()
+            } else if !c.link_title.is_empty() {
+                c.link_title.clone()
+            } else {
+                c.url.clone()
+            };
+            let label = format!("{name} \u{b7} {} \u{b7} {} articles", c.feed.format.label(), c.feed.items.len());
+            let mut pick = Button::create(label);
+            if chosen {
+                pick = pick.with_button_type(ButtonType::Primary);
+            }
+            children.push(block(
+                "padding: 2px 0px;",
+                pick.with_on_click(
+                    RefAny::new(PickRef {
+                        app: app.clone(),
+                        index: i,
+                    }),
+                    on_add_pick as ButtonOnClickCallbackType,
+                )
+                .dom()
+                .with_id(ids::found(i)),
+            ));
+            if chosen {
+                for item in c.feed.items.iter().take(3) {
+                    children.push(block(
+                        "padding-left: 16px; font-size: 12px; opacity: 0.8;",
+                        text(title_of(item)),
+                    ));
+                }
+            }
+        }
+        children.push(kit::row(
+            "Folder",
+            input(&st.folder, "No folder", ids::ADD_FOLDER, app, on_add_folder),
+        ));
+        actions.push(primary("Subscribe", ids::ADD_SUBSCRIBE, app, on_add_subscribe));
+    }
+    actions.push(button("Cancel", ids::ADD_CANCEL, app, on_leave));
+    children.push(row("gap: 6px; padding-top: 12px;", actions));
+    column("padding: 16px; flex-grow: 1; min-height: 0px; overflow-y: auto;", children).with_id(ids::ADD_FEED)
+}
+
+struct ImportRowRef {
+    app: RefAny,
+    index: usize,
+}
+
+fn import_view(app: &RefAny, st: &OpmlImport) -> Dom {
+    let mut children = vec![
+        block(
+            "font-size: 18px; font-weight: 600; padding-bottom: 8px;",
+            text("Import subscriptions (OPML)"),
+        ),
+        kit::row(
+            "File",
+            row(
+                "gap: 6px; flex-grow: 1;",
+                vec![
+                    block(
+                        "flex-grow: 1;",
+                        input(&st.path, "/path/to/subscriptions.opml", ids::OPML_PATH, app, on_import_path),
+                    ),
+                    button("Choose\u{2026}", ids::OPML_CHOOSE, app, on_import_choose),
+                    button("Read", ids::OPML_READ, app, on_import_read),
+                ],
+            ),
+        ),
+    ];
+    if st.reading {
+        children.push(kit::note("Reading the file\u{2026}"));
+    }
+    if !st.problem.is_empty() {
+        children.push(problem_line(&st.problem, ids::OPML_SUMMARY));
+    }
+    if !st.rows.is_empty() {
+        let new = st.rows.iter().filter(|r| !r.known).count();
+        children.push(
+            section_title(&format!(
+                "{} feeds, {new} new, {} subscribed already",
+                st.rows.len(),
+                st.rows.len() - new
+            ))
+            .with_id(ids::OPML_SUMMARY),
+        );
+        let mut rows = Dom::create_div().with_id(ids::OPML_ROWS).with_css("display: flex; flex-direction: column;");
+        for (i, r) in st.rows.iter().enumerate() {
+            let check = CheckBox::create(r.selected)
+                .with_on_toggle(
+                    RefAny::new(ImportRowRef {
+                        app: app.clone(),
+                        index: i,
+                    }),
+                    on_import_toggle as CheckBoxOnToggleCallbackType,
+                )
+                .dom();
+            let folder = if r.sub.folder.is_empty() { String::new() } else { format!(" \u{b7} {}", r.sub.folder) };
+            rows.add_child(
+                row(
+                    "gap: 8px; padding: 3px 0px; font-size: 13px;",
+                    vec![
+                        check,
+                        column(
+                            "flex-grow: 1; min-width: 0px;",
+                            vec![
+                                block("", text(format!("{}{folder}", r.sub.title))),
+                                block("font-size: 11px; opacity: 0.7;", text(r.sub.url.as_str())),
+                            ],
+                        ),
+                        block(
+                            "font-size: 11px; opacity: 0.7;",
+                            text(if r.known { "subscribed" } else { "new" }),
+                        ),
+                    ],
+                )
+                .with_id(ids::opml_row(i)),
+            );
+        }
+        children.push(rows);
+    }
+    let mut actions = Vec::new();
+    if st.rows.iter().any(|r| r.selected) {
+        actions.push(primary("Import", ids::OPML_RUN, app, on_import_run));
+    }
+    actions.push(button("Cancel", ids::OPML_CANCEL, app, on_leave));
+    children.push(row("gap: 6px; padding-top: 12px;", actions));
+    column("padding: 16px; flex-grow: 1; min-height: 0px; overflow-y: auto;", children).with_id(ids::OPML_IMPORT)
+}
+
+fn feed_page(s: &NewsApp, app: &RefAny, index: usize) -> Dom {
+    let f = &s.library.feeds[index];
+    let checked = if f.meta.checked == 0 {
+        "never".to_string()
+    } else {
+        format!("{} ago", age(f.meta.checked, now_secs()))
+    };
+    let mut children = vec![
+        block("font-size: 18px; font-weight: 600; padding-bottom: 8px;", text(f.name())),
+        kit::row("Name", input(&f.sub.title, "The feed's own title", ids::FEED_TITLE, app, on_feed_title)),
+        kit::row("Folder", input(&f.sub.folder, "No folder", ids::FEED_FOLDER, app, on_feed_folder)),
+        kit::row("Address", text(f.sub.url.as_str())),
+        kit::row("Website", text(f.meta.site.as_str())),
+        kit::row("Format", text(f.meta.kind.as_str())),
+        kit::row("Articles", text(format!("{} ({} unread)", f.items.len(), s.library.unread(index)))),
+        kit::row("Last asked", text(checked)),
+    ];
+    if !f.meta.error.is_empty() {
+        children.push(problem_line(&format!("The last refresh failed: {}", f.meta.error), ids::ADD_PROBLEM));
+    }
+    let mut actions = vec![
+        primary("Refresh now", ids::FEED_REFRESH, app, on_feed_refresh),
+        button("Show its articles", ids::FEED_PAGE, app, on_feed_articles),
+    ];
+    if s.confirm_unsubscribe {
+        actions.push(
+            Button::create("Unsubscribe and delete its articles")
+                .with_button_type(ButtonType::Danger)
+                .with_on_click(app.clone(), on_unsubscribe_confirmed as ButtonOnClickCallbackType)
+                .dom()
+                .with_id(ids::FEED_UNSUBSCRIBE_CONFIRM),
+        );
+    } else {
+        actions.push(button("Unsubscribe", ids::FEED_UNSUBSCRIBE, app, on_unsubscribe));
+    }
+    children.push(row("gap: 6px; padding-top: 12px; flex-wrap: wrap;", actions));
+    column("padding: 16px; flex-grow: 1; min-height: 0px; overflow-y: auto;", children)
+}
+
+fn reading_pane(s: &NewsApp, app: &RefAny) -> Dom {
+    match &s.reading {
+        Reading::AddFeed(st) => add_feed_view(app, st),
+        Reading::Import(st) => import_view(app, st),
+        Reading::Feed(id) => match s.library.feed_index(id) {
+            Some(i) => feed_page(s, app, i),
+            None => empty_reading(app),
+        },
+        Reading::Article => match s.selected_ref() {
+            Some(r) => article_view(s, app, r),
+            None => empty_reading(app),
+        },
+    }
+}
+
+// ==== Toolbar, status bar, settings, the window ====
+
+fn toolbar(s: &NewsApp, app: &RefAny) -> Dom {
+    let tool = |label: &str, icon: &str, id: AzString, cb: ButtonOnClickCallbackType| {
+        Button::create(label).with_icon(icon).with_on_click(app.clone(), cb).dom().with_id(id)
+    };
+    row(
+        "gap: 4px; padding: 4px 8px;",
+        vec![
+            tool(
+                if s.refreshing > 0 { "Refreshing\u{2026}" } else { "Refresh" },
+                "refresh",
+                ids::TOOLBAR_REFRESH,
+                on_refresh,
+            ),
+            tool("Add feed", "add", ids::TOOLBAR_ADD, on_add_open),
+            tool("Import", "file_upload", ids::TOOLBAR_IMPORT, on_import_open),
+            tool("Export", "file_download", ids::TOOLBAR_EXPORT, on_export),
+            tool("Mark all as read", "done_all", ids::TOOLBAR_MARK_ALL, on_mark_all),
+            block("flex-grow: 1;", Dom::create_div()),
+            tool("Settings", "settings", ids::TOOLBAR_SETTINGS, on_open_settings),
+        ],
+    )
+}
+
+fn status_bar(s: &NewsApp, _app: &RefAny) -> Dom {
+    let mut segments = Vec::new();
+    segments.push(StatusBarSegment::create(if s.refreshing > 0 {
+        format!("Refreshing \u{2013} {} feed(s) to go", s.refreshing)
+    } else if s.last_refresh > 0 {
+        format!("Updated {} ago", age(s.last_refresh, now_secs()))
+    } else {
+        "Not refreshed yet".to_string()
+    }));
+    segments.push(StatusBarSegment::create(format!("{} unread", s.library.unread_total())));
+    if !s.notice.is_empty() {
+        segments.push(StatusBarSegment::create(s.notice.as_str()));
+    }
+    StatusBar::create(segments).dom().with_id(ids::NEWS_STATUS)
+}
+
+/// A settings choice of several labels.
+fn choice(labels: Vec<String>, selected: usize, app: &RefAny, cb: SegmentedOnChangeCallbackType, id: AzString) -> Dom {
+    Segmented::create(StringVec::from_vec(labels.into_iter().map(AzString::from).collect()))
+        .with_selected_index(selected)
+        .with_on_change(app.clone(), cb)
+        .dom()
+        .with_id(id)
+}
+
+fn switch(on: bool, app: &RefAny, cb: SwitchOnToggleCallbackType, id: AzString) -> Dom {
+    Switch::create(on).with_on_toggle(app.clone(), cb).dom().with_id(id)
+}
+
+fn settings_sections(s: &NewsApp, app: &RefAny) -> Vec<AppSection> {
+    let st = &s.settings;
+    let font = FONT_SIZES.iter().position(|p| *p == st.font_px).unwrap_or(2);
+    let measure = MEASURES.iter().position(|(_, px)| *px == st.measure_px).unwrap_or(1);
+    let pictures = Pictures::ALL.iter().position(|p| *p == st.pictures).unwrap_or(1);
+    let every = REFRESH_EVERY.iter().position(|(_, m)| *m == st.refresh_minutes).unwrap_or(2);
+    let keep = KEEP.iter().position(|(_, d)| *d == st.keep_days).unwrap_or(1);
+    vec![
+        AppSection {
+            category: 0,
+            title: "Reading".to_string(),
+            content: column(
+                "",
+                vec![
+                    kit::row(
+                        "Font size",
+                        choice(
+                            FONT_SIZES.iter().map(|p| format!("{p} px")).collect(),
+                            font,
+                            app,
+                            on_set_font,
+                            ids::SET_FONT_SIZE,
+                        ),
+                    ),
+                    kit::row(
+                        "Line width",
+                        choice(
+                            MEASURES.iter().map(|(l, _)| (*l).to_string()).collect(),
+                            measure,
+                            app,
+                            on_set_measure,
+                            ids::SET_LINE_WIDTH,
+                        ),
+                    ),
+                    kit::row(
+                        "Paper",
+                        choice(
+                            vec!["Follow the theme".to_string(), "Sepia".to_string()],
+                            usize::from(st.sepia),
+                            app,
+                            on_set_paper,
+                            ids::SET_PAPER,
+                        ),
+                    ),
+                    kit::row(
+                        "Pictures",
+                        choice(
+                            Pictures::ALL.iter().map(|p| p.label().to_string()).collect(),
+                            pictures,
+                            app,
+                            on_set_pictures,
+                            ids::SET_IMAGES,
+                        ),
+                    ),
+                    kit::row(
+                        "Strip tracking",
+                        switch(st.strip_tracking, app, on_set_strip, ids::SET_STRIP_TRACKING),
+                    ),
+                    kit::note(
+                        "Articles are set in a serif at the size chosen; their colours follow the app's theme and \
+                         its light or dark mode. Tracking parameters (utm_*, fbclid, ...) come off links.",
+                    ),
+                ],
+            ),
+        },
+        AppSection {
+            category: 1,
+            title: "Refresh".to_string(),
+            content: column(
+                "",
+                vec![
+                    kit::row(
+                        "Refresh on start",
+                        switch(st.refresh_on_start, app, on_set_refresh_start, ids::SET_REFRESH_START),
+                    ),
+                    kit::row(
+                        "Refresh every",
+                        choice(
+                            REFRESH_EVERY.iter().map(|(l, _)| (*l).to_string()).collect(),
+                            every,
+                            app,
+                            on_set_refresh_every,
+                            ids::SET_REFRESH_EVERY,
+                        ),
+                    ),
+                    kit::row(
+                        "Keep articles",
+                        choice(
+                            KEEP.iter().map(|(l, _)| (*l).to_string()).collect(),
+                            keep,
+                            app,
+                            on_set_keep,
+                            ids::SET_KEEP_DAYS,
+                        ),
+                    ),
+                    kit::note(&format!(
+                        "A refresh asks each feed with what it said last time (ETag, Last-Modified): a feed \
+                         without news costs nothing. Your feeds, articles and marks are files in {}.",
+                        azul_appkit::data::local_path(&s.data_root, store::APP_FOLDER).display()
+                    )),
+                ],
+            ),
+        },
+    ]
+}
+
+/// The window: the shell (or the settings page), the theme scope, the window keys.
+extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    // Reading the mode makes a light / dark switch rebuild the window.
+    let _mode = info.get_mode();
+    let app = data.clone();
+    let Some(guard) = data.downcast_ref::<NewsApp>() else {
+        return Dom::create_body();
+    };
+    let s = &*guard;
+    let content = if kit::settings_open(&s.kit) {
+        column(
+            "flex-grow: 1; min-height: 0px;",
+            vec![kit::title_row(SPEC.name), kit::settings_page(&s.kit, settings_sections(s, &app))],
+        )
+    } else {
+        PimShell::create(navigation(s, &app), list_pane(s, &app), reading_pane(s, &app))
+            .with_list_label("Articles")
+            .office_shell()
+            .with_title_row(kit::title_row(SPEC.name))
+            .with_ribbon(toolbar(s, &app))
+            .with_status_bar(status_bar(s, &app))
+            .dom()
+    };
+    let root = column("flex-grow: 1; min-height: 0px;", vec![content]);
+    // The theme scope's own body: no UA margin, the window's full height.
+    ShellThemeScope::create(root)
+        .with_accent(ShellThemeAccent::Clay)
+        .body()
+        .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app, on_key)
+}
+
 #[cfg(test)]
 mod tests {
     //! The parts of the window that are plain data.
