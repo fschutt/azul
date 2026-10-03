@@ -117,16 +117,15 @@ borders) and `computed_style` / `formatting_context` resolved from the OLD casca
 (`adjusted_cb_pos`) with the stale margins. Flex items are unaffected (taffy reads their styles fresh) -
 which is why the AzWidgets knob moves.
 
-C. NOT FIXED - documented (probe below). A block child's `height` changed through the css-dirty channel
+C. NOT FIXED - documented (e2e `a_parent_grows_with_its_restyled_child.json`, `"expect": "fail"`). A
+block child's `height` changed through the css-dirty channel
 (20 -> 60 px, no text inside) is applied to the child, but its auto-height parent stays 20 px and the next
 sibling of the parent is not moved (it overlaps). The child is its own layout root (block in a block: no
 lift), `reposition_clean_subtrees` only re-stacks the root's own siblings, and nothing re-sizes the
 ancestors. (A child that holds text is lifted - its formatting context is `Inline` - which hides this.)
 
-Probe for C (azul-doc e2e, `get_all_nodes_layout` after the remount): `#child` 60 tall, `#parent` 20,
-`#after` at y = 20; scenario in the git history of this report's branch? No - kept here:
-`mount <div id=root><div id=parent><div id=child></div></div><div id=after>after</div></div>` with
-`#child { width: 50px; height: 20px }`, then the same with `height: 60px`.
+Seen on the prebuilt azul-doc (`get_all_nodes_layout` after the remount): `#child` 60 tall, `#parent` 20,
+`#after` at y = 20.
 
 Plan for B + C (a design pass, needs a build): (1) a css-dirty node with a layout scope is rebuilt FRESH in
 the reconcile (pass the css-dirty set into `reconcile_and_invalidate`; treat it like `DirtyFlag::Layout`):
