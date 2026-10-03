@@ -121,6 +121,9 @@ pub struct AppState {
     pub notice: String,
     /// A save of the open document is on the way.
     pub saving: bool,
+    /// What the save on the way writes: `(document id, Markdown)`; the
+    /// document is clean at that text once the save answers.
+    pub pending_save: Option<(String, String)>,
     /// The window closes once the save on the way is done.
     pub close_after_save: bool,
     /// The "Save changes?" question is showing.
@@ -152,6 +155,7 @@ impl AppState {
             view: View::Print,
             notice: String::new(),
             saving: false,
+            pending_save: None,
             close_after_save: false,
             asking_close: false,
             about_open: false,

@@ -38,9 +38,9 @@ pub fn content_size() -> (f32, f32) {
     (A4_W - 2.0 * MARGIN, A4_H - 2.0 * MARGIN)
 }
 
-/// The text of the paper: the font and the ink (the page is paper in light
-/// and dark mode alike - a document prints black on white).
-pub const PAPER_TEXT_CSS: &str = "font-family: sans-serif; color: #1a1a1a;";
+/// The font of the paper (the sheet on screen and the print add the ink:
+/// the mode's text colour on screen, black on white in the PDF).
+pub const PAPER_TEXT_CSS: &str = "font-family: sans-serif;";
 
 /// What is known about the pages.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,7 +106,7 @@ pub fn starts_from_breaks(paths: &[Vec<u32>], blocks: usize) -> Vec<u32> {
 }
 
 /// The document as the paginator lays it out: the editor's blocks on ONE
-/// host (no padding, the page's text width), in the paper's font and ink.
+/// host (no padding, the page's text width), in the paper's font.
 #[must_use]
 pub fn measure_dom(doc: &RichTextDoc) -> Dom {
     let editor = RichTextEditor::create(RichTextEditorState::create(doc.clone()))
