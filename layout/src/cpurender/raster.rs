@@ -911,6 +911,221 @@ pub enum MaskEntry {
     /// [`FilterGroup`]), `None` when the push carries no work here. Every
     /// push has one, so a `PopFilter` always closes its own push.
     Filter(Option<Box<FilterGroup>>),
+    /// A reference frame (`PushReferenceFrame`): how its content reaches the
+    /// pixmap, so the `PopReferenceFrame` undoes exactly what its push did.
+    /// Every push has one.
+    Transform(ReferenceFrameGroup),
+}
+
+/// How the flat walk paints a reference frame's content (a CSS `transform`,
+/// a drag, the animation channel's slide) - moved by the frame's live
+/// matrix, as the layered compositor paints the frame's layer.
+#[derive(Debug)]
+pub enum ReferenceFrameGroup {
+    /// The matrix is the identity: nothing was opened.
+    Identity,
+    /// A 2D translation, folded into the scroll-offset stack (the walk
+    /// paints at `pos - offset`): one entry was pushed there. The items are
+    /// painted moved and nothing is resampled.
+    Translated,
+    /// Any other matrix: an isolated group, see [`TransformGroup`].
+    Isolated(Box<TransformGroup>),
+}
+
+/// A reference frame whose matrix is not a translation, painted in place.
+///
+/// The push sets the device-pixel box of the frame's bounds aside and clears
+/// it; the frame's content paints into that box at its LAYOUT place, clipped
+/// to it (the compositor's layer for the frame is that box, too). The pop
+/// takes those pixels out, puts the backdrop back and composites them
+/// through the matrix - about the frame's origin, as the compositor places
+/// its layer - inside the clip that was open around the push.
+#[derive(Debug)]
+pub struct TransformGroup {
+    backdrop: Vec<u8>,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    /// Group pixel -> pixmap pixel, a column-vector homography (`Mat3`).
+    matrix: Mat3,
+    /// The clip open around the push, device pixels, half-open.
+    outer_clip: Option<(i32, i32, i32, i32)>,
+}
+
+impl ReferenceFrameGroup {
+    /// Opens the reference frame whose live matrix is `m`, around content
+    /// laid out in `bounds` (device-logical: already moved by the scroll
+    /// frames around it).
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded pixel box
+    fn begin(
+        m: &[[f32; 4]; 4],
+        bounds: &LogicalRect,
+        pixmap: &mut AzulPixmap,
+        dpi_factor: f32,
+        clip_stack: &mut Vec<Option<AzRect>>,
+        real_clip_stack: &mut Vec<Option<AzRect>>,
+        scroll_offset_stack: &mut Vec<(f32, f32)>,
+    ) -> Self {
+        const EPS: f32 = 1e-6;
+        let linear_identity = (m[0][0] - 1.0).abs() < EPS
+            && m[0][1].abs() < EPS
+            && m[1][0].abs() < EPS
+            && (m[1][1] - 1.0).abs() < EPS;
+        let affine = m[0][3].abs() < EPS && m[1][3].abs() < EPS && (m[3][3] - 1.0).abs() < EPS;
+        if linear_identity && affine {
+            let (tx, ty) = (m[3][0], m[3][1]);
+            if tx.abs() < EPS && ty.abs() < EPS {
+                return Self::Identity;
+            }
+            let (sx, sy) = scroll_offset_stack.last().copied().unwrap_or((0.0, 0.0));
+            scroll_offset_stack.push((sx - tx, sy - ty));
+            return Self::Translated;
+        }
+
+        let x = (bounds.origin.x * dpi_factor).floor() as i32;
+        let y = (bounds.origin.y * dpi_factor).floor() as i32;
+        let x1 = ((bounds.origin.x + bounds.size.width) * dpi_factor).ceil() as i32;
+        let y1 = ((bounds.origin.y + bounds.size.height) * dpi_factor).ceil() as i32;
+        let width = x1.saturating_sub(x).clamp(0, MAX_TRANSFORM_GROUP_SIDE) as u32;
+        let height = y1.saturating_sub(y).clamp(0, MAX_TRANSFORM_GROUP_SIDE) as u32;
+
+        let outer_clip = clip_stack.last().copied().flatten().map(|c| {
+            (
+                c.x.round() as i32,
+                c.y.round() as i32,
+                (c.x + c.width).round() as i32,
+                (c.y + c.height).round() as i32,
+            )
+        });
+
+        // Group pixel s -> pixmap: p = (x, y) + s, then about the frame's
+        // origin o: o + M (p - o), M's translation in logical units scaled
+        // to device pixels (the compositor's `layer_h`).
+        let dpi = f64::from(dpi_factor);
+        let (ox, oy) = (
+            f64::from(bounds.origin.x) * dpi,
+            f64::from(bounds.origin.y) * dpi,
+        );
+        let layer_h: Mat3 = [
+            f64::from(m[0][0]),
+            f64::from(m[1][0]),
+            f64::from(m[3][0]) * dpi,
+            f64::from(m[0][1]),
+            f64::from(m[1][1]),
+            f64::from(m[3][1]) * dpi,
+            f64::from(m[0][3]) / dpi,
+            f64::from(m[1][3]) / dpi,
+            f64::from(m[3][3]),
+        ];
+        let matrix = mat3_mul(
+            &mat3_translation(ox, oy),
+            &mat3_mul(
+                &layer_h,
+                &mat3_translation(f64::from(x) - ox, f64::from(y) - oy),
+            ),
+        );
+
+        let backdrop = snapshot_region(pixmap, x, y, width, height);
+        let clear = vec![0u8; backdrop.len()];
+        write_region(pixmap, &clear, width, height, x, y);
+
+        // The content paints inside the group's box only, whatever was open
+        // around it: that clip applies where the group lands, at the pop.
+        let group_clip = AzRect::from_xywh(x as f32, y as f32, width as f32, height as f32)
+            .unwrap_or(AzRect::DENY_ALL);
+        clip_stack.push(Some(group_clip));
+        real_clip_stack.push(Some(group_clip));
+
+        Self::Isolated(Box::new(TransformGroup {
+            backdrop,
+            x,
+            y,
+            width,
+            height,
+            matrix,
+            outer_clip,
+        }))
+    }
+
+    /// Closes what [`Self::begin`] opened: the scroll-offset entry of a
+    /// translation, or the isolated group - composited through its matrix.
+    fn finish(
+        self,
+        pixmap: &mut AzulPixmap,
+        clip_stack: &mut Vec<Option<AzRect>>,
+        real_clip_stack: &mut Vec<Option<AzRect>>,
+        scroll_offset_stack: &mut Vec<(f32, f32)>,
+    ) {
+        match self {
+            Self::Identity => {}
+            Self::Translated => {
+                if scroll_offset_stack.len() > 1 {
+                    scroll_offset_stack.pop();
+                }
+            }
+            Self::Isolated(group) => {
+                if clip_stack.len() > 1 {
+                    clip_stack.pop();
+                }
+                if real_clip_stack.len() > 1 {
+                    real_clip_stack.pop();
+                }
+                group.finish(pixmap);
+            }
+        }
+    }
+}
+
+/// Widest or tallest box a [`TransformGroup`] sets aside, in device pixels
+/// (a degenerate layout must not become a giant allocation).
+const MAX_TRANSFORM_GROUP_SIDE: i32 = 16_384;
+
+impl TransformGroup {
+    /// Take what the group painted out of the pixmap, put the backdrop back
+    /// and composite the group through its matrix.
+    fn finish(&self, pixmap: &mut AzulPixmap) {
+        if self.width == 0 || self.height == 0 {
+            return;
+        }
+        let painted = snapshot_region(pixmap, self.x, self.y, self.width, self.height);
+        write_region(
+            pixmap,
+            &self.backdrop,
+            self.width,
+            self.height,
+            self.x,
+            self.y,
+        );
+        let group = AzulPixmap {
+            data: painted.into(),
+            width: self.width,
+            height: self.height,
+        };
+        if mat3_is_affine(&self.matrix) {
+            blit_pixmap_affine_clipped(
+                &group,
+                pixmap,
+                &mat3_affine_part(&self.matrix),
+                1.0,
+                self.outer_clip,
+            );
+        } else {
+            blit_pixmap_projective_clipped(&group, pixmap, &self.matrix, 1.0, self.outer_clip);
+        }
+    }
+}
+
+/// Is the walk inside an isolated reference frame ([`TransformGroup`])?
+/// Its items paint at their layout place and are moved at the pop, so the
+/// damaged walk cannot cull them by where they are laid out.
+fn inside_isolated_transform(mask_stack: &[MaskEntry]) -> bool {
+    mask_stack.iter().any(|entry| {
+        matches!(
+            entry,
+            MaskEntry::Transform(ReferenceFrameGroup::Isolated(_))
+        )
+    })
 }
 
 /// Does a `filter` list need its group's own pixels apart from the backdrop?
@@ -1186,7 +1401,7 @@ fn apply_mask(pixmap: &mut AzulPixmap, entry: &MaskEntry) {
                 blend_masked_region(pixmap, &c.snapshot, &c.mask, c.x, c.y, c.w, c.h);
             }
         }
-        MaskEntry::Opacity { .. } | MaskEntry::Filter(_) => {}
+        MaskEntry::Opacity { .. } | MaskEntry::Filter(_) | MaskEntry::Transform(_) => {}
     }
 }
 
@@ -1863,7 +2078,9 @@ pub fn render_display_list_damaged(
         for (item_idx, item) in display_list.items.iter().enumerate() {
             // Always process state-management items (Push/Pop) regardless of bounds,
             // because skipping a Push while processing its matching Pop corrupts stacks.
-            if !item.is_state_management() {
+            // Nor is anything culled inside a turned / scaled reference frame:
+            // it paints at its layout place and lands elsewhere at the pop.
+            if !item.is_state_management() && !inside_isolated_transform(&mask_stack) {
                 // INK bounds for the cull, not box bounds: `Text.bounds()`
                 // returns the IFC owner's WHOLE content box, so a 3px scroll
                 // strip touching one paragraph admitted EVERY line of it (and
@@ -2823,10 +3040,31 @@ pub fn render_single_item(
             let mut composed = tf;
             composed.premultiply(&current);
             transform_stack.push(composed);
+
+            // The frame's content is painted MOVED by its live matrix - the
+            // layered compositor's layer for this frame, in place. Without
+            // this every damage rect repainted a transformed box at its
+            // layout place (mid-slide ghosts; a lasting transform ghosted
+            // wherever damage touched its layout box).
+            let group = ReferenceFrameGroup::begin(
+                m,
+                &scroll_rect(bounds.inner()),
+                pixmap,
+                dpi_factor,
+                clip_stack,
+                real_clip_stack,
+                scroll_offset_stack,
+            );
+            mask_stack.push(MaskEntry::Transform(group));
         }
         DisplayListItem::PopReferenceFrame => {
             if transform_stack.len() > 1 {
                 transform_stack.pop();
+            }
+            if matches!(mask_stack.last(), Some(MaskEntry::Transform(_))) {
+                if let Some(MaskEntry::Transform(group)) = mask_stack.pop() {
+                    group.finish(pixmap, clip_stack, real_clip_stack, scroll_offset_stack);
+                }
             }
         }
 
