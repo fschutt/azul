@@ -34,3 +34,6 @@
 
 /// Amounts in integer minor units.
 pub mod money;
+/// The records (asset, category, location, maintenance entry, check-out)
+/// and their files.
+pub mod model;
