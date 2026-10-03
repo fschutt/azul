@@ -2,8 +2,8 @@
 //!
 //! - [`AutoLock`]: the vault locks after N minutes without input (0 = never); every key or click
 //!   in the window restarts the count.
-//! - [`Attempts`]: three wrong passwords are free; the fourth waits 30 s, every further one twice
-//!   as long, at most 5 minutes. (Argon2id already makes each try cost a quarter second; this is
+//! - [`Attempts`]: after the third wrong password the next try waits 30 s, after every further
+//!   one twice as long, at most 5 minutes. (Argon2id already makes each try cost a quarter second; this is
 //!   the visible back-off the plan asks for.)
 
 /// The vault's idle lock.
@@ -25,22 +25,22 @@ impl AutoLock {
 
     /// Input at `now` (seconds).
     pub fn touch(&mut self, now: u64) {
-        let _ = now;
-        todo!("GREEN")
+        self.last_activity = self.last_activity.max(now);
     }
 
     /// Seconds until the vault locks; `None` when it never locks by itself.
     #[must_use]
     pub fn remaining(&self, now: u64) -> Option<u64> {
-        let _ = now;
-        todo!("GREEN")
+        if self.idle_minutes == 0 {
+            return None;
+        }
+        Some((self.last_activity + self.idle_minutes * 60).saturating_sub(now))
     }
 
     /// Whether the vault locks now.
     #[must_use]
     pub fn due(&self, now: u64) -> bool {
-        let _ = now;
-        todo!("GREEN")
+        self.remaining(now) == Some(0)
     }
 }
 
@@ -61,35 +61,56 @@ impl Attempts {
 
     /// A wrong password at `now`.
     pub fn failed(&mut self, now: u64) {
-        let _ = now;
-        todo!("GREEN")
+        self.failures = self.failures.saturating_add(1);
+        if self.failures >= Attempts::FREE {
+            let doublings = (self.failures - Attempts::FREE).min(16);
+            let wait = (Attempts::WAIT_SECONDS << doublings).min(Attempts::MAX_WAIT_SECONDS);
+            self.wait_until = now + wait;
+        }
     }
 
     /// The right password: the count starts over.
     pub fn succeeded(&mut self) {
-        todo!("GREEN")
+        *self = Attempts::default();
     }
 
     /// Seconds before the next try is taken (0 = now).
     #[must_use]
     pub fn wait(&self, now: u64) -> u64 {
-        let _ = now;
-        todo!("GREEN")
+        self.wait_until.saturating_sub(now)
     }
 
     /// The line under the password field after a wrong password ("" when none was wrong).
     #[must_use]
     pub fn message(&self, now: u64) -> String {
-        let _ = now;
-        todo!("GREEN")
+        if self.failures == 0 {
+            return String::new();
+        }
+        let wait = self.wait(now);
+        if wait > 0 {
+            return format!("Wrong password. Wait {wait} s before the next try.");
+        }
+        if self.failures < Attempts::FREE {
+            let left = Attempts::FREE - self.failures;
+            return format!(
+                "Wrong password. {left} attempt{} left before a {} s wait.",
+                if left == 1 { "" } else { "s" },
+                Attempts::WAIT_SECONDS
+            );
+        }
+        "Wrong password.".to_string()
     }
 }
 
 /// `m:ss` of a number of seconds (`4:32`), `h:mm:ss` from an hour on.
 #[must_use]
 pub fn clock(seconds: u64) -> String {
-    let _ = seconds;
-    todo!("GREEN")
+    let (h, m, s) = (seconds / 3600, (seconds % 3600) / 60, seconds % 60);
+    if h > 0 {
+        format!("{h}:{m:02}:{s:02}")
+    } else {
+        format!("{m}:{s:02}")
+    }
 }
 
 #[cfg(test)]

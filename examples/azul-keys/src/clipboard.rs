@@ -46,34 +46,36 @@ impl ClipboardGuard {
 
     /// `value` was copied at `now` (seconds); `label` says what it is.
     pub fn copied(&mut self, value: &str, label: &str, now: u64) {
-        let _ = (value, label, now);
-        todo!("GREEN")
+        self.digest = Some(digest_of(value));
+        self.label = label.to_string();
+        self.copied_at = now;
     }
 
     /// Seconds until the clipboard is cleared; `None` when nothing is waiting (or never cleared).
     #[must_use]
     pub fn remaining(&self, now: u64) -> Option<u64> {
-        let _ = now;
-        todo!("GREEN")
+        if self.digest.is_none() || self.clear_after == 0 {
+            return None;
+        }
+        Some((self.copied_at + self.clear_after).saturating_sub(now))
     }
 
     /// Whether the clipboard is due to be cleared at `now`.
     #[must_use]
     pub fn due(&self, now: u64) -> bool {
-        let _ = now;
-        todo!("GREEN")
+        self.remaining(now) == Some(0)
     }
 
     /// Whether the guarded value is `value`.
     #[must_use]
     pub fn holds(&self, value: &str) -> bool {
-        let _ = value;
-        todo!("GREEN")
+        self.digest == Some(digest_of(value))
     }
 
     /// The clipboard was cleared (or the guard is dropped on lock): nothing is waiting.
     pub fn cleared(&mut self) {
-        todo!("GREEN")
+        self.digest = None;
+        self.label.clear();
     }
 
     /// What was copied ("" when nothing waits).
