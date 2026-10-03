@@ -69,6 +69,14 @@ def contact_files(data_dir):
         return []
 
 
+def search(app, text):
+    """Types `text` into the list's search field: a click puts the caret in it (the field's id names
+    the search row around it, which holds no text)."""
+    app.click(selector=app.sel("contacts-search"))
+    app.must("text_input", text=text)
+    app.frame(2)
+
+
 def body(args, logs, out):
     binary = e2e.find_binary("AzContacts", args.bin, "AZCONTACTS_BIN")
     data_dir = os.path.join(logs, "data")
@@ -102,7 +110,7 @@ def body(args, logs, out):
         app.screenshot(os.path.join(out, "list.png"))
 
         # 3: search and select.
-        app.text_input(app.sel("contacts-search"), "krug")
+        search(app, "krug")
         app.expect_line("AZCONTACTS_VIEW", "1", "searching krug")
         app.click(text="Ben Krüger")
         app.until("Ben to be selected", lambda: (app.last("AZCONTACTS_SELECTED") or "").endswith("Ben Krüger"))
@@ -114,6 +122,14 @@ def body(args, logs, out):
         # 4: a new contact, a bad email first.
         app.click(selector=app.sel("toolbar-new"))
         app.until("the edit form", lambda: app.has_id(app.name("contact-edit")))
+        # Every section of the form is a column: its "Add ..." stands at the form's left edge,
+        # under its title (LOOK 2026-10-03: a section was laid out as a row, its button one form
+        # width to the right - a layout bug, noted for LAYOUT7).
+        left = app.box(app.sel("edit-birthday"))["x"]
+        for stem in ("edit-add-phone", "edit-add-email", "edit-add-address"):
+            x = app.box(app.sel(stem))["x"]
+            if abs(x - left) > 1.0:
+                raise Failure("#%s stands at x %.0f, not at the form's left %.0f" % (stem, x, left))
         app.text_input(app.sel("edit-given"), "Test")
         app.text_input(app.sel("edit-family"), "Person")
         app.click(selector=app.sel("edit-add-email"))
@@ -150,6 +166,10 @@ def body(args, logs, out):
         if pairs < 3:
             raise Failure("the sample has 3 duplicate pairs, the finder saw %d" % pairs)
         app.screenshot(os.path.join(out, "merge.png"))
+        # The Left / Right pickers stand in one column, whatever each field's values say.
+        xs = [app.box(app.sel(stem))["x"] for stem in ("merge-name", "merge-company", "merge-birthday")]
+        if max(xs) - min(xs) > 1.0:
+            raise Failure("the merge pickers stand at x %s: not one column" % [round(x) for x in xs])
         before = len(contact_files(data_dir))
         app.click(selector=app.sel("merge-run"))
         app.until("the merge", lambda: app.printed("AZCONTACTS_MERGED", r".+"))
@@ -178,7 +198,7 @@ def body(args, logs, out):
         app.screenshot(os.path.join(out, "list-flora-dark.png"))
 
         # 7: delete the new contact.
-        app.text_input(app.sel("contacts-search"), "test person")
+        search(app, "test person")
         app.expect_line("AZCONTACTS_VIEW", "1", "searching the new contact")
         app.click(text="Test Person")
         app.click(selector=app.sel("card-delete"))
