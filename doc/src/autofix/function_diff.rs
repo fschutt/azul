@@ -850,13 +850,15 @@ pub fn api_name_of(method: &MethodDef) -> String {
 /// custom_impls); matching `spec` (`*` = all, else the Rust or the API name);
 /// and, when the type is already in the API, not reached by an existing
 /// entry - under its API name, or as the call of an entry's body (`create`
-/// whose body is `T::new(..)`).
+/// whose body is `T::new(..)`). For `*`, only methods whose signature
+/// crosses the FFI ([`wildcard_skip_reason`]; `carries` says which named
+/// types the FFI carries - [`ffi_carries`] for the real API).
 pub fn api_candidate_methods<'a>(
     type_name: &str,
     methods: &[&'a MethodDef],
     spec: &str,
     api_class: Option<&ClassData>,
-    _carries: &dyn Fn(&str) -> bool,
+    carries: &dyn Fn(&str) -> bool,
 ) -> Vec<&'a MethodDef> {
     let existing: Vec<(&String, &FunctionData)> = api_class
         .map(|c| {
@@ -882,6 +884,7 @@ pub fn api_candidate_methods<'a>(
                     .any(|o| o.is_public && !o.is_non_api_trait_impl() && o.name == api_name)
         })
         .filter(|m| spec == "*" || m.name == spec || api_name_of(m) == spec)
+        .filter(|m| spec != "*" || wildcard_skip_reason(m, type_name, carries).is_none())
         .filter(|m| {
             let api_name = api_name_of(m);
             let static_call = format!("{type_name}::{}(", m.name);
@@ -894,6 +897,68 @@ pub fn api_candidate_methods<'a>(
             })
         })
         .collect()
+}
+
+/// Why `autofix add <Type>.*` leaves `method` out, if it does - THE
+/// wildcard rule. `Type.*` exports a method only when its whole signature
+/// crosses the FFI as written:
+/// - it returns no borrow (`&T`, `&str`, `&[T]`, `&mut T`, `Option<&T>`):
+///   those are Rust-side accessors;
+/// - every argument and the return type, spelled as api.json spells it
+///   (`&str` -> `String`, `&T` -> `*const T`, `Option<X>` -> `OptionX`), is a
+///   scalar, the type itself, or a type `carries` says the FFI carries (an
+///   api.json type, a C-repr workspace type: [`ffi_carries`]). `Vec<T>`,
+///   slices, tuples, `Option<&str>` arguments, `Instant`, a struct without a
+///   C repr have no FFI form.
+///
+/// Everything else is a Rust-only helper (RichTextDoc's 29 of wave 5). A
+/// helper that HAS an FFI form but is not API stays `pub(crate)` (house
+/// rule); a Rust-only method the API does need is added by name
+/// (`autofix add Type.method`), which this rule does not filter.
+pub fn wildcard_skip_reason(
+    method: &MethodDef,
+    type_name: &str,
+    carries: &dyn Fn(&str) -> bool,
+) -> Option<String> {
+    let returns_borrow = matches!(method.return_ref_kind, RefKind::Ref | RefKind::RefMut)
+        || method.return_type.as_deref().is_some_and(|r| r.contains('&'));
+    if returns_borrow {
+        return Some(format!("returns a borrow: {}", method.signature()));
+    }
+    for arg in &method.args {
+        let (ffi, _) = source_arg_ffi_type(arg);
+        if !ffi_type_is_carried(&ffi, type_name, carries) {
+            return Some(format!(
+                "argument `{}: {}{}` has no FFI form",
+                arg.name,
+                arg.ref_kind.as_prefix(),
+                arg.ty
+            ));
+        }
+    }
+    if let Some(ret) = &method.return_type {
+        let (ffi, _) = convert_return_type_for_ffi(ret, type_name);
+        if !ffi_type_is_carried(&ffi, type_name, carries) {
+            return Some(format!("returns `{ret}`, which has no FFI form"));
+        }
+    }
+    None
+}
+
+/// Whether an api.json type spelling (`String`, `*const Foo`, `OptionU32`)
+/// names something the FFI carries: one plain name, a scalar, the type
+/// itself, or what `carries` accepts.
+fn ffi_type_is_carried(ffi: &str, type_name: &str, carries: &dyn Fn(&str) -> bool) -> bool {
+    let base = ffi.trim();
+    let base = base
+        .strip_prefix("*const ")
+        .or_else(|| base.strip_prefix("*mut "))
+        .unwrap_or(base)
+        .trim();
+    if base.is_empty() || !base.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return false;
+    }
+    base == type_name || base == "c_void" || is_primitive_type(base) || carries(base)
 }
 
 pub fn generate_add_functions_patch(
