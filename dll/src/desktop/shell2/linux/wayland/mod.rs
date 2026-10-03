@@ -2132,7 +2132,6 @@ impl WaylandWindow {
                 renderer_options: options.window_state.renderer_options,
                 background_color: options.window_state.background_color,
                 layout_callback: options.window_state.layout_callback.clone(),
-                close_callback: options.window_state.close_callback.clone(),
                 monitor_id: OptionU32::None,
                 window_id: options.window_state.window_id.clone(),
                 window_focused: false,
@@ -9507,7 +9506,6 @@ impl WaylandPopup {
             renderer_options: parent.common.current_window_state().renderer_options,
             background_color: options.window_state.background_color,
             layout_callback: options.window_state.layout_callback.clone(),
-            close_callback: options.window_state.close_callback.clone(),
             monitor_id: parent.common.current_window_state().monitor_id,
             window_id: options.window_state.window_id.clone(),
             // The xdg_popup grab gives it the keyboard; report it focused so

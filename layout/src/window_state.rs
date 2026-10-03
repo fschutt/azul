@@ -121,8 +121,6 @@ pub struct FullWindowState {
     pub window_id: AzString,
     /// Window title bar text
     pub title: AzString,
-    /// Optional callback invoked when the user requests the window to close
-    pub close_callback: OptionCallback,
     /// Callback that returns the DOM for this window
     pub layout_callback: LayoutCallback,
     /// Window position on screen
@@ -381,7 +379,6 @@ impl Default for FullWindowState {
             keyboard_state: KeyboardState::default(),
             window_id: AzString::from_const_str("azul-window"),
             title: AzString::from_const_str("Azul Window"),
-            close_callback: OptionCallback::None,
             layout_callback: LayoutCallback::default(),
             position: WindowPosition::default(),
             touch_state: TouchState::default(),
@@ -567,10 +564,6 @@ mod autotest_generated {
         assert_eq!(opts.window_state.title, def.window_state.title);
         assert_eq!(opts.window_state.window_id, def.window_state.window_id);
         assert_eq!(
-            opts.window_state.close_callback,
-            def.window_state.close_callback
-        );
-        assert_eq!(
             opts.window_state.window_focused,
             def.window_state.window_focused
         );
@@ -649,7 +642,6 @@ mod autotest_generated {
         assert!(s.monitor_id.is_none());
         assert!(s.background_color.is_none());
         assert!(s.active_route.is_none());
-        assert_eq!(s.close_callback, OptionCallback::None);
         assert_eq!(s.mode, DarkLightMode::default());
         assert_eq!(s.position, WindowPosition::default());
         assert_eq!(s.ime_position, ImePosition::default());

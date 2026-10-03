@@ -630,7 +630,6 @@ impl Win32Window {
             renderer_options: initial_window_state.renderer_options,
             background_color: initial_window_state.background_color,
             layout_callback: initial_window_state.layout_callback,
-            close_callback: initial_window_state.close_callback.clone(),
             monitor_id: OptionU32::None, // Monitor ID will be detected from platform
             window_id: initial_window_state.window_id.clone(),
             window_focused: true,

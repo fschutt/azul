@@ -5898,7 +5898,6 @@ impl MacOSWindow {
             renderer_options: options.window_state.renderer_options,
             background_color: options.window_state.background_color,
             layout_callback: options.window_state.layout_callback,
-            close_callback: options.window_state.close_callback.clone(),
             monitor_id: OptionU32::None, // Monitor ID will be set when we detect the actual monitor
             window_focused: true,
             active_route: azul_core::resources::OptionRouteMatch::None,

@@ -4240,7 +4240,6 @@ impl X11Window {
                 renderer_options: options.window_state.renderer_options,
                 background_color: options.window_state.background_color,
                 layout_callback: options.window_state.layout_callback,
-                close_callback: options.window_state.close_callback.clone(),
                 // Seed with the monitor we are actually placing the window on.
                 // This was `None` and was never written afterwards, so on X11
                 // `CallbackInfo::get_current_monitor()` returned None for the

@@ -1588,8 +1588,11 @@ pub struct WindowFlags {
     pub background_material: WindowBackgroundMaterial,
     /// Window type classification (Normal, Menu, Tooltip, Dialog)
     pub window_type: WindowType,
-    /// User clicked the close button (set by `WindowDelegate`, checked by event loop)
-    /// The `close_callback` can set this to false to prevent closing
+    /// A close was requested (the window manager's close button, Alt+F4,
+    /// `CallbackInfo::close_window`, the CSD titlebar's close button). The
+    /// backend runs the close protocol: `WindowEventFilter::CloseRequested`
+    /// callbacks run, and one that calls `CallbackInfo::prevent_window_close`
+    /// keeps the window open. Never clear it by hand.
     pub close_requested: bool,
     /// Is the window currently visible?
     pub is_visible: bool,

@@ -1593,7 +1593,6 @@ fn first_differing_state_field(a: &FullWindowState, b: &FullWindowState) -> Opti
         platform_specific_options: _,
         window_id: _,
         title: _,
-        close_callback: _,
         layout_callback: _,
         ime_position: _,
         renderer_options: _,
