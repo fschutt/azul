@@ -431,6 +431,23 @@ impl EditorForm {
     }
 }
 
+/// What a close request does to the editor window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloseAnswer {
+    /// The window closes: nothing unsaved (or the form was saved and is gone).
+    Close,
+    /// The close is held and the window asks "save changes?".
+    Ask,
+}
+
+/// What a close request does to the editor window showing `form` (`None`: saved, cancelled or
+/// deleted - gone), which opened with `opened`.
+#[must_use]
+pub fn close_answer(form: Option<&EditorForm>, opened: Option<&EditorForm>) -> CloseAnswer {
+    let _ = (form, opened);
+    todo!()
+}
+
 /// What the editor says about an event it cannot save.
 #[must_use]
 pub fn error_text(e: &EventError) -> String {
@@ -907,6 +924,21 @@ mod tests {
         assert_eq!(f.date, day, "back on the occurrence's day");
         // A plain event has no occurrence to edit alone.
         assert!(!EditorForm::from_event(3, &form().event(None).unwrap()).edits_one_occurrence());
+    }
+
+    /// Every close goes through the window's CloseRequested - the app's own close_window after
+    /// Save & Close too (INFRA6): a saved form is gone by then, so the window closes without
+    /// asking; an edited open form asks; an unedited one closes.
+    #[test]
+    fn save_closes_the_editor_without_asking() {
+        let opened = form();
+        let mut edited = opened.clone();
+        edited.title.push_str(" (moved)");
+        // Save & Close: the form was written and taken out of the state before close_window.
+        assert_eq!(close_answer(None, Some(&opened)), CloseAnswer::Close);
+        assert_eq!(close_answer(None, None), CloseAnswer::Close);
+        assert_eq!(close_answer(Some(&edited), Some(&opened)), CloseAnswer::Ask);
+        assert_eq!(close_answer(Some(&opened), Some(&opened)), CloseAnswer::Close);
     }
 
     /// Closing the editor asks "save changes?" only after an edit: a form is changed since it
