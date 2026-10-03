@@ -185,24 +185,6 @@ fn yaml_string(s: &str, in_flow: bool) -> String {
     out
 }
 
-/// A tag as AzNotes keeps it: trimmed, without a leading `#`.
-#[must_use]
-pub fn clean_tag(tag: &str) -> String {
-    tag.trim().trim_start_matches('#').trim().to_string()
-}
-
-/// `tags` cleaned, empty ones dropped, duplicates (ignoring case) once.
-#[must_use]
-pub fn clean_tags<'a>(tags: impl IntoIterator<Item = &'a str>) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for tag in tags {
-        let tag = clean_tag(tag);
-        if !tag.is_empty() && !out.iter().any(|t| t.eq_ignore_ascii_case(&tag)) {
-            out.push(tag);
-        }
-    }
-    out
-}
 
 /// The front matter of `lines`.
 fn parse_meta(lines: &[&str]) -> Meta {
@@ -244,7 +226,7 @@ fn parse_meta(lines: &[&str]) -> Meta {
                 } else {
                     yaml_flow_list(value)
                 };
-                meta.tags = clean_tags(items.iter().map(String::as_str));
+                meta.tags = crate::model::clean_tags(items.iter().map(String::as_str));
             }
             "pinned" => {
                 meta.pinned = matches!(
@@ -380,13 +362,5 @@ mod tests {
         assert_eq!(doc.blocks.len(), 2);
         let (meta, _) = parse_note("just text\n", 1);
         assert_eq!(meta.title, "just text");
-    }
-
-    #[test]
-    fn tags_are_cleaned_and_deduplicated_ignoring_case() {
-        assert_eq!(
-            clean_tags(["#Work", "work", " ideas ", "", "#"]),
-            vec!["Work".to_string(), "ideas".to_string()]
-        );
     }
 }

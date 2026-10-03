@@ -796,3 +796,5 @@ mod a_rebuild_transitions_only_what_its_window_sees_change;
 mod a_text_rasterises_into_a_raw_image;
 #[path = "an_image_patched_in_place_survives_a_cached_relayout.rs"]
 mod an_image_patched_in_place_survives_a_cached_relayout;
+#[path = "the_undo_keys_are_a_default_action_an_editor_can_veto.rs"]
+mod the_undo_keys_are_a_default_action_an_editor_can_veto;

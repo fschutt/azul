@@ -410,3 +410,229 @@ fn an_undo_of_a_format_puts_the_typing_and_the_format_back_one_step_at_a_time() 
     });
     assert_eq!(kept.doc.blocks()[0].flat(), "hello world!");
 }
+
+// ---- WRITER6: the formats and the undo keys come from the engine ----
+
+/// The key `key` pressed with the primary modifier and Shift.
+fn press_primary_shift(lw: &mut LayoutWindow, key: VirtualKeyCode) {
+    lw.current_window_state.keyboard_state = KeyboardState {
+        current_virtual_keycode: Some(key).into(),
+        pressed_virtual_keycodes: vec![
+            VirtualKeyCode::LControl,
+            VirtualKeyCode::LWin,
+            VirtualKeyCode::LShift,
+            key,
+        ]
+        .into(),
+        ..Default::default()
+    };
+}
+
+/// What the shell does with a callback's acknowledgements: the synced
+/// revision and a reset of the host's editing state.
+fn apply_acks(lw: &mut LayoutWindow, changes: &[CallbackChange]) {
+    for change in changes {
+        match change {
+            CallbackChange::MarkTextRevisionSynced { revision } => {
+                lw.mark_text_revision_synced(*revision);
+            }
+            CallbackChange::ResetEditorContent { host, caret_at_end } => {
+                let _ = lw.reset_editor_content(*host, *caret_at_end);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The engine's typing style (its Ctrl/Cmd+B default action, or a toolbar
+/// button's `toggle_text_format`) set where the editor's key handler never
+/// saw it: the typed text is bold on screen, and the editor takes the bold
+/// from the engine's edit report (`DocumentTextEdit::runs`), not from a
+/// mirror of its own.
+#[test]
+fn text_typed_after_the_engines_bold_toggle_at_a_caret_is_bold_in_the_model() {
+    let (mut lw, log) = editor(RichTextDoc::from_blocks(vec![RichBlock::paragraph(
+        "hello world",
+    )]));
+    let text = text_node(&lw, "hello world");
+    select(&mut lw, text, 5, text, 5);
+    let host_node = dnid(host(&lw));
+    let _ = lw.toggle_text_format(host_node, azul_core::events::TextFormat::Bold);
+    type_text(&mut lw, "X");
+
+    let _ = fire(&lw, EventFilter::Focus(FocusEventFilter::TextChanged));
+
+    assert_eq!(
+        last(&log).doc.blocks()[0].runs_vec(),
+        vec![plain("hello"), bold("X"), plain(" world")]
+    );
+}
+
+/// An inline formatted paste (`a <b>b</b> c`) lands in the engine's
+/// overlay with its bold; the model keeps the bold (DEDUP_EDITORS D1).
+#[test]
+fn a_pasted_bold_word_is_bold_in_the_model() {
+    let (mut lw, log) = editor(RichTextDoc::from_blocks(vec![RichBlock::paragraph(
+        "hello world",
+    )]));
+    let text = text_node(&lw, "hello world");
+    select(&mut lw, text, 5, text, 5);
+    let _ = lw.paste_clipboard_content(
+        &crate::a_rich_paste_inserts_formatting_and_blocks::clipboard("a <b>b</b> c", "a b c"),
+    );
+    let _ = lw.apply_text_changeset();
+
+    let _ = fire(&lw, EventFilter::Focus(FocusEventFilter::TextChanged));
+
+    assert_eq!(
+        last(&log).doc.blocks()[0].runs_vec(),
+        vec![plain("helloa "), bold("b"), plain(" c world")]
+    );
+}
+
+/// Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z and Ctrl/Cmd+Y reach the editor (the
+/// engine's text undo is only the key's default action now): the editor
+/// runs its ONE history and cancels the engine's undo.
+#[test]
+fn ctrl_or_cmd_z_undoes_the_editors_own_history_and_cancels_the_engines_text_undo() {
+    let (mut lw, log) = editor(RichTextDoc::from_blocks(vec![RichBlock::paragraph(
+        "hello world",
+    )]));
+    let text = text_node(&lw, "hello world");
+    select(&mut lw, text, 11, text, 11);
+    type_text(&mut lw, "!");
+    let (_, changes) = fire(&lw, EventFilter::Focus(FocusEventFilter::TextChanged));
+    apply_acks(&mut lw, &changes);
+    assert_eq!(last(&log).doc.blocks()[0].flat(), "hello world!");
+
+    press_primary(&mut lw, VirtualKeyCode::Z);
+    let (update, changes) = fire(&lw, EventFilter::Focus(FocusEventFilter::VirtualKeyDown));
+    assert!(prevented(&changes), "the engine's text undo is cancelled");
+    assert_eq!(update, Update::RefreshDom);
+    assert_eq!(last(&log).doc.blocks()[0].flat(), "hello world");
+    assert!(
+        changes
+            .iter()
+            .any(|c| matches!(c, CallbackChange::ResetEditorContent { .. })),
+        "the engine drops its editing state of the undone text: {changes:?}"
+    );
+    apply_acks(&mut lw, &changes);
+
+    press_primary_shift(&mut lw, VirtualKeyCode::Z);
+    let (_, changes) = fire(&lw, EventFilter::Focus(FocusEventFilter::VirtualKeyDown));
+    assert!(prevented(&changes));
+    assert_eq!(
+        last(&log).doc.blocks()[0].flat(),
+        "hello world!",
+        "Shift+Z redoes"
+    );
+    apply_acks(&mut lw, &changes);
+
+    press_primary(&mut lw, VirtualKeyCode::Z);
+    let (_, changes) = fire(&lw, EventFilter::Focus(FocusEventFilter::VirtualKeyDown));
+    apply_acks(&mut lw, &changes);
+    press_primary(&mut lw, VirtualKeyCode::Y);
+    let (_, changes) = fire(&lw, EventFilter::Focus(FocusEventFilter::VirtualKeyDown));
+    assert!(prevented(&changes));
+    assert_eq!(
+        last(&log).doc.blocks()[0].flat(),
+        "hello world!",
+        "Y redoes too"
+    );
+}
+
+// ---- WRITER6: a paginated document (AzWriter's A4 sheets) ----
+
+/// `doc` split into pages starting at the blocks `starts`, every page an
+/// editing host of its own (`page_doms`), laid out one under the other.
+fn paged_editor(doc: RichTextDoc, starts: Vec<u32>) -> (LayoutWindow, Log) {
+    let log: Log = Arc::new(Mutex::new(Vec::new()));
+    let count = starts.len();
+    let pages = RichTextEditor::create(RichTextEditorState::create(doc))
+        .with_on_change(
+            RefAny::new(log.clone()),
+            record as RichTextEditorOnChangeCallbackType,
+        )
+        .page_doms(starts.into(), 0, count);
+    let mut body = Dom::create_body();
+    for page in pages.as_ref() {
+        body.add_child(page.clone());
+    }
+    (lay_out(body), log)
+}
+
+/// The node index of the element whose DOM id is `id`.
+fn node_with_id(lw: &LayoutWindow, id: &str) -> usize {
+    styled(lw)
+        .node_data
+        .as_ref()
+        .iter()
+        .position(|n| n.has_id(id))
+        .unwrap_or_else(|| panic!("a node with the id {id:?}"))
+}
+
+/// Fires the handler for `event` of the host with the DOM id `id`.
+fn fire_on(lw: &LayoutWindow, id: &str, event: EventFilter) -> (Update, Vec<CallbackChange>) {
+    let host = node_with_id(lw, id);
+    let (callback, data) = styled(lw).node_data.as_ref()[host]
+        .get_callbacks()
+        .as_ref()
+        .iter()
+        .find(|cb| cb.event == event)
+        .map(|cb| (cb.callback.clone(), cb.refany.clone()))
+        .expect("the page's host handles the event");
+    with_info(lw, dnid(host), |info| {
+        Callback::from_core(callback).invoke(data, info)
+    })
+}
+
+fn four_paragraphs() -> RichTextDoc {
+    RichTextDoc::from_blocks(vec![
+        RichBlock::paragraph("one"),
+        RichBlock::paragraph("two"),
+        RichBlock::paragraph("three"),
+        RichBlock::paragraph("four"),
+    ])
+}
+
+/// A page's blocks carry their index in the WHOLE document: typing on the
+/// second page edits the document's third block, not the page's first.
+#[test]
+fn typing_on_the_second_page_edits_that_block_of_the_whole_document() {
+    let (mut lw, log) = paged_editor(four_paragraphs(), vec![0, 2]);
+    assert!(
+        styled(&lw).node_data.as_ref()[node_with_id(&lw, "az-rich-text-2")]
+            .has_id("az-rich-text-2"),
+        "the third block keeps its document index on the second page"
+    );
+    let page = node_with_id(&lw, "az-rich-text-page-2");
+    lw.focus_manager.set_focused_node(Some(dnid(page)));
+    let three = text_node(&lw, "three");
+    select(&mut lw, three, 5, three, 5);
+    type_text(&mut lw, "!");
+
+    let _ = fire_on(&lw, "az-rich-text-page-2", EventFilter::Focus(FocusEventFilter::TextChanged));
+
+    let texts: Vec<String> = last(&log).doc.blocks().iter().map(RichBlock::flat).collect();
+    assert_eq!(texts, vec!["one", "two", "three!", "four"]);
+}
+
+/// The pages share ONE state: what was typed on one page is still there
+/// after typing on another (no page keeps a stale copy of the document).
+#[test]
+fn the_pages_of_one_editor_share_one_document() {
+    let (mut lw, log) = paged_editor(four_paragraphs(), vec![0, 2]);
+    let one = text_node(&lw, "one");
+    select(&mut lw, one, 3, one, 3);
+    type_text(&mut lw, "A");
+    let (_, changes) = fire_on(&lw, "az-rich-text-page-0", EventFilter::Focus(FocusEventFilter::TextChanged));
+    apply_acks(&mut lw, &changes);
+
+    let four = text_node(&lw, "four");
+    select(&mut lw, four, 4, four, 4);
+    type_text(&mut lw, "B");
+    let _ = fire_on(&lw, "az-rich-text-page-2", EventFilter::Focus(FocusEventFilter::TextChanged));
+
+    let texts: Vec<String> = last(&log).doc.blocks().iter().map(RichBlock::flat).collect();
+    assert_eq!(texts, vec!["oneA", "two", "three", "fourB"]);
+}

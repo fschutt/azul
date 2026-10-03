@@ -24,8 +24,8 @@ use azul::{
 
 use crate::{model::Note, AppState};
 
-/// The DOM id of the editing host; its blocks are `#note-body-<index>`.
-pub const HOST_ID: &str = "note-body";
+/// The DOM id of the editing host; its blocks are `#__aznotes_note-body-<index>`.
+pub const HOST_ID: &str = crate::ids::NOTE_BODY;
 
 /// The editor state for `doc` (a note just opened): the host's id set, an
 /// empty history.
@@ -65,7 +65,7 @@ pub fn editor_dom(s: &AppState, app: &RefAny, note: &Note) -> Dom {
 #[must_use]
 pub fn print_dom(s: &AppState, note: &Note, doc: &RichTextDoc, title: &str, font_px: f32) -> Dom {
     let mut view = state_for(doc);
-    view.host_id = AzString::from("note-print");
+    view.host_id = AzString::from(crate::ids::NOTE_PRINT);
     let editor = RichTextEditor::create(view)
         .with_read_only(true)
         .with_accessibility_name(title)

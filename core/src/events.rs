@@ -1580,6 +1580,20 @@ pub enum DefaultAction {
         target: DomNodeId,
         format: TextFormat,
     },
+    /// Ctrl/Cmd+Z in an editing host: undo the host's last text edit
+    /// (`SystemChange::UndoTextEdit`). A DEFAULT action, so an editor that
+    /// keeps its own history (the rich-text editor) takes the key with
+    /// `prevent_default` - the browser keydown model. APPENDED at the enum
+    /// tail for ABI stability.
+    UndoTextEdit {
+        target: DomNodeId,
+    },
+    /// Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y in an editing host: redo
+    /// (`SystemChange::RedoTextEdit`), vetoable like
+    /// [`Self::UndoTextEdit`]. APPENDED at the enum tail for ABI stability.
+    RedoTextEdit {
+        target: DomNodeId,
+    },
 }
 
 /// A character format a rich-text editor toggles (Ctrl/Cmd+B, I, U, or a
@@ -4949,6 +4963,7 @@ pub fn default_input_interpreter(info: &InputInterpreterInfo<'_>) -> PreCallback
         focused_node: info.state.focused_node,
         drag_start_position: info.state.drag_start_position,
         focus_is_editable: info.state.focus_is_editable,
+        has_selection: info.state.has_selection,
         seat_focus: info.seat_focus,
     };
 
@@ -5021,6 +5036,8 @@ struct FilterContext<'a> {
     drag_start_position: Option<LogicalPosition>,
     /// See `InputInterpreterState::focus_is_editable`.
     focus_is_editable: bool,
+    /// See `InputInterpreterState::has_selection`.
+    has_selection: bool,
     /// See `InputInterpreterInfo::seat_focus`.
     seat_focus: &'a [(u64, Option<DomNodeId>)],
 }
@@ -5072,6 +5089,7 @@ fn process_event_for_internal(
                 ctx.keyboard_state,
                 ctx.focused_node_for(seat_id),
                 ctx.focus_is_editable,
+                ctx.has_selection,
             )
         }
         EventType::MouseUp => Some(handle_mouse_up()),
@@ -5220,6 +5238,7 @@ fn handle_key_down(
     keyboard_state: &crate::window::KeyboardState,
     focused_node: Option<DomNodeId>,
     focus_is_editable: bool,
+    has_selection: bool,
 ) -> Option<InternalEventAction> {
     use crate::window::VirtualKeyCode;
 
@@ -5270,13 +5289,26 @@ fn handle_key_down(
                     },
                 ));
             }
+            // An editing shortcut is the engine's on a text-editing focus or
+            // while text is selected (something to copy); on any other focus
+            // (a button, a slider, a canvas) it is the app's key - claiming
+            // it swallowed AzCalculator's Ctrl/Cmd+C after a click on a
+            // keypad button, as it once did Backspace / Delete.
+            if !focus_is_editable && !has_selection {
+                return None;
+            }
             let change = match shortcut {
                 KeyboardShortcut::Copy => SystemChange::CopyToClipboard,
                 KeyboardShortcut::Cut => SystemChange::CutToClipboard { target },
                 KeyboardShortcut::Paste => SystemChange::PasteFromClipboard,
                 KeyboardShortcut::SelectAll => SystemChange::SelectAllText,
-                KeyboardShortcut::Undo => SystemChange::UndoTextEdit { target },
-                KeyboardShortcut::Redo => SystemChange::RedoTextEdit { target },
+                // Undo / Redo reach the callbacks: an editor that keeps its
+                // own history (the rich-text editor, a document app) takes
+                // them with `prevent_default`; otherwise the engine's text
+                // undo runs after the callbacks as the key's DEFAULT action
+                // (`DefaultAction::UndoTextEdit` / `RedoTextEdit`, decided in
+                // layout's `default_actions`) - the browser keydown model.
+                KeyboardShortcut::Undo | KeyboardShortcut::Redo => return None,
             };
             return Some(InternalEventAction::AddAndSkip(change));
         }
@@ -5284,6 +5316,10 @@ fn handle_key_down(
             // Ctrl+D adds a multi-cursor, which is the primary's alone
             // (9b-ii-a-i-d-ii-b-i): a seat's passes through to callbacks.
             if kbd.seat_id != crate::window::PRIMARY_POINTER_SEAT {
+                return None;
+            }
+            // Text editing: anywhere else Ctrl/Cmd+D is the app's key.
+            if !focus_is_editable {
                 return None;
             }
             return Some(InternalEventAction::AddAndSkip(

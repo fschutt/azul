@@ -3484,7 +3484,7 @@ mod autotest_generated {
         let kb = KeyboardState::default();
         let ev = key_event(VirtualKeyCode::Back as u32, KeyModifiers::default());
         assert!(
-            handle_key_down(&ev, &kb, None, true).is_none(),
+            handle_key_down(&ev, &kb, None, true, false).is_none(),
             "no focus => no keyboard system change"
         );
 
@@ -3496,7 +3496,7 @@ mod autotest_generated {
             tick(0),
             EventData::None,
         );
-        assert!(handle_key_down(&payloadless, &kb, Some(dnid(0, 1)), true).is_none());
+        assert!(handle_key_down(&payloadless, &kb, Some(dnid(0, 1)), true, false).is_none());
     }
 
     #[test]
@@ -3508,7 +3508,7 @@ mod autotest_generated {
         for code in [u32::MAX, u32::MAX - 1, 100_000, 9_999] {
             let ev = key_event(code, KeyModifiers::default());
             assert!(
-                handle_key_down(&ev, &kb, target, true).is_none(),
+                handle_key_down(&ev, &kb, target, true, false).is_none(),
                 "key_code {code} must decode to None"
             );
         }
@@ -3522,7 +3522,7 @@ mod autotest_generated {
         let kb = KeyboardState::default();
         let target = dnid(0, 1);
         let ev = key_event(VirtualKeyCode::C as u32, primary_modifiers());
-        match handle_key_down(&ev, &kb, Some(target), true) {
+        match handle_key_down(&ev, &kb, Some(target), true, false) {
             Some(InternalEventAction::AddAndSkip(SystemChange::CopyToClipboard)) => {}
             _ => panic!("primary+C in the payload must copy, regardless of the live state"),
         }
@@ -3531,7 +3531,7 @@ mod autotest_generated {
         let live = keyboard_with_primary_held();
         let plain = key_event(VirtualKeyCode::C as u32, KeyModifiers::default());
         assert!(
-            handle_key_down(&plain, &live, Some(target), true).is_none(),
+            handle_key_down(&plain, &live, Some(target), true, false).is_none(),
             "an unmodified C is plain text input, not a copy"
         );
     }
@@ -3542,7 +3542,7 @@ mod autotest_generated {
         let target = dnid(0, 1);
 
         let expect_op = |ev: &SyntheticEvent| -> SelectionOp {
-            match handle_key_down(ev, &kb, Some(target), true) {
+            match handle_key_down(ev, &kb, Some(target), true, false) {
                 Some(InternalEventAction::AddAndSkip(SystemChange::ApplySelectionOp {
                     target: t,
                     op,
@@ -3602,11 +3602,11 @@ mod autotest_generated {
         for vk in [VirtualKeyCode::Back, VirtualKeyCode::Delete] {
             let ev = key_event(vk as u32, KeyModifiers::default());
             assert!(
-                handle_key_down(&ev, &kb, target, false).is_none(),
+                handle_key_down(&ev, &kb, target, false, false).is_none(),
                 "{vk:?} on a non-editable focus must reach the callbacks"
             );
             assert!(
-                handle_key_down(&ev, &kb, target, true).is_some(),
+                handle_key_down(&ev, &kb, target, true, false).is_some(),
                 "{vk:?} still edits text in an editable focus"
             );
         }
@@ -3625,10 +3625,148 @@ mod autotest_generated {
         ] {
             let ev = key_event(vk as u32, KeyModifiers::default());
             assert!(
-                handle_key_down(&ev, &kb, target, true).is_none(),
+                handle_key_down(&ev, &kb, target, true, false).is_none(),
                 "{vk:?} must not generate a system change"
             );
         }
+    }
+
+    /// AzCalculator E2E (SMALL6, 2026-10-03): after a click on a keypad
+    /// button (a focused, non-editable button) Cmd/Ctrl+C never reached the
+    /// app's key handler - the interpreter claimed the Copy shortcut
+    /// (`AddAndSkip`), as it once did Backspace and Delete. An editing
+    /// shortcut (copy, cut, paste, select all) is the engine's on a
+    /// text-editing focus, or while text is selected (there is something to
+    /// copy); anywhere else it is the app's key.
+    #[test]
+    fn editing_shortcuts_reach_the_app_on_a_non_editable_focus_without_a_selection() {
+        let kb = KeyboardState::default();
+        let target = Some(dnid(0, 1));
+        for vk in [
+            VirtualKeyCode::C,
+            VirtualKeyCode::X,
+            VirtualKeyCode::V,
+            VirtualKeyCode::A,
+        ] {
+            let ev = key_event(vk as u32, primary_modifiers());
+            assert!(
+                handle_key_down(&ev, &kb, target, false, false).is_none(),
+                "{vk:?} on a focused button must reach the app's key handler"
+            );
+            assert!(
+                handle_key_down(&ev, &kb, target, true, false).is_some(),
+                "{vk:?} in a text field is still the engine's"
+            );
+            assert!(
+                handle_key_down(&ev, &kb, target, false, true).is_some(),
+                "{vk:?} over selected text is still the engine's"
+            );
+        }
+
+        // Through the interpreter: the Copy KeyDown is a user event, no
+        // CopyToClipboard is queued.
+        let mouse = MouseState::default();
+        let events = vec![key_event(VirtualKeyCode::C as u32, primary_modifiers())];
+        let info = InputInterpreterInfo {
+            seat_focus: &[],
+            events: &events,
+            hit_test: None,
+            keyboard_state: &kb,
+            mouse_state: &mouse,
+            state: InputInterpreterState {
+                focused_node: target,
+                click_count: 1,
+                drag_start_position: None,
+                has_selection: false,
+                focus_is_editable: false,
+            },
+        };
+        let r = default_input_interpreter(&info);
+        assert!(r.system_changes.is_empty(), "{:?}", r.system_changes);
+        assert!(r
+            .user_events
+            .iter()
+            .any(|e| e.event_type == EventType::KeyDown));
+    }
+
+    /// Ctrl/Cmd+D (the next occurrence as another caret) is text editing
+    /// too: on a focused button it is the app's key (a "duplicate", a
+    /// bookmark), in a text field the engine's.
+    #[test]
+    fn ctrl_d_reaches_the_app_on_a_non_editable_focus() {
+        let kb = KeyboardState::default();
+        let target = Some(dnid(0, 1));
+        let ev = key_event(VirtualKeyCode::D as u32, primary_modifiers());
+        assert!(handle_key_down(&ev, &kb, target, false, false).is_none());
+        assert!(handle_key_down(&ev, &kb, target, true, false).is_some());
+    }
+
+    /// Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z and Ctrl/Cmd+Y reach the callbacks of an
+    /// editing focus: an editor that owns its history (a rich-text editor,
+    /// a document app) handles them. The engine's text undo is the key's
+    /// DEFAULT ACTION (layout's `default_actions`), run after the callbacks
+    /// unless one called `prevent_default` - the browser's keydown model,
+    /// where a page's keydown handler cancels the built-in undo.
+    ///
+    /// Before: the interpreter claimed the keys (`AddAndSkip` of
+    /// `UndoTextEdit` / `RedoTextEdit`), so no callback ever saw them and an
+    /// app's own history could not be reached from the keyboard.
+    #[test]
+    fn undo_and_redo_keys_reach_the_callbacks_of_an_editing_focus() {
+        let kb = KeyboardState::default();
+        let target = dnid(0, 1);
+        let primary = primary_modifiers();
+        let primary_shift = if cfg!(target_os = "macos") {
+            KeyModifiers::new().with_meta().with_shift()
+        } else {
+            KeyModifiers::new().with_ctrl().with_shift()
+        };
+        for (vk, mods) in [
+            (VirtualKeyCode::Z, primary),
+            (VirtualKeyCode::Z, primary_shift),
+            (VirtualKeyCode::Y, primary),
+        ] {
+            let ev = key_event(vk as u32, mods);
+            for editable in [true, false] {
+                assert!(
+                    handle_key_down(&ev, &kb, Some(target), editable, false).is_none(),
+                    "{vk:?} {mods:?} (editable focus: {editable}) must pass to the callbacks"
+                );
+            }
+        }
+
+        // Through the interpreter: the KeyDown is a user event and no undo
+        // runs before the callbacks.
+        let mouse = MouseState::default();
+        let events = vec![key_event(VirtualKeyCode::Z as u32, primary)];
+        let info = InputInterpreterInfo {
+            seat_focus: &[],
+            events: &events,
+            hit_test: None,
+            keyboard_state: &kb,
+            mouse_state: &mouse,
+            state: InputInterpreterState {
+                focused_node: Some(target),
+                click_count: 1,
+                drag_start_position: None,
+                has_selection: false,
+                focus_is_editable: true,
+            },
+        };
+        let r = default_input_interpreter(&info);
+        assert!(
+            !r.system_changes
+                .iter()
+                .any(|c| matches!(c, SystemChange::UndoTextEdit { .. })),
+            "no undo before the callbacks: {:?}",
+            r.system_changes
+        );
+        assert!(
+            r.user_events
+                .iter()
+                .any(|e| e.event_type == EventType::KeyDown),
+            "the Ctrl/Cmd+Z KeyDown must reach the callbacks"
+        );
     }
 
     // ================================================ default_input_interpreter
@@ -4784,14 +4922,14 @@ fn arrows_are_claimed_for_the_caret_only_while_editing() {
 
     // EDITING: the caret owns the arrow.
     assert!(
-        super::handle_key_down(&arrow(), &kb, Some(target), true).is_some(),
+        super::handle_key_down(&arrow(), &kb, Some(target), true, false).is_some(),
         "a text-editing focus must still take the arrow for caret movement",
     );
 
     // NOT EDITING: the interpreter must keep its hands off, so the event
     // reaches the focused widget (and, failing that, the scroll default).
     assert!(
-        super::handle_key_down(&arrow(), &kb, Some(target), false).is_none(),
+        super::handle_key_down(&arrow(), &kb, Some(target), false, false).is_none(),
         "outside a text editor the arrow must pass through to the widget",
     );
 }
