@@ -12165,25 +12165,13 @@ fn generate_list_marker_text(
         )));
     }
 
-    // Get list-style-type from the list-item or its container
-    let list_container_dom_id = list_item_node.parent.and_then(|grandparent_index| {
-        tree.get(LayoutNodeId::new(grandparent_index))
-            .and_then(|grandparent| grandparent.dom_node_id)
-    });
-
-    // Try to get list-style-type from the list container first,
-    // then fall back to the list-item
-    let list_style_type = list_container_dom_id.map_or_else(
-        || get_list_style_type(styled_dom, Some(list_item_dom_id)),
-        |container_id| {
-            let container_type = get_list_style_type(styled_dom, Some(container_id));
-            if container_type == StyleListStyleType::default() {
-                get_list_style_type(styled_dom, Some(list_item_dom_id))
-            } else {
-                container_type
-            }
-        },
-    );
+    // The list item's own list-style-type: it inherits, so `<ol>`'s decimal
+    // reaches its items, and an item's own value wins over its list's (the
+    // container's type was read first, so `<li style="list-style-type:
+    // none">` in a styled list kept the list's marker). The same value
+    // decides whether the marker has a box at all
+    // (`LayoutTreeBuilder::create_marker_pseudo_element`).
+    let list_style_type = get_list_style_type(styled_dom, Some(list_item_dom_id));
 
     // Get the counter value for "list-item" counter from the LIST-ITEM node
     // Per CSS spec, counters are scoped to elements, and the list-item counter
@@ -12210,6 +12198,10 @@ fn generate_list_marker_text(
 
     // Format the counter according to the list-style-type
     let marker_text = format_counter(counter_value, list_style_type);
+    // No marker string (`none`): no marker - not a lone space.
+    if marker_text.is_empty() {
+        return String::new();
+    }
 
     // For ordered lists (non-symbolic markers), add a period and space
     // For unordered lists (symbolic markers like •, ◦, ▪), just add a space

@@ -3110,12 +3110,23 @@ impl LayoutTreeBuilder {
     ///
     /// The `::marker` references the same DOM node as its parent list-item,
     /// but is marked as a pseudo-element for proper counter resolution and styling.
+    ///
+    /// A marker with no content generates no box (CSS Lists 3 s3.1: its
+    /// `content: normal` computes from `list-style-image`, which azul does
+    /// not support, and `list-style-type`): `list-style-type: none` - the
+    /// RichTextEditor's check items - gets none, and `None` is returned.
+    /// The type is the item's own computed (inherited) value.
     pub fn create_marker_pseudo_element(
         &mut self,
         styled_dom: &StyledDom,
         list_item_dom_id: NodeId,
         list_item_idx: usize,
-    ) -> usize {
+    ) -> Option<usize> {
+        if crate::solver3::getters::get_list_style_type(styled_dom, Some(list_item_dom_id))
+            == azul_css::props::style::lists::StyleListStyleType::None
+        {
+            return None;
+        }
         let index = self.nodes.len();
 
         // The marker references the same DOM node as the list-item
@@ -3165,7 +3176,7 @@ impl LayoutTreeBuilder {
             .or_default()
             .push(index);
 
-        index
+        Some(index)
     }
 
     // M12.7: returns `usize`, NOT `Result<usize>` — this fn has no error path
