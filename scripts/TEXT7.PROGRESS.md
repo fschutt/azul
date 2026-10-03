@@ -12,13 +12,15 @@ Branch `wt/text7` from `2e55eef06`. Brief: scripts/waves/wave7/TEXT7.md. Never c
   minimal edits)
 - fbc03a5bd RED item 2: cache.rs test module `a_run_shaped_before_its_font_loads`
 - ca05d694c GREEN item 2: per-thread deficit counter; the per-item cache skips deficient groups
+- d1763bc89 RED item 3: layout/tests/bolder_and_lighter_are_relative_to_the_parent_weight.rs
+- 0a0093605 GREEN item 3: StyleFontWeight::computed (css), compact builder + cascade (core), getters::
+  get_computed_font_weight (layout)
 
 ## IN PROGRESS
-- item 3: font-weight bolder / lighter relative to the parent's computed weight (CSS Fonts 4 s2.2)
+- item 4: dll/src/desktop/shell2/common/layout.rs:~1555 `NodeId::from_usize(i)` off-by-one (GeolocationProbe)
 
 ## NEXT
-- items 4..6 in order (4: dll layout.rs:1555
-  off-by-one; 5: line-height 19px -> 19.55; 6: line-height rem/vw/vh)
+- items 5..6 in order (5: line-height 19px -> 19.55; 6: line-height rem/vw/vh)
 
 ## Decisions
 - text-indent is applied as geometry of the line box (start-side segment narrowed), not a pen shift.
