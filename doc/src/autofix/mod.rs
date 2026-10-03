@@ -3439,8 +3439,37 @@ pub fn check_private_paths(
     api_data: &ApiData,
     index: &type_index::TypeIndex,
 ) -> Vec<FfiSafetyWarning> {
-    let _ = (api_data, index);
-    Vec::new()
+    let mut warnings = Vec::new();
+    for version in api_data.0.values() {
+        for (module_name, module) in &version.api {
+            for (class_name, class) in &module.classes {
+                let Some(external) = class.external.as_deref() else {
+                    continue;
+                };
+                let Some(private_module) = index.private_module_on(external) else {
+                    continue;
+                };
+                // The diff fixes the path when the index reaches the type
+                // by a public one
+                let public = index
+                    .resolve(class_name, None)
+                    .or_else(|| index.resolve(&format!("Az{class_name}"), None))
+                    .is_some_and(|def| index.private_module_on(&def.full_path).is_none());
+                if public {
+                    continue;
+                }
+                warnings.push(FfiSafetyWarning {
+                    type_name: class_name.clone(),
+                    file_path: format!("api.json - {}.{}", module_name, class_name),
+                    kind: FfiSafetyWarningKind::PrivateExternalPath {
+                        external: external.to_string(),
+                        private_module,
+                    },
+                });
+            }
+        }
+    }
+    warnings
 }
 
 /// Whether `body` uses the variable `object` other than as `object.`: not

@@ -448,9 +448,16 @@ fn resolve_api_type_name(
 /// `crate::<Type>` and the dll does not build (four shell Vec classes lost
 /// their path while the scan moved them between modules, 2026-10-01; the
 /// scan used to skip empty paths, so nothing ever repaired them).
+///
+/// A path through a private module is fixed when the workspace path is
+/// public (the index names a re-exported type by its `pub use`): root+leaf
+/// equivalence alone never corrected TextRasterStyle's
+/// `cpurender::text_raster` path, and the dylib did not compile (wave 6).
 fn needs_path_fix(api_path: &str, workspace_path: &str, index: &TypeIndex) -> bool {
-    let _ = index;
-    api_path.is_empty() || !paths_are_equivalent(api_path, workspace_path)
+    api_path.is_empty()
+        || !paths_are_equivalent(api_path, workspace_path)
+        || (index.private_module_on(api_path).is_some()
+            && index.private_module_on(workspace_path).is_none())
 }
 
 /// Check if two paths denote the same type.
