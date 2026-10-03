@@ -515,6 +515,15 @@ pub mod data_table;
 /// view for screen readers; a long line decimated per pixel column. Drawn
 /// with the engine's SVG path; see `chart.rs`.
 pub mod chart;
+/// Terminal view widget.
+///
+/// The surface of a terminal emulator: a grid of styled cells (16 / 256 /
+/// true colours, attributes), a cursor, a selection and a scrollback of any
+/// length - the app's VT engine answers a data callback with the rows in
+/// view, the view is a `VirtualView` host scrolled in whole lines, and keys,
+/// typed text, pastes and the pointer come back as bytes for the program
+/// (xterm encodings). See `terminal_view.rs`.
+pub mod terminal_view;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
