@@ -53,13 +53,18 @@ screenshots + hierarchy dumps under target/sheetshow6-shots/.
 - c0fff7291 + 6780b41c7 RED / e005cb20d GREEN: CellGrid point mode (click / drag / arrows insert references;
   CellGridDragKind::Point - api.json). AzSheets needs nothing more (EditText events store the view).
 
+- 1b7397599 RED / d9ef4a752 GREEN: format_cells.rs (number_code / read_code / FormatDraft::patches);
+  13d6fc717 format_dialog.rs - the Format Cells Modal (TabHeader, 5 tabs), Mod+1, launchers on Font / Alignment /
+  Number (Action::FormatCells(tab)); zoom_action renamed action_ref. OK = one style command per change (not one undo
+  step - noted for the report).
+
 ## IN PROGRESS
 - (none)
 
 ## NEXT (exact)
 1-3. (done)
 4. (done)
-5. NEXT: Sheets Format Cells dialog, merge cells, conditional formatting, tab strip; Show (drop indicator, multi-select
+5. NEXT: Sheets merge cells, conditional formatting, tab strip; Show (drop indicator, multi-select
    rotate, tables in place, picture contain / cover, find / replace, presenter on a chosen monitor).
 6. Check both apps for `ctrl || meta` and duplicated helpers (checklist).
 
