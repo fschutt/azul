@@ -1049,17 +1049,44 @@ impl TypeIndex {
             .collect();
 
         // Merge results
+        let mut parsed: Vec<TypeDefinition> = Vec::new();
+        let mut facts = ModuleFacts::default();
         for result in results {
             match result {
-                Ok(types) => {
-                    for typedef in types {
-                        index.add_type(typedef);
-                    }
+                Ok((types, file_facts)) => {
+                    parsed.extend(types);
+                    facts.private.extend(file_facts.private);
+                    facts.public.extend(file_facts.public);
+                    facts.reexports.extend(file_facts.reexports);
                 }
                 Err(e) => {
                     index.errors.push(e);
                 }
             }
+        }
+
+        // A type behind a private module is named by the `pub use` that
+        // re-exports it: the private path does not compile in another crate
+        // (TextRasterStyle, wave 6). azul_dll is left out: the generated code
+        // lives in that crate, where its private modules are in reach.
+        let public: std::collections::BTreeSet<&String> = facts.public.iter().collect();
+        index.private_modules = facts
+            .private
+            .iter()
+            .filter(|m| !public.contains(m) && !m.starts_with("azul_dll::"))
+            .cloned()
+            .collect();
+        for mut typedef in parsed {
+            if let Some((module, name)) = typedef.full_path.rsplit_once("::") {
+                if first_private_module(module, &index.private_modules).is_some() {
+                    if let Some(path) =
+                        public_path(module, name, &index.private_modules, &facts.reexports, 0)
+                    {
+                        typedef.full_path = path;
+                    }
+                }
+            }
+            index.add_type(typedef);
         }
 
         // Phase 2: Collect cross-file impl blocks and attach methods to types
@@ -1252,8 +1279,7 @@ impl TypeIndex {
     /// The first private module on the way to `path` (a type or module
     /// path), if any: the path does not name its item from another crate.
     pub fn private_module_on(&self, path: &str) -> Option<String> {
-        let _ = path;
-        None
+        first_private_module(path, &self.private_modules)
     }
 
     /// Record `module` as declared without `pub` (tests).
@@ -1533,7 +1559,10 @@ fn expand_local_item_macros(file: &mut File) {
     file.items.extend(expanded);
 }
 
-fn parse_file_for_types(crate_name: &str, file_path: &Path) -> Result<Vec<TypeDefinition>, String> {
+fn parse_file_for_types(
+    crate_name: &str,
+    file_path: &Path,
+) -> Result<(Vec<TypeDefinition>, ModuleFacts), String> {
     let content = fs::read_to_string(file_path)
         .map_err(|e| format!("Failed to read {}: {}", file_path.display(), e))?;
 
@@ -1627,7 +1656,185 @@ fn parse_file_for_types(crate_name: &str, file_path: &Path) -> Result<Vec<TypeDe
         }
     }
 
-    Ok(types)
+    let facts = module_facts(crate_name, &module_path, &syntax_tree.items);
+    Ok((types, facts))
+}
+
+/// What one file's top-level items say about reaching definitions from
+/// another crate: its module declarations and its `pub use` re-exports.
+#[derive(Debug, Default)]
+struct ModuleFacts {
+    /// Modules declared without `pub` (absolute paths)
+    private: Vec<String>,
+    /// Modules declared `pub` (absolute paths): a `#[cfg]` pair of a private
+    /// and a public declaration of one module is public
+    public: Vec<String>,
+    /// `pub use` items
+    reexports: Vec<Reexport>,
+}
+
+/// One item of a `pub use`.
+#[derive(Debug, Clone)]
+struct Reexport {
+    /// The module declaring it (absolute: `azul_layout::cpurender`)
+    at: String,
+    /// The module its items come from (absolute: `..::cpurender::text_raster`)
+    from: String,
+    /// `None` for a glob, else the item's name (a rename is not followed)
+    item: Option<String>,
+}
+
+/// The [`ModuleFacts`] of `items`, the top level of the module `module_path`
+/// of `crate_name`.
+fn module_facts(crate_name: &str, module_path: &str, items: &[Item]) -> ModuleFacts {
+    let at = if module_path.is_empty() {
+        crate_name.to_string()
+    } else {
+        format!("{crate_name}::{module_path}")
+    };
+    let mut facts = ModuleFacts::default();
+    for item in items {
+        match item {
+            Item::Mod(m) => {
+                let path = format!("{at}::{}", m.ident);
+                if matches!(m.vis, syn::Visibility::Public(_)) {
+                    facts.public.push(path);
+                } else {
+                    facts.private.push(path);
+                }
+            }
+            Item::Use(u) if matches!(u.vis, syn::Visibility::Public(_)) => {
+                let mut flat = Vec::new();
+                flatten_use_tree(&u.tree, &mut Vec::new(), &mut flat);
+                for (prefix, item) in flat {
+                    if let Some(from) = resolve_use_prefix(crate_name, &at, &prefix) {
+                        facts.reexports.push(Reexport {
+                            at: at.clone(),
+                            from,
+                            item,
+                        });
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    facts
+}
+
+/// The leaves of a use tree: (path prefix, `None` for a glob or the name).
+/// A rename (`a as b`) is left out: its type is reached under another name.
+fn flatten_use_tree(
+    tree: &UseTree,
+    prefix: &mut Vec<String>,
+    out: &mut Vec<(Vec<String>, Option<String>)>,
+) {
+    match tree {
+        UseTree::Path(p) => {
+            prefix.push(p.ident.to_string());
+            flatten_use_tree(&p.tree, prefix, out);
+            prefix.pop();
+        }
+        UseTree::Name(n) => out.push((prefix.clone(), Some(n.ident.to_string()))),
+        UseTree::Rename(_) => {}
+        UseTree::Glob(_) => out.push((prefix.clone(), None)),
+        UseTree::Group(g) => {
+            for t in &g.items {
+                flatten_use_tree(t, prefix, out);
+            }
+        }
+    }
+}
+
+/// The absolute module a `use` path prefix names from module `at`:
+/// `crate::..`, `self::..`, `super::..`, another crate of the index, or a
+/// child of `at`. `None` for an empty prefix or a `super` above the root.
+fn resolve_use_prefix(crate_name: &str, at: &str, prefix: &[String]) -> Option<String> {
+    let (first, rest) = prefix.split_first()?;
+    let mut base: Vec<String> = match first.as_str() {
+        "crate" => vec![crate_name.to_string()],
+        "self" => at.split("::").map(str::to_string).collect(),
+        "super" => {
+            let mut segs: Vec<String> = at.split("::").map(str::to_string).collect();
+            segs.pop();
+            segs
+        }
+        other if CRATE_DIRS.iter().any(|(c, _)| *c == other) => vec![other.to_string()],
+        other => {
+            let mut segs: Vec<String> = at.split("::").map(str::to_string).collect();
+            segs.push(other.to_string());
+            segs
+        }
+    };
+    for seg in rest {
+        if seg == "super" {
+            base.pop();
+        } else {
+            base.push(seg.clone());
+        }
+    }
+    (!base.is_empty()).then(|| base.join("::"))
+}
+
+/// The first module of `private` on the way to `path` (`path` itself
+/// included): `azul_layout::cpurender::named` for
+/// `azul_layout::cpurender::named::NotNamed`.
+fn first_private_module(path: &str, private: &std::collections::BTreeSet<String>) -> Option<String> {
+    let segs: Vec<&str> = path.split("::").collect();
+    (2..=segs.len())
+        .map(|i| segs[..i].join("::"))
+        .find(|p| private.contains(p))
+}
+
+/// The path `module::name` is reached by from another crate: itself when no
+/// module on the way is private, else the path of a `pub use` that
+/// re-exports it - a glob or the name of its module, or a glob / the name of
+/// a (public) module on the way - followed up the tree. `None` when nothing
+/// re-exports it.
+fn public_path(
+    module: &str,
+    name: &str,
+    private: &std::collections::BTreeSet<String>,
+    reexports: &[Reexport],
+    depth: usize,
+) -> Option<String> {
+    if first_private_module(module, private).is_none() {
+        return Some(format!("{module}::{name}"));
+    }
+    if depth > 8 {
+        return None;
+    }
+    reexports.iter().find_map(|r| {
+        // `module::name` as a path relative to `r.at`
+        let relative = if r.from == module {
+            match &r.item {
+                None => name.to_string(),
+                Some(item) if item == name => name.to_string(),
+                Some(_) => return None,
+            }
+        } else {
+            let rest = module.strip_prefix(r.from.as_str())?.strip_prefix("::")?;
+            let (first, tail) = match rest.split_once("::") {
+                Some((first, tail)) => (first, Some(tail)),
+                None => (rest, None),
+            };
+            // a private child module is not re-exported (neither by a glob
+            // nor by name)
+            if private.contains(&format!("{}::{first}", r.from)) {
+                return None;
+            }
+            if r.item.as_deref().is_some_and(|item| item != first) {
+                return None;
+            }
+            match tail {
+                Some(tail) => format!("{first}::{tail}::{name}"),
+                None => format!("{first}::{name}"),
+            }
+        };
+        let full = format!("{}::{relative}", r.at);
+        let (m, n) = full.rsplit_once("::")?;
+        public_path(m, n, private, reexports, depth + 1)
+    })
 }
 
 /// Parse a file to extract impl blocks for cross-file method attachment.
