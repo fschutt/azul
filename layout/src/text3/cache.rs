@@ -8488,6 +8488,17 @@ impl TextShapingCache {
         let mut cur_word = 0.0f32;
         let mut max_line_height = 0.0f32;
 
+        // `text-indent` counts in the intrinsic sizes (CSS Text 3 8.1; the
+        // caller passes a percentage as 0): a line box is narrower by its indent
+        // (`text_indent_of_line`), so a box sized from these widths must hold
+        // indent + content. A line between forced breaks takes its own indent
+        // (max-content); the FIRST word of such a line takes it too, every later
+        // word may start a soft-wrapped line and takes that line's (min-content).
+        let soft_wrap_indent = text_indent_of_line(constraints, false, false);
+        let mut forced_lines = 0usize;
+        let mut line_indent = text_indent_of_line(constraints, true, false);
+        let mut word_indent = line_indent;
+
         for item in oriented_items.iter() {
             // A forced break (preserved LF, <br>) ends the current line. max-content
             // is the widest line BETWEEN forced breaks, not the running sum across
@@ -8495,14 +8506,17 @@ impl TextShapingCache {
             // content) over-measures its max-content as the concatenation of all
             // lines. Reset the line accumulators here.
             if let ShapedItem::Break { .. } = item {
-                if total > max_line {
-                    max_line = total;
+                if total + line_indent > max_line {
+                    max_line = total + line_indent;
                 }
-                if cur_word > max_word {
-                    max_word = cur_word;
+                if cur_word > 0.0 && cur_word + word_indent > max_word {
+                    max_word = cur_word + word_indent;
                 }
                 total = 0.0;
                 cur_word = 0.0;
+                forced_lines += 1;
+                line_indent = text_indent_of_line(constraints, false, forced_lines > 0);
+                word_indent = line_indent;
                 continue;
             }
             // The scan MUST fold the same per-item measure, in the same order,
@@ -8520,8 +8534,11 @@ impl TextShapingCache {
             }
 
             if is_break_opportunity_with_word_break(item, word_break, hyphens) {
-                if cur_word > max_word {
-                    max_word = cur_word;
+                if cur_word > 0.0 {
+                    if cur_word + word_indent > max_word {
+                        max_word = cur_word + word_indent;
+                    }
+                    word_indent = soft_wrap_indent;
                 }
                 // A break opportunity that is itself a rendered unit (a CJK
                 // ideograph in normal mode, or any cluster under break-all /
@@ -8529,19 +8546,24 @@ impl TextShapingCache {
                 // of its own advance; only true separators (spaces) contribute 0.
                 // Without this, pure-CJK / break-all text measures min-content = 0
                 // and the box collapses to zero inline width.
-                if !is_word_separator(item) && adv > max_word {
-                    max_word = adv;
+                if !is_word_separator(item) {
+                    if adv + word_indent > max_word {
+                        max_word = adv + word_indent;
+                    }
+                    word_indent = soft_wrap_indent;
                 }
                 cur_word = 0.0;
             } else {
                 cur_word += adv;
             }
         }
-        if cur_word > max_word {
-            max_word = cur_word;
+        if cur_word > 0.0 && cur_word + word_indent > max_word {
+            max_word = cur_word + word_indent;
         }
-        if total > max_line {
-            max_line = total;
+        // The last line: an indent only counts on a line that holds something
+        // (an empty paragraph has no line box to indent).
+        if (total > 0.0 || forced_lines > 0) && total + line_indent > max_line {
+            max_line = total + line_indent;
         }
 
         // white-space:nowrap forbids soft-wrap opportunities entirely, so the
