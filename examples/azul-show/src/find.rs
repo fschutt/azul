@@ -21,20 +21,136 @@ pub struct Place {
 /// `backwards`. `after` itself comes last.
 #[must_use]
 pub fn find_next(deck: &Deck, after: Option<Place>, needle: &str, how: TextMatch, backwards: bool) -> Option<Place> {
-    let _ = (deck, after, needle, how, backwards);
-    None
+    if needle.is_empty() {
+        return None;
+    }
+    let all = places(deck);
+    let n = all.len();
+    let start = after.and_then(|a| all.iter().position(|p| *p == a));
+    (1..=n)
+        .map(|k| match (start, backwards) {
+            (Some(s), false) => (s + k) % n,
+            (Some(s), true) => (s + n - k) % n,
+            (None, false) => k - 1,
+            (None, true) => n - k,
+        })
+        .map(|i| all[i])
+        .find(|p| holds_at(deck, *p, needle, how))
 }
 
 /// Replaces every match in the texts of `place`; whether anything changed.
 pub fn replace_in(deck: &mut Deck, place: Place, needle: &str, replacement: &str, how: TextMatch) -> bool {
-    let _ = (deck, place, needle, replacement, how);
-    false
+    let Some(slide) = deck.slides.get_mut(place.slide) else {
+        return false;
+    };
+    match place.element {
+        None => edit(&mut slide.notes, needle, replacement, how),
+        Some(id) => slide
+            .elements
+            .iter_mut()
+            .find(|e| e.id == id)
+            .is_some_and(|e| replace_texts(e, needle, replacement, how)),
+    }
 }
 
 /// Replace All: every match of the deck; how many places changed.
 pub fn replace_all(deck: &mut Deck, needle: &str, replacement: &str, how: TextMatch) -> usize {
-    let _ = (deck, needle, replacement, how);
-    0
+    if needle.is_empty() {
+        return 0;
+    }
+    places(deck)
+        .into_iter()
+        .filter(|p| replace_in(deck, *p, needle, replacement, how))
+        .count()
+}
+
+/// Every place of the deck in reading order: each slide's elements, then
+/// its notes.
+fn places(deck: &Deck) -> Vec<Place> {
+    let mut out = Vec::new();
+    for (slide, s) in deck.slides.iter().enumerate() {
+        out.extend(s.elements.iter().map(|e| Place {
+            slide,
+            element: Some(e.id),
+        }));
+        out.push(Place { slide, element: None });
+    }
+    out
+}
+
+/// Whether a text of `place` holds `needle`.
+fn holds_at(deck: &Deck, place: Place, needle: &str, how: TextMatch) -> bool {
+    let Some(slide) = deck.slides.get(place.slide) else {
+        return false;
+    };
+    match place.element {
+        None => find::holds(&slide.notes, needle, how),
+        Some(id) => slide.elements.iter().find(|e| e.id == id).is_some_and(|e| {
+            let mut texts = Vec::new();
+            texts_of(e, &mut texts);
+            texts.iter().any(|t| find::holds(t, needle, how))
+        }),
+    }
+}
+
+/// The texts of an element (a group's: its children's): runs, cells, a
+/// chart's title.
+fn texts_of(e: &Element, out: &mut Vec<String>) {
+    match &e.kind {
+        ElementKind::Text { body } | ElementKind::Shape { body, .. } => {
+            for p in &body.paragraphs {
+                out.extend(p.runs.iter().map(|r| r.text.clone()));
+            }
+        }
+        ElementKind::Table { rows, .. } => out.extend(rows.iter().flatten().cloned()),
+        ElementKind::Chart { title, .. } => out.push(title.clone()),
+        ElementKind::Group { children } => {
+            for c in children {
+                texts_of(c, out);
+            }
+        }
+        ElementKind::Image { .. } | ElementKind::Video { .. } => {}
+    }
+}
+
+/// Replaces the matches in one text; whether it changed.
+fn edit(text: &mut String, needle: &str, replacement: &str, how: TextMatch) -> bool {
+    match find::replace(text, needle, replacement, how) {
+        Some(new) => {
+            *text = new;
+            true
+        }
+        None => false,
+    }
+}
+
+/// Replaces the matches in every text of an element; whether any changed.
+/// (A match across two differently formatted runs is not found: each run is
+/// matched on its own, so a replacement keeps its run's format.)
+fn replace_texts(e: &mut Element, needle: &str, replacement: &str, how: TextMatch) -> bool {
+    let mut changed = false;
+    match &mut e.kind {
+        ElementKind::Text { body } | ElementKind::Shape { body, .. } => {
+            for p in &mut body.paragraphs {
+                for r in &mut p.runs {
+                    changed |= edit(&mut r.text, needle, replacement, how);
+                }
+            }
+        }
+        ElementKind::Table { rows, .. } => {
+            for cell in rows.iter_mut().flatten() {
+                changed |= edit(cell, needle, replacement, how);
+            }
+        }
+        ElementKind::Chart { title, .. } => changed |= edit(title, needle, replacement, how),
+        ElementKind::Group { children } => {
+            for c in children {
+                changed |= replace_texts(c, needle, replacement, how);
+            }
+        }
+        ElementKind::Image { .. } | ElementKind::Video { .. } => {}
+    }
+    changed
 }
 
 #[cfg(test)]
