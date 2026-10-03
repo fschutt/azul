@@ -19,8 +19,6 @@
 //! a local UID from `send::LOCAL_UID_FLOOR` up (far above any server's), and a state that says
 //! the folder is local only until a sync adopts it (`sync::plan_folder`).
 
-use std::path::Path;
-
 use azul::{
     vec::RichBlockVec,
     widgets::{RichBlock, RichTextDoc},
@@ -29,7 +27,7 @@ use azul::{
 use crate::{
     message::MessageView,
     send::{Attachment, OutgoingMail},
-    store::{self, FolderState, IndexEntry, LocalFolder},
+    store::{self, DriveFolder, FolderState, IndexEntry, MailStore},
 };
 
 /// The folder drafts are saved in (the `\Drafts` folder's fixed key).
@@ -412,20 +410,20 @@ pub fn draft_bytes(mail: &OutgoingMail, now_secs: i64) -> Vec<u8> {
 /// synced), after removing `replaces` - the same draft saved before - so it is there once.
 /// Returns the new index line.
 pub fn save_draft(
-    store_root: &Path,
+    store_root: &DriveFolder,
     replaces: Option<u32>,
     bytes: &[u8],
     now_secs: i64,
 ) -> std::io::Result<IndexEntry> {
     if let Some(old) = replaces {
-        delete_draft(&LocalFolder::new(store_root.to_path_buf()), old)?;
+        delete_draft(&MailStore::new(store_root.clone()), old)?;
     }
     let flags = [String::from("\\Seen"), String::from("\\Draft")];
     crate::send::file_message(store_root, DRAFTS_FOLDER, bytes, &flags, now_secs)
 }
 
 /// Removes a draft (once it is sent): its file and its index line.
-pub fn delete_draft(store: &LocalFolder, uid: u32) -> std::io::Result<()> {
+pub fn delete_draft(store: &MailStore, uid: u32) -> std::io::Result<()> {
     let mut index = read_drafts_index(store);
     let Some(at) = index.iter().position(|e| e.uid == uid) else {
         return Ok(());
@@ -480,7 +478,7 @@ fn checked_line(line: &str) -> Result<Vec<String>, ComposeError> {
 }
 
 /// The Drafts folder's index; empty when there is none.
-fn read_drafts_index(store: &LocalFolder) -> Vec<IndexEntry> {
+fn read_drafts_index(store: &MailStore) -> Vec<IndexEntry> {
     store
         .get(&store::index_key(DRAFTS_FOLDER))
         .map(|bytes| store::index_from_jsonl(&String::from_utf8_lossy(&bytes)))
@@ -489,11 +487,10 @@ fn read_drafts_index(store: &LocalFolder) -> Vec<IndexEntry> {
 
 /// Writes the Drafts folder's index and its state: the synced state when the server's Drafts
 /// is synced, else one that says the folder is local only (UIDVALIDITY 0).
-fn write_drafts_index(store: &LocalFolder, index: &[IndexEntry]) -> std::io::Result<()> {
+fn write_drafts_index(store: &MailStore, index: &[IndexEntry]) -> std::io::Result<()> {
     store.put(
         &store::index_key(DRAFTS_FOLDER),
         store::index_to_jsonl(index).as_bytes(),
-        true,
     )?;
     let mut state = store
         .get(&store::state_key(DRAFTS_FOLDER))
@@ -502,11 +499,7 @@ fn write_drafts_index(store: &LocalFolder, index: &[IndexEntry]) -> std::io::Res
         .and_then(|text| FolderState::from_json(&text))
         .unwrap_or_else(|| FolderState::create("", "Drafts", 0));
     state.messages = index.len() as u64;
-    store.put(
-        &store::state_key(DRAFTS_FOLDER),
-        state.to_json().as_bytes(),
-        true,
-    )
+    store.put(&store::state_key(DRAFTS_FOLDER), state.to_json().as_bytes())
 }
 
 #[cfg(test)]
@@ -857,10 +850,10 @@ mod tests {
     #[test]
     fn a_saved_draft_is_filed_like_synced_mail_and_replaced_when_saved_again() {
         let dir = TempDir::new("drafts");
-        let store = LocalFolder::new(dir.0.clone());
+        let store = MailStore::new(dir.folder());
         let mail = outgoing(&fields(), Vec::new()).unwrap();
         let bytes = draft_bytes(&mail, 1_790_757_720);
-        let first = save_draft(&dir.0, None, &bytes, 1_790_757_720).unwrap();
+        let first = save_draft(&dir.folder(), None, &bytes, 1_790_757_720).unwrap();
         let floor = crate::send::LOCAL_UID_FLOOR;
         assert_eq!(first.uid, floor, "a local UID, far above any server's");
         assert_eq!(first.path, format!("mail/drafts/2026/09/{floor}.eml"));
@@ -873,7 +866,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(state.uidvalidity, 0, "local only until a sync adopts it");
-        let again = save_draft(&dir.0, Some(first.uid), &bytes, 1_790_757_720).unwrap();
+        let again = save_draft(&dir.folder(), Some(first.uid), &bytes, 1_790_757_720).unwrap();
         let index = store::index_from_jsonl(
             &String::from_utf8(store.get(&store::index_key(DRAFTS_FOLDER)).unwrap()).unwrap(),
         );
