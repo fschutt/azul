@@ -874,7 +874,8 @@ fn device_pickers(s: &SettingsView, data: &RefAny, actions: &Actions) -> Dom {
 // ==== The settings ====
 
 /// The settings' categories, in order.
-pub(crate) const SETTINGS_CATEGORIES: [&str; 4] = ["Devices", "Video", "Appearance", "About"];
+pub(crate) const SETTINGS_CATEGORIES: [&str; 5] =
+    ["Devices", "Video", "Appearance", "Keyboard", "About"];
 
 /// The video quality choices, in `Quality` order.
 pub(crate) const QUALITY_LABELS: [&str; 3] = [
@@ -928,6 +929,7 @@ fn settings(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
                     .dom(),
                 )),
         ),
+        3 => ShellSettingsSection::create(AzString::from("Keyboard"), keyboard()),
         _ => ShellSettingsSection::create(
             AzString::from("About"),
             Dom::create_div()
@@ -958,6 +960,27 @@ fn settings(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
             ),
         )
         .with_child(layout)
+}
+
+/// The keyboard shortcuts, by group: the table the key handler is checked against
+/// (`keys::SHORTCUTS`), "Mod" written as this platform's key.
+fn keyboard() -> Dom {
+    let mac = cfg!(any(target_os = "macos", target_os = "ios"));
+    let mut list = Dom::create_div().with_css("display: flex; flex-direction: column;");
+    for (group, shortcuts) in azul_appkit::shortcuts::groups(&crate::keys::SHORTCUTS) {
+        list = list.with_child(text(group, SECTION_TITLE));
+        for s in shortcuts {
+            list = list.with_child(text(
+                &format!(
+                    "{}  {}",
+                    azul_appkit::shortcuts::display_keys(s.keys, mac),
+                    s.action
+                ),
+                "font-size: 13px; padding: 2px 0px;",
+            ));
+        }
+    }
+    list
 }
 
 /// The About: azul's standard AboutDialog with AzMeet's facts (`crate::ABOUT`); OK closes the

@@ -35,9 +35,12 @@ pub const SHORTCUTS: [Shortcut; 3] = [
 /// (`KeyModifiers::primary_down`).
 #[must_use]
 pub fn command_for(key: Key, primary: bool) -> Option<Command> {
-    // RED: no key does anything yet.
-    let _ = (key, primary);
-    None
+    match key {
+        Key::D if primary => Some(Command::ToggleMic),
+        Key::E if primary => Some(Command::ToggleCamera),
+        Key::Escape => Some(Command::CloseSettings),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

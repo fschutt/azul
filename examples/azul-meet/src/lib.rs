@@ -4775,19 +4775,23 @@ fn mode_option(index: usize) -> OptionDarkLightMode {
     }
 }
 
-/// The keyboard shortcuts: Ctrl / Cmd + D the microphone, Ctrl / Cmd + E the camera, Escape
-/// closes the settings.
+/// The keyboard shortcuts (`keys::SHORTCUTS`, the rule in `keys::command_for`): Ctrl / Cmd + D
+/// the microphone, Ctrl / Cmd + E the camera, Escape closes the settings.
 extern "C" fn on_key(mut data: RefAny, info: CallbackInfo) -> Update {
-    let key = info
+    let key = match info
         .get_current_keyboard_state()
         .current_virtual_keycode
-        .into_option();
-    let modifiers = info.get_key_modifiers();
-    let command = modifiers.primary_down();
-    match key {
-        Some(VirtualKeyCode::D) if command => mic_toggle(data, info),
-        Some(VirtualKeyCode::E) if command => cam_toggle(data, info),
-        Some(VirtualKeyCode::Escape) => {
+        .into_option()
+    {
+        Some(VirtualKeyCode::D) => keys::Key::D,
+        Some(VirtualKeyCode::E) => keys::Key::E,
+        Some(VirtualKeyCode::Escape) => keys::Key::Escape,
+        _ => keys::Key::Other,
+    };
+    match keys::command_for(key, info.get_key_modifiers().primary_down()) {
+        Some(keys::Command::ToggleMic) => mic_toggle(data, info),
+        Some(keys::Command::ToggleCamera) => cam_toggle(data, info),
+        Some(keys::Command::CloseSettings) => {
             let Some(mut s) = data.downcast_mut::<MeetState>() else {
                 return Update::DoNothing;
             };
