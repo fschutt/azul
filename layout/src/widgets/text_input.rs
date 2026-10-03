@@ -1503,8 +1503,13 @@ fn caret_byte(cursor: &azul_core::selection::TextCursor, text: &str) -> usize {
 /// (the bullets of a password).
 fn engine_caret(info: &CallbackInfo, node: DomNodeId) -> Option<usize> {
     let cursor = info.get_node_cursor_position(node)?;
-    let text = info.get_node_text_content(node).unwrap_or_default();
-    Some(caret_byte(&cursor, &text))
+    // An empty read is ambiguous (see `adopt_engine_text`): the cluster start then.
+    Some(
+        match info.get_node_text_content(node).filter(|t| !t.is_empty()) {
+            Some(text) => caret_byte(&cursor, &text),
+            None => cursor.cluster_id.start_byte_in_run as usize,
+        },
+    )
 }
 
 /// The engine's selection in the widget's public shape, as offsets into the
