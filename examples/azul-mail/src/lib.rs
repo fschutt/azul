@@ -55,17 +55,16 @@ mod testutil;
 use std::{collections::HashMap, path::PathBuf};
 
 use account::{Account, Secret};
-use args::{Args, Screen};
+use args::Screen;
 use azul::{
-    css::DarkLightMode,
     error::KeyringResult,
     file::FilePath,
-    option::{OptionDarkLightMode, OptionKeyringResult, OptionThreadSendMsg},
+    option::{OptionKeyringResult, OptionThreadSendMsg},
     prelude::*,
     str::String as AzString,
     widgets::ListSelection,
-    window::WindowDecorations,
 };
+use azul_appkit::{ui as kit, AppArgs};
 use listing::{FolderInfo, ListRow, LocalFlags};
 use message::MessageView;
 use store::{FolderState, IndexEntry, LocalFolder};
@@ -86,7 +85,11 @@ pub(crate) const WINDOW_BODY_CSS: &str =
 pub(crate) struct MailApp {
     /// The AzMail folder (`AZMAIL_DATA`).
     pub(crate) root: PathBuf,
-    pub(crate) args: Args,
+    /// The app kit (azul-appkit): settings.json, the data root, the settings page, the shortcut
+    /// table.
+    pub(crate) kit: RefAny,
+    /// The screen `--screen` asked for.
+    pub(crate) screen: Screen,
     pub(crate) accounts: Vec<Account>,
     /// The account shown, an index into `accounts`.
     pub(crate) current: Option<usize>,
@@ -198,12 +201,13 @@ pub(crate) enum KeyringOp {
 }
 
 impl MailApp {
-    fn create(root: PathBuf, args: Args, accounts: Vec<Account>) -> MailApp {
+    fn create(root: PathBuf, kit: RefAny, screen: Screen, accounts: Vec<Account>) -> MailApp {
         let today = local_today();
         let n = accounts.len();
         MailApp {
             root,
-            args,
+            kit,
+            screen,
             accounts,
             current: None,
             secrets: HashMap::new(),
@@ -933,10 +937,21 @@ fn user_data_dir() -> Option<PathBuf> {
     FilePath::get_data_dir()
         .into_option()
         .map(|dir| PathBuf::from(dir.inner.as_str()))
+        .filter(|p| !p.as_os_str().is_empty())
+}
+
+/// The Azlin data root the kit resolved (`--data-dir`, `AZLIN_DATA`, else `Azlin` in the
+/// user's data folder).
+pub(crate) fn kit_data_root(kit_ref: &RefAny) -> PathBuf {
+    let mut kit_ref = kit_ref.clone();
+    let root = kit_ref
+        .downcast_ref::<kit::Kit>()
+        .map(|k| k.data_root.clone());
+    root.unwrap_or_default()
 }
 
 pub fn start() {
-    let args = match Args::parse(std::env::args().skip(1)) {
+    let args = match AppArgs::from_env(&args::SPEC) {
         Ok(args) => args,
         Err(text) => {
             let help = text.contains("USAGE");
@@ -948,10 +963,25 @@ pub fn start() {
             std::process::exit(if help { 0 } else { 2 });
         }
     };
-    let root = account::data_root(
-        std::env::var(account::DATA_VAR).ok().as_deref(),
-        user_data_dir(),
+    let kit_ref = kit::create_kit(
+        args::SPEC,
+        args::ABOUT,
+        &args::SHORTCUTS,
+        &args::APP_CATEGORIES,
+        args.clone(),
     );
+    let azmail_var = std::env::var(account::DATA_VAR).ok();
+    let root = account::data_root(azmail_var.as_deref(), &kit_data_root(&kit_ref));
+    if azmail_var.as_deref().map_or(true, |v| v.trim().is_empty()) {
+        // Once: the folder an older AzMail kept in the user's data folder.
+        if let Some(legacy) = account::legacy_root(user_data_dir().as_deref()) {
+            match account::migrate_legacy_root(&legacy, &root) {
+                Ok(true) => eprintln!("[azmail] moved {} to {}", legacy.display(), root.display()),
+                Ok(false) => {}
+                Err(e) => eprintln!("[azmail] {} could not be moved: {e}", legacy.display()),
+            }
+        }
+    }
     if args.sample {
         match sample::install(&root) {
             Ok(path) => eprintln!("[azmail] sample account in {}", path.display()),
@@ -967,12 +997,13 @@ pub fn start() {
         accounts.len(),
         root.display()
     );
+    let screen = Screen::of(&args);
     let first_run = accounts.is_empty();
-    let mut state = MailApp::create(root, args.clone(), accounts);
+    let mut state = MailApp::create(root, kit_ref.clone(), screen, accounts);
     if !first_run {
         state.show_account(0);
     }
-    match args.screen {
+    match screen {
         _ if first_run => ui_account::open_wizard(&mut state, None),
         Screen::AddAccount => ui_account::open_wizard(&mut state, None),
         Screen::Settings => ui_account::open_settings(&mut state),
@@ -980,23 +1011,16 @@ pub fn start() {
         Screen::Mail | Screen::Compose | Screen::Reply => {}
     }
 
-    let mut config = AppConfig::create();
-    if let Some(theme) = args.theme {
-        config = config.with_theme(theme.name());
-    }
-    if let Some(mode) = args.mode {
-        config = config.with_mode(OptionDarkLightMode::Some(match mode {
-            args::Mode::Light => DarkLightMode::Light,
-            args::Mode::Dark => DarkLightMode::Dark,
-        }));
-    }
-    let app = App::create(RefAny::new(state), config);
-    let mut window = WindowCreateOptions::create(ui_main::layout_main);
-    let (width, height) = args.size.unwrap_or((1280.0, 860.0));
-    window.window_state.size.dimensions = LogicalSize::create(width, height);
-    window.window_state.title = AzString::from("AzMail");
+    // The app theme and the mode from settings.json (a --theme / --mode switch wins for this
+    // run); the window: NoTitle (the app draws the title row), --size, a minimum size.
+    let config = kit::app_config(&kit_ref);
+    let mut window = kit::window_options(
+        &kit_ref,
+        ui_main::layout_main,
+        (1280.0, 860.0),
+        (800.0, 520.0),
+        ui_main::on_main_window_created,
+    );
     window.window_state.window_id = AzString::from(MAIN_WINDOW_ID);
-    window.window_state.flags.decorations = WindowDecorations::NoTitle;
-    window.create_callback = Some(Callback::create(ui_main::on_main_window_created)).into();
-    app.run(window);
+    App::create(RefAny::new(state), config).run(window);
 }

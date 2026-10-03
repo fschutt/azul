@@ -153,10 +153,12 @@ fn current_folder_label(s: &MailApp) -> Option<String> {
         .map(|f| listing::folder_label(f.role, &f.display))
 }
 
-/// The main window is up: open what `--screen compose` / `reply` asked for.
+/// The main window is up: the kit's `--shot` timer, and what `--screen compose` / `reply`
+/// asked for.
 pub(crate) extern "C" fn on_main_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_app(&mut data, |s, app| {
-        match s.args.screen {
+        azul_appkit::ui::on_window_created(&s.kit, &mut info);
+        match s.screen {
             crate::args::Screen::Compose => {
                 ui_compose::open_compose(s, &mut info, app, ComposeKind::New);
             }
