@@ -93,8 +93,17 @@ Never compile; never touch layout/src/solver3/page_breaks.rs (nor display_list.r
    font-size:0 cell 10px too tall, content centred) is the group C cause (measured term) - covered by
    531e3a19e (probe target/mailref8/h1.json: cell 185 vs 175).
 10. DONE: report scripts/MAILREF8_2026_10_03.md.
-11. TASK COMPLETE. Nothing left for this wave; follow-ups are in the report's section 10 (B -> XML8,
-    D / E2 / atomic-only strut -> user decisions).
+11. (was complete) RESUMED with a coordinator message: user ruling 2026-10-03 "Chrome is the reference -
+    when azul and Chrome disagree, azul changes, then the widgets' CSS is adjusted to keep their look".
+    New units, RED first, commit each:
+    12. D: `sans-serif` on macOS -> Helvetica (as Chrome). In-azul route: override the fallback list once
+        where azul builds its FcFontCache / generic mapping (`FcFontCache::set_fallback_config`), NOT
+        upstream. system-ui must NOT change. Audit what app UI text uses; list what changes.
+    13. E2: `<hr>` 2px per HTML 15.3.11 (1px inset border all four sides, width auto, gray): core/src/
+        ua_css.rs + its dark twins; rename the core test `hr_line_comes_from_the_border_not_from_height`
+        to state the new behaviour.
+    Not mine: icon-only lines' strut (RULINGS8), Postmark foster parenting (XML8).
+    Append both to the report (section 11) when done.
 - Group A expected effect (after the parent's build): cerberus x3 ~390 boxes y -14 -> 0, azr-1/azr-2
   heights fixed (paper = content). Left in A: an IFC's height is its items' bounds, not its line boxes
   (strut descent below an inline-block: t1 wrap 46 vs Chrome 60, t3 30 vs 34) - text3 cache.rs
