@@ -13,15 +13,16 @@
 
 use azul::{
     callbacks::{
-        DatePickerOnChangeCallbackType, DropDownOnChoiceChangeCallbackType, ModalOnCloseCallbackType,
-        TextAreaOnTextInputCallbackType, TextInputOnTextInputCallbackType,
+        DatePickerOnChangeCallbackType, DropDownOnChoiceChangeCallbackType,
+        ModalOnCloseCallbackType, TextAreaOnTextInputCallbackType,
+        TextInputOnTextInputCallbackType,
     },
     prelude::*,
     str::String as AzString,
     vec::StringVec,
     widgets::{
-        DatePicker, DatePickerState, DropDown, Modal, ModalState, OnTextInputReturn, TextArea, TextAreaState,
-        TextInputState, TextInputValid,
+        DatePicker, DatePickerState, DropDown, Modal, ModalState, OnTextInputReturn, TextArea,
+        TextAreaState, TextInputState, TextInputValid,
     },
 };
 use chrono::{Datelike, NaiveDate};
@@ -48,10 +49,9 @@ fn open_view<'a>(s: &'a Erp, kind: ViewKind) -> Option<(&'a View, &'a FormDraft)
 #[must_use]
 pub fn side_pane(s: &Erp, app: &RefAny) -> Option<Dom> {
     let (view, draft) = open_view(s, ViewKind::Form)?;
-    Some(
-        form_dom(s, app, view, draft)
-            .with_css("display: flex; flex-direction: column; padding: 12px; width: 360px; overflow-y: auto;"),
-    )
+    Some(form_dom(s, app, view, draft).with_css(
+        "display: flex; flex-direction: column; padding: 12px; width: 360px; overflow-y: auto;",
+    ))
 }
 
 /// The modal of an open `form_modal` view.
@@ -60,12 +60,15 @@ pub fn modal(s: &Erp, app: &RefAny) -> Option<Dom> {
     let (view, draft) = open_view(s, ViewKind::FormModal)?;
     let title = view.title(&s.state.labels, draft.editing);
     Some(
-        Modal::create(form_dom(s, app, view, draft).with_css("display: flex; flex-direction: column; min-width: 360px;"))
-            .with_title(title.as_str())
-            .with_open(true)
-            .with_on_close(app.clone(), on_modal_close as ModalOnCloseCallbackType)
-            .dom()
-            .with_id(ids::MODAL),
+        Modal::create(
+            form_dom(s, app, view, draft)
+                .with_css("display: flex; flex-direction: column; min-width: 360px;"),
+        )
+        .with_title(title.as_str())
+        .with_open(true)
+        .with_on_close(app.clone(), on_modal_close as ModalOnCloseCallbackType)
+        .dom()
+        .with_id(ids::MODAL),
     )
 }
 
@@ -98,7 +101,9 @@ fn form_dom(s: &Erp, app: &RefAny, view: &View, draft: &FormDraft) -> Dom {
                 .with_css("padding: 6px 0px; font-size: 12px; color: #c42b1c;"),
         );
     }
-    let mut buttons = Dom::create_div().with_css("display: flex; flex-direction: row; justify-content: flex-end; padding-top: 10px;");
+    let mut buttons = Dom::create_div().with_css(
+        "display: flex; flex-direction: row; justify-content: flex-end; padding-top: 10px;",
+    );
     for action in spec::actions(&view.actions, &s.state.labels) {
         let id = match action.kind {
             ActionKind::Submit => ids::FORM_SAVE,
@@ -166,7 +171,10 @@ fn control(s: &Erp, app: &RefAny, f: &FieldSpec, value: &str) -> Dom {
         FieldKind::TextArea => TextArea::create()
             .with_text(value)
             .with_accessibility_name(f.label.as_str())
-            .with_on_text_input(field_ref(app, f), on_area as TextAreaOnTextInputCallbackType)
+            .with_on_text_input(
+                field_ref(app, f),
+                on_area as TextAreaOnTextInputCallbackType,
+            )
             .dom(),
         FieldKind::Select(choices) => drop_down(app, f, choices, value),
         FieldKind::Reference(source) => {
@@ -192,12 +200,18 @@ fn text_input(app: &RefAny, f: &FieldSpec, value: &str, placeholder: &str) -> Do
         .with_text(value)
         .with_placeholder(placeholder)
         .with_accessibility_name(f.label.as_str())
-        .with_on_text_input(field_ref(app, f), on_text as TextInputOnTextInputCallbackType)
+        .with_on_text_input(
+            field_ref(app, f),
+            on_text as TextInputOnTextInputCallbackType,
+        )
         .dom()
 }
 
 fn drop_down(app: &RefAny, f: &FieldSpec, choices: &[(String, String)], value: &str) -> Dom {
-    let labels: Vec<AzString> = choices.iter().map(|(_, label)| AzString::from(label.as_str())).collect();
+    let labels: Vec<AzString> = choices
+        .iter()
+        .map(|(_, label)| AzString::from(label.as_str()))
+        .collect();
     let selected = choices.iter().position(|(v, _)| v == value).unwrap_or(0);
     DropDown::create(StringVec::from_vec(labels))
         .with_selected(selected)
@@ -235,7 +249,11 @@ fn keep() -> OnTextInputReturn {
     }
 }
 
-extern "C" fn on_text(mut data: RefAny, _info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+extern "C" fn on_text(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
     let Some((mut app, name)) = data
         .downcast_ref::<FieldRef>()
         .map(|f| (f.app.clone(), f.name.clone()))
@@ -247,7 +265,11 @@ extern "C" fn on_text(mut data: RefAny, _info: CallbackInfo, state: TextInputSta
     keep()
 }
 
-extern "C" fn on_area(mut data: RefAny, _info: CallbackInfo, state: TextAreaState) -> OnTextInputReturn {
+extern "C" fn on_area(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: TextAreaState,
+) -> OnTextInputReturn {
     let Some((mut app, name)) = data
         .downcast_ref::<FieldRef>()
         .map(|f| (f.app.clone(), f.name.clone()))
@@ -269,7 +291,9 @@ extern "C" fn on_choice(mut data: RefAny, mut info: CallbackInfo, choice: usize)
     }) else {
         return Update::DoNothing;
     };
-    with_erp(&mut app, &mut info, |s, _info| s.state.set_value(&name, &value))
+    with_erp(&mut app, &mut info, |s, _info| {
+        s.state.set_value(&name, &value)
+    })
 }
 
 extern "C" fn on_date(mut data: RefAny, mut info: CallbackInfo, state: DatePickerState) -> Update {
@@ -288,6 +312,10 @@ extern "C" fn on_date(mut data: RefAny, mut info: CallbackInfo, state: DatePicke
     })
 }
 
-extern "C" fn on_modal_close(mut data: RefAny, mut info: CallbackInfo, _state: ModalState) -> Update {
+extern "C" fn on_modal_close(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    _state: ModalState,
+) -> Update {
     with_erp(&mut data, &mut info, |s, _info| s.state.cancel_form())
 }

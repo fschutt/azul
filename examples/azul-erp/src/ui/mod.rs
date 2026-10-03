@@ -34,8 +34,8 @@ use azul::{
     shells::{RecordsShell, ShellEmptyState, ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
     widgets::{
-        Button, ButtonType, CloseGuard, CloseGuardDocumentState, CloseGuardEvent, CloseGuardEventKind,
-        DataTableView, StatusBar, StatusBarSegment, TabHeader, TabHeaderState,
+        Button, ButtonType, CloseGuard, CloseGuardDocumentState, CloseGuardEvent,
+        CloseGuardEventKind, DataTableView, StatusBar, StatusBarSegment, TabHeader, TabHeaderState,
     },
 };
 use azul_appkit::{
@@ -340,7 +340,9 @@ fn section_tabs(s: &Erp, app: &RefAny) -> Dom {
         .map_or(0, |(i, _)| i);
     Dom::create_div()
         .with_id(ids::TABS)
-        .with_css("display: flex; flex-direction: row; align-items: center; padding: 2px 8px 0px 8px;")
+        .with_css(
+            "display: flex; flex-direction: row; align-items: center; padding: 2px 8px 0px 8px;",
+        )
         .with_child(
             TabHeader::create(labels)
                 .with_active_tab(active)
@@ -352,7 +354,10 @@ fn section_tabs(s: &Erp, app: &RefAny) -> Dom {
 /// The page: the routed view.
 fn page(s: &mut Erp, app: &RefAny) -> Dom {
     if !s.state.loaded {
-        return empty("Reading the asset register...", "The records are files in your data folder.");
+        return empty(
+            "Reading the asset register...",
+            "The records are files in your data folder.",
+        );
     }
     let Some((view, params)) = s.state.route().map(|r| (r.view.clone(), r.params.clone())) else {
         return empty("There is nothing here.", &s.state.page);
@@ -493,12 +498,23 @@ extern "C" fn on_action(mut data: RefAny, mut info: CallbackInfo) -> Update {
     else {
         return Update::DoNothing;
     };
-    with_erp(&mut app, &mut info, |s, _info| run_action(s, &kind, &params))
+    with_erp(&mut app, &mut info, |s, _info| {
+        run_action(s, &kind, &params)
+    })
 }
 
-extern "C" fn on_section(mut data: RefAny, mut info: CallbackInfo, state: TabHeaderState) -> Update {
+extern "C" fn on_section(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    state: TabHeaderState,
+) -> Update {
     with_erp(&mut data, &mut info, |s, _info| {
-        let path = s.state.views.menu.get(state.active_tab).map(|m| m.path.clone());
+        let path = s
+            .state
+            .views
+            .menu
+            .get(state.active_tab)
+            .map(|m| m.path.clone());
         if let Some(path) = path {
             s.state.open(&path);
             println!("AZERP_PAGE {}", s.state.page);
@@ -510,7 +526,8 @@ extern "C" fn on_section(mut data: RefAny, mut info: CallbackInfo, state: TabHea
 fn status_bar(s: &Erp) -> Dom {
     let t = reports::totals(&s.state.book, s.state.today);
     let mut segments = vec![
-        StatusBarSegment::create(AzString::from(format!("{} assets", t.count))).with_marker(ids::STATUS_COUNT),
+        StatusBarSegment::create(AzString::from(format!("{} assets", t.count)))
+            .with_marker(ids::STATUS_COUNT),
         StatusBarSegment::create(AzString::from(format!(
             "Book value {}",
             money::format_amount(t.book_value)
@@ -525,7 +542,8 @@ fn status_bar(s: &Erp) -> Dom {
     }
     if !s.state.notice.is_empty() {
         segments.push(
-            StatusBarSegment::create(AzString::from(s.state.notice.as_str())).with_marker(ids::STATUS_NOTICE),
+            StatusBarSegment::create(AzString::from(s.state.notice.as_str()))
+                .with_marker(ids::STATUS_NOTICE),
         );
     }
     StatusBar::create(segments).dom()
@@ -545,7 +563,9 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         .current_virtual_keycode
         .into_option();
     match key {
-        Some(VirtualKeyCode::Escape) => with_erp(&mut data, &mut info, |s, _| s.state.cancel_form()),
+        Some(VirtualKeyCode::Escape) => {
+            with_erp(&mut data, &mut info, |s, _| s.state.cancel_form())
+        }
         _ => Update::DoNothing,
     }
 }
@@ -554,7 +574,9 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
 /// hold edits now?
 extern "C" fn dirty_check(mut data: RefAny, _info: CallbackInfo) -> CloseGuardDocumentState {
     match data.downcast_ref::<Erp>() {
-        Some(s) if s.state.form.as_ref().is_some_and(|f| f.dirty) => CloseGuardDocumentState::Unsaved,
+        Some(s) if s.state.form.as_ref().is_some_and(|f| f.dirty) => {
+            CloseGuardDocumentState::Unsaved
+        }
         _ => CloseGuardDocumentState::Saved,
     }
 }

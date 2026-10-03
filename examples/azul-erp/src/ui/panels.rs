@@ -6,8 +6,8 @@ use std::path::PathBuf;
 
 use azul::{
     callbacks::{
-        ButtonOnClickCallbackType, DataTableOnEventCallbackType, DropDownOnChoiceChangeCallbackType,
-        TextInputOnTextInputCallbackType,
+        ButtonOnClickCallbackType, DataTableOnEventCallbackType,
+        DropDownOnChoiceChangeCallbackType, TextInputOnTextInputCallbackType,
     },
     dialog::{FileDialog, FileOpenResult},
     option::OptionFileTypeList,
@@ -15,18 +15,21 @@ use azul::{
     str::String as AzString,
     vec::StringVec,
     widgets::{
-        ButtonType, Chart, ChartKind, ChartPoint, ChartSeries, DropDown, OnTextInputReturn, TextInputState,
-        TextInputValid,
+        ButtonType, Chart, ChartKind, ChartPoint, ChartSeries, DropDown, OnTextInputReturn,
+        TextInputState, TextInputValid,
     },
 };
 use azul_appkit::ui as kit;
 use chrono::Datelike;
 
-use super::{column, detail, empty, mint, page_header, table, text, with_erp, Erp, CHROME_HEIGHT, TAG_IMPORT};
+use super::{
+    column, detail, empty, mint, page_header, table, text, with_erp, Erp, CHROME_HEIGHT, TAG_IMPORT,
+};
 use crate::{
     csv_io::Field,
-    depreciation, ids, money, reports,
+    depreciation, ids,
     model::Asset,
+    money, reports,
     views::{
         rows::{Grid, ViewRecord},
         spec::{self, ActionKind, ColumnSpec, ColumnType},
@@ -77,7 +80,10 @@ pub fn overview(s: &Erp, asset: &Asset) -> Dom {
             rows.push(fact(&f.label, &value));
         }
     }
-    rows.push(fact("Book value today", &asset.value("book_value", &ctx).display()));
+    rows.push(fact(
+        "Book value today",
+        &asset.value("book_value", &ctx).display(),
+    ));
     rows.push(fact("Status", &asset.status.label()));
     if !asset.custodian.is_empty() {
         rows.push(fact("Custodian", &asset.custodian));
@@ -86,7 +92,11 @@ pub fn overview(s: &Erp, asset: &Asset) -> Dom {
         rows.push(fact("Next service", &crate::model::format_date(next)));
     }
     if let Some(result) = depreciation::disposal_result(asset) {
-        let word = if result >= 0 { "Gain on disposal" } else { "Loss on disposal" };
+        let word = if result >= 0 {
+            "Gain on disposal"
+        } else {
+            "Loss on disposal"
+        };
         rows.push(fact(word, &money::format_amount(result.abs())));
     }
     column(rows)
@@ -160,19 +170,26 @@ pub fn schedule(s: &Erp, app: &RefAny, asset: &Asset) -> Dom {
         app,
         detail::on_inner_event as DataTableOnEventCallbackType,
     );
-    let years: Vec<AzString> = rows.iter().map(|r| AzString::from(r.year.to_string())).collect();
+    let years: Vec<AzString> = rows
+        .iter()
+        .map(|r| AzString::from(r.year.to_string()))
+        .collect();
     let points: Vec<ChartPoint> = rows
         .iter()
         .enumerate()
         .map(|(i, r)| ChartPoint::create(i as f64, r.closing as f64 / 100.0))
         .collect();
-    let chart = Chart::create(ChartKind::Line, (s.window.0 - 48.0).max(240.0), chart_height)
-        .with_title("Book value at the end of each year")
-        .with_axis_titles("Year", "Book value")
-        .with_categories(years)
-        .with_added_series(ChartSeries::create("Book value", points))
-        .dom()
-        .with_id(ids::SCHEDULE_CHART);
+    let chart = Chart::create(
+        ChartKind::Line,
+        (s.window.0 - 48.0).max(240.0),
+        chart_height,
+    )
+    .with_title("Book value at the end of each year")
+    .with_axis_titles("Year", "Book value")
+    .with_categories(years)
+    .with_added_series(ChartSeries::create("Book value", points))
+    .dom()
+    .with_id(ids::SCHEDULE_CHART);
     column(vec![table, chart]).with_id(ids::SCHEDULE)
 }
 
@@ -181,7 +198,9 @@ pub fn schedule(s: &Erp, app: &RefAny, asset: &Asset) -> Dom {
 /// A figure with its caption.
 fn card(caption: &str, value: &str) -> Dom {
     Dom::create_div()
-        .with_css("display: flex; flex-direction: column; padding: 8px 16px 8px 0px; min-width: 140px;")
+        .with_css(
+            "display: flex; flex-direction: column; padding: 8px 16px 8px 0px; min-width: 140px;",
+        )
         .with_child(text(caption).with_css("font-size: 12px; opacity: 0.75;"))
         .with_child(text(value).with_css("font-size: 18px; font-weight: 600;"))
 }
@@ -210,7 +229,10 @@ pub fn reports(s: &Erp, app: &RefAny, view: &View) -> Dom {
 
     let width = ((s.window.0 - 64.0) / 2.0).max(240.0);
     let groups = reports::by_category(book, today);
-    let names: Vec<AzString> = groups.iter().map(|g| AzString::from(g.name.as_str())).collect();
+    let names: Vec<AzString> = groups
+        .iter()
+        .map(|g| AzString::from(g.name.as_str()))
+        .collect();
     let values: Vec<ChartPoint> = groups
         .iter()
         .enumerate()
@@ -223,7 +245,10 @@ pub fn reports(s: &Erp, app: &RefAny, view: &View) -> Dom {
         .dom()
         .with_id(ids::REPORT_CATEGORIES);
     let years = reports::depreciation_by_year(book, today.year() - 1, today.year() + 4);
-    let year_names: Vec<AzString> = years.iter().map(|(y, _)| AzString::from(y.to_string())).collect();
+    let year_names: Vec<AzString> = years
+        .iter()
+        .map(|(y, _)| AzString::from(y.to_string()))
+        .collect();
     let amounts: Vec<ChartPoint> = years
         .iter()
         .enumerate()
@@ -303,7 +328,10 @@ pub fn run(s: &Erp, app: &RefAny, view: &View) -> Dom {
                     TextInput::create()
                         .with_text(s.state.run_year.to_string())
                         .with_accessibility_name("Year")
-                        .with_on_text_input(app.clone(), on_run_year as TextInputOnTextInputCallbackType)
+                        .with_on_text_input(
+                            app.clone(),
+                            on_run_year as TextInputOnTextInputCallbackType,
+                        )
                         .dom()
                         .with_id(ids::RUN_YEAR),
                 )
@@ -324,7 +352,10 @@ pub fn run(s: &Erp, app: &RefAny, view: &View) -> Dom {
             children.push(text(&format!("No asset is depreciated in {year}.")));
         }
         for (_, number, name, amount) in &preview {
-            children.push(fact(&format!("{number} {name}"), &money::format_amount(*amount)));
+            children.push(fact(
+                &format!("{number} {name}"),
+                &money::format_amount(*amount),
+            ));
         }
         children.push(
             fact(&format!("Total {year}"), &money::format_amount(total)).with_id(ids::RUN_TOTAL),
@@ -356,7 +387,11 @@ pub fn run(s: &Erp, app: &RefAny, view: &View) -> Dom {
         .with_css("padding: 12px 16px; overflow-y: auto;")
 }
 
-extern "C" fn on_run_year(mut data: RefAny, _info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+extern "C" fn on_run_year(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
     let typed = state.get_text().as_str().trim().to_string();
     let valid = match typed.parse::<i32>() {
         Ok(year) if (1900..=9999).contains(&year) => {
@@ -439,12 +474,17 @@ pub fn import(s: &Erp, app: &RefAny, view: &View) -> Dom {
         .with_id(ids::IMPORT_SUMMARY)
         .with_css("padding-bottom: 8px;"),
     );
-    let choices: Vec<AzString> = Field::CHOICES.iter().map(|f| AzString::from(f.label())).collect();
+    let choices: Vec<AzString> = Field::CHOICES
+        .iter()
+        .map(|f| AzString::from(f.label()))
+        .collect();
     for (i, header) in draft.table.headers.iter().enumerate() {
         let selected = draft.mapping.get(i).map_or(0, |f| f.choice_index());
         children.push(
             Dom::create_div()
-                .with_css("display: flex; flex-direction: row; align-items: center; padding: 2px 0px;")
+                .with_css(
+                    "display: flex; flex-direction: row; align-items: center; padding: 2px 0px;",
+                )
                 .with_child(text(header).with_css("width: 220px; font-size: 13px;"))
                 .with_child(
                     DropDown::create(StringVec::from_vec(choices.clone()))
@@ -469,13 +509,15 @@ pub fn import(s: &Erp, app: &RefAny, view: &View) -> Dom {
         }
     }
     children.push(
-        Dom::create_div().with_css("display: flex; flex-direction: row; padding-top: 10px;").with_child(
-            Button::create(format!("Import {} assets", p.created + p.updated).as_str())
-                .with_button_type(ButtonType::Primary)
-                .with_on_click(app.clone(), on_import_commit as ButtonOnClickCallbackType)
-                .dom()
-                .with_id(ids::IMPORT_COMMIT),
-        ),
+        Dom::create_div()
+            .with_css("display: flex; flex-direction: row; padding-top: 10px;")
+            .with_child(
+                Button::create(format!("Import {} assets", p.created + p.updated).as_str())
+                    .with_button_type(ButtonType::Primary)
+                    .with_on_click(app.clone(), on_import_commit as ButtonOnClickCallbackType)
+                    .dom()
+                    .with_id(ids::IMPORT_COMMIT),
+            ),
     );
     column(children)
         .with_id(ids::IMPORT)
@@ -524,7 +566,9 @@ extern "C" fn on_mapping(mut data: RefAny, mut info: CallbackInfo, choice: usize
         return Update::DoNothing;
     };
     let field = Field::CHOICES[choice.min(Field::CHOICES.len() - 1)];
-    with_erp(&mut app, &mut info, |s, _info| s.state.set_mapping(column, field))
+    with_erp(&mut app, &mut info, |s, _info| {
+        s.state.set_mapping(column, field)
+    })
 }
 
 extern "C" fn on_import_commit(mut data: RefAny, mut info: CallbackInfo) -> Update {

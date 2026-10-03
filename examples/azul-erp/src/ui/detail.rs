@@ -54,7 +54,8 @@ pub fn page(s: &Erp, app: &RefAny, view: &View, params: &Params) -> Dom {
                 .with_css("display: flex; flex-direction: row; align-items: baseline;")
                 .with_child(heading)
                 .with_child(
-                    text(&asset.value(sub, &ctx).display()).with_css("padding-left: 8px; font-size: 13px; opacity: 0.7;"),
+                    text(&asset.value(sub, &ctx).display())
+                        .with_css("padding-left: 8px; font-size: 13px; opacity: 0.7;"),
                 );
         }
         header.add_child(heading);
@@ -80,13 +81,19 @@ pub fn page(s: &Erp, app: &RefAny, view: &View, params: &Params) -> Dom {
     }
     let tabs = spec::tabs(view, labels);
     let active = s.state.tab.min(tabs.len().saturating_sub(1));
-    let tab_titles: Vec<AzString> = tabs.iter().map(|t| AzString::from(t.title.as_str())).collect();
-    let tab_row = Dom::create_div().with_id(ids::DETAIL_TABS).with_css("padding: 0px 12px;").with_child(
-        TabHeader::create(tab_titles)
-            .with_active_tab(active)
-            .with_on_click(app.clone(), on_tab as TabOnClickCallbackType)
-            .dom(),
-    );
+    let tab_titles: Vec<AzString> = tabs
+        .iter()
+        .map(|t| AzString::from(t.title.as_str()))
+        .collect();
+    let tab_row = Dom::create_div()
+        .with_id(ids::DETAIL_TABS)
+        .with_css("padding: 0px 12px;")
+        .with_child(
+            TabHeader::create(tab_titles)
+                .with_active_tab(active)
+                .with_on_click(app.clone(), on_tab as TabOnClickCallbackType)
+                .dom(),
+        );
     let panel = match tabs.get(active) {
         Some(tab) => match tab.component.as_str() {
             "FixedAssetOverviewPanel" => panels::overview(s, &asset),
@@ -108,7 +115,11 @@ fn embedded(s: &Erp, app: &RefAny, view_id: &str, params: &Params) -> Dom {
         return empty("This table reads no records.", view_id);
     };
     let columns = spec::columns(view, &s.state.labels);
-    let filter = view.api.get.as_deref().and_then(|api| api_filter(api, params));
+    let filter = view
+        .api
+        .get
+        .as_deref()
+        .and_then(|api| api_filter(api, params));
     let grid = rows::grid(
         kind,
         &columns,
@@ -132,8 +143,14 @@ fn embedded(s: &Erp, app: &RefAny, view_id: &str, params: &Params) -> Dom {
 }
 
 /// A detail tab's table keeps its view.
-pub extern "C" fn on_inner_event(mut data: RefAny, mut info: CallbackInfo, event: DataTableEvent) -> Update {
-    with_erp(&mut data, &mut info, |s, _info| s.inner_table = event.view.clone())
+pub extern "C" fn on_inner_event(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    event: DataTableEvent,
+) -> Update {
+    with_erp(&mut data, &mut info, |s, _info| {
+        s.inner_table = event.view.clone()
+    })
 }
 
 extern "C" fn on_tab(mut data: RefAny, mut info: CallbackInfo, state: TabHeaderState) -> Update {

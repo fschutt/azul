@@ -8,8 +8,8 @@ use azul::{
     prelude::*,
     str::String as AzString,
     widgets::{
-        DataTable, DataTableCell, DataTableCellRef, DataTableColumn, DataTableEvent, DataTableEventKind,
-        DataTableSortKind, DataTableView,
+        DataTable, DataTableCell, DataTableCellRef, DataTableColumn, DataTableEvent,
+        DataTableEventKind, DataTableSortKind, DataTableView,
     },
 };
 
@@ -34,7 +34,8 @@ pub fn data_columns(columns: &[ColumnSpec]) -> Vec<DataTableColumn> {
                 ColumnType::Date => DataTableSortKind::Date,
                 ColumnType::Text | ColumnType::Status => DataTableSortKind::Text,
             };
-            DataTableColumn::create(AzString::from(c.title.as_str()), c.width, kind).with_sortable(c.sortable)
+            DataTableColumn::create(AzString::from(c.title.as_str()), c.width, kind)
+                .with_sortable(c.sortable)
         })
         .collect()
 }
@@ -92,7 +93,10 @@ pub fn page(s: &mut Erp, app: &RefAny, view: &View) -> Dom {
     let title = view.title(&s.state.labels, false);
     let header = page_header(s, app, view, &title, &Params::new());
     let Some(kind) = view.kind_of_records() else {
-        return column(vec![header, empty("This table reads no records.", &view.id)]);
+        return column(vec![
+            header,
+            empty("This table reads no records.", &view.id),
+        ]);
     };
     let columns = spec::columns(view, &s.state.labels);
     let grid = rows::grid(kind, &columns, None, &s.state.ctx());
@@ -123,11 +127,19 @@ pub fn page(s: &mut Erp, app: &RefAny, view: &View) -> Dom {
 }
 
 /// Every action in the page table: its view is kept; an activated row opens.
-extern "C" fn on_table_event(mut data: RefAny, mut info: CallbackInfo, event: DataTableEvent) -> Update {
+extern "C" fn on_table_event(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    event: DataTableEvent,
+) -> Update {
     with_erp(&mut data, &mut info, |s, _info| {
         s.table = event.view.clone();
         if matches!(event.kind, DataTableEventKind::Activate) {
-            let path = s.row_paths.get(event.cell.row as usize).cloned().unwrap_or_default();
+            let path = s
+                .row_paths
+                .get(event.cell.row as usize)
+                .cloned()
+                .unwrap_or_default();
             if !path.is_empty() {
                 s.state.open(&path);
                 match &s.state.form {
