@@ -6,7 +6,7 @@
 
 use std::{cmp::Ordering, collections::HashSet};
 
-use crate::engine::{CellAddr, CellArea, CellValue, EngineError, SheetEngine};
+use crate::engine::{CellAddr, CellArea, CellValue, EngineError, HAlign, SheetEngine, StylePatch};
 
 /// Count / Sum / Min / Max of a selection (the status bar's Average comes
 /// from [`SelectionStats::average`]).
@@ -384,8 +384,23 @@ pub fn replace_all(
 /// Merge & Center: `area` becomes one cell holding its top-left cell's input
 /// (the other inputs are cleared, one undo step), centred.
 pub fn merge_and_center(engine: &mut dyn SheetEngine, area: CellArea) -> Result<(), EngineError> {
-    let _ = (engine, area);
-    Ok(())
+    let keep = engine.cell_input(CellAddr::new(area.sheet, area.row, area.column));
+    let others_hold_input = (area.row..=area.last_row()).any(|r| {
+        (area.column..=area.last_column())
+            .any(|c| (r, c) != (area.row, area.column) && !engine.cell_input(CellAddr::new(area.sheet, r, c)).is_empty())
+    });
+    if others_hold_input {
+        let rows: Vec<Vec<String>> = (0..area.height)
+            .map(|r| {
+                (0..area.width)
+                    .map(|c| if r == 0 && c == 0 { keep.clone() } else { String::new() })
+                    .collect()
+            })
+            .collect();
+        engine.set_inputs(CellAddr::new(area.sheet, area.row, area.column), &rows)?;
+    }
+    engine.update_style(area, &StylePatch::HAlign(HAlign::Center))?;
+    engine.merge(area)
 }
 
 /// The sheet's used range as CSV (RFC 4180 quoting, `\n` lines), the
