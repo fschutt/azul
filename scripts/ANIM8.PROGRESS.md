@@ -4,13 +4,52 @@ Task: CSS transitions / animations jump to the end value (user regression 2026-1
 button hover). Then the idle items (FLIP springs never settle; AzReview per-frame image callbacks).
 
 ## DONE
-- (none yet)
+- a8e1b4e9a progress file
+- (next commit) scripts/anim8_probe.py (debug-server probe: knob x / pixels / get_animations per frame) and
+  scripts/anim8_switch_scenario_gen.py (writes an AZ_E2E scenario: click the switch, tick_animations 1/3/30,
+  each checkpoint ends in a failing assert_response that PRINTS the response). Run:
+  python3 scripts/anim8_switch_scenario_gen.py /tmp/anim8/switch.json
+  run_capped.sh --cap-mb 1500 --seconds 150 --log /tmp/anim8/switch.log -- env AZ_BACKEND=headless \
+    AZ_E2E=/tmp/anim8/switch.json /Users/fschutt/Development/azul/target/release/AzWidgets
 
-## IN PROGRESS
-- Reproduce on prebuilt AzWidgets (headless, capped runner).
+## FINDINGS SO FAR (prebuilt AzWidgets, wave-7 build)
+1. HOVER FADE NEVER EXISTED: no widget/theme declares `animation` for hover colours, and the pseudo-state
+   restyle (dll common/event.rs apply_hover_restyle / apply_active_restyle / apply_focus_restyle_in_dom ->
+   StyledDom::restyle_on_state_change) seeds NO CssTransition (only LayoutWindow::apply_node_css_change
+   ~window.rs:8780 and begin_reconciliation ~window.rs:13594 do). Measured: button bg jumps
+   (101,101,101)->(73,80,87) in one frame, transitions=0.
+2. SWITCH: scripted clock (AZ_E2E) the knob DOES tween: 60 -> 59.6 (1 tick) -> 50.5 (3) -> 44 (30).
+   BUT after the click the TRACK (node 207) gets a bogus FLIP slide translate=(490, 7425): the rebuild's
+   reconcile matched new track 207 with the OTHER switch far down the page (old ~1563, a settings switch).
+   ROOT CAUSE (being confirmed): core/src/diff.rs reconcile_dom pass A2 (exact SUBTREE hash, gated only
+   by the nearest ancestor with a terminal id/key). The click handler's set_css_property UPSERTS the
+   inline props (NodeData::upsert_inline_css_property core/src/dom.rs:3538 removes the decl and APPENDS a
+   new rule block) and NodeData's Hash (dom.rs:1878) hashes the inline props IN ORDER (discriminants) ->
+   the toggled switch's subtree hash != a freshly built switch in the same state, so the fresh new switch
+   matches the OTHER identical switch (document order). Effects: bogus FLIP from far away;
+   css_transitions / user overrides remapped (remap_node_ids / migrate_user_overrides_from) to the
+   wrong node -> the toggled switch can snap while the other switch gets its tween.
+3. Real-time cost (headless): click -> RefreshDom regenerate_layout ~600-700 ms (3472 nodes; phases:
+   create_from_dom ~240, layout_and_dl ~230-480, state_migrate ~90-320 = the reconcile + CSS diff over
+   CssPropertyType::ALL); each transition tick -> incremental_relayout 118-290 ms (others 12 ms). A 150 ms
+   glide therefore shows ~1 frame in real time = "immediately transitions". forget_animation_stall
+   (window.rs:14418) is called after regenerate_layout (event.rs:4776/4802) - OK.
+4. live_tracks = 23..27 at rest in AzWidgets (spinners etc.) - idle item.
 
-## NEXT
-- Reproduce, bisect via diffs of the suspect commits, RED test, fix.
+## NEXT (exact)
+- Decide the fix for finding 2 (read: compute_subtree_hashes diff.rs:597, pass A2 diff.rs ~826,
+  NodeData Hash dom.rs:1878, upsert dom.rs:3538). Candidate: upsert REPLACES the declaration IN PLACE
+  when the property exists in an unconditional rule (so an imperative write leaves the node equal to a
+  fresh build in the same state), appending only when absent. Possibly also make the inline-prop hash
+  order-independent.
+- RED test (layout/tests/<name>.rs, APPEND #[path]+mod to layout/tests/all.rs): two identical switches;
+  toggle the first through the imperative path (upsert) then rebuild with the first OFF -> the new first
+  switch matches the OLD first (node_moves), no FLIP slide on its track, its transition stays on its knob.
+- Then: hover fades = engine: restyle_on_state_change changes honour a declared `animation` (seed
+  CssTransition like apply_node_css_change) + Button declares a short background animation (flat/flora,
+  APPEND at the end of the theme files).
+- Then the per-tick relayout cost (finding 3) - report unless a clear root cause; then the idle items.
 
 ## Decisions / open questions
-- (none yet)
+- Hover fade is a missing feature, not a regression; decided to implement it in the engine (the user
+  expects it).
