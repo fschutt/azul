@@ -40,6 +40,7 @@ import os
 import re
 import secrets
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -120,32 +121,56 @@ class Run:
     def start(self, name, command, env):
         out = open(os.path.join(self.tmp, f'{name}.out'), 'w')
         err = open(os.path.join(self.tmp, f'{name}.err'), 'w')
+        # A session of its own: stopping it stops the whole tree - with --runner the app is
+        # the runner's child, and terminating only the runner left the app running.
         child = subprocess.Popen(command, env={**os.environ, **env}, stdout=out, stderr=err,
-                                 stdin=subprocess.DEVNULL)
+                                 stdin=subprocess.DEVNULL, start_new_session=True)
         self.children.append((name, child))
         return child
 
+    @staticmethod
+    def stop_tree(child, sig=signal.SIGTERM):
+        try:
+            os.killpg(child.pid, sig)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    def stop(self, child):
+        if child.poll() is None:
+            self.stop_tree(child)
+        try:
+            child.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            self.stop_tree(child, signal.SIGKILL)
+            child.wait(timeout=5)
+
     def stop_all(self):
         for _, child in self.children:
-            if child.poll() is None:
-                child.terminate()
-        for _, child in self.children:
-            try:
-                child.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                child.kill()
+            self.stop(child)
+
+    def runner_log(self, name):
+        """With --runner, the app's own output goes to the runner's --log file."""
+        return os.path.join(self.tmp, f'runner-{name}.log')
 
     def output(self, name, stream='out'):
-        try:
-            with open(os.path.join(self.tmp, f'{name}.{stream}'), encoding='utf-8',
-                      errors='replace') as f:
-                return f.read()
-        except OSError:
-            return ''
+        text = ''
+        paths = [os.path.join(self.tmp, f'{name}.{stream}')]
+        if self.args.runner:
+            paths.append(self.runner_log(name))
+        for path in paths:
+            try:
+                with open(path, encoding='utf-8', errors='replace') as f:
+                    text += f.read()
+            except OSError:
+                pass
+        return text
 
-    def until(self, what, check, interval=0.25):
+    def until(self, what, check, interval=0.25, limit=None):
+        """Waits for `check`; `limit` seconds at most (a check that waits for one feature must
+        not eat the whole run's time), else until the run's deadline."""
         last = None
-        while time.time() < self.deadline:
+        deadline = self.deadline if limit is None else min(self.deadline, time.time() + limit)
+        while time.time() < deadline:
             for name, child in self.children:
                 if name == 'azmail' and child.poll() is not None:
                     raise Failure(f'AzMail exited ({child.returncode}) while waiting for {what}')
@@ -245,25 +270,25 @@ class Run:
         if self.args.runner:
             command = [self.args.runner, '--cap-mb', '1500', '--seconds',
                        str(int(self.args.timeout) + 30), '--log',
-                       os.path.join(self.tmp, 'runner.log'), '--', 'env'] + \
+                       self.runner_log('azmail'), '--', 'env'] + \
                       [f'{k}={v}' for k, v in env.items()] + [binary]
         self.start('azmail', command, env)
 
     def add_account(self):
         self.until('the Add Account wizard', lambda: self.shows('Add Account'))
-        self.type_into('acct-name', NAME)
-        self.type_into('acct-email', USER)
+        self.type_into('__azmail_acct_name', NAME)
+        self.type_into('__azmail_acct_email', USER)
         self.click('Next >')
         self.until('the incoming server page', lambda: self.shows('Incoming mail server'))
-        self.type_into('acct-imap-host', '127.0.0.1')
-        self.type_into('acct-imap-port', str(self.imap_port))
+        self.type_into('__azmail_acct_imap_host', '127.0.0.1')
+        self.type_into('__azmail_acct_imap_port', str(self.imap_port))
         self.click('Unencrypted connection')
         self.click('Next >')
         self.until('the sending page', lambda: self.shows('Send mail:'))
         self.click('Through an SMTP server')
         self.until('the SMTP fields', lambda: self.shows('Outgoing mail server'))
-        self.type_into('send-host', '127.0.0.1')
-        self.type_into('send-port', str(self.smtp_port))
+        self.type_into('__azmail_send_host', '127.0.0.1')
+        self.type_into('__azmail_send_port', str(self.smtp_port))
         self.click('Use STARTTLS when the server offers it')
         self.click('Next >')
         self.until('the last page', lambda: self.shows('Finish adds the account'))
@@ -317,11 +342,11 @@ class Run:
                 raise Failure(f'the reply window does not show {want!r}')
         # The caret is in the editor, at the top (above the quote).
         self.until('the editor to take the focus',
-                   lambda: 'compose-body' in self.focused_selector(window) or self._focus_editor(window))
+                   lambda: '__azmail_compose_body' in self.focused_selector(window) or self._focus_editor(window))
         self.must('text_input', window, text=TYPED)
         self.frame(window, 2)
         self.until('the typed line in the editor', lambda: self.shows(TYPED, window))
-        self.click_id('compose-send', window)
+        self.click_id('__azmail_compose_send', window)
         sent = self.until('the send', lambda: [line for line in self.printed('AZMAIL_SEND_DONE')
                                                if line.startswith(window + ' ')])
         verdict = sent[-1].split(' ', 2)
@@ -333,7 +358,7 @@ class Run:
         return window
 
     def _focus_editor(self, window):
-        self.must('focus_node', window, selector='#compose-body')
+        self.must('focus_node', window, selector='#__azmail_compose_body')
         self.frame(window)
         return False
 
@@ -390,8 +415,8 @@ class Run:
             'AZMAIL_COMPOSE_OPEN', r'\S+ new'))
         window = opened[-1].split()[0]
         self.until('the new window', lambda: self.shows('Untitled - Message (HTML)', window))
-        self.type_into('compose-to', 'cleo@example.org', window)
-        self.type_into('compose-subject', 'Bulb order', window)
+        self.type_into('__azmail_compose_to', 'cleo@example.org', window)
+        self.type_into('__azmail_compose_subject', 'Bulb order', window)
         self.click('Save Draft', window)
         saved = self.until('the draft', lambda: [line for line in self.printed('AZMAIL_DRAFT_SAVED')
                                                  if line.startswith(window + ' ')])
@@ -431,20 +456,211 @@ class Run:
         self.check_secret()
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__.split('\n', 1)[0])
-    parser.add_argument('--bin')
-    parser.add_argument('--debug-port', type=int, default=8772)
-    parser.add_argument('--timeout', type=float, default=150)
-    parser.add_argument('--runner', help='run_capped.sh (caps the app\'s memory and time)')
-    parser.add_argument('--keep-logs', action='store_true')
-    args = parser.parse_args()
-    run = Run(args)
+# ---- the sample phase (MAIL6): the look and the app-kit flows, no servers ----
+
+# AzMail's DOM ids carry the app's prefix (ui ids module, `__azmail_`).
+PREFIX = '__azmail_'
+MAIN_SIZE = (1280, 860)
+COMPOSE_SIZE = (880, 700)
+NEWSLETTER = 'Garden Weekly: bulbs, frost and a sale'
+TASK = 'Order more tulip bulbs'
+
+
+class SampleRun(Run):
+    """AzMail --sample: every check runs, the failures are listed at the end (some wait for
+    engine fixes of other wave-6 tasks: the report names them)."""
+
+    def __init__(self, args):
+        super().__init__(args)
+        self.failures = []
+
+    def check(self, what, ok, detail=''):
+        if ok:
+            log(f'ok: {what}')
+        else:
+            log(f'FAILED: {what} {detail}')
+            self.failures.append(f'{what} {detail}')
+
+    def start_sample_app(self, name='azmail'):
+        binary = find_binary(self.args.bin)
+        env = {
+            'AZ_BACKEND': 'headless',
+            'AZ_DEBUG': str(self.debug),
+            'AZMAIL_DATA': os.path.join(self.data, 'AzMail'),
+            'AZLIN_DATA': self.data,
+        }
+        command = [binary, '--sample', '--size', f'{MAIN_SIZE[0]}x{MAIN_SIZE[1]}', '--mode',
+                   'light']
+        if self.args.runner:
+            command = [self.args.runner, '--cap-mb', '1500', '--seconds',
+                       str(int(self.args.timeout) + 30), '--log',
+                       self.runner_log(name), '--', 'env'] + \
+                      [f'{k}={v}' for k, v in env.items()] + command
+        self.start(name, command, env)
+        self.until('the sample Inbox', lambda: self.shows(NEWSLETTER))
+
+    def layout(self, selector, window=None):
+        answer = self.must('get_node_layout', window, selector=selector)
+        data = answer.get('data') if isinstance(answer, dict) else None
+        value = data.get('value') if isinstance(data, dict) and 'value' in data else data
+        return (value or {}).get('rect') or {}
+
+    def bottom(self, selector, window=None):
+        rect = self.layout(selector, window)
+        return rect.get('y', 0) + rect.get('height', 0)
+
+    def widths(self, cls, window=None):
+        answer = self.op('get_node_hierarchy', window)
+        nodes = (((answer or {}).get('data') or {}).get('value') or {}).get('nodes') or []
+        return [round((n.get('rect') or {}).get('width', -1)) for n in nodes
+                if cls in (n.get('classes') or [])]
+
+    def check_fills(self, window=None, size=MAIN_SIZE, what='the main window'):
+        bottom = self.bottom('.__azul-native-office-shell-status', window)
+        self.check(f'{what}: the status bar sits at the window\'s bottom edge',
+                   abs(bottom - size[1]) <= 1.0, f'(its bottom is {bottom}, the window {size[1]})')
+
+    def check_prefixed_ids(self):
+        answer = self.op('get_node_hierarchy')
+        nodes = (((answer or {}).get('data') or {}).get('value') or {}).get('nodes') or []
+        app_ids = [n['id'] for n in nodes if n.get('id') and not n['id'].startswith('__azul')
+                   and not n['id'].startswith(('shell-', 'appkit-'))]
+        bad = [i for i in app_ids if not i.startswith(PREFIX)]
+        self.check('every id AzMail sets carries the __azmail_ prefix', not bad, f'{bad}')
+
+    def check_open_newsletter(self):
+        self.click(NEWSLETTER)
+        self.until('the newsletter in the reading pane', lambda: self.printed('AZMAIL_OPEN'))
+        self.frame(None, 3)
+        lists = self.widths('__azul-native-message-list')
+        panes = self.widths('__azul-native-reading-pane')
+        # RED until the engine fix (MAILENG6): the split's panes collapse to 0 px after the
+        # HTML mail with its table is opened (a resize lays them out right).
+        self.check('the message list and the reading pane keep their widths with an HTML mail open',
+                   lists and panes and min(lists) > 100 and min(panes) > 100,
+                   f'(list {lists}, reading pane {panes})')
+        # The newsletter's 600 px table stays on its paper: the paper grows with the mail
+        # (html.rs) and the pane scrolls it sideways.
+        papers = self.widths('__azmail_paper')
+        self.check('the newsletter\'s 600 px table stays on its paper',
+                   papers and min(papers) >= 600, f'(paper {papers})')
+
+    def todo_task(self):
+        self.must('focus_node', selector='.__azul-native-todo-bar-task-input '
+                                         '.__azul-native-text-input-container')
+        self.frame()
+        self.must('text_input', text=TASK)
+        self.frame(None, 2)
+        self.must('key_down', key='enter', modifiers={})
+        self.must('key_up', key='enter', modifiers={})
+        self.frame(None, 2)
+        try:
+            self.until('the To-Do bar to list the task', lambda: self.shows(TASK), limit=20)
+        except Failure as e:
+            self.check('the To-Do bar lists a typed task', False, str(e))
+            return
+        files = []
+
+        def stored():
+            files.clear()
+            for dirpath, _, names in os.walk(os.path.join(self.data, 'tasks')):
+                for n in names:
+                    if n.endswith('.json') and not n.startswith('.'):
+                        with open(os.path.join(dirpath, n), encoding='utf-8') as f:
+                            if TASK in f.read():
+                                files.append(os.path.join(dirpath, n))
+            return files
+        try:
+            self.until('the task file in the shared task store', stored, limit=20)
+            self.check('a To-Do bar task is a file of the shared task store (tasks/<list>/<id>.json)',
+                       True, files[0])
+        except Failure as e:
+            self.check('a To-Do bar task is a file of the shared task store', False, str(e))
+
+    def compose_window(self):
+        self.click('New E-mail')
+        opened = self.until('a compose window', lambda: self.printed('AZMAIL_COMPOSE_OPEN',
+                                                                      r'\S+ new'))
+        window = opened[-1].split()[0]
+        self.until('the compose window', lambda: self.shows('Untitled - Message (HTML)', window))
+        self.frame(window, 2)
+        self.check_fills(window, COMPOSE_SIZE, 'the compose window')
+        return window
+
+    def close_guard(self, window):
+        try:
+            self.type_into(PREFIX + 'compose_subject', 'Bulb order', window)
+            # The window's close (the title bar's button, Alt+F4): an edited mail is held and
+            # asked about (CloseRequested + prevent_window_close, the CloseGuard widget).
+            self.must('close', window)
+            self.frame(None, 2)
+            self.until('the "save changes?" question',
+                       lambda: self.shows('Do you want to save changes', window), limit=20)
+            asked = window not in self.printed('AZMAIL_COMPOSE_CLOSED')
+            self.check('closing an edited mail asks "save changes?" and keeps the window', asked)
+            self.click("Don't Save", window)
+            self.until('the compose window to close', lambda: window in self.printed(
+                'AZMAIL_COMPOSE_CLOSED'), limit=20)
+            self.check('"Don\'t Save" closes the window', True)
+        except Failure as e:
+            self.check('closing an edited mail asks "save changes?"', False, str(e))
+
+    def zoom_in(self):
+        # The status bar's + sits between the slider's track and the percent label: the
+        # reading pane's zoom, 100 % -> 110 %, remembered in settings.json.
+        try:
+            track = self.layout('.__azul-native-statusbar-zoom-track')
+            label = self.layout('.__azul-native-statusbar-zoom-label')
+        except Failure as e:
+            self.check('the status bar has the zoom', False, str(e))
+            return
+        if not track or not label:
+            self.check('the status bar has the zoom', False, f'(track {track}, label {label})')
+            return
+        self.check('the status bar shows the zoom at 100 %', self.shows('100%'))
+        x = (track['x'] + track['width'] + label['x']) / 2
+        y = label['y'] + label['height'] / 2
+        self.must('click', x=x, y=y)
+        self.frame(None, 2)
+        self.check("the status bar's + zooms the reading pane to 110 %", self.shows('110%'))
+
+    def restart_keeps_tasks(self):
+        for name, child in self.children:
+            if name == 'azmail':
+                self.stop(child)
+        self.children = [(n, c) for n, c in self.children if n != 'azmail']
+        # The next run's output starts empty (its markers are its own).
+        for path in (os.path.join(self.tmp, 'azmail.out'), self.runner_log('azmail')):
+            if os.path.exists(path):
+                os.replace(path, path + '.1')
+        self.start_sample_app('azmail')
+        self.check('the To-Do bar task is there again after a restart', self.shows(TASK))
+
+    def run(self):
+        log(f'logs and data: {self.tmp}')
+        os.makedirs(self.data)
+        self.start_sample_app()
+        self.check_fills()
+        self.check('the navigation pane shows its module buttons', self.shows('Calendar'))
+        self.check_prefixed_ids()
+        self.todo_task()
+        window = self.compose_window()
+        self.close_guard(window)
+        self.check_open_newsletter()
+        self.zoom_in()
+        self.restart_keeps_tasks()
+        self.check('the zoom is remembered across a restart', self.shows('110%'))
+        if self.failures:
+            raise Failure(f'{len(self.failures)} check(s) failed: ' + '; '.join(self.failures))
+
+
+def run_phase(cls, args, what):
+    run = cls(args)
     passed = False
     try:
         run.run()
         passed = True
-        log('PASS: account, Send/Receive, reply window, send through SMTP, Sent, draft')
+        log(f'PASS: {what}')
     except (Failure, OSError, ValueError, KeyError) as e:
         log(f'FAIL: {e}')
         for name, _ in run.children:
@@ -456,6 +672,28 @@ def main():
             shutil.rmtree(run.tmp, ignore_errors=True)
         else:
             log(f'logs kept in {run.tmp}')
+    return passed
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split('\n', 1)[0])
+    parser.add_argument('--bin')
+    parser.add_argument('--debug-port', type=int, default=8772)
+    parser.add_argument('--timeout', type=float, default=150)
+    parser.add_argument('--runner', help='run_capped.sh (caps the app\'s memory and time)')
+    parser.add_argument('--keep-logs', action='store_true')
+    parser.add_argument('--phase', choices=('all', 'sample', 'account'), default='all',
+                        help='sample: --sample, the look and the app-kit flows (no servers); '
+                             'account: the wizard, IMAP, SMTP')
+    args = parser.parse_args()
+    passed = True
+    if args.phase in ('all', 'sample'):
+        passed &= run_phase(SampleRun, args, 'sample: the window fills, ids, To-Do bar store, '
+                                             'compose window, close guard, HTML mail, zoom, '
+                                             'restart')
+    if args.phase in ('all', 'account'):
+        passed &= run_phase(Run, args, 'account, Send/Receive, reply window, send through SMTP, '
+                                       'Sent, draft')
     sys.exit(0 if passed else 1)
 
 

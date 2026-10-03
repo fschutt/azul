@@ -18,16 +18,15 @@
 
 use azul::{
     callbacks::{
-        BackstageOnNavSelectCallbackType, ButtonOnClickCallbackType,
+        BackstageOnNavSelectCallbackType, ButtonOnClickCallbackType, ModalOnCloseCallbackType,
         MessageListOnEventCallbackType, ReadingPaneOnEventCallbackType, ResumeCallbackType,
         RibbonOnTabClickCallbackType, ShellNavigationPaneOnEventCallbackType,
-        ToDoBarOnEventCallbackType,
+        SliderOnValueChangeCallbackType, StandardDialogOnEventCallbackType,
+        ToDoBarOnEventCallbackType, WriteBackCallbackType,
     },
-    css::DarkLightMode,
     dom::VirtualKeyCode,
     http::{HttpBytesResult, HttpRequestConfig},
     image::{ImageDecodeResult, ImageRef, RawImage},
-    option::OptionDarkLightMode,
     prelude::*,
     shells::{
         PimShell, ShellEmptyState, ShellNavigationGroup, ShellNavigationModule,
@@ -36,11 +35,12 @@ use azul::{
     },
     str::String as AzString,
     widgets::{
-        Backstage, BackstageNavItem, InfoBar, MessageList, MessageListEvent,
+        AboutDialog, Backstage, BackstageNavItem, InfoBar, MessageList, MessageListEvent, Modal,
+        ModalState, StandardDialogEvent,
         MessageListEventKind, MessageRow, ReadingPane, ReadingPaneEvent, ReadingPaneEventKind,
         Ribbon, RibbonAppButton, RibbonButton, RibbonGroup, RibbonItem, RibbonTab, StatusBar,
-        StatusBarSegment, StatusBarSync, StatusBarSyncKind, Titlebar, ToDoBar, ToDoBarEvent,
-        ToDoBarEventKind, ToDoTask, TreeViewNode,
+        SliderState, StatusBarSegment, StatusBarSync, StatusBarSyncKind, StatusBarZoom, Titlebar,
+        ToDoBar, ToDoBarEvent, ToDoBarEventKind, ToDoTask, TreeViewNode,
     },
 };
 
@@ -49,16 +49,69 @@ use crate::{
     folders::Role,
     html,
     listing::{self, FolderNode, ListRow},
-    message, ui_account, ui_compose, with_app, MailApp, SyncState, Task,
+    message, ui_account, ui_compose, with_app, MailApp, SyncState,
 };
 
 /// The backstage's pages (File).
 pub(crate) const PAGE_INFO: usize = 0;
 pub(crate) const PAGE_ADD_ACCOUNT: usize = 1;
 pub(crate) const PAGE_SETTINGS: usize = 2;
-pub(crate) const PAGE_ABOUT: usize = 3;
-pub(crate) const PAGE_EXIT: usize = 4;
-const BACKSTAGE_PAGES: [&str; 5] = ["Info", "Add Account", "Account Settings", "About", "Exit"];
+/// File > Options: the kit's settings page (Appearance, Data, Shortcuts, About).
+pub(crate) const PAGE_OPTIONS: usize = 3;
+/// File > About: the standard About dialog over the window.
+pub(crate) const PAGE_ABOUT: usize = 4;
+pub(crate) const PAGE_EXIT: usize = 5;
+const BACKSTAGE_PAGES: [&str; 6] = [
+    "Info",
+    "Add Account",
+    "Account Settings",
+    "Options",
+    "About",
+    "Exit",
+];
+
+/// The view settings remembered across restarts (the kit's settings.json `values`).
+pub(crate) const SET_READING_PANE: &str = "reading_pane";
+pub(crate) const SET_TODO_BAR: &str = "todo_bar";
+pub(crate) const SET_NAVIGATION_COLLAPSED: &str = "navigation_collapsed";
+pub(crate) const SET_PLAIN_TEXT: &str = "plain_text";
+pub(crate) const SET_NEWEST_FIRST: &str = "newest_first";
+pub(crate) const SET_ZOOM: &str = "zoom";
+
+/// The reading pane's zoom: the status bar's range in percent, and one click of `-` / `+`.
+pub(crate) const ZOOM_MIN: f32 = 50.0;
+pub(crate) const ZOOM_MAX: f32 = 200.0;
+const ZOOM_STEP: f32 = 10.0;
+
+/// The zoom a settings.json value names: a number in percent, inside the range; 100 when there
+/// is none or it is no number.
+pub(crate) fn zoom_setting(value: Option<&str>) -> f32 {
+    value
+        .and_then(|v| v.trim().parse::<f32>().ok())
+        .filter(|z| z.is_finite())
+        .map_or(100.0, |z| z.clamp(ZOOM_MIN, ZOOM_MAX))
+}
+
+/// `zoom` moved by `steps` clicks of the status bar's `-` / `+` (negative: out), inside the
+/// range.
+fn zoom_by(zoom: f32, steps: f32) -> f32 {
+    (zoom + steps * ZOOM_STEP).clamp(ZOOM_MIN, ZOOM_MAX)
+}
+
+/// Sets the reading pane's zoom and remembers it across restarts (the kit's settings.json).
+fn set_zoom(s: &mut MailApp, info: &mut CallbackInfo, zoom: f32) {
+    s.zoom = zoom.clamp(ZOOM_MIN, ZOOM_MAX);
+    azul_appkit::ui::set_value(&s.kit, info, SET_ZOOM, &format!("{}", s.zoom));
+}
+
+/// The status bar's zoom slider: the zoom it points at, in whole percent.
+extern "C" fn on_zoom_slider(mut data: RefAny, mut info: CallbackInfo, slider: SliderState) -> Update {
+    with_app(&mut data, |s, _| {
+        set_zoom(s, &mut info, slider.value.round());
+        Update::RefreshDom
+    })
+    .unwrap_or(Update::DoNothing)
+}
 
 /// Rows the list renders at once around what is in view (the list is virtualised).
 const LIST_WINDOW: usize = 200;
@@ -72,7 +125,10 @@ const QUOTE_COLOURS: [&str; 4] = ["#2f6db0", "#2e7d32", "#8e24aa", "#b36b00"];
 /// The paper a plain-text mail is read on: white with dark text in either mode, like a mail
 /// without dark rules (`html.rs`).
 const PAPER: &str = "display: flex; flex-direction: column; padding: 12px 16px; \
-                     background: #ffffff; color: #1a1a1a; font-size: 14px;";
+                     background: #ffffff; color: #1a1a1a;";
+/// The plain-text paper's font size and a line's height at 100 %.
+const PAPER_FONT_SIZE: f32 = 14.0;
+const PAPER_LINE_HEIGHT: f32 = 18.0;
 
 // ==== The window ====
 
@@ -85,6 +141,25 @@ pub(crate) extern "C" fn layout_main(mut data: RefAny, info: LayoutCallbackInfo)
         return Dom::create_body();
     };
     let s = &*guard;
+    // File > Options: the kit's settings page fills the window (Back or Escape leaves it).
+    if azul_appkit::ui::settings_open(&s.kit) {
+        let page = Dom::create_div()
+            .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
+            .with_child(title_row(s))
+            .with_child(azul_appkit::ui::settings_page(&s.kit, Vec::new()));
+        return Dom::create_body()
+            .with_css(crate::WINDOW_BODY_CSS)
+            .with_child(
+                ShellThemeScope::create(page)
+                    .with_accent(ShellThemeAccent::Blue)
+                    .dom(),
+            )
+            .with_callback(
+                EventFilter::Window(WindowEventFilter::VirtualKeyDown),
+                app,
+                on_main_key,
+            );
+    }
     let shell = match s.backstage {
         Some(page) => PimShell::create(Dom::create_div(), Dom::create_div(), Dom::create_div())
             .office_shell()
@@ -107,12 +182,15 @@ pub(crate) extern "C" fn layout_main(mut data: RefAny, info: LayoutCallbackInfo)
                 .with_status_bar(status_bar(s, &app))
         }
     };
-    let column = Dom::create_div()
+    let mut column = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
         .with_child(title_row(s))
         .with_child(shell.dom());
+    if s.about_open {
+        column.add_child(about_dialog(&app));
+    }
     Dom::create_body()
-        .with_css("display: flex; flex-direction: column; margin: 0px;")
+        .with_css(crate::WINDOW_BODY_CSS)
         .with_child(
             ShellThemeScope::create(column)
                 .with_accent(ShellThemeAccent::Blue)
@@ -153,10 +231,12 @@ fn current_folder_label(s: &MailApp) -> Option<String> {
         .map(|f| listing::folder_label(f.role, &f.display))
 }
 
-/// The main window is up: open what `--screen compose` / `reply` asked for.
+/// The main window is up: the kit's `--shot` timer, and what `--screen compose` / `reply`
+/// asked for.
 pub(crate) extern "C" fn on_main_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_app(&mut data, |s, app| {
-        match s.args.screen {
+        azul_appkit::ui::on_window_created(&s.kit, &mut info);
+        match s.screen {
             crate::args::Screen::Compose => {
                 ui_compose::open_compose(s, &mut info, app, ComposeKind::New);
             }
@@ -181,6 +261,11 @@ pub(crate) extern "C" fn on_main_window_created(mut data: RefAny, mut info: Call
 /// Window keys: Ctrl/Cmd+N new mail, Ctrl/Cmd+R reply, Ctrl/Cmd+Shift+R reply all, Ctrl/Cmd+F
 /// forward, F9 Send / Receive, Escape leaves the backstage.
 extern "C" fn on_main_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    // The kit's keys first: Mod+, (File > Options), F1 (the shortcuts), Escape (leave them).
+    let kit_ref = data.downcast_ref::<MailApp>().map(|s| s.kit.clone());
+    if let Some(update) = kit_ref.and_then(|k| azul_appkit::ui::handle_key(&k, &mut info)) {
+        return update;
+    }
     let keyboard = info.get_current_keyboard_state();
     let Some(key) = keyboard.current_virtual_keycode.into_option() else {
         return Update::DoNothing;
@@ -205,7 +290,6 @@ fn backstage(s: &MailApp, app: &RefAny, page: usize) -> Dom {
     let content = match page {
         PAGE_ADD_ACCOUNT => ui_account::wizard_page(s, app),
         PAGE_SETTINGS => ui_account::settings_page(s, app),
-        PAGE_ABOUT => about_page(s),
         _ => info_page(s, app),
     };
     let items: Vec<BackstageNavItem> = BACKSTAGE_PAGES
@@ -290,33 +374,42 @@ fn info_page(s: &MailApp, app: &RefAny) -> Dom {
     .with_child(line(format!("Mail is kept in {}", s.root.display())))
 }
 
-/// File > About.
-fn about_page(s: &MailApp) -> Dom {
-    let keys = [
-        "Ctrl+N  New E-mail",
-        "Ctrl+R  Reply",
-        "Ctrl+Shift+R  Reply All",
-        "Ctrl+F  Forward",
-        "F9  Send/Receive All Folders",
-        "In a message: Ctrl+B / I / U  Bold, Italic, Underline; Ctrl+Enter  Send; Ctrl+S  Save",
-    ];
-    let mut page = Dom::create_div()
-        .with_css("display: flex; flex-direction: column;")
-        .with_child(heading("About AzMail"))
-        .with_child(line(
-            "A mail client on the azul toolkit: IMAP to files on this computer, sending \
-             directly or through an SMTP server, the rich editor of azul.",
-        ))
-        .with_child(line(format!("Version {}", env!("CARGO_PKG_VERSION"))))
-        .with_child(line(format!("AzMail folder: {}", s.root.display())))
-        .with_child(
-            Dom::create_span_with_text("Keyboard shortcuts")
-                .with_css("font-size: 15px; font-weight: bold; margin-top: 18px;"),
-        );
-    for key in keys {
-        page.add_child(line(key));
-    }
-    page
+/// File > About: the standard About dialog (the kit's About facts, the libraries AzMail is built
+/// on) in a modal over the window. The keyboard shortcuts are the kit's table (F1).
+fn about_dialog(app: &RefAny) -> Dom {
+    let about = crate::args::ABOUT;
+    let dialog = AboutDialog::create(about.name, format!("Version {}", about.version))
+        .with_icon("mail")
+        .with_description(about.summary)
+        .with_credit("azul", "MIT")
+        .with_credit("imap", "MIT / Apache-2.0")
+        .with_credit("mail-parser", "MIT / Apache-2.0")
+        .with_credit("micromail", "MIT")
+        .with_credit("rustls", "MIT / Apache-2.0 / ISC")
+        .with_on_event(app.clone(), on_about_event as StandardDialogOnEventCallbackType);
+    Modal::create(dialog.dom())
+        .with_title(format!("About {}", about.name))
+        .with_open(true)
+        .with_on_close(app.clone(), on_about_closed as ModalOnCloseCallbackType)
+        .dom()
+}
+
+/// The About dialog's OK.
+extern "C" fn on_about_event(mut data: RefAny, _info: CallbackInfo, _event: StandardDialogEvent) -> Update {
+    with_app(&mut data, |s, _| {
+        s.about_open = false;
+        Update::RefreshDom
+    })
+    .unwrap_or(Update::DoNothing)
+}
+
+/// The About dialog's modal closed (its close button, Escape).
+extern "C" fn on_about_closed(mut data: RefAny, _info: CallbackInfo, _state: ModalState) -> Update {
+    with_app(&mut data, |s, _| {
+        s.about_open = false;
+        Update::RefreshDom
+    })
+    .unwrap_or(Update::DoNothing)
 }
 
 extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
@@ -324,6 +417,13 @@ extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, index: 
         match index {
             PAGE_ADD_ACCOUNT => ui_account::open_wizard(s, None),
             PAGE_SETTINGS => ui_account::open_settings(s),
+            PAGE_OPTIONS => {
+                // The kit's settings page fills the window; Back returns to the mail.
+                azul_appkit::ui::open_settings(&s.kit, None);
+                s.backstage = None;
+                s.editor = None;
+            }
+            PAGE_ABOUT => s.about_open = true,
             PAGE_EXIT => {
                 info.close_window();
             }
@@ -367,10 +467,9 @@ pub(crate) enum Action {
     ToggleReading,
     ToggleTodo,
     PlainText,
-    ThemeFlat,
-    ThemeFlora,
-    ModeLight,
-    ModeDark,
+    /// The status bar's `-` / `+`: the reading pane's zoom.
+    ZoomOut,
+    ZoomIn,
     OpenFile,
     AddAccount,
     AccountSettings,
@@ -423,6 +522,11 @@ fn mark_read(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny, uids: &[u32]
     s.refresh_unread_count();
     let flags = s.flags.clone();
     crate::save_flags(s, info, app, flags);
+}
+
+/// Remembers a view setting across restarts: the kit's settings.json, written on a Thread.
+fn remember(s: &MailApp, info: &mut CallbackInfo, key: &str, on: bool) {
+    azul_appkit::ui::set_value(&s.kit, info, key, if on { "true" } else { "false" });
 }
 
 /// Runs `action` on the app.
@@ -492,15 +596,29 @@ pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Act
                 s.newest_first = !s.newest_first;
                 s.first_row = 0;
                 s.rebuild_view();
+                remember(s, info, SET_NEWEST_FIRST, s.newest_first);
             }
-            Action::ToggleNavigation => s.nav_collapsed = !s.nav_collapsed,
-            Action::ToggleReading => s.show_reading = !s.show_reading,
-            Action::ToggleTodo => s.show_todo = !s.show_todo,
-            Action::PlainText => s.plain_text = !s.plain_text,
-            Action::ThemeFlat => info.set_theme("flat"),
-            Action::ThemeFlora => info.set_theme("flora"),
-            Action::ModeLight => info.set_mode(OptionDarkLightMode::Some(DarkLightMode::Light)),
-            Action::ModeDark => info.set_mode(OptionDarkLightMode::Some(DarkLightMode::Dark)),
+            Action::ToggleNavigation => {
+                s.nav_collapsed = !s.nav_collapsed;
+                remember(s, info, SET_NAVIGATION_COLLAPSED, s.nav_collapsed);
+            }
+            Action::ToggleReading => {
+                s.show_reading = !s.show_reading;
+                remember(s, info, SET_READING_PANE, s.show_reading);
+            }
+            Action::ToggleTodo => {
+                s.show_todo = !s.show_todo;
+                remember(s, info, SET_TODO_BAR, s.show_todo);
+            }
+            Action::PlainText => {
+                s.plain_text = !s.plain_text;
+                remember(s, info, SET_PLAIN_TEXT, s.plain_text);
+            }
+            Action::ZoomOut | Action::ZoomIn => {
+                let steps = if action == Action::ZoomIn { 1.0 } else { -1.0 };
+                let zoom = zoom_by(s.zoom, steps);
+                set_zoom(s, info, zoom);
+            }
             Action::OpenFile => s.backstage = Some(PAGE_INFO),
             Action::AddAccount => ui_account::open_wizard(s, None),
             Action::AccountSettings => ui_account::open_settings(s),
@@ -610,13 +728,6 @@ fn ribbon(s: &MailApp, app: &RefAny) -> Dom {
         .with_group(
             RibbonGroup::create("Message")
                 .with_item(toggle("notes", "Plain Text", Action::PlainText, s.plain_text)),
-        )
-        .with_group(
-            RibbonGroup::create("Look")
-                .with_item(small("crop_square", "Flat", Action::ThemeFlat))
-                .with_item(small("spa", "Flora", Action::ThemeFlora))
-                .with_item(small("light_mode", "Light", Action::ModeLight))
-                .with_item(small("dark_mode", "Dark", Action::ModeDark)),
         );
     Ribbon::create(vec![home, send_receive, folder, view])
         .with_app_button(RibbonAppButton::create("File").with_on_click(
@@ -660,21 +771,31 @@ fn status_bar(s: &MailApp, app: &RefAny) -> Dom {
         }
         SyncState::Idle => (String::from("Connected"), StatusBarSyncKind::Connected),
     };
+    // Outlook's zoom at the right end: the reading pane's, `-` / `+` by ten, the slider over the
+    // buttons' whole range.
+    let zoom = StatusBarZoom::create(s.zoom, ZOOM_MIN, ZOOM_MAX)
+        .with_on_zoom_out(action_ref(app, Action::ZoomOut), on_action as ButtonOnClickCallbackType)
+        .with_on_zoom_in(action_ref(app, Action::ZoomIn), on_action as ButtonOnClickCallbackType)
+        .with_on_slider_change(app.clone(), on_zoom_slider as SliderOnValueChangeCallbackType);
     StatusBar::create(segments)
         .with_sync(StatusBarSync::create(label, kind).with_on_click(
             action_ref(app, Action::SendReceive),
             on_action as ButtonOnClickCallbackType,
         ))
+        .with_zoom(zoom)
         .dom()
 }
 
 // ==== The To-Do bar ====
 
+/// The To-Do bar: the month, the appointments, and the shared task store's tasks (`todo.rs`;
+/// a task's id in the bar is its index in `MailApp::tasks`).
 fn todo_bar(s: &MailApp, app: &RefAny) -> Dom {
     let tasks: Vec<ToDoTask> = s
         .tasks
         .iter()
-        .map(|t| ToDoTask::create(t.id, t.title.as_str()).with_done(t.done))
+        .enumerate()
+        .map(|(i, t)| ToDoTask::create(i as u64, t.title.as_str()).with_done(t.is_done()))
         .collect();
     ToDoBar::create(s.calendar.0, s.calendar.1, s.calendar.2)
         .with_today(s.today.0, s.today.1, s.today.2)
@@ -686,34 +807,83 @@ fn todo_bar(s: &MailApp, app: &RefAny) -> Dom {
         .dom()
 }
 
-extern "C" fn on_todo_event(mut data: RefAny, _info: CallbackInfo, event: ToDoBarEvent) -> Update {
-    with_app(&mut data, |s, _| {
-        match event.kind {
+extern "C" fn on_todo_event(mut data: RefAny, mut info: CallbackInfo, event: ToDoBarEvent) -> Update {
+    with_app(&mut data, |s, app| {
+        let now = chrono::Local::now().naive_local();
+        let changed: Vec<azul_pim::task::Task> = match event.kind {
             ToDoBarEventKind::DatePicked => {
                 s.calendar = (event.date.year, event.date.month, event.date.day);
+                Vec::new()
             }
             ToDoBarEventKind::TaskAdded => {
-                let title = event.text.as_str().trim().to_string();
-                if title.is_empty() {
+                let Some(task) = crate::todo::new_task(
+                    event.text.as_str(),
+                    &s.task_list,
+                    &s.tasks,
+                    crate::new_id(),
+                    now,
+                ) else {
                     return Update::DoNothing;
-                }
-                s.tasks.push(Task {
-                    id: s.next_task,
-                    title,
-                    done: false,
-                });
-                s.next_task += 1;
+                };
+                println!("AZMAIL_TASK_ADDED {}", task.key());
                 s.task_text.clear();
+                s.tasks.push(task.clone());
+                vec![task]
             }
             ToDoBarEventKind::TaskToggled => {
-                if let Some(task) = s.tasks.iter_mut().find(|t| t.id == event.id) {
-                    task.done = !task.done;
-                }
+                let Some(task) = s.tasks.get_mut(event.id as usize) else {
+                    return Update::DoNothing;
+                };
+                // Ticking off a repeating task leaves its next occurrence, as in AzTasks.
+                let next = crate::todo::toggle_done(task, crate::new_id(), now);
+                let mut changed = vec![task.clone()];
+                changed.extend(next.clone());
+                s.tasks.extend(next);
+                changed
             }
             ToDoBarEventKind::TaskOpened | ToDoBarEventKind::AppointmentOpened => {
                 return Update::DoNothing;
             }
+        };
+        crate::todo::sort(&mut s.tasks);
+        save_tasks(s, &mut info, app, &changed);
+        Update::RefreshDom
+    })
+    .unwrap_or(Update::DoNothing)
+}
+
+/// The write-back tag of the To-Do bar's task files.
+const TAG_TASKS: u64 = 1;
+
+/// Writes `tasks` to their files in the shared task store, on a Thread (azul-appkit's file
+/// jobs on the data root's drive).
+fn save_tasks(s: &MailApp, info: &mut CallbackInfo, app: RefAny, tasks: &[azul_pim::task::Task]) {
+    let jobs: Vec<azul_appkit::FileJob> = tasks.iter().map(crate::todo::put_job).collect();
+    azul_appkit::ui::spawn_file_jobs(
+        info,
+        &s.data_root,
+        jobs,
+        app,
+        TAG_TASKS,
+        on_tasks_saved as WriteBackCallbackType,
+    );
+}
+
+/// The task files are written (or a sentence says why not).
+extern "C" fn on_tasks_saved(mut app: RefAny, mut reply: RefAny, _info: CallbackInfo) -> Update {
+    let Some(reply) = azul_appkit::ui::take_reply(&mut reply) else {
+        return Update::DoNothing;
+    };
+    let Some(error) = reply.outcomes.iter().find_map(azul_appkit::FileOutcome::error) else {
+        for outcome in &reply.outcomes {
+            if let azul_appkit::FileOutcome::Put { key, .. } = outcome {
+                println!("AZMAIL_TASK_SAVED {key}");
+            }
         }
+        return Update::DoNothing;
+    };
+    with_app(&mut app, |s, _| {
+        s.notice = format!("The task could not be saved: {error}");
         Update::RefreshDom
     })
     .unwrap_or(Update::DoNothing)
@@ -937,7 +1107,7 @@ fn message_list(s: &MailApp, app: &RefAny) -> Dom {
         .with_window(first, total)
         .with_row_height(ROW_HEIGHT)
         .with_search(s.search.as_str())
-        .with_search_placeholder(format!("Search {folder} (Ctrl+E)"))
+        .with_search_placeholder(format!("Search {folder}"))
         .with_scopes(
             vec![AzString::from("All"), AzString::from("Unread")],
             s.scope,
@@ -1131,8 +1301,17 @@ fn reading_pane(s: &MailApp, app: &RefAny) -> Dom {
         Dom::create_span_with_text(open.error.as_str()).with_css("padding: 16px; color: #b3261e;")
     } else {
         match html {
-            Some(sanitized) => html_body(sanitized),
-            None => plain_body(&view.text),
+            // A mail wider than the pane (its paper grows with it, `html.rs`) scrolls sideways
+            // here. The zoom scales what the mail leaves to the paper (an `em` of the pane's
+            // font); its own px sizes are its author's - azul has no CSS `zoom` yet (report).
+            Some(sanitized) => {
+                let mut css = String::from("overflow-x: auto;");
+                if (s.zoom - 100.0).abs() > f32::EPSILON {
+                    css.push_str(&format!(" font-size: {:.2}em;", s.zoom / 100.0));
+                }
+                Dom::create_div().with_css(css).with_child(html_body(sanitized))
+            }
+            None => plain_body(&view.text, s.zoom),
         }
     };
     pane.with_body(body)
@@ -1142,19 +1321,27 @@ fn reading_pane(s: &MailApp, app: &RefAny) -> Dom {
         .dom()
 }
 
-/// Plain text on paper: every line a row, quoted lines indented behind a bar in their level's
-/// colour.
-fn plain_body(text: &str) -> Dom {
-    let mut body = Dom::create_div().with_css(PAPER);
+/// Plain text on paper at `zoom` percent: every line a row, quoted lines indented behind a bar
+/// in their level's colour.
+fn plain_body(text: &str, zoom: f32) -> Dom {
+    let scale = zoom / 100.0;
+    let mut body = Dom::create_div().with_css(format!(
+        "{PAPER} font-size: {:.1}px;",
+        PAPER_FONT_SIZE * scale
+    ));
+    let line_height = PAPER_LINE_HEIGHT * scale;
     let lines = message::quote_lines(text);
     for line in lines.iter().take(MAX_LINES) {
         let css = if line.level == 0 {
-            String::from("white-space: pre-wrap; min-height: 18px; overflow-wrap: anywhere;")
+            format!(
+                "white-space: pre-wrap; min-height: {line_height:.1}px; overflow-wrap: anywhere;"
+            )
         } else {
             let colour = QUOTE_COLOURS[(line.level - 1) % QUOTE_COLOURS.len()];
             format!(
-                "white-space: pre-wrap; min-height: 18px; overflow-wrap: anywhere; margin-left: \
-                 {}px; padding-left: 8px; border-left: 3px solid {colour}; color: {colour};",
+                "white-space: pre-wrap; min-height: {line_height:.1}px; overflow-wrap: anywhere; \
+                 margin-left: {}px; padding-left: 8px; border-left: 3px solid {colour}; color: \
+                 {colour};",
                 (line.level - 1) * 12
             )
         };
@@ -1286,5 +1473,33 @@ extern "C" fn on_picture_decoded(mut data: RefAny, mut info: CallbackInfo, resul
             eprintln!("[azmail] picture {url} not decoded: {e:?}");
             Update::DoNothing
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The zoom is remembered as a number in settings.json: read back inside the status bar's
+    /// range, 100 % when the value is missing or no number.
+    #[test]
+    fn the_zoom_setting_is_read_back_inside_the_range() {
+        assert_eq!(zoom_setting(None), 100.0);
+        assert_eq!(zoom_setting(Some("130")), 130.0);
+        assert_eq!(zoom_setting(Some(" 80 ")), 80.0);
+        assert_eq!(zoom_setting(Some("1000")), ZOOM_MAX);
+        assert_eq!(zoom_setting(Some("5")), ZOOM_MIN);
+        assert_eq!(zoom_setting(Some("big")), 100.0);
+        assert_eq!(zoom_setting(Some("NaN")), 100.0);
+    }
+
+    /// `-` and `+` move the zoom by ten percent and stop at the range's ends.
+    #[test]
+    fn zoom_out_and_in_step_by_ten_and_stop_at_the_ends() {
+        assert_eq!(zoom_by(100.0, 1.0), 110.0);
+        assert_eq!(zoom_by(100.0, -1.0), 90.0);
+        assert_eq!(zoom_by(ZOOM_MAX, 1.0), ZOOM_MAX);
+        assert_eq!(zoom_by(ZOOM_MIN, -1.0), ZOOM_MIN);
+        assert_eq!(zoom_by(57.0, -1.0), ZOOM_MIN);
     }
 }

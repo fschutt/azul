@@ -1,7 +1,7 @@
 //! A mail account: what AzMail needs to reach the servers, never the secret.
 //!
 //! The account's settings are one JSON file, `<AzMail folder>/<account id>/account.json`, where
-//! the AzMail folder is `AZMAIL_DATA`, else `AzMail` in the user's data folder. The file holds
+//! the AzMail folder is `AZMAIL_DATA`, else `mail` in the Azlin data root. The file holds
 //! the address, the servers, the kind of sign-in and the local mail folder; the password or token
 //! lives only in the OS keyring (under [`keyring_key`]), and nothing in this module can print it:
 //! [`Secret`] has no `Display`, and its `Debug` shows no characters of it.
@@ -282,13 +282,35 @@ pub fn test_secret(backend: Option<&str>, value: Option<&str>) -> Option<Secret>
     }
 }
 
-/// The AzMail folder: `setting` (`AZMAIL_DATA`), else `AzMail` in the user's data folder, else
-/// `AzMail` in the current folder.
-pub fn data_root(setting: Option<&str>, user_data: Option<PathBuf>) -> PathBuf {
+/// The AzMail folder: `setting` (`AZMAIL_DATA`, for scripts and tests), else AzMail's folder
+/// in the Azlin data root (`<data root>/mail`, the user's bucket later; the root is
+/// azul-appkit's: `--data-dir`, `AZLIN_DATA`, else `Azlin` in the user's data folder).
+pub fn data_root(setting: Option<&str>, azlin_root: &Path) -> PathBuf {
     match setting.map(str::trim).filter(|s| !s.is_empty()) {
         Some(dir) => PathBuf::from(dir),
-        None => user_data.unwrap_or_default().join(APP_DIR),
+        None => azlin_root.join(crate::args::APP_FOLDER),
     }
+}
+
+/// Where AzMail kept its folder before the Azlin data root: `AzMail` in the user's data folder.
+pub fn legacy_root(user_data: Option<&Path>) -> Option<PathBuf> {
+    user_data
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(|p| p.join(APP_DIR))
+}
+
+/// Moves the folder of an older AzMail (`legacy`) to `root` once: only when `legacy` is a
+/// folder and nothing is at `root` yet (a second run, or mail already in the new place, moves
+/// nothing). Runs at start, before the window. `Ok(true)` when it moved.
+pub fn migrate_legacy_root(legacy: &Path, root: &Path) -> std::io::Result<bool> {
+    if !legacy.is_dir() || root.exists() {
+        return Ok(false);
+    }
+    if let Some(parent) = root.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::rename(legacy, root)?;
+    Ok(true)
 }
 
 /// The account's own folder: `<AzMail folder>/<account id>`.
@@ -792,21 +814,23 @@ mod tests {
     }
 
     #[test]
-    fn the_data_folder_is_azmail_data_else_the_users_data_folder() {
-        let user = Some(PathBuf::from("/home/ada/.local/share"));
+    fn the_data_folder_is_azmail_data_else_mail_in_the_azlin_data_root() {
+        let azlin = Path::new("/home/ada/.local/share/Azlin");
+        assert_eq!(data_root(Some("/tmp/m"), azlin), PathBuf::from("/tmp/m"));
         assert_eq!(
-            data_root(Some("/tmp/m"), user.clone()),
-            PathBuf::from("/tmp/m")
+            data_root(Some(" "), azlin),
+            PathBuf::from("/home/ada/.local/share/Azlin/mail"),
+            "a blank variable counts as unset"
         );
         assert_eq!(
-            data_root(Some(" "), user.clone()),
-            PathBuf::from("/home/ada/.local/share/AzMail")
+            data_root(None, azlin),
+            PathBuf::from("/home/ada/.local/share/Azlin/mail")
         );
         assert_eq!(
-            data_root(None, user),
-            PathBuf::from("/home/ada/.local/share/AzMail")
+            legacy_root(Some(Path::new("/home/ada/.local/share"))),
+            Some(PathBuf::from("/home/ada/.local/share/AzMail"))
         );
-        assert_eq!(data_root(None, None), PathBuf::from("AzMail"));
+        assert_eq!(legacy_root(None), None);
         let root = Path::new("/data/AzMail");
         assert_eq!(account_dir(root, ADA), root.join(ADA));
         assert_eq!(mail_root(root, &account()), root.join(ADA));
@@ -818,6 +842,25 @@ mod tests {
             mail_root(root, &elsewhere),
             PathBuf::from("/Volumes/backup/mail")
         );
+    }
+
+    #[test]
+    fn an_older_azmail_folder_moves_into_the_data_root_once() {
+        let dir = crate::testutil::TempDir::new("legacy-root");
+        let legacy = dir.0.join("AzMail");
+        let root = dir.0.join("Azlin").join("mail");
+        std::fs::create_dir_all(legacy.join(ADA)).unwrap();
+        std::fs::write(legacy.join(ADA).join(ACCOUNT_FILE), to_json(&account())).unwrap();
+        assert!(migrate_legacy_root(&legacy, &root).unwrap());
+        assert!(root.join(ADA).join(ACCOUNT_FILE).is_file(), "the account came along");
+        assert!(!legacy.exists(), "moved, not copied");
+        assert!(!migrate_legacy_root(&legacy, &root).unwrap(), "nothing left to move");
+        std::fs::create_dir_all(&legacy).unwrap();
+        assert!(
+            !migrate_legacy_root(&legacy, &root).unwrap(),
+            "mail already in the new place wins: the old folder stays where it is"
+        );
+        assert!(legacy.exists());
     }
 
     #[test]

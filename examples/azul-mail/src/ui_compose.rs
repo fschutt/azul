@@ -13,14 +13,15 @@
 //! closes and the mail is in Sent Items. Queued (it waits in the Outbox for the next Send /
 //! Receive) and Failed keep the window open and say why.
 //!
-//! Field ids for scripts: `#compose-to`, `#compose-cc`, `#compose-bcc`, `#compose-subject`,
-//! `#compose-body` (the editor), `#compose-link`; the window id is `azmail-compose-<n>`.
+//! Field ids for scripts (`ids.rs`): `#__azmail_compose_to`, `_cc`, `_bcc`, `_subject`, `_send`,
+//! `_body` (the editor), `_link`; the window id is `azmail-compose-<n>`.
 
 use std::path::PathBuf;
 
 use azul::{
     callbacks::{
-        ButtonOnClickCallbackType, ResumeCallbackType, RichTextEditorOnChangeCallbackType,
+        ButtonOnClickCallbackType, ModalOnCloseCallbackType, ResumeCallbackType,
+        RichTextEditorOnChangeCallbackType, StandardDialogOnEventCallbackType,
         TextInputOnTextInputCallbackType, TimerCallbackInfo, TimerCallbackReturn,
     },
     dialog::{FileDialog, FileOpenMultiResult},
@@ -33,17 +34,18 @@ use azul::{
     time::{Duration, SystemTimeDiff},
     vec::RichTextSpanVec,
     widgets::{
-        AlertKind, ButtonType, InfoBar, OnTextInputReturn, Ribbon, RibbonButton, RibbonGroup,
-        RibbonItem, RibbonTab, RichBlockKind, RichFormat, RichTextCommand, RichTextDoc,
-        RichTextEditor, RichTextEditorState, StatusBar, StatusBarSegment, TextInputState,
-        TextInputValid, Titlebar,
+        ButtonType, MessageBox, MessageBoxKind, Modal, ModalState, OnTextInputReturn, Ribbon,
+        RibbonButton, RibbonGroup, RibbonItem, RibbonTab, RichBlockKind, RichFormat,
+        RichTextCommand, RichTextDoc, RichTextEditor, RichTextEditorState, StandardDialogEvent,
+        StandardDialogEventKind, StatusBar, StatusBarSegment, TextInputState, TextInputValid,
+        Titlebar,
     },
     window::WindowDecorations,
 };
 
 use crate::{
     compose::{self, ComposeFields, ComposeKind, StartFields},
-    message, send,
+    ids, message, send,
     store::LocalFolder,
     with_app, MailApp,
 };
@@ -170,14 +172,11 @@ impl Compose {
     }
 }
 
-/// The editor host's DOM id (scripts focus it as `#compose-body`; its blocks are
-/// `#compose-body-<index>`).
-pub const HOST_ID: &str = "compose-body";
-
-/// The editor state of a body that is starting.
+/// The editor state of a body that is starting: its host is `ids::COMPOSE_BODY` (scripts
+/// focus it as `#__azmail_compose_body`; its blocks are `#__azmail_compose_body-<index>`).
 fn body_state(doc: RichTextDoc) -> RichTextEditorState {
     let mut state = RichTextEditorState::create(doc);
-    state.host_id = AzString::from(HOST_ID);
+    state.host_id = ids::COMPOSE_BODY;
     state
 }
 
@@ -297,7 +296,7 @@ extern "C" fn on_compose_created(mut data: RefAny, mut info: CallbackInfo) -> Up
 extern "C" fn on_caret_timer(_data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
     let mut callback_info = info.callback_info;
     let dom = DomId { inner: 0 };
-    let node = callback_info.get_node_id_by_id_attribute(dom, HOST_ID);
+    let node = callback_info.get_node_id_by_id_attribute(dom, ids::COMPOSE_BODY);
     if node.into_raw() == 0 {
         return if info.call_count > 50 {
             TimerCallbackReturn::terminate_unchanged()
@@ -337,9 +336,6 @@ pub(crate) extern "C" fn layout_compose(mut data: RefAny, info: LayoutCallbackIn
     };
     let mut document = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;");
-    if c.asking_close {
-        document.add_child(save_changes_bar(c, &app));
-    }
     document.add_child(header_block(c, &app));
     if c.show_link {
         document.add_child(link_bar(c, &app));
@@ -352,7 +348,7 @@ pub(crate) extern "C" fn layout_compose(mut data: RefAny, info: LayoutCallbackIn
         .office_shell()
         .with_ribbon(compose_ribbon(c, &app))
         .with_status_bar(status_bar(c));
-    let column = Dom::create_div()
+    let mut column = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
         .with_child(
             Titlebar::create(compose::window_title(&c.subject))
@@ -360,8 +356,11 @@ pub(crate) extern "C" fn layout_compose(mut data: RefAny, info: LayoutCallbackIn
                 .dom(),
         )
         .with_child(shell.dom());
+    if c.asking_close {
+        column.add_child(save_changes_question(c, &app));
+    }
     Dom::create_body()
-        .with_css("display: flex; flex-direction: column; margin: 0px;")
+        .with_css(crate::WINDOW_BODY_CSS)
         .with_child(
             ShellThemeScope::create(column)
                 .with_accent(ShellThemeAccent::Blue)
@@ -500,7 +499,7 @@ struct ComposeFieldRef {
     field: ComposeField,
 }
 
-fn field_input(app: &RefAny, id: u64, field: ComposeField, value: &str, dom_id: &str) -> Dom {
+fn field_input(app: &RefAny, id: u64, field: ComposeField, value: &str, dom_id: AzString) -> Dom {
     TextInput::create()
         .with_text(value)
         .with_on_text_input(
@@ -539,7 +538,7 @@ fn header_block(c: &Compose, app: &RefAny) -> Dom {
             on_compose_action as ButtonOnClickCallbackType,
         )
         .dom()
-        .with_id("compose-send")
+        .with_id(ids::COMPOSE_SEND)
         .with_css("width: 72px; min-height: 64px; margin-right: 10px;");
     let fields = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1;")
@@ -549,19 +548,19 @@ fn header_block(c: &Compose, app: &RefAny) -> Dom {
         ))
         .with_child(row(
             "To...",
-            field_input(app, c.id, ComposeField::To, &c.to, "compose-to"),
+            field_input(app, c.id, ComposeField::To, &c.to, ids::COMPOSE_TO),
         ))
         .with_child(row(
             "Cc...",
-            field_input(app, c.id, ComposeField::Cc, &c.cc, "compose-cc"),
+            field_input(app, c.id, ComposeField::Cc, &c.cc, ids::COMPOSE_CC),
         ))
         .with_child(row(
             "Bcc...",
-            field_input(app, c.id, ComposeField::Bcc, &c.bcc, "compose-bcc"),
+            field_input(app, c.id, ComposeField::Bcc, &c.bcc, ids::COMPOSE_BCC),
         ))
         .with_child(row(
             "Subject:",
-            field_input(app, c.id, ComposeField::Subject, &c.subject, "compose-subject"),
+            field_input(app, c.id, ComposeField::Subject, &c.subject, ids::COMPOSE_SUBJECT),
         ));
     Dom::create_div()
         .with_css("display: flex; flex-direction: row; padding: 10px 14px 6px 14px; flex-shrink: 0;")
@@ -577,7 +576,7 @@ fn link_bar(c: &Compose, app: &RefAny) -> Dom {
              96px; flex-shrink: 0;",
         )
         .with_child(Dom::create_span_with_text("Address:").with_css("font-size: 13px; margin-right: 8px;"))
-        .with_child(field_input(app, c.id, ComposeField::Link, &c.link, "compose-link"))
+        .with_child(field_input(app, c.id, ComposeField::Link, &c.link, ids::COMPOSE_LINK))
         .with_child(
             Button::create("Insert Link")
                 .with_on_click(
@@ -589,35 +588,37 @@ fn link_bar(c: &Compose, app: &RefAny) -> Dom {
         )
 }
 
-/// The attached files, each with Remove.
-/// "Do you want to save changes?" when an edited message's window is closed.
-fn save_changes_bar(c: &Compose, app: &RefAny) -> Dom {
-    let choice = |label: &str, action: ComposeAction| {
-        Button::create(label)
-            .with_on_click(
-                action_ref(app, c.id, action),
-                on_compose_action as ButtonOnClickCallbackType,
-            )
-            .dom()
-            .with_css("margin-left: 8px;")
-    };
-    Dom::create_div()
-        .with_css(
-            "display: flex; flex-direction: row; align-items: center; padding: 6px 14px; \
-             flex-shrink: 0;",
+/// "Do you want to save changes to this message?" when an edited message's window is closed:
+/// the standard question (a `MessageBox` in a `Modal`, as Outlook asks in a dialog).
+fn save_changes_question(c: &Compose, app: &RefAny) -> Dom {
+    let question = MessageBox::create(
+        MessageBoxKind::Question,
+        "Do you want to save changes to this message?",
+        "A saved message is kept in Drafts.",
+    )
+    .with_buttons(
+        vec![
+            AzString::from("Save"),
+            AzString::from("Don't Save"),
+            AzString::from("Cancel"),
+        ],
+        0,
+    )
+    .with_on_event(
+        compose_ref(app, c.id),
+        on_save_changes_answer as StandardDialogOnEventCallbackType,
+    );
+    Modal::create(question.dom())
+        .with_title("AzMail")
+        .with_open(true)
+        .with_on_close(
+            compose_ref(app, c.id),
+            on_save_changes_dismissed as ModalOnCloseCallbackType,
         )
-        .with_child(
-            InfoBar::create("Do you want to save changes to this message?")
-                .with_icon("help")
-                .with_kind(AlertKind::Warning)
-                .dom()
-                .with_css("flex-grow: 1;"),
-        )
-        .with_child(choice("Save", ComposeAction::CloseSave))
-        .with_child(choice("Don't Save", ComposeAction::CloseDiscard))
-        .with_child(choice("Cancel", ComposeAction::CloseCancel))
+        .dom()
 }
 
+/// The attached files, each with Remove.
 fn attachments_row(c: &Compose, app: &RefAny) -> Dom {
     let mut row = Dom::create_div().with_css(
         "display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; padding: 0px \
@@ -646,7 +647,7 @@ fn attachments_row(c: &Compose, app: &RefAny) -> Dom {
 /// mode); every change comes back through `on_compose_body_change`.
 fn editor_dom(c: &Compose, app: &RefAny) -> Dom {
     let editor = RichTextEditor::create(c.body.clone())
-        .with_id(HOST_ID)
+        .with_id(ids::COMPOSE_BODY)
         .with_accessibility_name("Message body")
         .with_paragraph_spacing(0.0)
         .with_on_change(
@@ -771,8 +772,10 @@ extern "C" fn on_compose_key(mut data: RefAny, mut info: CallbackInfo) -> Update
     run_compose_action(&mut app, &mut info, id, action)
 }
 
-/// The window is being closed (its close button): an edited message holds the close back and
-/// asks "Save changes?"; otherwise its compose goes.
+/// The window is being closed (its close button, Alt+F4, `close_window`): an edited message
+/// holds the close back (`prevent_window_close`) and asks "Save changes?"; otherwise its
+/// compose goes. The decision reads the compose as it is NOW, so a close the app asks for
+/// itself after dropping or sending the mail (Discard, "Don't Save", sent) always passes.
 extern "C" fn on_compose_close_requested(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((mut app, id)) = target_of(&mut data) else {
         return Update::DoNothing;
@@ -791,11 +794,38 @@ extern "C" fn on_compose_close_requested(mut data: RefAny, mut info: CallbackInf
     if !held {
         return Update::DoNothing;
     }
-    // A cleared flag is what every backend reads as "stay open".
-    let mut state = info.get_current_window_state();
-    state.flags.close_requested = false;
-    info.modify_window_state(state);
+    // Last: the veto rides on whatever window state this callback queued.
+    info.prevent_window_close();
     Update::RefreshDom
+}
+
+/// The answer to "Save changes?": Save (button 0) saves the draft and then closes, Don't Save
+/// (1) closes, Cancel (2, Escape) keeps the window.
+extern "C" fn on_save_changes_answer(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    event: StandardDialogEvent,
+) -> Update {
+    let Some((mut app, id)) = target_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let action = match (event.kind, event.index) {
+        (StandardDialogEventKind::Button, 0) => ComposeAction::CloseSave,
+        (StandardDialogEventKind::Button, 1) => ComposeAction::CloseDiscard,
+        (StandardDialogEventKind::Button | StandardDialogEventKind::Cancel, _) => {
+            ComposeAction::CloseCancel
+        }
+        _ => return Update::DoNothing,
+    };
+    run_compose_action(&mut app, &mut info, id, action)
+}
+
+/// The question's modal was closed (its close button, Escape): Cancel.
+extern "C" fn on_save_changes_dismissed(mut data: RefAny, mut info: CallbackInfo, _state: ModalState) -> Update {
+    let Some((mut app, id)) = target_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    run_compose_action(&mut app, &mut info, id, ComposeAction::CloseCancel)
 }
 
 extern "C" fn on_compose_action(mut data: RefAny, mut info: CallbackInfo) -> Update {

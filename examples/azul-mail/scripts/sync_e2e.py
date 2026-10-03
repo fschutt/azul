@@ -328,11 +328,11 @@ class Run:
 
         self.start('azmail', [binary], env)
         self.until('the Add Account wizard', lambda: self.shows('Add Account'))
-        self.type_into('#acct-email', USER)
+        self.type_into('#__azmail_acct_email', USER)
         self.click('Next >')
         self.until('the incoming server page', lambda: self.shows('Incoming mail server'))
-        self.type_into('#acct-imap-host', '127.0.0.1')
-        self.type_into('#acct-imap-port', str(self.port))
+        self.type_into('#__azmail_acct_imap_host', '127.0.0.1')
+        self.type_into('#__azmail_acct_imap_port', str(self.port))
         if not self.args.tls:
             self.click('Unencrypted connection')
             time.sleep(0.3)

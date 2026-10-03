@@ -7,8 +7,8 @@
 //! (`IoJob::SaveAccount`: `account.json` and SEND's `sending.json`), after which the secret goes
 //! to the keyring and Send / Receive starts (`account_saved`).
 //!
-//! Field ids for scripts: `#acct-name`, `#acct-email`, `#acct-secret`, `#acct-imap-host`,
-//! `#acct-imap-port`, `#acct-username`, `#acct-folder`, `#send-host`, `#send-port`.
+//! Field ids for scripts (`ids.rs`): `#__azmail_acct_name`, `_email`, `_secret`, `_imap_host`,
+//! `_imap_port`, `_username`, `_folder`, `#__azmail_send_host`, `#__azmail_send_port`.
 
 use azul::{
     callbacks::{
@@ -29,7 +29,7 @@ use crate::{
     account::{self, Account, AccountForm, Secret},
     send::SendSettings,
     sending::SendingForm,
-    ui_main, with_app, IoJob, MailApp,
+    ids, ui_main, with_app, IoJob, MailApp,
 };
 
 /// The wizard's steps.
@@ -327,7 +327,7 @@ fn label(text: &str) -> Dom {
     Dom::create_span_with_text(text).with_css(LABEL)
 }
 
-fn input(app: &RefAny, kind: TextInput, field: Field, value: &str, placeholder: &str, id: &str) -> Dom {
+fn input(app: &RefAny, kind: TextInput, field: Field, value: &str, placeholder: &str, id: AzString) -> Dom {
     let mut input = kind
         .with_text(value)
         .with_placeholder(placeholder)
@@ -414,7 +414,7 @@ fn account_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
             Field::Name,
             &f.name,
             "Example: Ada Lovelace",
-            "acct-name",
+            ids::ACCT_NAME,
         ))
         .with_child(label("E-mail Address:"))
         .with_child(input(
@@ -423,7 +423,7 @@ fn account_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
             Field::Email,
             &f.email,
             "Example: ada@example.org",
-            "acct-email",
+            ids::ACCT_EMAIL,
         ))
         .with_child(label(secret_label))
         .with_child(input(
@@ -432,7 +432,7 @@ fn account_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
             Field::Secret,
             editor.secret.expose(),
             secret_placeholder,
-            "acct-secret",
+            ids::ACCT_SECRET,
         ))
         .with_child(Dom::create_span_with_text(account::APP_PASSWORD_NOTE).with_css(NOTE));
     if !editor.drawn.note.is_empty() {
@@ -457,8 +457,8 @@ fn server_fields(s: &MailApp, editor: &AccountEditor, app: &RefAny) -> Dom {
         .with_css("display: flex; flex-direction: column;")
         .with_child(label("Incoming mail server (IMAP) and port:"))
         .with_child(pair(
-            input(app, TextInput::create(), Field::ImapHost, &f.imap_host, &d.imap_host, "acct-imap-host"),
-            input(app, TextInput::create(), Field::ImapPort, &f.imap_port, &d.imap_port, "acct-imap-port"),
+            input(app, TextInput::create(), Field::ImapHost, &f.imap_host, &d.imap_host, ids::ACCT_IMAP_HOST),
+            input(app, TextInput::create(), Field::ImapPort, &f.imap_port, &d.imap_port, ids::ACCT_IMAP_PORT),
         ))
         .with_child(label("User Name:"))
         .with_child(input(
@@ -467,7 +467,7 @@ fn server_fields(s: &MailApp, editor: &AccountEditor, app: &RefAny) -> Dom {
             Field::Username,
             &f.username,
             &d.username,
-            "acct-username",
+            ids::ACCT_USERNAME,
         ))
         .with_child(label("Local mail folder:"))
         .with_child(input(
@@ -476,7 +476,7 @@ fn server_fields(s: &MailApp, editor: &AccountEditor, app: &RefAny) -> Dom {
             Field::Folder,
             &f.folder,
             &default_folder,
-            "acct-folder",
+            ids::ACCT_FOLDER,
         ))
         .with_child(check(
             app,
@@ -507,7 +507,7 @@ fn sending_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
                 Field::SendHost,
                 &sending.host,
                 &editor.drawn.smtp_host,
-                "send-host",
+                ids::SEND_HOST,
             ),
             input(
                 app,
@@ -515,7 +515,7 @@ fn sending_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
                 Field::SendPort,
                 &sending.port,
                 &crate::sending::SUBMISSION_PORT.to_string(),
-                "send-port",
+                ids::SEND_PORT,
             ),
         ));
     } else {

@@ -798,3 +798,5 @@ mod a_text_rasterises_into_a_raw_image;
 mod an_image_patched_in_place_survives_a_cached_relayout;
 #[path = "the_undo_keys_are_a_default_action_an_editor_can_veto.rs"]
 mod the_undo_keys_are_a_default_action_an_editor_can_veto;
+#[path = "typing_stays_with_its_field_when_another_page_replaces_it.rs"]
+mod typing_stays_with_its_field_when_another_page_replaces_it;
