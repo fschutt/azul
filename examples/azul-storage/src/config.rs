@@ -83,7 +83,10 @@ impl DriveEntry {
         transport: Box<dyn Transport>,
     ) -> Result<Box<dyn Drive>, DriveError> {
         match &self.location {
-            DriveLocation::Local { root } => Ok(Box::new(LocalDrive::new(PathBuf::from(root)))),
+            // A folder the user added is not the data tree: no `.azlin/` there.
+            DriveLocation::Local { root } => Ok(Box::new(LocalDrive::without_manifest(
+                PathBuf::from(root),
+            ))),
             DriveLocation::S3 { auth, .. } => match auth {
                 DriveAuth::Keyring => {
                     let credentials = credentials.ok_or_else(|| DriveError::Denied {

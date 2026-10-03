@@ -70,6 +70,23 @@ pub fn sha256_hex(data: &[u8]) -> String {
     hex(&Sha256::digest(data))
 }
 
+/// [`sha256_hex`] of everything `reader` yields, read in pieces (a file of any
+/// size without holding it in memory).
+pub fn sha256_hex_of(mut reader: impl std::io::Read) -> std::io::Result<String> {
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 64 * 1024];
+    loop {
+        let n = match reader.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
+        hasher.update(&buffer[..n]);
+    }
+    Ok(hex(&hasher.finalize()))
+}
+
 /// URI-encodes as SigV4 wants: `A-Z a-z 0-9 - _ . ~` stay, `/` stays unless
 /// `encode_slash`, every other byte of the UTF-8 becomes `%XX` (uppercase).
 #[must_use]
@@ -88,6 +105,29 @@ pub fn uri_encode(input: &str, encode_slash: bool) -> String {
         }
     }
     out
+}
+
+/// The inverse of [`uri_encode`]: every `%XX` back to its byte. `None` when a
+/// `%` is not followed by two hex digits or the bytes are not UTF-8.
+#[must_use]
+pub fn uri_decode(input: &str) -> Option<String> {
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hi = char::from(*bytes.get(i + 1)?).to_digit(16)?;
+            let lo = char::from(*bytes.get(i + 2)?).to_digit(16)?;
+            // Two hex digits: at most 0xff, so the cast cannot truncate.
+            #[allow(clippy::cast_possible_truncation)]
+            out.push((hi * 16 + lo) as u8);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
 }
 
 /// The canonical query string: every name and value encoded, sorted by name

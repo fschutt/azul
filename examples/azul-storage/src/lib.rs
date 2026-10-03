@@ -12,7 +12,9 @@
 //!
 //! Backends:
 //! - [`LocalDrive`]: a folder on disk. Keys are `/`-separated paths under its root; `..`, `.`,
-//!   absolute and backslash keys are refused ([`key::check_path_key`]).
+//!   absolute and backslash keys are refused ([`key::check_path_key`]). The user's data tree
+//!   (`LocalDrive::new`) keeps `<root>/.azlin/cache`, the [`manifest`] of what is there, on
+//!   every write, so the later S3 / database sync only diffs ([`manifest::diff`]).
 //! - [`S3Drive`]: an S3-compatible bucket (AWS S3, Cloudflare R2, MinIO), path-style or
 //!   virtual-host style, every request signed with AWS SigV4 ([`sigv4`]). It builds its requests
 //!   itself and sends them through a [`Transport`]; the apps use `AzulTransport` (feature `azul`),
@@ -30,6 +32,7 @@ pub mod config;
 pub mod ids;
 pub mod key;
 pub mod local;
+pub mod manifest;
 pub mod ops;
 pub mod s3;
 pub mod scoped;
