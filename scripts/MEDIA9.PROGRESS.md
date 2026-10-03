@@ -5,10 +5,14 @@ LevelMeter - AzMeet's meter moves into azul), AzMusic, AzPlayer. Never compile. 
 Report: scripts/MEDIA9_2026_10_03.md (date = the day it finishes).
 
 ## DONE
-- f778be57d progress file
+- f778be57d progress file; dec0b59ae design notes
+- A1 df5870677 RED / af26cfbae GREEN playback.rs (Rechunker, LinearResampler, remix, apply_gain,
+  chunk_peaks, LevelHistory, TrackClock, RealTimeClock) - 12 tests run standalone with rustc: pass
+- A2 99fe01d4f RED / 67ccbdd80 GREEN AudioSink try_play / queued_frames / samples_played / pause /
+  resume / clear / config; 25596e1f1 AVF + cpal + ALSA backends implement the seam
 
 ## IN PROGRESS
-- Phase A (engine): RED tests for the pure playback pieces (dll/src/desktop/extra/audio/playback.rs).
+- A3 decode.rs (AudioFileDecoder on symphonia): RED tests next.
 
 ## NEXT (in order)
 - A1 playback.rs pure pieces: Rechunker, LinearResampler, remix (channels), apply_gain,
