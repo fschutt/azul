@@ -11458,6 +11458,26 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
         let total_width =
             margin_left + padding_left + border_left + border_right + padding_right + margin_right;
 
+        // CSS 2.1 s9.4.2: an inline element with no content and no non-zero
+        // margins, padding or borders makes nothing on its line - a line
+        // holding only such elements is a phantom line box, zero tall
+        // (`<div><a name="top"></a></div>`, a mail's anchor: Chrome 0). The
+        // box below sits on the baseline at full line-height, so it made
+        // that line 19.2px - and, with the strut in every line of boxes
+        // (text3 `perform_fragment_layout`), 23.2.
+        let is_phantom = [
+            total_width,
+            padding_top,
+            padding_bottom,
+            border_top,
+            border_bottom,
+        ]
+        .iter()
+        .all(|v| v.abs() < f32::EPSILON);
+        if is_phantom {
+            return Ok(());
+        }
+
         content.push(InlineContent::Shape(InlineShape {
             shape_def: ShapeDefinition::Rectangle {
                 size: crate::text3::cache::Size {
