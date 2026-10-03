@@ -49,3 +49,5 @@ pub mod reports;
 /// The view-JSON interpreter (first slice): the ERP's view dialect, routing,
 /// labels, view -> columns / fields / tabs / steps, records by field name.
 pub mod views;
+/// The `--sample` register.
+pub mod sample;
