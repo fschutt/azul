@@ -342,9 +342,7 @@ use crate::{
             LayoutConstraints, TextAlign as FcTextAlign,
         },
         getters::{
-            get_align_content, get_align_items, get_css_border_bottom_width,
-            get_css_border_left_width, get_css_border_right_width, get_css_border_top_width,
-            get_css_bottom, get_css_box_sizing, get_css_height, get_css_left,
+            get_align_content, get_align_items, get_css_bottom, get_css_box_sizing, get_css_height, get_css_left,
             get_css_margin_bottom, get_css_margin_left, get_css_margin_right, get_css_margin_top,
             get_css_max_height, get_css_max_width, get_css_min_height, get_css_min_width,
             get_css_padding_bottom, get_css_padding_left, get_css_padding_right,
@@ -903,24 +901,55 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             ),
         };
 
+        // The USED widths (`getters::used_border_width` via `get_border_info`):
+        // 0 for a side whose style is none, `medium` for a style without a
+        // width - the same box the block layout and the painter see. The
+        // declared widths alone gave a flex item a border its painter did
+        // not draw (a width without a style) or none it did (a style alone).
+        let used_border = crate::solver3::getters::get_border_info(styled_dom, id, node_state);
+        let used = |w: Option<PixelValue>| w.map_or(MultiValue::Auto, MultiValue::Exact);
         taffy_style.border = Rect {
             left: multi_value_to_lp_ctx(
-                get_css_border_left_width(styled_dom, id, node_state),
+                used(
+                    used_border
+                        .widths
+                        .left
+                        .and_then(|v| v.get_property_owned())
+                        .map(|w| w.inner),
+                ),
                 em_size,
                 rem_size,
             ),
             right: multi_value_to_lp_ctx(
-                get_css_border_right_width(styled_dom, id, node_state),
+                used(
+                    used_border
+                        .widths
+                        .right
+                        .and_then(|v| v.get_property_owned())
+                        .map(|w| w.inner),
+                ),
                 em_size,
                 rem_size,
             ),
             top: multi_value_to_lp_ctx(
-                get_css_border_top_width(styled_dom, id, node_state),
+                used(
+                    used_border
+                        .widths
+                        .top
+                        .and_then(|v| v.get_property_owned())
+                        .map(|w| w.inner),
+                ),
                 em_size,
                 rem_size,
             ),
             bottom: multi_value_to_lp_ctx(
-                get_css_border_bottom_width(styled_dom, id, node_state),
+                used(
+                    used_border
+                        .widths
+                        .bottom
+                        .and_then(|v| v.get_property_owned())
+                        .map(|w| w.inner),
+                ),
                 em_size,
                 rem_size,
             ),

@@ -886,3 +886,19 @@ mod sans_serif_is_helvetica_on_macos_as_in_chrome;
 mod a_line_holding_only_an_inline_block_is_as_tall_as_its_strut;
 #[path = "an_atomic_inline_sits_on_the_baseline_of_its_content.rs"]
 mod an_atomic_inline_sits_on_the_baseline_of_its_content;
+#[path = "common/painted.rs"]
+mod painted;
+#[path = "the_root_background_covers_the_whole_canvas.rs"]
+mod the_root_background_covers_the_whole_canvas;
+#[path = "an_inline_box_paints_its_border_padding_and_margin.rs"]
+mod an_inline_box_paints_its_border_padding_and_margin;
+#[path = "an_inline_block_sits_on_its_last_lines_baseline.rs"]
+mod an_inline_block_sits_on_its_last_lines_baseline;
+#[path = "a_single_stop_gradient_is_a_solid_colour.rs"]
+mod a_single_stop_gradient_is_a_solid_colour;
+#[path = "a_border_defaults_to_a_medium_width_in_the_text_colour.rs"]
+mod a_border_defaults_to_a_medium_width_in_the_text_colour;
+#[path = "a_box_shadow_follows_its_box_outside_or_inside.rs"]
+mod a_box_shadow_follows_its_box_outside_or_inside;
+#[path = "a_background_is_painted_within_its_background_clip.rs"]
+mod a_background_is_painted_within_its_background_clip;

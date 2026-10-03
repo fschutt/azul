@@ -4518,8 +4518,7 @@ fn collect_box_props(
     // +spec:box-model:17c0e0 - computed border-width is 0 if border-style is none or hidden
     // +spec:box-model:5d2b66 - border-style none/hidden means no border
     // CSS 2.2 §8.5.1: "Computed value: absolute length; '0' if the border style is 'none' or
-    // 'hidden'"
-    let style_zeroes_width = |s: BorderStyle| matches!(s, BorderStyle::None | BorderStyle::Hidden);
+    // 'hidden'" - applied by `getters::used_border_width` below.
 
     // Read border styles to check if widths should be zeroed.
     // FAST PATH: compact cache returns styles directly for normal state — no
@@ -4580,28 +4579,15 @@ fn collect_box_props(
         }
     };
 
-    // Build unresolved border, zeroing width when style is none or hidden
+    // Build unresolved border: zero when the style is none or hidden, the
+    // declared width, else `medium` (a style alone has a 3px border) - the one
+    // rule the painter's `get_border_info` uses too.
+    let used_border_width = crate::solver3::getters::used_border_width;
     let unresolved_border = UnresolvedEdge {
-        top: if style_zeroes_width(bs_top) {
-            PixelValue::const_px(0)
-        } else {
-            to_pixel_value(border_top_mv)
-        },
-        right: if style_zeroes_width(bs_right) {
-            PixelValue::const_px(0)
-        } else {
-            to_pixel_value(border_right_mv)
-        },
-        bottom: if style_zeroes_width(bs_bottom) {
-            PixelValue::const_px(0)
-        } else {
-            to_pixel_value(border_bottom_mv)
-        },
-        left: if style_zeroes_width(bs_left) {
-            PixelValue::const_px(0)
-        } else {
-            to_pixel_value(border_left_mv)
-        },
+        top: used_border_width(border_top_mv, bs_top),
+        right: used_border_width(border_right_mv, bs_right),
+        bottom: used_border_width(border_bottom_mv, bs_bottom),
+        left: used_border_width(border_left_mv, bs_left),
     };
     {
         let _ = (0xC0_000007u32);

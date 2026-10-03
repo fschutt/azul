@@ -2294,99 +2294,119 @@ pub fn is_z_index_auto(styled_dom: &StyledDom, node_id: Option<NodeId>) -> bool 
 /// background covers the entire viewport/canvas even when `<body>` itself has constrained
 /// dimensions.
 ///
-/// Implementation: When requesting the background of an `<html>` node, we first check if it
-/// has a transparent background with no image. If so, we look for a `<body>` child and use
-/// its background instead.
-#[allow(clippy::match_same_arms)]
-// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't
-// merge)
+/// Implementation: [`body_background_propagated_to`] names the `<body>` an
+/// `<html>` takes its background from; this reads the first layer of the
+/// background that node paints (its own, or the propagated one) when that
+/// layer is a solid colour, and transparent otherwise.
 #[must_use]
 pub fn get_background_color(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> ColorU {
-    let node_data = &styled_dom.node_data.as_container()[node_id];
     let cache = &styled_dom.css_property_cache.ptr;
     let ctx = cache.dynamic_context.as_deref();
-
-    // Fast path: Get this node's background.
+    let styled_nodes = styled_dom.styled_nodes.as_container();
+    let (source, state) = match body_background_propagated_to(styled_dom, node_id, node_state) {
+        Some(body) => (body, &styled_nodes[body].styled_node_state),
+        None => (node_id, node_state),
+    };
     // Negative fast path: if compact cache says `has_background == 0` on a
-    // normal-state node, skip the cascade walk entirely. Only declared backgrounds
-    // set the bit, so `false` is a safe "unconditionally transparent" signal.
-    let get_node_bg = |nid: NodeId, ndata: &azul_core::dom::NodeData, state: &StyledNodeState| {
-        if state.is_normal() {
-            if let Some(ref cc) = cache.compact_cache {
-                if !cc.has_background(nid.index()) {
-                    return None;
-                }
+    // normal-state node, skip the cascade walk entirely. Only declared
+    // backgrounds set the bit, so `false` is a safe "unconditionally
+    // transparent" signal.
+    if state.is_normal() {
+        if let Some(ref cc) = cache.compact_cache {
+            if !cc.has_background(source.index()) {
+                return ColorU::TRANSPARENT;
             }
         }
-        cache
-            .get_background_content(ndata, &nid, state)
-            .and_then(|bg| bg.get_property())
-            .and_then(|bg_vec| bg_vec.get(0).cloned())
-            // A `system:` colour is a solid colour too, once resolved against
-            // the theme the cascade evaluated.
-            .map(|first_bg| first_bg.resolve_system_colors(ctx))
-            .and_then(|first_bg| match &first_bg {
-                azul_css::props::style::StyleBackgroundContent::Color(color) => Some(*color),
-                azul_css::props::style::StyleBackgroundContent::Image(_) => None, // Has image, not transparent
-                _ => None,
-            })
-    };
-
-    let own_bg = get_node_bg(node_id, node_data, node_state);
-
-    // CSS Background Propagation: Special handling for <html> root element
-    // Only check propagation if this is an Html node AND has transparent background (no
-    // color/image)
-    if !matches!(node_data.node_type, NodeType::Html) || own_bg.is_some() {
-        // Not Html or has its own background - return own background or transparent
-        return own_bg.unwrap_or(ColorU {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 0,
-        });
     }
+    let source_data = &styled_dom.node_data.as_container()[source];
+    cache
+        .get_background_content(source_data, &source, state)
+        .and_then(|bg| bg.get_property())
+        .and_then(|bg_vec| bg_vec.get(0).cloned())
+        // A `system:` colour is a solid colour too, once resolved against
+        // the theme the cascade evaluated.
+        .map(|first_bg| first_bg.resolve_system_colors(ctx))
+        .and_then(|first_bg| match first_bg {
+            azul_css::props::style::StyleBackgroundContent::Color(color) => Some(color),
+            _ => None, // an image or a gradient: no solid colour
+        })
+        .unwrap_or(ColorU::TRANSPARENT)
+}
 
-    // Html node with transparent background - check if we should propagate from <body>
-    let first_child = styled_dom
-        .node_hierarchy
-        .as_container()
-        .get(node_id)
-        .and_then(|node| node.first_child_id(node_id));
-
-    let Some(first_child) = first_child else {
-        return ColorU {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 0,
-        };
-    };
-
-    let first_child_data = &styled_dom.node_data.as_container()[first_child];
-
-    // Check if first child is <body>
-    if !matches!(first_child_data.node_type, NodeType::Body) {
-        return ColorU {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 0,
-        };
+/// CSS Backgrounds 3 s2.11.2, "The Canvas Background and the HTML `<body>`
+/// Element": the `<body>` whose background an `<html>` element takes.
+///
+/// When the `<html>` element's own background paints nothing - no image and
+/// a transparent colour; an EXPLICIT `background-color: transparent` is
+/// that too, it is the initial value - the background properties of its
+/// first `<body>` child are propagated to it (and from the root to the
+/// canvas), and that body's own used background is the initial one: it
+/// paints none of it again.
+///
+/// `None` for every other node, for an `<html>` with a background of its
+/// own, and for one without a `<body>` child. One node-type test for any
+/// node that is not an `<html>`.
+#[must_use]
+pub fn body_background_propagated_to(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<NodeId> {
+    let node_data = styled_dom.node_data.as_container();
+    if !matches!(node_data[node_id].node_type, NodeType::Html) {
+        return None;
     }
+    if !background_layers_paint_nothing(&own_background_layers(styled_dom, node_id, node_state)) {
+        return None;
+    }
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let mut child = hierarchy.get(node_id)?.first_child_id(node_id);
+    while let Some(c) = child {
+        if matches!(node_data[c].node_type, NodeType::Body) {
+            return Some(c);
+        }
+        child = hierarchy.get(c)?.next_sibling_id();
+    }
+    None
+}
 
-    // Propagate <body>'s background to <html> (canvas)
-    let first_child_state = &styled_dom.styled_nodes.as_container()[first_child].styled_node_state;
-    get_node_bg(first_child, first_child_data, first_child_state).unwrap_or(ColorU {
-        r: 0,
-        g: 0,
-        b: 0,
-        a: 0,
+/// Whether background `layers` paint nothing: no layer at all
+/// (`background-image: none` is no layer) or only fully transparent colours.
+fn background_layers_paint_nothing(
+    layers: &[azul_css::props::style::StyleBackgroundContent],
+) -> bool {
+    layers.iter().all(|layer| {
+        matches!(layer, azul_css::props::style::StyleBackgroundContent::Color(c) if c.a == 0)
     })
+}
+
+/// The background layers declared on `nid` itself - no propagation, the
+/// `system:` colours unresolved.
+fn own_background_layers(
+    styled_dom: &StyledDom,
+    nid: NodeId,
+    state: &StyledNodeState,
+) -> Vec<azul_css::props::style::StyleBackgroundContent> {
+    let cache = &styled_dom.css_property_cache.ptr;
+    // Negative fast path: if compact cache says `has_background == 0` on a
+    // normal pseudo-state node, return empty without walking the cascade.
+    if state.is_normal() {
+        if let Some(ref cc) = cache.compact_cache {
+            if !cc.has_background(nid.index()) {
+                return Vec::new();
+            }
+        }
+    }
+    let ndata = &styled_dom.node_data.as_container()[nid];
+    cache
+        .get_background_content(ndata, &nid, state)
+        .and_then(|bg| bg.get_property())
+        .map(|bg_vec| bg_vec.iter().cloned().collect())
+        .unwrap_or_default()
 }
 
 /// THE layout-side resolution point for `system:` colour keywords.
@@ -2426,68 +2446,123 @@ pub fn get_background_contents(
         .collect()
 }
 
-/// [`get_background_contents`] before its `system:` colours are resolved.
+/// The `background-clip` of `node_id` (CSS Backgrounds 3 s3.7): the box its
+/// background is painted within; `border-box`, the initial value, when it
+/// declares none.
+#[must_use]
+pub fn get_background_clip(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> azul_css::props::style::StyleBackgroundClip {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_background_clip(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property().copied())
+        .unwrap_or_default()
+}
+
+/// The `background-repeat` values declared on `node_id` (CSS Backgrounds 3
+/// s3.4), one per background layer in layer order - a shorter list repeats
+/// to cover every layer. Empty when none is declared: every layer then
+/// repeats in both directions (`repeat`, the initial value).
+#[must_use]
+pub fn get_background_repeats(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Vec<azul_css::props::style::StyleBackgroundRepeat> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_background_repeat(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .map(|v| v.iter().copied().collect())
+        .unwrap_or_default()
+}
+
+/// [`get_background_contents`] before its `system:` colours are resolved:
+/// the node's own layers, or - for an `<html>` whose own paint nothing - its
+/// `<body>`'s ([`body_background_propagated_to`]).
 fn background_contents_as_declared(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> Vec<azul_css::props::style::StyleBackgroundContent> {
-    use azul_core::dom::NodeType;
-    use azul_css::props::style::StyleBackgroundContent;
+    match body_background_propagated_to(styled_dom, node_id, node_state) {
+        Some(body) => own_background_layers(
+            styled_dom,
+            body,
+            &styled_dom.styled_nodes.as_container()[body].styled_node_state,
+        ),
+        None => own_background_layers(styled_dom, node_id, node_state),
+    }
+}
 
-    let node_data = &styled_dom.node_data.as_container()[node_id];
+/// The used `color` of `dom_id` - what its text paints in and what
+/// `currentcolor` means for it (a border without a colour of its own, CSS
+/// Backgrounds 3 s4.2). The one resolution of the property: the compact
+/// cache's inherited value, else the cascade, `system:` keywords resolved
+/// against the theme the cascade evaluated.
+#[allow(clippy::cast_possible_truncation)] // the packed 0xRRGGBBAA bytes
+#[must_use]
+pub fn get_used_text_color(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    node_state: &StyledNodeState,
+) -> ColorU {
     let cache = &styled_dom.css_property_cache.ptr;
-
-    // Helper to get backgrounds for a node.
-    // Negative fast path: if compact cache says `has_background == 0` on a normal
-    // pseudo-state node, return empty without walking the cascade.
-    let get_node_backgrounds = |nid: NodeId,
-                                ndata: &azul_core::dom::NodeData,
-                                state: &StyledNodeState|
-     -> Vec<StyleBackgroundContent> {
-        if state.is_normal() {
+    let color_from_cache = {
+        // FAST PATH: compact cache for text color
+        let mut fast_color = None;
+        if node_state.is_normal() {
             if let Some(ref cc) = cache.compact_cache {
-                if !cc.has_background(nid.index()) {
-                    return Vec::new();
+                let raw = cc.get_text_color_raw(dom_id.index());
+                if raw != 0 {
+                    // Decode 0xRRGGBBAA → ColorU
+                    fast_color = Some(ColorU {
+                        r: (raw >> 24) as u8,
+                        g: (raw >> 16) as u8,
+                        b: (raw >> 8) as u8,
+                        a: raw as u8,
+                    });
                 }
             }
         }
-        cache
-            .get_background_content(ndata, &nid, state)
-            .and_then(|bg| bg.get_property())
-            .map(|bg_vec| bg_vec.iter().cloned().collect())
-            .unwrap_or_default()
+        fast_color.or_else(|| {
+            let node_data = &styled_dom.node_data.as_container()[dom_id];
+            cache
+                .get_text_color(node_data, &dom_id, node_state)
+                .and_then(|v| v.get_property().copied())
+                .map(|v| v.inner)
+        })
     };
 
-    let own_backgrounds = get_node_backgrounds(node_id, node_data, node_state);
-
-    // CSS Background Propagation: Special handling for <html> root element
-    // Only check propagation if this is an Html node AND has no backgrounds
-    if !matches!(node_data.node_type, NodeType::Html) || !own_backgrounds.is_empty() {
-        return own_backgrounds;
-    }
-
-    // Html node with no backgrounds - check if we should propagate from <body>
-    let first_child = styled_dom
-        .node_hierarchy
-        .as_container()
-        .get(node_id)
-        .and_then(|node| node.first_child_id(node_id));
-
-    let Some(first_child) = first_child else {
-        return own_backgrounds;
-    };
-
-    let first_child_data = &styled_dom.node_data.as_container()[first_child];
-
-    // Check if first child is <body>
-    if !matches!(first_child_data.node_type, NodeType::Body) {
-        return own_backgrounds;
-    }
-
-    // Propagate <body>'s backgrounds to <html> (canvas)
-    let first_child_state = &styled_dom.styled_nodes.as_container()[first_child].styled_node_state;
-    get_node_backgrounds(first_child, first_child_data, first_child_state)
+    // The UA's `color` default is THEMED and CASCADED (the root's
+    // `cascaded_props`, every descendant's `computed_values`, the compact
+    // text tier — `ua_css::get_ua_root_property_themed`), so on a cascaded
+    // DOM one of the two reads above always answers. The seed below exists
+    // for a cache no UA pass has run on, and asserts that it is one.
+    // Do NOT use system_style.colors.text here — that reflects the OS theme
+    // (e.g. white on macOS dark mode) and would produce white text on
+    // explicitly light-colored backgrounds.  System colors (CanvasText etc.)
+    // should only be used when referenced through CSS system-color keywords.
+    let color = color_from_cache.unwrap_or_else(|| {
+        debug_assert!(
+            !cache.ua_applied,
+            "get_style_properties: node {} has no `color` in its resolved style although the UA \
+             pass ran — the themed root default did not reach it (theme-chain analysis \
+             2026-09-12, R1)",
+            dom_id.index()
+        );
+        ColorU::BLACK
+    });
+    // `color: system:<slot>` arrives as a token (inherited like any colour);
+    // this is where it becomes the colour of the theme the cascade evaluated.
+    system_colors_resolved(styled_dom, color)
 }
 
 /// Information about border rendering
@@ -2498,9 +2573,113 @@ pub struct BorderInfo {
     pub styles: crate::solver3::display_list::StyleBorderStyles,
 }
 
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// The border of `node_id` as it is USED (CSS Backgrounds 3 s4.1-4.3): a
+/// side whose style is `none` or `hidden` has no width; a side with a
+/// visible style but no width of its own is `medium` (3px); and a side
+/// without a colour of its own is `currentcolor`, the element's text colour.
+/// Before, a side without a declared colour painted transparent - nothing -
+/// and a style alone had no width, so `border-top-style: solid;
+/// border-top-width: medium` drew nothing at all (WPT
+/// border-top-width-medium).
+///
+/// An SVG shape is left as declared: its border slots carry `stroke` and
+/// `stroke-width`, which have no style (see `svg_stroke_for`).
 #[must_use]
 pub fn get_border_info(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> BorderInfo {
+    use azul_css::{
+        css::CssPropertyValue,
+        props::style::{
+            border::{
+                BorderStyle, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor,
+                StyleBorderTopColor,
+            },
+            LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
+            LayoutBorderTopWidth,
+        },
+    };
+
+    let mut info = declared_border_info(styled_dom, node_id, node_state);
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    if node_data.get_svg_data().is_some() {
+        return info;
+    }
+    let cache = &styled_dom.css_property_cache.ptr;
+    let mut current_color: Option<ColorU> = None;
+
+    macro_rules! used_side {
+        ($side:ident, $Width:ident, $Color:ident, $declared_color:ident) => {{
+            let style = info
+                .styles
+                .$side
+                .as_ref()
+                .and_then(|v| v.get_property())
+                .map_or(BorderStyle::None, |s| s.inner);
+            let declared_width = match info.widths.$side.as_ref().and_then(|v| v.get_property()) {
+                Some(w) => MultiValue::Exact(w.inner),
+                None => MultiValue::Initial,
+            };
+            info.widths.$side = Some(CssPropertyValue::Exact($Width {
+                inner: used_border_width(declared_width, style),
+            }));
+            let has_no_colour = info
+                .colors
+                .$side
+                .as_ref()
+                .and_then(|v| v.get_property())
+                .is_none();
+            if has_no_colour && !matches!(style, BorderStyle::None | BorderStyle::Hidden) {
+                // "No colour" from the compact cache is also an explicit
+                // `transparent` (it packs both as 0): the cascade tells
+                // which. Only a side with no colour at all is currentcolor.
+                let declared = cache
+                    .$declared_color(node_data, &node_id, node_state)
+                    .and_then(|v| v.get_property())
+                    .map(|c| c.inner);
+                let color = match declared {
+                    Some(c) => c,
+                    None => *current_color.get_or_insert_with(|| {
+                        get_used_text_color(styled_dom, node_id, node_state)
+                    }),
+                };
+                info.colors.$side = Some(CssPropertyValue::Exact($Color { inner: color }));
+            }
+        }};
+    }
+    used_side!(top, LayoutBorderTopWidth, StyleBorderTopColor, get_border_top_color);
+    used_side!(right, LayoutBorderRightWidth, StyleBorderRightColor, get_border_right_color);
+    used_side!(bottom, LayoutBorderBottomWidth, StyleBorderBottomColor, get_border_bottom_color);
+    used_side!(left, LayoutBorderLeftWidth, StyleBorderLeftColor, get_border_left_color);
+    info
+}
+
+/// The used width of one border side (CSS Backgrounds 3 s4.3): 0 when its
+/// style is `none` or `hidden`, its declared width, else `medium` (3px, the
+/// initial value - a side with a style but no width has one). The one rule
+/// the box model (`layout_tree`'s box props) and the painter
+/// ([`get_border_info`]) share.
+#[must_use]
+pub fn used_border_width(
+    declared: MultiValue<PixelValue>,
+    style: azul_css::props::style::border::BorderStyle,
+) -> PixelValue {
+    use azul_css::props::style::border::BorderStyle;
+    if matches!(style, BorderStyle::None | BorderStyle::Hidden) {
+        return PixelValue::const_px(0);
+    }
+    match declared {
+        MultiValue::Exact(pv) => pv,
+        _ => azul_css::props::basic::pixel::MEDIUM_BORDER_THICKNESS,
+    }
+}
+
+/// The border of `node_id` as the cascade declared it: `None` for a side
+/// that declares nothing. [`get_border_info`] turns it into the used one.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+fn declared_border_info(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -2832,10 +3011,22 @@ fn get_inline_border_info(
         viewport,
     );
 
-    // Only return Some if there's actually a border or padding
+    // CSS 2.2 s10.3.1: an inline box's left and right margins apply (its
+    // top and bottom ones do not). `auto` is 0.
+    let m_left = resolve_padding(
+        get_css_margin_left(styled_dom, node_id, node_state),
+        viewport,
+    );
+    let m_right = resolve_padding(
+        get_css_margin_right(styled_dom, node_id, node_state),
+        viewport,
+    );
+
+    // Only return Some if there's actually a border, padding or margin
     let has_border = top > 0.0 || right > 0.0 || bottom > 0.0 || left > 0.0;
     let has_padding = p_top > 0.0 || p_right > 0.0 || p_bottom > 0.0 || p_left > 0.0;
-    if !has_border && !has_padding {
+    let has_margin = m_left != 0.0 || m_right != 0.0;
+    if !has_border && !has_padding && !has_margin {
         return None;
     }
 
@@ -2862,6 +3053,8 @@ fn get_inline_border_info(
         is_first_fragment: true,
         is_last_fragment: true,
         is_rtl,
+        margin_left: m_left,
+        margin_right: m_right,
     })
 }
 
@@ -3467,53 +3660,7 @@ pub fn get_style_properties_for_state(
         })
     };
 
-    let color_from_cache = {
-        // FAST PATH: compact cache for text color
-        let mut fast_color = None;
-        if node_state.is_normal() {
-            if let Some(ref cc) = cache.compact_cache {
-                let raw = cc.get_text_color_raw(dom_id.index());
-                if raw != 0 {
-                    // Decode 0xRRGGBBAA → ColorU
-                    fast_color = Some(ColorU {
-                        r: (raw >> 24) as u8,
-                        g: (raw >> 16) as u8,
-                        b: (raw >> 8) as u8,
-                        a: raw as u8,
-                    });
-                }
-            }
-        }
-        fast_color.or_else(|| {
-            cache
-                .get_text_color(node_data, &dom_id, node_state)
-                .and_then(|v| v.get_property().copied())
-                .map(|v| v.inner)
-        })
-    };
-
-    // The UA's `color` default is THEMED and CASCADED (the root's
-    // `cascaded_props`, every descendant's `computed_values`, the compact
-    // text tier — `ua_css::get_ua_root_property_themed`), so on a cascaded
-    // DOM one of the two reads above always answers. The seed below exists
-    // for a cache no UA pass has run on, and asserts that it is one.
-    // Do NOT use system_style.colors.text here — that reflects the OS theme
-    // (e.g. white on macOS dark mode) and would produce white text on
-    // explicitly light-colored backgrounds.  System colors (CanvasText etc.)
-    // should only be used when referenced through CSS system-color keywords.
-    let color = color_from_cache.unwrap_or_else(|| {
-        debug_assert!(
-            !cache.ua_applied,
-            "get_style_properties: node {} has no `color` in its resolved style although the UA \
-             pass ran — the themed root default did not reach it (theme-chain analysis \
-             2026-09-12, R1)",
-            dom_id.index()
-        );
-        ColorU::BLACK
-    });
-    // `color: system:<slot>` arrives as a token (inherited like any colour);
-    // this is where it becomes the colour of the theme the cascade evaluated.
-    let color = system_colors_resolved(styled_dom, color);
+    let color = get_used_text_color(styled_dom, dom_id, node_state);
 
     // +spec:font-metrics:e480da - line-height: normal/number/length/percentage resolution
     let line_height = get_used_line_height(styled_dom, dom_id, node_state, font_size, viewport_size);
@@ -3551,7 +3698,7 @@ pub fn get_style_properties_for_state(
             (bg_color, bg_contents, inline_border)
         } else {
             // Block-level elements: background/border is painted by display_list.rs
-            // via push_backgrounds_and_border() in DisplayListBuilder
+            // via DisplayListGenerator::paint_box_decorations
             (None, Vec::new(), None)
         };
 

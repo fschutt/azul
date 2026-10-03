@@ -318,3 +318,14 @@ fn ordered_lists_number_from_start_down_when_reversed_and_from_a_value() {
                 <ol><li>a</li><li value=\"7\">b</li><li>c</li></ol>";
     assert_eq!(list_numbers(html), vec![5, 6, 3, 2, 1, 10, 9, 1, 7, 8]);
 }
+
+/// CSS Lists 3 s4.4.2 (what Chrome numbers; WPT css-lists/counter-list-item):
+/// a `reversed` list without `start` begins so that the items before its
+/// first `<li value>` count down INTO that value - not at its item count.
+/// azul began `<ol reversed>` + `<li value="30">` at 6 (six items).
+#[test]
+fn a_reversed_list_without_start_counts_down_into_its_first_value() {
+    let html = "<ol reversed><li>a</li><li>b</li><li value=\"30\">c</li><li>d</li>\
+                <li value=\"35\">e</li><li>f</li></ol>";
+    assert_eq!(list_numbers(html), vec![32, 31, 30, 29, 35, 34]);
+}

@@ -4357,9 +4357,13 @@ fn custom_attribute<'a>(node_data: &'a azul_core::dom::NodeData, name: &str) -> 
     })
 }
 
-/// The `list-item` counter an `<ol reversed>` starts at (the HTML Standard's
-/// ordinal values, 4.4.5): its `start`, else its number of items - plus one,
-/// which its first item's step takes away. `None` for a list that counts up.
+/// The `list-item` counter an `<ol reversed>` starts at: its `start`, else
+/// (CSS Lists 3 s4.4.2, the reversed counter's initial value, as Chrome
+/// numbers) the value its items count down from - its number of items, or,
+/// when an item before the end sets the counter (`<li value>`), that value
+/// plus the items before it, so they count down INTO it (`a b c=30` gives
+/// 32 31 30) - plus one, which its first item's step takes away. `None` for
+/// a list that counts up.
 fn reversed_list_start(
     styled_dom: &StyledDom,
     dom_id: NodeId,
@@ -4374,11 +4378,17 @@ fn reversed_list_start(
         .unwrap_or_else(|| {
             let hierarchy = styled_dom.node_hierarchy.as_container();
             let data = styled_dom.node_data.as_container();
-            let items = dom_id
-                .az_children(&hierarchy)
-                .filter(|child| matches!(data[*child].get_node_type(), NodeType::Li))
-                .count();
-            i32::try_from(items).unwrap_or(i32::MAX)
+            let mut items = 0_i32;
+            for child in dom_id.az_children(&hierarchy) {
+                if !matches!(data[child].get_node_type(), NodeType::Li) {
+                    continue;
+                }
+                if let Some(value) = list_item_value(&data[child]) {
+                    return value.saturating_add(items);
+                }
+                items = items.saturating_add(1);
+            }
+            items
         });
     Some(start.saturating_add(1))
 }

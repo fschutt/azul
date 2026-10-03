@@ -1707,16 +1707,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
 
     // First check if THIS node is a text node
     if let Some(text) = extract_text_from_node(ctx.styled_dom, dom_id) {
-        let style_props = crate::solver3::getters::get_style_properties_cached(
-            &mut ctx.style_cache,
-            ctx.styled_dom,
-            dom_id,
-            ctx.system_style.as_ref(),
-            azul_css::props::basic::PhysicalSize::new(
-                ctx.viewport_size.width,
-                ctx.viewport_size.height,
-            ),
-        );
+        let style_props = text_run_style(ctx, dom_id);
         debug_log!(ctx, "Found text in node {}: '{}'", node_index, text);
         // Use split_text_for_whitespace to correctly handle white-space: pre with \n
         let text_items = split_text_for_whitespace(ctx.styled_dom, dom_id, &text, &style_props);
@@ -1740,16 +1731,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
         let child_dom_node = &ctx.styled_dom.node_data.as_container()[child_id];
         if let NodeType::Text(text_data) = child_dom_node.get_node_type() {
             let text = text_data.as_str().to_string();
-            let style_props = crate::solver3::getters::get_style_properties_cached(
-                &mut ctx.style_cache,
-                ctx.styled_dom,
-                child_id,
-                ctx.system_style.as_ref(),
-                azul_css::props::basic::PhysicalSize::new(
-                    ctx.viewport_size.width,
-                    ctx.viewport_size.height,
-                ),
-            );
+            let style_props = text_run_style(ctx, child_id);
             debug_log!(
                 ctx,
                 "Found text in DOM child of node {}: '{}'",
@@ -1768,6 +1750,45 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
     }
 
     process_layout_children(ctx, tree, node_index, content, min_widths)
+}
+
+/// The style the runs of the text node `text_id` carry in its line, the
+/// same one the line layout gives them
+/// (`fc::collect_inline_span_recursive`): the text of an inline box takes
+/// the BOX's style - its border, padding and horizontal margins are not
+/// inherited, yet they belong to its runs and widen the line - any other
+/// text its own (memoised) style. An inline box's style is a fresh `Arc`
+/// per text node, like the line layout's: the line tells inline boxes apart
+/// by `Arc` identity (`inline_offsets` in text3's `position_one_line`).
+fn text_run_style<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    text_id: NodeId,
+) -> Arc<StyleProperties> {
+    let viewport = azul_css::props::basic::PhysicalSize::new(
+        ctx.viewport_size.width,
+        ctx.viewport_size.height,
+    );
+    let inline_box = ctx.styled_dom.node_hierarchy.as_container()[text_id]
+        .parent_id()
+        .filter(|&parent| {
+            get_display_property(ctx.styled_dom, Some(parent)).unwrap_or_default()
+                == LayoutDisplay::Inline
+        });
+    match inline_box {
+        Some(parent) => Arc::new(get_style_properties(
+            ctx.styled_dom,
+            parent,
+            ctx.system_style.as_ref(),
+            viewport,
+        )),
+        None => crate::solver3::getters::get_style_properties_cached(
+            &mut ctx.style_cache,
+            ctx.styled_dom,
+            text_id,
+            ctx.system_style.as_ref(),
+            viewport,
+        ),
+    }
 }
 
 /// Helper to process layout tree children for inline content collection.

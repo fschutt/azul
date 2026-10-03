@@ -2,8 +2,8 @@
 //!
 //! Both pages come from `tests/wpt/normalized/` (strict XHTML written by
 //! `scripts/refci/vendor_wpt.py`) and go through the same path an app's HTML
-//! takes: `azul_layout::xml::parse_xml` -> `dom_from_parsed_xml` -> the
-//! cascade -> an 800 x 600 `LayoutWindow` -> the CPU renderer. Test and
+//! takes: `azul_layout::xml::parse_xml_to_styled_dom` (the document loader)
+//! -> an 800 x 600 `LayoutWindow` -> the CPU renderer. Test and
 //! reference are rendered by the same engine with the same fonts, so the
 //! comparison holds on every OS and needs no browser.
 //!
@@ -21,9 +21,7 @@ use std::{
     time::Instant,
 };
 
-use azul_core::{
-    dom::DomId, geom::LogicalSize, resources::RendererResources, styled_dom::StyledDom,
-};
+use azul_core::{dom::DomId, geom::LogicalSize, resources::RendererResources};
 use azul_layout::{
     callbacks::ExternalSystemCallbacks,
     cpurender::{self, AzulPixmap, RenderOptions},
@@ -193,9 +191,13 @@ fn render_page(fonts: &FcFontCache, path: &Path) -> Result<AzulPixmap, String> {
 }
 
 fn render_xml(fonts: FcFontCache, xml: &str) -> Result<AzulPixmap, String> {
-    let parsed = azul_layout::xml::parse_xml(xml).map_err(|e| format!("parse: {e}"))?;
-    let dom = azul_layout::xml::dom_from_parsed_xml(parsed);
-    let styled = StyledDom::create_from_dom(dom);
+    // The document loader (what `azul-doc reftest` and the debug server's
+    // `mount` use): it keeps the `<html>` element with its attributes - the
+    // tree loader (`parse_xml` -> `dom_from_parsed_xml`) re-creates a bare
+    // `<html>` and loses e.g. the reference's `<html style="background:
+    // green">` (background-color-body-propagation-ref).
+    let styled =
+        azul_layout::xml::parse_xml_to_styled_dom(xml).map_err(|e| format!("parse: {e}"))?;
 
     let mut lw = LayoutWindow::new(fonts).map_err(|e| format!("window: {e:?}"))?;
     let mut ws = FullWindowState::default();

@@ -112,6 +112,108 @@ fn same_collapsed_border(
     a.width == b.width && a.style == b.style && a.color == b.color
 }
 
+/// `rect` shrunk by `edges` on every side (a box's padding box from its
+/// border box, its content box from its padding box), never below empty.
+fn inset_rect(rect: LogicalRect, edges: &crate::solver3::geometry::EdgeSizes) -> LogicalRect {
+    LogicalRect::new(
+        LogicalPosition::new(rect.origin.x + edges.left, rect.origin.y + edges.top),
+        LogicalSize::new(
+            (rect.size.width - edges.left - edges.right).max(0.0),
+            (rect.size.height - edges.top - edges.bottom).max(0.0),
+        ),
+    )
+}
+
+/// The corner radii of a box inset by `edges` - the inner curve (CSS
+/// Backgrounds 3 s5.2: the outer radius minus the widths beside the corner,
+/// never below 0; one radius per corner, so the larger width).
+fn inset_radius(radius: BorderRadius, edges: &crate::solver3::geometry::EdgeSizes) -> BorderRadius {
+    let inner = |r: f32, a: f32, b: f32| (r - a.max(b)).max(0.0);
+    BorderRadius {
+        top_left: inner(radius.top_left, edges.top, edges.left),
+        top_right: inner(radius.top_right, edges.top, edges.right),
+        bottom_left: inner(radius.bottom_left, edges.bottom, edges.left),
+        bottom_right: inner(radius.bottom_right, edges.bottom, edges.right),
+    }
+}
+
+/// At most this many tiles of one background layer: a hairline tile over a
+/// window would be thousands of items.
+const MAX_BACKGROUND_TILES: i64 = 1024;
+
+/// The tiles of a background layer whose image fills `tile`, repeated per
+/// `repeat` over `area` (CSS Backgrounds 3 s3.4 `background-repeat`): `tile`
+/// itself plus every whole step of its size - left and right, up and down,
+/// as `repeat` allows - that overlaps `area`. Past
+/// [`MAX_BACKGROUND_TILES`] (or for a tile with no area) only `tile` itself.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)] // bounded tile counts
+pub(crate) fn background_tiles(
+    tile: LogicalRect,
+    area: LogicalRect,
+    repeat: azul_css::props::style::StyleBackgroundRepeat,
+) -> Vec<LogicalRect> {
+    use azul_css::props::style::StyleBackgroundRepeat;
+
+    let (w, h) = (tile.size.width, tile.size.height);
+    if !(w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0) {
+        return vec![tile];
+    }
+    let (repeat_x, repeat_y) = match repeat {
+        StyleBackgroundRepeat::NoRepeat => (false, false),
+        StyleBackgroundRepeat::PatternRepeat => (true, true),
+        StyleBackgroundRepeat::RepeatX => (true, false),
+        StyleBackgroundRepeat::RepeatY => (false, true),
+    };
+    // The whole steps from the tile's own position that reach `lo..hi`.
+    let steps = |on: bool, origin: f32, size: f32, lo: f32, hi: f32| -> (i64, i64) {
+        if !on {
+            return (0, 0);
+        }
+        let first = ((lo - origin) / size).floor();
+        let last = ((hi - origin) / size).ceil() - 1.0;
+        if !(first.is_finite() && last.is_finite()) || last < first {
+            return (0, 0);
+        }
+        (first as i64, last as i64)
+    };
+    let (x0, x1) = steps(
+        repeat_x,
+        tile.origin.x,
+        w,
+        area.origin.x,
+        area.origin.x + area.size.width,
+    );
+    let (y0, y1) = steps(
+        repeat_y,
+        tile.origin.y,
+        h,
+        area.origin.y,
+        area.origin.y + area.size.height,
+    );
+    let count = (x1.saturating_sub(x0).saturating_add(1))
+        .saturating_mul(y1.saturating_sub(y0).saturating_add(1));
+    if count > MAX_BACKGROUND_TILES {
+        return vec![tile];
+    }
+    let mut tiles = Vec::with_capacity(count.max(0) as usize);
+    for j in y0..=y1 {
+        for i in x0..=x1 {
+            tiles.push(LogicalRect::new(
+                LogicalPosition::new(
+                    (i as f32).mul_add(w, tile.origin.x),
+                    (j as f32).mul_add(h, tile.origin.y),
+                ),
+                tile.size,
+            ));
+        }
+    }
+    tiles
+}
+
 const APPROX_ASCENT_RATIO: f32 = 0.8;
 const APPROX_UNDERLINE_THICKNESS_RATIO: f32 = 0.08;
 const APPROX_UNDERLINE_OFFSET_RATIO: f32 = 0.12;
@@ -2898,68 +3000,76 @@ impl DisplayListBuilder {
         }
     }
 
-    /// Unified method to paint all background layers and border for an element.
-    ///
-    /// This consolidates the background/border painting logic that was previously
-    /// duplicated across:
-    /// - `paint_node_background_and_border()` for block elements
-    /// - `paint_inline_shape()` for inline-block elements
-    ///
-    /// The backgrounds are painted in order (back to front per CSS spec), followed
-    /// by the border.
-    pub(crate) fn push_backgrounds_and_border(
+    /// One background layer over `bounds`: a colour fills it, a gradient or an
+    /// image is drawn to it. The one place a `StyleBackgroundContent` becomes
+    /// a display item.
+    pub(crate) fn push_background_layer(
         &mut self,
         bounds: LogicalRect,
-        background_contents: &[azul_css::props::style::StyleBackgroundContent],
-        border_info: &BorderInfo,
-        simple_border_radius: BorderRadius,
-        style_border_radius: StyleBorderRadius,
+        layer: &azul_css::props::style::StyleBackgroundContent,
+        border_radius: BorderRadius,
         image_cache: &azul_core::resources::ImageCache,
     ) {
         use azul_css::props::style::StyleBackgroundContent;
 
-        // Paint all background layers in order (CSS paints backgrounds back to front)
-        for bg in background_contents {
-            match bg {
-                StyleBackgroundContent::Color(color) => {
-                    self.push_rect(bounds, *color, simple_border_radius);
-                }
-                StyleBackgroundContent::LinearGradient(gradient) => {
-                    self.push_linear_gradient(bounds, gradient.clone(), simple_border_radius);
-                }
-                StyleBackgroundContent::RadialGradient(gradient) => {
-                    self.push_radial_gradient(bounds, gradient.clone(), simple_border_radius);
-                }
-                StyleBackgroundContent::ConicGradient(gradient) => {
-                    self.push_conic_gradient(bounds, gradient.clone(), simple_border_radius);
-                }
-                StyleBackgroundContent::Image(image_id) => {
-                    if let Some(image_ref) = image_cache.get_css_image_id(image_id) {
-                        self.push_image(bounds, image_ref.clone(), simple_border_radius);
-                    }
-                }
-                StyleBackgroundContent::SystemColor(_s) => {
-                    // Never reached from the generator: `get_background_contents`
-                    // resolves every `system:` colour against the cascade's context
-                    // before a layer gets here. A caller that bypasses the getter
-                    // gets nothing painted rather than a colour of the wrong theme.
+        match layer {
+            StyleBackgroundContent::Color(color) => {
+                self.push_rect(bounds, *color, border_radius);
+            }
+            StyleBackgroundContent::LinearGradient(gradient) => {
+                self.push_linear_gradient(bounds, gradient.clone(), border_radius);
+            }
+            StyleBackgroundContent::RadialGradient(gradient) => {
+                self.push_radial_gradient(bounds, gradient.clone(), border_radius);
+            }
+            StyleBackgroundContent::ConicGradient(gradient) => {
+                self.push_conic_gradient(bounds, gradient.clone(), border_radius);
+            }
+            StyleBackgroundContent::Image(image_id) => {
+                if let Some(image_ref) = image_cache.get_css_image_id(image_id) {
+                    self.push_image(bounds, image_ref.clone(), border_radius);
                 }
             }
+            StyleBackgroundContent::SystemColor(_s) => {
+                // Never reached from the generator: `get_background_contents`
+                // resolves every `system:` colour against the cascade's context
+                // before a layer gets here. A caller that bypasses the getter
+                // gets nothing painted rather than a colour of the wrong theme.
+            }
         }
+    }
 
-        // Paint border
-        self.push_border(
-            bounds,
-            border_info.widths,
-            border_info.colors,
-            border_info.styles,
-            style_border_radius,
-        );
+    /// One background layer over `area`, drawn from tiles of `tile` repeated
+    /// per `repeat` (CSS Backgrounds 3 s3.4, [`background_tiles`]). How the
+    /// canvas paints the root's background: over the whole window, with a
+    /// gradient or an image sized and anchored by the root's box. A colour
+    /// has no tile, it fills `area`.
+    pub(crate) fn push_background_layer_tiled(
+        &mut self,
+        area: LogicalRect,
+        tile: LogicalRect,
+        repeat: azul_css::props::style::StyleBackgroundRepeat,
+        layer: &azul_css::props::style::StyleBackgroundContent,
+        image_cache: &azul_core::resources::ImageCache,
+    ) {
+        use azul_css::props::style::StyleBackgroundContent;
+
+        if matches!(
+            layer,
+            StyleBackgroundContent::Color(_) | StyleBackgroundContent::SystemColor(_)
+        ) {
+            self.push_background_layer(area, layer, BorderRadius::default(), image_cache);
+            return;
+        }
+        for t in background_tiles(tile, area, repeat) {
+            self.push_background_layer(t, layer, BorderRadius::default(), image_cache);
+        }
     }
 
     /// Paint backgrounds and border for inline text elements.
     ///
-    /// Similar to `push_backgrounds_and_border` but uses `InlineBorderInfo` which stores
+    /// Similar to `DisplayListGenerator::paint_box_decorations` (a box's
+    /// shadows, backgrounds and border) but uses `InlineBorderInfo` which stores
     /// pre-resolved pixel values instead of CSS property values. This is used for
     /// inline (display: inline) elements where the border info is computed during
     /// text layout and stored in the glyph runs.
@@ -2971,40 +3081,19 @@ impl DisplayListBuilder {
         border: Option<&crate::text3::cache::InlineBorderInfo>,
         image_cache: &azul_core::resources::ImageCache,
     ) {
-        use azul_css::props::style::StyleBackgroundContent;
-
-        // Paint solid background color if present
-        if let Some(bg_color) = background_color {
-            self.push_rect(bounds, bg_color, BorderRadius::default());
+        // The layers hold the solid colour too (`background_color` is their
+        // first `Color` layer, kept for the PDF runs): painting both drew a
+        // span's background twice, a translucent one twice as dark. The
+        // colour alone only when there are no layers.
+        if background_contents.is_empty() {
+            if let Some(bg_color) = background_color {
+                self.push_rect(bounds, bg_color, BorderRadius::default());
+            }
         }
 
         // Paint all background layers in order (CSS paints backgrounds back to front)
         for bg in background_contents {
-            match bg {
-                StyleBackgroundContent::Color(color) => {
-                    self.push_rect(bounds, *color, BorderRadius::default());
-                }
-                StyleBackgroundContent::LinearGradient(gradient) => {
-                    self.push_linear_gradient(bounds, gradient.clone(), BorderRadius::default());
-                }
-                StyleBackgroundContent::RadialGradient(gradient) => {
-                    self.push_radial_gradient(bounds, gradient.clone(), BorderRadius::default());
-                }
-                StyleBackgroundContent::ConicGradient(gradient) => {
-                    self.push_conic_gradient(bounds, gradient.clone(), BorderRadius::default());
-                }
-                StyleBackgroundContent::Image(image_id) => {
-                    if let Some(image_ref) = image_cache.get_css_image_id(image_id) {
-                        self.push_image(bounds, image_ref.clone(), BorderRadius::default());
-                    }
-                }
-                StyleBackgroundContent::SystemColor(_s) => {
-                    // Never reached from the generator: `get_background_contents`
-                    // resolves every `system:` colour against the cascade's context
-                    // before a layer gets here. A caller that bypasses the getter
-                    // gets nothing painted rather than a colour of the wrong theme.
-                }
-            }
+            self.push_background_layer(bounds, bg, BorderRadius::default(), image_cache);
         }
 
         // Paint border if present
@@ -3532,27 +3621,58 @@ pub fn generate_display_list_impl<T: ParsedFontTrait + Sync + 'static>(
 
     // 0. Canvas background propagation (CSS 2.1 § 14.2): "The background of the root element
     //    becomes the background of the canvas." If the root (html) has a transparent background,
-    //    propagate from <body>. The canvas background fills the WHOLE surface
-    //    (`LayoutContext::canvas_rect`), not just the root's content box - critical when <html>
-    //    doesn't have height:100%, and under a safe area: the insets move where the root is laid
-    //    out, not what lies behind it.
+    //    propagate from <body> (`body_background_propagated_to`). The canvas background fills
+    //    the WHOLE surface (`LayoutContext::canvas_rect`), not just the root's content box -
+    //    critical when <html> doesn't have height:100%, and under a safe area: the insets move
+    //    where the root is laid out, not what lies behind it. A gradient or an image keeps the
+    //    root's box as its tile and repeats from there (CSS Backgrounds 3 s2.11.1: "anchored at
+    //    the same point as it would be if it was painted for the root element"). It is painted
+    //    ONCE, here: the root's box and a propagating body paint none of it again
+    //    (`DisplayListGenerator::canvas_painted`).
+    if let Some(root_dom_id) = tree
+        .get(LayoutNodeId::new(tree.root))
+        .and_then(|root| root.dom_node_id)
     {
-        let root_node = tree.get(LayoutNodeId::new(tree.root));
-        if let Some(root) = root_node {
-            if let Some(root_dom_id) = root.dom_node_id {
-                let root_state = generator.get_styled_node_state(root_dom_id);
-                let canvas_bg =
-                    get_background_color(generator.ctx.styled_dom, root_dom_id, &root_state);
-                if canvas_bg.a > 0 {
-                    let canvas_rect = generator.ctx.canvas_rect;
-                    builder.push_rect(canvas_rect, canvas_bg, BorderRadius::default());
+        let root_state = generator.get_styled_node_state(root_dom_id);
+        let body = crate::solver3::getters::body_background_propagated_to(
+            generator.ctx.styled_dom,
+            root_dom_id,
+            &root_state,
+        );
+        generator.canvas_painted = [Some(root_dom_id), body];
+        let layers = get_background_contents(generator.ctx.styled_dom, root_dom_id, &root_state);
+        if !layers.is_empty() {
+            // `background-repeat` belongs to the element the layers came from.
+            let source = body.unwrap_or(root_dom_id);
+            let source_state = generator.get_styled_node_state(source);
+            let repeats = crate::solver3::getters::get_background_repeats(
+                generator.ctx.styled_dom,
+                source,
+                &source_state,
+            );
+            let canvas_rect = generator.ctx.canvas_rect;
+            let tile = generator.get_paint_rect(tree.root).unwrap_or(canvas_rect);
+            for (i, layer) in layers.iter().enumerate() {
+                let repeat = if repeats.is_empty() {
+                    azul_css::props::style::StyleBackgroundRepeat::PatternRepeat
+                } else {
+                    repeats[i % repeats.len()]
+                };
+                builder.push_background_layer_tiled(
+                    canvas_rect,
+                    tile,
+                    repeat,
+                    layer,
+                    generator.ctx.image_cache,
+                );
+                if let azul_css::props::style::StyleBackgroundContent::Color(c) = layer {
                     debug_info!(
                         generator.ctx,
                         "[DisplayList] Canvas background: color=({},{},{},{}), rect={:?}",
-                        canvas_bg.r,
-                        canvas_bg.g,
-                        canvas_bg.b,
-                        canvas_bg.a,
+                        c.r,
+                        c.g,
+                        c.b,
+                        c.a,
                         canvas_rect
                     );
                 }
@@ -3606,6 +3726,11 @@ struct DisplayListGenerator<'a, 'b, T: ParsedFontTrait> {
     /// groups no box can be painted outside of. See
     /// [`DisplayListGenerator::enter_scroll_chain`].
     open_clips: Vec<OpenClip>,
+    /// The DOM nodes whose background the canvas painted (CSS Backgrounds 3
+    /// s2.11): the root, and the `<body>` it took its background from, if it
+    /// did. Their boxes paint their borders and shadows but none of that
+    /// background again.
+    canvas_painted: [Option<NodeId>; 2],
 }
 
 /// One entry of [`DisplayListGenerator::open_clips`].
@@ -4034,6 +4159,7 @@ where
             dom_id,
             patch: None,
             open_clips: Vec::new(),
+            canvas_painted: [None, None],
         }
     }
 
@@ -6200,6 +6326,87 @@ where
         !parent_is_replaced
     }
 
+    /// A box's decoration in its CSS order (CSS Backgrounds 3 s7, CSS 2.2
+    /// Appendix E): its OUTER shadows (below everything, around the border
+    /// box), its background layers - within its `background-clip` box
+    /// (s3.7; the border box unless it says `padding-box` / `content-box`) -,
+    /// its INNER (`inset`) shadows - above the background, inside the padding
+    /// box, with the padding box's radii - and its border. The one painter of
+    /// a box's decoration, for a block box
+    /// (`paint_node_background_and_border_inner`) and an atomic inline
+    /// (`paint_inline_shape`, which skipped the shadows), so the two cannot
+    /// drift again.
+    ///
+    /// azul stores a shadow in four per-side slots, and `box-shadow` fills all
+    /// four with the SAME shadow: each DISTINCT shadow is painted once
+    /// (`get_box_shadows`, whose compact-cache fast path skips the cascade
+    /// for the many nodes without one).
+    #[allow(clippy::too_many_arguments)] // the box's resolved pieces, each needed once
+    fn paint_box_decorations(
+        &self,
+        builder: &mut DisplayListBuilder,
+        dom_id: NodeId,
+        node_state: &azul_core::styled_dom::StyledNodeState,
+        border_box: LogicalRect,
+        border: &crate::solver3::geometry::EdgeSizes,
+        padding: &crate::solver3::geometry::EdgeSizes,
+        background_contents: &[azul_css::props::style::StyleBackgroundContent],
+        border_info: &BorderInfo,
+        border_radius: BorderRadius,
+        style_border_radius: StyleBorderRadius,
+    ) {
+        use azul_css::props::style::StyleBackgroundClip;
+
+        // The padding edge and its curve (the border's inner one).
+        let padding_box = inset_rect(border_box, border);
+        let padding_radius = inset_radius(border_radius, border);
+
+        // +spec:overflow:bb4308 - box shadows are ink overflow: painted outside
+        // border box, not affecting layout.
+        let shadows = super::getters::get_box_shadows(self.ctx.styled_dom, dom_id, node_state);
+        let is_inset = |s: &StyleBoxShadow| matches!(s.clip_mode, BoxShadowClipMode::Inset);
+        for shadow in shadows.iter().filter(|s| !is_inset(*s)) {
+            builder.push_item(DisplayListItem::BoxShadow {
+                bounds: border_box.into(),
+                shadow: *shadow,
+                border_radius,
+            });
+        }
+        if !background_contents.is_empty() {
+            let (area, radius) = match super::getters::get_background_clip(
+                self.ctx.styled_dom,
+                dom_id,
+                node_state,
+            ) {
+                StyleBackgroundClip::BorderBox => (border_box, border_radius),
+                StyleBackgroundClip::PaddingBox => (padding_box, padding_radius),
+                StyleBackgroundClip::ContentBox => (
+                    inset_rect(padding_box, padding),
+                    inset_radius(padding_radius, padding),
+                ),
+            };
+            for layer in background_contents {
+                builder.push_background_layer(area, layer, radius, self.ctx.image_cache);
+            }
+        }
+        // CSS Backgrounds 3 s7.2: an inner shadow is cast inside the padding
+        // edge, above the background.
+        for shadow in shadows.iter().filter(|s| is_inset(*s)) {
+            builder.push_item(DisplayListItem::BoxShadow {
+                bounds: padding_box.into(),
+                shadow: *shadow,
+                border_radius: padding_radius,
+            });
+        }
+        builder.push_border(
+            border_box,
+            border_info.widths,
+            border_info.colors,
+            border_info.styles,
+            style_border_radius,
+        );
+    }
+
     fn paint_node_background_and_border(
         &mut self,
         builder: &mut DisplayListBuilder,
@@ -6381,7 +6588,11 @@ where
 
         if let Some(dom_id) = node.dom_node_id {
             let styled_node_state = self.get_styled_node_state(dom_id);
-            let background_contents = if is_table_cell {
+            // The root's background, and a body's it took over, went to the
+            // canvas (step 0 of `generate_display_list`): painting them on
+            // the box again would double a translucent colour.
+            let painted_on_the_canvas = self.canvas_painted.contains(&Some(dom_id));
+            let background_contents = if is_table_cell || painted_on_the_canvas {
                 Vec::new()
             } else {
                 get_background_contents(self.ctx.styled_dom, dom_id, &styled_node_state)
@@ -6414,25 +6625,6 @@ where
             let style_border_radius =
                 get_style_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
 
-            // Paint box shadows before backgrounds (CSS spec: shadows render behind the element)
-            let node_state =
-                &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-
-            // +spec:overflow:bb4308 - box shadows are ink overflow: painted outside border box, not
-            // affecting layout. azul stores a shadow in four per-side slots, and
-            // `box-shadow` fills all four with the SAME shadow: paint each
-            // DISTINCT shadow once (`get_box_shadows`), or every `box-shadow`
-            // is drawn four times on top of itself. Routed through
-            // `super::getters` so the compact-cache has_box_shadow fast path
-            // fires — most nodes have no shadow and skip 4 cascade walks.
-            for shadow in super::getters::get_box_shadows(self.ctx.styled_dom, dom_id, node_state) {
-                builder.push_item(DisplayListItem::BoxShadow {
-                    bounds: paint_rect.into(),
-                    shadow,
-                    border_radius: simple_border_radius,
-                });
-            }
-
             // An SVG SHAPE takes its border as a STROKE. A stroke follows the
             // geometry; a border follows the box - and the box is clipped to
             // the geometry, so a rectangular border on a shape leaves a
@@ -6456,14 +6648,19 @@ where
                 border_info
             };
 
-            // Use unified background/border painting
-            builder.push_backgrounds_and_border(
+            // Shadows, backgrounds and the border, in their CSS order.
+            let bp = node.box_props.unpack();
+            self.paint_box_decorations(
+                builder,
+                dom_id,
+                &styled_node_state,
                 paint_rect,
+                &bp.border,
+                &bp.padding,
                 &background_contents,
                 &border_info,
                 simple_border_radius,
                 style_border_radius,
-                self.ctx.image_cache,
             );
 
             // The stroke is NOT painted here: it must land OUTSIDE this
@@ -8794,21 +8991,27 @@ where
 
         // FIX: object_bounds is the margin-box position from text3.
         // We need to convert to border-box for painting backgrounds/borders.
-        let margins = self
+        let (margins, border, padding) = self
             .positioned_tree
             .tree
             .dom_to_layout
             .get(&node_id)
-            .map_or_else(crate::solver3::geometry::EdgeSizes::default, |indices| {
-                indices
-                    .first()
-                    .map_or_else(crate::solver3::geometry::EdgeSizes::default, |&idx| {
-                        self.positioned_tree.tree.nodes[idx.index()]
-                            .box_props
-                            .unpack()
-                            .margin
-                    })
-            });
+            .and_then(|indices| indices.first())
+            .map(|&idx| {
+                self.positioned_tree.tree.nodes[idx.index()]
+                    .box_props
+                    .unpack()
+            })
+            .map_or_else(
+                || {
+                    (
+                        crate::solver3::geometry::EdgeSizes::default(),
+                        crate::solver3::geometry::EdgeSizes::default(),
+                        crate::solver3::geometry::EdgeSizes::default(),
+                    )
+                },
+                |bp| (bp.margin, bp.border, bp.padding),
+            );
 
         // Convert margin-box bounds to border-box bounds
         let border_box_bounds = LogicalRect {
@@ -8840,14 +9043,20 @@ where
         let style_border_radius =
             get_style_border_radius(self.ctx.styled_dom, node_id, styled_node_state);
 
-        // Use unified background/border painting with border-box bounds
-        builder.push_backgrounds_and_border(
+        // Shadows, backgrounds and the border with border-box bounds - the
+        // box painter's own sequence (an inline-block's shadow used to be
+        // skipped here).
+        self.paint_box_decorations(
+            builder,
+            node_id,
+            styled_node_state,
             border_box_bounds,
+            &border,
+            &padding,
             &background_contents,
             &border_info,
             simple_border_radius,
             style_border_radius,
-            self.ctx.image_cache,
         );
 
         // Push hit-test area for this inline-block element
@@ -9169,7 +9378,7 @@ fn get_image_ref_for_image_source(
         ImageSource::Node(_) => None,
         ImageSource::Url(url) => {
             // CSS url() image — resolved exactly like `background-image`: look it
-            // up in the ImageCache by its CSS id (see push_backgrounds_and_border).
+            // up in the ImageCache by its CSS id (see DisplayListBuilder::push_background_layer).
             let css_id: azul_css::AzString = url.clone().into();
             image_cache.get_css_image_id(&css_id).cloned()
         }
