@@ -3631,6 +3631,74 @@ mod autotest_generated {
         }
     }
 
+    /// Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z and Ctrl/Cmd+Y reach the callbacks of an
+    /// editing focus: an editor that owns its history (a rich-text editor,
+    /// a document app) handles them. The engine's text undo is the key's
+    /// DEFAULT ACTION (layout's `default_actions`), run after the callbacks
+    /// unless one called `prevent_default` - the browser's keydown model,
+    /// where a page's keydown handler cancels the built-in undo.
+    ///
+    /// Before: the interpreter claimed the keys (`AddAndSkip` of
+    /// `UndoTextEdit` / `RedoTextEdit`), so no callback ever saw them and an
+    /// app's own history could not be reached from the keyboard.
+    #[test]
+    fn undo_and_redo_keys_reach_the_callbacks_of_an_editing_focus() {
+        let kb = KeyboardState::default();
+        let target = dnid(0, 1);
+        let primary = primary_modifiers();
+        let primary_shift = if cfg!(target_os = "macos") {
+            KeyModifiers::new().with_meta().with_shift()
+        } else {
+            KeyModifiers::new().with_ctrl().with_shift()
+        };
+        for (vk, mods) in [
+            (VirtualKeyCode::Z, primary),
+            (VirtualKeyCode::Z, primary_shift),
+            (VirtualKeyCode::Y, primary),
+        ] {
+            let ev = key_event(vk as u32, mods);
+            for editable in [true, false] {
+                assert!(
+                    handle_key_down(&ev, &kb, Some(target), editable).is_none(),
+                    "{vk:?} {mods:?} (editable focus: {editable}) must pass to the callbacks"
+                );
+            }
+        }
+
+        // Through the interpreter: the KeyDown is a user event and no undo
+        // runs before the callbacks.
+        let mouse = MouseState::default();
+        let events = vec![key_event(VirtualKeyCode::Z as u32, primary)];
+        let info = InputInterpreterInfo {
+            seat_focus: &[],
+            events: &events,
+            hit_test: None,
+            keyboard_state: &kb,
+            mouse_state: &mouse,
+            state: InputInterpreterState {
+                focused_node: Some(target),
+                click_count: 1,
+                drag_start_position: None,
+                has_selection: false,
+                focus_is_editable: true,
+            },
+        };
+        let r = default_input_interpreter(&info);
+        assert!(
+            !r.system_changes
+                .iter()
+                .any(|c| matches!(c, SystemChange::UndoTextEdit { .. })),
+            "no undo before the callbacks: {:?}",
+            r.system_changes
+        );
+        assert!(
+            r.user_events
+                .iter()
+                .any(|e| e.event_type == EventType::KeyDown),
+            "the Ctrl/Cmd+Z KeyDown must reach the callbacks"
+        );
+    }
+
     // ================================================ default_input_interpreter
 
     #[test]
