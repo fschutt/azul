@@ -80,3 +80,42 @@ fn a_headless_window_no_script_drives_publishes_no_frame() {
     let lw = window.common.layout_window.as_ref().expect("layout window");
     assert!(debug_server::e2e_presented_frame(lw).is_none());
 }
+
+/// What [`record_window_id_layout`] saw.
+struct SeenWindowId {
+    id: String,
+}
+
+/// Records the window id its `layout()` was called for.
+extern "C" fn record_window_id_layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    if let Some(mut seen) = data.downcast_mut::<SeenWindowId>() {
+        seen.id = info.get_window_id().as_str().to_string();
+    }
+    Dom::create_body()
+}
+
+/// CAL3: AzCalendar could open only ONE event editor, because a layout
+/// callback could not tell which window it was building. A window opened
+/// with an id (`WindowCreateOptions.window_state.window_id`) hands it to
+/// every `layout()` of that window.
+#[test]
+fn a_layout_callback_is_told_which_window_it_builds() {
+    let state = Arc::new(RefCell::new(RefAny::new(SeenWindowId {
+        id: String::new(),
+    })));
+    let mut window = make_window_with(&state, record_window_id_layout);
+    window
+        .common
+        .update_window_state(event::WindowStateSource::App, |ws| {
+            ws.window_id = "azcalendar-editor-2".into();
+        });
+    window.regenerate_layout().expect("a layout pass");
+    let _ = window.common.take_regeneration();
+
+    let seen = state
+        .borrow_mut()
+        .downcast_ref::<SeenWindowId>()
+        .map(|s| s.id.clone())
+        .expect("the app state");
+    assert_eq!(seen, "azcalendar-editor-2");
+}

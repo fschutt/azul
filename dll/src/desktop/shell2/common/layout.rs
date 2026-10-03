@@ -528,6 +528,9 @@ pub fn regenerate_layout(
         // status that moves because of this pass's own declarations is seen
         // by the one extra pass the sync below asks for.
         global_hotkeys: layout_window.global_hotkeys.snapshot(),
+        // Which window this layout builds: an app with several windows of
+        // one kind tells them apart by it (`LayoutCallbackInfo::get_window_id`).
+        window_id: &current_window_state.window_id,
     };
 
     let callback_info = LayoutCallbackInfo::new_with_reason(

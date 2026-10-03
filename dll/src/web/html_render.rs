@@ -696,6 +696,7 @@ fn call_layout(
         safe_area: azul_css::system::SafeAreaInsets::default(),
         // A page cannot grab system-wide keys: nothing is ever held.
         global_hotkeys: azul_core::global_hotkey::GlobalHotkeyInfoVec::from_const_slice(&[]),
+        window_id: &window_state.window_id,
     };
 
     let info =
