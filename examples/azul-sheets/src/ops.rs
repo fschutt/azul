@@ -265,7 +265,7 @@ pub fn find_match(engine: &dyn SheetEngine, from: CellAddr, needle: &str, opts: 
         (false, true) => total,
     };
     for step in 1..=total {
-        let i = if opts.backwards { start - step } else { start + step }.rem_euclid(total);
+        let i = (if opts.backwards { start - step } else { start + step }).rem_euclid(total);
         #[allow(clippy::cast_possible_truncation)]
         let at = CellAddr::new(from.sheet, (i / columns) as i32 + 1, (i % columns) as i32 + 1);
         if holds(&engine.cell_formatted(at), needle, opts) || holds(&engine.cell_input(at), needle, opts) {
