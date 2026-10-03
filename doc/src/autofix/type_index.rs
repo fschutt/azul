@@ -918,6 +918,10 @@ impl TypeIndex {
                         typedef.methods.push(method.clone());
                     }
                 }
+                // `by_path` shares the Arc, so `make_mut` cloned the type:
+                // point the path at the copy that has the methods.
+                self.by_path
+                    .insert(typedef.full_path.clone(), Arc::clone(arc));
             }
         }
     }
@@ -3686,6 +3690,54 @@ fn clean_type_string(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A method in an `impl T` block of another file (`impl CallbackInfo` in
+    /// widgets/form.rs, `impl RichTextDoc` in rich_text/html.rs) is attached
+    /// to the type found by NAME, but the type found by PATH kept the old
+    /// copy: both maps share one `Arc`, so `Arc::make_mut` cloned it. The
+    /// wave-6 gone-function scan looks the type up by path and called 10
+    /// existing methods gone (2026-10-03). Both lookups see the method.
+    #[test]
+    fn a_cross_file_method_is_seen_by_the_path_lookup_too() {
+        let mut index = TypeIndex::new();
+        index.add_type_for_test(TypeDefinition {
+            full_path: "azul_layout::callbacks::CallbackInfo".to_string(),
+            type_name: "CallbackInfo".to_string(),
+            file_path: std::path::PathBuf::from("/nonexistent/callbacks.rs"),
+            module_path: "callbacks".to_string(),
+            crate_name: "azul_layout".to_string(),
+            kind: TypeDefKind::Struct {
+                fields: IndexMap::new(),
+                repr: Some("C".to_string()),
+                repr_attr_count: 1,
+                generic_params: Vec::new(),
+                derives: Vec::new(),
+                custom_impls: Vec::new(),
+                is_tuple_struct: false,
+            },
+            source_code: String::new(),
+            methods: Vec::new(),
+        });
+        let method = MethodDef {
+            name: "get_form_data".to_string(),
+            self_kind: Some(SelfKind::RefMut),
+            args: Vec::new(),
+            return_type: None,
+            return_ref_kind: RefKind::Value,
+            is_constructor: false,
+            doc: Vec::new(),
+            is_public: true,
+            from_trait: None,
+        };
+        index.attach_methods_to_type("CallbackInfo", vec![method]);
+
+        let by_path = index
+            .get_by_path("azul_layout::callbacks::CallbackInfo")
+            .expect("the type by path");
+        assert!(by_path.methods.iter().any(|m| m.name == "get_form_data"));
+        let by_name = &index.get_all_by_name("CallbackInfo").expect("by name")[0];
+        assert!(by_name.methods.iter().any(|m| m.name == "get_form_data"));
+    }
 
     /// The console summaries (`autofix add`, `discover`, `debug api`) printed
     /// a method as `(&self) -> ()` whatever its arguments, which read as "the
