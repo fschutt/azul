@@ -2007,6 +2007,20 @@ pub struct LayoutWindow {
     pub icu_localizer: IcuLocalizerHandle,
 }
 
+/// A window that goes away stops its background workers TOGETHER
+/// (`managers::thread_owner::stop_all`): every one is told `TerminateThread`
+/// first and they are waited for on one shared grace period. Dropping the
+/// `threads` map entry by entry made each worker's destructor wait for its
+/// worker before the next one even heard of it - a window closed in the SUM
+/// of its workers' stop times, on the UI thread. One place, so every shell's
+/// close path gets it.
+impl Drop for LayoutWindow {
+    fn drop(&mut self) {
+        #[cfg(feature = "std")]
+        crate::managers::thread_owner::stop_all(&mut self.threads);
+    }
+}
+
 const fn default_duration_500ms() -> Duration {
     Duration::System(SystemTimeDiff::from_millis(500))
 }
