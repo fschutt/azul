@@ -402,3 +402,67 @@ def test_rust_app(work, lib, app, seconds):
     ok = not aborted and MISMATCH not in out and (running or code == 0)
     results.append((name, ok, f"exit {code}, output: {out.strip()[-600:]}"))
     return results
+
+
+# ---------------------------------------------------------------------------
+# main
+# ---------------------------------------------------------------------------
+
+def default_target():
+    """target/ of this checkout, or of the main checkout when this one is a
+    git worktree without a build of its own."""
+    if (REPO / "target").is_dir():
+        return REPO / "target"
+    r = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--path-format=absolute",
+                        "--git-common-dir"], capture_output=True, text=True)
+    if r.returncode == 0 and r.stdout.strip():
+        main_target = Path(r.stdout.strip()).parent / "target"
+        if main_target.is_dir():
+            return main_target
+    return REPO / "target"
+
+
+def main():
+    target = default_target()
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--only", default="c,cpp,rust", help="comma list of c, cpp, rust")
+    ap.add_argument("--codegen", type=Path, default=target / "codegen")
+    ap.add_argument("--lib", type=Path, default=target / "azul-lib" / lib_name())
+    ap.add_argument("--app", type=Path, default=target / "release" / "AzCalculator")
+    ap.add_argument("--cpp-header", default="azul17.hpp")
+    ap.add_argument("--seconds", type=int, default=5,
+                    help="how long the control run of the app must survive")
+    ap.add_argument("--keep", action="store_true", help="keep the temp dir")
+    args = ap.parse_args()
+    only = {s.strip() for s in args.only.split(",") if s.strip()}
+    if os.name == "nt":
+        raise SystemExit("POSIX only (the C stubs and the patch assume ELF / Mach-O)")
+
+    work = Path(tempfile.mkdtemp(prefix="abi_guard_e2e_"))
+    results = []
+    try:
+        if "c" in only:
+            results += test_c(work, args.codegen)
+        if "cpp" in only:
+            results += test_cpp(work, args.codegen, args.cpp_header)
+        if "rust" in only:
+            results += test_rust_app(work, args.lib, args.app, args.seconds)
+    finally:
+        if args.keep:
+            print(f"kept {work}")
+        else:
+            shutil.rmtree(work, ignore_errors=True)
+
+    failed = 0
+    for name, ok, detail in results:
+        print(f"{'PASS' if ok else 'FAIL'} {name}")
+        if not ok:
+            failed += 1
+            print(f"    {detail}")
+    print(f"{len(results) - failed}/{len(results)} passed")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
