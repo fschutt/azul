@@ -41,24 +41,19 @@ Report: scripts/MEDIA9_2026_10_03.md (date = the day it finishes).
 
 - B2 e174ff797 GREEN SeekBar (seek_bar.rs, flat/flora appends, manifest INPUTS).
 
+- B3 434685558 RED / 08d778b41 GREEN MediaControls (media_controls.rs, looks, manifest INPUTS).
+
 ## IN PROGRESS
-- NEXT STEP: B3 MediaControls, new file layout/src/widgets/media_controls.rs (append `pub mod
-  media_controls;` after `pub mod seek_bar;`). Design: MediaControlsAction enum (Previous, PlayPause,
-  Next, SkipBack, SkipForward, Shuffle, Repeat, Volume, Mute) ; MediaControlsEvent { action, value
-  f32 (the volume for Volume) }; callback triple MediaControlsOnAction (extern fn(RefAny,
-  CallbackInfo, MediaControlsEvent) -> Update) like SeekBar's; MediaControls { playing, shuffle,
-  repeat: MediaRepeat (Off, All, One), volume f32 (-1 = no volume control), show_skip (podcast
-  -15/+30), show_shuffle_repeat, size: MediaControlsSize (Compact, Large), on_action, theme }.
-  DOM: Toolbar-role row of icon Buttons (existing Button widget with Dom::create_icon glyph names
-  "skip_previous", "play_arrow"/"pause", "skip_next", "replay_10"/"forward_30", "shuffle",
-  "repeat"/"repeat_one", "volume_up"/"volume_off" - check the icon pack names in
-  layout/src/icons or core/icon), each with accessibility_name, toggled state via
-  Button::with_toggled for shuffle/repeat, then a Slider (volume 0..100) - its on_value_change
-  reports Volume. One button handler per action: the button's RefAny carries (action, shared
-  RefAny of the on_action hook). Look + flat/flora appends + manifest INPUTS. RED first.
-- then B4 the Waveform widget part (waveform.rs: bars from peaks as divs (heights %), played part in
-  the accent up to position fraction, click / drag seeks reusing SeekBarOnSeek + SeekBarState - no
-  twin; update_position like SeekBar). Then C AzMusic, D AzPlayer.
+- NEXT STEP: B4 the Waveform widget part in layout/src/widgets/waveform.rs (pure peaks part exists):
+  Waveform { peaks F32Vec, position_s, duration_s, on_seek OptionSeekBarOnSeek (REUSE seek_bar's
+  callback triple + SeekBarState - no twin), accessibility_name, theme, bar_gap? }; DOM: root
+  (Slider role, focus stop, value "1:12 of 9:22" via seek_bar's value text - make it pub(crate)),
+  flex row align-end, one div per peak (height = peak*100 %, min 1px, flex-grow 1), the bars
+  before the position fraction carry the played skin; pointer/keys: reuse seek_bar's handlers if
+  the dataset is a SeekBarWrapper (they call show_position, which assumes the seek bar's parts -
+  so give the waveform its own small show (recolor not possible in place: just report and let the
+  app rebuild, or set the played class? keep: report only + update via rebuild)). Look + flat/flora
+  appends + manifest INPUTS. Then C AzMusic (examples/azul-music), D AzPlayer.
 
 ## api.json so far (for the report)
 - audio.AudioFileDecoder (external azul_dll::unified::audio::AudioFileDecoder, Clone Default Drop,
