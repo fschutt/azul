@@ -168,8 +168,110 @@ impl Field {
 /// one nobody knows.
 #[must_use]
 pub fn guess(header: &str) -> Field {
-    let _ = header;
-    todo!("GREEN")
+    // Lowercase words: `Nutzungsdauer (Jahre)` -> `nutzungsdauer jahre`.
+    let spaced: String = header
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+        .collect();
+    let name = spaced.split_whitespace().collect::<Vec<_>>().join(" ");
+    GUESSES
+        .iter()
+        .find(|(_, names)| names.contains(&name.as_str()))
+        .map_or(Field::Skip, |(field, _)| *field)
+}
+
+/// The names each field goes by (lowercase words).
+const GUESSES: [(Field, &[&str]); 18] = [
+    (
+        Field::Number,
+        &[
+            "asset number", "asset no", "asset nr", "asset tag", "tag", "tag number", "number", "no",
+            "inventory number", "inventory no", "inventarnummer", "inventar nr", "inv nr",
+            "anlagennummer", "anlage nr", "anlagen nr",
+        ],
+    ),
+    (
+        Field::Name,
+        &["name", "asset name", "item", "title", "bezeichnung", "anlagenbezeichnung", "benennung"],
+    ),
+    (
+        Field::Category,
+        &["category", "category name", "asset class", "class", "kategorie", "anlagenklasse", "anlagengruppe"],
+    ),
+    (Field::Location, &["location", "site", "room", "standort", "ort", "raum"]),
+    (
+        Field::Serial,
+        &["serial number", "serial no", "serial", "sn", "seriennummer", "serien nr", "serien nummer"],
+    ),
+    (
+        Field::Acquired,
+        &[
+            "acquisition date", "acquired", "date acquired", "purchase date", "date of purchase",
+            "in service date", "anschaffungsdatum", "kaufdatum", "zugangsdatum",
+        ],
+    ),
+    (
+        Field::Cost,
+        &[
+            "acquisition cost", "cost", "purchase price", "price", "anschaffungskosten", "ak",
+            "kaufpreis", "anschaffungswert",
+        ],
+    ),
+    (
+        Field::Residual,
+        &["residual value", "residual", "salvage value", "salvage", "restwert", "schrottwert"],
+    ),
+    (
+        Field::Life,
+        &[
+            "useful life years", "useful life", "life", "life years", "years", "nutzungsdauer",
+            "nutzungsdauer jahre", "nd",
+        ],
+    ),
+    (
+        Field::Method,
+        &[
+            "depreciation method", "method", "afa methode", "afa art", "abschreibungsmethode",
+            "abschreibungsart",
+        ],
+    ),
+    (
+        Field::Rate,
+        &[
+            "declining rate percent", "declining rate", "depreciation rate", "rate", "afa satz",
+            "abschreibungssatz",
+        ],
+    ),
+    (Field::Status, &["status", "state", "zustand"]),
+    (
+        Field::Custodian,
+        &["custodian", "assigned to", "holder", "checked out to", "verantwortlich", "mitarbeiter"],
+    ),
+    (
+        Field::MaintenanceMonths,
+        &[
+            "maintenance interval months", "maintenance interval", "service interval",
+            "service interval months", "wartungsintervall", "wartungsintervall monate",
+        ],
+    ),
+    (
+        Field::Disposed,
+        &["disposal date", "disposed", "date disposed", "abgangsdatum"],
+    ),
+    (
+        Field::DisposalAmount,
+        &["disposal amount", "sale price", "proceeds", "erlös", "veräußerungserlös", "abgangserlös"],
+    ),
+    (
+        Field::BookValue,
+        &["book value", "net book value", "nbv", "buchwert", "restbuchwert"],
+    ),
+    (
+        Field::Notes,
+        &["notes", "note", "comment", "comments", "remarks", "bemerkung", "bemerkungen", "notiz", "notizen"],
+    ),
+];
 }
 
 /// A CSV file: its header and its rows (each as long as the header).
@@ -189,23 +291,123 @@ impl Table {
 
 /// Reads a CSV text; `Err` says why it is no table.
 pub fn parse(text: &str) -> Result<Table, String> {
-    let _ = text;
-    todo!("GREEN")
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    if text.trim().is_empty() {
+        return Err("The file is empty.".to_string());
+    }
+    // The separator the header line holds most of (a comma on a tie).
+    let first = text.lines().next().unwrap_or("");
+    let count = |d: u8| first.bytes().filter(|b| *b == d).count();
+    let mut delimiter = b',';
+    for d in [b';', b'\t'] {
+        if count(d) > count(delimiter) {
+            delimiter = d;
+        }
+    }
+    let mut reader = csv::ReaderBuilder::new()
+        .delimiter(delimiter)
+        .has_headers(true)
+        .flexible(true)
+        .from_reader(text.as_bytes());
+    let headers: Vec<String> = reader
+        .headers()
+        .map_err(|e| format!("The header row could not be read: {e}"))?
+        .iter()
+        .map(|h| h.trim().to_string())
+        .collect();
+    if headers.iter().all(String::is_empty) {
+        return Err("The file has no header row.".to_string());
+    }
+    let mut rows = Vec::new();
+    for (i, record) in reader.records().enumerate() {
+        let record = record.map_err(|e| format!("Row {} could not be read: {e}", i + 2))?;
+        let mut row: Vec<String> = record.iter().map(str::to_string).collect();
+        row.resize(headers.len(), String::new());
+        rows.push(row);
+    }
+    Ok(Table { headers, rows })
+}
+
+/// A CSV writer with RFC 4180 line ends.
+fn writer() -> csv::Writer<Vec<u8>> {
+    csv::WriterBuilder::new()
+        .terminator(csv::Terminator::CRLF)
+        .from_writer(Vec::new())
+}
+
+/// The text a writer wrote.
+fn written(w: csv::Writer<Vec<u8>>) -> String {
+    String::from_utf8(w.into_inner().unwrap_or_default()).unwrap_or_default()
+}
+
+/// The export's cell of `field` for `asset`.
+fn cell_text(field: Field, asset: &Asset, book: &Book, today: NaiveDate) -> String {
+    let amount_or_empty = |cents: i64| {
+        if cents == 0 {
+            String::new()
+        } else {
+            money::file_amount(cents)
+        }
+    };
+    match field {
+        Field::Skip => String::new(),
+        Field::Number => asset.number.clone(),
+        Field::Name => asset.name.clone(),
+        Field::Category => book.category_name(&asset.category).to_string(),
+        Field::Location => book.location_name(&asset.location).to_string(),
+        Field::Serial => asset.serial.clone(),
+        Field::Acquired => model::format_date(asset.acquired),
+        Field::Cost => money::file_amount(asset.cost),
+        Field::Residual => money::file_amount(asset.residual),
+        Field::Life => asset.life_years.to_string(),
+        Field::Method => asset.method.code().to_string(),
+        Field::Rate => amount_or_empty(i64::from(asset.declining_rate_bp)),
+        Field::Status => asset.status.code().to_string(),
+        Field::Custodian => asset.custodian.clone(),
+        Field::MaintenanceMonths if asset.maintenance_months == 0 => String::new(),
+        Field::MaintenanceMonths => asset.maintenance_months.to_string(),
+        Field::Disposed => asset.disposed.map(model::format_date).unwrap_or_default(),
+        Field::DisposalAmount => amount_or_empty(asset.disposal_amount),
+        Field::BookValue => money::file_amount(depreciation::book_value_on(asset, today)),
+        Field::Notes => asset.notes.clone(),
+    }
 }
 
 /// The register as CSV: the [`Field::EXPORT`] columns, one asset per row,
 /// the book value on `today`.
 #[must_use]
 pub fn export_assets(book: &Book, today: NaiveDate) -> String {
-    let _ = (book, today, depreciation::book_value_on);
-    todo!("GREEN")
+    let mut w = writer();
+    let _ = w.write_record(Field::EXPORT.iter().map(|f| f.header()));
+    for asset in &book.assets {
+        let _ = w.write_record(Field::EXPORT.iter().map(|f| cell_text(*f, asset, book, today)));
+    }
+    written(w)
 }
 
 /// One asset's depreciation schedule as CSV.
 #[must_use]
 pub fn export_schedule(asset: &Asset) -> String {
-    let _ = asset;
-    todo!("GREEN")
+    let mut w = writer();
+    let _ = w.write_record([
+        "year",
+        "months",
+        "opening_value",
+        "depreciation",
+        "accumulated",
+        "closing_value",
+    ]);
+    for row in depreciation::schedule(asset) {
+        let _ = w.write_record([
+            row.year.to_string(),
+            row.months.to_string(),
+            money::file_amount(row.opening),
+            money::file_amount(row.depreciation),
+            money::file_amount(row.accumulated),
+            money::file_amount(row.closing),
+        ]);
+    }
+    written(w)
 }
 
 /// What an import made of the rows.
@@ -232,16 +434,234 @@ pub fn import_assets(
     book: &Book,
     new_id: &mut dyn FnMut() -> String,
 ) -> Import {
-    let _ = (
-        table,
-        mapping,
-        book,
-        new_id,
-        money::parse_amount,
-        model::parse_date,
-    );
-    let _ = (Method::StraightLine, Status::InUse);
-    todo!("GREEN")
+    let mut out = Import::default();
+    // The register as it grows: numbers and names the earlier rows took.
+    let mut work = book.clone();
+    let mut seen: Vec<String> = Vec::new();
+    for (i, row) in table.rows.iter().enumerate() {
+        let line = i + 2;
+        if row.iter().all(|c| c.trim().is_empty()) {
+            continue;
+        }
+        let cell = |field: Field| {
+            mapping
+                .iter()
+                .position(|m| *m == field)
+                .and_then(|column| row.get(column))
+                .map(|c| c.trim())
+                .filter(|c| !c.is_empty())
+        };
+        if let Some(n) = cell(Field::Number) {
+            if seen.contains(&n.to_lowercase()) {
+                out.problems.push(format!(
+                    "Row {line}: the asset number {n} is in the file twice; the row is left out."
+                ));
+                continue;
+            }
+        }
+        match import_row(&cell, &work, new_id) {
+            Ok(done) => {
+                if let Some(c) = done.category {
+                    work.put(c.clone());
+                    out.categories.push(c);
+                }
+                if let Some(l) = done.location {
+                    work.put(l.clone());
+                    out.locations.push(l);
+                }
+                if done.is_new {
+                    out.created += 1;
+                } else {
+                    out.updated += 1;
+                }
+                seen.push(done.asset.number.to_lowercase());
+                work.put(done.asset.clone());
+                out.assets.push(done.asset);
+            }
+            Err(problems) => out.problems.push(format!("Row {line}: {}", problems.join("; "))),
+        }
+    }
+    out
+}
+
+/// One row read: the asset and the category / location it made.
+struct RowDone {
+    asset: Asset,
+    is_new: bool,
+    category: Option<Category>,
+    location: Option<Location>,
+}
+
+/// A whole number at the start of a cell (`3`, `3 years`, `3 Jahre`).
+fn leading_number(text: &str) -> Option<u32> {
+    let digits: String = text.trim().chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok()
+}
+
+/// One row: the asset it updates or creates, or why it cannot be read.
+fn import_row<'r>(
+    cell: &dyn Fn(Field) -> Option<&'r str>,
+    work: &Book,
+    new_id: &mut dyn FnMut() -> String,
+) -> Result<RowDone, Vec<String>> {
+    let existing = cell(Field::Number)
+        .and_then(|n| work.asset_by_number(n))
+        .cloned();
+    let is_new = existing.is_none();
+    let mut a = existing.unwrap_or_else(|| {
+        let placeholder = NaiveDate::from_ymd_opt(1970, 1, 1).unwrap_or(NaiveDate::MIN);
+        Asset::new(&new_id(), "", "", placeholder, 0, 0)
+    });
+    let mut problems: Vec<String> = Vec::new();
+
+    // The category first: its life and method are a new asset's defaults.
+    let mut defaults: Option<(u32, Method)> = None;
+    let mut category = None;
+    if let Some(name) = cell(Field::Category) {
+        match work.category_by_name(name) {
+            Some(c) => {
+                a.category = c.id.clone();
+                defaults = Some((c.life_years, c.method));
+            }
+            None => {
+                let c = Category {
+                    id: new_id(),
+                    name: name.to_string(),
+                    life_years: 0,
+                    method: Method::StraightLine,
+                    notes: String::new(),
+                };
+                a.category = c.id.clone();
+                category = Some(c);
+            }
+        }
+    }
+    let mut location = None;
+    if let Some(name) = cell(Field::Location) {
+        match work.location_by_name(name) {
+            Some(l) => a.location = l.id.clone(),
+            None => {
+                let l = Location {
+                    id: new_id(),
+                    name: name.to_string(),
+                    address: String::new(),
+                    notes: String::new(),
+                };
+                a.location = l.id.clone();
+                location = Some(l);
+            }
+        }
+    }
+
+    if let Some(t) = cell(Field::Number) {
+        a.number = t.to_string();
+    }
+    if let Some(t) = cell(Field::Name) {
+        a.name = t.to_string();
+    }
+    if let Some(t) = cell(Field::Serial) {
+        a.serial = t.to_string();
+    }
+    match cell(Field::Acquired) {
+        Some(t) => match model::parse_date(t) {
+            Some(d) => a.acquired = d,
+            None => problems.push(format!("the acquisition date \"{t}\" is not a day")),
+        },
+        None if is_new => problems.push("there is no acquisition date".to_string()),
+        None => {}
+    }
+    match cell(Field::Cost) {
+        Some(t) => match money::parse_amount(t) {
+            Ok(c) => a.cost = c,
+            Err(e) => problems.push(e),
+        },
+        None if is_new => problems.push("there is no acquisition cost".to_string()),
+        None => {}
+    }
+    if let Some(t) = cell(Field::Residual) {
+        match money::parse_amount(t) {
+            Ok(c) => a.residual = c,
+            Err(e) => problems.push(e),
+        }
+    }
+    match cell(Field::Life) {
+        Some(t) => match leading_number(t) {
+            Some(n) => a.life_years = n,
+            None => problems.push(format!("the useful life \"{t}\" is not a number of years")),
+        },
+        None if is_new => match defaults {
+            Some((life, _)) => a.life_years = life,
+            None => problems.push("there is no useful life".to_string()),
+        },
+        None => {}
+    }
+    match cell(Field::Method) {
+        Some(t) => match Method::parse(t) {
+            Some(m) => a.method = m,
+            None => problems.push(format!("the depreciation method \"{t}\" is not one AzERP knows")),
+        },
+        None if is_new => {
+            if let Some((_, m)) = defaults {
+                a.method = m;
+            }
+        }
+        None => {}
+    }
+    if let Some(t) = cell(Field::Rate) {
+        match money::parse_amount(t.trim_end_matches('%')).map(u32::try_from) {
+            Ok(Ok(bp)) if bp <= model::FULL_RATE_BP => a.declining_rate_bp = bp,
+            _ => problems.push(format!("the declining rate \"{t}\" is not a percentage")),
+        }
+    }
+    if let Some(t) = cell(Field::Status) {
+        match Status::parse(t) {
+            Some(s) => a.status = s,
+            None => problems.push(format!("the status \"{t}\" is not one AzERP knows")),
+        }
+    }
+    if let Some(t) = cell(Field::Custodian) {
+        a.custodian = t.to_string();
+    }
+    if let Some(t) = cell(Field::MaintenanceMonths) {
+        match leading_number(t) {
+            Some(n) => a.maintenance_months = n,
+            None => problems.push(format!("the maintenance interval \"{t}\" is not a number of months")),
+        }
+    }
+    if let Some(t) = cell(Field::Disposed) {
+        match model::parse_date(t) {
+            Some(d) => a.disposed = Some(d),
+            None => problems.push(format!("the disposal date \"{t}\" is not a day")),
+        }
+    }
+    if let Some(t) = cell(Field::DisposalAmount) {
+        match money::parse_amount(t) {
+            Ok(c) => a.disposal_amount = c,
+            Err(e) => problems.push(e),
+        }
+    }
+    if let Some(t) = cell(Field::Notes) {
+        a.notes = t.to_string();
+    }
+    if a.number.trim().is_empty() {
+        a.number = work.next_number();
+    }
+    if problems.is_empty() {
+        problems = a.problems();
+    }
+    if !problems.is_empty() {
+        return Err(problems);
+    }
+    if let Some(c) = category.as_mut() {
+        c.life_years = a.life_years;
+        c.method = a.method;
+    }
+    Ok(RowDone {
+        asset: a,
+        is_new,
+        category,
+        location,
+    })
 }
 
 #[cfg(test)]
