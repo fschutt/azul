@@ -7,6 +7,7 @@ pub mod bookcss;
 pub mod content;
 pub mod epub;
 pub mod paginate;
+pub mod plainbook;
 pub mod position;
 pub mod settings;
 pub mod xmltree;
