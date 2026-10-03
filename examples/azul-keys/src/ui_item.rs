@@ -1082,3 +1082,631 @@ extern "C" fn on_form_discard(mut data: RefAny, mut info: CallbackInfo) -> Updat
 extern "C" fn on_form_keep(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_form(&mut data, &mut info, |form, _| form.confirm_discard = false)
 }
+
+// ==== The generator ====
+
+/// A new secret by the generator's settings.
+pub fn regenerate(session: &mut Session) {
+    zeroize::Zeroize::zeroize(&mut session.generated);
+    session.generated = generator::generate(&session.generator).unwrap_or_default();
+}
+
+/// A switch of the generator.
+#[derive(Clone, Copy)]
+enum GenOption {
+    Upper,
+    Lower,
+    Digits,
+    Symbols,
+    AvoidSimilar,
+    Capitalize,
+    AddDigit,
+}
+
+struct GenRef {
+    app: RefAny,
+    option: GenOption,
+}
+
+fn gen_check(app: &RefAny, option: GenOption, checked: bool, label: &str, id: AzString) -> Dom {
+    row(
+        "gap: 4px; padding-right: 12px;",
+        vec![
+            CheckBox::create(checked)
+                .with_accessibility_name(label)
+                .with_on_toggle(
+                    RefAny::new(GenRef {
+                        app: app.clone(),
+                        option,
+                    }),
+                    on_gen_option as CheckBoxOnToggleCallbackType,
+                )
+                .dom()
+                .with_id(id),
+            block("font-size: 13px;", text(label)),
+        ],
+    )
+}
+
+fn generator_view(session: &Session, app: &RefAny) -> Dom {
+    let o = &session.generator;
+    let bits = generator::entropy(o);
+    let mut rows = vec![
+        block(
+            "font-size: 16px; font-weight: 600; padding-bottom: 8px;",
+            text("Generate a password"),
+        ),
+        Segmented::create(strs(&[
+            Mode::Password.label(),
+            Mode::Passphrase.label(),
+            Mode::Pin.label(),
+        ]))
+        .with_selected_index(Mode::ALL.iter().position(|m| *m == o.mode).unwrap_or(0))
+        .with_on_change(app.clone(), on_gen_mode as SegmentedOnChangeCallbackType)
+        .dom()
+        .with_id(ids::GEN_MODE),
+        row(
+            "gap: 8px; padding: 12px 0px;",
+            vec![
+                block(
+                    "flex-grow: 1; min-width: 0px; font-family: monospace; font-size: 18px;",
+                    text(session.generated.as_str()),
+                )
+                .with_id(ids::GEN_OUTPUT),
+                icon_button("Again", "refresh", ids::GEN_REFRESH, app, on_gen_refresh),
+                icon_button("Copy", "content_copy", ids::GEN_COPY, app, on_gen_copy),
+            ],
+        ),
+    ];
+    let (value, min, max, label) = match o.mode {
+        Mode::Password => (
+            o.length,
+            generator::PASSWORD_LENGTH.0,
+            generator::PASSWORD_LENGTH.1,
+            "Length",
+        ),
+        Mode::Pin => (
+            o.length,
+            generator::PIN_LENGTH.0,
+            generator::PIN_LENGTH.1,
+            "Digits",
+        ),
+        Mode::Passphrase => (
+            o.words,
+            generator::PASSPHRASE_WORDS.0,
+            generator::PASSPHRASE_WORDS.1,
+            "Words",
+        ),
+    };
+    let value = value.clamp(min, max);
+    rows.push(form_row(
+        label,
+        row(
+            "gap: 8px;",
+            vec![
+                block(
+                    "flex-grow: 1;",
+                    Slider::create(value as f32, min as f32, max as f32)
+                        .with_accessibility_name(label)
+                        .with_on_value_change(
+                            app.clone(),
+                            on_gen_length as SliderOnValueChangeCallbackType,
+                        )
+                        .dom()
+                        .with_id(ids::GEN_LENGTH),
+                ),
+                block("width: 32px; font-size: 13px;", text(value.to_string())),
+            ],
+        ),
+    ));
+    match o.mode {
+        Mode::Password => {
+            rows.push(row(
+                "flex-wrap: wrap; padding: 4px 0px;",
+                vec![
+                    gen_check(app, GenOption::Upper, o.upper, "A-Z", ids::GEN_UPPER),
+                    gen_check(app, GenOption::Lower, o.lower, "a-z", ids::GEN_LOWER),
+                    gen_check(app, GenOption::Digits, o.digits, "0-9", ids::GEN_DIGITS),
+                    gen_check(app, GenOption::Symbols, o.symbols, "!@#$", ids::GEN_SYMBOLS),
+                    gen_check(
+                        app,
+                        GenOption::AvoidSimilar,
+                        o.avoid_similar,
+                        "avoid similar (Il1O0)",
+                        ids::GEN_SIMILAR,
+                    ),
+                ],
+            ));
+        }
+        Mode::Passphrase => {
+            rows.push(row(
+                "flex-wrap: wrap; padding: 4px 0px;",
+                vec![
+                    gen_check(
+                        app,
+                        GenOption::Capitalize,
+                        o.capitalize,
+                        "Capitals",
+                        ids::GEN_CAPITALIZE,
+                    ),
+                    gen_check(
+                        app,
+                        GenOption::AddDigit,
+                        o.add_digit,
+                        "A digit at the end",
+                        ids::GEN_ADD_DIGIT,
+                    ),
+                ],
+            ));
+        }
+        Mode::Pin => {}
+    }
+    rows.push(
+        form_row(
+            "Strength",
+            row(
+                "gap: 8px;",
+                vec![
+                    block(
+                        "width: 160px;",
+                        ProgressBar::create(generator::percent(bits)).dom(),
+                    ),
+                    block(
+                        "font-size: 12px;",
+                        text(format!(
+                            "{} (~{:.0} bits)",
+                            generator::Strength::of_bits(bits).label(),
+                            bits
+                        )),
+                    ),
+                ],
+            ),
+        )
+        .with_id(ids::GEN_STRENGTH),
+    );
+    rows.push(note(
+        "The edit form's Generate button uses these settings. Drawn from the system's random \
+         source; nothing is kept.",
+    ));
+    rows.push(row(
+        "padding-top: 8px;",
+        vec![button("Close", ids::GEN_CLOSE, app, on_panel_close)],
+    ));
+    column(PANE, rows).with_id(ids::GENERATOR)
+}
+
+/// Runs `f` on the generator's settings and draws a new secret.
+fn with_generator(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    f: impl FnOnce(&mut generator::Options),
+) -> Update {
+    with_app(data, info, |s, _info, _| {
+        if let Some(session) = s.session.as_mut() {
+            f(&mut session.generator);
+            regenerate(session);
+        }
+    })
+}
+
+extern "C" fn on_gen_mode(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    state: SegmentedState,
+) -> Update {
+    with_generator(&mut data, &mut info, |o| {
+        o.mode = Mode::ALL[state.selected_index.min(Mode::ALL.len() - 1)];
+        if o.mode == Mode::Pin {
+            o.length = o.length.clamp(generator::PIN_LENGTH.0, 8);
+        } else if o.mode == Mode::Password && o.length < 12 {
+            o.length = 20;
+        }
+    })
+}
+
+extern "C" fn on_gen_length(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    state: SliderState,
+) -> Update {
+    let value = state.value.round().max(0.0) as usize;
+    with_generator(&mut data, &mut info, |o| match o.mode {
+        Mode::Passphrase => o.words = value,
+        _ => o.length = value,
+    })
+}
+
+extern "C" fn on_gen_option(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    state: CheckBoxState,
+) -> Update {
+    let Some((mut app, option)) = data
+        .downcast_ref::<GenRef>()
+        .map(|r| (r.app.clone(), r.option))
+    else {
+        return Update::DoNothing;
+    };
+    with_generator(&mut app, &mut info, |o| {
+        let flag = match option {
+            GenOption::Upper => &mut o.upper,
+            GenOption::Lower => &mut o.lower,
+            GenOption::Digits => &mut o.digits,
+            GenOption::Symbols => &mut o.symbols,
+            GenOption::AvoidSimilar => &mut o.avoid_similar,
+            GenOption::Capitalize => &mut o.capitalize,
+            GenOption::AddDigit => &mut o.add_digit,
+        };
+        *flag = state.checked;
+    })
+}
+
+extern "C" fn on_gen_refresh(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_generator(&mut data, &mut info, |_| {})
+}
+
+extern "C" fn on_gen_copy(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, info, _| {
+        let Some(secret) = s
+            .session
+            .as_ref()
+            .map(|session| Zeroizing::new(session.generated.clone()))
+        else {
+            return;
+        };
+        if secret.is_empty() {
+            return;
+        }
+        let t = now();
+        jobs::set_clipboard(info, &secret);
+        s.clipboard.clear_after = s.settings.clear_seconds;
+        s.clipboard.copied(&secret, "generated password", t);
+        s.notice = "Copied the generated password".to_string();
+        println!("AZKEYS_COPIED generated password");
+    })
+}
+
+extern "C" fn on_panel_close(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| {
+        if let Some(session) = s.session.as_mut() {
+            session.reading = Reading::Item;
+        }
+    })
+}
+
+// ==== Import ====
+
+fn import_view(view: &ImportView, app: &RefAny) -> Dom {
+    let mut rows = vec![
+        block(
+            "font-size: 16px; font-weight: 600; padding-bottom: 8px;",
+            text("Import passwords"),
+        ),
+        note(
+            "A CSV export of Chrome, Edge, Firefox, Safari, Bitwarden, 1Password, KeePassXC or \
+             LastPass, or Bitwarden's JSON export (unencrypted). Delete the export file once it \
+             is imported: it holds your passwords in plain text.",
+        ),
+        form_row(
+            "File",
+            row(
+                "gap: 4px;",
+                vec![
+                    block(
+                        "flex-grow: 1; min-width: 0px;",
+                        TextInput::create()
+                            .with_text(view.path.as_str())
+                            .with_placeholder("The export's path")
+                            .with_accessibility_name("The export's path")
+                            .with_on_text_input(
+                                app.clone(),
+                                on_import_path as TextInputOnTextInputCallbackType,
+                            )
+                            .dom()
+                            .with_id(ids::IMPORT_PATH),
+                    ),
+                    button("Choose\u{2026}", ids::IMPORT_CHOOSE, app, on_import_choose),
+                    button("Read", ids::IMPORT_READ, app, on_import_read_path),
+                ],
+            ),
+        ),
+    ];
+    if view.reading {
+        rows.push(note("Reading the file\u{2026}"));
+    }
+    match &view.result {
+        Some(Ok(imported)) => {
+            let mut counts = [0usize; 5];
+            for item in &imported.items {
+                counts[item.kind.index()] += 1;
+            }
+            let kinds: Vec<String> = Kind::ALL
+                .iter()
+                .filter(|k| counts[k.index()] > 0)
+                .map(|k| format!("{} {}", counts[k.index()], k.plural().to_lowercase()))
+                .collect();
+            rows.push(
+                block(
+                    "font-size: 13px; padding: 8px 0px;",
+                    text(format!(
+                        "{}: {} item{} ({}){}",
+                        imported.format.label(),
+                        imported.items.len(),
+                        if imported.items.len() == 1 { "" } else { "s" },
+                        kinds.join(", "),
+                        if imported.skipped.is_empty() {
+                            String::new()
+                        } else {
+                            format!("; {} skipped", imported.skipped.len())
+                        }
+                    )),
+                )
+                .with_id(ids::IMPORT_SUMMARY),
+            );
+            for line in imported.skipped.iter().take(10) {
+                rows.push(note(line));
+            }
+            if !imported.items.is_empty() {
+                rows.push(row(
+                    "gap: 8px; padding-top: 8px;",
+                    vec![
+                        primary(
+                            &format!(
+                                "Import {} item{}",
+                                imported.items.len(),
+                                if imported.items.len() == 1 { "" } else { "s" }
+                            ),
+                            ids::IMPORT_RUN,
+                            app,
+                            on_import_run,
+                        ),
+                        button("Cancel", ids::IMPORT_CANCEL, app, on_panel_close),
+                    ],
+                ));
+            }
+        }
+        Some(Err(why)) => rows.push(problem(why, ids::IMPORT_SUMMARY)),
+        None => {}
+    }
+    if !matches!(view.result, Some(Ok(_))) {
+        rows.push(row(
+            "padding-top: 8px;",
+            vec![button("Close", ids::IMPORT_CANCEL, app, on_panel_close)],
+        ));
+    }
+    column(PANE, rows).with_id(ids::IMPORT)
+}
+
+extern "C" fn on_import_path(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
+    let path = state.get_text().as_str().to_string();
+    let _ = with_app(&mut data, &mut info, |s, _info, _| {
+        if let Some(Reading::Import(view)) = s.session.as_mut().map(|session| &mut session.reading)
+        {
+            view.path = path;
+        }
+    });
+    keep()
+}
+
+extern "C" fn on_import_read_path(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, info, app| {
+        let path = match s.session.as_ref().map(|session| &session.reading) {
+            Some(Reading::Import(view)) => view.path.trim().to_string(),
+            _ => return,
+        };
+        if path.is_empty() {
+            if let Some(Reading::Import(view)) =
+                s.session.as_mut().map(|session| &mut session.reading)
+            {
+                view.result = Some(Err(
+                    "Type the export's path, or choose the file.".to_string()
+                ));
+            }
+            return;
+        }
+        crate::ui::read_import_file(s, info, app, std::path::Path::new(&path));
+    })
+}
+
+extern "C" fn on_import_choose(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let app = data.clone();
+    if data.downcast_ref::<KeysApp>().is_none() {
+        return Update::DoNothing;
+    }
+    let _request = FileDialog::open_file(
+        "Import passwords",
+        OptionString::None,
+        OptionFileTypeList::None,
+        app,
+        on_import_picked,
+    );
+    Update::DoNothing
+}
+
+extern "C" fn on_import_picked(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
+    let Some(picked) = FileOpenResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    let Some(path) = picked.path.into_option() else {
+        return Update::DoNothing;
+    };
+    let path = std::path::PathBuf::from(path.as_string().as_str());
+    with_app(&mut data, &mut info, |s, info, app| {
+        crate::ui::read_import_file(s, info, app, &path)
+    })
+}
+
+/// "Import N items": into the vault (leaving out what it has), then saved.
+extern "C" fn on_import_run(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, info, app| {
+        let Some(session) = s.session.as_mut() else {
+            return;
+        };
+        let Reading::Import(view) = &mut session.reading else {
+            return;
+        };
+        let Some(Ok(imported)) = view.result.take() else {
+            return;
+        };
+        let (added, known) = crate::import::merge(&mut session.open.vault, imported.items, now());
+        session.dirty = added > 0;
+        session.reading = Reading::Item;
+        session.keep_selection_in_view();
+        s.notice = format!(
+            "Imported {added} item{}{}",
+            if added == 1 { "" } else { "s" },
+            if known > 0 {
+                format!(" ({known} already in the vault)")
+            } else {
+                String::new()
+            }
+        );
+        println!("AZKEYS_IMPORTED {added} {known}");
+        jobs::save(s, info, app);
+    })
+}
+
+// ==== The audit ====
+
+struct AuditRef {
+    app: RefAny,
+    id: String,
+}
+
+fn audit_view(session: &Session, filter: Filter, app: &RefAny) -> Dom {
+    let vault = &session.open.vault;
+    let a = audit::audit(vault, now());
+    let labels: Vec<String> = Filter::ALL
+        .iter()
+        .map(|f| match f {
+            Filter::All => format!("All ({})", a.findings.len()),
+            Filter::Weak => format!("Weak ({})", a.weak),
+            Filter::Reused => format!("Reused ({})", a.reused),
+            Filter::Old => format!("Old ({})", a.old),
+            Filter::NoTwoFactor => format!("No 2FA ({})", a.no_two_factor),
+        })
+        .collect();
+    let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+    let mut rows = vec![
+        block(
+            "font-size: 16px; font-weight: 600; padding-bottom: 8px;",
+            text("Security audit"),
+        ),
+        Segmented::create(strs(&label_refs))
+            .with_selected_index(Filter::ALL.iter().position(|f| *f == filter).unwrap_or(0))
+            .with_on_change(
+                app.clone(),
+                on_audit_filter as SegmentedOnChangeCallbackType,
+            )
+            .dom()
+            .with_id(ids::AUDIT_FILTER),
+        note(&format!(
+            "{} weak, {} reused, {} older than two years, {} without a one-time code. Nothing is \
+             checked online.",
+            a.weak, a.reused, a.old, a.no_two_factor
+        ))
+        .with_id(ids::AUDIT_SUMMARY),
+    ];
+    // TODO(WIDGETS9B): a DataTable with sortable columns; plain rows for now.
+    let mut shown = 0;
+    for finding in a.findings.iter().filter(|f| filter.holds(&f.problems)) {
+        let Some(item) = vault.items.get(finding.index) else {
+            continue;
+        };
+        let problems: Vec<String> = finding.problems.iter().map(|p| p.label()).collect();
+        rows.push(
+            row(
+                "padding: 4px 0px; cursor: pointer;",
+                vec![
+                    block("width: 34%; font-size: 13px;", text(item.title.as_str())),
+                    block("width: 34%; font-size: 12px;", text(problems.join(", "))),
+                    block(
+                        "width: 14%; font-size: 12px;",
+                        text(finding.strength.label()),
+                    ),
+                    block(
+                        "width: 18%; font-size: 12px; opacity: 0.7;",
+                        text(date(finding.changed)),
+                    ),
+                ],
+            )
+            .with_id(ids::audit_row(shown))
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::MouseUp),
+                RefAny::new(AuditRef {
+                    app: app.clone(),
+                    id: item.id.clone(),
+                }),
+                on_audit_row,
+            ),
+        );
+        shown += 1;
+    }
+    if shown == 0 {
+        rows.push(note("Nothing to fix here."));
+    }
+    rows.push(row(
+        "gap: 8px; padding-top: 12px;",
+        vec![
+            icon_button(
+                "Export report",
+                "download",
+                ids::AUDIT_EXPORT,
+                app,
+                on_audit_export,
+            ),
+            button("Close", ids::AUDIT_CLOSE, app, on_panel_close),
+        ],
+    ));
+    column(PANE, rows).with_id(ids::AUDIT)
+}
+
+extern "C" fn on_audit_filter(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    state: SegmentedState,
+) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| {
+        if let Some(session) = s.session.as_mut() {
+            session.reading =
+                Reading::Audit(Filter::ALL[state.selected_index.min(Filter::ALL.len() - 1)]);
+        }
+    })
+}
+
+extern "C" fn on_audit_row(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, id)) = data
+        .downcast_ref::<AuditRef>()
+        .map(|r| (r.app.clone(), r.id.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    with_app(&mut app, &mut info, |s, _info, _| {
+        if let Some(session) = s.session.as_mut() {
+            session.scope = crate::vault::Scope::All;
+            session.query.clear();
+            session.reading = Reading::Item;
+            session.select(Some(id));
+        }
+    })
+}
+
+/// "Export report": the audit, without a secret, into keys/exports/ in the data tree.
+extern "C" fn on_audit_export(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, info, app| {
+        let Some(session) = s.session.as_ref() else {
+            return;
+        };
+        let t = now();
+        let report = audit::report(&audit::audit(&session.open.vault, t), &session.open.vault);
+        let work = Work::Put {
+            key: store::audit_key(&date(t)),
+            bytes: report.into_bytes(),
+        };
+        jobs::spawn(info, app, &s.data_root, work);
+    })
+}
