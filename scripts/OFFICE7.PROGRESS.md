@@ -30,8 +30,16 @@ Branch `wt/office7` from `2e55eef06` (the wave-6 integration; every app compiles
     Monitors DropDown, settings `presenter_monitor`, `window_state.monitor_id` in start_show).
   - DONE text boxes on the shared RTE: cd3160a3e (text.rs on RichTextDoc, Editor.text, render via RTE
     read-only / editable, views::on_text_change, commands sync/format via RTE, ribbon state, ir.rs deleted).
-  - NEXT: rail drop indicator (ThumbnailStrip widget = WIDGETS7's file; minimal edit planned: DragOver marks
-    the hovered item's side, DragLeave / Drop clear) ; tables edited in place.
+  - DONE tables in place: a672dfb04 (RED editor test `a_table_is_edited_in_place_cell_by_cell` + text::cell_id),
+    dc308942f (GREEN: Editor::activate tables, set_cell, add_table_row; views::editable_cell / on_cell_text /
+    on_cell_key / next_cell; render.rs editable td; AppState.focus_text is now a DOM id String).
+  - NEXT (exact): (a) add `#[cfg(test)] mod tests` at the END of examples/azul-show/src/views.rs with
+    `the_next_cell_goes_row_by_row` for `views::next_cell` (pure fn); commit.
+    (b) rail drop indicator in layout/src/widgets/thumbnail_strip.rs (WIDGETS7's file, minimal edit): RED test
+    first; in `on_item_drag_over` mark the hovered item (info.get_hit_node()) with an accent line on the side a
+    drop lands (`drop_target(from, on) > on` -> after) via `info.set_css_property`, clear on DragLeave / Drop
+    (add DragLeave callback in `build`); StripShared.drag_from holds `from`.
+  - THEN: 7. AzSheets; 8. LOOK; report.
 
 ## NEXT
 - 7. AzSheets: Replace in the grid's edit, pickers, Format Cells = one undo step.
