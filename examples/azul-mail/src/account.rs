@@ -27,6 +27,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::store::{DriveFolder, MailStore};
+
 /// The `format` of an account file.
 pub const FORMAT: &str = "azmail.account";
 /// The version this AzMail writes, and the newest it reads.
@@ -314,16 +316,23 @@ pub fn migrate_legacy_root(legacy: &Path, root: &Path) -> std::io::Result<bool> 
 }
 
 /// The account's own folder: `<AzMail folder>/<account id>`.
-pub fn account_dir(root: &Path, id: &str) -> PathBuf {
-    root.join(id)
+pub fn account_dir(root: &DriveFolder, id: &str) -> DriveFolder {
+    root.child(id)
 }
 
-/// Where the account's mail is synced to: its `folder`, else its own folder.
-pub fn mail_root(root: &Path, account: &Account) -> PathBuf {
-    account
-        .folder
-        .clone()
-        .unwrap_or_else(|| account_dir(root, &account.id))
+/// Where the account's mail is synced to: its `folder` (placed as the AzMail folder's drive
+/// places it: in the data tree a folder of the tree's drive, elsewhere a drive of its own),
+/// else its own folder.
+pub fn mail_root(root: &DriveFolder, account: &Account) -> DriveFolder {
+    match &account.folder {
+        Some(folder) => root.locate(folder),
+        None => account_dir(root, &account.id),
+    }
+}
+
+/// The key of an account's file in the AzMail folder: `<account id>/account.json`.
+pub fn account_key(id: &str) -> String {
+    format!("{id}/{ACCOUNT_FILE}")
 }
 
 /// Why an account file cannot be read.
@@ -426,32 +435,35 @@ pub fn from_json(text: &str) -> Result<Account, AccountError> {
     })
 }
 
-/// Writes the account file (atomically) and returns its path.
-pub fn save(root: &Path, account: &Account) -> std::io::Result<PathBuf> {
-    let path = account_dir(root, &account.id).join(ACCOUNT_FILE);
-    crate::store::write_atomic(&path, to_json(account).as_bytes(), true)?;
-    Ok(path)
+/// Writes the account file through the AzMail folder's drive (whole or not at all) and returns
+/// where it is on this computer.
+pub fn save(root: &DriveFolder, account: &Account) -> std::io::Result<PathBuf> {
+    MailStore::new(root.clone()).put(&account_key(&account.id), to_json(account).as_bytes())?;
+    Ok(account_dir(root, &account.id).path().join(ACCOUNT_FILE))
+}
+
+/// The account in its file in the AzMail folder: `None` when there is no file, else the account
+/// or why it cannot be read.
+pub fn load(root: &DriveFolder, id: &str) -> Option<Result<Account, String>> {
+    match MailStore::new(root.clone()).get(&account_key(id)) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => Some(Err(e.to_string())),
+        Ok(bytes) => Some(from_json(&String::from_utf8_lossy(&bytes)).map_err(|e| e.to_string())),
+    }
 }
 
 /// Every account in the AzMail folder, in order of address, and the account files that could
 /// not be read, with why.
-pub fn load_all(root: &Path) -> (Vec<Account>, Vec<(PathBuf, String)>) {
+pub fn load_all(root: &DriveFolder) -> (Vec<Account>, Vec<(PathBuf, String)>) {
     let mut accounts = Vec::new();
     let mut skipped = Vec::new();
-    let Ok(entries) = std::fs::read_dir(root) else {
-        return (accounts, skipped);
-    };
-    for entry in entries.flatten() {
-        let path = entry.path().join(ACCOUNT_FILE);
-        if !path.is_file() {
-            continue;
-        }
-        let read = std::fs::read_to_string(&path)
-            .map_err(|e| e.to_string())
-            .and_then(|text| from_json(&text).map_err(|e| e.to_string()));
-        match read {
-            Ok(account) => accounts.push(account),
-            Err(reason) => skipped.push((path, reason)),
+    for id in MailStore::new(root.clone()).subfolders("") {
+        match load(root, &id) {
+            None => {}
+            Some(Ok(account)) => accounts.push(account),
+            Some(Err(reason)) => {
+                skipped.push((account_dir(root, &id).path().join(ACCOUNT_FILE), reason));
+            }
         }
     }
     accounts.sort_by(|a, b| a.id.cmp(&b.id));
@@ -831,17 +843,25 @@ mod tests {
             Some(PathBuf::from("/home/ada/.local/share/AzMail"))
         );
         assert_eq!(legacy_root(None), None);
-        let root = Path::new("/data/AzMail");
-        assert_eq!(account_dir(root, ADA), root.join(ADA));
-        assert_eq!(mail_root(root, &account()), root.join(ADA));
+        let data = Path::new("/data/Azlin");
+        let root = DriveFolder::of(&data.join("mail"), data);
+        assert_eq!(account_dir(&root, ADA).path(), data.join("mail").join(ADA));
+        assert_eq!(mail_root(&root, &account()), account_dir(&root, ADA));
+        assert!(mail_root(&root, &account()).is_data_tree());
         let elsewhere = Account {
             folder: Some(PathBuf::from("/Volumes/backup/mail")),
             ..account()
         };
         assert_eq!(
-            mail_root(root, &elsewhere),
+            mail_root(&root, &elsewhere).path(),
             PathBuf::from("/Volumes/backup/mail")
         );
+        assert!(!mail_root(&root, &elsewhere).is_data_tree(), "outside the data tree");
+        let inside = Account {
+            folder: Some(data.join("archive").join("ada")),
+            ..account()
+        };
+        assert!(mail_root(&root, &inside).is_data_tree(), "a folder of the data tree");
     }
 
     #[test]
@@ -939,8 +959,9 @@ mod tests {
     #[test]
     fn accounts_are_saved_in_their_folder_and_read_back() {
         let dir = TempDir::new("account");
+        let root = DriveFolder::outside(dir.0.clone());
         let a = account();
-        let path = save(&dir.0, &a).unwrap();
+        let path = save(&root, &a).unwrap();
         assert_eq!(path, dir.0.join(ADA).join("account.json"));
         let b = Account {
             id: String::from("ben@example.org"),
@@ -948,15 +969,16 @@ mod tests {
             username: String::from("ben"),
             ..account()
         };
-        save(&dir.0, &b).unwrap();
+        save(&root, &b).unwrap();
         std::fs::create_dir_all(dir.0.join("broken@example.org")).unwrap();
         std::fs::write(dir.0.join("broken@example.org").join("account.json"), "{").unwrap();
         std::fs::create_dir_all(dir.0.join("no-account-here")).unwrap();
-        let (accounts, skipped) = load_all(&dir.0);
+        let (accounts, skipped) = load_all(&root);
         assert_eq!(accounts, vec![a, b]);
         assert_eq!(skipped.len(), 1, "{skipped:?}");
         assert!(skipped[0].0.ends_with("broken@example.org/account.json"));
-        assert!(load_all(&dir.0.join("missing")).0.is_empty());
+        assert!(load_all(&DriveFolder::outside(dir.0.join("missing"))).0.is_empty());
+        assert_eq!(load(&root, "nobody@example.org"), None);
     }
 
     #[test]
