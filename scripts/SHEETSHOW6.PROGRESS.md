@@ -64,13 +64,18 @@ screenshots + hierarchy dumps under target/sheetshow6-shots/.
   model on save; ops::merge_and_center); 482c0f9b5 worker MergeCenter / Unmerge + Snapshot.merges; 3d3d23065 HOME
   Merge & Center toggle. Not undo steps; rows inserted do not shift merges (report).
 
+- Conditional formatting: 7e7e396e9 RED / 868735bbb GREEN (IronCalc CfRuleInput; cell_style = the extended style)
+  / ed0164a80 fake / db306b920 worker AddConditional / ClearConditional + Snapshot.conditional / bdcc692df the
+  HOME > Styles panel (conditional_panel.rs). Note: the ribbon toggles read the CF-overlaid style; data bars / icons
+  not drawn.
+
 ## IN PROGRESS
 - (none)
 
 ## NEXT (exact)
 1-3. (done)
 4. (done)
-5. NEXT: Sheets conditional formatting, tab strip; Show (drop indicator, multi-select
+5. NEXT: Sheets tab strip; Show (drop indicator, multi-select
    rotate, tables in place, picture contain / cover, find / replace, presenter on a chosen monitor).
 6. Check both apps for `ctrl || meta` and duplicated helpers (checklist).
 
