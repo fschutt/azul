@@ -17,21 +17,25 @@
        `meet/<room>/chat.jsonl` with both messages, one JSON object per line, and a
        `meet/<room>/meeting.json` that lists the other person (a build without the files says
        so and the check is skipped);
-    6. takes a screenshot of each window (--out), stops everything.
+    6. rejoin: Ada leaves and joins the same link again on the same data tree - the chat of
+       her first visit comes back (`AZMEET_CHAT_RESTORED 2`, both messages in her panel), a new
+       message goes to Ben, and her chat.jsonl then holds all three (`--skip rejoin` for a build
+       before the chat came back);
+    7. takes a screenshot of each window (--out), stops everything.
 
 Usage (from the azul repository, after building libazul with the debug server and AzMeet):
 
     python3 scripts/azmeet_e2e.py [--bin target/release/AzMeet]
         [--worker-dir ../azul-apps/cf-workers/meet] [--capped <run_capped.sh>]
         [--port-a 8781] [--port-b 8782] [--worker-port 8790] [--timeout 150]
-        [--app-seconds 140] [--require-h264] [--out <dir>] [--keep-logs]
+        [--app-seconds 140] [--require-h264] [--skip rejoin] [--out <dir>] [--keep-logs]
 
 `AZMEET_BIN`, `AZMEET_WORKER_DIR` and `AZ_RUN_CAPPED` name the binary, the Worker and the
-capped runner too. Without a capped runner the apps run uncapped and the script says so.
+capped runner too. Without a capped runner the apps run uncapped and the script says so. The
+debug-server client is the Azlin apps' shared one (`scripts/azlin_e2e.py`).
 """
 
 import argparse
-import base64
 import json
 import os
 import re
@@ -44,7 +48,9 @@ import time
 import urllib.error
 import urllib.request
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+import azlin_e2e as e2e
+from azlin_e2e import Failure
+
 # The capped runner (scripts/waves/tools/run_capped.sh) holds a machine-wide lock, so a second
 # runner inside one waits forever: run this WHOLE script under one runner (it caps the tree:
 # node, both apps and this script) and leave --capped empty. --capped / AZ_RUN_CAPPED still cap
@@ -52,30 +58,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CAPPED = None
 MESSAGE = "Hello Ben, can you see me?"
 ANSWER = "Loud and clear, Ada"
+AGAIN = "I am back, Ben"
 
 
 def log(line):
     print("[azmeet-e2e] %s" % line, flush=True)
-
-
-class Failure(Exception):
-    pass
-
-
-def repo_roots():
-    repo = os.path.abspath(os.path.join(HERE, ".."))
-    roots = [repo]
-    try:
-        common = subprocess.run(
-            ["git", "-C", repo, "rev-parse", "--path-format=absolute", "--git-common-dir"],
-            check=True, capture_output=True, text=True,
-        ).stdout.strip()
-        main = os.path.dirname(common)
-        if main and main not in roots:
-            roots.append(main)
-    except (OSError, subprocess.CalledProcessError):
-        pass
-    return roots
 
 
 def first_existing(what, candidates, executable=False):
@@ -87,17 +74,9 @@ def first_existing(what, candidates, executable=False):
     raise Failure("%s not found; tried %s" % (what, [c for c in candidates if c]))
 
 
-def find_binary(explicit):
-    candidates = [explicit, os.environ.get("AZMEET_BIN")]
-    for root in repo_roots():
-        for sub in ("release", "debug"):
-            candidates.append(os.path.join(root, "target", sub, "AzMeet"))
-    return first_existing("the AzMeet binary (pass --bin)", candidates, executable=True)
-
-
 def find_worker(explicit):
     candidates = [explicit, os.environ.get("AZMEET_WORKER_DIR")]
-    for root in repo_roots():
+    for root in e2e.repo_roots():
         candidates.append(os.path.join(root, "..", "azul-apps", "cf-workers", "meet"))
     return first_existing("the meet Worker (pass --worker-dir)", candidates)
 
@@ -105,17 +84,6 @@ def find_worker(explicit):
 def http_json(url, timeout=5):
     with urllib.request.urlopen(url, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8") or "{}")
-
-
-def strings(value):
-    if isinstance(value, str):
-        yield value
-    elif isinstance(value, list):
-        for v in value:
-            yield from strings(v)
-    elif isinstance(value, dict):
-        for v in value.values():
-            yield from strings(v)
 
 
 class Process:
@@ -156,59 +124,15 @@ class Process:
         return "".join(self.output().splitlines(True)[-lines:])
 
 
-class App(Process):
-    """AzMeet under its debug server, started through the capped runner."""
-
-    def __init__(self, name, binary, port, env, logs, capped, cap_mb, seconds):
-        command = [binary]
-        if capped:
-            command = [capped, "--cap-mb", str(cap_mb), "--seconds", str(seconds), "--log",
-                       os.path.join(logs, "%s.app.log" % name), "--", binary]
-        super().__init__(name, command, env, logs)
-        self.port = port
-        self.app_log = os.path.join(logs, "%s.app.log" % name) if capped else self.log_path
-
-    def app_output(self):
-        try:
-            with open(self.app_log, "r", encoding="utf-8", errors="replace") as f:
-                return f.read()
-        except OSError:
-            return ""
-
-    def printed(self, key):
-        return re.findall(r"^%s (.+)$" % re.escape(key), self.app_output(), re.M)
-
-    def op(self, op, **params):
-        body = {"op": op}
-        body.update(params)
-        request = urllib.request.Request(
-            "http://127.0.0.1:%d/" % self.port,
-            data=json.dumps(body).encode("utf-8"), method="POST",
-        )
-        with urllib.request.urlopen(request, timeout=15) as response:
-            return json.loads(response.read().decode("utf-8") or "{}")
-
-    def must(self, op, **params):
-        answer = self.op(op, **params)
-        if isinstance(answer, dict) and answer.get("status") == "error":
-            raise Failure("%s: %s %s failed: %s" % (self.name, op, json.dumps(params), json.dumps(answer)[:240]))
-        return answer
-
-    def value(self, op, **params):
-        answer = self.must(op, **params)
-        data = answer.get("data") if isinstance(answer, dict) else None
-        if isinstance(data, dict) and "value" in data:
-            return data["value"]
-        return data if data is not None else answer
+class App(e2e.App):
+    """AzMeet under its debug server (the shared driver), started through the capped runner
+    when one is given: two frames an op, the ids by AzMeet's naming, a node's id with its
+    rect."""
 
     def frame(self, n=2):
-        for _ in range(n):
-            self.must("wait_frame")
+        super().frame(n)
 
-    def texts(self):
-        return list(strings(self.op("get_node_hierarchy")))
-
-    def rect(self, node_id):
+    def node_rect(self, node_id):
         """The node's id and rect, or (None, {}) while no node has that id (a tile appears once
         the other side is connected)."""
         answer = self.op("get_node_layout", selector="#%s" % node_id)
@@ -230,14 +154,11 @@ class App(Process):
             return "__azmeet_" + short.replace("-", "_")
         return "azmeet-" + short
 
-    def screenshot(self, path):
-        value = self.value("take_screenshot")
-        data = value.get("data") if isinstance(value, dict) else None
-        if not isinstance(data, str) or "base64," not in data:
-            raise Failure("%s: take_screenshot returned no PNG" % self.name)
-        with open(path, "wb") as f:
-            f.write(base64.b64decode(data.split("base64,", 1)[1]))
-        log("screenshot %s" % path)
+
+def start_app(name, binary, port, env, logs, args, capped):
+    """One AzMeet: `env` its environment (`app_env`), under `capped` when given."""
+    return App(name, binary, [], port, logs, args.timeout, extra_env=env, capped=capped,
+               cap_mb=args.cap_mb, cap_seconds=args.app_seconds)
 
 
 def until(what, check, deadline, procs=(), interval=0.5):
@@ -389,6 +310,7 @@ def main():
     parser.add_argument("--width", type=int, default=1100)
     parser.add_argument("--height", type=int, default=720)
     parser.add_argument("--require-h264", action="store_true")
+    parser.add_argument("--skip", help="stages to leave out, comma-separated (rejoin)")
     parser.add_argument("--out")
     parser.add_argument("--keep-logs", action="store_true")
     args = parser.parse_args()
@@ -400,7 +322,7 @@ def main():
     procs = []
     passed = False
     try:
-        binary = find_binary(args.bin)
+        binary = e2e.find_binary("AzMeet", args.bin, "AZMEET_BIN")
         worker_dir = find_worker(args.worker_dir)
         capped = args.capped if args.capped and os.access(args.capped, os.X_OK) else None
         if capped:
@@ -418,17 +340,17 @@ def main():
 
         data_ada = os.path.join(logs, "data-ada")
         data_ben = os.path.join(logs, "data-ben")
-        ada = App("ada", binary, args.port_a,
-                  app_env(worker, "Ada", args.port_a, {"AZMEET_AUTOCREATE": "1", "AZLIN_DATA": data_ada}),
-                  logs, capped, args.cap_mb, args.app_seconds)
+        ada = start_app("ada", binary, args.port_a,
+                        app_env(worker, "Ada", args.port_a, {"AZMEET_AUTOCREATE": "1", "AZLIN_DATA": data_ada}),
+                        logs, args, capped)
         procs.append(ada)
         link = until("Ada's meeting link (AZMEET_LINK)", lambda: (ada.printed("AZMEET_LINK") or [None])[0],
                      deadline, procs)
         log("Ada created %s" % link)
 
-        ben = App("ben", binary, args.port_b,
-                  app_env(worker, "Ben", args.port_b, {"AZMEET_JOIN": link, "AZLIN_DATA": data_ben}),
-                  logs, capped, args.cap_mb, args.app_seconds)
+        ben = start_app("ben", binary, args.port_b,
+                        app_env(worker, "Ben", args.port_b, {"AZMEET_JOIN": link, "AZLIN_DATA": data_ben}),
+                        logs, args, capped)
         procs.append(ben)
 
         for app in (ada, ben):
@@ -439,7 +361,7 @@ def main():
         # Each sees the other's camera tile, inside the window.
         for app, other in ((ada, "ben"), (ben, "ada")):
             def tile_shown(app=app, other=other):
-                node, rect = app.rect(app.id("tile-%s-camera" % other))
+                node, rect = app.node_rect(app.id("tile-%s-camera" % other))
                 return node is not None and inside(rect, args.width, args.height)
             until("%s's tile in %s's window" % (other, app.name), tile_shown, deadline, procs)
             log("%s shows %s's tile" % (app.name, other))
@@ -461,6 +383,36 @@ def main():
         check_files(ada, data_ada, "Ben", deadline, procs)
         check_files(ben, data_ben, "Ada", deadline, procs)
 
+        if "rejoin" in (args.skip or "").split(","):
+            log("rejoin skipped (--skip rejoin)")
+        else:
+            procs.remove(ada)
+            ada.stop()
+            ada = start_app("ada-again", binary, args.port_a,
+                            app_env(worker, "Ada", args.port_a, {"AZMEET_JOIN": link, "AZLIN_DATA": data_ada}),
+                            logs, args, capped)
+            procs.append(ada)
+            until("Ada's debug server again", lambda: ada.op("wait_frame") is not None, deadline, procs)
+            ada.must("resize", width=args.width, height=args.height)
+            ada.frame()
+            restored = until("AZMEET_CHAT_RESTORED", lambda: ada.printed("AZMEET_CHAT_RESTORED"), deadline, procs)
+            if restored[-1].strip() != "2":
+                raise Failure("Ada's first visit had 2 messages, %s came back" % restored[-1])
+            ada.must("click", text="Chat")
+            ada.frame()
+            until("the first visit's chat in Ada's panel",
+                  lambda: MESSAGE in ada.texts() and ANSWER in ada.texts(), deadline, procs)
+            log("Ada rejoined: the chat of her first visit is back")
+            chat(ada, ben, "Ada", AGAIN, True, deadline, procs)
+
+            def all_three():
+                found = meeting_files(data_ada)
+                texts = [line.get("text") for line in found[0]] if found else []
+                return texts if texts == [MESSAGE, ANSWER, AGAIN] else None
+
+            until("Ada's chat.jsonl with all three messages", all_three, deadline, procs)
+            log("Ada's chat.jsonl holds the first visit's chat and the new message")
+
         for app in (ada, ben):
             app.screenshot(os.path.join(out, "azmeet-%s.png" % app.name))
         passed = True
@@ -469,12 +421,6 @@ def main():
         log("FAIL: %s" % e)
         for p in procs:
             log("----- %s (tail) -----\n%s" % (p.name, p.tail()))
-            if isinstance(p, App) and p.app_log != p.log_path:
-                try:
-                    with open(p.app_log, "r", encoding="utf-8", errors="replace") as f:
-                        log("----- %s app (tail) -----\n%s" % (p.name, "".join(f.readlines()[-40:])))
-                except OSError:
-                    pass
     finally:
         for p in reversed(procs):
             p.stop()

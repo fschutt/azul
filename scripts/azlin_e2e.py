@@ -14,6 +14,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -161,10 +162,18 @@ def tail(path, lines=40):
 
 
 class App:
-    """One app under its debug server."""
+    """One app under its debug server.
 
-    def __init__(self, tag, binary, args, port, logs, timeout, extra_env=None):
+    `capped` (scripts/waves/tools/run_capped.sh) runs the app under its own memory cap
+    (`cap_mb`, `cap_seconds`) - where no outer runner caps the whole script (two apps at once);
+    the runner holds a machine-wide lock, so never inside an outer one. The app's stdout and
+    stderr then share `out_path` (the runner's log), and `stop` stops the runner's whole
+    process group."""
+
+    def __init__(self, tag, binary, args, port, logs, timeout, extra_env=None, capped=None,
+                 cap_mb=1500, cap_seconds=None):
         self.tag = tag
+        self.name = tag
         self.port = port
         self.deadline = time.time() + timeout
         self.out_path = os.path.join(logs, "%s.stdout" % tag)
@@ -172,21 +181,49 @@ class App:
         env = dict(os.environ)
         env.update({"AZ_BACKEND": "headless", "AZ_DEBUG": str(port)})
         env.update(extra_env or {})
+        command = [binary] + list(args)
+        self.capped = bool(capped)
+        if capped:
+            command = [capped, "--cap-mb", str(cap_mb), "--seconds", str(int(cap_seconds or timeout)),
+                       "--log", self.out_path, "--"] + command
+            self.err_path = self.out_path
+            runner = os.path.join(logs, "%s.runner" % tag)
+            stdout, stderr = open(runner, "wb"), subprocess.STDOUT
+        else:
+            stdout, stderr = open(self.out_path, "wb"), open(self.err_path, "wb")
         self.process = subprocess.Popen(
-            [binary] + list(args), env=env, stdin=subprocess.DEVNULL,
-            stdout=open(self.out_path, "wb"), stderr=open(self.err_path, "wb"),
+            command, env=env, stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr,
+            start_new_session=self.capped,
         )
 
     def log(self, line):
         print("[%s] %s" % (self.tag, line), flush=True)
 
+    def alive(self):
+        return self.process.poll() is None
+
+    def tail(self, lines=40):
+        return tail(self.out_path, lines)
+
     def stop(self):
-        if self.process.poll() is None:
-            self.process.terminate()
+        if self.process.poll() is not None:
+            return
+        if self.capped:
+            # The runner and the app it started: the whole process group.
             try:
+                os.killpg(self.process.pid, signal.SIGTERM)
                 self.process.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
+            except (OSError, subprocess.TimeoutExpired):
+                try:
+                    os.killpg(self.process.pid, signal.SIGKILL)
+                except OSError:
+                    pass
+            return
+        self.process.terminate()
+        try:
+            self.process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
 
     # ---- the debug server ----
 
