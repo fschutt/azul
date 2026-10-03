@@ -392,8 +392,14 @@ pub const SCREENS: [&str; 10] = [
 /// name: the wizard's first step).
 #[must_use]
 pub fn open_on(screen: &str) -> (Screen, Step) {
-    let _ = screen;
-    todo!()
+    match screen {
+        "settings" => (Screen::Settings, Step::Welcome),
+        "about" => (Screen::About, Step::Welcome),
+        name => {
+            let index = SCREENS.iter().position(|s| *s == name).unwrap_or(0);
+            (Screen::Setup, Step::at(index))
+        }
+    }
 }
 
 /// AzSetup's own switches, besides azul-appkit's: `--frame` and `--step`.
@@ -414,8 +420,46 @@ where
     I: IntoIterator<Item = S>,
     S: Into<String>,
 {
-    let _ = argv.into_iter().map(Into::into).count();
-    todo!()
+    let argv: Vec<String> = argv.into_iter().map(Into::into).collect();
+    let mut own = SetupSwitches::default();
+    let mut rest = Vec::with_capacity(argv.len());
+    let mut i = 0;
+    while i < argv.len() {
+        let (name, inline) = match argv[i].split_once('=') {
+            Some((n, v)) if n.starts_with("--") => (n.to_string(), Some(v.to_string())),
+            _ => (argv[i].clone(), None),
+        };
+        let mut value = || -> Result<String, String> {
+            if let Some(v) = inline.clone() {
+                return Ok(v);
+            }
+            i += 1;
+            argv.get(i)
+                .cloned()
+                .ok_or_else(|| format!("{name} needs a value"))
+        };
+        match name.as_str() {
+            "--frame" => {
+                own.frame = match value()?.as_str() {
+                    "installer" => Frame::Installer,
+                    "rail" => Frame::Rail,
+                    "side" => Frame::Side,
+                    other => return Err(format!("--frame: expected installer|rail|side, got {other:?}")),
+                }
+            }
+            "--step" => {
+                let v = value()?;
+                own.step = Some(
+                    v.trim()
+                        .parse()
+                        .map_err(|_| format!("--step: expected a number, got {v:?}"))?,
+                );
+            }
+            _ => rest.push(argv[i].clone()),
+        }
+        i += 1;
+    }
+    Ok((own, rest))
 }
 
 // ---------------------------------------------------------------------------
