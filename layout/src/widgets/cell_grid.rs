@@ -183,6 +183,9 @@ pub enum CellGridDragKind {
     ResizeColumn,
     /// Dragging the bottom edge of row `index`'s header.
     ResizeRow,
+    /// Pointing at a range while a formula is typed (point mode): the
+    /// reference at the caret follows the pointer from `origin`.
+    Point,
 }
 
 /// A pointer drag in progress. The app keeps it in its [`CellGridView`]
@@ -3297,6 +3300,7 @@ pub(crate) fn drag_move(
             next.drag.target = cell;
             Some(CellGridEvent::create(CellGridEventKind::Drag, next))
         }
+        CellGridDragKind::Point => None,
         CellGridDragKind::ResizeColumn | CellGridDragKind::ResizeRow => {
             let at = if drag.kind == CellGridDragKind::ResizeColumn {
                 window_px.0
@@ -3344,7 +3348,9 @@ pub(crate) fn drag_end(grid: &CellGrid) -> Option<CellGridEvent> {
     next.drag = CellGridDrag::default();
     let event = match drag.kind {
         CellGridDragKind::None => return None,
-        CellGridDragKind::Select => CellGridEvent::create(CellGridEventKind::Drag, next),
+        CellGridDragKind::Select | CellGridDragKind::Point => {
+            CellGridEvent::create(CellGridEventKind::Drag, next)
+        }
         CellGridDragKind::Fill => {
             let source = view.current_range();
             let reach = fill_range(source, drag.target);
@@ -3882,6 +3888,58 @@ mod cell_grid_tests {
         let g3 = small().with_view(click.view);
         let dragged = drag_move(&g3, Some(at(3, 3)), (0.0, 0.0)).expect("the range grows");
         assert_eq!(dragged.view.current_range(), CellGridRange::spanning(at(2, 1), at(3, 3)));
+    }
+
+    /// Excel's point mode: while a formula waits for a reference (after
+    /// `=`, `(`, `,` or an operator), a click puts the clicked cell's
+    /// reference at the caret instead of committing; a second click
+    /// replaces it; a drag makes it a range. The edited cell stays.
+    #[test]
+    fn a_click_while_a_formula_waits_for_a_reference_points_at_the_cell() {
+        let mut view = CellGridView::create();
+        view.edit_mode = CellGridEditMode::Enter;
+        view.edit_text = AzString::from_const_str("=SUM(");
+        view.edit_cursor = 5;
+        let g = small().with_view(view);
+        let geo = geometry(&g);
+        let e = press(&g, &geo, Hit::Cell(at(2, 1)), false, false, (0.0, 0.0)).expect("a click");
+        assert_eq!(e.kind, CellGridEventKind::EditText, "pointing, not committing");
+        assert_eq!(e.view.edit_text.as_str(), "=SUM(B3");
+        assert_eq!(e.view.edit_cursor, 7);
+        assert_eq!(e.view.active, at(0, 0), "the edited cell stays");
+        assert!(e.view.is_editing());
+        assert_eq!(e.view.drag.kind, CellGridDragKind::Point, "a drag may follow");
+
+        // A second click replaces the pointed reference.
+        let mut pointed = e.view.clone();
+        pointed.drag = CellGridDrag::default();
+        let g2 = small().with_view(pointed);
+        let again = press(&g2, &geo, Hit::Cell(at(4, 0)), false, false, (0.0, 0.0)).expect("a click");
+        assert_eq!(again.view.edit_text.as_str(), "=SUM(A5");
+
+        // A drag makes it a range (written top-left first), the release ends it.
+        let g3 = small().with_view(e.view);
+        let dragged = drag_move(&g3, Some(at(0, 0)), (0.0, 0.0)).expect("the range follows");
+        assert_eq!(dragged.view.edit_text.as_str(), "=SUM(A1:B3");
+        assert_eq!(dragged.view.edit_cursor, 10);
+        let g4 = small().with_view(dragged.view);
+        let end = drag_end(&g4).expect("the release");
+        assert_eq!(end.view.drag.kind, CellGridDragKind::None);
+        assert_eq!(end.view.edit_text.as_str(), "=SUM(A1:B3");
+    }
+
+    #[test]
+    fn a_click_after_a_value_or_in_plain_text_still_commits() {
+        for (text, cursor) in [("=1+2", 4u32), ("Total", 5), ("=SUM(A1", 4)] {
+            let mut view = CellGridView::create();
+            view.edit_mode = CellGridEditMode::Enter;
+            view.edit_text = AzString::from(text);
+            view.edit_cursor = cursor;
+            let g = small().with_view(view);
+            let geo = geometry(&g);
+            let e = press(&g, &geo, Hit::Cell(at(3, 3)), false, false, (0.0, 0.0)).expect("a click");
+            assert_eq!(e.kind, CellGridEventKind::EditCommit, "{text:?} at {cursor} commits");
+        }
     }
 
     #[test]
