@@ -817,6 +817,39 @@ fn split_generic_args(s: &str) -> Option<(String, String)> {
 }
 
 // type index
+/// The crates the index reads: (crate name, source folder under the
+/// workspace root).
+pub(crate) const CRATE_DIRS: &[(&str, &str)] = &[
+    ("azul_core", "core/src"),
+    ("azul_css", "css/src"),
+    ("azul_layout", "layout/src"),
+    ("azul_dll", "dll/src"),
+];
+
+/// A public free function, as `autofix add <Class>.<name> --fn <path>`
+/// reads it.
+#[derive(Debug, Clone)]
+pub struct FreeFnDef {
+    /// The path the api.json fn_body calls: the one given (a public
+    /// re-export path stays as it is)
+    pub path: String,
+    /// The module the function is defined in (`cpurender::text_raster`)
+    pub defined_in: String,
+    /// Its signature, read with the class it is added to as `Self`
+    pub method: MethodDef,
+}
+
+/// The public free function `path` (`azul_layout::cpurender::text_image`),
+/// read with `class_name` as the type it is added to. The definition is
+/// looked up in the path's crate: in the named module, else in a child of it
+/// (a `pub use child::*` re-export). A file a `#[path = ".."]` module
+/// declaration names has the declared module's path (`xml::html` lives in
+/// xml_html.rs).
+pub fn find_free_fn(workspace_root: &Path, path: &str, class_name: &str) -> Result<FreeFnDef, String> {
+    let _ = (workspace_root, class_name);
+    Err(format!("free function `{path}` not found"))
+}
+
 /// Fast lookup index for type definitions
 #[derive(Debug, Default)]
 pub struct TypeIndex {
@@ -837,18 +870,10 @@ impl TypeIndex {
     pub fn build(workspace_root: &Path, verbose: bool) -> Result<Self> {
         let mut index = Self::new();
 
-        // Crate directories to scan
-        let crate_dirs = [
-            ("azul_core", "core/src"),
-            ("azul_css", "css/src"),
-            ("azul_layout", "layout/src"),
-            ("azul_dll", "dll/src"),
-        ];
-
         // Collect all .rs files
         let mut all_files: Vec<(String, PathBuf)> = Vec::new();
 
-        for (crate_name, src_path) in &crate_dirs {
+        for (crate_name, src_path) in CRATE_DIRS {
             let src_dir = workspace_root.join(src_path);
             if src_dir.exists() {
                 collect_rust_files(&mut all_files, crate_name, &src_dir);
@@ -3690,6 +3715,47 @@ fn clean_type_string(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `autofix add RawImage.from_text --fn azul_layout::cpurender::text_image`
+    /// (wave 6 wrote these by hand): the function is defined in
+    /// cpurender/text_raster.rs and re-exported by `pub use text_raster::*`;
+    /// `azul_core::xml::html::encode_text` lives in a `#[path]` module
+    /// (xml_html.rs). Both are found, the body keeps the path given.
+    #[test]
+    fn a_free_function_is_found_through_a_re_export_or_a_path_module() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let write = |rel: &str, text: &str| {
+            let path = root.path().join(rel);
+            fs::create_dir_all(path.parent().expect("parent")).expect("dirs");
+            fs::write(path, text).expect("written");
+        };
+        write("layout/src/cpurender/mod.rs", "pub mod text_raster;\npub use text_raster::*;\n");
+        write(
+            "layout/src/cpurender/text_raster.rs",
+            "pub fn text_image(text: AzString, style: TextRasterStyle) -> OptionRawImage { todo!() }\n\
+             fn private_helper() {}\n",
+        );
+        write("layout/src/other.rs", "fn text_image() {}\n");
+        write("core/src/xml.rs", "#[path = \"xml_html.rs\"]\npub mod html;\n");
+        write("core/src/xml_html.rs", "pub fn encode_text(s: &str) -> String { todo!() }\n");
+
+        let found = find_free_fn(root.path(), "azul_layout::cpurender::text_image", "RawImage")
+            .expect("found through the re-export");
+        assert_eq!(found.path, "azul_layout::cpurender::text_image");
+        assert_eq!(found.defined_in, "cpurender::text_raster");
+        let args: Vec<&str> = found.method.args.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(args, vec!["text", "style"]);
+        assert_eq!(found.method.return_type.as_deref(), Some("OptionRawImage"));
+        assert!(found.method.self_kind.is_none());
+
+        let found = find_free_fn(root.path(), "azul_core::xml::html::encode_text", "Xml")
+            .expect("found in the #[path] module");
+        assert_eq!(found.defined_in, "xml_html");
+
+        assert!(find_free_fn(root.path(), "azul_layout::other::text_image", "RawImage").is_err(), "not public");
+        assert!(find_free_fn(root.path(), "azul_layout::cpurender::nope", "RawImage").is_err());
+        assert!(find_free_fn(root.path(), "nocrate::f", "RawImage").is_err());
+    }
 
     /// A method in an `impl T` block of another file (`impl CallbackInfo` in
     /// widgets/form.rs, `impl RichTextDoc` in rich_text/html.rs) is attached
