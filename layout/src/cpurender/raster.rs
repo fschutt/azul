@@ -625,6 +625,133 @@ fn render_box_shadow(
         return Ok(());
     }
 
+    // CSS Backgrounds 3 s7.2: an INNER shadow - `bounds` is then the padding
+    // box (the display list hands it over, above the background) - is cast
+    // inside the padding box only, as if everything outside the padding edge
+    // were opaque: the padding box moved by the offset and shrunk by the
+    // spread is the hole, the rest of the padding box is shadow. It used to
+    // take the outer path below: a filled box at the offset.
+    if matches!(shadow.clip_mode, BoxShadowClipMode::Inset) {
+        let pad = blur_r.ceil() + 1.0;
+        let buf_w = 2.0f32.mul_add(pad, rect.width).ceil();
+        let buf_h = 2.0f32.mul_add(pad, rect.height).ceil();
+        if !(buf_w > 0.0 && buf_h > 0.0) {
+            return Ok(());
+        }
+        let (sw, sh) = (buf_w as u32, buf_h as u32);
+        if sw == 0 || sh == 0 || sw > MAX_SHADOW_PIXBUF_SIZE || sh > MAX_SHADOW_PIXBUF_SIZE {
+            return Ok(());
+        }
+        let mut tmp = AzulPixmap::new(sw, sh).ok_or("cannot create shadow pixmap")?;
+        tmp.fill(0, 0, 0, 0);
+        let agg_color = Rgba8::new(
+            u32::from(color.r),
+            u32::from(color.g),
+            u32::from(color.b),
+            u32::from(color.a),
+        );
+        let Some(whole) = AzRect::from_xywh(0.0, 0.0, buf_w, buf_h) else {
+            return Ok(());
+        };
+        // Everything (even-odd) minus the hole.
+        let mut path = build_rect_path(&whole);
+        let hole_w = 2.0f32.mul_add(-spread, rect.width);
+        let hole_h = 2.0f32.mul_add(-spread, rect.height);
+        if hole_w > 0.0 && hole_h > 0.0 {
+            if let Some(hole) = AzRect::from_xywh(
+                pad + offset_x + spread,
+                pad + offset_y + spread,
+                hole_w,
+                hole_h,
+            ) {
+                // The hole's corners shrink with the spread (logical radii,
+                // device spread).
+                let shrink = |r: f32| {
+                    if r > 0.0 {
+                        (r - spread / dpi_factor.max(f32::EPSILON)).max(0.0)
+                    } else {
+                        0.0
+                    }
+                };
+                let hole_radius = BorderRadius {
+                    top_left: shrink(border_radius.top_left),
+                    top_right: shrink(border_radius.top_right),
+                    bottom_left: shrink(border_radius.bottom_left),
+                    bottom_right: shrink(border_radius.bottom_right),
+                };
+                let mut hole_path = build_rounded_rect_path(&hole, &hole_radius, dpi_factor);
+                path.concat_path(&mut hole_path, 0);
+            }
+        }
+        agg_fill_path(&mut tmp, &mut path, &agg_color, FillingRule::EvenOdd);
+        if blur_r > 0.5 {
+            let blur_radius = (blur_r.ceil() as u32).min(254);
+            let stride = (sw * 4) as i32;
+            let mut ra =
+                unsafe { RowAccessor::new_with_buf(tmp.data_mut().as_mut_ptr(), sw, sh, stride) };
+            stack_blur_rgba32(&mut ra, blur_radius, blur_radius);
+        }
+        // A rounded padding box masks the shadow to its curve (premultiplied:
+        // every channel scales with the coverage).
+        if !border_radius.is_zero() {
+            let mut mask = AzulPixmap::new(sw, sh).ok_or("cannot create shadow mask")?;
+            mask.fill(0, 0, 0, 0);
+            if let Some(padding_box) = AzRect::from_xywh(pad, pad, rect.width, rect.height) {
+                let mut padding_path =
+                    build_rounded_rect_path(&padding_box, border_radius, dpi_factor);
+                agg_fill_path(
+                    &mut mask,
+                    &mut padding_path,
+                    &Rgba8::new(255, 255, 255, 255),
+                    FillingRule::NonZero,
+                );
+            }
+            for (px, m) in tmp
+                .data_mut()
+                .chunks_exact_mut(4)
+                .zip(mask.data().chunks_exact(4))
+            {
+                let coverage = u32::from(m[3]);
+                for channel in px.iter_mut() {
+                    *channel = ((u32::from(*channel) * coverage + 127) / 255) as u8;
+                }
+            }
+        }
+        // Never outside the padding box (nor the active clip).
+        let padding_clip = (
+            rect.x.floor() as i32,
+            rect.y.floor() as i32,
+            (rect.x + rect.width).ceil() as i32,
+            (rect.y + rect.height).ceil() as i32,
+        );
+        let clip = match clip_px {
+            Some((x0, y0, x1, y1)) => (
+                x0.max(padding_clip.0),
+                y0.max(padding_clip.1),
+                x1.min(padding_clip.2),
+                y1.min(padding_clip.3),
+            ),
+            None => padding_clip,
+        };
+        if clip.0 >= clip.2 || clip.1 >= clip.3 {
+            return Ok(());
+        }
+        blit_clipped(
+            pixmap,
+            Some(clip),
+            tmp.data(),
+            sw,
+            sh,
+            0,
+            0,
+            sw,
+            sh,
+            (rect.x - pad) as i32,
+            (rect.y - pad) as i32,
+        );
+        return Ok(());
+    }
+
     // Compute shadow rect (expanded by spread, padded by blur)
     let padding = blur_r.ceil();
     let shadow_x = rect.x + offset_x - spread - padding;
@@ -786,14 +913,23 @@ fn render_box_shadow(
     let ring_eligible =
         matches!(shadow.clip_mode, BoxShadowClipMode::Outset) && border_radius.is_zero();
     if ring_eligible {
-        // Border-box hole in SOURCE coordinates. Shrink it by 1px on every
-        // side (ceil origin, floor extent) so the ring keeps a sliver of
-        // shadow UNDER the element edge — an over-large hole would leave a
-        // visible seam against the element's antialiased edge.
-        let hole_x = (rect.x - shadow_x).max(0.0).ceil() as u32 + 1;
-        let hole_y = (rect.y - shadow_y).max(0.0).ceil() as u32 + 1;
-        let hole_r = ((rect.x + rect.width - shadow_x).floor() as i64 - 1).max(0) as u32;
-        let hole_b = ((rect.y + rect.height - shadow_y).floor() as i64 - 1).max(0) as u32;
+        // Border-box hole in SOURCE coordinates. A box off the pixel grid
+        // has an antialiased edge: shrink the hole by 1px on every side
+        // (ceil origin, floor extent) so the ring keeps a sliver of shadow
+        // UNDER that edge - an over-large hole would leave a visible seam. A
+        // box ON the grid has no such edge, and the sliver would show
+        // through a transparent box (CSS: never inside the border box; WPT
+        // box-shadow-outset-without-border-radius-001): its hole is exact.
+        let on_the_grid = [rect.x, rect.y, rect.width, rect.height]
+            .iter()
+            .all(|v| v.fract() == 0.0);
+        let sliver = u32::from(!on_the_grid);
+        let hole_x = (rect.x - shadow_x).max(0.0).ceil() as u32 + sliver;
+        let hole_y = (rect.y - shadow_y).max(0.0).ceil() as u32 + sliver;
+        let hole_r =
+            ((rect.x + rect.width - shadow_x).floor() as i64 - i64::from(sliver)).max(0) as u32;
+        let hole_b =
+            ((rect.y + rect.height - shadow_y).floor() as i64 - i64::from(sliver)).max(0) as u32;
         let hole_r = hole_r.min(sw);
         let hole_b = hole_b.min(sh);
 

@@ -3672,7 +3672,7 @@ pub fn get_style_properties_for_state(
             (bg_color, bg_contents, inline_border)
         } else {
             // Block-level elements: background/border is painted by display_list.rs
-            // via push_backgrounds_and_border() in DisplayListBuilder
+            // via DisplayListGenerator::paint_box_decorations
             (None, Vec::new(), None)
         };
 

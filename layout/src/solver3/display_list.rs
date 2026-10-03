@@ -3041,42 +3041,10 @@ impl DisplayListBuilder {
         }
     }
 
-    /// Unified method to paint all background layers and border for an element.
-    ///
-    /// This consolidates the background/border painting logic that was previously
-    /// duplicated across:
-    /// - `paint_node_background_and_border()` for block elements
-    /// - `paint_inline_shape()` for inline-block elements
-    ///
-    /// The backgrounds are painted in order (back to front per CSS spec), followed
-    /// by the border.
-    pub(crate) fn push_backgrounds_and_border(
-        &mut self,
-        bounds: LogicalRect,
-        background_contents: &[azul_css::props::style::StyleBackgroundContent],
-        border_info: &BorderInfo,
-        simple_border_radius: BorderRadius,
-        style_border_radius: StyleBorderRadius,
-        image_cache: &azul_core::resources::ImageCache,
-    ) {
-        // Paint all background layers in order (CSS paints backgrounds back to front)
-        for bg in background_contents {
-            self.push_background_layer(bounds, bg, simple_border_radius, image_cache);
-        }
-
-        // Paint border
-        self.push_border(
-            bounds,
-            border_info.widths,
-            border_info.colors,
-            border_info.styles,
-            style_border_radius,
-        );
-    }
-
     /// Paint backgrounds and border for inline text elements.
     ///
-    /// Similar to `push_backgrounds_and_border` but uses `InlineBorderInfo` which stores
+    /// Similar to `DisplayListGenerator::paint_box_decorations` (a box's
+    /// shadows, backgrounds and border) but uses `InlineBorderInfo` which stores
     /// pre-resolved pixel values instead of CSS property values. This is used for
     /// inline (display: inline) elements where the border info is computed during
     /// text layout and stored in the glyph runs.
@@ -6333,6 +6301,83 @@ where
         !parent_is_replaced
     }
 
+    /// A box's decoration in its CSS order (CSS Backgrounds 3 s7, CSS 2.2
+    /// Appendix E): its OUTER shadows (below everything, around the border
+    /// box), its background layers, its INNER (`inset`) shadows - above the
+    /// background, inside the padding box, with the padding box's radii - and
+    /// its border. The one painter of a box's decoration, for a block box
+    /// (`paint_node_background_and_border_inner`) and an atomic inline
+    /// (`paint_inline_shape`, which skipped the shadows), so the two cannot
+    /// drift again.
+    ///
+    /// azul stores a shadow in four per-side slots, and `box-shadow` fills all
+    /// four with the SAME shadow: each DISTINCT shadow is painted once
+    /// (`get_box_shadows`, whose compact-cache fast path skips the cascade
+    /// for the many nodes without one).
+    #[allow(clippy::too_many_arguments)] // the box's resolved pieces, each needed once
+    fn paint_box_decorations(
+        &self,
+        builder: &mut DisplayListBuilder,
+        dom_id: NodeId,
+        node_state: &azul_core::styled_dom::StyledNodeState,
+        border_box: LogicalRect,
+        border: &crate::solver3::geometry::EdgeSizes,
+        background_contents: &[azul_css::props::style::StyleBackgroundContent],
+        border_info: &BorderInfo,
+        border_radius: BorderRadius,
+        style_border_radius: StyleBorderRadius,
+    ) {
+        // +spec:overflow:bb4308 - box shadows are ink overflow: painted outside
+        // border box, not affecting layout.
+        let shadows = super::getters::get_box_shadows(self.ctx.styled_dom, dom_id, node_state);
+        let is_inset = |s: &StyleBoxShadow| matches!(s.clip_mode, BoxShadowClipMode::Inset);
+        for shadow in shadows.iter().filter(|s| !is_inset(*s)) {
+            builder.push_item(DisplayListItem::BoxShadow {
+                bounds: border_box.into(),
+                shadow: *shadow,
+                border_radius,
+            });
+        }
+        for layer in background_contents {
+            builder.push_background_layer(border_box, layer, border_radius, self.ctx.image_cache);
+        }
+        if shadows.iter().any(is_inset) {
+            // CSS Backgrounds 3 s7.2: an inner shadow is cast inside the
+            // padding edge, whose corners are the border's inner curve.
+            let padding_box = LogicalRect::new(
+                LogicalPosition::new(
+                    border_box.origin.x + border.left,
+                    border_box.origin.y + border.top,
+                ),
+                LogicalSize::new(
+                    (border_box.size.width - border.left - border.right).max(0.0),
+                    (border_box.size.height - border.top - border.bottom).max(0.0),
+                ),
+            );
+            let inner = |r: f32, a: f32, b: f32| (r - a.max(b)).max(0.0);
+            let padding_radius = BorderRadius {
+                top_left: inner(border_radius.top_left, border.top, border.left),
+                top_right: inner(border_radius.top_right, border.top, border.right),
+                bottom_left: inner(border_radius.bottom_left, border.bottom, border.left),
+                bottom_right: inner(border_radius.bottom_right, border.bottom, border.right),
+            };
+            for shadow in shadows.iter().filter(|s| is_inset(*s)) {
+                builder.push_item(DisplayListItem::BoxShadow {
+                    bounds: padding_box.into(),
+                    shadow: *shadow,
+                    border_radius: padding_radius,
+                });
+            }
+        }
+        builder.push_border(
+            border_box,
+            border_info.widths,
+            border_info.colors,
+            border_info.styles,
+            style_border_radius,
+        );
+    }
+
     fn paint_node_background_and_border(
         &mut self,
         builder: &mut DisplayListBuilder,
@@ -6551,25 +6596,6 @@ where
             let style_border_radius =
                 get_style_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
 
-            // Paint box shadows before backgrounds (CSS spec: shadows render behind the element)
-            let node_state =
-                &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-
-            // +spec:overflow:bb4308 - box shadows are ink overflow: painted outside border box, not
-            // affecting layout. azul stores a shadow in four per-side slots, and
-            // `box-shadow` fills all four with the SAME shadow: paint each
-            // DISTINCT shadow once (`get_box_shadows`), or every `box-shadow`
-            // is drawn four times on top of itself. Routed through
-            // `super::getters` so the compact-cache has_box_shadow fast path
-            // fires — most nodes have no shadow and skip 4 cascade walks.
-            for shadow in super::getters::get_box_shadows(self.ctx.styled_dom, dom_id, node_state) {
-                builder.push_item(DisplayListItem::BoxShadow {
-                    bounds: paint_rect.into(),
-                    shadow,
-                    border_radius: simple_border_radius,
-                });
-            }
-
             // An SVG SHAPE takes its border as a STROKE. A stroke follows the
             // geometry; a border follows the box - and the box is clipped to
             // the geometry, so a rectangular border on a shape leaves a
@@ -6593,14 +6619,18 @@ where
                 border_info
             };
 
-            // Use unified background/border painting
-            builder.push_backgrounds_and_border(
+            // Shadows, backgrounds and the border, in their CSS order.
+            let bp = node.box_props.unpack();
+            self.paint_box_decorations(
+                builder,
+                dom_id,
+                &styled_node_state,
                 paint_rect,
+                &bp.border,
                 &background_contents,
                 &border_info,
                 simple_border_radius,
                 style_border_radius,
-                self.ctx.image_cache,
             );
 
             // The stroke is NOT painted here: it must land OUTSIDE this
@@ -8931,21 +8961,22 @@ where
 
         // FIX: object_bounds is the margin-box position from text3.
         // We need to convert to border-box for painting backgrounds/borders.
-        let margins = self
+        let (margins, border) = self
             .positioned_tree
             .tree
             .dom_to_layout
             .get(&node_id)
-            .map_or_else(crate::solver3::geometry::EdgeSizes::default, |indices| {
-                indices
-                    .first()
-                    .map_or_else(crate::solver3::geometry::EdgeSizes::default, |&idx| {
-                        self.positioned_tree.tree.nodes[idx.index()]
-                            .box_props
-                            .unpack()
-                            .margin
-                    })
-            });
+            .and_then(|indices| indices.first())
+            .map(|&idx| self.positioned_tree.tree.nodes[idx.index()].box_props.unpack())
+            .map_or_else(
+                || {
+                    (
+                        crate::solver3::geometry::EdgeSizes::default(),
+                        crate::solver3::geometry::EdgeSizes::default(),
+                    )
+                },
+                |bp| (bp.margin, bp.border),
+            );
 
         // Convert margin-box bounds to border-box bounds
         let border_box_bounds = LogicalRect {
@@ -8977,14 +9008,19 @@ where
         let style_border_radius =
             get_style_border_radius(self.ctx.styled_dom, node_id, styled_node_state);
 
-        // Use unified background/border painting with border-box bounds
-        builder.push_backgrounds_and_border(
+        // Shadows, backgrounds and the border with border-box bounds - the
+        // box painter's own sequence (an inline-block's shadow used to be
+        // skipped here).
+        self.paint_box_decorations(
+            builder,
+            node_id,
+            styled_node_state,
             border_box_bounds,
+            &border,
             &background_contents,
             &border_info,
             simple_border_radius,
             style_border_radius,
-            self.ctx.image_cache,
         );
 
         // Push hit-test area for this inline-block element
@@ -9306,7 +9342,7 @@ fn get_image_ref_for_image_source(
         ImageSource::Node(_) => None,
         ImageSource::Url(url) => {
             // CSS url() image — resolved exactly like `background-image`: look it
-            // up in the ImageCache by its CSS id (see push_backgrounds_and_border).
+            // up in the ImageCache by its CSS id (see DisplayListBuilder::push_background_layer).
             let css_id: azul_css::AzString = url.clone().into();
             image_cache.get_css_image_id(&css_id).cloned()
         }
