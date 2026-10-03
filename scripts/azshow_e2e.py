@@ -1,225 +1,79 @@
 #!/usr/bin/env python3
-"""AzShow end to end, headless over the debug server.
+"""AzShow end to end, headless over the debug server, on the shared driver scripts/azlin_e2e.py.
 
-    1. starts AzShow headless (AZ_BACKEND=headless, the debug server on --debug-port) on File > New
-       with an empty data folder (AZSHOW_DATA), sizes the window to --width x --height;
-    2. creates a deck from the default theme (Create) and checks it is open (AZSHOW_DECK);
+    1. starts AzShow headless on File > New with an empty data folder (--data-dir), 1280 x 800;
+    2. creates a deck from the default theme (Create) - AZSHOW_DECK;
     3. adds a slide with HOME > New Slide and one with INSERT > the "Two Content" layout cell
-       (AZSHOW_SLIDES 2 2, then 3 3), checks the rail lists three slides;
-    4. double-clicks the title placeholder of the current slide, types a title, leaves the text with
-       Escape and checks the title is in the tree (the canvas and the rail's preview);
-    5. inserts a rectangle (INSERT > Rectangle), drags it 150 px to the right and checks the committed
-       frame moved by 150 / scale slide units (AZSHOW_FRAME);
-    6. opens the slide sorter (VIEW > Slide Sorter), drags slide 1 onto slide 3 and checks the order
-       changed (AZSHOW_ORDER); when the engine's drag and drop does not deliver the drop headlessly it
-       says so and reorders with Ctrl+Down on the focused thumbnail instead (the same Move);
-    7. back in the normal view, saves with Ctrl+S and checks show/<id>/deck.json holds three slides and
-       the typed title;
-    8. starts the show with F5 (without the presenter window unless --presenter), steps with Space and
-       Right through every shown slide to "End of slide show" (AZSHOW_SHOW_ENDED), checks the
-       AZSHOW_SHOW lines, closes it with Escape (AZSHOW_SHOW_CLOSED);
-    9. takes a screenshot after each step (--out), and one in flora + dark.
+       (AZSHOW_SLIDES 2 2, then 3 3), checks the status bar says SLIDE 3 OF 3;
+    4. double-clicks the title placeholder, types a title, leaves the text with Escape, checks it;
+    5. inserts a rectangle (INSERT > Rectangle), drags it 150 px right and checks the committed frame
+       moved by 150 / scale slide units (AZSHOW_FRAME);
+    6. VIEW > Slide Sorter, drags slide 1 onto slide 3 - AZSHOW_ORDER (when no drop arrives
+       headlessly: a NOTE, and Mod+Down on the focused thumbnail instead);
+    7. Mod+S - show/<id>/deck.json holds three slides and the title;
+    8. File > Export > Create PDF - the PDF lands IN the data tree, show/exports/<title>.pdf
+       (it went through a save dialog to a path outside the tree once);
+    9. File > Options is appkit's settings page; File > About the standard About box;
+   10. F5 steps through the show to its end, Escape closes it;
+   11. the close guard: a close request with unsaved work shows the question, Cancel keeps the
+       window (a NOTE when the headless backend does not dispatch the close);
+   12. screenshots per step, and flora + dark.
 
 Usage (from the azul repository, after building libazul with the debug server and AzShow):
 
     python3 scripts/azshow_e2e.py [--bin target/release/AzShow] [--debug-port 8781]
-        [--timeout 180] [--width 1280] [--height 800] [--out <dir>] [--presenter] [--keep-logs]
+        [--timeout 240] [--out <dir>] [--keep]
 
-`AZSHOW_BIN` also names the binary. Run it through the capped runner (one app at a time).
+AZSHOW_E2E_PRESENTER=1 also opens the presenter window. Run it through the capped runner:
+
+    scripts/waves/tools/run_capped.sh --cap-mb 1500 --seconds 300 --log /tmp/azshow.log -- \\
+        python3 scripts/azshow_e2e.py --bin target/release/AzShow
 """
 
-import argparse
-import base64
 import json
 import os
-import re
 import shutil
-import subprocess
 import sys
-import tempfile
 import time
-import urllib.error
-import urllib.request
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import azlin_e2e as k  # noqa: E402
 
-
-def log(line):
-    print("[azshow] %s" % line, flush=True)
+TAG = "azshow"
+WIDTH, HEIGHT = 1280, 800
 
 
-class Failure(Exception):
-    pass
-
-
-def repo_roots():
-    repo = os.path.abspath(os.path.join(HERE, ".."))
-    roots = [repo]
-    try:
-        common = subprocess.run(
-            ["git", "-C", repo, "rev-parse", "--path-format=absolute", "--git-common-dir"],
-            check=True, capture_output=True, text=True,
-        ).stdout.strip()
-        main = os.path.dirname(common)
-        if main and main not in roots:
-            roots.append(main)
-    except (OSError, subprocess.CalledProcessError):
-        pass
-    return roots
-
-
-def find_binary(explicit):
-    candidates = []
-    if explicit:
-        candidates.append(explicit)
-    if os.environ.get("AZSHOW_BIN"):
-        candidates.append(os.environ["AZSHOW_BIN"])
-    for root in repo_roots():
-        for sub in ("release", "debug"):
-            candidates.append(os.path.join(root, "target", sub, "AzShow"))
-    for c in candidates:
-        if c and os.path.isfile(c) and os.access(c, os.X_OK):
-            return c
-    raise Failure("no AzShow binary; pass --bin or set AZSHOW_BIN (tried %s)" % candidates)
-
-
-def strings(value):
-    if isinstance(value, str):
-        yield value
-    elif isinstance(value, list):
-        for v in value:
-            yield from strings(v)
-    elif isinstance(value, dict):
-        for v in value.values():
-            yield from strings(v)
-
-
-def dicts(value):
-    if isinstance(value, dict):
-        yield value
-        for v in value.values():
-            yield from dicts(v)
-    elif isinstance(value, list):
-        for v in value:
-            yield from dicts(v)
-
-
-def tail(path, lines=40):
-    try:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            return "".join(f.readlines()[-lines:])
-    except OSError:
-        return "(no output)"
-
-
-class App:
+class Show(k.App):
     """AzShow under its debug server."""
 
-    def __init__(self, binary, args, port, env, logs, deadline):
-        self.port = port
-        self.deadline = deadline
-        self.out_path = os.path.join(logs, "azshow.stdout")
-        self.err_path = os.path.join(logs, "azshow.stderr")
-        self.process = subprocess.Popen(
-            [binary] + args, env=env, stdin=subprocess.DEVNULL,
-            stdout=open(self.out_path, "wb"), stderr=open(self.err_path, "wb"),
-        )
-
-    def stop(self):
-        if self.process.poll() is None:
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-
-    def op(self, op, **params):
-        body = {"op": op}
-        body.update(params)
-        request = urllib.request.Request(
-            "http://127.0.0.1:%d/" % self.port,
-            data=json.dumps(body).encode("utf-8"), method="POST",
-        )
-        with urllib.request.urlopen(request, timeout=15) as response:
-            return json.loads(response.read().decode("utf-8") or "{}")
-
-    def must(self, op, **params):
-        answer = self.op(op, **params)
-        if isinstance(answer, dict) and answer.get("status") == "error":
-            raise Failure("%s %s failed: %s" % (op, json.dumps(params), json.dumps(answer)[:300]))
-        return answer
-
-    def value(self, op, **params):
-        answer = self.must(op, **params)
-        data = answer.get("data") if isinstance(answer, dict) else None
-        if isinstance(data, dict) and "value" in data:
-            return data["value"]
-        return data if data is not None else answer
-
-    def frame(self, n=1):
-        for _ in range(n):
-            self.must("wait_frame")
-
-    def texts(self):
-        return list(strings(self.op("get_node_hierarchy")))
-
-    def shows(self, text):
-        return any(text in t for t in self.texts())
-
-    def printed(self, key, pattern=r".*"):
+    def stdout(self):
         try:
             with open(self.out_path, "r", encoding="utf-8", errors="replace") as f:
-                text = f.read()
+                return f.read()
         except OSError:
-            return []
-        return re.findall(r"^%s ?(%s)$" % (re.escape(key), pattern), text, re.M)
+            return ""
 
-    def until(self, what, check, interval=0.25, deadline=None):
-        last = None
-        end = deadline or self.deadline
+    def has_line(self, name):
+        """Whether the bare line `name` (no value) was printed."""
+        return any(line.strip() == name for line in self.stdout().splitlines())
+
+    def soon(self, what, check, seconds=6.0):
+        """`until` with a short deadline: None instead of a failure."""
+        end = time.time() + seconds
         while time.time() < end:
-            if self.process.poll() is not None:
-                raise Failure("AzShow exited (%s) while waiting for %s" % (self.process.returncode, what))
             try:
                 value = check()
                 if value:
                     return value
-            except (OSError, ValueError, urllib.error.URLError) as e:
-                last = e
-            time.sleep(interval)
-        raise Failure("timed out waiting for %s%s" % (what, " (last error: %s)" % last if last else ""))
+            except (OSError, ValueError):
+                pass
+            time.sleep(0.25)
+        return None
 
-    def soon(self, what, check, seconds=6.0):
-        """`until` with a short deadline; None instead of a failure."""
-        try:
-            return self.until(what, check, deadline=time.time() + seconds)
-        except Failure:
-            return None
-
-    def new_lines(self, key, before, pattern=r".*"):
-        return self.until("%s" % key, lambda: self.printed(key, pattern)[before:] or None)
-
-    def rect(self, selector):
+    def box(self, selector):
         value = self.value("get_node_layout", selector=selector)
         r = (value or {}).get("rect") or {}
-        return {k: float(r.get(k, 0)) for k in ("x", "y", "width", "height")}
-
-    def click_text(self, text):
-        self.must("click", text=text)
-        self.frame(2)
-
-    def key(self, key, shift=False, ctrl=False, meta=False, primary=False):
-        # `primary`: the platform's shortcut modifier, as the apps read it
-        # (KeyModifiers::primary_down) - Cmd on macOS, Ctrl elsewhere.
-        if primary:
-            if sys.platform == "darwin":
-                meta = True
-            else:
-                ctrl = True
-        mods = {"shift": shift, "ctrl": ctrl, "alt": False, "meta": meta}
-        self.must("key_down", key=key, modifiers=mods)
-        self.must("key_up", key=key, modifiers=mods)
-        self.frame(2)
+        return {key: float(r.get(key, 0)) for key in ("x", "y", "width", "height")}
 
     def drag(self, x0, y0, x1, y1, steps=8):
         self.must("mouse_move", x=x0, y=y0)
@@ -233,57 +87,50 @@ class App:
         self.must("mouse_up", x=x1, y=y1)
         self.frame(2)
 
-    def screenshot(self, path):
-        value = self.value("take_screenshot")
-        data = value.get("data") if isinstance(value, dict) else None
-        if not isinstance(data, str) or "base64," not in data:
-            log("take_screenshot returned no PNG (%s)" % json.dumps(value)[:120])
-            return
-        with open(path, "wb") as f:
-            f.write(base64.b64decode(data.split("base64,", 1)[1]))
-        log("screenshot %s (%d bytes)" % (path, os.path.getsize(path)))
+    def classes(self):
+        out = set()
+        for d in k.dicts(self.op("get_node_hierarchy")):
+            for c in d.get("classes") or []:
+                out.add(c)
+        return out
 
 
 def slide_box(app):
     """The slide's rectangle on screen and its scale (px per slide unit)."""
-    r = app.rect("#azshow-slide")
+    r = app.box("#__azshow_slide")
     if r["width"] <= 0:
-        raise Failure("the slide (#azshow-slide) is not laid out: %s" % r)
+        raise k.Failure("the slide (#__azshow_slide) is not laid out: %s" % r)
     return r, r["width"] / 1920.0
 
 
-def run(args, logs, out):
-    binary = find_binary(args.bin)
-    deadline = time.time() + args.timeout
+def body(args, logs, out):
+    binary = k.find_binary("AzShow", args.bin, "AZSHOW_BIN")
     data_root = os.path.join(logs, "data")
     os.makedirs(data_root, exist_ok=True)
-    env = dict(os.environ)
-    env.update({"AZ_BACKEND": "headless", "AZ_DEBUG": str(args.debug_port), "AZSHOW_DATA": data_root})
-    argv = ["--screen", "backstage-new"]
-    if not args.presenter:
+    argv = ["--data-dir", data_root, "--size", "%dx%d" % (WIDTH, HEIGHT), "--screen", "backstage-new"]
+    if os.environ.get("AZSHOW_E2E_PRESENTER") != "1":
         argv.append("--no-presenter")
-    app = App(binary, argv, args.debug_port, env, logs, deadline)
+    app = Show(TAG, binary, argv, args.debug_port, logs, args.timeout)
     shot = lambda name: app.screenshot(os.path.join(out, name + ".png"))
     try:
-        app.until("AzShow's window", lambda: app.printed("AZSHOW_READY") and app.shows("Create"))
-        app.must("resize", width=args.width, height=args.height)
+        app.until("AzShow's window", lambda: app.has_line("AZSHOW_READY") and app.shows("Create"))
+        app.must("resize", width=WIDTH, height=HEIGHT)
         app.frame(2)
         shot("01-new")
 
         # ---- a new deck ----
-        app.click_text("Create")
+        app.click(text="Create")
         deck_id = app.until("the new deck", lambda: app.printed("AZSHOW_DECK", r"\S+"))[-1]
-        log("deck %s" % deck_id)
+        app.log("deck %s" % deck_id)
         app.until("the normal view", lambda: app.shows("SLIDE 1 OF 1"))
 
         # ---- slides with layouts ----
         before = len(app.printed("AZSHOW_SLIDES", r"\d+ \d+"))
-        app.click_text("New Slide")
+        app.click(text="New Slide")
         app.until("a second slide", lambda: app.printed("AZSHOW_SLIDES", r"\d+ \d+")[before:])
-        app.click_text("INSERT")
-        app.click_text("Two Content")
-        slides = app.until("a third slide", lambda: [l for l in app.printed("AZSHOW_SLIDES", r"\d+ \d+") if l.startswith("3 ")])
-        log("slides: %s" % slides[-1])
+        app.click(text="INSERT")
+        app.click(text="Two Content")
+        app.until("a third slide", lambda: [l for l in app.printed("AZSHOW_SLIDES", r"\d+ \d+") if l.startswith("3 ")])
         app.until("the status bar's slide count", lambda: app.shows("SLIDE 3 OF 3"))
         shot("02-three-slides")
 
@@ -299,63 +146,53 @@ def run(args, logs, out):
         app.frame(3)
         app.key("escape")
         app.until("the typed title", lambda: app.shows("Quarterly plan"))
-        log("typed the title")
+        app.log("typed the title")
         shot("03-title")
 
         # ---- insert a rectangle and move it ----
-        app.click_text("INSERT")
-        app.click_text("Rectangle")
-        app.frame(2)
+        app.click(text="INSERT")
+        app.click(text="Rectangle")
         box, scale = slide_box(app)
         cx = box["x"] + (760 + 200) * scale
         cy = box["y"] + (390 + 150) * scale
         before = len(app.printed("AZSHOW_FRAME", r".+"))
         app.drag(cx, cy, cx + 150, cy)
         frames = app.until("the committed move", lambda: app.printed("AZSHOW_FRAME", r".+")[before:])
-        parts = frames[-1].split()
-        moved_x = float(parts[1])
+        moved_x = float(frames[-1].split()[1])
         want = 760 + 150 / scale
         if abs(moved_x - want) > 12:
-            raise Failure("the rectangle went to x=%s, expected about %.0f (scale %.3f)" % (moved_x, want, scale))
-        log("moved the rectangle to x=%s" % moved_x)
+            raise k.Failure("the rectangle went to x=%s, expected about %.0f (scale %.3f)" % (moved_x, want, scale))
+        app.log("moved the rectangle to x=%s" % moved_x)
         shot("04-moved")
 
         # ---- reorder in the slide sorter ----
-        app.click_text("VIEW")
-        app.click_text("Slide Sorter")
+        app.click(text="VIEW")
+        app.click(text="Slide Sorter")
         app.until("the sorter", lambda: app.printed("AZSHOW_VIEW", r"Slide Sorter"))
-        app.frame(2)
         shot("05-sorter")
-        items = app.value("get_node_layout", selector=".__azul-native-thumbnail-strip-item")
         thumbs = []
-        for d in dicts(app.op("get_all_nodes_layout")):
-            classes = d.get("classes") or []
-            if "__azul-native-thumbnail-strip-item" in classes and isinstance(d.get("rect"), dict):
-                thumbs.append({k: float(d["rect"].get(k, 0)) for k in ("x", "y", "width", "height")})
+        for d in k.dicts(app.op("get_all_nodes_layout")):
+            if "__azul-native-thumbnail-strip-item" in (d.get("classes") or []) and isinstance(d.get("rect"), dict):
+                thumbs.append({key: float(d["rect"].get(key, 0)) for key in ("x", "y", "width", "height")})
         if len(thumbs) < 3:
-            # Fall back on the first item's rectangle and the grid's step.
-            first = (items or {}).get("rect") or {}
-            x0, y0 = float(first.get("x", 40)), float(first.get("y", 200))
-            w0 = float(first.get("width", 240))
-            thumbs = [{"x": x0 + i * (w0 + 8), "y": y0, "width": w0, "height": 140} for i in range(3)]
+            raise k.Failure("the sorter shows %d thumbnails, expected 3" % len(thumbs))
         center = lambda r: (r["x"] + r["width"] / 2, r["y"] + r["height"] / 2)
         before = len(app.printed("AZSHOW_ORDER", r".+"))
         (x1, y1), (x3, y3) = center(thumbs[0]), center(thumbs[2])
         app.drag(x1, y1, x3, y3, steps=12)
         order = app.soon("the drop", lambda: app.printed("AZSHOW_ORDER", r".+")[before:])
         if order:
-            log("drag and drop reordered the slides: %s" % order[-1])
+            app.log("drag and drop reordered the slides: %s" % order[-1])
         else:
-            log("NOTE: no drop arrived headlessly; reordering with Ctrl+Down on the thumbnail")
+            app.log("NOTE: no drop arrived headlessly; reordering with Mod+Down on the thumbnail")
             app.must("click", x=x1, y=y1)
             app.frame(2)
             app.key("down", primary=True)
             order = app.until("the keyboard move", lambda: app.printed("AZSHOW_ORDER", r".+")[before:])
-            log("Ctrl+Down reordered the slides: %s" % order[-1])
+            app.log("Mod+Down reordered the slides: %s" % order[-1])
         shot("06-reordered")
-        app.click_text("VIEW")
-        app.click_text("Normal")
-        app.frame(2)
+        app.click(text="VIEW")
+        app.click(text="Normal")
 
         # ---- save ----
         before = len(app.printed("AZSHOW_SAVED", r"\S+"))
@@ -365,69 +202,78 @@ def run(args, logs, out):
         with open(path, "r", encoding="utf-8") as f:
             deck = json.load(f)
         if deck.get("format") != "azshow.deck" or len(deck.get("slides", [])) != 3:
-            raise Failure("deck.json is not the three-slide deck: %s" % json.dumps(deck)[:300])
+            raise k.Failure("deck.json is not the three-slide deck: %s" % json.dumps(deck)[:300])
         if "Quarterly plan" not in json.dumps(deck):
-            raise Failure("deck.json does not hold the typed title")
-        log("saved %s (%d slides)" % (path, len(deck["slides"])))
+            raise k.Failure("deck.json does not hold the typed title")
+        app.log("saved %s (%d slides)" % (path, len(deck["slides"])))
+
+        # ---- export into the data tree ----
+        app.click(text="FILE")
+        app.click(text="Export")
+        app.click(text="Create PDF")
+        exported = app.until("the PDF export", lambda: app.printed("AZSHOW_EXPORTED", r"\S.*"))
+        key = exported[-1]
+        if not key.startswith("show/exports/") or not os.path.isfile(os.path.join(data_root, key)):
+            raise k.Failure("the PDF is not in show/exports/ of the data tree: %s" % key)
+        app.log("exported %s" % key)
+
+        # ---- Options and About ----
+        app.click(text="Options")
+        app.until("the settings page", lambda: app.has_id("appkit-theme") and app.has_id("appkit-mode"))
+        shot("07-options")
+        app.click(text="About")
+        app.until("the About box", lambda: "__azul-native-about-dialog" in app.classes())
+        shot("08-about")
+        app.key("escape")
+        app.until("back in the editor", lambda: app.shows("SLIDE"))
 
         # ---- the show ----
         before = len(app.printed("AZSHOW_SHOW", r"\d+ \d+"))
         app.key("f5")
         app.until("the show", lambda: app.printed("AZSHOW_SHOW", r"\d+ \d+")[before:])
-        shot("07-show")
-        for key in ("space", "right", "space"):
-            app.key(key)
-        app.until("the end of the show", lambda: app.printed("AZSHOW_SHOW_ENDED"))
+        shot("09-show")
+        for key_name in ("space", "right", "space"):
+            app.key(key_name)
+        app.until("the end of the show", lambda: app.has_line("AZSHOW_SHOW_ENDED"))
         steps = app.printed("AZSHOW_SHOW", r"\d+ \d+")[before:]
-        log("show steps: %s" % steps)
         if len(steps) < 3:
-            raise Failure("the show did not step through the slides: %s" % steps)
+            raise k.Failure("the show did not step through the slides: %s" % steps)
         app.key("escape")
-        app.until("the show to close", lambda: app.printed("AZSHOW_SHOW_CLOSED"))
+        app.until("the show to close", lambda: app.has_line("AZSHOW_SHOW_CLOSED"))
+        app.log("the show stepped: %s" % steps)
+
+        # ---- the close guard (an unsaved change first) ----
+        app.click(text="INSERT")
+        app.click(text="Rectangle")
+        try:
+            app.must("close")
+            app.frame(3)
+            app.until("the save question", lambda: "__azul-native-message-box" in app.classes())
+            shot("10-close-question")
+            app.click(text="Cancel")
+            app.until("the question gone", lambda: "__azul-native-message-box" not in app.classes())
+            app.log("a close with unsaved work asks; Cancel keeps the window")
+        except k.Failure as e:
+            if app.process.poll() is not None:
+                app.log("NOTE: the headless backend closed without CloseRequested (%s) - INFRA6 / HEADLESS6" % e)
+                return True
+            raise
 
         # ---- the other theme and mode ----
         app.must("set_theme", theme="flora")
         app.must("set_mode", mode="dark")
         app.frame(3)
-        shot("08-flora-dark")
-        app.must("set_theme", theme="flat")
-        app.must("set_mode", mode="light")
-        app.frame(2)
-        log("PASS: deck, layouts, title, move, reorder, save, show; screenshots in %s" % out)
+        shot("11-flora-dark")
+        if not args.keep:
+            shutil.rmtree(data_root, ignore_errors=True)
+        print("[%s] PASS" % TAG, flush=True)
         return True
-    except Failure as e:
-        log("FAIL: %s" % e)
-        print("---- stdout ----\n%s---- stderr ----\n%s" % (tail(app.out_path), tail(app.err_path)))
+    except k.Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (k.tail(app.out_path), k.tail(app.err_path)))
         raise
     finally:
         app.stop()
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--bin")
-    parser.add_argument("--debug-port", type=int, default=8781)
-    parser.add_argument("--timeout", type=int, default=180)
-    parser.add_argument("--width", type=int, default=1280)
-    parser.add_argument("--height", type=int, default=800)
-    parser.add_argument("--out")
-    parser.add_argument("--presenter", action="store_true", help="also open the presenter window")
-    parser.add_argument("--keep-logs", action="store_true")
-    args = parser.parse_args()
-    logs = tempfile.mkdtemp(prefix="azshow-e2e-")
-    out = args.out or os.path.join(logs, "screenshots")
-    os.makedirs(out, exist_ok=True)
-    passed = False
-    try:
-        passed = run(args, logs, out)
-    except Failure:
-        passed = False
-    finally:
-        if passed and not args.keep_logs and not args.out:
-            shutil.rmtree(os.path.join(logs, "data"), ignore_errors=True)
-        log("logs in %s" % logs)
-    sys.exit(0 if passed else 1)
-
-
 if __name__ == "__main__":
-    main()
+    k.run(TAG, body, default_port=8781)
