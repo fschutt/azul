@@ -55,7 +55,19 @@ AzReader, lib azreader). Never compile; rustfmt --edition 2021 <file> as the par
    d) Chapter{...} lives in paginate.rs (step 3);
    e) SaveState{id, BookState} -> Put state.json (via azul_appkit::ui::spawn_file_jobs is enough).
 6. DONE 96cda63f5 src/settings.rs.
-7. UI (NEXT = (c) src/commands.rs). DONE: (a) 4b69423fe src/ids.rs, (b) 8e11cd9e0 src/app.rs
+7. UI. DONE (c) 706bc1bd3 src/commands.rs (run, on_command, scan_library, import_files,
+   open_book, go_to, request_chapter, ensure_layout, turn_page, moved, save_state,
+   toggle_bookmark, settings_changed, on_chapter_ready, on_job_done; uses kit category
+   "Reading" -> create_kit must get app_categories &["Reading"]), 88a9283a1 Job::ImportBytes,
+   ff447ab12 src/sample.rs. NEXT = (d) src/ui_library.rs: fn library_view(app, st) -> Dom
+   (DocumentShell::create(grid).with_navigation(shelves).office_shell() + ribbon HOME: Add
+   book, Open, Remove; Sort; VIEW: Settings, About), covers grid of tiles (cover ImageRef via
+   Dom::create_image(image.clone()) else a coloured tile with the title; title, author,
+   percent; click = Select, double click / Open = OpenBook; TODO(WIDGETS9A) IconGrid),
+   ShellEmptyState when no book ("Add a book" -> AddBooks); then (e) src/ui_reader.rs, then
+   (f) src/lib.rs (start: create_kit(SPEC, ABOUT, &SHORTCUTS, &["Reading"], args); layout;
+   on_window_created: scan + area timer (400 ms: measure area via get_node_id_by_marker
+   (st.area_marker) + get_node_rect, set st.area, commands::ensure_layout); on_key). Earlier DONE: (a) 4b69423fe src/ids.rs, (b) 8e11cd9e0 src/app.rs
    (AppState with area/area_marker measured via get_node_id_by_marker + get_node_rect on a
    timer, Target, OpenBook, Command, command()). Order: (a) src/ids.rs consts; (b) src/app.rs AppState {kit, data_root, screen
    Library|Reader, library entries + covers + shelf/sort/query, open book {id, info, state,
