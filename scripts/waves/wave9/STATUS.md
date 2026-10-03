@@ -7,7 +7,7 @@ Resume: SendMessage the agent id ("continue from your progress file"). Worktrees
 | WIDGETS9A | a18aaef546b141fde | wt/widgets9a | running (base e537ddbe2) |
 | WIDGETS9B | acb99bc6296facd68 | wt/widgets9b | running (base e537ddbe2) |
 | MAIL9 | a4d36f4ef063912bd | wt/mail9 | PAUSED - resume from scripts/MAIL9.PROGRESS.md (report scripts/MAIL9_2026_10_03.md: direct delivery + client DKIM DONE end to end; submission via lettre started; remote-content pre-pass NOT started) |
-| PDF9 | a90ecd8756e4fac61 | wt/pdf9 | running (base e537ddbe2) |
+| PDF9 | a90ecd8756e4fac61 | wt/pdf9 | DONE (19 commits; report scripts/PDF9_2026_10_03.md; ParsedPdf -> page SVG in the API (api list in report), CPU SVG renderer: rgb() colours, transform order / lists, fit honoured; AzPdf viewer + export; scripts/pdf_chrome_probe.py; NEXT: azul SVG renderer lacks <text> / <image> (PDF pages show shapes only) - plan in PDF9.PROGRESS.md) |
 | READER9 | ad5e2a07b9e50eb78 | wt/reader9 | running (base e537ddbe2) |
 | TERM9 | aeeb57dd4eb500ff0 | wt/term9 | running (base e537ddbe2) |
 | CODE9 | aec89a04e113059d5 | wt/code9 | running (base e537ddbe2) |
