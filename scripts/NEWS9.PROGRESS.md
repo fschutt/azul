@@ -23,8 +23,14 @@ On resume: read this file, `git -C <worktree> status`, `git log --oneline -12`, 
 - db112258c DateGroup + date_group moved azul-mail listing.rs -> azul-pim dates.rs (tests moved
   too; mail re-exports; mail's own tests kept, `use chrono::Weekday` added to them).
 
+- 1b59ae13f RED / d34839e47 GREEN src/library.rs (as designed below; type-check clean with
+  /tmp/news9_check/harness4.rs = harness2 + library + an opml::Subscription stub, and an
+  azul_pim rmeta built from the worktree: `rustc --crate-name azul_pim --emit=metadata
+  examples/azul-pim/src/lib.rs` -> /tmp/news9_check/libazul_pim.rmeta).
+
 ## NEXT (in this order; RED commit with tests + stubs, then GREEN commit, each)
-4. src/library.rs (pure, type-checkable with harness2 + `--extern azul_pim=<rlib>`):
+5. src/store.rs (next step): see item 5 below.
+(done) 4. src/library.rs (pure, type-checkable with harness2 + `--extern azul_pim=<rlib>`):
    `FeedMeta` (serde, feed.json: format "aznews.feed" v1, url, title, site, icon, kind, etag,
    last_modified, checked, updated, status, error), `FeedData { sub: Subscription, meta, items:
    Vec<Item>, state: ReadState }`, `Library { feeds: Vec<FeedData> }` (subscription order),
@@ -65,6 +71,8 @@ On resume: read this file, `git -C <worktree> status`, `git log --oneline -12`, 
   resume: recreate from this description.
 
 ## Decisions
+- HOUSE RULE (coordinator, 2026-10-03): never send the user's email / personal data to a service
+  (User-Agent, URL, payload). AzNews' User-Agent: `AzNews/0.1 (+https://github.com/fschutt/azul)`.
 - Feed parsing: own parser on quick-xml 0.41 (already in Cargo.lock via docx-parser / ooxml-common /
   plist) in lenient mode (allow_dangling_amp, allow_unmatched_ends, check_end_names off) +
   serde_json for JSON Feed; NOT feed-rs (not in Cargo.lock; pulls its own quick-xml, mediatype,
