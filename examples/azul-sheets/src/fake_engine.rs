@@ -40,6 +40,9 @@ struct FakeSheet {
     /// The merged areas (their `sheet` is not kept up to date: the sheet
     /// they belong to is the one holding them).
     merges: Vec<CellArea>,
+    /// The conditional formats, in order (kept, listed, cleared - the fake
+    /// does not evaluate them; IronCalc does).
+    conditional: Vec<(CellArea, CondRule, CondLook)>,
 }
 
 impl FakeSheet {
@@ -990,17 +993,38 @@ impl SheetEngine for FakeEngine {
     }
 
     fn conditional_formats(&self, sheet: u32) -> Vec<ConditionalFormat> {
-        let _ = sheet;
-        Vec::new()
+        self.book
+            .sheets
+            .get(sheet as usize)
+            .map(|s| {
+                s.conditional
+                    .iter()
+                    .enumerate()
+                    .map(|(index, (area, rule, _))| ConditionalFormat {
+                        index,
+                        area: CellArea { sheet, ..*area },
+                        description: rule.describe(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     fn add_conditional_format(&mut self, area: CellArea, rule: &CondRule, look: CondLook) -> Result<(), EngineError> {
-        let _ = (area, rule, look);
+        self.check_sheet(area.sheet)?;
+        self.checkpoint();
+        self.book.sheets[area.sheet as usize]
+            .conditional
+            .push((area, rule.clone(), look));
         Ok(())
     }
 
     fn clear_conditional_formats(&mut self, area: CellArea) -> Result<(), EngineError> {
-        let _ = area;
+        self.check_sheet(area.sheet)?;
+        self.checkpoint();
+        self.book.sheets[area.sheet as usize]
+            .conditional
+            .retain(|(a, _, _)| !CellArea { sheet: area.sheet, ..*a }.overlaps(&area));
         Ok(())
     }
 }
