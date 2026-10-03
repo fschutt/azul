@@ -476,6 +476,278 @@ fn a_document_gets_its_head_and_body_where_a_browser_puts_them() {
     );
 }
 
+/// Foster parenting (13.2.6.1 "the appropriate place for inserting a node", 13.2.6.4.9 "in
+/// table": anything else; 13.2.6.4.10 "in table text"): text and elements that cannot be in a
+/// table, a row group or a row go in front of the table - a Postmark template's
+/// `{{#each}}` between rows, a stray `<div>`. White space, a hidden input, a form, a
+/// stylesheet stay in the table.
+#[test]
+fn text_and_elements_misplaced_in_a_table_go_in_front_of_it() {
+    check(
+        &[
+            (
+                "<table>x<tr><td>a</td></tr></table>",
+                "\"x\" table{tbody{tr{td{\"a\"}}}}",
+            ),
+            (
+                "<table><tr>{{#each items}}<td>a</td>{{/each}}</tr></table>",
+                "\"{{#each items}}{{/each}}\" table{tbody{tr{td{\"a\"}}}}",
+            ),
+            (
+                "<table><div>a</div><tr><td>b</td></tr></table>",
+                "div{\"a\"} table{tbody{tr{td{\"b\"}}}}",
+            ),
+            (
+                "<table><b>x<tr><td>y</td></tr></table>z",
+                "b{\"x\"} table{tbody{tr{td{\"y\"}}}} b{\"z\"}",
+            ),
+            (
+                "<div><table><tr>x<td>a</table></div>",
+                "div{\"x\" table{tbody{tr{td{\"a\"}}}}}",
+            ),
+            (
+                "<table><tr><td>a</td>b</tr></table>",
+                "\"b\" table{tbody{tr{td{\"a\"}}}}",
+            ),
+            (
+                "<table><tbody>t<tr><td>a</table>",
+                "\"t\" table{tbody{tr{td{\"a\"}}}}",
+            ),
+            (
+                "<table><span>s<td>a</table>",
+                "span{\"s\"} table{tbody{tr{td{\"a\"}}}}",
+            ),
+            ("<table><p>p</table>", "p{\"p\"} table"),
+            (
+                "<table><tr><td>a</td></tr> <tr><td>b</td></tr></table>",
+                "table{tbody{tr{td{\"a\"}} tr{td{\"b\"}}}}",
+            ),
+            (
+                "<table><form><tr><td><input></td></tr></form></table>",
+                "table{form tbody{tr{td{input}}}}",
+            ),
+            (
+                "<table><style>s{}</style><tr><td>a</table>",
+                "table{style{\"s{}\"} tbody{tr{td{\"a\"}}}}",
+            ),
+            // foster parenting and the adoption agency together
+            ("<table><a>1<p>2</a>3</p>", "a{\"1\"} p{a{\"2\"} \"3\"} table"),
+        ],
+        false,
+        body_of,
+    );
+    check(
+        &[(
+            "<table><input type=hidden><input type=text></table>",
+            "input[type=text] table{input[type=hidden]}",
+        )],
+        true,
+        body_of,
+    );
+}
+
+/// 13.2.6.4.1 "initial": a document without a doctype (most mails) - or with a legacy one -
+/// is in quirks mode, where a `<table>` does not close an open `<p>` (13.2.6.4.7, "table").
+#[test]
+fn a_document_in_quirks_mode_keeps_a_table_in_its_paragraph() {
+    let nested = "p{\"a\" table{tbody{tr{td{\"x\"}}}}}";
+    let closed = "p{\"a\"} table{tbody{tr{td{\"x\"}}}}";
+    let table = "<p>a<table><tr><td>x</table>";
+    let rows: Vec<(String, &str)> = [
+        ("", nested),
+        ("<!DOCTYPE html>", closed),
+        (
+            "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01 Transitional//EN\">",
+            nested,
+        ),
+        (
+            "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01 Transitional//EN\" \"http://www.w3.org/TR/html4/loose.dtd\">",
+            closed,
+        ),
+        (
+            "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">",
+            closed,
+        ),
+        ("<!DOCTYPE html SYSTEM \"about:legacy-compat\">", closed),
+        ("<!doctype foo>", nested),
+        ("<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\">", nested),
+    ]
+    .iter()
+    .map(|(doctype, expected)| (alloc::format!("{doctype}{table}"), *expected))
+    .collect();
+    let rows: Vec<(&str, &str)> = rows.iter().map(|(i, e)| (i.as_str(), *e)).collect();
+    check(&rows, false, body_of);
+}
+
+/// The table insertion modes (13.2.6.4.9 - 13.2.6.4.13): a `<col>` implies its
+/// `<colgroup>`, a cell its row and row group, a `<table>` in a table closes the open one, a
+/// row closes the caption, a stray `</tbody>` ends the row group.
+#[test]
+fn the_table_insertion_modes_imply_and_close_what_a_browser_does() {
+    check(
+        &[
+            (
+                "<table><tr><td>a</td></tr><table><tr><td>b</table>",
+                "table{tbody{tr{td{\"a\"}}}} table{tbody{tr{td{\"b\"}}}}",
+            ),
+            (
+                "<table><caption>c<tr><td>x</table>",
+                "table{caption{\"c\"} tbody{tr{td{\"x\"}}}}",
+            ),
+            (
+                "<table><colgroup><col><tr><td>x</table>",
+                "table{colgroup{col} tbody{tr{td{\"x\"}}}}",
+            ),
+            (
+                "<table><td>a<tr><td>b</table>",
+                "table{tbody{tr{td{\"a\"}} tr{td{\"b\"}}}}",
+            ),
+            (
+                "<table><tr><td>a</td></tr></tbody><tr><td>b</td></tr></table>",
+                "table{tbody{tr{td{\"a\"}}} tbody{tr{td{\"b\"}}}}",
+            ),
+            (
+                "<table><tr><td><table><tr><td>a</td></tr></table>b</td></tr></table>",
+                "table{tbody{tr{td{table{tbody{tr{td{\"a\"}}}} \"b\"}}}}",
+            ),
+            ("<td>a</td><tr>b", "\"ab\""),
+            (
+                "<table><tr><th>h<td>d</tr></table>",
+                "table{tbody{tr{th{\"h\"} td{\"d\"}}}}",
+            ),
+        ],
+        false,
+        body_of,
+    );
+    check(
+        &[(
+            "<table><col width=10><tr><td>x</table>",
+            "table{colgroup{col[width=10]} tbody{tr{td{\"x\"}}}}",
+        )],
+        true,
+        body_of,
+    );
+}
+
+/// 13.2.6.4.7, "any other end tag": an end tag whose element is open only below a block
+/// (a "special" element) is ignored - `</span>` does not close the `<div>` inside the span.
+#[test]
+fn an_end_tag_does_not_reach_past_an_open_block() {
+    check(
+        &[
+            ("<span>a<div>b</span>c</div>d", "span{\"a\" div{\"bc\"} \"d\"}"),
+            ("<div>a<span>b</div>c", "div{\"a\" span{\"b\"}} \"c\""),
+        ],
+        false,
+        body_of,
+    );
+}
+
+/// The tokenizer's states (13.2.5): PLAINTEXT never ends, an end tag's attributes are read
+/// (and dropped) so a quoted `>` does not end it, RCDATA / RAWTEXT end only at their own end
+/// tag, CDATA is a section only in SVG / MathML (else a bogus comment up to the first `>`),
+/// a doctype after the start is nothing, `<p/>` is an open `<p>`.
+#[test]
+fn markup_is_tokenized_in_the_states_of_the_html_standard() {
+    check(
+        &[
+            ("<plaintext>a</plaintext><b>c", "plaintext{\"a</plaintext><b>c\"}"),
+            // Chrome: `"a" "y]]>b"` (the bogus comment is a node there)
+            ("a<![CDATA[x>y]]>b", "\"ay]]>b\""),
+            ("<svg><![CDATA[a<b]]></svg>", "svg{\"a<b\"}"),
+            ("<div>a</div title=\">\">b", "div{\"a\"} \"b\""),
+            (
+                "<textarea>a</textareax>b</textarea>c",
+                "textarea{\"a</textareax>b\"} \"c\"",
+            ),
+            ("<p/>x", "p{\"x\"}"),
+            ("<div<div>x", "div<div{\"x\"}"),
+            // Chrome: `"a" "b"` (the processing instruction is a bogus comment node there)
+            ("a<?php echo 1 ?>b", "\"ab\""),
+            ("<!DOCTYPE html>a<!DOCTYPE html>b", "\"ab\""),
+            ("<iframe><b>x</b></iframe>y", "iframe{\"<b>x</b>\"} \"y\""),
+            ("<noembed><b>x</b></noembed>y", "noembed{\"<b>x</b>\"} \"y\""),
+            ("<p>a<xmp><b>x</b></xmp>", "p{\"a\"} xmp{\"<b>x</b>\"}"),
+        ],
+        false,
+        body_of,
+    );
+    check(
+        &[
+            ("<p a=1 a=2 b c=\"d\"e=f>x", "p[a=1 b= c=d e=f]{\"x\"}"),
+            ("<p =a>x", "p[=a=]{\"x\"}"),
+        ],
+        true,
+        body_of,
+    );
+}
+
+/// The start tags of 13.2.6.4.7 that close or adopt what is open: a `<nobr>` / `<button>`
+/// the open one, a nested `<form>` is ignored, ruby annotations end each other, `<image>` is
+/// an `<img>`, `<dd>` ends a `<dt>` across a `<div>`, `<listing>` drops its first line feed,
+/// `</p>` alone is an empty paragraph, `<applet>` / `<marquee>` keep their formatting inside.
+#[test]
+fn the_body_start_tags_close_and_adopt_what_a_browser_does() {
+    check(
+        &[
+            ("<nobr>a<nobr>b", "nobr{\"a\"} nobr{\"b\"}"),
+            ("<button>a<button>b", "button{\"a\"} button{\"b\"}"),
+            ("<ruby>a<rt>b<rt>c</ruby>", "ruby{\"a\" rt{\"b\"} rt{\"c\"}}"),
+            (
+                "<ruby>a<rb>b<rt>c<rp>d</ruby>",
+                "ruby{\"a\" rb{\"b\"} rt{\"c\"} rp{\"d\"}}",
+            ),
+            ("<dl><dt>a<div><dd>b</div></dl>", "dl{dt{\"a\" div} dd{\"b\"}}"),
+            ("<ul><li>a<p>b<li>c</ul>", "ul{li{\"a\" p{\"b\"}} li{\"c\"}}"),
+            ("<listing>\nx</listing>", "listing{\"x\"}"),
+            ("<p>a</p></p>b", "p{\"a\"} p \"b\""),
+            ("<applet>a<b>b</applet>c", "applet{\"a\" b{\"b\"}} \"c\""),
+            ("<marquee>a<b>b</marquee>c", "marquee{\"a\" b{\"b\"}} \"c\""),
+            ("<select><div>x</div></select>", "select{div{\"x\"}}"),
+            ("<p>x</br>y", "p{\"x\" br \"y\"}"),
+            ("<p>a<hr>b", "p{\"a\"} hr \"b\""),
+            ("<li>a<li>b", "li{\"a\"} li{\"b\"}"),
+            ("<dd>a<dt>b", "dd{\"a\"} dt{\"b\"}"),
+            ("<option>a<option>b", "option{\"a\"} option{\"b\"}"),
+        ],
+        false,
+        body_of,
+    );
+    check(
+        &[
+            ("<form id=a><form id=b>x</form>y", "form[id=a]{\"x\"} \"y\""),
+            ("<image src=x>", "img[src=x]"),
+        ],
+        true,
+        body_of,
+    );
+}
+
+/// Foreign content (13.2.6.5): inside `<svg>` / `<math>` an HTML block (or a `<font>` with
+/// `color`, `face` or `size`) ends the SVG and goes after it; a MathML text element (`<mi>`)
+/// holds HTML.
+#[test]
+fn svg_and_mathml_end_where_html_content_starts() {
+    check(
+        &[
+            ("<svg><p>x</svg>", "svg p{\"x\"}"),
+            ("<svg><g><b>x</b></g></svg>", "svg{g} b{\"x\"}"),
+            ("<svg><font>x</font></svg>", "svg{font{\"x\"}}"),
+            ("<math><mi>x<b>y</b></mi></math>", "math{mi{\"x\" b{\"y\"}}}"),
+        ],
+        false,
+        body_of,
+    );
+    check(
+        &[(
+            "<svg><font color=red>x</font></svg>",
+            "svg font[color=red]{\"x\"}",
+        )],
+        true,
+        body_of,
+    );
+}
+
 /// The HTML Standard's named references (all 2231), the legacy ones without
 /// their `;`, and the numeric ones through the Windows-1252 repair.
 #[test]
