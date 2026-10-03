@@ -128,3 +128,104 @@ impl AudioDeviceList {
         }
     }
 }
+
+/// wasm stubs of the desktop Opus handles (`audio::codec`): no Opus engine on
+/// wasm, so every handle is closed. `#[repr(C)]` layout MUST match the desktop
+/// `AudioEncoder` / `AudioDecoder` (ptr + run_destructor).
+#[cfg(target_arch = "wasm32")]
+#[repr(C)]
+pub struct AudioEncoder {
+    pub ptr: *mut c_void,
+    pub run_destructor: bool,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Clone for AudioEncoder {
+    fn clone(&self) -> Self {
+        AudioEncoder {
+            ptr: self.ptr,
+            run_destructor: false,
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Default for AudioEncoder {
+    fn default() -> Self {
+        AudioEncoder {
+            ptr: core::ptr::null_mut(),
+            run_destructor: false,
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Drop for AudioEncoder {
+    fn drop(&mut self) {}
+}
+
+#[cfg(target_arch = "wasm32")]
+impl AudioEncoder {
+    pub fn create(_config: AudioConfig, _bitrate_kbps: u32) -> AudioEncoder {
+        AudioEncoder::default()
+    }
+    pub fn backend_name() -> AzString {
+        AzString::from_const_str("none")
+    }
+    pub fn is_open(&self) -> bool {
+        false
+    }
+    pub fn encode(&mut self, _frame: AudioFrame) -> bool {
+        false
+    }
+    pub fn recv_packet(&mut self) -> azul_css::corety::OptionU8Vec {
+        azul_css::corety::OptionU8Vec::None
+    }
+    pub fn close(&mut self) {}
+}
+
+#[cfg(target_arch = "wasm32")]
+#[repr(C)]
+pub struct AudioDecoder {
+    pub ptr: *mut c_void,
+    pub run_destructor: bool,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Clone for AudioDecoder {
+    fn clone(&self) -> Self {
+        AudioDecoder {
+            ptr: self.ptr,
+            run_destructor: false,
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Default for AudioDecoder {
+    fn default() -> Self {
+        AudioDecoder {
+            ptr: core::ptr::null_mut(),
+            run_destructor: false,
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Drop for AudioDecoder {
+    fn drop(&mut self) {}
+}
+
+#[cfg(target_arch = "wasm32")]
+impl AudioDecoder {
+    pub fn create(_config: AudioConfig) -> AudioDecoder {
+        AudioDecoder::default()
+    }
+    pub fn is_open(&self) -> bool {
+        false
+    }
+    pub fn decode(&mut self, _packet: azul_css::U8Vec) -> azul_core::audio::OptionAudioFrame {
+        azul_core::audio::OptionAudioFrame::None
+    }
+    pub fn close(&mut self) {}
+}
