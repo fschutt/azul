@@ -32,6 +32,7 @@
 pub mod args;
 pub mod engine;
 pub mod fake_engine;
+pub mod format_cells;
 pub mod functions;
 pub mod ids;
 pub mod ironcalc_engine;
