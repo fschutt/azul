@@ -75,6 +75,9 @@ headless Chrome and the prebuilt azul (AzPaint `mount`, capped runner), prints r
   (ResolutionParams.zoom, UnresolvedBoxProps::resolve); Z6 sizing (Px width/height arms, min/max
   constraints, intrinsic overrides, image natural size); Z7 StyleProperties line-height / letter /
   word spacing px; Z8 positioned offsets. Not in reach (PAINT7 display_list): radius, shadow, outline.
+  DONE: Z1 541da3fe8, Z2 f2a1095d8 + 40b1ab2a3, Z3+Z4 35609cc69, Z5 aa4a3f9e1, Z6 3cf0f66c5.
+  NEXT: Z7 (getters get_style_properties line-height / letter / word spacing px -> zoomed_length),
+  Z8 (positioning.rs offsets via ResolutionContext at line ~93 -> zoomed_length).
 
 ## NEXT
 - items 6..10 in brief order
