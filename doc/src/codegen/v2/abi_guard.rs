@@ -838,4 +838,46 @@ mod tests {
         let dll = CodeGenerator::generate(ir, &CodegenConfig::dll_internal()).unwrap();
         assert!(!dll.contains("AZ_ABI_CHECK_AT_LOAD"));
     }
+
+    /// azul.h checks the ABI when the program loads on every C compiler, not
+    /// only GCC / Clang: MSVC C (the C compiler of Windows) has no
+    /// constructor attribute, so the check is an entry in the CRT's
+    /// initializer table `.CRT$XCU`, one per program (`selectany`: every
+    /// translation unit that includes azul.h defines it), and kept by the
+    /// linker (`/include:`, with the leading underscore 32-bit x86 C names
+    /// carry). C++ keeps its static object, which MSVC C++ runs.
+    #[test]
+    fn azul_h_checks_the_abi_at_load_on_msvc_c_too() {
+        let c = c_items(ir());
+        let lines: Vec<&str> = c.lines().map(str::trim).collect();
+        let at = |l: &str| lines.iter().position(|x| *x == l);
+        let gnu = at("#if defined(__GNUC__) || defined(__clang__)").expect("the GCC / Clang arm");
+        let cpp = at("#elif defined(__cplusplus)").expect("the C++ arm");
+        let msvc = at("#elif defined(_MSC_VER)").expect("an MSVC C arm");
+        assert!(
+            gnu < cpp && cpp < msvc,
+            "GCC / Clang, then C++, then MSVC C"
+        );
+        let arm = &lines[msvc..];
+        let has = |s: &str| arm.iter().any(|l| l.contains(s));
+        assert!(has("#pragma section(\".CRT$XCU\", read)"), "{arm:?}");
+        assert!(
+            has("__declspec(selectany) __declspec(allocate(\".CRT$XCU\"))"),
+            "{arm:?}"
+        );
+        assert!(
+            has("AzAbi_checkAtLoadEntry)(void) = AzAbi_checkAtLoad;"),
+            "{arm:?}"
+        );
+        assert!(has(
+            "static void __cdecl AzAbi_checkAtLoad(void) { AzAbi_check(); }"
+        ));
+        assert!(has(
+            "#pragma comment(linker, \"/include:_AzAbi_checkAtLoadEntry\")"
+        ));
+        assert!(has(
+            "#pragma comment(linker, \"/include:AzAbi_checkAtLoadEntry\")"
+        ));
+        assert!(has("#if defined(_M_IX86)"), "32-bit x86 decorates C names");
+    }
 }
