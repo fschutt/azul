@@ -21,9 +21,11 @@ Branch: wt/code9 (base e537ddbe2). Brief: scripts/waves/wave9/PLAN.md "CODE9", p
 - 442b5e237 highlight.rs RED, 676a7e72a highlight.rs GREEN (Highlighter: line_spans / edited / job_for /
   adopt, HighlightJob::run, classify; syntax_for(file, first line))
 
+- 76ca185ef search.rs RED, f5e24d9d4 search.rs GREEN (item 1 below is DONE)
+
 ## IN PROGRESS
-- NEXT STEP: the app's plain-Rust model, RED then GREEN, then the UI:
-  1. src/search.rs: `find_all(&TextBuffer, needle, TextMatch) -> Vec<(line, start, end)>` (azul_appkit::find::
+- NEXT STEP: item 2, src/workspace.rs RED then GREEN; then 3..6.
+  1. (DONE) src/search.rs: `find_all(&TextBuffer, needle, TextMatch) -> Vec<(line, start, end)>` (azul_appkit::find::
      matches per line), `next_after(matches, Pos) -> Option<..>` (wraps), `replace_all_edits(...) -> Vec<Edit>`
      (last-first) + `go_to_line(input "120" / "120:5", line_count) -> Option<Pos>`; tests.
   2. src/workspace.rs: `Root { drive_root, prefix, data_tree, name }`, listings per folder key (lazy, from
