@@ -2850,6 +2850,16 @@ impl RawImage {
         crate::image_scale::thumbnail(self, max_w, max_h)
     }
 
+    /// `width x height` scaled DOWN (never up) to fit `max_w x max_h`, the
+    /// aspect kept, at least one pixel per axis; `0 x 0` for an empty size
+    /// or box: the size [`Self::thumbnail`] makes, for an app that sizes its
+    /// own buffer by the same rule (a video decoder's output, a monitor).
+    #[must_use]
+    pub fn fit_within(width: u32, height: u32, max_w: u32, max_h: u32) -> crate::geom::PhysicalSizeU32 {
+        let (w, h) = crate::image_scale::fit_within(width, height, max_w, max_h);
+        crate::geom::PhysicalSizeU32::new(w, h)
+    }
+
     /// A copy resampled to exactly `width x height` - up or down, the
     /// aspect not kept ([`Self::thumbnail`] keeps it) - as straight RGBA8
     /// (area-averaging down, bilinear up). `None` for a source the scaler
