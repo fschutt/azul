@@ -23,6 +23,10 @@ Commit messages are written to scripts/.paint7_msg.txt (untracked, never staged)
   GpuStateManager::painted_transform_of; hit tester chains + all resolve_tf closures + DL use it;
   LayoutWindow::css_transform_of renamed painted_transform_of
 
+- 0a61c5fad RED item 3: layout/tests/a_css_id_image_registration_rebuilds_the_display_list_itself.rs
+- 54b1200b3 GREEN item 3: apply_content_change(ImageById) regenerates every dom's display list itself
+  (tier RebuildDisplayList = "rebuilt, send it" - the dll/X11 convention)
+
 ## IN PROGRESS (old notes)
 - item 1/4a CPU side. Findings:
   - the layered compositor composites every child layer AFTER all of its parent's own items
@@ -38,8 +42,7 @@ Commit messages are written to scripts/.paint7_msg.txt (untracked, never staged)
     IN PLACE (scroll / opacity / transform; blur stays a layer - note in report).
 
 ## NEXT
-- item 3 (ImageById
-  rebuilds the list in window.rs), 4d, 5, 6 (run prebuilt AzTasks/AzCalendar with wait_settled),
+- item 7 (overflow:hidden span clip; evidence pim6-shots/crop_lunch.png, cal_week.json), then 4d, 5, 6 (run prebuilt AzTasks/AzCalendar with wait_settled),
   7 (overflow:hidden span clip)
 
 ## Decisions / open questions
