@@ -47,6 +47,11 @@ headless Chrome and the prebuilt azul (AzPaint `mount`, capped runner), prints r
 
 ## NEXT
 - items 6..10 in brief order
+- extra (from TEXT7 via coordinator, RED first if room, else report): (11) text in an ANONYMOUS block
+  after a nested block is text-indented although CSS 2.1 s16.1 indents only the first formatted line of
+  the block container (fc.rs); (12) `vertical-align` in vw / vh has no viewport to resolve against.
+  TEXT7 edited getters.rs (one text-indent resolver), fc.rs + sizing.rs (min/max-content count
+  text-indent; one font-weight reader): keep edits local to the functions changed, do not re-implement.
 
 ## Decisions / open questions
 - no-host marker (`<li><div h50/></li>`, Chrome 50 azul 70): kept as today (own line); note in report.
