@@ -52,12 +52,11 @@ noted in the report). Never compile; the parent runs `cargo test -p azul-doc --b
 
 - item 6 RED + GREEN (diff.rs repr_loss_tests, still_exposed_in_source, removed-type filter; mod.rs warning filter)
 
+- item 7 RED + GREEN (pending.rs; patch folder sort; main.rs add wiring)
+
 ## NEXT (exact)
-- item 7 (gap 4) RED: new doc/src/autofix/pending.rs (register `pub mod pending;` in mod.rs) with tests:
-  `an_add_after_a_pending_remove_of_the_same_entry_goes_through_in_one_round` (PendingRemovals::read / apply_to /
-  supersede_pending_removals on a tempfile dir; then both apply orders give the new entry), and in
-  doc/src/patch/mod.rs tests `patches_in_a_folder_apply_in_file_name_order` (ApiPatch::from_directory sorted).
-  Stubs in RED. GREEN: implement; sort in from_directory_with_context; main.rs add (exists path): read pending,
-  stop on a pending whole-class removal, candidates against `pending.apply_to(class)`, after writing the patch
-  call supersede_pending_removals.
-- then items 8, 9.
+- item 8 RED: function_diff.rs test `a_remove_spec_names_a_function_or_a_whole_class` for
+  `parse_remove_spec(spec, version_data) -> Result<RemoveTarget, String>` (enum RemoveTarget { Class {module,
+  class}, Function {module, class, name} } with `patch(version)`, `file_name()`, `describe()`); stub in RED.
+  GREEN + main.rs: `autofix remove <spec>` and `autofix difficult remove <items>` both use it.
+- then item 9 (report scripts/AUTOFIX6_2026_10_03.md).
