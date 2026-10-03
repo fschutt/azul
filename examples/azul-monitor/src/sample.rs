@@ -60,23 +60,360 @@ impl Default for SampleMachine {
     }
 }
 
+/// A process of the sample: `memory` in MB, `disk` in KB per second.
+#[allow(clippy::too_many_arguments)]
+const fn profile(
+    pid: u32,
+    parent: Option<u32>,
+    name: &'static str,
+    user: &'static str,
+    command: &'static str,
+    cpu: f32,
+    swing: f32,
+    period: f32,
+    memory_mb: u64,
+    disk_kb: u64,
+) -> Profile {
+    Profile {
+        pid,
+        parent,
+        name,
+        user,
+        command,
+        cpu,
+        swing,
+        period,
+        memory: memory_mb << 20,
+        disk: disk_kb << 10,
+    }
+}
+
+/// The 20 idle system processes: name and PID (root, children of systemd).
+const IDLE: [(&str, u32); 20] = [
+    ("kthreadd", 2),
+    ("rcu_sched", 13),
+    ("ksoftirqd/0", 14),
+    ("migration/0", 15),
+    ("kworker/0:1", 41),
+    ("systemd-journald", 312),
+    ("systemd-udevd", 344),
+    ("systemd-logind", 601),
+    ("dbus-daemon", 603),
+    ("NetworkManager", 640),
+    ("polkitd", 655),
+    ("avahi-daemon", 661),
+    ("cupsd", 690),
+    ("cron", 694),
+    ("rsyslogd", 698),
+    ("wpa_supplicant", 720),
+    ("bluetoothd", 731),
+    ("upowerd", 1022),
+    ("accounts-daemon", 1030),
+    ("udisksd", 1041),
+];
+
+/// The PID of cargo, the parent of the 12 rustc.
+const CARGO: u32 = 5102;
+
+/// 0 at the wave's foot, 1 at its top: reading `reading` of a wave of
+/// `period` readings, started `phase` readings early.
+#[allow(clippy::cast_precision_loss)] // reading counts far below 2^24
+fn wave(reading: u64, phase: u32, period: f32) -> f32 {
+    let period = period.max(1.0);
+    let t = (reading as f32 + phase as f32 % period) / period;
+    (1.0 - (t * core::f32::consts::TAU).cos()) / 2.0
+}
+
+/// Bytes counted over `elapsed_ms` at `rate` bytes per second.
+fn counted(rate: u64, elapsed_ms: u64) -> u64 {
+    rate.saturating_mul(elapsed_ms) / 1000
+}
+
 impl SampleMachine {
     /// The machine of the planning doc, before its first reading.
     #[must_use]
     pub fn new() -> Self {
-        todo!("GREEN: SampleMachine::new")
+        let mut processes = vec![
+            profile(
+                1,
+                None,
+                "systemd",
+                "root",
+                "/sbin/init splash",
+                0.1,
+                0.2,
+                31.0,
+                14,
+                0,
+            ),
+            profile(
+                702,
+                Some(1),
+                "sshd",
+                "root",
+                "/usr/sbin/sshd -D",
+                0.0,
+                0.1,
+                37.0,
+                8,
+                0,
+            ),
+            profile(
+                812,
+                Some(1),
+                "pipewire",
+                "user",
+                "/usr/bin/pipewire",
+                0.6,
+                0.4,
+                5.0,
+                24,
+                0,
+            ),
+            profile(
+                1204,
+                Some(1),
+                "Xwayland",
+                "user",
+                "/usr/bin/Xwayland :0 -rootless",
+                2.0,
+                3.0,
+                13.0,
+                180,
+                4,
+            ),
+            profile(
+                2288,
+                Some(1),
+                "rust-analyzer",
+                "user",
+                "rust-analyzer",
+                8.0,
+                20.0,
+                29.0,
+                1800,
+                400,
+            ),
+            profile(
+                2291,
+                Some(1),
+                "rust-analyzer",
+                "user",
+                "rust-analyzer",
+                1.0,
+                4.0,
+                41.0,
+                600,
+                40,
+            ),
+            profile(
+                3310,
+                Some(1),
+                "AzFiles",
+                "user",
+                "AzFiles",
+                0.3,
+                0.5,
+                23.0,
+                120,
+                8,
+            ),
+            profile(
+                3920,
+                Some(1),
+                "AzMail",
+                "user",
+                "AzMail",
+                0.4,
+                1.5,
+                19.0,
+                301,
+                16,
+            ),
+            profile(
+                3921,
+                Some(3920),
+                "azmail-sync",
+                "user",
+                "AzMail --sync",
+                0.2,
+                3.0,
+                11.0,
+                80,
+                120,
+            ),
+            profile(
+                3922,
+                Some(3920),
+                "azmail-index",
+                "user",
+                "AzMail --index",
+                0.1,
+                1.0,
+                43.0,
+                60,
+                60,
+            ),
+            profile(
+                4411,
+                Some(1),
+                "AzWriter",
+                "user",
+                "AzWriter report.docx",
+                3.0,
+                4.0,
+                15.0,
+                212,
+                12,
+            ),
+            profile(
+                4415,
+                Some(4411),
+                "azwriter-pagination",
+                "user",
+                "AzWriter --paginate",
+                1.0,
+                2.0,
+                9.0,
+                88,
+                0,
+            ),
+            profile(
+                CARGO,
+                Some(1),
+                "cargo",
+                "user",
+                "cargo build --release -p AzWriter",
+                20.0,
+                60.0,
+                17.0,
+                940,
+                2300,
+            ),
+        ];
+        for i in 0..12_u16 {
+            let n = u32::from(i);
+            processes.push(profile(
+                CARGO + 8 + n,
+                Some(CARGO),
+                "rustc",
+                "user",
+                "rustc --crate-type lib --edition 2021",
+                5.0,
+                35.0,
+                9.0 + f32::from(i),
+                300,
+                600,
+            ));
+        }
+        for (name, pid) in IDLE {
+            processes.push(profile(
+                pid,
+                Some(1),
+                name,
+                "root",
+                name,
+                0.0,
+                0.2,
+                27.0,
+                6,
+                0,
+            ));
+        }
+        Self {
+            processes,
+            reading: 0,
+            clock_ms: 0,
+        }
     }
 }
 
 impl Source for SampleMachine {
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
     fn read(&mut self, elapsed_ms: u64) -> Snapshot {
-        let _ = elapsed_ms;
-        todo!("GREEN: SampleMachine::read")
+        let n = self.reading;
+        self.reading += 1;
+        self.clock_ms = self.clock_ms.saturating_add(elapsed_ms);
+        let mut used_cpu = 0.0_f32;
+        let mut memory_used = BASE_MEMORY;
+        let mut disk_read = 0_u64;
+        let mut disk_written = 0_u64;
+        let processes: Vec<ProcSample> = self
+            .processes
+            .iter()
+            .map(|p| {
+                let w = wave(n, p.pid, p.period);
+                let cpu = p.cpu + p.swing * w;
+                let memory = p.memory + (p.memory as f32 / 32.0 * w) as u64;
+                let disk_rate = (p.disk as f32 * w) as u64;
+                let read = counted(disk_rate * 2 / 3, elapsed_ms);
+                let written = counted(disk_rate / 3, elapsed_ms);
+                used_cpu += cpu;
+                memory_used += memory;
+                disk_read += read;
+                disk_written += written;
+                ProcSample {
+                    pid: p.pid,
+                    parent: p.parent,
+                    name: p.name.to_string(),
+                    user: p.user.to_string(),
+                    command: p.command.to_string(),
+                    status: if cpu > 1.0 { "Running" } else { "Sleeping" }.to_string(),
+                    cpu,
+                    memory,
+                    disk_read: read,
+                    disk_written: written,
+                }
+            })
+            .collect();
+        let cpu = (used_cpu / CORES as f32).clamp(0.0, 100.0);
+        // Each core carries the machine's load, unevenly, on its own wave.
+        let cores = (0..CORES)
+            .map(|i| {
+                let phase = u32::try_from(i * 3).unwrap_or(0);
+                (cpu * (0.6 + 0.8 * wave(n, phase, 7.0 + i as f32))).clamp(0.0, 100.0)
+            })
+            .collect();
+        let net_in_rate = 150_000 + (900_000.0 * wave(n, 0, 13.0)) as u64;
+        let net_out_rate = 20_000 + (60_000.0 * wave(n, 5, 19.0)) as u64;
+        Snapshot {
+            elapsed_ms,
+            cpu_brand: "Example 8-core CPU".to_string(),
+            cpu_mhz: 3400,
+            cpu,
+            cores,
+            memory_used: memory_used.min(MEMORY),
+            memory_total: MEMORY,
+            swap_used: 300 << 20,
+            swap_total: SWAP,
+            disk_read,
+            disk_written,
+            net_received: counted(net_in_rate, elapsed_ms),
+            net_sent: counted(net_out_rate, elapsed_ms),
+            uptime: UPTIME + self.clock_ms / 1000,
+            processes,
+            notices: Vec::new(),
+        }
     }
 
     fn end(&mut self, pid: u32, force: bool) -> Result<String, String> {
-        let _ = (pid, force);
-        todo!("GREEN: SampleMachine::end")
+        let Some(at) = self.processes.iter().position(|p| p.pid == pid) else {
+            return Err(format!("No process {pid} is running."));
+        };
+        let name = self.processes[at].name;
+        if self.processes[at].user == "root" {
+            return Err(format!("Ending {name} ({pid}) needs administrator rights."));
+        }
+        self.processes.remove(at);
+        Ok(if force {
+            format!("Killed {name} ({pid})")
+        } else {
+            format!("Ended {name} ({pid})")
+        })
     }
 }
 
