@@ -391,6 +391,17 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     };
     let m = mods(&info);
     let app_ref = data.clone();
+    // The kit's keys first (Mod+, the settings, F1 the shortcuts, Escape
+    // closes them); the settings page takes no tool keys.
+    let Some(kit_ref) = data.downcast_ref::<PhotoApp>().map(|a| a.kit.clone()) else {
+        return Update::DoNothing;
+    };
+    if let Some(update) = azul_appkit::ui::handle_key(&kit_ref, &mut info) {
+        return update;
+    }
+    if azul_appkit::ui::settings_open(&kit_ref) {
+        return Update::DoNothing;
+    }
     let Some(mut guard) = data.downcast_mut::<PhotoApp>() else {
         return Update::DoNothing;
     };

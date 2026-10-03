@@ -7,18 +7,23 @@ use azul::{
     callbacks::{
         ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, ColorInputOnValueChangeCallbackType,
         DropDownOnChoiceChangeCallbackType, NumberInputOnValueChangeCallbackType,
-        SegmentedOnChangeCallbackType, SliderOnValueChangeCallbackType, TextInputOnTextInputCallbackType,
+        DialogOnCloseCallbackType, SegmentedOnChangeCallbackType, SliderOnValueChangeCallbackType,
+        StandardDialogOnEventCallbackType, TextInputOnTextInputCallbackType,
     },
     css::DarkLightMode,
     dom::{AccessibilityInfo, AccessibilityRole, VirtualKeyCode, VirtualKeyCodeCombo},
     menu::{Menu, MenuItem, StringMenuItem},
     option::OptionVirtualKeyCodeCombo,
     prelude::*,
-    shells::{CanvasShell, ShellEmptyState, ShellSettingsLayout, ShellSettingsSection, ShellThemeAccent, ShellThemeScope},
+    shells::{CanvasShell, ShellEmptyState, ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
     vec::StringVec,
-    widgets::{ButtonType, DropDown, Segmented, Slider, StatusBar, StatusBarSegment, TextInput, Titlebar},
+    widgets::{
+        AboutDialog, ButtonType, Dialog, DropDown, Segmented, Slider, StatusBar, StatusBarSegment, TextInput, Titlebar,
+    },
 };
+
+use azul_appkit::ui as kit;
 
 use crate::{
     canvas,
@@ -210,7 +215,7 @@ fn menu_table() -> Vec<(&'static str, Vec<Entry>)> {
                 Item("Fill with Foreground", C::Fill, NONE),
                 Item("Clear", C::Clear, NONE),
                 Separator,
-                Item("Settings...", C::Sheet(Sheet::Settings), NONE),
+                Item("Settings...", C::Settings, NONE),
             ],
         ),
         (
@@ -281,7 +286,13 @@ fn menu_table() -> Vec<(&'static str, Vec<Entry>)> {
                 Item("Flora Theme", C::Theme("flora"), NONE),
             ],
         ),
-        ("Help", vec![Item("About AzPhoto", C::Sheet(Sheet::About), NONE)]),
+        (
+            "Help",
+            vec![
+                Item("Keyboard Shortcuts", C::Settings, NONE),
+                Item("About AzPhoto", C::Sheet(Sheet::About), NONE),
+            ],
+        ),
     ]
 }
 
@@ -925,9 +936,9 @@ fn start_screen(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
 
 // ==== Sheets ====
 
-/// A sheet: a panel over a dimmed window, its body, OK (when it has one)
-/// and Cancel.
-fn sheet_frame(app: &RefAny, p: &Palette, title: &str, body: Dom, ok: Option<(&str, Command)>) -> Dom {
+/// A sheet: azul's modal `Dialog` (title, close button, Escape, focus) with
+/// the body, then Cancel (Close) and the OK button when it has one.
+fn sheet_frame(app: &RefAny, _p: &Palette, title: &str, body: Dom, ok: Option<(&str, Command)>) -> Dom {
     let mut buttons = row("justify-content: flex-end; margin-top: 12px;");
     buttons.add_child(button(app, if ok.is_some() { "Cancel" } else { "Close" }, Command::CloseSheet).with_id("sheet-cancel"));
     if let Some((label, command)) = ok {
@@ -939,23 +950,14 @@ fn sheet_frame(app: &RefAny, p: &Palette, title: &str, body: Dom, ok: Option<(&s
                 .with_css("margin-left: 8px;"),
         );
     }
-    Dom::create_div()
+    Dialog::create(column("min-width: 340px;").with_child(body).with_child(buttons))
+        .with_title(AzString::from(title))
+        .with_open(true)
+        .with_modal(true)
+        .with_close_button(true)
+        .with_on_close(app.clone(), commands::on_sheet_close as DialogOnCloseCallbackType)
+        .dom()
         .with_id("photo-sheet")
-        .with_css(
-            "position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; display: flex; \
-             align-items: center; justify-content: center; background: rgba(0,0,0,0.35);",
-        )
-        .with_child(
-            column(&format!(
-                "background: {}; color: {}; padding: 16px 20px; border-radius: 8px; min-width: 340px; \
-                 box-shadow: 0px 6px 24px rgba(0,0,0,0.35);",
-                p.panel, p.text
-            ))
-            .with_accessibility_info(AccessibilityInfo::named(title, AccessibilityRole::Dialog))
-            .with_child(text(title, "font-size: 16px; font-weight: bold; margin-bottom: 12px;"))
-            .with_child(body)
-            .with_child(buttons),
-        )
 }
 
 fn sheet_dom(app: &RefAny, a: &PhotoApp, p: &Palette, sheet: Sheet) -> Dom {
@@ -1038,32 +1040,25 @@ fn sheet_dom(app: &RefAny, a: &PhotoApp, p: &Palette, sheet: Sheet) -> Dom {
             sheet_frame(app, p, "Feather selection", body, Some(("Feather", Command::FeatherApply)))
         }
         Sheet::About => {
-            let body = column("")
-                .with_child(text("AzPhoto 0.1 - the photo editor of the azul apps", "font-size: 13px;"))
-                .with_child(hint("Raster core: AzPhoto's tile store behind the RasterEngine trait (256 px RGBA8 tiles, dirty-tile compositing on worker threads, tile-snapshot undo). Graphite can replace or extend it later."))
-                .with_child(hint(&format!("Documents: {}/photo/<uuid>/", a.data_root.display())))
-                .with_child(hint("Shortcuts: B brush, E eraser, V move, M marquee, L lasso, W wand, C crop, I eyedropper, G bucket / gradient, S clone, U shape, H hand, Z zoom, [ ] size, X swap colours, D default colours."));
-            sheet_frame(app, p, "About AzPhoto", body, None)
-        }
-        Sheet::Settings => {
-            let appearance = column("")
-                .with_child(
-                    row("")
-                        .with_child(button(app, "Flat", Command::Theme("flat")).with_id("settings-flat"))
-                        .with_child(button(app, "Flora", Command::Theme("flora")).with_id("settings-flora").with_css("margin-left: 6px;"))
-                        .with_child(button(app, "Light", Command::Mode(false)).with_id("settings-light").with_css("margin-left: 16px;"))
-                        .with_child(button(app, "Dark", Command::Mode(true)).with_id("settings-dark").with_css("margin-left: 6px;")),
-                )
-                .with_child(hint(&format!("Now: {} theme, {} mode", a.theme, if a.dark { "dark" } else { "light" })));
-            let storage = column("")
-                .with_child(hint(&format!("Data folder: {}", a.data_root.display())))
-                .with_child(hint("Each document is photo/<uuid>/doc.json plus its layer tiles as PNG - the layout of the per-user bucket (S3 later)."));
-            let layout = ShellSettingsLayout::create(strings(&["Appearance", "Storage"]))
-                .with_section(ShellSettingsSection::create(AzString::from("Appearance"), appearance))
-                .with_section(ShellSettingsSection::create(AzString::from("Storage"), storage))
+            let about = AboutDialog::create(AzString::from(crate::ABOUT.name), AzString::from(crate::ABOUT.version))
+                .with_icon(AzString::from("photo"))
+                .with_description(AzString::from(crate::ABOUT.summary))
+                .with_copyright(AzString::from(format!(
+                    "{} license. Documents: {}",
+                    crate::ABOUT.license,
+                    azul_appkit::data::local_path(&a.data_root, crate::ABOUT.app_folder).display()
+                )))
+                .with_credit(AzString::from("azul"), AzString::from("MIT"))
+                .with_on_event(app.clone(), commands::on_about_event as StandardDialogOnEventCallbackType)
+                .dom();
+            Dialog::create(about)
+                .with_title(AzString::from("About AzPhoto"))
+                .with_open(true)
+                .with_modal(true)
+                .with_close_button(true)
+                .with_on_close(app.clone(), commands::on_sheet_close as DialogOnCloseCallbackType)
                 .dom()
-                .with_css("min-height: 260px; min-width: 520px;");
-            sheet_frame(app, p, "Settings", layout, None)
+                .with_id("photo-sheet")
         }
     }
 }
@@ -1109,12 +1104,18 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         a.theme = theme;
     }
     let p = if dark { &DARK } else { &LIGHT };
-    let content = match a.screen {
-        AppScreen::Start => start_screen(&app_ref, a, p),
-        AppScreen::Editor => editor(&app_ref, a, p),
+    // azul-appkit's settings page (Appearance - remembered -, Data,
+    // Shortcuts, About) takes the window while it is open.
+    let content = if kit::settings_open(&a.kit) {
+        column("flex-grow: 1; min-height: 0px;").with_child(kit::settings_page(&a.kit, Vec::new()))
+    } else {
+        match a.screen {
+            AppScreen::Start => start_screen(&app_ref, a, p),
+            AppScreen::Editor => editor(&app_ref, a, p),
+        }
     };
     let mut area = column("position: relative; flex-grow: 1; min-height: 0px;").with_child(content);
-    if let Some(sheet) = a.sheet {
+    if let Some(sheet) = a.sheet.filter(|_| !kit::settings_open(&a.kit)) {
         area.add_child(sheet_dom(&app_ref, a, p, sheet));
     }
     let root = column("flex-grow: 1; min-height: 0px;")

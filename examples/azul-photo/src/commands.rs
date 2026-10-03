@@ -8,6 +8,11 @@
 
 use std::path::PathBuf;
 
+use azul_appkit::{
+    args::{ModePref, Theme},
+    ui as kit,
+};
+
 use azul::{
     css::DarkLightMode,
     dialog::{FileDialog, FileOpenResult},
@@ -15,8 +20,8 @@ use azul::{
     option::{OptionDarkLightMode, OptionFileTypeList},
     prelude::*,
     widgets::{
-        CheckBoxState, ColorInputState, NumberInputState, OnTextInputReturn, SegmentedState, SliderState,
-        TextInputState, TextInputValid,
+        CheckBoxState, ColorInputState, DialogState, NumberInputState, OnTextInputReturn, SegmentedState,
+        SliderState, StandardDialogEvent, TextInputState, TextInputValid,
     },
 };
 
@@ -122,6 +127,16 @@ pub enum Command {
     // The Text tool
     TextCommit,
     TextCancel,
+    /// azul-appkit's settings page (Appearance, Data, Shortcuts, About).
+    Settings,
+}
+
+/// `f` on the kit (its settings, its switches).
+fn with_kit(app: &PhotoApp, f: impl FnOnce(&mut kit::Kit)) {
+    let mut handle = app.kit.clone();
+    if let Some(mut k) = handle.downcast_mut::<kit::Kit>() {
+        f(&mut k);
+    }
 }
 
 /// A button's payload: the app and its command.
@@ -137,6 +152,19 @@ pub fn cmd(app: &RefAny, command: Command) -> RefAny {
         app: app.clone(),
         command,
     })
+}
+
+/// A sheet's dialog was closed (its close button, Escape, the backdrop).
+pub extern "C" fn on_sheet_close(mut data: RefAny, _info: CallbackInfo, _state: DialogState) -> Update {
+    if let Some(mut a) = data.downcast_mut::<PhotoApp>() {
+        a.sheet = None;
+    }
+    Update::RefreshDom
+}
+
+/// The About dialog's OK (or Cancel) closes it.
+pub extern "C" fn on_about_event(data: RefAny, info: CallbackInfo, _event: StandardDialogEvent) -> Update {
+    on_sheet_close(data, info, DialogState::default())
 }
 
 /// A button, menu item or row was used.
@@ -408,17 +436,35 @@ pub fn run(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo, comman
         Command::Fit => app.s.fit(),
         Command::ActualPixels => app.s.actual_pixels(),
         Command::Mode(dark) => {
+            // Remembered in photo/settings.json, like the settings page's choice.
+            let mode = if dark { ModePref::Dark } else { ModePref::Light };
+            with_kit(app, |k| {
+                k.settings.mode = mode;
+                k.args.mode = None;
+            });
             info.set_mode(OptionDarkLightMode::Some(if dark {
                 DarkLightMode::Dark
             } else {
                 DarkLightMode::Light
             }));
+            kit::save_settings(&app.kit, info);
             return Update::DoNothing;
         }
         Command::Theme(name) => {
-            app.theme = name.to_string();
-            info.set_theme(name);
+            let theme = Theme::parse(name).unwrap_or_default();
+            with_kit(app, |k| {
+                k.settings.theme = theme;
+                k.args.theme = None;
+            });
+            app.theme = theme.name().to_string();
+            info.set_theme(theme.name());
+            kit::save_settings(&app.kit, info);
             return Update::DoNothing;
+        }
+        Command::Settings => {
+            app.sheet = None;
+            kit::open_settings(&app.kit, None);
+            return Update::RefreshDom;
         }
         Command::Tool(t) => app.s.set_tool(t),
         Command::BrushSize(larger) => app.s.step_brush_size(larger),
@@ -455,7 +501,7 @@ pub fn run(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo, comman
                 }
                 _ => {}
             }
-            if sheet != Sheet::NewImage && sheet != Sheet::About && sheet != Sheet::Settings {
+            if sheet != Sheet::NewImage && sheet != Sheet::About {
                 app.screen = AppScreen::Editor;
             }
             app.sheet = Some(sheet);

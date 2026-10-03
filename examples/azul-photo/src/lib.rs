@@ -118,7 +118,6 @@ pub enum Sheet {
     Rotate,
     Feather,
     About,
-    Settings,
 }
 
 /// The values the sheets edit.
