@@ -3075,3 +3075,90 @@ mod path_fix_tests {
         assert!(!needs_path_fix(p, p));
     }
 }
+
+#[cfg(test)]
+mod repr_loss_tests {
+    use super::*;
+
+    fn struct_def(name: &str, repr: Option<&str>) -> TypeDefinition {
+        TypeDefinition {
+            full_path: format!("azul_layout::widgets::t::{name}"),
+            type_name: name.to_string(),
+            file_path: std::path::PathBuf::from("t.rs"),
+            module_path: "widgets::t".to_string(),
+            crate_name: "azul_layout".to_string(),
+            kind: TypeDefKind::Struct {
+                fields: indexmap::IndexMap::new(),
+                repr: repr.map(str::to_string),
+                repr_attr_count: usize::from(repr.is_some()),
+                generic_params: Vec::new(),
+                derives: Vec::new(),
+                custom_impls: Vec::new(),
+                is_tuple_struct: false,
+            },
+            source_code: String::new(),
+            methods: Vec::new(),
+        }
+    }
+
+    fn api_info(name: &str, repr: Option<&str>) -> ApiTypeInfo {
+        ApiTypeInfo {
+            path: format!("azul_layout::widgets::t::{name}"),
+            module: "widgets".to_string(),
+            repr: repr.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    /// A source struct that lost its `#[repr(C)]` while api.json says
+    /// `repr: C`: the scan proposed `set_repr` to none every round - a none
+    /// in the patch means "leave it", so it changed nothing and came back
+    /// (`autofix difficult remove` was needed, wave 5). api.json cannot carry
+    /// a type without a C repr: no repr patch (the FFI check reports it).
+    #[test]
+    fn a_type_that_lost_its_c_repr_gets_no_repr_patch() {
+        let is_repr = |m: &TypeModification| matches!(m.kind, ModificationKind::ReprChanged { .. });
+        let mods = compare_derives_and_impls(
+            "Orphan",
+            &struct_def("Orphan", None),
+            &api_info("Orphan", Some("C")),
+        );
+        assert!(!mods.iter().any(is_repr), "{mods:?}");
+
+        let mods = compare_derives_and_impls(
+            "Orphan",
+            &struct_def("Orphan", Some("C")),
+            &api_info("Orphan", None),
+        );
+        assert!(mods.iter().any(is_repr), "a repr the source has still goes to api.json: {mods:?}");
+    }
+
+    /// The same type when nothing in the API reaches it: removed (it cannot
+    /// be a deliberately exposed standalone type without a C repr), and no
+    /// other patch of it competes with the removal. A reachable-from-nothing
+    /// type that still has its C repr stays.
+    #[test]
+    fn an_unreachable_type_without_a_c_repr_is_removed() {
+        let mut index = TypeIndex::new();
+        index.add_type_for_test(struct_def("Orphan", None));
+        index.add_type_for_test(struct_def("Standalone", Some("C")));
+        let mut current = BTreeMap::new();
+        current.insert("Orphan".to_string(), api_info("Orphan", Some("C")));
+        current.insert("Standalone".to_string(), api_info("Standalone", Some("C")));
+
+        let diff = generate_diff_v2(&ResolvedTypeSet::default(), &current, &index);
+        let removed: Vec<&str> = diff
+            .removals
+            .iter()
+            .map(|r| r.split(':').next().unwrap_or(r))
+            .collect();
+        assert_eq!(removed, vec!["Orphan"], "{:?}", diff.removals);
+        assert!(
+            diff.modifications.iter().all(|m| m.type_name != "Orphan"),
+            "{:?}",
+            diff.modifications
+        );
+        assert!(diff.module_moves.iter().all(|m| m.type_name != "Orphan"));
+        assert!(diff.path_fixes.iter().all(|f| f.type_name != "Orphan"));
+    }
+}
