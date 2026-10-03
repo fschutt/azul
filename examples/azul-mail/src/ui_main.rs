@@ -21,7 +21,8 @@ use azul::{
         BackstageOnNavSelectCallbackType, ButtonOnClickCallbackType, ModalOnCloseCallbackType,
         MessageListOnEventCallbackType, ReadingPaneOnEventCallbackType, ResumeCallbackType,
         RibbonOnTabClickCallbackType, ShellNavigationPaneOnEventCallbackType,
-        StandardDialogOnEventCallbackType, ToDoBarOnEventCallbackType, WriteBackCallbackType,
+        SliderOnValueChangeCallbackType, StandardDialogOnEventCallbackType,
+        ToDoBarOnEventCallbackType, WriteBackCallbackType,
     },
     dom::VirtualKeyCode,
     http::{HttpBytesResult, HttpRequestConfig},
@@ -38,8 +39,8 @@ use azul::{
         ModalState, StandardDialogEvent,
         MessageListEventKind, MessageRow, ReadingPane, ReadingPaneEvent, ReadingPaneEventKind,
         Ribbon, RibbonAppButton, RibbonButton, RibbonGroup, RibbonItem, RibbonTab, StatusBar,
-        StatusBarSegment, StatusBarSync, StatusBarSyncKind, Titlebar, ToDoBar, ToDoBarEvent,
-        ToDoBarEventKind, ToDoTask, TreeViewNode,
+        SliderState, StatusBarSegment, StatusBarSync, StatusBarSyncKind, StatusBarZoom, Titlebar,
+        ToDoBar, ToDoBarEvent, ToDoBarEventKind, ToDoTask, TreeViewNode,
     },
 };
 
@@ -85,15 +86,31 @@ const ZOOM_STEP: f32 = 10.0;
 /// The zoom a settings.json value names: a number in percent, inside the range; 100 when there
 /// is none or it is no number.
 pub(crate) fn zoom_setting(value: Option<&str>) -> f32 {
-    let _ = value;
-    100.0
+    value
+        .and_then(|v| v.trim().parse::<f32>().ok())
+        .filter(|z| z.is_finite())
+        .map_or(100.0, |z| z.clamp(ZOOM_MIN, ZOOM_MAX))
 }
 
 /// `zoom` moved by `steps` clicks of the status bar's `-` / `+` (negative: out), inside the
 /// range.
 fn zoom_by(zoom: f32, steps: f32) -> f32 {
-    let _ = steps;
-    zoom
+    (zoom + steps * ZOOM_STEP).clamp(ZOOM_MIN, ZOOM_MAX)
+}
+
+/// Sets the reading pane's zoom and remembers it across restarts (the kit's settings.json).
+fn set_zoom(s: &mut MailApp, info: &mut CallbackInfo, zoom: f32) {
+    s.zoom = zoom.clamp(ZOOM_MIN, ZOOM_MAX);
+    azul_appkit::ui::set_value(&s.kit, info, SET_ZOOM, &format!("{}", s.zoom));
+}
+
+/// The status bar's zoom slider: the zoom it points at, in whole percent.
+extern "C" fn on_zoom_slider(mut data: RefAny, mut info: CallbackInfo, slider: SliderState) -> Update {
+    with_app(&mut data, |s, _| {
+        set_zoom(s, &mut info, slider.value.round());
+        Update::RefreshDom
+    })
+    .unwrap_or(Update::DoNothing)
 }
 
 /// Rows the list renders at once around what is in view (the list is virtualised).
@@ -108,7 +125,10 @@ const QUOTE_COLOURS: [&str; 4] = ["#2f6db0", "#2e7d32", "#8e24aa", "#b36b00"];
 /// The paper a plain-text mail is read on: white with dark text in either mode, like a mail
 /// without dark rules (`html.rs`).
 const PAPER: &str = "display: flex; flex-direction: column; padding: 12px 16px; \
-                     background: #ffffff; color: #1a1a1a; font-size: 14px;";
+                     background: #ffffff; color: #1a1a1a;";
+/// The plain-text paper's font size and a line's height at 100 %.
+const PAPER_FONT_SIZE: f32 = 14.0;
+const PAPER_LINE_HEIGHT: f32 = 18.0;
 
 // ==== The window ====
 
@@ -447,6 +467,9 @@ pub(crate) enum Action {
     ToggleReading,
     ToggleTodo,
     PlainText,
+    /// The status bar's `-` / `+`: the reading pane's zoom.
+    ZoomOut,
+    ZoomIn,
     OpenFile,
     AddAccount,
     AccountSettings,
@@ -590,6 +613,11 @@ pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Act
             Action::PlainText => {
                 s.plain_text = !s.plain_text;
                 remember(s, info, SET_PLAIN_TEXT, s.plain_text);
+            }
+            Action::ZoomOut | Action::ZoomIn => {
+                let steps = if action == Action::ZoomIn { 1.0 } else { -1.0 };
+                let zoom = zoom_by(s.zoom, steps);
+                set_zoom(s, info, zoom);
             }
             Action::OpenFile => s.backstage = Some(PAGE_INFO),
             Action::AddAccount => ui_account::open_wizard(s, None),
@@ -743,11 +771,18 @@ fn status_bar(s: &MailApp, app: &RefAny) -> Dom {
         }
         SyncState::Idle => (String::from("Connected"), StatusBarSyncKind::Connected),
     };
+    // Outlook's zoom at the right end: the reading pane's, `-` / `+` by ten, the slider over the
+    // buttons' whole range.
+    let zoom = StatusBarZoom::create(s.zoom, ZOOM_MIN, ZOOM_MAX)
+        .with_on_zoom_out(action_ref(app, Action::ZoomOut), on_action as ButtonOnClickCallbackType)
+        .with_on_zoom_in(action_ref(app, Action::ZoomIn), on_action as ButtonOnClickCallbackType)
+        .with_on_slider_change(app.clone(), on_zoom_slider as SliderOnValueChangeCallbackType);
     StatusBar::create(segments)
         .with_sync(StatusBarSync::create(label, kind).with_on_click(
             action_ref(app, Action::SendReceive),
             on_action as ButtonOnClickCallbackType,
         ))
+        .with_zoom(zoom)
         .dom()
 }
 
@@ -1266,8 +1301,13 @@ fn reading_pane(s: &MailApp, app: &RefAny) -> Dom {
         Dom::create_span_with_text(open.error.as_str()).with_css("padding: 16px; color: #b3261e;")
     } else {
         match html {
+            // The mail's own sizes are its author's: the zoom scales what it leaves to the
+            // paper (an `em` of the pane's font). azul has no CSS `zoom` yet (MAIL6 report).
+            Some(sanitized) if (s.zoom - 100.0).abs() > f32::EPSILON => Dom::create_div()
+                .with_css(format!("font-size: {:.2}em;", s.zoom / 100.0))
+                .with_child(html_body(sanitized)),
             Some(sanitized) => html_body(sanitized),
-            None => plain_body(&view.text),
+            None => plain_body(&view.text, s.zoom),
         }
     };
     pane.with_body(body)
@@ -1277,19 +1317,27 @@ fn reading_pane(s: &MailApp, app: &RefAny) -> Dom {
         .dom()
 }
 
-/// Plain text on paper: every line a row, quoted lines indented behind a bar in their level's
-/// colour.
-fn plain_body(text: &str) -> Dom {
-    let mut body = Dom::create_div().with_css(PAPER);
+/// Plain text on paper at `zoom` percent: every line a row, quoted lines indented behind a bar
+/// in their level's colour.
+fn plain_body(text: &str, zoom: f32) -> Dom {
+    let scale = zoom / 100.0;
+    let mut body = Dom::create_div().with_css(format!(
+        "{PAPER} font-size: {:.1}px;",
+        PAPER_FONT_SIZE * scale
+    ));
+    let line_height = PAPER_LINE_HEIGHT * scale;
     let lines = message::quote_lines(text);
     for line in lines.iter().take(MAX_LINES) {
         let css = if line.level == 0 {
-            String::from("white-space: pre-wrap; min-height: 18px; overflow-wrap: anywhere;")
+            format!(
+                "white-space: pre-wrap; min-height: {line_height:.1}px; overflow-wrap: anywhere;"
+            )
         } else {
             let colour = QUOTE_COLOURS[(line.level - 1) % QUOTE_COLOURS.len()];
             format!(
-                "white-space: pre-wrap; min-height: 18px; overflow-wrap: anywhere; margin-left: \
-                 {}px; padding-left: 8px; border-left: 3px solid {colour}; color: {colour};",
+                "white-space: pre-wrap; min-height: {line_height:.1}px; overflow-wrap: anywhere; \
+                 margin-left: {}px; padding-left: 8px; border-left: 3px solid {colour}; color: \
+                 {colour};",
                 (line.level - 1) * 12
             )
         };
