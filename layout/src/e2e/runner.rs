@@ -156,6 +156,9 @@ impl Runner {
         let (app_fc_cache, font_registry) = {
             // `FcFontRegistry::new()` already returns an `Arc<Self>`.
             let registry = azul_layout::FcFontRegistry::new();
+            // As `AppInternal::create`: the generic families as Chrome
+            // resolves them (macOS `sans-serif` = Helvetica).
+            azul_layout::font::loading::use_browser_generic_families(&registry.cache);
             let had_cache = registry.load_from_disk_cache();
             registry.spawn_scout_and_builders();
             // DETERMINISM: block until the scout has published the font set

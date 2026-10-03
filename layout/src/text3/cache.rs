@@ -1040,6 +1040,7 @@ impl FontContext {
     /// resolution can lazy-parse families the DOM needs.
     #[must_use]
     pub fn from_fc_cache(fc_cache: FcFontCache) -> Self {
+        crate::font::loading::use_browser_generic_families(&fc_cache);
         Self {
             fc_cache,
             parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
@@ -1063,6 +1064,9 @@ impl FontContext {
     /// by the common-stack metadata size (~15 MiB on macOS).
     pub fn from_registry(registry: Arc<rust_fontconfig::registry::FcFontRegistry>) -> Self {
         let fc_cache = registry.shared_cache();
+        // The registry resolves with its cache's config: the shared handle
+        // carries the browser generic families into it.
+        crate::font::loading::use_browser_generic_families(&fc_cache);
         Self {
             fc_cache,
             parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
@@ -1394,6 +1398,9 @@ impl<T: ParsedFontTrait> FontManager<T> {
     ///
     /// Returns a `LayoutError` if the font cache cannot be initialized.
     pub fn new(fc_cache: FcFontCache) -> Result<Self, LayoutError> {
+        // Generic families as Chrome resolves them (macOS `sans-serif` =
+        // Helvetica): every window's fonts go through a FontManager.
+        crate::font::loading::use_browser_generic_families(&fc_cache);
         let mut fm = Self {
             fc_cache,
             parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
@@ -1719,6 +1726,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
         fc_cache: FcFontCache,
         parsed_fonts: Arc<Mutex<HashMap<FontId, T>>>,
     ) -> Result<Self, LayoutError> {
+        crate::font::loading::use_browser_generic_families(&fc_cache);
         let mut fm = Self {
             fc_cache,
             parsed_fonts,
