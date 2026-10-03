@@ -3,7 +3,7 @@
 //! steps, the status bar's numbers, colours. Tested on its own.
 
 use crate::{
-    engine::{CellArea, FillTo, LAST_COLUMN, LAST_ROW},
+    engine::{CellArea, FillTo, SheetInfo, LAST_COLUMN, LAST_ROW},
     ops::SelectionStats,
 };
 
@@ -220,6 +220,14 @@ pub fn tsv_of(rows: &[Vec<String>]) -> String {
         .unwrap_or_default()
 }
 
+/// The sheet Ctrl+PageDown (`forward`) or Ctrl+PageUp goes to from `from`:
+/// the next visible one, wrapping; `None` when no other sheet is visible.
+#[must_use]
+pub fn step_sheet(sheets: &[SheetInfo], from: u32, forward: bool) -> Option<u32> {
+    let _ = (sheets, from, forward);
+    None
+}
+
 /// The title a new workbook gets: "Book1", "Book2", ... - the first one no
 /// workbook in `taken` uses.
 #[must_use]
@@ -307,5 +315,20 @@ mod tests {
             "a ragged block is padded to a rectangle: IronCalc's paste drops a row of another length"
         );
         assert_eq!(next_book_title(&[String::from("Book1")]), "Book2");
+    }
+
+    #[test]
+    fn the_sheet_keys_step_over_hidden_sheets_and_wrap() {
+        let sheet = |name: &str, hidden: bool| SheetInfo {
+            name: name.to_string(),
+            color: None,
+            hidden,
+        };
+        let sheets = vec![sheet("A", false), sheet("B", true), sheet("C", false), sheet("D", false)];
+        assert_eq!(step_sheet(&sheets, 0, true), Some(2), "B is hidden");
+        assert_eq!(step_sheet(&sheets, 3, true), Some(0), "wraps");
+        assert_eq!(step_sheet(&sheets, 0, false), Some(3), "wraps back");
+        assert_eq!(step_sheet(&sheets, 2, false), Some(0));
+        assert_eq!(step_sheet(&[sheet("Only", false)], 0, true), None);
     }
 }
