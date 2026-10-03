@@ -11,7 +11,7 @@ use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 
 use azul::widgets::ListSelection;
 use azul_storage::Drive;
-use chrono::{Local, NaiveDate, NaiveDateTime, Timelike};
+use chrono::{Local, NaiveDate, NaiveDateTime, TimeZone, Timelike};
 
 use crate::{
     model::{self, Settings, Task, TaskList},
@@ -116,6 +116,9 @@ pub struct Tasks {
     pub files: FileWork,
     /// The appearance kept across restarts (`aztasks/settings.json`, `appearance.rs`).
     pub appearance: azul_appkit::settings::AppSettings,
+    /// The Data settings' import path, and what the last import or export did.
+    pub import_path: String,
+    pub io_message: String,
     /// Fill an empty data folder with the sample once it is read.
     pub sample_requested: bool,
     // ---- what is shown
@@ -166,6 +169,21 @@ pub fn now() -> NaiveDateTime {
     now.with_nanosecond(0).unwrap_or(now)
 }
 
+/// A local moment in UTC (the earlier of two at a clock change; as it is in a gap).
+#[must_use]
+pub fn local_to_utc(at: NaiveDateTime) -> NaiveDateTime {
+    Local
+        .from_local_datetime(&at)
+        .earliest()
+        .map_or(at, |local| local.naive_utc())
+}
+
+/// A UTC moment in local time.
+#[must_use]
+pub fn utc_to_local(at: NaiveDateTime) -> NaiveDateTime {
+    Local.from_utc_datetime(&at).naive_local()
+}
+
 /// A new id: a random version-4 UUID (lower case), azul's `Uuid::from_seed` of a random
 /// seed (as AzCalendar mints its event ids).
 #[must_use]
@@ -199,6 +217,8 @@ impl Tasks {
             queue: WriteQueue::new(),
             files: FileWork::default(),
             appearance: azul_appkit::settings::AppSettings::default(),
+            import_path: String::new(),
+            io_message: String::new(),
             sample_requested: false,
             view,
             selection: ListSelection::create(),

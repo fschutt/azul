@@ -13,7 +13,7 @@ use std::{
 };
 
 use azul::{prelude::*, url::Url};
-use azul_storage::{Drive, DriveError};
+use azul_storage::{Drive, DriveError, LocalDrive};
 
 use crate::{
     model::Attachment,
@@ -40,6 +40,9 @@ pub enum Job {
     MoveFiles(Vec<(String, String)>),
     /// Delete the files under each folder.
     DeleteFiles(Vec<String>),
+    /// Read the iCalendar file at `path` to import its to-dos (a drive on its folder: the file
+    /// is the user's, outside the data tree).
+    ReadImport(PathBuf),
 }
 
 /// A job's answer.
@@ -53,6 +56,10 @@ enum Outcome {
     },
     Opened(Result<PathBuf, String>),
     Files(Result<usize, DriveError>),
+    ImportRead {
+        path: PathBuf,
+        result: Result<String, String>,
+    },
 }
 
 /// What a thread starts with.
@@ -93,6 +100,18 @@ fn run(drive: &dyn Drive, job: Job) -> Outcome {
                 .iter()
                 .try_fold(0, |n, p| store::delete_files(drive, p).map(|m| n + m)),
         ),
+        Job::ReadImport(path) => {
+            let folder = path.parent().map(Path::to_path_buf).unwrap_or_default();
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let result = LocalDrive::new(folder)
+                .get(&name)
+                .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+                .map_err(|e| e.to_string());
+            Outcome::ImportRead { path, result }
+        }
     }
 }
 
@@ -242,6 +261,29 @@ extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackIn
             if let Err(e) = result {
                 s.files.last_error = format!("Moving or deleting attachments failed: {e}");
             }
+        }
+        Outcome::ImportRead { path, result } => {
+            s.files.running = s.files.running.saturating_sub(1);
+            s.io_message = match result {
+                Ok(text) => {
+                    let before = s.tasks.len();
+                    let problems = s.import_tasks(&text, state::now(), &state::utc_to_local);
+                    let added = s.tasks.len() - before;
+                    println!("AZTASKS_IMPORTED {added} {}", path.display());
+                    for p in &problems {
+                        eprintln!("[aztasks] {}: {p}", path.display());
+                    }
+                    match problems.first() {
+                        None => format!("Imported {added} to-do(s) from {}.", path.display()),
+                        Some(first) => format!(
+                            "Imported {added} to-do(s) from {}; {} not read: {first}",
+                            path.display(),
+                            problems.len()
+                        ),
+                    }
+                }
+                Err(e) => format!("Could not read {}: {e}", path.display()),
+            };
         }
     }
     pump(&mut info, &handle, s);
