@@ -296,6 +296,27 @@ fn find_function_differences(
     differences
 }
 
+/// An api.json function whose fn_body calls a Rust method its type no
+/// longer has.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GoneApiFunction {
+    /// The api.json module of the class
+    pub module: String,
+    /// The api.json class
+    pub class: String,
+    /// The api.json name (`create_old`, `set_title_row`)
+    pub api_name: String,
+    /// The Rust method its fn_body calls (`new_old`, `set_title_row`)
+    pub rust_name: String,
+    /// In `constructors` (else in `functions`)
+    pub is_constructor: bool,
+}
+
+/// Every api.json function whose Rust method is gone.
+pub fn gone_api_functions(_index: &TypeIndex, _api_data: &ApiData) -> Vec<GoneApiFunction> {
+    Vec::new()
+}
+
 /// Whether `body` passes the argument `name` to a call as it is
 /// (`f(name)`, `f(a, name, b)`), not through a method of its own.
 fn passes_bare(body: &str, name: &str) -> bool {
@@ -1965,6 +1986,119 @@ mod tests {
         let fresh = api_candidate_methods("T", &refs, "*", None, &|_: &str| true);
         let rust: Vec<&str> = fresh.iter().map(|m| m.name.as_str()).collect();
         assert_eq!(rust, vec!["create"], "only the real create: {rust:?}");
+    }
+
+    /// A repr(C) struct `name` at `azul_layout::<module_path>::<name>` with
+    /// the methods of `source` (an `impl T { .. }`).
+    fn type_def(name: &str, module_path: &str, source: &str) -> TypeDefinition {
+        TypeDefinition {
+            full_path: format!("azul_layout::{module_path}::{name}"),
+            type_name: name.to_string(),
+            file_path: std::path::PathBuf::from("/nonexistent/autofix_gone_test.rs"),
+            module_path: module_path.to_string(),
+            crate_name: "azul_layout".to_string(),
+            kind: TypeDefKind::Struct {
+                fields: IndexMap::new(),
+                repr: Some("C".to_string()),
+                repr_attr_count: 1,
+                generic_params: Vec::new(),
+                derives: Vec::new(),
+                custom_impls: Vec::new(),
+                is_tuple_struct: false,
+            },
+            source_code: String::new(),
+            methods: methods(source).into_values().collect(),
+        }
+    }
+
+    /// BLOCKS moved 42 setter pairs of the preset shells to OfficeShell
+    /// (wave 5): api.json kept the 84 `DocumentShell.set_title_row` & co.,
+    /// whose fn_body calls a method the type no longer has, and the scan did
+    /// not notice - they were removed by hand. A function whose body calls
+    /// `object.m(..)` or `<the class's path>::m(..)` is gone when the type
+    /// has no method `m` (derive / std-trait methods like `clone` and
+    /// `to_string` aside). Macro-made types, other bodies, and a class whose
+    /// api.json path names a different type are not judged.
+    #[test]
+    fn an_api_function_whose_rust_method_is_gone_is_found() {
+        let mut index = TypeIndex::new();
+        index.add_type_for_test(type_def(
+            "DocumentShell",
+            "widgets::shells::document_shell",
+            r#"impl T {
+                pub fn create() -> Self { todo!() }
+                pub fn office_shell(self) -> OfficeShell { todo!() }
+            }"#,
+        ));
+        index.add_type_for_test(type_def("Other", "widgets::other", "impl T {}"));
+        let mut vec_def = type_def("ShellPaneVec", "widgets::shells::office_shell", "impl T {}");
+        vec_def.kind = TypeDefKind::MacroGenerated {
+            source_macro: "impl_vec!".to_string(),
+            base_type: "ShellPane".to_string(),
+            kind: super::super::type_index::MacroGeneratedKind::Vec,
+            derives: Vec::new(),
+            implemented_traits: Vec::new(),
+        };
+        index.add_type_for_test(vec_def);
+
+        let path = "azul_layout::widgets::shells::document_shell::DocumentShell";
+        let api: ApiData = serde_json::from_value(serde_json::json!({
+            "0.2.0": {"apiversion": 1, "git": "", "date": "", "api": {"shells": {"classes": {
+                "DocumentShell": {
+                    "external": path,
+                    "constructors": {
+                        "create": {"fn_body": format!("{path}::create()")},
+                        "create_old": {"fn_body": format!("{path}::new_old()")}
+                    },
+                    "functions": {
+                        "office_shell": {"fn_args": [{"self": "value"}], "fn_body": "object.office_shell()"},
+                        "set_title_row": {"fn_args": [{"self": "refmut"}, {"title_row": "TitleRow"}],
+                                          "fn_body": "object.set_title_row(title_row)"},
+                        "with_theme": {"fn_args": [{"self": "value"}, {"theme": "UiTheme"}],
+                                       "fn_body": "object.with_theme(theme)"},
+                        "clone_shell": {"fn_args": [{"self": "ref"}], "fn_body": "object.clone()"},
+                        "to_text": {"fn_args": [{"self": "ref"}], "fn_body": "object.to_string().into()"},
+                        "helper": {"fn_args": [{"self": "ref"}],
+                                   "fn_body": "azul_layout::widgets::shells::other::helper(object)"},
+                        "title_len": {"fn_args": [{"self": "ref"}], "fn_body": "object.title.len()"}
+                    }
+                },
+                "Other": {
+                    "external": "azul_core::other::Other",
+                    "functions": {"gone": {"fn_args": [{"self": "ref"}], "fn_body": "object.gone()"}}
+                },
+                "ShellPaneVec": {
+                    "external": "azul_layout::widgets::shells::office_shell::ShellPaneVec",
+                    "functions": {"len": {"fn_args": [{"self": "ref"}], "fn_body": "object.len()"}}
+                }
+            }}}}
+        }))
+        .expect("test api parses");
+
+        let gone = gone_api_functions(&index, &api);
+        let mut found: Vec<(String, String, String, bool)> = gone
+            .iter()
+            .map(|g| {
+                (
+                    format!("{}.{}", g.module, g.class),
+                    g.api_name.clone(),
+                    g.rust_name.clone(),
+                    g.is_constructor,
+                )
+            })
+            .collect();
+        found.sort();
+        let row = |api: &str, rust: &str, ctor: bool| {
+            ("shells.DocumentShell".to_string(), api.to_string(), rust.to_string(), ctor)
+        };
+        assert_eq!(
+            found,
+            vec![
+                row("create_old", "new_old", true),
+                row("set_title_row", "set_title_row", false),
+                row("with_theme", "with_theme", false),
+            ]
+        );
     }
 
     /// `autofix add RichTextDoc.*` exported 29 Rust-only helpers (RichRun 7):
