@@ -1,7 +1,9 @@
-//! The command line: where the notes live, the sample library, the screen,
-//! theme and mode to start in (AzWriter's `args.rs` is the model).
+//! The command line: azul-appkit's switches every Azlin app understands
+//! (`--screen`, `--size`, `--theme`, `--mode`, `--shot`, `--sample`,
+//! `--data-dir`; DEDUP_EDITORS B10: this file was the eighth copy of that
+//! parser), plus AzNotes' own `--note <id>` (the note to open first).
 
-use std::path::PathBuf;
+use azul_appkit::args::AppArgs;
 
 /// What the window shows first.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -16,130 +18,73 @@ pub enum Screen {
 }
 
 impl Screen {
-    pub const NAMES: [(&'static str, Screen); 6] = [
-        ("notes", Screen::Notes),
-        ("settings", Screen::Settings),
-        ("about", Screen::About),
-        ("shortcuts", Screen::Shortcuts),
-        ("history", Screen::History),
-        ("palette", Screen::Palette),
-    ];
+    /// `--screen`'s names, the first the default.
+    pub const NAMES: [&'static str; 6] = ["notes", "settings", "about", "shortcuts", "history", "palette"];
+
+    /// The screen `--screen <name>` names (the notes for anything else).
+    #[must_use]
+    pub fn named(name: Option<&str>) -> Screen {
+        match name {
+            Some("settings") => Screen::Settings,
+            Some("about") => Screen::About,
+            Some("shortcuts") => Screen::Shortcuts,
+            Some("history") => Screen::History,
+            Some("palette") => Screen::Palette,
+            _ => Screen::Notes,
+        }
+    }
 }
 
 /// The parsed command line.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Args {
-    /// The AzNotes folder (`--data`; else `AZNOTES_DATA`; else `AzNotes` in
-    /// the user's data folder).
-    pub data: Option<PathBuf>,
-    /// Write the sample library first (files that exist are kept).
-    pub sample: bool,
+    /// The kit's switches.
+    pub app: AppArgs,
+    /// The screen `--screen` names.
     pub screen: Screen,
-    /// `flat` / `flora`.
-    pub theme: Option<String>,
-    /// `light` / `dark`.
-    pub mode: Option<String>,
-    pub size: Option<(f32, f32)>,
     /// Open this note (an id) first.
     pub note: Option<String>,
 }
 
 pub type ParseError = String;
 
-pub const HELP: &str = "\
-aznotes - notes as Markdown files, with a rich-text editor
-
-USAGE:
-    aznotes [OPTIONS]
-
-OPTIONS:
-    --data <DIR>         The AzNotes folder (default: AZNOTES_DATA, else AzNotes in the
-                         user's data folder); notes live in <DIR>/notes/
-    --sample             Write the sample notebooks and notes first (keeps existing files)
-    --screen <NAME>      notes | settings | about | shortcuts | history | palette
-    --theme <NAME>       flat | flora
-    --mode <NAME>        light | dark
-    --size <WxH>         Initial window size, e.g. --size 1200x760
-    --note <ID>          Open this note first
-    -h, --help           Print this help
-";
-
 impl Args {
+    /// `argv` without the program name. `Err` carries the message to print:
+    /// the usage for `-h` / `--help`, else what was wrong.
     pub fn parse<I, S>(argv: I) -> Result<Self, ParseError>
     where
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        let mut a = Self::default();
         let argv: Vec<String> = argv.into_iter().map(Into::into).collect();
+        let mut rest: Vec<String> = Vec::new();
+        let mut note = None;
         let mut i = 0;
         while i < argv.len() {
             let arg = argv[i].as_str();
-            let (name, inline) = match arg.split_once('=') {
-                Some((n, v)) if n.starts_with("--") => (n, Some(v.to_string())),
-                _ => (arg, None),
-            };
-            let mut value = |what: &str| -> Result<String, ParseError> {
-                if let Some(v) = inline.clone() {
-                    return Ok(v);
-                }
+            if let Some(id) = arg.strip_prefix("--note=") {
+                note = Some(id.to_string());
+            } else if arg == "--note" {
                 i += 1;
-                argv.get(i)
-                    .cloned()
-                    .ok_or_else(|| format!("{name} needs a {what}"))
-            };
-            match name {
-                "-h" | "--help" => return Err(HELP.to_string()),
-                "--data" => a.data = Some(PathBuf::from(value("folder")?)),
-                "--sample" => a.sample = true,
-                "--screen" => {
-                    let v = value("name")?;
-                    a.screen = Screen::NAMES
-                        .iter()
-                        .find(|(n, _)| *n == v)
-                        .map(|(_, s)| *s)
-                        .ok_or_else(|| {
-                            format!(
-                                "--screen: expected notes|settings|about|shortcuts|history|palette, \
-                                 got {v:?}"
-                            )
-                        })?;
-                }
-                "--theme" => {
-                    let v = value("name")?;
-                    if !matches!(v.as_str(), "flat" | "flora") {
-                        return Err(format!("--theme: expected flat|flora, got {v:?}"));
-                    }
-                    a.theme = Some(v);
-                }
-                "--mode" => {
-                    let v = value("name")?;
-                    if !matches!(v.as_str(), "light" | "dark") {
-                        return Err(format!("--mode: expected light|dark, got {v:?}"));
-                    }
-                    a.mode = Some(v);
-                }
-                "--size" => {
-                    let v = value("WxH")?;
-                    let (w, h) = v
-                        .split_once('x')
-                        .ok_or_else(|| format!("--size: expected WxH, got {v:?}"))?;
-                    match (w.parse::<f32>(), h.parse::<f32>()) {
-                        (Ok(w), Ok(h)) if w > 0.0 && h > 0.0 => a.size = Some((w, h)),
-                        _ => return Err(format!("--size: expected WxH in pixels, got {v:?}")),
-                    }
-                }
-                "--note" => a.note = Some(value("note id")?),
-                other => return Err(format!("unknown option {other:?}\n\n{HELP}")),
+                let id = argv.get(i).ok_or_else(|| "--note needs a note id".to_string())?;
+                note = Some(id.clone());
+            } else {
+                rest.push(argv[i].clone());
             }
             i += 1;
         }
-        Ok(a)
+        let app = AppArgs::parse(&crate::SPEC, rest)?;
+        let screen = Screen::named(app.screen.as_deref());
+        Ok(Args { app, screen, note })
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
+    use azul_appkit::args::{ModePref, Theme};
+
     use super::*;
 
     fn parse(args: &[&str]) -> Result<Args, ParseError> {
@@ -148,13 +93,16 @@ mod tests {
 
     #[test]
     fn no_arguments_is_the_notes_screen_in_the_default_folder() {
-        assert_eq!(parse(&[]).unwrap(), Args::default());
+        let a = parse(&[]).unwrap();
+        assert_eq!(a.screen, Screen::Notes);
+        assert_eq!(a.app.data_dir, None);
+        assert_eq!(a.note, None);
     }
 
     #[test]
     fn the_flags_parse_in_both_spellings() {
         let a = parse(&[
-            "--data=/tmp/n",
+            "--data-dir=/tmp/n",
             "--sample",
             "--screen",
             "settings",
@@ -167,13 +115,14 @@ mod tests {
             "abc",
         ])
         .unwrap();
-        assert_eq!(a.data, Some(PathBuf::from("/tmp/n")));
-        assert!(a.sample);
+        assert_eq!(a.app.data_dir, Some(PathBuf::from("/tmp/n")));
+        assert!(a.app.sample);
         assert_eq!(a.screen, Screen::Settings);
-        assert_eq!(a.theme.as_deref(), Some("flora"));
-        assert_eq!(a.mode.as_deref(), Some("dark"));
-        assert_eq!(a.size, Some((900.0, 600.0)));
+        assert_eq!(a.app.theme, Some(Theme::Flora));
+        assert_eq!(a.app.mode, Some(ModePref::Dark));
+        assert_eq!(a.app.size, Some((900.0, 600.0)));
         assert_eq!(a.note.as_deref(), Some("abc"));
+        assert_eq!(parse(&["--note=xyz"]).unwrap().note.as_deref(), Some("xyz"));
     }
 
     #[test]
@@ -181,12 +130,13 @@ mod tests {
         for bad in ["--screen=inbox", "--theme=native", "--mode=dim", "--size=big", "--nonsense", "x"] {
             assert!(parse(&[bad]).is_err(), "{bad} must be rejected");
         }
-        assert!(parse(&["--data"]).is_err(), "a flag missing its value");
+        assert!(parse(&["--data-dir"]).is_err(), "a flag missing its value");
+        assert!(parse(&["--note"]).is_err(), "--note missing its id");
     }
 
     #[test]
     fn help_is_an_error_carrying_the_usage() {
         let e = parse(&["--help"]).unwrap_err();
-        assert!(e.starts_with("aznotes -") && e.contains("USAGE"));
+        assert!(e.starts_with("AzNotes -") && e.contains("USAGE"));
     }
 }

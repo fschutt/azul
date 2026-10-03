@@ -19,8 +19,11 @@
 //! changed by another program are read again when the window gets the
 //! focus.
 //!
-//! Environment: `AZNOTES_DATA` names the AzNotes folder (default: `AzNotes`
-//! in the user's data folder; `--data` wins).
+//! The switches, the data root (`--data-dir`, else `AZLIN_DATA`, else
+//! `Azlin` in the user's data folder: the notes are `<root>/notes/...`, the
+//! layout the user's bucket will have), the settings file
+//! (`notes/settings.json`: theme, mode and AzNotes' own values), the
+//! settings page, the About facts and the shortcut table are azul-appkit's.
 //!
 //! On stdout, for scripts (`scripts/aznotes_e2e.py`): `AZNOTES_DATA <dir>`,
 //! `AZNOTES_LOADED <notes>`, `AZNOTES_OPEN <id>`, `AZNOTES_NEW <id>`,
@@ -45,16 +48,11 @@ use std::{
 };
 
 use azul::{
-    app::{App, AppConfig},
+    app::App,
     callbacks::{CallbackInfo, RefAny, Update},
-    css::{DarkLightMode, LogicalSize},
-    dom::Callback,
-    file::FilePath,
     image::ImageRef,
-    option::OptionDarkLightMode,
-    str::String as AzString,
-    window::{WindowCreateOptions, WindowDecorations},
 };
+use azul_appkit::{about::AboutInfo, args::AppSpec, shortcuts::Shortcut, ui as kit};
 use azul_storage::{Drive, LocalDrive};
 
 pub use crate::args::Args;
@@ -63,10 +61,48 @@ use crate::{
     model::{Library, Note, Query},
 };
 
-/// The environment variable naming the AzNotes folder.
-pub const DATA_VAR: &str = "AZNOTES_DATA";
-/// The settings object in the AzNotes folder (beside `notes/`).
-pub const SETTINGS_KEY: &str = "aznotes-settings.txt";
+// ==== The app's facts (azul-appkit) ====
+
+pub const SPEC: AppSpec = AppSpec {
+    name: "AzNotes",
+    binary: "AzNotes",
+    summary: "notes as Markdown files, with a rich-text editor",
+    screens: &args::Screen::NAMES,
+    files_help: "",
+};
+
+pub const ABOUT: AboutInfo = AboutInfo {
+    name: "AzNotes",
+    version: env!("CARGO_PKG_VERSION"),
+    summary: "Notes as plain Markdown files, with notebooks, tags, pinning, search, version \
+              history and a rich-text editor.",
+    license: "MIT",
+    app_folder: model::APP_FOLDER,
+};
+
+/// The settings page's own categories (before the kit's Appearance, Data,
+/// Shortcuts and About).
+pub const APP_CATEGORIES: [&str; 2] = ["Editor", "Storage"];
+
+/// The keyboard shortcuts (the settings page and F1 list them).
+pub const SHORTCUTS: [Shortcut; 16] = [
+    Shortcut::new("Notes", "Mod+N", "New note"),
+    Shortcut::new("Notes", "Mod+K", "Command palette"),
+    Shortcut::new("Notes", "Mod+S", "Save now (and keep a version)"),
+    Shortcut::new("Notes", "Mod+Shift+P", "Pin or unpin the note"),
+    Shortcut::new("Notes", "Mod+Shift+H", "Version history"),
+    Shortcut::new("Notes", "Escape", "Close a sheet, leave the history"),
+    Shortcut::new("Editing", "Mod+Z / Mod+Shift+Z", "Undo / redo"),
+    Shortcut::new("Editing", "Mod+B / I / U", "Bold / italic / underline"),
+    Shortcut::new("Editing", "Mod+Shift+X", "Strikethrough"),
+    Shortcut::new("Editing", "Mod+E", "Inline code"),
+    Shortcut::new("Editing", "Mod+Shift+K", "Link"),
+    Shortcut::new("Editing", "Mod+0 / 1 / 2 / 3", "Paragraph / heading 1-3"),
+    Shortcut::new("Editing", "Mod+Shift+7 / 8 / 9", "Numbered / bulleted / check list"),
+    Shortcut::new("Editing", "Mod+Enter", "Tick a check item"),
+    Shortcut::new("Editing", "Tab / Shift+Tab", "Indent / outdent a list item"),
+    Shortcut::new("Panes", "F6 / Shift+F6", "Next / previous pane"),
+];
 
 // ==== State ====
 
@@ -75,7 +111,6 @@ pub const SETTINGS_KEY: &str = "aznotes-settings.txt";
 pub enum Screen {
     #[default]
     Notes,
-    Settings,
     /// The open note's versions.
     History,
 }
@@ -163,13 +198,10 @@ pub struct HistoryView {
     pub error: String,
 }
 
-/// What the user set; kept in [`SETTINGS_KEY`].
+/// AzNotes' own settings, values of the kit's settings file (the theme and
+/// the mode are the kit's).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Settings {
-    /// `flat` / `flora`.
-    pub theme: String,
-    /// `system` / `light` / `dark`.
-    pub mode: String,
     pub text_size: TextSize,
     /// Save this long after the last edit.
     pub autosave_ms: u64,
@@ -181,8 +213,6 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Settings {
-            theme: "flat".to_string(),
-            mode: "system".to_string(),
             text_size: TextSize::Medium,
             autosave_ms: 500,
             version_minutes: 5,
@@ -191,48 +221,29 @@ impl Default for Settings {
 }
 
 impl Settings {
-    /// The settings file: `key=value` lines.
+    /// The settings' values as the kit's settings file keeps them.
     #[must_use]
-    pub fn to_text(&self) -> String {
-        format!(
-            "theme={}\nmode={}\ntext_size={}\nautosave_ms={}\nversion_minutes={}\n",
-            self.theme,
-            self.mode,
-            self.text_size.name(),
-            self.autosave_ms,
-            self.version_minutes
-        )
+    pub fn values(&self) -> [(&'static str, String); 3] {
+        [
+            ("text_size", self.text_size.name().to_string()),
+            ("autosave_ms", self.autosave_ms.to_string()),
+            ("version_minutes", self.version_minutes.to_string()),
+        ]
     }
 
-    /// The settings of a file; unknown or bad lines keep the defaults.
+    /// The settings of the values `get` answers; unknown or bad values keep
+    /// the defaults.
     #[must_use]
-    pub fn from_text(text: &str) -> Settings {
+    pub fn from_values(get: impl Fn(&str) -> Option<String>) -> Settings {
         let mut s = Settings::default();
-        for line in text.lines() {
-            let Some((key, value)) = line.split_once('=') else {
-                continue;
-            };
-            let value = value.trim();
-            match key.trim() {
-                "theme" if matches!(value, "flat" | "flora") => s.theme = value.to_string(),
-                "mode" if matches!(value, "system" | "light" | "dark") => s.mode = value.to_string(),
-                "text_size" => {
-                    if let Some(size) = TextSize::from_name(value) {
-                        s.text_size = size;
-                    }
-                }
-                "autosave_ms" => {
-                    if let Ok(ms) = value.parse::<u64>() {
-                        s.autosave_ms = ms.clamp(100, 60_000);
-                    }
-                }
-                "version_minutes" => {
-                    if let Ok(m) = value.parse::<u64>() {
-                        s.version_minutes = m.min(24 * 60);
-                    }
-                }
-                _ => {}
-            }
+        if let Some(size) = get("text_size").and_then(|v| TextSize::from_name(v.trim())) {
+            s.text_size = size;
+        }
+        if let Some(ms) = get("autosave_ms").and_then(|v| v.trim().parse::<u64>().ok()) {
+            s.autosave_ms = ms.clamp(100, 60_000);
+        }
+        if let Some(m) = get("version_minutes").and_then(|v| v.trim().parse::<u64>().ok()) {
+            s.version_minutes = m.min(24 * 60);
         }
         s
     }
@@ -241,6 +252,8 @@ impl Settings {
 /// The app.
 pub struct AppState {
     pub args: Args,
+    /// azul-appkit's kit: the settings file, the data root, the settings page.
+    pub kit: RefAny,
     pub drive: Arc<dyn Drive>,
     /// The AzNotes folder (the LocalDrive's root).
     pub root: PathBuf,
@@ -261,8 +274,8 @@ pub struct AppState {
     pub screen: Screen,
     pub history: Option<HistoryView>,
     pub settings: Settings,
-    pub settings_category: usize,
-    pub settings_search: String,
+    /// The About box is open.
+    pub about_open: bool,
     /// The tag being typed in the tag field.
     pub tag_draft: String,
     /// Notes with a save on the way.
@@ -315,73 +328,46 @@ impl AppState {
 
 // ==== Start ====
 
-fn path_of(dir: Option<FilePath>) -> Option<PathBuf> {
-    dir.map(|d| PathBuf::from(d.inner.as_str()))
-        .filter(|p| !p.as_os_str().is_empty())
-}
-
-/// The AzNotes folder: `--data`, else `AZNOTES_DATA`, else `AzNotes` in the
-/// user's data folder, else `AzNotes` here.
-#[must_use]
-pub fn data_root(flag: Option<PathBuf>, env: Option<String>, user_data: Option<PathBuf>) -> PathBuf {
-    flag.or_else(|| {
-        env.map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty())
-            .map(PathBuf::from)
-    })
-    .or_else(|| user_data.map(|d| d.join("AzNotes")))
-    .unwrap_or_else(|| PathBuf::from("AzNotes"))
-}
-
 pub fn start(args: Args) {
-    let root = data_root(
-        args.data.clone(),
-        std::env::var(DATA_VAR).ok(),
-        path_of(FilePath::get_data_dir().into_option()),
-    );
+    let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &APP_CATEGORIES, args.app.clone());
+    let (root, settings) = {
+        let mut k = kit_ref.clone();
+        let found = k.downcast_ref::<kit::Kit>().map(|k| {
+            let settings = Settings::from_values(|key| k.settings.get(key).map(str::to_string));
+            (k.data_root.clone(), settings)
+        });
+        found.unwrap_or_default()
+    };
     let drive: Arc<dyn Drive> = Arc::new(LocalDrive::new(&root));
-    // The settings are read once before the window exists (a small file;
-    // every later write goes through a job).
-    let mut settings = drive
-        .get(SETTINGS_KEY)
-        .map(|b| Settings::from_text(&String::from_utf8_lossy(&b)))
-        .unwrap_or_default();
-    if let Some(theme) = &args.theme {
-        settings.theme = theme.clone();
-    }
-    if let Some(mode) = &args.mode {
-        settings.mode = mode.clone();
-    }
     println!("AZNOTES_DATA {}", root.display());
 
     let screen = match args.screen {
-        args::Screen::Settings | args::Screen::About | args::Screen::Shortcuts => Screen::Settings,
+        args::Screen::Settings => {
+            kit::open_settings(&kit_ref, None);
+            Screen::Notes
+        }
+        args::Screen::About => {
+            kit::open_settings(&kit_ref, Some("About"));
+            Screen::Notes
+        }
+        args::Screen::Shortcuts => {
+            kit::open_settings(&kit_ref, Some("Shortcuts"));
+            Screen::Notes
+        }
         args::Screen::History => Screen::History,
         args::Screen::Notes | args::Screen::Palette => Screen::Notes,
-    };
-    let settings_category = match args.screen {
-        args::Screen::Shortcuts => ui::SETTINGS_SHORTCUTS,
-        args::Screen::About => ui::SETTINGS_ABOUT,
-        _ => 0,
     };
     let overlay = if args.screen == args::Screen::Palette {
         Overlay::Palette
     } else {
         Overlay::None
     };
-
-    let mut config = AppConfig::create()
-        .with_app_id("org.azul.AzNotes")
-        .with_theme(settings.theme.as_str());
-    match settings.mode.as_str() {
-        "light" => config = config.with_mode(OptionDarkLightMode::Some(DarkLightMode::Light)),
-        "dark" => config = config.with_mode(OptionDarkLightMode::Some(DarkLightMode::Dark)),
-        _ => {}
-    }
-    let size = args.size.unwrap_or((1200.0, 760.0));
+    let config = kit::app_config(&kit_ref).with_app_id("org.azul.AzNotes");
+    let window = kit::window_options(&kit_ref, ui::layout, (1200.0, 760.0), (720.0, 480.0), jobs::on_startup);
 
     let state = AppState {
         args,
+        kit: kit_ref,
         drive,
         root,
         library: Library::default(),
@@ -396,8 +382,7 @@ pub fn start(args: Args) {
         screen,
         history: None,
         settings,
-        settings_category,
-        settings_search: String::new(),
+        about_open: false,
         tag_draft: String::new(),
         saving: BTreeSet::new(),
         last_edit: None,
@@ -408,13 +393,7 @@ pub fn start(args: Args) {
         images_requested: BTreeSet::new(),
         running: 0,
     };
-    let app = App::create(RefAny::new(state), config);
-    let mut window = WindowCreateOptions::create(ui::layout);
-    window.window_state.size.dimensions = LogicalSize::create(size.0, size.1);
-    window.window_state.title = AzString::from("AzNotes");
-    window.window_state.flags.decorations = WindowDecorations::NoTitle;
-    window.create_callback = Some(Callback::create(jobs::on_startup)).into();
-    app.run(window);
+    App::create(RefAny::new(state), config).run(window);
 }
 
 /// `Update::RefreshDom` when `changed`.
@@ -444,34 +423,27 @@ pub fn with_state(
 mod tests {
     use super::*;
 
-    #[test]
-    fn the_data_folder_is_the_flag_then_the_variable_then_the_users_data_folder() {
-        let user = Some(PathBuf::from("/home/u/.local/share"));
-        assert_eq!(
-            data_root(Some(PathBuf::from("/x")), Some("/y".to_string()), user.clone()),
-            PathBuf::from("/x")
-        );
-        assert_eq!(data_root(None, Some(" /y ".to_string()), user.clone()), PathBuf::from("/y"));
-        assert_eq!(
-            data_root(None, Some(" ".to_string()), user),
-            PathBuf::from("/home/u/.local/share/AzNotes")
-        );
-        assert_eq!(data_root(None, None, None), PathBuf::from("AzNotes"));
+    fn values_of(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> + '_ {
+        move |key| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| (*v).to_string())
     }
 
     #[test]
-    fn settings_round_trip_and_bad_lines_keep_the_defaults() {
+    fn settings_round_trip_and_bad_values_keep_the_defaults() {
         let s = Settings {
-            theme: "flora".to_string(),
-            mode: "dark".to_string(),
             text_size: TextSize::Large,
             autosave_ms: 2000,
             version_minutes: 10,
         };
-        assert_eq!(Settings::from_text(&s.to_text()), s);
-        let bad = Settings::from_text("theme=neon\nautosave_ms=fast\nnonsense\n");
+        let values = s.values();
+        let pairs: Vec<(&str, &str)> = values.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        assert_eq!(Settings::from_values(values_of(&pairs)), s);
+        let bad = Settings::from_values(values_of(&[("autosave_ms", "fast"), ("text_size", "huge")]));
         assert_eq!(bad, Settings::default());
-        assert_eq!(Settings::from_text("autosave_ms=1").autosave_ms, 100, "clamped");
+        assert_eq!(
+            Settings::from_values(values_of(&[("autosave_ms", "1")])).autosave_ms,
+            100,
+            "clamped"
+        );
     }
 }
 

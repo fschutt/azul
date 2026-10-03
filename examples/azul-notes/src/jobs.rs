@@ -81,7 +81,9 @@ pub extern "C" fn on_startup(mut data: RefAny, mut info: CallbackInfo) -> Update
         return Update::DoNothing;
     };
     let state = &mut *guard;
-    let job = if state.args.sample {
+    // The kit's part of the start: the `--shot` screenshot timer.
+    azul_appkit::ui::on_window_created(&state.kit, &mut info);
+    let job = if state.args.app.sample {
         Job::Seed {
             files: crate::sample::sample_files(azul_storage::time::now_unix()),
         }

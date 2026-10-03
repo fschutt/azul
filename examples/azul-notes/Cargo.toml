@@ -22,6 +22,8 @@ azul = { path = "../../dll", package = "azul-dll", default-features = false, fea
 azul-storage = { path = "../azul-storage" }
 # The PIM logic the Azlin apps share: the search (diacritics folded), tag cleaning.
 azul-pim = { path = "../azul-pim" }
+# The skeleton the Azlin apps share: args, data root, settings file and page, About, shortcuts.
+azul-appkit = { path = "../azul-appkit", features = ["azul"] }
 # The same features azul-layout, AzDrive and AzMail build chrono with: the list's local dates.
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 

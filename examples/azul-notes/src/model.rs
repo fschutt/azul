@@ -31,6 +31,8 @@ pub fn truncate_chars(text: &str, max: usize) -> String {
     out
 }
 
+/// AzNotes' folder in the data root (azul-appkit's `app_folder`).
+pub const APP_FOLDER: &str = "notes";
 /// Every key of the app starts here.
 pub const NOTES_ROOT: &str = "notes/";
 /// The trash folder under the root; a trashed note keeps its notebook path

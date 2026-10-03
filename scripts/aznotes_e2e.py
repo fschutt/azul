@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """AzNotes end to end over the debug server (headless).
 
-    1. starts AzNotes on an empty, temporary notes folder (--data) and checks the empty state;
+    1. starts AzNotes on an empty, temporary data folder (--data-dir, azul-appkit's switch) and checks the empty state;
     2. creates a note (the "New note" button), types its title, then its body WITH MARKDOWN
        SHORTCUTS - "# " (heading), "- " (bullets), Enter on an empty item (out of the list),
        "[ ] " (a check item) - adds a tag (the tag field, Enter) and pins it;
@@ -118,7 +118,7 @@ class App:
         env = dict(os.environ)
         env.update({"AZ_BACKEND": "headless", "AZ_DEBUG": str(port)})
         self.process = subprocess.Popen(
-            [binary, "--data", data, "--size", "1200x760"], env=env, stdin=subprocess.DEVNULL,
+            [binary, "--data-dir", data, "--size", "1200x760"], env=env, stdin=subprocess.DEVNULL,
             stdout=open(self.out_path, "wb"), stderr=open(self.err_path, "wb"),
         )
 
@@ -334,7 +334,8 @@ def first_session(app, data, out):
     app.must("set_theme", theme="flat")
     app.must("set_mode", mode="light")
     app.click("#__aznotes_open-settings")
-    app.until("the settings", lambda: app.shows("Keyboard shortcuts"))
+    # azul-appkit's settings page: AzNotes' categories, then the kit's.
+    app.until("the settings", lambda: app.shows("Appearance") and app.shows("Text size"))
     app.screenshot(os.path.join(out, "settings.png"))
     app.key("escape")
     return note_id
