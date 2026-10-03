@@ -119,3 +119,39 @@ fn a_box_with_no_baseline_hangs_the_struts_descent_below_it() {
     );
     assert!(near(p, 34.0, 1.0), "Chrome: no line box inside: 30 + 4, got {p}");
 }
+
+#[test]
+fn an_inline_block_of_text_takes_the_baseline_of_its_last_line_where_it_is_laid_out() {
+    // The inline formatting context reported the last item's OWN baseline
+    // offset (a glyph's ascent, a box's distance from its bottom), not where
+    // its last line's baseline IS: a two-line inline-block beside text sat
+    // on its FIRST line (40, Chrome 36), a `line-height: 30px` one 4px low
+    // (34, Chrome 30).
+    let (p, b) = heights("x<span id=\"b\" style=\"display: inline-block\">a<br/>b</span>");
+    assert!(near(p, 36.0, 1.0), "Chrome: 36px, got {p}");
+    assert!(near(b, 0.0, 0.5), "Chrome: at the top, got {b}");
+
+    let (p, _) =
+        heights("x<span id=\"b\" style=\"display: inline-block; line-height: 30px\">a</span>");
+    assert!(near(p, 30.0, 1.0), "Chrome: 30px, got {p}");
+}
+
+#[test]
+fn an_inline_block_holding_a_button_sits_on_the_buttons_label() {
+    // The dialog invoker: an inline-block whose one line holds an inline-flex
+    // button - its baseline is the button's (its label's), 21px down, not the
+    // button's distance from its bottom read as a distance from the top.
+    let (p, b) = heights(&format!(
+        "<span id=\"b\" style=\"display: inline-block\">{}</span>",
+        BUTTON.replace("id=\"b\"", "id=\"w\"")
+    ));
+    assert!(near(p, 32.0, 1.0), "Chrome: 32px, got {p}");
+    assert!(near(b, 0.0, 0.5), "Chrome: at the top, got {b}");
+
+    // ...and one holding a 10px square holds the strut around it (Chrome 18).
+    let (p, _) = heights(
+        "<span id=\"b\" style=\"display: inline-block\"><span style=\"display: inline-block; \
+         width: 10px; height: 10px\"></span></span>",
+    );
+    assert!(near(p, 18.0, 1.0), "Chrome: 18px, got {p}");
+}
