@@ -15,17 +15,23 @@ Branch `wt/text7` from `2e55eef06`. Brief: scripts/waves/wave7/TEXT7.md. Never c
 - d1763bc89 RED item 3: layout/tests/bolder_and_lighter_are_relative_to_the_parent_weight.rs
 - 0a0093605 GREEN item 3: StyleFontWeight::computed (css), compact builder + cascade (core), getters::
   get_computed_font_weight (layout)
+- 5d493ef05 RED item 4: dll/src/desktop/shell2/headless/tests/permission_probe.rs (Linux-only; mod line in
+  headless/mod.rs tests)
+- 397eb4432 GREEN item 4: the one line in dll common/layout.rs (`Some(NodeId::new(i)).into()`)
 
 ## IN PROGRESS
-- item 4: dll/src/desktop/shell2/common/layout.rs:~1555 `NodeId::from_usize(i)` off-by-one (GeolocationProbe)
+- item 5: line-height 19px pitched 19.55 (probing pdfocr markup) - reproduce in code first
 
 ## NEXT
-- items 5..6 in order (5: line-height 19px -> 19.55; 6: line-height rem/vw/vh)
+- item 6: line-height rem/vw/vh
+- then the report scripts/TEXT7_2026_10_03.md
 
 ## Decisions
 - text-indent is applied as geometry of the line box (start-side segment narrowed), not a pen shift.
 - KP's continuation-fragment case (flow chain + text-wrap: balance) still indents a continuation: not fixed
   (would need a param through kp_layout + its many test call sites); noted for the report.
+- item 4's test is Linux-only: a GeolocationProbe also starts the OS location service (CoreLocation /
+  COM) for the test process on macOS / Windows.
 - KP takes its base direction from the logical items, the greedy path from `direction` (pre-existing; noted).
 
 ## Open questions
