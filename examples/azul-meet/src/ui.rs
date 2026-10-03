@@ -41,6 +41,8 @@ use azul::{
     },
 };
 
+use azul_pim::initials::initials;
+
 use crate::tiles::TileKind;
 
 // ==== The view model: what the window shows, made by the app from its state ====
@@ -436,20 +438,6 @@ fn own_picture(view: &CallView, t: &TileView, data: &RefAny) -> Dom {
     }
 }
 
-/// Up to two initials of `name` ("Ada Lovelace" -> "AL", "ben" -> "B").
-fn initials(name: &str) -> String {
-    let letters: String = name
-        .split_whitespace()
-        .filter_map(|word| word.chars().next())
-        .take(2)
-        .flat_map(char::to_uppercase)
-        .collect();
-    if letters.is_empty() {
-        String::from("?")
-    } else {
-        letters
-    }
-}
 
 // ==== The side panel: people, chat, statistics ====
 
@@ -991,13 +979,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn initials_are_the_first_letters_of_up_to_two_words() {
-        assert_eq!(initials("Ada Lovelace"), "AL");
-        assert_eq!(initials("ben"), "B");
-        assert_eq!(initials("a b c"), "AB");
-        assert_eq!(initials("   "), "?");
-    }
 
     #[test]
     fn a_tile_label_says_whose_screen_and_who_is_muted() {

@@ -18,6 +18,8 @@ publish = false
 
 [dependencies]
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+# Plain Rust (no azul): the avatars' initials (azul_pim::initials, DEDUP_EDITORS B24).
+azul-pim = { path = "../azul-pim" }
 
 [lib]
 name = "azmeet"
