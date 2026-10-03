@@ -131,6 +131,12 @@ struct Runner {
     /// frame left behind, so `scrollbar_fade_active` was still true when the
     /// scenario asked whether the window had settled.
     pending_redraw: bool,
+    /// The APP raised `flags.close_requested` (`close_window`, the e2e
+    /// `close` op, a pushed window state) and the close protocol has not run
+    /// for it yet - `CommonWindowState::close_unconfirmed`. Served at the end
+    /// of the frame ([`Runner::confirm_app_close`]), where the headless loop
+    /// serves it.
+    close_unconfirmed: bool,
 }
 
 impl Runner {
@@ -205,6 +211,7 @@ impl Runner {
             dpi_pending: false,
             unsupported_changes: Vec::new(),
             pending_redraw: false,
+            close_unconfirmed: false,
         }
     }
 
@@ -573,6 +580,66 @@ impl Runner {
         self.layout_window.sync_frame_report();
         self.layout_window.frame_report.terminal_result = result as u8;
 
+        self.run_frame(result);
+
+        self.arm_tween_timer();
+
+        // Keep servicing the redraws the frames themselves ask for, until the
+        // window stops changing. The platform loops do this across turns of the
+        // event loop; here it has to happen INSIDE one `service()`, because the
+        // next thing the pump runs is the scenario's next step — and if that
+        // step is an idleness assertion, it reads whatever this call left
+        // behind. The scrollbar fade is 700 ms of WALL CLOCK (`fade_delay` 500 +
+        // `fade_duration` 200) and each headless frame costs about a
+        // millisecond, so this is a real-time-paced loop, exactly like a shell
+        // redrawing at the display's rate — not a spin that fabricates time.
+        self.pump_pending_redraws();
+
+        // A close the app asked for during this frame: the protocol runs
+        // now, against the DOM this frame built - where the headless loop
+        // runs it (phase 2b, after events, timers and frames).
+        self.confirm_app_close();
+
+        // The frame is now final for this op. Re-derive the pointer→node map
+        // from it so the NEXT op's hit test cannot read geometry that a
+        // display-list-only path (the render-only arms above) just moved. See
+        // [`Runner::rebuild_hit_tester`].
+        self.rebuild_hit_tester();
+        self.purge_ended_touch_points();
+    }
+
+    /// THE close protocol for a close the APP raised - port of the dll's
+    /// `PlatformWindow::confirm_app_close` / `run_close_protocol` /
+    /// `request_window_close`: the flag is lowered and that state taken as
+    /// the event-diff baseline, raised again, and one pass runs, so
+    /// `EventType::WindowClose` fires and the app's
+    /// `WindowEventFilter::CloseRequested` callbacks hear it. A callback that
+    /// called `prevent_window_close()` lowered the flag: the close is vetoed,
+    /// and what the vetoing pass asked for (the "Save changes?" question) is
+    /// framed. Otherwise the flag stands - the window is closing. The
+    /// rebuild `run_close_protocol` builds first is already built here: this
+    /// runs after the frame.
+    fn confirm_app_close(&mut self) {
+        if !core::mem::take(&mut self.close_unconfirmed) {
+            return;
+        }
+        // `request_window_close`: lower a flag that is already up and take
+        // that as the baseline (the dll's `discard_input_delta`), so the pass
+        // sees a false -> true transition.
+        self.window_state.flags.close_requested = false;
+        self.previous_window_state = Some(self.window_state.clone());
+        self.window_state.flags.close_requested = true;
+        let result = self.process_window_events(0);
+        let confirmed = self.window_state.flags.close_requested;
+        if !confirmed && result != ProcessEventResult::DoNothing {
+            self.run_frame(result);
+            self.pump_pending_redraws();
+        }
+    }
+
+    /// Frame one `ProcessEventResult` the way the platform loop does: the
+    /// regeneration, relayout, display-list rebuild or repaint it asks for.
+    fn run_frame(&mut self, result: ProcessEventResult) {
         match result {
             ProcessEventResult::DoNothing => {}
             ProcessEventResult::ShouldRegenerateDomCurrentWindow
@@ -603,26 +670,6 @@ impl Runner {
             }
             ProcessEventResult::ShouldReRenderCurrentWindow => self.render_and_record(),
         }
-
-        self.arm_tween_timer();
-
-        // Keep servicing the redraws the frames themselves ask for, until the
-        // window stops changing. The platform loops do this across turns of the
-        // event loop; here it has to happen INSIDE one `service()`, because the
-        // next thing the pump runs is the scenario's next step — and if that
-        // step is an idleness assertion, it reads whatever this call left
-        // behind. The scrollbar fade is 700 ms of WALL CLOCK (`fade_delay` 500 +
-        // `fade_duration` 200) and each headless frame costs about a
-        // millisecond, so this is a real-time-paced loop, exactly like a shell
-        // redrawing at the display's rate — not a spin that fabricates time.
-        self.pump_pending_redraws();
-
-        // The frame is now final for this op. Re-derive the pointer→node map
-        // from it so the NEXT op's hit test cannot read geometry that a
-        // display-list-only path (the render-only arms above) just moved. See
-        // [`Runner::rebuild_hit_tester`].
-        self.rebuild_hit_tester();
-        self.purge_ended_touch_points();
     }
 
     /// Arm the caret / selection tween driver if the display-list pass this
@@ -2080,6 +2127,12 @@ impl Runner {
 
             // === Window State ===
             CallbackChange::ModifyWindowState { state } => {
+                // A pushed state that RAISES the close flag (the CSD
+                // titlebar's close button) asks for a close, like
+                // `close_window` - port of the dll arm.
+                if state.flags.close_requested && !self.window_state.flags.close_requested {
+                    self.close_unconfirmed = true;
+                }
                 let mut old = std::mem::replace(&mut self.window_state, state.clone());
                 // THE PRESS ROUTER, port of the DLL's arm: a scripted press,
                 // move or release of the primary pointer (`mouse_down`,
@@ -2803,6 +2856,12 @@ impl Runner {
 
             // === Window lifetime ===
             CallbackChange::CloseWindow => {
+                // A REQUEST, like the window manager's (port of the dll arm):
+                // the close protocol runs for it at the end of the frame
+                // (`confirm_app_close`), so CloseRequested can veto it.
+                if !self.window_state.flags.close_requested {
+                    self.close_unconfirmed = true;
+                }
                 self.window_state.flags.close_requested = true;
                 ProcessEventResult::DoNothing
             }
