@@ -58,21 +58,13 @@ Branch `wt/headless6` from base 25d78e309. Brief: scripts/waves/wave6/HEADLESS6.
   (runner.rs close_unconfirmed + confirm_app_close + run_frame extracted; tests mod close_protocol_tests).
 
 ## IN PROGRESS
-- item 5 live check: scripts/azcalendar_e2e.py --only editor against the prebuilt AzCalendar (old binary:
-  routing works? latency?). Then the report scripts/HEADLESS6_2026_10_03.md (skeleton first, commit, fill).
+- nothing. Report written: scripts/HEADLESS6_2026_10_03.md.
 
 ## NEXT
-- C..G need a probe run (power permitting): probe scenarios in scratchpad/probe.
-  C bug-transform-offsets-hit-test: 2nd click at (50,25) clears focus instead of focusing absolute #below;
-    same CpuHitTester + resolve_tf in both hosts -> suspect layout/mount difference; probe with hit_test op.
-  D css-animation-multi: width 117.336 = EXACTLY 31 steps of 16.666 ms instead of 30: the dll host's CSS
-    driver timer ran one wall-clock frame between tick_animations and the measurement. The in-process runner
-    FREEZES the engine clock (runner.rs reset_test_clock+freeze_test_clock); the AZ_E2E host does not, and
-    cannot naively (the debug timer that pumps the scenario is engine-clock driven -> would deadlock).
-  E css-animation-transition: transitions 2 instead of 1 after the 2nd mount (`animation: all`): which
-    second property transitions in the AzPaint host? probe needed.
-  F dl-text-patch: last_dl_build_patched false after set_node_text in the AzPaint host.
-  G op-image-cache-id-repaints: add_image_to_cache by css id -> no paint damage in the AzPaint host.
+- DONE unless the coordinator sends more. Left (in the report): corpus + calendar E2E on the new build;
+  headless menu dismissal / keyboard nav.
+- item 5 live: azcalendar_e2e --only editor,repeat PASS on the prebuilt AzCalendar after the script fix
+  (df5c37e97).
 
 ## Item 2 design (exit segfault)
 - Root cause: AZ_E2E's `e2e-result-printer` thread calls exit_dumping_profile -> libc exit() from a
