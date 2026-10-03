@@ -154,9 +154,13 @@ pub(crate) struct MailApp {
     pub(crate) next_compose: u64,
 
     // -- the To-Do bar --
-    pub(crate) tasks: Vec<Task>,
+    /// The Azlin data root (the kit's): the shared task store is under it.
+    pub(crate) data_root: PathBuf,
+    /// The shared task store's tasks (`todo.rs`), open ones first.
+    pub(crate) tasks: Vec<azul_pim::task::Task>,
+    /// The list a task typed into the To-Do bar goes to.
+    pub(crate) task_list: String,
     pub(crate) task_text: String,
-    pub(crate) next_task: u64,
     /// The month the calendar shows (year, month, day picked).
     pub(crate) calendar: (u32, u32, u32),
     /// Today (year, month, day), local.
@@ -173,14 +177,6 @@ pub(crate) struct OpenMessage {
     pub(crate) sanitized: Option<html::Sanitized>,
     /// "Download pictures" was clicked for this message.
     pub(crate) pictures: bool,
-}
-
-/// A task of the To-Do bar (this run only).
-#[derive(Debug, Clone)]
-pub(crate) struct Task {
-    pub(crate) id: u64,
-    pub(crate) title: String,
-    pub(crate) done: bool,
 }
 
 pub(crate) enum SyncState {
@@ -205,6 +201,9 @@ impl MailApp {
     fn create(root: PathBuf, kit: RefAny, screen: Screen, accounts: Vec<Account>) -> MailApp {
         let today = local_today();
         let n = accounts.len();
+        let data_root = kit_data_root(&kit);
+        // Read once, before the window (as the kit reads settings.json).
+        let todo = todo::load(&data_root);
         MailApp {
             root,
             kit,
@@ -239,9 +238,10 @@ impl MailApp {
             notice: String::new(),
             composes: Vec::new(),
             next_compose: 1,
-            tasks: Vec::new(),
+            data_root,
+            tasks: todo.tasks,
+            task_list: todo.new_task_list,
             task_text: String::new(),
-            next_task: 1,
             calendar: today,
             today,
         }
@@ -486,6 +486,14 @@ fn test_ca() -> Option<PathBuf> {
         .flatten()
         .filter(|p| !p.trim().is_empty())
         .map(PathBuf::from)
+}
+
+/// A new id for what leaves the process (a file name in the data tree, the S3 bucket later):
+/// azul's mint seeded from the OS (`Uuid::v4` is the same sequence in every run).
+pub(crate) fn new_id() -> String {
+    azul::uuid::Uuid::from_seed(azul_storage::ids::random_seed())
+        .as_str()
+        .to_string()
 }
 
 pub(crate) fn now_unix() -> i64 {

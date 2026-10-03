@@ -21,7 +21,7 @@ use azul::{
         BackstageOnNavSelectCallbackType, ButtonOnClickCallbackType,
         MessageListOnEventCallbackType, ReadingPaneOnEventCallbackType, ResumeCallbackType,
         RibbonOnTabClickCallbackType, ShellNavigationPaneOnEventCallbackType,
-        ToDoBarOnEventCallbackType,
+        ToDoBarOnEventCallbackType, WriteBackCallbackType,
     },
     css::DarkLightMode,
     dom::VirtualKeyCode,
@@ -49,7 +49,7 @@ use crate::{
     folders::Role,
     html,
     listing::{self, FolderNode, ListRow},
-    message, ui_account, ui_compose, with_app, MailApp, SyncState, Task,
+    message, ui_account, ui_compose, with_app, MailApp, SyncState,
 };
 
 /// The backstage's pages (File).
@@ -672,11 +672,14 @@ fn status_bar(s: &MailApp, app: &RefAny) -> Dom {
 
 // ==== The To-Do bar ====
 
+/// The To-Do bar: the month, the appointments, and the shared task store's tasks (`todo.rs`;
+/// a task's id in the bar is its index in `MailApp::tasks`).
 fn todo_bar(s: &MailApp, app: &RefAny) -> Dom {
     let tasks: Vec<ToDoTask> = s
         .tasks
         .iter()
-        .map(|t| ToDoTask::create(t.id, t.title.as_str()).with_done(t.done))
+        .enumerate()
+        .map(|(i, t)| ToDoTask::create(i as u64, t.title.as_str()).with_done(t.is_done()))
         .collect();
     ToDoBar::create(s.calendar.0, s.calendar.1, s.calendar.2)
         .with_today(s.today.0, s.today.1, s.today.2)
@@ -688,34 +691,83 @@ fn todo_bar(s: &MailApp, app: &RefAny) -> Dom {
         .dom()
 }
 
-extern "C" fn on_todo_event(mut data: RefAny, _info: CallbackInfo, event: ToDoBarEvent) -> Update {
-    with_app(&mut data, |s, _| {
-        match event.kind {
+extern "C" fn on_todo_event(mut data: RefAny, mut info: CallbackInfo, event: ToDoBarEvent) -> Update {
+    with_app(&mut data, |s, app| {
+        let now = chrono::Local::now().naive_local();
+        let changed: Vec<azul_pim::task::Task> = match event.kind {
             ToDoBarEventKind::DatePicked => {
                 s.calendar = (event.date.year, event.date.month, event.date.day);
+                Vec::new()
             }
             ToDoBarEventKind::TaskAdded => {
-                let title = event.text.as_str().trim().to_string();
-                if title.is_empty() {
+                let Some(task) = crate::todo::new_task(
+                    event.text.as_str(),
+                    &s.task_list,
+                    &s.tasks,
+                    crate::new_id(),
+                    now,
+                ) else {
                     return Update::DoNothing;
-                }
-                s.tasks.push(Task {
-                    id: s.next_task,
-                    title,
-                    done: false,
-                });
-                s.next_task += 1;
+                };
+                println!("AZMAIL_TASK_ADDED {}", task.key());
                 s.task_text.clear();
+                s.tasks.push(task.clone());
+                vec![task]
             }
             ToDoBarEventKind::TaskToggled => {
-                if let Some(task) = s.tasks.iter_mut().find(|t| t.id == event.id) {
-                    task.done = !task.done;
-                }
+                let Some(task) = s.tasks.get_mut(event.id as usize) else {
+                    return Update::DoNothing;
+                };
+                // Ticking off a repeating task leaves its next occurrence, as in AzTasks.
+                let next = crate::todo::toggle_done(task, crate::new_id(), now);
+                let mut changed = vec![task.clone()];
+                changed.extend(next.clone());
+                s.tasks.extend(next);
+                changed
             }
             ToDoBarEventKind::TaskOpened | ToDoBarEventKind::AppointmentOpened => {
                 return Update::DoNothing;
             }
+        };
+        crate::todo::sort(&mut s.tasks);
+        save_tasks(s, &mut info, app, &changed);
+        Update::RefreshDom
+    })
+    .unwrap_or(Update::DoNothing)
+}
+
+/// The write-back tag of the To-Do bar's task files.
+const TAG_TASKS: u64 = 1;
+
+/// Writes `tasks` to their files in the shared task store, on a Thread (azul-appkit's file
+/// jobs on the data root's drive).
+fn save_tasks(s: &MailApp, info: &mut CallbackInfo, app: RefAny, tasks: &[azul_pim::task::Task]) {
+    let jobs: Vec<azul_appkit::FileJob> = tasks.iter().map(crate::todo::put_job).collect();
+    azul_appkit::ui::spawn_file_jobs(
+        info,
+        &s.data_root,
+        jobs,
+        app,
+        TAG_TASKS,
+        on_tasks_saved as WriteBackCallbackType,
+    );
+}
+
+/// The task files are written (or a sentence says why not).
+extern "C" fn on_tasks_saved(mut app: RefAny, mut reply: RefAny, _info: CallbackInfo) -> Update {
+    let Some(reply) = azul_appkit::ui::take_reply(&mut reply) else {
+        return Update::DoNothing;
+    };
+    let Some(error) = reply.outcomes.iter().find_map(azul_appkit::FileOutcome::error) else {
+        for outcome in &reply.outcomes {
+            if let azul_appkit::FileOutcome::Put { key, .. } = outcome {
+                println!("AZMAIL_TASK_SAVED {key}");
+            }
         }
+        return Update::DoNothing;
+    };
+    with_app(&mut app, |s, _| {
+        s.notice = format!("The task could not be saved: {error}");
         Update::RefreshDom
     })
     .unwrap_or(Update::DoNothing)
