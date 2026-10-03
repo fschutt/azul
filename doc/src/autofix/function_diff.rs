@@ -2864,5 +2864,24 @@ mod tests {
         );
         assert!(found.is_empty(), "{found:?}");
     }
+
+    /// The only body `autofix add` wrote with a bare `object` - which the
+    /// codegen does not rewrite - was a `destroy*` method's
+    /// `core::mem::drop(object)`, and it did not even call the method. A
+    /// `destroy*` method is called like any other.
+    #[test]
+    fn a_destroy_method_is_called_and_no_body_passes_a_bare_object() {
+        let source = r#"
+            impl T {
+                pub fn destroy(&mut self) {}
+                pub fn destroy_child(&mut self, index: usize) -> bool { true }
+            }
+        "#;
+        assert_eq!(added(source, "destroy").fn_body.as_deref(), Some("object.destroy()"));
+        assert_eq!(
+            added(source, "destroy_child").fn_body.as_deref(),
+            Some("object.destroy_child(index)")
+        );
+    }
 }
 
