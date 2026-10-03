@@ -251,7 +251,7 @@ pub struct ResolvedLinearGradient {
 /// What lets a gradient FACE fade (flora's buttons hover from one paper
 /// gradient to another); the solid colour is the one-layer case.
 #[must_use]
-pub fn interpolate_background_layers(
+pub(crate) fn interpolate_background_layers(
     from: &[StyleBackgroundContent],
     to: &[StyleBackgroundContent],
     t: f32,
