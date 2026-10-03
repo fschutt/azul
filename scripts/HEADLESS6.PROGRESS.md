@@ -21,9 +21,12 @@ Branch `wt/headless6` from base 25d78e309. Brief: scripts/waves/wave6/HEADLESS6.
 - f8c17345e RED / 811d7c1a0 GREEN: VirtualView child-DOM state dropped with its host (category A)
 - 072a51d9c RED / 913e33c3e GREEN: headless backend publishes the painted frame (category B);
   tests in dll/src/desktop/shell2/headless/tests/e2e_host.rs (mod e2e_host next to mod idle_cpu)
+- item 2: d1f0286ec RED / 8e6c5bfb2 + b872bfa3a + (font registry signal) GREEN: common/process_exit.rs
+  ExitRequest; printer -> end_process_from_worker; headless loop exits on UI thread (exit_from_ui_thread).
 
 ## IN PROGRESS
-- item 2 (exit segfault): design below; implement in run.rs (printer thread) + headless/mod.rs (loop).
+- item 4: window id on LayoutCallbackInfo (core/src/callbacks.rs). Next: read LayoutCallbackInfo struct,
+  FullWindowState.window_id (AzString), how shells build LayoutCallbackInfo; RED test first.
 
 ## NEXT
 - items 3 (headless menus), 4 (window id on LayoutCallbackInfo), 5 (child-window routing).
