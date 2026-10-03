@@ -421,7 +421,7 @@ const fn is_leap(year: u32) -> bool {
 /// Number of days in the given (1-based) month of the given year.
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
                                   // (or cross-type bindings that can't merge)
-const fn days_in_month(year: u32, month: u32) -> u32 {
+pub(crate) const fn days_in_month(year: u32, month: u32) -> u32 {
     match month {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
         4 | 6 | 9 | 11 => 30,
@@ -439,7 +439,7 @@ const fn days_in_month(year: u32, month: u32) -> u32 {
 /// Sakamoto's algorithm: weekday of `(year, month, day)`, returned as
 /// `0 = Sunday .. 6 = Saturday`. Verified: 2000-01-01 -> 6 (Saturday).
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded layout/render numeric cast
-fn weekday(year: u32, month: u32, day: u32) -> u32 {
+pub(crate) fn weekday(year: u32, month: u32, day: u32) -> u32 {
     const T: [i32; 12] = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
     let mut y = year as i32;
     if month < 3 {

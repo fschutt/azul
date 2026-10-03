@@ -97,6 +97,24 @@ const FREQUENCY_LABELS: [&str; 5] = ["Never", "Daily", "Weekly", "Monthly", "Yea
 const END_LABELS: [&str; 3] = ["Never", "After", "On"];
 /// The largest interval and count the form takes.
 const MAX_NUMBER: u32 = 999;
+/// The count an end "after a number of times" starts at.
+const DEFAULT_COUNT: u32 = 10;
+/// The frequencies, in the order of the frequency row's segments.
+const FREQUENCIES: [RecurrenceFrequency; 5] = [
+    RecurrenceFrequency::Never,
+    RecurrenceFrequency::Daily,
+    RecurrenceFrequency::Weekly,
+    RecurrenceFrequency::Monthly,
+    RecurrenceFrequency::Yearly,
+];
+/// The ends, in the order of the end row's segments.
+const ENDS: [RecurrenceEnd; 3] = [
+    RecurrenceEnd::Never,
+    RecurrenceEnd::AfterCount,
+    RecurrenceEnd::OnDate,
+];
+/// What the "from completion" box says.
+const COMPLETION_LABEL: &str = "Repeat from the day it is completed";
 
 /// How often a rule repeats.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -182,8 +200,46 @@ impl RecurrenceRule {
     /// (10 times, or on `start`, once an end is chosen).
     #[must_use]
     pub const fn create(start: DatePickerState) -> Self {
-        let _ = start;
-        todo!()
+        Self {
+            start,
+            until: start,
+            interval: 1,
+            count: DEFAULT_COUNT,
+            frequency: RecurrenceFrequency::Never,
+            monthly: RecurrenceMonthly::DayOfMonth,
+            end: RecurrenceEnd::Never,
+            weekdays: 0,
+            from_completion: false,
+        }
+    }
+
+    /// The start's weekday, 0 = Monday .. 6 = Sunday.
+    pub(crate) fn start_weekday(&self) -> usize {
+        let sunday_based =
+            crate::widgets::date_picker::weekday(self.start.year, self.start.month, self.start.day);
+        ((sunday_based + 6) % 7) as usize
+    }
+
+    /// The weekdays a weekly rule repeats on (bit 0 Monday .. bit 6
+    /// Sunday): the chosen ones, else the start's.
+    pub(crate) fn effective_weekdays(&self) -> u8 {
+        let chosen = self.weekdays & 0x7f;
+        if chosen == 0 {
+            1 << self.start_weekday()
+        } else {
+            chosen
+        }
+    }
+
+    /// Which of its month's weekdays of its kind the start is: 1 to 4, or
+    /// -1 (the last) for a fifth one, which most months do not have.
+    pub(crate) fn start_nth(&self) -> i32 {
+        let nth = i32::try_from(self.start.day.saturating_sub(1) / 7 + 1).unwrap_or(1);
+        if nth >= 5 {
+            -1
+        } else {
+            nth
+        }
     }
 
     /// The rule as the value of an RFC 5545 `RRULE` (`FREQ=WEEKLY;
@@ -192,7 +248,51 @@ impl RecurrenceRule {
     /// `BYDAY`; empty when it does not repeat.
     #[must_use]
     pub fn to_rrule(&self) -> AzString {
-        todo!()
+        let freq = match self.frequency {
+            RecurrenceFrequency::Never => return AzString::from_const_str(""),
+            RecurrenceFrequency::Daily => "DAILY",
+            RecurrenceFrequency::Weekly => "WEEKLY",
+            RecurrenceFrequency::Monthly => "MONTHLY",
+            RecurrenceFrequency::Yearly => "YEARLY",
+        };
+        let mut parts: Vec<String> = alloc::vec![alloc::format!("FREQ={freq}")];
+        if self.interval > 1 {
+            parts.push(alloc::format!("INTERVAL={}", self.interval));
+        }
+        match self.end {
+            RecurrenceEnd::Never => {}
+            RecurrenceEnd::AfterCount => {
+                parts.push(alloc::format!("COUNT={}", self.count.max(1)));
+            }
+            RecurrenceEnd::OnDate => parts.push(alloc::format!(
+                "UNTIL={:04}{:02}{:02}",
+                self.until.year,
+                self.until.month,
+                self.until.day
+            )),
+        }
+        match (self.frequency, self.monthly) {
+            (RecurrenceFrequency::Weekly, _) => {
+                let days = self.effective_weekdays();
+                let codes: Vec<&str> = (0..7)
+                    .filter(|i| days & (1 << i) != 0)
+                    .map(|i| WEEKDAY_CODES[i])
+                    .collect();
+                parts.push(alloc::format!("BYDAY={}", codes.join(",")));
+            }
+            (RecurrenceFrequency::Monthly, RecurrenceMonthly::DayOfMonth) => {
+                parts.push(alloc::format!("BYMONTHDAY={}", self.start.day));
+            }
+            (RecurrenceFrequency::Monthly, RecurrenceMonthly::Weekday) => {
+                parts.push(alloc::format!(
+                    "BYDAY={}{}",
+                    self.start_nth(),
+                    WEEKDAY_CODES[self.start_weekday()]
+                ));
+            }
+            _ => {}
+        }
+        AzString::from(parts.join(";"))
     }
 
     /// The rule an RRULE value (with or without its `RRULE:` name) makes for
@@ -202,9 +302,146 @@ impl RecurrenceRule {
     /// value is a rule that does not repeat.
     #[must_use]
     pub fn from_rrule(rrule: AzString, start: DatePickerState) -> OptionRecurrenceRule {
-        let _ = (rrule, start);
-        todo!()
+        parse_rrule(rrule.as_str(), start).into()
     }
+}
+
+/// `20261231`, or the date of `20261231T235959` / `20261231T235959Z`.
+fn parse_basic_date(text: &str) -> Option<DatePickerState> {
+    let digits = text.get(..8)?;
+    if !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let rest = &text[8..];
+    if !(rest.is_empty() || rest.starts_with('T')) {
+        return None;
+    }
+    let year: u32 = digits[..4].parse().ok()?;
+    let month: u32 = digits[4..6].parse().ok()?;
+    let day: u32 = digits[6..].parse().ok()?;
+    if !(1..=12).contains(&month)
+        || day == 0
+        || day > crate::widgets::date_picker::days_in_month(year, month)
+    {
+        return None;
+    }
+    Some(DatePickerState { year, month, day })
+}
+
+/// A positive whole number of an RRULE part (`INTERVAL`, `COUNT`).
+fn positive(text: &str) -> Option<u32> {
+    text.trim().parse::<u32>().ok().filter(|n| *n > 0)
+}
+
+/// `value` (a `BYMONTH` / `BYMONTHDAY` list) is absent or exactly `want`.
+fn absent_or(value: Option<&str>, want: u32) -> bool {
+    value.map_or(true, |v| v.trim().parse::<u32>().ok() == Some(want))
+}
+
+/// What [`RecurrenceRule::from_rrule`] reads: the rule, when the form can
+/// show it.
+fn parse_rrule(text: &str, start: DatePickerState) -> Option<RecurrenceRule> {
+    let mut rule = RecurrenceRule::create(start);
+    let mut text = text.trim();
+    if text.len() >= 6 && text.is_char_boundary(6) && text[..6].eq_ignore_ascii_case("RRULE:") {
+        text = text[6..].trim();
+    }
+    if text.is_empty() {
+        return Some(rule);
+    }
+    let mut freq = None;
+    let mut by_day: Option<String> = None;
+    let mut by_month_day: Option<&str> = None;
+    let mut by_month: Option<&str> = None;
+    for part in text.split(';').map(str::trim).filter(|p| !p.is_empty()) {
+        let (key, value) = part.split_once('=')?;
+        let value = value.trim();
+        match key.trim().to_ascii_uppercase().as_str() {
+            "FREQ" => {
+                freq = Some(match value.to_ascii_uppercase().as_str() {
+                    "DAILY" => RecurrenceFrequency::Daily,
+                    "WEEKLY" => RecurrenceFrequency::Weekly,
+                    "MONTHLY" => RecurrenceFrequency::Monthly,
+                    "YEARLY" => RecurrenceFrequency::Yearly,
+                    _ => return None,
+                });
+            }
+            "INTERVAL" => rule.interval = positive(value)?.min(MAX_NUMBER),
+            "COUNT" => {
+                rule.count = positive(value)?.min(MAX_NUMBER);
+                rule.end = RecurrenceEnd::AfterCount;
+            }
+            "UNTIL" => {
+                rule.until = parse_basic_date(value)?;
+                rule.end = RecurrenceEnd::OnDate;
+            }
+            "BYDAY" => by_day = Some(value.to_ascii_uppercase()),
+            "BYMONTHDAY" => by_month_day = Some(value),
+            "BYMONTH" => by_month = Some(value),
+            // The week's first day changes nothing the form shows.
+            "WKST" => {}
+            _ => return None,
+        }
+    }
+    rule.frequency = freq?;
+    match rule.frequency {
+        RecurrenceFrequency::Daily => {
+            if by_day.is_some() || by_month_day.is_some() || by_month.is_some() {
+                return None;
+            }
+        }
+        RecurrenceFrequency::Weekly => {
+            if by_month_day.is_some() || by_month.is_some() {
+                return None;
+            }
+            if let Some(days) = by_day {
+                let mut bits = 0u8;
+                for code in days.split(',') {
+                    let i = WEEKDAY_CODES.iter().position(|c| *c == code.trim())?;
+                    bits |= 1 << i;
+                }
+                // The start's weekday alone is the rule's own default.
+                rule.weekdays = if bits == 1 << rule.start_weekday() {
+                    0
+                } else {
+                    bits
+                };
+            }
+        }
+        RecurrenceFrequency::Monthly => {
+            if by_month.is_some() {
+                return None;
+            }
+            match (by_day, by_month_day) {
+                (None, day) if absent_or(day, start.day) => {
+                    rule.monthly = RecurrenceMonthly::DayOfMonth;
+                }
+                (Some(day), None) => {
+                    let split = day.len().checked_sub(2)?;
+                    if !day.is_char_boundary(split) {
+                        return None;
+                    }
+                    let (nth, code) = day.split_at(split);
+                    let nth: i32 = nth.trim_start_matches('+').parse().ok()?;
+                    if code != WEEKDAY_CODES[rule.start_weekday()] || nth != rule.start_nth() {
+                        return None;
+                    }
+                    rule.monthly = RecurrenceMonthly::Weekday;
+                }
+                _ => return None,
+            }
+        }
+        RecurrenceFrequency::Yearly => {
+            if by_day.is_some()
+                || !absent_or(by_month, start.month)
+                || !absent_or(by_month_day, start.day)
+            {
+                return None;
+            }
+        }
+        RecurrenceFrequency::Never => return None,
+    }
+    Some(rule)
 }
 
 /// One part of the form changed (what [`apply`] folds into the rule).
@@ -230,8 +467,59 @@ pub(crate) enum Part {
 
 /// Folds one part's change into `rule`.
 pub(crate) fn apply(rule: &mut RecurrenceRule, part: Part) {
-    let _ = (rule, part);
-    todo!()
+    match part {
+        Part::Frequency(index) => {
+            if let Some(frequency) = FREQUENCIES.get(index) {
+                rule.frequency = *frequency;
+            }
+        }
+        Part::Interval(typed) => {
+            if let Some(n) = whole(typed) {
+                rule.interval = n;
+            }
+        }
+        Part::Weekday(day) => {
+            if day < 7 {
+                let toggled = rule.effective_weekdays() ^ (1 << day);
+                // A weekly rule repeats on some day: the last one stays.
+                if toggled != 0 {
+                    rule.weekdays = toggled;
+                }
+            }
+        }
+        Part::Monthly(index) => match index {
+            0 => rule.monthly = RecurrenceMonthly::DayOfMonth,
+            1 => rule.monthly = RecurrenceMonthly::Weekday,
+            _ => {}
+        },
+        Part::End(index) => {
+            if let Some(end) = ENDS.get(index) {
+                rule.end = *end;
+                let until = (rule.until.year, rule.until.month, rule.until.day);
+                if *end == RecurrenceEnd::OnDate
+                    && until < (rule.start.year, rule.start.month, rule.start.day)
+                {
+                    rule.until = rule.start;
+                }
+            }
+        }
+        Part::Count(typed) => {
+            if let Some(n) = whole(typed) {
+                rule.count = n;
+            }
+        }
+        Part::Until(day) => rule.until = day,
+        Part::Completion(on) => rule.from_completion = on,
+    }
+}
+
+/// A typed number as a whole number from 1 to 999; `None` for no number.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped to 1..=999 first
+fn whole(typed: f32) -> Option<u32> {
+    if typed.is_nan() {
+        return None;
+    }
+    Some(typed.round().clamp(1.0, MAX_NUMBER as f32) as u32)
 }
 
 /// Callback invoked when any part of the form changes; it is handed the
