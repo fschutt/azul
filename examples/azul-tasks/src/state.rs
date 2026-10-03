@@ -333,6 +333,33 @@ impl Tasks {
         parse::parse_with(text, &ctx, &self.quick.ignore)
     }
 
+    // ==== Import / export (iCalendar VTODO, `vtodo.rs`) ====
+
+    /// Exports the list shown (outside a list: every task) as an iCalendar file into AzTasks'
+    /// folder of the data tree (`aztasks/exports/<list>.ics`), through the write queue; `now`
+    /// is local, `to_utc` turns a local moment into UTC. Returns the file's key and how many
+    /// to-dos it holds.
+    pub fn export_tasks(
+        &mut self,
+        now: NaiveDateTime,
+        to_utc: &dyn Fn(NaiveDateTime) -> NaiveDateTime,
+    ) -> (String, usize) {
+        let _ = (now, to_utc);
+        todo!()
+    }
+
+    /// Imports the to-dos of the iCalendar `text` into the default list, after its tasks, each
+    /// queued; `to_local` turns a UTC moment into local time. Returns what could not be read.
+    pub fn import_tasks(
+        &mut self,
+        text: &str,
+        now: NaiveDateTime,
+        to_local: &dyn Fn(NaiveDateTime) -> NaiveDateTime,
+    ) -> Vec<String> {
+        let _ = (text, now, to_local);
+        todo!()
+    }
+
     // ==== Saving ====
 
     /// Queues task `i`'s file (stamping it modified).
@@ -845,5 +872,74 @@ mod tests {
         assert_eq!(s.tasks[0].title, "Book the room");
         let batch = s.queue.take().expect("the old file is queued for a rewrite");
         assert!(batch.iter().any(|w| w.key() == key), "{batch:?}");
+    }
+
+    fn state_in(dir: &TempDir) -> Tasks {
+        Tasks::new(
+            Arc::new(LocalDrive::new(&dir.0)),
+            dir.0.clone(),
+            View::Smart(Smart::Today),
+        )
+    }
+
+    /// The Data settings' export: the list shown (else every task) as an iCalendar file in
+    /// AzTasks' own folder of the data tree, written through the queue.
+    #[test]
+    fn an_export_writes_the_list_shown_into_the_data_tree() {
+        let dir = TempDir::create();
+        let mut s = state_in(&dir);
+        let at = now();
+        s.lists = vec![
+            TaskList::new("work".into(), "Work".into(), 1),
+            TaskList::new("home".into(), "Home".into(), 2),
+        ];
+        for (id, list, title) in [("a", "work", "Report"), ("b", "home", "Ferns"), ("c", "work", "Mail")] {
+            s.tasks.push(Task::new(id.into(), list.into(), title.into(), at));
+        }
+        s.view = View::List("work".into());
+        let (key, count) = s.export_tasks(at, &|d| d);
+        assert_eq!((key.as_str(), count), ("aztasks/exports/Work.ics", 2));
+        let batch = s.queue.take().expect("the export is queued");
+        let text = match batch.iter().find(|w| w.key() == key) {
+            Some(store::Write::Put { bytes, .. }) => String::from_utf8_lossy(bytes).into_owned(),
+            other => panic!("no put of {key}: {other:?}"),
+        };
+        assert!(text.contains("SUMMARY:Report") && text.contains("SUMMARY:Mail"), "{text}");
+        assert!(!text.contains("SUMMARY:Ferns"), "only the list shown: {text}");
+        s.queue.finish(Vec::new());
+        // Outside a list: every task, the file named after the app.
+        s.view = View::Smart(Smart::Today);
+        let (key, count) = s.export_tasks(at, &|d| d);
+        assert_eq!((key.as_str(), count), ("aztasks/exports/Tasks.ics", 3));
+    }
+
+    /// The imported to-dos join the default list after its tasks, and each is queued.
+    #[test]
+    fn imported_to_dos_join_the_default_list_after_its_tasks() {
+        let dir = TempDir::create();
+        let mut s = state_in(&dir);
+        let at = now();
+        s.lists = vec![TaskList::new("work".into(), "Work".into(), 1)];
+        let mut old = Task::new("a".into(), "work".into(), "Report".into(), at);
+        old.order = 4;
+        s.tasks.push(old);
+        let text = "BEGIN:VCALENDAR\r\nBEGIN:VTODO\r\nSUMMARY:One\r\nEND:VTODO\r\n\
+                    BEGIN:VTODO\r\nSUMMARY:Two\r\nEND:VTODO\r\nEND:VCALENDAR\r\n";
+        let problems = s.import_tasks(text, at, &|d| d);
+        assert!(problems.is_empty(), "{problems:?}");
+        let added: Vec<(&str, &str, i64)> = s
+            .tasks
+            .iter()
+            .filter(|t| t.id != "a")
+            .map(|t| (t.title.as_str(), t.list.as_str(), t.order))
+            .collect();
+        assert_eq!(added, [("One", "work", 5), ("Two", "work", 6)]);
+        let batch = s.queue.take().expect("the new tasks are queued");
+        assert_eq!(batch.len(), 2);
+        // No list yet: nothing to import into.
+        let mut empty = state_in(&dir);
+        let problems = empty.import_tasks(text, at, &|d| d);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(empty.tasks.is_empty());
     }
 }
