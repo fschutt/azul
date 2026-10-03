@@ -61,18 +61,22 @@ impl Stopwatch {
     /// The time at `now`.
     #[must_use]
     pub fn elapsed(&self, now: i64) -> i64 {
-        let _ = now;
-        0
+        self.accumulated_ms + self.running_since.map_or(0, |since| (now - since).max(0))
     }
 
     /// Start (or go on) at `now`.
     pub fn start(&mut self, now: i64) {
-        let _ = now;
+        if self.running_since.is_none() {
+            self.running_since = Some(now);
+        }
     }
 
     /// Stop at `now`, keeping the time.
     pub fn stop(&mut self, now: i64) {
-        let _ = now;
+        if self.running_since.is_some() {
+            self.accumulated_ms = self.elapsed(now);
+            self.running_since = None;
+        }
     }
 
     /// Start when stopped, stop when running.
@@ -86,25 +90,73 @@ impl Stopwatch {
 
     /// Record a lap at `now` (only while it runs).
     pub fn lap(&mut self, now: i64) {
-        let _ = now;
+        if self.is_running() {
+            self.laps.push(self.elapsed(now));
+        }
     }
 
     /// Back to zero, no laps, stopped.
-    pub fn reset(&mut self) {}
+    pub fn reset(&mut self) {
+        *self = Stopwatch::default();
+    }
 
     /// The laps, newest first, the fastest and the slowest marked once
     /// there are two or more.
     #[must_use]
     pub fn rows(&self) -> Vec<LapRow> {
-        Vec::new()
+        let mut previous = 0;
+        let mut rows: Vec<LapRow> = self
+            .laps
+            .iter()
+            .enumerate()
+            .map(|(i, &total)| {
+                let row = LapRow {
+                    number: i + 1,
+                    lap_ms: total - previous,
+                    total_ms: total,
+                    mark: LapMark::None,
+                };
+                previous = total;
+                row
+            })
+            .collect();
+        if rows.len() >= 2 {
+            // The first of equal laps is the one marked.
+            let fastest = rows
+                .iter()
+                .enumerate()
+                .min_by_key(|(i, r)| (r.lap_ms, *i))
+                .map(|(i, _)| i);
+            let slowest = rows
+                .iter()
+                .enumerate()
+                .max_by_key(|(i, r)| (r.lap_ms, core::cmp::Reverse(*i)))
+                .map(|(i, _)| i);
+            if let (Some(f), Some(s)) = (fastest, slowest) {
+                if f != s {
+                    rows[f].mark = LapMark::Fastest;
+                    rows[s].mark = LapMark::Slowest;
+                }
+            }
+        }
+        rows.reverse();
+        rows
     }
 
     /// The laps as text for the clipboard: a header and one tab-separated
     /// line per lap, newest first.
     #[must_use]
     pub fn laps_text(&self) -> String {
-        let _ = fmt::lap;
-        String::new()
+        let mut out = String::from("Lap\tLap time\tTotal\n");
+        for row in self.rows() {
+            out.push_str(&format!(
+                "{}\t{}\t{}\n",
+                row.number,
+                fmt::lap(row.lap_ms),
+                fmt::lap(row.total_ms)
+            ));
+        }
+        out
     }
 }
 

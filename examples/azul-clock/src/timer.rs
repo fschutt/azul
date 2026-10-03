@@ -64,43 +64,87 @@ impl CountdownTimer {
 
     /// Start (or resume, or start again when finished) at `now`.
     pub fn start(&mut self, now: i64) {
-        let _ = now;
+        self.state = match self.state {
+            TimerState::Idle => TimerState::Running {
+                ends_at: now + self.duration_ms,
+            },
+            TimerState::Paused { remaining_ms } => TimerState::Running {
+                ends_at: now + remaining_ms,
+            },
+            TimerState::Finished { .. } => TimerState::Running {
+                ends_at: now + self.duration_ms,
+            },
+            running @ TimerState::Running { .. } => running,
+        };
     }
 
     /// Pause at `now`, keeping the time left (a timer whose time is up
     /// finishes instead).
     pub fn pause(&mut self, now: i64) {
-        let _ = now;
+        if let TimerState::Running { ends_at } = self.state {
+            self.state = if ends_at <= now {
+                TimerState::Finished { at: ends_at }
+            } else {
+                TimerState::Paused {
+                    remaining_ms: ends_at - now,
+                }
+            };
+        }
     }
 
     /// Back to the whole length, idle.
-    pub fn reset(&mut self) {}
+    pub fn reset(&mut self) {
+        self.state = TimerState::Idle;
+    }
 
     /// +1 min (or any `ms`): a running timer ends later, a paused one has
     /// more left, an idle one is longer, a finished one starts again with
     /// just that time. The length grows with it (the ring's "of 11:00").
     pub fn add(&mut self, now: i64, ms: i64) {
-        let _ = (now, ms);
+        let ms = ms.max(0);
+        if self.is_finished() {
+            self.duration_ms = ms.min(MAX_MS);
+            self.state = TimerState::Running { ends_at: now + ms };
+            return;
+        }
+        self.duration_ms = (self.duration_ms + ms).min(MAX_MS);
+        match &mut self.state {
+            TimerState::Running { ends_at } => *ends_at += ms,
+            TimerState::Paused { remaining_ms } => *remaining_ms += ms,
+            TimerState::Idle | TimerState::Finished { .. } => {}
+        }
     }
 
     /// The time left at `now` (0 when done).
     #[must_use]
     pub fn remaining_ms(&self, now: i64) -> i64 {
-        let _ = now;
-        0
+        match self.state {
+            TimerState::Idle => self.duration_ms,
+            TimerState::Running { ends_at } => (ends_at - now).max(0),
+            TimerState::Paused { remaining_ms } => remaining_ms.max(0),
+            TimerState::Finished { .. } => 0,
+        }
     }
 
     /// How much of the ring is left at `now`: 1.0 at the start, 0.0 when done.
     #[must_use]
     pub fn fraction_left(&self, now: i64) -> f32 {
-        let _ = now;
-        0.0
+        if self.duration_ms <= 0 {
+            return 0.0;
+        }
+        let left = self.remaining_ms(now).min(self.duration_ms);
+        (left as f64 / self.duration_ms as f64) as f32
     }
 
     /// Call on every tick: `true` when the timer finished now (once).
     pub fn tick(&mut self, now: i64) -> bool {
-        let _ = now;
-        false
+        match self.state {
+            TimerState::Running { ends_at } if ends_at <= now => {
+                self.state = TimerState::Finished { at: ends_at };
+                true
+            }
+            _ => false,
+        }
     }
 
     #[must_use]
