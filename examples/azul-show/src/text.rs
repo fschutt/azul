@@ -165,6 +165,17 @@ pub fn state_for(body: &TextBody, element: u64, stored: Option<&RichTextEditorSt
     state
 }
 
+/// The read-only editor state of element `element`'s text (the slide, the
+/// rail, the show, the PDF): its host is `<host id>-view`, so the one host
+/// that is edited keeps [`host_id`] to itself (the rail shows the same
+/// element as the canvas; the focus goes by the id).
+#[must_use]
+pub fn view_state(body: &TextBody, element: u64) -> RichTextEditorState {
+    let mut state = RichTextEditorState::create(to_rich(body));
+    state.host_id = AzString::from(format!("{}-view", host_id(element)));
+    state
+}
+
 /// The editor of a text at `scale` px per slide unit over `state`: the
 /// body's size, a slide's spacing, no Markdown shortcuts (a slide's text has
 /// no headings, quotes or code); read-only unless `editable`.
@@ -291,6 +302,13 @@ mod tests {
         assert!(all_have(&b, RichFormat::Bold));
         toggle_all(&mut b, RichFormat::Bold);
         assert!(!all_have(&b, RichFormat::Bold));
+    }
+
+    #[test]
+    fn a_text_shown_read_only_does_not_take_the_edited_hosts_id() {
+        let b = body();
+        assert_eq!(view_state(&b, 7).host_id.as_str(), "__azshow_tb7-view");
+        assert_ne!(view_state(&b, 7).host_id.as_str(), host_id(7));
     }
 
     #[test]

@@ -191,7 +191,7 @@ fn text_block(deck: &Deck, element: &Element, body: &TextBody, opts: &RenderOpti
     let editor = match (editing, opts.hooks) {
         (true, Some(app)) => text::editor(&shown, text::state_for(&shown, element.id, opts.text), scale, true)
             .with_on_change(app.clone(), crate::views::on_text_change as RichTextEditorOnChangeCallbackType),
-        _ => text::editor(&shown, text::state_for(&shown, element.id, None), scale, false),
+        _ => text::editor(&shown, text::view_state(&shown, element.id), scale, false),
     };
     holder.with_child(text::content(editor))
 }
