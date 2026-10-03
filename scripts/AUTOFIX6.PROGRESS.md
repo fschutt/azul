@@ -32,8 +32,22 @@ noted in the report). Never compile; the parent runs `cargo test -p azul-doc --b
   the WHOLE class stops the add with a message (apply first).
 
 ## DONE
+- 66e6cdadb progress file
+- ab372111d item 1: regression test `a_removal_targets_the_module_the_class_is_in` (patch_format.rs tests)
+- 409e3c298 item 2 RED: mod.rs `function_signature_tests` (+ RawStrInSignature variant, printer arm, stub);
+  function_diff.rs test `a_borrowed_str_return_is_exported_as_an_owned_string` (+ helpers `added`, `returns_of`)
+- 48ee23243 item 2 GREEN part 1: `check_function_signatures` in mod.rs (FFI_SCALARS, signature_base_type, is_raw_str)
 
 ## IN PROGRESS
+- item 2 GREEN part 2 (NEXT, exact):
+  a) mod.rs `autofix_api`: call `check_function_signatures(api_data, &addition_names)` next to
+     `check_doc_characters` and extend ffi_warnings.
+  b) function_diff.rs: `convert_return_type_for_ffi` returns `(String, ReturnConversion)` (enum None / Into /
+     OwnedStr / OptionOwnedStr with `fn wrap(&self, call: String) -> String`): `str`/`&str` -> ("String",
+     OwnedStr = `azul_css::AzString::from(<call>)`); `Option<&str>` / `Option<str>` / `Option<String>` ->
+     ("OptionString", OptionOwnedStr = `<call>.map(|s| azul_css::AzString::from(s)).into()`); the rest as before
+     (needs_into -> Into). Callers: method_to_function_data (use wrap), find_method_dependent_types and
+     generate_add_type_patches (bind `_`).
 
 ## NEXT
-- item 1
+- item 3 (gap 3, std String args), then 4, 5, 6, 7, 8, 9 as in the plan above.
