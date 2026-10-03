@@ -64,6 +64,9 @@
 //! - `AZMEET_RELAY`: `off`, `default` or a relay URL (default: off for a meeting server on this
 //!   machine, the public iroh relays otherwise).
 //! - `AZMEET_TEST_TONE=1`: a 440 Hz tone replaces the microphone, which starts unmuted.
+//! - `AZMEET_ECHO_CANCEL=0`: send the microphone as it is (with headphones); by default, while
+//!   received audio plays on a device, the echo of what plays is cancelled from the microphone
+//!   (`EchoCanceller`).
 //! - `AZMEET_TEST_PATTERN=1`: moving colour bars replace the camera (and the screen share), the
 //!   camera starts on, and a "Drop a video packet" button drops the next packet before it leaves.
 //! - `AZMEET_VIDEO_CODEC=jpeg`: send JPEG even where H.264 works.
@@ -116,7 +119,7 @@ use azul::{
     app::RendererOptions,
     audio::{
         AudioConfig, AudioDecoder, AudioDeviceList, AudioDeviceListResult, AudioEncoder,
-        AudioFrame, AudioSink,
+        AudioFrame, AudioSink, EchoCanceller,
     },
     callbacks::{CallbackInfo, TimerCallbackInfo, TimerCallbackReturn, UpdateImageType},
     css::{DarkLightMode, LogicalSize, PhysicalPositionI32, Srgb, WindowPosition},
@@ -155,6 +158,9 @@ const SCREEN_TRACK: u32 = 2;
 const AUDIO_TRACK: u32 = 3;
 /// The rate the microphone (or the test tone) is asked for.
 const MIC_RATE: u32 = 48_000;
+/// How long after it played an echo can still reach the microphone (ms): the output's and the
+/// input's buffers, a laptop's speaker to its microphone, the room.
+const ECHO_TAIL_MS: u32 = 300;
 const TONE_HZ: f32 = 440.0;
 const FEED_W: u32 = 320;
 const FEED_H: u32 = 180;
@@ -1383,6 +1389,10 @@ struct Playout {
     /// Play through an `AudioSink` per peer. False in a headless run: the buffers are drained
     /// and counted, and no device is opened.
     play: bool,
+    /// Cancels the echo of what plays from the microphone (at `MIC_RATE`): fed every turn the
+    /// playout plays, used by `send_audio`. `None` when nothing plays on a device, or turned off
+    /// (`AZMEET_ECHO_CANCEL=0`).
+    echo: Option<EchoCanceller>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -1391,9 +1401,14 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 /// Starts the playout thread. It ends once the returned handle (kept in `MeetState`) is gone.
 fn start_playout(play: bool) -> Arc<Mutex<Playout>> {
+    let cancel = std::env::var("AZMEET_ECHO_CANCEL").map_or(true, |v| v.trim() != "0");
+    let echo = (play && cancel)
+        .then(|| EchoCanceller::create(MIC_RATE, ECHO_TAIL_MS))
+        .filter(EchoCanceller::is_open);
     let shared = Arc::new(Mutex::new(Playout {
         peers: BTreeMap::new(),
         play,
+        echo,
     }));
     let weak = Arc::downgrade(&shared);
     let spawned = std::thread::Builder::new()
@@ -1421,10 +1436,28 @@ fn playout_loop(shared: Weak<Mutex<Playout>>) {
             };
             let mut playout = lock(&strong);
             for _ in 0..turns {
+                // What this turn plays at the microphone's rate, mixed: the echo canceller's far
+                // end (peers at another rate play uncancelled - there is no resampler).
+                let mut mix: Vec<f32> = Vec::new();
                 for (handle, jitter) in playout.peers.iter_mut() {
                     if let Some(samples) = jitter.pop() {
+                        if jitter.sample_rate() == MIC_RATE {
+                            if mix.len() < samples.len() {
+                                mix.resize(samples.len(), 0.0);
+                            }
+                            for (m, v) in mix.iter_mut().zip(&samples) {
+                                *m += audio::from_pcm16(*v);
+                            }
+                        }
                         out.push((*handle, jitter.sample_rate(), samples));
                     }
+                }
+                if let (Some(echo), false) = (playout.echo.as_ref(), mix.is_empty()) {
+                    let _ = echo.far_end(AudioFrame {
+                        sample_rate: MIC_RATE,
+                        channels: 1,
+                        samples: F32Vec::from(mix),
+                    });
                 }
             }
             let play = playout.play;
@@ -1532,6 +1565,12 @@ fn send_audio(s: &mut MeetState, sample_rate: u32, channels: u16, samples: &[f32
         return;
     };
     let targets = handles_of(s, &s.plan.children(s.me, s.me));
+    // The echo of what this side plays, removed (mono from here on).
+    let cleaned = cancel_echo(s, sample_rate, channels, samples);
+    let (channels, samples) = match cleaned.as_deref() {
+        Some(mono) => (1, mono),
+        None => (channels, samples),
+    };
     let peers_opus: Vec<Option<bool>> = s.remotes.iter().map(|r| r.opus).collect();
     let opus = audio::send_opus(opus_encoder(s, sample_rate).is_some(), &peers_opus);
     let codec = if opus {
@@ -1557,6 +1596,27 @@ fn send_audio(s: &mut MeetState, sample_rate: u32, channels: u16, samples: &[f32
             endpoint.send_frame(*handle, AUDIO_TRACK, frame.clone());
         }
     }
+}
+
+/// The microphone (`samples`, interleaved `channels`) mixed down to mono with the echo of what
+/// this side plays removed; `None` when no echo canceller runs (nothing plays on a device, it is
+/// turned off) - then the microphone goes out as it is.
+fn cancel_echo(
+    s: &MeetState,
+    sample_rate: u32,
+    channels: u16,
+    samples: &[f32],
+) -> Option<Vec<f32>> {
+    let shared = s.playout.as_ref()?;
+    let playout = lock(shared);
+    let echo = playout.echo.as_ref()?;
+    let cleaned = echo.process(AudioFrame {
+        sample_rate,
+        channels: 1,
+        samples: F32Vec::from(audio::mix_to_mono(channels, samples)),
+    });
+    let mono: &[f32] = cleaned.samples.as_ref();
+    Some(mono.to_vec())
 }
 
 /// This side's Opus encoder for mono audio at `sample_rate`, opened on first use at that rate;
