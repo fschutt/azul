@@ -6655,6 +6655,59 @@ pub fn get_text_indent_value(
         .copied()
 }
 
+/// The resolved `text-indent` of an inline formatting context's root, for
+/// text3: `(indent in px, each-line, hanging)` (CSS Text 3 section 8.1).
+///
+/// A length resolves against the node's font sizes and the viewport, a
+/// percentage against `containing_block_width` - or as 0 when `intrinsic`:
+/// "Percentages must be treated as 0 for the purpose of calculating intrinsic
+/// size contributions, but are always resolved normally when performing
+/// layout." The ONE resolution of the layout pass
+/// (`fc::translate_to_text3_constraints`) and the intrinsic-size scan
+/// (`sizing`, which must count the indent: it narrows the first line box).
+#[must_use]
+pub fn resolve_text_indent(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+    containing_block_width: f32,
+    viewport_size: LogicalSize,
+    intrinsic: bool,
+) -> (f32, bool, bool) {
+    // No node of this DOM declares it: the cascade walk would find nothing.
+    let declared = styled_dom
+        .css_property_cache
+        .ptr
+        .compact_cache
+        .as_ref()
+        .map_or(true, |cc| {
+            cc.dom_declared_flags & azul_css::compact_cache::DOM_HAS_TEXT_INDENT != 0
+        });
+    if !declared {
+        return (0.0, false, false);
+    }
+    let Some(text_indent) = get_text_indent_value(styled_dom, node_id, node_state) else {
+        return (0.0, false, false);
+    };
+    let px = if intrinsic && text_indent.inner.to_percent().is_some() {
+        0.0
+    } else {
+        let context = ResolutionContext {
+            vertical_writing_mode: false,
+            element_font_size: get_element_font_size(styled_dom, node_id, node_state),
+            parent_font_size: get_parent_font_size(styled_dom, node_id, node_state),
+            root_font_size: get_root_font_size(styled_dom, node_state),
+            containing_block_size: PhysicalSize::new(containing_block_width, 0.0),
+            element_size: None,
+            viewport_size: PhysicalSize::new(viewport_size.width, viewport_size.height),
+        };
+        text_indent
+            .inner
+            .resolve_with_context(&context, PropertyContext::Other)
+    };
+    (px, text_indent.each_line, text_indent.hanging)
+}
+
 /// Get column-count property. Returns Option<ColumnCount>.
 #[must_use]
 pub fn get_column_count(
