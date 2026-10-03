@@ -3,22 +3,26 @@
 //! `#backstage`, `#settings-default-list`, `#settings-week-start`, `#settings-reminder-time`,
 //! `#settings-sounds`, `#settings-notifications`, `#settings-theme`, `#settings-mode`.
 
+use std::path::PathBuf;
+
 use azul::{
     callbacks::{
         BackstageOnNavSelectCallbackType, ButtonOnClickCallbackType,
         DropDownOnChoiceChangeCallbackType, SegmentedOnChangeCallbackType,
         ShellSettingsLayoutOnCategoryCallbackType, ShellSettingsLayoutOnSearchCallbackType,
-        SwitchOnToggleCallbackType, TimePickerOnChangeCallbackType,
+        SwitchOnToggleCallbackType, TextInputOnTextInputCallbackType,
+        TimePickerOnChangeCallbackType,
     },
     css::DarkLightMode,
-    option::OptionDarkLightMode,
+    dialog::{FileDialog, FileOpenResult},
+    option::{OptionDarkLightMode, OptionFileTypeList, OptionString},
     prelude::*,
     shells::{ShellSettingsLayout, ShellSettingsSection},
     str::String as AzString,
     vec::StringVec,
     widgets::{
-        Backstage, BackstageNavItem, DropDown, Segmented, SegmentedState, Switch, SwitchState,
-        TimePicker, TimePickerState,
+        Backstage, BackstageNavItem, DropDown, OnTextInputReturn, Segmented, SegmentedState,
+        Switch, SwitchState, TextInputState, TextInputValid, TimePicker, TimePickerState,
     },
 };
 use chrono::{NaiveTime, Timelike, Weekday};
@@ -254,6 +258,7 @@ fn data(s: &Tasks, app: &RefAny) -> Vec<ShellSettingsSection> {
                 )),
         ),
         ShellSettingsSection::create("Contents", contents),
+        ShellSettingsSection::create("Import and export", import_export(s, app)),
         ShellSettingsSection::create(
             "Sample",
             row(
@@ -265,6 +270,58 @@ fn data(s: &Tasks, app: &RefAny) -> Vec<ShellSettingsSection> {
             ),
         ),
     ]
+}
+
+/// iCalendar to-dos (VTODO, `vtodo.rs`): an import from a file into the default list, an
+/// export of the list shown into `aztasks/exports/` in the data tree.
+fn import_export(s: &Tasks, app: &RefAny) -> Dom {
+    let mut out = Dom::create_div()
+        .with_css("display: flex; flex-direction: column; gap: 6px;")
+        .with_child(
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: row; align-items: center; gap: 8px;")
+                .with_child(
+                    TextInput::create()
+                        .with_text(s.import_path.as_str())
+                        .with_placeholder("/path/to/tasks.ics")
+                        .with_accessibility_name("iCalendar file to import")
+                        .with_on_text_input(
+                            app.clone(),
+                            on_import_path as TextInputOnTextInputCallbackType,
+                        )
+                        .dom()
+                        .with_id("settings-import-path")
+                        .with_css("flex-grow: 1; min-width: 200px;"),
+                )
+                .with_child(
+                    Button::create("Browse...")
+                        .with_on_click(app.clone(), on_import_browse as ButtonOnClickCallbackType)
+                        .dom()
+                        .with_id("settings-import-browse"),
+                )
+                .with_child(
+                    Button::create("Import")
+                        .with_on_click(app.clone(), on_import as ButtonOnClickCallbackType)
+                        .dom()
+                        .with_id("settings-import"),
+                ),
+        )
+        .with_child(line(
+            "To-dos of an iCalendar file (Outlook, Apple Reminders, Thunderbird) go into the \
+             default list.",
+            SOFT,
+        ))
+        .with_child(row(
+            Button::create("Export")
+                .with_on_click(app.clone(), on_export as ButtonOnClickCallbackType)
+                .dom()
+                .with_id("settings-export"),
+            "the list shown (or every task) as an iCalendar file in aztasks/exports",
+        ));
+    if !s.io_message.is_empty() {
+        out.add_child(line(s.io_message.as_str(), TEXT).with_id("settings-io-message"));
+    }
+    out
 }
 
 // ==== Shortcuts and About ====
@@ -447,6 +504,63 @@ extern "C" fn on_mode(mut data: RefAny, mut info: CallbackInfo, state: Segmented
     crate::with_tasks(&mut data, &mut info, |_info, _app, s| {
         s.appearance.mode = mode;
         s.save_appearance();
+    })
+}
+
+extern "C" fn on_import_path(mut data: RefAny, _info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+    if let Some(mut s) = data.downcast_mut::<Tasks>() {
+        s.import_path = state.get_text().as_str().to_string();
+    }
+    OnTextInputReturn {
+        update: Update::DoNothing,
+        valid: TextInputValid::Yes,
+    }
+}
+
+extern "C" fn on_import_browse(data: RefAny, _info: CallbackInfo) -> Update {
+    let _request = FileDialog::open_file(
+        "Import to-dos from an iCalendar file",
+        OptionString::None,
+        OptionFileTypeList::None,
+        data,
+        on_import_picked,
+    );
+    Update::DoNothing
+}
+
+extern "C" fn on_import_picked(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
+    let Some(path) = FileOpenResult::downcast(result)
+        .into_option()
+        .and_then(|picked| picked.path.into_option())
+    else {
+        return Update::DoNothing; // cancelled
+    };
+    let path = path.as_string().as_str().to_string();
+    crate::with_tasks(&mut data, &mut info, |_info, _app, s| s.import_path = path)
+}
+
+/// Import: the file is read on a job thread (`jobs::Job::ReadImport`).
+extern "C" fn on_import(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    crate::with_tasks(&mut data, &mut info, |info, app, s| {
+        let path = s.import_path.trim().to_string();
+        if path.is_empty() {
+            s.io_message = String::from("Give the iCalendar file to import, or Browse for it.");
+            return;
+        }
+        s.io_message = format!("Reading {path}...");
+        crate::jobs::spawn(info, app, s, crate::jobs::Job::ReadImport(PathBuf::from(path)));
+    })
+}
+
+/// Export: the list shown into the data tree, through the write queue.
+extern "C" fn on_export(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    crate::with_tasks(&mut data, &mut info, |_info, _app, s| {
+        let (key, count) = s.export_tasks(crate::state::now(), &crate::state::local_to_utc);
+        println!("AZTASKS_EXPORTED {count} {key}");
+        s.io_message = format!(
+            "Exported {count} to-do(s) to {}.",
+            s.root.join(&key).display()
+        );
     })
 }
 
