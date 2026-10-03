@@ -33,11 +33,52 @@ pub fn random_seed() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::random_seed;
+    use super::{is_uuid, new_uuid, random_seed, uuid_from_words};
 
     #[test]
     fn two_seeds_differ() {
         let seeds: std::collections::HashSet<u64> = (0..1000).map(|_| random_seed()).collect();
         assert_eq!(seeds.len(), 1000, "a thousand seeds, a thousand values");
+    }
+
+    #[test]
+    fn a_new_uuid_is_a_lowercase_version_4_uuid_and_never_repeats() {
+        let ids: std::collections::HashSet<String> = (0..1000).map(|_| new_uuid()).collect();
+        assert_eq!(ids.len(), 1000, "a thousand ids, a thousand values");
+        for id in &ids {
+            assert!(is_uuid(id), "{id}");
+            assert_eq!(id.as_bytes()[14], b'4', "the version digit: {id}");
+            assert!(
+                matches!(id.as_bytes()[19], b'8' | b'9' | b'a' | b'b'),
+                "the variant: {id}"
+            );
+            assert_eq!(*id, id.to_lowercase());
+            assert!(
+                !id.starts_with("00000000-0000"),
+                "not the process-local marker sequence: {id}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_uuid_text_of_fixed_bits_is_stable() {
+        assert_eq!(
+            uuid_from_words(0, 0),
+            "00000000-0000-4000-8000-000000000000"
+        );
+        assert_eq!(
+            uuid_from_words(u64::MAX, u64::MAX),
+            "ffffffff-ffff-4fff-bfff-ffffffffffff"
+        );
+    }
+
+    #[test]
+    fn is_uuid_accepts_the_8_4_4_4_12_hex_form_only() {
+        assert!(is_uuid("00000000-0000-4000-8000-000000000000"));
+        assert!(is_uuid("ABCDEF01-2345-4678-9ABC-DEF012345678"), "any case");
+        assert!(!is_uuid("not-a-uuid"));
+        assert!(!is_uuid("00000000-0000-4000-8000-00000000000"), "one digit short");
+        assert!(!is_uuid("00000000-0000-4000-8000-00000000000g"), "not hex");
+        assert!(!is_uuid(""));
     }
 }
