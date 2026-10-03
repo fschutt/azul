@@ -713,6 +713,14 @@ impl State {
         n
     }
 
+    /// The path a table row of `view` opens: its first row action, `:id`
+    /// the row's record, `:asset_id` the asset of a log entry.
+    #[must_use]
+    pub fn row_path(&self, view: &View, kind: Kind, id: &str) -> Option<String> {
+        let _ = (view, kind, id);
+        None
+    }
+
     /// Queues the record's file.
     pub fn put_write<R: Record>(&mut self, record: &R) {
         let (key, bytes) = store::write_of(record);
@@ -1102,6 +1110,35 @@ mod tests {
         assert!(s.book.category_by_name("Tools").is_some());
         assert_eq!(written(&mut s).len(), 2, "the asset and its new category");
         assert!(s.import.is_none());
+    }
+
+    #[test]
+    fn a_table_row_opens_its_record_or_the_asset_of_a_log_entry() {
+        let s = sampled();
+        let list = s.views.view("assets_fixed_asset_list").unwrap();
+        let a = &s.book.assets[0];
+        assert_eq!(
+            s.row_path(list, Kind::Asset, &a.id),
+            Some(format!("/accounting/assets/{}", a.id))
+        );
+        let log = s.views.view("assets_maintenance_list").unwrap();
+        let m = &s.book.maintenance[0];
+        assert_eq!(
+            s.row_path(log, Kind::Maintenance, &m.id),
+            Some(format!("/accounting/assets/{}", m.asset))
+        );
+        let cats = s.views.view("assets_category_list").unwrap();
+        let c = &s.book.categories[0];
+        assert_eq!(
+            s.row_path(cats, Kind::Category, &c.id),
+            Some(format!("/assets/categories/{}/edit", c.id))
+        );
+        let embedded = s.views.view("assets_maintenance_embedded").unwrap();
+        assert_eq!(
+            s.row_path(embedded, Kind::Maintenance, &m.id),
+            None,
+            "no row action"
+        );
     }
 
     #[test]
