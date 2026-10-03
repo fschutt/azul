@@ -1,9 +1,20 @@
 //! The Format Cells dialog's model (Excel's Ctrl+1): the tabs Number,
 //! Alignment, Font, Border and Fill edit a draft of the active cell's
 //! style; OK applies what changed to the selection as style patches. Pure
-//! data; no azul, no engine.
+//! data (colours read with azul's one hex reader); no window, no engine.
+
+use azul::css::ColorU;
 
 use crate::engine::{BorderPreset, CellStyle, StylePatch};
+
+/// `hex` (`#rgb`, `#rrggbb`, `#rrggbbaa`, the `#` optional, any case) as
+/// the workbook's `#RRGGBB` (the alpha dropped: a cell colour is opaque);
+/// `None` for text that is no colour.
+#[must_use]
+pub fn cell_colour(hex: &str) -> Option<String> {
+    let c = ColorU::parse_hex(hex).into_option()?;
+    Some(format!("#{:02X}{:02X}{:02X}", c.r, c.g, c.b))
+}
 
 /// The dialog's tabs, in order.
 pub const TABS: [&str; 5] = ["Number", "Alignment", "Font", "Border", "Fill"];
@@ -193,17 +204,33 @@ impl FormatDraft {
     /// `#rrggbb[aa]` in any case becomes `#RRGGBB`; `None` is automatic. Text
     /// that is no colour changes nothing.
     pub fn set_font_color(&mut self, hex: Option<&str>) {
-        let _ = hex;
+        match hex {
+            None => self.style.font_color = None,
+            Some(hex) => {
+                if let Some(c) = cell_colour(hex) {
+                    self.style.font_color = Some(c);
+                }
+            }
+        }
     }
 
     /// Any fill (the Fill tab's picker); `None` is no fill.
     pub fn set_fill(&mut self, hex: Option<&str>) {
-        let _ = hex;
+        match hex {
+            None => self.style.fill = None,
+            Some(hex) => {
+                if let Some(c) = cell_colour(hex) {
+                    self.style.fill = Some(c);
+                }
+            }
+        }
     }
 
     /// Any colour for the borders OK draws (the Border tab's picker).
     pub fn set_border_color(&mut self, hex: &str) {
-        let _ = hex;
+        if let Some(c) = cell_colour(hex) {
+            self.border_color = c;
+        }
     }
 
     /// What OK applies: one patch per property that changed, the border
