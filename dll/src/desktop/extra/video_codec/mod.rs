@@ -14,8 +14,9 @@
 //!   - anything else: none (encode/decode no-op).
 //! [`VideoEncoder::backend_name`] reports the selection. The handles are
 //! honest: `open` returns an invalid handle (`is_open()` false) wherever this
-//! build has no working engine (today: encode only via VideoToolbox, decode via
-//! VideoToolbox or Vulkan Video on x86_64 + `video-native`; no H.265 anywhere),
+//! build has no working engine (today: encode and decode via VideoToolbox, or
+//! Vulkan Video on x86_64 + `video-native` - encode where the GPU has
+//! `VK_KHR_video_encode_h264`; no MediaCodec yet, no H.265 anywhere),
 //! so an open handle always produces output. `VideoEncodeCheck` and
 //! `PlatformCapability::video_codec` answer from the same engine checks.
 
@@ -105,9 +106,10 @@ const fn decode_engine_compiled() -> bool {
 }
 
 /// The H.264 ENCODE engine of this BUILD on this machine: `Ok(backend)` when
-/// one is compiled in and loads here, `Err(why not)` otherwise. Only
-/// VideoToolbox (Apple + `libloading`) exists: gpu-video encode and MediaCodec
-/// are not wired. `VideoEncoder::open` and `VideoEncodeCheck` both answer
+/// one is compiled in and loads here, `Err(why not)` otherwise: VideoToolbox
+/// (Apple + `libloading`), or Vulkan Video (`az_gpu_video`) where the driver
+/// encodes H.264; MediaCodec is not wired. `VideoEncoder::open` and
+/// `VideoEncodeCheck` both answer
 /// from here, so neither claims an encoder that cannot give a packet back.
 pub(crate) fn encode_engine() -> Result<&'static str, String> {
     #[cfg(az_gpu_video)]
@@ -761,8 +763,9 @@ impl VideoEncoder {
     /// Open an encoder for `width` x `height`, H.265 if `h265` else H.264, at
     /// `bitrate_kbps`. Uses the platform-native backend ([`backend_name`]).
     /// Returns an invalid handle (`is_open()` false) wherever this build
-    /// cannot encode: no engine compiled in (Linux, Windows, Android today),
-    /// the engine does not load or refuses the size, or H.265 (no backend
+    /// cannot encode: no engine compiled in (Android today; Linux / Windows
+    /// without `video-native`), a GPU without Vulkan Video H.264 encode, the
+    /// engine does not load or refuses the size, or H.265 (no backend
     /// implements it yet). An open handle gives packets back.
     pub fn open(width: u32, height: u32, h265: bool, bitrate_kbps: u32) -> VideoEncoder {
         let engine = if h265 {
