@@ -10,7 +10,7 @@ use crate::model::{
     Frame, ImageFit, LayoutKind, ShapeKind, Slide, SlideSize, TextBody, Theme, TransitionKind,
     VAlign, ZOrder,
 };
-use azul::widgets::ListSelection;
+use azul::widgets::{ListSelection, RichTextEditorState};
 use azul_appkit::UndoHistory;
 
 /// The most undo steps kept.
@@ -31,6 +31,10 @@ pub struct Editor {
     pub selection: ListSelection,
     /// The element whose text is being edited.
     pub editing: Option<u64>,
+    /// The shared rich-text editor's state of that text as the editor last
+    /// reported it (its caret, its ONE undo history): used while it still
+    /// shows what the body holds (`text::state_for`), the body is the truth.
+    pub text: Option<RichTextEditorState>,
     /// The slides (by id) whose section is folded in the rail.
     pub folded: Vec<u64>,
     /// Edited since the last save.
@@ -60,6 +64,7 @@ impl Editor {
             rail: rail_at(0),
             selection: ListSelection::create(),
             editing: None,
+            text: None,
             folded: Vec::new(),
             dirty: false,
             clipboard: Vec::new(),
@@ -341,13 +346,30 @@ impl Editor {
             body.size = 32.0;
         }
         self.selection.click(id);
-        self.editing = Some(id);
+        self.start_editing(id);
         true
+    }
+
+    /// Element `id`'s text is edited from now on (a fresh editor state).
+    fn start_editing(&mut self, id: u64) {
+        self.editing = Some(id);
+        self.text = None;
     }
 
     /// Ends the text editing (the text was synced by the caller).
     pub fn stop_editing(&mut self) {
         self.editing = None;
+        self.text = None;
+    }
+
+    /// The body of the text being edited.
+    pub fn edited_body_mut(&mut self) -> Option<&mut TextBody> {
+        let id = self.editing?;
+        self.slide_mut()
+            .elements
+            .iter_mut()
+            .find(|e| e.id == id)
+            .and_then(|e| e.body_mut())
     }
 
     /// Puts `kind` on the current slide at `frame`, selected.
@@ -407,7 +429,7 @@ impl Editor {
         };
         body.paragraphs.push(crate::model::Paragraph::default());
         let id = self.insert(ElementKind::Text { body }, frame);
-        self.editing = Some(id);
+        self.start_editing(id);
         id
     }
 

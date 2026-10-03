@@ -13,7 +13,7 @@ use azul::{
     str::String as AzString,
     widgets::{
         AdornerFrame, AdornerItem, Button, NumberInput, NumberInputState, OnTextInputReturn,
-        SelectionAdorner, SelectionAdornerEvent, SelectionAdornerEventKind, SliderState,
+        RichTextEditorState, SelectionAdorner, SelectionAdornerEvent, SelectionAdornerEventKind, SliderState,
         StatusBar, StatusBarSegment, StatusBarView, StatusBarViewSwitcher, StatusBarZoom, TextArea, TextAreaState,
         TextInput, TextInputState, TextInputValid, ThumbnailItem, ThumbnailStrip, ThumbnailStripEvent,
         ThumbnailStripEventKind, ThumbnailStripLayout,
@@ -26,7 +26,6 @@ use crate::{
     editor::Editor,
     model::{Background, Deck, ElementKind, Frame, PlaceholderRole, Slide, TextBody},
     render::{self, css_color, RenderOptions},
-    text,
 };
 
 
@@ -129,6 +128,7 @@ pub fn canvas(app: &RefAny, st: &AppState, ed: &Editor, scale: f32) -> Dom {
     let opts = RenderOptions {
         scale,
         editing: ed.editing,
+        text: ed.text.as_ref(),
         prompts: true,
         step: None,
         playing: None,
@@ -253,48 +253,24 @@ pub extern "C" fn on_adorner_event(mut data: RefAny, mut info: CallbackInfo, eve
     Update::RefreshDom
 }
 
-/// The text being edited changed: mirror it (no rebuild, the engine shows it).
-pub extern "C" fn on_text_changed(mut data: RefAny, mut info: CallbackInfo) -> Update {
+/// The shared editor reports an edit of the text being edited (typing,
+/// Enter / Backspace across paragraphs, a format, its undo): the body takes
+/// the editor's document, the editor's state is kept for the next frame (no
+/// rebuild: the editor shows it).
+pub extern "C" fn on_text_change(mut data: RefAny, _info: CallbackInfo, state: RichTextEditorState) -> Update {
     let Some(mut guard) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
-    commands::sync_editing(&mut guard, &mut info);
+    let Some(ed) = guard.editor.as_mut() else {
+        return Update::DoNothing;
+    };
+    if let Some(body) = ed.edited_body_mut() {
+        if crate::text::set_from_rich(body, &state.doc) {
+            ed.dirty = true;
+        }
+    }
+    ed.text = Some(state);
     Update::DoNothing
-}
-
-/// Enter / Backspace across paragraphs in the text being edited: mirror the
-/// structural edit and hand the engine its inverse for undo.
-pub extern "C" fn on_document_edit(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some(changeset) = info.get_document_edit_clone().into_option() else {
-        return Update::DoNothing;
-    };
-    let Some(mut guard) = data.downcast_mut::<AppState>() else {
-        return Update::DoNothing;
-    };
-    let st = &mut *guard;
-    commands::sync_editing(st, &mut info);
-    let Some(ed) = st.editor.as_mut() else {
-        return Update::DoNothing;
-    };
-    let Some(id) = ed.editing else {
-        return Update::DoNothing;
-    };
-    let resume: Vec<u32> = changeset.resume.node_path.as_ref().to_vec();
-    let Some(body) = ed
-        .slide_mut()
-        .elements
-        .iter_mut()
-        .find(|e| e.id == id)
-        .and_then(|e| e.body_mut())
-    else {
-        return Update::DoNothing;
-    };
-    let Some((inverse, _)) = text::apply_structural(body, &changeset.operation, &resume) else {
-        return Update::RefreshDom;
-    };
-    ed.dirty = true;
-    info.mark_document_edit_applied_with_inverse(changeset.id, inverse);
-    Update::RefreshDom
 }
 
 // ==== Notes ====

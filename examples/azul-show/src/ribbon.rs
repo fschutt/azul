@@ -208,8 +208,14 @@ fn home_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
             .and_then(|id| e.slide().element(*id))
             .and_then(|el| el.body())
     });
-    let has = |axis| body.is_some_and(|b| text::all_have(b, axis));
-    use crate::ir::FormatAxis as F;
+    use azul::widgets::RichFormat as F;
+    // In the text being edited: the format at the caret or over the
+    // selection (the shared editor's); else the whole selected text's.
+    let edited = ed.and_then(|e| e.editing.and(e.text.as_ref()));
+    let has = |format: F| match edited {
+        Some(state) => state.is_current_format(format),
+        None => body.is_some_and(|b| text::all_have(b, format)),
+    };
     let align = body
         .and_then(|b| b.paragraphs.first())
         .map_or(Align::Left, |p| p.align);

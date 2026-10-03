@@ -6,15 +6,15 @@
 use azul::{
     callbacks::{CallbackInfo, RefAny, Update},
     dialog::{FileDialog, FileOpenResult},
-    dom::{Callback, Dom, DomId, DomNodeId, TextFormat},
+    dom::{Callback, Dom, DomId, DomNodeId},
     option::{OptionFileTypeList, OptionString, OptionU32},
     pdf::Pdf,
     str::String as AzString,
     task::{TimerId, Timer},
     time::{Duration, SystemTimeDiff},
+    widgets::{RichFormat, RichTextCommand},
     window::{WindowCreateOptions, WindowDecorations, WindowFrame},
 };
-use crate::ir::FormatAxis;
 
 use crate::{
     app::{AppState, BackstagePage, Command, CommandData, Play, Screen, ShowRuntime},
@@ -65,7 +65,8 @@ pub fn open_deck(s: &mut AppState, deck: Deck) {
     println!("AZSHOW_DECK {id}");
 }
 
-/// Mirrors the engine's typing into the element being edited.
+/// Folds what was typed and not reported yet into the text being edited
+/// (the shared editor's state, then the body). Whether anything changed.
 pub fn sync_editing(s: &mut AppState, info: &mut CallbackInfo) -> bool {
     let Some(ed) = s.editor.as_mut() else {
         return false;
@@ -73,16 +74,13 @@ pub fn sync_editing(s: &mut AppState, info: &mut CallbackInfo) -> bool {
     let Some(id) = ed.editing else {
         return false;
     };
-    let Some(body) = ed
-        .slide_mut()
-        .elements
-        .iter_mut()
-        .find(|e| e.id == id)
-        .and_then(|e| e.body_mut())
-    else {
+    let stored = ed.text.take();
+    let Some(body) = ed.edited_body_mut() else {
         return false;
     };
-    let changed = text::sync_typing(body, id, info);
+    let mut state = text::state_for(body, id, stored.as_ref());
+    let changed = state.sync(*info) && text::set_from_rich(body, &state.doc);
+    ed.text = Some(state);
     if changed {
         ed.dirty = true;
     }
@@ -109,74 +107,32 @@ fn node_by_id(info: &CallbackInfo, id: &str) -> Option<DomNodeId> {
     (node.into_raw() != 0).then_some(DomNodeId { dom, node })
 }
 
-fn format_of(axis: FormatAxis) -> TextFormat {
-    match axis {
-        FormatAxis::Bold => TextFormat::Bold,
-        FormatAxis::Italic => TextFormat::Italic,
-        FormatAxis::Underline => TextFormat::Underline,
-        FormatAxis::Strike => TextFormat::Strikethrough,
-    }
-}
-
-/// B / I / U / S: over the text selection of the element being edited, at
-/// its caret (the engine's typing style), or over the whole selected boxes.
-pub fn format(s: &mut AppState, info: &mut CallbackInfo, axis: FormatAxis) -> Update {
+/// B / I / U / S: in the text being edited the shared editor's format
+/// command (over its selection, or the typing style at its caret); over the
+/// whole text of the selected boxes otherwise.
+pub fn format(s: &mut AppState, info: &mut CallbackInfo, format: RichFormat) -> Update {
     sync_editing(s, info);
     let Some(ed) = s.editor.as_mut() else {
         return Update::DoNothing;
     };
     let Some(id) = ed.editing else {
-        ed.with_bodies(|b| text::toggle_all(b, axis));
+        ed.with_bodies(|b| text::toggle_all(b, format));
         return Update::RefreshDom;
     };
-    let spans = info.get_document_selection();
-    let mut ranges = Vec::new();
-    if let Some(body) = ed.slide().element(id).and_then(|e| e.body()) {
-        for span in spans.as_ref() {
-            for i in 0..body.paragraphs.len() {
-                let block_node = info.get_node_id_by_id_attribute(span.node.dom, text::block_id(id, i).as_str());
-                if block_node.into_raw() == 0 {
-                    continue;
-                }
-                let block = DomNodeId {
-                    dom: span.node.dom,
-                    node: block_node,
-                };
-                let Some(rel) = info.get_node_child_index_path(block, span.node).into_option() else {
-                    continue;
-                };
-                let run = rel.as_ref().first().copied().unwrap_or(0) as usize;
-                let before: usize = body.paragraphs[i].runs.iter().take(run).map(|r| r.text.len()).sum();
-                ranges.push((i, before + span.start_byte as usize, before + span.end_byte as usize));
-                break;
-            }
-        }
-    }
-    if ranges.iter().all(|(_, a, b)| a >= b) {
-        // A caret: the engine styles what is typed next.
-        if let Some(host) = node_by_id(info, &text::host_id(id)) {
-            info.toggle_text_format(host, format_of(axis));
-        }
+    let stored = ed.text.take();
+    let Some(body) = ed.edited_body_mut() else {
         return Update::DoNothing;
-    }
-    ed.checkpoint();
-    let mut changed = false;
-    if let Some(body) = ed
-        .slide_mut()
-        .elements
-        .iter_mut()
-        .find(|e| e.id == id)
-        .and_then(|e| e.body_mut())
-    {
-        for (p, a, b) in ranges {
-            changed |= text::toggle_range(body, p, a, b, axis);
-        }
-    }
+    };
+    let mut state = text::state_for(body, id, stored.as_ref());
+    let update = state.apply_command(*info, RichTextCommand::ToggleFormat(format));
+    let changed = text::set_from_rich(body, &state.doc);
+    // The ribbon took the focus: back into the text.
+    state.focus(*info);
+    ed.text = Some(state);
     if changed {
-        Update::RefreshDom
-    } else {
-        Update::DoNothing
+        ed.dirty = true;
     }
+    update
 }
 
 /// Starts the show from the first slide or the current one: the window goes
@@ -611,10 +567,10 @@ pub fn apply(app: &RefAny, s: &mut AppState, cmd: Command, info: &mut CallbackIn
             );
             return Update::DoNothing;
         }
-        C::Bold => return format(s, info, FormatAxis::Bold),
-        C::Italic => return format(s, info, FormatAxis::Italic),
-        C::Underline => return format(s, info, FormatAxis::Underline),
-        C::Strike => return format(s, info, FormatAxis::Strike),
+        C::Bold => return format(s, info, RichFormat::Bold),
+        C::Italic => return format(s, info, RichFormat::Italic),
+        C::Underline => return format(s, info, RichFormat::Underline),
+        C::Strike => return format(s, info, RichFormat::Strike),
         _ => {}
     }
 

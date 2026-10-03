@@ -69,6 +69,7 @@ fn shown_slide(st: &AppState, deck: &Deck, rt: &ShowRuntime, index: usize, step:
     let opts = RenderOptions {
         scale,
         editing: None,
+        text: None,
         prompts: false,
         step: Some(step),
         playing: if ids.is_empty() { None } else { Some((ids.as_slice(), progress)) },

@@ -25,9 +25,6 @@ pub mod editor;
 pub mod find;
 mod find_ui;
 pub mod ids;
-/// The rich text model of a text box (AzWriter's former IR, moved here when AzWriter moved onto
-/// azul's RichTextDoc; AzShow's text boxes move onto RichTextDoc next - wave 7 OFFICE7).
-pub mod ir;
 pub mod model;
 pub mod render;
 mod ribbon;
@@ -507,10 +504,11 @@ extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update 
             let editing = st.editor.as_ref().is_some_and(|e| e.editing.is_some());
             let slide_keys = !editing && canvas_has_focus(&info);
             let cmd = editor_shortcut(key, primary, mods.shift, slide_keys, editing, st.screen);
-            // Ctrl+B / I / U are the slide's while a text is edited (the
-            // selection's format) or the canvas has the keys.
+            // Ctrl+B / I / U in the text being edited are the shared
+            // editor's own keys (its selection, its history); the window's
+            // only while the canvas has the keys (the whole boxes' text).
             match cmd {
-                Some(Command::Bold | Command::Italic | Command::Underline) if !editing && !slide_keys => None,
+                Some(Command::Bold | Command::Italic | Command::Underline) if editing || !slide_keys => None,
                 other => other,
             }
         }
