@@ -18,32 +18,21 @@ Branch `wt/pdf9` from `e537ddbe2`. Report: `scripts/PDF9_2026_10_03.md` (not wri
   3a2efd8de ui.rs - the AzPdf app is written (not compiled).
 
 ## IN PROGRESS
-- scripts/pdf_chrome_probe.py, scripts/azpdf_e2e.py, then the report.
+- (nothing half-done) Report written: scripts/PDF9_2026_10_03.md. Also done: 78c17f334 probe, 176f5b03b E2E.
 
-## NEXT (exact)
-(1-3 DONE: jobs.rs, lib.rs, ui.rs written)
-1. (done) examples/azul-pdf/src/jobs.rs: `Kind {Page, Thumb}`, `Doc {path,title,pdf: azul::pdf::ParsedPdf,sizes,outline,warnings}`,
-   `Job {Open{generation,path}, Render{generation,pdf,pages:Vec<(Kind,usize,u32)>}, Texts{generation,pdf}, Sample}`,
-   `Outcome {Opened, Rendered, RenderDone, Texts, Sample}`, `job_thread` (pattern: examples/azul-drive/src/jobs.rs
-   send()/job_thread), `open(path)` via azul_appkit::files::read_outside + ParsedPdf::create_from_bytes(U8VecRef),
-   `render_page_raw(pdf, page, width)` = page_to_svg -> ParsedSvg::from_string -> SvgRenderOptions{fit: Width(w),
-   background white} -> render; `sample_pdf()` = azul::pdf::Pdf::create().from_dom(dom, 794, 1123).
-2. lib.rs: AppState {kit, data_root, doc, loading, generation, zoom, view_w/h, dpi, current_page, visible, thumbs_visible,
-   pages: PageCache<ImageRef>, thumbs: PageCache<ImageRef>, running, threads, nav_tab, recent, search, pending_scroll,
-   status}; run() (handles `--export-png OUT [--page N] [--width W] FILE` and `--export-svg` BEFORE AppArgs::from_env,
-   for the probe); on_window_created (kit + recent.json load via kit::spawn_file_jobs + 120 ms pump timer);
-   on_pump (pending scroll via info.scroll_to on ids::PAGES_NAME, plan renders, save recent); on_job_done; keys
-   (Mod+O, Mod+=/-/0, PageUp/Down, Home/End); FileDialog::open_file; DroppedFile.
-3. ui.rs: start screen (ShellEmptyState + recent list) / DocumentShell (nav: Segmented Pages|Outline + thumbs
-   VirtualView; document: toolbar (TODO(WIDGETS9A): Toolbar) + pages VirtualView with absolutely positioned page frames;
-   side pane: search hits; status bar: page N of M, size label, zoom, status). Pattern: examples/azul-review/src/ui.rs.
-4. scripts/azpdf_e2e.py (writes a minimal 2-page PDF itself, runs AzPdf <file>, asserts nodes) and
-   scripts/pdf_chrome_probe.py (Chrome headless PDF viewer needs scripts ON: cdp.Chrome(extra_args=
-   ["--blink-settings=scriptEnabled=true"]), URL `file://X.pdf#toolbar=0`; crop the page; compare with
-   `AzPdf --export-png`, and with Chrome rendering the page SVG (`--export-svg`); pdftoppm as an extra column).
-5. Engine (optional, after the app): `<text>` (fonts from @font-face data URLs) and `<image>` in
-   layout/src/cpurender/svg.rs.
-6. Report scripts/PDF9_2026_10_03.md (api.json list below, least-sure spots, test commands).
+## NEXT (exact, optional engine work after the report)
+1. RED: layout/tests/an_svg_text_is_drawn_in_its_embedded_font.rs (append to layout/tests/all.rs): a printpdf-style
+   page SVG with `<style>@font-face{font-family:"F1";src:url("data:font/otf;base64,...")}</style>` and
+   `<text font-family="F1" font-size="24" fill="rgb(0, 0, 0)" transform="matrix(1 0 0 1 72 100)">Hello</text>`
+   rendered via ParsedSvg::render must have dark pixels in the text's box (use a test font from
+   layout/tests/common/ or the system font fallback `sans-serif`); and `<image href="data:image/png;base64,...">`
+   with width/height/transform must paint its pixels.
+2. GREEN in layout/src/cpurender/svg.rs `render_svg_group_inner`: a `"text"` arm (shape with
+   text3::default::shape_text_for_parsed_font as cpurender/text_raster.rs does, fill glyph outlines through the
+   element matrix; fonts from the root's `<style>` @font-face data URLs decoded once per render, else the system
+   family) and an `"image"` arm (decode data: URL PNG/JPEG, draw through the matrix). Then update the report's
+   "Seen broken / left" and add the commits.
+3. When the parent has built AzPdf: run scripts/pdf_chrome_probe.py and put the numbers into the report.
 
 ## api.json list (for the report)
 - module `pdf`: class `ParsedPdf` (external azul_dll::unified::pdf::ParsedPdf, repr C, fields ptr: *mut c_void,
