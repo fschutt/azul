@@ -828,6 +828,7 @@ fn reveal(view: &mut IconGridView, geo: &Geometry, index: usize) {
 
 /// What a press at (`x`, `y`) on `hit` does; `window_y` is the pointer's
 /// window y (a thumb drag measures from it).
+#[allow(clippy::too_many_arguments, clippy::cast_precision_loss)]
 pub(crate) fn press(
     g: &IconGrid,
     geo: &Geometry,
@@ -838,27 +839,184 @@ pub(crate) fn press(
     shift: bool,
     ctrl: bool,
 ) -> Option<IconGridEvent> {
-    let _ = (g, geo, hit, x, y, window_y, shift, ctrl);
-    None
+    let view = &g.view;
+    let mut next = view.clone();
+    next.drag = IconGridDrag::default();
+    let event = match hit {
+        Hit::Nothing => return None,
+        Hit::Item(index) => {
+            let key = index as u64;
+            if !shift && !ctrl && view.selection.contains(key) {
+                // Explorer: the selection stays until the release, so it
+                // can be dragged out whole.
+                next.selection.focus = OptionU64::Some(key);
+                next.drag = IconGridDrag {
+                    start_x: x,
+                    start_y: y,
+                    x,
+                    y,
+                    index,
+                    kind: IconGridDragKind::Pending,
+                    ..IconGridDrag::default()
+                };
+            } else {
+                next.selection.select(key, shift, ctrl);
+            }
+            let mut e = IconGridEvent::create(IconGridEventKind::Select, next);
+            e.index = OptionUsize::Some(index);
+            e
+        }
+        Hit::Empty => {
+            let base = if ctrl || shift {
+                view.selection.keys.clone()
+            } else {
+                next.selection.clear();
+                U64Vec::from_const_slice(&[])
+            };
+            next.drag = IconGridDrag {
+                base,
+                start_x: x,
+                start_y: y,
+                x,
+                y,
+                kind: IconGridDragKind::Marquee,
+                ..IconGridDrag::default()
+            };
+            IconGridEvent::create(IconGridEventKind::Select, next)
+        }
+        Hit::Track(after) => {
+            let page = i64::try_from(geo.page_rows.max(1)).unwrap_or(1);
+            let mut scrolled = scroll_by(g, geo, if after { page } else { -page });
+            scrolled.drag = IconGridDrag::default();
+            IconGridEvent::create(IconGridEventKind::Scroll, scrolled)
+        }
+        Hit::Thumb => {
+            next.drag = IconGridDrag {
+                start_y: window_y,
+                start_top: geo.top as f32,
+                kind: IconGridDragKind::Thumb,
+                ..IconGridDrag::default()
+            };
+            IconGridEvent::create(IconGridEventKind::Drag, next)
+        }
+    };
+    let mut event = event;
+    event.shift = shift;
+    event.ctrl = ctrl;
+    Some(event)
 }
 
 /// What a pointer move to (`x`, `y`) during a drag does (`window_y`: the
 /// pointer's window y).
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
 pub(crate) fn drag_move(g: &IconGrid, geo: &Geometry, x: f32, y: f32, window_y: f32) -> Option<IconGridEvent> {
-    let _ = (g, geo, x, y, window_y);
-    None
+    let view = &g.view;
+    match view.drag.kind {
+        // A pending press that moves is the engine's drag out (DragStart).
+        IconGridDragKind::None | IconGridDragKind::Pending => None,
+        IconGridDragKind::Marquee => {
+            let d = &view.drag;
+            let mut keys = d.base.as_slice().to_vec();
+            keys.extend(marquee_keys(geo, d.start_x, d.start_y, x, y));
+            let mut next = view.clone();
+            next.drag.x = x;
+            next.drag.y = y;
+            next.selection.select_keys(U64Vec::from_vec(keys));
+            Some(IconGridEvent::create(IconGridEventKind::Drag, next))
+        }
+        IconGridDragKind::Thumb => {
+            let bar = geo.vbar?;
+            let travel = bar.track.3 - bar.thumb_len;
+            if travel <= 0.0 || geo.max_top == 0 {
+                return None;
+            }
+            let moved = (window_y - view.drag.start_y) * geo.max_top as f32 / travel;
+            let top = (view.drag.start_top + moved).round().clamp(0.0, geo.max_top as f32) as usize;
+            if top == geo.top {
+                return None;
+            }
+            let mut next = view.clone();
+            next.top_row = top;
+            Some(IconGridEvent::create(IconGridEventKind::Scroll, next))
+        }
+    }
 }
 
 /// What the release of a drag does.
 pub(crate) fn drag_end(g: &IconGrid) -> Option<IconGridEvent> {
-    let _ = g;
-    None
+    let view = &g.view;
+    let mut next = view.clone();
+    next.drag = IconGridDrag::default();
+    match view.drag.kind {
+        IconGridDragKind::None => None,
+        IconGridDragKind::Pending => {
+            let index = view.drag.index;
+            next.selection.click(index as u64);
+            let mut e = IconGridEvent::create(IconGridEventKind::Select, next);
+            e.index = OptionUsize::Some(index);
+            Some(e)
+        }
+        IconGridDragKind::Marquee => Some(IconGridEvent::create(IconGridEventKind::Select, next)),
+        IconGridDragKind::Thumb => Some(IconGridEvent::create(IconGridEventKind::Scroll, next)),
+    }
 }
 
 /// What `key` does (`shift`, `ctrl` = the primary modifier).
 pub(crate) fn grid_key(g: &IconGrid, geo: &Geometry, key: VirtualKeyCode, shift: bool, ctrl: bool) -> Option<IconGridEvent> {
-    let _ = (g, geo, key, shift, ctrl);
-    None
+    use VirtualKeyCode as K;
+    let view = &g.view;
+    let count = g.count as u64;
+    let focus = view.selection.focus.into_option().filter(|f| *f < count);
+    let mut next = view.clone();
+    next.drag = IconGridDrag::default();
+    let on_focus = |kind: IconGridEventKind, next: IconGridView| {
+        let index = focus?;
+        let mut e = IconGridEvent::create(kind, next);
+        e.index = OptionUsize::Some(usize::try_from(index).unwrap_or(0));
+        Some(e)
+    };
+    let columns = i64::try_from(geo.columns.max(1)).unwrap_or(1);
+    let page = i64::try_from(geo.page_rows.max(1)).unwrap_or(1) * columns;
+    let all = i64::try_from(count).unwrap_or(i64::MAX);
+    let delta = match key {
+        K::Left => Some(-1),
+        K::Right => Some(1),
+        K::Up => Some(-columns),
+        K::Down => Some(columns),
+        K::PageUp => Some(-page),
+        K::PageDown => Some(page),
+        K::Home => Some(-all),
+        K::End => Some(all),
+        _ => None,
+    };
+    if let Some(delta) = delta {
+        let target = next.selection.step(delta, shift, ctrl, count).into_option()?;
+        let index = usize::try_from(target).unwrap_or(0);
+        reveal(&mut next, geo, index);
+        let mut e = IconGridEvent::create(IconGridEventKind::Select, next);
+        e.index = OptionUsize::Some(index);
+        e.shift = shift;
+        e.ctrl = ctrl;
+        return Some(e);
+    }
+    match key {
+        K::A if ctrl => {
+            next.selection.select_all(count);
+            Some(IconGridEvent::create(IconGridEventKind::Select, next))
+        }
+        K::Space if ctrl => {
+            next.selection.toggle_focused();
+            on_focus(IconGridEventKind::Select, next)
+        }
+        K::Return | K::NumpadEnter => on_focus(IconGridEventKind::Activate, next),
+        K::Apps => on_focus(IconGridEventKind::ContextMenu, next),
+        K::F10 if shift => on_focus(IconGridEventKind::ContextMenu, next),
+        K::Escape if !view.selection.is_empty() => {
+            next.selection.clear();
+            Some(IconGridEvent::create(IconGridEventKind::Select, next))
+        }
+        _ => None,
+    }
 }
 
 // ==== The look and the DOM ====
