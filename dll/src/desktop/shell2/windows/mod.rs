@@ -630,7 +630,6 @@ impl Win32Window {
             renderer_options: initial_window_state.renderer_options,
             background_color: initial_window_state.background_color,
             layout_callback: initial_window_state.layout_callback,
-            close_callback: initial_window_state.close_callback.clone(),
             monitor_id: OptionU32::None, // Monitor ID will be detected from platform
             window_id: initial_window_state.window_id.clone(),
             window_focused: true,
@@ -2114,6 +2113,21 @@ impl Win32Window {
         // plus WM_SETFOCUS / WM_KILLFOCUS ends here; the WM_COMMAND menu arm
         // routes its own result and is picked up by the WM_PAINT it schedules.
         self.sync_ime_state();
+
+        // A close the pass raised (`close_window`, the CSD close button).
+        self.post_app_close();
+    }
+
+    /// A close the APP raised (`CallbackInfo::close_window`, the CSD
+    /// titlebar's close button) is posted as WM_CLOSE: its handler runs the
+    /// close protocol exactly as for the title-bar X, so the app's
+    /// CloseRequested callbacks can veto it, and the window goes only if none
+    /// did. Nothing on the run loop's path used to read the raised flag, so
+    /// such a close did nothing at all on Windows.
+    fn post_app_close(&mut self) {
+        if self.common.take_close_unconfirmed() && self.is_open {
+            self.close();
+        }
     }
 
     // --- File drag-and-drop (OLE IDropTarget) ------------------------------
@@ -2756,6 +2770,9 @@ impl Win32Window {
     fn sync_window_state(&mut self) {
         use std::{ffi::OsStr, os::windows::ffi::OsStrExt};
 
+        // A close a timer, a thread writeback or a menu item raised.
+        self.post_app_close();
+
         // Diff against the OS-SYNC baseline, never `previous_window_state` (the
         // event-diff baseline, which is free to hold a live delta): diffing that
         // here echoed WM_SIZE back as a SetWindowPos and re-issued
@@ -3313,6 +3330,9 @@ impl Win32Window {
                 log_error!(LogCategory::Rendering, "Failed to present frame: {:?}", e);
             }
         }
+
+        // A close the app raised goes through WM_CLOSE (the protocol).
+        self.post_app_close();
 
         // Check for close request
         if self.common.current_window_state().flags.close_requested {
@@ -4246,7 +4266,9 @@ unsafe extern "system" fn window_proc(
             // "unsaved changes" prompt) — route the result so any restyle takes the
             // incremental fast path / repaints, same as every other input handler.
             // If the close proceeds below, the InvalidateRect is harmless.
-            let outcome = window.request_window_close("windows.wm_close");
+            // Against the DOM the app's state describes now (a rebuild its last
+            // callback asked for is built first).
+            let outcome = window.run_close_protocol("windows.wm_close");
             window.route_main_window_result(hwnd, outcome.result);
 
             // Check if callback cancelled the close

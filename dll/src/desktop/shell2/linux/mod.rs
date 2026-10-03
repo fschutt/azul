@@ -116,6 +116,24 @@ impl LinuxWindow {
         }
     }
 
+    /// A close the APP raised (`CallbackInfo::close_window`, the CSD
+    /// titlebar's close button) runs the close protocol now
+    /// (`PlatformWindow::confirm_app_close`): its `CloseRequested` callbacks
+    /// can veto it, and a veto leaves [`Self::close_requested`] false. Call
+    /// it before acting on [`Self::close_requested`].
+    pub fn confirm_app_close(&mut self) {
+        use crate::desktop::shell2::common::event::PlatformWindow;
+        match self {
+            LinuxWindow::X11(w) => {
+                let _ = PlatformWindow::confirm_app_close(w, "x11.app_close");
+            }
+            #[cfg(target_os = "linux")]
+            LinuxWindow::Wayland(w) => {
+                let _ = PlatformWindow::confirm_app_close(w, "wayland.app_close");
+            }
+        }
+    }
+
     /// Before closing a window that asked to close: if it is a menu, take
     /// the rest of its chain with it. Wayland's popups are dismissed through
     /// their own path.

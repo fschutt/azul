@@ -50,6 +50,7 @@ use crate::{
     args::{AppArgs, AppSpec, ModePref, Theme},
     data::{self, app_key},
     files::{run_jobs, FileJob, FileOutcome},
+    migrate,
     settings::{AppSettings, SETTINGS_FILE},
     shortcuts::{display_keys, groups, Shortcut, KIT_SHORTCUTS},
 };
@@ -133,11 +134,20 @@ pub fn create_kit(
     app_categories: &[&str],
     args: AppArgs,
 ) -> RefAny {
+    let os_dir = os_data_dir();
     let data_root = data::data_root(
         args.data_dir.as_deref(),
         std::env::var(data::DATA_VAR).ok().as_deref(),
-        os_data_dir(),
+        os_dir.clone(),
     );
+    // One data root for every app: this app's folder from the data folder an
+    // older build used (`azul/`, `Azul/`, `AzNotes/`) moves in, once.
+    if let Some(os_dir) = os_dir.as_deref() {
+        let migration = migrate::migrate_app_data(os_dir, &data_root, about.app_folder);
+        if !migration.moved.is_empty() || !migration.failed.is_empty() {
+            eprintln!("[{}] {}", spec.binary, migration.summary(&data_root));
+        }
+    }
     let drive = LocalDrive::new(&data_root);
     let key = app_key(about.app_folder, SETTINGS_FILE);
     let mut notice = String::new();

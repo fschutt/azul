@@ -68,57 +68,10 @@ pub fn local_path(root: &Path, key: &str) -> PathBuf {
     path
 }
 
-/// A new random identifier for a record file (`contacts/<id>.vcf`): a version
-/// 4 UUID in its usual 8-4-4-4-12 lowercase form. Random enough that two
-/// devices never pick the same one; drawn from the system's hasher keys and
-/// the clock, so no new crate is needed.
-#[must_use]
-pub fn new_uuid() -> String {
-    use std::collections::hash_map::RandomState;
-    use std::hash::{BuildHasher, Hasher};
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let mut words = [0u64; 2];
-    for (i, word) in words.iter_mut().enumerate() {
-        let mut h = RandomState::new().build_hasher();
-        h.write_u128(nanos);
-        h.write_u64(COUNTER.fetch_add(1, Ordering::Relaxed));
-        h.write_usize(i);
-        h.write_u32(std::process::id());
-        *word = h.finish();
-    }
-    uuid_from_words(words[0], words[1])
-}
-
-/// The UUID text of 128 random bits, with the version (4) and variant (10xx) bits set.
-#[must_use]
-pub fn uuid_from_words(hi: u64, lo: u64) -> String {
-    let hi = (hi & 0xffff_ffff_ffff_0fff) | 0x0000_0000_0000_4000;
-    let lo = (lo & 0x3fff_ffff_ffff_ffff) | 0x8000_0000_0000_0000;
-    format!(
-        "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
-        hi >> 32,
-        (hi >> 16) & 0xffff,
-        hi & 0xffff,
-        lo >> 48,
-        lo & 0xffff_ffff_ffff
-    )
-}
-
-/// Whether `text` is a UUID in the 8-4-4-4-12 hex form (any case).
-#[must_use]
-pub fn is_uuid(text: &str) -> bool {
-    let groups: Vec<&str> = text.split('-').collect();
-    groups.len() == 5
-        && groups
-            .iter()
-            .zip([8, 4, 4, 4, 12])
-            .all(|(g, n)| g.len() == n && g.chars().all(|c| c.is_ascii_hexdigit()))
-}
+// The record-file ids (`contacts/<id>.vcf`): the storage crate's mint
+// (`azul_storage::ids`, the one seed source of the repo). The names stay
+// here for the apps that call them through the kit.
+pub use azul_storage::ids::{is_uuid, new_uuid, uuid_from_words};
 
 #[cfg(test)]
 mod tests {
@@ -163,30 +116,13 @@ mod tests {
     }
 
     #[test]
-    fn a_new_uuid_is_version_4_and_never_repeats() {
-        let a = new_uuid();
-        let b = new_uuid();
-        assert!(is_uuid(&a), "{a}");
-        assert_ne!(a, b);
-        assert_eq!(a.as_bytes()[14], b'4', "the version digit: {a}");
-        assert!(
-            matches!(a.as_bytes()[19], b'8' | b'9' | b'a' | b'b'),
-            "the variant: {a}"
-        );
-        assert_eq!(a, a.to_lowercase());
-    }
-
-    #[test]
-    fn the_uuid_text_of_fixed_bits_is_stable() {
+    fn the_kits_uuid_is_the_storage_crates_mint() {
+        let id = new_uuid();
+        assert!(is_uuid(&id), "{id}");
+        assert_ne!(id, new_uuid());
         assert_eq!(
             uuid_from_words(0, 0),
-            "00000000-0000-4000-8000-000000000000"
+            azul_storage::ids::uuid_from_words(0, 0)
         );
-        assert_eq!(
-            uuid_from_words(u64::MAX, u64::MAX),
-            "ffffffff-ffff-4fff-bfff-ffffffffffff"
-        );
-        assert!(!is_uuid("not-a-uuid"));
-        assert!(!is_uuid("00000000-0000-4000-8000-00000000000"));
     }
 }

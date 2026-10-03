@@ -4240,7 +4240,6 @@ impl X11Window {
                 renderer_options: options.window_state.renderer_options,
                 background_color: options.window_state.background_color,
                 layout_callback: options.window_state.layout_callback,
-                close_callback: options.window_state.close_callback.clone(),
                 // Seed with the monitor we are actually placing the window on.
                 // This was `None` and was never written afterwards, so on X11
                 // `CallbackInfo::get_current_monitor()` returned None for the
@@ -5328,7 +5327,10 @@ impl X11Window {
                     // the flag false -> true and run a pass so
                     // EventType::WindowClose fires; a callback that clears the
                     // flag cancels the close.
-                    let outcome = self.request_window_close("x11.wm_delete_window");
+                    // Against the DOM the app's state describes now (a
+                    // rebuild its last callback asked for is built first, as
+                    // ConfigureNotify's regenerate_now does in this handler).
+                    let outcome = self.run_close_protocol("x11.wm_delete_window");
                     if outcome.confirmed {
                         self.is_open = false;
                     } else {

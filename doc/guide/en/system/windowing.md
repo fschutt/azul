@@ -171,18 +171,27 @@ To close the current window from a callback:
 info.close_window();
 ```
 
-To intercept the close button, set `FullWindowState.close_callback` on the state. Returning `Update::DoNothing` and clearing `flags.close_requested` keeps the window open:
+Every close is a request the app can refuse: the title-bar close button, Alt+F4, `info.close_window()` and the close button of the app-drawn `Titlebar` all fire `WindowEventFilter::CloseRequested` before the window goes. To ask "Save changes?", listen to it on any node and call `info.prevent_window_close()` to keep the window open. Call it last: the window-state changes the callback made before it are kept. Never clear `flags.close_requested` by hand.
 
-```rust,no_run
-use azul::prelude::*;
-
-extern "C" fn on_close(_: RefAny, mut info: CallbackInfo) -> Update {
-    let mut state = info.get_current_window_state().clone();
-    state.flags.close_requested = false;       // veto the close
-    info.modify_window_state(state);
-    Update::DoNothing
+```rust,ignore
+extern "C" fn on_close_requested(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let dirty = data.downcast_ref::<MyApp>().map(|app| app.dirty).unwrap_or(false);
+    if !dirty {
+        return Update::DoNothing; // the window closes
+    }
+    // ... show the question (set a flag, return RefreshDom) ...
+    info.prevent_window_close(); // the window stays
+    Update::RefreshDom
 }
+
+let content = Dom::create_div().with_callback(
+    EventFilter::Window(WindowEventFilter::CloseRequested),
+    data.clone(),
+    on_close_requested,
+);
 ```
+
+For a document window the `CloseGuard` widget does all of this: wrap the window's content in it, keep its `dirty` flag up to date and answer its events (`Ask`: show the question; `Save`: save, then `close_window()`; `Discard`; `Cancel`).
 
 ## Menus
 

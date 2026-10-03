@@ -1708,7 +1708,22 @@ impl HeadlessWindow {
         while let Some(event) = self.poll_event() {
             match event {
                 HeadlessEvent::Close => {
-                    self.close();
+                    // The window manager's close (the title-bar X) is a
+                    // REQUEST: the protocol runs, so the app's CloseRequested
+                    // callbacks ("Save changes?") can veto it. It used to
+                    // close outright.
+                    let outcome = self.run_close_protocol("headless.close");
+                    if outcome.confirmed {
+                        self.close();
+                    } else {
+                        events_result = events_result.max(outcome.result);
+                        if !matches!(
+                            outcome.result,
+                            azul_core::events::ProcessEventResult::DoNothing
+                        ) {
+                            events_need_redraw = true;
+                        }
+                    }
                 }
                 HeadlessEvent::FileHover { x, y, paths } => {
                     // MWA-A4: same ingress the OS backends perform —
@@ -2252,6 +2267,21 @@ impl HeadlessWindow {
         // and timers/threads (Phase 2), the three places a callback can
         // run — so a close requested anywhere this iteration exits before
         // the condvar wait instead of after a wake that may never come.
+        //
+        // A close the APP raised (`close_window`, the CSD titlebar's close
+        // button) is a request like the window manager's: the protocol runs
+        // first, against the DOM this iteration's frames built, and a
+        // CloseRequested callback that vetoes leaves the flag down.
+        if let Some(outcome) = self.confirm_app_close("headless.app_close") {
+            if !outcome.confirmed
+                && !matches!(
+                    outcome.result,
+                    azul_core::events::ProcessEventResult::DoNothing
+                )
+            {
+                self.service_frame(outcome.result);
+            }
+        }
         if self.common.current_window_state().flags.close_requested {
             log_info!(
                 LogCategory::EventLoop,

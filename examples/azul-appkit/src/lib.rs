@@ -9,6 +9,8 @@
 //! - [`about`]: the About facts.
 //! - [`files`]: file jobs (put / get / get-all / delete) on an azul-storage drive.
 //! - [`history`]: undo / redo of whole-state snapshots ([`UndoHistory`]).
+//! - [`migrate`]: the one-time move of an app's folder from the data folders
+//!   older builds used (`azul/`, `Azul/`, `AzNotes/`) into the data root.
 //! - `ui` (feature `azul`): the settings page on azul's `ShellSettingsLayout`
 //!   (Appearance, Data, Shortcuts, About, plus the app's own sections), the
 //!   window's title row, the window options (`NoTitle`, `--size`), the app
@@ -23,6 +25,7 @@ pub mod args;
 pub mod data;
 pub mod files;
 pub mod history;
+pub mod migrate;
 pub mod settings;
 pub mod shortcuts;
 
