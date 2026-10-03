@@ -33,23 +33,17 @@ Report: scripts/MEDIA9_2026_10_03.md (date = the day it finishes).
 - B1 12b563ba7 RED layout/src/widgets/level_meter.rs (db_percent, rms_percent, peak_percent,
   zone_widths, LevelMeterOrientation, LevelMeter, LevelMeterThrottle, LevelMeterLook; 8 tests).
 
+- B1 6dfd00c90 GREEN LevelMeter (level_meter.rs + flat/flora appends + manifest/INPUTS).
+
 ## IN PROGRESS
-- NEXT STEP: GREEN level_meter.rs: db_percent ((db+60)/60*100 clamped, NaN->0), rms_percent
-  (AzMeet formula: 20*log10(max(rms,1e-6))), peak_percent, zone_widths ([min(l,70), clamp(l-70,0,20),
-  clamp(l-90,0,10)]), throttle next(), build(meter, &look) = root div (class
-  __azul-native-level-meter + marker, a11y ProgressBar "{:.0}%", flex row) > track (class
-  -track, grow 1, overflow hidden, flex row or column-reverse for Vertical) > ok / warm / hot divs
-  (classes -ok/-warm/-hot, width (or height) percent, flex-shrink 0); dom() via
-  theme_blocks::follow_app_theme(self, flat::level_meter, flora::level_meter); look_for not needed.
-  update_level: get_first_child(root)=track, its first child + next siblings = segments,
-  set_css_property(width/height percent), set_accessibility_value. Theme APPENDS at the END of
-  flat.rs / flora.rs under `// ==== level_meter ====`: level_meter_look() (track themed_fill
-  LIGHT_TRACK/DARK_TRACK + radius 3 + height 8 (or width 8 vertical: put sizes in build), ok green,
-  warm amber, hot red themed fills) and `pub fn level_meter(m) -> Dom { build(m, &look) }`.
-  Manifest: every_widget_dom push ("level_meter", LevelMeter::create(80.0).dom()) + "level_meter"
-  in theme_contrast INPUTS (next to "progressbar"). Then AzMeet migration.
-  Commit messages: ALWAYS write a fresh /tmp file with a bash heredoc (a failed Write once reused
-  a stale message; fixed with --amend on the unpushed commit).
+- NEXT STEP: AzMeet uses LevelMeter (no twin): examples/azul-meet/src/lib.rs - delete
+  METER_FLOOR_DB + mic_level_percent, meter_change keeps its shape but uses
+  `LevelMeter::level_of`-equivalent rms_percent via the generated API (`LevelMeter::level_of(frame)`
+  needs an AudioFrame; or keep `level_of` and build a frame) and a `LevelMeterThrottle` field in
+  MeetState instead of mic_level + meter_moved_ms; show_level -> `LevelMeter::update_level(info,
+  bar, level)`; ui.rs level_meter(): `LevelMeter::create(view.mic_level).with_accessibility_name(
+  "Microphone level").dom()` instead of ProgressBar. Check AzMeet's tests that name mic_level_percent
+  (grep) and the E2E (scripts/azmeet_e2e.py) for the meter. Then B2 SeekBar.
 - then SeekBar, MediaControls, Waveform widget part (same pattern), then AzMusic, AzPlayer.
 
 ## api.json so far (for the report)
