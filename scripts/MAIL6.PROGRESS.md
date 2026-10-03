@@ -27,7 +27,18 @@ POWER: battery warning from the coordinator - commit after every small unit, no 
   compose.rs escaper: already gone (RichTextDoc serializer). DEL now stays (legal XML) - test restated.
 - 710335921 / 45cd36ca3 RED/GREEN status bar zoom (StatusBarZoom 50..200, -/+ by 10, slider; plain paper
   font/line scale, HTML paper em wrapper when != 100; settings "zoom"); 00edadf34 E2E zoom_in + restart check
-- NEXT NOW: LOOK item 5 (dark paper frame / 600px table wider than the paper) - read ReadingPane body css
+- NEXT NOW: LOOK item 5. Measured on the prebuilt engine (scratchpad paper/exp.py, mount op, 500px pane,
+  600px table): today paper 500 / table 600 overflows; paper `display:inline-block; min-width:100%` with the
+  12px padding on an INNER element -> paper 624 wide mail, 500 short mail, long text wraps at 476 (= Chrome).
+  Engine bugs seen (MAILENG6): min-width:100% + box-sizing:border-box + padding on an inline-block = 524
+  (Chrome 500); width:fit-content acts as 100%; display:table loses a child <p>'s margins (42 vs 74).
+  PLAN: sheet `.__azmail_paper {inline-block; min-width:100%; box-sizing:border-box; colours}`,
+  `.__azmail_mail_body {padding:12px}` (ids::MAIL_BODY) = the mail's <body>: its class/dir/style attrs,
+  bgcolor/text as a sheet rule BEFORE the mail's rules (author rules win, as in Chrome), `body` selectors
+  -> .__azmail_mail_body, html/:root -> paper; safe_style_value refuses ; { } (bgcolor="red; position:
+  fixed" injected a declaration); ui_main wraps the HTML body in overflow-x:auto.
+  Decision: B3 (LocalFolder -> Drive) deferred to the report (nested .azlin/cache if rooted per account;
+  needs the data root + ScopedDrive; account.rs/send.rs write_atomic sites too).
 
 ## NEXT (exact)
 1. ui_main View tab: drop the Look group (theme/mode buttons) -> File > Options opens the kit settings page
