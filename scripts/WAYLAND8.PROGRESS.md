@@ -49,10 +49,17 @@ if clear, with tests that run without a compositor. Report: scripts/WAYLAND8_202
 - D4: tests live in wayland/shm.rs (#[cfg(test)]): pure layout math + a real memfd seal check; Linux-only
   module => they run on Linux CI without a compositor; the Mac build does not compile them.
 
+- step 4 commits: RED shm.rs + tests (`test(wayland8): RED ...`), GREEN pool_layout page-aligned,
+  GREEN create_shm_file sealed memfd (safe fn). `mod shm;` registered in wayland/mod.rs.
+
 ## IN PROGRESS
-- step 4: RED tests in dll/src/desktop/shell2/linux/wayland/shm.rs
+- step 4b: CpuFallbackState::new (wayland/mod.rs ~8940) uses shm::create_shm_file + shm::pool_layout
 
 ## NEXT
+- tooltip.rs allocate_shm_buffer -> shm helper; screencopy.rs memfd() -> shm helper (dedupe)
+- fix the legacy present copy's `dst_stride = width*4` (mod.rs ~7975) to use cpu_state.stride (latent)
+- trace line at pool creation: udmabuf-importable yes/no (seals read back)
+- report scripts/WAYLAND8_2026_10_03.md
 - step 3: write findings into the report
 - step 4: implement a client-side win (RED test first) if there is one
 
