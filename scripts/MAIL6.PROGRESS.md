@@ -34,6 +34,12 @@ POWER: battery warning from the coordinator - commit after every small unit, no 
   padding on inline-block = 524 not 500; fit-content acts as 100%; display:table loses a <p>'s margins.
 - Decision: B3 (LocalFolder -> Drive) deferred to the report (nested .azlin/cache if rooted per account;
   needs the data root + ScopedDrive; account.rs/send.rs write_atomic sites too).
+- d78f1070a / 9dcaa3553 RED/GREEN rfc3339_utc on azul_storage::time::iso8601 (DEDUP_EDITORS B4)
+- 7423954a9 / 8181e9e4f / c33fd5102 E2E: --runner markers read from the runner log, the app's process tree
+  stopped (an orphaned headless AzMail was left running before), per-wait limits, close guard one check.
+  Sample phase vs the prebuilt aa59b2d84: 3 ok (module buttons, prefixed ids, list/pane widths with the
+  newsletter open), 8 FAILED - all behaviour this branch adds (window fill, task store, compose ids, paper,
+  zoom, restart).
 - NEXT NOW: the report scripts/MAIL6_2026_10_03.md (skeleton first, then sections)
 
 ## NEXT (exact)
