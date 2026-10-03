@@ -465,3 +465,171 @@ pub(crate) fn range_text(range: &DateRange) -> String {
     let _ = range;
     String::new()
 }
+
+#[cfg(test)]
+mod range_tests {
+    use super::*;
+
+    const fn d(year: u32, month: u32, day: u32) -> DatePickerState {
+        DatePickerState { year, month, day }
+    }
+
+    /// Wednesday, 4 March 2026.
+    const TODAY: DatePickerState = d(2026, 3, 4);
+
+    fn span(p: DateRangePreset, start: DatePickerWeekStart) -> (DatePickerState, DatePickerState) {
+        let r = p.range(TODAY, start);
+        (r.start, r.end)
+    }
+
+    #[test]
+    fn a_range_is_ordered_whichever_end_comes_first() {
+        let r = DateRange::create(d(2026, 3, 10), d(2026, 3, 4));
+        assert_eq!((r.start, r.end), (d(2026, 3, 4), d(2026, 3, 10)));
+    }
+
+    #[test]
+    fn a_range_holds_both_its_ends_and_counts_its_days() {
+        let r = DateRange::create(d(2026, 3, 4), d(2026, 3, 10));
+        assert!(
+            r.contains(d(2026, 3, 4)) && r.contains(d(2026, 3, 7)) && r.contains(d(2026, 3, 10))
+        );
+        assert!(!r.contains(d(2026, 3, 3)) && !r.contains(d(2026, 3, 11)));
+        assert_eq!(r.day_count(), 7);
+        assert_eq!(
+            DateRange::create(d(2026, 2, 26), d(2026, 3, 4)).day_count(),
+            7
+        );
+        assert_eq!(
+            DateRange::create(d(2025, 12, 30), d(2026, 1, 2)).day_count(),
+            4
+        );
+        assert_eq!(DateRange::create(TODAY, TODAY).day_count(), 1);
+    }
+
+    #[test]
+    fn the_presets_count_from_today() {
+        use DatePickerWeekStart::{Monday, Sunday};
+        use DateRangePreset as P;
+        assert_eq!(span(P::Today, Monday), (TODAY, TODAY));
+        assert_eq!(span(P::Yesterday, Monday), (d(2026, 3, 3), d(2026, 3, 3)));
+        assert_eq!(span(P::Last7Days, Monday), (d(2026, 2, 26), TODAY));
+        assert_eq!(span(P::Last30Days, Monday), (d(2026, 2, 3), TODAY));
+        assert_eq!(span(P::ThisMonth, Monday), (d(2026, 3, 1), d(2026, 3, 31)));
+        assert_eq!(span(P::LastMonth, Monday), (d(2026, 2, 1), d(2026, 2, 28)));
+        assert_eq!(span(P::ThisYear, Monday), (d(2026, 1, 1), d(2026, 12, 31)));
+        assert_eq!(span(P::LastYear, Monday), (d(2025, 1, 1), d(2025, 12, 31)));
+        assert_eq!(span(P::ThisWeek, Sunday), (d(2026, 3, 1), d(2026, 3, 7)));
+    }
+
+    #[test]
+    fn the_week_presets_start_on_the_week_start() {
+        use DateRangePreset as P;
+        let monday = DatePickerWeekStart::Monday;
+        assert_eq!(span(P::ThisWeek, monday), (d(2026, 3, 2), d(2026, 3, 8)));
+        assert_eq!(span(P::LastWeek, monday), (d(2026, 2, 23), d(2026, 3, 1)));
+        assert_eq!(
+            span(P::LastWeek, DatePickerWeekStart::Sunday),
+            (d(2026, 2, 22), d(2026, 2, 28))
+        );
+    }
+
+    #[test]
+    fn the_presets_cross_the_new_year() {
+        let new_year = d(2026, 1, 1);
+        let r = DateRangePreset::Yesterday.range(new_year, DatePickerWeekStart::Monday);
+        assert_eq!((r.start, r.end), (d(2025, 12, 31), d(2025, 12, 31)));
+        let r = DateRangePreset::LastMonth.range(new_year, DatePickerWeekStart::Monday);
+        assert_eq!((r.start, r.end), (d(2025, 12, 1), d(2025, 12, 31)));
+    }
+
+    #[test]
+    fn the_first_click_anchors_and_the_second_picks_either_way_round() {
+        let view = DateRangePickerView::create(2026, 3);
+        let (view, kind) = click_day(view, d(2026, 3, 10));
+        assert_eq!(kind, DateRangePickerEventKind::Anchored);
+        assert_eq!(view.anchor, OptionDatePickerState::Some(d(2026, 3, 10)));
+        let (view, kind) = click_day(view, d(2026, 3, 4));
+        assert_eq!(kind, DateRangePickerEventKind::Picked);
+        assert_eq!(view.anchor, OptionDatePickerState::None);
+        assert_eq!(
+            view.range,
+            OptionDateRange::Some(DateRange::create(d(2026, 3, 4), d(2026, 3, 10)))
+        );
+        assert_eq!((view.year, view.month), (2026, 3), "picking turns no month");
+    }
+
+    #[test]
+    fn anchoring_keeps_the_range_picked_before_until_the_second_click() {
+        let mut view = DateRangePickerView::create(2026, 3);
+        let before = DateRange::create(d(2026, 3, 1), d(2026, 3, 2));
+        view.range = OptionDateRange::Some(before);
+        let (view, _) = click_day(view, d(2026, 3, 20));
+        assert_eq!(
+            view.range,
+            OptionDateRange::Some(before),
+            "Escape shows it again"
+        );
+    }
+
+    #[test]
+    fn the_grids_preview_the_span_from_the_anchor_to_the_pointer() {
+        let mut view = DateRangePickerView::create(2026, 3);
+        let picked = DateRange::create(d(2026, 3, 1), d(2026, 3, 2));
+        view.range = OptionDateRange::Some(picked);
+        assert_eq!(
+            shown_range(&view, Some(d(2026, 3, 9))),
+            Some(picked),
+            "no anchor: the range"
+        );
+        view.anchor = OptionDatePickerState::Some(d(2026, 3, 10));
+        assert_eq!(
+            shown_range(&view, Some(d(2026, 3, 5))),
+            Some(DateRange::create(d(2026, 3, 5), d(2026, 3, 10)))
+        );
+        assert_eq!(
+            shown_range(&view, None),
+            Some(DateRange::create(d(2026, 3, 10), d(2026, 3, 10)))
+        );
+    }
+
+    #[test]
+    fn a_range_turns_the_months_so_it_shows() {
+        let left = |a, b| {
+            let v = DateRangePickerView::with_range(DateRange::create(a, b));
+            (v.year, v.month)
+        };
+        assert_eq!(left(d(2026, 3, 4), d(2026, 3, 10)), (2026, 3));
+        assert_eq!(left(d(2026, 3, 20), d(2026, 4, 5)), (2026, 3));
+        assert_eq!(
+            left(d(2026, 1, 10), d(2026, 3, 5)),
+            (2026, 2),
+            "the end's month on the right"
+        );
+        assert_eq!(left(d(2025, 12, 28), d(2026, 1, 3)), (2025, 12));
+        let v = DateRangePickerView::with_range(DateRange::create(d(2026, 3, 4), d(2026, 3, 10)));
+        assert_eq!(v.anchor, OptionDatePickerState::None);
+        assert!(v.range.is_some());
+    }
+
+    #[test]
+    fn the_months_turn_across_years() {
+        let dec = DateRangePickerView::create(2025, 12);
+        assert_eq!(dec.right_month(), (2026, 1));
+        let jan = dec.turned(1);
+        assert_eq!((jan.year, jan.month), (2026, 1));
+        let back = jan.turned(-1);
+        assert_eq!((back.year, back.month), (2025, 12));
+        let far = jan.turned(-13);
+        assert_eq!((far.year, far.month), (2024, 12));
+    }
+
+    #[test]
+    fn a_range_reads_as_its_two_days() {
+        assert_eq!(
+            range_text(&DateRange::create(d(2026, 3, 4), d(2026, 3, 10))),
+            "4 Mar 2026 \u{2013} 10 Mar 2026"
+        );
+        assert_eq!(range_text(&DateRange::create(TODAY, TODAY)), "4 Mar 2026");
+    }
+}
