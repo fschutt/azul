@@ -14,11 +14,11 @@
 //! ([`is_secondary_press`]).
 
 use azul_core::{
-    dom::{DomId, DomNodeId, NodeData, NodeId},
+    dom::{DomId, DomNodeId, NodeId},
     events::MouseButton,
     hit_test::FullHitTest,
     menu::Menu,
-    styled_dom::{NodeHierarchyItem, NodeHierarchyItemId, StyledDom},
+    styled_dom::{NodeHierarchyItemId, StyledDom},
 };
 use azul_css::system::Platform;
 
@@ -40,11 +40,6 @@ pub fn is_secondary_press(platform: &Platform, button: MouseButton, control_held
         _ => false,
     }
 }
-
-/// How many dom boundaries (`VirtualView` pages in pages) the walk of
-/// [`nearest_context_menu`] crosses before it gives up: a host chain that
-/// loops must not spin.
-const MAX_DOM_HOPS: usize = 16;
 
 /// The node whose context menu a secondary click on `start` opens, and that
 /// menu: `start` itself or its nearest ancestor that carries one.
@@ -68,30 +63,27 @@ pub fn nearest_context_menu<'a>(
     start: DomNodeId,
     host_of: &dyn Fn(DomId) -> Option<(DomId, NodeId)>,
 ) -> Option<(DomNodeId, Menu)> {
-    let mut dom = start.dom;
-    let mut current = start.node.into_crate_internal();
-    for _ in 0..MAX_DOM_HOPS {
-        let styled_dom = styled_dom_of(dom)?;
-        let node_data = styled_dom.node_data.as_container();
-        let hierarchy = styled_dom.node_hierarchy.as_container();
-        // A malformed parent chain must not spin.
-        let mut budget = node_data.len();
-        while let Some(node) = current {
-            if let Some(menu) = node_data.get(node).and_then(NodeData::get_context_menu) {
-                return Some((dom_node(dom, node), menu.clone()));
-            }
-            if budget == 0 {
-                break;
-            }
-            budget -= 1;
-            current = hierarchy.get(node).and_then(NodeHierarchyItem::parent_id);
-        }
-        // Past the dom's root: a child dom goes on at the node hosting it.
-        let (host_dom, host_node) = host_of(dom)?;
-        dom = host_dom;
-        current = Some(host_node);
-    }
-    None
+    // The event path of the click (core's one walk, the one pointer events
+    // bubble along), target first.
+    let parent_of = |dom: DomId, node: NodeId| -> Option<NodeId> {
+        styled_dom_of(dom)?
+            .node_hierarchy
+            .as_slice()
+            .get(node.index())?
+            .parent_id()
+    };
+    azul_core::events::get_event_path(start, &parent_of, host_of)
+        .into_iter()
+        .rev()
+        .find_map(|at| {
+            let node = at.node.into_crate_internal()?;
+            let menu = styled_dom_of(at.dom)?
+                .node_data
+                .as_slice()
+                .get(node.index())?
+                .get_context_menu()?;
+            Some((at, menu.clone()))
+        })
 }
 
 /// The context menu a secondary click opens where `hit` was taken, and the
