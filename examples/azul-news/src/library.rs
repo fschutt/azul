@@ -131,130 +131,310 @@ pub struct Library {
 
 impl Library {
     #[must_use]
-    pub fn feed_index(&self, _id: &str) -> Option<usize> {
-        None
+    pub fn feed_index(&self, id: &str) -> Option<usize> {
+        self.feeds.iter().position(|f| f.sub.id == id)
     }
 
     /// The folders, in the order their first feed comes.
     #[must_use]
     pub fn folders(&self) -> Vec<String> {
-        Vec::new()
+        let mut out: Vec<String> = Vec::new();
+        for f in &self.feeds {
+            if !f.sub.folder.is_empty() && !out.contains(&f.sub.folder) {
+                out.push(f.sub.folder.clone());
+            }
+        }
+        out
     }
 
     /// The unread articles of one feed.
     #[must_use]
-    pub fn unread(&self, _feed: usize) -> usize {
-        0
+    pub fn unread(&self, feed: usize) -> usize {
+        self.feeds.get(feed).map_or(0, |f| {
+            f.items.iter().filter(|i| !f.state.is_read(&i.id)).count()
+        })
     }
 
     #[must_use]
     pub fn unread_total(&self) -> usize {
-        0
+        (0..self.feeds.len()).map(|f| self.unread(f)).sum()
     }
 
     #[must_use]
-    pub fn unread_in_folder(&self, _folder: &str) -> usize {
-        0
+    pub fn unread_in_folder(&self, folder: &str) -> usize {
+        (0..self.feeds.len())
+            .filter(|&f| self.feeds[f].sub.folder == folder)
+            .map(|f| self.unread(f))
+            .sum()
     }
 
     #[must_use]
     pub fn starred_count(&self) -> usize {
-        0
+        self.feeds
+            .iter()
+            .map(|f| f.items.iter().filter(|i| f.state.is_starred(&i.id)).count())
+            .sum()
     }
 
     #[must_use]
     pub fn later_count(&self) -> usize {
-        0
+        self.feeds
+            .iter()
+            .map(|f| f.items.iter().filter(|i| f.state.is_later(&i.id)).count())
+            .sum()
     }
 
     /// The feeds whose last refresh failed.
     #[must_use]
     pub fn broken(&self) -> Vec<usize> {
-        Vec::new()
+        (0..self.feeds.len())
+            .filter(|&f| !self.feeds[f].meta.error.is_empty())
+            .collect()
     }
 
     #[must_use]
-    pub fn article(&self, _r: ArticleRef) -> Option<&Item> {
-        None
+    pub fn article(&self, r: ArticleRef) -> Option<&Item> {
+        self.feeds.get(r.feed)?.items.get(r.item)
+    }
+
+    /// Whether the article is in the view.
+    fn in_view(&self, view: &View, r: ArticleRef) -> bool {
+        let f = &self.feeds[r.feed];
+        let id = f.items[r.item].id.as_str();
+        match view {
+            View::All => true,
+            View::Unread => !f.state.is_read(id),
+            View::Starred => f.state.is_starred(id),
+            View::Later => f.state.is_later(id),
+            View::Folder(folder) => f.sub.folder == *folder,
+            View::Feed(feed) => f.sub.id == *feed,
+            View::Broken => !f.meta.error.is_empty(),
+        }
     }
 
     /// The view's articles that match `query`, newest first.
     #[must_use]
-    pub fn list(&self, _view: &View, _query: &str) -> Vec<ArticleRef> {
-        Vec::new()
+    pub fn list(&self, view: &View, query: &str) -> Vec<ArticleRef> {
+        let query = Query::parse(query);
+        let mut out: Vec<(i64, ArticleRef)> = Vec::new();
+        for (fi, f) in self.feeds.iter().enumerate() {
+            for (ii, item) in f.items.iter().enumerate() {
+                let r = ArticleRef { feed: fi, item: ii };
+                if !self.in_view(view, r) {
+                    continue;
+                }
+                if !query.is_empty() {
+                    let text = format!(
+                        "{} {} {} {}",
+                        item.title,
+                        item.excerpt,
+                        item.author,
+                        f.name()
+                    );
+                    if !query.matches(&text) {
+                        continue;
+                    }
+                }
+                out.push((item.date(), r));
+            }
+        }
+        // Newest first; the same date in the feeds' and the items' order.
+        out.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        out.into_iter().map(|(_, r)| r).collect()
     }
 
     /// `refs` (newest first) in their date groups, `today` and the dates in the local time
     /// `offset_secs` east of UTC.
     #[must_use]
-    pub fn sections(&self, _refs: &[ArticleRef], _today: NaiveDate, _offset_secs: i64) -> Vec<(DateGroup, Vec<ArticleRef>)> {
-        let _unused = date_group;
-        Vec::new()
+    pub fn sections(
+        &self,
+        refs: &[ArticleRef],
+        today: NaiveDate,
+        offset_secs: i64,
+    ) -> Vec<(DateGroup, Vec<ArticleRef>)> {
+        let mut out: Vec<(DateGroup, Vec<ArticleRef>)> = Vec::new();
+        for &r in refs {
+            let Some(item) = self.article(r) else {
+                continue;
+            };
+            let day = chrono::DateTime::<chrono::Utc>::from_timestamp(item.date() + offset_secs, 0)
+                .map_or(NaiveDate::MIN, |d| d.date_naive());
+            let group = date_group(day, today);
+            match out.last_mut() {
+                Some((g, members)) if *g == group => members.push(r),
+                _ => out.push((group, vec![r])),
+            }
+        }
+        out
+    }
+
+    fn id_of(&self, r: ArticleRef) -> Option<String> {
+        self.article(r).map(|i| i.id.clone())
     }
 
     #[must_use]
-    pub fn is_read(&self, _r: ArticleRef) -> bool {
-        false
+    pub fn is_read(&self, r: ArticleRef) -> bool {
+        self.id_of(r)
+            .is_some_and(|id| self.feeds[r.feed].state.is_read(&id))
     }
 
     /// Marks an article read or unread; whether that changed anything.
-    pub fn set_read(&mut self, _r: ArticleRef, _read: bool) -> bool {
-        false
+    pub fn set_read(&mut self, r: ArticleRef, read: bool) -> bool {
+        match self.id_of(r) {
+            Some(id) => self.feeds[r.feed].state.set_read(&id, read),
+            None => false,
+        }
     }
 
     #[must_use]
-    pub fn is_starred(&self, _r: ArticleRef) -> bool {
-        false
+    pub fn is_starred(&self, r: ArticleRef) -> bool {
+        self.id_of(r)
+            .is_some_and(|id| self.feeds[r.feed].state.is_starred(&id))
     }
 
     /// Stars or unstars an article; its new state.
-    pub fn toggle_star(&mut self, _r: ArticleRef) -> bool {
-        false
+    pub fn toggle_star(&mut self, r: ArticleRef) -> bool {
+        match self.id_of(r) {
+            Some(id) => self.feeds[r.feed].state.toggle_starred(&id),
+            None => false,
+        }
     }
 
     #[must_use]
-    pub fn is_later(&self, _r: ArticleRef) -> bool {
-        false
+    pub fn is_later(&self, r: ArticleRef) -> bool {
+        self.id_of(r)
+            .is_some_and(|id| self.feeds[r.feed].state.is_later(&id))
     }
 
     /// Keeps an article for later, or not; its new state.
-    pub fn toggle_later(&mut self, _r: ArticleRef) -> bool {
-        false
+    pub fn toggle_later(&mut self, r: ArticleRef) -> bool {
+        match self.id_of(r) {
+            Some(id) => self.feeds[r.feed].state.toggle_later(&id),
+            None => false,
+        }
     }
 
-    /// Marks the articles read; the feeds whose marks changed (their files to write).
-    pub fn mark_all_read(&mut self, _refs: &[ArticleRef]) -> Vec<usize> {
-        Vec::new()
+    /// Marks the articles read; the feeds whose marks changed (their files to write), in order.
+    pub fn mark_all_read(&mut self, refs: &[ArticleRef]) -> Vec<usize> {
+        let mut changed = BTreeSet::new();
+        for &r in refs {
+            if self.set_read(r, true) {
+                changed.insert(r.feed);
+            }
+        }
+        changed.into_iter().collect()
     }
 
     /// A refresh of feed `feed` merged in (see the module documentation); how many articles
     /// are new.
-    pub fn merge(&mut self, _feed: usize, _parsed: Feed, _now: i64, _keep_days: u32) -> usize {
-        let _unused: (BTreeMap<String, i64>, BTreeSet<String>, Option<Query>) = (BTreeMap::new(), BTreeSet::new(), None);
-        0
+    pub fn merge(&mut self, feed: usize, parsed: Feed, now: i64, keep_days: u32) -> usize {
+        let Some(data) = self.feeds.get_mut(feed) else {
+            return 0;
+        };
+        let old: BTreeMap<String, Item> = data.items.drain(..).map(|i| (i.id.clone(), i)).collect();
+        let mut fresh = 0;
+        let mut items: Vec<Item> = Vec::new();
+        let mut present: BTreeSet<String> = BTreeSet::new();
+        for mut item in parsed.items {
+            if !present.insert(item.id.clone()) {
+                continue;
+            }
+            match old.get(&item.id) {
+                Some(before) => item.seen = before.seen,
+                None => {
+                    item.seen = now;
+                    fresh += 1;
+                }
+            }
+            items.push(item);
+        }
+        let keep_after = now - i64::from(keep_days) * DAY;
+        for (id, item) in old {
+            if present.contains(&id) {
+                continue;
+            }
+            let marked = data.state.is_starred(&id) || data.state.is_later(&id);
+            if marked || item.date() >= keep_after {
+                present.insert(id);
+                items.push(item);
+            }
+        }
+        items.sort_by(|a, b| b.date().cmp(&a.date()));
+        // At most MAX_ITEMS, and every starred / saved one.
+        let mut kept = 0;
+        let state = &data.state;
+        items.retain(|i| {
+            if state.is_starred(&i.id) || state.is_later(&i.id) {
+                return true;
+            }
+            kept += 1;
+            kept <= MAX_ITEMS
+        });
+        let ids: BTreeSet<&str> = items.iter().map(|i| i.id.as_str()).collect();
+        data.state.prune(&ids);
+        data.items = items;
+        data.meta.title = parsed.title;
+        if !parsed.site.is_empty() {
+            data.meta.site = parsed.site;
+        }
+        if !parsed.icon.is_empty() {
+            data.meta.icon = parsed.icon;
+        }
+        data.meta.kind = parsed.format.label().to_string();
+        data.meta.error.clear();
+        data.meta.checked = now;
+        if fresh > 0 {
+            data.meta.updated = now;
+        }
+        fresh
     }
 
     /// Adds a feed (at the end); its index. A feed whose address is subscribed already is not
     /// added twice: that one's index.
-    pub fn subscribe(&mut self, _sub: Subscription) -> usize {
-        0
+    pub fn subscribe(&mut self, sub: Subscription) -> usize {
+        if let Some(i) = self.feeds.iter().position(|f| f.sub.url == sub.url) {
+            return i;
+        }
+        self.feeds.push(FeedData {
+            meta: FeedMeta {
+                title: sub.title.clone(),
+                site: sub.site.clone(),
+                ..FeedMeta::default()
+            },
+            sub,
+            items: Vec::new(),
+            state: ReadState::default(),
+        });
+        self.feeds.len() - 1
     }
 
     /// Removes the feed with this id; what it was.
-    pub fn unsubscribe(&mut self, _id: &str) -> Option<FeedData> {
-        None
+    pub fn unsubscribe(&mut self, id: &str) -> Option<FeedData> {
+        let i = self.feed_index(id)?;
+        Some(self.feeds.remove(i))
     }
 
     /// The subscription list (for `subscriptions.opml`).
     #[must_use]
     pub fn subscriptions(&self) -> Vec<Subscription> {
-        Vec::new()
+        self.feeds.iter().map(|f| f.sub.clone()).collect()
     }
 
     /// The article after (or before) `current` in `list`; the first (last) one without one.
     #[must_use]
-    pub fn next(&self, _list: &[ArticleRef], _current: Option<ArticleRef>, _forward: bool) -> Option<ArticleRef> {
-        None
+    pub fn next(
+        &self,
+        list: &[ArticleRef],
+        current: Option<ArticleRef>,
+        forward: bool,
+    ) -> Option<ArticleRef> {
+        let at = current.and_then(|c| list.iter().position(|r| *r == c));
+        match (at, forward) {
+            (None, true) => list.first().copied(),
+            (None, false) => list.last().copied(),
+            (Some(i), true) => list.get(i + 1).copied(),
+            (Some(i), false) => i.checked_sub(1).and_then(|j| list.get(j).copied()),
+        }
     }
 }
 
@@ -298,10 +478,23 @@ mod tests {
                     "a",
                     "Example Weekly",
                     "Tech",
-                    vec![item("a1", "The quiet return of RSS", NOW - 3_600), item("a2", "Older essay", NOW - 3 * DAY)],
+                    vec![
+                        item("a1", "The quiet return of RSS", NOW - 3_600),
+                        item("a2", "Older essay", NOW - 3 * DAY),
+                    ],
                 ),
-                feed_data("b", "Rust Blog", "Tech", vec![item("b1", "Rust 2026 survey results", NOW - 2 * 3_600)]),
-                feed_data("c", "Bakery News", "Local", vec![item("c1", "New bakery opens on Main St.", NOW - DAY - 60)]),
+                feed_data(
+                    "b",
+                    "Rust Blog",
+                    "Tech",
+                    vec![item("b1", "Rust 2026 survey results", NOW - 2 * 3_600)],
+                ),
+                feed_data(
+                    "c",
+                    "Bakery News",
+                    "Local",
+                    vec![item("c1", "New bakery opens on Main St.", NOW - DAY - 60)],
+                ),
             ],
         }
     }
@@ -313,8 +506,14 @@ mod tests {
     #[test]
     fn the_list_is_newest_first_across_feeds() {
         let lib = library();
-        assert_eq!(lib.list(&View::All, ""), vec![r(0, 0), r(1, 0), r(2, 0), r(0, 1)]);
-        assert_eq!(lib.list(&View::Folder("Tech".into()), ""), vec![r(0, 0), r(1, 0), r(0, 1)]);
+        assert_eq!(
+            lib.list(&View::All, ""),
+            vec![r(0, 0), r(1, 0), r(2, 0), r(0, 1)]
+        );
+        assert_eq!(
+            lib.list(&View::Folder("Tech".into()), ""),
+            vec![r(0, 0), r(1, 0), r(0, 1)]
+        );
         assert_eq!(lib.list(&View::Feed("c".into()), ""), vec![r(2, 0)]);
         assert_eq!(lib.folders(), vec!["Tech".to_string(), "Local".to_string()]);
         assert_eq!(lib.feed_index("b"), Some(1));
@@ -325,8 +524,15 @@ mod tests {
     fn the_search_box_finds_every_word_in_any_case() {
         let lib = library();
         assert_eq!(lib.list(&View::All, "rss QUIET"), vec![r(0, 0)]);
-        assert_eq!(lib.list(&View::All, "rust blog"), vec![r(1, 0)], "the feed's name counts too");
-        assert_eq!(lib.list(&View::All, "nothing like this"), Vec::<ArticleRef>::new());
+        assert_eq!(
+            lib.list(&View::All, "rust blog"),
+            vec![r(1, 0)],
+            "the feed's name counts too"
+        );
+        assert_eq!(
+            lib.list(&View::All, "nothing like this"),
+            Vec::<ArticleRef>::new()
+        );
     }
 
     #[test]
@@ -340,7 +546,11 @@ mod tests {
         assert_eq!(lib.unread(0), 1);
         assert_eq!(lib.unread_total(), 3);
         assert_eq!(lib.list(&View::Unread, ""), vec![r(1, 0), r(2, 0), r(0, 1)]);
-        assert_eq!(lib.mark_all_read(&[r(1, 0), r(0, 1), r(0, 0)]), vec![0, 1], "the feeds that changed");
+        assert_eq!(
+            lib.mark_all_read(&[r(1, 0), r(0, 1), r(0, 0)]),
+            vec![0, 1],
+            "the feeds that changed"
+        );
         assert_eq!(lib.unread_total(), 1);
     }
 
@@ -363,11 +573,22 @@ mod tests {
         let list = lib.list(&View::All, "");
         let sections = lib.sections(&list, today, 0);
         let groups: Vec<DateGroup> = sections.iter().map(|(g, _)| *g).collect();
-        assert_eq!(groups, vec![DateGroup::Today, DateGroup::Yesterday, DateGroup::Weekday(chrono::Weekday::Mon)]);
+        assert_eq!(
+            groups,
+            vec![
+                DateGroup::Today,
+                DateGroup::Yesterday,
+                DateGroup::Weekday(chrono::Weekday::Mon)
+            ]
+        );
         assert_eq!(sections[0].1, vec![r(0, 0), r(1, 0)]);
         // 13 hours west of UTC the article of 11:00 UTC is still today, the one of yesterday
         // 11:59 UTC too is yesterday.
-        let west = lib.sections(&list, NaiveDate::from_ymd_opt(2026, 9, 30).expect("a date"), -13 * 3_600);
+        let west = lib.sections(
+            &list,
+            NaiveDate::from_ymd_opt(2026, 9, 30).expect("a date"),
+            -13 * 3_600,
+        );
         assert_eq!(west[0].0, DateGroup::Today);
     }
 
@@ -387,8 +608,15 @@ mod tests {
         };
         assert_eq!(lib.merge(0, parsed, NOW, 30), 1, "one new article");
         let ids: Vec<&str> = lib.feeds[0].items.iter().map(|i| i.id.as_str()).collect();
-        assert_eq!(ids, vec!["a3", "a1", "a2"], "newest first; the dropped article stays (starred, and inside 30 days)");
-        assert_eq!(lib.feeds[0].items[1].title, "The quiet return of RSS (edited)");
+        assert_eq!(
+            ids,
+            vec!["a3", "a1", "a2"],
+            "newest first; the dropped article stays (starred, and inside 30 days)"
+        );
+        assert_eq!(
+            lib.feeds[0].items[1].title,
+            "The quiet return of RSS (edited)"
+        );
         assert_eq!(lib.feeds[0].items[1].seen, NOW - 3_600, "first seen stays");
         assert_eq!(lib.feeds[0].items[0].seen, NOW);
         assert!(lib.feeds[0].state.is_read("a1"), "the read mark stays");
@@ -403,10 +631,24 @@ mod tests {
         let mut lib = library();
         lib.feeds[0].items[1].published = Some(NOW - 40 * DAY);
         lib.set_read(r(0, 1), true);
-        assert_eq!(lib.merge(0, Feed { items: vec![item("a1", "x", NOW - 3_600)], ..Feed::default() }, NOW, 30), 0);
+        assert_eq!(
+            lib.merge(
+                0,
+                Feed {
+                    items: vec![item("a1", "x", NOW - 3_600)],
+                    ..Feed::default()
+                },
+                NOW,
+                30
+            ),
+            0
+        );
         let ids: Vec<&str> = lib.feeds[0].items.iter().map(|i| i.id.as_str()).collect();
         assert_eq!(ids, vec!["a1"]);
-        assert!(!lib.feeds[0].state.is_read("a2"), "its read mark is forgotten");
+        assert!(
+            !lib.feeds[0].state.is_read("a2"),
+            "its read mark is forgotten"
+        );
     }
 
     #[test]
@@ -419,10 +661,19 @@ mod tests {
             ..Subscription::default()
         };
         assert_eq!(lib.subscribe(sub.clone()), 3);
-        assert_eq!(lib.subscribe(Subscription { id: "e".into(), ..sub }), 3);
+        assert_eq!(
+            lib.subscribe(Subscription {
+                id: "e".into(),
+                ..sub
+            }),
+            3
+        );
         assert_eq!(lib.feeds.len(), 4);
         assert_eq!(lib.subscriptions().len(), 4);
-        assert_eq!(lib.unsubscribe("b").map(|f| f.sub.title), Some("Rust Blog".to_string()));
+        assert_eq!(
+            lib.unsubscribe("b").map(|f| f.sub.title),
+            Some("Rust Blog".to_string())
+        );
         assert_eq!(lib.feed_index("d"), Some(2));
     }
 
@@ -447,7 +698,12 @@ mod tests {
 
     #[test]
     fn the_feed_file_round_trips() {
-        let meta = FeedMeta { etag: "\"abc\"".into(), checked: NOW, status: 200, ..FeedMeta::default() };
+        let meta = FeedMeta {
+            etag: "\"abc\"".into(),
+            checked: NOW,
+            status: 200,
+            ..FeedMeta::default()
+        };
         let text = meta.to_json();
         assert!(text.contains("aznews.feed"));
         let back = FeedMeta::from_json(&text).expect("its own file");
