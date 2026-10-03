@@ -476,6 +476,232 @@ impl Drop for AudioPlayer {
     }
 }
 
+/// Where a track's audio comes from.
+enum SourceSpec {
+    Path(String),
+    Bytes(Vec<u8>, String),
+}
+
+impl SourceSpec {
+    fn open(self) -> Result<super::decode::FileSource, String> {
+        match self {
+            SourceSpec::Path(path) => super::decode::FileSource::open_path(&path),
+            SourceSpec::Bytes(bytes, extension) => {
+                super::decode::FileSource::open_bytes(bytes, &extension)
+            }
+        }
+    }
+}
+
+/// What the handle asks the player's thread to do.
+enum Command {
+    Load(u64, SourceSpec),
+    Queue(u64, SourceSpec),
+    ClearQueue,
+    Play,
+    Pause,
+    Toggle,
+    Stop,
+    Seek(f64),
+    Skip,
+    Volume(f32),
+}
+
+/// What the handle and the player's thread share.
+#[derive(Default)]
+struct Shared {
+    commands: VecDeque<Command>,
+    state: AudioPlayerState,
+    error: Option<String>,
+    quit: bool,
+}
+
+type SharedRef = std::sync::Arc<(std::sync::Mutex<Shared>, std::sync::Condvar)>;
+
+fn lock(shared: &SharedRef) -> std::sync::MutexGuard<'_, Shared> {
+    shared
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Engine-side state behind an open [`AudioPlayer`].
+struct PlayerInner {
+    shared: SharedRef,
+    thread: Option<std::thread::JoinHandle<()>>,
+    next_id: std::sync::atomic::AtomicU64,
+}
+
+/// Frames a player writes at once, and how far ahead of the listener it stays (seconds).
+const CHUNK_FRAMES: usize = 2048;
+const LEAD_S: f64 = 0.25;
+/// How long the player's thread sleeps between feeds while playing, and while idle.
+const TICK_PLAYING_MS: u64 = 10;
+const TICK_IDLE_MS: u64 = 100;
+
+/// The player's output: the sink, the state machine on it.
+struct Output {
+    sink: super::AudioSink,
+    core: PlayerCore,
+}
+
+/// Opens an output for a first source at `rate`: two channels at its rate, else at 48 kHz (the
+/// player resamples), else none and why.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn open_output(open: OpenOutput, rate: u32) -> Result<Output, String> {
+    let mut why = String::new();
+    for rate in [rate, 48_000] {
+        if rate == 0 {
+            continue;
+        }
+        let sink = open(azul_core::audio::AudioConfig {
+            sample_rate: rate,
+            channels: 2,
+        });
+        if sink.is_open() {
+            let lead = (f64::from(rate) * LEAD_S) as u64;
+            return Ok(Output {
+                core: PlayerCore::new(rate, 2, CHUNK_FRAMES, lead),
+                sink,
+            });
+        }
+        if let azul_css::OptionString::Some(reason) = sink.error_message() {
+            why = reason.as_str().to_string();
+        }
+    }
+    Err(format!("no audio output: {why}"))
+}
+
+/// The player's thread: commands in, the output fed, the state out.
+fn player_thread(shared: SharedRef, open: OpenOutput) {
+    let mut output: Option<Output> = None;
+    let mut error: Option<String> = None;
+    let mut failed_track = 0u64;
+    let mut volume = 1.0f32;
+    let mut paused = false;
+    loop {
+        let commands: Vec<Command> = {
+            let mut guard = lock(&shared);
+            if guard.quit {
+                return;
+            }
+            guard.commands.drain(..).collect()
+        };
+        for command in commands {
+            match command {
+                Command::Load(id, spec) | Command::Queue(id, spec) if output.is_none() => {
+                    // The first file decides the output's rate.
+                    match spec.open() {
+                        Ok(source) => match open_output(open, source.rate()) {
+                            Ok(mut out) => {
+                                out.core.set_volume(volume);
+                                out.core.load(id, Box::new(source), &out.sink);
+                                paused = false;
+                                output = Some(out);
+                            }
+                            Err(why) => {
+                                failed_track = id;
+                                error = Some(why);
+                            }
+                        },
+                        Err(why) => {
+                            failed_track = id;
+                            error = Some(why);
+                        }
+                    }
+                }
+                Command::Load(id, spec) => match spec.open() {
+                    Ok(source) => {
+                        if let Some(out) = output.as_mut() {
+                            out.core.load(id, Box::new(source), &out.sink);
+                            out.core.set_paused(false, &out.sink);
+                            paused = false;
+                        }
+                    }
+                    Err(why) => {
+                        failed_track = id;
+                        error = Some(why);
+                    }
+                },
+                Command::Queue(id, spec) => match spec.open() {
+                    Ok(source) => {
+                        if let Some(out) = output.as_mut() {
+                            out.core.enqueue(id, Box::new(source));
+                        }
+                    }
+                    Err(why) => {
+                        failed_track = id;
+                        error = Some(why);
+                    }
+                },
+                Command::Volume(v) => {
+                    volume = if v.is_finite() {
+                        v.clamp(0.0, 1.0)
+                    } else {
+                        1.0
+                    };
+                    if let Some(out) = output.as_mut() {
+                        out.core.set_volume(volume);
+                    }
+                }
+                Command::Play | Command::Pause | Command::Toggle => {
+                    paused = match command {
+                        Command::Play => false,
+                        Command::Pause => true,
+                        _ => !paused,
+                    };
+                    if let Some(out) = output.as_mut() {
+                        out.core.set_paused(paused, &out.sink);
+                    }
+                }
+                Command::ClearQueue => {
+                    if let Some(out) = output.as_mut() {
+                        out.core.clear_queue();
+                    }
+                }
+                Command::Stop => {
+                    if let Some(out) = output.as_mut() {
+                        out.core.stop(&out.sink);
+                    }
+                }
+                Command::Seek(seconds) => {
+                    if let Some(out) = output.as_mut() {
+                        out.core.seek(seconds, &out.sink);
+                    }
+                }
+                Command::Skip => {
+                    if let Some(out) = output.as_mut() {
+                        out.core.skip(&out.sink);
+                    }
+                }
+            }
+        }
+        let mut state = match output.as_mut() {
+            Some(out) => {
+                out.core.pump(&out.sink);
+                out.core.state(&out.sink)
+            }
+            None => AudioPlayerState::default(),
+        };
+        state.failed_track = failed_track;
+        state.volume = volume;
+        state.has_output = output.is_some();
+        let tick = if state.playing {
+            TICK_PLAYING_MS
+        } else {
+            TICK_IDLE_MS
+        };
+        let mut guard = lock(&shared);
+        guard.state = state;
+        guard.error.clone_from(&error);
+        if guard.commands.is_empty() && !guard.quit {
+            let _ = shared
+                .1
+                .wait_timeout(guard, std::time::Duration::from_millis(tick));
+        }
+    }
+}
+
 impl AudioPlayer {
     /// A player on the platform's audio output (opened with the first file). In a headless run
     /// it plays on the synthetic sink when one was asked for (`AZ_SYNTHETIC_DEVICES=audio_sink`),
@@ -486,77 +712,155 @@ impl AudioPlayer {
 
     /// A player on the outputs `open` makes.
     pub(crate) fn create_with(open: OpenOutput) -> AudioPlayer {
-        let _ = open;
-        AudioPlayer::default()
+        let shared: SharedRef = std::sync::Arc::new((
+            std::sync::Mutex::new(Shared {
+                state: AudioPlayerState {
+                    volume: 1.0,
+                    ..AudioPlayerState::default()
+                },
+                ..Shared::default()
+            }),
+            std::sync::Condvar::new(),
+        ));
+        let for_thread = shared.clone();
+        let thread = std::thread::Builder::new()
+            .name(String::from("azul-audio-player"))
+            .spawn(move || player_thread(for_thread, open));
+        let thread = match thread {
+            Ok(t) => Some(t),
+            Err(e) => {
+                lock(&shared).error = Some(format!("the player's thread did not start: {e}"));
+                None
+            }
+        };
+        AudioPlayer {
+            ptr: Box::into_raw(Box::new(PlayerInner {
+                shared,
+                thread,
+                next_id: std::sync::atomic::AtomicU64::new(1),
+            })) as *mut core::ffi::c_void,
+            run_destructor: true,
+        }
+    }
+
+    fn inner(&self) -> Option<&PlayerInner> {
+        unsafe { (self.ptr as *const PlayerInner).as_ref() }
+    }
+
+    /// Hands `command` to the player's thread and wakes it.
+    fn send(&self, command: Command) {
+        if let Some(inner) = self.inner() {
+            lock(&inner.shared).commands.push_back(command);
+            inner.shared.1.notify_all();
+        }
+    }
+
+    /// A new track id, and the command made of it.
+    fn send_track(&self, make: impl FnOnce(u64) -> Command) -> u64 {
+        let Some(inner) = self.inner() else {
+            return 0;
+        };
+        let id = inner
+            .next_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.send(make(id));
+        id
     }
 
     /// Plays the audio file at `path` now (what was playing and queued is dropped). Returns the
     /// track's id (what `AudioPlayerState::track` names while it is heard); 0 when closed.
     pub fn load_file(&self, path: azul_css::AzString) -> u64 {
-        let _ = path;
-        0
+        let path = path.as_str().to_string();
+        self.send_track(|id| Command::Load(id, SourceSpec::Path(path)))
     }
 
     /// Plays an audio file from its `bytes` now (`extension`: "mp3", "flac", ... - a hint, may
     /// be empty). Returns the track's id; 0 when closed.
     pub fn load_bytes(&self, bytes: azul_css::U8Vec, extension: azul_css::AzString) -> u64 {
-        let _ = (bytes, extension);
-        0
+        let spec = SourceSpec::Bytes(bytes.as_ref().to_vec(), extension.as_str().to_string());
+        self.send_track(|id| Command::Load(id, spec))
     }
 
     /// Plays the audio file at `path` after the queued ones, gaplessly. Returns its id.
     pub fn queue_file(&self, path: azul_css::AzString) -> u64 {
-        let _ = path;
-        0
+        let path = path.as_str().to_string();
+        self.send_track(|id| Command::Queue(id, SourceSpec::Path(path)))
     }
 
     /// Plays an audio file from its `bytes` after the queued ones, gaplessly. Returns its id.
     pub fn queue_bytes(&self, bytes: azul_css::U8Vec, extension: azul_css::AzString) -> u64 {
-        let _ = (bytes, extension);
-        0
+        let spec = SourceSpec::Bytes(bytes.as_ref().to_vec(), extension.as_str().to_string());
+        self.send_track(|id| Command::Queue(id, spec))
     }
 
     /// Drops the queued files (the one playing plays on).
-    pub fn clear_queue(&self) {}
+    pub fn clear_queue(&self) {
+        self.send(Command::ClearQueue);
+    }
 
     /// Plays on (after `pause`).
-    pub fn play(&self) {}
+    pub fn play(&self) {
+        self.send(Command::Play);
+    }
 
     /// Holds playback where it is.
-    pub fn pause(&self) {}
+    pub fn pause(&self) {
+        self.send(Command::Pause);
+    }
 
     /// Plays if paused, pauses if playing.
-    pub fn toggle(&self) {}
+    pub fn toggle(&self) {
+        self.send(Command::Toggle);
+    }
 
     /// Stops: nothing plays, nothing is queued.
-    pub fn stop(&self) {}
+    pub fn stop(&self) {
+        self.send(Command::Stop);
+    }
 
     /// Goes to `position_s` seconds in the file playing.
     pub fn seek(&self, position_s: f64) {
-        let _ = position_s;
+        self.send(Command::Seek(position_s));
     }
 
     /// Goes on with the next queued file now.
-    pub fn skip(&self) {}
+    pub fn skip(&self) {
+        self.send(Command::Skip);
+    }
 
     /// The volume, `0.0` (silent) to `1.0` (as decoded).
     pub fn set_volume(&self, volume: f32) {
-        let _ = volume;
+        self.send(Command::Volume(volume));
     }
 
     /// What the listener hears now: the track, the position in it, its length, the level, and
     /// whether it plays, finished, or has no output.
     pub fn get_state(&self) -> AudioPlayerState {
-        AudioPlayerState::default()
+        self.inner()
+            .map_or_else(AudioPlayerState::default, |i| lock(&i.shared).state)
     }
 
     /// Why the last file did not open, or why there is no audio output; `None` when all is well.
     pub fn error_message(&self) -> azul_css::OptionString {
-        azul_css::OptionString::None
+        match self.inner().and_then(|i| lock(&i.shared).error.clone()) {
+            Some(why) => azul_css::OptionString::Some(azul_css::AzString::from(why)),
+            None => azul_css::OptionString::None,
+        }
     }
 
     /// Stops playback and ends the player's thread. (Dropping the handle does this too.)
-    pub fn close(&mut self) {}
+    pub fn close(&mut self) {
+        if self.run_destructor && !self.ptr.is_null() {
+            let mut inner = unsafe { Box::from_raw(self.ptr as *mut PlayerInner) };
+            lock(&inner.shared).quit = true;
+            inner.shared.1.notify_all();
+            if let Some(thread) = inner.thread.take() {
+                let _ = thread.join();
+            }
+        }
+        self.ptr = core::ptr::null_mut();
+        self.run_destructor = false;
+    }
 }
 
 #[cfg(all(test, feature = "audio-decode"))]
