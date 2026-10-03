@@ -38,13 +38,26 @@ worktree guard - edit files with the Edit tool; `rustfmt --edition 2021 <file>` 
   e51c37518 tests + manifest (INPUTS "date_range_picker"), 638e0df46 day faces stacked with stack_parts.
   DateRangePicker DONE.
 
+- ComboBox extensions: e9d3c8a96 RED (tests at the end of `autotest_generated`, Env.forced_open), bcdcbe60e
+  GREEN. New fields: ComboBoxStateWrapper.item_details (StringVec, before active_option_cleared),
+  ComboBoxStateWrapper.open_on_type (bool, last), ComboBox.status (OptionString, before theme); methods
+  set_/with_item_details, set_/with_status, set_/with_open_on_type.
+
 ## NEXT (exact)
-5. ReferencePicker (D5): (a) ComboBox RED tests in combobox.rs (append a new `#[cfg(test)] mod
-   reference_extension_tests` at the END): the toggle closes a popup the engine says is open even when the
-   rebuilt state says closed; a detail line under an option; a status line after the options that is not an
-   option; typing opens the closed list when `open_on_type`. (b) GREEN in combobox.rs: new fields APPENDED at
-   the end of ComboBoxStateWrapper (`item_details: StringVec`, `open_on_type: bool`) and ComboBox (`status:
-   OptionString`); toggle uses `info.is_transient_window_open(popup)`. (c) reference_picker.rs on ComboBox.
+5. (c) layout/src/widgets/reference_picker.rs on ComboBox: types ReferencePickerItem { label, detail, id: u64 },
+   ReferencePickerFilter { Local, App }, ReferencePickerEventKind { Query, Pick, Create },
+   ReferencePickerEvent { text, id, kind }, callback triple ReferencePickerOnEvent; ReferencePicker { items,
+   query, placeholder, create_label: OptionString, on_event, accessibility_name, selected: OptionU64,
+   max_rows: usize, debounce_ms: u32, filter, theme, loading: bool }. Pure: shown_rows(items, query, filter,
+   max_rows) -> (Vec<usize>, hidden_count); create row only when query non-empty and no label equals it;
+   status (loading -> "Searching...", nothing -> "No matches", hidden -> "N more - type to narrow").
+   dom(): ComboBox::new(labels).with_item_details(..).with_status(..).with_open_on_type(true)
+   .with_text(query or the selected item's label).with_on_text_input(adapter, ..).with_on_select(adapter, ..);
+   adapter RefAny ReferenceShared { ids, create_index, query, on_event, debounce_ms, timer: Option<TimerId> };
+   debounce: info.remove_timer(old) + info.add_timer(TimerId::unique(), Timer::create(shared,
+   TimerCallback::create(on_debounce), info.get_system_time_fn()).with_delay(Duration::from_millis(ms)));
+   the timer reports Query (TimerCallbackReturn - check its constructors in core/src/callbacks.rs).
+   Then theme: none needed (ComboBox's skin); tests; manifest (INPUTS "reference_picker").
 6. Report.
    OLD notes for reference (DateRangePicker DOM): the DOM (presets column of PushButton <p>s; two calendars = date_picker_look parts merged per part with
    theme_blocks::part_of over [flat::date_picker_look(), flora::date_picker_look()] when unpinned; header with
