@@ -224,8 +224,15 @@ pub fn tsv_of(rows: &[Vec<String>]) -> String {
 /// the next visible one, wrapping; `None` when no other sheet is visible.
 #[must_use]
 pub fn step_sheet(sheets: &[SheetInfo], from: u32, forward: bool) -> Option<u32> {
-    let _ = (sheets, from, forward);
-    None
+    let n = sheets.len();
+    if n < 2 {
+        return None;
+    }
+    let from = (from as usize).min(n - 1);
+    (1..n)
+        .map(|k| if forward { (from + k) % n } else { (from + n - k) % n })
+        .find(|i| !sheets[*i].hidden)
+        .and_then(|i| u32::try_from(i).ok())
 }
 
 /// The title a new workbook gets: "Book1", "Book2", ... - the first one no
