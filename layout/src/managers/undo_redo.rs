@@ -616,6 +616,154 @@ fn remap_operation(
     }
 }
 
+// ==== Text undo / redo applied to the window (EVENTS7) ====
+//
+// The ONE body of `SystemChange::UndoTextEdit` / `RedoTextEdit` and of a
+// second seat's Undo / Redo shortcut. It lived in the dll
+// (`undo_text_edit_on` / `redo_text_edit_on`), so the in-crate scenario
+// runner had nothing to call and a JSON scenario's Ctrl/Cmd+Z undid nothing.
+
+/// Where an undone edit left its caret: what the caller places into the
+/// seat that asked (9b-ii-a-i-d-ii-b-i).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UndoRestore {
+    /// The selection the edit replaced, if it replaced one.
+    pub range: Option<azul_core::selection::SelectionRange>,
+    /// The caret before the edit, if there was one.
+    pub cursor: Option<azul_core::selection::TextCursor>,
+}
+
+impl crate::window::LayoutWindow {
+    /// Undo `seat_id`'s latest text edit on `target` minus the caret
+    /// placement: pop the node's undo entry, restore the pre-edit content
+    /// (the styled snapshot when there is one, else the plain pre-text), push
+    /// the entry onto redo. `None` = nothing to undo on that node.
+    ///
+    /// Per-person undo (9b-ii-a-i-d-ii-d): the seat's own latest edit, and
+    /// only while it is the top of the node's stack - see
+    /// `NodeUndoRedoStack::pop_undo_for_seat`.
+    pub fn undo_text_edit_for_seat(
+        &mut self,
+        target: azul_core::dom::DomNodeId,
+        seat_id: u64,
+    ) -> Option<UndoRestore> {
+        use alloc::sync::Arc;
+
+        use crate::text3::cache::{InlineContent, StyleProperties, StyledRun};
+
+        let node_id = target.node.into_crate_internal()?;
+        let operation = self
+            .undo_redo_manager
+            .pop_undo_for_seat(node_id, seat_id)?;
+        let new_content = self
+            .undo_redo_manager
+            .get_content_snapshot(operation.changeset.id)
+            .map(|snap| snap.pre.clone())
+            .unwrap_or_else(|| {
+                vec![InlineContent::Text(StyledRun {
+                    text: Arc::from(operation.pre_state.text_content.as_str()),
+                    style: Arc::new(StyleProperties::default()),
+                    logical_start_byte: 0,
+                    source_node_id: None,
+                })]
+            });
+        // MWA-C-undo_redo keying: the STACK is keyed by the HOST (`target`),
+        // the CONTENT by the node the edit re-shaped (`pre_state.node_id`,
+        // the caret's IFC owner). Restoring a paragraph's snapshot into the
+        // host would key a host-flattened blob - the bug typing and deleting
+        // were already cured of.
+        self.update_text_cache_after_edit(target.dom, operation.pre_state.node_id, new_content);
+        let restore = UndoRestore {
+            range: operation.pre_state.selection_range.into_option(),
+            cursor: operation.pre_state.cursor_position.into_option(),
+        };
+        self.undo_redo_manager.push_redo(operation);
+        Some(restore)
+    }
+
+    /// Redo `seat_id`'s latest undone text edit on `target`: pop the node's
+    /// redo entry and restore the post-edit content (the styled snapshot,
+    /// else the pre-text plus the inserted text for an insert). `false` =
+    /// nothing redone.
+    pub fn redo_text_edit_for_seat(
+        &mut self,
+        target: azul_core::dom::DomNodeId,
+        seat_id: u64,
+    ) -> bool {
+        use alloc::sync::Arc;
+
+        use crate::{
+            managers::changeset::TextOperation,
+            text3::cache::{InlineContent, StyleProperties, StyledRun},
+        };
+
+        let Some(node_id) = target.node.into_crate_internal() else {
+            return false;
+        };
+        let Some(operation) = self.undo_redo_manager.pop_redo_for_seat(node_id, seat_id) else {
+            return false;
+        };
+        let new_content = self
+            .undo_redo_manager
+            .get_content_snapshot(operation.changeset.id)
+            .map(|snap| snap.post.clone())
+            .or_else(|| {
+                if let TextOperation::InsertText(op) = &operation.changeset.operation {
+                    let mut text = alloc::string::String::from(
+                        operation.pre_state.text_content.as_str(),
+                    );
+                    text.push_str(op.text.as_str());
+                    Some(vec![InlineContent::Text(StyledRun {
+                        text: Arc::from(text.as_str()),
+                        style: Arc::new(StyleProperties::default()),
+                        logical_start_byte: 0,
+                        source_node_id: None,
+                    })])
+                } else {
+                    None
+                }
+            });
+        if let Some(new_content) = new_content {
+            // Same keying as undo: the content goes back to the node the edit
+            // re-shaped, not the host the stack is keyed by.
+            self.update_text_cache_after_edit(
+                target.dom,
+                operation.pre_state.node_id,
+                new_content,
+            );
+            self.undo_redo_manager.reinstate_undo(operation);
+            return true;
+        }
+        self.undo_redo_manager.push_redo(operation);
+        false
+    }
+
+    /// `SystemChange::UndoTextEdit`: the PRIMARY seat's text undo on
+    /// `target`, its caret put back where the edit found it. `false` =
+    /// nothing to undo.
+    pub fn undo_text_edit(&mut self, target: azul_core::dom::DomNodeId) -> bool {
+        let Some(restore) =
+            self.undo_text_edit_for_seat(target, azul_core::window::PRIMARY_POINTER_SEAT)
+        else {
+            return false;
+        };
+        if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
+            if let Some(range) = restore.range {
+                mc.set_single_range(range);
+            } else if let Some(cursor) = restore.cursor {
+                mc.set_single_cursor(cursor);
+            }
+        }
+        true
+    }
+
+    /// `SystemChange::RedoTextEdit`: the PRIMARY seat's text redo on
+    /// `target`. `false` = nothing redone.
+    pub fn redo_text_edit(&mut self, target: azul_core::dom::DomNodeId) -> bool {
+        self.redo_text_edit_for_seat(target, azul_core::window::PRIMARY_POINTER_SEAT)
+    }
+}
+
 #[cfg(test)]
 mod undo_redo_tests {
     use azul_core::{

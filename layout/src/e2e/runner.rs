@@ -1310,6 +1310,22 @@ impl Runner {
                                 .max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
                         }
                     }
+                    // The dll's `UndoTextEdit` / `RedoTextEdit` arms, through
+                    // the same `LayoutWindow` body (EVENTS7). The primary's
+                    // undo keys are default actions now (below); this is the
+                    // change for whatever still asks for it directly.
+                    SystemChange::UndoTextEdit { target } => {
+                        if self.layout_window.undo_text_edit(*target) {
+                            result = result
+                                .max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+                        }
+                    }
+                    SystemChange::RedoTextEdit { target } => {
+                        if self.layout_window.redo_text_edit(*target) {
+                            result = result
+                                .max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+                        }
+                    }
                     // Still unported (dropped, as the whole set was before):
                     // AddCursorAtClick (Cmd+click multi-cursor), the clipboard
                     // trio (deferred post-callback in the DLL), auto-scroll
@@ -4183,6 +4199,25 @@ impl Runner {
                 if scrolled {
                     self.layout_window.scroll_manager.calculate_scrollbar_states();
                     (ProcessEventResult::ShouldReRenderCurrentWindow, false)
+                } else {
+                    (ProcessEventResult::DoNothing, false)
+                }
+            }
+            // Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z / Y after the callbacks: the
+            // editing host's text undo / redo unless an editor with its own
+            // history vetoed it - the dll's arms, through the same
+            // `LayoutWindow` body (EVENTS7). The primary's only: a second
+            // seat's key is its `SeatShortcut`.
+            DefaultAction::UndoTextEdit { target } => {
+                if is_primary && self.layout_window.undo_text_edit(*target) {
+                    (ProcessEventResult::ShouldUpdateDisplayListCurrentWindow, false)
+                } else {
+                    (ProcessEventResult::DoNothing, false)
+                }
+            }
+            DefaultAction::RedoTextEdit { target } => {
+                if is_primary && self.layout_window.redo_text_edit(*target) {
+                    (ProcessEventResult::ShouldUpdateDisplayListCurrentWindow, false)
                 } else {
                     (ProcessEventResult::DoNothing, false)
                 }
