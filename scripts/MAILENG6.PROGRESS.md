@@ -37,8 +37,14 @@ agents - keep files under `m6/` (a `msg.txt` at the root got overwritten).
   9.2.1.1 splitting of an inline around a block is not implemented (reconciler + layout_ifc).
 - item 5 RTL collapse: RED `a7fda9cc9` + FIX `4b9f52dcf` (start/end sides by direction,
   `CollapsedBorders.rtl` for the cell/table half-borders). Item 5 DONE.
-- NEXT: item 6 (inline-flex / inline-grid / inline-table and <img> inside spans through
-  `fc::measure_atomic_inline`; strut x-height / cap-height from OS/2), then item 2.
+- item 6: RED `429d3580f` + FIX `b1e6c7409` (span children: inline-flex/grid/table atomic,
+  `<img>` via the new ONE helper `push_inline_image`); RED `b52c5f07c` + FIX `0896d5138`
+  (OS/2 sxHeight/sCapHeight parsed; strut x/cap from the face). Item 6 DONE.
+- NEXT: item 2 (percentage heights vs auto-height parents). Plan: grep list m6/h100.txt (37 app
+  /widget sites, most are `height: 100%` on the ROOT body or inside flex/abspos parents, which
+  the change must not touch); RED test, then change `layout_bfc`'s
+  `children_containing_block_size` (fc.rs ~1354) + cache.rs ~2651 `available_size_for_children`
+  so an auto-height block passes an INDEFINITE block size to its children.
 
 ## (older notes, items 3/7 plan)
 - item 3 + 7 (Chrome's rounded font metrics + the Times/Helvetica/Courier ascent hack).
