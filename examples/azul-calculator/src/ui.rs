@@ -798,6 +798,11 @@ struct HistoryRef {
     index: usize,
 }
 
+/// A calculation in the history panel, over its result.
+const PANEL_EXPR_CSS: &str = "font-size: 12px; opacity: 0.7;";
+/// A result in the history / memory panel.
+const PANEL_RESULT_CSS: &str = "font-size: 18px; font-weight: 600;";
+
 fn history_list(s: &CalcApp, app: &RefAny) -> Dom {
     let mut list = Dom::create_div()
         .with_id("calc-history")
@@ -814,8 +819,8 @@ fn history_list(s: &CalcApp, app: &RefAny) -> Dom {
             Dom::create_div()
                 .with_class("calc-history-entry")
                 .with_css("display: flex; flex-direction: column; padding: 6px 8px; cursor: pointer;")
-                .with_child(line("", &format!("{} =", e.expr), "font-size: 12px; opacity: 0.7;"))
-                .with_child(line("", &e.result, "font-size: 18px; font-weight: 600;"))
+                .with_child(line("", &format!("{} =", e.expr), PANEL_EXPR_CSS))
+                .with_child(line("", &e.result, PANEL_RESULT_CSS))
                 .with_callback(
                     EventFilter::Hover(HoverEventFilter::MouseUp),
                     RefAny::new(HistoryRef { app: app.clone(), index }),
@@ -861,7 +866,7 @@ fn memory_list(s: &CalcApp, app: &RefAny) -> Dom {
             Dom::create_div()
                 .with_class("calc-memory-entry")
                 .with_css("padding: 6px 8px; cursor: pointer;")
-                .with_child(line("", &shown, "font-size: 18px; font-weight: 600;"))
+                .with_child(line("", &shown, PANEL_RESULT_CSS))
                 .with_callback(
                     EventFilter::Hover(HoverEventFilter::MouseUp),
                     RefAny::new(HistoryRef { app: app.clone(), index }),
@@ -1900,6 +1905,14 @@ mod tests {
     //! The parts of the window that are plain data.
 
     use super::*;
+
+    #[test]
+    fn a_long_result_in_the_side_panel_wraps_inside_it() {
+        // sqrt(2) to 32 digits is wider than the 260px panel at 18px: it
+        // wraps at any character instead of running out of the panel.
+        assert!(PANEL_RESULT_CSS.contains("overflow-wrap: anywhere"), "{PANEL_RESULT_CSS}");
+        assert!(PANEL_EXPR_CSS.contains("overflow-wrap: anywhere"), "{PANEL_EXPR_CSS}");
+    }
 
     #[test]
     fn every_keypad_key_has_a_unique_id() {
