@@ -14,7 +14,7 @@
 use std::collections::BTreeMap;
 
 use azul_pim::write_queue::WriteQueue;
-use chrono::NaiveDate;
+use chrono::{Datelike, NaiveDate};
 
 use crate::{
     csv_io, depreciation,
@@ -33,6 +33,18 @@ use crate::{
 
 /// The register: the start page.
 pub const HOME: &str = "/accounting/assets";
+
+/// The CSV import's page.
+pub const IMPORT: &str = "/assets/import";
+
+/// What keeps a form from being saved: `(field name, sentence)`; the field
+/// is "" for the record as a whole.
+pub type Problems = Vec<(String, String)>;
+
+/// A problem of the record as a whole.
+fn gone(why: &str) -> Problems {
+    vec![(String::new(), why.to_string())]
+}
 
 /// An open form: its view, the path's parameters, the texts typed.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -94,8 +106,23 @@ impl State {
     /// A state on the register, nothing loaded yet.
     #[must_use]
     pub fn new(today: NaiveDate) -> State {
-        let _ = today;
-        todo!("GREEN")
+        State {
+            views: ViewFile::assets(),
+            labels: Labels::en(),
+            book: Book::default(),
+            loaded: false,
+            today,
+            page: HOME.to_string(),
+            back: Vec::new(),
+            tab: 0,
+            form: None,
+            import: None,
+            run_year: today.year(),
+            run_step: 0,
+            notice: String::new(),
+            skipped: Vec::new(),
+            queue: WriteQueue::new(),
+        }
     }
 
     /// The page's route.
@@ -121,13 +148,99 @@ impl State {
 
     /// Goes to `path`: a form opens over the page, anything else is the page.
     pub fn open(&mut self, path: &str) {
-        let _ = path;
-        todo!("GREEN")
+        let Some(route) = self.views.route(path) else {
+            self.notice = format!("There is no page at {path}.");
+            return;
+        };
+        let kind = route.view.kind;
+        let view = route.view.id.clone();
+        // A form edits the record its path names when it can put it; a
+        // post-only form with an id (a check-out) makes a record for it.
+        let editing = route.editing() && route.view.api.put.is_some();
+        let params = route.params.clone();
+        match kind {
+            ViewKind::Form | ViewKind::FormModal => self.open_form(&view, params, editing),
+            _ => {
+                if kind == ViewKind::Wizard {
+                    self.run_step = 0;
+                }
+                self.go(path);
+            }
+        }
+    }
+
+    /// `path` becomes the page (the old one goes on the back stack).
+    fn go(&mut self, path: &str) {
+        if self.page != path {
+            let old = std::mem::replace(&mut self.page, path.to_string());
+            self.back.push(old);
+        }
+        self.tab = 0;
+        self.form = None;
+    }
+
+    /// The form texts of the `R` record `id`.
+    fn values_of<R: Stored + ViewRecord>(
+        &self,
+        id: &str,
+        fields: &[FieldSpec],
+    ) -> Option<BTreeMap<String, String>> {
+        let ctx = self.ctx();
+        self.book
+            .get::<R>(id)
+            .map(|r| rows::form_values(r, fields, &ctx))
+    }
+
+    /// Opens the form `view` over the page.
+    fn open_form(&mut self, view: &str, params: Params, editing: bool) {
+        let Some(v) = self.views.view(view) else {
+            return;
+        };
+        let fields = self.fields_of(v);
+        let records = v.kind_of_records();
+        let id = params.get("id").cloned().unwrap_or_default();
+        let mut values = if editing {
+            match records {
+                Some(Kind::Asset) => self.values_of::<Asset>(&id, &fields),
+                Some(Kind::Category) => self.values_of::<Category>(&id, &fields),
+                Some(Kind::Location) => self.values_of::<Location>(&id, &fields),
+                Some(Kind::Maintenance) => self.values_of::<MaintenanceEntry>(&id, &fields),
+                Some(Kind::Checkout) => self.values_of::<Checkout>(&id, &fields),
+                None => None,
+            }
+            .unwrap_or_default()
+        } else {
+            BTreeMap::new()
+        };
+        for f in &fields {
+            if values.get(&f.name).map_or(true, String::is_empty) {
+                values.insert(f.name.clone(), spec::default_text(f, self.today));
+            }
+        }
+        if !editing && records == Some(Kind::Asset) {
+            if let Some(number) = values.get_mut("asset_number") {
+                if number.is_empty() {
+                    *number = self.book.next_number();
+                }
+            }
+        }
+        self.form = Some(FormDraft {
+            view: view.to_string(),
+            params,
+            editing,
+            values,
+            problems: Vec::new(),
+            dirty: false,
+        });
     }
 
     /// Back to the page before.
     pub fn go_back(&mut self) {
-        todo!("GREEN")
+        if let Some(previous) = self.back.pop() {
+            self.page = previous;
+            self.tab = 0;
+            self.form = None;
+        }
     }
 
     /// The open form's field `name` is now `text`.
@@ -147,77 +260,457 @@ impl State {
     /// for a check-out) is queued, the form closes; a new asset opens. On a
     /// problem the form stays open and names it. `true` = saved.
     pub fn save_form(&mut self, new_id: &mut dyn FnMut() -> String) -> bool {
-        let _ = new_id;
-        todo!("GREEN")
+        let Some(mut draft) = self.form.take() else {
+            return false;
+        };
+        let Some(view) = self.views.view(&draft.view).cloned() else {
+            return false;
+        };
+        let fields = self.fields_of(&view);
+        let saved = match view.id.as_str() {
+            "assets_checkout_form" => self.save_checkout(&draft, &fields, new_id),
+            "assets_dispose_form" => self.save_dispose(&draft, &fields),
+            "assets_maintenance_form" => self.save_maintenance(&draft, &fields, new_id),
+            _ => match view.kind_of_records() {
+                Some(Kind::Asset) => self.save_asset(&draft, &fields, new_id),
+                Some(Kind::Category) => self.save_simple(&draft, &fields, new_id, |id| Category {
+                    id,
+                    name: String::new(),
+                    life_years: 0,
+                    method: model::Method::StraightLine,
+                    notes: String::new(),
+                }),
+                Some(Kind::Location) => self.save_simple(&draft, &fields, new_id, |id| Location {
+                    id,
+                    name: String::new(),
+                    address: String::new(),
+                    notes: String::new(),
+                }),
+                _ => Err(vec![(
+                    String::new(),
+                    "This form cannot be saved yet.".to_string(),
+                )]),
+            },
+        };
+        match saved {
+            Ok(notice) => {
+                self.notice = notice;
+                true
+            }
+            Err(problems) => {
+                draft.problems = problems;
+                self.form = Some(draft);
+                false
+            }
+        }
+    }
+
+    /// The `R` record a draft edits, or a new one from `blank`.
+    fn target<R: Stored>(
+        &self,
+        draft: &FormDraft,
+        new_id: &mut dyn FnMut() -> String,
+        blank: impl FnOnce(String) -> R,
+    ) -> Result<R, Problems> {
+        if draft.editing {
+            let id = draft.params.get("id").cloned().unwrap_or_default();
+            self.book
+                .get::<R>(&id)
+                .cloned()
+                .ok_or_else(|| gone("The record is not there any more."))
+        } else {
+            Ok(blank(new_id()))
+        }
+    }
+
+    /// A category or a location: the form's texts, its file.
+    fn save_simple<R: Stored + ViewRecord>(
+        &mut self,
+        draft: &FormDraft,
+        fields: &[FieldSpec],
+        new_id: &mut dyn FnMut() -> String,
+        blank: impl FnOnce(String) -> R,
+    ) -> Result<String, Problems> {
+        let mut record = self.target(draft, new_id, blank)?;
+        rows::apply(&mut record, fields, &draft.values)?;
+        self.put_write(&record);
+        self.book.put(record);
+        self.book.sort();
+        Ok("Saved.".to_string())
+    }
+
+    /// An asset: the form's texts, a number no other asset has, its file; a
+    /// new one opens.
+    fn save_asset(
+        &mut self,
+        draft: &FormDraft,
+        fields: &[FieldSpec],
+        new_id: &mut dyn FnMut() -> String,
+    ) -> Result<String, Problems> {
+        let today = self.today;
+        let mut asset = self.target(draft, new_id, |id| Asset::new(&id, "", "", today, 0, 0))?;
+        rows::apply(&mut asset, fields, &draft.values)?;
+        let mut problems: Problems = Vec::new();
+        if let Some(other) = self.book.asset_by_number(&asset.number) {
+            if other.id != asset.id {
+                problems.push((
+                    "asset_number".to_string(),
+                    format!("{} is the number of {} already.", asset.number, other.name),
+                ));
+            }
+        }
+        problems.extend(asset.problems().into_iter().map(|p| (String::new(), p)));
+        if !problems.is_empty() {
+            return Err(problems);
+        }
+        self.put_write(&asset);
+        let notice = format!("Saved {} {}.", asset.number, asset.name);
+        let id = asset.id.clone();
+        self.book.put(asset);
+        self.book.sort();
+        if !draft.editing {
+            self.go(&format!("{HOME}/{id}"));
+        }
+        Ok(notice)
+    }
+
+    /// The asset a child form (check-out, maintenance, disposal) was opened on.
+    fn parent(&self, draft: &FormDraft) -> Result<Asset, Problems> {
+        let id = draft.params.get("id").cloned().unwrap_or_default();
+        self.book
+            .get::<Asset>(&id)
+            .cloned()
+            .ok_or_else(|| gone("The asset is not there any more."))
+    }
+
+    /// A maintenance entry for the asset.
+    fn save_maintenance(
+        &mut self,
+        draft: &FormDraft,
+        fields: &[FieldSpec],
+        new_id: &mut dyn FnMut() -> String,
+    ) -> Result<String, Problems> {
+        let asset = self.parent(draft)?;
+        let mut entry = MaintenanceEntry {
+            id: new_id(),
+            asset: asset.id.clone(),
+            date: self.today,
+            kind: MaintenanceKind::Service,
+            description: String::new(),
+            cost: 0,
+            by: String::new(),
+        };
+        rows::apply(&mut entry, fields, &draft.values)?;
+        self.put_write(&entry);
+        self.book.put(entry);
+        self.book.sort();
+        Ok(format!("Logged maintenance of {}.", asset.number))
+    }
+
+    /// A check-out of the asset: the check-out's file and the asset's (it
+    /// is out now, with its custodian).
+    fn save_checkout(
+        &mut self,
+        draft: &FormDraft,
+        fields: &[FieldSpec],
+        new_id: &mut dyn FnMut() -> String,
+    ) -> Result<String, Problems> {
+        let mut asset = self.parent(draft)?;
+        if self.book.open_checkout(&asset.id).is_some() || asset.status == Status::CheckedOut {
+            return Err(vec![(
+                "custodian".to_string(),
+                format!(
+                    "{} is checked out already; check it in first.",
+                    asset.number
+                ),
+            )]);
+        }
+        if asset.status == Status::Disposed {
+            return Err(gone("A disposed asset cannot be checked out."));
+        }
+        let mut checkout = Checkout {
+            id: new_id(),
+            asset: asset.id.clone(),
+            custodian: String::new(),
+            out: self.today,
+            due: None,
+            returned: None,
+            note: String::new(),
+        };
+        rows::apply(&mut checkout, fields, &draft.values)?;
+        asset.status = Status::CheckedOut;
+        asset.custodian = checkout.custodian.clone();
+        self.put_write(&checkout);
+        self.put_write(&asset);
+        let notice = format!("{} is checked out to {}.", asset.number, checkout.custodian);
+        self.book.put(checkout);
+        self.book.put(asset);
+        self.book.sort();
+        Ok(notice)
+    }
+
+    /// The asset's disposal: the day, the amount, its status.
+    fn save_dispose(
+        &mut self,
+        draft: &FormDraft,
+        fields: &[FieldSpec],
+    ) -> Result<String, Problems> {
+        let mut asset = self.parent(draft)?;
+        rows::apply(&mut asset, fields, &draft.values)?;
+        asset.status = Status::Disposed;
+        let problems: Problems = asset
+            .problems()
+            .into_iter()
+            .map(|p| (String::new(), p))
+            .collect();
+        if !problems.is_empty() {
+            return Err(problems);
+        }
+        self.put_write(&asset);
+        let notice = format!("{} is disposed of.", asset.number);
+        self.book.put(asset);
+        Ok(notice)
     }
 
     /// Checks the asset in: its open check-out ends today.
     pub fn check_in(&mut self, asset: &str) {
-        let _ = asset;
-        todo!("GREEN")
+        let Some(mut checkout) = self.book.open_checkout(asset).cloned() else {
+            self.notice = "The asset is not checked out.".to_string();
+            return;
+        };
+        checkout.returned = Some(self.today);
+        self.put_write(&checkout);
+        self.book.put(checkout);
+        if let Some(mut a) = self.book.get::<Asset>(asset).cloned() {
+            a.status = Status::InUse;
+            a.custodian.clear();
+            self.put_write(&a);
+            self.notice = format!("{} is checked in.", a.number);
+            self.book.put(a);
+        }
     }
 
     /// Deletes the asset with its logs (their files too), back to the register.
     pub fn delete_asset(&mut self, asset: &str) {
-        let _ = asset;
-        todo!("GREEN")
+        let number = self
+            .book
+            .get::<Asset>(asset)
+            .map(|a| a.number.clone())
+            .unwrap_or_default();
+        for key in self.book.remove_asset(asset) {
+            self.queue.delete(key);
+        }
+        self.page = HOME.to_string();
+        self.back.clear();
+        self.tab = 0;
+        self.form = None;
+        self.notice = format!("Deleted {number}.");
     }
 
     /// The register as CSV into `erp/exports/assets-<today>.csv`; its key.
     pub fn export_register(&mut self) -> String {
-        todo!("GREEN")
+        let key = store::export_key(&format!("assets-{}.csv", model::format_date(self.today)));
+        let csv = csv_io::export_assets(&self.book, self.today);
+        self.queue.put(key.clone(), csv.into_bytes());
+        self.notice = format!("Exported the register to {key}.");
+        key
     }
 
     /// The asset's schedule as CSV into `erp/exports/schedule-<number>-<today>.csv`.
     pub fn export_schedule(&mut self, asset: &str) -> Option<String> {
-        let _ = asset;
-        todo!("GREEN")
+        let a = self.book.get::<Asset>(asset)?;
+        // The number as a key segment: letters, digits, `-` and `_`.
+        let number: String = a
+            .number
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        let key = store::export_key(&format!(
+            "schedule-{number}-{}.csv",
+            model::format_date(self.today)
+        ));
+        let csv = csv_io::export_schedule(a);
+        self.queue.put(key.clone(), csv.into_bytes());
+        self.notice = format!("Exported the schedule to {key}.");
+        Some(key)
     }
 
     /// The depreciation run of `year`: every asset's depreciation that year
     /// (`(asset id, number, name, amount)`, the assets with any).
     #[must_use]
     pub fn run_preview(&self, year: i32) -> Vec<(String, String, String, i64)> {
-        let _ = (year, depreciation::depreciation_in_year);
-        todo!("GREEN")
+        self.book
+            .assets
+            .iter()
+            .filter_map(|a| {
+                let amount = depreciation::depreciation_in_year(a, year);
+                (amount > 0).then(|| (a.id.clone(), a.number.clone(), a.name.clone(), amount))
+            })
+            .collect()
     }
 
     /// Runs and "posts" the run of `year`: its journal (one line per asset
     /// and the total) as CSV into `erp/exports/depreciation-run-<year>.csv`
     /// (there is no ledger yet); its key.
     pub fn post_run(&mut self, year: i32) -> String {
-        let _ = (year, money::file_amount);
-        todo!("GREEN")
+        let lines: Vec<(String, String, String, i64)> = self
+            .run_preview(year)
+            .into_iter()
+            .map(|(id, number, name, amount)| {
+                let category = self
+                    .book
+                    .get::<Asset>(&id)
+                    .map(|a| self.book.category_name(&a.category).to_string())
+                    .unwrap_or_default();
+                (number, name, category, amount)
+            })
+            .collect();
+        let total: i64 = lines.iter().map(|l| l.3).sum();
+        let key = store::export_key(&format!("depreciation-run-{year}.csv"));
+        self.queue.put(
+            key.clone(),
+            csv_io::export_journal(&lines, year).into_bytes(),
+        );
+        self.run_step = 0;
+        self.notice = format!(
+            "Posted the depreciation run of {year} ({}) to {key}.",
+            money::format_amount(total)
+        );
+        key
     }
 
     /// The records the load read (`(key, bytes)` of every file under `erp/`).
     pub fn load(&mut self, files: &[(String, Vec<u8>)]) {
-        let _ = files;
-        todo!("GREEN")
+        let (book, skipped) = store::load(files);
+        self.book = book;
+        self.loaded = true;
+        if !skipped.is_empty() {
+            let n = skipped.len();
+            self.notice = format!(
+                "{n} file{} could not be read.",
+                if n == 1 { "" } else { "s" }
+            );
+        }
+        self.skipped = skipped;
     }
 
     /// Writes the sample register into an EMPTY register; how many records.
     pub fn seed_sample(&mut self, new_id: &mut dyn FnMut() -> String) -> usize {
-        let _ = (new_id, sample::book);
-        todo!("GREEN")
+        if !self.book.assets.is_empty() {
+            return 0;
+        }
+        let sample = sample::book(self.today, new_id);
+        let mut n = 0;
+        for c in sample.categories {
+            self.put_write(&c);
+            self.book.put(c);
+            n += 1;
+        }
+        for l in sample.locations {
+            self.put_write(&l);
+            self.book.put(l);
+            n += 1;
+        }
+        for a in sample.assets {
+            self.put_write(&a);
+            self.book.put(a);
+            n += 1;
+        }
+        for m in sample.maintenance {
+            self.put_write(&m);
+            self.book.put(m);
+            n += 1;
+        }
+        for k in sample.checkouts {
+            self.put_write(&k);
+            self.book.put(k);
+            n += 1;
+        }
+        self.book.sort();
+        self.notice = format!(
+            "The sample register is in: {} assets.",
+            self.book.assets.len()
+        );
+        n
+    }
+
+    /// What an import of `table` with `mapping` would do (no ids minted).
+    fn preview(&self, table: &csv_io::Table, mapping: &[csv_io::Field]) -> csv_io::Import {
+        let mut n = 0;
+        let mut mint = move || {
+            n += 1;
+            format!("preview-{n}")
+        };
+        csv_io::import_assets(table, mapping, &self.book, &mut mint)
     }
 
     /// Reads a CSV file to import: the import page shows its preview.
     pub fn start_import(&mut self, name: &str, text: &str) {
-        let _ = (name, text);
-        todo!("GREEN")
+        match csv_io::parse(text) {
+            Ok(table) => {
+                let mapping = table.guessed_mapping();
+                let preview = self.preview(&table, &mapping);
+                self.import = Some(ImportDraft {
+                    name: name.to_string(),
+                    table,
+                    mapping,
+                    preview,
+                });
+                self.go(IMPORT);
+            }
+            Err(e) => self.notice = format!("{name}: {e}"),
+        }
     }
 
     /// The import's column `column` is now `field`: the preview follows.
     pub fn set_mapping(&mut self, column: usize, field: csv_io::Field) {
-        let _ = (column, field);
-        todo!("GREEN")
+        let Some(mut draft) = self.import.take() else {
+            return;
+        };
+        if let Some(slot) = draft.mapping.get_mut(column) {
+            *slot = field;
+        }
+        draft.preview = self.preview(&draft.table, &draft.mapping);
+        self.import = Some(draft);
     }
 
     /// Imports the rows the preview shows; how many assets were written.
     pub fn commit_import(&mut self, new_id: &mut dyn FnMut() -> String) -> usize {
-        let _ = new_id;
-        todo!("GREEN")
+        let Some(draft) = self.import.take() else {
+            return 0;
+        };
+        let done = csv_io::import_assets(&draft.table, &draft.mapping, &self.book, new_id);
+        for c in done.categories {
+            self.put_write(&c);
+            self.book.put(c);
+        }
+        for l in done.locations {
+            self.put_write(&l);
+            self.book.put(l);
+        }
+        let n = done.assets.len();
+        for a in done.assets {
+            self.put_write(&a);
+            self.book.put(a);
+        }
+        self.book.sort();
+        let left_out = if done.problems.is_empty() {
+            String::new()
+        } else {
+            format!("; {} rows left out", done.problems.len())
+        };
+        self.notice = format!(
+            "Imported {} new and {} changed assets from {}{left_out}.",
+            done.created, done.updated, draft.name
+        );
+        self.go(HOME);
+        n
     }
 
     /// Queues the record's file.

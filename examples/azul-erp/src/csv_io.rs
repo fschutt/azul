@@ -521,6 +521,33 @@ pub fn export_schedule(asset: &Asset) -> String {
     written(w)
 }
 
+/// A depreciation run's journal: one line per asset - `(number, name,
+/// category, amount)` - and the total.
+#[must_use]
+pub fn export_journal(lines: &[(String, String, String, i64)], year: i32) -> String {
+    let mut w = writer();
+    let _ = w.write_record(["asset_number", "name", "category", "year", "depreciation"]);
+    let mut total = 0_i64;
+    for (number, name, category, amount) in lines {
+        total += *amount;
+        let _ = w.write_record([
+            number.clone(),
+            name.clone(),
+            category.clone(),
+            year.to_string(),
+            money::file_amount(*amount),
+        ]);
+    }
+    let _ = w.write_record([
+        "TOTAL".to_string(),
+        String::new(),
+        String::new(),
+        year.to_string(),
+        money::file_amount(total),
+    ]);
+    written(w)
+}
+
 /// What an import made of the rows.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Import {
