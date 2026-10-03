@@ -18,30 +18,23 @@ Branch: wt/clock9 (base e537ddbe2). Brief: scripts/waves/wave9/PLAN.md "CLOCK9",
 - ae51363d3 RED / 38c1661b6 GREEN store.rs (keys clock/alarms/<id>.json etc, load_jobs, read_loaded, sample)
 
 ## IN PROGRESS
-- A5 the window: examples/azul-clock/src/ui.rs (NOT written yet). lib.rs `start()` is still an empty stub.
+- A5 the window. DONE: ui/mod.rs (6c95b086d, 17ee3cc7b: state, start, writes, OS schedule, ringing, ticks,
+  loading, notification handler, layout, close->minimize), ui/actions.rs (537ca9d09: Action enum + on_act,
+  switches, editor callbacks, city search, keys), 06e1b7bf6 alarm arm() fix.
 
 ## NEXT (exact)
-1. Write examples/azul-clock/src/ui.rs (model it on examples/azul-calculator/src/ui.rs: kit::create_kit,
-   kit::window_options, kit::app_config, UtilityShell + kit::title_row, ShellThemeScope::body()):
-   - state struct ClockApp { kit, screen (World/Alarms/Timer/Stopwatch), alarms, timers, world, stopwatch,
-     queue: azul_pim::write_queue::WriteQueue, last_plan: Option<schedule::Plan>, editor: Option<draft>,
-     ringing: Vec<Ring>, sink: Option<AudioSink>, notice };
-   - layout: modes row (Segmented) + "+" button + Settings; screens world / alarms / timer / stopwatch;
-     alarm editor Modal (TimePicker, DateRepeatPicker, TextInput label, DropDown sound, NumberInput snooze,
-     Delete / Cancel / Save); ringing Modal (Snooze / Dismiss); add-city Modal (search TextInput + result buttons)
-   - 1 s Timer tick: alarm.due -> ring (tone via AudioSink::open + tone::pattern), timer.tick, refresh;
-     fast 33 ms tick only while the stopwatch runs on screen: change_node_text on a marker (no relayout)
-   - notifications: after every change schedule::plan + schedule::diff(last_plan) -> info.post_notification(
-     Notification::create(id,title).with_body(..).with_payload(..).with_action("snooze",..).with_action(
-     "dismiss",..).with_deliver_at(at_ms as u64)) / info.withdraw_notification(id); app-level handler via
-     AppConfig::set_notification_handler(app_ref, on_notification)
-   - writes: WriteQueue -> FileJob::Put/Delete via kit::spawn_file_jobs (tag TAG_SAVE), load via store::load_jobs
-   - Linux / no OS scheduling: CloseRequested -> prevent_window_close + minimize while an alarm/timer is armed
-2. Then lib.rs start() -> ui::start(); ids.rs names as needed.
-3. scripts/azclock_e2e.py (model scripts/shells_e2e.py), then the report scripts/CLOCK9_2026_10_03.md
-   (api.json list: Notification.deliver_at field (OptionU64, LAST field) + Notification::with_deliver_at(
-   unix_ms: u64) "object.with_deliver_at(unix_ms)"; Cargo.lock gains the AzClock package; TODO(WIDGETS9B)
-   Gauge for the timer ring (ProgressBar for now)).
+1. Write examples/azul-clock/src/ui/views.rs - what mod.rs / actions.rs call and that does not exist yet:
+   `pub const WIDE: f32`, `pub const RING_MINUTES: [u32; N]`, `pub fn screen(s, app, now, wide) -> Dom`,
+   `pub fn modes_row(s, app) -> Dom`, `pub fn overlays(s, app, now) -> Vec<Dom>` (editor Modal, city-search
+   Modal, ringing Modal, toast), `pub fn settings_sections(s, app) -> Vec<kit::AppSection>` (switches with
+   Action::Setting("twelve-hour" | "os-alarms" | "keep-running") -> actions::on_setting_switch, DropDown
+   RING_MINUTES -> actions::on_ring_minutes, a note with s.os_rings). Screens: world (analog face via CSS
+   rotate + city rows), alarms (rows: time, label, repeat, Switch -> actions::on_alarm_switch, click -> EditAlarm),
+   timer (big countdown + ProgressBar TODO(WIDGETS9B) Gauge, Start/Pause/Reset/+1 min, presets, list),
+   stopwatch (text node with marker ids::STOPWATCH_TIME, Lap/Start/Reset/Copy, lap rows).
+2. ids.rs: add every id views.rs uses (STOPWATCH_TIME marker etc.).
+3. lib.rs: `pub mod ui;` and start() -> ui::start().
+4. scripts/azclock_e2e.py; report scripts/CLOCK9_2026_10_03.md.
 
 ## Decisions
 - Time zones: chrono + chrono-tz 0.10 (both already in Cargo.lock: chrono-tz via ironcalc_base) and
