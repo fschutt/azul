@@ -6,12 +6,13 @@ NOTHING when a frame changed nothing a11y-visible. Brief: scripts/waves/wave8/PL
 ## DONE
 - c73731cb2 progress file; 93928238a measurement
 - d2d7e3cb4 RED: layout/tests/an_animation_frame_sends_assistive_technology_only_what_moved.rs (registered in all.rs)
+- 75fe8e2fe / 6f22afe35 / b233be0c2 GREEN a11y.rs: retained tree types, A11yTreeMirror::apply_patch_in_place, refresh/publish/fold/take_pending, rebuild_retained + node_signature + build_content + screen_bounds (update_tree = a from-scratch rebuild)
+- 954aa5d49 GREEN window.rs: update_a11y_tree -> A11yManager::refresh; incremental path note_published_node / resend_full_tree on refusal
 
 ## IN PROGRESS
-- GREEN in layout/src/managers/a11y.rs: retained tree (per-node input signature + built node), diff -> patch, publish validates a patch in O(patch) (no full mirror clone), fold prunes removed nodes
+- adapting the tests whose premise was 'every pass parks a full tree'
 
 ## NEXT
-- a11y.rs GREEN (A11yRetainedTree + A11yManager::refresh), then window.rs update_a11y_tree -> refresh, incremental path keeps retained in sync / resyncs on refusal
 - fix tests whose premise was 'every pass parks a full tree': a11y_consumer_contract a_parked_full_tree_absorbs..., scroll_chain a_fixed_box_is_reported...
 - dll feed (common/accessibility.rs): HashMap tree, O(patch) merge, missed delivery -> full resync; macOS init_accessibility asks for a full tree
 
