@@ -12,12 +12,20 @@ scratchpad/msg.txt).
   SMALL6's codegen 182655027); d97fdc43d ui_view, 14b234103 ui_panes, bef413cd9 ui_dialogs
   switched; 1bf7dc449 azdrive_e2e.py C()/I() helpers (detects old/new naming); 8596e1fd4 browse.py
 
+- d7f0db3bd RED / 935dfecd6 GREEN args on azul_appkit::AppArgs + --layout (D2)
+- 6c8141ee0 keys::SHORTCUTS (appkit Shortcut table) + test each runs a command
+- 9ffa8ca6e AzDrive on appkit: create_kit (data root, saved theme/mode), window_options /
+  app_config, --shot, built-in "Azlin" drive (data tree), view settings -> drive/view.json in the
+  data tree, FILE > Options = appkit settings_page (View/Navigation/Drives + kit's), About =
+  AboutDialog, Mod+, / F1 / Escape via handle_key; AZDRIVE_SETTINGS removed
+- 8fc69bb52 E2E: AZLIN_DATA, step 14 saves Flora into drive/settings.json
+
 ## AzDrive plan (in order; each unit RED first where it is behaviour)
 1. DONE prefix
-2. `.azlin/` never listed (model/browse filter) + an "Azlin" built-in drive at the data root
-3. appkit: args (AppArgs + `--layout` split off), data root, settings file under
-   `<data root>/drive/settings.json` with theme + mode remembered, About via AboutDialog,
-   shortcuts table (appkit Shortcut list = the keys.rs table)
+2. `.azlin/` hiding is INFRA6's LocalDrive (is_reserved_key, never listed); DONE "Azlin" drive.
+   NOTE for report: write_sample(home) uses LocalDrive::new -> after INFRA6 it would keep a
+   manifest in the user's HOME: switch to LocalDrive::without_manifest (INFRA6 API) - TODO
+3. DONE appkit
 4. MessageBox for ConfirmDelete / ConfirmForget (D12), ProgressDialog for transfers
 5. ListSelection instead of model::Selection (D20)
 6. dedup: format_size -> DiskSpace::format_bytes (D24), now_secs -> azul_storage::time (D23),
