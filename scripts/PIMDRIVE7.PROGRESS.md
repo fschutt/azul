@@ -2,7 +2,8 @@
 
 Brief: scripts/waves/wave7/PIMDRIVE7.md. Owns examples/azul-{calendar,tasks,contacts,drive,meet}, examples/azul-pim.
 Scratch helpers (not committed): /tmp/pimdrive7/rep.py (exact replacements from a JSON list),
-/tmp/pimdrive7/pysel.py (E2E "#x" -> FN("x")), /tmp/pimdrive7/parse.sh (rustfmt parse check).
+/tmp/pimdrive7/pysel.py (E2E "#x" -> FN("x")), /tmp/pimdrive7/parse.sh (rustfmt parse check),
+/tmp/pimdrive7/look_tasks*.py (LOOK drivers on azlin_e2e).
 
 ## DONE
 - b4ea5d988 progress file
@@ -12,12 +13,23 @@ Scratch helpers (not committed): /tmp/pimdrive7/rep.py (exact replacements from 
 - 46f77dc56 AzTasks src/ids.rs wired (is_task_row, focus_id takes AzString); d641667ff aztasks_e2e.py sel/detect
 - 24591336b AzContacts src/ids.rs wired (indexed! macro for form rows; ui::section_id -> ids::section)
 - b93148da3 azlin_e2e.App detect_naming / name / sel; azcontacts_e2e.py on it
+- 54aa054bd item 2: not reproduced on the wave-6 build (4 LOOK runs); E2E step "All: a click on a title
+  selects it alone" (passes on the prebuilt); key taps release their modifiers (azlin_e2e, aztasks_e2e,
+  azcalendar_e2e)
 
 ## IN PROGRESS
-- 2. AzTasks blank-on-click in "All": reproduce on the prebuilt binary (capped, headless), root-cause.
+- 3. AzTasks planned / board + tags. Plan (azul-apps/planning/core/todo.md 2.3 / 2.4):
+  3.1 RED azul-pim: dates::month_grid(day, week_start) (42 days); Task.started (JSON "started",
+      set_started, spawn_next resets it)
+  3.2 GREEN azul-pim
+  3.3 RED AzTasks views: planned_month(tasks, days) per-day open tasks; board(tasks, list) -> 3 columns
+      (To do / Doing = started / Done); vtodo STATUS:IN-PROCESS <-> started
+  3.4 GREEN; 3.5 UI: Scheduled "List | Month" (month grid, < > Today, drop on a day = reschedule),
+      a list "List | Board" (3 columns of cards, drop on a column = status), ids, E2E steps
+  3.6 tags: no TokenInput widget (-> WIDGETS7 spec in report); chips + field + suggestion chips
+  3.7 AzCalendar Month days from azul_pim::dates::month_grid (one generator)
 
 ## NEXT
-- 3. AzTasks planned / board view + tags as TokenInput.
 - 4. AzCalendar start through the Drive.
 - 5. AzContacts LOOK + fixes.
 - 6. AzDrive Details on a widget; AzMeet chat on rejoin; azdrive / azmeet E2E onto azlin_e2e.py.
@@ -31,5 +43,9 @@ Scratch helpers (not committed): /tmp/pimdrive7/rep.py (exact replacements from 
 - D3 AzCalendar's DOM root id `azcalendar` -> `__azcal_app`; window ids (`azcalendar`, `azcalendar-editor`)
   are window names, unchanged.
 - D4 AzTasks `is_task_row` excludes `task-list` / `task-pane` (task ids are UUIDs).
+- D5 Item 2 not reproduced. LOOK notes for others: AzTasks settings page - the Default list DropDown is a black
+  box and a strip covers the "Reminders" category (WIDGETS7: backstage DropDown caret); after the E2E's runtime
+  flora + dark switch the nav's search field is not painted (PAINT7, incremental relayout); the To-Do bar's
+  DatePicker cuts its Saturday column (WIDGETS7).
 
 ## Open questions
