@@ -7993,33 +7993,19 @@ impl WaylandWindow {
                                             let straight = cpu_state.is_native();
                                             let src = pixmap.data();
                                             let buf = cpu_state.slot_buffer_mut(slot);
-                                            for (rx, ry, rw, rh) in &copy_rects {
-                                                for row in 0..*rh as usize {
-                                                    let y = *ry as usize + row;
-                                                    let so = y * src_stride + (*rx as usize) * 4;
-                                                    let doff = y * dst_stride + (*rx as usize) * 4;
-                                                    let n = (*rw as usize) * 4;
-                                                    if so + n > src.len() || doff + n > buf.len() {
-                                                        continue;
-                                                    }
-                                                    if straight {
-                                                        buf[doff..doff + n]
-                                                            .copy_from_slice(&src[so..so + n]);
-                                                        continue;
-                                                    }
-                                                    // RGBA → ARGB8888 (BGRA in LE memory)
-                                                    for (s, d) in
-                                                        src[so..so + n].chunks_exact(4).zip(
-                                                            buf[doff..doff + n].chunks_exact_mut(4),
-                                                        )
-                                                    {
-                                                        d[0] = s[2]; // B
-                                                        d[1] = s[1]; // G
-                                                        d[2] = s[0]; // R
-                                                        d[3] = s[3]; // A
-                                                    }
-                                                }
-                                            }
+                                            // The one pitched damage-rect upload
+                                            // (RGBA -> ARGB8888 = B,G,R,A in LE
+                                            // memory unless the pool is ABGR).
+                                            crate::desktop::shell2::headless::copy_rgba_rects_into(
+                                                buf,
+                                                dst_stride,
+                                                src,
+                                                src_stride,
+                                                clamp_w as usize,
+                                                clamp_h as usize,
+                                                &copy_rects,
+                                                !straight,
+                                            );
                                             // AZ_PRESENT_VERIFY=1: after the
                                             // partial copy the slot must equal
                                             // the pixmap EVERYWHERE (copied ∪
