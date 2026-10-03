@@ -3393,6 +3393,25 @@ mod view_tests {
     }
 
     #[test]
+    fn ctrl_shift_and_a_letter_is_the_windows_off_macos() {
+        // New tab, close tab, find ... as in every Linux terminal: the
+        // program never sees them (Ctrl+C without Shift still goes out).
+        let s = screen(24, 0, 0);
+        let ctrl_shift = m(true, true, false, false);
+        assert_eq!(key_action(&s, 24, K::T, ctrl_shift, false), KeyAction::Nothing);
+        assert_eq!(key_action(&s, 24, K::W, ctrl_shift, false), KeyAction::Nothing);
+        assert_eq!(
+            key_action(&s, 24, K::T, m(false, true, false, false), false),
+            KeyAction::Bytes(alloc::vec![0x14])
+        );
+        // On macOS Ctrl+Shift+T is the program's (the window's keys are Cmd).
+        assert_eq!(
+            key_action(&s, 24, K::T, ctrl_shift, true),
+            KeyAction::Bytes(alloc::vec![0x14])
+        );
+    }
+
+    #[test]
     fn shift_page_up_scrolls_a_screen_and_shift_end_returns_to_the_output() {
         let shift = m(true, false, false, false);
         let s = screen(24, 100, 10);
