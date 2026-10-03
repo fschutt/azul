@@ -10,6 +10,8 @@
 //! - [`world`]: cities and their zones, offsets, day and night, the search;
 //! - [`schedule`]: which OS notifications to schedule and withdraw, so an
 //!   alarm rings while AzClock is closed;
+//! - [`store`]: the files in the data tree (one per alarm and timer), the
+//!   sample data;
 //! - [`fmt`]: how durations and times read;
 //! - [`tone`]: the alarm sounds, synthesised into PCM for azul's AudioSink.
 
@@ -19,6 +21,7 @@ pub mod fmt;
 pub mod ids;
 pub mod schedule;
 pub mod stopwatch;
+pub mod store;
 pub mod timer;
 pub mod tone;
 pub mod world;

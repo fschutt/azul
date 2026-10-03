@@ -24,6 +24,8 @@ azul = { path = "../../dll", package = "azul-dll", default-features = false, fea
 azul-appkit = { path = "../azul-appkit", features = ["azul"] }
 # The RRULE subset and its dates (an alarm's repeat), the write-behind queue.
 azul-pim = { path = "../azul-pim" }
+# The Drive (LocalDrive today, S3Drive later) and the record ids.
+azul-storage = { path = "../azul-storage" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # The same features azul-pim and AzTasks build chrono with.
