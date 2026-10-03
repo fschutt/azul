@@ -108,7 +108,7 @@ pub const TOKEN_INPUT_MAX_SUGGESTIONS: usize = 8;
 /// The state of a token input the APP keeps. Every [`TokenInputEvent`]
 /// carries the next one; store it and rebuild.
 #[repr(C)]
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TokenInputState {
     /// The tokens, in order.
     pub tokens: StringVec,
@@ -151,6 +151,12 @@ impl TokenInputState {
     pub fn with_active(mut self, active: usize) -> Self {
         self.set_active(active);
         self
+    }
+}
+
+impl Default for TokenInputState {
+    fn default() -> Self {
+        Self::create(StringVec::from_const_slice(&[]))
     }
 }
 
@@ -499,13 +505,28 @@ impl From<TokenInput> for Dom {
 /// typed, its leading blanks dropped).
 #[must_use]
 pub(crate) fn split_tokens(text: &str) -> (Vec<String>, String) {
-    (Vec::new(), String::from(text))
+    let mut parts: Vec<&str> = text.split(TOKEN_INPUT_SEPARATORS).collect();
+    // `split` always yields at least one part: the text after the last
+    // separator (all of it when there is none).
+    let rest = parts.pop().unwrap_or("").trim_start();
+    let tokens = parts
+        .into_iter()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .map(String::from)
+        .collect();
+    (tokens, String::from(rest))
+}
+
+/// `text` case folded and trimmed - what two tokens are compared by.
+fn folded(text: &str) -> String {
+    text.trim().to_lowercase()
 }
 
 /// Whether two tokens are the same (case folded, trimmed).
 #[must_use]
 pub(crate) fn same_token(a: &str, b: &str) -> bool {
-    a == b
+    folded(a) == folded(b)
 }
 
 /// `state` with `tokens` added at the end (trimmed; empty ones, and - unless
@@ -517,15 +538,40 @@ pub(crate) fn add_tokens(
     tokens: &[String],
     allow_duplicates: bool,
 ) -> (TokenInputState, usize) {
-    let _ = (tokens, allow_duplicates);
-    (state.clone(), 0)
+    let mut all: Vec<AzString> = state.tokens.as_ref().to_vec();
+    let mut added = 0usize;
+    for token in tokens {
+        let token = token.trim();
+        if token.is_empty() {
+            continue;
+        }
+        if !allow_duplicates && all.iter().any(|t| same_token(t.as_str(), token)) {
+            continue;
+        }
+        all.push(AzString::from(token));
+        added += 1;
+    }
+    let next = TokenInputState {
+        tokens: StringVec::from_vec(all),
+        text: AzString::from_const_str(""),
+        active: OptionUsize::None,
+    };
+    (next, added)
 }
 
 /// `state` without token `index` (out of range: unchanged).
 #[must_use]
 pub(crate) fn remove_token(state: &TokenInputState, index: usize) -> TokenInputState {
-    let _ = index;
-    state.clone()
+    if index >= state.tokens.len() {
+        return state.clone();
+    }
+    let mut tokens: Vec<AzString> = state.tokens.as_ref().to_vec();
+    tokens.remove(index);
+    TokenInputState {
+        tokens: StringVec::from_vec(tokens),
+        text: state.text.clone(),
+        active: state.active,
+    }
 }
 
 /// The suggestions the typed `text` shows, as indices into `suggestions`:
@@ -539,16 +585,49 @@ pub(crate) fn matching_suggestions(
     tokens: &[AzString],
     max: usize,
 ) -> Vec<usize> {
-    let _ = (suggestions, text, tokens, max);
-    Vec::new()
+    let typed = folded(text);
+    if typed.is_empty() || max == 0 {
+        return Vec::new();
+    }
+    let candidates: Vec<(usize, String)> = suggestions
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| !tokens.iter().any(|t| same_token(t.as_str(), s.as_str())))
+        .map(|(i, s)| (i, folded(s.as_str())))
+        .collect();
+    let starting = candidates.iter().filter(|(_, s)| s.starts_with(typed.as_str()));
+    let containing = candidates
+        .iter()
+        .filter(|(_, s)| !s.starts_with(typed.as_str()) && s.contains(typed.as_str()));
+    starting.chain(containing).map(|(i, _)| *i).take(max).collect()
 }
 
 /// The highlight after Down (`down`) or Up over `count` suggestions shown:
 /// wrapping, from nothing to the first (Down) or the last (Up).
 #[must_use]
 pub(crate) fn step_active(active: Option<usize>, count: usize, down: bool) -> Option<usize> {
-    let _ = (count, down);
-    active
+    if count == 0 {
+        return None;
+    }
+    let last = count - 1;
+    Some(match (active.filter(|a| *a <= last), down) {
+        (None, true) => 0,
+        (None, false) => last,
+        (Some(a), true) => {
+            if a == last {
+                0
+            } else {
+                a + 1
+            }
+        }
+        (Some(a), false) => {
+            if a == 0 {
+                last
+            } else {
+                a - 1
+            }
+        }
+    })
 }
 
 /// What a key in the entry does.
@@ -582,8 +661,24 @@ pub(crate) fn entry_key(
     active: Option<usize>,
     modified: bool,
 ) -> EntryKey {
-    let _ = (key, text_empty, tokens, shown, active, modified);
-    EntryKey::Pass
+    use VirtualKeyCode as K;
+    if modified {
+        return EntryKey::Pass;
+    }
+    match key {
+        K::Return | K::NumpadEnter => match active.filter(|a| *a < shown) {
+            Some(a) => EntryKey::CommitSuggestion(a),
+            None if !text_empty => EntryKey::CommitText,
+            None => EntryKey::Pass,
+        },
+        K::Tab if !text_empty => EntryKey::CommitText,
+        K::Back if text_empty && tokens > 0 => EntryKey::RemoveLast,
+        K::Down if shown > 0 => EntryKey::Navigate(step_active(active, shown, true)),
+        K::Up if shown > 0 => EntryKey::Navigate(step_active(active, shown, false)),
+        K::Escape if shown > 0 => EntryKey::Dismiss,
+        K::Left if text_empty && tokens > 0 => EntryKey::ToChips,
+        _ => EntryKey::Pass,
+    }
 }
 
 // ==== The look and the DOM ====
