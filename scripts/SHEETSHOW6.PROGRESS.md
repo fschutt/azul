@@ -27,17 +27,24 @@ screenshots + hierarchy dumps under target/sheetshow6-shots/.
   Post / Job through the shared drive; exports -> sheets/exports/<name>.<ext>), 484743331 (start / startup on the
   kit), 480913b53 (Options = kit::settings_page, About = AboutDialog, VIEW > Look removed), 797557784 (Mod+, / F1).
 
+- 182c53ded AzSheets close guard (CloseGuard; Save closes after the write; failed save keeps the window).
+- 240901643 AzSheets `__azsheets_` ids (src/ids.rs).
+- 3dfb544fb scripts/azsheets_e2e.py rewritten on azlin_e2e (D29) with the wave-6 checks (NOT run: power).
+
 ## IN PROGRESS
 - (power warning 2026-10-03: battery ~16 %; NO headless app runs until told otherwise. The AzShow look run was
   killed before it produced anything; AzShow is NOT looked at yet.)
 
 ## NEXT (exact)
 1-3. (done)
-4. AzSheets: S-A7 close guard (layout(): wrap the shell in CloseGuard::create(content, title).with_dirty(doc.dirty)
-   .with_asking(asking_close).with_on_event(app, on_close_guard); Ask -> asking_close = true; Save -> save with
-   close_after_save = true, apply_reply's Pending::Saved closes the window (info.close_window()); Discard -> dirty
-   false; Cancel -> asking_close false); S-A8 `__azsheets_` id / class consts (an `ids` module, AzString consts).
-   Then the same for AzShow (+ exports PDF / PNG into show/exports/ through the drive instead of FileDialog).
+4. AzShow on appkit, same steps: Cargo already has azul-appkit (no feature) -> features ["azul"]; args.rs over
+   AppArgs (own switches --slide / --no-presenter / --open <deck id> pre-extracted); start on create_kit;
+   AppState { drive: Arc<dyn Drive>, kit }; spawn_storage takes the drive; exports PDF / PNG -> Job::Write into
+   show/exports/ (no FileDialog::save_bytes); Options = kit::settings_page; About = AboutDialog; close guard
+   (Editor::dirty); `__azshow_` ids (views.rs SLIDE_ID / CANVAS_ID / NOTES_ID, text.rs host / block ids).
+5. Then the brief's features: Sheets (FindReplaceDialog for Find, Format Cells dialog, merge cells, conditional
+   formatting, F4, point mode, tab strip), Show (drop indicator, multi-select rotate, tables in place, picture
+   contain / cover, find / replace, presenter on a chosen monitor).
 5. When power allows: LOOK at AzShow (target/sheetshow6-tools/show_steps1.py, fixed ready check) and re-look at Sheets.
 
 ## Broken (seen, 2026-10-03, prebuilt aa59b2d84, headless 1280x800)
