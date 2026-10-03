@@ -1835,6 +1835,8 @@ mod label_convention {
             "date_repeat_picker",
             super::date_repeat_picker::fixtures::sample().dom(),
         ));
+        // The data table: 1,000 rows of five columns, a 400 x 300 window.
+        all.push(("data_table", super::data_table::fixtures::small().dom()));
         all
     }
 
@@ -2218,6 +2220,8 @@ mod wheel_ownership {
                 "time_picker".to_string(),
                 "datetime_local".to_string(),
                 "cell_grid".to_string(),
+                // The data table scrolls by whole rows too.
+                "data_table".to_string(),
             ],
             "a widget started listening for the wheel: a closed control must leave the gesture to \
              the page under it",
@@ -2772,6 +2776,8 @@ mod theme_contrast {
         "call_shell_stage",
         // The spreadsheet grid: the surface of a document window.
         "cell_grid",
+        // The data table: a records window's table.
+        "data_table",
     ];
 
     /// A widget added to the manifest must land in a group, or it is simply
