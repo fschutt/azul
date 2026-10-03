@@ -23,11 +23,30 @@ Branch `wt/headless6` from base 25d78e309. Brief: scripts/waves/wave6/HEADLESS6.
   tests in dll/src/desktop/shell2/headless/tests/e2e_host.rs (mod e2e_host next to mod idle_cpu)
 
 ## IN PROGRESS
-- category C: bug-transform-offsets-hit-test (read e2e/bug-transform-offsets-hit-test.json + its log in
-  scratchpad e2e/target/e2e/logs; decide wrong test vs engine bug). Last commit 913e33c3e.
+- item 2 (exit segfault): design below; implement in run.rs (printer thread) + headless/mod.rs (loop).
 
 ## NEXT
-- C..G triage; 2. exit segfault; 3. headless menus; 4. window id on LayoutCallbackInfo; 5. child-window routing
+- items 3 (headless menus), 4 (window id on LayoutCallbackInfo), 5 (child-window routing).
+- C..G need a probe run (power permitting): probe scenarios in scratchpad/probe.
+  C bug-transform-offsets-hit-test: 2nd click at (50,25) clears focus instead of focusing absolute #below;
+    same CpuHitTester + resolve_tf in both hosts -> suspect layout/mount difference; probe with hit_test op.
+  D css-animation-multi: width 117.336 = EXACTLY 31 steps of 16.666 ms instead of 30: the dll host's CSS
+    driver timer ran one wall-clock frame between tick_animations and the measurement. The in-process runner
+    FREEZES the engine clock (runner.rs reset_test_clock+freeze_test_clock); the AZ_E2E host does not, and
+    cannot naively (the debug timer that pumps the scenario is engine-clock driven -> would deadlock).
+  E css-animation-transition: transitions 2 instead of 1 after the 2nd mount (`animation: all`): which
+    second property transitions in the AzPaint host? probe needed.
+  F dl-text-patch: last_dl_build_patched false after set_node_text in the AzPaint host.
+  G op-image-cache-id-repaints: add_image_to_cache by css id -> no paint damage in the AzPaint host.
+
+## Item 2 design (exit segfault)
+- Root cause: AZ_E2E's `e2e-result-printer` thread calls exit_dumping_profile -> libc exit() from a
+  NON-UI thread while the UI loop, timers, workers and the debug server still run; atexit / TLS teardown
+  races them (exit 139 seen with the instrumented build; normal build exited 1 cleanly in one probe).
+- Fix: printer records the exit code + wakes the loops (request_e2e_exit); the headless loop sees it,
+  closes, shuts down threads (joins), and exits via exit_dumping_profile on the UI thread. Fallback: the
+  printer exits itself after a grace period if no loop took the request (desktop backends).
+- headless run() EndProcess also calls raw std::process::exit(0) -> route through exit_dumping_profile.
 
 ## Decisions
 - Category A fix lives in layout/src/window.rs `remap_node_ids` (manager lifecycle, unowned by another
