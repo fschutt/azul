@@ -43,7 +43,7 @@ use azul::{
 
 use azul_pim::initials::initials;
 
-use crate::tiles::TileKind;
+use crate::{ids, tiles::TileKind};
 
 // ==== The view model: what the window shows, made by the app from its state ====
 
@@ -339,8 +339,8 @@ fn tile(view: &CallView, t: &TileView, data: &RefAny, on_stage: bool) -> Dom {
         .with_child(text(&tile_label(t), TILE_LABEL))
 }
 
-/// A tile's DOM id, for scripts: `azmeet-tile-me-camera`, `azmeet-tile-ben-screen` (the name in
-/// lower case, every other character a dash).
+/// A tile's DOM id, for scripts: `__azmeet_tile_me_camera`, `__azmeet_tile_ben_screen` (the name
+/// in lower case, every other character an underscore; [`ids::TILE_PREFIX`]).
 pub(crate) fn tile_id(t: &TileView) -> String {
     let who = if t.me {
         String::from("me")
@@ -351,7 +351,7 @@ pub(crate) fn tile_id(t: &TileView) -> String {
                 if c.is_ascii_alphanumeric() {
                     c.to_ascii_lowercase()
                 } else {
-                    '-'
+                    '_'
                 }
             })
             .collect()
@@ -360,7 +360,7 @@ pub(crate) fn tile_id(t: &TileView) -> String {
         TileKind::Camera => "camera",
         TileKind::Screen => "screen",
     };
-    format!("azmeet-tile-{who}-{kind}")
+    format!("{}{who}_{kind}", ids::TILE_PREFIX)
 }
 
 /// "Ada", "Ada · muted", "Ada's screen", "You".
@@ -481,7 +481,7 @@ fn side_panel(view: &CallView, data: &RefAny, actions: &Actions) -> Option<Dom> 
 fn people(view: &CallView) -> Dom {
     let mut list = Dom::create_div()
         .with_css(PANEL_SCROLL)
-        .with_id(AzString::from("azmeet-people"));
+        .with_id(ids::PEOPLE);
     for person in &view.people {
         let mut row = Dom::create_div()
             .with_css("display: flex; flex-direction: row; align-items: center; padding: 4px 0px;")
@@ -517,7 +517,7 @@ fn people(view: &CallView) -> Dom {
 fn chat(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
     let mut messages = Dom::create_div()
         .with_css(PANEL_SCROLL)
-        .with_id(AzString::from("azmeet-chat-messages"));
+        .with_id(ids::CHAT_MESSAGES);
     if view.chat.is_empty() {
         messages = messages.with_child(text("No messages yet.", SECONDARY));
     }
@@ -537,11 +537,11 @@ fn chat(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
         .with_on_virtual_key_down(data.clone(), actions.chat_key)
         .dom()
         .with_css(CHAT_FIELD)
-        .with_id(AzString::from("azmeet-chat-field"));
+        .with_id(ids::CHAT_FIELD);
     let send = Button::with_type("Send", ButtonType::Primary)
         .with_on_click(data.clone(), actions.chat_send)
         .dom()
-        .with_id(AzString::from("azmeet-chat-send"));
+        .with_id(ids::CHAT_SEND);
     Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
         .with_child(messages)
@@ -557,7 +557,7 @@ fn chat(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
 fn statistics(view: &CallView) -> Dom {
     let mut panel = Dom::create_div()
         .with_css(PANEL_SCROLL)
-        .with_id(AzString::from("azmeet-statistics"));
+        .with_id(ids::STATISTICS);
     for section in &view.stats {
         panel = panel.with_child(text(&section.title, SECTION_TITLE));
         if section.lines.is_empty() {
@@ -639,7 +639,7 @@ fn level_meter(view: &CallView, data: &RefAny) -> Dom {
 // ==== The controls bar ====
 
 /// A control: a button with an id (the E2E finds it), primary while `on`.
-fn control(label: &str, id: &str, on: bool, data: &RefAny, action: ButtonOnClickCallbackType) -> Dom {
+fn control(label: &str, id: AzString, on: bool, data: &RefAny, action: ButtonOnClickCallbackType) -> Dom {
     let kind = if on {
         ButtonType::Primary
     } else {
@@ -648,7 +648,7 @@ fn control(label: &str, id: &str, on: bool, data: &RefAny, action: ButtonOnClick
     Button::with_type(label, kind)
         .with_on_click(data.clone(), action)
         .dom()
-        .with_id(AzString::from(id))
+        .with_id(id)
         .with_css("margin: 0px 4px; flex-shrink: 0;")
 }
 
@@ -662,7 +662,7 @@ fn controls(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
         )
         .with_child(control(
             if view.mic { "Mute" } else { "Unmute" },
-            "azmeet-mic",
+            ids::MIC,
             view.mic,
             data,
             actions.mic,
@@ -673,7 +673,7 @@ fn controls(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
                 (true, false) => "Stop video",
                 (false, _) => "Start video",
             },
-            "azmeet-cam",
+            ids::CAM,
             view.cam,
             data,
             actions.cam,
@@ -686,14 +686,14 @@ fn controls(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
                 } else {
                     "Share screen"
                 },
-                "azmeet-share",
+                ids::SHARE,
                 view.screen_on,
                 data,
                 actions.share,
             ))
             .with_child(control(
                 if view.deafened { "Undeafen" } else { "Deafen" },
-                "azmeet-deafen",
+                ids::DEAFEN,
                 view.deafened,
                 data,
                 actions.deafen,
@@ -704,7 +704,7 @@ fn controls(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
                 } else {
                     "Speaker view"
                 },
-                "azmeet-view",
+                ids::VIEW,
                 false,
                 data,
                 actions.view,
@@ -712,20 +712,20 @@ fn controls(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
         if view.video_debug {
             row = row.with_child(control(
                 "Drop a video packet",
-                "azmeet-drop",
+                ids::DROP,
                 false,
                 data,
                 actions.drop_packet,
             ));
         }
     }
-    row = row.with_child(control("Settings", "azmeet-settings", false, data, actions.settings));
+    row = row.with_child(control("Settings", ids::SETTINGS, false, data, actions.settings));
     if view.screen == UiScreen::Call && view.in_room {
         row = row.with_child(
             Button::with_type("Leave", ButtonType::Danger)
                 .with_on_click(data.clone(), actions.leave)
                 .dom()
-                .with_id(AzString::from("azmeet-leave"))
+                .with_id(ids::LEAVE)
                 .with_css("margin: 0px 4px 0px 16px; flex-shrink: 0;"),
         );
     }
@@ -774,7 +774,7 @@ fn join_form(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
         .with_placeholder("Your name")
         .with_on_text_input(data.clone(), actions.name_text)
         .dom()
-        .with_id(AzString::from("azmeet-name"));
+        .with_id(ids::NAME);
     let server = TextInput::create()
         .with_text(lobby.server_text.as_str())
         .with_placeholder(crate::rooms::LOCAL_WORKER)
@@ -782,14 +782,14 @@ fn join_form(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
         .with_on_virtual_key_down(data.clone(), actions.server_key)
         .with_on_focus_lost(data.clone(), actions.server_blur)
         .dom()
-        .with_id(AzString::from("azmeet-server"));
+        .with_id(ids::SERVER);
     let join_field = TextInput::create()
         .with_text(lobby.join_text.as_str())
         .with_placeholder("azlin://meet/... or a code")
         .with_on_text_input(data.clone(), actions.join_text)
         .dom()
         .with_css(CHAT_FIELD)
-        .with_id(AzString::from("azmeet-join-field"));
+        .with_id(ids::JOIN_FIELD);
     Dom::create_div()
         .with_css(PANEL_SCROLL)
         .with_child(text("Ready to join?", "font-size: 18px; margin-bottom: 12px;"))
@@ -814,7 +814,7 @@ fn join_form(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
             )
             .with_on_click(data.clone(), actions.new_meeting)
             .dom()
-            .with_id(AzString::from("azmeet-new"))
+            .with_id(ids::NEW_MEETING)
             .with_css("margin-bottom: 16px;"),
         )
         .with_child(labelled(
@@ -826,7 +826,7 @@ fn join_form(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
                     Button::create("Join")
                         .with_on_click(data.clone(), actions.join)
                         .dom()
-                        .with_id(AzString::from("azmeet-join")),
+                        .with_id(ids::JOIN),
                 ),
         ))
         .with_child(text("Devices", SECTION_TITLE))
@@ -933,7 +933,7 @@ fn settings(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
                 Button::create("Back")
                     .with_on_click(data.clone(), actions.settings_back)
                     .dom()
-                    .with_id(AzString::from("azmeet-settings-back")),
+                    .with_id(ids::SETTINGS_BACK),
             ),
         )
         .with_child(layout)

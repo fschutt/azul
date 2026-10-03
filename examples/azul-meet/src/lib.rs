@@ -78,6 +78,7 @@
 mod args;
 mod audio;
 mod chat;
+mod ids;
 mod pace;
 mod rooms;
 mod routes;
