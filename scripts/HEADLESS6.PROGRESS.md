@@ -19,12 +19,12 @@ Branch `wt/headless6` from base 25d78e309. Brief: scripts/waves/wave6/HEADLESS6.
 
 ## DONE
 - f8c17345e RED / 811d7c1a0 GREEN: VirtualView child-DOM state dropped with its host (category A)
+- 072a51d9c RED / 913e33c3e GREEN: headless backend publishes the painted frame (category B);
+  tests in dll/src/desktop/shell2/headless/tests/e2e_host.rs (mod e2e_host next to mod idle_cpu)
 
 ## IN PROGRESS
-- category B: find in layout/src/e2e/full.rs the `assert_damage_sound` 'pixel_identity' branch
-  ("does not publish the damage-driven framebuffer"), see how layout/src/e2e/runner.rs publishes it,
-  and make dll/src/desktop/shell2/headless/mod.rs `paint_cpu_frame` publish the same (RED first).
-  Last commit: 8383b8251 (progress). No uncommitted work.
+- category C: bug-transform-offsets-hit-test (read e2e/bug-transform-offsets-hit-test.json + its log in
+  scratchpad e2e/target/e2e/logs; decide wrong test vs engine bug). Last commit 913e33c3e.
 
 ## NEXT
 - C..G triage; 2. exit segfault; 3. headless menus; 4. window id on LayoutCallbackInfo; 5. child-window routing
