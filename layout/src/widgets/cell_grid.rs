@@ -2185,7 +2185,11 @@ pub(crate) fn spill_spans(resolved: &CellGridResolved, ri: usize) -> Vec<u32> {
             && matches!(
                 style.align,
                 CellGridHorizontalAlign::General | CellGridHorizontalAlign::Left
-            );
+            )
+            && geo
+                .columns
+                .get(ci)
+                .is_some_and(|c| grid.merge_of(CellGridCellRef::create(row_index, c.index)).is_none());
         if !spills {
             ci += 1;
             continue;
@@ -2206,7 +2210,11 @@ pub(crate) fn spill_spans(resolved: &CellGridResolved, ri: usize) -> Vec<u32> {
             }
             let (next, next_style) = &row[end];
             let at = CellGridCellRef::create(row_index, geo.columns[end].index);
-            if !next.text.as_str().is_empty() || grid.view.is_selected(at) || has_own_look(next_style) {
+            if !next.text.as_str().is_empty()
+                || grid.view.is_selected(at)
+                || has_own_look(next_style)
+                || grid.merge_of(at).is_some()
+            {
                 break;
             }
             reach += geo.columns[end].size;
@@ -2644,6 +2652,50 @@ pub(crate) fn build(resolved: CellGridResolved, look: &CellGridLook) -> Dom {
     }
     if geo.frozen_rows == geo.rows.len() && any_frozen_rows {
         children.push(freeze_h());
+    }
+
+    // Merged ranges: one cell over the cells each covers - its top-left
+    // cell's content and look - under the selection's outline.
+    for merge in grid.merges.as_ref() {
+        let Some((x, y, w, h)) = range_rect(&geo, merge) else {
+            continue;
+        };
+        let first = merge.first;
+        let content = cell_content(&grid.data_source, first);
+        let style = cell_style(&grid.style_source, first);
+        let mut p = part(CELL_GRID_OVERLAY_BASE, &look.grid);
+        p.extend(CELL_GRID_CELL_BASE.iter().cloned());
+        p.extend(place(x, y, w, h));
+        p.extend(cell_style_props(
+            &style,
+            content.kind,
+            zoom,
+            look,
+            grid.show_grid_lines,
+            view.is_selected(first) && first != view.active,
+        ));
+        let text = if view.is_editing() && view.active == first {
+            AzString::from_const_str("")
+        } else {
+            content.text
+        };
+        let value = if text.as_str().is_empty() {
+            None
+        } else {
+            Some(text.clone())
+        };
+        children.push(
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(MERGE_CLASS))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(p))
+                .with_accessibility_info(AccessibilityInfo {
+                    row_index: azul_css::corety::OptionUsize::Some(first.row as usize + 1),
+                    column_index: azul_css::corety::OptionUsize::Some(first.column as usize + 1),
+                    accessibility_value: value.into(),
+                    ..AccessibilityInfo::named(CellGrid::cell_label(first), AccessibilityRole::GridCell)
+                })
+                .with_child(cell_text(text, &style)),
+        );
     }
 
     // The overlays: the current range's outline and its fill handle, the
@@ -3362,6 +3414,19 @@ pub(crate) fn press(
                 return Some(commit_to(grid, &b, cell));
             }
             let mut next = select(view, cell, shift, ctrl);
+            // A click in a merged range selects all of it, its top-left
+            // cell the active one.
+            if let (false, Some(m)) = (shift, grid.merge_of(cell)) {
+                let mut ranges = if ctrl {
+                    view.ranges.as_ref().to_vec()
+                } else {
+                    Vec::new()
+                };
+                ranges.push(m);
+                next.ranges = CellGridRangeVec::from_vec(ranges);
+                next.active = m.first;
+                next.anchor = m.first;
+            }
             next.drag = CellGridDrag {
                 origin: if shift { view.anchor } else { cell },
                 target: cell,
