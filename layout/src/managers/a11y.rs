@@ -1002,6 +1002,12 @@ impl A11yManager {
                     AccessibilityState::Offscreen => {
                         builder.set_hidden();
                     }
+                    AccessibilityState::SortedAscending => {
+                        builder.set_sort_direction(accesskit::SortDirection::Ascending);
+                    }
+                    AccessibilityState::SortedDescending => {
+                        builder.set_sort_direction(accesskit::SortDirection::Descending);
+                    }
                     _ => {}
                 }
             }
@@ -3336,5 +3342,32 @@ mod autotest_generated {
     fn a_contenteditable_host_without_a_type_stays_a_multiline_editor() {
         assert_eq!(typed_host(None, Vec::new()), Role::MultilineTextInput);
         assert_eq!(typed_host(Some("no-such-type"), Vec::new()), Role::MultilineTextInput);
+    }
+
+    /// aria-sort (DATATABLE7): a sorted column's header says which way it
+    /// sorts; an unsorted one says nothing.
+    #[test]
+    fn a_sorted_column_header_tells_the_screen_reader_its_sort_direction() {
+        let header = |states: Vec<AccessibilityState>| {
+            let mut a11y = info(AccessibilityRole::ColumnHeader);
+            a11y.states = states.into();
+            A11yManager::build_node(
+                &NodeData::create_node(NodeType::Div),
+                &plain_hot(),
+                None,
+                Some(&a11y),
+                1.0,
+                LogicalSize::new(800.0, 600.0),
+            )
+        };
+        assert_eq!(
+            header(vec![AccessibilityState::SortedAscending]).sort_direction(),
+            Some(accesskit::SortDirection::Ascending)
+        );
+        assert_eq!(
+            header(vec![AccessibilityState::SortedDescending]).sort_direction(),
+            Some(accesskit::SortDirection::Descending)
+        );
+        assert_eq!(header(Vec::new()).sort_direction(), None);
     }
 }

@@ -1236,7 +1236,7 @@ pub(crate) fn size_at(overrides: &[CellGridSize], index: u32, default: f32) -> f
 /// band straddling the edge included). Returns the bands, how many are
 /// frozen and how many scrolled bands fit wholly.
 #[allow(clippy::too_many_arguments)]
-fn axis_bands(
+pub(crate) fn axis_bands(
     count: u32,
     frozen: u32,
     first: u32,
@@ -1362,7 +1362,7 @@ pub(crate) enum Hit {
 
 /// The band of `bands` at `p`, else the nearest one before it (a point on
 /// the freeze line belongs to the frozen band before it).
-fn band_at(bands: &[Band], p: f32) -> Option<Band> {
+pub(crate) fn band_at(bands: &[Band], p: f32) -> Option<Band> {
     let mut found = None;
     for b in bands {
         if p >= b.start {
@@ -1829,7 +1829,7 @@ thread_local! {
 }
 
 /// [`wheel_steps`] on the thread's running travel: (rows, columns).
-fn take_wheel(dx: f32, dy: f32, px_per_row: f32, px_per_column: f32) -> (i64, i64) {
+pub(crate) fn take_wheel(dx: f32, dy: f32, px_per_row: f32, px_per_column: f32) -> (i64, i64) {
     #[cfg(feature = "std")]
     {
         WHEEL_TRAVEL.with(|cell| {
@@ -3299,7 +3299,7 @@ extern "C" fn on_grid_paste(mut data: RefAny, mut info: CallbackInfo) -> Update 
 }
 
 /// The pointer's position over the grid node.
-fn cursor_in(info: &CallbackInfo) -> Option<(f32, f32)> {
+pub(crate) fn cursor_in(info: &CallbackInfo) -> Option<(f32, f32)> {
     info.get_cursor_relative_to_node()
         .into_option()
         .map(|p| (p.x, p.y))

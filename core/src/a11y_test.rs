@@ -689,6 +689,8 @@ mod autotest_generated {
             Traversed,
             Multiselectable,
             Protected,
+            SortedAscending,
+            SortedDescending,
         ]
     }
 
@@ -717,7 +719,8 @@ mod autotest_generated {
             let known = match s {
                 Unavailable | Selected | Focused | CheckedTrue | CheckedFalse | Readonly
                 | Default | Expanded | Collapsed | Busy | Offscreen | Focusable | Selectable
-                | Linked | Traversed | Multiselectable | Protected => true,
+                | Linked | Traversed | Multiselectable | Protected | SortedAscending
+                | SortedDescending => true,
             };
             assert!(known);
         }
