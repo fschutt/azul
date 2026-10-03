@@ -2600,6 +2600,9 @@ impl HeadlessWindow {
             {
                 (self.repaint_only(), "regeneration + display-list rebuild")
             } else {
+                // A changed DOM built its list fresh: the flag is spent (as
+                // macOS clears it after this branch).
+                self.common.display_list_dirty = false;
                 (result.map(|_| ()), "regeneration")
             }
         } else if resize_relayout {
