@@ -40,8 +40,12 @@ Branch `wt/office7` from `2e55eef06` (the wave-6 integration; every app compiles
 ## NEXT (exact)
 - 7. AzSheets: (a) DONE 3ecca29d3 RED / dd6ab7d69 GREEN (SheetEngine::update_styles; IronCalc: apply via its
   paths, read area+ring styles, undo N, ONE on_paste_styles; worker Command::Styles replaces Command::Style);
-  (b) DONE 6e8adf1ba RED / ef0292aa6 GREEN (lib.rs replace_in_edit + the dialog's Replace arm); (c) colour / font / border pickers beyond presets;
-  (d) merges shifting with inserted rows: document why not (IronCalc UserModel cannot change merge_cells).
+  (b) DONE 6e8adf1ba RED / ef0292aa6 GREEN (lib.rs replace_in_edit + the dialog's Replace arm); (c) DONE 348c50da2 RED / f50e67c11 GREEN (format_cells.rs cell_colour + set_font_color / set_fill /
+  set_border_color; format_dialog.rs ColorInput "More colors" on Font / Fill / Border). NOT done (decided):
+  font family (IronCalc's style paths have no font.name; CellGridCellStyle has no family) and border line
+  styles (CellGrid draws 1 px colour borders only) - report.
+  (d) DECIDED not done: merges are outside IronCalc's model and its undo history (the adapter keeps them), so
+  shifting them on insert would leave them wrong after an undo of the insert - report.
 - 8. LOOK (writer, notes, mail, sheets, show, review) with /tmp/office7_look.py (recreate from the transcript
   if /tmp was wiped).
 - Report scripts/OFFICE7_2026_10_03.md.
