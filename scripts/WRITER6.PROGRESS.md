@@ -18,8 +18,12 @@ Branch `wt/writer6` from `25d78e309`. Brief: scripts/waves/wave6/WRITER6.md.
   first_page, page_count) -> DomVec (one host per page `<host>-page-<first>`, ONE shared EditorData),
   mapping via host_of/model_path (walks up to the nearest host of this editor).
 
+- 880dc5984 AzNotes close via prevent_window_close (B29/A16; INFRA6 says all backends honour it now)
+- 064112be6 RED + b5b620b5b GREEN AzNotes search/tags on azul_pim (B16/B27/E5)
+
 ## IN PROGRESS
-- NEXT: AzWriter adoption (RTE 8a-e) + shell/appkit/drive/close/prefixes + scripts/azwriter_e2e.py.
+- NEXT: AzNotes prefixes (`__aznotes_` ids/classes module, E2E script selectors follow), then AzWriter
+  adoption (RTE 8a-e) + shell/appkit/drive/close/prefixes + scripts/azwriter_e2e.py, then AzNotes appkit.
 
 ## DONE design notes - Undo/Redo ownership. DESIGN (decided): the browser keydown model. core `handle_key_down` stops
   claiming primary+Z / Shift+Z / Y for the PRIMARY seat (no AddAndSkip: the KeyDown passes to callbacks);
