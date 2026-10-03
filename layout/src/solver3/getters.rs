@@ -2286,99 +2286,119 @@ pub fn is_z_index_auto(styled_dom: &StyledDom, node_id: Option<NodeId>) -> bool 
 /// background covers the entire viewport/canvas even when `<body>` itself has constrained
 /// dimensions.
 ///
-/// Implementation: When requesting the background of an `<html>` node, we first check if it
-/// has a transparent background with no image. If so, we look for a `<body>` child and use
-/// its background instead.
-#[allow(clippy::match_same_arms)]
-// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't
-// merge)
+/// Implementation: [`body_background_propagated_to`] names the `<body>` an
+/// `<html>` takes its background from; this reads the first layer of the
+/// background that node paints (its own, or the propagated one) when that
+/// layer is a solid colour, and transparent otherwise.
 #[must_use]
 pub fn get_background_color(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> ColorU {
-    let node_data = &styled_dom.node_data.as_container()[node_id];
     let cache = &styled_dom.css_property_cache.ptr;
     let ctx = cache.dynamic_context.as_deref();
-
-    // Fast path: Get this node's background.
+    let styled_nodes = styled_dom.styled_nodes.as_container();
+    let (source, state) = match body_background_propagated_to(styled_dom, node_id, node_state) {
+        Some(body) => (body, &styled_nodes[body].styled_node_state),
+        None => (node_id, node_state),
+    };
     // Negative fast path: if compact cache says `has_background == 0` on a
-    // normal-state node, skip the cascade walk entirely. Only declared backgrounds
-    // set the bit, so `false` is a safe "unconditionally transparent" signal.
-    let get_node_bg = |nid: NodeId, ndata: &azul_core::dom::NodeData, state: &StyledNodeState| {
-        if state.is_normal() {
-            if let Some(ref cc) = cache.compact_cache {
-                if !cc.has_background(nid.index()) {
-                    return None;
-                }
+    // normal-state node, skip the cascade walk entirely. Only declared
+    // backgrounds set the bit, so `false` is a safe "unconditionally
+    // transparent" signal.
+    if state.is_normal() {
+        if let Some(ref cc) = cache.compact_cache {
+            if !cc.has_background(source.index()) {
+                return ColorU::TRANSPARENT;
             }
         }
-        cache
-            .get_background_content(ndata, &nid, state)
-            .and_then(|bg| bg.get_property())
-            .and_then(|bg_vec| bg_vec.get(0).cloned())
-            // A `system:` colour is a solid colour too, once resolved against
-            // the theme the cascade evaluated.
-            .map(|first_bg| first_bg.resolve_system_colors(ctx))
-            .and_then(|first_bg| match &first_bg {
-                azul_css::props::style::StyleBackgroundContent::Color(color) => Some(*color),
-                azul_css::props::style::StyleBackgroundContent::Image(_) => None, // Has image, not transparent
-                _ => None,
-            })
-    };
-
-    let own_bg = get_node_bg(node_id, node_data, node_state);
-
-    // CSS Background Propagation: Special handling for <html> root element
-    // Only check propagation if this is an Html node AND has transparent background (no
-    // color/image)
-    if !matches!(node_data.node_type, NodeType::Html) || own_bg.is_some() {
-        // Not Html or has its own background - return own background or transparent
-        return own_bg.unwrap_or(ColorU {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 0,
-        });
     }
+    let source_data = &styled_dom.node_data.as_container()[source];
+    cache
+        .get_background_content(source_data, &source, state)
+        .and_then(|bg| bg.get_property())
+        .and_then(|bg_vec| bg_vec.get(0).cloned())
+        // A `system:` colour is a solid colour too, once resolved against
+        // the theme the cascade evaluated.
+        .map(|first_bg| first_bg.resolve_system_colors(ctx))
+        .and_then(|first_bg| match first_bg {
+            azul_css::props::style::StyleBackgroundContent::Color(color) => Some(color),
+            _ => None, // an image or a gradient: no solid colour
+        })
+        .unwrap_or(ColorU::TRANSPARENT)
+}
 
-    // Html node with transparent background - check if we should propagate from <body>
-    let first_child = styled_dom
-        .node_hierarchy
-        .as_container()
-        .get(node_id)
-        .and_then(|node| node.first_child_id(node_id));
-
-    let Some(first_child) = first_child else {
-        return ColorU {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 0,
-        };
-    };
-
-    let first_child_data = &styled_dom.node_data.as_container()[first_child];
-
-    // Check if first child is <body>
-    if !matches!(first_child_data.node_type, NodeType::Body) {
-        return ColorU {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 0,
-        };
+/// CSS Backgrounds 3 s2.11.2, "The Canvas Background and the HTML `<body>`
+/// Element": the `<body>` whose background an `<html>` element takes.
+///
+/// When the `<html>` element's own background paints nothing - no image and
+/// a transparent colour; an EXPLICIT `background-color: transparent` is
+/// that too, it is the initial value - the background properties of its
+/// first `<body>` child are propagated to it (and from the root to the
+/// canvas), and that body's own used background is the initial one: it
+/// paints none of it again.
+///
+/// `None` for every other node, for an `<html>` with a background of its
+/// own, and for one without a `<body>` child. One node-type test for any
+/// node that is not an `<html>`.
+#[must_use]
+pub fn body_background_propagated_to(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<NodeId> {
+    let node_data = styled_dom.node_data.as_container();
+    if !matches!(node_data[node_id].node_type, NodeType::Html) {
+        return None;
     }
+    if !background_layers_paint_nothing(&own_background_layers(styled_dom, node_id, node_state)) {
+        return None;
+    }
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let mut child = hierarchy.get(node_id)?.first_child_id(node_id);
+    while let Some(c) = child {
+        if matches!(node_data[c].node_type, NodeType::Body) {
+            return Some(c);
+        }
+        child = hierarchy.get(c)?.next_sibling_id();
+    }
+    None
+}
 
-    // Propagate <body>'s background to <html> (canvas)
-    let first_child_state = &styled_dom.styled_nodes.as_container()[first_child].styled_node_state;
-    get_node_bg(first_child, first_child_data, first_child_state).unwrap_or(ColorU {
-        r: 0,
-        g: 0,
-        b: 0,
-        a: 0,
+/// Whether background `layers` paint nothing: no layer at all
+/// (`background-image: none` is no layer) or only fully transparent colours.
+fn background_layers_paint_nothing(
+    layers: &[azul_css::props::style::StyleBackgroundContent],
+) -> bool {
+    layers.iter().all(|layer| {
+        matches!(layer, azul_css::props::style::StyleBackgroundContent::Color(c) if c.a == 0)
     })
+}
+
+/// The background layers declared on `nid` itself - no propagation, the
+/// `system:` colours unresolved.
+fn own_background_layers(
+    styled_dom: &StyledDom,
+    nid: NodeId,
+    state: &StyledNodeState,
+) -> Vec<azul_css::props::style::StyleBackgroundContent> {
+    let cache = &styled_dom.css_property_cache.ptr;
+    // Negative fast path: if compact cache says `has_background == 0` on a
+    // normal pseudo-state node, return empty without walking the cascade.
+    if state.is_normal() {
+        if let Some(ref cc) = cache.compact_cache {
+            if !cc.has_background(nid.index()) {
+                return Vec::new();
+            }
+        }
+    }
+    let ndata = &styled_dom.node_data.as_container()[nid];
+    cache
+        .get_background_content(ndata, &nid, state)
+        .and_then(|bg| bg.get_property())
+        .map(|bg_vec| bg_vec.iter().cloned().collect())
+        .unwrap_or_default()
 }
 
 /// THE layout-side resolution point for `system:` colour keywords.
@@ -2418,68 +2438,22 @@ pub fn get_background_contents(
         .collect()
 }
 
-/// [`get_background_contents`] before its `system:` colours are resolved.
+/// [`get_background_contents`] before its `system:` colours are resolved:
+/// the node's own layers, or - for an `<html>` whose own paint nothing - its
+/// `<body>`'s ([`body_background_propagated_to`]).
 fn background_contents_as_declared(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> Vec<azul_css::props::style::StyleBackgroundContent> {
-    use azul_core::dom::NodeType;
-    use azul_css::props::style::StyleBackgroundContent;
-
-    let node_data = &styled_dom.node_data.as_container()[node_id];
-    let cache = &styled_dom.css_property_cache.ptr;
-
-    // Helper to get backgrounds for a node.
-    // Negative fast path: if compact cache says `has_background == 0` on a normal
-    // pseudo-state node, return empty without walking the cascade.
-    let get_node_backgrounds = |nid: NodeId,
-                                ndata: &azul_core::dom::NodeData,
-                                state: &StyledNodeState|
-     -> Vec<StyleBackgroundContent> {
-        if state.is_normal() {
-            if let Some(ref cc) = cache.compact_cache {
-                if !cc.has_background(nid.index()) {
-                    return Vec::new();
-                }
-            }
-        }
-        cache
-            .get_background_content(ndata, &nid, state)
-            .and_then(|bg| bg.get_property())
-            .map(|bg_vec| bg_vec.iter().cloned().collect())
-            .unwrap_or_default()
-    };
-
-    let own_backgrounds = get_node_backgrounds(node_id, node_data, node_state);
-
-    // CSS Background Propagation: Special handling for <html> root element
-    // Only check propagation if this is an Html node AND has no backgrounds
-    if !matches!(node_data.node_type, NodeType::Html) || !own_backgrounds.is_empty() {
-        return own_backgrounds;
+    match body_background_propagated_to(styled_dom, node_id, node_state) {
+        Some(body) => own_background_layers(
+            styled_dom,
+            body,
+            &styled_dom.styled_nodes.as_container()[body].styled_node_state,
+        ),
+        None => own_background_layers(styled_dom, node_id, node_state),
     }
-
-    // Html node with no backgrounds - check if we should propagate from <body>
-    let first_child = styled_dom
-        .node_hierarchy
-        .as_container()
-        .get(node_id)
-        .and_then(|node| node.first_child_id(node_id));
-
-    let Some(first_child) = first_child else {
-        return own_backgrounds;
-    };
-
-    let first_child_data = &styled_dom.node_data.as_container()[first_child];
-
-    // Check if first child is <body>
-    if !matches!(first_child_data.node_type, NodeType::Body) {
-        return own_backgrounds;
-    }
-
-    // Propagate <body>'s backgrounds to <html> (canvas)
-    let first_child_state = &styled_dom.styled_nodes.as_container()[first_child].styled_node_state;
-    get_node_backgrounds(first_child, first_child_data, first_child_state)
 }
 
 /// Information about border rendering
