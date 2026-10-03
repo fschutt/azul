@@ -65,9 +65,9 @@ use azul_css::{
             StyleFontSize,
         },
         layout::{
-            LayoutAlignItems, LayoutAlignSelf, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
-            LayoutHeight, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight,
-            LayoutPaddingTop, LayoutPosition, LayoutWidth,
+            LayoutAlignItems, LayoutAlignSelf, LayoutBoxSizing, LayoutDisplay, LayoutFlexDirection,
+            LayoutFlexGrow, LayoutHeight, LayoutMaxWidth, LayoutPaddingBottom, LayoutPaddingLeft,
+            LayoutPaddingRight, LayoutPaddingTop, LayoutPosition, LayoutWidth,
         },
         property::{CssProperty, *},
         style::{
@@ -781,6 +781,14 @@ static CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     )),
     CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    // Never wider than its pane: the calendar hugs its 32 px columns where
+    // there is room and, in a narrower pane (a date navigator, a To-Do bar),
+    // takes the pane's width - border box, so padding and border count - and
+    // its columns give way (a cell's width is a flex basis that shrinks).
+    CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    CssPropertyWithConditions::simple(CssProperty::const_max_width(
+        LayoutMaxWidth::const_percent(100),
+    )),
     CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
         8,
     ))),
