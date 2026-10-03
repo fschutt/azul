@@ -6,11 +6,13 @@
 //!   the parser - the engine's one table of HTML's names.
 
 use azul::{
-    dom::{XmlNode, XmlNodeChild},
-    xml::Xml,
+    dom::{XmlAttributeMap, XmlNode, XmlNodeChild},
+    str::{String as AzString, StringPair},
+    vec::{StringPairVec, XmlNodeChildVec},
+    xml::{ExternalResourceKind, Xml, XmlTagName},
 };
 
-use crate::{fetch::FeedLink, links};
+use crate::{fetch::FeedLink, ids, links};
 
 /// Elements whose text is never shown.
 const HIDDEN: &[&str] = &["script", "style", "noscript", "template", "head", "title"];
@@ -216,7 +218,6 @@ fn collect_feed_links(nodes: &[XmlNodeChild], base: &str, out: &mut Vec<FeedLink
     }
 }
 
-
 // ==== The reader view ====
 
 /// An article made ready for the reading pane.
@@ -237,15 +238,59 @@ pub struct Article {
 /// The reading time of `words`, in minutes (230 words a minute, at least one).
 #[must_use]
 pub fn reading_minutes(words: usize) -> usize {
-    let _ = words;
-    0
+    words.div_ceil(230).max(1)
 }
 
 /// The reader stylesheet: typography only - the colours come from the app's theme and mode, so
 /// the article reads in flat and flora, light and dark; `sepia` puts it on warm paper.
 #[must_use]
-pub fn reader_css(_font_px: u32, _measure_px: u32, _sepia: bool) -> String {
-    String::new()
+pub fn reader_css(font_px: u32, measure_px: u32, sepia: bool) -> String {
+    let a = format!(".{}", ids::ARTICLE_CLASS);
+    let paper = if sepia {
+        "background-color: #f4ecd8; color: #3b2f1e;"
+    } else {
+        ""
+    };
+    let mut css = format!(
+        "{a} {{ font-family: serif; font-size: {font_px}px; line-height: 1.6; max-width: {measure_px}px; \
+         padding: 8px 24px 32px 24px; overflow-wrap: break-word; {paper} }}\n"
+    );
+    let rules = [
+        "p { margin: 0px 0px 0.9em 0px; }",
+        "h2, h3, h4, h5, h6 { font-family: sans-serif; line-height: 1.25; margin: 1.2em 0px 0.5em 0px; }",
+        "h2 { font-size: 1.4em; }",
+        "h3 { font-size: 1.2em; }",
+        "h4, h5, h6 { font-size: 1em; }",
+        "blockquote { margin: 1em 0px; padding: 0px 0px 0px 1em; border-left: 3px solid rgba(128, 128, 128, 0.6); \
+         font-style: italic; }",
+        "pre { font-family: monospace; font-size: 0.8em; padding: 0.8em; white-space: pre; overflow-x: auto; \
+         background-color: rgba(127, 127, 127, 0.12); }",
+        "code { font-family: monospace; font-size: 0.85em; }",
+        "img { max-width: 100%; }",
+        "a { color: #2f74d0; }",
+        "ul, ol { margin: 0px 0px 0.9em 0px; padding-left: 1.5em; }",
+        "table { border-collapse: collapse; margin: 0px 0px 0.9em 0px; }",
+        "td, th { border: 1px solid rgba(128, 128, 128, 0.4); padding: 4px 8px; }",
+        "hr { border-top: 1px solid rgba(128, 128, 128, 0.4); margin: 1.5em 0px; }",
+    ];
+    for rule in rules {
+        // Every selector of the rule inside the article.
+        let (selectors, body) = rule.split_once('{').unwrap_or((rule, ""));
+        let scoped: Vec<String> = selectors
+            .split(',')
+            .map(|sel| format!("{a} {}", sel.trim()))
+            .collect();
+        css.push_str(&format!("{} {{{body}\n", scoped.join(", ")));
+    }
+    css.push_str(&format!(
+        ".{} {{ font-family: sans-serif; font-size: 0.8em; opacity: 0.75; margin-top: 4px; }}\n",
+        ids::CAPTION_CLASS
+    ));
+    css.push_str(&format!(
+        ".{} {{ font-family: sans-serif; font-size: 0.8em; opacity: 0.6; }}\n",
+        ids::IMAGE_PLACEHOLDER_CLASS
+    ));
+    css
 }
 
 /// `html` (an article's body) through azul's HTML5-like parser into the reader view: only what
@@ -254,12 +299,262 @@ pub fn reader_css(_font_px: u32, _measure_px: u32, _sepia: bool) -> String {
 /// pictures as placeholders unless `load_images`, tracking pixels gone, scripts, styles, forms
 /// and frames gone with their content, `css` (see [`reader_css`]) in its head.
 #[must_use]
-pub fn article(_html: &str, _base: &str, _load_images: bool, _strip_tracking: bool, _css: &str) -> Article {
-    Article {
-        xml: Xml::create_from_html(""),
-        images: Vec::new(),
+pub fn article(
+    html: &str,
+    base: &str,
+    load_images: bool,
+    strip_tracking: bool,
+    css: &str,
+) -> Article {
+    let parsed = Xml::create_from_html(html);
+    let mut cleaner = Cleaner {
+        base,
+        load_images,
+        strip_tracking,
         blocked: 0,
         words: 0,
+    };
+    let content = cleaner.children(&parsed.root, 0);
+    let head = element(
+        "head",
+        Vec::new(),
+        vec![element("style", Vec::new(), vec![text_node(css)])],
+    );
+    let body = element(
+        "body",
+        Vec::new(),
+        vec![element(
+            "div",
+            vec![("class", ids::ARTICLE_CLASS.to_string())],
+            content,
+        )],
+    );
+    let xml = Xml {
+        root: XmlNodeChildVec::from_vec(vec![element("html", Vec::new(), vec![head, body])]),
+    };
+    let images = images_of(&xml);
+    Article {
+        xml,
+        images,
+        blocked: cleaner.blocked,
+        words: cleaner.words,
+    }
+}
+
+/// The web pictures of a document, each once (`Xml::scan_external_resources`).
+fn images_of(xml: &Xml) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for resource in xml.scan_external_resources().iter() {
+        if matches!(resource.kind, ExternalResourceKind::Image) {
+            let url = resource.url.as_str().to_string();
+            if links::is_web(&url) && !out.contains(&url) {
+                out.push(url);
+            }
+        }
+    }
+    out
+}
+
+/// Elements that go with everything in them.
+const DROPPED: &[&str] = &[
+    "script", "style", "noscript", "template", "iframe", "frame", "frameset", "object", "embed",
+    "applet", "form", "input", "button", "select", "textarea", "option", "svg", "math", "nav",
+    "head", "title", "meta", "link", "canvas", "audio", "video", "source", "track", "map",
+    "dialog",
+];
+
+/// Elements kept as they are (without their attributes).
+const KEPT: &[&str] = &[
+    "p",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "blockquote",
+    "pre",
+    "code",
+    "ul",
+    "ol",
+    "li",
+    "dl",
+    "dt",
+    "dd",
+    "em",
+    "strong",
+    "b",
+    "i",
+    "u",
+    "s",
+    "sub",
+    "sup",
+    "mark",
+    "small",
+    "q",
+    "cite",
+    "abbr",
+    "kbd",
+    "table",
+    "thead",
+    "tbody",
+    "tfoot",
+    "tr",
+    "caption",
+    "br",
+    "hr",
+    "del",
+    "ins",
+];
+
+/// Elements kept as a block (`div`).
+const BLOCKISH: &[&str] = &[
+    "div", "figure", "section", "article", "header", "footer", "main", "aside", "details",
+    "summary", "address", "center",
+];
+
+/// An element of the reader's document.
+fn element(
+    name: &str,
+    attributes: Vec<(&str, String)>,
+    children: Vec<XmlNodeChild>,
+) -> XmlNodeChild {
+    XmlNodeChild::Element(XmlNode {
+        node_type: XmlTagName {
+            inner: AzString::from(name),
+        },
+        attributes: XmlAttributeMap {
+            inner: StringPairVec::from_vec(
+                attributes
+                    .into_iter()
+                    .map(|(key, value)| StringPair {
+                        key: AzString::from(key),
+                        value: AzString::from(value),
+                    })
+                    .collect(),
+            ),
+        },
+        children: XmlNodeChildVec::from_vec(children),
+    })
+}
+
+fn text_node(text: &str) -> XmlNodeChild {
+    XmlNodeChild::Text(AzString::from(text))
+}
+
+/// The walk that keeps what reads (see [`article`]).
+struct Cleaner<'a> {
+    base: &'a str,
+    load_images: bool,
+    strip_tracking: bool,
+    blocked: usize,
+    words: usize,
+}
+
+impl Cleaner<'_> {
+    fn children(&mut self, nodes: &[XmlNodeChild], depth: usize) -> Vec<XmlNodeChild> {
+        let mut out = Vec::new();
+        if depth > MAX_DEPTH {
+            return out;
+        }
+        for node in nodes {
+            match node {
+                XmlNodeChild::Text(text) => {
+                    self.words += text.as_str().split_whitespace().count();
+                    out.push(text_node(text.as_str()));
+                }
+                XmlNodeChild::Element(e) => out.extend(self.element(e, depth + 1)),
+            }
+        }
+        out
+    }
+
+    fn element(&mut self, e: &XmlNode, depth: usize) -> Vec<XmlNodeChild> {
+        let name = e.node_type.inner.as_str().to_ascii_lowercase();
+        let name = name.as_str();
+        if DROPPED.contains(&name) {
+            return Vec::new();
+        }
+        match name {
+            "img" => self.image(e).into_iter().collect(),
+            "a" => {
+                let children = self.children(&e.children, depth);
+                let href = links::resolve(self.base, &attribute_of(e, "href"));
+                if links::is_web(&href) || href.to_ascii_lowercase().starts_with("mailto:") {
+                    let href = if self.strip_tracking {
+                        links::strip_tracking(&href)
+                    } else {
+                        href
+                    };
+                    vec![element("a", vec![("href", href)], children)]
+                } else {
+                    // An anchor without a link one can follow: its text.
+                    children
+                }
+            }
+            "h1" => vec![element("h2", Vec::new(), self.children(&e.children, depth))],
+            "figcaption" => vec![element(
+                "div",
+                vec![("class", ids::CAPTION_CLASS.to_string())],
+                self.children(&e.children, depth),
+            )],
+            "td" | "th" => {
+                let mut attributes = Vec::new();
+                for key in ["colspan", "rowspan"] {
+                    let value = attribute_of(e, key);
+                    if !value.is_empty() && value.chars().all(|c: char| c.is_ascii_digit()) {
+                        attributes.push((key, value));
+                    }
+                }
+                vec![element(name, attributes, self.children(&e.children, depth))]
+            }
+            _ if KEPT.contains(&name) => {
+                vec![element(name, Vec::new(), self.children(&e.children, depth))]
+            }
+            _ if BLOCKISH.contains(&name) => vec![element(
+                "div",
+                Vec::new(),
+                self.children(&e.children, depth),
+            )],
+            // html, body, span, font, anything unknown: what is inside it.
+            _ => self.children(&e.children, depth),
+        }
+    }
+
+    /// A picture: kept (absolute), a placeholder when pictures are not loaded, gone when it is
+    /// a tracking pixel or not on the web.
+    fn image(&mut self, e: &XmlNode) -> Option<XmlNodeChild> {
+        let src = Some(attribute_of(e, "src"))
+            .filter(|s| !s.is_empty() && !s.starts_with("data:"))
+            .or_else(|| Some(attribute_of(e, "data-src")).filter(|s| !s.is_empty()))?;
+        let tiny = |key: &str| {
+            attribute_of(e, key)
+                .trim_end_matches("px")
+                .parse::<u32>()
+                .is_ok_and(|v| v <= 2)
+        };
+        if tiny("width") || tiny("height") {
+            return None;
+        }
+        let url = links::resolve(self.base, &src);
+        if !links::is_web(&url) {
+            return None;
+        }
+        let alt = collapse(&attribute_of(e, "alt"));
+        if self.load_images {
+            Some(element("img", vec![("src", url), ("alt", alt)], Vec::new()))
+        } else {
+            self.blocked += 1;
+            let label = if alt.is_empty() {
+                "[image]".to_string()
+            } else {
+                format!("[image: {alt}]")
+            };
+            Some(element(
+                "span",
+                vec![("class", ids::IMAGE_PLACEHOLDER_CLASS.to_string())],
+                vec![text_node(&label)],
+            ))
+        }
     }
 }
 
@@ -273,7 +568,11 @@ mod tests {
             if let XmlNodeChild::Element(e) = node {
                 let class = attribute_of(e, "class");
                 let name = e.node_type.inner.as_str().to_string();
-                out.push(if class.is_empty() { name } else { format!("{name}.{class}") });
+                out.push(if class.is_empty() {
+                    name
+                } else {
+                    format!("{name}.{class}")
+                });
                 outline(&e.children, out);
             }
         }
@@ -320,39 +619,79 @@ mod tests {
     fn the_reader_keeps_what_reads_and_drops_scripts_forms_and_frames() {
         let a = article(PAGE, "https://example.org/blog/post.html", true, false, "");
         let names = names(&a);
-        for gone in ["script", "form", "input", "button", "iframe", "custom-widget", "h1"] {
+        for gone in [
+            "script",
+            "form",
+            "input",
+            "button",
+            "iframe",
+            "custom-widget",
+            "h1",
+        ] {
             assert!(!names.iter().any(|n| n == gone), "{gone} in {names:?}");
         }
-        assert!(names.contains(&"h2".to_string()), "h1 becomes h2: {names:?}");
-        assert!(names.contains(&"div.__aznews_article".to_string()), "{names:?}");
-        assert!(names.contains(&"div.__aznews_caption".to_string()), "{names:?}");
+        assert!(
+            names.contains(&"h2".to_string()),
+            "h1 becomes h2: {names:?}"
+        );
+        assert!(
+            names.contains(&"div.__aznews_article".to_string()),
+            "{names:?}"
+        );
+        assert!(
+            names.contains(&"div.__aznews_caption".to_string()),
+            "{names:?}"
+        );
         let t = text(&a);
         assert!(t.contains("Hello world, read more."), "{t}");
-        assert!(t.contains("Kept text"), "an unknown element keeps its text: {t}");
+        assert!(
+            t.contains("Kept text"),
+            "an unknown element keeps its text: {t}"
+        );
         assert!(!t.contains("alert"), "{t}");
-        assert!(!t.contains("color: red"), "the article's own style is gone: {t}");
+        assert!(
+            !t.contains("color: red"),
+            "the article's own style is gone: {t}"
+        );
     }
 
     #[test]
     fn links_and_pictures_resolve_against_the_base_and_tracking_comes_off() {
         let a = article(PAGE, "https://example.org/blog/post.html", true, true, "");
-        assert_eq!(attr_values(&a, "a", "href"), vec!["https://example.org/more?id=3".to_string()]);
-        assert_eq!(attr_values(&a, "img", "src"), vec!["https://example.org/blog/images/hero.jpg".to_string()]);
+        assert_eq!(
+            attr_values(&a, "a", "href"),
+            vec!["https://example.org/more?id=3".to_string()]
+        );
+        assert_eq!(
+            attr_values(&a, "img", "src"),
+            vec!["https://example.org/blog/images/hero.jpg".to_string()]
+        );
         assert_eq!(attr_values(&a, "img", "alt"), vec!["The hero".to_string()]);
         let kept = article(PAGE, "https://example.org/blog/post.html", true, false, "");
-        assert_eq!(attr_values(&kept, "a", "href"), vec!["https://example.org/more?utm_source=rss&id=3".to_string()]);
+        assert_eq!(
+            attr_values(&kept, "a", "href"),
+            vec!["https://example.org/more?utm_source=rss&id=3".to_string()]
+        );
     }
 
     #[test]
     fn the_pictures_are_listed_when_loaded_and_placeholders_otherwise() {
         let loaded = article(PAGE, "https://example.org/blog/post.html", true, false, "");
-        assert_eq!(loaded.images, vec!["https://example.org/blog/images/hero.jpg".to_string()], "the tracking pixel is not one");
+        assert_eq!(
+            loaded.images,
+            vec!["https://example.org/blog/images/hero.jpg".to_string()],
+            "the tracking pixel is not one"
+        );
         assert_eq!(loaded.blocked, 0);
         let blocked = article(PAGE, "https://example.org/blog/post.html", false, false, "");
         assert!(blocked.images.is_empty());
         assert_eq!(blocked.blocked, 1);
         assert!(attr_values(&blocked, "img", "src").is_empty());
-        assert!(text(&blocked).contains("[image: The hero]"), "{}", text(&blocked));
+        assert!(
+            text(&blocked).contains("[image: The hero]"),
+            "{}",
+            text(&blocked)
+        );
         assert!(names(&blocked).contains(&"span.__aznews_image-placeholder".to_string()));
     }
 
@@ -362,7 +701,10 @@ mod tests {
         assert!(css.contains(".__aznews_article"), "{css}");
         assert!(css.contains("font-size: 20px"), "{css}");
         assert!(css.contains("max-width: 680px"), "{css}");
-        assert!(!css.contains("background-color: #f4ecd8"), "no paper colour unless sepia");
+        assert!(
+            !css.contains("background-color: #f4ecd8"),
+            "no paper colour unless sepia"
+        );
         assert!(reader_css(18, 600, true).contains("background-color: #f4ecd8"));
         let a = article("<p>x</p>", "https://example.org/", true, false, &css);
         fn style_texts(nodes: &[XmlNodeChild], out: &mut Vec<String>) {
@@ -383,7 +725,11 @@ mod tests {
         }
         let mut styles = Vec::new();
         style_texts(&a.xml.root, &mut styles);
-        assert_eq!(styles, vec![css.clone()], "one style element holds the sheet");
+        assert_eq!(
+            styles,
+            vec![css.clone()],
+            "one style element holds the sheet"
+        );
     }
 
     #[test]
@@ -392,7 +738,13 @@ mod tests {
         assert_eq!(reading_minutes(230), 1);
         assert_eq!(reading_minutes(231), 2);
         assert_eq!(reading_minutes(2_300), 10);
-        let a = article("<p>one two three</p><script>four five</script>", "https://example.org/", true, false, "");
+        let a = article(
+            "<p>one two three</p><script>four five</script>",
+            "https://example.org/",
+            true,
+            false,
+            "",
+        );
         assert_eq!(a.words, 3);
     }
 
