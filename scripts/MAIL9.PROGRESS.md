@@ -67,10 +67,10 @@ dumb as possible". Order now:
 - 21b40fa53 RED / acd4358e4 GREEN dkim::report_lines; e15821659 IoJob DkimKey / DkimCheck, editor
   fields (dkim_new_key, dkim_busy, dkim_report), sending_settings(), key to keyring on save (step 3 done,
   step 4 model half done)
+- 0752cc6fd Sending page DKIM view (step 4 done); 34b4a2431 compose job hands the DKIM key (step 5 done)
 
 ## IN PROGRESS
-- wiring DKIM into the app (Sending page: key creation, record, notes, DNS check; keyring store / read;
-  the compose job and the Send / Receive retry hand the key over)
+- step 6 (the CLI flags and the E2E)
 
 ## NEXT (exact, in order; each its own commit)
 1. DONE - sending.rs: RED tests then GREEN for the DKIM part of the form: `SendingForm` gets `dkim: bool`,
@@ -87,13 +87,13 @@ dumb as possible". Order now:
    `settings.dkim_key` before `retry_outbox` in `sync_thread`.
 3. DONE - lib.rs IoJob: `DkimKey` (thread: `dkim::generate_key`) -> `IoDone::DkimKey(Result<KeyPair,String>)`
    and `DkimCheck { selector, domain, public_key }` -> `IoDone::DkimChecked(DnsReport)`.
-4. LEFT: only the VIEW - ui_account.rs: DKIM section in `sending_fields` (check box Flag::Dkim, fields DkimDomain /
+4. DONE - ui_account.rs: DKIM section in `sending_fields` (check box Flag::Dkim, fields DkimDomain /
    DkimSelector, "Create a key" button, the record name / value / zone line with ids
    `__azmail_dkim_name` / `__azmail_dkim_value` in ids.rs, `dkim::setup_notes`, "Check DNS" button +
    result lines); `AccountEditor` gets `dkim_new_key: Option<KeyPair>`, `dkim_busy`, `dkim_report`;
    `save()` runs `apply_dkim`; `account_saved()` queues the keyring store of a new key and keeps it in
    `s.dkim_keys`.
-5. ui_compose.rs: `OutgoingJob.dkim_key` from `s.dkim_keys`, set on the loaded settings in
+5. DONE - ui_compose.rs: `OutgoingJob.dkim_key` from `s.dkim_keys`, set on the loaded settings in
    `run_outgoing`.
 6. bin/azmail_send.rs: `--dkim-generate <pem out file>` (prints AZMAIL_DKIM_RECORD name / value),
    `--port25-probe host:port`; scripts/azmail_send_test.py: a python+openssl DKIM verifier (relaxed /
