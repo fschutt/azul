@@ -380,6 +380,12 @@ pub fn check_published(selector: &str, domain: &str, public_key: &str) -> Publis
     }
 }
 
+/// The report as the Sending page shows it: one line for DKIM, DMARC and SPF each.
+pub fn report_lines(report: &DnsReport) -> Vec<String> {
+    let _ = report;
+    Vec::new()
+}
+
 /// The DKIM, DMARC and SPF records of `domain` (blocking: call it from an azul `Thread`).
 pub fn dns_report(selector: &str, domain: &str, public_key: &str) -> DnsReport {
     let first = |name: &str, prefix: &str| {
@@ -617,5 +623,40 @@ mod tests {
             match_record(&[String::from("v=DKIM1; p=")], key),
             Published::Different(String::new())
         );
+    }
+
+    #[test]
+    fn the_dns_check_reads_as_one_line_per_record() {
+        let lines = report_lines(&DnsReport {
+            dkim: Published::Matches,
+            dmarc: Some(String::from("v=DMARC1; p=none")),
+            spf: Some(String::from("v=spf1 mx -all")),
+        });
+        assert_eq!(lines.len(), 3, "{lines:?}");
+        assert!(lines[0].contains("published"), "{lines:?}");
+        assert_eq!(lines[1], "DMARC: v=DMARC1; p=none");
+        assert!(lines[2].starts_with("SPF: v=spf1 mx -all"), "{lines:?}");
+        assert!(lines[2].contains("~all"), "a hard -all is pointed out: {lines:?}");
+        let missing = report_lines(&DnsReport {
+            dkim: Published::Missing,
+            dmarc: None,
+            spf: None,
+        });
+        assert!(missing[0].contains("not found"), "{missing:?}");
+        assert!(missing[1].contains("no record"), "{missing:?}");
+        assert!(missing[2].contains("no record"), "{missing:?}");
+        let other = report_lines(&DnsReport {
+            dkim: Published::Different(String::from("MIIBother")),
+            dmarc: None,
+            spf: Some(String::from("v=spf1 ~all")),
+        });
+        assert!(other[0].contains("MIIBother"), "{other:?}");
+        assert!(!other[2].contains("-all"), "{other:?}");
+        let offline = report_lines(&DnsReport {
+            dkim: Published::Unknown(String::from("timed out")),
+            dmarc: None,
+            spf: None,
+        });
+        assert!(offline[0].contains("timed out"), "{offline:?}");
     }
 }
