@@ -10,7 +10,15 @@ Commit messages are written to scripts/.paint7_msg.txt (untracked, never staged)
 - 0fae6b3d2 GREEN item 1 (display list): positioned z-auto boxes = `StackingContext::positioned_box`
   entries at step 8 in tree order (`file_into_context`, `node_paints_as_positioned_box`)
 
-## IN PROGRESS
+- ffc7b4f5d RED flat raster vs compositor for transformed boxes
+  (layout/tests/the_incremental_raster_paints_a_transformed_box_where_the_compositor_does.rs)
+- 57e91a451 GREEN raster.rs: in-place reference frames (`MaskEntry::Transform`, `ReferenceFrameGroup`,
+  `TransformGroup`; translation -> scroll-offset stack; else isolated + composited through the matrix)
+- 8939e7d11 RED layout/tests/a_box_painted_after_a_layer_shows_over_it_in_the_cpu_compositor.rs
+- 9376e3075 GREEN compositor.rs: `painted_over_later` - a group painted over later is not promoted
+  (in place); `translation_2d` + pub(crate) `is_identity_2d` shared with raster; layer_soup spaced
+
+## IN PROGRESS (old notes)
 - item 1/4a CPU side. Findings:
   - the layered compositor composites every child layer AFTER all of its parent's own items
     (render_layers skips child ranges, composite_layer_recursive blits parent then children):
@@ -25,8 +33,7 @@ Commit messages are written to scripts/.paint7_msg.txt (untracked, never staged)
     IN PLACE (scroll / opacity / transform; blur stays a layer - note in report).
 
 ## NEXT
-- RED test for (a), then GREEN (a), then (b)
-- then items 2 (hit test anim channel: one helper GpuValueCache::reference_frame_of), 3 (ImageById
+- item 2 (RED: a node mid-slide is hit where it is painted), then items 2 (hit test anim channel: one helper GpuValueCache::reference_frame_of), 3 (ImageById
   rebuilds the list in window.rs), 4d, 5, 6 (run prebuilt AzTasks/AzCalendar with wait_settled),
   7 (overflow:hidden span clip)
 
