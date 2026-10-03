@@ -4104,24 +4104,110 @@ pub mod parsed {
                 rest,
                 "the rest keep their order"
             );
-            for generic in [
-                GenericFamily::SystemUi,
-                GenericFamily::Serif,
-                GenericFamily::Monospace,
-            ] {
+            for generic in [GenericFamily::Serif, GenericFamily::Monospace] {
                 assert_eq!(
                     mac.generic_candidates(generic),
                     crate_table.generic_candidates(generic),
-                    "{generic:?} does not move (system-ui is the apps' UI text)"
+                    "{generic:?} does not move"
                 );
             }
 
-            // Elsewhere the platform's own table stays as it is.
+            // Elsewhere the platform's own table stays as it is, but for
+            // `system-ui` (the OS UI font, see the next test).
             for os in [OperatingSystem::Windows, OperatingSystem::Linux] {
                 let mut config = FcFallbackConfig::os_defaults(os);
                 browser_generic_families(&mut config, os);
-                assert_eq!(config, FcFallbackConfig::os_defaults(os), "{os:?}");
+                config.generic_families.remove(&GenericFamily::SystemUi);
+                let mut table = FcFallbackConfig::os_defaults(os);
+                table.generic_families.remove(&GenericFamily::SystemUi);
+                assert_eq!(config, table, "{os:?}");
             }
+        }
+
+        /// `system-ui` is the font the OS draws its own UI in, the ONE list
+        /// azul's `system:ui` role draws with too (`SystemFontType::Ui`'s
+        /// chain, css/src/system.rs): San Francisco ("System Font") on
+        /// macOS, Segoe UI Variable on Windows (the Windows 11 Settings
+        /// font; Chrome's system-ui is the older message font "Segoe UI"),
+        /// on Linux the desktop's fontconfig `system-ui` alias when it has
+        /// one, then the usual desktop UI faces (SYSUI8).
+        #[test]
+        fn system_ui_is_the_os_ui_font_on_every_platform() {
+            use rust_fontconfig::{FcFallbackConfig, GenericFamily, OperatingSystem};
+
+            use crate::font::loading::browser_generic_families;
+
+            let first = |os: OperatingSystem, config: &mut FcFallbackConfig| {
+                browser_generic_families(config, os);
+                config
+                    .generic_candidates(GenericFamily::SystemUi)
+                    .first()
+                    .cloned()
+            };
+            for (os, expected) in [
+                (OperatingSystem::MacOS, "System Font"),
+                (OperatingSystem::IOS, "System Font"),
+                (OperatingSystem::Windows, "Segoe UI Variable Text"),
+                (OperatingSystem::Linux, "Cantarell"),
+                (OperatingSystem::Android, "Roboto"),
+            ] {
+                let mut config = FcFallbackConfig::os_defaults(os);
+                assert_eq!(first(os, &mut config).as_deref(), Some(expected), "{os:?}");
+            }
+
+            // A desktop whose fontconfig names a `system-ui` keeps it first.
+            let mut linux = FcFallbackConfig::os_defaults(OperatingSystem::Linux);
+            linux
+                .generic_families
+                .insert(GenericFamily::SystemUi, vec![String::from("Inter")]);
+            assert_eq!(
+                first(OperatingSystem::Linux, &mut linux).as_deref(),
+                Some("Inter")
+            );
+            let list = linux.generic_candidates(GenericFamily::SystemUi);
+            assert!(
+                list.iter().any(|f| f == "Cantarell"),
+                "the desktop faces follow it: {list:?}"
+            );
+
+            // Idempotent: a second pass changes nothing.
+            let mut once = FcFallbackConfig::os_defaults(OperatingSystem::MacOS);
+            browser_generic_families(&mut once, OperatingSystem::MacOS);
+            let mut twice = once.clone();
+            browser_generic_families(&mut twice, OperatingSystem::MacOS);
+            assert_eq!(once, twice);
+        }
+
+        /// The desktop's own UI font (azul's detected
+        /// `SystemStyle::fonts.ui_font`: GNOME's or KDE's font setting) goes
+        /// first in `system-ui`, once, and the rest keep their order.
+        #[test]
+        fn the_desktops_ui_font_goes_first_in_system_ui() {
+            use rust_fontconfig::{FcFallbackConfig, GenericFamily, OperatingSystem};
+
+            use crate::font::loading::{browser_generic_families, prefer_system_ui_font};
+
+            let mut config = FcFallbackConfig::os_defaults(OperatingSystem::Linux);
+            browser_generic_families(&mut config, OperatingSystem::Linux);
+            let before = config.generic_candidates(GenericFamily::SystemUi).to_vec();
+            prefer_system_ui_font(&mut config, "Noto Sans");
+            let after = config.generic_candidates(GenericFamily::SystemUi).to_vec();
+            assert_eq!(after.first().map(String::as_str), Some("Noto Sans"));
+            assert_eq!(
+                after.iter().filter(|f| f.as_str() == "Noto Sans").count(),
+                1,
+                "once: {after:?}"
+            );
+            let rest: Vec<&String> = before
+                .iter()
+                .filter(|f| f.as_str() != "Noto Sans")
+                .collect();
+            assert_eq!(after[1..].iter().collect::<Vec<_>>(), rest);
+
+            // Blank names change nothing.
+            let mut blank = config.clone();
+            prefer_system_ui_font(&mut blank, "  ");
+            assert_eq!(blank, config);
         }
 
         #[cfg(feature = "cpurender")]

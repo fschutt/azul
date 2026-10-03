@@ -9445,9 +9445,10 @@ mod autotest_generated {
         );
 
         // 4. different PLATFORM — only observable through a system font, whose fallback chain is
-        //    platform-specific.
+        //    platform-specific (`system:monospace`: `system:ui` is the `system-ui` generic on
+        //    every platform, the font cache resolves it).
         let sys = StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System(
-            "system:ui".to_string().into(),
+            "system:monospace".to_string().into(),
         )]);
         let mac = build_font_selector_stack_memo(
             &sys,
@@ -9504,6 +9505,62 @@ mod autotest_generated {
         let bold_stack =
             build_font_selector_stack(&bold, None, FcWeight::Normal, FontStyle::Normal);
         assert_eq!(bold_stack[0].weight, FcWeight::Bold);
+    }
+
+    /// The OS UI font is ONE generic (SYSUI8): the widgets' `system:ui`
+    /// role (both spellings, and the bold one at 700), CSS `system-ui`, and
+    /// on Apple platforms `BlinkMacSystemFont` (Chrome) and `-apple-system`
+    /// (Safari) all become the `system-ui` selector, which the font cache
+    /// resolves to the OS UI font (`font::loading::browser_generic_families`).
+    /// Elsewhere the two Apple names are ordinary (missing) families, as in
+    /// Chrome.
+    #[test]
+    fn the_system_ui_font_is_one_generic_whatever_its_spelling() {
+        let mac = azul_css::system::Platform::MacOs;
+        let stack_of = |name: &str, platform: &azul_css::system::Platform| {
+            let families = StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System(
+                name.to_string().into(),
+            )]);
+            build_font_selector_stack(
+                &families,
+                Some(platform),
+                FcWeight::Normal,
+                FontStyle::Normal,
+            )
+        };
+        for name in [
+            "system:ui",
+            "system-ui",
+            "BlinkMacSystemFont",
+            "-apple-system",
+        ] {
+            let stack = stack_of(name, &mac);
+            assert_eq!(stack[0].family, "system-ui", "{name}: {stack:?}");
+            assert_eq!(stack[0].weight, FcWeight::Normal, "{name}");
+            assert!(
+                stack[1..].iter().all(|s| s.family != "system-ui"),
+                "{name}: one selector: {stack:?}"
+            );
+        }
+        let typed = StyleFontFamilyVec::from_vec(vec![StyleFontFamily::SystemType(
+            azul_css::system::SystemFontType::UiBold,
+        )]);
+        let bold =
+            build_font_selector_stack(&typed, Some(&mac), FcWeight::Normal, FontStyle::Normal);
+        assert_eq!(bold[0].family, "system-ui");
+        assert_eq!(
+            bold[0].weight,
+            FcWeight::Bold,
+            "system:ui:bold is the UI font at 700"
+        );
+
+        let windows = azul_css::system::Platform::Windows;
+        assert_eq!(stack_of("system:ui", &windows)[0].family, "system-ui");
+        assert_eq!(
+            stack_of("BlinkMacSystemFont", &windows)[0].family,
+            "BlinkMacSystemFont",
+            "an Apple name is a plain family elsewhere"
+        );
     }
 
     #[test]
