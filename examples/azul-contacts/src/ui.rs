@@ -30,7 +30,8 @@ use std::{
 use azul::{
     callbacks::{
         ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, ChipOnRemoveCallbackType,
-        DropDownOnChoiceChangeCallbackType, SegmentedOnChangeCallbackType,
+        DatePickerOnChangeCallbackType, DropDownOnChoiceChangeCallbackType,
+        NumberInputOnValueChangeCallbackType, SegmentedOnChangeCallbackType,
         ShellNavigationPaneOnEventCallbackType, SwitchOnToggleCallbackType, TextAreaOnTextInputCallbackType,
         TextInputOnTextInputCallbackType,
     },
@@ -47,7 +48,8 @@ use azul::{
     str::String as AzString,
     vec::{StringVec, StyledTextRunVec, U8VecRef},
     widgets::{
-        Avatar, AvatarSize, ButtonType, CheckBoxState, Chip, ChipState, DropDown, OnTextInputReturn, Segmented,
+        Avatar, AvatarSize, ButtonType, CheckBoxState, Chip, ChipState, DatePicker, DatePickerState, DropDown,
+        NumberInput, NumberInputState, OnTextInputReturn, Segmented,
         SegmentedState, StatusBar, StatusBarSegment, Switch, SwitchState, TextArea, TextAreaState,
         TextInputState, TextInputValid, TreeViewNode,
     },
@@ -768,6 +770,53 @@ fn labels_for(kind: RowKind) -> &'static [&'static str] {
     }
 }
 
+/// The birthday on a calendar: azul's DatePicker on the birthday's month (a birthday
+/// without a year in a leap year), its year as a number, "Year unknown"; without a birthday,
+/// a button that starts one. Each sets the form's text (`DD.MM.YYYY` / `DD.MM.`).
+fn birthday_picker(app: &RefAny, form: &Form) -> Dom {
+    let Some(b) = Birthday::parse(&form.birthday_text) else {
+        return row(
+            "padding-top: 6px;",
+            vec![button("Add a birthday", "edit-birthday-add", app, on_birthday_add)],
+        );
+    };
+    let year = u32::try_from(b.picker_year()).unwrap_or(2000);
+    let mut controls = vec![
+        DatePicker::create(year, b.month, b.day)
+            .with_accessibility_name("Birthday")
+            .with_on_change(app.clone(), on_birthday_picked as DatePickerOnChangeCallbackType)
+            .dom()
+            .with_id("edit-birthday-picker"),
+    ];
+    let mut side = vec![row(
+        "gap: 6px; align-items: center;",
+        vec![
+            CheckBox::create(b.year.is_none())
+                .with_accessibility_name("Year unknown")
+                .with_on_toggle(app.clone(), on_birthday_no_year as CheckBoxOnToggleCallbackType)
+                .dom()
+                .with_id("edit-birthday-no-year"),
+            text("Year unknown"),
+        ],
+    )];
+    if let Some(y) = b.year {
+        // The calendar's arrows step months: a year decades back is typed.
+        side.push(row(
+            "gap: 6px; align-items: center;",
+            vec![
+                text("Year"),
+                NumberInput::create(y as f32)
+                    .with_accessibility_name("Birth year")
+                    .with_on_value_change(app.clone(), on_birthday_year as NumberInputOnValueChangeCallbackType)
+                    .dom()
+                    .with_id("edit-birthday-year"),
+            ],
+        ));
+    }
+    controls.push(column("gap: 8px; padding-left: 12px;", side));
+    row("padding-top: 6px; align-items: flex-start;", controls)
+}
+
 fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
     let d = &form.draft;
     let mut children = Vec::new();
@@ -886,6 +935,7 @@ fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
         "Birthday",
         vec![
             input(app, FormField::Birthday, &form.birthday_text, "DD.MM.YYYY, or DD.MM. without a year", "edit-birthday"),
+            birthday_picker(app, form),
         ],
     ));
     let chips: Vec<Dom> = d
@@ -1768,6 +1818,54 @@ fn with_form(app: &mut RefAny, info: &mut CallbackInfo, f: impl FnOnce(&mut Form
         if let Reading::Edit(form) = &mut s.reading {
             f(form);
         }
+    })
+}
+
+/// A day picked on the birthday's calendar (or its month turned): the birthday is that day,
+/// its year kept unknown when it was.
+extern "C" fn on_birthday_picked(mut data: RefAny, mut info: CallbackInfo, state: DatePickerState) -> Update {
+    with_form(&mut data, &mut info, |form| {
+        let year_known = Birthday::parse(&form.birthday_text).map_or(true, |b| b.year.is_some());
+        let year = i32::try_from(state.year).unwrap_or(2000);
+        if let Some(b) = Birthday::picked(year, state.month, state.day, year_known) {
+            form.birthday_text = b.to_form();
+        }
+    })
+}
+
+/// "Year unknown": the birthday loses its year, or gets the one the calendar shows.
+extern "C" fn on_birthday_no_year(mut data: RefAny, mut info: CallbackInfo, state: CheckBoxState) -> Update {
+    with_form(&mut data, &mut info, |form| {
+        if let Some(b) = Birthday::parse(&form.birthday_text) {
+            if let Some(next) = Birthday::picked(b.picker_year(), b.month, b.day, !state.checked) {
+                form.birthday_text = next.to_form();
+            }
+        }
+    })
+}
+
+/// The birth year typed.
+extern "C" fn on_birthday_year(mut data: RefAny, mut info: CallbackInfo, state: NumberInputState) -> Update {
+    with_form(&mut data, &mut info, |form| {
+        let year = state.number.round();
+        if !(1.0..=9999.0).contains(&year) {
+            return;
+        }
+        if let Some(b) = Birthday::parse(&form.birthday_text) {
+            // 29 February in a year without one: the 28th.
+            let picked = Birthday::picked(year as i32, b.month, b.day, true)
+                .or_else(|| Birthday::picked(year as i32, b.month, b.day.saturating_sub(1), true));
+            if let Some(next) = picked {
+                form.birthday_text = next.to_form();
+            }
+        }
+    })
+}
+
+/// "Add a birthday": 1 January, year unknown, to change on the calendar.
+extern "C" fn on_birthday_add(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_form(&mut data, &mut info, |form| {
+        form.birthday_text = Birthday { year: None, month: 1, day: 1 }.to_form();
     })
 }
 
