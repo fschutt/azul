@@ -776,3 +776,5 @@ mod a_right_to_left_tables_columns_run_from_the_right;
 mod a_normal_line_is_as_tall_as_chromes;
 #[path = "a_cell_of_only_inline_boxes_aligns_them_like_text.rs"]
 mod a_cell_of_only_inline_boxes_aligns_them_like_text;
+#[path = "a_right_to_left_collapsed_border_stays_on_its_side.rs"]
+mod a_right_to_left_collapsed_border_stays_on_its_side;
