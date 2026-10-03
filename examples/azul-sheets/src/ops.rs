@@ -261,6 +261,47 @@ pub fn find_next(engine: &dyn SheetEngine, from: CellAddr, needle: &str) -> Opti
     None
 }
 
+/// How Find / Replace match (the standard FindReplaceDialog's options).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct FindOptions {
+    /// Upper and lower case differ.
+    pub match_case: bool,
+    /// The needle must stand as a whole word (not inside a longer one).
+    pub whole_word: bool,
+    /// Find previous: row by row backwards.
+    pub backwards: bool,
+}
+
+/// The next (or previous) cell after `from` - row by row, wrapping once,
+/// `from` itself last - whose displayed value or input holds `needle`.
+#[must_use]
+pub fn find_match(engine: &dyn SheetEngine, from: CellAddr, needle: &str, opts: FindOptions) -> Option<CellAddr> {
+    let _ = (engine, from, needle, opts);
+    None
+}
+
+/// `text` with every match of `needle` replaced by `replacement`; `None`
+/// when nothing matches.
+#[must_use]
+pub fn replace_text(text: &str, needle: &str, replacement: &str, opts: FindOptions) -> Option<String> {
+    let _ = (text, needle, replacement, opts);
+    None
+}
+
+/// Replace All on `sheet`: every cell whose INPUT holds `needle` gets it
+/// replaced (formulas too, as Excel does), as ONE undo step; how many cells
+/// changed.
+pub fn replace_all(
+    engine: &mut dyn SheetEngine,
+    sheet: u32,
+    needle: &str,
+    replacement: &str,
+    opts: FindOptions,
+) -> Result<usize, EngineError> {
+    let _ = (engine, sheet, needle, replacement, opts);
+    Ok(0)
+}
+
 /// The sheet's used range as CSV (RFC 4180 quoting, `\n` lines), the
 /// displayed values.
 #[must_use]
@@ -465,5 +506,53 @@ mod tests {
             "nothing above: the run to the left"
         );
         assert_eq!(sum_range_above(&e, at(1, 3)), None);
+    }
+
+    /// The standard FindReplaceDialog asks for match case, whole word and
+    /// Find previous; the side panel's Find knew only "next, any case".
+    #[test]
+    fn find_honours_case_whole_words_and_the_direction() {
+        let e = engine_with(&[&["Rent", "rental"], &["rent", "x"], &["", "RENT"]]);
+        let any = FindOptions::default();
+        assert_eq!(find_match(&e, at(1, 1), "rent", any), Some(at(1, 2)), "the next cell, any case");
+        let case = FindOptions { match_case: true, ..any };
+        assert_eq!(find_match(&e, at(1, 1), "rent", case), Some(at(1, 2)));
+        assert_eq!(find_match(&e, at(1, 2), "rent", case), Some(at(2, 1)), "rental's 'rent', then row 2");
+        let whole = FindOptions { whole_word: true, ..any };
+        assert_eq!(find_match(&e, at(1, 1), "rent", whole), Some(at(2, 1)), "'rental' is no whole word");
+        let back = FindOptions { backwards: true, ..any };
+        assert_eq!(find_match(&e, at(2, 1), "rent", back), Some(at(1, 2)), "the previous cell");
+        assert_eq!(find_match(&e, at(1, 1), "rent", back), Some(at(3, 2)), "wraps to the end");
+        assert_eq!(find_match(&e, at(1, 1), "", any), None);
+    }
+
+    #[test]
+    fn replacing_keeps_the_rest_of_the_text_and_respects_the_options() {
+        let any = FindOptions::default();
+        assert_eq!(replace_text("Rent and rent", "rent", "Lease", any).as_deref(), Some("Lease and Lease"));
+        let case = FindOptions { match_case: true, ..any };
+        assert_eq!(replace_text("Rent and rent", "rent", "lease", case).as_deref(), Some("Rent and lease"));
+        let whole = FindOptions { whole_word: true, ..any };
+        assert_eq!(replace_text("rental rent", "rent", "x", whole).as_deref(), Some("rental x"));
+        assert_eq!(replace_text("nothing", "rent", "x", any), None);
+        assert_eq!(replace_text("=SUM(A1:A2)", "A2", "A3", any).as_deref(), Some("=SUM(A1:A3)"), "formulas too");
+    }
+
+    #[test]
+    fn replace_all_rewrites_every_matching_cell_as_one_undo_step() {
+        let mut e = engine_with(&[&["Rent", "rent 2"], &["Food", "=1+1"], &["", "RENT"]]);
+        let before_undo = e.can_undo();
+        let n = replace_all(&mut e, 0, "rent", "Lease", FindOptions::default()).unwrap();
+        assert_eq!(n, 3);
+        assert_eq!(e.cell_input(at(1, 1)), "Lease");
+        assert_eq!(e.cell_input(at(1, 2)), "Lease 2");
+        assert_eq!(e.cell_input(at(3, 2)), "Lease");
+        assert_eq!(e.cell_input(at(2, 1)), "Food", "a cell without a match is untouched");
+        assert_eq!(e.cell_input(at(2, 2)), "=1+1");
+        assert!(e.can_undo());
+        e.undo().unwrap();
+        assert_eq!(e.cell_input(at(1, 1)), "Rent", "one undo brings all of it back");
+        assert_eq!(e.cell_input(at(3, 2)), "RENT");
+        let _ = before_undo;
     }
 }
