@@ -181,9 +181,9 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_asking(st.asking_close)
         .with_on_event(app.clone(), on_close_guard as CloseGuardOnEventCallbackType)
         .dom();
-    Dom::create_body()
-        .with_css("display: flex; flex-direction: column; margin: 0px; padding: 0px; height: 100%;")
-        .with_child(ShellThemeScope::create(content).with_accent(accent_of(st)).dom())
+    // The scope as the window's body (SMALL6's engine fix): no UA margin,
+    // the full window height.
+    ShellThemeScope::create(content).with_accent(accent_of(st)).body()
         .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app, on_window_key)
 }
 

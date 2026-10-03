@@ -2110,9 +2110,6 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             .with_ribbon(ribbon(s, &app))
             .with_status_bar(status_bar(s, &app))
     };
-    // The body fills the window exactly (no UA margin): the shell's rows
-    // share its height, the grid takes what is left and clips, the status
-    // bar stays on screen.
     // "Save changes?" before the window closes with unsaved work: the close
     // request is held while the workbook is dirty (the standard question
     // over the window, the answer in on_close_guard).
@@ -2121,13 +2118,12 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_asking(s.asking_close)
         .with_on_event(app.clone(), on_close_guard as CloseGuardOnEventCallbackType)
         .dom();
-    Dom::create_body()
-        .with_css("display: flex; flex-direction: column; margin: 0px; padding: 0px; height: 100%;")
-        .with_child(
-            ShellThemeScope::create(guarded)
-                .with_accent(ShellThemeAccent::Leaf)
-                .dom(),
-        )
+    // The scope as the window's body (SMALL6's engine fix): no UA margin,
+    // the full window height - the shell's rows share it, the grid takes
+    // what is left and clips, the status bar stays on screen.
+    ShellThemeScope::create(guarded)
+        .with_accent(ShellThemeAccent::Leaf)
+        .body()
         .with_callback(
             EventFilter::Window(WindowEventFilter::VirtualKeyDown),
             app,
