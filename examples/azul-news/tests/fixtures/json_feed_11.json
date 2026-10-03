@@ -1,0 +1,32 @@
+{
+  "version": "https://jsonfeed.org/version/1.1",
+  "title": "Micro Notes",
+  "home_page_url": "https://micro.example.org/",
+  "feed_url": "https://micro.example.org/feed.json",
+  "description": "Short notes",
+  "icon": "https://micro.example.org/icon-512.png",
+  "favicon": "https://micro.example.org/favicon.ico",
+  "authors": [{"name": "Nora Peters", "url": "https://micro.example.org/about"}],
+  "language": "en",
+  "items": [
+    {
+      "id": "https://micro.example.org/2026/09/30/note",
+      "url": "https://micro.example.org/2026/09/30/note",
+      "content_html": "<p>Coffee &amp; feeds this morning. <img src=\"/uploads/cup.jpg\" alt=\"cup\"></p>",
+      "date_published": "2026-09-30T08:42:00+00:00",
+      "tags": ["coffee", "feeds"]
+    },
+    {
+      "id": 1002,
+      "title": "A longer post",
+      "url": "/2026/09/29/longer/",
+      "summary": "What this is about.",
+      "content_html": "<p>Body.</p>",
+      "image": "https://micro.example.org/uploads/banner.jpg",
+      "date_published": "2026-09-29T08:00:00Z",
+      "date_modified": "2026-09-29T09:00:00Z",
+      "authors": [{"name": "Guest Writer"}],
+      "attachments": [{"url": "https://micro.example.org/ep1.mp3", "mime_type": "audio/mpeg", "size_in_bytes": 1234567}]
+    }
+  ]
+}

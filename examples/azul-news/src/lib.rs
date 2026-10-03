@@ -18,7 +18,10 @@
 //! - [`sample`]: the `--sample` library.
 
 pub mod dates;
+pub mod feed;
 pub mod ids;
+pub mod links;
+pub mod reader;
 pub mod xmltree;
 
 /// Starts AzNews (the switches are read from the command line).
