@@ -159,6 +159,21 @@ pub struct ImportState {
     pub problems: Vec<String>,
     pub group: String,
     pub reading: bool,
+    /// A CSV file's table and how its columns map to contact fields (`None`: a .vcf).
+    pub csv: Option<CsvImport>,
+}
+
+/// A CSV import's table and its column mapping (one field per column, `csv::guess`ed from
+/// the header, changed in the preview).
+#[derive(Clone, Debug, PartialEq)]
+pub struct CsvImport {
+    pub table: crate::csv::Table,
+    pub mapping: Vec<crate::csv::Field>,
+}
+
+/// The file is a CSV file (by its name).
+fn is_csv(path: &str) -> bool {
+    path.trim().to_ascii_lowercase().ends_with(".csv")
 }
 
 /// The merge screen.
@@ -1024,13 +1039,54 @@ fn status_text(status: &ImportStatus, book: &[Contact]) -> String {
     }
 }
 
+/// A CSV column of the import preview.
+struct ImportColumnRef {
+    app: RefAny,
+    index: usize,
+}
+
+/// The CSV columns and what each becomes: the header, an example value, a drop-down of the
+/// contact's fields (`#import-column-<n>`).
+fn csv_mapping(app: &RefAny, csv: &CsvImport) -> Dom {
+    let labels: Vec<&str> = crate::csv::Field::ALL.iter().map(|f| f.label()).collect();
+    let mut rows = vec![block("padding: 8px 0px 4px 0px; font-weight: 600;", text("Columns"))];
+    for (i, header) in csv.table.headers.iter().enumerate() {
+        let field = csv.mapping.get(i).copied().unwrap_or(crate::csv::Field::Skip);
+        let example = csv
+            .table
+            .rows
+            .iter()
+            .map(|r| r.get(i).map(String::as_str).unwrap_or_default().trim())
+            .find(|v| !v.is_empty())
+            .unwrap_or("\u{2014}")
+            .to_string();
+        rows.push(row(
+            "gap: 8px; padding: 2px 0px; font-size: 13px;",
+            vec![
+                block("width: 180px;", text(header.as_str())),
+                block("width: 200px; opacity: 0.7;", text(example)),
+                DropDown::create(strs(&labels))
+                    .with_selected(field.index())
+                    .with_accessibility_name(format!("Column {header}"))
+                    .with_on_choice_change(
+                        RefAny::new(ImportColumnRef { app: app.clone(), index: i }),
+                        on_import_column as DropDownOnChoiceChangeCallbackType,
+                    )
+                    .dom()
+                    .with_id(format!("import-column-{i}")),
+            ],
+        ));
+    }
+    column("", rows).with_id("import-columns")
+}
+
 fn import_view(s: &ContactsApp, app: &RefAny, st: &ImportState) -> Dom {
     let mut children = vec![
         block("font-size: 18px; font-weight: 600; padding: 10px 0px;", text("Import contacts")),
         row(
             "gap: 6px;",
             vec![
-                block("flex-grow: 1;", input(app, FormField::ImportPath, &st.path, "Path to a .vcf file", "import-path")),
+                block("flex-grow: 1;", input(app, FormField::ImportPath, &st.path, "Path to a .vcf or .csv file", "import-path")),
                 button("Read", "import-read", app, on_import_read),
                 button("Choose file\u{2026}", "import-choose", app, on_import_choose),
             ],
@@ -1041,6 +1097,9 @@ fn import_view(s: &ContactsApp, app: &RefAny, st: &ImportState) -> Dom {
     }
     for p in &st.problems {
         children.push(block("font-size: 12px; opacity: 0.8;", text(p.as_str())));
+    }
+    if let Some(csv) = &st.csv {
+        children.push(csv_mapping(app, csv));
     }
     if !st.rows.is_empty() {
         children.push(block("padding: 8px 0px; font-weight: 600;", text(store::import_summary(&st.rows))).with_id("import-summary"));
@@ -1075,7 +1134,10 @@ fn import_view(s: &ContactsApp, app: &RefAny, st: &ImportState) -> Dom {
     } else if !st.reading {
         children.push(block(
             "padding-top: 12px; opacity: 0.75; font-size: 13px;",
-            text("vCard 3.0 and 4.0 files with one or many cards. Nothing is imported before you press Import."),
+            text(
+                "vCard 3.0 and 4.0 files with one or many cards, or a CSV file (Outlook's or Google's, \
+                 its columns mapped to the contact's fields). Nothing is imported before you press Import.",
+            ),
         ));
         children.push(row("padding-top: 8px;", vec![button("Cancel", "import-cancel", app, on_import_cancel)]));
     }
@@ -1424,17 +1486,12 @@ fn read_import_file(s: &mut ContactsApp, info: &mut CallbackInfo, app: &RefAny, 
     let folder = if folder.as_os_str().is_empty() { Path::new(".") } else { folder };
     let mut state = match std::mem::replace(&mut s.reading, Reading::Card) {
         Reading::Import(st) => st,
-        _ => ImportState {
-            path: String::new(),
-            rows: Vec::new(),
-            problems: Vec::new(),
-            group: "Imported".to_string(),
-            reading: false,
-        },
+        _ => empty_import(),
     };
     state.path = path.display().to_string();
     state.rows.clear();
     state.problems.clear();
+    state.csv = None;
     state.reading = true;
     s.reading = Reading::Import(state);
     kit::spawn_file_jobs(
@@ -1472,6 +1529,7 @@ fn empty_import() -> ImportState {
         problems: Vec::new(),
         group: "Imported".to_string(),
         reading: false,
+        csv: None,
     }
 }
 
@@ -1562,9 +1620,28 @@ extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Callback
                     st.problems = vec![p];
                 }
                 if let Some(text) = text {
-                    let (rows, problems) = store::import_preview(&text, &book);
+                    // A CSV file: its columns mapped by their headers, the user changes the
+                    // mapping in the preview.
+                    let (rows, problems) = if is_csv(&st.path) {
+                        match crate::csv::parse(&text) {
+                            Ok(table) => {
+                                let mapping: Vec<crate::csv::Field> =
+                                    table.headers.iter().map(|h| crate::csv::guess(h)).collect();
+                                let preview = store::csv_preview(&table, &mapping, &book);
+                                st.csv = Some(CsvImport { table, mapping });
+                                preview
+                            }
+                            Err(e) => (Vec::new(), vec![e]),
+                        }
+                    } else {
+                        store::import_preview(&text, &book)
+                    };
                     if rows.is_empty() && problems.is_empty() {
-                        st.problems.push("The file holds no vCard.".to_string());
+                        st.problems.push(if st.csv.is_some() {
+                            "No row of the file names a person: map the columns below.".to_string()
+                        } else {
+                            "The file holds no vCard.".to_string()
+                        });
                     }
                     st.problems.extend(problems);
                     st.rows = rows;
@@ -2264,6 +2341,30 @@ extern "C" fn on_import_toggle(mut data: RefAny, mut info: CallbackInfo, state: 
         if let Reading::Import(st) = &mut s.reading {
             if let Some(r) = st.rows.get_mut(index) {
                 r.selected = state.checked;
+            }
+        }
+    })
+}
+
+/// A CSV column mapped to another field: the preview's rows are made again.
+extern "C" fn on_import_column(mut data: RefAny, mut info: CallbackInfo, choice: usize) -> Update {
+    let Some((mut app, index)) = data.downcast_ref::<ImportColumnRef>().map(|r| (r.app.clone(), r.index)) else {
+        return Update::DoNothing;
+    };
+    let Some(field) = crate::csv::Field::ALL.get(choice).copied() else {
+        return Update::DoNothing;
+    };
+    with_app(&mut app, &mut info, |s, _info, _| {
+        let book = s.book.clone();
+        if let Reading::Import(st) = &mut s.reading {
+            if let Some(csv) = st.csv.as_mut() {
+                if let Some(slot) = csv.mapping.get_mut(index) {
+                    *slot = field;
+                }
+                let (rows, problems) = store::csv_preview(&csv.table, &csv.mapping, &book);
+                st.rows = rows;
+                st.problems = problems;
+                println!("AZCONTACTS_IMPORT_PREVIEW {} {}", st.rows.len(), store::import_summary(&st.rows));
             }
         }
     })
