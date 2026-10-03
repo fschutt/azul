@@ -97,6 +97,8 @@ const FREQUENCY_LABELS: [&str; 5] = ["Never", "Daily", "Weekly", "Monthly", "Yea
 const END_LABELS: [&str; 3] = ["Never", "After", "On"];
 /// The largest interval and count the form takes.
 const MAX_NUMBER: u32 = 999;
+/// [`MAX_NUMBER`] for a number field.
+const MAX_NUMBER_F32: f32 = 999.0;
 /// The count an end "after a number of times" starts at.
 const DEFAULT_COUNT: u32 = 10;
 /// The frequencies, in the order of the frequency row's segments.
@@ -519,7 +521,7 @@ fn whole(typed: f32) -> Option<u32> {
     if typed.is_nan() {
         return None;
     }
-    Some(typed.round().clamp(1.0, MAX_NUMBER as f32) as u32)
+    Some(typed.round().clamp(1.0, MAX_NUMBER_F32) as u32)
 }
 
 /// Callback invoked when any part of the form changes; it is handed the
@@ -597,8 +599,16 @@ impl RecurrenceEditor {
     /// An editor showing `rule`.
     #[must_use]
     pub fn create(rule: RecurrenceRule) -> Self {
-        let _ = rule;
-        todo!()
+        Self {
+            state: RecurrenceEditorStateWrapper {
+                inner: rule,
+                on_change: None.into(),
+            },
+            accessibility_name: OptionString::None,
+            theme: OptionUiTheme::None,
+            week_start: DatePickerWeekStart::Monday,
+            completion_option: false,
+        }
     }
 
     /// Sets the callback invoked when any part changes.
@@ -607,8 +617,11 @@ impl RecurrenceEditor {
         data: RefAny,
         callback: C,
     ) {
-        let _ = (data, callback);
-        todo!()
+        self.state.on_change = Some(RecurrenceEditorOnChange {
+            callback: callback.into(),
+            refany: data,
+        })
+        .into();
     }
 
     /// [`Self::set_on_change`] for the builder chain.
@@ -681,7 +694,16 @@ impl RecurrenceEditor {
     /// `@theme(<name>)` block, and the app theme picks.
     #[must_use]
     pub fn dom(self) -> Dom {
-        todo!()
+        use crate::widgets::themes::{flat, flora, theme_blocks};
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => flora::recurrence_editor(self),
+            Some(UiTheme::Flat) => flat::recurrence_editor(self),
+            None => theme_blocks::follow_app_theme(
+                self,
+                flat::recurrence_editor,
+                flora::recurrence_editor,
+            ),
+        }
     }
 }
 
@@ -697,10 +719,333 @@ impl From<RecurrenceEditor> for Dom {
     }
 }
 
-/// The editor's DOM in `look`.
+// ---- the base: the editor's structure, in every theme ----
+
+/// The editor: a column of rows.
+pub(crate) static RECURRENCE_COLUMN_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+        LayoutFlexDirection::Column,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
+];
+
+/// A row (and the row of weekday toggles): its parts on one midline,
+/// wrapping when the form is narrow.
+pub(crate) static RECURRENCE_ROW_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_wrap(LayoutFlexWrap::Wrap)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+];
+
+/// A label or a unit: keeps its size, its text never selected by a drag.
+pub(crate) static RECURRENCE_LABEL_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// The box around a number field: keeps its size.
+pub(crate) static RECURRENCE_FIXED_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+];
+
+/// "day" / "days", "week" / "weeks", ...: the unit after the interval.
+fn unit_word(frequency: RecurrenceFrequency, n: u32) -> &'static str {
+    let one = n == 1;
+    match frequency {
+        RecurrenceFrequency::Daily if one => "day",
+        RecurrenceFrequency::Daily => "days",
+        RecurrenceFrequency::Weekly if one => "week",
+        RecurrenceFrequency::Weekly => "weeks",
+        RecurrenceFrequency::Monthly if one => "month",
+        RecurrenceFrequency::Monthly => "months",
+        RecurrenceFrequency::Yearly if one => "year",
+        RecurrenceFrequency::Yearly => "years",
+        RecurrenceFrequency::Never => "",
+    }
+}
+
+/// The monthly row's two choices for `rule`'s start: "On day 14", "On the
+/// second Wednesday" (a fifth weekday: "On the last Wednesday").
+fn monthly_labels(rule: &RecurrenceRule) -> Vec<String> {
+    let ordinal = match rule.start_nth() {
+        1 => "first",
+        2 => "second",
+        3 => "third",
+        4 => "fourth",
+        _ => "last",
+    };
+    alloc::vec![
+        alloc::format!("On day {}", rule.start.day),
+        alloc::format!("On the {ordinal} {}", WEEKDAY_NAMES[rule.start_weekday()]),
+    ]
+}
+
+/// The editor's DOM in `look`: editor [row [label, part..]..]. Every part
+/// is its base (the structure), then the look's skin; the controls are the
+/// toolkit's own widgets, pinned to the editor's theme (or following the
+/// app theme with it).
+#[allow(clippy::too_many_lines)]
 pub(crate) fn build(editor: RecurrenceEditor, look: &RecurrenceEditorLook) -> Dom {
-    let _ = (editor, look);
-    todo!()
+    let part = |base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]| {
+        CssPropertyWithConditionsVec::from_vec(crate::widgets::themes::decl::on_base(base, skin))
+    };
+    let RecurrenceEditor {
+        state,
+        accessibility_name,
+        theme,
+        week_start,
+        completion_option,
+    } = editor;
+    let rule = state.inner;
+    let theme = theme.into_option();
+    let shared = RefAny::new(state);
+
+    let text = |words: String, classes: &'static [IdOrClass], skin: &[CssPropertyWithConditions]| {
+        crate::widgets::widget_p_with_text(AzString::from(words))
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(classes))
+            .with_css_props(part(RECURRENCE_LABEL_BASE, skin))
+    };
+    let label = |words: &str| text(String::from(words), LABEL_CLASS, &look.label);
+    let unit = |words: &str| text(String::from(words), UNIT_CLASS, &look.unit);
+    let row = |children: Vec<Dom>| {
+        Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(ROW_CLASS))
+            .with_css_props(part(RECURRENCE_ROW_BASE, &look.row))
+            .with_children(DomVec::from_vec(children))
+    };
+    let segmented = |labels: Vec<String>, selected: usize, cb: SegmentedOnChangeCallbackType| {
+        let mut s = Segmented::create(StringVec::from_vec(
+            labels.into_iter().map(AzString::from).collect(),
+        ))
+        .with_selected_index(selected)
+        .with_on_change(shared.clone(), cb);
+        if let Some(t) = theme {
+            s = s.with_theme(t);
+        }
+        s.dom()
+    };
+    let number = |value: u32, name: &'static str, cb: NumberInputOnValueChangeCallbackType| {
+        let mut n = NumberInput::create(f32::from(u16::try_from(value).unwrap_or(u16::MAX)))
+            .with_accessibility_name(AzString::from_const_str(name))
+            .with_on_value_change(shared.clone(), cb);
+        n.number_input_state.inner.min = 1.0;
+        n.number_input_state.inner.max = MAX_NUMBER_F32;
+        if let Some(t) = theme {
+            n = n.with_theme(t);
+        }
+        Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(NUMBER_CLASS))
+            .with_css_props(part(RECURRENCE_FIXED_BASE, &look.number))
+            .with_child(n.dom())
+    };
+    let labels = |words: &[&str]| words.iter().map(|w| String::from(*w)).collect::<Vec<_>>();
+
+    let mut rows = alloc::vec![row(alloc::vec![
+        label("Repeats"),
+        segmented(
+            labels(&FREQUENCY_LABELS),
+            rule.frequency as usize,
+            on_frequency_part
+        ),
+    ])];
+    if rule.frequency != RecurrenceFrequency::Never {
+        rows.push(row(alloc::vec![
+            label("Every"),
+            number(rule.interval, "Repeat every", on_interval_part),
+            unit(unit_word(rule.frequency, rule.interval)),
+        ]));
+        match rule.frequency {
+            RecurrenceFrequency::Weekly => {
+                let chosen = rule.effective_weekdays();
+                let first = match week_start {
+                    DatePickerWeekStart::Monday => 0,
+                    DatePickerWeekStart::Sunday => 6,
+                };
+                let toggles: Vec<Dom> = (0..7usize)
+                    .map(|i| (first + i) % 7)
+                    .map(|day| {
+                        let data = RefAny::new(WeekdayData {
+                            day: u32::try_from(day).unwrap_or(0),
+                            shared: shared.clone(),
+                        });
+                        let mut b = Button::create(AzString::from_const_str(WEEKDAY_SHORT[day]))
+                            .with_toggled(chosen & (1 << day) != 0)
+                            .with_on_click(data, on_weekday_part as ButtonOnClickCallbackType);
+                        if let Some(t) = theme {
+                            b = b.with_theme(t);
+                        }
+                        b.dom()
+                    })
+                    .collect();
+                rows.push(row(alloc::vec![
+                    label("On"),
+                    Dom::create_div()
+                        .with_ids_and_classes(IdOrClassVec::from_const_slice(WEEKDAYS_CLASS))
+                        .with_css_props(part(RECURRENCE_ROW_BASE, &look.weekdays))
+                        .with_children(DomVec::from_vec(toggles)),
+                ]));
+            }
+            RecurrenceFrequency::Monthly => {
+                rows.push(row(alloc::vec![
+                    label("On"),
+                    segmented(monthly_labels(&rule), rule.monthly as usize, on_monthly_part),
+                ]));
+            }
+            _ => {}
+        }
+        let mut ends = alloc::vec![
+            label("Ends"),
+            segmented(labels(&END_LABELS), rule.end as usize, on_end_part),
+        ];
+        match rule.end {
+            RecurrenceEnd::Never => {}
+            RecurrenceEnd::AfterCount => {
+                ends.push(number(rule.count, "Number of times", on_count_part));
+                ends.push(unit(if rule.count == 1 { "time" } else { "times" }));
+            }
+            RecurrenceEnd::OnDate => {
+                let mut picker =
+                    DatePicker::create(rule.until.year, rule.until.month, rule.until.day)
+                        .with_week_start(week_start)
+                        .with_accessibility_name("Last date")
+                        .with_on_change(
+                            shared.clone(),
+                            on_until_part as DatePickerOnChangeCallbackType,
+                        );
+                if let Some(t) = theme {
+                    picker = picker.with_theme(t);
+                }
+                ends.push(picker.dom());
+            }
+        }
+        rows.push(row(ends));
+        if completion_option {
+            let mut check = CheckBox::create(rule.from_completion)
+                .with_accessibility_name(AzString::from_const_str(COMPLETION_LABEL))
+                .with_on_toggle(
+                    shared.clone(),
+                    on_completion_part as CheckBoxOnToggleCallbackType,
+                );
+            if let Some(t) = theme {
+                check = check.with_theme(t);
+            }
+            rows.push(row(alloc::vec![
+                label(""),
+                check.dom(),
+                unit(COMPLETION_LABEL),
+            ]));
+        }
+    }
+
+    let mut classes: Vec<IdOrClass> = EDITOR_CLASS.to_vec();
+    if let Some(marker) = look.marker {
+        classes.push(Class(AzString::from_const_str(marker)));
+    }
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+        .with_css_props(part(RECURRENCE_COLUMN_BASE, &look.editor))
+        // A GROUP named by the caller, or "Repeat"; its value is the rule.
+        .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+            role: azul_core::a11y::AccessibilityRole::Grouping,
+            accessibility_name: Some(
+                accessibility_name
+                    .into_option()
+                    .unwrap_or_else(|| AzString::from_const_str("Repeat")),
+            )
+            .into(),
+            accessibility_value: Some(rule.to_rrule()).into(),
+            ..Default::default()
+        })
+        .with_children(DomVec::from_vec(rows))
+}
+
+// ---- the parts' handlers ----
+
+/// A weekday toggle's payload.
+struct WeekdayData {
+    /// 0 = Monday.
+    day: u32,
+    shared: RefAny,
+}
+
+/// Folds `part` into the editor's rule and hands the app the whole rule.
+fn change(shared: &mut RefAny, info: CallbackInfo, part: Part) -> Update {
+    let Some(mut w) = shared.downcast_mut::<RecurrenceEditorStateWrapper>() else {
+        return Update::DoNothing;
+    };
+    apply(&mut w.inner, part);
+    let rule = w.inner;
+    match w.on_change.as_mut() {
+        Some(RecurrenceEditorOnChange { callback, refany }) => {
+            callback.invoke(refany.clone(), info, rule)
+        }
+        None => Update::DoNothing,
+    }
+}
+
+extern "C" fn on_frequency_part(mut data: RefAny, info: CallbackInfo, s: SegmentedState) -> Update {
+    change(&mut data, info, Part::Frequency(s.selected_index))
+}
+
+extern "C" fn on_interval_part(mut data: RefAny, info: CallbackInfo, s: NumberInputState) -> Update {
+    change(&mut data, info, Part::Interval(s.number))
+}
+
+extern "C" fn on_weekday_part(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((day, mut shared)) = data
+        .downcast_ref::<WeekdayData>()
+        .map(|w| (w.day, w.shared.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    change(&mut shared, info, Part::Weekday(day))
+}
+
+extern "C" fn on_monthly_part(mut data: RefAny, info: CallbackInfo, s: SegmentedState) -> Update {
+    change(&mut data, info, Part::Monthly(s.selected_index))
+}
+
+extern "C" fn on_end_part(mut data: RefAny, info: CallbackInfo, s: SegmentedState) -> Update {
+    change(&mut data, info, Part::End(s.selected_index))
+}
+
+extern "C" fn on_count_part(mut data: RefAny, info: CallbackInfo, s: NumberInputState) -> Update {
+    change(&mut data, info, Part::Count(s.number))
+}
+
+extern "C" fn on_until_part(mut data: RefAny, info: CallbackInfo, d: DatePickerState) -> Update {
+    change(&mut data, info, Part::Until(d))
+}
+
+extern "C" fn on_completion_part(mut data: RefAny, info: CallbackInfo, s: CheckBoxState) -> Update {
+    change(&mut data, info, Part::Completion(s.checked))
+}
+
+/// The manifest's recurrence editor: weekly on Monday and Wednesday,
+/// ending after ten times.
+#[cfg(test)]
+pub(crate) mod fixtures {
+    use super::*;
+
+    pub(crate) fn sample() -> RecurrenceEditor {
+        let mut rule = RecurrenceRule::create(DatePickerState {
+            year: 2026,
+            month: 10,
+            day: 14,
+        });
+        rule.frequency = RecurrenceFrequency::Weekly;
+        rule.weekdays = 0b000_0101;
+        rule.end = RecurrenceEnd::AfterCount;
+        RecurrenceEditor::create(rule)
+    }
 }
 
 #[cfg(test)]
