@@ -41,6 +41,7 @@ use azul::{
     callbacks::CallbackType,
     notification::{Notification, NotificationEventType, NotificationSound},
     prelude::*,
+    shells::{ShellThemeAccent, ShellThemeScope, UtilityShell},
     task::{Timer, TimerId},
     time::{Duration, SystemTimeDiff},
     widgets::{DatePickerState, DateRepeatRule},
@@ -1036,4 +1037,16 @@ pub(crate) fn first_of(rule: &DateRepeatRule) -> Option<NaiveDate> {
         rule.start.month,
         rule.start.day,
     )
+}
+
+/// The laps to the clipboard (Lap, Lap time, Total; newest first).
+pub(crate) fn copy_laps(s: &ClockApp, info: &mut CallbackInfo) {
+    use azul::{dom::ClipboardContent, option::OptionString, str::String as AzString, vec::StyledTextRunVec};
+    let text = s.stopwatch.laps_text();
+    info.set_clipboard_content(ClipboardContent {
+        plain_text: AzString::from(text.as_str()),
+        styled_runs: StyledTextRunVec::create(),
+        html: OptionString::None,
+    });
+    println!("AZCLOCK_COPIED {}", s.stopwatch.laps.len());
 }
