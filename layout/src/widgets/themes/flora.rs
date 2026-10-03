@@ -8046,3 +8046,100 @@ pub(crate) fn chart_skin() -> crate::widgets::chart::ChartSkin {
         marker: Some("__azul-theme-flora"),
     }
 }
+
+// ==== code_view ====
+//
+// Flora sets code as an INK PANEL in both modes (planning: the flora
+// code-panel tokens `--fl-code-bg / -fg / -bd` are the default editor
+// theme): `--fl-code-bg` under `--fl-code-fg` by day and by night, the line
+// numbers in the panel's dim ink behind a `--fl-code-bd` hairline, the
+// caret's line a step lighter than the panel, selections a warm wash, the
+// token inks warm stones and moss that each read at least 4.5:1 on the
+// panel (keywords rust, strings olive, comments stone, types moss).
+
+/// `--fl-code-bg` by day / by night.
+const CODE_VIEW_BG: (ColorU, ColorU) = (ColorU::new(33, 31, 27, 255), ColorU::new(20, 20, 20, 255));
+/// `--fl-code-fg` by day / by night.
+const CODE_VIEW_FG: (ColorU, ColorU) =
+    (ColorU::new(228, 225, 214, 255), ColorU::new(226, 226, 226, 255));
+/// `--fl-code-bd` by day / by night.
+const CODE_VIEW_BD: (ColorU, ColorU) = (ColorU::new(68, 63, 53, 255), ColorU::new(54, 54, 54, 255));
+/// The panel's dim ink (line numbers, comments) by day / by night.
+const CODE_VIEW_DIM: (ColorU, ColorU) =
+    (ColorU::new(146, 139, 124, 255), ColorU::new(128, 128, 128, 255));
+
+/// The (day, night) ink of every `CodeTokenKind`, in declaration order.
+const CODE_VIEW_INKS: [(ColorU, ColorU); crate::widgets::code_view::CODE_TOKEN_KINDS] = [
+    // Plain
+    CODE_VIEW_FG,
+    // Keyword
+    (ColorU::new(224, 149, 106, 255), ColorU::new(230, 155, 112, 255)),
+    // Type
+    (ColorU::new(143, 193, 169, 255), ColorU::new(143, 193, 169, 255)),
+    // Function
+    (ColorU::new(230, 200, 138, 255), ColorU::new(230, 200, 138, 255)),
+    // StringLiteral
+    (ColorU::new(185, 204, 122, 255), ColorU::new(185, 204, 122, 255)),
+    // Number
+    (ColorU::new(211, 155, 196, 255), ColorU::new(211, 155, 196, 255)),
+    // Comment
+    CODE_VIEW_DIM,
+    // Constant
+    (ColorU::new(143, 188, 212, 255), ColorU::new(143, 188, 212, 255)),
+    // Macro
+    (ColorU::new(211, 155, 196, 255), ColorU::new(211, 155, 196, 255)),
+    // Attribute
+    (ColorU::new(169, 184, 198, 255), ColorU::new(169, 184, 198, 255)),
+    // Operator
+    (ColorU::new(216, 212, 200, 255), ColorU::new(216, 216, 216, 255)),
+    // Punctuation
+    (ColorU::new(181, 175, 162, 255), ColorU::new(180, 180, 180, 255)),
+    // Variable
+    (ColorU::new(226, 213, 190, 255), ColorU::new(226, 213, 190, 255)),
+    // Tag
+    (ColorU::new(224, 149, 106, 255), ColorU::new(230, 155, 112, 255)),
+    // Heading
+    (ColorU::new(224, 149, 106, 255), ColorU::new(230, 155, 112, 255)),
+    // Link
+    (ColorU::new(143, 188, 212, 255), ColorU::new(143, 188, 212, 255)),
+    // Invalid
+    (ColorU::new(242, 139, 130, 255), ColorU::new(242, 139, 130, 255)),
+];
+
+/// Flora's code-view look.
+#[must_use]
+pub(crate) fn code_view_look() -> crate::widgets::code_view::CodeViewLook {
+    use super::decl;
+
+    let mut view = decl::themed_fill(CODE_VIEW_BG.0, CODE_VIEW_BG.1).to_vec();
+    view.extend(decl::themed_ink(CODE_VIEW_FG.0, CODE_VIEW_FG.1));
+
+    let mut gutter = decl::themed_ink(CODE_VIEW_DIM.0, CODE_VIEW_DIM.1).to_vec();
+    gutter.extend(decl::border_right(1));
+    gutter.extend(decl::themed_border_right_color(CODE_VIEW_BD.0, CODE_VIEW_BD.1));
+
+    let mut thumb = decl::themed_fill(ColorU::new(96, 89, 76, 255), ColorU::new(84, 84, 84, 255)).to_vec();
+    thumb.extend(decl::radius(4));
+
+    crate::widgets::code_view::CodeViewLook {
+        view,
+        gutter,
+        gutter_current: decl::themed_ink(CODE_VIEW_FG.0, CODE_VIEW_FG.1).to_vec(),
+        current_line: decl::themed_fill(ColorU::new(45, 42, 37, 255), ColorU::new(32, 32, 32, 255)).to_vec(),
+        selection: decl::themed_fill(ColorU::new(86, 76, 58, 255), ColorU::new(66, 66, 76, 255)).to_vec(),
+        caret: decl::themed_fill(CODE_VIEW_FG.0, CODE_VIEW_FG.1).to_vec(),
+        track: decl::themed_fill(ColorU::new(40, 38, 33, 255), ColorU::new(28, 28, 28, 255)).to_vec(),
+        thumb,
+        tokens: CODE_VIEW_INKS
+            .iter()
+            .map(|(day, night)| decl::themed_ink(*day, *night).to_vec())
+            .collect(),
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
+}
+
+/// The flora code view.
+#[must_use]
+pub(crate) fn code_view(v: crate::widgets::code_view::CodeViewResolved) -> Dom {
+    crate::widgets::code_view::build(v, &code_view_look())
+}

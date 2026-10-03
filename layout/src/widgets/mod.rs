@@ -1856,6 +1856,8 @@ mod label_convention {
         // The chart: three series of bars over four categories, a legend and
         // the table view.
         all.push(("chart", super::chart::fixtures::sample().dom()));
+        // The code view: a short function, the caret on its second line.
+        all.push(("code_view", super::code_view::fixtures::sample().dom()));
         all
     }
 
@@ -2241,6 +2243,8 @@ mod wheel_ownership {
                 "cell_grid".to_string(),
                 // The data table scrolls by whole rows too.
                 "data_table".to_string(),
+                // The code view scrolls by whole lines.
+                "code_view".to_string(),
             ],
             "a widget started listening for the wheel: a closed control must leave the gesture to \
              the page under it",
@@ -2800,6 +2804,9 @@ mod theme_contrast {
         // A chart: a data surface like the grid (its title, ticks, legend
         // and table text on the chart's own sheet).
         "chart",
+        // The code view: an editing surface like the grid (its lines and
+        // their numbers on the view's own page).
+        "code_view",
     ];
 
     /// A widget added to the manifest must land in a group, or it is simply

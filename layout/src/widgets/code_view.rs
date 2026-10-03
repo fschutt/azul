@@ -55,9 +55,9 @@
 //! press on a line number selects the line, the wheel scrolls whole lines
 //! (Shift: columns), the scroll bar's thumb drags through all lines.
 //!
-//! ACCESSIBILITY: the view is a `TextInput`-role node (multi-line) named by
+//! ACCESSIBILITY: the view is a `Text`-role node named by
 //! [`CodeView::with_accessibility_name`]; its value says where the caret is
-//! ("Line 12 of 400, column 5").
+//! ("Line 12 of 400, byte 5").
 //!
 //! Key types: [`CodeView`], [`CodeViewView`], [`CodeViewLine`],
 //! [`CodeViewSpan`], [`CodeTokenKind`], [`CodeViewEvent`], [`CodeViewEdit`].
@@ -2520,8 +2520,17 @@ pub(crate) struct CodeViewResolved {
 }
 
 /// Lays the view out and asks the data callback for the lines in view.
-pub(crate) fn resolve(cv: CodeView) -> CodeViewResolved {
-    todo!("GREEN: resolve {}", cv.line_count)
+pub(crate) fn resolve(mut cv: CodeView) -> CodeViewResolved {
+    clamp_view(&mut cv.view, cv.line_count);
+    let geo = geometry(&cv);
+    cv.view.top_line = geo.top;
+    let lines = (geo.top..geo.top.saturating_add(geo.rows))
+        .map(|index| ResolvedLine {
+            index,
+            line: line_content(&cv.data_source, index),
+        })
+        .collect();
+    CodeViewResolved { cv, geo, lines }
 }
 
 impl CodeView {
@@ -2531,7 +2540,682 @@ impl CodeView {
     /// carrying both looks.
     #[must_use]
     pub fn dom(self) -> Dom {
-        todo!("GREEN: dom {}", self.line_count)
+        use crate::widgets::themes::UiTheme;
+        let theme = self.theme.into_option();
+        let resolved = resolve(self);
+        match theme {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::code_view(resolved),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::code_view(resolved),
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                resolved,
+                crate::widgets::themes::flat::code_view,
+                crate::widgets::themes::flora::code_view,
+            ),
+        }
+    }
+}
+
+use azul_css::{
+    css::CssPropertyValue,
+    props::{
+        basic::{
+            font::{StyleFontFamily, StyleFontFamilyVec},
+            length::FloatValue,
+            StyleFontSize,
+        },
+        layout::{
+            LayoutAlignItems, LayoutBoxSizing, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
+            LayoutFlexShrink, LayoutJustifyContent, LayoutMinHeight, LayoutMinWidth, LayoutOverflow,
+            LayoutPaddingLeft, LayoutPaddingRight, LayoutPosition, LayoutWidth,
+        },
+        property::CssProperty,
+        style::{StyleCursor, StyleUserSelect, StyleWhiteSpace},
+    },
+    system::SystemFontType,
+};
+
+/// What a theme decides about a code view: the SKIN of each part, laid
+/// over the part's base (the structure, the same in every theme) by
+/// [`build`].
+pub(crate) struct CodeViewLook {
+    /// The view: the face and the ink.
+    pub view: Vec<CssPropertyWithConditions>,
+    /// The gutter: the line numbers' ink, its face, its rule.
+    pub gutter: Vec<CssPropertyWithConditions>,
+    /// Added to the caret line's number.
+    pub gutter_current: Vec<CssPropertyWithConditions>,
+    /// Added to the caret's line.
+    pub current_line: Vec<CssPropertyWithConditions>,
+    /// Added to selected text.
+    pub selection: Vec<CssPropertyWithConditions>,
+    /// The caret's bar.
+    pub caret: Vec<CssPropertyWithConditions>,
+    /// The scroll bar's track.
+    pub track: Vec<CssPropertyWithConditions>,
+    /// The scroll bar's thumb.
+    pub thumb: Vec<CssPropertyWithConditions>,
+    /// The ink of every [`CodeTokenKind`], `kind as usize`
+    /// ([`CODE_TOKEN_KINDS`] entries).
+    pub tokens: Vec<Vec<CssPropertyWithConditions>>,
+    /// The theme's marker class on the view, if it has one.
+    pub marker: Option<&'static str>,
+}
+
+/// The OS monospace face (SF Mono, Consolas, the desktop's monospace).
+const MONO_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::SystemType(SystemFontType::Monospace)];
+const MONO_FAMILY: StyleFontFamilyVec = StyleFontFamilyVec::from_const_slice(MONO_FAMILIES);
+
+/// The view: a column of lines that takes its pane, clips what does not
+/// fit, is the containing block of the scroll bar and is ONE focus stop
+/// whose text the engine never selects (the view draws its own).
+pub(crate) static CODE_VIEW_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+    simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    simple(CssProperty::const_min_height(LayoutMinHeight::const_px(0))),
+    simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
+    simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+    simple(CssProperty::const_position(LayoutPosition::Relative)),
+    simple(CssProperty::const_cursor(StyleCursor::Text)),
+    simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// A line: its number, then its text, never shrinking.
+pub(crate) static CODE_VIEW_LINE_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+    simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+];
+
+/// A line's number: right-aligned in its width, centred on the line.
+pub(crate) static CODE_VIEW_GUTTER_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    simple(CssProperty::const_justify_content(LayoutJustifyContent::End)),
+    simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+    simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(10))),
+    simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(10))),
+];
+
+/// A line's text: its runs side by side, centred on the line, clipped.
+pub(crate) static CODE_VIEW_TEXT_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
+    simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(6))),
+];
+
+/// A run of text: one line, its blanks kept.
+pub(crate) static CODE_VIEW_TOKEN_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::WhiteSpace(CssPropertyValue::Exact(StyleWhiteSpace::Pre))),
+    simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+];
+
+/// The zero-width place a caret stands in, between two runs: its bar
+/// hangs from it without pushing the text after it.
+pub(crate) static CODE_VIEW_CARET_SLOT_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_position(LayoutPosition::Relative)),
+    simple(CssProperty::const_width(LayoutWidth::const_px(0))),
+    simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+];
+
+/// An overlay (the caret's bar, the scroll bar): placed by px.
+pub(crate) static CODE_VIEW_OVERLAY_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_position(LayoutPosition::Absolute)),
+    simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+];
+
+/// The caret's bar's width, px.
+pub(crate) const CARET_PX: f32 = 2.0;
+
+static VIEW_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(VIEW_CLASS_NAME))];
+static LINE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(LINE_CLASS_NAME))];
+static CURRENT_LINE_CLASS: &[IdOrClass] = &[
+    Class(AzString::from_const_str(LINE_CLASS_NAME)),
+    Class(AzString::from_const_str(CURRENT_LINE_CLASS_NAME)),
+];
+static GUTTER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(GUTTER_CLASS_NAME))];
+static TEXT_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(TEXT_CLASS_NAME))];
+static CARET_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(CARET_CLASS_NAME))];
+static EOL_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(EOL_CLASS_NAME))];
+static TRACK_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(TRACK_CLASS_NAME))];
+static THUMB_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(THUMB_CLASS_NAME))];
+
+/// A run of text the view wrote (one line, never selected by the engine).
+fn text_run(text: AzString, props: Vec<CssPropertyWithConditions>) -> Dom {
+    crate::widgets::widget_p_with_text(text).with_css_props(CssPropertyWithConditionsVec::from_vec(props))
+}
+
+/// `left` / `top` / `width` / `height` of an overlay.
+fn place(x: f32, y: f32, w: f32, h: f32) -> [CssPropertyWithConditions; 4] {
+    [px_left(x), px_top(y), px_width(w.max(0.0)), px_height(h.max(0.0))]
+}
+
+/// What a screen reader hears the view say where the caret is.
+fn caret_value(cv: &CodeView) -> String {
+    let head = cv.view.primary().head;
+    alloc::format!(
+        "Line {} of {}, byte {}",
+        head.line.saturating_add(1),
+        cv.line_count.max(1),
+        head.column.saturating_add(1)
+    )
+}
+
+/// The view's DOM in `look`: view [line (number, text) .., scroll bar?].
+#[allow(clippy::too_many_lines)]
+pub(crate) fn build(resolved: CodeViewResolved, look: &CodeViewLook) -> Dom {
+    use azul_core::a11y::{AccessibilityInfo, AccessibilityRole};
+
+    let part = |base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]| {
+        super::themes::decl::on_base(base, skin)
+    };
+    let CodeViewResolved { cv, geo, lines } = resolved;
+    let view = &cv.view;
+    let primary = view.primary().head;
+    let tab = cv.tab_width.max(1);
+    let lh = geo.line_height;
+    let mut children: Vec<Dom> = Vec::with_capacity(lines.len() + 1);
+    for resolved_line in &lines {
+        let index = resolved_line.index;
+        let (selected, carets) = line_marks(view, index);
+        let built = line_pieces(
+            resolved_line.line.text.as_str(),
+            resolved_line.line.spans.as_slice(),
+            &selected,
+            &carets,
+            tab,
+            geo.left,
+            geo.columns,
+        );
+        let current = cv.highlight_current_line && index == primary.line;
+        let mut line_props = part(
+            CODE_VIEW_LINE_BASE,
+            if current { look.current_line.as_slice() } else { &[] },
+        );
+        line_props.push(px_height(lh));
+        let mut line_children: Vec<Dom> = Vec::with_capacity(2);
+        if cv.show_line_numbers {
+            let mut g = part(CODE_VIEW_GUTTER_BASE, &look.gutter);
+            if current {
+                g.extend(look.gutter_current.iter().cloned());
+            }
+            g.push(px_width(geo.gutter_width));
+            line_children.push(
+                Dom::create_div()
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(GUTTER_CLASS))
+                    .with_css_props(CssPropertyWithConditionsVec::from_vec(g))
+                    .with_child(text_run(
+                        AzString::from(alloc::format!("{}", index.saturating_add(1))),
+                        CODE_VIEW_TOKEN_BASE.to_vec(),
+                    )),
+            );
+        }
+        let mut runs: Vec<Dom> = Vec::with_capacity(built.pieces.len() + 1);
+        for piece in built.pieces {
+            match piece {
+                Piece::Text { text, kind, selected } => {
+                    let mut p = part(
+                        CODE_VIEW_TOKEN_BASE,
+                        look.tokens.get(kind as usize).map_or(&[][..], Vec::as_slice),
+                    );
+                    if selected {
+                        p.extend(look.selection.iter().cloned());
+                    }
+                    runs.push(
+                        text_run(AzString::from(text), p).with_ids_and_classes(IdOrClassVec::from_vec(
+                            alloc::vec![
+                                Class(AzString::from_const_str(TOKEN_CLASS_NAME)),
+                                Class(AzString::from_const_str(kind.class_name())),
+                            ],
+                        )),
+                    );
+                }
+                Piece::Caret => {
+                    let mut bar = part(CODE_VIEW_OVERLAY_BASE, &look.caret);
+                    bar.extend(place(-CARET_PX / 2.0, -(lh - 4.0).max(2.0) / 2.0, CARET_PX, (lh - 4.0).max(2.0)));
+                    let mut slot = CODE_VIEW_CARET_SLOT_BASE.to_vec();
+                    slot.push(px_height(0.0));
+                    runs.push(
+                        Dom::create_div()
+                            .with_css_props(CssPropertyWithConditionsVec::from_vec(slot))
+                            .with_child(
+                                Dom::create_div()
+                                    .with_ids_and_classes(IdOrClassVec::from_const_slice(CARET_CLASS))
+                                    .with_css_props(CssPropertyWithConditionsVec::from_vec(bar)),
+                            ),
+                    );
+                }
+            }
+        }
+        if built.eol_selected {
+            let mut p = part(CODE_VIEW_TOKEN_BASE, &look.selection);
+            p.push(px_width((geo.char_width / 2.0).max(3.0)));
+            p.push(px_height((lh - 2.0).max(2.0)));
+            runs.push(
+                Dom::create_div()
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(EOL_CLASS))
+                    .with_css_props(CssPropertyWithConditionsVec::from_vec(p)),
+            );
+        }
+        line_children.push(
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(TEXT_CLASS))
+                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(CODE_VIEW_TEXT_BASE))
+                .with_children(DomVec::from_vec(runs)),
+        );
+        children.push(
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(if current {
+                    CURRENT_LINE_CLASS
+                } else {
+                    LINE_CLASS
+                }))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(line_props))
+                .with_children(DomVec::from_vec(line_children)),
+        );
+    }
+    if let Some(bar) = &geo.vbar {
+        let (x, y, w, h) = bar.track;
+        let mut track = part(CODE_VIEW_OVERLAY_BASE, &look.track);
+        track.extend(place(x, y, w, h));
+        let mut thumb = part(CODE_VIEW_OVERLAY_BASE, &look.thumb);
+        thumb.extend(place(2.0, bar.thumb_start, (w - 4.0).max(1.0), bar.thumb_len));
+        children.push(
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(TRACK_CLASS))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(track))
+                .with_accessibility_info(AccessibilityInfo::named(
+                    AzString::from_const_str("Lines"),
+                    AccessibilityRole::ScrollBar,
+                ))
+                .with_child(
+                    Dom::create_div()
+                        .with_ids_and_classes(IdOrClassVec::from_const_slice(THUMB_CLASS))
+                        .with_css_props(CssPropertyWithConditionsVec::from_vec(thumb)),
+                ),
+        );
+    }
+
+    let mut classes: Vec<IdOrClass> = VIEW_CLASS.to_vec();
+    if let Some(marker) = look.marker {
+        classes.push(Class(AzString::from_const_str(marker)));
+    }
+    let mut props = part(CODE_VIEW_BASE, &look.view);
+    props.push(simple(CssProperty::const_font_family(MONO_FAMILY)));
+    props.push(simple(CssProperty::const_font_size(StyleFontSize::px(cv.font_size))));
+    let a11y = AccessibilityInfo {
+        accessibility_value: Some(AzString::from(caret_value(&cv))).into(),
+        ..AccessibilityInfo::named(cv.accessibility_name.clone(), AccessibilityRole::Text)
+    };
+    let id = cv.id.clone();
+    let shared = RefAny::new(CodeViewShared { cv, geo });
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+        .with_id(id)
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(props))
+        .with_tab_index(azul_core::dom::TabIndex::Auto)
+        .with_accessibility_info(a11y)
+        .with_callbacks(code_view_callbacks(&shared).into())
+        .with_children(DomVec::from_vec(children))
+}
+
+// ---- the handlers: one set on the view node, the view hit-tests itself ----
+
+/// What every handler of one build shares: the view (its state and
+/// callbacks) and where its lines sit. A drag in progress updates the view
+/// here too, so the next move compares against it before the app's
+/// rebuild arrives.
+#[derive(Debug)]
+pub(crate) struct CodeViewShared {
+    pub cv: CodeView,
+    pub geo: Geometry,
+}
+
+/// A copy of the view and its geometry from a handler's payload.
+fn shared_of(data: &mut RefAny) -> Option<(CodeView, Geometry)> {
+    let s = data.downcast_ref::<CodeViewShared>()?;
+    Some((s.cv.clone(), s.geo.clone()))
+}
+
+/// Records `view` as the view's state in the payload.
+fn store_view(data: &mut RefAny, view: &CodeViewView) {
+    if let Some(mut s) = data.downcast_mut::<CodeViewShared>() {
+        s.cv.view = view.clone();
+    }
+}
+
+/// Hands `event` to the app.
+fn fire(cv: &CodeView, info: CallbackInfo, event: CodeViewEvent) -> Update {
+    match cv.on_event.as_ref() {
+        Some(CodeViewOnEvent { refany, callback }) => callback.invoke(refany.clone(), info, event),
+        None => Update::DoNothing,
+    }
+}
+
+/// Stores the event's view, then the app hears it.
+fn deliver(data: &mut RefAny, cv: &CodeView, info: CallbackInfo, event: CodeViewEvent) -> Update {
+    store_view(data, &event.view);
+    fire(cv, info, event)
+}
+
+/// The view's handlers.
+pub(crate) fn code_view_callbacks(shared: &RefAny) -> Vec<CoreCallbackData> {
+    alloc::vec![
+        CoreCallbackData::create(
+            EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+            shared.clone(),
+            on_key as usize
+        ),
+        CoreCallbackData::create(
+            EventFilter::Focus(FocusEventFilter::TextInput),
+            shared.clone(),
+            on_text as usize
+        ),
+        CoreCallbackData::create(
+            EventFilter::Focus(FocusEventFilter::Paste),
+            shared.clone(),
+            on_paste as usize
+        ),
+        CoreCallbackData::create(
+            EventFilter::Hover(HoverEventFilter::LeftMouseDown),
+            shared.clone(),
+            on_mouse_down as usize
+        ),
+        CoreCallbackData::create(
+            EventFilter::Hover(HoverEventFilter::MouseMove),
+            shared.clone(),
+            on_mouse_move as usize
+        ),
+        CoreCallbackData::create(
+            EventFilter::Hover(HoverEventFilter::MouseUp),
+            shared.clone(),
+            on_mouse_up as usize
+        ),
+        CoreCallbackData::create(
+            EventFilter::Hover(HoverEventFilter::DoubleClick),
+            shared.clone(),
+            on_double_click as usize
+        ),
+        CoreCallbackData::create(
+            EventFilter::Hover(HoverEventFilter::Scroll),
+            shared.clone(),
+            on_wheel as usize
+        ),
+    ]
+}
+
+/// What the view needs from the window, read at an action: the width of a
+/// column (measured once: 64 zeros in the view's face) and its own box
+/// (the lines and columns that really fit, for paging and keeping the
+/// caret in sight).
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn measure(cv: &mut CodeView, geo: &mut Geometry, info: &CallbackInfo) {
+    if cv.view.char_width <= 0.0 {
+        if let Some(width) = measured_char_width(cv, info) {
+            cv.view.char_width = width;
+            geo.char_width = width;
+        }
+    }
+    if let Some(size) = info.get_node_size(info.get_hit_node()) {
+        if size.height > 0.0 {
+            cv.view.visible_lines = ((size.height / geo.line_height.max(1.0)).floor() as u32).max(1);
+            geo.fit_lines = cv.view.visible_lines;
+        }
+        if size.width > 0.0 {
+            let bar = if geo.vbar.is_some() { SCROLL_BAR_PX } else { 0.0 };
+            let text_width = (size.width - geo.text_left - bar).max(0.0);
+            cv.view.visible_columns = ((text_width / geo.char_width.max(0.1)).floor() as u32).max(1);
+            geo.fit_columns = cv.view.visible_columns;
+        }
+    }
+}
+
+/// The width of one column of the view's face: 64 zeros measured in the
+/// window's fonts, divided by 64 (`None` when the window cannot measure).
+#[cfg(feature = "std")]
+fn measured_char_width(cv: &CodeView, info: &CallbackInfo) -> Option<f32> {
+    let probe = crate::widgets::widget_p_with_text(AzString::from("0".repeat(64))).with_css_props(
+        CssPropertyWithConditionsVec::from_vec(alloc::vec![
+            simple(CssProperty::const_font_family(MONO_FAMILY)),
+            simple(CssProperty::const_font_size(StyleFontSize::px(cv.font_size))),
+            simple(CssProperty::WhiteSpace(CssPropertyValue::Exact(StyleWhiteSpace::Pre))),
+        ]),
+    );
+    let size = info.measure_dom_shrink_to_fit(probe, azul_core::geom::LogicalSize::new(8192.0, 1024.0));
+    (size.width > 0.0).then(|| size.width / 64.0)
+}
+
+/// Without `std` the window cannot measure: the estimate stays.
+#[cfg(not(feature = "std"))]
+fn measured_char_width(_cv: &CodeView, _info: &CallbackInfo) -> Option<f32> {
+    None
+}
+
+/// The view's text, through the data callback.
+fn lines_of(cv: &CodeView) -> SourceLines<'_> {
+    SourceLines {
+        source: &cv.data_source,
+        count: cv.line_count,
+    }
+}
+
+/// `text` onto the clipboard.
+fn to_clipboard(info: &mut CallbackInfo, text: &str) {
+    info.set_clipboard_content(crate::managers::selection::ClipboardContent {
+        plain_text: AzString::from(text),
+        styled_runs: crate::managers::selection::StyledTextRunVec::from_const_slice(&[]),
+        html: azul_css::OptionString::None,
+    });
+}
+
+/// The keys (see the module's KEYBOARD).
+extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut cv, mut geo)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let ks = info.get_current_keyboard_state();
+    let Some(key) = ks.current_virtual_keycode.into_option() else {
+        return Update::DoNothing;
+    };
+    let mac = azul_core::window::mac_shortcut_conventions();
+    let primary = ks.primary_down();
+    let alt = ks.alt_down();
+    let mods = Mods {
+        shift: ks.shift_down(),
+        primary,
+        word: if mac { alt } else { ks.ctrl_down() },
+        line: mac && primary,
+        alt,
+    };
+    // Ctrl/Cmd+V: the Paste event brings the clipboard's text.
+    if primary && key == VirtualKeyCode::V {
+        return Update::DoNothing;
+    }
+    measure(&mut cv, &mut geo, &info);
+    let event = key_event(&cv, &lines_of(&cv), key, mods);
+    let Some(event) = event else {
+        return Update::DoNothing;
+    };
+    // The key is the view's: no spatial navigation, no default action.
+    info.prevent_default();
+    if !event.text.as_str().is_empty() {
+        to_clipboard(&mut info, event.text.as_str());
+    }
+    deliver(&mut data, &cv, info, event)
+}
+
+/// Text typed into the view: into every cursor. The view node holds no
+/// text of its own, so the engine's own insertion is cancelled.
+extern "C" fn on_text(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut cv, mut geo)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let Some(inserted) = info
+        .get_text_changeset()
+        .map(|c| String::from(c.inserted_text.as_str()))
+    else {
+        return Update::DoNothing;
+    };
+    info.prevent_default();
+    let typed: String = inserted.chars().filter(|c| !c.is_control()).collect();
+    if typed.is_empty() {
+        return Update::DoNothing;
+    }
+    measure(&mut cv, &mut geo, &info);
+    let event = typed_event(&cv, &lines_of(&cv), &typed);
+    match event {
+        Some(event) => deliver(&mut data, &cv, info, event),
+        None => Update::DoNothing,
+    }
+}
+
+/// Ctrl/Cmd+V: the clipboard's text at every cursor.
+extern "C" fn on_paste(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut cv, mut geo)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let text = info
+        .get_clipboard_content()
+        .map(|c| String::from(c.plain_text.as_str()));
+    info.prevent_default();
+    let Some(text) = text else {
+        return Update::DoNothing;
+    };
+    measure(&mut cv, &mut geo, &info);
+    let event = paste_event(&cv, &lines_of(&cv), &text);
+    match event {
+        Some(event) => deliver(&mut data, &cv, info, event),
+        None => Update::DoNothing,
+    }
+}
+
+/// A press: the caret, a line, the scroll bar; the view takes the focus
+/// and, for a drag, the pointer.
+extern "C" fn on_mouse_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut cv, mut geo)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let Some((x, y)) = crate::widgets::cell_grid::cursor_in(&info) else {
+        return Update::DoNothing;
+    };
+    measure(&mut cv, &mut geo, &info);
+    let ks = info.get_current_keyboard_state();
+    let mods = Mods {
+        shift: ks.shift_down(),
+        alt: ks.alt_down(),
+        ..Mods::default()
+    };
+    let event = {
+        let lines = lines_of(&cv);
+        let hit = hit_test(&cv, &geo, &lines, x, y);
+        press_event(&cv, &geo, &lines, hit, mods, y)
+    };
+    let Some(event) = event else {
+        return Update::DoNothing;
+    };
+    let node = info.get_hit_node();
+    info.set_focus(azul_core::callbacks::FocusTarget::Id(node));
+    if event.view.drag != CodeViewDragKind::None {
+        info.capture_pointer(node);
+    }
+    deliver(&mut data, &cv, info, event)
+}
+
+/// A move while a drag is in progress.
+extern "C" fn on_mouse_move(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((cv, geo)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    if cv.view.drag == CodeViewDragKind::None {
+        return Update::DoNothing;
+    }
+    let Some((x, y)) = crate::widgets::cell_grid::cursor_in(&info) else {
+        return Update::DoNothing;
+    };
+    let event = drag_event(&cv, &geo, &lines_of(&cv), x, y);
+    match event {
+        Some(event) => deliver(&mut data, &cv, info, event),
+        None => Update::DoNothing,
+    }
+}
+
+/// The drag ends.
+extern "C" fn on_mouse_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((cv, _)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let Some(event) = drag_end(&cv) else {
+        return Update::DoNothing;
+    };
+    info.release_pointer_capture();
+    deliver(&mut data, &cv, info, event)
+}
+
+/// A double-click selects the word under the pointer.
+extern "C" fn on_double_click(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((cv, geo)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let Some((x, y)) = crate::widgets::cell_grid::cursor_in(&info) else {
+        return Update::DoNothing;
+    };
+    let event = {
+        let lines = lines_of(&cv);
+        let hit = hit_test(&cv, &geo, &lines, x, y);
+        double_click_event(&cv, &lines, hit)
+    };
+    match event {
+        Some(event) => deliver(&mut data, &cv, info, event),
+        None => Update::DoNothing,
+    }
+}
+
+/// The wheel scrolls by whole lines (Shift: columns). The view IS the
+/// scroll surface, so the page under it does not scroll as well.
+extern "C" fn on_wheel(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((cv, geo)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let hit = info.get_hit_node();
+    let Some(node_id) = hit.node.into_crate_internal() else {
+        return Update::DoNothing;
+    };
+    let Some(delta) = info.get_scroll_delta(hit.dom, node_id) else {
+        return Update::DoNothing;
+    };
+    info.prevent_default();
+    info.stop_propagation();
+    let shift = info.get_current_keyboard_state().shift_down();
+    let (dx, dy) = if shift && delta.x.abs() < f32::EPSILON {
+        (delta.y, 0.0)
+    } else {
+        (delta.x, delta.y)
+    };
+    let (rows, columns) =
+        crate::widgets::cell_grid::take_wheel(dx, dy, geo.line_height.max(1.0), geo.char_width.max(1.0));
+    if rows == 0 && columns == 0 {
+        return Update::DoNothing;
+    }
+    match scroll_event(&cv, &geo, rows, columns) {
+        Some(event) => deliver(&mut data, &cv, info, event),
+        None => Update::DoNothing,
     }
 }
 
