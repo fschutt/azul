@@ -1,0 +1,50 @@
+[package]
+name = "AzNews"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzNews - the feed reader of the Azlin apps (RSS 0.9x / 1.0 / 2.0, Atom,
+    JSON Feed). Subscriptions in folders with OPML import and export, a
+    refresh on an azul Thread that asks with ETag / Last-Modified (a 304
+    costs nothing), the three panes of azul's S4 PimShell (feeds with unread
+    counts, the articles by day, the article), the article read through
+    azul's HTML5-like parser in a reader stylesheet, its pictures found by
+    Xml::scan_external_resources and fetched on a Thread. Everything durable
+    is files in the user's data folder (news/subscriptions.opml,
+    news/feeds/<id>/feed.json | items.json | state.json), written through
+    azul-storage on a Thread (a LocalDrive today, the user's S3 bucket later).
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+# The Azlin app skeleton: the switches, the data root, the settings page, file jobs on a Thread.
+azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+# The one HTTP seam (Transport / HttpCall / HttpReply; AzulTransport sends through azul's
+# HttpRequestConfig from an azul Thread) and the ids that name feed folders.
+azul-storage = { path = "../azul-storage", features = ["azul"] }
+# The shared PIM logic: the list's date groups, search with diacritics folded.
+azul-pim = { path = "../azul-pim" }
+# The same features azul-layout, AzMail and AzTasks build chrono with (dates, the local day).
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The feeds' XML (RSS, Atom, OPML), read leniently - a bare `&`, a mismatched end tag or a
+# truncated feed keeps what was read. Already in Cargo.lock (docx-parser, ooxml-common, plist).
+quick-xml = { version = "0.41", default-features = false }
+# A feed in ISO-8859-1 / Windows-1252 / Shift_JIS. Already in Cargo.lock (mail-parser, lopdf).
+encoding_rs = "0.8"
+# Relative links and pictures against the feed's / article's address; tracking parameters.
+# Already in Cargo.lock (through ureq).
+url = "2.5"
+
+[lib]
+name = "aznews"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "AzNews"
+path = "src/main.rs"
