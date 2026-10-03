@@ -18,6 +18,8 @@ button hover). Then the idle items (FLIP springs never settle; AzReview per-fram
   BUTTON_FACE/BUTTON_FADE_MS, flat::button / flora::button push it (not Link, only when btn_owns_style)
 - 0d5e3fd53 RED layout/tests/a_rebuild_under_the_pointer_starts_no_transition.rs; d3ed2527f GREEN
   with_interaction_of in begin_reconciliation's CSS diff
+- f66509f40 RED / dd4bb436d GREEN css background::interpolate_background_layers (gradient faces tween)
+- 00ae0e853 refactor: rebuild-diff + imperative sites use CssTransition::declared / declared_animation_for
 - ca8e4f111 scripts/anim8_probe.py (debug-server probe: knob x / pixels / get_animations per frame) and
   scripts/anim8_switch_scenario_gen.py (writes an AZ_E2E scenario: click the switch, tick_animations 1/3/30,
   each checkpoint ends in a failing assert_response that PRINTS the response). Run:
@@ -50,7 +52,8 @@ button hover). Then the idle items (FLIP springs never settle; AzReview per-fram
 4. live_tracks = 23..27 at rest in AzWidgets (spinners etc.) - idle item.
 
 ## NEXT (exact)
-- NOW: flora gradients (below). DONE: Button declares the fade. RED layout/tests/a_button_fades_into_its_hover_face.rs (flat + flora Button:
+- NOW: idle items - measure AzWidgets at rest (get_frame_report over 2 s idle, get_animations live_tracks /
+  active); then write the report. (DONE: flora gradients, dedup refactor, Button fade.) RED layout/tests/a_button_fades_into_its_hover_face.rs (flat + flora Button:
   hover seeds a BackgroundContent transition; press (ActiveChange) seeds none). GREEN: decl.rs
   `state_fade(props, ms)` (APPEND at end, banner) = [simple(animation list ms), on_active(list 0ms)];
   flat::button / flora::button push it when btn_owns_style && !disabled && type != Link.
