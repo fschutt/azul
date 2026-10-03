@@ -41,6 +41,12 @@ mod cpal_mic;
 #[cfg(target_os = "windows")]
 mod cpal_sink;
 
+// Opus voice coding: the `AudioEncoder` / `AudioDecoder` handles. Always
+// present (codegen exposes them); open only where the platform ships an Opus
+// engine (AudioToolbox on Apple).
+pub mod codec;
+pub use codec::{AudioDecoder, AudioEncoder};
+
 /// Internal playback state behind an open `AudioSink` handle.
 struct AudioSinkInner {
     /// The platform output; `None` for a headless run's synthetic sink, which
