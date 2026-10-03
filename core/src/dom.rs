@@ -1892,9 +1892,27 @@ impl Hash for NodeData {
         // Hash inline CSS properties (Static declarations only — same set the
         // legacy `css_props` field hashed). Conditions are intentionally
         // skipped to match the previous behaviour.
+        //
+        // WHICH properties the node declares, never in which ORDER: an
+        // imperative patch (`upsert_inline_css_property`, what
+        // `set_css_property` writes) moves its declaration to the end, and an
+        // order-sensitive hash made the patched node differ from a fresh build
+        // of the same widget - which then hashed exactly like an untouched
+        // twin elsewhere in the document, and `reconcile_dom` gave the rebuilt
+        // widget the twin's identity (AzWidgets: the clicked Switch matched a
+        // settings switch 7400 px down, slid in from there and lost its tween
+        // to it). A sum of per-property hashes is order-free and still counts
+        // a property declared twice.
+        let mut inline_sum: u64 = 0;
+        let mut inline_count: u64 = 0;
         for (prop, _conds) in self.style.iter_inline_properties() {
-            mem::discriminant(prop).hash(state);
+            let mut one = crate::hash::DefaultHasher::new();
+            mem::discriminant(prop).hash(&mut one);
+            inline_sum = inline_sum.wrapping_add(one.finish());
+            inline_count += 1;
         }
+        inline_count.hash(state);
+        inline_sum.hash(state);
         if let Some(ext) = self.extra.as_ref() {
             if let Some(ds) = ext.dataset.as_ref() {
                 ds.hash(state);
