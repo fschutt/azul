@@ -2233,7 +2233,8 @@ mod autotest_generated {
             EventType::MouseMove => EventType::MediaControl,
             EventType::MediaControl => EventType::PointerLockChange,
             EventType::PointerLockChange => EventType::SystemAudioChange,
-            EventType::SystemAudioChange => return None,
+            EventType::SystemAudioChange => EventType::TypingStyleChanged,
+            EventType::TypingStyleChanged => return None,
         })
     }
 
@@ -4494,6 +4495,7 @@ fn planning_and_matching_agree_for_every_event_and_filter() {
         FocusEventFilter::Paste,
         FocusEventFilter::DocumentEdit,
         FocusEventFilter::TextChanged,
+        FocusEventFilter::TypingStyleChanged,
     ];
     const WINDOW: &[WindowEventFilter] = &[
         WindowEventFilter::MouseOver,

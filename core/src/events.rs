@@ -1136,6 +1136,16 @@ pub enum EventType {
     /// granted, or lost. Application-level, at the root; the payload is
     /// `EventData::SystemAudio` and `CallbackInfo::get_system_audio_change`.
     SystemAudioChange,
+    /// The caret's TYPING STYLE changed - the formats the next typed text
+    /// takes (Ctrl/Cmd+B / I / U at a collapsed caret, the execCommand state
+    /// override) - with no text changed. APPENDED at the end.
+    ///
+    /// Fired at the editing host after the engine toggled it (the key's
+    /// default action), so a toolbar shows the pressed B at once:
+    /// `CallbackInfo::get_typing_formats(host)` answers the new formats.
+    /// Before, Ctrl+B with no selection reached the app as nothing but its
+    /// KeyDown, which runs BEFORE the toggle (EVENTS7).
+    TypingStyleChanged,
 }
 
 /// Unified event wrapper (similar to React's `SyntheticEvent`).
@@ -2246,6 +2256,7 @@ fn matches_focus_filter(
         (TextInput, EventType::Input) => true,
         (FocusEventFilter::DocumentEdit, EventType::DocumentEdit) => true,
         (FocusEventFilter::TextChanged, EventType::TextChanged) => true,
+        (FocusEventFilter::TypingStyleChanged, EventType::TypingStyleChanged) => true,
         (VirtualKeyDown, EventType::KeyDown) => true,
         (VirtualKeyUp, EventType::KeyUp) => true,
         (FocusReceived, EventType::Focus) => true,
@@ -3278,6 +3289,11 @@ pub enum FocusEventFilter {
     Invalid,
     /// The pointer moved while this node had focus. APPENDED at the end.
     MouseMove,
+    /// The focused editing host's typing style changed (see
+    /// `EventType::TypingStyleChanged`): Ctrl/Cmd+B / I / U at a collapsed
+    /// caret toggled the formats the next typed text takes. Read them with
+    /// `CallbackInfo::get_typing_formats`. APPENDED at the end.
+    TypingStyleChanged,
 }
 
 /// Event filter that fires when any action fires on the entire window
@@ -4031,6 +4047,7 @@ static ALL_FOCUS: &[FocusEventFilter] = &[
     FocusEventFilter::Change,
     FocusEventFilter::Reset,
     FocusEventFilter::Invalid,
+    FocusEventFilter::TypingStyleChanged,
 ];
 
 /// Every `WindowEventFilter` variant, so planning can be derived from matching.

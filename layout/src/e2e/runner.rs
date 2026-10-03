@@ -4757,18 +4757,34 @@ mod tests {
     /// A runner with one contenteditable div laid out and an editing session on
     /// it — the shape every text scenario mounts.
     fn editor_runner(content: &str, animations: bool, on_key_down: Option<CallbackType>) -> Runner {
+        let listeners = on_key_down
+            .map(|cb| {
+                (
+                    EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown),
+                    RefAny::new(()),
+                    cb,
+                )
+            })
+            .into_iter()
+            .collect();
+        editor_runner_with(content, animations, listeners)
+    }
+
+    /// [`editor_runner`] whose editor carries `listeners` (filter, data,
+    /// callback).
+    fn editor_runner_with(
+        content: &str,
+        animations: bool,
+        listeners: Vec<(EventFilter, RefAny, CallbackType)>,
+    ) -> Runner {
         reset_test_clock();
         freeze_test_clock();
 
         let mut editor = Dom::create_div().with_contenteditable(true).with_child(
             Dom::create_text_do_not_use_without_block_level_wrapper(content),
         );
-        if let Some(cb) = on_key_down {
-            editor = editor.with_callback(
-                EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown),
-                RefAny::new(()),
-                cb as usize,
-            );
+        for (filter, data, cb) in listeners {
+            editor = editor.with_callback(filter, data, cb as usize);
         }
         let mut dom = Dom::create_body().with_child(editor);
         let (css, _) = azul_css::parser2::new_from_str(CSS);
@@ -7442,6 +7458,58 @@ mod tests {
             text_input_value(&runner, focused.dom, node_id),
             "abc",
             "the scenario's primary + Z undoes the typed x"
+        );
+    }
+
+    // ── Ctrl+B with no selection reaches the app (EVENTS7) ──────────────────
+
+    /// What a toolbar's listener read on each `TypingStyleChanged`: whether
+    /// the caret's pending format is bold.
+    type SeenBold = Arc<Mutex<Vec<Option<bool>>>>;
+
+    extern "C" fn record_typing_bold(mut data: RefAny, info: CallbackInfo) -> Update {
+        let bold = info
+            .get_typing_formats(editor_node())
+            .into_option()
+            .map(|formats| formats.bold);
+        if let Some(seen) = data.downcast_ref::<SeenBold>() {
+            seen.lock().unwrap().push(bold);
+        }
+        Update::DoNothing
+    }
+
+    /// DEDUP_EDITORS D1 / the ledger's "Ctrl+B with no selection is not
+    /// reported to the app": the engine's Ctrl/Cmd+B at a collapsed caret
+    /// toggles the typing style (the next typed text is bold) as the key's
+    /// default action - AFTER the KeyDown callbacks ran - and told the app
+    /// nothing, so a toolbar's B showed the old state until its next render.
+    /// TEXTENG put the formats into the text-edit report; the toggle itself
+    /// is now `FocusEventFilter::TypingStyleChanged` at the editing host.
+    #[test]
+    fn ctrl_b_at_a_caret_tells_the_editor_its_typing_style_changed() {
+        let seen: SeenBold = Arc::default();
+        let mut runner = editor_runner_with(
+            "abc",
+            false,
+            vec![(
+                EventFilter::Focus(azul_core::events::FocusEventFilter::TypingStyleChanged),
+                RefAny::new(seen.clone()),
+                record_typing_bold as CallbackType,
+            )],
+        );
+
+        tap_key(&mut runner, VirtualKeyCode::B, &[primary_key()]);
+        assert_eq!(
+            seen.lock().unwrap().clone(),
+            vec![Some(true)],
+            "one TypingStyleChanged, after the toggle: the caret now types bold"
+        );
+
+        tap_key(&mut runner, VirtualKeyCode::B, &[primary_key()]);
+        assert_eq!(
+            seen.lock().unwrap().last().copied(),
+            Some(Some(false)),
+            "toggled back: plain again"
         );
     }
 }
