@@ -149,10 +149,21 @@ impl Tool {
         }
     }
 
-    /// Text is laid out but needs engine work (azul has no text-to-pixels API).
+    /// The tool edits the active layer's pixels (so it cannot act on an
+    /// adjustment, a group or a locked layer).
     #[must_use]
-    pub const fn enabled(self) -> bool {
-        !matches!(self, Self::Text)
+    pub const fn needs_pixels(self) -> bool {
+        matches!(
+            self,
+            Self::Brush
+                | Self::Pencil
+                | Self::Eraser
+                | Self::Bucket
+                | Self::Gradient
+                | Self::CloneStamp
+                | Self::Shape
+                | Self::Move
+        )
     }
 
     /// The tool with this shortcut, cycling within a shared key.
@@ -170,9 +181,48 @@ impl Tool {
     }
 }
 
-/// Why the Text tool is off, shown when it is chosen.
-pub const TEXT_TOOL_NOTE: &str =
-    "Text needs engine work: azul has no API that rasterises text into pixels yet.";
+/// What the Text tool says while a text is being set.
+pub const TEXT_TOOL_HINT: &str = "Type in the Text field; Enter or Commit places it, Escape drops it.";
+
+/// The font families the Text tool offers (a family that is not installed
+/// falls back to one that covers the text).
+pub const TEXT_FAMILIES: [&str; 6] = ["sans-serif", "serif", "monospace", "Helvetica", "Georgia", "Courier New"];
+
+/// A text the Text tool is setting: where its first line's box starts
+/// (document pixels) and what it says. It shows as a live layer until it is
+/// committed (one History state "Text") or dropped.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TextDraft {
+    pub at: (i32, i32),
+    pub text: String,
+}
+
+/// Everything a text rasteriser needs (azul's `RawImage::from_text` in the
+/// app; a stand-in in the tests).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextSpec {
+    pub text: String,
+    pub family: String,
+    pub size: f32,
+    pub bold: bool,
+    pub italic: bool,
+    /// Straight RGBA.
+    pub color: [u8; 4],
+}
+
+/// Sets a text as straight RGBA8 rows: (width, height, pixels).
+pub type TextRaster<'a> = &'a dyn Fn(&TextSpec) -> Option<(u32, u32, Vec<u8>)>;
+
+/// A text layer is named after its first line (Photoshop's way).
+#[must_use]
+pub fn text_layer_name(text: &str) -> String {
+    let first: String = text.lines().next().unwrap_or("").trim().chars().take(32).collect();
+    if first.is_empty() {
+        String::from("Text")
+    } else {
+        first
+    }
+}
 
 /// The options bar's values, per tool family.
 #[derive(Clone, Debug, PartialEq)]
@@ -199,6 +249,12 @@ pub struct ToolOptions {
     pub clone_source: Option<(f32, f32)>,
     /// The aligned offset from the first clone stroke on.
     pub clone_offset: Option<(f32, f32)>,
+    /// The Text tool: an index into [`TEXT_FAMILIES`], the size in document
+    /// pixels, bold, italic.
+    pub text_family: usize,
+    pub text_size: f32,
+    pub text_bold: bool,
+    pub text_italic: bool,
 }
 
 impl Default for ToolOptions {
@@ -224,6 +280,10 @@ impl Default for ToolOptions {
             shape_ellipse: false,
             clone_source: None,
             clone_offset: None,
+            text_family: 0,
+            text_size: 72.0,
+            text_bold: false,
+            text_italic: false,
         }
     }
 }
@@ -316,6 +376,8 @@ pub struct PhotoState {
     pub cursor: Option<(i32, i32)>,
     /// The last message (an error, a hint).
     pub status: String,
+    /// The text the Text tool is setting.
+    pub text: Option<TextDraft>,
 }
 
 /// The swatches of a new window.
@@ -365,6 +427,7 @@ impl PhotoState {
             drag: None,
             cursor: None,
             status: String::new(),
+            text: None,
         }
     }
 
@@ -375,6 +438,7 @@ impl PhotoState {
         self.uuid = uuid.to_string();
         self.modified = false;
         self.drag = None;
+        self.text = None;
         self.overlays = Overlays::default();
         self.opts.clone_source = None;
         self.opts.clone_offset = None;
@@ -515,6 +579,7 @@ impl PhotoState {
 
     /// Run a command; a refusal becomes the status line.
     pub fn apply(&mut self, op: Op) -> Effects {
+        let committed = self.commit_pending_text();
         if let Err(e) = self.engine.apply(op) {
             return self.refused(e);
         }
@@ -522,7 +587,7 @@ impl PhotoState {
         self.status.clear();
         let mut e = self.refresh();
         e.dom = true;
-        e
+        committed.merge(e)
     }
 
     fn refused(&mut self, e: EngineError) -> Effects {
@@ -531,6 +596,7 @@ impl PhotoState {
     }
 
     pub fn undo(&mut self) -> Effects {
+        let _ = self.commit_pending_text();
         if !self.engine.undo() {
             return Effects::default();
         }
@@ -541,6 +607,7 @@ impl PhotoState {
     }
 
     pub fn redo(&mut self) -> Effects {
+        let _ = self.commit_pending_text();
         if !self.engine.redo() {
             return Effects::default();
         }
@@ -552,6 +619,7 @@ impl PhotoState {
 
     /// Show History state `index`.
     pub fn jump(&mut self, index: usize) -> Effects {
+        let _ = self.commit_pending_text();
         if !self.engine.jump_to(index) {
             return Effects::default();
         }
@@ -606,19 +674,136 @@ impl PhotoState {
         Effects::dom()
     }
 
-    /// Choose a tool (the Text tool explains itself instead).
+    /// Choose a tool; leaving the Text tool commits the text being set.
     pub fn set_tool(&mut self, tool: Tool) -> Effects {
-        if !tool.enabled() {
-            self.status = TEXT_TOOL_NOTE.to_string();
-            return Effects::dom();
+        let committed = if tool == Tool::Text {
+            Effects::default()
+        } else {
+            self.commit_pending_text()
+        };
+        if self.drag.take() == Some(Drag::Stroke) {
+            self.engine.end_stroke();
+        }
+        if self.engine.is_live() && self.text.is_none() {
+            // A move drag cut short by a key: keep what it did.
+            self.engine.end_live();
         }
         self.tool = tool;
         self.status.clear();
-        self.drag = None;
         self.overlays = Overlays::default();
         let mut e = self.refresh();
         e.dom = true;
+        committed.merge(e)
+    }
+
+    /// Whether `tool` can act on the active layer now (a pixel tool needs a
+    /// pixel layer that is not locked) - the tools column greys out the
+    /// others.
+    #[must_use]
+    pub fn tool_available(&self, tool: Tool) -> bool {
+        !tool.needs_pixels() || self.engine.pixel_target().is_ok()
+    }
+
+    // ==== The Text tool ====
+
+    /// What the rasteriser is asked to set for `text` (the options bar's
+    /// font, size, style and the foreground colour).
+    #[must_use]
+    pub fn text_spec(&self, text: &str) -> TextSpec {
+        TextSpec {
+            text: text.to_string(),
+            family: TEXT_FAMILIES
+                .get(self.opts.text_family)
+                .copied()
+                .unwrap_or(TEXT_FAMILIES[0])
+                .to_string(),
+            size: self.opts.text_size,
+            bold: self.opts.text_bold,
+            italic: self.opts.text_italic,
+            color: self.fg,
+        }
+    }
+
+    /// The text being set says `text` now: its layer is set again.
+    pub fn set_text(&mut self, text: &str, raster: TextRaster<'_>) -> Effects {
+        let Some(draft) = self.text.as_mut() else {
+            return Effects::default();
+        };
+        draft.text = text.to_string();
+        self.render_text_draft(raster)
+    }
+
+    /// The font, size, style or colour changed: the text being set follows.
+    pub fn restyle_text(&mut self, raster: TextRaster<'_>) -> Effects {
+        if self.text.is_none() {
+            return Effects::default();
+        }
+        self.render_text_draft(raster)
+    }
+
+    /// The live text layer from the draft: the previous one taken back, the
+    /// new pixels placed at the draft's corner.
+    fn render_text_draft(&mut self, raster: TextRaster<'_>) -> Effects {
+        let Some(draft) = self.text.clone() else {
+            return Effects::default();
+        };
+        if !self.engine.is_live() {
+            self.engine.begin_live("Text");
+        }
+        self.engine.live_reset();
+        if let Some((width, height, rgba)) = raster(&self.text_spec(&draft.text)) {
+            let op = Op::AddRasterLayer {
+                name: text_layer_name(&draft.text),
+                width,
+                height,
+                rgba,
+                x: draft.at.0,
+                y: draft.at.1,
+            };
+            if let Err(e) = self.engine.apply_live(op) {
+                return self.refused(e);
+            }
+        }
+        self.modified = true;
+        self.refresh()
+    }
+
+    /// Place the text being set: one History state "Text" (nothing for an
+    /// empty text).
+    pub fn commit_text(&mut self) -> Effects {
+        let Some(draft) = self.text.take() else {
+            return Effects::default();
+        };
+        if draft.text.trim().is_empty() {
+            self.engine.cancel_live();
+        } else {
+            self.engine.end_live();
+        }
+        self.status.clear();
+        let mut e = self.refresh();
+        e.dom = true;
         e
+    }
+
+    /// Drop the text being set.
+    pub fn cancel_text(&mut self) -> Effects {
+        if self.text.take().is_none() {
+            return Effects::default();
+        }
+        self.engine.cancel_live();
+        self.status.clear();
+        let mut e = self.refresh();
+        e.dom = true;
+        e
+    }
+
+    /// Commit a text being set before another edit.
+    fn commit_pending_text(&mut self) -> Effects {
+        if self.text.is_some() {
+            self.commit_text()
+        } else {
+            Effects::default()
+        }
     }
 
     /// A digit key (Photoshop's): `1`..`9` = 10 %..90 %, `0` = 100 % - the
@@ -857,6 +1042,11 @@ impl PhotoState {
                 Effects::default()
             }
             Tool::Move => {
+                if let Err(e) = self.engine.pixel_target() {
+                    return self.refused(e);
+                }
+                // The layer follows the pointer: a live edit, one "Move" step.
+                self.engine.begin_live("Move");
                 self.drag = Some(Drag::Move { start: doc, end: doc });
                 Effects::default()
             }
@@ -869,8 +1059,15 @@ impl PhotoState {
             }
             Tool::Zoom => self.zoom_step(if mods.alt { -1 } else { 1 }, Some((vx, vy))),
             Tool::Text => {
-                self.status = TEXT_TOOL_NOTE.to_string();
-                Effects::dom()
+                // A click elsewhere places the text being set and starts the next.
+                let committed = self.commit_pending_text();
+                self.engine.begin_live("Text");
+                self.text = Some(TextDraft {
+                    at: (dx.floor() as i32, dy.floor() as i32),
+                    text: String::new(),
+                });
+                self.status = TEXT_TOOL_HINT.to_string();
+                committed.merge(Effects::dom())
             }
         }
     }
@@ -916,9 +1113,25 @@ impl PhotoState {
                 self.overlays.crop = Some(r);
                 self.refresh()
             }
-            Some(Drag::Gradient { start, end }) | Some(Drag::Move { start, end }) => {
+            Some(Drag::Gradient { start, end }) => {
                 *end = doc;
                 self.overlays.guide = Some((*start, doc));
+                self.refresh()
+            }
+            Some(Drag::Move { start, end }) => {
+                let whole = |p: (f32, f32), s: (f32, f32)| ((p.0 - s.0).round() as i32, (p.1 - s.1).round() as i32);
+                let (from, before) = (*start, whole(*end, *start));
+                *end = doc;
+                let (ox, oy) = whole(doc, from);
+                if (ox, oy) != before {
+                    // From the layer as it was: nothing is lost off the edge.
+                    self.engine.live_reset();
+                    if ox != 0 || oy != 0 {
+                        if let Err(e) = self.engine.apply_live(Op::Offset { dx: ox, dy: oy }) {
+                            self.status = e.to_string();
+                        }
+                    }
+                }
                 self.refresh()
             }
             Some(Drag::Shape { start, end }) => {
@@ -1009,14 +1222,13 @@ impl PhotoState {
                     self.apply(Op::DrawShape { shape, color: self.fg })
                 }
             }
-            Drag::Move { start, .. } => {
-                let ox = (doc.0 - start.0).round() as i32;
-                let oy = (doc.1 - start.1).round() as i32;
-                if ox == 0 && oy == 0 {
-                    Effects::default()
-                } else {
-                    self.apply(Op::Offset { dx: ox, dy: oy })
-                }
+            Drag::Move { .. } => {
+                // The layer is already where the pointer left it.
+                self.engine.end_live();
+                self.modified = true;
+                let mut e = self.refresh();
+                e.dom = true;
+                e
             }
             Drag::Pan { .. } => Effects::dom(),
         };
