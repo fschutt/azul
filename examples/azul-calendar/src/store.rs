@@ -23,22 +23,57 @@ pub const EXPORTS_DIR: &str = "exports";
 /// The file jobs that write `batch`, in order.
 #[must_use]
 pub fn jobs_of(batch: &[Write]) -> Vec<FileJob> {
-    let _ = batch;
-    todo!()
+    batch
+        .iter()
+        .map(|write| match write {
+            Write::Put { key, bytes } => FileJob::Put {
+                key: key.clone(),
+                bytes: bytes.clone(),
+            },
+            Write::Delete { key } => FileJob::Delete { key: key.clone() },
+        })
+        .collect()
 }
 
-/// The writes of `batch` that `outcomes` say did not land, each with why.
+/// The writes of `batch` that `outcomes` say did not land, each with why. A write no outcome
+/// answers for did not land either.
 #[must_use]
 pub fn failures_of(batch: &[Write], outcomes: &[FileOutcome]) -> Vec<(Write, String)> {
-    let _ = (batch, outcomes);
-    todo!()
+    batch
+        .iter()
+        .filter_map(|write| {
+            let answer = outcomes.iter().find(|o| match o {
+                FileOutcome::Put { key, .. } | FileOutcome::Deleted { key, .. } => {
+                    key == write.key()
+                }
+                FileOutcome::Got { .. } | FileOutcome::GotAll { .. } => false,
+            });
+            match answer {
+                Some(outcome) => outcome.error().map(|why| (write.clone(), why)),
+                None => Some((
+                    write.clone(),
+                    String::from("the file thread did not answer for it"),
+                )),
+            }
+        })
+        .collect()
 }
 
-/// The key an export named `file_name` (`Work.ics`) is written to.
+/// The key an export named `file_name` (`Work.ics`) is written to: its file name alone, in
+/// [`EXPORTS_DIR`].
 #[must_use]
 pub fn export_key(file_name: &str) -> String {
-    let _ = file_name;
-    todo!()
+    let name = file_name
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or_default()
+        .trim();
+    let name = if name.is_empty() || name == "." || name == ".." {
+        "AzCalendar.ics"
+    } else {
+        name
+    };
+    format!("{EXPORTS_DIR}/{name}")
 }
 
 #[cfg(test)]
