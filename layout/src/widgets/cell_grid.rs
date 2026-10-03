@@ -2126,6 +2126,17 @@ pub(crate) fn resolve(mut grid: CellGrid) -> CellGridResolved {
     CellGridResolved { grid, geo, cells }
 }
 
+/// How many columns each cell of row `ri` (an index into `geo.rows`) is
+/// drawn across: 1 for a cell of its own, n > 1 for a text that spills over
+/// the n - 1 empty cells after it (Excel), 0 for a cell drawn under such a
+/// spill.
+pub(crate) fn spill_spans(resolved: &CellGridResolved, ri: usize) -> Vec<u32> {
+    resolved
+        .cells
+        .get(ri)
+        .map_or_else(Vec::new, |row| alloc::vec![1; row.len()])
+}
+
 /// The range a fill drag from `source` to `target` covers: the source
 /// stretched down / up or right / left (whichever way the pointer went
 /// further), never both.
@@ -3851,6 +3862,75 @@ mod cell_grid_tests {
         assert_eq!(cell_info.role, azul_core::a11y::AccessibilityRole::GridCell);
         assert_eq!(cell_info.row_index.into_option(), Some(42), "its row in the WHOLE sheet");
         assert_eq!(cell_info.column_index.into_option(), Some(1));
+    }
+
+    /// Seen in the wave-6 look: every cell was an anonymous GridCell (one
+    /// a11y-shape warning per cell per frame). A cell is named by its place
+    /// ("B2", what Excel's screen reader says first) and carries its text as
+    /// its value.
+    #[test]
+    fn every_cell_is_named_by_its_place_and_carries_its_text_as_its_value() {
+        let dom = small().with_theme(UiTheme::Flat).dom();
+        // Child 0 is the header row; child 2 sheet row 2; its child 0 the
+        // row number, child 2 column B.
+        let cell = &dom.children.as_ref()[2].children.as_ref()[2];
+        let info = cell.root.get_accessibility_info().expect("a cell role");
+        assert_eq!(info.accessibility_name.as_ref().map(|n| n.as_str()), Some("B2"));
+        assert_eq!(info.accessibility_value.as_ref().map(|v| v.as_str()), Some("11"));
+        let empty = &dom.children.as_ref()[7].children.as_ref()[1];
+        let info = empty.root.get_accessibility_info().expect("a cell role");
+        assert_eq!(
+            info.accessibility_name.as_ref().map(|n| n.as_str()),
+            Some("A7"),
+            "an empty cell is named too"
+        );
+    }
+
+    /// A1 holds a title wider than its column, B1 and C1 are empty, D1 has
+    /// text; A2 a long number; A3 a long note.
+    extern "C" fn long_title(_: RefAny, cell: CellGridCellRef) -> CellGridCell {
+        let text = |t: &'static str, kind| CellGridCell::create(AzString::from_const_str(t), kind);
+        match (cell.row, cell.column) {
+            (0, 0) => text("Household budget 2027", CellGridCellKind::Text),
+            (0, 3) => text("x", CellGridCellKind::Text),
+            (1, 0) => text("1234567890123", CellGridCellKind::Number),
+            (2, 0) => text("A very long note that runs on and on and on", CellGridCellKind::Text),
+            _ => CellGridCell::empty(),
+        }
+    }
+
+    fn titled() -> CellGrid {
+        CellGrid::create(100, 20)
+            .with_viewport(400.0, 200.0)
+            .with_data_source(RefAny::new(()), long_title as CellGridDataSourceCallbackType)
+    }
+
+    fn is_cell(node: &Dom) -> bool {
+        node.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, Class(s) if s.as_str() == CELL_CLASS_NAME))
+    }
+
+    /// Seen in the wave-6 look: the Budget sample's title was cut at A1's
+    /// edge. Excel lets a text run on over the empty cells after it.
+    #[test]
+    fn a_text_too_wide_for_its_cell_spills_over_the_empty_cells_after_it() {
+        let resolved = resolve(titled());
+        let spans = spill_spans(&resolved, 0);
+        assert_eq!(&spans[..4], &[3, 0, 0, 1], "A1 reaches over B1 and C1; D1 holds its own text");
+        assert_eq!(spill_spans(&resolved, 1)[0], 1, "a number never spills");
+        let long = spill_spans(&resolved, 2);
+        assert_eq!(long.iter().sum::<u32>() as usize, long.len(), "every column is drawn once");
+        assert_eq!(long[0] as usize, long.len(), "a long note runs to the edge of the window");
+
+        // Drawn: the first data row has two cells fewer, A1 covers three.
+        let in_view = geometry(&titled()).columns.len();
+        let dom = titled().with_theme(UiTheme::Flat).dom();
+        let first_row = &dom.children.as_ref()[1];
+        let cells = first_row.children.as_ref().iter().filter(|c| is_cell(c)).count();
+        assert_eq!(cells, in_view - 2);
     }
 
     #[test]
