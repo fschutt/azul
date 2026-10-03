@@ -107,7 +107,7 @@ use azul_css::{
             StyleTextOrientationValue, StyleTextOverflowValue, StyleTextTransformValue,
             StyleTransformOriginValue, StyleTransformVecValue, StyleUnicodeBidiValue,
             StyleUserSelectValue, StyleVerticalAlignValue, StyleVisibilityValue,
-            StyleWhiteSpaceValue, StyleWordBreakValue, StyleWordSpacingValue, StyleZoomValue,
+            StyleWhiteSpaceValue, StyleWordBreakValue, StyleWordSpacingValue, StyleZoomValue, StyleBackgroundClipValue,
             WidowsValue,
         },
         style::{StyleCursor, StyleTextColor, StyleTransformOrigin},
@@ -4145,6 +4145,12 @@ impl CssPropertyCache {
     );
     impl_get_prop!(get_opacity, StyleOpacityValue, Opacity, as_opacity);
     impl_get_prop!(get_zoom, StyleZoomValue, Zoom, as_zoom);
+    impl_get_prop!(
+        get_background_clip,
+        StyleBackgroundClipValue,
+        BackgroundClip,
+        as_background_clip
+    );
     impl_get_prop!(
         get_transform,
         StyleTransformVecValue,

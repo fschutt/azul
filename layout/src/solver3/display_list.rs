@@ -112,6 +112,31 @@ fn same_collapsed_border(
     a.width == b.width && a.style == b.style && a.color == b.color
 }
 
+/// `rect` shrunk by `edges` on every side (a box's padding box from its
+/// border box, its content box from its padding box), never below empty.
+fn inset_rect(rect: LogicalRect, edges: &crate::solver3::geometry::EdgeSizes) -> LogicalRect {
+    LogicalRect::new(
+        LogicalPosition::new(rect.origin.x + edges.left, rect.origin.y + edges.top),
+        LogicalSize::new(
+            (rect.size.width - edges.left - edges.right).max(0.0),
+            (rect.size.height - edges.top - edges.bottom).max(0.0),
+        ),
+    )
+}
+
+/// The corner radii of a box inset by `edges` - the inner curve (CSS
+/// Backgrounds 3 s5.2: the outer radius minus the widths beside the corner,
+/// never below 0; one radius per corner, so the larger width).
+fn inset_radius(radius: BorderRadius, edges: &crate::solver3::geometry::EdgeSizes) -> BorderRadius {
+    let inner = |r: f32, a: f32, b: f32| (r - a.max(b)).max(0.0);
+    BorderRadius {
+        top_left: inner(radius.top_left, edges.top, edges.left),
+        top_right: inner(radius.top_right, edges.top, edges.right),
+        bottom_left: inner(radius.bottom_left, edges.bottom, edges.left),
+        bottom_right: inner(radius.bottom_right, edges.bottom, edges.right),
+    }
+}
+
 /// At most this many tiles of one background layer: a hairline tile over a
 /// window would be thousands of items.
 const MAX_BACKGROUND_TILES: i64 = 1024;
@@ -6303,9 +6328,11 @@ where
 
     /// A box's decoration in its CSS order (CSS Backgrounds 3 s7, CSS 2.2
     /// Appendix E): its OUTER shadows (below everything, around the border
-    /// box), its background layers, its INNER (`inset`) shadows - above the
-    /// background, inside the padding box, with the padding box's radii - and
-    /// its border. The one painter of a box's decoration, for a block box
+    /// box), its background layers - within its `background-clip` box
+    /// (s3.7; the border box unless it says `padding-box` / `content-box`) -,
+    /// its INNER (`inset`) shadows - above the background, inside the padding
+    /// box, with the padding box's radii - and its border. The one painter of
+    /// a box's decoration, for a block box
     /// (`paint_node_background_and_border_inner`) and an atomic inline
     /// (`paint_inline_shape`, which skipped the shadows), so the two cannot
     /// drift again.
@@ -6322,11 +6349,18 @@ where
         node_state: &azul_core::styled_dom::StyledNodeState,
         border_box: LogicalRect,
         border: &crate::solver3::geometry::EdgeSizes,
+        padding: &crate::solver3::geometry::EdgeSizes,
         background_contents: &[azul_css::props::style::StyleBackgroundContent],
         border_info: &BorderInfo,
         border_radius: BorderRadius,
         style_border_radius: StyleBorderRadius,
     ) {
+        use azul_css::props::style::StyleBackgroundClip;
+
+        // The padding edge and its curve (the border's inner one).
+        let padding_box = inset_rect(border_box, border);
+        let padding_radius = inset_radius(border_radius, border);
+
         // +spec:overflow:bb4308 - box shadows are ink overflow: painted outside
         // border box, not affecting layout.
         let shadows = super::getters::get_box_shadows(self.ctx.styled_dom, dom_id, node_state);
@@ -6338,36 +6372,31 @@ where
                 border_radius,
             });
         }
-        for layer in background_contents {
-            builder.push_background_layer(border_box, layer, border_radius, self.ctx.image_cache);
-        }
-        if shadows.iter().any(is_inset) {
-            // CSS Backgrounds 3 s7.2: an inner shadow is cast inside the
-            // padding edge, whose corners are the border's inner curve.
-            let padding_box = LogicalRect::new(
-                LogicalPosition::new(
-                    border_box.origin.x + border.left,
-                    border_box.origin.y + border.top,
+        if !background_contents.is_empty() {
+            let (area, radius) = match super::getters::get_background_clip(
+                self.ctx.styled_dom,
+                dom_id,
+                node_state,
+            ) {
+                StyleBackgroundClip::BorderBox => (border_box, border_radius),
+                StyleBackgroundClip::PaddingBox => (padding_box, padding_radius),
+                StyleBackgroundClip::ContentBox => (
+                    inset_rect(padding_box, padding),
+                    inset_radius(padding_radius, padding),
                 ),
-                LogicalSize::new(
-                    (border_box.size.width - border.left - border.right).max(0.0),
-                    (border_box.size.height - border.top - border.bottom).max(0.0),
-                ),
-            );
-            let inner = |r: f32, a: f32, b: f32| (r - a.max(b)).max(0.0);
-            let padding_radius = BorderRadius {
-                top_left: inner(border_radius.top_left, border.top, border.left),
-                top_right: inner(border_radius.top_right, border.top, border.right),
-                bottom_left: inner(border_radius.bottom_left, border.bottom, border.left),
-                bottom_right: inner(border_radius.bottom_right, border.bottom, border.right),
             };
-            for shadow in shadows.iter().filter(|s| is_inset(*s)) {
-                builder.push_item(DisplayListItem::BoxShadow {
-                    bounds: padding_box.into(),
-                    shadow: *shadow,
-                    border_radius: padding_radius,
-                });
+            for layer in background_contents {
+                builder.push_background_layer(area, layer, radius, self.ctx.image_cache);
             }
+        }
+        // CSS Backgrounds 3 s7.2: an inner shadow is cast inside the padding
+        // edge, above the background.
+        for shadow in shadows.iter().filter(|s| is_inset(*s)) {
+            builder.push_item(DisplayListItem::BoxShadow {
+                bounds: padding_box.into(),
+                shadow: *shadow,
+                border_radius: padding_radius,
+            });
         }
         builder.push_border(
             border_box,
@@ -6627,6 +6656,7 @@ where
                 &styled_node_state,
                 paint_rect,
                 &bp.border,
+                &bp.padding,
                 &background_contents,
                 &border_info,
                 simple_border_radius,
@@ -8961,21 +8991,26 @@ where
 
         // FIX: object_bounds is the margin-box position from text3.
         // We need to convert to border-box for painting backgrounds/borders.
-        let (margins, border) = self
+        let (margins, border, padding) = self
             .positioned_tree
             .tree
             .dom_to_layout
             .get(&node_id)
             .and_then(|indices| indices.first())
-            .map(|&idx| self.positioned_tree.tree.nodes[idx.index()].box_props.unpack())
+            .map(|&idx| {
+                self.positioned_tree.tree.nodes[idx.index()]
+                    .box_props
+                    .unpack()
+            })
             .map_or_else(
                 || {
                     (
                         crate::solver3::geometry::EdgeSizes::default(),
                         crate::solver3::geometry::EdgeSizes::default(),
+                        crate::solver3::geometry::EdgeSizes::default(),
                     )
                 },
-                |bp| (bp.margin, bp.border),
+                |bp| (bp.margin, bp.border, bp.padding),
             );
 
         // Convert margin-box bounds to border-box bounds
@@ -9017,6 +9052,7 @@ where
             styled_node_state,
             border_box_bounds,
             &border,
+            &padding,
             &background_contents,
             &border_info,
             simple_border_radius,

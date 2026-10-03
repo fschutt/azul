@@ -953,6 +953,41 @@ impl PrintAsCssValue for StyleBackgroundRepeatVec {
     }
 }
 
+/// The `background-clip` property (CSS Backgrounds 3 s3.7): the box a
+/// background is painted within - the border box (the initial value), the
+/// padding box or the content box. One value for every layer of the
+/// background (a comma list keeps its first).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+#[derive(Default)]
+pub enum StyleBackgroundClip {
+    #[default]
+    BorderBox,
+    PaddingBox,
+    ContentBox,
+}
+
+impl PrintAsCssValue for StyleBackgroundClip {
+    fn print_as_css_value(&self) -> String {
+        match self {
+            Self::BorderBox => "border-box".to_string(),
+            Self::PaddingBox => "padding-box".to_string(),
+            Self::ContentBox => "content-box".to_string(),
+        }
+    }
+}
+
+#[cfg(feature = "codegen")]
+impl crate::codegen::format::FormatAsRustCode for StyleBackgroundClip {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            Self::BorderBox => "StyleBackgroundClip::BorderBox".to_string(),
+            Self::PaddingBox => "StyleBackgroundClip::PaddingBox".to_string(),
+            Self::ContentBox => "StyleBackgroundClip::ContentBox".to_string(),
+        }
+    }
+}
+
 // --- ERROR DEFINITIONS ---
 
 #[derive(Clone, PartialEq)]
@@ -1518,6 +1553,24 @@ pub mod parser {
             "repeat" => Ok(StyleBackgroundRepeat::PatternRepeat),
             "repeat-x" => Ok(StyleBackgroundRepeat::RepeatX),
             "repeat-y" => Ok(StyleBackgroundRepeat::RepeatY),
+            _ => Err(InvalidValueErr(input)),
+        }
+    }
+
+    /// Parses a `background-clip` value: `border-box`, `padding-box` or
+    /// `content-box`. Of a comma list (one value per layer) the first
+    /// applies to every layer.
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `background-clip` value.
+    pub fn parse_style_background_clip(
+        input: &str,
+    ) -> Result<StyleBackgroundClip, InvalidValueErr<'_>> {
+        let first = input.split(',').next().unwrap_or(input);
+        match first.trim() {
+            "border-box" => Ok(StyleBackgroundClip::BorderBox),
+            "padding-box" => Ok(StyleBackgroundClip::PaddingBox),
+            "content-box" => Ok(StyleBackgroundClip::ContentBox),
             _ => Err(InvalidValueErr(input)),
         }
     }

@@ -110,7 +110,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 32] = [
     (CombinedCssPropertyType::BorderWidth, "stroke-width"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 198] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 199] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -222,6 +222,7 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 198] = [
     (CssPropertyType::BackgroundPosition, "background-position"),
     (CssPropertyType::BackgroundSize, "background-size"),
     (CssPropertyType::BackgroundRepeat, "background-repeat"),
+    (CssPropertyType::BackgroundClip, "background-clip"),
     (
         CssPropertyType::BorderTopLeftRadius,
         "border-top-left-radius",
@@ -553,6 +554,7 @@ pub type StyleListStyleTypeValue = CssPropertyValue<StyleListStyleType>;
 pub type StyleListStylePositionValue = CssPropertyValue<StyleListStylePosition>;
 pub type StringSetValue = CssPropertyValue<StringSet>;
 pub type StyleZoomValue = CssPropertyValue<StyleZoom>;
+pub type StyleBackgroundClipValue = CssPropertyValue<StyleBackgroundClip>;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CssKeyMap {
@@ -873,6 +875,7 @@ pub enum CssProperty {
     ListStylePosition(StyleListStylePositionValue),
     StringSet(StringSetValue),
     Zoom(StyleZoomValue),
+    BackgroundClip(StyleBackgroundClipValue),
 }
 
 impl_option!(
@@ -1138,6 +1141,7 @@ pub enum CssPropertyType {
     ListStylePosition,
     StringSet,
     Zoom,
+    BackgroundClip,
 }
 
 impl CssPropertyType {
@@ -1339,6 +1343,7 @@ impl CssPropertyType {
         Self::ListStylePosition,
         Self::StringSet,
         Self::Zoom,
+        Self::BackgroundClip,
     ];
 
     /// Returns an iterator over all CSS property types.
@@ -1583,6 +1588,7 @@ impl CssPropertyType {
             Self::ListStylePosition => "list-style-position",
             Self::StringSet => "string-set",
             Self::Zoom => "zoom",
+            Self::BackgroundClip => "background-clip",
         }
     }
 
@@ -1806,8 +1812,8 @@ impl CssPropertyType {
     pub const fn relayout_scope(&self, node_is_ifc_member: bool) -> RelayoutScope {
         use CssPropertyType::{
             AlignmentBaseline, Animation, AnimationIn, AnimationOut, AppRegion, BackdropFilter,
-            BackfaceVisibility, BackgroundContent, BackgroundPosition, BackgroundRepeat,
-            BackgroundSize, BaselineSource, BorderBottomColor, BorderBottomLeftRadius,
+            BackfaceVisibility, BackgroundClip, BackgroundContent, BackgroundPosition,
+            BackgroundRepeat, BackgroundSize, BaselineSource, BorderBottomColor, BorderBottomLeftRadius,
             BorderBottomRightRadius, BorderBottomStyle, BorderBottomWidth, BorderLeftColor,
             BorderLeftStyle, BorderLeftWidth, BorderRightColor, BorderRightStyle, BorderRightWidth,
             BorderTopColor, BorderTopLeftRadius, BorderTopRightRadius, BorderTopStyle,
@@ -1836,6 +1842,7 @@ impl CssPropertyType {
             | BackgroundPosition
             | BackgroundSize
             | BackgroundRepeat
+            | BackgroundClip
             | BorderTopColor
             | BorderRightColor
             | BorderLeftColor
@@ -3748,6 +3755,11 @@ pub fn parse_css_property(
                     .map_err(CssParsingError::Zoom)?
                     .into(),
             ),
+            CssPropertyType::BackgroundClip => CssProperty::BackgroundClip(
+                parse_style_background_clip(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
             CssPropertyType::TableLayout => CssProperty::TableLayout(
                 parse_table_layout(value)
                     .map_err(|_| CssParsingError::GenericParseError)?
@@ -4876,6 +4888,7 @@ impl_from_css_prop!(StyleListStyleType, CssProperty::ListStyleType);
 impl_from_css_prop!(StyleListStylePosition, CssProperty::ListStylePosition);
 impl_from_css_prop!(StringSet, CssProperty::StringSet);
 impl_from_css_prop!(StyleZoom, CssProperty::Zoom);
+impl_from_css_prop!(StyleBackgroundClip, CssProperty::BackgroundClip);
 impl_from_css_prop!(LayoutTableLayout, CssProperty::TableLayout);
 impl_from_css_prop!(StyleBorderCollapse, CssProperty::BorderCollapse);
 impl_from_css_prop!(LayoutBorderSpacing, CssProperty::BorderSpacing);
@@ -5082,6 +5095,7 @@ impl CssProperty {
             Self::ListStylePosition(v) => v.get_css_value_fmt(),
             Self::StringSet(v) => v.get_css_value_fmt(),
             Self::Zoom(v) => v.get_css_value_fmt(),
+            Self::BackgroundClip(v) => v.get_css_value_fmt(),
             Self::TableLayout(v) => v.get_css_value_fmt(),
             Self::BorderCollapse(v) => v.get_css_value_fmt(),
             Self::BorderSpacing(v) => v.get_css_value_fmt(),
@@ -5619,6 +5633,7 @@ impl CssProperty {
             Self::ListStylePosition(_) => CssPropertyType::ListStylePosition,
             Self::StringSet(_) => CssPropertyType::StringSet,
             Self::Zoom(_) => CssPropertyType::Zoom,
+            Self::BackgroundClip(_) => CssPropertyType::BackgroundClip,
             Self::TableLayout(_) => CssPropertyType::TableLayout,
             Self::BorderCollapse(_) => CssPropertyType::BorderCollapse,
             Self::BorderSpacing(_) => CssPropertyType::BorderSpacing,
@@ -6119,6 +6134,10 @@ impl CssProperty {
     #[must_use]
     pub const fn zoom(input: StyleZoom) -> Self {
         Self::Zoom(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn background_clip(input: StyleBackgroundClip) -> Self {
+        Self::BackgroundClip(CssPropertyValue::Exact(input))
     }
     #[must_use]
     pub const fn table_layout(input: LayoutTableLayout) -> Self {
@@ -7399,6 +7418,13 @@ impl CssProperty {
         }
     }
     #[must_use]
+    pub const fn as_background_clip(&self) -> Option<&StyleBackgroundClipValue> {
+        match self {
+            Self::BackgroundClip(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
     pub const fn as_table_layout(&self) -> Option<&LayoutTableLayoutValue> {
         match self {
             Self::TableLayout(f) => Some(f),
@@ -7531,7 +7557,7 @@ impl CssProperty {
             TextJustify, TextOrientation, TextOverflow, TextShadow, TextTransform, Top, Transform,
             TransformOrigin, UnicodeBidi, UserSelect, VerticalAlign, Visibility, WhiteSpace,
             Widows, Width, WordBreak, WordSpacing, WritingMode, ZIndex,
-            Zoom,
+            Zoom, BackgroundClip,
         };
         match self {
             CaretColor(c) => c.is_initial(),
@@ -7718,6 +7744,7 @@ impl CssProperty {
             ListStylePosition(c) => c.is_initial(),
             StringSet(c) => c.is_initial(),
             Zoom(c) => c.is_initial(),
+            BackgroundClip(c) => c.is_initial(),
             TableLayout(c) => c.is_initial(),
             BorderCollapse(c) => c.is_initial(),
             BorderSpacing(c) => c.is_initial(),
@@ -8149,6 +8176,10 @@ impl CssProperty {
     #[must_use]
     pub const fn const_zoom(input: StyleZoom) -> Self {
         Self::Zoom(StyleZoomValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_background_clip(input: StyleBackgroundClip) -> Self {
+        Self::BackgroundClip(StyleBackgroundClipValue::Exact(input))
     }
     #[must_use]
     pub const fn const_table_layout(input: LayoutTableLayout) -> Self {
@@ -8925,6 +8956,10 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::Zoom(p) => format!(
             "CssProperty::Zoom({})",
             print_css_property_value(p, tabs, "StyleZoom")
+        ),
+        CssProperty::BackgroundClip(p) => format!(
+            "CssProperty::BackgroundClip({})",
+            print_css_property_value(p, tabs, "StyleBackgroundClip")
         ),
         CssProperty::TableLayout(p) => format!(
             "CssProperty::TableLayout({})",

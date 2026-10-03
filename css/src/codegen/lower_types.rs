@@ -215,6 +215,7 @@ pub(crate) fn lower_css_property(p: &crate::props::property::CssProperty) -> Exp
         P::ListStylePosition(v) => prop_value(v, "ListStylePosition", "StyleListStylePositionValue", "StyleListStylePosition", Some("list_style_position")),
         P::StringSet(v) => prop_value(v, "StringSet", "StringSetValue", "StringSet", Some("string_set")),
         P::Zoom(v) => prop_value(v, "Zoom", "StyleZoomValue", "StyleZoom", None),
+        P::BackgroundClip(v) => prop_value(v, "BackgroundClip", "StyleBackgroundClipValue", "StyleBackgroundClip", None),
     }
 }
 
@@ -2607,6 +2608,8 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("StyleAspectRatioValue", "css"),
     ("StyleBackfaceVisibility", "css"),
     ("StyleBackfaceVisibilityValue", "css"),
+    ("StyleBackgroundClip", "css"),
+    ("StyleBackgroundClipValue", "css"),
     ("StyleBackgroundContent", "css"),
     ("StyleBackgroundContentValue", "css"),
     ("StyleBackgroundContentVec", "vec"),
@@ -3385,6 +3388,7 @@ pub(crate) static C_LIKE_ENUMS: &[&str] = &[
     "StyleAlignmentBaseline",
     "StyleAppRegion",
     "StyleBackfaceVisibility",
+    "StyleBackgroundClip",
     "StyleBackgroundRepeat",
     "StyleBaselineSource",
     "StyleBorderCollapse",
@@ -3625,6 +3629,7 @@ pub(crate) static CSS_PROPERTY_ALIASES: &[(&str, &str, &str)] = &[
     ("ListStylePosition", "StyleListStylePositionValue", "list_style_position"),
     ("StringSet", "StringSetValue", "string_set"),
     ("Zoom", "StyleZoomValue", ""),
+    ("BackgroundClip", "StyleBackgroundClipValue", ""),
 ];
 
 /// The `CssPropertyValue` alias of a `CssProperty` variant (`Width` ->
@@ -3840,6 +3845,7 @@ pub(crate) static CSS_PROPERTY_VARIANTS: &[&str] = &[
     "ListStylePosition",
     "StringSet",
     "Zoom",
+    "BackgroundClip",
 ];
 
 /// The C tag of a variant of a tagged union the printers build by hand:
@@ -6186,6 +6192,17 @@ impl Lower for crate::props::style::background::StyleBackgroundPosition {
 impl Lower for crate::props::style::background::StyleBackgroundPositionVec {
     fn lower(&self) -> Expr {
         Expr::vec("StyleBackgroundPositionVec", "StyleBackgroundPosition", self.as_slice().iter().map(Lower::lower).collect())
+    }
+}
+
+impl Lower for crate::props::style::background::StyleBackgroundClip {
+    fn lower(&self) -> Expr {
+        let variant = match self {
+            Self::BorderBox => "BorderBox",
+            Self::PaddingBox => "PaddingBox",
+            Self::ContentBox => "ContentBox",
+        };
+        Expr::unit("StyleBackgroundClip", EnumShape::CLike, variant)
     }
 }
 
