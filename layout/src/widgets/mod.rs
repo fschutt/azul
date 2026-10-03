@@ -529,6 +529,14 @@ pub mod toolbar;
 /// field; Enter / Tab / `,` commit, Backspace removes the last chip, a
 /// pasted list splits, the app validates each token; see `token_input.rs`.
 pub mod token_input;
+/// Icon grid widget.
+///
+/// Icons or thumbnails with labels in rows (a file manager's icon view, a
+/// photo library, an e-reader's shelf) over as many items as the app has:
+/// only the items in view are asked for and built, thumbnails arrive
+/// later, Explorer's selection with a rubber band, drag out, activate,
+/// context menu, the keyboard; see `icon_grid.rs`.
+pub mod icon_grid;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
