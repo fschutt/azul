@@ -25,6 +25,11 @@ worktree; never `cd` into or edit the main checkout.
   (it sets DYLD_LIBRARY_PATH, kills the app at 1.5 GB RSS or after --seconds, exit 137 = capped). Never run an
   app with a `<video>` in it (AzWidgets) for longer than needed. No rust-analyzer, ever (it took 5.7 GB).
 
+- Never send the user's email address (or any personal data from the environment) to an outside service - not in a
+  User-Agent, a form, a URL or a payload. Where a service wants contact details (crates.io's API asks for a User-Agent
+  with contact info), use `azul-build-agent (https://github.com/fschutt/azul)` instead. (A wave-9 agent sent the email
+  in a crates.io User-Agent, 2026-10-03.)
+
 ## Always
 - ROOT CAUSES (user ruling): find the root cause of every bug, fix it in the engine where it lives, no app
   workarounds for engine bugs.
