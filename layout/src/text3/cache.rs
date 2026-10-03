@@ -11767,7 +11767,9 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     // Chrome, and that is what the IFC measures (user ruling 2026-10-03:
     // Chrome is the reference). Its items alone measured 10: the box. An icon
     // that wants its box's height alone says so in CSS, as on the web
-    // (`line-height: 0`, `display: block`, a flex container).
+    // (`line-height: 0`, `display: block`, a flex container). This is the
+    // look pass the line-box note above defers: where it says a line of only
+    // atomic inlines keeps its items' height, this block supersedes it.
     if horizontal && atomic_line_box_bottom > atomic_line_box_top {
         let top = calculated_bounds.y.min(atomic_line_box_top);
         let bottom = (calculated_bounds.y + calculated_bounds.height).max(atomic_line_box_bottom);

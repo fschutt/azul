@@ -20,6 +20,13 @@
 //!
 //! Chrome 154's numbers (headless, `body { margin: 0 }`, 16px Arial, `line-height:
 //! normal`). Not compiled by the author (house rule); RED before the fix.
+//!
+//! Two fixes make these green: the flex / grid ones by RULINGS8
+//! (`fc::layout_flex_grid` reports its first item's baseline), the
+//! inline-block ones by MAILREF8 (`fc::inline_block_baseline`,
+//! `UnifiedLayout::last_line_baseline`, wave 8 - merged at the integration,
+//! not in RULINGS8's own base: on the RULINGS8 branch alone the inline-block
+//! tests stay red).
 
 use crate::table_markup::{body, near, rect};
 
