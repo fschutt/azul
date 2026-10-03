@@ -112,6 +112,15 @@ Files (all `azul_core::xml::html`, re-exported from xml_html.rs so every path st
   builds Chrome's tree for ALL 18 corpus mails (head + body, attributes) and for every probe row except the
   comment-node rows (azul drops comments: annotated), `<frameset>` (not modelled) and `<template>` (next).
 
+- `0945d1117` RED / `68d064f5f` GREEN: template content (Template mode, TEMPLATE_CONTENT rows). Mirror: all 145
+  rows of xml_html_test.rs pass (`python3 scratchpad/xml8/test_rows.py`); Chrome probe: only comment rows +
+  frameset differ (documented).
+- `4efff4623` AzMail's sample mails (newsletter, phishing) in tests/mail_corpus/azmail + Chrome outlines + the
+  corpus test (20 mails; mirror: all Chrome's tree). NOTE for MAILREF8: mail_boxes.py now sees 20 mails.
+- Checked other lenient-parser users for pinned trees: paste tests (head dropped by DROPPED), AzMail sanitizer
+  tests (inputs unaffected), builtin presentational / list-style tests (DOM path takes the body only; FastDomSink
+  hides the head) - no expected change.
+
 ## IN PROGRESS
 
 - (nothing half-edited)
@@ -120,8 +129,9 @@ Files (all `azul_core::xml::html`, re-exported from xml_html.rs so every path st
 
 1. (done: Chrome probe, see DONE.)
 2. (done: RED.)
-3. (done: GREEN written + type-checked.) NEXT: the Python mirror (scratchpad/xml8/mirror.py: a line-by-line
-   port of tokenizer + tree builder) run against Chrome (rows + corpus outlines) to find logic bugs; fix in Rust. xml_html_rules.rs, xml_html_tokenizer.rs, xml_html_tree.rs, wire in xml_html.rs.
+3. (done: GREEN written + type-checked + mirror-checked.) NEXT: tokenizer unit tests for the states (doctype
+   parsing -> quirks, end tag attributes, raw text end at EOF), strict-XML regression rows (the loaders' XML
+   conveniences unchanged), then the report. xml_html_rules.rs, xml_html_tokenizer.rs, xml_html_tree.rs, wire in xml_html.rs.
 4. Type-check harness; Python mirror vs Chrome (rows + corpus); fix.
 5. Corpus test: the two foster-parented Postmark mails join the exact-tree test.
 6. Report.
