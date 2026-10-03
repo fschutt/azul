@@ -59,6 +59,32 @@ class Failure(Exception):
     pass
 
 
+# AzTasks' DOM ids carry the app's prefix `__aztasks_` (examples/azul-tasks/src/ids.rs, the wave-6
+# prefix ruling): `sel("quick-add")` is `#__aztasks_quick-add`, and the `#name`s in the steps above
+# are those. A build from before the ruling used the bare names; `detect_naming` notes which one
+# is running.
+NAMING = {"prefix": "__aztasks_"}
+
+
+def sel(stem):
+    """The selector of the app's id `stem` (`quick-add` -> `#__aztasks_quick-add`)."""
+    return "#" + NAMING["prefix"] + stem
+
+
+def detect_naming(app):
+    """Waits for the quick-add line, and notes whether the names carry the prefix."""
+
+    def found():
+        if app.has("#__aztasks_quick-add"):
+            return ("__aztasks_",)
+        if app.has("#quick-add"):
+            return ("",)
+        return None
+
+    NAMING["prefix"] = app.until("the window", found)[0]
+    log("names: " + ("__aztasks_ prefixed" if NAMING["prefix"] else "unprefixed (older build)"))
+
+
 def find_binary(explicit):
     candidates = [explicit, os.environ.get("AZTASKS_BIN")]
     roots = [REPO]
@@ -226,7 +252,7 @@ def wait_file(app, data_dir, list_id, task_id, check=lambda t: True, what="the t
 def quick_add(app, text):
     """Types `text` into the quick-add line and presses Enter; returns (id, list, due)."""
     before = len(app.printed("AZTASKS_ADDED", r"\S+ \S+ \S+"))
-    app.must("click", selector="#quick-add")
+    app.must("click", selector=sel("quick-add"))
     app.frame(1)
     app.must("text_input", text=text)
     app.frame(2)
@@ -256,13 +282,13 @@ def run(args, logs, out, data_dir):
         log("loaded %d lists, %d tasks, %d skipped" % (lists, tasks, skipped))
         if lists < 6 or tasks < 20:
             raise Failure("the sample is missing: %s" % loaded[-1])
-        app.until("the window", lambda: app.has("#quick-add"))
+        detect_naming(app)
         app.screenshot(os.path.join(out, "today.png"))
 
         # The sample's due reminder.
         reminded = app.until("AZTASKS_REMINDER", lambda: app.printed("AZTASKS_REMINDER", r"\S+"))
         app.frame(2)
-        app.until("the reminder banner", lambda: app.has("#reminder-banner"))
+        app.until("the reminder banner", lambda: app.has(sel("reminder-banner")))
         if not app.shows("Call the dentist"):
             raise Failure("the banner does not name the reminding task")
         try:
@@ -274,9 +300,9 @@ def run(args, logs, out, data_dir):
         except (urllib.error.URLError, OSError, ValueError) as e:
             log("WARN assert_notification unavailable: %s" % e)
         app.screenshot(os.path.join(out, "reminder.png"))
-        app.must("click", selector="#dismiss-reminder")
+        app.must("click", selector=sel("dismiss-reminder"))
         app.frame(2)
-        app.until("the banner to close", lambda: not app.has("#reminder-banner"))
+        app.until("the banner to close", lambda: not app.has(sel("reminder-banner")))
         log("reminder %s shown and dismissed" % reminded[-1])
 
         # Quick add with a date phrase, a repeat and a tag.
@@ -291,8 +317,8 @@ def run(args, logs, out, data_dir):
         app.cmd("2")
         app.until("AZTASKS_VIEW upcoming", lambda: "upcoming" in app.printed("AZTASKS_VIEW", r"\S+"))
         app.frame(2)
-        app.until("the task in Upcoming", lambda: app.has("#task-%s" % ferns))
-        if not app.has("#section-day-%s" % tomorrow.isoformat()):
+        app.until("the task in Upcoming", lambda: app.has(sel("task-%s") % ferns))
+        if not app.has(sel("section-day-%s") % tomorrow.isoformat()):
             raise Failure("Upcoming has no section for tomorrow")
         app.screenshot(os.path.join(out, "upcoming.png"))
 
@@ -303,13 +329,13 @@ def run(args, logs, out, data_dir):
         app.cmd("1")
         app.until("AZTASKS_VIEW today", lambda: app.printed("AZTASKS_VIEW", r"\S+")[-1] == "today")
         app.frame(2)
-        app.until("the task in Today", lambda: app.has("#task-%s" % plumber))
+        app.until("the task in Today", lambda: app.has(sel("task-%s") % plumber))
         wait_file(app, data_dir, plumber_list, plumber, lambda t: t.get("priority") == "high", "the high priority")
 
         # Completing the repeating task leaves next week's behind.
         app.cmd("2")
         app.frame(2)
-        app.must("click", selector="#check-%s" % ferns)
+        app.must("click", selector=sel("check-%s") % ferns)
         app.frame(2)
         app.until("AZTASKS_COMPLETED", lambda: ferns in app.printed("AZTASKS_COMPLETED", r"\S+"))
         spawned = app.until("AZTASKS_SPAWNED", lambda: app.printed("AZTASKS_SPAWNED", r"\S+ \S+"))
@@ -325,14 +351,14 @@ def run(args, logs, out, data_dir):
         # FILE opens the backstage (settings); Escape closes it.
         app.must("click", text="FILE")
         app.frame(2)
-        app.until("the backstage", lambda: app.has("#backstage"))
+        app.until("the backstage", lambda: app.has(sel("backstage")))
         app.screenshot(os.path.join(out, "settings.png"))
 
         # Settings > Data: export the tasks into the data tree, import an iCalendar to-do.
         app.must("click", text="Data")
         app.frame(2)
-        app.until("the import and export controls", lambda: app.has("#settings-export"))
-        app.must("click", selector="#settings-export")
+        app.until("the import and export controls", lambda: app.has(sel("settings-export")))
+        app.must("click", selector=sel("settings-export"))
         app.frame(2)
         exported = app.until("AZTASKS_EXPORTED", lambda: app.printed("AZTASKS_EXPORTED", r"\d+ \S+"))
         count, key = exported[-1].split(" ", 1)
@@ -355,11 +381,11 @@ def run(args, logs, out, data_dir):
                     "UID:e2e-1@example.org\r\nSUMMARY:Imported from iCal\r\n"
                     "DUE;VALUE=DATE:%s\r\nPRIORITY:1\r\nEND:VTODO\r\nEND:VCALENDAR\r\n"
                     % tomorrow.strftime("%Y%m%d"))
-        app.must("click", selector="#settings-import-path")
+        app.must("click", selector=sel("settings-import-path"))
         app.frame(1)
         app.must("text_input", text=ics)
         app.frame(2)
-        app.must("click", selector="#settings-import")
+        app.must("click", selector=sel("settings-import"))
         app.frame(2)
         imported = app.until("AZTASKS_IMPORTED", lambda: app.printed("AZTASKS_IMPORTED", r"\d+ .+"))
         if not imported[-1].startswith("1 "):
@@ -369,7 +395,7 @@ def run(args, logs, out, data_dir):
         # Settings > Appearance: Flora is kept for the next start (aztasks/settings.json).
         app.must("click", text="Appearance")
         app.frame(2)
-        app.until("the theme control", lambda: app.has("#settings-theme"))
+        app.until("the theme control", lambda: app.has(sel("settings-theme")))
         app.must("click", text="Flora")
         app.frame(2)
         appearance_file = os.path.join(data_dir, "aztasks", "settings.json")
@@ -383,7 +409,7 @@ def run(args, logs, out, data_dir):
 
         app.until("flora in aztasks/settings.json", kept_flora)
         app.key("Escape")
-        app.until("the backstage to close", lambda: not app.has("#backstage"))
+        app.until("the backstage to close", lambda: not app.has(sel("backstage")))
 
         # Flora, dark.
         app.must("set_theme", theme="flora")
@@ -418,11 +444,11 @@ def run(args, logs, out, data_dir):
             raise Failure("the restart read %d tasks from %d files (%d skipped)" % (tasks2, files, skipped2))
         if tasks2 != tasks + 4:
             raise Failure("expected the %d sample tasks + 4 (two added, one spawned, one imported), read %d" % (tasks, tasks2))
-        app.until("the window", lambda: app.has("#quick-add"))
-        app.until("the next occurrence in Scheduled", lambda: app.has("#task-%s" % new_id))
+        detect_naming(app)
+        app.until("the next occurrence in Scheduled", lambda: app.has(sel("task-%s") % new_id))
         app.cmd("6")
         app.frame(2)
-        app.until("the completed task in Completed", lambda: app.has("#task-%s" % ferns))
+        app.until("the completed task in Completed", lambda: app.has(sel("task-%s") % ferns))
         app.screenshot(os.path.join(out, "restart-completed.png"))
         log("PASS")
         return True
