@@ -6259,3 +6259,51 @@ pub(crate) fn rich_text_editor_look() -> crate::widgets::rich_text_editor::RichT
 pub fn rich_text_editor(chrome: crate::widgets::rich_text_editor::RichTextEditorChrome) -> Dom {
     crate::widgets::rich_text_editor::build_chrome(chrome, &rich_text_editor_look())
 }
+
+// ==== recurrence_editor ====
+//
+// The flat recurrence editor is Outlook's "Appointment Recurrence" form:
+// rows a few pixels apart, each a label column in the secondary ink, then
+// the controls 8 px apart; the units after a number in the secondary ink.
+// The controls are the toolkit's own widgets in flat. At night the
+// desktop's inks.
+
+/// Flat's recurrence-editor look.
+#[must_use]
+pub(crate) fn recurrence_editor_look() -> crate::widgets::recurrence_editor::RecurrenceEditorLook {
+    use super::decl;
+
+    let gap = |px: isize| {
+        CssPropertyWithConditions::simple(CssProperty::ColumnGap(LayoutColumnGapValue::Exact(
+            LayoutColumnGap {
+                inner: PixelValue::const_px(px),
+            },
+        )))
+    };
+    let mut editor = vec![
+        decl::font_size(13),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    editor.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    let mut row = decl::margin(4, 0, 4, 0).to_vec();
+    row.push(gap(8));
+    let mut label = vec![decl::px_width(64.0)];
+    label.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    let unit = decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1).to_vec();
+
+    crate::widgets::recurrence_editor::RecurrenceEditorLook {
+        editor,
+        row,
+        label,
+        unit,
+        number: vec![decl::px_width(64.0)],
+        weekdays: vec![gap(4)],
+        marker: None,
+    }
+}
+
+/// The flat recurrence editor.
+#[must_use]
+pub fn recurrence_editor(e: crate::widgets::recurrence_editor::RecurrenceEditor) -> Dom {
+    crate::widgets::recurrence_editor::build(e, &recurrence_editor_look())
+}
