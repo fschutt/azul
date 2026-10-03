@@ -27,6 +27,15 @@ Commit messages are written to scripts/.paint7_msg.txt (untracked, never staged)
 - 54b1200b3 GREEN item 3: apply_content_change(ImageById) regenerates every dom's display list itself
   (tier RebuildDisplayList = "rebuilt, send it" - the dll/X11 convention)
 
+- 94487d554 RED item 7: layout/tests/a_clipped_box_inside_a_scrolled_frame_shows_all_of_its_lines.rs
+  (root cause seen on prebuilt AzCalendar: DL right, compositor's static_clip mixed clip spaces)
+- 2b6ff6269 GREEN item 7: Layer::wrapping_clips (clips opened inside the parent layer + their in-place
+  frames), static_clip resolved in render_layers, composite uses it as is
+- dea8bb74d RED item 6/5: layout/tests/a_sliding_box_moves_its_sliding_children_once.rs (prebuilt AzTasks
+  Cmd+2: settled frame right; mid-slide 70 of 87 sliding nodes inside another sliding node, nested frames
+  compose -> moved 2x/3x)
+- fea2f1dd1 GREEN: LayoutWindow::published_flips - each slide relative to the enclosing sliding frame
+
 ## IN PROGRESS (old notes)
 - item 1/4a CPU side. Findings:
   - the layered compositor composites every child layer AFTER all of its parent's own items
@@ -42,7 +51,9 @@ Commit messages are written to scripts/.paint7_msg.txt (untracked, never staged)
     IN PLACE (scroll / opacity / transform; blur stays a layer - note in report).
 
 ## NEXT
-- item 7 (overflow:hidden span clip; evidence pim6-shots/crop_lunch.png, cal_week.json), then 4d, 5, 6 (run prebuilt AzTasks/AzCalendar with wait_settled),
+- 4d: AzDrive Options -> Escape -> set_theme flora + set_mode dark -> wait_settled -> shot (probe in
+  /tmp/paint7/probe.py); 5: AzShow slide sorter / tab switch settled shots; AzCalendar backstage nav
+  item before the gap. Then the report. (run prebuilt AzTasks/AzCalendar with wait_settled),
   7 (overflow:hidden span clip)
 
 ## Decisions / open questions
