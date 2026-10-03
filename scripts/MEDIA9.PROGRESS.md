@@ -60,9 +60,12 @@ Report: scripts/MEDIA9_2026_10_03.md (date = the day it finishes).
 - D bf6ba792d / ebb4c59de AzPlayer history.rs + sync.rs; 3b45d318d window (app.rs, ui.rs);
   cc4ecf542 registered; 9d20e684a scripts/azplayer_e2e.py. PHASE D (AzPlayer) DONE.
 
+- REPORT scripts/MEDIA9_2026_10_03.md written and committed (sections 1-11).
+
 ## IN PROGRESS
-- NEXT STEP: the report scripts/MEDIA9_2026_10_03.md (what was built, commits, the api.json list
-  below, least-sure spots, test commands, twins, what is left). Write it in pieces, commit each.
+- Nothing open. The task is done pending the parent's compile, api.json generation and test runs.
+  If resumed with more time: the items of the report's section 9 ("What is left"), starting with
+  AzMusic's cover art (AudioFileInfo::cover decoded on a Thread into the now-playing bar).
 
 ## api.json so far (for the report)
 - audio.AudioFileDecoder (external azul_dll::unified::audio::AudioFileDecoder, Clone Default Drop,
