@@ -14,7 +14,11 @@
 //! - [`store`]: the files in the data tree and the work on them (list, create, unlock, save);
 //! - [`sample`]: the `--sample` vault;
 //! - [`session`]: an unlocked vault in the window (selection, edit form, reading pane).
+//!
+//! The window ([`app`]: facts, settings, state; `jobs`: the vault thread, the timer, the
+//! keyring; `ui`: the screens) is azul's S4 PimShell with azul-appkit's skeleton.
 
+pub mod app;
 pub mod audit;
 pub mod clipboard;
 pub mod crypto;
