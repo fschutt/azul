@@ -15,8 +15,8 @@ use azul::{
     vec::{BackstageNavItemVec, StringVec},
     widgets::{
         AboutDialog, Backstage, BackstageNavItem, ButtonType, CheckBoxState, DialogState,
-        DropDown, OnTextInputReturn, StandardDialogEvent, TabHeader, TabHeaderState,
-        TextInputState, TextInputValid,
+        DropDown, MessageBox, MessageBoxKind, OnTextInputReturn, StandardDialogEvent,
+        StandardDialogEventKind, TabHeader, TabHeaderState, TextInputState, TextInputValid,
     },
 };
 use azul_appkit::ui::AppSection;
@@ -288,35 +288,35 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
                 many => format!("these {} items", many.len()),
             };
             let drive = s.drive_name(&browse::Place::folder(drive_id, ""));
+            // azul's standard message box (DEDUP_OFFICE D12): Cancel (0) / Delete (1).
             (
                 String::from("Delete for good"),
-                Dom::create_div()
-                    .with_id(ids::CONFIRM_DELETE)
-                    .with_css("display: flex; flex-direction: column; min-width: 320px;")
-                    .with_child(line(&format!(
-                        "Are you sure you want to delete {what} from \"{drive}\" for good?"
-                    )))
-                    .with_child(line("This cannot be undone.").with_css("opacity: 0.75;"))
-                    .with_child(buttons(vec![
-                        button("Cancel", app, on_cancel_popup),
-                        typed_button("Delete", ButtonType::Danger, app, on_confirm_delete),
-                    ])),
+                MessageBox::create(
+                    MessageBoxKind::Warning,
+                    "Delete for good",
+                    format!("Are you sure you want to delete {what} from \"{drive}\" for good?"),
+                )
+                .with_detail("This cannot be undone.")
+                .with_buttons(vec![AzString::from("Cancel"), AzString::from("Delete")], 1)
+                .with_on_event(app.clone(), on_confirm_delete_event as StandardDialogOnEventCallbackType)
+                .dom()
+                .with_id(ids::CONFIRM_DELETE),
             )
         }
         Popup::ConfirmForget { drive_id } => {
             let name = s.drive_name(&browse::Place::folder(drive_id, ""));
+            let title = format!("Remove the drive \"{name}\"?");
             (
-                format!("Remove the drive \"{name}\"?"),
-                Dom::create_div()
-                    .with_css("display: flex; flex-direction: column; min-width: 320px;")
-                    .with_child(line(
-                        "AzDrive forgets the drive and removes its keys from the keyring. Its \
-                         files stay where they are.",
-                    ))
-                    .with_child(buttons(vec![
-                        button("Cancel", app, on_cancel_popup),
-                        typed_button("Remove", ButtonType::Danger, app, on_confirm_forget),
-                    ])),
+                title.clone(),
+                MessageBox::create(
+                    MessageBoxKind::Question,
+                    title,
+                    "AzDrive forgets the drive and removes its keys from the keyring.",
+                )
+                .with_detail("Its files stay where they are.")
+                .with_buttons(vec![AzString::from("Cancel"), AzString::from("Remove")], 1)
+                .with_on_event(app.clone(), on_confirm_forget_event as StandardDialogOnEventCallbackType)
+                .dom(),
             )
         }
         Popup::Conflict { id, apply_all } => conflict_dialog(s, app, *id, *apply_all),
@@ -699,15 +699,39 @@ extern "C" fn on_cancel_popup(mut data: RefAny, mut info: CallbackInfo) -> Updat
     })
 }
 
-extern "C" fn on_confirm_delete(mut data: RefAny, mut info: CallbackInfo) -> Update {
+/// Whether a message box's event is its second button (Delete, Remove): every other answer
+/// (Cancel, Escape, the close box) keeps things as they are.
+fn confirmed(event: &StandardDialogEvent) -> bool {
+    event.kind == StandardDialogEventKind::Button && event.index == 1
+}
+
+extern "C" fn on_confirm_delete_event(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    event: StandardDialogEvent,
+) -> Update {
+    let yes = confirmed(&event);
     with_state(&mut data, &mut info, |info, app, s| {
-        actions::confirm_delete(info, app, s)
+        if yes {
+            actions::confirm_delete(info, app, s);
+        } else {
+            actions::close_popup(info, app, s);
+        }
     })
 }
 
-extern "C" fn on_confirm_forget(mut data: RefAny, mut info: CallbackInfo) -> Update {
+extern "C" fn on_confirm_forget_event(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    event: StandardDialogEvent,
+) -> Update {
+    let yes = confirmed(&event);
     with_state(&mut data, &mut info, |info, app, s| {
-        actions::forget_drive(info, app, s)
+        if yes {
+            actions::forget_drive(info, app, s);
+        } else {
+            actions::close_popup(info, app, s);
+        }
     })
 }
 
