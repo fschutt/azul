@@ -7,7 +7,8 @@ use azul::{
     callbacks::{
         ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, ColorInputOnValueChangeCallbackType,
         DropDownOnChoiceChangeCallbackType, NumberInputOnValueChangeCallbackType,
-        DialogOnCloseCallbackType, SegmentedOnChangeCallbackType, SliderOnValueChangeCallbackType,
+        CloseGuardOnEventCallbackType, DialogOnCloseCallbackType, SegmentedOnChangeCallbackType,
+        SliderOnValueChangeCallbackType,
         StandardDialogOnEventCallbackType, TextInputOnTextInputCallbackType,
     },
     css::DarkLightMode,
@@ -19,7 +20,7 @@ use azul::{
     str::String as AzString,
     vec::StringVec,
     widgets::{
-        AboutDialog, ButtonType, Dialog, DropDown, Segmented, Slider, StatusBar, StatusBarSegment, TextInput, Titlebar,
+        AboutDialog, ButtonType, CloseGuard, Dialog, DropDown, Segmented, Slider, StatusBar, StatusBarSegment, TextInput, Titlebar,
     },
 };
 
@@ -1118,9 +1119,16 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     if let Some(sheet) = a.sheet.filter(|_| !kit::settings_open(&a.kit)) {
         area.add_child(sheet_dom(&app_ref, a, p, sheet));
     }
-    let root = column("flex-grow: 1; min-height: 0px;")
+    let content = column("flex-grow: 1; min-height: 0px;")
         .with_child(title_row(a))
         .with_child(area);
+    // "Save changes?" before the window closes over unsaved work.
+    let root = CloseGuard::create(content, AzString::from(a.s.name.as_str()))
+        .with_dirty(a.s.modified && a.screen == AppScreen::Editor)
+        .with_asking(a.closing)
+        .with_on_event(app_ref.clone(), commands::on_close_guard as CloseGuardOnEventCallbackType)
+        .dom()
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;");
     let body = Dom::create_body()
         .with_css("display: flex; flex-direction: column; margin: 0px; height: 100%;")
         .with_child(

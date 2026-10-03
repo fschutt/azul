@@ -186,6 +186,8 @@ pub struct PhotoApp {
     pub kit: RefAny,
     /// "Save changes?" is showing (the close guard asks).
     pub closing: bool,
+    /// The window closes once the save in progress is written.
+    pub close_after_save: bool,
 }
 
 /// Print one line for scripts.
@@ -322,6 +324,13 @@ extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackIn
             Err(e) => a.status(e),
         },
         Outcome::Saved { uuid, result } => match result {
+            Ok(saved) if a.close_after_save => {
+                // "Save" in the close guard's question: written, now close.
+                a.close_after_save = false;
+                a.s.modified = false;
+                say(&format!("AZPHOTO_SAVED {uuid} {}", saved.tiles));
+                info.close_window();
+            }
             Ok(saved) => {
                 a.s.modified = false;
                 a.status(format!(
@@ -336,7 +345,10 @@ extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackIn
                     drive: a.drive.clone(),
                 });
             }
-            Err(e) => a.status(format!("Saving failed: {e}")),
+            Err(e) => {
+                a.close_after_save = false;
+                a.status(format!("Saving failed: {e}"));
+            }
         },
         Outcome::Loaded { uuid, result } => match result {
             Ok((name, doc)) => a.open_document(doc, &name, &uuid, "Open"),
@@ -464,6 +476,7 @@ pub fn start() {
         last_pinch: None,
         kit: kit_ref.clone(),
         closing: false,
+        close_after_save: false,
     };
     eprintln!("[azphoto] data folder {}", data_root.display());
     app.announce();

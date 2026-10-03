@@ -21,7 +21,7 @@ use azul::{
     prelude::*,
     widgets::{
         CheckBoxState, ColorInputState, DialogState, NumberInputState, OnTextInputReturn, SegmentedState,
-        SliderState, StandardDialogEvent, TextInputState, TextInputValid,
+        CloseGuardEvent, CloseGuardEventKind, SliderState, StandardDialogEvent, TextInputState, TextInputValid,
     },
 };
 
@@ -158,6 +158,32 @@ pub fn cmd(app: &RefAny, command: Command) -> RefAny {
 pub extern "C" fn on_sheet_close(mut data: RefAny, _info: CallbackInfo, _state: DialogState) -> Update {
     if let Some(mut a) = data.downcast_mut::<PhotoApp>() {
         a.sheet = None;
+    }
+    Update::RefreshDom
+}
+
+/// The close guard: a close of the window while the document has unsaved
+/// changes was held - ask; then Save (and close once written), Don't Save
+/// (the guard closes the window) or Cancel.
+pub extern "C" fn on_close_guard(mut data: RefAny, mut info: CallbackInfo, event: CloseGuardEvent) -> Update {
+    let handle = data.clone();
+    let Some(mut guard) = data.downcast_mut::<PhotoApp>() else {
+        return Update::DoNothing;
+    };
+    let a = &mut *guard;
+    a.closing = false;
+    match event.kind {
+        CloseGuardEventKind::Ask => {
+            a.closing = true;
+            say("AZPHOTO_CLOSE_ASKED");
+        }
+        CloseGuardEventKind::Save => {
+            let _ = a.s.commit_text();
+            a.close_after_save = true;
+            return run(a, &handle, &mut info, Command::Save);
+        }
+        CloseGuardEventKind::Discard => a.s.modified = false,
+        CloseGuardEventKind::Cancel => {}
     }
     Update::RefreshDom
 }
