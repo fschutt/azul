@@ -16,6 +16,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use azul_storage::Drive;
 use serde::{Deserialize, Serialize};
 
 use crate::event::{self, is_calendar_id};
@@ -288,6 +289,15 @@ pub fn remove(data_dir: &Path, id: &str) -> std::io::Result<()> {
     }
 }
 
+/// Every calendar the drive keeps (`calendars/<id>.json`, `calendars/default.json`): the default
+/// one first (its file, or as it is before one), then the others by name. A file that does not
+/// read, or holds another calendar than its name says, is left out.
+#[must_use]
+pub fn load(drive: &dyn Drive) -> Vec<Calendar> {
+    let _ = drive;
+    vec![Calendar::default_calendar()]
+}
+
 /// Every calendar: the default one first (its file, or as it is before one), then the others by
 /// name. A file that does not read, or holds another calendar than its name says, is left out.
 #[must_use]
@@ -437,6 +447,23 @@ mod tests {
         remove(&dir.0, WORK).unwrap();
         remove(&dir.0, WORK).unwrap();
         assert_eq!(load_all(&dir.0), vec![Calendar::default_calendar()]);
+    }
+
+    /// The start reads the calendars through the data folder's drive, wherever it keeps them.
+    #[test]
+    fn the_calendars_are_read_through_the_drive() {
+        use azul_storage::{LocalDrive, ScopedDrive};
+        let root = TempDir::create();
+        let tree = LocalDrive::new(&root.0);
+        let mut renamed = Calendar::default_calendar();
+        renamed.name = String::from("Home");
+        tree.put(&format!("calendar/{}", object_key(WORK)), to_json(&work()).as_bytes()).unwrap();
+        tree.put(&format!("calendar/{}", object_key("")), to_json(&renamed).as_bytes()).unwrap();
+        tree.put("calendar/calendars/33333333-2222-4333-8444-555555555555.json", b"{").unwrap();
+        let drive = ScopedDrive::new(LocalDrive::new(&root.0), "calendar/", false).unwrap();
+        assert_eq!(load(&drive), vec![renamed, work()]);
+        let empty = ScopedDrive::new(LocalDrive::new(&root.0), "nothing-here/", false).unwrap();
+        assert_eq!(load(&empty), vec![Calendar::default_calendar()]);
     }
 
     #[test]

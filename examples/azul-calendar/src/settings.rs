@@ -8,6 +8,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use azul_storage::Drive;
+
 use crate::{meet_rooms, week};
 
 /// The settings file's name in the data folder.
@@ -29,6 +31,13 @@ pub fn read_text(path: &Path) -> Option<String> {
         .read_to_string(&mut text)
         .ok()?;
     (text.len() <= meet_rooms::MAX_SETTINGS_BYTES).then_some(text)
+}
+
+/// The settings file's text as the data folder's drive keeps it (`settings.txt`); `None` without
+/// a file, or with one longer than a settings file is read.
+pub fn read(drive: &dyn Drive) -> Option<String> {
+    let _ = drive;
+    None
 }
 
 /// The key of a `key=value` line: up to and with its `=` (the whole trimmed line without one).
@@ -205,6 +214,21 @@ mod tests {
         assert_eq!(read_text(&file), None);
         write_line(&file, &hour_px_line(60.0)).unwrap();
         assert_eq!(read_text(&file).as_deref(), Some("week_hour_px=60.0\n"));
+    }
+
+    /// The start reads the settings through the data folder's drive, wherever it keeps them.
+    #[test]
+    fn the_settings_are_read_through_the_drive() {
+        use azul_storage::{LocalDrive, ScopedDrive};
+        let root = TempDir::create();
+        let tree = LocalDrive::new(&root.0);
+        let drive = || ScopedDrive::new(LocalDrive::new(&root.0), "calendar/", false).unwrap();
+        assert_eq!(read(&drive()), None, "no file yet");
+        tree.put("calendar/settings.txt", b"view=week\nweek_hour_px=60.0\n").unwrap();
+        assert_eq!(read(&drive()).as_deref(), Some("view=week\nweek_hour_px=60.0\n"));
+        let long = "x".repeat(meet_rooms::MAX_SETTINGS_BYTES + 1);
+        tree.put("calendar/settings.txt", long.as_bytes()).unwrap();
+        assert_eq!(read(&drive()), None, "a file too long is not read");
     }
 
     #[test]

@@ -5,6 +5,7 @@
 
 use std::path::Path;
 
+use azul_storage::{Drive, DriveError};
 use chrono::{Datelike, Duration, NaiveDate, NaiveTime, Weekday};
 
 use crate::{
@@ -135,6 +136,13 @@ pub fn sample_events(today: NaiveDate, work: &str, mut ids: impl FnMut() -> Stri
     out
 }
 
+/// Puts the sample into the data folder's drive unless it holds events already; answers how many
+/// events were written.
+pub fn write(drive: &dyn Drive, today: NaiveDate) -> Result<usize, DriveError> {
+    let _ = (drive, today);
+    Ok(0)
+}
+
 /// Writes the sample into `data_dir` unless it holds events already; answers how many events
 /// were written.
 pub fn write_sample(data_dir: &Path, today: NaiveDate) -> std::io::Result<usize> {
@@ -191,6 +199,21 @@ mod tests {
                 .count()
                 == 5
         );
+    }
+
+    /// `--sample` writes through the data folder's drive (the same drive the start reads).
+    #[test]
+    fn the_sample_is_put_through_the_drive_only_into_an_empty_calendar() {
+        use azul_storage::{LocalDrive, ScopedDrive};
+        let root = TempDir::create();
+        let drive = ScopedDrive::new(LocalDrive::new(&root.0), "calendar/", true).unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 9, 30).unwrap();
+        assert_eq!(write(&drive, today).unwrap(), 7);
+        assert_eq!(event::load(&drive).0.len(), 7);
+        assert_eq!(calendars::load(&drive).len(), 2);
+        assert!(root.0.join("calendar").join("events").is_dir(), "under the drive's folder");
+        assert_eq!(write(&drive, today).unwrap(), 0);
+        assert_eq!(event::load(&drive).0.len(), 7);
     }
 
     #[test]

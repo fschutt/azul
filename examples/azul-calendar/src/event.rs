@@ -76,6 +76,7 @@
 use std::path::{Path, PathBuf};
 
 use azul_pim::mail_address::is_email;
+use azul_storage::Drive;
 use chrono::{Duration, NaiveDate, NaiveTime, Timelike};
 use serde::{Deserialize, Serialize};
 
@@ -668,6 +669,15 @@ pub fn load_all(data_dir: &Path) -> (Vec<Event>, Vec<Skipped>) {
     (events, skipped)
 }
 
+/// Every event the drive keeps (`events/<id>.json`; the drive is the data folder's - a
+/// `LocalDrive` today, the user's bucket later), in order of date, start, end and title, and the
+/// event files that could not be read, with why. Keys not named `events/<uuid>.json` are not
+/// events and are left out silently; a drive without events is an empty calendar.
+pub fn load(drive: &dyn Drive) -> (Vec<Event>, Vec<Skipped>) {
+    let _ = drive;
+    (Vec::new(), Vec::new())
+}
+
 /// A new event's id: a random version-4 UUID (lower case, hyphenated), azul's
 /// `Uuid::from_seed` of a random seed.
 ///
@@ -1112,6 +1122,29 @@ mod tests {
         paths.sort();
         assert_eq!(paths, vec![broken, misnamed]);
         assert!(skipped.iter().all(|s| !s.reason.is_empty()));
+    }
+
+    /// The start reads the events through the data folder's drive: wherever it keeps them (here a
+    /// grant of `calendar/` in a bigger tree), not with `std::fs` on a folder.
+    #[test]
+    fn the_events_are_read_through_the_drive_wherever_it_keeps_them() {
+        use azul_storage::{LocalDrive, ScopedDrive};
+        let root = TempDir::create();
+        let tree = LocalDrive::new(&root.0);
+        let d = day(2026, 9, 30);
+        let late = Event::create(ID, "Late", d, at(15, 0), at(16, 0), None).unwrap();
+        let early = Event::create(ID2, "Early", d, at(8, 0), at(9, 0), None).unwrap();
+        tree.put(&format!("calendar/{}", object_key(ID)), to_json(&late).as_bytes()).unwrap();
+        tree.put(&format!("calendar/{}", object_key(ID2)), to_json(&early).as_bytes()).unwrap();
+        tree.put("calendar/events/11111111-2222-4333-8444-555555555555.json", b"{").unwrap();
+        tree.put("calendar/events/readme.txt", b"not an event").unwrap();
+        tree.put("calendar/events/old/22222222-2222-4333-8444-555555555555.json", b"{").unwrap();
+        let drive = ScopedDrive::new(LocalDrive::new(&root.0), "calendar/", false).unwrap();
+        let (events, skipped) = load(&drive);
+        assert_eq!(events, vec![early, late]);
+        assert_eq!(skipped.len(), 1, "the broken file: {skipped:?}");
+        let empty = ScopedDrive::new(LocalDrive::new(&root.0), "nothing-here/", false).unwrap();
+        assert_eq!(load(&empty), (Vec::new(), Vec::new()));
     }
 
     #[test]
