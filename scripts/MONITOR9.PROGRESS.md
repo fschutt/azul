@@ -8,21 +8,21 @@ planning: ../azul-apps/planning/core/system-monitor.md. House rules: scripts/wav
 - 97af982f6 RED: crate examples/azul-monitor (registered: root Cargo.toml, workspace_test_members.txt,
   rust.yml dll_tests) + history.rs / model.rs tests
 - a04258f26 GREEN: History ring + Model (rates, rows, sort, filter, selection)
+- 455de3477 / a05424d58 sample machine RED / GREEN (Source trait in model.rs)
+- ccf6a294b / bbf0597a4 live machine (sysinfo) RED / GREEN
+- 1702c6656 / 0244d89f0 sampler (Thread, Shared, Command, due, run_commands) + ticks (TickPlan) RED / GREEN
+- c3be3af98 / 8e3a554de history CSV RED / GREEN + ids.rs
+- f58f6a66c table.rs RED; 5e81882b4 user RED; 2f0555dc7 user + table GREEN
 
 ## IN PROGRESS
-- sample machine (src/sample.rs) RED -> GREEN
+- lib.rs (Monitor, start, layout, on_reading tick, on_key, rerender/status helpers, speed setting) +
+  ui.rs (tools, live views = VirtualViews, cards, performance page, status bar, confirm, settings)
+  table.rs references crate::{Monitor, sort_text, print_selected, rerender} - lib.rs must define them.
 
 ## NEXT
-1. src/sample.rs: deterministic sample machine (8 cores, 16 GB, ~40 processes per the planning doc,
-   cargo spike), `Source` trait (`read() -> Snapshot`, `end(pid, force) -> Result<String,String>`)
-2. src/live.rs: sysinfo Source (System, Disks, Networks, Users)
-3. src/sampler.rs: the Thread loop (Arc<Shared>: interval, commands, stop), writeback per reading
-4. src/ticks.rs (or in lib): TickPlan = which live views to re-render (RED: a tick never rebuilds the page)
-5. UI: ids.rs, lib.rs (start, layout, RecordsShell, ShellThemeScope Slate), ui_processes.rs (cards VV +
-   table VV with DataTable), ui_performance.rs (VV: charts, per-core bars TODO(WIDGETS9B) Gauge),
-   end-process MessageBox in Modal, settings section (update speed), history CSV export via Drive
-6. scripts/azmonitor_e2e.py (--sample; AZMON_* stdout lines; layout count constant across ticks)
-7. report scripts/MONITOR9_2026_10_03.md
+1. lib.rs + ui.rs (above), RED tests for speed_from_setting / chart points / status labels first
+2. scripts/azmonitor_e2e.py (--sample; AZMON_* stdout lines; layout count constant across ticks)
+3. report scripts/MONITOR9_2026_10_03.md
 
 ## Decisions
 - sysinfo 0.38 (not 0.39: needs rustc 1.95; toolchain is 1.91). 0.38.4 reuses the locked
