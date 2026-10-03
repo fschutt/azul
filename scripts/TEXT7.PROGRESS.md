@@ -10,12 +10,14 @@ Branch `wt/text7` from `2e55eef06`. Brief: scripts/waves/wave7/TEXT7.md. Never c
 - f805f5b0a GREEN item 1: measure_intrinsic_widths counts the indent
 - 64d6ee9c5 GREEN item 1: getters::resolve_text_indent (one resolver) used by fc.rs + sizing.rs (LAYOUT7 files,
   minimal edits)
+- fbc03a5bd RED item 2: cache.rs test module `a_run_shaped_before_its_font_loads`
+- ca05d694c GREEN item 2: per-thread deficit counter; the per-item cache skips deficient groups
 
 ## IN PROGRESS
-- item 2: a text run shaped before its font loads stays invisible (per_item_shaped cache, cache.rs ~9230)
+- item 3: font-weight bolder / lighter relative to the parent's computed weight (CSS Fonts 4 s2.2)
 
 ## NEXT
-- items 3..6 in order (3: bolder/lighter relative; 4: dll layout.rs:1555
+- items 4..6 in order (4: dll layout.rs:1555
   off-by-one; 5: line-height 19px -> 19.55; 6: line-height rem/vw/vh)
 
 ## Decisions
