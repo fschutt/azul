@@ -5241,7 +5241,6 @@ fn handle_key_down(
     has_selection: bool,
 ) -> Option<InternalEventAction> {
     use crate::window::VirtualKeyCode;
-    let _ = has_selection;
 
     let target = focused_node?;
     let EventData::Keyboard(kbd) = &event.data else {
@@ -5289,6 +5288,14 @@ fn handle_key_down(
                         shortcut,
                     },
                 ));
+            }
+            // An editing shortcut is the engine's on a text-editing focus or
+            // while text is selected (something to copy); on any other focus
+            // (a button, a slider, a canvas) it is the app's key - claiming
+            // it swallowed AzCalculator's Ctrl/Cmd+C after a click on a
+            // keypad button, as it once did Backspace / Delete.
+            if !focus_is_editable && !has_selection {
+                return None;
             }
             let change = match shortcut {
                 KeyboardShortcut::Copy => SystemChange::CopyToClipboard,
