@@ -11144,6 +11144,12 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     // Gated on num_columns>1 with no shape boundaries and non-intrinsic sizing — exactly the
     // otherwise-broken case — so single-column and shaped/intrinsic layouts are untouched
     // (zero blast radius). column-fill:auto (fill-then-advance) is rare and not modelled here.
+    // The paragraph's first formatted line is the first line of the fragment
+    // whose cursor starts at the paragraph's start; a continuation fragment of
+    // a flow starts mid-paragraph and gets no first-line `text-indent`.
+    let mut is_first_formatted_line =
+        cursor.next_item_index == 0 && cursor.partial_remainder.is_empty();
+
     let balanced_lines_per_column: Option<usize> = if num_columns > 1
         && fragment_constraints.shape_boundaries.is_empty()
         && !is_min_content
@@ -11158,9 +11164,11 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         let mut total_lines = 0usize;
         let mut probe_y = 0.0_f32;
         let mut probe_guard = 0usize;
+        let mut probe_first_line = is_first_formatted_line;
+        let mut probe_after_forced_break = false;
         while !probe.is_done() && probe_guard < iter_cap {
             probe_guard += 1;
-            let lc = get_line_constraints(
+            let mut lc = get_line_constraints(
                 probe_y,
                 probe_line_height,
                 &probe_col_constraints,
@@ -11169,6 +11177,15 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             if lc.segments.is_empty() {
                 break;
             }
+            indent_line_box(
+                &mut lc,
+                text_indent_of_line(
+                    fragment_constraints,
+                    probe_first_line,
+                    probe_after_forced_break,
+                ),
+                base_direction,
+            );
             let (probe_line, _) = break_one_line(
                 &mut probe,
                 &lc,
@@ -11182,6 +11199,10 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             if probe_line.is_empty() {
                 break;
             }
+            probe_first_line = false;
+            probe_after_forced_break = probe_line
+                .iter()
+                .any(|item| matches!(item, ShapedItem::Break { .. }));
             total_lines += 1;
             probe_y += probe_line_height;
         }
@@ -11314,11 +11335,22 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             } else {
                 column_constraints.available_width = AvailableSpace::Definite(column_width);
             }
-            let line_constraints = get_line_constraints(
+            let mut line_constraints = get_line_constraints(
                 line_top_y,
                 fragment_constraints.resolved_line_height(),
                 &column_constraints,
                 debug_messages,
+            );
+            // CSS Text 3 8.1: the indent is a margin on the line box's start
+            // edge - the line is broken, justified and aligned in what is left.
+            indent_line_box(
+                &mut line_constraints,
+                text_indent_of_line(
+                    fragment_constraints,
+                    is_first_formatted_line,
+                    is_after_forced_break,
+                ),
+                base_direction,
             );
 
             if line_constraints.segments.is_empty() {
@@ -11499,11 +11531,11 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 fragment_constraints,
                 debug_messages,
                 fonts,
-                is_after_forced_break,
             );
 
             // Track whether the next line follows a forced break
             is_after_forced_break = line_ends_with_forced_break;
+            is_first_formatted_line = false;
 
             for item in &mut line_pos_items {
                 item.position.x += column_start_x;
@@ -12133,7 +12165,9 @@ fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
 /// - \u274c MISSING: `distribute` (CJK justification)
 ///
 /// ### CSS Text \u00a7 8.1 Text Indentation (text-indent)
-/// \u2705 IMPLEMENTED: First line indentation
+/// \u2705 IMPLEMENTED by the caller: `indent_line_box` takes the indent off the
+/// start-side segment of `line_constraints` before the line is broken, so the
+/// segment's `start_x` / `width` already hold it here.
 ///
 /// ### CSS Text \u00a7 4.1 Word Spacing (word-spacing)
 /// \u2705 IMPLEMENTED: Additional space between words
@@ -12150,8 +12184,6 @@ fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
 /// ## Known Issues:
 /// - \u26a0\ufe0f If segment.width is infinite (from intrinsic sizing), sets `alignment_offset=0`
 ///   to avoid infinite positioning. This is correct for measurement but documented for clarity.
-/// - The function assumes `line_index == 0` means first line for text-indent. A more robust system
-///   would track paragraph boundaries.
 ///
 /// # Missing Features:
 /// - \u274c \u00a7 6 Trimming Leading (text-box-trim, text-box-edge)
@@ -12181,7 +12213,6 @@ pub fn position_one_line<T: ParsedFontTrait>(
     constraints: &UnifiedConstraints,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     fonts: &LoadedFonts<T>,
-    is_after_forced_break: bool,
 ) -> (Vec<PositionedItem>, f32) {
     let line_text: String = line_items
         .iter()
@@ -12246,7 +12277,6 @@ pub fn position_one_line<T: ParsedFontTrait>(
 
     // --- Segment-Aware Positioning ---
     let mut item_cursor = 0;
-    let is_first_line_of_para = line_index == 0; // Simplified assumption
 
     // white-space: nowrap / pre suppress soft wrapping, so break_one_line already
     // put the WHOLE line (overflowing content and all) into `line_items`. The
@@ -12447,26 +12477,8 @@ pub fn position_one_line<T: ParsedFontTrait>(
             )));
         }
 
-        // Default: indent first line only. each-line: also indent after forced breaks.
-        // hanging: invert which lines get the indent.
-        if segment_idx == 0 {
-            let is_indent_target = if constraints.text_indent_each_line {
-                // each-line: first line AND each line after a forced break
-                is_first_line_of_para || is_after_forced_break
-            } else {
-                // Default: only the first line of the block
-                is_first_line_of_para
-            };
-            // hanging: inverts which lines are affected
-            let should_indent = if constraints.text_indent_hanging {
-                !is_indent_target
-            } else {
-                is_indent_target
-            };
-            if should_indent {
-                main_axis_pen += constraints.text_indent;
-            }
-        }
+        // `text-indent` is already in the segment: `indent_line_box` took it off
+        // the line box's start edge before the line was broken.
 
         // Calculate total marker width for proper outside marker positioning
         // We need to position all marker clusters together in the padding gutter
@@ -12790,6 +12802,61 @@ pub(crate) fn line_alignment_offset(
         TextAlign::Right => remaining_space,
         _ => 0.0, // Left, and Justify (a justified line fills its box)
     }
+}
+
+/// The `text-indent` of one line box (CSS Text 3 section 8.1): the first
+/// formatted line of the block container is indented - with `each-line`
+/// every line after a forced line break too, never a line after a soft wrap -
+/// and `hanging` inverts which lines are. 0 for the others.
+///
+/// `is_first_formatted_line` is the paragraph's first line, not a fragment's:
+/// a continuation fragment of a flow starts mid-paragraph. The ONE choice of
+/// the greedy breaker, the Knuth-Plass path and the intrinsic-size scan.
+pub(crate) fn text_indent_of_line(
+    constraints: &UnifiedConstraints,
+    is_first_formatted_line: bool,
+    is_after_forced_break: bool,
+) -> f32 {
+    let picked =
+        is_first_formatted_line || (constraints.text_indent_each_line && is_after_forced_break);
+    if picked == constraints.text_indent_hanging {
+        0.0
+    } else {
+        constraints.text_indent
+    }
+}
+
+/// Takes a line's `text-indent` off the start edge of its line box. CSS Text 3
+/// section 8.1: the indent "is treated as a margin applied to the start edge of
+/// the line box" - the line box is that much narrower (a negative indent:
+/// wider), so the breaker fills, `justify` spreads over and the alignment
+/// places the line in what is left. The start-side segment is the leftmost one
+/// of a left-to-right line (and of a vertical one: its top) and the rightmost
+/// one of a right-to-left line, whose start edge is its right edge.
+///
+/// Shifting the finished line by the indent instead (as both positioners
+/// did) broke the first line against the full width: it ended `indent` past
+/// the paragraph (pdfocr, 2026-10-02).
+pub(crate) fn indent_line_box(
+    line_constraints: &mut LineConstraints,
+    indent: f32,
+    base_direction: BidiDirection,
+) {
+    if indent == 0.0 || !indent.is_finite() {
+        return;
+    }
+    let start_segment = match base_direction {
+        BidiDirection::Ltr => line_constraints.segments.first_mut(),
+        BidiDirection::Rtl => line_constraints.segments.last_mut(),
+    };
+    let Some(segment) = start_segment else {
+        return;
+    };
+    if base_direction == BidiDirection::Ltr {
+        segment.start_x += indent;
+    }
+    segment.width -= indent;
+    line_constraints.total_available -= indent;
 }
 
 /// Calculates the extra spacing needed for justification without modifying the items.
