@@ -431,6 +431,13 @@ impl PlatformNotifier {
         self.release_balloon_icon();
     }
 
+    /// Whether a notification's delivery time can be handed to Windows (a
+    /// scheduled toast); the balloon cannot schedule, so the service holds
+    /// such a notification until it is due.
+    pub(super) fn can_schedule(&self) -> bool {
+        self.toaster.is_some()
+    }
+
     pub(super) fn post(&mut self, notification: &Notification) -> Result<(), String> {
         if let Some(toaster) = self.toaster.as_mut() {
             return toaster.post(notification);
@@ -579,10 +586,11 @@ pub(super) mod toast {
     use windows::{
         core::{IInspectable, Interface, HSTRING},
         Data::Xml::Dom::XmlDocument,
-        Foundation::TypedEventHandler,
+        Foundation::{DateTime, TypedEventHandler},
         UI::Notifications::{
-            NotificationSetting, ToastActivatedEventArgs, ToastDismissedEventArgs,
-            ToastFailedEventArgs, ToastNotification, ToastNotificationManager, ToastNotifier,
+            NotificationSetting, ScheduledToastNotification, ToastActivatedEventArgs,
+            ToastDismissedEventArgs, ToastFailedEventArgs, ToastNotification,
+            ToastNotificationManager, ToastNotifier,
         },
     };
 
@@ -903,6 +911,32 @@ pub(super) mod toast {
             }
             let id = notification.id.as_str().to_string();
             let xml = wire::toast_xml(notification);
+            // A delivery time: a scheduled toast, which Windows shows then
+            // (within about five minutes) whether or not the app runs. Its
+            // clicks reach the activator, like those of an Action Center
+            // entry; a scheduled toast has no events of its own.
+            let now = super::super::wall_clock_ms();
+            if wire::delivery_delay_ms(notification.deliver_at.into_option(), now).is_some() {
+                let at = notification.deliver_at.into_option().unwrap_or(now);
+                // One scheduled toast per id, as a post replaces its toast.
+                self.remove_scheduled(&id);
+                return (|| -> windows::core::Result<()> {
+                    let doc = XmlDocument::new()?;
+                    doc.LoadXml(&HSTRING::from(xml.as_str()))?;
+                    let scheduled = ScheduledToastNotification::CreateScheduledToastNotification(
+                        &doc,
+                        DateTime {
+                            UniversalTime: wire::windows_datetime(at),
+                        },
+                    )?;
+                    if id.len() <= MAX_TAG {
+                        scheduled.SetTag(&HSTRING::from(id.as_str()))?;
+                        scheduled.SetGroup(&HSTRING::from(GROUP))?;
+                    }
+                    self.notifier.AddToSchedule(&scheduled)
+                })()
+                .map_err(|e| format!("the toast could not be scheduled: {e}"));
+            }
             let toast = (|| -> windows::core::Result<ToastNotification> {
                 let doc = XmlDocument::new()?;
                 doc.LoadXml(&HSTRING::from(xml.as_str()))?;
@@ -980,8 +1014,31 @@ pub(super) mod toast {
             Ok(())
         }
 
-        /// Off the screen and out of the Action Center.
+        /// The scheduled toasts of this id (its tag in this app's group),
+        /// taken off the schedule.
+        fn remove_scheduled(&self, id: &str) {
+            if id.len() > MAX_TAG {
+                return;
+            }
+            let Ok(list) = self.notifier.GetScheduledToastNotifications() else {
+                return;
+            };
+            let count = list.Size().unwrap_or(0);
+            for i in 0..count {
+                let Ok(scheduled) = list.GetAt(i) else {
+                    continue;
+                };
+                let tag = scheduled.Tag().map(|t| t.to_string_lossy()).unwrap_or_default();
+                let group = scheduled.Group().map(|g| g.to_string_lossy()).unwrap_or_default();
+                if tag == id && group == GROUP {
+                    let _ = self.notifier.RemoveFromSchedule(&scheduled);
+                }
+            }
+        }
+
+        /// Off the screen, out of the Action Center and off the schedule.
         pub(super) fn withdraw(&mut self, id: &str) {
+            self.remove_scheduled(id);
             if let Some(toast) = self.shown.remove(id) {
                 let _ = self.notifier.Hide(&toast);
             }
