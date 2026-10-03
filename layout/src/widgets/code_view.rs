@@ -2288,7 +2288,49 @@ pub(crate) enum Hit {
 
 /// What `(x, y)` is over.
 pub(crate) fn hit_test(cv: &CodeView, geo: &Geometry, lines: &dyn Lines, x: f32, y: f32) -> Hit {
-    todo!("GREEN: hit_test {x} {y} {} {}", lines.count() + cv.line_count, geo.top)
+    if let Some(bar) = geo.vbar {
+        let (bx, by, bw, bh) = bar.track;
+        if x >= bx && x <= bx + bw && y >= by && y <= by + bh {
+            return if y < bar.thumb_start {
+                Hit::TrackAbove
+            } else if y <= bar.thumb_start + bar.thumb_len {
+                Hit::Thumb
+            } else {
+                Hit::TrackBelow
+            };
+        }
+    }
+    let line = line_at(geo, lines, y);
+    if cv.show_line_numbers && x < geo.gutter_width {
+        return Hit::Gutter(line);
+    }
+    Hit::Text(position_in_line(geo, lines, cv.tab_width, line, x))
+}
+
+/// The line under `y` (px in the view): above the first is the first,
+/// below the last is the last.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn line_at(geo: &Geometry, lines: &dyn Lines, y: f32) -> u32 {
+    let row = if y <= 0.0 {
+        0
+    } else {
+        (y / geo.line_height.max(1.0)).floor() as u32
+    };
+    geo.top.saturating_add(row).min(last_line(lines))
+}
+
+/// The place in `line` nearest to `x` (px in the view).
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+fn position_in_line(geo: &Geometry, lines: &dyn Lines, tab: u32, line: u32, x: f32) -> CodeViewPosition {
+    let text = lines.text(line);
+    let column = geo.left as f32 + ((x - geo.text_left) / geo.char_width.max(0.1)).round();
+    let column = if column <= 0.0 { 0 } else { column as u32 };
+    CodeViewPosition::create(line, byte_at_visual(&text, column, tab))
+}
+
+/// The view's primary cursor replaced by `cursor` (the others dropped).
+fn only(view: &mut CodeViewView, cursor: CodeViewCursor) {
+    view.cursors = CodeViewCursorVec::from_vec(alloc::vec![cursor]);
 }
 
 /// What a press at `hit` does (the pure half of the handler).
@@ -2300,27 +2342,139 @@ pub(crate) fn press_event(
     mods: Mods,
     y: f32,
 ) -> Option<CodeViewEvent> {
-    todo!(
-        "GREEN: press_event {hit:?} {mods:?} {y} {} {}",
-        lines.count() + cv.line_count,
-        geo.top
-    )
+    let mut view = cv.view.clone();
+    let last = last_line(lines);
+    let page = geo.fit_lines.saturating_sub(1).max(1);
+    let kind = match hit {
+        Hit::Thumb => {
+            view.drag = CodeViewDragKind::ScrollBar;
+            view.drag_start_px = y;
+            view.drag_start_line = geo.top;
+            CodeViewEventKind::Scroll
+        }
+        Hit::TrackAbove => {
+            view.top_line = geo.top.saturating_sub(page);
+            CodeViewEventKind::Scroll
+        }
+        Hit::TrackBelow => {
+            view.top_line = geo.top.saturating_add(page).min(last);
+            CodeViewEventKind::Scroll
+        }
+        Hit::Gutter(line) => {
+            let anchor = CodeViewPosition::create(line, 0);
+            let head = if line < last {
+                CodeViewPosition::create(line + 1, 0)
+            } else {
+                CodeViewPosition::create(line, len32(&lines.text(line)))
+            };
+            let anchor = if mods.shift { view.primary().anchor } else { anchor };
+            only(&mut view, CodeViewCursor::create_selection(anchor, head));
+            view.drag = CodeViewDragKind::Select;
+            CodeViewEventKind::Move
+        }
+        Hit::Text(at) => {
+            if mods.shift {
+                let anchor = view.primary().anchor;
+                only(&mut view, CodeViewCursor::create_selection(anchor, at));
+            } else if mods.alt {
+                view.add_cursor(at);
+            } else {
+                view.set_cursor(at);
+            }
+            view.drag = CodeViewDragKind::Select;
+            CodeViewEventKind::Move
+        }
+    };
+    Some(CodeViewEvent::create(kind, view))
 }
 
 /// What a move to `(x, y)` does while a drag is in progress.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
 pub(crate) fn drag_event(cv: &CodeView, geo: &Geometry, lines: &dyn Lines, x: f32, y: f32) -> Option<CodeViewEvent> {
-    todo!("GREEN: drag_event {x} {y} {} {}", lines.count() + cv.line_count, geo.top)
+    let mut view = cv.view.clone();
+    let last = last_line(lines);
+    match view.drag {
+        CodeViewDragKind::None => None,
+        CodeViewDragKind::ScrollBar => {
+            let bar = geo.vbar?;
+            let travel = (geo.height - bar.thumb_len).max(1.0);
+            let moved = ((y - view.drag_start_px) / travel * last as f32).round() as i64;
+            let top = (i64::from(view.drag_start_line) + moved).clamp(0, i64::from(last));
+            let top = u32::try_from(top).unwrap_or(0);
+            if top == geo.top {
+                return None;
+            }
+            view.top_line = top;
+            Some(CodeViewEvent::create(CodeViewEventKind::Scroll, view))
+        }
+        CodeViewDragKind::Select => {
+            // Past an edge the view scrolls a line per move.
+            let mut g = geo.clone();
+            if y < 0.0 && g.top > 0 {
+                g.top -= 1;
+            } else if y > geo.height && g.top < last {
+                g.top += 1;
+            }
+            let line = line_at(&g, lines, y.clamp(0.0, (geo.height - 1.0).max(0.0)));
+            let at = position_in_line(&g, lines, cv.tab_width, line, x);
+            let primary = view.primary();
+            if primary.head == at && g.top == geo.top {
+                return None;
+            }
+            view.top_line = g.top;
+            let mut all = view.cursors.as_slice().to_vec();
+            if let Some(last_cursor) = all.last_mut() {
+                *last_cursor = CodeViewCursor::create_selection(primary.anchor, at);
+            }
+            view.cursors = CodeViewCursorVec::from_vec(all);
+            Some(CodeViewEvent::create(CodeViewEventKind::Move, view))
+        }
+    }
+}
+
+/// The drag ended.
+pub(crate) fn drag_end(cv: &CodeView) -> Option<CodeViewEvent> {
+    if cv.view.drag == CodeViewDragKind::None {
+        return None;
+    }
+    let mut view = cv.view.clone();
+    view.drag = CodeViewDragKind::None;
+    Some(CodeViewEvent::create(CodeViewEventKind::Move, view))
 }
 
 /// A double-click at `hit`: the word there selected.
 pub(crate) fn double_click_event(cv: &CodeView, lines: &dyn Lines, hit: Hit) -> Option<CodeViewEvent> {
-    todo!("GREEN: double_click_event {hit:?} {}", lines.count() + cv.line_count)
+    let Hit::Text(at) = hit else {
+        return None;
+    };
+    let at = clamp_pos(lines, at);
+    let (start, end) = word_at(&lines.text(at.line), at.column);
+    if start == end {
+        return None;
+    }
+    let mut view = cv.view.clone();
+    view.select(
+        CodeViewPosition::create(at.line, start),
+        CodeViewPosition::create(at.line, end),
+    );
+    view.drag = CodeViewDragKind::None;
+    Some(CodeViewEvent::create(CodeViewEventKind::Move, view))
 }
 
 /// The view scrolled by whole `rows` and `columns` (the wheel); `None`
 /// when it is already at that edge.
 pub(crate) fn scroll_event(cv: &CodeView, geo: &Geometry, rows: i64, columns: i64) -> Option<CodeViewEvent> {
-    todo!("GREEN: scroll_event {rows} {columns} {} {}", cv.line_count, geo.top)
+    let last = cv.line_count.max(1) - 1;
+    let top = (i64::from(geo.top) + rows).clamp(0, i64::from(last));
+    let left = (i64::from(cv.view.left_column) + columns).clamp(0, i64::from(u32::MAX));
+    let (top, left) = (u32::try_from(top).unwrap_or(0), u32::try_from(left).unwrap_or(0));
+    if top == geo.top && left == cv.view.left_column {
+        return None;
+    }
+    let mut view = cv.view.clone();
+    view.top_line = top;
+    view.left_column = left;
+    Some(CodeViewEvent::create(CodeViewEventKind::Scroll, view))
 }
 
 // ---- the build ----
