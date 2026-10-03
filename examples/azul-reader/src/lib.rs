@@ -17,6 +17,7 @@ mod ribbon;
 pub mod sample;
 pub mod position;
 pub mod settings;
+mod ui_library;
 pub mod xmltree;
 
 pub fn start() {}
