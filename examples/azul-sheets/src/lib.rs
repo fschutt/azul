@@ -2389,20 +2389,11 @@ extern "C" fn on_grid_event(mut data: RefAny, mut info: CallbackInfo, event: Cel
     with_app(&mut data, &mut info, |info, app, s| grid_event(info, app, s, event))
 }
 
-/// Several style changes to the selection.
+/// Style changes to the selection: ONE undo step per area, however many
+/// changes (a ribbon button's one, Format Cells' OK's several).
 fn restyle(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, patches: Vec<StylePatch>) {
     let areas = s.areas();
-    for patch in patches {
-        run(
-            info,
-            app,
-            s,
-            Command::Style {
-                areas: areas.clone(),
-                patch,
-            },
-        );
-    }
+    run(info, app, s, Command::Styles { areas, patches });
 }
 
 /// A ribbon command (or its keyboard shortcut).

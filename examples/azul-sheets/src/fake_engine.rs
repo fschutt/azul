@@ -376,6 +376,27 @@ fn shift_lines<V: Clone>(map: &BTreeMap<i32, V>, at: i32, by: i32) -> BTreeMap<i
     out
 }
 
+impl FakeEngine {
+    /// `patch` on every cell of `area` (no snapshot: the caller took it).
+    fn restyle(&mut self, area: CellArea, patch: &StylePatch) -> Result<(), EngineError> {
+        let sheet = self.sheet_mut(area.sheet)?;
+        for (row, column) in walk(area) {
+            let old = sheet
+                .styles
+                .get(&(row, column))
+                .cloned()
+                .unwrap_or_default();
+            let new = patched(old, patch, area, row, column);
+            if new == CellStyle::default() {
+                sheet.styles.remove(&(row, column));
+            } else {
+                sheet.styles.insert((row, column), new);
+            }
+        }
+        Ok(())
+    }
+}
+
 impl SheetEngine for FakeEngine {
     fn new_workbook(&mut self, name: &str) -> Result<(), EngineError> {
         self.book = FakeBook::empty(name);
@@ -654,27 +675,16 @@ impl SheetEngine for FakeEngine {
     }
 
     fn update_styles(&mut self, area: CellArea, patches: &[StylePatch]) -> Result<(), EngineError> {
-        patches.iter().try_for_each(|p| self.update_style(area, p))
+        self.check_sheet(area.sheet)?;
+        self.checkpoint();
+        for patch in patches {
+            self.restyle(area, patch)?;
+        }
+        Ok(())
     }
 
     fn update_style(&mut self, area: CellArea, patch: &StylePatch) -> Result<(), EngineError> {
-        self.check_sheet(area.sheet)?;
-        self.checkpoint();
-        let sheet = self.sheet_mut(area.sheet)?;
-        for (row, column) in walk(area) {
-            let old = sheet
-                .styles
-                .get(&(row, column))
-                .cloned()
-                .unwrap_or_default();
-            let new = patched(old, patch, area, row, column);
-            if new == CellStyle::default() {
-                sheet.styles.remove(&(row, column));
-            } else {
-                sheet.styles.insert((row, column), new);
-            }
-        }
-        Ok(())
+        self.update_styles(area, core::slice::from_ref(patch))
     }
 
     fn clear_contents(&mut self, area: CellArea) -> Result<(), EngineError> {

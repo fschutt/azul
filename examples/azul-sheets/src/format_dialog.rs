@@ -244,8 +244,8 @@ pub(crate) fn open(s: &mut AppState, style: crate::engine::CellStyle, tab: usize
     s.format = Some(d);
 }
 
-/// Applies the draft to the selection (one style command per change) and
-/// closes the dialog.
+/// Applies the draft to the selection - every change at once, ONE undo
+/// step - and closes the dialog.
 fn apply(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState) {
     if let Some(d) = s.format.take() {
         let patches = d.patches();

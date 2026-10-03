@@ -62,9 +62,11 @@ pub enum Command {
     ClearFormats {
         areas: Vec<CellArea>,
     },
-    Style {
+    /// Style changes of the areas, ONE undo step per area (a ribbon
+    /// button's one change, Format Cells' OK's several).
+    Styles {
         areas: Vec<CellArea>,
-        patch: StylePatch,
+        patches: Vec<StylePatch>,
     },
     Fill {
         source: CellArea,
@@ -442,9 +444,9 @@ fn run(
         Command::Paste { at, tsv } => engine.paste_tsv(*at, tsv),
         Command::Clear { areas } => areas.iter().try_for_each(|a| engine.clear_contents(*a)),
         Command::ClearFormats { areas } => areas.iter().try_for_each(|a| engine.clear_formats(*a)),
-        Command::Style { areas, patch } => areas
+        Command::Styles { areas, patches } => areas
             .iter()
-            .try_for_each(|a| engine.update_style(*a, patch)),
+            .try_for_each(|a| engine.update_styles(*a, patches)),
         Command::Fill { source, to } => engine.auto_fill(*source, *to),
         Command::InsertRows { sheet, row, count } => engine.insert_rows(*sheet, *row, *count),
         Command::DeleteRows { sheet, row, count } => engine.delete_rows(*sheet, *row, *count),

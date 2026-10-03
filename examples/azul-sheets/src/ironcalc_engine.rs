@@ -29,7 +29,7 @@ use ironcalc::base::{
 use crate::engine::{
     BorderPreset, CellAddr, CellArea, CellBorders, CellStyle, CellValue, CondLook, CondRule, ConditionalFormat,
     DefinedName, EngineError,
-    FillTo, HAlign, SheetEngine, SheetInfo, StylePatch, VAlign,
+    FillTo, HAlign, SheetEngine, SheetInfo, StylePatch, VAlign, LAST_COLUMN, LAST_ROW,
 };
 
 /// IronCalc's default column width, px (its constant is crate-private).
@@ -396,6 +396,21 @@ pub(crate) fn value_from(value: IcCellValue, is_error: bool) -> CellValue {
     }
 }
 
+impl IronCalcEngine {
+    /// The styles of `a`'s cells (their own and their row / column style,
+    /// no conditional format), row by row.
+    fn styles_of(&self, a: CellArea) -> Result<Vec<Vec<Style>>, EngineError> {
+        let model = self.model.get_model();
+        (a.row..a.row + a.height)
+            .map(|row| {
+                (a.column..a.column + a.width)
+                    .map(|column| model.get_style_for_cell(a.sheet, row, column))
+                    .collect::<Result<Vec<Style>, EngineError>>()
+            })
+            .collect()
+    }
+}
+
 impl SheetEngine for IronCalcEngine {
     fn new_workbook(&mut self, name: &str) -> Result<(), EngineError> {
         self.model = empty_model(name)?;
@@ -550,7 +565,56 @@ impl SheetEngine for IronCalcEngine {
     }
 
     fn update_styles(&mut self, a: CellArea, patches: &[StylePatch]) -> Result<(), EngineError> {
-        patches.iter().try_for_each(|p| self.update_style(a, p))
+        let whole = (a.row <= 1 && a.height >= LAST_ROW) || (a.column <= 1 && a.width >= LAST_COLUMN);
+        if patches.len() <= 1 || whole {
+            // One change is one step already; whole rows / columns keep
+            // IronCalc's row / column styles (a step per change).
+            return patches.iter().try_for_each(|p| self.update_style(a, p));
+        }
+        // IronCalc's UserModel makes every call a step and cannot group
+        // them. So: every change through IronCalc's own paths (its style
+        // paths, its borders, which reach the cells around the area), the
+        // resulting styles of the area and its ring read, the changes undone,
+        // and the result written back as ONE paste of styles - one step.
+        let ring = CellArea::spanning(
+            a.sheet,
+            (a.row - 1).max(1),
+            (a.column - 1).max(1),
+            (a.row + a.height).min(LAST_ROW),
+            (a.column + a.width).min(LAST_COLUMN),
+        );
+        let before = self.styles_of(ring)?;
+        let mut applied = 0;
+        let mut failed = None;
+        for patch in patches {
+            match self.update_style(a, patch) {
+                Ok(()) => applied += 1,
+                Err(e) => {
+                    failed = Some(e);
+                    break;
+                }
+            }
+        }
+        let after = self.styles_of(ring);
+        for _ in 0..applied {
+            self.model.undo()?;
+        }
+        if let Some(e) = failed {
+            return Err(e);
+        }
+        let after = after?;
+        if after == before {
+            return Ok(());
+        }
+        self.model.set_selected_sheet(ring.sheet)?;
+        self.model.set_selected_cell(ring.row, ring.column)?;
+        self.model.set_selected_range(
+            ring.row,
+            ring.column,
+            ring.row + ring.height - 1,
+            ring.column + ring.width - 1,
+        )?;
+        self.model.on_paste_styles(&after)
     }
 
     fn clear_contents(&mut self, a: CellArea) -> Result<(), EngineError> {
