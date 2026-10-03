@@ -971,11 +971,12 @@ mod tests {
 
     #[test]
     fn a_tile_id_names_the_person_and_the_picture() {
-        assert_eq!(tile_id(&tile("Ada (you)", true, TileKind::Camera)), "azmeet-tile-me-camera");
-        assert_eq!(tile_id(&tile("Ben", false, TileKind::Screen)), "azmeet-tile-ben-screen");
+        assert_eq!(tile_id(&tile("Ada (you)", true, TileKind::Camera)), "__azmeet_tile_me_camera");
+        assert_eq!(tile_id(&tile("Ben", false, TileKind::Screen)), "__azmeet_tile_ben_screen");
         assert_eq!(
             tile_id(&tile("Cleo M.", false, TileKind::Camera)),
-            "azmeet-tile-cleo-m--camera"
+            "__azmeet_tile_cleo_m__camera",
+            "the app prefix, every character but a letter or digit an underscore"
         );
     }
 
