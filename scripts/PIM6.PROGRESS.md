@@ -52,10 +52,15 @@ Screenshots: target/pim6-shots (not committed).
   picker_week_start); 1d6850a06 detail.rs custom repeat = RecurrenceEditor, date pickers week start.
 - Navigator DatePicker was Monday already; no `ctrl || meta` in the three apps.
 
+- AzTasks: 4bfd82e8d/fccd96340/18144f045 appearance (theme+mode kept in aztasks/settings.json
+  via azul-appkit AppSettings, read at start, saved through the queue); 282bfeb94/07f486f2f
+  vtodo.rs (write/read/file_name_for); 11f293e7c/5bce21ff5 Tasks::export_tasks/import_tasks;
+  185469b93 Job::ReadImport; 540558f4f Settings > Data > Import and export UI; 3d2c907b1 E2E
+  (export/import/kept flora); deafa752f body margin 0 + pane ratios (not seen).
+
 ## IN PROGRESS
-- AzTasks VTODO import/export (azul_pim content_line), then theme+mode in settings, LOOK fixes
-  (body margin 0, pane widths), E2E for repeat editor. Later: `__az<app>_` prefixes (all three
-  apps + their E2E scripts), AzContacts features, report.
+- AzContacts: photo preview, CSV import with column mapping, birthday as DatePicker. Then
+  `__az<app>_` prefixes (three apps + E2E scripts), report scripts/PIM6_2026_10_03.md.
 
 ## (old notes, done) RecurrenceEditor GREEN part 2 steps, in layout/src/widgets/recurrence_editor.rs:
   1. replace the 4 remaining `todo!()`: `RecurrenceEditor::create` (week_start Monday default,
