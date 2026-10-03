@@ -26,22 +26,33 @@ Brief: scripts/waves/wave8/PLAN.md section "WPT8". Items in order:
     generator field `canvas_painted: [Option<NodeId>; 2]` -> paint_node_background_and_border_inner
     skips the background of the root and the propagating body.
 
-## IN PROGRESS
-- item 1 leftover (decided, not yet done): the WPT runner `layout/tests/wpt/reftest.rs` `render_xml`
-  uses core's `parse_xml` + `dom_from_parsed_xml` (core/src/xml.rs `str_to_dom_unstyled` DROPS the
-  `<html>` element's attributes - `<html style="background:green">` in
-  background-color-body-propagation-ref is lost). Plan: switch render_xml to
-  `azul_layout::xml::parse_xml_to_styled_dom(xml)` (the document loader azul-doc reftest and the debug
-  `mount` use) and update the module doc; report the core loader bug to XML8 (its file), do not edit
-  core/src/xml.rs.
+- a3c2c5027 WPT runner `render_xml` uses `parse_xml_to_styled_dom` (core's tree loader drops `<html>`
+  attributes - XML8's file core/src/xml.rs `str_to_dom_unstyled`, REPORT it, not edited)
+
+## IN PROGRESS - item 2 (inline boxes), ROOT CAUSES FOUND by probing the prebuilt AzPaint
+(probe tool: /tmp/wpt8/probe.py + pages in /tmp/wpt8/pages, may be gone after a reboot)
+- (a) a span's border/padding vanish (no paint, no pen shift) unless it also has a background or a
+  text-decoration: text3 stage-1 cache key `calculate_id(&content)` (text3/cache.rs ~8187) hashes
+  StyleProperties via its `Hash` impl (cache.rs ~4853) which OMITS border (InlineBorderInfo) and
+  background_content. The intrinsic-sizing collector (solver3/sizing.rs
+  `collect_inline_content_recursive`) styles span text with the TEXT node's own style (no border); its
+  logical items are cached first and reused by the final layout (same hash). Fix: hash border +
+  background_content in `impl Hash for StyleProperties`; layout_hash must include the inline insets
+  (they move the pen: inline_offsets in position_one_line ~12590).
+- (b) a span's background is painted TWICE (display_list `push_inline_backgrounds_and_border`: the
+  `background_color` rect AND the Color layer of `background_content`) - translucent doubles.
+- (c) inline margins are never applied (InlineBorderInfo has no margin; inline_offsets = border+padding).
+- (d) sizing collector should give text inside an inline span the span's style (like fc.rs CASE 1).
+- (e) nested inline chrome / an outer inline's bg spanning an inner one's margin
+  (inline-formatting-context-002) needs per-element inline fragments - bigger; maybe left.
+- (f) inline-block-baseline-001: `span {display:inline-block; overflow:visible}` with text sits ABOVE
+  the line (own line) - not yet investigated.
 
 ## NEXT
-- item 2: inline boxes' margin/border/padding/background (WPT css/CSS2/linebox inline-formatting-context-002/
-  004/006, empty-inline-001/003, split-inline-borders) and inline-block line breaking/baseline
-  (css/CSS2/visudet inline-block-baseline-001/002/005/015). First read what wave 7 already fixed
-  (3995cb27f inline box holding a block; fac8d1c5e texteng inline-blocks in spans), then the inline
-  paint path: getters.rs ~3530 (inline bg/border info into glyph runs) and display_list.rs
-  `push_inline_backgrounds_and_border` callers. RED test in layout/tests using crate::painted.
+- RED test file layout/tests/an_inline_box_paints_its_border_padding_and_margin.rs (crate::painted):
+  border-only span draws blue pixels; margin+border+padding push a following red inline-block by 55px vs
+  a chrome-less twin; a span's margin is not covered by its background; translucent span bg painted once.
+  Then GREEN (a), (b), (c), (d) in that order, one commit each.
 
 ## Decisions / open questions
 - Tests use the document loader (`parse_xml_to_styled_dom`), which keeps `<html>` attributes.
