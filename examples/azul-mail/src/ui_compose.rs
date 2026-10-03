@@ -20,7 +20,8 @@ use std::path::PathBuf;
 
 use azul::{
     callbacks::{
-        ButtonOnClickCallbackType, ResumeCallbackType, RichTextEditorOnChangeCallbackType,
+        ButtonOnClickCallbackType, ModalOnCloseCallbackType, ResumeCallbackType,
+        RichTextEditorOnChangeCallbackType, StandardDialogOnEventCallbackType,
         TextInputOnTextInputCallbackType, TimerCallbackInfo, TimerCallbackReturn,
     },
     dialog::{FileDialog, FileOpenMultiResult},
@@ -33,10 +34,11 @@ use azul::{
     time::{Duration, SystemTimeDiff},
     vec::RichTextSpanVec,
     widgets::{
-        AlertKind, ButtonType, InfoBar, OnTextInputReturn, Ribbon, RibbonButton, RibbonGroup,
-        RibbonItem, RibbonTab, RichBlockKind, RichFormat, RichTextCommand, RichTextDoc,
-        RichTextEditor, RichTextEditorState, StatusBar, StatusBarSegment, TextInputState,
-        TextInputValid, Titlebar,
+        ButtonType, MessageBox, MessageBoxKind, Modal, ModalState, OnTextInputReturn, Ribbon,
+        RibbonButton, RibbonGroup, RibbonItem, RibbonTab, RichBlockKind, RichFormat,
+        RichTextCommand, RichTextDoc, RichTextEditor, RichTextEditorState, StandardDialogEvent,
+        StandardDialogEventKind, StatusBar, StatusBarSegment, TextInputState, TextInputValid,
+        Titlebar,
     },
     window::WindowDecorations,
 };
@@ -337,9 +339,6 @@ pub(crate) extern "C" fn layout_compose(mut data: RefAny, info: LayoutCallbackIn
     };
     let mut document = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;");
-    if c.asking_close {
-        document.add_child(save_changes_bar(c, &app));
-    }
     document.add_child(header_block(c, &app));
     if c.show_link {
         document.add_child(link_bar(c, &app));
@@ -352,7 +351,7 @@ pub(crate) extern "C" fn layout_compose(mut data: RefAny, info: LayoutCallbackIn
         .office_shell()
         .with_ribbon(compose_ribbon(c, &app))
         .with_status_bar(status_bar(c));
-    let column = Dom::create_div()
+    let mut column = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
         .with_child(
             Titlebar::create(compose::window_title(&c.subject))
@@ -360,6 +359,9 @@ pub(crate) extern "C" fn layout_compose(mut data: RefAny, info: LayoutCallbackIn
                 .dom(),
         )
         .with_child(shell.dom());
+    if c.asking_close {
+        column.add_child(save_changes_question(c, &app));
+    }
     Dom::create_body()
         .with_css(crate::WINDOW_BODY_CSS)
         .with_child(
@@ -589,35 +591,37 @@ fn link_bar(c: &Compose, app: &RefAny) -> Dom {
         )
 }
 
-/// The attached files, each with Remove.
-/// "Do you want to save changes?" when an edited message's window is closed.
-fn save_changes_bar(c: &Compose, app: &RefAny) -> Dom {
-    let choice = |label: &str, action: ComposeAction| {
-        Button::create(label)
-            .with_on_click(
-                action_ref(app, c.id, action),
-                on_compose_action as ButtonOnClickCallbackType,
-            )
-            .dom()
-            .with_css("margin-left: 8px;")
-    };
-    Dom::create_div()
-        .with_css(
-            "display: flex; flex-direction: row; align-items: center; padding: 6px 14px; \
-             flex-shrink: 0;",
+/// "Do you want to save changes to this message?" when an edited message's window is closed:
+/// the standard question (a `MessageBox` in a `Modal`, as Outlook asks in a dialog).
+fn save_changes_question(c: &Compose, app: &RefAny) -> Dom {
+    let question = MessageBox::create(
+        MessageBoxKind::Question,
+        "Do you want to save changes to this message?",
+        "A saved message is kept in Drafts.",
+    )
+    .with_buttons(
+        vec![
+            AzString::from("Save"),
+            AzString::from("Don't Save"),
+            AzString::from("Cancel"),
+        ],
+        0,
+    )
+    .with_on_event(
+        compose_ref(app, c.id),
+        on_save_changes_answer as StandardDialogOnEventCallbackType,
+    );
+    Modal::create(question.dom())
+        .with_title("AzMail")
+        .with_open(true)
+        .with_on_close(
+            compose_ref(app, c.id),
+            on_save_changes_dismissed as ModalOnCloseCallbackType,
         )
-        .with_child(
-            InfoBar::create("Do you want to save changes to this message?")
-                .with_icon("help")
-                .with_kind(AlertKind::Warning)
-                .dom()
-                .with_css("flex-grow: 1;"),
-        )
-        .with_child(choice("Save", ComposeAction::CloseSave))
-        .with_child(choice("Don't Save", ComposeAction::CloseDiscard))
-        .with_child(choice("Cancel", ComposeAction::CloseCancel))
+        .dom()
 }
 
+/// The attached files, each with Remove.
 fn attachments_row(c: &Compose, app: &RefAny) -> Dom {
     let mut row = Dom::create_div().with_css(
         "display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; padding: 0px \
@@ -771,8 +775,10 @@ extern "C" fn on_compose_key(mut data: RefAny, mut info: CallbackInfo) -> Update
     run_compose_action(&mut app, &mut info, id, action)
 }
 
-/// The window is being closed (its close button): an edited message holds the close back and
-/// asks "Save changes?"; otherwise its compose goes.
+/// The window is being closed (its close button, Alt+F4, `close_window`): an edited message
+/// holds the close back (`prevent_window_close`) and asks "Save changes?"; otherwise its
+/// compose goes. The decision reads the compose as it is NOW, so a close the app asks for
+/// itself after dropping or sending the mail (Discard, "Don't Save", sent) always passes.
 extern "C" fn on_compose_close_requested(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((mut app, id)) = target_of(&mut data) else {
         return Update::DoNothing;
@@ -791,11 +797,38 @@ extern "C" fn on_compose_close_requested(mut data: RefAny, mut info: CallbackInf
     if !held {
         return Update::DoNothing;
     }
-    // A cleared flag is what every backend reads as "stay open".
-    let mut state = info.get_current_window_state();
-    state.flags.close_requested = false;
-    info.modify_window_state(state);
+    // Last: the veto rides on whatever window state this callback queued.
+    info.prevent_window_close();
     Update::RefreshDom
+}
+
+/// The answer to "Save changes?": Save (button 0) saves the draft and then closes, Don't Save
+/// (1) closes, Cancel (2, Escape) keeps the window.
+extern "C" fn on_save_changes_answer(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    event: StandardDialogEvent,
+) -> Update {
+    let Some((mut app, id)) = target_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let action = match (event.kind, event.index) {
+        (StandardDialogEventKind::Button, 0) => ComposeAction::CloseSave,
+        (StandardDialogEventKind::Button, 1) => ComposeAction::CloseDiscard,
+        (StandardDialogEventKind::Button | StandardDialogEventKind::Cancel, _) => {
+            ComposeAction::CloseCancel
+        }
+        _ => return Update::DoNothing,
+    };
+    run_compose_action(&mut app, &mut info, id, action)
+}
+
+/// The question's modal was closed (its close button, Escape): Cancel.
+extern "C" fn on_save_changes_dismissed(mut data: RefAny, mut info: CallbackInfo, _state: ModalState) -> Update {
+    let Some((mut app, id)) = target_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    run_compose_action(&mut app, &mut info, id, ComposeAction::CloseCancel)
 }
 
 extern "C" fn on_compose_action(mut data: RefAny, mut info: CallbackInfo) -> Update {
