@@ -531,3 +531,97 @@ pub fn is_pdf_bytes(bytes: &[u8]) -> bool {
 pub fn is_pdf_path(path: &str) -> bool {
     path.to_ascii_lowercase().ends_with(".pdf")
 }
+
+// ==== The export switches (for the Chrome probe) ====
+
+/// The width `--export-png` draws at without `--width` (Letter at 96 dpi).
+pub const DEFAULT_EXPORT_WIDTH: u32 = 816;
+
+/// What an export writes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExportFormat {
+    /// The page drawn by azul (the viewer's render path).
+    Png,
+    /// The page's SVG (azul's PDF -> SVG).
+    Svg,
+}
+
+/// `--export-png OUT | --export-svg OUT [--page N] [--width W] FILE`: one page
+/// written without a window.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExportRequest {
+    pub format: ExportFormat,
+    pub out: String,
+    /// 0-based (the switch is 1-based).
+    pub page: usize,
+    pub width: u32,
+    pub file: String,
+}
+
+/// The export the command line asks for: `None` without an `--export-*`
+/// switch (the window opens), `Some(Err(why))` for a malformed one.
+#[must_use]
+pub fn parse_export(args: &[String]) -> Option<Result<ExportRequest, String>> {
+    if !args
+        .iter()
+        .any(|a| a == "--export-png" || a == "--export-svg")
+    {
+        return None;
+    }
+    let mut format = ExportFormat::Png;
+    let mut out = None;
+    let mut page = 0;
+    let mut width = DEFAULT_EXPORT_WIDTH;
+    let mut file = None;
+    let mut i = 0;
+    while i < args.len() {
+        let arg = args[i].as_str();
+        let value = args.get(i + 1);
+        match arg {
+            "--export-png" | "--export-svg" => {
+                format = if arg == "--export-png" {
+                    ExportFormat::Png
+                } else {
+                    ExportFormat::Svg
+                };
+                let Some(v) = value else {
+                    return Some(Err(format!("{arg} needs an output file")));
+                };
+                out = Some(v.clone());
+                i += 2;
+            }
+            "--page" => {
+                let Some(n) = value.and_then(|v| v.parse::<usize>().ok()) else {
+                    return Some(Err("--page needs a page number (1 = the first)".to_string()));
+                };
+                page = n.saturating_sub(1);
+                i += 2;
+            }
+            "--width" => {
+                let Some(w) = value.and_then(|v| v.parse::<u32>().ok()).filter(|w| *w > 0) else {
+                    return Some(Err("--width needs a width in pixels".to_string()));
+                };
+                width = w;
+                i += 2;
+            }
+            _ => {
+                file = Some(arg.to_string());
+                i += 1;
+            }
+        }
+    }
+    match (out, file) {
+        (Some(out), Some(file)) => Some(Ok(ExportRequest {
+            format,
+            out,
+            page,
+            width,
+            file,
+        })),
+        _ => Some(Err(
+            "usage: AzPdf --export-png OUT.png | --export-svg OUT.svg \
+                       [--page N] [--width W] FILE.pdf"
+                .to_string(),
+        )),
+    }
+}
