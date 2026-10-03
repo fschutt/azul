@@ -271,7 +271,8 @@ fn requery(app: &mut RefAny, info: &mut CallbackInfo, change: fn(&mut DataTableV
     };
     change(&mut s.table.view);
     if let Some(source) = s.source.clone() {
-        table(&s, &handle, source, 0.0).start_query(info);
+        // `CallbackInfo` is a copyable handle (the binding takes it by value).
+        table(&s, &handle, source, 0.0).start_query(*info);
     }
     println!("AZDASH_SORT {}", sort_text(&s.table.view));
     if !s.table.view.is_sorting() {
