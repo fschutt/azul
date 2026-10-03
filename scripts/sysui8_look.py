@@ -100,7 +100,10 @@ def record(out_dir):
             with AzulHeadless(app=app, log_path=os.path.join(out_dir, name + ".log"),
                               seconds=seconds) as az:
                 az.resize(WIDTH, HEIGHT)
-                az.op("wait_settled")
+                try:
+                    az.op("wait_settled")
+                except Exception:  # noqa: BLE001 - an endless animation (a spinner, a video)
+                    az.op("wait_frame")
                 png = az.screenshot()
                 with open(os.path.join(out_dir, name + ".png"), "wb") as f:
                     f.write(png)
@@ -109,7 +112,8 @@ def record(out_dir):
                 with open(os.path.join(out_dir, name + ".json"), "w") as f:
                     json.dump(records, f, indent=0)
                 over = sum(1 for r in records if r["overflow"] > 0.5)
-                print("%-14s %4d text nodes, %3d overflow their parent" % (name, len(records), over))
+                print("%-14s %5d nodes, %4d text nodes, %3d overflow their parent"
+                      % (name, len(hierarchy.get("nodes", [])), len(records), over))
         except Exception as e:  # noqa: BLE001 - one app failing must not stop the look
             print("%-14s FAILED: %s" % (name, e))
 
