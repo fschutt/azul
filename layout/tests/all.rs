@@ -870,3 +870,5 @@ mod the_root_background_covers_the_whole_canvas;
 mod an_inline_box_paints_its_border_padding_and_margin;
 #[path = "an_inline_block_sits_on_its_last_lines_baseline.rs"]
 mod an_inline_block_sits_on_its_last_lines_baseline;
+#[path = "a_single_stop_gradient_is_a_solid_colour.rs"]
+mod a_single_stop_gradient_is_a_solid_colour;
