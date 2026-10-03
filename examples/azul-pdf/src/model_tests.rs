@@ -371,6 +371,53 @@ fn a_documents_title_is_its_file_name_without_the_extension() {
     assert_eq!(file_title("/a/notes"), "notes");
 }
 
+fn strings(args: &[&str]) -> Vec<String> {
+    args.iter().map(|a| (*a).to_string()).collect()
+}
+
+#[test]
+fn the_export_switches_name_the_output_the_page_the_width_and_the_file() {
+    assert_eq!(parse_export(&strings(&["file.pdf"])), None, "no export: the window");
+    let request = parse_export(&strings(&[
+        "--export-png",
+        "/tmp/p1.png",
+        "--page",
+        "3",
+        "--width",
+        "1200",
+        "in.pdf",
+    ]));
+    assert_eq!(
+        request,
+        Some(Ok(ExportRequest {
+            format: ExportFormat::Png,
+            out: "/tmp/p1.png".to_string(),
+            page: 2,
+            width: 1200,
+            file: "in.pdf".to_string(),
+        }))
+    );
+    let svg = parse_export(&strings(&["--export-svg", "o.svg", "in.pdf"]));
+    assert_eq!(
+        svg,
+        Some(Ok(ExportRequest {
+            format: ExportFormat::Svg,
+            out: "o.svg".to_string(),
+            page: 0,
+            width: DEFAULT_EXPORT_WIDTH,
+            file: "in.pdf".to_string(),
+        }))
+    );
+    assert!(matches!(
+        parse_export(&strings(&["--export-png", "o.png"])),
+        Some(Err(_))
+    ));
+    assert!(matches!(
+        parse_export(&strings(&["--export-png", "o.png", "--page", "x", "in.pdf"])),
+        Some(Err(_))
+    ));
+}
+
 #[test]
 fn a_pdf_is_known_by_its_header_or_its_name() {
     assert!(is_pdf_bytes(b"%PDF-1.7\n..."));
