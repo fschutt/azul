@@ -25,6 +25,7 @@ use crate::{
     money, sample,
     store::{self, Book, Kind, Skipped, Stored},
     views::{
+        fill_path,
         rows::{self, Ctx, ViewRecord},
         spec::{self, FieldSpec},
         Labels, Params, Route, View, ViewFile, ViewKind,
@@ -717,8 +718,19 @@ impl State {
     /// the row's record, `:asset_id` the asset of a log entry.
     #[must_use]
     pub fn row_path(&self, view: &View, kind: Kind, id: &str) -> Option<String> {
-        let _ = (view, kind, id);
-        None
+        let pattern = view.row_actions.first()?.path.as_deref()?;
+        let asset = match kind {
+            Kind::Maintenance => self
+                .book
+                .get::<MaintenanceEntry>(id)
+                .map(|m| m.asset.clone()),
+            Kind::Checkout => self.book.get::<Checkout>(id).map(|k| k.asset.clone()),
+            _ => None,
+        };
+        let mut params = Params::new();
+        params.insert("id".to_string(), id.to_string());
+        params.insert("asset_id".to_string(), asset.unwrap_or_default());
+        Some(fill_path(pattern, &params))
     }
 
     /// Queues the record's file.
