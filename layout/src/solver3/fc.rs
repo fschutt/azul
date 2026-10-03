@@ -11248,100 +11248,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             ctx.styled_dom.node_data.as_container()[dom_id].get_node_type(),
             NodeType::Image(_)
         ) {
-            // +spec:replaced-elements:31a782 - replaced elements (img) not rendered purely by CSS
-            // box concepts Images are replaced elements - they have intrinsic
-            // dimensions and CSS width/height can constrain them
-
-            // Re-get child_node since we dropped it earlier for the inline-block case
-            let child_node = tree
-                .get(LayoutNodeId::new(child_index))
-                .ok_or(LayoutError::InvalidTree)?;
-            let box_props = child_node.box_props.unpack();
-
-            // Get intrinsic size from the image data or fall back to layout node
-            let intrinsic_size = tree
-                .warm(LayoutNodeId::new(child_index))
-                .and_then(|w| w.intrinsic_sizes)
-                .unwrap_or_else(|| IntrinsicSizes {
-                    max_content_width: 50.0,
-                    max_content_height: 50.0,
-                    ..Default::default()
-                });
-
-            // Get styled node state for CSS property lookup
-            let styled_node_state = ctx
-                .styled_dom
-                .styled_nodes
-                .as_container()
-                .get(dom_id)
-                .map(|n| n.styled_node_state)
-                .unwrap_or_default();
-
-            // Calculate the used size respecting CSS width/height constraints
-            let tentative_size = crate::solver3::sizing::calculate_used_size_for_node(
-                ctx.styled_dom,
-                Some(dom_id),
-                &CBTY::from_flattened_with_width_type(
-                    atomic_inline_containing_block(constraints),
-                    constraints.available_width_type,
-                ),
-                intrinsic_size,
-                &box_props,
-                &ctx.viewport_size,
-            )?;
-
-            // Drop immutable borrow before mutable access
-            drop(child_node);
-
-            // Set the used_size on the layout node so paint_rect works correctly
-            let final_size = LogicalSize::new(tentative_size.width, tentative_size.height);
-            tree.get_mut(LayoutNodeId::new(child_index))
-                .unwrap()
-                .used_size = Some(final_size);
-
-            // Calculate display size for text3 (this is what text3 uses for positioning)
-            let display_width = if final_size.width > 0.0 {
-                Some(final_size.width)
-            } else {
-                None
-            };
-            let display_height = if final_size.height > 0.0 {
-                Some(final_size.height)
-            } else {
-                None
-            };
-
-            content.push(InlineContent::Image(InlineImage {
-                // Snapshot the NODE, not the ImageRef: paint resolves the live
-                // content (overlay→DOM) at display-list build, so a runtime
-                // image swap repaints without rebuilding this IFC. (The old
-                // `Ref` snapshot froze the ImageRef here — inline `<img>`
-                // swaps stayed invisible until an unrelated full relayout.)
-                source: ImageSource::Node(dom_id),
-                intrinsic_size: crate::text3::cache::Size {
-                    width: intrinsic_size.max_content_width,
-                    height: intrinsic_size.max_content_height,
-                },
-                display_size: if display_width.is_some() || display_height.is_some() {
-                    Some(crate::text3::cache::Size {
-                        width: display_width.unwrap_or(intrinsic_size.max_content_width),
-                        height: display_height.unwrap_or(intrinsic_size.max_content_height),
-                    })
-                } else {
-                    None
-                },
-                // Images are bottom-aligned with the baseline by default
-                baseline_offset: 0.0,
-                alignment: text3::cache::VerticalAlign::Baseline,
-                object_fit: ObjectFit::Fill,
-            }));
-            // For images, text3 uses the content array index as run_index
-            // and always item_index=0 for objects. We must match this.
-            let image_content_index = ContentIndex {
-                run_index: (content.len() - 1) as u32, // -1 because we just pushed
-                item_index: 0,
-            };
-            child_map.insert(image_content_index, child_index);
+            push_inline_image(ctx, tree, child_index, dom_id, constraints, content, child_map)?;
         } else {
             // This is a regular inline box (display: inline) - e.g., <span>, <em>, <strong>
             //
@@ -11378,6 +11285,120 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
         crate::az_mark((0x60698) as u32, (content.len() as u32) as u32);
         crate::az_mark((0x6069C) as u32, (0xC0DE069Cu32) as u32);
     }
+    Ok(())
+}
+
+/// An `<img>` (a replaced element, `display: inline`) as a line's
+/// [`InlineImage`]: its used size (intrinsic, constrained by CSS width /
+/// height and the `width` / `height` attributes) set on its layout node and
+/// handed to text3, mapped for positioning. The ONE image path of the IFC
+/// collection: the IFC root's children and an inline span's children
+/// ([`collect_inline_span_recursive`]) both come here - an `<img>` in `<a>`
+/// was an empty inline span, its picture taking no room in the line
+/// (MAILENG6 item 6).
+fn push_inline_image<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    child_index: usize,
+    dom_id: NodeId,
+    constraints: &LayoutConstraints<'_>,
+    content: &mut Vec<InlineContent>,
+    child_map: &mut HashMap<ContentIndex, usize>,
+) -> Result<()> {
+    // +spec:replaced-elements:31a782 - replaced elements (img) not rendered purely by CSS
+    // box concepts Images are replaced elements - they have intrinsic
+    // dimensions and CSS width/height can constrain them
+
+    // Re-get child_node since we dropped it earlier for the inline-block case
+    let child_node = tree
+        .get(LayoutNodeId::new(child_index))
+        .ok_or(LayoutError::InvalidTree)?;
+    let box_props = child_node.box_props.unpack();
+
+    // Get intrinsic size from the image data or fall back to layout node
+    let intrinsic_size = tree
+        .warm(LayoutNodeId::new(child_index))
+        .and_then(|w| w.intrinsic_sizes)
+        .unwrap_or_else(|| IntrinsicSizes {
+            max_content_width: 50.0,
+            max_content_height: 50.0,
+            ..Default::default()
+        });
+
+    // Get styled node state for CSS property lookup
+    let styled_node_state = ctx
+        .styled_dom
+        .styled_nodes
+        .as_container()
+        .get(dom_id)
+        .map(|n| n.styled_node_state)
+        .unwrap_or_default();
+
+    // Calculate the used size respecting CSS width/height constraints
+    let tentative_size = crate::solver3::sizing::calculate_used_size_for_node(
+        ctx.styled_dom,
+        Some(dom_id),
+        &CBTY::from_flattened_with_width_type(
+            atomic_inline_containing_block(constraints),
+            constraints.available_width_type,
+        ),
+        intrinsic_size,
+        &box_props,
+        &ctx.viewport_size,
+    )?;
+
+    // Drop immutable borrow before mutable access
+    drop(child_node);
+
+    // Set the used_size on the layout node so paint_rect works correctly
+    let final_size = LogicalSize::new(tentative_size.width, tentative_size.height);
+    tree.get_mut(LayoutNodeId::new(child_index))
+        .unwrap()
+        .used_size = Some(final_size);
+
+    // Calculate display size for text3 (this is what text3 uses for positioning)
+    let display_width = if final_size.width > 0.0 {
+        Some(final_size.width)
+    } else {
+        None
+    };
+    let display_height = if final_size.height > 0.0 {
+        Some(final_size.height)
+    } else {
+        None
+    };
+
+    content.push(InlineContent::Image(InlineImage {
+        // Snapshot the NODE, not the ImageRef: paint resolves the live
+        // content (overlay→DOM) at display-list build, so a runtime
+        // image swap repaints without rebuilding this IFC. (The old
+        // `Ref` snapshot froze the ImageRef here — inline `<img>`
+        // swaps stayed invisible until an unrelated full relayout.)
+        source: ImageSource::Node(dom_id),
+        intrinsic_size: crate::text3::cache::Size {
+            width: intrinsic_size.max_content_width,
+            height: intrinsic_size.max_content_height,
+        },
+        display_size: if display_width.is_some() || display_height.is_some() {
+            Some(crate::text3::cache::Size {
+                width: display_width.unwrap_or(intrinsic_size.max_content_width),
+                height: display_height.unwrap_or(intrinsic_size.max_content_height),
+            })
+        } else {
+            None
+        },
+        // Images are bottom-aligned with the baseline by default
+        baseline_offset: 0.0,
+        alignment: text3::cache::VerticalAlign::Baseline,
+        object_fit: ObjectFit::Fill,
+    }));
+    // For images, text3 uses the content array index as run_index
+    // and always item_index=0 for objects. We must match this.
+    let image_content_index = ContentIndex {
+        run_index: (content.len() - 1) as u32, // -1 because we just pushed
+        item_index: 0,
+    };
+    child_map.insert(image_content_index, child_index);
     Ok(())
 }
 
@@ -11611,6 +11632,27 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
             .copied();
 
         match child_display {
+            // An `<img>` is a replaced box, not an inline span: the IFC
+            // root's image path (`push_inline_image`), whatever wraps it.
+            LayoutDisplay::Inline if matches!(node_data.get_node_type(), NodeType::Image(_)) => {
+                let Some(child_index) = child_index else {
+                    debug_info!(
+                        ctx,
+                        "[collect_inline_span_recursive] WARNING: img {:?} has no layout node",
+                        child_dom_id
+                    );
+                    continue;
+                };
+                push_inline_image(
+                    ctx,
+                    tree,
+                    child_index,
+                    child_dom_id,
+                    constraints,
+                    content,
+                    child_map,
+                )?;
+            }
             LayoutDisplay::Inline => {
                 // Nested inline span - recurse with child's style
                 debug_info!(
@@ -11636,17 +11678,22 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     constraints,
                 )?;
             }
-            LayoutDisplay::InlineBlock => {
-                // An inline-block inside the span is the same atomic inline as
-                // a direct child of the IFC root (an inline box is a
-                // transparent wrapper): its layout node is one of the root's
-                // children, so it is measured and mapped for positioning
-                // exactly like one.
+            LayoutDisplay::InlineBlock
+            | LayoutDisplay::InlineFlex
+            | LayoutDisplay::InlineGrid
+            | LayoutDisplay::InlineTable => {
+                // An atomic inline inside the span (an inline-block, and the
+                // inline-level flex / grid / table boxes, CSS Display 3 §2.4)
+                // is the same atomic inline as a direct child of the IFC root
+                // (an inline box is a transparent wrapper): measured and
+                // mapped for positioning exactly like one. The inline-flex /
+                // grid / table boxes fell to the "inlinify" arm below and
+                // poured their children into the line (MAILENG6 item 6).
                 let Some(child_index) = child_index else {
                     debug_info!(
                         ctx,
-                        "[collect_inline_span_recursive] WARNING: inline-block {:?} has no layout \
-                         node",
+                        "[collect_inline_span_recursive] WARNING: atomic inline {:?} has no \
+                         layout node",
                         child_dom_id
                     );
                     continue;
