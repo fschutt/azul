@@ -30,6 +30,12 @@ pub const VERSION: u64 = 1;
 /// The day format of every file.
 pub const DATE_FORMAT: &str = "%Y-%m-%d";
 
+/// 100 % in basis points.
+pub const FULL_RATE_BP: u32 = 10_000;
+
+/// The longest useful life an asset may have.
+pub const MAX_LIFE_YEARS: u32 = 100;
+
 /// A record kind: its file `format`, its folder under `erp/`, its id.
 pub trait Record: Serialize + DeserializeOwned + Clone {
     /// The `format` its files carry (`azerp.asset`).
@@ -78,8 +84,21 @@ impl Method {
     /// A code, a label or a common name (`linear`, `degressive`, any case).
     #[must_use]
     pub fn parse(text: &str) -> Option<Method> {
-        let _ = text;
-        todo!("GREEN")
+        let t = text.trim().to_lowercase().replace(['-', '_'], " ");
+        match t.as_str() {
+            "straight line" | "straightline" | "linear" | "linear depreciation" | "sl" => {
+                Some(Method::StraightLine)
+            }
+            "declining balance"
+            | "declining"
+            | "double declining"
+            | "double declining balance"
+            | "reducing balance"
+            | "degressive"
+            | "degressiv"
+            | "db" => Some(Method::DecliningBalance),
+            _ => None,
+        }
     }
 }
 
@@ -133,8 +152,10 @@ impl Status {
     /// A code or a label, any case.
     #[must_use]
     pub fn parse(text: &str) -> Option<Status> {
-        let _ = text;
-        todo!("GREEN")
+        let t = text.trim();
+        Status::ALL
+            .into_iter()
+            .find(|s| s.code().eq_ignore_ascii_case(t) || s.label().eq_ignore_ascii_case(t))
     }
 }
 
@@ -290,14 +311,47 @@ impl Asset {
     /// twice the straight-line rate (at most 100 %).
     #[must_use]
     pub fn rate_bp(&self) -> u32 {
-        todo!("GREEN")
+        if self.declining_rate_bp > 0 {
+            return self.declining_rate_bp;
+        }
+        if self.life_years == 0 {
+            return FULL_RATE_BP;
+        }
+        (2 * FULL_RATE_BP / self.life_years).min(FULL_RATE_BP)
     }
 
     /// What is wrong with the asset, one sentence each (empty = it can be
     /// saved).
     #[must_use]
     pub fn problems(&self) -> Vec<String> {
-        todo!("GREEN")
+        let mut p: Vec<String> = Vec::new();
+        if self.name.trim().is_empty() {
+            p.push("The asset needs a name.".into());
+        }
+        if self.number.trim().is_empty() {
+            p.push("The asset needs an asset number.".into());
+        }
+        if self.cost < 0 {
+            p.push("The cost cannot be negative.".into());
+        }
+        if self.residual < 0 || (self.cost >= 0 && self.residual > self.cost) {
+            p.push("The residual value must be between 0 and the cost.".into());
+        }
+        if self.life_years > MAX_LIFE_YEARS {
+            p.push(format!(
+                "The useful life is at most {MAX_LIFE_YEARS} years."
+            ));
+        }
+        if self.declining_rate_bp > FULL_RATE_BP {
+            p.push("The declining-balance rate is at most 100 %.".into());
+        }
+        if self.disposal_amount < 0 {
+            p.push("The disposal amount cannot be negative.".into());
+        }
+        if self.disposed.is_some_and(|d| d < self.acquired) {
+            p.push("The disposal date is before the acquisition date.".into());
+        }
+        p
     }
 }
 
@@ -452,14 +506,39 @@ impl std::fmt::Display for FileError {
 /// The record's file: `format`, `version`, then its fields.
 #[must_use]
 pub fn to_json<R: Record>(record: &R) -> String {
-    let _ = record;
-    todo!("GREEN")
+    /// The header in front of the record's own fields.
+    #[derive(Serialize)]
+    struct Out<'a, T: Serialize> {
+        format: &'a str,
+        version: u64,
+        #[serde(flatten)]
+        record: &'a T,
+    }
+    let out = Out {
+        format: R::FORMAT,
+        version: VERSION,
+        record,
+    };
+    let mut text = serde_json::to_string_pretty(&out).unwrap_or_default();
+    text.push('\n');
+    text
 }
 
 /// A record from its file.
 pub fn from_json<R: Record>(text: &str) -> Result<R, FileError> {
-    let _ = text;
-    todo!("GREEN")
+    let value: serde_json::Value =
+        serde_json::from_str(text).map_err(|e| FileError::NotJson(e.to_string()))?;
+    if value.get("format").and_then(serde_json::Value::as_str) != Some(R::FORMAT) {
+        return Err(FileError::WrongFormat);
+    }
+    let version = value
+        .get("version")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    if version > VERSION {
+        return Err(FileError::Newer(version));
+    }
+    serde_json::from_value::<R>(value).map_err(|e| FileError::Invalid(e.to_string()))
 }
 
 /// A day as the files write it: `2026-01-15`.
@@ -472,8 +551,13 @@ pub fn format_date(date: NaiveDate) -> String {
 /// from spreadsheets hold them).
 #[must_use]
 pub fn parse_date(text: &str) -> Option<NaiveDate> {
-    let _ = text;
-    todo!("GREEN")
+    let t = text.trim();
+    if t.is_empty() {
+        return None;
+    }
+    [DATE_FORMAT, "%d.%m.%Y", "%m/%d/%Y"]
+        .into_iter()
+        .find_map(|format| NaiveDate::parse_from_str(t, format).ok())
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)] // serde's skip_serializing_if hands a reference
@@ -492,13 +576,12 @@ mod amount_text {
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
     pub fn serialize<S: Serializer>(cents: &i64, s: S) -> Result<S::Ok, S::Error> {
-        let _ = (cents, s);
-        todo!("GREEN")
+        s.serialize_str(&crate::money::file_amount(*cents))
     }
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<i64, D::Error> {
-        let _ = String::deserialize(d)?;
-        todo!("GREEN")
+        let text = String::deserialize(d)?;
+        crate::money::parse_file_amount(&text).map_err(serde::de::Error::custom)
     }
 }
 
@@ -509,13 +592,18 @@ mod date_text {
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
     pub fn serialize<S: Serializer>(date: &NaiveDate, s: S) -> Result<S::Ok, S::Error> {
-        let _ = (date, s);
-        todo!("GREEN")
+        s.serialize_str(&super::format_date(*date))
     }
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<NaiveDate, D::Error> {
-        let _ = String::deserialize(d)?;
-        todo!("GREEN")
+        let text = String::deserialize(d)?;
+        day(&text).map_err(serde::de::Error::custom)
+    }
+
+    /// A file's `YYYY-MM-DD` day (strict: the files are written by AzERP).
+    pub fn day(text: &str) -> Result<NaiveDate, String> {
+        NaiveDate::parse_from_str(text.trim(), super::DATE_FORMAT)
+            .map_err(|_| format!("\"{text}\" is not a day (YYYY-MM-DD)"))
     }
 }
 
@@ -526,13 +614,19 @@ mod opt_date_text {
 
     #[allow(clippy::ref_option)] // serde's `with` hands a reference
     pub fn serialize<S: Serializer>(date: &Option<NaiveDate>, s: S) -> Result<S::Ok, S::Error> {
-        let _ = (date, s);
-        todo!("GREEN")
+        match date {
+            Some(d) => s.serialize_str(&super::format_date(*d)),
+            None => s.serialize_none(),
+        }
     }
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<NaiveDate>, D::Error> {
-        let _ = Option::<String>::deserialize(d)?;
-        todo!("GREEN")
+        match Option::<String>::deserialize(d)? {
+            Some(text) if !text.trim().is_empty() => super::date_text::day(&text)
+                .map(Some)
+                .map_err(serde::de::Error::custom),
+            _ => Ok(None),
+        }
     }
 }
 
