@@ -124,6 +124,8 @@ pub const SELECTION_CLASS: &str = "__azul-native-chart-selection";
 pub const LEGEND_CLASS: &str = "__azul-native-chart-legend";
 /// One legend entry: a swatch and a name.
 pub const LEGEND_ITEM_CLASS: &str = "__azul-native-chart-legend-item";
+/// A legend entry's name.
+pub const LEGEND_LABEL_CLASS: &str = "__azul-native-chart-legend-label";
 /// A legend entry's colour swatch.
 pub const SWATCH_CLASS: &str = "__azul-native-chart-swatch";
 /// The data table under the chart (`with_show_table`).
@@ -2498,6 +2500,668 @@ pub(crate) fn table_rows(chart: &Chart) -> (Vec<String>, Vec<Vec<String>>) {
         })
         .collect();
     (head, rows)
+}
+
+// ==== the build ====
+
+/// A tick label's line box.
+const LABEL_HEIGHT: f32 = 16.0;
+/// The least room a category label gets (a narrower band labels every
+/// n-th category).
+const CATEGORY_LABEL_PX: f32 = 56.0;
+/// The ring of a dot, a marker and a pie wedge, in the surface colour.
+const RING_WIDTH: isize = 2;
+/// The selection ring's inner size.
+const SELECTION_PX: f32 = 14.0;
+/// A legend swatch for a line: a short stroke.
+const LINE_SWATCH: (f32, f32) = (14.0, 3.0);
+/// A legend swatch for an area, bars, dots or a slice: a small square.
+const BOX_SWATCH: (f32, f32) = (10.0, 10.0);
+
+type Decl = CssPropertyWithConditions;
+
+/// One class list.
+fn classes(names: &[&'static str]) -> IdOrClassVec {
+    IdOrClassVec::from_vec(
+        names
+            .iter()
+            .map(|n| IdOrClass::Class(AzString::from_const_str(n)))
+            .collect(),
+    )
+}
+
+/// Absolutely placed at `(left, top)`, `w` x `h` px.
+fn placed(left: f32, top: f32, w: f32, h: f32) -> Vec<Decl> {
+    use crate::widgets::themes::decl;
+    alloc::vec![
+        decl::position(azul_css::props::layout::LayoutPosition::Absolute),
+        decl::px_left(left),
+        decl::px_top(top),
+        decl::px_width(w.max(0.0)),
+        decl::px_height(h.max(0.0)),
+    ]
+}
+
+/// Over the whole plot, as the XML parser places an SVG shape: the box IS
+/// the plot's user space, whatever border (stroke) it carries.
+fn over_plot() -> Vec<Decl> {
+    use azul_css::props::layout::{LayoutInsetBottom, LayoutPosition, LayoutRight};
+
+    use crate::widgets::themes::decl;
+    alloc::vec![
+        decl::position(LayoutPosition::Absolute),
+        decl::simple(CssProperty::const_left(LayoutLeft::const_px(0))),
+        decl::simple(CssProperty::const_top(LayoutTop::const_px(0))),
+        decl::simple(CssProperty::const_right(LayoutRight::const_px(0))),
+        decl::simple(CssProperty::const_bottom(LayoutInsetBottom::const_px(0))),
+    ]
+}
+
+/// `text-align: <align>`.
+fn text_align(align: azul_css::props::style::StyleTextAlign) -> Decl {
+    crate::widgets::themes::decl::simple(CssProperty::const_text_align(align))
+}
+
+/// Hidden until the pointer or the keys show it.
+fn hidden() -> Decl {
+    crate::widgets::themes::decl::simple(CssProperty::const_opacity(StyleOpacity::const_new(0)))
+}
+
+/// A widget-owned text line (a `<p>` without the UA margin, not
+/// selectable) with `class` and `style`.
+fn text_p(text: &str, class: &'static str, style: CssPropertyWithConditionsVec) -> Dom {
+    crate::widgets::widget_p_with_text(AzString::from(String::from(text)))
+        .with_ids_and_classes(classes(&[class]))
+        .with_css_props(style)
+}
+
+/// A box with `class` and `style`.
+fn part_div(class: &'static str, style: CssPropertyWithConditionsVec) -> Dom {
+    Dom::create_div()
+        .with_ids_and_classes(classes(&[class]))
+        .with_css_props(style)
+}
+
+/// One series' marks: a node over the plot with an SVG path.
+fn shape_node(shape: SvgMultiPolygon, style: CssPropertyWithConditionsVec) -> Dom {
+    part_div(SERIES_CLASS, style).with_svg_data(SvgNodeData::Path(shape))
+}
+
+/// The y px of the zero line, or of the plot's edge nearest to zero.
+fn baseline_px(frame: &PlotFrame) -> f32 {
+    let (lo, hi) = (frame.y_min.min(frame.y_max), frame.y_min.max(frame.y_max));
+    frame.px_y(0.0f64.clamp(lo, hi))
+}
+
+/// A pie's place in its plot.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub(crate) struct PieGeometry {
+    /// The centre.
+    pub(crate) cx: f32,
+    /// See `cx`.
+    pub(crate) cy: f32,
+    /// The outer radius.
+    pub(crate) r_out: f32,
+    /// The hole's radius (0 for a pie).
+    pub(crate) r_in: f32,
+}
+
+impl Chart {
+    /// The chart's DOM: the title, the axes and the plot, the legend and -
+    /// with `with_show_table(true)` - the data table. The look comes from
+    /// the theme module (`themes::flat::chart_skin` /
+    /// `themes::flora::chart_skin`); unpinned, every part carries both
+    /// looks, each in its `@theme(<name>)` block, and the app theme picks.
+    #[must_use]
+    pub fn dom(self) -> Dom {
+        build(self)
+    }
+}
+
+impl From<Chart> for Dom {
+    fn from(c: Chart) -> Self {
+        c.dom()
+    }
+}
+
+/// [`Chart::dom`].
+fn build(mut chart: Chart) -> Dom {
+    use azul_css::props::{
+        layout::{
+            LayoutAlignItems, LayoutAlignSelf, LayoutFlexDirection, LayoutFlexWrap, LayoutPosition,
+        },
+        style::StyleTextAlign,
+    };
+
+    use crate::widgets::themes::{decl, theme_blocks::stack_parts};
+
+    let look = ChartLook::of(chart.theme, chart.accent.into_option());
+    let g = chart_geometry(&chart);
+    let frame = g.frame;
+    let width = g.frame_width;
+    let categories: Vec<AzString> = chart.categories.as_slice().to_vec();
+    let round = chart.kind.is_round();
+
+    // ---- the plot: gridlines, the series' marks, the baseline ----
+    let mut plot: Vec<Dom> = Vec::new();
+    let base_y = baseline_px(&frame);
+    if chart.show_grid {
+        if let Some(t) = g.y_ticks {
+            for v in t.values() {
+                let y = frame.px_y(v).round();
+                if (y - base_y.round()).abs() < 0.5 || y < 0.0 || y > frame.height {
+                    continue;
+                }
+                plot.push(part_div(
+                    GRID_CLASS,
+                    look.on_base(&placed(0.0, y, frame.width, 1.0), |s| fill_of(s.grid)),
+                ));
+            }
+        }
+    }
+
+    let mut markers = 0;
+    let mut bars: Vec<Vec<BarRect>> = Vec::new();
+    let mut slices: Vec<PieSlice> = Vec::new();
+    let mut pie = PieGeometry::default();
+    {
+        let series = chart.series.as_slice();
+        match chart.kind {
+            ChartKind::Line | ChartKind::Area => {
+                let kept: Vec<Vec<usize>> = series
+                    .iter()
+                    .map(|s| decimate_line(s.points.as_slice(), &frame))
+                    .collect();
+                if chart.kind == ChartKind::Area {
+                    for (k, s) in series.iter().enumerate() {
+                        let shape = area_shape(s.points.as_slice(), &kept[k], &frame, base_y);
+                        let style =
+                            look.on_base(&over_plot(), |sk| wash_of(series_color(s, k, sk)));
+                        plot.push(shape_node(shape, style));
+                    }
+                }
+                for (k, s) in series.iter().enumerate() {
+                    let shape = line_shape(s.points.as_slice(), &kept[k], &frame);
+                    let style = look.on_base(&over_plot(), |sk| {
+                        stroke_of(series_color(s, k, sk), LINE_WIDTH_PX as isize)
+                    });
+                    plot.push(shape_node(shape, style));
+                }
+                markers = series.len();
+            }
+            ChartKind::Scatter => {
+                let total: usize = series.iter().map(|s| s.points.len()).sum();
+                let dense = total > DENSE_DOTS;
+                let (radius, cell) = if dense {
+                    (DENSE_DOT_RADIUS_PX, DENSE_DOT_RADIUS_PX * 1.5)
+                } else {
+                    (DOT_RADIUS_PX + 1.0, 1.0)
+                };
+                for (k, s) in series.iter().enumerate() {
+                    let kept = thin_scatter(s.points.as_slice(), &frame, cell);
+                    let shape = dots_shape(s.points.as_slice(), &kept, &frame, radius);
+                    let style = look.on_base(&over_plot(), |sk| {
+                        let mut v = fill_of(series_color(s, k, sk));
+                        if !dense {
+                            v.extend(stroke_of(sk.surface, RING_WIDTH));
+                        }
+                        v
+                    });
+                    plot.push(shape_node(shape, style));
+                }
+                markers = series.len();
+            }
+            ChartKind::Bar | ChartKind::StackedBar => {
+                bars = bar_rects(chart.kind, series, &frame);
+                for (k, s) in series.iter().enumerate() {
+                    let style = look.on_base(&over_plot(), |sk| fill_of(series_color(s, k, sk)));
+                    plot.push(shape_node(bars_shape(&bars[k]), style));
+                }
+            }
+            ChartKind::Pie | ChartKind::Donut => {
+                slices = pie_slices(&pie_values(&chart));
+                let r_out = (frame.width / 2.0 - 1.0).max(1.0);
+                pie = PieGeometry {
+                    cx: frame.width / 2.0,
+                    cy: frame.height / 2.0,
+                    r_out,
+                    r_in: if chart.kind == ChartKind::Donut {
+                        r_out * DONUT_HOLE
+                    } else {
+                        0.0
+                    },
+                };
+                for (k, sl) in slices.iter().enumerate() {
+                    if sl.end <= sl.start {
+                        continue;
+                    }
+                    let ring = wedge_ring(pie.cx, pie.cy, pie.r_out, pie.r_in, sl.start, sl.end);
+                    let shape = SvgMultiPolygon::create(SvgPathVec::from_vec(alloc::vec![ring]));
+                    let style = look.on_base(&over_plot(), |sk| {
+                        let mut v = fill_of(sk.palette[k % PALETTE_LEN]);
+                        v.extend(stroke_of(sk.surface, RING_WIDTH));
+                        v
+                    });
+                    plot.push(shape_node(shape, style));
+                }
+            }
+        }
+    }
+    if !round {
+        let y = base_y.round().min(frame.height - 1.0).max(0.0);
+        plot.push(part_div(
+            BASELINE_CLASS,
+            look.on_base(&placed(0.0, y, frame.width, 1.0), |s| fill_of(s.axis)),
+        ));
+    }
+
+    // ---- the frame: the axes' labels and titles around the plot ----
+    let mut frame_kids: Vec<Dom> = Vec::new();
+    let tick_skin = look.part(|s| s.tick.clone());
+    let caption_skin = look.part(|s| s.caption.clone());
+    let label =
+        |text: &str, class: &'static str, base: Vec<Decl>, skin: &CssPropertyWithConditionsVec| {
+            text_p(
+                text,
+                class,
+                stack_parts(&CssPropertyWithConditionsVec::from_vec(base), skin),
+            )
+        };
+    if !round {
+        if !chart.y_title.as_str().is_empty() {
+            let mut base = placed(8.0, 0.0, g.plot_left + frame.width - 8.0, AXIS_TITLE_HEIGHT);
+            base.push(decl::nowrap());
+            frame_kids.push(label(
+                chart.y_title.as_str(),
+                AXIS_TITLE_CLASS,
+                base,
+                &caption_skin,
+            ));
+        }
+        if let Some(t) = g.y_ticks {
+            let fmt = TickFormat::of(&t);
+            for v in t.values() {
+                let y = g.plot_top + frame.px_y(v);
+                let mut base = placed(0.0, y - LABEL_HEIGHT / 2.0, Y_GUTTER - 8.0, LABEL_HEIGHT);
+                base.push(text_align(StyleTextAlign::Right));
+                base.push(decl::nowrap());
+                frame_kids.push(label(&fmt.format(v), TICK_CLASS, base, &tick_skin));
+            }
+        }
+    }
+
+    let mut plot_kids_tail: Vec<Dom> = Vec::new();
+    let x_top = g.plot_top + frame.height + 4.0;
+    let mut x_labels: Vec<Dom> = Vec::new();
+    if !round {
+        if frame.bands > 0 {
+            let band = frame.band().max(1.0);
+            let every = ((CATEGORY_LABEL_PX / band).ceil() as usize).max(1);
+            let w = (band * every as f32).max(CATEGORY_LABEL_PX);
+            for c in (0..frame.bands).step_by(every) {
+                let x = g.plot_left + frame.px_x(c as f64);
+                let mut base = placed(x - w / 2.0, x_top, w, LABEL_HEIGHT);
+                base.push(text_align(StyleTextAlign::Center));
+                base.push(decl::nowrap());
+                x_labels.push(label(
+                    &category_name(&categories, c),
+                    TICK_CLASS,
+                    base,
+                    &tick_skin,
+                ));
+            }
+        } else if let Some(t) = g.x_ticks {
+            let fmt = TickFormat::of(&t);
+            let slack = (frame.x_max - frame.x_min).abs() * 1e-9;
+            for v in t.values() {
+                if v < frame.x_min - slack || v > frame.x_max + slack {
+                    continue;
+                }
+                let x = g.plot_left + frame.px_x(v);
+                let mut base = placed(x - MIN_X_TICK_PX / 2.0, x_top, MIN_X_TICK_PX, LABEL_HEIGHT);
+                base.push(text_align(StyleTextAlign::Center));
+                base.push(decl::nowrap());
+                x_labels.push(label(&fmt.format(v), TICK_CLASS, base, &tick_skin));
+            }
+        }
+        if !chart.x_title.as_str().is_empty() {
+            let mut base = placed(
+                g.plot_left,
+                g.plot_top + frame.height + X_GUTTER,
+                frame.width,
+                AXIS_TITLE_HEIGHT,
+            );
+            base.push(text_align(StyleTextAlign::Center));
+            base.push(decl::nowrap());
+            x_labels.push(label(
+                chart.x_title.as_str(),
+                AXIS_TITLE_CLASS,
+                base,
+                &caption_skin,
+            ));
+        }
+    }
+
+    // ---- the legend and the table, while the series are still the chart's ----
+    let legend = if g.legend {
+        Some(legend_dom(
+            &chart,
+            &look,
+            &slices,
+            &categories,
+            if round { 8.0 } else { g.plot_left },
+        ))
+    } else {
+        None
+    };
+    let table = if chart.show_table {
+        Some(table_dom(&chart, &look))
+    } else {
+        None
+    };
+    let summary = summary_text(&chart);
+    let name = if chart.title.as_str().is_empty() {
+        String::from("Chart")
+    } else {
+        String::from(chart.title.as_str())
+    };
+
+    // ---- the overlay: the pointer's and the keyboard's state ----
+    let series: Vec<ChartSeries> =
+        core::mem::replace(&mut chart.series, ChartSeriesVec::from_const_slice(&[]))
+            .into_library_owned_vec();
+    let sorted = series
+        .iter()
+        .map(|s| is_sorted_by_x(s.points.as_slice()))
+        .collect();
+    let state = ChartState {
+        kind: chart.kind,
+        frame,
+        series,
+        sorted,
+        categories,
+        bars,
+        slices,
+        pie,
+        markers,
+        on_select: chart.on_select.clone(),
+        hovered: None,
+    };
+
+    if let Some(sel) = chart.selected.into_option() {
+        if let Some((x, y)) = state.point_px(sel.series, sel.index) {
+            let outer = SELECTION_PX + 2.0 * RING_WIDTH as f32;
+            let mut base = placed(x - outer / 2.0, y - outer / 2.0, SELECTION_PX, SELECTION_PX);
+            base.extend(decl::radius((outer / 2.0) as isize));
+            let style = look.on_base(&base, |s| stroke_of(look.accent_of(s), RING_WIDTH));
+            plot_kids_tail.push(part_div(SELECTION_CLASS, style));
+        }
+    }
+
+    let mut overlay_kids: Vec<Dom> = Vec::new();
+    let mut crosshair = placed(0.0, 0.0, 1.0, frame.height);
+    crosshair.push(hidden());
+    overlay_kids.push(part_div(
+        CROSSHAIR_CLASS,
+        look.on_base(&crosshair, |s| fill_of(s.crosshair)),
+    ));
+    for k in 0..state.markers {
+        let mut base = placed(0.0, 0.0, MARKER_PX, MARKER_PX);
+        base.extend(decl::radius((MARKER_PX / 2.0) as isize + RING_WIDTH));
+        base.push(hidden());
+        let s = &state.series[k];
+        let style = look.on_base(&base, |sk| {
+            let mut v = fill_of(series_color(s, k, sk));
+            v.extend(stroke_of(sk.surface, RING_WIDTH));
+            v
+        });
+        overlay_kids.push(part_div(MARKER_CLASS, style));
+    }
+    overlay_kids.push(
+        text_p(" ", TOOLTIP_CLASS, look.part(|s| s.tip.clone())).with_accessibility_info(
+            AccessibilityInfo {
+                role: AccessibilityRole::Tooltip,
+                is_live_region: true,
+                ..AccessibilityInfo::default()
+            },
+        ),
+    );
+
+    let has_select = chart.on_select.is_some();
+    let state = RefAny::new(state);
+    let on =
+        |event: EventFilter, cb: extern "C" fn(RefAny, CallbackInfo) -> Update| CoreCallbackData {
+            event,
+            callback: CoreCallback {
+                cb: cb as usize,
+                ctx: OptionRefAny::None,
+            },
+            refany: state.clone(),
+        };
+    let mut callbacks = alloc::vec![
+        on(
+            EventFilter::Hover(HoverEventFilter::MouseMove),
+            on_chart_pointer_move
+        ),
+        on(
+            EventFilter::Hover(HoverEventFilter::MouseLeave),
+            on_chart_pointer_leave
+        ),
+        on(
+            EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+            on_chart_key
+        ),
+        on(
+            EventFilter::Focus(FocusEventFilter::FocusLost),
+            on_chart_blur
+        ),
+    ];
+    if has_select {
+        // `Click` is what a pointer click, Enter / Space on the focused plot
+        // and an assistive technology's default action all dispatch.
+        callbacks.push(on(
+            EventFilter::Hover(HoverEventFilter::Click),
+            on_chart_click,
+        ));
+    }
+    let overlay_style = look.on_base(&over_plot(), |s| {
+        let a = look.accent_of(s);
+        decl::focus_halo(a.light, a.dark).to_vec()
+    });
+    let overlay = part_div(OVERLAY_CLASS, overlay_style)
+        .with_tab_index(TabIndex::Auto)
+        .with_accessibility_info(AccessibilityInfo {
+            description: azul_css::OptionString::Some(AzString::from(summary)),
+            ..AccessibilityInfo::named(name, AccessibilityRole::Chart)
+        })
+        .with_callbacks(callbacks.into())
+        .with_children(overlay_kids.into());
+    plot.extend(plot_kids_tail);
+    plot.push(overlay);
+
+    let plot_dom = Dom::create_div()
+        .with_ids_and_classes(classes(&[PLOT_CLASS]))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(placed(
+            g.plot_left,
+            g.plot_top,
+            frame.width,
+            frame.height,
+        )))
+        .with_svg_data(SvgNodeData::ViewBox {
+            min_x: 0.0,
+            min_y: 0.0,
+            width: frame.width,
+            height: frame.height,
+        })
+        .with_children(plot.into());
+    frame_kids.push(plot_dom);
+    frame_kids.extend(x_labels);
+
+    let frame_dom = Dom::create_div()
+        .with_ids_and_classes(classes(&[FRAME_CLASS]))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(alloc::vec![
+            decl::position(LayoutPosition::Relative),
+            decl::px_width(width),
+            decl::px_height(g.frame_height),
+            decl::no_shrink(),
+        ]))
+        .with_children(frame_kids.into());
+
+    // ---- the root ----
+    let mut kids: Vec<Dom> = Vec::new();
+    if g.title {
+        let mut base = alloc::vec![
+            decl::px_height(TITLE_HEIGHT - 6.0),
+            decl::nowrap(),
+            decl::no_shrink()
+        ];
+        base.extend(decl::padding(6, 8, 0, 8));
+        kids.push(text_p(
+            chart.title.as_str(),
+            TITLE_CLASS,
+            look.on_base(&base, |s| s.title.clone()),
+        ));
+    }
+    kids.push(frame_dom);
+    kids.extend(legend);
+    kids.extend(table);
+
+    let mut root_classes = alloc::vec![CHART_CLASS];
+    if let Some(m) = look.marker {
+        root_classes.push(m);
+    }
+    let root_base = alloc::vec![
+        decl::display_flex(),
+        decl::flex_direction(LayoutFlexDirection::Column),
+        decl::px_width(width),
+        decl::no_shrink(),
+        decl::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
+    ];
+    Dom::create_div()
+        .with_ids_and_classes(classes(&root_classes))
+        .with_css_props(look.on_base(&root_base, |s| s.root.clone()))
+        .with_children(kids.into())
+}
+
+/// The legend: a swatch and a name per series - or, for a pie, per slice -
+/// in a wrapping row under the plot, its left edge on the plot's.
+fn legend_dom(
+    chart: &Chart,
+    look: &ChartLook,
+    slices: &[PieSlice],
+    categories: &[AzString],
+    left: f32,
+) -> Dom {
+    use azul_css::props::{
+        layout::{LayoutAlignItems, LayoutColumnGap, LayoutFlexDirection, LayoutFlexWrap},
+        property::LayoutColumnGapValue,
+    };
+
+    use crate::widgets::themes::decl;
+
+    let gap = |px: isize| {
+        decl::simple(CssProperty::ColumnGap(LayoutColumnGapValue::Exact(
+            LayoutColumnGap {
+                inner: azul_css::props::basic::PixelValue::const_px(px),
+            },
+        )))
+    };
+    let row = |px: isize| {
+        alloc::vec![
+            decl::display_flex(),
+            decl::flex_direction(LayoutFlexDirection::Row),
+            decl::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+            gap(px),
+        ]
+    };
+    let line_like = matches!(chart.kind, ChartKind::Line);
+    let (sw, sh) = if line_like { LINE_SWATCH } else { BOX_SWATCH };
+    let mut swatch_base = alloc::vec![decl::px_width(sw), decl::px_height(sh), decl::no_shrink()];
+    swatch_base.extend(decl::radius(if line_like { 1 } else { 2 }));
+    let caption = look.part(|s| s.caption.clone());
+    let item = |name: String, swatch: CssPropertyWithConditionsVec| {
+        part_div(
+            LEGEND_ITEM_CLASS,
+            CssPropertyWithConditionsVec::from_vec(row(6)),
+        )
+        .with_child(part_div(SWATCH_CLASS, swatch))
+        .with_child(text_p(&name, LEGEND_LABEL_CLASS, caption.clone()))
+    };
+    let mut items: Vec<Dom> = Vec::new();
+    if chart.kind.is_round() {
+        for (k, sl) in slices.iter().enumerate() {
+            let name = if sl.other {
+                String::from("Other")
+            } else {
+                category_name(categories, sl.index)
+            };
+            items.push(item(
+                name,
+                look.on_base(&swatch_base, |s| fill_of(s.palette[k % PALETTE_LEN])),
+            ));
+        }
+    } else {
+        for (k, s) in chart.series.as_slice().iter().enumerate() {
+            items.push(item(
+                String::from(s.name.as_str()),
+                look.on_base(&swatch_base, |sk| fill_of(series_color(s, k, sk))),
+            ));
+        }
+    }
+    let mut base = row(16);
+    base.push(decl::simple(CssProperty::const_flex_wrap(
+        LayoutFlexWrap::Wrap,
+    )));
+    base.push(decl::px_height(LEGEND_HEIGHT));
+    base.push(decl::no_shrink());
+    base.push(decl::simple(CssProperty::const_padding_left(
+        azul_css::props::layout::LayoutPaddingLeft::px(left),
+    )));
+    part_div(LEGEND_CLASS, CssPropertyWithConditionsVec::from_vec(base)).with_children(items.into())
+}
+
+/// The table view: the data as a table under the chart (module docs).
+fn table_dom(chart: &Chart, look: &ChartLook) -> Dom {
+    use crate::widgets::themes::decl;
+
+    let (head, rows) = table_rows(chart);
+    let head_style = look.part(|s| s.table_head.clone());
+    let cell_style = look.part(|s| s.table_cell.clone());
+    let cell = |node: Dom, text: String, style: &CssPropertyWithConditionsVec| {
+        node.with_css_props(style.clone()).with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper(AzString::from(text)),
+        )
+    };
+    let head_row = Dom::create_tr().with_children(
+        head.into_iter()
+            .map(|t| cell(Dom::create_th(), t, &head_style))
+            .collect::<Vec<Dom>>()
+            .into(),
+    );
+    let body_rows: Vec<Dom> = rows
+        .into_iter()
+        .map(|r| {
+            Dom::create_tr().with_children(
+                r.into_iter()
+                    .map(|t| cell(Dom::create_td(), t, &cell_style))
+                    .collect::<Vec<Dom>>()
+                    .into(),
+            )
+        })
+        .collect();
+    let name = if chart.title.as_str().is_empty() {
+        String::from("Chart data")
+    } else {
+        format!("{} data", chart.title.as_str())
+    };
+    let mut base = decl::margin(8, 8, 8, 8).to_vec();
+    base.push(decl::no_shrink());
+    Dom::create_table_no_a11y()
+        .with_ids_and_classes(classes(&[TABLE_CLASS]))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(base))
+        .with_accessibility_info(AccessibilityInfo::named(name, AccessibilityRole::Table))
+        .with_child(Dom::create_thead().with_child(head_row))
+        .with_child(Dom::create_tbody().with_children(body_rows.into()))
 }
 
 // CHART7-NEXT: the geometry, the build, the pointer and the keys.
