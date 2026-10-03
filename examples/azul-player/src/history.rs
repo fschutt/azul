@@ -31,13 +31,21 @@ impl Entry {
     /// The file's name without its folder and extension.
     #[must_use]
     pub fn title(&self) -> String {
-        String::new()
+        std::path::Path::new(&self.path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string()
     }
 
     /// How far it was watched, `0.0..=1.0` (0 when the length is not known).
     #[must_use]
     pub fn progress(&self) -> f64 {
-        0.0
+        if self.duration_s > 0.0 && self.position_s.is_finite() {
+            (self.position_s / self.duration_s).clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
     }
 }
 
@@ -52,38 +60,71 @@ pub struct History {
 impl History {
     /// The history from its file's text, or why not.
     pub fn from_json(text: &str) -> Result<History, String> {
-        let _ = text;
-        Err(String::from("not built yet"))
+        serde_json::from_str(text).map_err(|e| format!("the history file does not read: {e}"))
     }
 
     /// The history as its file's text.
     #[must_use]
     pub fn to_json(&self) -> String {
-        String::new()
+        serde_json::to_string_pretty(self).unwrap_or_default()
     }
 
     /// `path` was opened at `now`: it moves to the front (added if new); the oldest beyond
     /// [`MAX_ENTRIES`] are forgotten.
     pub fn touch(&mut self, path: &str, now: u64) {
-        let _ = (path, now);
+        let mut entry = match self.entries.iter().position(|e| e.path == path) {
+            Some(i) => self.entries.remove(i),
+            None => Entry {
+                path: path.to_string(),
+                ..Entry::default()
+            },
+        };
+        entry.opened = now;
+        self.entries.insert(0, entry);
+        self.entries.truncate(MAX_ENTRIES);
     }
 
     /// Where `path` was left and how long it is.
     pub fn set_position(&mut self, path: &str, position_s: f64, duration_s: f64) {
-        let _ = (path, position_s, duration_s);
+        let index = match self.entries.iter().position(|e| e.path == path) {
+            Some(i) => i,
+            None => {
+                self.entries.push(Entry {
+                    path: path.to_string(),
+                    ..Entry::default()
+                });
+                self.entries.len() - 1
+            }
+        };
+        let e = &mut self.entries[index];
+        e.position_s = position_s;
+        if duration_s > 0.0 {
+            e.duration_s = duration_s;
+        }
     }
 
     /// Where `path` should start: where it was left, or 0 when it was hardly started or
     /// (nearly) finished.
     #[must_use]
     pub fn resume_at(&self, path: &str) -> f64 {
-        let _ = path;
-        0.0
+        let Some(e) = self.entries.iter().find(|e| e.path == path) else {
+            return 0.0;
+        };
+        let p = e.position_s;
+        if !p.is_finite() || p < MIN_RESUME_S {
+            return 0.0;
+        }
+        if e.duration_s > 0.0
+            && (p >= e.duration_s * FINISHED_FRACTION || e.duration_s - p < END_MARGIN_S)
+        {
+            return 0.0;
+        }
+        p
     }
 
     /// Forgets `path`.
     pub fn remove(&mut self, path: &str) {
-        let _ = path;
+        self.entries.retain(|e| e.path != path);
     }
 }
 

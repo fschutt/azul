@@ -17,8 +17,14 @@ pub const HIDE_AFTER_MS: u64 = 2_000;
 /// within [`DEAD_BAND_S`] (or a clock is not running yet).
 #[must_use]
 pub fn audio_correction(video_s: f64, audio_s: f64) -> Option<f64> {
-    let _ = (video_s, audio_s);
-    None
+    if !video_s.is_finite() || video_s < 0.0 {
+        return None;
+    }
+    if !audio_s.is_finite() || (video_s - audio_s).abs() > DEAD_BAND_S {
+        Some(video_s)
+    } else {
+        None
+    }
 }
 
 /// Whether the controls over the video show: always while paused (or nothing plays), and while
@@ -31,23 +37,30 @@ pub struct ControlsVisibility {
 impl ControlsVisibility {
     /// The user did something at `now_ms`.
     pub fn activity(&mut self, now_ms: u64) {
-        let _ = now_ms;
+        self.last_activity_ms = now_ms;
     }
 
     /// Whether the controls show at `now_ms`.
     #[must_use]
     pub fn visible(&self, now_ms: u64, playing: bool) -> bool {
-        let _ = (now_ms, playing);
-        true
+        !playing || now_ms.saturating_sub(self.last_activity_ms) < HIDE_AFTER_MS
     }
 }
 
 /// The short text the on-screen display shows for a volume (`0.0..=1.0`): "Volume 70 %", or
 /// "Muted".
 #[must_use]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 pub fn volume_osd(volume: f32, muted: bool) -> String {
-    let _ = (volume, muted);
-    String::new()
+    if muted {
+        return String::from("Muted");
+    }
+    let percent = if volume.is_finite() {
+        (volume.clamp(0.0, 1.0) * 100.0).round() as u32
+    } else {
+        0
+    };
+    format!("Volume {percent} %")
 }
 
 #[cfg(test)]
