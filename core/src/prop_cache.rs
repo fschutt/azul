@@ -1137,6 +1137,12 @@ pub struct CssPropertyCache {
     /// count. Caching the pre-resolved pixel value collapses that
     /// to a single `Vec<f32>` indexed lookup.
     pub resolved_font_sizes_px: crate::sync::OnceLock<Vec<f32>>,
+    /// Per-node EFFECTIVE `zoom` (the product of `zoom` on the node and on
+    /// every ancestor) for the `Normal` pseudo-state, filled lazily by the
+    /// layout (`solver3::getters::get_effective_zoom`) in one top-down walk.
+    /// EMPTY when no node declares a zoom other than 1 - every lookup is
+    /// then 1.0 without an index. Cleared with the font sizes.
+    pub resolved_zooms: crate::sync::OnceLock<Vec<f32>>,
 }
 
 /// Heap-size breakdown of a `CssPropertyCache`, produced by
@@ -2668,6 +2674,7 @@ impl CssPropertyCache {
             resolved_inline: alloc::collections::BTreeMap::new(),
             variables_depend_on_context: false,
             resolved_font_sizes_px: crate::sync::OnceLock::new(),
+            resolved_zooms: crate::sync::OnceLock::new(),
         }
     }
 
@@ -2678,6 +2685,8 @@ impl CssPropertyCache {
     /// repopulates via a single bottom-up tree walk.
     pub fn invalidate_resolved_font_sizes(&mut self) {
         self.resolved_font_sizes_px = crate::sync::OnceLock::new();
+        // A restyle can change a `zoom` as well (and with it every font size).
+        self.resolved_zooms = crate::sync::OnceLock::new();
     }
 
     pub fn append(&mut self, other: &mut Self) {
@@ -2712,6 +2721,7 @@ impl CssPropertyCache {
         self.node_count += other.node_count;
         // Indices shifted — invalidate the font-size cache too.
         self.resolved_font_sizes_px = crate::sync::OnceLock::new();
+        self.resolved_zooms = crate::sync::OnceLock::new();
 
         // Invalidate compact cache since node IDs shifted
         self.compact_cache = None;

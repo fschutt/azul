@@ -109,8 +109,150 @@ pub fn get_element_font_size(
     // only on the lifted web path's small DOMs. The cache-block lift bug — likely the
     // compute_all_font_sizes_px closure's control/FP — is documented for a later remill
     // fix that can restore the fast path.)
-    let _ = compute_all_font_sizes_px; // referenced so other callers / native keep it
-    resolve_font_size_slow(styled_dom, dom_id, node_state)
+    // referenced so other callers / native keep it
+    let _ = compute_all_font_sizes_px;
+    // CSS `zoom` scales the font size by the node's effective zoom (the
+    // cascade's value is unzoomed: an inherited size is the parent's
+    // UNZOOMED one, so the product never applies a zoom twice); em lengths
+    // follow it (LAYOUT7).
+    resolve_font_size_slow(styled_dom, dom_id, node_state) * get_effective_zoom(styled_dom, dom_id)
+}
+
+// ==== CSS zoom (LAYOUT7) ====
+
+/// A node's own `zoom` factor in the `Normal` state, 1.0 without one.
+fn own_zoom(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
+    let (Some(node_data), Some(styled)) = (
+        styled_dom.node_data.as_container().get(dom_id),
+        styled_dom.styled_nodes.as_container().get(dom_id),
+    ) else {
+        return 1.0;
+    };
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_zoom(node_data, &dom_id, &styled.styled_node_state)
+        .and_then(|v| v.get_property().copied())
+        .map_or(1.0, |zoom| zoom.factor())
+}
+
+/// Every node's effective zoom in one top-down walk (the arena is
+/// pre-order: a parent precedes its children). EMPTY when no node zooms.
+#[cfg_attr(feature = "web_lift", allow(dead_code))]
+fn compute_all_zooms(styled_dom: &StyledDom) -> Vec<f32> {
+    let n = styled_dom.node_data.len();
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let mut zooms = vec![1.0f32; n];
+    let mut any = false;
+    for idx in 0..n {
+        let id = NodeId::new(idx);
+        let own = own_zoom(styled_dom, id);
+        any |= (own - 1.0).abs() > f32::EPSILON;
+        let parent = hierarchy
+            .get(id)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+            .filter(|p| p.index() < idx)
+            .map_or(1.0, |p| zooms[p.index()]);
+        zooms[idx] = parent * own;
+    }
+    if any {
+        zooms
+    } else {
+        Vec::new()
+    }
+}
+
+/// Whether any node of the document declares a `zoom` other than 1 (the
+/// zoom memo is not empty).
+#[must_use]
+pub fn document_has_zoom(styled_dom: &StyledDom) -> bool {
+    #[cfg(feature = "web_lift")]
+    {
+        (0..styled_dom.node_data.len())
+            .any(|i| (own_zoom(styled_dom, NodeId::new(i)) - 1.0).abs() > f32::EPSILON)
+    }
+    #[cfg(not(feature = "web_lift"))]
+    {
+        !styled_dom
+            .css_property_cache
+            .ptr
+            .resolved_zooms
+            .get_or_init(|| compute_all_zooms(styled_dom))
+            .is_empty()
+    }
+}
+
+/// The EFFECTIVE `zoom` of a node (CSS Viewport 1 `zoom`, as Chrome
+/// implements it): the product of `zoom` on the node and on every ancestor.
+/// 1.0 in an unzoomed document - the memo is empty then, no index is read.
+#[must_use]
+pub fn get_effective_zoom(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
+    // The OnceLock memo mis-lifts on the web lift (see `get_element_font_size`):
+    // walk the ancestors there.
+    #[cfg(feature = "web_lift")]
+    {
+        let hierarchy = styled_dom.node_hierarchy.as_container();
+        let mut zoom = 1.0f32;
+        let mut cur = Some(dom_id);
+        let mut guard = styled_dom.node_data.len();
+        while let Some(id) = cur {
+            if guard == 0 {
+                break;
+            }
+            guard -= 1;
+            zoom *= own_zoom(styled_dom, id);
+            cur = hierarchy
+                .get(id)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+        }
+        zoom
+    }
+    #[cfg(not(feature = "web_lift"))]
+    {
+        styled_dom
+            .css_property_cache
+            .ptr
+            .resolved_zooms
+            .get_or_init(|| compute_all_zooms(styled_dom))
+            .get(dom_id.index())
+            .copied()
+            .unwrap_or(1.0)
+    }
+}
+
+/// A length of node `dom_id` resolved to `resolved` px, under its effective
+/// zoom: an absolute length (px, pt, in, cm, mm) is scaled by it, a rem by
+/// it relative to the root's (the root font size already carries the
+/// root's zoom); em, percentages and viewport units come back as they are -
+/// em follows the zoomed font size, a percentage the zoomed containing block.
+/// The ONE zoom rule of every length the solver resolves.
+#[must_use]
+pub fn zoomed_length(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    metric: azul_css::props::basic::SizeMetric,
+    resolved: f32,
+) -> f32 {
+    use azul_css::props::basic::SizeMetric;
+    let zoom = get_effective_zoom(styled_dom, dom_id);
+    if (zoom - 1.0).abs() <= f32::EPSILON {
+        return resolved;
+    }
+    match metric {
+        SizeMetric::Px | SizeMetric::Pt | SizeMetric::In | SizeMetric::Cm | SizeMetric::Mm => {
+            resolved * zoom
+        }
+        SizeMetric::Rem => {
+            let root_zoom = get_effective_zoom(styled_dom, NodeId::new(0));
+            resolved * zoom / root_zoom
+        }
+        SizeMetric::Em
+        | SizeMetric::Percent
+        | SizeMetric::Vw
+        | SizeMetric::Vh
+        | SizeMetric::Vmin
+        | SizeMetric::Vmax => resolved,
+    }
 }
 
 /// Bottom-up single-pass resolve of every node's font-size.
@@ -3223,7 +3365,13 @@ pub fn get_style_properties_for_state(
     // Get font-size: either from this node's CSS, or inherit from parent
     // font-size is an inheritable property, so if the node doesn't have
     // an explicit font-size, it should inherit from the parent (not default to 16px)
-    let font_size = {
+    //
+    // In a document with a CSS `zoom` the text takes the ONE zoom-aware
+    // resolution the layout's lengths use (`get_element_font_size`): the
+    // fast path below mixes the parent's ZOOMED size with unzoomed px.
+    let font_size = if document_has_zoom(styled_dom) {
+        get_element_font_size(styled_dom, dom_id, node_state)
+    } else {
         // FAST PATH: compact cache for normal state.
         // Sentinel/inherit/initial → inherit from parent directly (which is
         // what the slow cascade walk would fall back to via `.unwrap_or(parent_font_size)`
