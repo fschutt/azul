@@ -28,8 +28,14 @@ On resume: read this file, `git -C <worktree> status`, `git log --oneline -12`, 
   azul_pim rmeta built from the worktree: `rustc --crate-name azul_pim --emit=metadata
   examples/azul-pim/src/lib.rs` -> /tmp/news9_check/libazul_pim.rmeta).
 
+- 09eab67d6 RED / 1770e5c49 GREEN src/store.rs (keys, load_jobs, load -> Loaded {library,
+  problems, minted}, subscriptions_job / meta_job / items_job / state_job / feed_jobs /
+  delete_jobs, items_to_json / items_from_json). Type-check clean (harness5 = harness2 + library
+  + store + an opml stub {Subscription, parse, write}; azul_appkit rmeta built from the worktree
+  like azul_pim, without its `azul` feature).
+
 ## NEXT (in this order; RED commit with tests + stubs, then GREEN commit, each)
-5. src/store.rs (next step): see item 5 below.
+6. src/fetch.rs (next step): see item 6 below.
 (done) 4. src/library.rs (pure, type-checkable with harness2 + `--extern azul_pim=<rlib>`):
    `FeedMeta` (serde, feed.json: format "aznews.feed" v1, url, title, site, icon, kind, etag,
    last_modified, checked, updated, status, error), `FeedData { sub: Subscription, meta, items:
