@@ -57,15 +57,37 @@ pub fn new_id() -> String {
 /// A record as the bytes of its file (pretty JSON, newline-terminated).
 #[must_use]
 pub fn to_bytes<T: serde::Serialize>(record: &T) -> Vec<u8> {
-    let _ = record;
-    Vec::new()
+    let mut bytes = serde_json::to_vec_pretty(record).unwrap_or_default();
+    bytes.push(b'\n');
+    bytes
 }
 
 /// What the window reads when it opens: every alarm and timer file, the
 /// world clock and the stopwatch.
 #[must_use]
 pub fn load_jobs() -> Vec<FileJob> {
-    Vec::new()
+    vec![
+        FileJob::GetAll {
+            prefix: ALARMS_PREFIX.to_string(),
+            suffix: SUFFIX.to_string(),
+        },
+        FileJob::GetAll {
+            prefix: TIMERS_PREFIX.to_string(),
+            suffix: SUFFIX.to_string(),
+        },
+        FileJob::Get {
+            key: WORLD_KEY.to_string(),
+        },
+        FileJob::Get {
+            key: STOPWATCH_KEY.to_string(),
+        },
+    ]
+}
+
+/// The record id a file's key names: `clock/alarms/<id>.json` is `<id>`.
+fn id_of_key(key: &str, prefix: &str) -> Option<String> {
+    let id = key.strip_prefix(prefix)?.strip_suffix(SUFFIX)?;
+    (!id.is_empty() && !id.contains('/')).then(|| id.to_string())
 }
 
 /// What the files said.
@@ -95,13 +117,65 @@ impl Loaded {
 /// takes the file's name (a copied file must not overwrite its original).
 #[must_use]
 pub fn read_loaded(outcomes: Vec<FileOutcome>) -> Loaded {
-    let _ = outcomes;
-    Loaded::default()
+    let mut loaded = Loaded::default();
+    for outcome in outcomes {
+        match outcome {
+            FileOutcome::GotAll {
+                prefix,
+                files,
+                errors,
+            } => {
+                loaded.problems.extend(errors);
+                for (key, bytes) in files {
+                    if prefix == ALARMS_PREFIX {
+                        match serde_json::from_slice::<Alarm>(&bytes) {
+                            Ok(mut alarm) => {
+                                if let Some(id) = id_of_key(&key, ALARMS_PREFIX) {
+                                    alarm.id = id;
+                                }
+                                loaded.alarms.push(alarm);
+                            }
+                            Err(e) => loaded.problems.push(format!("{key} could not be read: {e}")),
+                        }
+                    } else if prefix == TIMERS_PREFIX {
+                        match serde_json::from_slice::<CountdownTimer>(&bytes) {
+                            Ok(mut timer) => {
+                                if let Some(id) = id_of_key(&key, TIMERS_PREFIX) {
+                                    timer.id = id;
+                                }
+                                loaded.timers.push(timer);
+                            }
+                            Err(e) => loaded.problems.push(format!("{key} could not be read: {e}")),
+                        }
+                    }
+                }
+            }
+            FileOutcome::Got { key, result } => match result {
+                Ok(None) => {}
+                Ok(Some(bytes)) if key == WORLD_KEY => match serde_json::from_slice::<WorldFile>(&bytes) {
+                    Ok(world) => loaded.world = Some(world),
+                    Err(e) => loaded.problems.push(format!("{key} could not be read: {e}")),
+                },
+                Ok(Some(bytes)) if key == STOPWATCH_KEY => {
+                    match serde_json::from_slice::<Stopwatch>(&bytes) {
+                        Ok(stopwatch) => loaded.stopwatch = Some(stopwatch),
+                        Err(e) => loaded.problems.push(format!("{key} could not be read: {e}")),
+                    }
+                }
+                Ok(Some(_)) => {}
+                Err(e) => loaded.problems.push(format!("{key} could not be read: {e}")),
+            },
+            FileOutcome::Put { .. } | FileOutcome::Deleted { .. } => {}
+        }
+    }
+    sort_alarms(&mut loaded.alarms);
+    loaded.timers.sort_by(|a, b| a.duration_ms.cmp(&b.duration_ms).then_with(|| a.label.cmp(&b.label)));
+    loaded
 }
 
 /// Sorts alarms as the list shows them: by time of day, then label.
 pub fn sort_alarms(alarms: &mut [Alarm]) {
-    let _ = alarms;
+    alarms.sort_by(|a, b| (a.hour, a.minute, &a.label).cmp(&(b.hour, b.minute, &b.label)));
 }
 
 /// The plan's sample data (section 6), for `--sample` on a first run:
@@ -111,8 +185,39 @@ pub fn sort_alarms(alarms: &mut [Alarm]) {
 /// five laps, stopped.
 #[must_use]
 pub fn sample<Tz: TimeZone>(now: DateTime<Utc>, tz: &Tz) -> Loaded {
-    let _ = (now, tz, MINUTE_MS, world::sample_cities);
-    Loaded::default()
+    let today = now.with_timezone(tz).date_naive();
+    let alarm = |hour, minute, label: &str, rrule: &str| {
+        Alarm::new(&new_id(), hour, minute, today).repeating(rrule).labelled(label)
+    };
+    let mut market = alarm(9, 0, "Market", "FREQ=WEEKLY;BYDAY=SA");
+    market.enabled = false;
+    let alarms = vec![
+        alarm(6, 30, "Gym", "FREQ=WEEKLY;BYDAY=MO,WE,FR"),
+        alarm(7, 15, "Wake up", "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"),
+        market,
+    ];
+    let t0 = now.timestamp_millis();
+    let mut tea = CountdownTimer::new(&new_id(), "Tea", 10 * MINUTE_MS);
+    tea.start(t0 - (10 * MINUTE_MS - (5 * MINUTE_MS + 48_000)));
+    let mut pasta = CountdownTimer::new(&new_id(), "Pasta", 12 * MINUTE_MS);
+    pasta.start(t0 - (12 * MINUTE_MS - (7 * MINUTE_MS + 12_000)));
+    pasta.pause(t0);
+    let mut stopwatch = Stopwatch::default();
+    let start = t0 - 300_000;
+    stopwatch.start(start);
+    for total in [50_460, 102_470, 156_440, 206_240, 257_360] {
+        stopwatch.lap(start + total);
+    }
+    stopwatch.stop(start + 257_360);
+    Loaded {
+        alarms,
+        timers: vec![tea, pasta],
+        world: Some(WorldFile {
+            cities: world::sample_cities(),
+        }),
+        stopwatch: Some(stopwatch),
+        problems: Vec::new(),
+    }
 }
 
 #[cfg(test)]
