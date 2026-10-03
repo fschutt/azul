@@ -14,8 +14,6 @@ use crate::model::Deck;
 
 /// The app's folder in the user's storage.
 pub const APP_FOLDER: &str = "show";
-/// The variable naming the data root (a test, a second profile).
-pub const DATA_VAR: &str = "AZSHOW_DATA";
 
 /// `show/<id>/deck.json`.
 #[must_use]
@@ -32,6 +30,13 @@ pub fn deck_id_of(key: &str) -> Option<&str> {
         .strip_prefix('/')?
         .strip_suffix("/deck.json")?;
     (!id.is_empty() && !id.contains('/')).then_some(id)
+}
+
+/// `show/exports/<name>`: where an export (a PDF, a slide picture) lands -
+/// in the data tree, through the drive, like every durable file.
+#[must_use]
+pub fn export_key(name: &str) -> String {
+    format!("{APP_FOLDER}/exports/{name}")
 }
 
 /// `show/<id>/<media>`, `media` being an element's `media/<name>` key.
@@ -64,6 +69,8 @@ pub enum Job {
     /// Reads a picture the user picked and stores it under the deck's
     /// `media/` (a fresh name, the file's extension).
     ImportFile { deck: String, path: PathBuf },
+    /// Writes an export (`name` with its extension) to `show/exports/`.
+    Export { name: String, bytes: Vec<u8> },
 }
 
 /// What came back.
@@ -77,6 +84,8 @@ pub enum Outcome {
     Listed(Result<Vec<DeckSummary>, String>),
     /// The picture's media key (`media/<name>`) and its bytes, or why not.
     MediaStored(Result<(String, Vec<u8>), String>),
+    /// The export's key (`show/exports/<name>`), or why not.
+    Exported(Result<String, String>),
 }
 
 fn why(e: DriveError) -> String {
@@ -183,6 +192,10 @@ pub fn run_job(drive: &dyn Drive, job: Job) -> Outcome {
             }
             Err(e) => Outcome::MediaStored(Err(format!("{}: {e}", path.display()))),
         },
+        Job::Export { name, bytes } => {
+            let key = export_key(&name);
+            Outcome::Exported(drive.put(&key, &bytes).map(|()| key).map_err(why))
+        }
         Job::PutMedia { deck, name, bytes } => {
             let media = format!("media/{name}");
             Outcome::MediaStored(
@@ -201,18 +214,6 @@ pub fn local_drive(root: PathBuf) -> LocalDrive {
     LocalDrive::new(root)
 }
 
-/// The data root: `AZSHOW_DATA`, else `<the user's data folder>/azul`, else
-/// `./azul-data`.
-#[must_use]
-pub fn data_root(user_data_dir: Option<PathBuf>) -> PathBuf {
-    if let Some(v) = std::env::var(DATA_VAR).ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) {
-        return PathBuf::from(v);
-    }
-    match user_data_dir {
-        Some(dir) => dir.join("azul"),
-        None => PathBuf::from("azul-data"),
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -385,14 +386,12 @@ mod tests {
     }
 
     #[test]
-    fn the_data_root_is_the_users_data_folder_unless_the_variable_says_otherwise() {
-        if std::env::var(DATA_VAR).is_err() {
-            assert_eq!(
-                data_root(Some(PathBuf::from("/home/u/.local/share"))),
-                PathBuf::from("/home/u/.local/share/azul")
-            );
-        }
+    fn the_keys_of_a_deck_its_media_and_an_export() {
         assert_eq!(deck_key("x"), "show/x/deck.json");
+        assert_eq!(deck_id_of("show/x/deck.json"), Some("x"));
+        assert_eq!(deck_id_of("show/x/media/deck.json"), None);
+        assert_eq!(deck_id_of("show/exports/a.pdf"), None);
+        assert_eq!(export_key("a.pdf"), "show/exports/a.pdf");
         assert_eq!(media_key("x", "media/a.png"), "show/x/media/a.png");
     }
 }
