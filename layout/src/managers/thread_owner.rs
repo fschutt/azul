@@ -284,4 +284,95 @@ mod tests {
         assert!(!o.is_overdue(start));
         assert!(o.is_overdue(start + ORPHAN_GRACE));
     }
+
+    // --- A window that closes stops its workers together -----------------
+    //
+    // THREADS8. Dropping a window dropped its `threads` map one entry at a
+    // time, and each `Thread`'s destructor told ITS worker to stop and then
+    // waited for it (up to 2 s) before the next worker heard anything: the
+    // window took the SUM of its workers' stop times to close, on the UI
+    // thread - and N x 2 s when the workers were stuck in a device read.
+    #[cfg(all(feature = "std", feature = "text_layout"))]
+    mod a_window_that_closes {
+        use std::time::{Duration, Instant};
+
+        use azul_core::{
+            refany::RefAny,
+            task::{OptionThreadSendMsg, ThreadId, ThreadReceiver, ThreadSendMsg},
+        };
+        use rust_fontconfig::FcFontCache;
+
+        use crate::{
+            managers::thread_owner::ORPHAN_GRACE,
+            thread::{Thread, ThreadCallback, ThreadCallbackType, ThreadSender},
+            window::LayoutWindow,
+        };
+
+        /// How long a worker takes to stop once it is told (a capture device
+        /// closing).
+        const STOP_TAKES: Duration = Duration::from_millis(300);
+
+        extern "C" fn slow_to_stop(_init: RefAny, _sender: ThreadSender, mut recv: ThreadReceiver) {
+            let started = Instant::now();
+            while started.elapsed() < Duration::from_secs(10) {
+                if let OptionThreadSendMsg::Some(ThreadSendMsg::TerminateThread) = recv.recv() {
+                    std::thread::sleep(STOP_TAKES);
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+
+        /// Never answers `TerminateThread` (stuck in a device read). Bounded,
+        /// so the test process does not keep it for ever.
+        extern "C" fn never_stops(_init: RefAny, _sender: ThreadSender, _recv: ThreadReceiver) {
+            std::thread::sleep(Duration::from_secs(8));
+        }
+
+        fn window_with(workers: usize, worker: ThreadCallbackType) -> LayoutWindow {
+            let mut window = LayoutWindow::new(FcFontCache::default()).expect("a window");
+            for _ in 0..workers {
+                window.threads.insert(
+                    ThreadId::unique(),
+                    Thread::create(
+                        RefAny::new(()),
+                        RefAny::new(()),
+                        ThreadCallback::new(worker),
+                    ),
+                );
+            }
+            window
+        }
+
+        #[test]
+        fn tells_every_worker_to_stop_before_it_waits_for_any_of_them() {
+            let window = window_with(3, slow_to_stop);
+            let start = Instant::now();
+            drop(window);
+            let took = start.elapsed();
+            assert!(
+                took < STOP_TAKES * 2,
+                "three workers that each take {} ms to stop must stop TOGETHER: closing took {} \
+                 ms (one after the other is ~{} ms)",
+                STOP_TAKES.as_millis(),
+                took.as_millis(),
+                (STOP_TAKES * 3).as_millis()
+            );
+        }
+
+        #[test]
+        fn waits_one_grace_period_for_workers_that_never_stop_not_one_each() {
+            let window = window_with(3, never_stops);
+            let start = Instant::now();
+            drop(window);
+            let took = start.elapsed();
+            assert!(
+                took < ORPHAN_GRACE + ORPHAN_GRACE / 2,
+                "three stuck workers must cost the closing window ONE grace period ({} ms), then \
+                 be detached: closing took {} ms",
+                ORPHAN_GRACE.as_millis(),
+                took.as_millis()
+            );
+        }
+    }
 }
