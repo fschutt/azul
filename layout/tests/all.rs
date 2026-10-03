@@ -870,3 +870,5 @@ mod a_percentage_height_inline_block_in_an_auto_height_body_is_as_tall_as_its_co
 mod a_cells_row_is_as_tall_as_its_content_at_the_column_width;
 #[path = "a_line_of_small_text_is_as_tall_as_its_line_box.rs"]
 mod a_line_of_small_text_is_as_tall_as_its_line_box;
+#[path = "spaces_at_a_lines_edges_do_not_widen_its_max_content.rs"]
+mod spaces_at_a_lines_edges_do_not_widen_its_max_content;
