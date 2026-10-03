@@ -83,52 +83,76 @@ pub fn local_zone() -> Option<Tz> {
 /// "Buenos Aires".
 #[must_use]
 pub fn city_name(zone: &str) -> String {
-    let _ = zone;
-    String::new()
+    zone.rsplit('/').next().unwrap_or(zone).replace('_', " ")
 }
 
 /// The offset from UTC of `tz` at `at`, in minutes.
 #[must_use]
 pub fn offset_minutes<Z: TimeZone>(tz: &Z, at: DateTime<Utc>) -> i32 {
-    let _ = (tz, at);
-    0
+    tz.offset_from_utc_datetime(&at.naive_utc()).fix().local_minus_utc() / 60
 }
 
 /// The zone's abbreviation at `at` ("CEST" in summer, "CET" in winter).
 #[must_use]
 pub fn abbreviation(tz: Tz, at: DateTime<Utc>) -> String {
-    let _ = (tz, at);
-    String::new()
+    tz.offset_from_utc_datetime(&at.naive_utc())
+        .abbreviation()
+        .unwrap_or("")
+        .to_string()
 }
 
 /// Day there: 06:00 to 18:00.
 #[must_use]
 pub fn is_day(hour: u32) -> bool {
-    let _ = hour;
-    false
+    (6..18).contains(&hour)
 }
 
 /// "Yesterday", "Today", "Tomorrow" for a day offset.
 #[must_use]
 pub fn day_label(day_offset: i64) -> &'static str {
-    let _ = day_offset;
-    ""
+    match day_offset {
+        d if d < 0 => "Yesterday",
+        0 => "Today",
+        _ => "Tomorrow",
+    }
 }
 
 /// How `city` reads at `now` from a place in `local`; `None` for a zone the
 /// database does not know.
 #[must_use]
 pub fn row<L: TimeZone>(city: &City, local: &L, now: DateTime<Utc>) -> Option<CityRow> {
-    let _ = (city, local, now);
-    None
+    let tz = parse_zone(&city.zone)?;
+    let there = now.with_timezone(&tz);
+    let here = now.with_timezone(local);
+    Some(CityRow {
+        name: city.name.clone(),
+        hour: there.hour(),
+        minute: there.minute(),
+        difference_min: offset_minutes(&tz, now) - offset_minutes(local, now),
+        day_offset: (there.date_naive() - here.date_naive()).num_days(),
+        daytime: is_day(there.hour()),
+        abbreviation: abbreviation(tz, now),
+    })
 }
 
 /// The cities whose name or zone has every word of `query` (any case,
 /// diacritics folded), by name, at most `limit`.
 #[must_use]
 pub fn search(query: &str, limit: usize) -> Vec<City> {
-    let _ = (query, limit, &TZ_VARIANTS, &AREAS);
-    Vec::new()
+    let query = azul_pim::search::Query::parse(query);
+    if query.is_empty() {
+        return Vec::new();
+    }
+    let mut found: Vec<City> = TZ_VARIANTS
+        .iter()
+        .map(|tz| tz.name())
+        .filter(|name| AREAS.iter().any(|area| name.starts_with(area)))
+        .map(City::of_zone)
+        .filter(|city| query.matches(&format!("{} {}", city.name, city.zone)))
+        .collect();
+    found.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.zone.cmp(&b.zone)));
+    found.truncate(limit);
+    found
 }
 
 /// The plan's sample cities (section 6), after the local one.
@@ -142,7 +166,12 @@ pub fn sample_cities() -> Vec<City> {
 
 /// Moves the city at `from` to `to` (a drag, or the Up / Down keys).
 pub fn move_city(cities: &mut Vec<City>, from: usize, to: usize) {
-    let _ = (cities, from, to);
+    if from >= cities.len() {
+        return;
+    }
+    let city = cities.remove(from);
+    let to = to.min(cities.len());
+    cities.insert(to, city);
 }
 
 #[cfg(test)]
