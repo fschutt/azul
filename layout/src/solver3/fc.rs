@@ -10558,7 +10558,11 @@ fn measure_atomic_inline<T: ParsedFontTrait>(
         stroke: None,
         // Already measured from the margin box's bottom edge.
         baseline_offset,
-        alignment: crate::solver3::getters::get_vertical_align_for_node(ctx.styled_dom, dom_id),
+        alignment: crate::solver3::getters::get_vertical_align_for_node(
+            ctx.styled_dom,
+            dom_id,
+            PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+        ),
         source_node_id: Some(dom_id),
     })
 }
@@ -11457,6 +11461,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
             alignment: crate::solver3::getters::get_vertical_align_for_node(
                 ctx.styled_dom,
                 span_dom_id,
+                PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
             ),
             source_node_id: Some(span_dom_id),
         }));

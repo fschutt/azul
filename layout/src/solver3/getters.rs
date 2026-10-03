@@ -3150,6 +3150,9 @@ pub fn get_computed_display(
 pub fn get_vertical_align_for_node(
     styled_dom: &StyledDom,
     dom_id: NodeId,
+    // The layout viewport: `vw` / `vh` / `vmin` / `vmax` resolve against it
+    // (a `vertical-align: 5vh` raised the box by the bare number, TEXT7).
+    viewport: PhysicalSize,
 ) -> crate::text3::cache::VerticalAlign {
     let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
     let va = match get_vertical_align_property(styled_dom, dom_id, node_state) {
@@ -3169,31 +3172,28 @@ pub fn get_vertical_align_for_node(
         // = baseline
         StyleVerticalAlign::Percentage(p) => {
             let font_size = get_element_font_size(styled_dom, dom_id, node_state);
-            // The element's used line-height (`normal` as 1.2em). No viewport
-            // reaches this getter (see the <length> arm's TODO), so a
-            // viewport-unit line-height counts as 0 here.
-            let line_height = get_used_line_height(
-                styled_dom,
-                dom_id,
-                node_state,
-                font_size,
-                PhysicalSize::new(0.0, 0.0),
-            )
-            .resolve(font_size, 0.0, 0.0, 0.0, 0);
+            // The element's used line-height (`normal` as 1.2em).
+            let line_height =
+                get_used_line_height(styled_dom, dom_id, node_state, font_size, viewport)
+                    .resolve(font_size, 0.0, 0.0, 0.0, 0);
             crate::text3::cache::VerticalAlign::Offset(p.normalized() * line_height)
         }
         // §10.8.1: <length> is absolute offset from baseline
         StyleVerticalAlign::Length(l) => {
             let font_size = get_element_font_size(styled_dom, dom_id, node_state);
-            // TODO(superplan): viewport units (vw/vh/...) in a vertical-align <length>
-            // fall back to raw pixels here because this getter has no viewport ctx.
-            // Threading `viewport_size` requires changing this fn's signature, but one
-            // of its callers (`sizing.rs::process_layout_children`) lives outside
-            // Group 2's file ownership — deferred. (The sibling path in
-            // fc.rs::translate_to_text3_constraints already resolves it via
-            // `resolve_pixel_value_with_viewport`.)
-            let px = super::calc::resolve_pixel_value(&l, 0.0, font_size, font_size);
-            crate::text3::cache::VerticalAlign::Offset(px)
+            // em against the element's font size, rem against the root's, the
+            // viewport units against the viewport; CSS `zoom` by its rule.
+            let px = super::calc::resolve_pixel_value_with_viewport(
+                &l,
+                0.0,
+                font_size,
+                get_root_font_size(styled_dom, node_state),
+                viewport.width,
+                viewport.height,
+            );
+            crate::text3::cache::VerticalAlign::Offset(zoomed_length(
+                styled_dom, dom_id, l.metric, px,
+            ))
         }
     }
 }
@@ -3711,7 +3711,7 @@ pub fn get_style_properties_for_state(
         // its text clusters (get_item_vertical_align reads this). Without it every text
         // cluster fell back to the IFC root's alignment (baseline), so sub/super/length
         // vertical-align on inline spans had no effect.
-        vertical_align: get_vertical_align_for_node(styled_dom, dom_id),
+        vertical_align: get_vertical_align_for_node(styled_dom, dom_id, viewport_size),
         // These still use defaults - could be extended in future:
         // font_features, font_variations, writing_mode,
         // text_orientation, text_combine_upright, font_variant_*
@@ -9755,7 +9755,7 @@ mod autotest_generated {
 
         // vertical-align defaults to the baseline for an unstyled div.
         assert!(matches!(
-            get_vertical_align_for_node(&sd, id),
+            get_vertical_align_for_node(&sd, id, PhysicalSize::new(800.0, 600.0)),
             crate::text3::cache::VerticalAlign::Baseline
         ));
     }
