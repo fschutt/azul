@@ -11317,12 +11317,10 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         None
     };
 
-    // The top of the highest and the bottom of the lowest line box that
-    // holds NO text (a line a lone `<br>` ends, a line of only atomic inlines
-    // - inline-blocks, images), in any column, horizontal modes: the IFC is
-    // measured over those line boxes in full, see below. A line with text
-    // keeps measuring by its items, as it always did.
-    let mut line_box_top = f32::MAX;
+    // The bottom of the lowest line box that holds NO item with a height (a
+    // line a lone `<br>` ends), in any column, horizontal modes: what the
+    // IFC's height is measured to, see below. A line with glyphs or an atomic
+    // inline keeps measuring by its items, as it always did.
     let mut line_box_extent = 0.0_f32;
     // +spec:multi-column - this context's share of a multi-column BLOCK
     // container's flow (`ColumnFlow`): a further column starts at each of
@@ -11343,6 +11341,12 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     });
     let mut flow_line_index = 0usize;
     let mut flow_after_forced_break = false;
+    // The top of the highest and the bottom of the lowest line box that holds
+    // only atomic inlines (no text cluster; an inline-block, an image), any
+    // column, horizontal modes: such a line box holds the strut too, see
+    // below.
+    let mut atomic_line_box_top = f32::MAX;
+    let mut atomic_line_box_bottom = f32::MIN;
     'column_loop: while current_column < column_count {
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
@@ -11653,18 +11657,25 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             // line box height
             let band_height = line_height.max(fragment_constraints.resolved_line_height());
             line_bands.push((line_index, line_top_y, band_height));
-            // CSS 2.1 s10.8: a line box holds its strut, so a line of only
-            // atomic inlines is as tall as its line box (a 10px inline-block
-            // in 16px Arial: an 18px line, as in Chrome) - not its boxes'
-            // height (user ruling 2026-10-03). Items alone measured 10.
+            line_top_y += band_height;
             if !line_pos_items
                 .iter()
-                .any(|item| matches!(item.item, ShapedItem::Cluster(_)))
+                .any(|item| item.item.bounds().height > 0.0)
             {
-                line_box_top = line_box_top.min(line_top_y);
-                line_box_extent = line_box_extent.max(line_top_y + band_height);
+                line_box_extent = line_box_extent.max(line_top_y);
             }
-            line_top_y += band_height;
+            // A line of only atomic inlines (a box with a height, no text
+            // cluster) is measured by its whole line box, strut included.
+            if line_pos_items
+                .iter()
+                .any(|item| item.item.bounds().height > 0.0)
+                && !line_pos_items
+                    .iter()
+                    .any(|item| matches!(item.item, ShapedItem::Cluster(_)))
+            {
+                atomic_line_box_top = atomic_line_box_top.min(line_top_y - band_height);
+                atomic_line_box_bottom = atomic_line_box_bottom.max(line_top_y);
+            }
             line_index += 1;
             positioned_items.extend(line_pos_items);
         }
@@ -11709,24 +11720,17 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 
     // +spec:display-property:a0d0ab - an IFC is as tall as its LINE BOXES (CSS 2.2
     // 10.6.3: from the top of the topmost to the bottom of the bottommost). The
-    // items' bounds miss the line boxes that hold no text:
-    // - the line a lone `<br>` ends (`<div><br></div>`, Gmail's blank line) is
-    //   one line-height tall in every browser (a line ending in a forced break
-    //   is not a zero-height line box, 9.4.2), and measured 0 because a break
-    //   has no geometry;
-    // - a line of only atomic inlines holds the STRUT too (10.8: a zero-width
-    //   inline box with the block's font and line-height), so a 10px
-    //   inline-block in 16px Arial makes an 18px line in Chrome - it measured
-    //   10 by its box (user ruling 2026-10-03: Chrome is the reference; an
-    //   icon that wants its box's height alone says `line-height: 0` or
-    //   `display: block`, as on the web).
-    // Those lines reach down here (`line_box_top` / `line_box_extent`) and the
-    // IFC is the union of the items and those line boxes. A text line is
-    // measured by its glyphs, whose layout bounds already carry the
-    // line-height's half-leading. A break positioned inside a `<span>` has no
-    // height and sits at the baseline - inside its own line box, which the
-    // union holds whole (measuring from the break left
-    // `<div><span><br></span></div>` a quarter of a line tall). The vertical
+    // items' bounds miss a line box that holds no glyph: the line a lone `<br>`
+    // ends (`<div><br></div>`, Gmail's blank line) is one line-height tall in
+    // every browser (a line ending in a forced break is not a zero-height line
+    // box, 9.4.2), and measured 0 here because a break has no geometry. Only
+    // such lines reach down here (`line_box_extent`): a line with glyphs or an
+    // atomic inline is measured by its items as before - an `<svg>` alone on a
+    // line keeps its box's height, and a text line its glyphs' (a line box
+    // pinned to the strut band would have grown every one of them). The top is
+    // that of the items WITH a height; a break positioned inside a `<span>`
+    // has none and sits at the baseline, and measuring from it left
+    // `<div><span><br></span></div>` a quarter of a line tall. The vertical
     // modes stack their line boxes along x and keep the item bounds.
     let horizontal = !matches!(
         fragment_constraints.writing_mode,
@@ -11737,13 +11741,36 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 | WritingMode::SidewaysLr
         )
     );
-    if horizontal && line_box_extent > line_box_top {
-        let top = if layout.items.is_empty() {
-            line_box_top
-        } else {
-            calculated_bounds.y.min(line_box_top)
-        };
-        let bottom = (calculated_bounds.y + calculated_bounds.height).max(line_box_extent);
+    if horizontal && line_box_extent > 0.0 {
+        let top = layout
+            .items
+            .iter()
+            .filter(|item| item.item.bounds().height > 0.0)
+            .map(|item| item.position.y)
+            .fold(None, |acc: Option<f32>, y| {
+                Some(acc.map_or(y, |a| a.min(y)))
+            });
+        match top {
+            Some(top) => {
+                calculated_bounds.height = calculated_bounds.height.max(line_box_extent - top);
+            }
+            None => {
+                calculated_bounds.y = 0.0;
+                calculated_bounds.height = calculated_bounds.height.max(line_box_extent);
+            }
+        }
+    }
+
+    // CSS 2.1 s10.8: every line box holds a STRUT, a zero-width inline box
+    // with the block's font and line-height - a line of only atomic inlines
+    // too. A 10px inline-block in a 16px Arial block makes an 18px line in
+    // Chrome, and that is what the IFC measures (user ruling 2026-10-03:
+    // Chrome is the reference). Its items alone measured 10: the box. An icon
+    // that wants its box's height alone says so in CSS, as on the web
+    // (`line-height: 0`, `display: block`, a flex container).
+    if horizontal && atomic_line_box_bottom > atomic_line_box_top {
+        let top = calculated_bounds.y.min(atomic_line_box_top);
+        let bottom = (calculated_bounds.y + calculated_bounds.height).max(atomic_line_box_bottom);
         calculated_bounds.y = top;
         calculated_bounds.height = bottom - top;
     }
