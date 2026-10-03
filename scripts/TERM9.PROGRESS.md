@@ -10,7 +10,22 @@ Crate sources read from /tmp/term9_src (alacritty_terminal-0.26.0, vte-0.15.0, d
 - 3577bdf53 GREEN pure logic + theme palettes (flat.rs / flora.rs APPENDED) + data_table::thumb pub(crate)
 
 ## IN PROGRESS
-- the DOM build (VirtualView host) + handlers in terminal_view.rs (marker "TERM9-NEXT: the build, the handlers.")
+- the DOM build (VirtualView host) + handlers in layout/src/widgets/terminal_view.rs, at the marker
+  "TERM9-NEXT: the build, the handlers." (before the test modules). Plan: TerminalShared (dataset = VV data, one
+  RefAny) {view, palette, measured: Option<(font_size, advance)>, metrics, grid, screen, bar, drag: Drag, wheel_travel,
+  swallow_text}; merge callback (DatasetMergeCallback::from_ptr) keeps measured/drag; TerminalView::dom() = outer div
+  (with_css "position:absolute;top:0;left:0;right:0;bottom:0;overflow:hidden" like map.rs, themed ground fill,
+  TabIndex::Auto, a11y Document, callbacks) + VirtualView child (width/height 100%) rendering via render_terminal:
+  bounds -> Metrics::of(measure once via info.measure_dom_shrink_to_fit) -> grid = fitting(width - SCROLLBAR_PX) ->
+  screen_of(data_source, grid) -> runs as absolute divs + bare text, selection washes, cursor, scroll bar (thumb =
+  palette.foreground at alpha). Handlers: Focus VirtualKeyDown (key_action; swallow_text), Focus TextInput
+  (encode_text unless swallow), Focus Paste (get_clipboard_content -> encode_paste), FocusReceived/Lost (encode_focus),
+  Hover LeftMouseDown / MouseMove / MouseUp / DoubleClick / Scroll (take_wheel from cell_grid). After Scroll / Select*
+  events: info.trigger_all_virtual_view_rerender().
+- CLIPBOARD FINDING (engine gap): core/src/events.rs handle_key_down only turns Cmd/Ctrl+V into PasteFromClipboard
+  when the focus is editable or has a selection; CallbackInfo has no way to READ the clipboard on demand (only
+  get_clipboard_content inside a Paste event). Decision: engine fix = also when the focused node has a
+  FocusEventFilter::Paste / Copy callback (the app asked for the event) - or note it if too risky.
 
 ## NEXT
 1. (done) widget types + pure logic.
