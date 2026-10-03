@@ -846,7 +846,9 @@ pub fn capture_toplevel(title: &str) -> Result<Vec<u8>, AzString> {
         // ── destination buffer ──────────────────────────────────────────
         let stride = (w * 4) as i32;
         let size = stride * h as i32;
-        let fd = memfd(size)?;
+        // The one shm allocator (shm.rs: sealed memfd, shm_open fallback).
+        let fd = super::shm::create_shm_file("azul-capture", size as usize)
+            .map_err(AzString::from)?;
         let data = libc::mmap(
             core::ptr::null_mut(),
             size as usize,
@@ -952,32 +954,4 @@ pub fn capture_toplevel(title: &str) -> Result<Vec<u8>, AzString> {
 
         outcome
     }
-}
-
-/// An anonymous shared-memory file for the destination buffer. Same
-/// memfd-then-shm_open fallback as the window backbuffer in `mod.rs`.
-unsafe fn memfd(size: i32) -> Result<libc::c_int, AzString> {
-    use std::ffi::CString;
-    let name = CString::new("azul-capture").unwrap();
-    let mut fd = libc::syscall(libc::SYS_memfd_create, name.as_ptr(), 1 as libc::c_int)
-        as libc::c_int;
-    if fd == -1 {
-        let name = CString::new(alloc::format!("/azul-capture-{}", std::process::id())).unwrap();
-        fd = libc::shm_open(
-            name.as_ptr(),
-            libc::O_CREAT | libc::O_RDWR | libc::O_EXCL,
-            0o600,
-        );
-        if fd != -1 {
-            libc::shm_unlink(name.as_ptr());
-        }
-    }
-    if fd == -1 {
-        return Err(AzString::from("could not create shared memory for the capture"));
-    }
-    if libc::ftruncate(fd, size as libc::off_t) == -1 {
-        libc::close(fd);
-        return Err(AzString::from("ftruncate of the capture buffer failed"));
-    }
-    Ok(fd)
 }
