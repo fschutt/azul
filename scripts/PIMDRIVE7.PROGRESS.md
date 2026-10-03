@@ -35,12 +35,19 @@ Scratch helpers (not committed): /tmp/pimdrive7/rep.py (exact replacements from 
   the data folder's Drive, --sample writes through it; std::fs helpers gone; the meeting server line is
   AzCalendar's own (rooms.rs drops encode_settings / decode_settings / MAX_SETTINGS_BYTES)
 
+- item 5 AzContacts LOOK (prebuilt; 300 sample contacts blow the layout past 1.5 GB -> LOOK with 40):
+  641541853 / 698131965 RED layout a_long_list_of_avatar_rows_lays_out_in_linear_time (LAYOUT7/PAINT7);
+  784e57f9e RED layout a_short_list_in_a_shell_pane_fills_its_pane_from_the_top (LAYOUT7);
+  2d0afec0f RED layout focusing_a_search_field_by_its_id_focuses_its_text (EVENTS7/WIDGETS7; AzTasks Cmd+F);
+  fe2c08b51 / 56602506a merge pickers one column; fbe0ff89a / 3c92d6f09 CSV pickers fit;
+  3c92d6f09 / fca0c89ea import preview columns share the pane; E2E types the search after a click
+  Seen (engine, noted): edit form section laid out as a ROW (Add phone at x 1084) with a photo contact
+  (LAYOUT7, E2E check in step 4); nav TreeView 24 px too wide -> sideways scrollbars (WIDGETS7)
+
 ## IN PROGRESS
-- 5. AzContacts LOOK (prebuilt, capped): list, card + photo avatar, edit form + birthday picker, CSV import
-  mapping table; fix the app's bugs (RED first). Driver: /tmp/pimdrive7/look_contacts.py on azlin_e2e.
+- 6. AzDrive Details table on a widget; AzMeet chat on rejoin; azdrive / azmeet E2E onto azlin_e2e.py.
 
 ## NEXT
-- 6. AzDrive Details on a widget; AzMeet chat on rejoin; azdrive / azmeet E2E onto azlin_e2e.py.
 - 7. LOOK at all five apps.
 
 ## Decisions
