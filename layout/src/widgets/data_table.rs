@@ -2974,13 +2974,13 @@ pub(crate) fn table_key(
     let page = geo.page_rows.max(1);
 
     // A move of the cursor to `position` (and `col`), selecting as the
-    // modifiers say, scrolled into view.
-    let move_to = |position: u32, col: u32| -> Option<DataTableEvent> {
+    // modifiers say (`keep`: the cursor alone), scrolled into view.
+    let move_with = |position: u32, col: u32, keep: bool| -> Option<DataTableEvent> {
         if shown == 0 {
             return None;
         }
         let position = position.min(last);
-        let mut next = key_select(t, view, position, shift, ctrl && !shift);
+        let mut next = key_select(t, view, position, shift, keep);
         next.active_column = col;
         reveal_row(&mut next, geo, position);
         reveal_column(t, &mut next, geo, col);
@@ -2995,8 +2995,11 @@ pub(crate) fn table_key(
             None if delta < 0 => i64::from(last),
             None => 0,
         };
-        move_to(u32::try_from(target).unwrap_or(0), column)
+        // Ctrl / Cmd + an arrow moves the cursor alone (the selection stays).
+        move_with(u32::try_from(target).unwrap_or(0), column, ctrl && !shift)
     };
+    // A move along the row keeps the row selection as it is.
+    let column_move = |col: u32| move_with(here.unwrap_or(0), col, true);
     let cursor_cell = || -> Option<DataTableCellRef> {
         let row = view.cursor_row().into_option()?;
         Some(DataTableCellRef::create(row, column))
@@ -3007,12 +3010,12 @@ pub(crate) fn table_key(
         K::Down => row_move(1),
         K::PageUp => row_move(-i64::from(page)),
         K::PageDown => row_move(i64::from(page)),
-        K::Home if ctrl => move_to(0, column),
-        K::End if ctrl => move_to(last, column),
-        K::Home => move_to(here.unwrap_or(0), 0),
-        K::End => move_to(here.unwrap_or(0), ncols.saturating_sub(1)),
-        K::Left => move_to(here.unwrap_or(0), column.saturating_sub(1)),
-        K::Right => move_to(here.unwrap_or(0), (column + 1).min(ncols.saturating_sub(1))),
+        K::Home if ctrl => move_with(0, column, false),
+        K::End if ctrl => move_with(last, column, false),
+        K::Home => column_move(0),
+        K::End => column_move(ncols.saturating_sub(1)),
+        K::Left => column_move(column.saturating_sub(1)),
+        K::Right => column_move((column + 1).min(ncols.saturating_sub(1))),
         K::A if ctrl => {
             let mut next = view.clone();
             match order_keys(view) {

@@ -358,3 +358,427 @@ fn half_a_million_rows_sort_and_filter_in_well_under_the_bound() {
     assert!(values.windows(2).all(|w| w[0] >= w[1]), "descending");
     assert!(took.as_secs() < 20, "500k rows took {took:?}");
 }
+
+// ---- the window of rows, the looks, the accessibility tree ----
+
+fn geo_of(t: &DataTable) -> Geometry {
+    geometry(t)
+}
+
+fn indices(bands: &[crate::widgets::cell_grid::Band]) -> Vec<u32> {
+    bands.iter().map(|b| b.index).collect()
+}
+
+/// The fixture: 400 x 300 px, a 30 px header, a 26 px filter row, 26 px
+/// rows, five columns 490 px wide - both scroll bars.
+#[test]
+fn only_the_rows_and_columns_in_view_are_built() {
+    let t = small();
+    let geo = geo_of(&t);
+    assert_eq!(geo.body_top, 56.0);
+    assert_eq!(geo.body_width, 388.0, "the vertical bar takes 12 px");
+    assert_eq!(geo.body_bottom, 288.0, "the horizontal bar takes 12 px");
+    assert_eq!(indices(&geo.rows), (0..9).collect::<Vec<_>>(), "8 whole rows and one cut");
+    assert_eq!(geo.page_rows, 8);
+    assert_eq!(indices(&geo.columns), vec![0, 1, 2, 3], "City is cut at the edge");
+    assert_eq!(geo.max_top, 1000 - 8);
+    assert_eq!(geo.max_left, 1, "from Amount on, the rest fits");
+    assert!(geo.vbar.is_some() && geo.hbar.is_some());
+
+    let styled = StyledDom::create_from_dom(small().with_theme(UiTheme::Flat).dom());
+    assert_eq!(nodes_with(&styled, CELL_CLASS_NAME).len(), 9 * 4, "only the window is in the DOM");
+    assert_eq!(nodes_with(&styled, HEADER_CLASS_NAME).len(), 4);
+    assert_eq!(nodes_with(&styled, FILTER_CLASS_NAME).len(), 4);
+
+    // Half a million rows build the same window.
+    let big = small().with_row_count(500_000);
+    let styled = StyledDom::create_from_dom(big.with_theme(UiTheme::Flat).dom());
+    assert_eq!(nodes_with(&styled, CELL_CLASS_NAME).len(), 9 * 4);
+}
+
+#[test]
+fn a_scrolled_table_shows_its_rows_from_top_and_never_past_the_last_page() {
+    let mut v = DataTableView::create();
+    v.top = 500;
+    let dom = small().with_view(v.clone()).with_theme(UiTheme::Flat).dom();
+    // Child 0 the header row, 1 the filter row, 2 the first row in view.
+    let first = &dom.children.as_ref()[2];
+    let info = first.root.get_accessibility_info().expect("a row role");
+    assert_eq!(info.role, AccessibilityRole::Row);
+    assert_eq!(info.row_index.into_option(), Some(501), "its place in the WHOLE table");
+
+    v.top = 999_999;
+    let geo = geo_of(&small().with_view(v));
+    assert_eq!(geo.top, 992, "the last page, not past it");
+    assert_eq!(geo.rows.first().map(|b| b.index), Some(992));
+}
+
+#[test]
+fn the_table_is_one_focus_stop_with_the_grid_role_and_its_cells_carry_their_place() {
+    let dom = small().with_theme(UiTheme::Flat).dom();
+    let info = dom.root.get_accessibility_info().expect("a role");
+    assert_eq!(info.role, AccessibilityRole::Grid);
+    assert_eq!(info.accessibility_name.as_ref().map(|n| n.as_str()), Some("Orders"));
+    assert_eq!(dom.root.get_tab_index(), Some(azul_core::dom::TabIndex::Auto));
+    let header = &dom.children.as_ref()[0].children.as_ref()[1];
+    let h = header.root.get_accessibility_info().expect("a header role");
+    assert_eq!(h.role, AccessibilityRole::ColumnHeader);
+    assert_eq!(h.accessibility_name.as_ref().map(|n| n.as_str()), Some("Amount"));
+    let filter = &dom.children.as_ref()[1].children.as_ref()[3];
+    let f = filter.root.get_accessibility_info().expect("a filter role");
+    assert_eq!(f.accessibility_name.as_ref().map(|n| n.as_str()), Some("Filter City"));
+    // Row 4 (child 2 + 4): its Amount cell, named by the column, its text
+    // as its value.
+    let cell = &dom.children.as_ref()[6].children.as_ref()[1];
+    let c = cell.root.get_accessibility_info().expect("a cell role");
+    assert_eq!(c.role, AccessibilityRole::GridCell);
+    assert_eq!(c.accessibility_name.as_ref().map(|n| n.as_str()), Some("Amount"));
+    assert_eq!(
+        c.accessibility_value.as_ref().map(|v| v.as_str().to_string()),
+        Some(format!("{:.2}", fixtures::amount(4)))
+    );
+    assert_eq!(c.row_index.into_option(), Some(5));
+    assert_eq!(c.column_index.into_option(), Some(2));
+}
+
+#[test]
+fn a_header_click_sorts_a_small_table_at_once_and_the_header_says_so() {
+    let t = small();
+    let geo = geo_of(&t);
+    let e = press(&t, &geo, Hit::Header(1), false, false, (0.0, 0.0)).expect("a sortable header");
+    assert_eq!(e.kind, DataTableEventKind::Sort);
+    assert_eq!(e.index, 1);
+    assert!(e.view.is_sorting(), "the press asks; the handler brings the order");
+    let plan = plan_of(&e.view, t.columns.as_slice());
+    let view = order_now(&t, e.view, &plan);
+    assert!(!view.is_sorting() && view.ordered);
+    assert_eq!(view.shown_count(1000), 1000);
+    let first = view.row_at(0, 1000).into_option().expect("a row");
+    assert_eq!(fixtures::amount(first), 0.0, "the smallest amount first");
+
+    let dom = small().with_view(view).with_theme(UiTheme::Flat).dom();
+    let header = &dom.children.as_ref()[0].children.as_ref()[1];
+    let h = header.root.get_accessibility_info().expect("a header role");
+    assert_eq!(h.states.as_ref(), &[AccessibilityState::SortedAscending], "aria-sort");
+    let mut seen = Vec::new();
+    texts(header, &mut seen);
+    assert_eq!(seen, vec!["Amount \u{25B2}".to_string()]);
+    let other = &dom.children.as_ref()[0].children.as_ref()[0];
+    assert!(other.root.get_accessibility_info().expect("a role").states.as_ref().is_empty());
+}
+
+#[test]
+fn a_big_table_sorts_off_the_ui_thread_and_says_so_meanwhile() {
+    let log: Log = Arc::new(Mutex::new(Vec::new()));
+    // A filter being typed on 100,000 rows: Backspace changes it.
+    let mut v = DataTableView::create();
+    v.set_filter(3, DataTableSortKind::Text, AzString::from("par"));
+    let v = start_filter_edit(&v, 3).view;
+    let big = logged(&log).with_row_count(100_000).with_view(v);
+    let styled = StyledDom::create_from_dom(big.with_theme(UiTheme::Flat).dom());
+    let table = nodes_with(&styled, TABLE_CLASS_NAME)[0];
+    let (_, changes) = rv::press(&styled, id(table), K::Back, &[]).expect("the table hears keys");
+    let events = events(&log);
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].kind, DataTableEventKind::Filter);
+    assert_eq!(events[0].view.filter_text(3).as_str(), "pa");
+    assert!(events[0].view.is_sorting(), "100,000 rows: the order comes later");
+    assert!(
+        changes.iter().any(|c| matches!(c, crate::callbacks::CallbackChange::AddTimer { .. })),
+        "the job's timer reads the keys in slices"
+    );
+    let dom = small()
+        .with_row_count(100_000)
+        .with_view(events[0].view.clone())
+        .with_theme(UiTheme::Flat)
+        .dom();
+    let mut seen = Vec::new();
+    texts(&dom, &mut seen);
+    assert!(seen.iter().any(|t| t == "Sorting 100,000 rows..."), "{seen:?}");
+    let info = dom.root.get_accessibility_info().expect("a role");
+    assert!(info.states.as_ref().contains(&AccessibilityState::Busy));
+}
+
+#[test]
+fn a_typed_filter_on_a_small_table_shows_its_rows_at_once() {
+    let log: Log = Arc::new(Mutex::new(Vec::new()));
+    let mut v = DataTableView::create();
+    v.set_filter(3, DataTableSortKind::Text, AzString::from("par"));
+    let v = start_filter_edit(&v, 3).view;
+    let styled = StyledDom::create_from_dom(logged(&log).with_view(v).with_theme(UiTheme::Flat).dom());
+    let table = nodes_with(&styled, TABLE_CLASS_NAME)[0];
+    let (update, changes) = rv::press(&styled, id(table), K::Back, &[]).expect("the table hears keys");
+    assert_eq!(update, Update::RefreshDom);
+    assert!(rv::prevented(&changes));
+    let events = events(&log);
+    let view = &events[0].view;
+    assert!(!view.is_sorting(), "1,000 rows are filtered in the handler");
+    assert_eq!(view.shown_count(1000), 333, "Paris: every third row");
+    assert!((0..333).all(|p| view.row_at(p, 1000).into_option().is_some_and(|r| r % 3 == 1)));
+    assert_eq!(view.edit, DataTableEditTarget::Filter, "the filter is still being typed");
+}
+
+#[test]
+fn keys_on_the_table_node_reach_the_app_with_the_next_view() {
+    let log: Log = Arc::new(Mutex::new(Vec::new()));
+    let styled = StyledDom::create_from_dom(logged(&log).with_theme(UiTheme::Flat).dom());
+    let table = nodes_with(&styled, TABLE_CLASS_NAME)[0];
+    let (update, changes) = rv::press(&styled, id(table), K::Down, &[]).expect("the table hears keys");
+    assert_eq!(update, Update::RefreshDom, "the app's answer is forwarded");
+    assert!(rv::prevented(&changes), "the arrow is the table's");
+    let events = events(&log);
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].kind, DataTableEventKind::Select);
+    assert_eq!(events[0].view.cursor_row().into_option(), Some(0), "the first row");
+    let (_, changes) = rv::press(&styled, id(table), K::Q, &[]).expect("the handler runs");
+    assert!(!rv::prevented(&changes), "a letter is typed text, not a key the table takes");
+}
+
+#[test]
+fn the_arrows_pages_and_home_end_move_the_cursor_and_shift_extends_the_selection() {
+    let mut t = small();
+    let key = |t: &DataTable, k: K, shift: bool, ctrl: bool| {
+        let geo = geo_of(t);
+        table_key(t, &geo, k, shift, ctrl).expect("a key the table takes").view
+    };
+    t.view = key(&t, K::Down, false, false);
+    t.view = key(&t, K::Down, false, false);
+    assert_eq!(t.view.cursor_row().into_option(), Some(1));
+    t.view = key(&t, K::Down, true, false);
+    t.view = key(&t, K::Down, true, false);
+    assert_eq!(t.view.selection.keys.as_slice(), &[1, 2, 3], "Shift extends from the anchor");
+    t.view = key(&t, K::Down, false, true);
+    assert_eq!(t.view.cursor_row().into_option(), Some(4), "Ctrl moves the cursor alone");
+    assert_eq!(t.view.selection.keys.as_slice(), &[1, 2, 3]);
+    t.view = key(&t, K::PageDown, false, false);
+    assert_eq!(t.view.cursor_row().into_option(), Some(12), "a page is 8 rows");
+    t.view = key(&t, K::End, false, true);
+    assert_eq!(t.view.cursor_row().into_option(), Some(999), "Ctrl+End: the last row");
+    assert_eq!(t.view.top, 992, "scrolled to show it");
+    t.view = key(&t, K::Home, false, true);
+    assert_eq!(t.view.cursor_row().into_option(), Some(0));
+    assert_eq!(t.view.top, 0);
+    t.view = key(&t, K::End, false, false);
+    assert_eq!(t.view.active_column, 4, "End: the last column");
+    assert_eq!(t.view.left_column, 1, "scrolled right to show it");
+    t.view = key(&t, K::Left, false, false);
+    assert_eq!(t.view.active_column, 3);
+    t.view = key(&t, K::A, false, true);
+    assert_eq!(t.view.selection.len(), 1000, "Ctrl+A: every row shown");
+}
+
+#[test]
+fn the_keys_walk_the_rows_in_the_order_they_show() {
+    let mut t = small();
+    let mut v = DataTableView::create();
+    v.click_sort(1, false);
+    v.click_sort(1, false); // Amount descending
+    let plan = plan_of(&v, t.columns.as_slice());
+    t.view = order_now(&t, v, &plan);
+    let geo = geo_of(&t);
+    let top = t.view.row_at(0, 1000).into_option().expect("a row");
+    let second = t.view.row_at(1, 1000).into_option().expect("a row");
+    t.view = table_key(&t, &geo, K::Down, false, false).expect("down").view;
+    assert_eq!(t.view.cursor_row().into_option(), Some(top), "Down starts at the first row SHOWN");
+    t.view = table_key(&t, &geo, K::Down, true, false).expect("shift down").view;
+    let mut want = vec![u64::from(top), u64::from(second)];
+    want.sort_unstable();
+    assert_eq!(t.view.selection.keys.as_slice(), &want[..], "Shift takes the rows between, as shown");
+}
+
+#[test]
+fn a_click_selects_a_row_shift_extends_and_ctrl_toggles() {
+    let t = small();
+    let v = click_select(&t, &t.view, 2, false, false);
+    assert_eq!(v.selection.keys.as_slice(), &[2]);
+    let v = click_select(&t, &v, 5, true, false);
+    assert_eq!(v.selection.keys.as_slice(), &[2, 3, 4, 5]);
+    let v = click_select(&t, &v, 3, false, true);
+    assert_eq!(v.selection.keys.as_slice(), &[2, 4, 5]);
+}
+
+#[test]
+fn f2_edits_the_cursor_cell_and_enter_keeps_the_edit_through_on_edit() {
+    // F2 on an editable cell opens it with its text.
+    let mut t = small();
+    let geo = geo_of(&t);
+    t.view = table_key(&t, &geo, K::Down, false, false).expect("down").view;
+    t.view.active_column = 1;
+    let e = table_key(&t, &geo, K::F2, false, false).expect("F2 edits");
+    assert_eq!(e.kind, DataTableEventKind::EditStart);
+    assert_eq!(e.view.edit, DataTableEditTarget::Cell);
+    assert_eq!(e.view.edit_text.as_str(), format!("{:.2}", fixtures::amount(0)));
+    assert_eq!(e.cell, DataTableCellRef::create(0, 1));
+    // F2 on a read-only column does nothing; Enter opens the row.
+    t.view.active_column = 0;
+    assert!(table_key(&t, &geo, K::F2, false, false).is_none());
+    let e = table_key(&t, &geo, K::Return, false, false).expect("Enter activates");
+    assert_eq!(e.kind, DataTableEventKind::Activate);
+    assert_eq!(e.cell, DataTableCellRef::create(0, 0));
+}
+
+extern "C" fn refuse_negative(_: RefAny, _: CallbackInfo, edit: DataTableEdit) -> DataTableEditResult {
+    if edit.text.as_str().starts_with('-') {
+        DataTableEditResult::create_refused(AzString::from("An amount is never negative."))
+    } else {
+        DataTableEditResult::create_accepted()
+    }
+}
+
+#[test]
+fn the_app_validates_an_edit_and_a_refused_one_stays_open() {
+    let editing = |text: &str| {
+        let e = start_cell_edit(&DataTableView::create(), 3, 1, text);
+        e.view
+    };
+    for (text, kept) in [("-5", false), ("12.50", true)] {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let t = logged(&log)
+            .with_on_edit(RefAny::new(()), refuse_negative as DataTableOnEditCallbackType)
+            .with_view(editing(text));
+        let styled = StyledDom::create_from_dom(t.with_theme(UiTheme::Flat).dom());
+        let table = nodes_with(&styled, TABLE_CLASS_NAME)[0];
+        rv::press(&styled, id(table), K::Return, &[]).expect("the table hears keys");
+        let events = events(&log);
+        assert_eq!(events.len(), 1);
+        if kept {
+            assert_eq!(events[0].kind, DataTableEventKind::EditCommit);
+            assert_eq!(events[0].text.as_str(), "12.50");
+            assert_eq!(events[0].cell, DataTableCellRef::create(3, 1));
+            assert!(!events[0].view.is_editing());
+        } else {
+            assert_eq!(events[0].kind, DataTableEventKind::EditRefused);
+            assert_eq!(events[0].text.as_str(), "An amount is never negative.");
+            assert!(events[0].view.is_editing(), "the edit stays open to be fixed");
+        }
+    }
+}
+
+#[test]
+fn escape_cancels_an_edit_and_the_caret_keys_edit_the_line() {
+    let t = small().with_view(start_cell_edit(&DataTableView::create(), 3, 1, "12.5").view);
+    let e = cell_edit_key(&t, K::Back, false).expect("a caret key").expect("an edit");
+    assert_eq!(e.view.edit_text.as_str(), "12.");
+    let e = cell_edit_key(&t, K::Home, false).expect("a caret key").expect("an edit");
+    assert_eq!(e.view.edit_cursor, 0);
+    let e = cell_edit_key(&t, K::Escape, false).expect("Escape").expect("a cancel");
+    assert_eq!(e.kind, DataTableEventKind::EditCancel);
+    assert!(!e.view.is_editing());
+    assert_eq!(cell_edit_key(&t, K::Tab, true), Some(Err(-1)), "Shift+Tab keeps it and moves left");
+    assert_eq!(line_edit("abc", 1, K::Delete), Some((String::from("ac"), 1)));
+    assert_eq!(line_edit("abc", 3, K::Right), Some((String::from("abc"), 3)));
+    assert_eq!(line_edit("abc", 0, K::Back), Some((String::from("abc"), 0)));
+    assert_eq!(line_edit("abc", 1, K::Q), None);
+}
+
+#[test]
+fn an_edit_shows_its_text_and_caret_over_the_cell() {
+    let t = small().with_view(start_cell_edit(&DataTableView::create(), 2, 1, "7.25").view);
+    let styled = StyledDom::create_from_dom(t.with_theme(UiTheme::Flat).dom());
+    assert_eq!(nodes_with(&styled, EDITOR_CLASS_NAME).len(), 1);
+    assert_eq!(nodes_with(&styled, CARET_CLASS_NAME).len(), 1);
+    assert_eq!(nodes_with(&styled, CURSOR_CLASS_NAME).len(), 0, "the editor stands for the cursor");
+}
+
+#[test]
+fn a_point_hits_a_header_its_edge_a_filter_a_cell_or_a_scroll_bar() {
+    let geo = geo_of(&small());
+    assert_eq!(hit_test(&geo, 50.0, 10.0), Hit::Header(0));
+    assert_eq!(hit_test(&geo, 118.5, 10.0), Hit::HeaderEdge(0));
+    assert_eq!(hit_test(&geo, 121.0, 10.0), Hit::HeaderEdge(0), "the grip reaches into the next column");
+    assert_eq!(hit_test(&geo, 150.0, 40.0), Hit::Filter(1));
+    assert_eq!(hit_test(&geo, 150.0, 56.0 + 26.0 * 2.0 + 3.0), Hit::Cell(2, 1));
+    assert_eq!(hit_test(&geo, 393.0, 60.0), Hit::RowsThumb, "the thumb sits at the top");
+    assert_eq!(hit_test(&geo, 393.0, 280.0), Hit::RowsTrack(true));
+    assert_eq!(hit_test(&geo, 395.0, 295.0), Hit::Nothing, "the corner between the bars");
+}
+
+#[test]
+fn the_wheel_and_the_track_scroll_whole_rows_and_a_thumb_drag_reaches_the_end() {
+    let t = small();
+    let geo = geo_of(&t);
+    let v = scroll_by(&t, &geo, 3, 0);
+    assert_eq!(v.top, 3);
+    let v = scroll_by(&t, &geo, -10, 5);
+    assert_eq!((v.top, v.left_column), (0, 1), "kept in range");
+    let e = press(&t, &geo, Hit::RowsTrack(true), false, false, (0.0, 0.0)).expect("a page");
+    assert_eq!(e.view.top, 8);
+
+    let grab = press(&t, &geo, Hit::RowsThumb, false, false, (393.0, 60.0)).expect("a drag");
+    assert_eq!(grab.view.drag.kind, DataTableDragKind::ScrollRows);
+    let dragging = small().with_view(grab.view);
+    let e = drag_move(&dragging, &geo, None, (393.0, 400.0)).expect("a scroll");
+    assert_eq!(e.view.top, geo.max_top, "dragged past the end: the last page");
+    let end = drag_end(&small().with_view(e.view)).expect("a release");
+    assert_eq!(end.view.drag.kind, DataTableDragKind::None);
+}
+
+#[test]
+fn a_resize_drag_previews_the_width_and_the_release_keeps_it_in_the_view() {
+    let t = small();
+    let geo = geo_of(&t);
+    let grab = press(&t, &geo, Hit::HeaderEdge(0), false, false, (120.0, 10.0)).expect("a grip");
+    let t = small().with_view(grab.view);
+    let e = drag_move(&t, &geo, None, (170.0, 10.0)).expect("a wider column");
+    assert_eq!(e.view.drag.size, 170.0);
+    let preview = small().with_view(e.view.clone());
+    assert_eq!(geo_of(&preview).columns[0].size, 170.0, "drawn at the dragged width");
+    let end = drag_end(&preview).expect("a release");
+    assert_eq!(end.kind, DataTableEventKind::ResizeColumn);
+    assert_eq!((end.index, end.size), (0, 170.0));
+    assert_eq!(geo_of(&small().with_view(end.view)).columns[0].size, 170.0, "kept");
+    let narrow = drag_move(&t, &geo, None, (0.0, 10.0)).expect("narrower");
+    assert_eq!(narrow.view.drag.size, MIN_COLUMN_PX);
+}
+
+#[test]
+fn a_double_click_edits_an_editable_cell_and_opens_any_other_row() {
+    let t = small();
+    let e = double_click(&t, Hit::Cell(4, 2)).expect("an edit");
+    assert_eq!(e.kind, DataTableEventKind::EditStart);
+    assert_eq!((e.view.edit_row, e.view.edit_column), (4, 2));
+    let e = double_click(&t, Hit::Cell(4, 0)).expect("an activation");
+    assert_eq!(e.kind, DataTableEventKind::Activate);
+    assert!(double_click(&small().with_read_only(true), Hit::Cell(4, 2))
+        .is_some_and(|e| e.kind == DataTableEventKind::Activate), "a read-only table never edits");
+}
+
+#[test]
+fn copy_puts_the_titles_and_the_selected_rows_in_their_shown_order() {
+    let mut t = small();
+    t.view = click_select(&t, &t.view, 2, false, false);
+    t.view = click_select(&t, &t.view, 3, true, false);
+    let rows = copied_rows(&t);
+    assert_eq!(rows.len(), 3, "the titles and two rows");
+    assert_eq!(rows[0], vec!["Name", "Amount", "Date", "City", "Code"]);
+    assert_eq!(rows[1][4], "C0002");
+    assert_eq!(rows[2][4], "C0003");
+    assert!(copied_rows(&small()).is_empty(), "nothing selected, no cursor: nothing");
+}
+
+#[test]
+fn a_filter_that_leaves_nothing_says_so() {
+    let mut v = DataTableView::create();
+    v.set_filter(3, DataTableSortKind::Text, AzString::from("=nowhere"));
+    let plan = plan_of(&v, small().columns.as_slice());
+    let v = order_now(&small(), v, &plan);
+    assert_eq!(v.shown_count(1000), 0);
+    let dom = small().with_view(v).with_theme(UiTheme::Flat).dom();
+    let mut seen = Vec::new();
+    texts(&dom, &mut seen);
+    assert!(seen.iter().any(|t| t == "No rows match the filters"), "{seen:?}");
+    assert!(geo_of(&small()).vbar.is_some());
+}
+
+#[test]
+fn a_table_without_a_theme_follows_the_app_theme_and_declares_its_structure_once() {
+    checks::assert_follows_the_app_theme(
+        "data_table",
+        || small().dom(),
+        |t: UiTheme| small().with_theme(t).dom(),
+    );
+    for theme in checks::BOTH {
+        let dom = checks::under(theme, || small().dom());
+        theme_checks::assert_structure_is_shared(&format!("data_table built for {}", theme.name()), &dom, &[]);
+    }
+}
