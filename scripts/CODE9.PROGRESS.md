@@ -27,9 +27,15 @@ Branch: wt/code9 (base e537ddbe2). Brief: scripts/waves/wave9/PLAN.md "CODE9", p
   toggle(folder, open) -> needs listing, set_listing(folder, folders, files), drive_key / relative_key },
   file_name, tab_label, Tabs<D: TabDoc> { open, close, find, active })
 
+- f23ee25a6 sample.rs (MAIN_RS, LIB_RS, CARGO_TOML, README_MD, huge_rs(n), prefix() = "code/sample/",
+  jobs() -> Vec<appkit FileJob::Put>); fa300f227 storage.rs (DriveJob List/Read/Write, run_jobs, drive_of,
+  spawn_drive_jobs(info, &Root, jobs, reply_to, on_done) / take_drive_reply; spawn_highlight(info, doc, job,
+  reply_to, on_done) / take_highlight_reply) - items 3 and 4 DONE
+
 ## IN PROGRESS
-- NEXT STEP: item 3, src/sample.rs (sample files + `huge_rs(lines)` generator; a test that huge.rs has
-  100,000 lines), then 4 storage.rs, 5 ids.rs + app.rs/ui.rs + lib.rs start(), 6 E2E + report.
+- NEXT STEP: item 5 - src/ids.rs (`__azcode_` const AzStrings), src/app.rs (AppState, DocText RefAny
+  payload for the CodeView data source, Doc, commands), src/ui.rs (the DeveloperShell window), lib.rs
+  start() / layout / callbacks; then 6 (scripts/azcode_e2e.py) and the report.
   1. (DONE) src/search.rs: `find_all(&TextBuffer, needle, TextMatch) -> Vec<(line, start, end)>` (azul_appkit::find::
      matches per line), `next_after(matches, Pos) -> Option<..>` (wraps), `replace_all_edits(...) -> Vec<Edit>`
      (last-first) + `go_to_line(input "120" / "120:5", line_count) -> Option<Pos>`; tests.
