@@ -146,6 +146,25 @@ fn order_id(source: &Option<RefAny>, row: u32) -> String {
         .unwrap_or_default()
 }
 
+/// The first rows shown, by the column the view is sorted (else filtered)
+/// by: `Customer: Anna Abe | Anna Abe | Anna Berger` (for the scripts).
+fn first_keys(source: &Option<RefAny>, rows: u32, view: &DataTableView) -> Option<String> {
+    let column = view
+        .sort
+        .as_slice()
+        .first()
+        .map(|k| k.column)
+        .or_else(|| view.filters.as_slice().first().map(|f| f.column))?;
+    let title = data::COLUMNS.get(column as usize)?.title;
+    let mut source = source.clone()?;
+    let set = source.downcast_ref::<DataSet>()?;
+    let texts: Vec<String> = (0..5)
+        .filter_map(|p| view.row_at(p, rows).into_option())
+        .map(|r| set.text(r, column as usize))
+        .collect();
+    Some(format!("{title}: {}", texts.join(" | ")))
+}
+
 /// Every action in the table: the view is stored; the scripts hear what
 /// happened.
 extern "C" fn on_table_event(mut app: RefAny, _info: CallbackInfo, event: DataTableEvent) -> Update {
@@ -158,6 +177,9 @@ extern "C" fn on_table_event(mut app: RefAny, _info: CallbackInfo, event: DataTa
         DataTableEventKind::Sort | DataTableEventKind::Filter | DataTableEventKind::OrderReady => {
             println!("AZDASH_SORT {}", sort_text(view));
             if !view.is_sorting() {
+                if let Some(keys) = first_keys(&s.source, rows, view) {
+                    println!("AZDASH_KEYS {keys}");
+                }
                 println!("AZDASH_SHOWN {} {}", view.shown_count(rows), rows);
             }
         }
