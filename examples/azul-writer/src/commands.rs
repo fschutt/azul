@@ -125,6 +125,13 @@ pub fn import_bytes(name: &str, bytes: &[u8]) -> Result<azul::widgets::RichTextD
     }
 }
 
+/// What the read of a file to import answered (`name`: the file's name,
+/// Word by its `.docx`): the document, or the sentence the user reads.
+pub fn imported(name: &str, result: Result<Option<Vec<u8>>, String>) -> Result<azul::widgets::RichTextDoc, String> {
+    let _ = (name, result);
+    Err(String::new())
+}
+
 /// The import dialog answered: the file becomes a new document of the data
 /// tree (saved at once).
 extern "C" fn on_import_picked(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
@@ -298,6 +305,25 @@ fn close_document(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) -> U
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_answer_of_an_import_read_is_a_document_or_a_sentence() {
+        let doc = imported("notes.md", Ok(Some(b"# Hello\n\nworld\n".to_vec()))).expect("markdown");
+        assert_eq!(crate::model::title_of(&doc), "Hello");
+        let docx = include_bytes!("../testdata/sample.docx").to_vec();
+        let doc = imported("Report.docx", Ok(Some(docx))).expect("word");
+        assert_eq!(crate::model::title_of(&doc), "A Real Heading");
+        assert_eq!(
+            imported("gone.md", Ok(None)).err().as_deref(),
+            Some("gone.md is gone.")
+        );
+        assert_eq!(
+            imported("locked.md", Err("permission denied".to_string())).err().as_deref(),
+            Some("locked.md could not be read: permission denied")
+        );
+        let broken = imported("broken.docx", Ok(Some(b"not a zip".to_vec()))).expect_err("not Word");
+        assert!(broken.starts_with("broken.docx could not be imported: "), "{broken}");
+    }
 
     #[test]
     fn an_import_reads_word_by_name_and_markdown_otherwise() {
