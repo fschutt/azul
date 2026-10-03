@@ -1410,6 +1410,15 @@ pub enum FfiSafetyWarningKind {
         /// The type name that is referenced but not defined
         referenced_type: String,
     },
+    /// A function argument or return type is a raw `str` (`str`, `&str`,
+    /// `Optionstr`, `Option<&str>`): a borrow with no FFI form. The codegen
+    /// emits `Azstr` / `AzOptionstr`, which do not exist.
+    RawStrInSignature {
+        /// Where, e.g. "return type" or "argument 'text'"
+        location: String,
+        /// The type as api.json spells it
+        raw_type: String,
+    },
     /// Type alias uses generic_args (e.g. `Vec<ComponentArgument>`) which is not FFI-safe
     /// unless both the target type and all generic args are defined in api.json.
     /// If the target (e.g. `CssPropertyValue`) and all args are in api.json, this is
@@ -1509,6 +1518,8 @@ impl FfiSafetyWarningKind {
             FfiSafetyWarningKind::AngleBracketInType { .. } => true,
             // Critical - referenced type not defined in api.json
             FfiSafetyWarningKind::UndefinedTypeReference { .. } => true,
+            // Critical - `str` has no FFI form, the codegen emits `Azstr`
+            FfiSafetyWarningKind::RawStrInSignature { .. } => true,
             // Generic type aliases are only critical if the target or args are NOT in api.json.
             // e.g. Vec<ComponentArgument> is critical (Vec not in api.json),
             // but CssPropertyValue<StyleBackgroundContent> is fine (both in api.json).
@@ -2962,6 +2973,23 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
         }
+        FfiSafetyWarningKind::RawStrInSignature { location, raw_type } => {
+            println!("  {} {}", "✗".red(), warning.type_name.white());
+            println!(
+                "    {} {} is a borrowed str: {}",
+                "→".dimmed(),
+                location.cyan(),
+                raw_type.yellow()
+            );
+            println!(
+                "    {} A str has no FFI form. Return `String` (fn_body \
+                 `azul_css::AzString::from(..)`) or `OptionString` (fn_body \
+                 `..map(|s| azul_css::AzString::from(s)).into()`), take `String` (`text.as_str()`); \
+                 `autofix add` writes these.",
+                "FIX:".cyan()
+            );
+            println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+        }
         FfiSafetyWarningKind::GenericTypeAlias {
             target,
             generic_args,
@@ -3089,6 +3117,14 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
         }
     }
     println!();
+}
+
+/// Every type an api.json function signature names must cross the FFI.
+pub fn check_function_signatures(
+    _api_data: &ApiData,
+    _additional_type_names: &[String],
+) -> Vec<FfiSafetyWarning> {
+    Vec::new()
 }
 
 /// Check for invalid characters in documentation strings
@@ -5139,5 +5175,101 @@ mod addition_patch_module_tests {
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         let op = &v["operations"][0];
         assert!(op.get("module").map_or(true, |m| m.is_null()), "{json}");
+    }
+}
+
+#[cfg(test)]
+mod function_signature_tests {
+    use super::{check_function_signatures, FfiSafetyWarningKind};
+    use crate::api::ApiData;
+
+    /// An api.json with one `widgets.RichRun` class holding `functions`, and
+    /// the classes a signature may name (`String`, `OptionString`).
+    fn api_with(functions: serde_json::Value) -> ApiData {
+        serde_json::from_value(serde_json::json!({
+            "0.2.0": {"apiversion": 1, "git": "", "date": "", "api": {
+                "widgets": {"classes": {
+                    "RichRun": {
+                        "external": "azul_layout::widgets::rich_text::doc::RichRun",
+                        "functions": functions
+                    },
+                    "String": {"external": "azul_css::corety::AzString"},
+                    "OptionString": {"external": "azul_css::corety::OptionString"}
+                }}
+            }}
+        }))
+        .expect("test api parses")
+    }
+
+    fn returning(ty: &str) -> serde_json::Value {
+        serde_json::json!({"fn_args": [{"self": "ref"}], "returns": {"type": ty}, "fn_body": "object.f()"})
+    }
+
+    /// `RichRun.as_str -> str` and `link_str -> Optionstr` reached api.json
+    /// (wave 5) and nothing flagged them: the codegen emitted the types
+    /// `Azstr` / `AzOptionstr`, which do not exist, and the dylib did not
+    /// build. A borrowed `str` has no FFI form - it is a critical error,
+    /// however api.json spells it.
+    #[test]
+    fn a_raw_str_in_a_function_signature_is_a_critical_ffi_error() {
+        let api = api_with(serde_json::json!({
+            "as_str": returning("str"),
+            "link_str": returning("Optionstr"),
+            "cell": returning("&str"),
+            "label": returning("Option<&str>"),
+            "takes": {"fn_args": [{"self": "ref"}, {"text": "&str"}], "fn_body": "object.takes(text)"},
+            "text": returning("String"),
+            "link": returning("OptionString"),
+            "len": returning("usize"),
+            "raw": returning("*const c_void")
+        }));
+        let warnings = check_function_signatures(&api, &[]);
+        let mut flagged: Vec<&str> = warnings
+            .iter()
+            .filter(|w| matches!(w.kind, FfiSafetyWarningKind::RawStrInSignature { .. }))
+            .filter(|w| w.is_critical())
+            .map(|w| w.type_name.as_str())
+            .collect();
+        flagged.sort();
+        assert_eq!(
+            flagged,
+            vec![
+                "RichRun::as_str",
+                "RichRun::cell",
+                "RichRun::label",
+                "RichRun::link_str",
+                "RichRun::takes"
+            ],
+            "{warnings:?}"
+        );
+        assert_eq!(
+            warnings.len(),
+            5,
+            "String / OptionString / usize / *const c_void are fine: {warnings:?}"
+        );
+    }
+
+    /// Any type a signature names must be defined in api.json (or be a C
+    /// scalar, or be added by this round's patches): the codegen prefixes
+    /// whatever it finds with `Az`.
+    #[test]
+    fn a_function_naming_an_undefined_type_is_a_critical_ffi_error() {
+        let api = api_with(serde_json::json!({
+            "blocks": returning("RichBlockRef"),
+            "location": returning("c_int")
+        }));
+        let warnings = check_function_signatures(&api, &[]);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].is_critical());
+        assert!(matches!(
+            &warnings[0].kind,
+            FfiSafetyWarningKind::UndefinedTypeReference { referenced_type, .. }
+                if referenced_type == "RichBlockRef"
+        ));
+        let pending = vec!["RichBlockRef".to_string()];
+        assert!(
+            check_function_signatures(&api, &pending).is_empty(),
+            "a type this round's patches add is not undefined"
+        );
     }
 }

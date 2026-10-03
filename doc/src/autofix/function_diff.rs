@@ -1768,6 +1768,51 @@ mod tests {
         assert_eq!(rust, vec!["create"], "only the real create: {rust:?}");
     }
 
+    /// The api.json entry `autofix add` writes for method `name` of `source`.
+    fn added(source: &str, name: &str) -> FunctionData {
+        let ms = methods(source);
+        method_to_function_data(&ms[name], "azul_layout::widgets::t::T")
+    }
+
+    fn returns_of(f: &FunctionData) -> Option<&str> {
+        f.returns.as_ref().map(|r| r.r#type.as_str())
+    }
+
+    /// `autofix add RichRun.*` wrote `as_str -> str` (body `object.as_str()`)
+    /// and `link_str -> Optionstr`: types the codegen spells `Azstr` /
+    /// `AzOptionstr`, which do not exist (wave 5). A borrowed `str` crosses
+    /// the FFI as an owned `String`, `Option<&str>` as `OptionString`, and
+    /// so does an `Option` of a std `String` (`OptionString` converts from
+    /// `Option<AzString>` only).
+    #[test]
+    fn a_borrowed_str_return_is_exported_as_an_owned_string() {
+        let source = r#"
+            impl T {
+                pub fn as_str(&self) -> &str { todo!() }
+                pub fn link_str(&self) -> Option<&str> { todo!() }
+                pub fn label(&self) -> Option<String> { todo!() }
+                pub fn title(&self) -> String { todo!() }
+            }
+        "#;
+        let f = added(source, "as_str");
+        assert_eq!(returns_of(&f), Some("String"));
+        assert_eq!(f.fn_body.as_deref(), Some("azul_css::AzString::from(object.as_str())"));
+
+        for name in ["link_str", "label"] {
+            let f = added(source, name);
+            assert_eq!(returns_of(&f), Some("OptionString"), "{name}");
+            assert_eq!(
+                f.fn_body.as_deref(),
+                Some(format!("object.{name}().map(|s| azul_css::AzString::from(s)).into()").as_str()),
+                "{name}"
+            );
+        }
+
+        let f = added(source, "title");
+        assert_eq!(returns_of(&f), Some("String"));
+        assert_eq!(f.fn_body.as_deref(), Some("object.title().into()"));
+    }
+
     const SOURCE: &str = r#"
         impl T {
             pub fn add_component_library<R: Into<RegisterComponentLibraryFn>>(
