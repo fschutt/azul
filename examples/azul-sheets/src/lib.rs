@@ -454,6 +454,15 @@ pub fn to_area(sheet: u32, range: CellGridRange) -> CellArea {
     CellArea::spanning(sheet, a.row, a.column, b.row, b.column)
 }
 
+/// An engine area (1-based) as a grid range (0-based).
+#[must_use]
+pub fn to_range(area: CellArea) -> CellGridRange {
+    CellGridRange {
+        first: to_cell(CellAddr::new(area.sheet, area.row, area.column)),
+        last: to_cell(CellAddr::new(area.sheet, area.last_row(), area.last_column())),
+    }
+}
+
 /// An engine address as a grid cell.
 #[must_use]
 pub fn to_cell(at: CellAddr) -> CellGridCellRef {
@@ -1135,6 +1144,9 @@ fn grid(s: &AppState, app: &RefAny) -> Dom {
     .with_default_sizes(column_default, row_default)
     .with_column_widths(size_overrides(&snap.column_widths, column_default))
     .with_row_heights(size_overrides(&snap.row_heights, row_default))
+    .with_merges(CellGridRangeVec::from_vec(
+        snap.merges.iter().map(|m| to_range(*m)).collect(),
+    ))
     .with_frozen(
         u32::try_from(snap.frozen.0).unwrap_or(0),
         u32::try_from(snap.frozen.1).unwrap_or(0),
@@ -1158,6 +1170,8 @@ fn grid(s: &AppState, app: &RefAny) -> Dom {
 pub enum Action {
     /// The Format Cells dialog on its tab (0 Number .. 4 Fill).
     FormatCells(u8),
+    /// Merge & Center the selection, or unmerge the merge the cursor is in.
+    MergeCenter,
     Undo,
     Redo,
     Paste,
@@ -1302,6 +1316,13 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
         .cloned()
         .unwrap_or_default();
     let (fr, fc) = s.cache.snapshot.frozen;
+    let active = s.active();
+    let merged_here = s
+        .cache
+        .snapshot
+        .merges
+        .iter()
+        .any(|m| m.sheet == s.sheet && m.contains(active.row, active.column));
     // Excel 2010's HOME: the Font, Alignment, Number and Cells commands are
     // rows of icon-only buttons (named for assistive technology), so the
     // whole tab fits a 1280 px window (labelled, Cells and Editing fell off
@@ -1365,7 +1386,10 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
                         icon(app, "format_align_center", "Center", Action::AlignCenter, style.h_align == HAlign::Center),
                         icon(app, "format_align_right", "Right", Action::AlignRight, style.h_align == HAlign::Right),
                     ]),
-                    row(vec![icon(app, "wrap_text", "Wrap text", Action::Wrap, style.wrap)]),
+                    row(vec![
+                        icon(app, "wrap_text", "Wrap text", Action::Wrap, style.wrap),
+                        icon(app, "merge_type", "Merge & Center", Action::MergeCenter, merged_here),
+                    ]),
                 ])],
             ),
             format_group(
@@ -2358,6 +2382,20 @@ fn act(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, action: Action) 
     let color = |hex: &str| Some(String::from(hex));
     match action {
         Action::FormatCells(tab) => format_dialog::open(s, style.clone(), usize::from(tab)),
+        Action::MergeCenter => {
+            let merged = s
+                .cache
+                .snapshot
+                .merges
+                .iter()
+                .copied()
+                .find(|m| m.sheet == sheet && m.contains(at.row, at.column));
+            match merged {
+                Some(m) => run(info, app, s, Command::Unmerge { area: m }),
+                None if area.width * area.height > 1 => run(info, app, s, Command::MergeCenter { area }),
+                None => s.message = String::from("Select two or more cells to merge."),
+            }
+        }
         Action::Undo => run(info, app, s, Command::Undo),
         Action::Redo => run(info, app, s, Command::Redo),
         Action::Copy | Action::Cut => {
