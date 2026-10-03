@@ -41,3 +41,5 @@ pub mod model;
 pub mod depreciation;
 /// The data tree (`erp/<kind>/<uuid>.json`) and the records in memory.
 pub mod store;
+/// CSV export of the register and a schedule; CSV import with a mapping.
+pub mod csv_io;
