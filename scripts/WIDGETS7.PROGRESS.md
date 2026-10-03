@@ -23,12 +23,18 @@ Look run (one at a time, capped): run_capped.sh --cap-mb 1500 --seconds 90 --log
   For PAINT7: the headless screenshot drops the selected nav label "Calendars" in DARK mode (flat and
   flora) though the display list has it (#ffffff / #f4f2ea text at 24,225 over the item) - cpurender.
 
+- item 4: LOOK prebuilt AzCalendar week: navigator + To-Do bar calendars lose their last column.
+  d416c5d78 RED (layout/tests/an_inline_date_picker_fits_its_pane.rs + all.rs pair), fae2d1084 GREEN
+  (CONTAINER_STYLE box-sizing border-box + max-width 100%).
+- item 5: 525f635a3 RED (ToDoBar.week_start field + setters stub, test), 85fe5221f GREEN (passed on).
+  AzCalendar (PIMDRIVE7's) should call ToDoBar.with_week_start(Monday) - note in the report.
+- Seen for others: AzCalendar week view (light, --sample): three 1-hour event blocks show NO title
+  (Thu 16:00, Tue 18:00, Fri 14:00 - only colour), "Lunch with Ana"'s time line clipped (known, PAINT7).
+
 ## IN PROGRESS
-- item 4: DatePicker wider than its pane
+- item 6: flora-dark zoom slider; check box colour
 
 ## NEXT
-4. DatePicker wider than its pane (navigator / To-Do bar)
-5. ToDoBar with_week_start
 6. flora-dark zoom slider; check box colour transparent in the HTML dump
 7. DEDUP F2 ModuleSwitcher vs ShellNavigationPane; F20 MessageList -> SummaryList (only if mechanical)
 
