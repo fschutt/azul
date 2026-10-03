@@ -1101,33 +1101,10 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         "font-size: 13px; color: system:secondary-text; margin-top: 0px; margin-bottom: 20px;",
     );
 
-    // The bar this window draws under `WindowDecorations::NoTitle`, matched to
-    // the one AppKit draws: 28px, the height of a titlebar WITHOUT a toolbar,
-    // whose midline the traffic lights sit on (38 is the height with a compact
-    // toolbar, and put the title 5px below the lights). No fill of its own;
-    // the system separator, inside the 28px. The title is the system's bold
-    // title face, centred on the WINDOW: the padding is the same on both
-    // sides, the left one keeping it clear of the traffic lights (x 8 to 60),
-    // and the label is taken out of the row so it cannot push the title over.
-    let titlebar = Dom::create_div()
-        .with_css(
-            "height: 28px; box-sizing: border-box; flex-grow: 0; flex-shrink: 0; \
-             display: flex; flex-direction: row; align-items: center; \
-             position: relative; padding-left: 78px; padding-right: 78px; \
-             border-bottom: 0.5px solid system:separator; cursor: grab; \
-             user-select: none; -azul-app-region: drag;",
-        )
-        .with_child(
-            Dom::create_span_with_text("Azul Widget Showcase").with_css(
-                "font-family: system:title:bold; font-size: 13px; color: system:text; \
-                 flex-grow: 1; flex-basis: 0px; min-width: 0px; text-align: center; \
-                 white-space: nowrap; overflow: hidden;",
-            ),
-        )
-        .with_child(Dom::create_span_with_text("custom titlebar").with_css(
-            "position: absolute; top: 0px; right: 12px; line-height: 28px; \
-             font-size: 11px; color: system:tertiary-text; -azul-app-region: no-drag;",
-        ));
+    // The window is `NoTitle`: azul's own Titlebar draws the title row
+    // (drag region, double-click, the traffic lights' room), as in every
+    // azul app - the showcase shows the widget, not a hand-made copy of it.
+    let titlebar = Titlebar::create("Azul Widget Showcase").dom();
 
     Dom::create_body()
         .with_menu_bar(menu_bar(&data))
