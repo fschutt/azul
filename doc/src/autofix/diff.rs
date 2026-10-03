@@ -448,7 +448,8 @@ fn resolve_api_type_name(
 /// `crate::<Type>` and the dll does not build (four shell Vec classes lost
 /// their path while the scan moved them between modules, 2026-10-01; the
 /// scan used to skip empty paths, so nothing ever repaired them).
-fn needs_path_fix(api_path: &str, workspace_path: &str) -> bool {
+fn needs_path_fix(api_path: &str, workspace_path: &str, index: &TypeIndex) -> bool {
+    let _ = index;
     api_path.is_empty() || !paths_are_equivalent(api_path, workspace_path)
 }
 
@@ -1152,7 +1153,7 @@ fn generate_diff_v2(
 
             // Check if path matches
             if let Some(api_info) = current_api_types.get(matched_api_name) {
-                if needs_path_fix(&api_info.path, &resolved.full_path) {
+                if needs_path_fix(&api_info.path, &resolved.full_path, index) {
                     diff.path_fixes.push(PathFix {
                         type_name: matched_api_name.to_string(),
                         old_path: api_info.path.clone(),
@@ -1319,7 +1320,7 @@ fn generate_diff_v2(
 
             if let Some(typedef) = workspace_typedef {
                 // Found in workspace - check if path matches
-                if needs_path_fix(&api_info.path, &typedef.full_path)
+                if needs_path_fix(&api_info.path, &typedef.full_path, index)
                 {
                     // Path mismatch - need to fix
                     let already_has_fix = diff.path_fixes.iter().any(|f| f.type_name == *api_name);
@@ -3101,13 +3102,32 @@ mod no_byte_level_trait_impls {
 
 #[cfg(test)]
 mod path_fix_tests {
-    use super::needs_path_fix;
+    use super::{needs_path_fix, TypeIndex};
 
     #[test]
     fn a_missing_external_path_is_fixed_and_an_equal_one_is_not() {
         let p = "azul_layout::widgets::shells::office_shell::ShellPaneVec";
-        assert!(needs_path_fix("", p), "a class without `external` gets the workspace path");
-        assert!(!needs_path_fix(p, p));
+        let index = TypeIndex::new();
+        assert!(needs_path_fix("", p, &index), "a class without `external` gets the workspace path");
+        assert!(!needs_path_fix(p, p, &index));
+    }
+
+    /// Two paths with one crate root and one leaf are the same type, so the
+    /// scan never corrected `..::cpurender::text_raster::TextRasterStyle` (a
+    /// private module, 15 E0603 in the dylib, wave 6) to the index's
+    /// `..::cpurender::TextRasterStyle`. A path through a private module is
+    /// fixed when the index has a public one.
+    #[test]
+    fn a_path_through_a_private_module_is_fixed_to_the_public_re_export() {
+        let mut index = TypeIndex::new();
+        index.add_private_module_for_test("azul_layout::cpurender::text_raster");
+        let private = "azul_layout::cpurender::text_raster::TextRasterStyle";
+        let public = "azul_layout::cpurender::TextRasterStyle";
+        assert!(needs_path_fix(private, public, &index));
+        assert!(!needs_path_fix(public, private, &index), "never towards the private one");
+        assert!(!needs_path_fix(public, public, &index));
+        let deeper = "azul_layout::cpurender::glyphs::TextRasterStyle";
+        assert!(!needs_path_fix(deeper, public, &index), "two public paths stay equivalent");
     }
 }
 

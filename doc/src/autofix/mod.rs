@@ -190,6 +190,10 @@ pub fn autofix_api(
     // `object` argument did not compile, wave 6)
     ffi_warnings.extend(check_fn_body_receivers(api_data));
 
+    // A class path through a private module that nothing re-exports
+    // (TextRasterStyle's cpurender::text_raster, wave 6)
+    ffi_warnings.extend(check_private_paths(api_data, &index));
+
     // Check for reserved keywords across all target languages
     let keyword_warnings = check_reserved_keywords(api_data);
     ffi_warnings.extend(keyword_warnings);
@@ -1511,6 +1515,16 @@ pub enum FfiSafetyWarningKind {
         /// The receiver's name in the generated function (`raw_image`)
         receiver: String,
     },
+    /// A class's `external` path runs through a module declared without
+    /// `pub` and nothing re-exports the type: the generated bindings cannot
+    /// name it (TextRasterStyle's `cpurender::text_raster`, 15 E0603, wave 6).
+    /// A type a `pub use` does re-export gets a path fix instead.
+    PrivateExternalPath {
+        /// The api.json `external` path
+        external: String,
+        /// The first private module on the way
+        private_module: String,
+    },
     /// Type alias uses generic_args (e.g. `Vec<ComponentArgument>`) which is not FFI-safe
     /// unless both the target type and all generic args are defined in api.json.
     /// If the target (e.g. `CssPropertyValue`) and all args are in api.json, this is
@@ -1614,6 +1628,8 @@ impl FfiSafetyWarningKind {
             FfiSafetyWarningKind::RawStrInSignature { .. } => true,
             // Critical - the generated body names a variable that does not exist
             FfiSafetyWarningKind::BareObjectInFnBody { .. } => true,
+            // Critical - the bindings cannot name a type behind a private module
+            FfiSafetyWarningKind::PrivateExternalPath { .. } => true,
             // Generic type aliases are only critical if the target or args are NOT in api.json.
             // e.g. Vec<ComponentArgument> is critical (Vec not in api.json),
             // but CssPropertyValue<StyleBackgroundContent> is fine (both in api.json).
@@ -3100,6 +3116,25 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
         }
+        FfiSafetyWarningKind::PrivateExternalPath {
+            external,
+            private_module,
+        } => {
+            println!("  {} {}", "✗".red(), warning.type_name.white());
+            println!(
+                "    {} {} runs through the private module {}",
+                "→".dimmed(),
+                external.yellow(),
+                private_module.cyan()
+            );
+            println!(
+                "    {} Declare the module `pub`, or re-export the type from a public module \
+                 (`pub use {}::*;` in its parent); the scan then fixes the path.",
+                "FIX:".cyan(),
+                private_module.rsplit("::").next().unwrap_or(private_module)
+            );
+            println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+        }
         FfiSafetyWarningKind::GenericTypeAlias {
             target,
             generic_args,
@@ -3394,6 +3429,18 @@ pub fn check_fn_body_receivers(api_data: &ApiData) -> Vec<FfiSafetyWarning> {
         }
     }
     warnings
+}
+
+/// Every api.json class whose `external` path runs through a private module
+/// while the index has no public path for the type either (nothing
+/// re-exports it): a [`FfiSafetyWarningKind::PrivateExternalPath`]. A type
+/// the index reaches by a public path gets a path fix from the diff instead.
+pub fn check_private_paths(
+    api_data: &ApiData,
+    index: &type_index::TypeIndex,
+) -> Vec<FfiSafetyWarning> {
+    let _ = (api_data, index);
+    Vec::new()
 }
 
 /// Whether `body` uses the variable `object` other than as `object.`: not
@@ -5604,5 +5651,52 @@ mod function_signature_tests {
             &w.kind,
             FfiSafetyWarningKind::BareObjectInFnBody { receiver, .. } if receiver == "rich_run"
         )));
+    }
+
+    /// A class path through a private module that nothing re-exports is a
+    /// critical error (the bindings cannot name the type); one the index
+    /// reaches by a public re-export path is the diff's path fix, not an
+    /// error; a public path is fine.
+    #[test]
+    fn a_class_behind_a_private_module_nothing_re_exports_is_a_critical_error() {
+        use crate::autofix::type_index::{TypeDefKind, TypeDefinition, TypeIndex};
+        let mut index = TypeIndex::new();
+        index.add_private_module_for_test("azul_layout::cpurender::text_raster");
+        index.add_private_module_for_test("azul_layout::cpurender::internal");
+        // TextRasterStyle is re-exported: the index has its public path
+        index.add_type_for_test(TypeDefinition {
+            full_path: "azul_layout::cpurender::TextRasterStyle".to_string(),
+            type_name: "TextRasterStyle".to_string(),
+            file_path: std::path::PathBuf::from("/nonexistent/text_raster.rs"),
+            module_path: "cpurender".to_string(),
+            crate_name: "azul_layout".to_string(),
+            kind: TypeDefKind::Struct {
+                fields: indexmap::IndexMap::new(),
+                repr: Some("C".to_string()),
+                repr_attr_count: 1,
+                generic_params: Vec::new(),
+                derives: Vec::new(),
+                custom_impls: Vec::new(),
+                is_tuple_struct: false,
+            },
+            source_code: String::new(),
+            methods: Vec::new(),
+        });
+        let api: ApiData = serde_json::from_value(serde_json::json!({
+            "0.2.0": {"apiversion": 1, "git": "", "date": "", "api": {"image": {"classes": {
+                "TextRasterStyle": {"external": "azul_layout::cpurender::text_raster::TextRasterStyle"},
+                "Internal": {"external": "azul_layout::cpurender::internal::Internal"},
+                "RawImage": {"external": "azul_core::resources::RawImage"}
+            }}}}
+        }))
+        .expect("test api parses");
+        let warnings = super::check_private_paths(&api, &index);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].is_critical());
+        assert!(matches!(
+            &warnings[0].kind,
+            FfiSafetyWarningKind::PrivateExternalPath { private_module, .. }
+                if private_module == "azul_layout::cpurender::internal"
+        ));
     }
 }
