@@ -34,7 +34,8 @@
 //!   "attachments": [ { "name": "contract.pdf", "size": 48213 } ],
 //!   "order": 3072,
 //!   "created": "2026-09-01T10:00:00", "modified": "2026-09-30T18:12:40",
-//!   "completed": "2026-10-02T09:03:11"
+//!   "completed": "2026-10-02T09:03:11",
+//!   "started": "2026-10-01T08:00:00"
 //! }
 //! ```
 //!
@@ -303,6 +304,7 @@ impl Task {
         next.due = Some(next_due);
         next.repeat = Some(rule);
         next.completed = None;
+        next.started = None;
         next.reminded = None;
         next.reminder = self.reminder.map(|r| match r {
             Reminder::At(at) => Reminder::At(at + shift),
@@ -341,7 +343,13 @@ impl Task {
 
     /// Marks the task started (it keeps the first start) or not started, at `now`.
     pub fn set_started(&mut self, started: bool, now: NaiveDateTime) {
-        let _ = (started, now);
+        match (started, self.started) {
+            (true, Some(_)) => return,
+            (true, None) => self.started = Some(now),
+            (false, None) => return,
+            (false, Some(_)) => self.started = None,
+        }
+        self.modified = now;
     }
 }
 
@@ -774,6 +782,8 @@ struct TaskFile {
     modified: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     completed: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    started: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -965,6 +975,7 @@ pub fn task_to_json(t: &Task) -> String {
         created: format_stamp(t.created),
         modified: format_stamp(t.modified),
         completed: t.completed.map(format_stamp),
+        started: t.started.map(format_stamp),
     };
     serde_json::to_string_pretty(&file).unwrap_or_default()
 }
@@ -1050,7 +1061,11 @@ pub fn task_from_json(json: &str) -> Result<Task, FileError> {
             .as_deref()
             .map(|c| parse_stamp("completed", c))
             .transpose()?,
-        started: None,
+        started: f
+            .started
+            .as_deref()
+            .map(|s| parse_stamp("started", s))
+            .transpose()?,
     };
     for tag in &f.tags {
         task.add_tag(tag);

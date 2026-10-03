@@ -232,8 +232,9 @@ pub fn join_and(items: &[String]) -> String {
 /// AzCalendar's Month view and AzTasks' planned month lay their cells out by it.
 #[must_use]
 pub fn month_grid(day: NaiveDate, week_start: Weekday) -> Vec<NaiveDate> {
-    let _ = (day, week_start);
-    Vec::new()
+    let first = day.with_day(1).unwrap_or(day);
+    let start = start_of_week(first, week_start);
+    (0..42).map(|i| start + Duration::days(i)).collect()
 }
 
 #[cfg(test)]
