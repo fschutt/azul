@@ -41,11 +41,19 @@ capture's CVPixelBuffer).
   31 kbit/s, share 1.000; probe /tmp/video8/tc/opus_probe.py, not committed)
   => OPUS ENGINE DONE (needs api.json AudioEncoder / AudioDecoder).
 
+- e9a4a428c test(azmeet): Opus wire rules RED (audio.rs opus_wire_tests, video_wire caps bit 2)
+- 75f9ffa2a feat(azmeet): Opus wire rules GREEN (frame_header/read_header shared, OpusFramer,
+  mix_to_mono, send_opus, caps bit)
+- 6c403176f / 8df303309 OpusOrder RED / GREEN (replaced JitterBuffer::wants)
+- 0fce5a9db feat(azmeet): voice as Opus when every peer decodes it (lib.rs wiring)
+- 871a949a0 docs(azmeet): wire format docs
+  => OPUS DONE end to end (needs api.json AudioEncoder / AudioDecoder / OptionAudioFrame).
+
 ## IN PROGRESS
-- AzMeet Opus: audio.rs codec byte 2, lib.rs send / receive with PCM fallback.
+- nothing half-done.
 
 ## NEXT (exact)
-1. (engine DONE, AzMeet wiring next) Opus through AudioToolbox on Apple: new file dll/src/desktop/extra/audio/opus_codec.rs (or
+1. (DONE) Opus through AudioToolbox on Apple: new file dll/src/desktop/extra/audio/opus_codec.rs (or
    video_codec-style `audio_codec` module): dlopen AudioToolbox (`AudioConverterNew`,
    `AudioConverterFillComplexBuffer`, `AudioConverterDispose`), kAudioFormatOpus ('opus') 48 kHz
    mono 20 ms (960 frames); C-ABI handles `AudioEncoder` / `AudioDecoder` (ptr + run_destructor,
@@ -62,7 +70,15 @@ capture's CVPixelBuffer).
 4. Zero copy steps 2-3 (last).
 5. Report scripts/VIDEO8_2026_10_03.md.
 
-## api.json (so far)
+## api.json (so far) - full text goes into the report
+- `audio.AudioEncoder` (external azul_dll::unified::audio::AudioEncoder; custom_impls Clone Default
+  Drop; struct_fields ptr c_void mutptr, run_destructor bool; constructor create(config:
+  AudioConfig, bitrate_kbps: u32); functions backend_name (static, String), is_open(ref) -> bool,
+  encode(refmut, frame: AudioFrame) -> bool, recv_packet(refmut) -> OptionU8Vec, close(refmut)).
+- `audio.AudioDecoder` (same shape; create(config: AudioConfig); is_open(ref) -> bool,
+  decode(refmut, packet: U8Vec) -> OptionAudioFrame, close(refmut)).
+- `option.OptionAudioFrame` (external azul_core::audio::OptionAudioFrame, derive Clone Debug,
+  None / Some(AudioFrame), repr "C, u8").
 - `video.VideoEncoder.functions.set_bitrate`: `fn_args: [{"self": "ref"}, {"kbps": "u32"}]`,
   returns `bool`, `fn_body: "object.set_bitrate(kbps)"`, doc "Spend `kbps` kilobits a second from
   the next frame the encoder takes on (a call whose network got slower or faster). The stream goes
