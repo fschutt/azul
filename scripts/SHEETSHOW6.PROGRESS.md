@@ -12,15 +12,28 @@ screenshots + hierarchy dumps under target/sheetshow6-shots/.
 - 2a11b594a AzSheets body margin 0 / height 100% (status bar was off-screen, backstage 464 px tall), name box in a
   fixed box (it took half the formula bar), "functions" icon.
 
-## IN PROGRESS
-- LOOK at AzShow (show_steps1.py, with a resize-toggle "-full" shot after each, to tell stale paint from bad layout).
+- 58675fc89 RED (cell_grid): `every_cell_is_named_by_its_place_and_carries_its_text_as_its_value`,
+  `a_text_too_wide_for_its_cell_spills_over_the_empty_cells_after_it` + stub `spill_spans` (returns all 1).
 
-## NEXT
-- Sheets: compact HOME ribbon so it fits 1280 px (Cells / Editing are off-screen: Sort / Filter / Find unclickable -
-  the old E2E fails at "the sort"); text overflow into empty neighbours (CellGrid); GridCell a11y names; zoom slider
-  a11y name (StatusBarZoom).
-- Then S3 blockers (one shared drive, Show page.next, exports into the tree), appkit, close guard, prefixes, then the
-  brief's feature list.
+## IN PROGRESS
+- (power warning 2026-10-03: battery ~16 %; NO headless app runs until told otherwise. The AzShow look run was
+  killed before it produced anything; AzShow is NOT looked at yet.)
+
+## NEXT (exact)
+1. GREEN for 58675fc89 in layout/src/widgets/cell_grid.rs:
+   a. `build()` (the cell loop, ~line 2475): the GridCell's AccessibilityInfo becomes
+      `AccessibilityInfo { row_index, column_index, states, accessibility_value: (text non-empty -> Some(text)),
+      ..AccessibilityInfo::named(CellGrid::cell_label(at), AccessibilityRole::GridCell) }`.
+   b. `spill_spans()` real body: a Text cell (kind Text, no wrap, align General/Left), estimated width
+      chars * font_px(style.font_size or grid.font_size) * zoom * 0.6 + 6 > its column, spills over the next
+      columns of geo.columns while they are empty (text ""), unselected, unstyled (no fill / borders), not across
+      the frozen-column boundary; returns n for the spiller, 0 for covered, 1 otherwise.
+   c. `build()` uses spill_spans: a spilling cell's width = the covered columns' sizes summed; covered cells not built.
+2. Sheets: compact HOME ribbon to fit 1280 px (Cells / Editing off-screen -> Sort / Filter / Find unclickable).
+3. StatusBarZoom's slider gets an accessible name "Zoom" (layout/src/widgets/statusbar.rs; RED test there first).
+4. S3 blockers (one shared `Arc<dyn Drive>` per app, Show `Job::List` -> `azul_storage::ops::list_all`, Show
+   exports PDF / PNG into `exports/` through the drive), appkit, close guard, prefixes, then the brief's features.
+5. When power allows: LOOK at AzShow (target/sheetshow6-tools/show_steps1.py, fixed ready check) and re-look at Sheets.
 
 ## Broken (seen, 2026-10-03, prebuilt aa59b2d84, headless 1280x800)
 AzSheets:
