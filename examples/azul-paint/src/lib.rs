@@ -10,9 +10,32 @@ use azul::{
     image::{Brush, ImageRef, RawImage, RawImageData, RawImageFormat},
     option::OptionFileTypeList,
     prelude::*,
+    str::String as AzString,
     vec::{F32VecRef, StringVec, U8VecRef},
     widgets::Titlebar,
 };
+
+/// Every DOM id and marker AzPaint sets, defined ONCE with the app's prefix
+/// (`__azpaint_`, like the widgets' `__azul_`).
+mod ids {
+    use azul::str::String as AzString;
+
+    /// The canvas: its id (scripts find it) and its marker (the callbacks
+    /// find it to redraw it in place).
+    pub const CANVAS: AzString = AzString::from_const_str("__azpaint_canvas");
+    /// The pen-pressure meter in the header.
+    pub const PRESSURE: AzString = AzString::from_const_str("__azpaint_pressure");
+}
+
+/// A line for scripts on stdout: `<KEY> <value>`.
+fn say(line: &str) {
+    println!("{line}");
+}
+
+/// `AZPAINT_STROKES <n>`: the strokes on the canvas, after every change.
+fn say_strokes(state: &PaintState) {
+    say(&format!("AZPAINT_STROKES {}", state.strokes.len()));
+}
 
 #[derive(Debug, Clone, Copy)]
 struct StrokePoint {
@@ -86,8 +109,6 @@ struct PaintState {
     background: Option<RawImage>,
     export_path: Option<String>,
     rev: u64,
-    pressure_marker: String,
-    canvas_marker: String,
     last_pressure: f32,
 }
 
@@ -109,8 +130,6 @@ impl PaintState {
             background: None,
             export_path: None,
             rev: 1,
-            pressure_marker: String::new(),
-            canvas_marker: String::new(),
             last_pressure: 0.0,
         }
     }
@@ -838,6 +857,7 @@ fn render_canvas_inner(
                 }
             }
             cache.rendered_rev = rev;
+            say(&format!("AZPAINT_RASTER {rev}"));
         }
         if let Some(path) = export_path.as_ref() {
             if let Some(tex) = cache.texture.as_ref() {
@@ -872,6 +892,7 @@ fn render_canvas_inner(
         }
         cache.cpu_image = ImageRef::create_rawimage(img).into_option();
         cache.rendered_rev = rev;
+        say(&format!("AZPAINT_RASTER {rev}"));
     }
     if export_path.is_some() {
         clear_export(cache);
@@ -920,21 +941,9 @@ const HEADER: &str = "display: flex; background: #2b2b2b; color: white; padding:
                       flex-direction: row; align-items: center; font-family: sans-serif; \
                       font-size: 16px; user-select: none;";
 const CANVAS: &str = "flex-grow: 1; position: relative; overflow: hidden;";
-const ROOT: &str = "display: flex; flex-direction: column; height: 100%;";
+const ROOT: &str = "display: flex; flex-direction: column; height: 100%; margin: 0px;";
 
 extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-    let (pressure_marker, canvas_marker) = match data.downcast_mut::<PaintState>() {
-        Some(mut s) => {
-            if s.pressure_marker.is_empty() {
-                s.pressure_marker = azul::uuid::Uuid::short().as_str().to_string();
-            }
-            if s.canvas_marker.is_empty() {
-                s.canvas_marker = azul::uuid::Uuid::short().as_str().to_string();
-            }
-            (s.pressure_marker.clone(), s.canvas_marker.clone())
-        }
-        None => (String::new(), String::new()),
-    };
     let (n_strokes, n_undone, metaballs, hud, device_line, last_pressure) = data
         .downcast_ref::<PaintState>()
         .map(|s| {
@@ -999,9 +1008,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                 azul::widgets::ProgressBar::create(last_pressure)
                     .with_height(azul::css::PixelValue::px(12.0))
                     .dom()
-                    .with_marker(azul::option::OptionString::Some(
-                        pressure_marker.as_str().into(),
-                    )),
+                    .with_marker(azul::option::OptionString::Some(ids::PRESSURE)),
             ),
     );
 
@@ -1019,7 +1026,8 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         cache.clone(),
     ))
     .with_css(CANVAS)
-    .with_marker(azul::option::OptionString::Some(canvas_marker.as_str().into()))
+    .with_id(ids::CANVAS)
+    .with_marker(azul::option::OptionString::Some(ids::CANVAS))
     .with_dataset(OptionRefAny::Some(cache))
     .with_merge_callback(merge_cache)
     .with_callback(
@@ -1027,8 +1035,10 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         data.clone(),
         on_pointer_down,
     )
+    // Movement: `MouseMove` (W3C `mouseover` fires once, on entry - with it
+    // the strokes got no points between press and release).
     .with_callback(
-        EventFilter::Hover(HoverEventFilter::MouseOver),
+        EventFilter::Hover(HoverEventFilter::MouseMove),
         data.clone(),
         on_pointer_move,
     )
@@ -1211,7 +1221,7 @@ fn tablet_device_line(info: &CallbackInfo) -> Option<String> {
     ))
 }
 
-fn push_pressure_to_meter(info: &mut CallbackInfo, marker: &str) -> Option<f32> {
+fn push_pressure_to_meter(info: &mut CallbackInfo) -> Option<f32> {
     let pct = match info.get_pen_state().into_option() {
         Some(pen) => pen.pressure.clamp(0.0, 1.0) * 100.0,
         None => {
@@ -1223,13 +1233,13 @@ fn push_pressure_to_meter(info: &mut CallbackInfo, marker: &str) -> Option<f32> 
             }
         }
     };
-    let node_id = info.get_node_id_by_marker(marker.to_string()).into_option();
+    let node_id = info.get_node_id_by_marker(ids::PRESSURE).into_option();
     let ok = node_id
         .map(|n| azul::widgets::ProgressBar::update_progress(*info, n, pct))
         .unwrap_or(false);
     if std::env::var("AZ_PAINT_DEBUG").is_ok() {
         eprintln!(
-            "[paint] t={}ms fast-path: marker={marker:?} node={:?} pct={pct} update_progress={ok}",
+            "[paint] t={}ms fast-path: node={:?} pct={pct} update_progress={ok}",
             dbg_ms(),
             node_id.map(|n| (n.dom.inner, n.node.inner as i64 - 1)),
         );
@@ -1237,11 +1247,15 @@ fn push_pressure_to_meter(info: &mut CallbackInfo, marker: &str) -> Option<f32> 
     ok.then_some(pct)
 }
 
-fn poke_canvas(info: &mut CallbackInfo, marker: &str) {
-    if let Some(node) = info.get_node_id_by_marker(marker.to_string()).into_option() {
+/// Ask for a new frame of the canvas (its `RenderImageCallback`), no relayout.
+fn poke_canvas(info: &mut CallbackInfo) {
+    if let Some(node) = info.get_node_id_by_marker(ids::CANVAS).into_option() {
+        // `into_raw` is the 1-based encoding (0 = none); `NodeId` is 0-based.
+        // Passing it as it was poked the node AFTER the canvas: the stroke
+        // was not drawn until something else re-rendered the window.
         let raw = node.node.into_raw();
         if raw != 0 {
-            info.update_image_callback(node.dom, azul::dom::NodeId { inner: raw });
+            info.update_image_callback(node.dom, azul::dom::NodeId { inner: raw - 1 });
         }
     }
 }
@@ -1267,25 +1281,20 @@ extern "C" fn on_pointer_down(mut data: RefAny, mut info: CallbackInfo) -> Updat
     };
     update_hud(&mut state, hud);
     state.begin_stroke(point, is_eraser);
-    let marker = state.pressure_marker.clone();
-    let canvas = state.canvas_marker.clone();
     drop(state);
-    if let Some(pct) = push_pressure_to_meter(&mut info, &marker) {
+    if let Some(pct) = push_pressure_to_meter(&mut info) {
         if let Some(mut s) = data.downcast_mut::<PaintState>() {
             s.last_pressure = pct;
         }
     }
-    poke_canvas(&mut info, &canvas);
+    poke_canvas(&mut info);
     Update::DoNothing
 }
 
 extern "C" fn on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let hud = hud_from(&info);
     let point = extract_point(&info);
-    let pushed = data
-        .downcast_ref::<PaintState>()
-        .map(|s| s.pressure_marker.clone())
-        .and_then(|m| push_pressure_to_meter(&mut info, &m));
+    let pushed = push_pressure_to_meter(&mut info);
     let device_line = data
         .downcast_ref::<PaintState>()
         .is_some_and(|s| s.device_line.is_none())
@@ -1314,9 +1323,8 @@ extern "C" fn on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Updat
     match point {
         Some((p, _)) => {
             state.extend_stroke(p);
-            let canvas = state.canvas_marker.clone();
             drop(state);
-            poke_canvas(&mut info, &canvas);
+            poke_canvas(&mut info);
             Update::DoNothing
         }
         None if hud_changed => Update::RefreshDom,
@@ -1334,15 +1342,15 @@ extern "C" fn on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Update 
         );
     }
     let hud = hud_from(&info);
-    let marker = match data.downcast_mut::<PaintState>() {
+    match data.downcast_mut::<PaintState>() {
         Some(mut s) => {
             update_hud(&mut s, hud);
             s.end_stroke();
-            s.pressure_marker.clone()
+            say_strokes(&s);
         }
         None => return Update::DoNothing,
-    };
-    if let Some(pct) = push_pressure_to_meter(&mut info, &marker) {
+    }
+    if let Some(pct) = push_pressure_to_meter(&mut info) {
         if let Some(mut s) = data.downcast_mut::<PaintState>() {
             s.last_pressure = pct;
         }
@@ -1362,6 +1370,7 @@ extern "C" fn on_pointer_gone(mut data: RefAny, _info: CallbackInfo) -> Update {
     let had_stroke = state.current.is_some();
     if had_stroke {
         state.end_stroke();
+        say_strokes(&state);
     }
     if had_hud || had_stroke {
         Update::RefreshDom
