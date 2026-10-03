@@ -2624,21 +2624,31 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
 /// at min-content, as every flex item with a visible overflow is - asks each
 /// of its items for its cross size at the main size the item got in THAT
 /// run. An item whose size depends on that (anything holding wrapping lines)
-/// is asked two keys of one class: each run evicts the other's entry, and
-/// every pass misses both, the item's whole subtree with it. AzWidgets' page
-/// column asked its form section `(None, 938)` and `(None, 906)`: 173 of a
-/// switch-knob frame's 184 taffy misses and its 76 text re-flows.
+/// is asked several keys of one class: each run evicts the other's entry,
+/// and every pass misses them all, the item's whole subtree with it - and
+/// the levels below repeat it with keys of their own. AzWidgets' page column
+/// asked its form section `(None, 938)` and `(None, 906)`, the section's
+/// descendants up to four keys of one class and up to seven in all per pass:
+/// 173 of a switch-knob frame's 184 taffy misses and its 76 text re-flows.
 ///
-/// Keeps the last two distinct keys per class, for such a node only: it
-/// lives in the node's `NodeCache` (which follows the node across passes)
-/// and is allocated at the first eviction. It is part of the taffy cache
-/// for validity: never read while that cache is empty, dropped by the first
+/// Keeps the last `SPILL_ENTRIES` distinct measurements of such a node, of
+/// any class, matched by taffy's own rule; a pass that asks a node no more
+/// keys than that hits every one of them from the second pass on. It lives
+/// in the node's `NodeCache` (which follows the node across passes) and is
+/// allocated at the node's first eviction. It is part of the taffy cache for
+/// validity: never read while that cache is empty, dropped by the first
 /// store after it was emptied (a dirty subtree, a restyle, a clone that
 /// could not keep it all empty it).
 #[derive(Debug, Clone, Default)]
 pub struct TaffyMeasureSpill {
-    entries: [[Option<SpilledMeasure>; 2]; 9],
+    /// A ring, oldest overwritten first.
+    entries: [Option<SpilledMeasure>; SPILL_ENTRIES],
+    next: usize,
 }
+
+/// How many measurements a [`TaffyMeasureSpill`] keeps: above the seven
+/// distinct keys per pass the busiest AzWidgets node is asked.
+const SPILL_ENTRIES: usize = 12;
 
 /// One measurement in a [`TaffyMeasureSpill`]: the key taffy keys it by and
 /// the outer size it answered.
@@ -2679,30 +2689,30 @@ impl SpilledMeasure {
 }
 
 impl TaffyMeasureSpill {
+    /// Any kept measurement that answers the query - taffy's `Cache::get`
+    /// searches all its measurement slots the same way.
     fn get(&self, input: &LayoutInput) -> Option<Size<f32>> {
-        let slot = measure_slot(input.known_dimensions, input.available_space);
-        self.entries[slot]
+        self.entries
             .iter()
             .flatten()
             .find(|m| m.answers(input))
             .map(|m| m.size)
     }
 
-    /// Record a measurement: the newest of a class first, the one before it
-    /// second; the same key again is refreshed where it is.
+    /// Record a measurement: the same key again is refreshed where it is, a
+    /// new one overwrites the oldest.
     fn store(&mut self, input: &LayoutInput, size: Size<f32>) {
         let new = SpilledMeasure {
             known_dimensions: input.known_dimensions,
             available_space: input.available_space,
             size,
         };
-        let ways = &mut self.entries[measure_slot(input.known_dimensions, input.available_space)];
-        if let Some(same) = ways.iter_mut().flatten().find(|m| m.same_key(&new)) {
+        if let Some(same) = self.entries.iter_mut().flatten().find(|m| m.same_key(&new)) {
             *same = new;
             return;
         }
-        ways[1] = ways[0];
-        ways[0] = Some(new);
+        self.entries[self.next] = Some(new);
+        self.next = (self.next + 1) % SPILL_ENTRIES;
     }
 }
 
