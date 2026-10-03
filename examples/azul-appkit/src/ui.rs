@@ -744,8 +744,11 @@ pub fn settings_page(kit_ref: &RefAny, app_sections: Vec<AppSection>) -> Dom {
 
 // ==== The settings page's callbacks (data: the kit) ====
 
-extern "C" fn on_theme(mut kit: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
-    let theme = Theme::ALL[state.selected_index.min(Theme::ALL.len() - 1)];
+/// The user chose the app theme: in effect at once (every window), kept in
+/// settings.json, and winning over a `--theme` switch from now on. The one
+/// path the settings page and an app's own theme control take.
+pub fn choose_theme(kit_ref: &RefAny, info: &mut CallbackInfo, theme: Theme) {
+    let mut kit = kit_ref.clone();
     let save = match kit.downcast_mut::<Kit>() {
         Some(mut k) => {
             k.settings.theme = theme;
@@ -756,13 +759,13 @@ extern "C" fn on_theme(mut kit: RefAny, mut info: CallbackInfo, state: Segmented
     };
     if save {
         info.set_theme(theme.name());
-        save_settings(&kit, &mut info);
+        save_settings(kit_ref, info);
     }
-    Update::RefreshDom
 }
 
-extern "C" fn on_mode(mut kit: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
-    let mode = ModePref::ALL[state.selected_index.min(ModePref::ALL.len() - 1)];
+/// The user chose light, dark or the system's mode: [`choose_theme`]'s twin.
+pub fn choose_mode(kit_ref: &RefAny, info: &mut CallbackInfo, mode: ModePref) {
+    let mut kit = kit_ref.clone();
     let save = match kit.downcast_mut::<Kit>() {
         Some(mut k) => {
             k.settings.mode = mode;
@@ -773,8 +776,19 @@ extern "C" fn on_mode(mut kit: RefAny, mut info: CallbackInfo, state: SegmentedS
     };
     if save {
         info.set_mode(mode_option(mode));
-        save_settings(&kit, &mut info);
+        save_settings(kit_ref, info);
     }
+}
+
+extern "C" fn on_theme(kit: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    let theme = Theme::ALL[state.selected_index.min(Theme::ALL.len() - 1)];
+    choose_theme(&kit, &mut info, theme);
+    Update::RefreshDom
+}
+
+extern "C" fn on_mode(kit: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    let mode = ModePref::ALL[state.selected_index.min(ModePref::ALL.len() - 1)];
+    choose_mode(&kit, &mut info, mode);
     Update::RefreshDom
 }
 
