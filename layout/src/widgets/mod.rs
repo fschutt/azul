@@ -515,6 +515,12 @@ pub mod data_table;
 /// view for screen readers; a long line decimated per pixel column. Drawn
 /// with the engine's SVG path; see `chart.rs`.
 pub mod chart;
+/// Money input widget.
+///
+/// An amount in a currency, typed the way the locale writes numbers
+/// (decimal point, grouping, the currency's side), held as integer minor
+/// units - never a float; a text field underneath. See `money_input.rs`.
+pub mod money_input;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
