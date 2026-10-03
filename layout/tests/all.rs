@@ -774,3 +774,5 @@ mod a_spanning_cells_percentage_is_shared_by_its_columns;
 mod a_right_to_left_tables_columns_run_from_the_right;
 #[path = "a_text_rasterises_into_a_raw_image.rs"]
 mod a_text_rasterises_into_a_raw_image;
+#[path = "an_image_patched_in_place_survives_a_cached_relayout.rs"]
+mod an_image_patched_in_place_survives_a_cached_relayout;
