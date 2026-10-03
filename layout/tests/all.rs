@@ -806,3 +806,5 @@ mod text_inside_an_opacity_group_keeps_its_colour;
 mod a_text_indent_narrows_the_first_line;
 #[path = "bolder_and_lighter_are_relative_to_the_parent_weight.rs"]
 mod bolder_and_lighter_are_relative_to_the_parent_weight;
+#[path = "a_line_height_is_the_line_pitch_on_screen.rs"]
+mod a_line_height_is_the_line_pitch_on_screen;
