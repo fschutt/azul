@@ -5,11 +5,16 @@ use mail_parser::{Address, Message, MessageParser, MimeHeaders};
 
 use crate::store::IndexEntry;
 
-/// `secs` since 1970 as RFC 3339 in UTC (`2026-09-30T08:42:00Z`); empty when out of range.
+/// `secs` since 1970 as RFC 3339 in UTC (`2026-09-30T08:42:00Z`), written by azul-storage's
+/// one formatter (the dates of every app's files, DEDUP_EDITORS B4); empty before 1970 and past
+/// the year 9999.
 pub fn rfc3339_utc(secs: i64) -> String {
-    chrono::DateTime::<chrono::Utc>::from_timestamp(secs, 0)
-        .map(|d| d.format("%Y-%m-%dT%H:%M:%SZ").to_string())
-        .unwrap_or_default()
+    /// 10000-01-01T00:00:00Z.
+    const YEAR_10000: i64 = 253_402_300_800;
+    match u64::try_from(secs) {
+        Ok(unix) if secs < YEAR_10000 => azul_storage::time::iso8601(unix),
+        _ => String::new(),
+    }
 }
 
 /// The year and month of `secs` since 1970, in UTC; `(0, 0)` when out of range.
