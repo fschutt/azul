@@ -872,3 +872,5 @@ mod an_inline_box_paints_its_border_padding_and_margin;
 mod an_inline_block_sits_on_its_last_lines_baseline;
 #[path = "a_single_stop_gradient_is_a_solid_colour.rs"]
 mod a_single_stop_gradient_is_a_solid_colour;
+#[path = "a_border_defaults_to_a_medium_width_in_the_text_colour.rs"]
+mod a_border_defaults_to_a_medium_width_in_the_text_colour;
