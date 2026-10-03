@@ -3777,7 +3777,8 @@ impl LayoutTreeBuilder {
     /// Reuse an old node's cached layout under a NEW DOM identity.
     ///
     /// `new_dom_id` is what the node IS; the clone only carries what it
-    /// COSTS (used size, taffy cache, inline layout result). Reconciliation
+    /// COSTS (used size, taffy cache and flex measurements, inline layout
+    /// result). Reconciliation
     /// matches an old child to a new one by DOM id where it can, but falls
     /// back to POSITION when the id is absent from the old child list — and
     /// a positional match pairs nodes with different ids. Copying the old
@@ -3802,28 +3803,34 @@ impl LayoutTreeBuilder {
             parent.and_then(|p| self.nodes.get(p).map(|n| n.formatting_context));
         new_node.children = Vec::new();
         new_node.dirty_flag = DirtyFlag::None;
-        // The measurement cache does NOT survive the clone.
+        // The flex measurements (`taffy_cache`, `measured_content_sizes`)
+        // SURVIVE the clone, like every other cache it carries.
         //
-        // A clone is taken because the node's own data is unchanged — but
-        // "unchanged" says nothing about its SURROUNDINGS. Its cached
-        // (available space -> computed size) entries were measured against
-        // the previous frame's siblings, and a clone is taken precisely when
-        // a sibling changed enough to re-lay the parent out. `layout_document`
-        // clears this cache for `intrinsic_dirty` nodes; the clean clones
-        // beside them kept theirs.
+        // They are a function of the node's subtree and of the inputs they
+        // are keyed by - nothing else - and everything that can change them
+        // without changing their key is invalidated elsewhere: a changed
+        // subtree puts its node in `intrinsic_dirty` and `layout_document`
+        // clears the caches of that node and of every ancestor (Step 1.2), a
+        // restyle under which INHERITED values may have moved clears them in
+        // `reconcile_recursive` (the clone is under a restyled node), and a
+        // memoised FINAL layout is served only while its subtree still holds
+        // what it wrote (`NodeCache::final_layout_current`).
         //
-        // Symptom: clicking ribbon tab 1 left tab 2 — the tab that never
-        // changed state — drawing its label 1.5px lower than a fresh render
-        // of the same state, with an IDENTICAL header box. The cached entry
-        // was answering with a measurement taken while tab 0 was active.
+        // Clearing them here made every relayout - every animation frame,
+        // every restyle, every RefreshDom - lay out every flex item of the
+        // window again, because every clean node IS a clone: the AzWidgets
+        // switch knob's 16 px slide re-flowed 2853 text runs and laid out
+        // 12181 flex items per frame (157-309 ms) for a box inside a 36x20
+        // track (layout/tests/a_one_box_slide_does_not_re_lay_out_the_page.rs).
         //
-        // What the clone is FOR is still preserved: the tree structure, the
-        // fingerprint, and `inline_layout_result` — so the text is not
-        // re-shaped, only re-measured. Measured flat on
-        // layout/tests/frame_perf.rs (idle 19.21 vs 19.70 ms, cold 75.96 vs
-        // 74.57 ms, edit 22.72 vs 25.39 ms — all inside run-to-run noise).
-        new_node.taffy_cache.clear();
-        new_node.measured_content_sizes = (None, None);
+        // The clear was added for a ribbon tab that kept a label 1.5 px low
+        // after a switch (deac0bebb, "measured beside old siblings"): a final
+        // layout served from the cache after a MEASURE of the same tab had
+        // re-placed its children. That memo-with-side-effects is guarded at
+        // its point of use since c60844cab (`final_layout_current`), and a
+        // measure hands the node's size back (`compute_non_flex_layout`);
+        // `switching_tabs_does_not_shift_the_other_tabs_text` (dll headless
+        // tests) stays the negative control.
         new_node.dom_node_id = new_dom_id;
         self.nodes.push(new_node);
         if let Some(p) = parent {

@@ -4613,15 +4613,14 @@ fn layout_ifc<T: ParsedFontTrait>(
                     // This is the discipline a memoized call with a side effect
                     // needs: the exit REPLAYS what the full path would have
                     // written. Note it replays POSITIONS only — the children's
-                    // sizes are assumed to be in the tree already. That holds
-                    // because this branch needs a cached `inline_layout_result`
-                    // on the node, and layout-derived state is never carried
-                    // across a tree rebuild (`try_reuse_anon_wrapper`), so this
-                    // exit is only reachable within a pass whose children have
-                    // been laid out. It is correct by a neighbouring invariant
-                    // rather than by its own check — if `inline_layout_result`
-                    // ever starts being carried, this needs the same
-                    // precondition check the collection cache now performs.
+                    // sizes are assumed to be in the tree already. A carried
+                    // `inline_layout_result` (a clone's, and a matched
+                    // anonymous block's since `try_reuse_anon_wrapper` carries
+                    // layout state) can reach this exit in a new tree, and the
+                    // assumption still holds there: the collection above is
+                    // only reused while `atomic_inline_children_are_laid_out`
+                    // says the atomic children it places have sizes (carried
+                    // by their own clones), and a re-collection lays them out.
                     for positioned_item in &main_frag.items {
                         if let ShapedItem::Object { source, .. } = &positioned_item.item {
                             if let Some(&child_node_index) = child_map.get(source) {
