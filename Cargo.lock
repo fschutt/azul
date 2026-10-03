@@ -48,6 +48,7 @@ dependencies = [
 name = "AzDrive"
 version = "0.1.0"
 dependencies = [
+ "azul-appkit",
  "azul-dll",
  "azul-storage",
  "chrono",
@@ -59,8 +60,10 @@ dependencies = [
 name = "AzMail"
 version = "0.1.0"
 dependencies = [
+ "azul-appkit",
  "azul-dll",
  "azul-pim",
+ "azul-storage",
  "chrono",
  "imap",
  "imap-proto",
@@ -77,23 +80,32 @@ dependencies = [
 name = "AzMaps"
 version = "0.1.0"
 dependencies = [
+ "azul-appkit",
  "azul-dll",
  "ctor",
+ "serde_json",
 ]
 
 [[package]]
 name = "AzMeet"
 version = "0.1.0"
 dependencies = [
+ "azul-appkit",
  "azul-dll",
+ "azul-pim",
+ "azul-storage",
  "ctor",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
 name = "AzNotes"
 version = "0.1.0"
 dependencies = [
+ "azul-appkit",
  "azul-dll",
+ "azul-pim",
  "azul-storage",
  "chrono",
 ]
@@ -102,6 +114,7 @@ dependencies = [
 name = "AzPaint"
 version = "0.1.0"
 dependencies = [
+ "azul-appkit",
  "azul-dll",
  "ctor",
 ]
@@ -121,6 +134,7 @@ dependencies = [
 name = "AzReview"
 version = "0.1.0"
 dependencies = [
+ "azul-appkit",
  "azul-dll",
 ]
 
@@ -128,6 +142,7 @@ dependencies = [
 name = "AzSetup"
 version = "0.1.0"
 dependencies = [
+ "azul-appkit",
  "azul-dll",
 ]
 
@@ -135,19 +150,20 @@ dependencies = [
 name = "AzSheets"
 version = "0.1.0"
 dependencies = [
+ "azul-appkit",
  "azul-dll",
  "azul-storage",
  "csv",
  "ironcalc",
  "serde",
  "serde_json",
- "uuid",
 ]
 
 [[package]]
 name = "AzShells"
 version = "0.1.0"
 dependencies = [
+ "azul-appkit",
  "azul-dll",
 ]
 
@@ -167,6 +183,7 @@ dependencies = [
 name = "AzTasks"
 version = "0.1.0"
 dependencies = [
+ "azul-appkit",
  "azul-dll",
  "azul-pim",
  "azul-storage",
@@ -198,11 +215,11 @@ dependencies = [
 name = "AzWriter"
 version = "0.1.0"
 dependencies = [
+ "azul-appkit",
  "azul-dll",
+ "azul-storage",
  "ctor",
  "docx-parser",
- "flate2",
- "pulldown-cmark",
  "serde",
  "serde_json",
 ]

@@ -8124,9 +8124,6 @@
                                 "title": {
                                     "type": "String"
                                 },
-                                "close_callback": {
-                                    "type": "OptionCallback"
-                                },
                                 "layout_callback": {
                                     "type": "LayoutCallback"
                                 },
@@ -20074,6 +20071,31 @@
                                     }
                                 ],
                                 "fn_body": "object.prevent_window_close()"
+                            },
+                            "text_image": {
+                                "doc": [
+                                    "`text` set in `style` as a straight-alpha RGBA8 image as big as its",
+                                    "lines' boxes ([`crate::cpurender::text_image_with`]), with the fonts",
+                                    "THIS window already found: no second scan of the system fonts, as",
+                                    "`RawImage::from_text` makes on its first call on a thread (a photo",
+                                    "editor's text tool calls this from its key handler). `None`: no text,",
+                                    "no usable size, no font."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "text": "String"
+                                    },
+                                    {
+                                        "style": "TextRasterStyle"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionRawImage"
+                                },
+                                "fn_body": "object.text_image(text, style)"
                             }
                         },
                         "repr": "C"
@@ -20796,6 +20818,26 @@
                                     "type": "String"
                                 },
                                 "fn_body": "object.get_theme().into()"
+                            },
+                            "get_window_id": {
+                                "doc": [
+                                    "The id of the window this `layout()` builds: its",
+                                    "`FullWindowState::window_id`, the name the app gave it in its",
+                                    "`WindowCreateOptions` (empty when it gave none).",
+                                    "",
+                                    "One layout callback can serve several windows of one kind - two event",
+                                    "editors, each opened with its own id (`\"editor-<event id>\"`) - and",
+                                    "tells them apart here, where it decides which document to build."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.get_window_id().into()"
                             }
                         },
                         "repr": "C"
@@ -24245,6 +24287,25 @@
                                 },
                                 {
                                     "type": "RichTextEditorState"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
+                    },
+                    "RecurrenceEditorOnChangeCallbackType": {
+                        "external": "azul_layout::widgets::recurrence_editor::RecurrenceEditorOnChangeCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "RecurrenceRule"
                                 }
                             ],
                             "returns": {
@@ -36489,6 +36550,38 @@
                             {
                                 "cb": {
                                     "type": "RichTextEditorOnLinkCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RecurrenceEditorOnChangeCallback": {
+                        "external": "azul_layout::widgets::recurrence_editor::RecurrenceEditorOnChangeCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "RecurrenceEditorOnChangeCallbackType"
                                 },
                                 "callable": {
                                     "type": "OptionRefAny"
@@ -58002,6 +58095,56 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "TextRasterStyle": {
+                        "external": "azul_layout::cpurender::text_raster::TextRasterStyle",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "font_family": {
+                                    "type": "String"
+                                },
+                                "size_px": {
+                                    "type": "f32"
+                                },
+                                "line_height": {
+                                    "type": "f32"
+                                },
+                                "color": {
+                                    "type": "ColorU"
+                                },
+                                "bold": {
+                                    "type": "bool"
+                                },
+                                "italic": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "with_line_height": {
+                                "doc": [
+                                    "Baselines `line_height` times the font's line height apart."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "line_height": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextRasterStyle"
+                                },
+                                "fn_body": "object.with_line_height(line_height)"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -60592,6 +60735,25 @@
                                     "type": "TextInput"
                                 },
                                 "fn_body": "object.with_pattern(pattern)"
+                            },
+                            "set_text_in": {
+                                "doc": [
+                                    "Sets the text of the field hosted at `container` from a callback, as the",
+                                    "app: it supersedes what the user typed there (a chat field emptied after Send).",
+                                    "Re-rendering the field with `with_text` alone does not. A password field shows its mask."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "info": "CallbackInfo"
+                                    },
+                                    {
+                                        "container": "DomNodeId"
+                                    },
+                                    {
+                                        "text": "String"
+                                    }
+                                ],
+                                "fn_body": "{ let mut info = info; azul_layout::widgets::text_input::TextInput::set_text_in(&mut info, container, text) }"
                             }
                         },
                         "repr": "C"
@@ -71508,6 +71670,9 @@
                                 },
                                 "on_select": {
                                     "type": "OptionRibbonGalleryOnSelect"
+                                },
+                                "visible": {
+                                    "type": "usize"
                                 }
                             }
                         ],
@@ -71578,6 +71743,38 @@
                                     "type": "RibbonGallery"
                                 },
                                 "fn_body": "object.with_on_select(data, on_select)"
+                            },
+                            "set_visible": {
+                                "doc": [
+                                    "Shows `visible` cells in the ribbon (0: every cell); see",
+                                    "[`Self::visible`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "visible": "usize"
+                                    }
+                                ],
+                                "fn_body": "object.set_visible(visible)"
+                            },
+                            "with_visible": {
+                                "doc": [
+                                    "Builder method: [`Self::set_visible`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "visible": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonGallery"
+                                },
+                                "fn_body": "object.with_visible(visible)"
                             }
                         },
                         "repr": "C"
@@ -72021,6 +72218,9 @@
                                 },
                                 "disabled_reason": {
                                     "type": "String"
+                                },
+                                "alt": {
+                                    "type": "String"
                                 }
                             }
                         ],
@@ -72157,6 +72357,38 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "object.is_disabled()"
+                            },
+                            "set_alt": {
+                                "doc": [
+                                    "Names an icon-only button for assistive technology (see",
+                                    "[`Self::alt`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "alt": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_alt(alt)"
+                            },
+                            "with_alt": {
+                                "doc": [
+                                    "Builder method: [`Self::set_alt`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "alt": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonButton"
+                                },
+                                "fn_body": "object.with_alt(alt)"
                             }
                         },
                         "repr": "C"
@@ -85802,6 +86034,9 @@
                                 "row_heights": {
                                     "type": "CellGridSizeVec"
                                 },
+                                "merges": {
+                                    "type": "CellGridRangeVec"
+                                },
                                 "data_source": {
                                     "type": "OptionCellGridDataSource"
                                 },
@@ -86630,6 +86865,37 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "set_merges": {
+                                "doc": [
+                                    "Sets the merged ranges (see [`Self::merges`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "merges": "CellGridRangeVec"
+                                    }
+                                ],
+                                "fn_body": "object.set_merges(merges)"
+                            },
+                            "with_merges": {
+                                "doc": [
+                                    "[`Self::set_merges`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "merges": "CellGridRangeVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "CellGrid"
+                                },
+                                "fn_body": "object.with_merges(merges)"
                             }
                         },
                         "repr": "C"
@@ -89274,7 +89540,8 @@
                                 "Select": {},
                                 "Fill": {},
                                 "ResizeColumn": {},
-                                "ResizeRow": {}
+                                "ResizeRow": {},
+                                "Point": {}
                             }
                         ],
                         "repr": "C"
@@ -93398,6 +93665,37 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.content_dom()"
+                            },
+                            "page_doms": {
+                                "doc": [
+                                    "The editing hosts of pages `first_page..first_page + page_count` of",
+                                    "a paginated document (AzWriter's A4 sheets). `page_starts` holds the",
+                                    "first block of every page, in order (page `k` is the blocks from",
+                                    "`page_starts[k]` to the next page's first). A page's blocks are named",
+                                    "by their index in the whole document (`<host id>-<index>`), its host",
+                                    "`<host id>-page-<first block>`. The pages share ONE editor state:",
+                                    "typing, structural edits and commands on any page land in the one",
+                                    "document and its one history. No frame and no toolbar (the app draws",
+                                    "the sheets and the ribbon)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "page_starts": "U32Vec"
+                                    },
+                                    {
+                                        "first_page": "usize"
+                                    },
+                                    {
+                                        "page_count": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DomVec"
+                                },
+                                "fn_body": "object.page_doms(page_starts, first_page, page_count)"
                             }
                         },
                         "repr": "C"
@@ -94968,6 +95266,251 @@
                                         "Number of elements in the slice"
                                     ]
                                 }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RecurrenceEditor": {
+                        "external": "azul_layout::widgets::recurrence_editor::RecurrenceEditor",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "state": {
+                                    "type": "RecurrenceEditorStateWrapper"
+                                },
+                                "accessibility_name": {
+                                    "type": "OptionString"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
+                                },
+                                "week_start": {
+                                    "type": "DatePickerWeekStart"
+                                },
+                                "completion_option": {
+                                    "type": "bool"
+                                },
+                                "end_option": {
+                                    "type": "bool"
+                                },
+                                "month_weekday_option": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "dom": {
+                                "doc": [
+                                    "The editor's DOM. The look comes from the theme module",
+                                    "(`themes::flat::recurrence_editor` / `themes::flora::",
+                                    "recurrence_editor`); `None` carries both looks, each in its",
+                                    "`@theme(<name>)` block, and the app theme picks."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RecurrenceEditorStateWrapper": {
+                        "external": "azul_layout::widgets::recurrence_editor::RecurrenceEditorStateWrapper",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "inner": {
+                                    "type": "RecurrenceRule"
+                                },
+                                "on_change": {
+                                    "type": "OptionRecurrenceEditorOnChange"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RecurrenceEditorOnChange": {
+                        "external": "azul_layout::widgets::recurrence_editor::RecurrenceEditorOnChange",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "RecurrenceEditorOnChangeCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RecurrenceRule": {
+                        "external": "azul_layout::widgets::recurrence_editor::RecurrenceRule",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "start": {
+                                    "type": "DatePickerState"
+                                },
+                                "until": {
+                                    "type": "DatePickerState"
+                                },
+                                "interval": {
+                                    "type": "u32"
+                                },
+                                "count": {
+                                    "type": "u32"
+                                },
+                                "frequency": {
+                                    "type": "RecurrenceFrequency"
+                                },
+                                "monthly": {
+                                    "type": "RecurrenceMonthly"
+                                },
+                                "end": {
+                                    "type": "RecurrenceEnd"
+                                },
+                                "weekdays": {
+                                    "type": "u8"
+                                },
+                                "from_completion": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "from_rrule": {
+                                "doc": [
+                                    "The rule an RRULE value (with or without its `RRULE:` name) makes for",
+                                    "an event or a to-do starting on `start`, when the form can show it;",
+                                    "`None` for a rule it cannot (another frequency, `BYSETPOS`, days that",
+                                    "are not the start's): the app keeps such a rule as it is. An empty",
+                                    "value is a rule that does not repeat."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "rrule": "String"
+                                    },
+                                    {
+                                        "start": "DatePickerState"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionRecurrenceRule"
+                                },
+                                "fn_body": "azul_layout::widgets::recurrence_editor::RecurrenceRule::from_rrule(rrule, start)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RecurrenceEnd": {
+                        "external": "azul_layout::widgets::recurrence_editor::RecurrenceEnd",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Never": {},
+                                "AfterCount": {},
+                                "OnDate": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RecurrenceMonthly": {
+                        "external": "azul_layout::widgets::recurrence_editor::RecurrenceMonthly",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DayOfMonth": {},
+                                "Weekday": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RecurrenceFrequency": {
+                        "external": "azul_layout::widgets::recurrence_editor::RecurrenceFrequency",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Never": {},
+                                "Daily": {},
+                                "Weekly": {},
+                                "Monthly": {},
+                                "Yearly": {}
                             }
                         ],
                         "repr": "C"
@@ -108920,6 +109463,77 @@
                                     "type": "OptionRawImage"
                                 },
                                 "fn_body": "object.resized(width, height).into()"
+                            },
+                            "fit_within": {
+                                "doc": [
+                                    "`width x height` scaled DOWN (never up) to fit `max_w x max_h`, the",
+                                    "aspect kept, at least one pixel per axis; `0 x 0` for an empty size",
+                                    "or box: the size [`Self::thumbnail`] makes, for an app that sizes its",
+                                    "own buffer by the same rule (a video decoder's output, a monitor)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "width": "u32"
+                                    },
+                                    {
+                                        "height": "u32"
+                                    },
+                                    {
+                                        "max_w": "u32"
+                                    },
+                                    {
+                                        "max_h": "u32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PhysicalSizeU32"
+                                },
+                                "fn_body": "azul_core::resources::RawImage::fit_within(width, height, max_w, max_h)"
+                            },
+                            "from_text": {
+                                "doc": [
+                                    "`text` rasterized with the system fonts in `style`: an RGBA image just large",
+                                    "enough for it (None when no font is found or the text is empty)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "text": "String"
+                                    },
+                                    {
+                                        "style": "TextRasterStyle"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionRawImage"
+                                },
+                                "fn_body": "azul_layout::cpurender::text_image(text, style)"
+                            },
+                            "draw_text": {
+                                "doc": [
+                                    "Draws `text` in `style` onto this image with its top-left corner at `x`, `y`",
+                                    "(system fonts). Returns false when nothing could be drawn."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "text": "String"
+                                    },
+                                    {
+                                        "style": "TextRasterStyle"
+                                    },
+                                    {
+                                        "x": "f32"
+                                    },
+                                    {
+                                        "y": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "azul_layout::cpurender::draw_text(object, text, style, x, y)"
                             }
                         },
                         "repr": "C"
@@ -112192,6 +112806,38 @@
                                     "type": "ExternalResourceVec"
                                 },
                                 "fn_body": "object.scan_external_resources()"
+                            },
+                            "encode_text": {
+                                "doc": [
+                                    "`text` as the text content of an HTML / XML element: `&`, `<` and `>` as",
+                                    "references (quotes stay plain text), the characters XML 1.0 cannot carry left out",
+                                    "(C0 controls other than tab, line feed and carriage return; U+FFFE, U+FFFF). The",
+                                    "inverse of the decoder in every mode - the one encoder for every writer of markup."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "text": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "azul_core::xml::html::encode_text(text.as_str()).into()"
+                            },
+                            "encode_attribute": {
+                                "doc": [
+                                    "`text` as a quoted attribute value: `encode_text` plus both quotes",
+                                    "(`&quot;`, `&apos;`), safe between double and single quotes alike."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "text": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "azul_core::xml::html::encode_attribute(text.as_str()).into()"
                             }
                         },
                         "repr": "C"
@@ -159486,6 +160132,55 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionRecurrenceEditorOnChange": {
+                        "external": "azul_layout::widgets::recurrence_editor::OptionRecurrenceEditorOnChange",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "RecurrenceEditorOnChange"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionRecurrenceRule": {
+                        "external": "azul_layout::widgets::recurrence_editor::OptionRecurrenceRule",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "RecurrenceRule"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -181133,6 +181828,22 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "body": {
+                                "doc": [
+                                    "The scope as the window's `<body>`: the root an app's `layout()`",
+                                    "returns. The body fills the window - no UA margin, the full height -",
+                                    "and the scope grows in it, so the shells' panes take the window."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.body()"
                             }
                         },
                         "repr": "C"
