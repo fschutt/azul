@@ -15,20 +15,15 @@ screenshots + hierarchy dumps under target/sheetshow6-shots/.
 - 58675fc89 RED (cell_grid): `every_cell_is_named_by_its_place_and_carries_its_text_as_its_value`,
   `a_text_too_wide_for_its_cell_spills_over_the_empty_cells_after_it` + stub `spill_spans` (returns all 1).
 
+- 285061c31 GREEN 1/2 (cells named), 4a7cedcfd GREEN 2/2 (spill_spans + build draws a spill as one wide cell).
+- 098f2be5b RED / fbefcd404 GREEN: StatusBarZoom names its slider "Zoom".
+
 ## IN PROGRESS
 - (power warning 2026-10-03: battery ~16 %; NO headless app runs until told otherwise. The AzShow look run was
   killed before it produced anything; AzShow is NOT looked at yet.)
 
 ## NEXT (exact)
-1. GREEN for 58675fc89 in layout/src/widgets/cell_grid.rs:
-   a. `build()` (the cell loop, ~line 2475): the GridCell's AccessibilityInfo becomes
-      `AccessibilityInfo { row_index, column_index, states, accessibility_value: (text non-empty -> Some(text)),
-      ..AccessibilityInfo::named(CellGrid::cell_label(at), AccessibilityRole::GridCell) }`.
-   b. `spill_spans()` real body: a Text cell (kind Text, no wrap, align General/Left), estimated width
-      chars * font_px(style.font_size or grid.font_size) * zoom * 0.6 + 6 > its column, spills over the next
-      columns of geo.columns while they are empty (text ""), unselected, unstyled (no fill / borders), not across
-      the frozen-column boundary; returns n for the spiller, 0 for covered, 1 otherwise.
-   c. `build()` uses spill_spans: a spilling cell's width = the covered columns' sizes summed; covered cells not built.
+1. (done)
 2. Sheets: compact HOME ribbon to fit 1280 px (Cells / Editing off-screen -> Sort / Filter / Find unclickable).
 3. StatusBarZoom's slider gets an accessible name "Zoom" (layout/src/widgets/statusbar.rs; RED test there first).
 4. S3 blockers (one shared `Arc<dyn Drive>` per app, Show `Job::List` -> `azul_storage::ops::list_all`, Show
