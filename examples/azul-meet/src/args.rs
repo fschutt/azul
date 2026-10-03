@@ -57,9 +57,44 @@ where
     I: IntoIterator<Item = S>,
     S: Into<String>,
 {
-    // RED: the Azlin switches are not read yet.
-    let _argv: Vec<String> = argv.into_iter().map(Into::into).collect();
-    Ok(Args::default())
+    let argv: Vec<String> = argv.into_iter().map(Into::into).collect();
+    if argv.iter().any(|a| a == "-h" || a == "--help") {
+        return Ok(Args {
+            help: true,
+            ..Args::default()
+        });
+    }
+    let mut name = None;
+    let mut rest = Vec::with_capacity(argv.len());
+    let mut i = 0;
+    while i < argv.len() {
+        let arg = argv[i].as_str();
+        if arg == "--name" {
+            i += 1;
+            name = Some(
+                argv.get(i)
+                    .cloned()
+                    .ok_or_else(|| String::from("--name needs a value"))?,
+            );
+        } else if let Some(value) = arg.strip_prefix("--name=") {
+            name = Some(value.to_string());
+        } else {
+            rest.push(argv[i].clone());
+        }
+        i += 1;
+    }
+    let kit = AppArgs::parse(&SPEC, rest)?;
+    let screen = match kit.screen.as_deref() {
+        Some("call") => Screen::Call,
+        Some("settings") => Screen::Settings,
+        _ => Screen::Lobby,
+    };
+    Ok(Args {
+        screen,
+        name,
+        help: false,
+        kit,
+    })
 }
 
 #[cfg(test)]
