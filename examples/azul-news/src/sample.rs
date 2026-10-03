@@ -99,10 +99,185 @@ pub const PICTURES: usize = 30;
 
 /// The sample library, its dates counted back from `now` (seconds since 1970).
 #[must_use]
-pub fn sample_library(_now: i64) -> Library {
-    let _unused: (Option<Item>, Option<FeedData>, Option<FeedMeta>, Option<Subscription>, Option<ReadState>, i64) =
-        (None, None, None, None, None, DAY);
-    Library::default()
+pub fn sample_library(now: i64) -> Library {
+    let mut lib = Library::default();
+    let mut index = 0usize;
+    for (folder, feeds) in FOLDERS {
+        for (title, host) in feeds {
+            let i = index;
+            index += 1;
+            let site = format!("https://{host}/");
+            let kind = if i % 3 == 0 {
+                "Atom"
+            } else if i % 7 == 0 {
+                "JSON Feed"
+            } else {
+                "RSS 2.0"
+            };
+            lib.feeds.push(FeedData {
+                sub: Subscription {
+                    id: format!("00000000-0000-4000-8000-{:012x}", i + 1),
+                    title: (*title).to_string(),
+                    url: format!("https://{host}/feed.xml"),
+                    site: site.clone(),
+                    folder: folder.to_string(),
+                },
+                meta: FeedMeta {
+                    title: (*title).to_string(),
+                    site,
+                    kind: kind.to_string(),
+                    checked: now - 600,
+                    updated: now - 3_600,
+                    status: 200,
+                    ..FeedMeta::default()
+                },
+                items: items(i, host, now),
+                state: ReadState::default(),
+            });
+        }
+    }
+    for (i, feed) in lib.feeds.iter_mut().enumerate() {
+        for (j, item) in feed.items.iter().enumerate() {
+            let age = now - item.date();
+            if (age > 3 * DAY && (i + j) % 5 != 0) || (i + j) % 11 == 0 {
+                feed.state.set_read(&item.id, true);
+            }
+            if (i * 31 + j) % 53 == 0 {
+                feed.state.toggle_starred(&item.id);
+            }
+            if (i * 17 + j) % 151 == 0 {
+                feed.state.toggle_later(&item.id);
+            }
+        }
+    }
+    lib.feeds[BROKEN_404].meta.error = "the server answered HTTP 404".to_string();
+    lib.feeds[BROKEN_404].meta.status = 404;
+    lib.feeds[BROKEN_INVALID].meta.error =
+        "the feed could not be read: the input ends inside <item>".to_string();
+    lib
+}
+
+const OPENERS: [&str; 10] = [
+    "Notes on",
+    "Why we still love",
+    "A field guide to",
+    "What changed in",
+    "Ten years of",
+    "The case for",
+    "Rethinking",
+    "A short history of",
+    "How to start with",
+    "Letters about",
+];
+
+const SUBJECTS: [&str; 16] = [
+    "feeds",
+    "the open web",
+    "small tools",
+    "a quiet morning",
+    "the city",
+    "old maps",
+    "bread",
+    "the night sky",
+    "compilers",
+    "the river",
+    "typefaces",
+    "a long walk",
+    "the market",
+    "tide pools",
+    "winter soup",
+    "the archive",
+];
+
+const AUTHORS: [&str; 8] = [
+    "Mara Schulz",
+    "Ben Kr\u{fc}ger",
+    "Ida Novak",
+    "Jonas Weber",
+    "Nora Peters",
+    "Emil Vogel",
+    "Rosa Wolf",
+    "Karl Braun",
+];
+
+/// Feed `i`'s articles: 12 to 31 of them, spread over the 60 days before `now`, newest first.
+fn items(i: usize, host: &str, now: i64) -> Vec<Item> {
+    let count = 12 + (i * 7) % 20;
+    (0..count)
+        .map(|j| {
+            let hours_back = (j * 60 * 24 / count + i % 7) as i64;
+            let date = now - hours_back * 3_600 - ((i * 13 + j * 7) % 60) as i64 * 60;
+            let opener = OPENERS[(i + j * 3) % OPENERS.len()];
+            let subject = SUBJECTS[(i * 5 + j) % SUBJECTS.len()];
+            let link = format!("https://{host}/2026/{}-{j}/", subject.replace(' ', "-"));
+            let image = if i == PICTURES {
+                format!("https://{host}/img/{j}.jpg")
+            } else if i != NO_PICTURES && j % 6 == 0 {
+                format!("https://{host}/img/hero-{j}.jpg")
+            } else {
+                String::new()
+            };
+            let long = (i + j) % 4 == 0;
+            Item {
+                id: format!("https://{host}/?p={}", 1000 + j),
+                title: format!("{opener} {subject}"),
+                author: AUTHORS[(i + j) % AUTHORS.len()].to_string(),
+                published: Some(date),
+                content: body(j, subject, long, &image),
+                excerpt: format!(
+                    "This is a note about {subject}. It was written for the sample library of AzNews, so nothing \
+                     here is real, but the shape is."
+                ),
+                base: link.clone(),
+                link,
+                image,
+                categories: vec![subject.to_string()],
+                seen: date,
+                ..Item::default()
+            }
+        })
+        .collect()
+}
+
+/// An article's HTML: a note, or an essay with headings, a quote, code and a table.
+fn body(j: usize, subject: &str, long: bool, image: &str) -> String {
+    let mut html = format!(
+        "<p>This is a note about {subject}. It was written for the sample library of AzNews, so nothing here is \
+         real, but the shape is: paragraphs, a quote, sometimes code.</p>"
+    );
+    if !image.is_empty() {
+        html.push_str(&format!(
+            "<figure><img src=\"{image}\" alt=\"A picture of {subject}\"><figcaption>{subject}, seen from the \
+             window</figcaption></figure>"
+        ));
+    }
+    if long {
+        html.push_str(&format!(
+            "<h2>What happened</h2><p>For a decade the obituaries of {subject} were written weekly. Yet it kept \
+             working, quietly, in the background of a thousand small habits.</p><blockquote><p>Feeds are the \
+             plumbing of the open web.</p></blockquote><h2>The details</h2>"
+        ));
+        for k in 0..6 {
+            html.push_str(&format!(
+                "<p>Paragraph {} goes on about {subject} at the length an essay needs: a sentence that sets the \
+                 scene, one that turns it around, and one that leaves the reader with a question about where \
+                 this is going and why it matters at all.</p>",
+                k + 1
+            ));
+        }
+        if j % 3 == 0 {
+            html.push_str(
+                "<pre><code>fn main() {\n    println!(\"hello, feeds\");\n}</code></pre>",
+            );
+        }
+        if j % 5 == 0 {
+            html.push_str(
+                "<table><tr><th>Day</th><th>Articles</th></tr><tr><td>Monday</td><td>12</td></tr>\
+                 <tr><td>Tuesday</td><td>9</td></tr></table>",
+            );
+        }
+    }
+    html
 }
 
 #[cfg(test)]
@@ -137,8 +312,14 @@ mod tests {
         assert!(lib.starred_count() >= 10, "{} starred", lib.starred_count());
         assert!(lib.later_count() >= 3, "{} saved", lib.later_count());
         assert_eq!(lib.broken(), vec![BROKEN_404, BROKEN_INVALID]);
-        assert!(lib.feeds[NO_PICTURES].items.iter().all(|i| i.image.is_empty() && !i.body().contains("<img")));
-        assert!(lib.feeds[PICTURES].items.iter().all(|i| !i.image.is_empty()));
+        assert!(lib.feeds[NO_PICTURES]
+            .items
+            .iter()
+            .all(|i| i.image.is_empty() && !i.body().contains("<img")));
+        assert!(lib.feeds[PICTURES]
+            .items
+            .iter()
+            .all(|i| !i.image.is_empty()));
         assert!(!lib.list(&View::All, "").is_empty());
     }
 
@@ -153,7 +334,11 @@ mod tests {
                 assert!(!item.title.is_empty());
                 assert!(!item.body().is_empty());
                 assert!(!item.excerpt.is_empty());
-                assert!(item.date() <= NOW && item.date() >= NOW - 61 * DAY, "{}", item.title);
+                assert!(
+                    item.date() <= NOW && item.date() >= NOW - 61 * DAY,
+                    "{}",
+                    item.title
+                );
             }
         }
         let feed_ids: HashSet<&str> = lib.feeds.iter().map(|f| f.sub.id.as_str()).collect();
