@@ -2389,6 +2389,12 @@ impl HeadlessWindow {
             child.shutdown_all_threads();
         }
         self.shutdown_threads();
+        // The font registry's scout / builder threads (one registry for the
+        // app, shared by every window) are told to stop too; the registry
+        // hands out no handles to join, so this is a signal, not a join.
+        if let Some(registry) = self.font_registry.as_ref() {
+            registry.shutdown();
+        }
     }
 
     // === Layout ===
