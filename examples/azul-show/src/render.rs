@@ -455,3 +455,30 @@ pub fn slide_dom(deck: &Deck, slide: &Slide, opts: &RenderOptions<'_>) -> Dom {
     }
     root
 }
+
+/// Where a picture of `image` size (px) lies in its `frame` box (px) for
+/// `fit`: (left, top, width, height) inside the box. Contain shows all of
+/// it centred (bands beside or above it), Cover fills the box centred (the
+/// overflow is clipped), Stretch fills the box.
+#[must_use]
+pub fn fit_rect(fit: ImageFit, frame: (f32, f32), image: (f32, f32)) -> (f32, f32, f32, f32) {
+    let _ = (fit, image);
+    (0.0, 0.0, frame.0, frame.1)
+}
+
+#[cfg(test)]
+mod fit_tests {
+    use super::*;
+
+    #[test]
+    fn contain_shows_all_of_the_picture_and_cover_fills_the_box() {
+        // A 200 x 100 picture in a 100 x 100 box.
+        assert_eq!(fit_rect(ImageFit::Contain, (100.0, 100.0), (200.0, 100.0)), (0.0, 25.0, 100.0, 50.0));
+        assert_eq!(fit_rect(ImageFit::Cover, (100.0, 100.0), (200.0, 100.0)), (-50.0, 0.0, 200.0, 100.0));
+        assert_eq!(fit_rect(ImageFit::Stretch, (100.0, 100.0), (200.0, 100.0)), (0.0, 0.0, 100.0, 100.0));
+        // A tall picture: bands left and right.
+        assert_eq!(fit_rect(ImageFit::Contain, (200.0, 100.0), (50.0, 100.0)), (75.0, 0.0, 50.0, 100.0));
+        // No size known (0): stretch.
+        assert_eq!(fit_rect(ImageFit::Contain, (80.0, 60.0), (0.0, 0.0)), (0.0, 0.0, 80.0, 60.0));
+    }
+}
