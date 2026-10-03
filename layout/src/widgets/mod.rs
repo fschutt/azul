@@ -521,6 +521,12 @@ pub mod chart;
 /// (decimal point, grouping, the currency's side), held as integer minor
 /// units - never a float; a text field underneath. See `money_input.rs`.
 pub mod money_input;
+/// Gauge widget.
+///
+/// One value in a range as a dial, a ring or a bar, with ok / warning /
+/// critical bands colouring it; a meter for assistive technology, drawn
+/// with the engine's vector path. See `gauge.rs`.
+pub mod gauge;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
