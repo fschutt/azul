@@ -46,13 +46,19 @@
   - 68499bb14 RED pending::tests::an_add_after_a_pending_removal_of_the_whole_class_replaces_its_entries
   - d868a9bfa GREEN prepare_add (+ main.rs both add arms)
 
+- item 5: already done at base (0a98cab8f F1, F17); verified (prebuilt `autofix modules`: all
+  types in the right module; no widget VecSlice outside widgets/shells):
+  - f40e56da5 regression guards (mod.rs macro_path_tests source scan; CellGridRangeVecSlice case)
+- 4afb8b3cc fix: private_module_on had fallen under add_type_for_test's #[cfg(test)]
+
 ## IN PROGRESS
-- item 5
+- final review pass of the diff vs 2e55eef06 for compile errors (done: add.rs, function_diff.rs,
+  type_index.rs; NEXT to review: mod.rs rest, diff.rs, patch/mod.rs, pending.rs, main.rs)
 
 ## NEXT
-- item 5: css/src/macros.rs $crate:: in impl_option!/impl_result!/impl_widget_callback! RefAny;
-  module_map VecSlice rule (already one rule: is_vec_family - verify + list the scan's moves)
-- report scripts/TOOLS7_2026_10_03.md
+- finish the review pass (above), fix + commit anything found
+- write the report scripts/TOOLS7_2026_10_03.md (built, commits, api.json list, least-sure spots,
+  test commands, what is left) and commit it
 
 ## Decisions / open questions
 - item 0: root cause = file-name collision in the new-type add path. Fixed by naming.
