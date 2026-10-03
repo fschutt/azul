@@ -10,6 +10,7 @@ Brief: scripts/waves/wave8/PLAN.md section "RULINGS8".
 - 80a1c3ccf progress file
 - cffdaeffa FOCUS RED: layout/src/e2e/focus_across_virtual_view_tests.rs (child module of runner.rs, appended at
   its end; needs run_e2e_test_keeping_runner which is private, so not in layout/tests/)
+- 6e64021b6 STRUT RED: layout/tests/a_line_holding_only_an_inline_block_is_as_tall_as_its_strut.rs (10 tests)
 - 91928b72d FOCUS GREEN: managers::hover::focusable_under_pointer walks core::events::get_event_path (4th closure
   host_of); dll event.rs + runner.rs pass virtual_view_manager.host_of_nested_dom; hover.rs unit tests updated.
 
@@ -49,7 +50,7 @@ Brief: scripts/waves/wave8/PLAN.md section "RULINGS8".
       (parent) font, not line_ascent (circular).
 
 ## NEXT
-- 1. RED test layout/tests/a_line_holding_only_an_inline_block_is_as_tall_as_its_strut.rs (use
+- 1. DONE (6e64021b6). RED test layout/tests/a_line_holding_only_an_inline_block_is_as_tall_as_its_strut.rs (use
      crate::table_markup::{body, near, rect}; append #[path]+mod to layout/tests/all.rs at the very end) with
      the Chrome numbers above (font-independent ones exact: line-height 20 -> 20, line-height 0 -> 10;
      normal: equal to a "x" text line in the same font, b.y 4 +-0.6; middle 24px -> p 24 b.y 0; bottom -> 0;
