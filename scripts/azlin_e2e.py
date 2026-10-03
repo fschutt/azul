@@ -81,6 +81,73 @@ def dicts(value):
             yield from dicts(v)
 
 
+def read_png(path):
+    """(width, height, rows) of an 8-bit RGB / RGBA PNG (what take_screenshot
+    writes); rows[y][x] is an (r, g, b, a) tuple. No third-party modules."""
+    import struct
+    import zlib
+
+    with open(path, "rb") as f:
+        data = f.read()
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        raise Failure("%s is not a PNG" % path)
+    pos, idat, width, height, channels = 8, b"", 0, 0, 0
+    while pos < len(data):
+        length, kind = struct.unpack(">I4s", data[pos:pos + 8])
+        chunk = data[pos + 8:pos + 8 + length]
+        pos += 12 + length
+        if kind == b"IHDR":
+            width, height, depth, color, _, _, interlace = struct.unpack(">IIBBBBB", chunk)
+            if depth != 8 or color not in (2, 6) or interlace:
+                raise Failure("%s: only 8-bit RGB / RGBA, not interlaced (depth %d, color %d)"
+                              % (path, depth, color))
+            channels = 3 if color == 2 else 4
+        elif kind == b"IDAT":
+            idat += chunk
+        elif kind == b"IEND":
+            break
+    raw = zlib.decompress(idat)
+    stride = width * channels
+    rows, prev, i = [], bytearray(stride), 0
+    for _ in range(height):
+        kind, line = raw[i], bytearray(raw[i + 1:i + 1 + stride])
+        i += 1 + stride
+        for x in range(stride):
+            a = line[x - channels] if x >= channels else 0
+            b = prev[x]
+            c = prev[x - channels] if x >= channels else 0
+            if kind == 1:
+                line[x] = (line[x] + a) & 0xFF
+            elif kind == 2:
+                line[x] = (line[x] + b) & 0xFF
+            elif kind == 3:
+                line[x] = (line[x] + (a + b) // 2) & 0xFF
+            elif kind == 4:
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                pred = a if pa <= pb and pa <= pc else (b if pb <= pc else c)
+                line[x] = (line[x] + pred) & 0xFF
+        rows.append([tuple(line[x:x + channels]) + ((255,) if channels == 3 else ())
+                     for x in range(0, stride, channels)])
+        prev = line
+    return width, height, rows
+
+
+def dark_pixels(path, rect, scale=1.0, threshold=100):
+    """How many pixels of the logical `rect` (x, y, width, height) of the
+    screenshot at `path` are dark (r, g and b below `threshold`)."""
+    _, _, rows = read_png(path)
+    x0, y0, w, h = (int(round(v * scale)) for v in rect)
+    count = 0
+    for y in range(max(y0, 0), min(y0 + h, len(rows))):
+        row = rows[y]
+        for x in range(max(x0, 0), min(x0 + w, len(row))):
+            r, g, b, _ = row[x]
+            if r < threshold and g < threshold and b < threshold:
+                count += 1
+    return count
+
+
 def tail(path, lines=40):
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
