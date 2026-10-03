@@ -128,8 +128,35 @@ pub fn import_bytes(name: &str, bytes: &[u8]) -> Result<azul::widgets::RichTextD
 /// What the read of a file to import answered (`name`: the file's name,
 /// Word by its `.docx`): the document, or the sentence the user reads.
 pub fn imported(name: &str, result: Result<Option<Vec<u8>>, String>) -> Result<azul::widgets::RichTextDoc, String> {
-    let _ = (name, result);
-    Err(String::new())
+    match result {
+        Ok(Some(bytes)) => {
+            import_bytes(name, &bytes).map_err(|e| format!("{name} could not be imported: {e}"))
+        }
+        Ok(None) => Err(format!("{name} is gone.")),
+        Err(e) => Err(format!("{name} could not be read: {e}")),
+    }
+}
+
+/// The read of a file to import answered (`crate::on_files_done`, tag
+/// `IMPORT`): the file becomes a new document of the data tree, saved at
+/// once (the open one saved first when it has changes).
+pub fn finish_import(
+    st: &mut AppState,
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    name: &str,
+    result: Result<Option<Vec<u8>>, String>,
+) {
+    match imported(name, result) {
+        Ok(doc) => {
+            save_if_dirty(st, info, app);
+            show_document(st, DocumentModel::from_doc(model::new_document_id(), doc, String::new()));
+            save(st, info, app, storage::tag::SAVE);
+            st.notice = format!("Imported {name}");
+            println!("AZWRITER_IMPORTED {name}");
+        }
+        Err(e) => st.notice = e,
+    }
 }
 
 /// The import dialog answered: the file becomes a new document of the data
@@ -141,24 +168,21 @@ extern "C" fn on_import_picked(mut data: RefAny, mut info: CallbackInfo, result:
     let Some(path) = picked.path.into_option() else {
         return Update::DoNothing;
     };
-    let path = path.as_string().as_str().to_string();
+    let path = std::path::PathBuf::from(path.as_string().as_str());
     let handle = data.clone();
     let Some(mut guard) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
     let st = &mut *guard;
-    // A file the user picked outside the data tree: read once, then it
-    // lives in the tree like any document.
-    let read = std::fs::read(&path).map_err(|e| e.to_string());
-    match read.and_then(|bytes| import_bytes(&path, &bytes)) {
-        Ok(doc) => {
-            save_if_dirty(st, &mut info, &handle);
-            show_document(st, DocumentModel::from_doc(model::new_document_id(), doc, String::new()));
-            save(st, &mut info, &handle, storage::tag::SAVE);
-            st.notice = format!("Imported {path}");
-        }
-        Err(e) => st.notice = format!("{path} could not be imported: {e}"),
-    }
+    // A file the user picked outside the data tree: read on a Thread
+    // through a drive at its folder (no manifest there); the answer comes
+    // to on_files_done as IMPORT, then the file lives in the tree like any
+    // document.
+    st.notice = if kit::spawn_outside_read(&mut info, &path, handle, storage::tag::IMPORT, crate::on_files_done) {
+        format!("Importing {}...", path.display())
+    } else {
+        format!("{} is not a file that can be imported.", path.display())
+    };
     Update::RefreshDom
 }
 

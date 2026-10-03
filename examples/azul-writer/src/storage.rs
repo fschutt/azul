@@ -23,6 +23,8 @@ pub mod tag {
     pub const DELETE: u64 = 5;
     /// The open document saved before the window closes.
     pub const SAVE_AND_CLOSE: u64 = 6;
+    /// A file to import read (outside the data tree; its key is its name).
+    pub const IMPORT: u64 = 7;
 }
 
 /// The key of document `id`: `writer/<id>.md`.
