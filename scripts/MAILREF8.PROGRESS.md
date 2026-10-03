@@ -63,7 +63,13 @@ Never compile; never touch layout/src/solver3/page_breaks.rs (nor display_list.r
    exactly like azul: probe target/mailref8/b1.json css_table_stray_text). Owner: XML8 (its brief lists
    table foster parenting). Expected effect when XML8 lands it: ~73 boxes (invoice 32, receipt 41).
    (The mail_boxes 'tbody 183 wide / stacked cells' rows were the measure pairing azul's anonymous boxes.)
-5. NEXT: group C (mailgun billing: row azr-21 412 tall vs Chrome 323, then +90 below).
+5. DONE group C: RED 8257b045a (layout/tests/a_cells_row_is_as_tall_as_its_content_at_the_column_width.rs),
+   GREEN 531e3a19e (fc.rs layout_cell_for_height block branch: content height = the final layout's
+   overflow_content_size only; the `measured` (min-content measurement used_size) term dropped).
+   Expected: mailgun billing 26 -> ~0.
+6. NEXT: group D (03_outlook_reply: <p> 17 tall vs Chrome 16, y drifts +5..+14). Probe its markup
+   (target/refci/mail-wave8-base/exploration_03_outlook_reply/chrome.html azr-15/17), then E (04_receipt
+   rows 31 vs 34, <hr> 1 vs 2), F (leemunroe a x +4).
 - Group A expected effect (after the parent's build): cerberus x3 ~390 boxes y -14 -> 0, azr-1/azr-2
   heights fixed (paper = content). Left in A: an IFC's height is its items' bounds, not its line boxes
   (strut descent below an inline-block: t1 wrap 46 vs Chrome 60, t3 30 vs 34) - text3 cache.rs
