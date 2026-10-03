@@ -1012,6 +1012,9 @@ pub struct TypeIndex {
     by_name: BTreeMap<String, Vec<Arc<TypeDefinition>>>,
     /// Map from full path to definition
     by_path: BTreeMap<String, Arc<TypeDefinition>>,
+    /// The modules declared without `pub` (`azul_layout::cpurender::named`):
+    /// a path through one does not name its type from another crate
+    private_modules: std::collections::BTreeSet<String>,
     /// Errors encountered during indexing
     pub errors: Vec<String>,
 }
@@ -1246,6 +1249,18 @@ impl TypeIndex {
 
     /// Add a type definition for testing purposes
     #[cfg(test)]
+    /// The first private module on the way to `path` (a type or module
+    /// path), if any: the path does not name its item from another crate.
+    pub fn private_module_on(&self, path: &str) -> Option<String> {
+        let _ = path;
+        None
+    }
+
+    /// Record `module` as declared without `pub` (tests).
+    pub fn add_private_module_for_test(&mut self, module: &str) {
+        self.private_modules.insert(module.to_string());
+    }
+
     pub fn add_type_for_test(&mut self, typedef: TypeDefinition) {
         let full_path = if typedef.module_path.is_empty() {
             format!("{}::{}", typedef.crate_name, typedef.type_name)
@@ -3910,6 +3925,56 @@ mod tests {
         assert!(find_free_fn(root.path(), "azul_layout::other::text_image", "RawImage").is_err(), "not public");
         assert!(find_free_fn(root.path(), "azul_layout::cpurender::nope", "RawImage").is_err());
         assert!(find_free_fn(root.path(), "nocrate::f", "RawImage").is_err());
+    }
+
+    /// `TextRasterStyle` is defined in `cpurender/text_raster.rs`, and
+    /// `cpurender` re-exported it (`mod text_raster; pub use text_raster::*;`):
+    /// api.json got the private path `azul_layout::cpurender::text_raster::
+    /// TextRasterStyle` and the dylib did not compile (15 E0603, wave 6) until
+    /// the module was made pub. A type behind a private module is indexed by
+    /// the path of the `pub use` that re-exports it (a glob of its module or
+    /// its name); one nothing re-exports keeps its path and the index names
+    /// the private module on the way.
+    #[test]
+    fn a_type_in_a_private_module_is_indexed_by_its_public_re_export_path() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let write = |rel: &str, text: &str| {
+            let path = root.path().join(rel);
+            fs::create_dir_all(path.parent().expect("parent")).expect("dirs");
+            fs::write(path, text).expect("written");
+        };
+        write("layout/src/lib.rs", "pub mod cpurender;\n");
+        write(
+            "layout/src/cpurender/mod.rs",
+            "mod text_raster;\npub use text_raster::*;\nmod named;\npub use self::named::{Only};\n\
+             mod internal;\npub mod open;\n",
+        );
+        write("layout/src/cpurender/text_raster.rs", "#[repr(C)] pub struct TextRasterStyle { pub size: f32 }\n");
+        write(
+            "layout/src/cpurender/named.rs",
+            "#[repr(C)] pub struct Only { pub a: u8 }\n#[repr(C)] pub struct NotNamed { pub a: u8 }\n",
+        );
+        write("layout/src/cpurender/internal.rs", "#[repr(C)] pub struct Internal { pub a: u8 }\n");
+        write("layout/src/cpurender/open.rs", "#[repr(C)] pub struct Open { pub a: u8 }\n");
+
+        let index = TypeIndex::build(root.path(), false).expect("index");
+        let path_of = |name: &str| index.resolve(name, None).expect(name).full_path.clone();
+
+        assert_eq!(path_of("TextRasterStyle"), "azul_layout::cpurender::TextRasterStyle");
+        assert!(index.get_by_path("azul_layout::cpurender::TextRasterStyle").is_some());
+        assert_eq!(path_of("Only"), "azul_layout::cpurender::Only");
+        assert_eq!(path_of("Open"), "azul_layout::cpurender::open::Open");
+        assert_eq!(index.private_module_on("azul_layout::cpurender::open::Open"), None);
+
+        assert_eq!(path_of("NotNamed"), "azul_layout::cpurender::named::NotNamed");
+        assert_eq!(
+            index.private_module_on("azul_layout::cpurender::named::NotNamed").as_deref(),
+            Some("azul_layout::cpurender::named")
+        );
+        assert_eq!(
+            index.private_module_on("azul_layout::cpurender::internal::Internal").as_deref(),
+            Some("azul_layout::cpurender::internal")
+        );
     }
 
     /// A method in an `impl T` block of another file (`impl CallbackInfo` in
