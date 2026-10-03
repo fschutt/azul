@@ -377,7 +377,11 @@ fn strings(args: &[&str]) -> Vec<String> {
 
 #[test]
 fn the_export_switches_name_the_output_the_page_the_width_and_the_file() {
-    assert_eq!(parse_export(&strings(&["file.pdf"])), None, "no export: the window");
+    assert_eq!(
+        parse_export(&strings(&["file.pdf"])),
+        None,
+        "no export: the window"
+    );
     let request = parse_export(&strings(&[
         "--export-png",
         "/tmp/p1.png",
@@ -413,7 +417,13 @@ fn the_export_switches_name_the_output_the_page_the_width_and_the_file() {
         Some(Err(_))
     ));
     assert!(matches!(
-        parse_export(&strings(&["--export-png", "o.png", "--page", "x", "in.pdf"])),
+        parse_export(&strings(&[
+            "--export-png",
+            "o.png",
+            "--page",
+            "x",
+            "in.pdf"
+        ])),
         Some(Err(_))
     ));
 }

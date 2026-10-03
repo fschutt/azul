@@ -125,12 +125,16 @@ pub enum Outcome {
         image: Option<ImageRef>,
     },
     /// A render thread finished (its slot is free again).
-    RenderDone { generation: u64 },
+    RenderDone {
+        generation: u64,
+    },
     Texts {
         generation: u64,
         texts: Vec<String>,
     },
-    Sample { result: Result<Vec<u8>, String> },
+    Sample {
+        result: Result<Vec<u8>, String>,
+    },
 }
 
 /// A thread's start data: the job, taken out once.
@@ -154,7 +158,11 @@ fn send(sender: &mut ThreadSender, outcome: Outcome) {
 }
 
 /// Runs on a worker thread: the job, then its answer(s) to the UI thread.
-pub extern "C" fn job_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: ThreadReceiver) {
+pub extern "C" fn job_thread(
+    mut init: RefAny,
+    mut sender: ThreadSender,
+    _receiver: ThreadReceiver,
+) {
     let Some(job) = init
         .downcast_mut::<JobInit>()
         .and_then(|mut init| init.job.take())
@@ -312,7 +320,9 @@ pub fn sample_pdf() -> Result<Vec<u8>, String> {
     }
     body.add_child(row);
     for chapter in 1..=6 {
-        body.add_child(Dom::create_h2_with_text(format!("Chapter {chapter}").as_str()));
+        body.add_child(Dom::create_h2_with_text(
+            format!("Chapter {chapter}").as_str(),
+        ));
         for paragraph in 1..=5 {
             body.add_child(Dom::create_p_with_text(
                 format!(

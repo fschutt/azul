@@ -93,7 +93,11 @@ pub const SHORTCUTS: [Shortcut; 7] = [
     Shortcut::new("View", "Mod+0", "Actual size (100 %)"),
     Shortcut::new("Pages", "Page Down / Page Up", "The next / previous page"),
     Shortcut::new("Pages", "Mod+Home / Mod+End", "The first / last page"),
-    Shortcut::new("Search", "Return in the search field", "Find in the document"),
+    Shortcut::new(
+        "Search",
+        "Return in the search field",
+        "Find in the document",
+    ),
 ];
 
 /// The recent documents' file in the app's folder.
@@ -232,10 +236,7 @@ impl AppState {
     #[must_use]
     pub fn thumb_scale(&self) -> f32 {
         let widest = self.doc.as_ref().map_or(0.0, |d| {
-            d.sizes
-                .iter()
-                .map(|p| p.css(1.0).0)
-                .fold(0.0_f32, f32::max)
+            d.sizes.iter().map(|p| p.css(1.0).0).fold(0.0_f32, f32::max)
         });
         if widest > 0.0 {
             THUMB_W / widest
@@ -367,7 +368,10 @@ impl AppState {
         self.search.running = false;
         println!("AZPDF_HITS {}", self.search.hits.len());
         self.status = match self.search.hits.len() {
-            0 => format!("No matches for \u{201c}{}\u{201d}", self.search.query.trim()),
+            0 => format!(
+                "No matches for \u{201c}{}\u{201d}",
+                self.search.query.trim()
+            ),
             1 => "1 match".to_string(),
             n => format!("{n} matches"),
         };
@@ -694,8 +698,7 @@ pub extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: Callba
             if generation != s.generation {
                 return Update::DoNothing;
             }
-            s.running
-                .retain(|r| *r != (kind, page, width));
+            s.running.retain(|r| *r != (kind, page, width));
             let Some(image) = image else {
                 return Update::DoNothing;
             };
@@ -1101,7 +1104,10 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     }
     let page = s.current_page;
-    let last = s.doc.as_ref().map_or(0, |d| d.page_count().saturating_sub(1));
+    let last = s
+        .doc
+        .as_ref()
+        .map_or(0, |d| d.page_count().saturating_sub(1));
     match key {
         VirtualKeyCode::Equals | VirtualKeyCode::Plus | VirtualKeyCode::NumpadAdd if primary => {
             let zoom = Zoom::zoom_in(s.scale());
