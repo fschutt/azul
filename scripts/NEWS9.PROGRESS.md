@@ -56,8 +56,24 @@ On resume: read this file, `git -C <worktree> status`, `git log --oneline -12`, 
 - c5df3dccf ui.rs part 1 (facts, Settings / Pictures, age / long_date, AddFeed / OpmlImport /
   import_rows / Reading / NewsApp, start(), small pieces, tests). NOT yet `pub mod ui` in lib.rs.
 
+- 08acca885 ui.rs part 2 (navigation_views / navigation, list_pane / article_row, reading_pane
+  with article_view / add_feed_view / import_view / feed_page, toolbar, status_bar,
+  settings_sections, layout). It names callbacks that part 3 must define (exact names):
+  on_add_open on_nav on_row on_search on_filter on_show_more on_mark_all_yes on_mark_all_no
+  on_prev on_next on_open_original on_star on_later on_toggle_read on_reading_event
+  on_add_input on_add_find on_add_pick on_add_folder on_add_subscribe on_leave on_import_path
+  on_import_choose on_import_read on_import_toggle on_import_run on_feed_title on_feed_folder
+  on_feed_refresh on_feed_articles on_unsubscribe_confirmed on_unsubscribe on_refresh
+  on_import_open on_export on_mark_all on_open_settings on_set_font on_set_measure on_set_paper
+  on_set_pictures on_set_strip on_set_refresh_start on_set_refresh_every on_set_keep on_key
+  on_window_created (+ on_files_done, on_refresh_event, on_picture_event, on_find_event, the
+  refresh timer). Signatures as in azul-contacts (button: (RefAny, CallbackInfo) -> Update;
+  text input: (.., TextInputState) -> OnTextInputReturn; segmented: (.., SegmentedState);
+  switch: (.., SwitchState); checkbox: (.., CheckBoxState); nav: (.., ShellNavigationPaneEvent);
+  reading pane: (.., ReadingPaneEvent); write-back: (RefAny app, RefAny msg, CallbackInfo)).
+
 ## NEXT: the window (azul-dependent; model it on examples/azul-contacts/src/ui.rs line by line)
-B (next step). src/ui.rs part 2: navigation (pre-order views, TreeViewNode with_badge), the list
+B (next step: part 3 = the callbacks, before the tests module of ui.rs). Old plan of part 2: navigation (pre-order views, TreeViewNode with_badge), the list
    (rows, day headers via DateGroup, Show more, mark-all confirm), the reading pane (Article via
    ReadingPane + InfoBar, AddFeed, Import, Feed page), toolbar, status bar, settings sections,
    layout(); part 3: callbacks (files done, refresh / picture / find events, nav, row, search,
