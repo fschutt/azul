@@ -265,8 +265,39 @@ impl MoneyLocale {
     /// [`Self::from_sample`] with a number the app's localizer formatted.
     #[must_use]
     pub fn from_tag(tag: AzString) -> Self {
-        let _ = tag;
-        Self::en_us()
+        let tag = tag.as_str().trim().to_ascii_lowercase().replace('_', "-");
+        let mut parts = tag.split('-');
+        let lang = parts.next().unwrap_or("");
+        // The region is the first 2-letter (or 3-digit) subtag after the
+        // language - a script subtag (`Latn`) sits in between sometimes.
+        let region = parts
+            .find(|p| p.len() == 2 || (p.len() == 3 && p.bytes().all(|b| b.is_ascii_digit())))
+            .unwrap_or("");
+        let comma_dot_after = Self::de_de();
+        let comma_space_after = Self::create(',' as u32, NBSP as u32, MoneySymbolPosition::After);
+        let comma_dot_before = Self::create(',' as u32, '.' as u32, MoneySymbolPosition::Before);
+        if matches!(region, "ch" | "li") {
+            return Self::de_ch();
+        }
+        match lang {
+            "de" | "it" | "da" | "el" | "id" | "tr" | "ro" | "hr" | "sl" | "sr" | "ca" | "gl"
+            | "eu" | "vi" | "is" => comma_dot_after,
+            "es" if matches!(
+                region,
+                "mx" | "us" | "pr" | "gt" | "hn" | "ni" | "sv" | "pa"
+            ) =>
+            {
+                Self::en_us()
+            }
+            "es" => comma_dot_after,
+            "nl" => comma_dot_before,
+            "pt" if region == "br" => comma_dot_before,
+            "pt" => comma_space_after,
+            "fr" => Self::fr_fr(),
+            "nb" | "no" | "nn" | "sv" | "fi" | "cs" | "sk" | "pl" | "ru" | "uk" | "hu" | "bg"
+            | "lt" | "lv" | "et" | "be" | "kk" => comma_space_after,
+            _ => Self::en_us(),
+        }
     }
 
     /// The separators read off `sample`, the number 1234567.89 as a
@@ -278,8 +309,46 @@ impl MoneyLocale {
     /// has no decimal point.
     #[must_use]
     pub fn from_sample(sample: AzString) -> Self {
-        let _ = sample;
-        Self::en_us()
+        // The separators: every run of non-digits BETWEEN two digits (a sign
+        // or a currency around the number is not one).
+        let chars: Vec<char> = sample.as_str().trim().chars().collect();
+        let (Some(first), Some(last)) = (
+            chars.iter().position(char::is_ascii_digit),
+            chars.iter().rposition(char::is_ascii_digit),
+        ) else {
+            return Self::en_us();
+        };
+        let mut seps: Vec<(usize, char)> = Vec::new();
+        for (i, c) in chars.iter().enumerate().take(last).skip(first) {
+            if !c.is_ascii_digit() {
+                seps.push((i, *c));
+            }
+        }
+        let Some(&(at, decimal)) = seps.last() else {
+            return Self::en_us();
+        };
+        // A separator before three digits, like every other one, is grouping
+        // of a number without a decimal point: nothing to read.
+        let digits_after = last - at;
+        if digits_after == 3 && seps.iter().all(|(_, c)| *c == decimal) {
+            return Self::en_us();
+        }
+        let group = match seps.first() {
+            Some(&(_, g)) if seps.len() > 1 && g != decimal => g as u32,
+            Some(_) if seps.len() > 1 => return Self::en_us(),
+            _ => 0,
+        };
+        let english = decimal == '.' && group == ',' as u32;
+        Self {
+            decimal_separator: decimal as u32,
+            group_separator: group,
+            symbol_position: if decimal == ',' {
+                MoneySymbolPosition::After
+            } else {
+                MoneySymbolPosition::Before
+            },
+            symbol_spaced: !english,
+        }
     }
 
     /// The decimal point as a `char` (`.` for a code point that is none).
@@ -319,7 +388,41 @@ impl MoneyCurrency {
     /// with two decimals.
     #[must_use]
     pub fn from_code(code: AzString) -> Self {
-        Self::create(code.clone(), code, 2)
+        let code = code.as_str().trim().to_ascii_uppercase();
+        let (symbol, minor_digits) = match code.as_str() {
+            "USD" | "MXN" | "ARS" | "COP" => ("$", 2),
+            "CLP" => ("$", 0),
+            "EUR" => ("\u{20ac}", 2),
+            "GBP" => ("\u{a3}", 2),
+            "JPY" => ("\u{a5}", 0),
+            "CNY" => ("\u{a5}", 2),
+            "KRW" => ("\u{20a9}", 0),
+            "INR" => ("\u{20b9}", 2),
+            "RUB" => ("\u{20bd}", 2),
+            "UAH" => ("\u{20b4}", 2),
+            "TRY" => ("\u{20ba}", 2),
+            "ILS" => ("\u{20aa}", 2),
+            "THB" => ("\u{e3f}", 2),
+            "VND" => ("\u{20ab}", 0),
+            "PLN" => ("z\u{142}", 2),
+            "CZK" => ("K\u{10d}", 2),
+            "HUF" => ("Ft", 2),
+            "SEK" | "NOK" | "DKK" => ("kr", 2),
+            "ISK" => ("kr", 0),
+            "BRL" => ("R$", 2),
+            "ZAR" => ("R", 2),
+            "CAD" => ("CA$", 2),
+            "AUD" => ("A$", 2),
+            "NZD" => ("NZ$", 2),
+            "HKD" => ("HK$", 2),
+            "SGD" => ("S$", 2),
+            "IDR" => ("Rp", 2),
+            "KWD" | "BHD" | "OMR" | "JOD" | "TND" | "LYD" | "IQD" => (code.as_str(), 3),
+            "CLF" => (code.as_str(), 4),
+            other => (other, 2),
+        };
+        let symbol = AzString::from(String::from(symbol));
+        Self::create(AzString::from(code.clone()), symbol, minor_digits)
     }
 }
 
@@ -335,8 +438,311 @@ pub(crate) fn parse_money(
     locale: &MoneyLocale,
     currency: &MoneyCurrency,
 ) -> Result<Option<i64>, MoneyInputError> {
-    let _ = (text, locale, currency);
-    Err(MoneyInputError::Invalid)
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    let affixes = strip_affixes(text, currency)?;
+    let number = read_number(affixes.number, locale, currency.minor_digits)?;
+    if affixes.unclosed_paren {
+        // `(12`: the closing parenthesis is still to come.
+        return Err(MoneyInputError::Incomplete);
+    }
+    let magnitude = match number {
+        Number::Complete(m) => m,
+        Number::Incomplete => return Err(MoneyInputError::Incomplete),
+    };
+    let value = if affixes.negative {
+        // i64::MIN's magnitude is one past i64::MAX.
+        if magnitude > u128::from(i64::MAX.unsigned_abs()) + 1 {
+            return Err(MoneyInputError::TooLarge);
+        }
+        i64::try_from(-(magnitude as i128)).map_err(|_| MoneyInputError::TooLarge)?
+    } else {
+        i64::try_from(magnitude).map_err(|_| MoneyInputError::TooLarge)?
+    };
+    Ok(Some(value))
+}
+
+/// What surrounds the digits of an amount: its sign (a `-` before or after,
+/// a typographic minus, parentheses) and the currency (its code or symbol,
+/// before or after), each at most once.
+struct Affixes<'a> {
+    /// The text between the affixes: digits and separators.
+    number: &'a str,
+    negative: bool,
+    /// An opening parenthesis without its closing one (yet).
+    unclosed_paren: bool,
+}
+
+/// `text` without its sign and currency ([`Affixes`]): `Invalid` for a sign
+/// or a currency given twice, a `)` without its `(`.
+fn strip_affixes<'a>(
+    text: &'a str,
+    currency: &MoneyCurrency,
+) -> Result<Affixes<'a>, MoneyInputError> {
+    let mut body = text;
+    let mut negative = false;
+    let mut sign_seen = false;
+    let mut paren = false;
+    let mut currency_seen = false;
+    let currency_marks = [currency.symbol.as_str(), currency.code.as_str()];
+
+    // Before the digits.
+    loop {
+        body = body.trim_start();
+        if let Some(rest) = body.strip_prefix('(') {
+            if paren || sign_seen {
+                return Err(MoneyInputError::Invalid);
+            }
+            paren = true;
+            negative = true;
+            body = rest;
+        } else if let Some(rest) = body
+            .strip_prefix('-')
+            .or_else(|| body.strip_prefix(MINUS_SIGN))
+        {
+            if sign_seen || paren {
+                return Err(MoneyInputError::Invalid);
+            }
+            sign_seen = true;
+            negative = true;
+            body = rest;
+        } else if let Some(rest) = body.strip_prefix('+') {
+            if sign_seen || paren {
+                return Err(MoneyInputError::Invalid);
+            }
+            sign_seen = true;
+            body = rest;
+        } else if let Some(rest) = currency_marks.iter().find_map(|m| strip_prefix_ci(body, m)) {
+            if currency_seen {
+                return Err(MoneyInputError::Invalid);
+            }
+            currency_seen = true;
+            body = rest;
+        } else {
+            break;
+        }
+    }
+
+    // After the digits.
+    let mut closed = false;
+    loop {
+        body = body.trim_end();
+        if let Some(rest) = body.strip_suffix(')') {
+            if !paren || closed {
+                return Err(MoneyInputError::Invalid);
+            }
+            closed = true;
+            body = rest;
+        } else if let Some(rest) = body
+            .strip_suffix('-')
+            .or_else(|| body.strip_suffix(MINUS_SIGN))
+        {
+            // A trailing minus needs digits before it (`1-` but not `--`).
+            if sign_seen || paren || !body.chars().any(|c| c.is_ascii_digit()) {
+                return Err(MoneyInputError::Invalid);
+            }
+            sign_seen = true;
+            negative = true;
+            body = rest;
+        } else if let Some(rest) = currency_marks.iter().find_map(|m| strip_suffix_ci(body, m)) {
+            if currency_seen {
+                return Err(MoneyInputError::Invalid);
+            }
+            currency_seen = true;
+            body = rest;
+        } else {
+            break;
+        }
+    }
+
+    if paren && closed && !body.chars().any(|c| c.is_ascii_digit()) {
+        // `()`: closed around nothing.
+        return Err(MoneyInputError::Invalid);
+    }
+    Ok(Affixes {
+        number: body,
+        negative,
+        unclosed_paren: paren && !closed,
+    })
+}
+
+/// `s` without the prefix `mark`, compared ignoring ASCII case; `None` for
+/// an empty mark or no match.
+fn strip_prefix_ci<'a>(s: &'a str, mark: &str) -> Option<&'a str> {
+    if mark.is_empty() {
+        return None;
+    }
+    let head = s.get(..mark.len())?;
+    head.eq_ignore_ascii_case(mark).then(|| &s[mark.len()..])
+}
+
+/// `s` without the suffix `mark`, compared ignoring ASCII case.
+fn strip_suffix_ci<'a>(s: &'a str, mark: &str) -> Option<&'a str> {
+    if mark.is_empty() || s.len() < mark.len() {
+        return None;
+    }
+    let cut = s.len() - mark.len();
+    let tail = s.get(cut..)?;
+    tail.eq_ignore_ascii_case(mark).then(|| &s[..cut])
+}
+
+/// Spaces that separate thousands: a typed space stands for any of them.
+const fn is_space_like(c: char) -> bool {
+    matches!(c, ' ' | NBSP | NNBSP | '\u{2009}')
+}
+
+/// Apostrophes that separate thousands (Swiss): a typed `'` stands for any.
+const fn is_apostrophe_like(c: char) -> bool {
+    matches!(c, '\'' | SWISS_GROUP | '\u{2bc}')
+}
+
+/// `c` is the grouping separator `group` (or a character the keyboard types
+/// for it).
+fn is_group(c: char, group: Option<char>) -> bool {
+    group.is_some_and(|g| {
+        c == g
+            || (is_space_like(c) && is_space_like(g))
+            || (is_apostrophe_like(c) && is_apostrophe_like(g))
+    })
+}
+
+/// The digits of an amount: its magnitude in minor units, or not finished.
+enum Number {
+    Complete(u128),
+    Incomplete,
+}
+
+/// One character of the number part.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tok {
+    Digit(u8),
+    /// The locale's decimal point, or the other of `.` / `,` where the
+    /// locale does not group with it (the keypad's key).
+    Decimal,
+    Group,
+}
+
+/// The magnitude in minor units of `number` (no sign, no currency) in
+/// `locale` for a currency of `minor_digits` decimals (module docs: the
+/// grammar and the lenient decimal point).
+fn read_number(
+    number: &str,
+    locale: &MoneyLocale,
+    minor_digits: u8,
+) -> Result<Number, MoneyInputError> {
+    let decimal = locale.decimal();
+    let group = locale.group();
+    let mut toks: Vec<Tok> = Vec::with_capacity(number.len());
+    for c in number.chars() {
+        let tok = if let Some(d) = c.to_digit(10) {
+            Tok::Digit(d as u8)
+        } else if c == decimal {
+            Tok::Decimal
+        } else if is_group(c, group) {
+            Tok::Group
+        } else if matches!(c, '.' | ',') {
+            Tok::Decimal
+        } else {
+            return Err(MoneyInputError::Invalid);
+        };
+        toks.push(tok);
+    }
+
+    // The lenient decimal point: no decimal point, ONE group separator, and
+    // between one and `minor_digits` digits after it - it cannot be grouping
+    // (that takes three), so it is the point.
+    let decimals = toks.iter().filter(|t| **t == Tok::Decimal).count();
+    let groups: Vec<usize> = toks
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| **t == Tok::Group)
+        .map(|(i, _)| i)
+        .collect();
+    if decimals == 0 && groups.len() == 1 {
+        let after = toks.len() - groups[0] - 1;
+        if (1..=usize::from(minor_digits)).contains(&after) && after != 3 {
+            toks[groups[0]] = Tok::Decimal;
+        }
+    }
+    if toks.iter().filter(|t| **t == Tok::Decimal).count() > 1 {
+        return Err(MoneyInputError::Invalid);
+    }
+
+    // The integer part, in groups; the fraction.
+    let point = toks.iter().position(|t| *t == Tok::Decimal);
+    let (int_toks, frac_toks) = match point {
+        Some(p) => (&toks[..p], &toks[p + 1..]),
+        None => (&toks[..], &toks[toks.len()..]),
+    };
+    if frac_toks.iter().any(|t| *t == Tok::Group) {
+        return Err(MoneyInputError::Invalid);
+    }
+    let mut runs: Vec<Vec<u8>> = alloc::vec![Vec::new()];
+    for t in int_toks {
+        match t {
+            Tok::Digit(d) => {
+                if let Some(run) = runs.last_mut() {
+                    run.push(*d);
+                }
+            }
+            Tok::Group => runs.push(Vec::new()),
+            Tok::Decimal => {}
+        }
+    }
+    let mut incomplete = false;
+    if runs.len() > 1 {
+        let last = runs.len() - 1;
+        for (i, run) in runs.iter().enumerate() {
+            let ok = match i {
+                0 => (1..=3).contains(&run.len()),
+                _ if i == last && point.is_none() && run.len() < 3 => {
+                    // `1,234,5` / `1,`: the last group is still being typed.
+                    incomplete = true;
+                    true
+                }
+                _ => run.len() == 3,
+            };
+            if !ok {
+                return Err(MoneyInputError::Invalid);
+            }
+        }
+    }
+    let int_digits: Vec<u8> = runs.concat();
+    let frac_digits: Vec<u8> = frac_toks
+        .iter()
+        .filter_map(|t| match t {
+            Tok::Digit(d) => Some(*d),
+            _ => None,
+        })
+        .collect();
+    if int_digits.is_empty() && frac_digits.is_empty() {
+        return Ok(Number::Incomplete);
+    }
+
+    // Decimals past the currency's: refused unless they are zeros.
+    let minor = usize::from(minor_digits);
+    if frac_digits.len() > minor && frac_digits[minor..].iter().any(|d| *d != 0) {
+        return Err(MoneyInputError::TooManyDecimals);
+    }
+    if int_digits.len() > 30 {
+        return Err(MoneyInputError::TooLarge);
+    }
+    let mut magnitude: u128 = 0;
+    for d in &int_digits {
+        magnitude = magnitude * 10 + u128::from(*d);
+    }
+    for k in 0..minor {
+        magnitude = magnitude * 10 + u128::from(frac_digits.get(k).copied().unwrap_or(0));
+    }
+    if magnitude > u128::from(u64::MAX) {
+        return Err(MoneyInputError::TooLarge);
+    }
+    if incomplete {
+        return Ok(Number::Incomplete);
+    }
+    Ok(Number::Complete(magnitude))
 }
 
 /// `amount` minor units of a currency with `minor_digits` decimals, written
@@ -350,14 +756,76 @@ pub(crate) fn format_money(
     minor_digits: u8,
     symbol: Option<&str>,
 ) -> String {
-    let _ = (amount, locale, minor_digits, symbol);
-    String::new()
+    let minor = u32::from(minor_digits.min(18));
+    // `unsigned_abs`: i64::MIN has no positive twin in i64.
+    let magnitude = amount.unsigned_abs();
+    let scale = 10_u64.pow(minor);
+    let (whole, fraction) = (magnitude / scale, magnitude % scale);
+
+    let digits = alloc::format!("{whole}");
+    let mut number = String::with_capacity(digits.len() * 2 + minor as usize + 1);
+    let lead = digits.len() % 3;
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (i + 3 - lead) % 3 == 0 {
+            if let Some(g) = locale.group() {
+                number.push(g);
+            }
+        }
+        number.push(c);
+    }
+    if minor > 0 {
+        number.push(locale.decimal());
+        number.push_str(&alloc::format!(
+            "{fraction:0width$}",
+            width = minor as usize
+        ));
+    }
+
+    let mut out = String::with_capacity(number.len() + 8);
+    if amount < 0 {
+        out.push('-');
+    }
+    match symbol.filter(|s| !s.is_empty()) {
+        Some(sym) => {
+            let space = if locale.symbol_spaced {
+                Some(NBSP)
+            } else {
+                None
+            };
+            match locale.symbol_position {
+                MoneySymbolPosition::Before => {
+                    out.push_str(sym);
+                    out.extend(space);
+                    out.push_str(&number);
+                }
+                MoneySymbolPosition::After => {
+                    out.push_str(&number);
+                    out.extend(space);
+                    out.push_str(sym);
+                }
+            }
+        }
+        None => out.push_str(&number),
+    }
+    out
 }
 
 /// `amount` against the state's rules: `Negative` when negatives are off,
 /// `BelowMin` / `AboveMax` outside the bounds, `None` otherwise.
 pub(crate) fn check_amount(amount: i64, state: &MoneyInputState) -> MoneyInputError {
-    let _ = (amount, state);
+    if amount < 0 && !state.allow_negative {
+        return MoneyInputError::Negative;
+    }
+    if let OptionI64::Some(min) = state.min {
+        if amount < min {
+            return MoneyInputError::BelowMin;
+        }
+    }
+    if let OptionI64::Some(max) = state.max {
+        if amount > max {
+            return MoneyInputError::AboveMax;
+        }
+    }
     MoneyInputError::None
 }
 
@@ -379,10 +847,30 @@ pub(crate) fn edit_money(
     locale: &MoneyLocale,
     currency: &MoneyCurrency,
 ) -> MoneyEdit {
-    let _ = (text, locale, currency);
-    MoneyEdit {
-        accepted: true,
+    let refused = MoneyEdit {
+        accepted: false,
         state,
+    };
+    let accepted = |amount: OptionI64, error: MoneyInputError| MoneyEdit {
+        accepted: true,
+        state: MoneyInputState {
+            amount,
+            error,
+            ..state
+        },
+    };
+    // A sign where negatives are off can never become an allowed amount.
+    if !state.allow_negative && text.chars().any(|c| matches!(c, '-' | '(' | MINUS_SIGN)) {
+        return refused;
+    }
+    match parse_money(text, locale, currency) {
+        Ok(None) => accepted(OptionI64::None, MoneyInputError::None),
+        Ok(Some(amount)) => match check_amount(amount, &state) {
+            MoneyInputError::Negative => refused,
+            error => accepted(OptionI64::Some(amount), error),
+        },
+        Err(MoneyInputError::Incomplete) => accepted(OptionI64::None, MoneyInputError::Incomplete),
+        Err(_) => refused,
     }
 }
 
