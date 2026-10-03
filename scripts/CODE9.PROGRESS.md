@@ -18,8 +18,34 @@ Branch: wt/code9 (base e537ddbe2). Brief: scripts/waves/wave9/PLAN.md "CODE9", p
   apply(&[Edit]) -> Vec<LineChange>, undo / redo -> Undone { caret, changes }, is_dirty, mark_saved,
   to_file_text)
 
+- 442b5e237 highlight.rs RED, 676a7e72a highlight.rs GREEN (Highlighter: line_spans / edited / job_for /
+  adopt, HighlightJob::run, classify; syntax_for(file, first line))
+
 ## IN PROGRESS
-- NEXT STEP: examples/azul-code/src/highlight.rs RED then GREEN. Design (decided):
+- NEXT STEP: the app's plain-Rust model, RED then GREEN, then the UI:
+  1. src/search.rs: `find_all(&TextBuffer, needle, TextMatch) -> Vec<(line, start, end)>` (azul_appkit::find::
+     matches per line), `next_after(matches, Pos) -> Option<..>` (wraps), `replace_all_edits(...) -> Vec<Edit>`
+     (last-first) + `go_to_line(input "120" / "120:5", line_count) -> Option<Pos>`; tests.
+  2. src/workspace.rs: `Root { drive_root, prefix, data_tree, name }`, listings per folder key (lazy, from
+     `LocalDrive::without_manifest(root).list(ListRequest::folder(prefix))`), `expanded`, `tree_rows()` in the
+     TreeView's depth-first order (index -> key), `Doc { key, name, text: RefAny(DocText{buffer, highlighter}),
+     view: CodeViewView }`, tabs (open / activate / close, dirty marks "name *"), recent workspaces; tests.
+  3. src/sample.rs: sample files (src/main.rs, src/lib.rs, Cargo.toml, README.md, huge.rs = 100,000 generated
+     lines) written under the data tree `code/sample/` through the Drive (appkit spawn_file_jobs) on --sample.
+  4. src/storage.rs: azul Thread jobs on a drive at the workspace root (list a folder, read a file, write a
+     file; `LocalDrive::without_manifest` for a user folder, `LocalDrive::new(data_root)` for the sample) ->
+     write-back `on_files_done`; the highlight job thread (HighlightJob::run) -> `on_highlight_done`.
+  5. src/ids.rs (`__azcode_` const AzStrings), src/ui.rs + lib.rs: DeveloperShell (activity bar buttons:
+     Explorer / Search; side bar: TreeView explorer or the search panel (TextInput find + replace, Aa / whole
+     word toggles, results list); editor: TabHeader (names, "*" when dirty) + find bar + CodeView (data source
+     = DocText RefAny: buffer.line(i) + highlighter spans -> CodeViewSpanVec; on_event applies edits to the
+     buffer, highlighter.edited(change) for each LineChange, undo/redo via buffer.undo() -> view.set_cursor)
+     or ShellEmptyState; status bar "Ln x, Col y | Spaces: 4 | UTF-8 | LF/CRLF | <language>"), Go-to-line
+     modal (TextInput), CloseGuard (dirty = any doc dirty; Save saves all then closes), keys: Mod+S save,
+     Mod+F find, Mod+G go to line, Mod+W close tab, Mod+P? (no), Escape closes bars. TODO(WIDGETS9A): Toolbar
+     for the find bar; IconGrid not needed.
+  6. scripts/azcode_e2e.py (model on scripts/azdashboard_e2e.py / azwriter_e2e.py), then the report.
+- (done) highlight.rs design, kept for review:
   - `static SYNTAXES: OnceLock<SyntaxSet>` = `SyntaxSet::load_defaults_newlines()` (parse `line + "\n"`);
     `syntax_for(file_name, first_line) -> &'static SyntaxReference` (by extension, then first line, else
     plain text).
