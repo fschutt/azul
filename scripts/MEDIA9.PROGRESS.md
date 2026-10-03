@@ -46,8 +46,13 @@ Report: scripts/MEDIA9_2026_10_03.md (date = the day it finishes).
 - B4 b30b92f55 RED / 25cf3510b GREEN Waveform widget (on the seek bar's surface: SeekSurface,
   seek_callbacks, move_surface shared - no twin). PHASE B (widgets) DONE.
 
+- C1 c7e499dec RED / 6a99ac291 GREEN examples/azul-music crate + library.rs; C2 b3dbcaa34 RED /
+  227752629 GREEN queue.rs (5 tests pass standalone with rustc).
+
 ## IN PROGRESS
-- NEXT STEP: Phase C AzMusic in examples/azul-music (model on examples/azul-dashboard: appkit
+- NEXT STEP: AzMusic playlists.rs (Playlist {id, name, tracks}, music/playlists/<id>.json; tests:
+  round trip, add/remove/move, drop unknown ids), then ids.rs, scan.rs, sample.rs, lib.rs window.
+  Original Phase C plan: AzMusic in examples/azul-music (model on examples/azul-dashboard: appkit
   Kit, ShellThemeScope::body, Titlebar via kit::title_row, NoTitle via kit::window_options).
   Files: Cargo.toml (package AzMusic, lib azmusic, bin AzMusic; azul link-dynamic exactly as
   azul-drive, azul-appkit {features azul}, azul-storage {features azul}, serde, serde_json);
