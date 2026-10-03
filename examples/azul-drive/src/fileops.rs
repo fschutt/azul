@@ -715,8 +715,8 @@ impl TransferQueue {
 
     /// Transfer `id` runs from `now_ms` (milliseconds since 1970) on.
     pub fn start(&mut self, id: u64, now_ms: u64) {
-        let _ = now_ms; // RED: not kept yet
         if let Some(job) = self.job_mut(id) {
+            job.started_ms = now_ms;
             job.state = JobState::Running;
         }
     }
@@ -822,13 +822,15 @@ impl TransferQueue {
     /// its progress dialog yet: Explorer shows the dialog for a long copy, not for a quick one.
     #[must_use]
     pub fn wants_progress_dialog(&self, now_ms: u64, after_ms: u64) -> Option<u64> {
-        let _ = (now_ms, after_ms); // RED
-        None
+        let job = self.running()?;
+        (!job.dialog_shown && now_ms.saturating_sub(job.started_ms) >= after_ms).then_some(job.id)
     }
 
     /// The progress dialog of transfer `id` was shown.
     pub fn mark_dialog_shown(&mut self, id: u64) {
-        let _ = id; // RED
+        if let Some(job) = self.job_mut(id) {
+            job.dialog_shown = true;
+        }
     }
 }
 
