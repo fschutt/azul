@@ -1747,7 +1747,1047 @@ pub(crate) fn wheel_action(
     KeyAction::Scroll(scroll_after(screen.scroll, screen.history, lines))
 }
 
-// TERM9-NEXT: the build, the handlers.
+// ---- the build: the rows in view, the selection, the cursor, the bar ----
+
+use azul_core::{
+    a11y::{AccessibilityInfo, AccessibilityRole},
+    callbacks::{
+        CoreCallbackData, VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn,
+    },
+    dom::{
+        DatasetMergeCallback, Dom, EventFilter, HoverEventFilter, IdOrClass, IdOrClassVec, TabIndex,
+    },
+    events::FocusEventFilter,
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    refany::OptionRefAny,
+};
+use azul_css::{
+    css::CssPropertyValue,
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    props::{
+        basic::{PixelValue, StyleFontFamily, StyleFontFamilyVec, StyleFontSize, StyleFontStyle},
+        layout::LayoutPosition,
+        property::CssProperty,
+        style::{
+            StyleCursor, StyleLineHeight, StyleTextDecoration, StyleUserSelect, StyleWhiteSpace,
+        },
+    },
+    system::SystemFontType,
+};
+
+use crate::widgets::{
+    cell_grid::{cursor_in, take_wheel},
+    data_table::ScrollBar,
+    themes::decl,
+};
+
+/// The view's class (the outer node also carries the app's id).
+pub(crate) const TERMINAL_CLASS_NAME: &str = "__azul-terminal-view";
+/// The rendered screen inside the `VirtualView`.
+pub(crate) const SCREEN_CLASS_NAME: &str = "__azul-terminal-view-screen";
+/// The cursor.
+pub(crate) const CURSOR_CLASS_NAME: &str = "__azul-terminal-view-cursor";
+/// The scroll bar's thumb.
+pub(crate) const THUMB_CLASS_NAME: &str = "__azul-terminal-view-thumb";
+/// The characters the face's advance is measured on.
+const PROBE_TEXT: &str = "0000000000000000000000000000000000000000";
+/// The alpha of the scroll bar's thumb (the ink, washed).
+const THUMB_ALPHA: u8 = 0x66;
+
+/// A gesture of the pointer in progress.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Drag {
+    /// Nothing held.
+    None,
+    /// Selecting: the cell the pointer was last over, and whether it left
+    /// the press's cell (a press without a move clears the selection).
+    Select { last: TerminalPoint, moved: bool },
+    /// The scroll bar's thumb, held `grab` px below its top.
+    Thumb { grab: f32 },
+    /// A button held for a program that hears the pointer, last reported
+    /// over `last`.
+    Report {
+        button: TerminalMouseButton,
+        last: TerminalPoint,
+    },
+}
+
+/// What the outer node's handlers and the `VirtualView`'s render share:
+/// one `RefAny`, the node's dataset and the view's data.
+pub(crate) struct TerminalShared {
+    /// The view as the app built it (its callbacks, its font).
+    pub view: TerminalView,
+    /// The palette it is drawn in.
+    pub palette: TerminalPalette,
+    /// The face's measured advance: (the font size, the advance) px.
+    pub measured: Option<(f32, f32)>,
+    /// The cell, as last rendered.
+    pub metrics: Metrics,
+    /// The grid, as last rendered.
+    pub grid: TerminalGridSize,
+    /// The screen, as last rendered.
+    pub screen: TerminalScreen,
+    /// The scroll bar, as last rendered.
+    pub bar: Option<ScrollBar>,
+    /// The pointer's gesture.
+    pub drag: Drag,
+    /// The key just handled sent its own bytes: drop the text it types.
+    pub swallow_text: bool,
+}
+
+impl TerminalShared {
+    fn new(view: TerminalView, palette: TerminalPalette) -> Self {
+        let metrics = Metrics::of(view.font_size, view.line_height, None);
+        Self {
+            view,
+            palette,
+            measured: None,
+            metrics,
+            grid: TerminalGridSize::create(0, 0),
+            screen: TerminalScreen::empty(),
+            bar: None,
+            drag: Drag::None,
+            swallow_text: false,
+        }
+    }
+}
+
+/// The system monospace face.
+fn monospace() -> StyleFontFamilyVec {
+    StyleFontFamilyVec::from_vec(alloc::vec![StyleFontFamily::SystemType(
+        SystemFontType::Monospace
+    )])
+}
+
+/// The face, its size, the line height, `pre`, no engine selection (the
+/// view selects cells itself).
+fn text_props(m: &Metrics) -> Vec<CssPropertyWithConditions> {
+    alloc::vec![
+        decl::simple(CssProperty::const_font_family(monospace())),
+        decl::simple(CssProperty::const_font_size(StyleFontSize::px(m.font_size))),
+        decl::simple(CssProperty::line_height(StyleLineHeight::Length(
+            PixelValue::px(m.line_height)
+        ))),
+        decl::simple(CssProperty::WhiteSpace(CssPropertyValue::Exact(
+            StyleWhiteSpace::Pre
+        ))),
+        decl::simple(CssProperty::user_select(StyleUserSelect::None)),
+    ]
+}
+
+/// `color`: once when both modes agree, else the light value and its dark
+/// twin.
+fn push_ink(v: &mut Vec<CssPropertyWithConditions>, c: ChartColor) {
+    if c.light == c.dark {
+        v.push(decl::simple(decl::ink(c.light)));
+    } else {
+        v.extend(decl::themed_ink(c.light, c.dark));
+    }
+}
+
+/// `background`: once when both modes agree, else the pair.
+fn push_fill(v: &mut Vec<CssPropertyWithConditions>, c: ChartColor) {
+    if c.light == c.dark {
+        v.push(decl::simple(decl::fill(c.light)));
+    } else {
+        v.extend(decl::themed_fill(c.light, c.dark));
+    }
+}
+
+/// An absolute box at `x`, `y`, `w` x `h` px.
+fn place(x: f32, y: f32, w: f32, h: f32) -> Vec<CssPropertyWithConditions> {
+    alloc::vec![
+        decl::position(LayoutPosition::Absolute),
+        decl::px_left(x),
+        decl::px_top(y),
+        decl::px_width(w),
+        decl::px_height(h),
+    ]
+}
+
+/// A div of `props` with `text` as its bare text leaf (the div is the box,
+/// the label convention's second shape).
+fn boxed_text(props: Vec<CssPropertyWithConditions>, text: AzString) -> Dom {
+    Dom::create_div()
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(props))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
+}
+
+/// The face's advance, measured on [`PROBE_TEXT`] (`None` where the
+/// render cannot measure).
+fn measured_advance(info: &VirtualViewCallbackInfo, m: &Metrics) -> Option<f32> {
+    let probe = boxed_text(text_props(m), AzString::from_const_str(PROBE_TEXT));
+    let size = info.measure_dom_shrink_to_fit(probe, LogicalSize::new(100_000.0, 1_000.0));
+    #[allow(clippy::cast_precision_loss)] // 40
+    let advance = size.width / PROBE_TEXT.len() as f32;
+    (advance.is_finite() && advance > 0.0).then_some(advance)
+}
+
+/// The rows of `screen` in a grid of `grid` cells of `m`, drawn in
+/// `palette` on a `size` px screen: one box per run (its ground, its ink
+/// and attributes, its text), the selection's washes over them, the
+/// cursor, the scroll bar's thumb.
+#[allow(clippy::cast_precision_loss)] // cell counts far below 2^24
+pub(crate) fn build_screen(
+    screen: &TerminalScreen,
+    grid: TerminalGridSize,
+    m: &Metrics,
+    palette: &TerminalPalette,
+    size: LogicalSize,
+    bar: Option<&ScrollBar>,
+) -> Dom {
+    let (cw, lh) = (m.cell_width, m.line_height);
+    let rows = usize::try_from(grid.rows).unwrap_or(usize::MAX);
+    let mut kids: Vec<Dom> = Vec::new();
+    for (row, line) in screen.lines.as_slice().iter().take(rows).enumerate() {
+        let y = row as f32 * lh;
+        let mut column = 0u32;
+        for run in line.runs.as_slice() {
+            if column >= grid.columns {
+                break;
+            }
+            let columns = run.columns.min(grid.columns - column);
+            let colors = palette.colors_of(&run.style);
+            let blank = run.text.as_str().trim_end_matches(' ').is_empty();
+            let decorated = run.style.underline || run.style.strikethrough;
+            if !blank || colors.paints_ground || decorated {
+                let mut props = place(column as f32 * cw, y, columns as f32 * cw, lh);
+                push_ink(&mut props, colors.ink);
+                if colors.paints_ground {
+                    push_fill(&mut props, colors.ground);
+                }
+                if run.style.bold {
+                    props.push(decl::bold());
+                }
+                if run.style.italic {
+                    props.push(decl::simple(CssProperty::font_style(
+                        StyleFontStyle::Italic,
+                    )));
+                }
+                if run.style.underline {
+                    props.push(decl::simple(CssProperty::text_decoration(
+                        StyleTextDecoration::Underline,
+                    )));
+                } else if run.style.strikethrough {
+                    props.push(decl::simple(CssProperty::text_decoration(
+                        StyleTextDecoration::LineThrough,
+                    )));
+                }
+                kids.push(if blank {
+                    Dom::create_div().with_css_props(CssPropertyWithConditionsVec::from_vec(props))
+                } else {
+                    boxed_text(props, run.text.clone())
+                });
+            }
+            column = column.saturating_add(run.columns);
+        }
+    }
+    if let Some(selection) = screen.selection.into_option() {
+        let shown = u32::try_from(screen.lines.len().min(rows)).unwrap_or(u32::MAX);
+        for row in 0..shown {
+            if let Some((first, last)) = selection.columns_on(row, grid.columns) {
+                let mut props = place(
+                    first as f32 * cw,
+                    row as f32 * lh,
+                    (last - first + 1) as f32 * cw,
+                    lh,
+                );
+                push_fill(&mut props, palette.selection);
+                kids.push(
+                    Dom::create_div().with_css_props(CssPropertyWithConditionsVec::from_vec(props)),
+                );
+            }
+        }
+    }
+    if let Some(cursor) = cursor_node(screen, grid, m, palette) {
+        kids.push(cursor);
+    }
+    if let Some(bar) = bar {
+        let (x, y, w, _) = bar.track;
+        let mut props = place(
+            x + 3.0,
+            y + bar.thumb_start,
+            (w - 6.0).max(2.0),
+            bar.thumb_len,
+        );
+        let ink = palette.foreground;
+        push_fill(
+            &mut props,
+            ChartColor::create(
+                ColorU {
+                    a: THUMB_ALPHA,
+                    ..ink.light
+                },
+                ColorU {
+                    a: THUMB_ALPHA,
+                    ..ink.dark
+                },
+            ),
+        );
+        props.extend(decl::radius(3));
+        kids.push(
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_vec(alloc::vec![IdOrClass::Class(
+                    AzString::from_const_str(THUMB_CLASS_NAME)
+                )]))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(props)),
+        );
+    }
+    let mut root = alloc::vec![
+        decl::position(LayoutPosition::Relative),
+        decl::px_width(size.width),
+        decl::px_height(size.height),
+        decl::overflow_x_hidden(),
+        decl::overflow_y_hidden(),
+        decl::simple(CssProperty::cursor(StyleCursor::Text)),
+    ];
+    root.extend(text_props(m));
+    push_ink(&mut root, palette.foreground);
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(alloc::vec![IdOrClass::Class(
+            AzString::from_const_str(SCREEN_CLASS_NAME)
+        )]))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(root))
+        .with_children(kids.into())
+}
+
+/// The cursor's box: a filled cell with its character in the ground colour,
+/// an outlined cell, a line under the cell or before it; `None` when it is
+/// hidden or out of view.
+#[allow(clippy::cast_precision_loss)] // cell counts far below 2^24
+fn cursor_node(
+    screen: &TerminalScreen,
+    grid: TerminalGridSize,
+    m: &Metrics,
+    palette: &TerminalPalette,
+) -> Option<Dom> {
+    let c = screen.cursor;
+    if c.line >= grid.rows || c.column >= grid.columns {
+        return None;
+    }
+    let (x, y) = (
+        c.column as f32 * m.cell_width,
+        c.line as f32 * m.line_height,
+    );
+    let mut props = match c.shape {
+        TerminalCursorShape::Hidden => return None,
+        TerminalCursorShape::Block | TerminalCursorShape::HollowBlock => {
+            place(x, y, m.cell_width, m.line_height)
+        }
+        TerminalCursorShape::Underline => place(x, y + m.line_height - 2.0, m.cell_width, 2.0),
+        TerminalCursorShape::Bar => place(x, y, 2.0, m.line_height),
+    };
+    let class = IdOrClassVec::from_vec(alloc::vec![IdOrClass::Class(AzString::from_const_str(
+        CURSOR_CLASS_NAME
+    ))]);
+    if c.shape == TerminalCursorShape::HollowBlock {
+        props.extend(decl::border(1));
+        props.extend(decl::themed_border_color(
+            palette.cursor.light,
+            palette.cursor.dark,
+        ));
+        return Some(
+            Dom::create_div()
+                .with_ids_and_classes(class)
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(props)),
+        );
+    }
+    push_fill(&mut props, palette.cursor);
+    let under = if c.shape == TerminalCursorShape::Block {
+        screen
+            .lines
+            .as_slice()
+            .get(usize::try_from(c.line).unwrap_or(usize::MAX))
+            .map(|line| cells_text(line, c.column, c.column))
+            .filter(|t| !t.trim().is_empty())
+    } else {
+        None
+    };
+    Some(match under {
+        Some(text) => {
+            push_ink(&mut props, palette.background);
+            boxed_text(props, AzString::from(text)).with_ids_and_classes(class)
+        }
+        None => Dom::create_div()
+            .with_ids_and_classes(class)
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(props)),
+    })
+}
+
+/// The `VirtualView`'s render: the grid that fits its bounds (the scroll
+/// bar's strip kept free), the screen for it from the app, the rows.
+extern "C" fn render_terminal(
+    mut data: RefAny,
+    info: VirtualViewCallbackInfo,
+) -> VirtualViewReturn {
+    let size = info.get_bounds().get_logical_size();
+    let rect = LogicalRect::new(LogicalPosition::zero(), size);
+    let keep = VirtualViewReturn::keep_current(rect, rect);
+    if !size.width.is_finite()
+        || !size.height.is_finite()
+        || size.width <= 0.0
+        || size.height <= 0.0
+    {
+        return keep;
+    }
+    let (source, palette, font_size, line_height, measured) =
+        match data.downcast_ref::<TerminalShared>() {
+            Some(s) => (
+                s.view.data_source.clone(),
+                s.palette,
+                s.view.font_size,
+                s.view.line_height,
+                s.measured,
+            ),
+            None => return keep,
+        };
+    let unmeasured = Metrics::of(font_size, line_height, None);
+    let advance = match measured {
+        Some((at, w)) if (at - unmeasured.font_size).abs() < f32::EPSILON => Some(w),
+        _ => measured_advance(&info, &unmeasured),
+    };
+    let metrics = Metrics::of(font_size, line_height, advance);
+    let text_width = (size.width - SCROLLBAR_PX).max(0.0);
+    let grid = TerminalGridSize::fitting(
+        text_width,
+        size.height,
+        metrics.cell_width,
+        metrics.line_height,
+    );
+    // The app's callback runs with no borrow of the view's data held.
+    let screen = screen_of(&source, grid);
+    let bar = scroll_bar(
+        text_width,
+        size.height,
+        grid.rows,
+        screen.history,
+        screen.scroll,
+    );
+    let dom = build_screen(&screen, grid, &metrics, &palette, size, bar.as_ref());
+    if let Some(mut s) = data.downcast_mut::<TerminalShared>() {
+        s.measured = advance.map(|w| (metrics.font_size, w));
+        s.metrics = metrics;
+        s.grid = grid;
+        s.bar = bar;
+        s.screen = screen;
+    }
+    VirtualViewReturn::with_dom(dom, rect, rect)
+}
+
+/// A rebuilt view keeps what the old one learnt: the measured face, the
+/// last screen, a gesture in progress.
+extern "C" fn merge_terminal(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
+    let carried = old_data.downcast_ref::<TerminalShared>().map(|o| {
+        (
+            o.measured,
+            o.metrics,
+            o.grid,
+            o.screen.clone(),
+            o.bar,
+            o.drag,
+            o.swallow_text,
+        )
+    });
+    if let Some((measured, metrics, grid, screen, bar, drag, swallow_text)) = carried {
+        if let Some(mut n) = new_data.downcast_mut::<TerminalShared>() {
+            if (n.metrics.font_size - metrics.font_size).abs() < f32::EPSILON {
+                n.measured = measured;
+                n.metrics = metrics;
+            }
+            n.grid = grid;
+            n.screen = screen;
+            n.bar = bar;
+            n.drag = drag;
+            n.swallow_text = swallow_text;
+        }
+    }
+    new_data
+}
+
+impl TerminalView {
+    /// The view's DOM: a node that fills its container (`position:
+    /// absolute`, inset 0 - give the container `position: relative` and a
+    /// size) holding the keys, the pointer and the focus, and a
+    /// `VirtualView` in it that renders the rows the data callback gives.
+    #[must_use]
+    pub fn dom(self) -> Dom {
+        let palette = self
+            .palette
+            .into_option()
+            .unwrap_or_else(TerminalPalette::of_app_theme);
+        let name = if self.accessibility_name.as_str().is_empty() {
+            AzString::from_const_str("Terminal")
+        } else {
+            self.accessibility_name.clone()
+        };
+        let mut classes = alloc::vec![IdOrClass::Class(AzString::from_const_str(
+            TERMINAL_CLASS_NAME
+        ))];
+        if !self.id.as_str().is_empty() {
+            classes.push(IdOrClass::Id(self.id.clone()));
+        }
+        let shared = RefAny::new(TerminalShared::new(self, palette));
+        let mut ground = Vec::new();
+        push_fill(&mut ground, palette.background);
+        Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+            .with_css("position: absolute; top: 0; left: 0; right: 0; bottom: 0; overflow: hidden;")
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(ground))
+            .with_tab_index(TabIndex::Auto)
+            .with_accessibility_info(AccessibilityInfo::named(name, AccessibilityRole::Document))
+            .with_dataset(OptionRefAny::Some(shared.clone()))
+            .with_merge_callback(DatasetMergeCallback::from_ptr(merge_terminal))
+            .with_callbacks(terminal_callbacks(&shared).into())
+            .with_child(
+                Dom::create_virtual_view(shared, VirtualViewCallback::create(render_terminal))
+                    .with_css("width: 100%; height: 100%; overflow: hidden;"),
+            )
+    }
+}
+
+// ---- the handlers ----
+
+/// The outer node's handlers.
+fn terminal_callbacks(shared: &RefAny) -> Vec<CoreCallbackData> {
+    let on = |filter: EventFilter, f: usize| CoreCallbackData::create(filter, shared.clone(), f);
+    alloc::vec![
+        on(
+            EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+            on_terminal_key as usize
+        ),
+        on(
+            EventFilter::Focus(FocusEventFilter::TextInput),
+            on_terminal_text as usize
+        ),
+        on(
+            EventFilter::Focus(FocusEventFilter::Paste),
+            on_terminal_paste as usize
+        ),
+        on(
+            EventFilter::Focus(FocusEventFilter::FocusReceived),
+            on_terminal_focus as usize
+        ),
+        on(
+            EventFilter::Focus(FocusEventFilter::FocusLost),
+            on_terminal_blur as usize
+        ),
+        on(
+            EventFilter::Hover(HoverEventFilter::LeftMouseDown),
+            on_terminal_mouse_down as usize
+        ),
+        on(
+            EventFilter::Hover(HoverEventFilter::MouseMove),
+            on_terminal_mouse_move as usize
+        ),
+        on(
+            EventFilter::Hover(HoverEventFilter::MouseUp),
+            on_terminal_mouse_up as usize
+        ),
+        on(
+            EventFilter::Hover(HoverEventFilter::DoubleClick),
+            on_terminal_double_click as usize
+        ),
+        on(
+            EventFilter::Hover(HoverEventFilter::Scroll),
+            on_terminal_wheel as usize
+        ),
+    ]
+}
+
+/// What a handler needs of the shared data, copied out.
+struct Snap {
+    on_event: OptionTerminalViewOnEvent,
+    screen: TerminalScreen,
+    grid: TerminalGridSize,
+    metrics: Metrics,
+    bar: Option<ScrollBar>,
+    drag: Drag,
+}
+
+fn snap(data: &mut RefAny) -> Option<Snap> {
+    let s = data.downcast_ref::<TerminalShared>()?;
+    Some(Snap {
+        on_event: s.view.on_event.clone(),
+        screen: s.screen.clone(),
+        grid: s.grid,
+        metrics: s.metrics,
+        bar: s.bar,
+        drag: s.drag,
+    })
+}
+
+fn set_drag(data: &mut RefAny, drag: Drag) {
+    if let Some(mut s) = data.downcast_mut::<TerminalShared>() {
+        s.drag = drag;
+    }
+}
+
+fn set_swallow(data: &mut RefAny, swallow: bool) -> bool {
+    match data.downcast_mut::<TerminalShared>() {
+        Some(mut s) => core::mem::replace(&mut s.swallow_text, swallow),
+        None => false,
+    }
+}
+
+/// Hands `event` to the app (its `scroll` the current display offset
+/// unless it is a `Scroll`).
+fn fire(s: &Snap, info: CallbackInfo, mut event: TerminalViewEvent) -> Update {
+    if event.kind != TerminalViewEventKind::Scroll {
+        event.scroll = s.screen.scroll;
+    }
+    match s.on_event.as_ref() {
+        Some(TerminalViewOnEvent { refany, callback }) => {
+            callback.invoke(refany.clone(), info, event)
+        }
+        None => Update::DoNothing,
+    }
+}
+
+/// `bytes` to the program (nothing for none).
+fn send(s: &Snap, info: CallbackInfo, bytes: U8Vec) -> Update {
+    if bytes.is_empty() {
+        Update::DoNothing
+    } else {
+        fire(s, info, TerminalViewEvent::input(bytes))
+    }
+}
+
+/// `event` to the app, then the view re-renders (the app moved its view).
+fn fire_and_render(s: &Snap, mut info: CallbackInfo, event: TerminalViewEvent) -> Update {
+    let update = fire(s, info, event);
+    info.trigger_all_virtual_view_rerender();
+    update
+}
+
+/// A selection event at `point`.
+fn select_event(
+    kind: TerminalViewEventKind,
+    point: TerminalPoint,
+    right_half: bool,
+) -> TerminalViewEvent {
+    let mut e = TerminalViewEvent::create(kind);
+    e.point = point;
+    e.right_half = right_half;
+    e
+}
+
+/// A key: copy, paste (the engine's paste event brings the text), a scroll
+/// of the scrollback, or bytes for the program - which keeps the key from
+/// everything else (no spatial navigation, no shortcut of the window).
+extern "C" fn on_terminal_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(s) = snap(&mut data) else {
+        return Update::DoNothing;
+    };
+    set_swallow(&mut data, false);
+    let Some(key) = info
+        .get_current_keyboard_state()
+        .current_virtual_keycode
+        .into_option()
+    else {
+        return Update::DoNothing;
+    };
+    let modifiers = info.get_key_modifiers();
+    let mac = azul_core::window::mac_shortcut_conventions();
+    match key_action(&s.screen, s.grid.rows, key, modifiers, mac) {
+        KeyAction::Nothing | KeyAction::Paste => Update::DoNothing,
+        KeyAction::Copy => {
+            info.prevent_default();
+            info.stop_propagation();
+            fire(
+                &s,
+                info,
+                TerminalViewEvent::create(TerminalViewEventKind::Copy),
+            )
+        }
+        KeyAction::Scroll(to) => {
+            info.prevent_default();
+            info.stop_propagation();
+            if to == s.screen.scroll {
+                return Update::DoNothing;
+            }
+            fire_and_render(&s, info, TerminalViewEvent::scrolled(to))
+        }
+        KeyAction::Bytes(bytes) => {
+            info.prevent_default();
+            info.stop_propagation();
+            // Ctrl / Alt + a key sent its own bytes: the character the OS
+            // types for it (if any) is not the program's too.
+            if modifiers.ctrl || modifiers.alt {
+                set_swallow(&mut data, true);
+            }
+            send(&s, info, U8Vec::from_vec(bytes))
+        }
+    }
+}
+
+/// Typed text (and an IME's commit): its UTF-8 to the program. The view
+/// holds no text of its own, so the engine's insertion is cancelled.
+extern "C" fn on_terminal_text(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(inserted) = info
+        .get_text_changeset()
+        .map(|c| AzString::from(c.inserted_text.as_str()))
+    else {
+        return Update::DoNothing;
+    };
+    info.prevent_default();
+    if set_swallow(&mut data, false) {
+        return Update::DoNothing;
+    }
+    let Some(s) = snap(&mut data) else {
+        return Update::DoNothing;
+    };
+    let bytes = s.screen.modes.encode_text(inserted);
+    send(&s, info, bytes)
+}
+
+/// The paste the engine read from the clipboard: bracketed for a program
+/// that asked. Off macOS, Ctrl+V without Shift is the program's `^V`.
+extern "C" fn on_terminal_paste(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let text = info.get_clipboard_content().map(|c| c.plain_text.clone());
+    info.prevent_default();
+    let Some(s) = snap(&mut data) else {
+        return Update::DoNothing;
+    };
+    let keys = info.get_current_keyboard_state();
+    if !azul_core::window::mac_shortcut_conventions() && keys.ctrl_down() && !keys.shift_down() {
+        return send(&s, info, U8Vec::from_vec(alloc::vec![0x16]));
+    }
+    match text {
+        Some(text) => send(&s, info, s.screen.modes.encode_paste(text)),
+        None => Update::DoNothing,
+    }
+}
+
+/// The focus came: `CSI I` for a program that asked.
+extern "C" fn on_terminal_focus(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some(s) = snap(&mut data) else {
+        return Update::DoNothing;
+    };
+    send(&s, info, s.screen.modes.encode_focus(true))
+}
+
+/// The focus left: `CSI O` for a program that asked.
+extern "C" fn on_terminal_blur(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some(s) = snap(&mut data) else {
+        return Update::DoNothing;
+    };
+    send(&s, info, s.screen.modes.encode_focus(false))
+}
+
+/// A press: on the scroll bar it grabs the thumb (on the track it jumps
+/// there); for a program that hears the pointer it is reported (Shift
+/// selects anyway); otherwise a selection starts (Alt: a block).
+extern "C" fn on_terminal_mouse_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(s) = snap(&mut data) else {
+        return Update::DoNothing;
+    };
+    let Some((x, y)) = cursor_in(&info) else {
+        return Update::DoNothing;
+    };
+    let modifiers = info.get_key_modifiers();
+    if let Some(bar) = s.bar.filter(|b| b.contains(x, y)) {
+        let thumb_top = bar.track.1 + bar.thumb_start;
+        let grab = if y >= thumb_top && y < thumb_top + bar.thumb_len {
+            y - thumb_top
+        } else {
+            bar.thumb_len / 2.0
+        };
+        set_drag(&mut data, Drag::Thumb { grab });
+        info.prevent_default();
+        let to = scroll_for_thumb(&bar, y - grab - bar.track.1, s.screen.history);
+        if to == s.screen.scroll {
+            return Update::DoNothing;
+        }
+        return fire_and_render(&s, info, TerminalViewEvent::scrolled(to));
+    }
+    let (point, right_half) = s.metrics.cell_at(s.grid, x, y);
+    if s.screen.modes.mouse != TerminalMouseMode::Off && !modifiers.shift {
+        set_drag(
+            &mut data,
+            Drag::Report {
+                button: TerminalMouseButton::Left,
+                last: point,
+            },
+        );
+        let bytes = s.screen.modes.encode_mouse(
+            TerminalMouseButton::Left,
+            TerminalMouseAction::Press,
+            point,
+            modifiers,
+        );
+        return send(&s, info, bytes);
+    }
+    set_drag(
+        &mut data,
+        Drag::Select {
+            last: point,
+            moved: false,
+        },
+    );
+    let mut e = select_event(TerminalViewEventKind::SelectStart, point, right_half);
+    e.selection_kind = if modifiers.alt {
+        TerminalSelectionKind::Block
+    } else {
+        TerminalSelectionKind::Simple
+    };
+    fire_and_render(&s, info, e)
+}
+
+/// A move: the thumb follows, a selection extends (once a cell), a held
+/// button is reported to a program that hears drags.
+extern "C" fn on_terminal_mouse_move(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some(s) = snap(&mut data) else {
+        return Update::DoNothing;
+    };
+    if s.drag == Drag::None {
+        return Update::DoNothing;
+    }
+    let Some((x, y)) = cursor_in(&info) else {
+        return Update::DoNothing;
+    };
+    match s.drag {
+        Drag::None => Update::DoNothing,
+        Drag::Thumb { grab } => {
+            let Some(bar) = s.bar else {
+                return Update::DoNothing;
+            };
+            let to = scroll_for_thumb(&bar, y - grab - bar.track.1, s.screen.history);
+            if to == s.screen.scroll {
+                return Update::DoNothing;
+            }
+            fire_and_render(&s, info, TerminalViewEvent::scrolled(to))
+        }
+        Drag::Select { last, .. } => {
+            let (point, right_half) = s.metrics.cell_at(s.grid, x, y);
+            if point == last {
+                return Update::DoNothing;
+            }
+            set_drag(
+                &mut data,
+                Drag::Select {
+                    last: point,
+                    moved: true,
+                },
+            );
+            fire_and_render(
+                &s,
+                info,
+                select_event(TerminalViewEventKind::SelectExtend, point, right_half),
+            )
+        }
+        Drag::Report { button, last } => {
+            let (point, _) = s.metrics.cell_at(s.grid, x, y);
+            if point == last {
+                return Update::DoNothing;
+            }
+            set_drag(
+                &mut data,
+                Drag::Report {
+                    button,
+                    last: point,
+                },
+            );
+            let modifiers = info.get_key_modifiers();
+            let bytes =
+                s.screen
+                    .modes
+                    .encode_mouse(button, TerminalMouseAction::Motion, point, modifiers);
+            send(&s, info, bytes)
+        }
+    }
+}
+
+/// A release: a selection gesture ends (a press without a move clears the
+/// selection), a held button is reported released.
+extern "C" fn on_terminal_mouse_up(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some(s) = snap(&mut data) else {
+        return Update::DoNothing;
+    };
+    set_drag(&mut data, Drag::None);
+    match s.drag {
+        Drag::None | Drag::Thumb { .. } => Update::DoNothing,
+        Drag::Select { last, moved } => {
+            let kind = if moved {
+                TerminalViewEventKind::SelectEnd
+            } else {
+                TerminalViewEventKind::SelectClear
+            };
+            fire_and_render(&s, info, select_event(kind, last, false))
+        }
+        Drag::Report { button, last } => {
+            let point = cursor_in(&info).map_or(last, |(x, y)| s.metrics.cell_at(s.grid, x, y).0);
+            let modifiers = info.get_key_modifiers();
+            let bytes =
+                s.screen
+                    .modes
+                    .encode_mouse(button, TerminalMouseAction::Release, point, modifiers);
+            send(&s, info, bytes)
+        }
+    }
+}
+
+/// A double-click selects the word under the pointer.
+extern "C" fn on_terminal_double_click(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some(s) = snap(&mut data) else {
+        return Update::DoNothing;
+    };
+    if s.screen.modes.mouse != TerminalMouseMode::Off && !info.get_key_modifiers().shift {
+        return Update::DoNothing;
+    }
+    let Some((x, y)) = cursor_in(&info) else {
+        return Update::DoNothing;
+    };
+    // The selection is whole: the release that follows must not clear it.
+    set_drag(&mut data, Drag::None);
+    let (point, right_half) = s.metrics.cell_at(s.grid, x, y);
+    let mut e = select_event(TerminalViewEventKind::SelectStart, point, right_half);
+    e.selection_kind = TerminalSelectionKind::Word;
+    fire_and_render(&s, info, e)
+}
+
+/// The wheel: whole lines (a notch is three), scrolling the scrollback,
+/// reported, or arrow keys on the alternate screen ([`wheel_action`]). The
+/// view is the scroll surface: the box around it does not scroll.
+extern "C" fn on_terminal_wheel(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(s) = snap(&mut data) else {
+        return Update::DoNothing;
+    };
+    let hit = info.get_hit_node();
+    let Some(node_id) = hit.node.into_crate_internal() else {
+        return Update::DoNothing;
+    };
+    let Some(delta) = info.get_scroll_delta(hit.dom, node_id) else {
+        return Update::DoNothing;
+    };
+    info.prevent_default();
+    info.stop_propagation();
+    #[allow(clippy::cast_precision_loss)] // 3
+    let notch_px = s.metrics.line_height * TERMINAL_WHEEL_LINES as f32;
+    let (notches, _) = take_wheel(0.0, delta.y, notch_px, 1.0);
+    if notches == 0 {
+        return Update::DoNothing;
+    }
+    let point = cursor_in(&info).map_or(TerminalPoint::create(0, 0), |(x, y)| {
+        s.metrics.cell_at(s.grid, x, y).0
+    });
+    match wheel_action(&s.screen, notches, point, info.get_key_modifiers()) {
+        KeyAction::Scroll(to) if to != s.screen.scroll => {
+            fire_and_render(&s, info, TerminalViewEvent::scrolled(to))
+        }
+        KeyAction::Bytes(bytes) => send(&s, info, U8Vec::from_vec(bytes)),
+        _ => Update::DoNothing,
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod fixtures {
+    //! A small screen for the widget's own tests and the widget manifest
+    //! (`widgets::label_convention::every_widget_dom`).
+    use super::*;
+
+    /// A prompt, a coloured line, a selection and a block cursor.
+    pub(crate) extern "C" fn sample_screen(_: RefAny, size: TerminalGridSize) -> TerminalScreen {
+        let green = TerminalStyle::colored(TerminalColor::Indexed(2), TerminalColor::Background);
+        let mut screen = TerminalScreen::create(TerminalLineVec::from_vec(alloc::vec![
+            TerminalLine::create(TerminalRunVec::from_vec(alloc::vec![
+                TerminalRun::create(AzString::from("~ "), 2, green),
+                TerminalRun::create(AzString::from("$ ls"), 4, TerminalStyle::create()),
+            ])),
+            TerminalLine::plain(AzString::from("Cargo.toml  src")),
+            TerminalLine::plain(AzString::from("$ ")),
+        ]));
+        screen.history = 40;
+        screen.cursor = TerminalCursor::create(2, 2, TerminalCursorShape::Block);
+        screen.selection = OptionTerminalSelection::Some(TerminalSelection::create(
+            TerminalPoint::create(1, 0),
+            TerminalPoint::create(1, 9u32.min(size.columns.saturating_sub(1))),
+        ));
+        screen
+    }
+
+    /// The view the manifest builds.
+    pub(crate) fn sample() -> TerminalView {
+        TerminalView::create()
+            .with_data_source(
+                RefAny::new(()),
+                sample_screen as TerminalViewDataSourceCallbackType,
+            )
+            .with_accessibility_name(AzString::from("Shell"))
+    }
+}
+
+#[cfg(test)]
+mod build_tests {
+    //! The DOM the view and its render build.
+    use super::*;
+
+    fn classes_of(dom: &Dom) -> Vec<String> {
+        dom.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .filter_map(|c| match c {
+                IdOrClass::Class(c) => Some(String::from(c.as_str())),
+                IdOrClass::Id(_) => None,
+            })
+            .collect()
+    }
+
+    fn texts(dom: &Dom, out: &mut Vec<String>) {
+        if let azul_core::dom::NodeType::Text(t) = dom.root.get_node_type() {
+            out.push(String::from(t.as_ref().as_str()));
+        }
+        for c in dom.children.as_ref() {
+            texts(c, out);
+        }
+    }
+
+    fn screen_dom() -> Dom {
+        let grid = TerminalGridSize::create(40, 5);
+        let screen = fixtures::sample_screen(RefAny::new(()), grid);
+        let m = Metrics::of(13.0, 17.0, Some(8.0));
+        let bar = scroll_bar(320.0, 85.0, grid.rows, screen.history, screen.scroll);
+        build_screen(
+            &screen,
+            grid,
+            &m,
+            &TerminalPalette::flat(),
+            LogicalSize::new(332.0, 85.0),
+            bar.as_ref(),
+        )
+    }
+
+    #[test]
+    fn the_view_is_one_tab_stop_hosting_a_virtual_view() {
+        let dom = fixtures::sample().dom();
+        assert_eq!(dom.root.get_tab_index(), Some(TabIndex::Auto));
+        assert!(classes_of(&dom).iter().any(|c| c == TERMINAL_CLASS_NAME));
+        assert!(dom.root.get_dataset().is_some());
+        let kids = dom.children.as_ref();
+        assert_eq!(kids.len(), 1);
+        assert!(kids[0].root.is_virtual_view_node());
+    }
+
+    #[test]
+    fn only_the_rows_in_view_are_built_one_box_per_run() {
+        let dom = screen_dom();
+        assert!(classes_of(&dom).iter().any(|c| c == SCREEN_CLASS_NAME));
+        let mut t = Vec::new();
+        texts(&dom, &mut t);
+        // Every run's text, the cursor's character (a blank: none).
+        assert_eq!(t, ["~ ", "$ ls", "Cargo.toml  src", "$ "]);
+    }
+
+    #[test]
+    fn the_cursor_and_the_thumb_are_drawn_when_there_is_scrollback() {
+        let dom = screen_dom();
+        let all: Vec<Vec<String>> = dom.children.as_ref().iter().map(classes_of).collect();
+        assert!(all.iter().any(|c| c.iter().any(|c| c == CURSOR_CLASS_NAME)));
+        assert!(all.iter().any(|c| c.iter().any(|c| c == THUMB_CLASS_NAME)));
+    }
+}
 
 #[cfg(test)]
 mod encoding_tests {
