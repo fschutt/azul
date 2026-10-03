@@ -40,6 +40,11 @@ pub enum Job {
     Import {
         path: PathBuf,
     },
+    /// A file the app made (the sample book): its name and bytes.
+    ImportBytes {
+        name: String,
+        bytes: Vec<u8>,
+    },
     Open {
         id: String,
         format: Format,
@@ -234,6 +239,20 @@ struct JobInit {
     on_done: WriteBackCallbackType,
 }
 
+/// An import's outcome with its cover decoded.
+fn imported(result: Result<(LibraryEntry, Option<Vec<u8>>), String>) -> Done {
+    match result {
+        Ok((entry, cover)) => Done::Imported {
+            result: Ok(entry),
+            cover: cover.as_deref().and_then(cover_image),
+        },
+        Err(e) => Done::Imported {
+            result: Err(e),
+            cover: None,
+        },
+    }
+}
+
 /// Runs `job` against the data root's drive.
 fn run(root: PathBuf, job: Job) -> Done {
     let drive = LocalDrive::new(root);
@@ -265,17 +284,15 @@ fn run(root: PathBuf, job: Job) -> Done {
                     library::now_secs(),
                 )
             });
-            match result {
-                Ok((entry, cover)) => Done::Imported {
-                    result: Ok(entry),
-                    cover: cover.as_deref().and_then(cover_image),
-                },
-                Err(e) => Done::Imported {
-                    result: Err(e),
-                    cover: None,
-                },
-            }
+            imported(result)
         }
+        Job::ImportBytes { name, bytes } => imported(import(
+            &drive,
+            &azul_storage::ids::new_uuid(),
+            &name,
+            &bytes,
+            library::now_secs(),
+        )),
         Job::Open { id, format, title } => Done::Opened {
             result: open(&drive, &id, format, &title).map(|(c, b)| (Arc::new(c), b)),
             id,
