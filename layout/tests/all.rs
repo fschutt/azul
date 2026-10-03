@@ -816,3 +816,5 @@ mod an_anonymous_table_cell_keeps_its_blocks_margins;
 mod a_block_taller_than_a_page_is_split_across_pages;
 #[path = "css_zoom_scales_the_lengths_of_its_subtree.rs"]
 mod css_zoom_scales_the_lengths_of_its_subtree;
+#[path = "text_after_a_nested_block_is_not_indented.rs"]
+mod text_after_a_nested_block_is_not_indented;
