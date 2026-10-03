@@ -31,18 +31,21 @@ screenshots + hierarchy dumps under target/sheetshow6-shots/.
 - 240901643 AzSheets `__azsheets_` ids (src/ids.rs).
 - 3dfb544fb scripts/azsheets_e2e.py rewritten on azlin_e2e (D29) with the wave-6 checks (NOT run: power).
 
+- cf5d4b1ce both apps mint ids with azul_storage::ids::new_uuid (INFRA6's one mint; builds after wt/infra6 merges).
+- AzShow on appkit: aa5521bf4 (args over AppArgs + --slide / --no-presenter), cde847864 (AppState drive / kit /
+  close flags; About page; theme commands gone), 4e6a111fc RED / b7430bc99 GREEN (Job::Export into show/exports/),
+  30df953eb (start on the kit, jobs on the drive, close guard), 732beed52 (exports through the drive, no
+  FileDialog::save_bytes), cf3f7a6fa (Options = kit page, About = AboutDialog), 0772d3897 (`__azshow_` ids),
+  bcf486aab (azshow_e2e.py on azlin_e2e, NOT run: power).
+
 ## IN PROGRESS
 - (power warning 2026-10-03: battery ~16 %; NO headless app runs until told otherwise. The AzShow look run was
   killed before it produced anything; AzShow is NOT looked at yet.)
 
 ## NEXT (exact)
 1-3. (done)
-4. AzShow on appkit, same steps: Cargo already has azul-appkit (no feature) -> features ["azul"]; args.rs over
-   AppArgs (own switches --slide / --no-presenter / --open <deck id> pre-extracted); start on create_kit;
-   AppState { drive: Arc<dyn Drive>, kit }; spawn_storage takes the drive; exports PDF / PNG -> Job::Write into
-   show/exports/ (no FileDialog::save_bytes); Options = kit::settings_page; About = AboutDialog; close guard
-   (Editor::dirty); `__azshow_` ids (views.rs SLIDE_ID / CANVAS_ID / NOTES_ID, text.rs host / block ids).
-5. Then the brief's features: Sheets (FindReplaceDialog for Find, Format Cells dialog, merge cells, conditional
+4. (done)
+5. NEXT: Sheets Find -> FindReplaceDialog in the side panel (Replace / Replace all via the engine), then the brief's features: Sheets (FindReplaceDialog for Find, Format Cells dialog, merge cells, conditional
    formatting, F4, point mode, tab strip), Show (drop indicator, multi-select rotate, tables in place, picture
    contain / cover, find / replace, presenter on a chosen monitor).
 5. When power allows: LOOK at AzShow (target/sheetshow6-tools/show_steps1.py, fixed ready check) and re-look at Sheets.
