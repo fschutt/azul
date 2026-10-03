@@ -771,6 +771,8 @@ fn article_row(
     )
 }
 
+// TODO(WIDGETS9A): IconGrid - the plan's magazine mode (a grid of cards with the articles'
+// pictures, `List | Cards`) comes with azul's IconGrid; today the list is the one mode.
 fn list_pane(s: &NewsApp, app: &RefAny) -> Dom {
     let now = now_secs();
     let list = s.list();
@@ -1299,6 +1301,8 @@ fn reading_pane(s: &NewsApp, app: &RefAny) -> Dom {
 
 // ==== Toolbar, status bar, settings, the window ====
 
+// TODO(WIDGETS9A): Toolbar - this row of Buttons becomes azul's Toolbar widget (overflow menu,
+// roving focus) once it is in the base.
 fn toolbar(s: &NewsApp, app: &RefAny) -> Dom {
     let tool = |label: &str, icon: &str, id: AzString, cb: ButtonOnClickCallbackType| {
         Button::create(label)
