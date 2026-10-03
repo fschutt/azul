@@ -46,22 +46,16 @@ system:ui (markup) 136.98 (the colon bug -> Helvetica), system-ui 128.30, 'Syste
 'Helvetica Neue' 138.36, Helvetica 136.98, BlinkMacSystemFont / -apple-system 136.98 (Helvetica).
 The widgets' const `System("system:ui")` is not parsed, so production widgets draw SF Display.
 
-## NEXT (old list, 1. done)
-1. (done) GREEN C: `-apple-system` / `BlinkMacSystemFont` = system-ui on Apple (build_font_selector_stack);
-   ONE OS UI font list for CSS `system-ui` and `system:ui` (browser_generic_families sets
-   SystemUi = SystemFontType::Ui's chain); Linux: the desktop's detected UI font first (SystemStyle);
-   Windows: Segoe UI Variable (already in the Ui chain).
-2. LOOK at the apps (capped, one at a time) - only possible on a NEW build; the prebuilt binaries
-   are the old engine. Decide: note expected width changes (SF Text is ~8% wider than the Display
-   instance at 13px) and check widget CSS that hard-codes widths for text.
-3. Report scripts/SYSUI8_2026_10_03.md.
+## NEXT (exact)
+1. Baseline LOOK on the prebuilt (old-engine) apps with scripts/sysui8_look.py (committed):
+   `AZUL_ROOT=/Users/fschutt/Development/azul scripts/waves/tools/run_capped.sh --cap-mb 1500
+   --seconds 1200 --log /tmp/sysui8_look.log -- python3 scripts/sysui8_look.py record
+   <worktree>/target/sysui8/look/before` (screenshots + text-node boxes per app, in target/, not
+   committed). After the parent's build: same with `.../after`, then `python3 scripts/sysui8_look.py
+   compare .../before .../after` lists text that newly overflows / wraps -> fix that widget's CSS.
+   (Cannot be done in this worktree: no compiling; the prebuilt binaries are the OLD engine.)
+2. Write scripts/SYSUI8_2026_10_03.md (what was built, commits, api.json: none, least-sure spots,
+   test commands, left) and commit it.
 
-## Decisions
-- `-apple-system` follows Safari (system font) though Chrome 154 dropped it: the user named both;
-  real stacks list both.
-- opsz bucket = round(font-size px), clamped to the face's axis at bake time; memo by the baked
-  coordinates (11-17px share SF's opsz-17 instance).
-- Instances are registered under their own name ("System Font @ wght 700 opsz 17") so a family
-  query never returns an instance in place of the variable file.
-- GPOS variation kerning of the baked instance is not applied (<= 0.35px per kern pair at 16px);
-  test tolerance 0.5px.
+## Expected width change (SF, "Hello world agenda", new/old)
+11px x1.14, 12px x1.13, 13px x1.12, 14px x1.10, 16px x1.09, 20px x1.05, 24px x1.03, 28px+ x1.02-1.03.
