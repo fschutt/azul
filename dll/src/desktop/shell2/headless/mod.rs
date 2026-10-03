@@ -2424,17 +2424,18 @@ impl HeadlessWindow {
         self.is_open = false;
     }
 
-    /// Drop every live `Thread` so its destructor runs BEFORE the process ends.
+    /// Stop and join every live `Thread` BEFORE the process ends.
     ///
-    /// `Thread::drop` sends `TerminateThread`, waits out the grace period and
-    /// joins the worker. `std::process::exit` runs no destructors at all, so
-    /// without this the workers are simply abandoned — which is what
-    /// ThreadSanitizer reports as `thread leak ... in pthread_create`.
+    /// `std::process::exit` runs no destructors at all, so without this the
+    /// workers are simply abandoned — which is what ThreadSanitizer reports as
+    /// `thread leak ... in pthread_create`.
     ///
-    /// Clearing the map is enough: the `Thread` values own the handles, so
-    /// dropping them performs the terminate-and-join. Doing this from the
-    /// window rather than the loop keeps it correct for every exit path that
-    /// ends the process instead of unwinding.
+    /// `managers::thread_owner::stop_all` tells EVERY worker `TerminateThread`
+    /// first and waits for them together on one grace period (detaching a
+    /// worker that never answers), then empties the map - clearing the map
+    /// alone stopped them one after the other, each destructor waiting for its
+    /// own worker. Doing this from the window rather than the loop keeps it
+    /// correct for every exit path that ends the process instead of unwinding.
     fn shutdown_threads(&mut self) {
         let Some(lw) = self.get_layout_window_mut() else {
             return;
@@ -2447,7 +2448,8 @@ impl HeadlessWindow {
             "[Headless] terminating {} background thread(s) before exit",
             lw.threads.len(),
         );
-        lw.threads.clear();
+        azul_layout::managers::thread_owner::stop_all(&mut lw.threads);
+        lw.thread_owners = azul_layout::managers::thread_owner::ThreadOwnerManager::default();
     }
 
     /// [`Self::shutdown_threads`] for this window and every child window it
