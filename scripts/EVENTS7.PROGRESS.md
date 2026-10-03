@@ -38,11 +38,13 @@ Brief: scripts/waves/wave7/EVENTS7.md. Report at the end: scripts/EVENTS7_2026_1
     (typing_style_changed_at, next to the synthetic click); runner arm the same
   - 95ffba393 coverage ratchet `cases` gains the new EventType
 
+- report scripts/EVENTS7_2026_10_03.md committed (docs(events7): the wave-7 report)
+
 ## IN PROGRESS
-- the report scripts/EVENTS7_2026_10_03.md
+- (nothing - the brief is done)
 
 ## NEXT
-6. report scripts/EVENTS7_2026_10_03.md, commit it
+- (nothing; the parent compiles and runs the commands in the report, section 5)
 
 ## Decisions
 - item 1: the plan lives in core (core/src/events.rs, mine), both dispatchers call it with closures over
