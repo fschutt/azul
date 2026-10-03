@@ -93,11 +93,8 @@ Never compile; never touch layout/src/solver3/page_breaks.rs (nor display_list.r
    font-size:0 cell 10px too tall, content centred) is the group C cause (measured term) - covered by
    531e3a19e (probe target/mailref8/h1.json: cell 185 vs 175).
 10. DONE: report scripts/MAILREF8_2026_10_03.md.
-11. NEXT (optional, only if resumed with time): nothing required; candidates listed in the report's
-    section 10. Old note: write the report scripts/MAILREF8_2026_10_03.md (before 531; groups A-F with owners, expected
-   effects; commits; api.json none; least-sure spots; test commands). Then, if time: atomic-only line
-   strut (look pass) is NOT for this wave; maybe re-check other mismatch sources in cerberus after A
-   (hybrid had 6 boxes not in the -14 pattern?).
+11. TASK COMPLETE. Nothing left for this wave; follow-ups are in the report's section 10 (B -> XML8,
+    D / E2 / atomic-only strut -> user decisions).
 - Group A expected effect (after the parent's build): cerberus x3 ~390 boxes y -14 -> 0, azr-1/azr-2
   heights fixed (paper = content). Left in A: an IFC's height is its items' bounds, not its line boxes
   (strut descent below an inline-block: t1 wrap 46 vs Chrome 60, t3 30 vs 34) - text3 cache.rs
