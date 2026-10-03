@@ -141,7 +141,8 @@ use azul::{
     vec::{F32Vec, StyledTextRunVec, U8Vec, U8VecRef},
     video::{VideoDecoder, VideoEncoder, VideoFrame},
     widgets::{
-        ConsumerFrame, FrameConsumer, OnTextInputReturn, ProgressBar, SegmentedState,
+        ConsumerFrame, FrameConsumer, LevelMeter, LevelMeterThrottle, OnTextInputReturn,
+        SegmentedState,
         StandardDialogEvent, TextInput, TextInputState, TextInputValid,
     },
     window::{HwAcceleration, PlatformCapability, Vsync, WindowDecorations},
@@ -431,9 +432,9 @@ struct MeetState {
     cam_on: bool,
     screen_on: bool,
     mic_level: f32,
-    /// When (`now_ms`) the level meter last moved: it moves at most every
-    /// `METER_INTERVAL_MS`, not with every 20 ms audio chunk.
-    meter_moved_ms: Option<u64>,
+    /// When the level meter may move: at most every `METER_INTERVAL_MS`, not with every 20 ms
+    /// audio chunk, and by half a percent or more (azul's `LevelMeterThrottle`).
+    meter: LevelMeterThrottle,
     meter_bar: Option<DomNodeId>,
     mics: Vec<String>,
     speakers: Vec<String>,
@@ -567,7 +568,7 @@ impl MeetState {
             cam_on: false,
             screen_on: false,
             mic_level: 0.0,
-            meter_moved_ms: None,
+            meter: LevelMeterThrottle::create(METER_INTERVAL_MS),
             meter_bar: None,
             mics: Vec::new(),
             speakers: Vec::new(),
@@ -676,18 +677,6 @@ struct Relaying {
 
 struct Room {
     peers: Vec<RefAny>,
-}
-
-const METER_FLOOR_DB: f32 = -60.0;
-
-fn mic_level_percent(samples: &[f32]) -> f32 {
-    if samples.is_empty() {
-        return 0.0;
-    }
-    let mean_square = samples.iter().map(|s| s * s).sum::<f32>() / samples.len() as f32;
-    let rms = mean_square.sqrt();
-    let db = 20.0 * rms.max(1e-6).log10();
-    ((db - METER_FLOOR_DB) / -METER_FLOOR_DB * 100.0).clamp(0.0, 100.0)
 }
 
 /// The height of a tile's box until it is laid out, by its role: a gallery tile, the stage, a
@@ -1901,28 +1890,25 @@ fn audio_lines(s: &MeetState) -> Vec<String> {
 /// the meter (50 moves a second, one per audio chunk, repainted it for every chunk).
 const METER_INTERVAL_MS: u64 = 100;
 
-/// The level meter's new value, when it moved by half a percent or more, the meter is shown, and
-/// it last moved [`METER_INTERVAL_MS`] or more ago.
+/// The level meter's new value (azul's `LevelMeter` scale: the RMS on -60..0 dB), when the
+/// meter's throttle lets it move (by half a percent or more, [`METER_INTERVAL_MS`] or more after
+/// the last move) and the meter is shown.
 fn meter_change(s: &mut MeetState, samples: &[f32]) -> Option<(DomNodeId, f32)> {
-    let level = mic_level_percent(samples).round();
-    if (s.mic_level - level).abs() < 0.5 {
-        return None;
-    }
+    let level = LevelMeter::level_of(AudioFrame {
+        sample_rate: MIC_RATE,
+        channels: 1,
+        samples: F32Vec::from(samples.to_vec()),
+    })
+    .round();
     let now = now_ms(s);
-    if s
-        .meter_moved_ms
-        .is_some_and(|at| now.saturating_sub(at) < METER_INTERVAL_MS)
-    {
-        return None;
-    }
-    s.meter_moved_ms = Some(now);
+    let level = s.meter.next(level, now).into_option()?;
     s.mic_level = level;
     s.meter_bar.map(|bar| (bar, level))
 }
 
-fn show_level(mut info: CallbackInfo, bar: DomNodeId, level: f32) {
-    ProgressBar::update_progress(info, bar, level);
-    info.set_accessibility_value(bar, format!("{level:.0}%"));
+/// Moves the meter in place (its segments and its accessibility value; no rebuild).
+fn show_level(info: CallbackInfo, bar: DomNodeId, level: f32) {
+    LevelMeter::update_level(info, bar, level);
 }
 
 /// Every pump while the microphone is the tone: the samples due since the last pump, sent like
