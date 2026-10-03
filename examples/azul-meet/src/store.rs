@@ -36,8 +36,22 @@ pub fn settings_key() -> String {
 /// meeting without a name.
 #[must_use]
 pub fn meeting_folder(meeting: &str) -> Option<String> {
-    let _ = (meeting, MAX_FOLDER); // RED
-    None
+    let meeting = meeting.trim();
+    if meeting.is_empty() {
+        return None;
+    }
+    let safe: String = meeting
+        .chars()
+        .take(MAX_FOLDER)
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    Some(azul_appkit::data::app_prefix(&format!("{APP_FOLDER}/{safe}")))
 }
 
 /// `meet/<meeting>/chat.jsonl`.
@@ -64,8 +78,19 @@ struct ChatLine<'a> {
 /// every line ending in a newline.
 #[must_use]
 pub fn chat_lines(messages: &[ChatMessage]) -> String {
-    let _ = messages; // RED
-    String::new()
+    let mut out = String::new();
+    for m in messages {
+        let line = ChatLine {
+            name: &m.name,
+            text: &m.text,
+            mine: m.mine,
+        };
+        if let Ok(json) = serde_json::to_string(&line) {
+            out.push_str(&json);
+            out.push('\n');
+        }
+    }
+    out
 }
 
 /// What `meeting.json` says about a meeting.
@@ -94,8 +119,12 @@ impl MeetingRecord {
 
     /// Adds `name` to the people met, once.
     pub fn met(&mut self, name: &str) -> bool {
-        let _ = name; // RED
-        false
+        let name = name.trim();
+        if name.is_empty() || self.people.iter().any(|p| p == name) {
+            return false;
+        }
+        self.people.push(name.to_string());
+        true
     }
 }
 
