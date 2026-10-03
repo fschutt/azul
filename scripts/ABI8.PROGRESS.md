@@ -19,15 +19,15 @@ Brief: scripts/waves/wave8/PLAN.md section "ABI8". Report: scripts/ABI8_2026_10_
 4. No runtime test of a real binding against a libazul with another hash (only `az_abi_check_hash` in-process).
 
 ## DONE
-- (none yet)
+- e09b5811c progress (audit)
+- 53f20424e RED gap 1 / 01f38b238 GREEN gap 1 (`is_first_call_kind`; impl Default body checks)
+- 8f9b78d9a RED gap 2 / 8188e5625 GREEN gap 2 (`rust_load_time_check`: AZ_ABI_CHECK_AT_LOAD)
 
 ## IN PROGRESS
-- RED: abi_guard.rs test "every value-less entry point of the rust binding checks the abi".
+- Gap 4: scripts/abi_guard_e2e.py.
 
 ## NEXT
-- GREEN for gap 1 (rust_wrapper_checks covers Default + EnumVariantConstructor; impl Default body).
-- Gap 2: Rust load-time check (`#[used]` init-section static), RED then GREEN.
-- Gap 3: MSVC C `.CRT$XCU` entry.
+- Gap 3: MSVC C `.CRT$XCU` entry (RED c_items test, GREEN).
 - Gap 4: scripts/abi_guard_e2e.py (C / C++ with a stub `AzAbi_getHash`, Rust app with a patched libazul copy).
 
 ## Decisions
