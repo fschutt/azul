@@ -40,7 +40,8 @@ POWER: battery warning from the coordinator - commit after every small unit, no 
   Sample phase vs the prebuilt aa59b2d84: 3 ok (module buttons, prefixed ids, list/pane widths with the
   newsletter open), 8 FAILED - all behaviour this branch adds (window fill, task store, compose ids, paper,
   zoom, restart).
-- NEXT NOW: the report scripts/MAIL6_2026_10_03.md (skeleton first, then sections)
+- 45de6f749..: the report scripts/MAIL6_2026_10_03.md (all sections).
+- DONE. Nothing left in this task's NEXT list except what the report's section 8 hands on (B3 and the rest).
 
 ## NEXT (exact)
 1. ui_main View tab: drop the Look group (theme/mode buttons) -> File > Options opens the kit settings page
