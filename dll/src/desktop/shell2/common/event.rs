@@ -9493,84 +9493,31 @@ pub trait PlatformWindow {
                 for filter in &event_filters {
                     match filter {
                         EventFilter::Hover(_) => {
-                            // W3C propagation: Capture → Target → Bubble
-                            let dom_id = event.target.dom;
-                            let layout_result = match layout_window.layout_results.get(&dom_id) {
-                                Some(lr) => lr,
-                                None => continue,
-                            };
-
-                            // Build NodeHierarchy from NodeHierarchyItemVec for propagation
-                            let node_hierarchy = {
-                                let items = layout_result.styled_dom.node_hierarchy.as_container();
-                                let nodes: Vec<azul_core::id::Node> = (0..items.len())
-                                    .map(|i| {
-                                        let item = &items.internal[i];
-                                        azul_core::id::Node {
-                                            parent: NodeId::from_usize(item.parent),
-                                            previous_sibling: NodeId::from_usize(
-                                                item.previous_sibling,
-                                            ),
-                                            next_sibling: NodeId::from_usize(item.next_sibling),
-                                            last_child: NodeId::from_usize(item.last_child),
-                                        }
-                                    })
-                                    .collect();
-                                azul_core::id::NodeHierarchy::new(nodes)
-                            };
-
-                            // Build callback map: NodeId → Vec<EventFilter>
-                            let node_data_container =
-                                layout_result.styled_dom.node_data.as_container();
-                            let mut callback_map: BTreeMap<NodeId, Vec<EventFilter>> =
-                                BTreeMap::new();
-
-                            for node_idx in 0..node_data_container.len() {
-                                let node_id = NodeId::new(node_idx);
-                                if let Some(nd) = node_data_container.get(node_id) {
-                                    let matching_filters: Vec<EventFilter> = nd
-                                        .get_callbacks()
-                                        .as_ref()
-                                        .iter()
-                                        .filter(|cb| cb.event == *filter)
-                                        .map(|cb| cb.event)
-                                        .collect();
-                                    if !matching_filters.is_empty() {
-                                        callback_map.insert(node_id, matching_filters);
-                                    }
-                                }
-                            }
-
-                            if callback_map.is_empty() {
-                                continue;
-                            }
-
-                            // Run W3C event propagation
-                            let mut event_clone = event.clone();
-                            let prop_result = azul_core::events::propagate_event(
-                                &mut event_clone,
-                                &node_hierarchy,
-                                &callback_map,
+                            // W3C propagation: Capture → Target → Bubble, along
+                            // the path core plans for both dispatchers (this and
+                            // the e2e runner's): past a `VirtualView` page's root
+                            // it goes on at the page's host in the parent dom, so
+                            // a double-click on a tile's progress bar reaches the
+                            // tile.
+                            let layout_results = &layout_window.layout_results;
+                            let virtual_views = &layout_window.virtual_view_manager;
+                            let reached = azul_core::events::hover_callbacks_along_path(
+                                event,
+                                *filter,
+                                &|dom| layout_results.get(&dom).map(|lr| &lr.styled_dom),
+                                &|dom| virtual_views.host_of_nested_dom(dom),
                             );
-
-                            // Collect actual CoreCallbackData for each matched node+filter
-                            for (node_id, matched_filter) in &prop_result.callbacks_to_invoke {
-                                if let Some(nd) = node_data_container.get(*node_id) {
-                                    for cb in nd.get_callbacks().as_ref().iter() {
-                                        if cb.event == *matched_filter {
-                                            planned.push(PlannedInvocation {
-                                                dom_id,
-                                                node_id: *node_id,
-                                                callback_data: cb.clone(),
-                                                event_type: event.event_type,
-                                                seat_id:
-                                                    azul_layout::managers::hover::seat_of_event(
-                                                        event,
-                                                    ),
-                                            });
-                                        }
-                                    }
-                                }
+                            for (at, callback_data) in reached {
+                                let Some(node_id) = at.node.into_crate_internal() else {
+                                    continue;
+                                };
+                                planned.push(PlannedInvocation {
+                                    dom_id: at.dom,
+                                    node_id,
+                                    callback_data,
+                                    event_type: event.event_type,
+                                    seat_id: azul_layout::managers::hover::seat_of_event(event),
+                                });
                             }
                         }
                         EventFilter::Focus(_) => {
