@@ -363,7 +363,7 @@ pub fn export_pdf(s: &mut AppState, app: &RefAny, info: &mut CallbackInfo) -> Up
 /// File > Export: the current slide as a PNG (a screenshot of the canvas),
 /// written into `show/exports/` like the PDF.
 pub fn export_image(s: &mut AppState, app: &RefAny, info: &mut CallbackInfo) -> Update {
-    let Some(node) = node_by_id(info, crate::views::SLIDE_ID) else {
+    let Some(node) = node_by_id(info, crate::ids::SLIDE.as_str()) else {
         s.message = String::from("Open the normal view to export the slide as a picture");
         return Update::RefreshDom;
     };

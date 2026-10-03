@@ -20,13 +20,13 @@ use crate::model::{Align, Paragraph, Run, TextBody};
 /// The DOM id of paragraph `index` of element `element`'s text.
 #[must_use]
 pub fn block_id(element: u64, index: usize) -> String {
-    format!("tb{element}-{index}")
+    format!("{}{element}-{index}", crate::ids::TEXT_PREFIX)
 }
 
 /// The DOM id of element `element`'s text host (the contenteditable root).
 #[must_use]
 pub fn host_id(element: u64) -> String {
-    format!("tb{element}")
+    format!("{}{element}", crate::ids::TEXT_PREFIX)
 }
 
 fn ir_align(a: Align) -> IrAlign {
@@ -322,7 +322,7 @@ mod tests {
 
     #[test]
     fn the_dom_ids_name_the_element_and_the_paragraph() {
-        assert_eq!(block_id(42, 3), "tb42-3");
-        assert_eq!(host_id(42), "tb42");
+        assert_eq!(block_id(42, 3), "__azshow_tb42-3");
+        assert_eq!(host_id(42), "__azshow_tb42");
     }
 }

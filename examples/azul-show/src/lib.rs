@@ -22,6 +22,7 @@ pub mod args;
 mod backstage;
 pub mod commands;
 pub mod editor;
+pub mod ids;
 pub mod model;
 pub mod render;
 mod ribbon;

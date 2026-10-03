@@ -29,12 +29,6 @@ use crate::{
     text,
 };
 
-/// The DOM id of the slide on the canvas (File > Export takes its picture).
-pub const SLIDE_ID: &str = "azshow-slide";
-/// The DOM id of the canvas's scroll box.
-pub const CANVAS_ID: &str = "azshow-canvas";
-/// The DOM id of the notes field.
-pub const NOTES_ID: &str = "azshow-notes";
 
 fn s(text: &str) -> AzString {
     AzString::from(text)
@@ -141,7 +135,7 @@ pub fn canvas(app: &RefAny, st: &AppState, ed: &Editor, scale: f32) -> Dom {
         media: &st.media,
         hooks: Some(app),
     };
-    let content = render::slide_dom(deck, slide, &opts).with_id(SLIDE_ID);
+    let content = render::slide_dom(deck, slide, &opts).with_id(crate::ids::SLIDE);
     let items: Vec<AdornerItem> = slide
         .elements
         .iter()
@@ -170,7 +164,7 @@ pub fn canvas(app: &RefAny, st: &AppState, ed: &Editor, scale: f32) -> Dom {
         adorner = adorner.with_editing(i);
     }
     Dom::create_div()
-        .with_id(CANVAS_ID)
+        .with_id(crate::ids::CANVAS)
         .with_css(
             "display: flex; flex-direction: column; align-items: center; justify-content: center; \
              flex-grow: 1; min-height: 0px; overflow: auto; padding: 24px; background: #8f8f8f;",
@@ -313,7 +307,7 @@ fn notes_field(app: &RefAny, notes: &str) -> Dom {
         .with_on_text_input(app.clone(), on_notes_input as TextAreaOnTextInputCallbackType)
         .with_on_focus_lost(app.clone(), on_notes_done as TextAreaOnFocusLostCallbackType)
         .dom()
-        .with_id(NOTES_ID)
+        .with_id(crate::ids::NOTES)
 }
 
 extern "C" fn on_notes_input(mut data: RefAny, _info: CallbackInfo, state: TextAreaState) -> OnTextInputReturn {
