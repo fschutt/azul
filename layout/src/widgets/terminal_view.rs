@@ -315,8 +315,32 @@ impl TerminalSelection {
     /// and last included; `None` when the row has none.
     #[must_use]
     pub fn columns_on(&self, line: u32, columns: u32) -> Option<(u32, u32)> {
-        let _ = (line, columns);
-        None
+        if columns == 0 || line < self.start.line || line > self.end.line {
+            return None;
+        }
+        let last_column = columns - 1;
+        let (first, last) = if self.block {
+            (self.start.column, self.end.column)
+        } else {
+            (
+                if line == self.start.line {
+                    self.start.column
+                } else {
+                    0
+                },
+                if line == self.end.line {
+                    self.end.column
+                } else {
+                    last_column
+                },
+            )
+        };
+        let last = last.min(last_column);
+        if first > last {
+            None
+        } else {
+            Some((first, last))
+        }
     }
 }
 
@@ -452,16 +476,15 @@ impl TerminalModes {
     /// typed text) or is the app's (anything with Cmd / the Windows key).
     #[must_use]
     pub fn encode_key(&self, key: VirtualKeyCode, modifiers: KeyModifiers) -> U8Vec {
-        let _ = (key, modifiers);
-        U8Vec::from_vec(Vec::new())
+        U8Vec::from_vec(key_bytes(self, key, modifiers).unwrap_or_default())
     }
 
     /// The bytes typed `text` sends: its UTF-8, the control characters left
     /// out (they come from [`Self::encode_key`]).
     #[must_use]
     pub fn encode_text(&self, text: AzString) -> U8Vec {
-        let _ = text;
-        U8Vec::from_vec(Vec::new())
+        let typed: String = text.as_str().chars().filter(|c| !c.is_control()).collect();
+        U8Vec::from_vec(typed.into_bytes())
     }
 
     /// The bytes a paste of `text` sends: bracketed when the program asked
@@ -469,8 +492,17 @@ impl TerminalModes {
     /// bracket), otherwise every line break as a carriage return.
     #[must_use]
     pub fn encode_paste(&self, text: AzString) -> U8Vec {
-        let _ = text;
-        U8Vec::from_vec(Vec::new())
+        let text = text.as_str();
+        let bytes = if self.bracketed_paste {
+            let mut out = Vec::with_capacity(text.len() + 12);
+            out.extend_from_slice(b"\x1b[200~");
+            out.extend(text.bytes().filter(|b| *b != 0x1b));
+            out.extend_from_slice(b"\x1b[201~");
+            out
+        } else {
+            text.replace("\r\n", "\r").replace('\n', "\r").into_bytes()
+        };
+        U8Vec::from_vec(bytes)
     }
 
     /// The report of a pointer event at `point`, or empty when the program
@@ -483,17 +515,266 @@ impl TerminalModes {
         point: TerminalPoint,
         modifiers: KeyModifiers,
     ) -> U8Vec {
-        let _ = (button, action, point, modifiers);
-        U8Vec::from_vec(Vec::new())
+        U8Vec::from_vec(mouse_bytes(self, button, action, point, modifiers).unwrap_or_default())
     }
 
     /// `CSI I` (in) / `CSI O` (out) when the program asked for focus
     /// reports, otherwise empty.
     #[must_use]
     pub fn encode_focus(&self, focused: bool) -> U8Vec {
-        let _ = focused;
-        U8Vec::from_vec(Vec::new())
+        let bytes: &[u8] = match (self.focus_reporting, focused) {
+            (false, _) => b"",
+            (true, true) => b"\x1b[I",
+            (true, false) => b"\x1b[O",
+        };
+        U8Vec::from_vec(bytes.to_vec())
     }
+}
+
+/// xterm's modifier parameter: 1, plus 1 for Shift, 2 for Alt, 4 for Ctrl.
+const fn modifier_param(m: KeyModifiers) -> u8 {
+    1 + (m.shift as u8) + 2 * (m.alt as u8) + 4 * (m.ctrl as u8)
+}
+
+/// `ESC [ <final>` / `ESC O <final>` without modifiers (`ss3`: the SS3
+/// form), `ESC [ 1 ; <m> <final>` with them.
+fn csi_or_ss3(param: u8, ss3: bool, final_byte: u8) -> Vec<u8> {
+    if param == 1 {
+        alloc::vec![0x1b, if ss3 { b'O' } else { b'[' }, final_byte]
+    } else {
+        alloc::format!("\x1b[1;{param}{}", char::from(final_byte)).into_bytes()
+    }
+}
+
+/// `ESC [ <code> ~`, `ESC [ <code> ; <m> ~` with modifiers.
+fn tilde(code: u8, param: u8) -> Vec<u8> {
+    if param == 1 {
+        alloc::format!("\x1b[{code}~").into_bytes()
+    } else {
+        alloc::format!("\x1b[{code};{param}~").into_bytes()
+    }
+}
+
+/// The C0 control Ctrl + `key` makes (Ctrl+A = 0x01 ... Ctrl+[ = ESC).
+fn ctrl_byte(key: VirtualKeyCode) -> Option<u8> {
+    use VirtualKeyCode as K;
+    let index = key as u32;
+    // A..Z are 10..=35 (`VirtualKeyCode::from_u32`).
+    if (10..=35).contains(&index) {
+        return u8::try_from(index - 10 + 1).ok();
+    }
+    match key {
+        K::Space | K::Key2 => Some(0x00),
+        K::LBracket | K::Key3 => Some(0x1b),
+        K::Backslash | K::Key4 => Some(0x1c),
+        K::RBracket | K::Key5 => Some(0x1d),
+        K::Key6 => Some(0x1e),
+        K::Minus | K::Slash | K::Key7 => Some(0x1f),
+        K::Key8 => Some(0x7f),
+        _ => None,
+    }
+}
+
+/// The character `key` types on a US layout (`shift`: a capital letter;
+/// a shifted digit or sign is the layout's, so `None`).
+fn us_char(key: VirtualKeyCode, shift: bool) -> Option<u8> {
+    use VirtualKeyCode as K;
+    let index = key as u32;
+    if (10..=35).contains(&index) {
+        let base = if shift { b'A' } else { b'a' };
+        return u8::try_from(index - 10).ok().map(|i| base + i);
+    }
+    if shift {
+        return None;
+    }
+    // Key1..Key9 are 0..=8, Key0 is 9.
+    if index <= 8 {
+        return u8::try_from(index).ok().map(|i| b'1' + i);
+    }
+    Some(match key {
+        K::Key0 => b'0',
+        K::Space => b' ',
+        K::Period => b'.',
+        K::Comma => b',',
+        K::Minus => b'-',
+        K::Equals => b'=',
+        K::Slash => b'/',
+        K::Backslash => b'\\',
+        K::Semicolon => b';',
+        K::Apostrophe => b'\'',
+        K::Grave => b'`',
+        K::LBracket => b'[',
+        K::RBracket => b']',
+        _ => return None,
+    })
+}
+
+/// The bytes of [`TerminalModes::encode_key`]; `None` for a key that sends
+/// nothing of its own.
+fn key_bytes(t: &TerminalModes, key: VirtualKeyCode, m: KeyModifiers) -> Option<Vec<u8>> {
+    use VirtualKeyCode as K;
+    if m.meta {
+        return None;
+    }
+    let param = modifier_param(m);
+    let cursor = match key {
+        K::Up => Some(b'A'),
+        K::Down => Some(b'B'),
+        K::Right => Some(b'C'),
+        K::Left => Some(b'D'),
+        K::Home => Some(b'H'),
+        K::End => Some(b'F'),
+        _ => None,
+    };
+    if let Some(final_byte) = cursor {
+        return Some(csi_or_ss3(param, t.application_cursor, final_byte));
+    }
+    let function = match key {
+        K::F1 => Some(b'P'),
+        K::F2 => Some(b'Q'),
+        K::F3 => Some(b'R'),
+        K::F4 => Some(b'S'),
+        _ => None,
+    };
+    if let Some(final_byte) = function {
+        return Some(csi_or_ss3(param, true, final_byte));
+    }
+    let code = match key {
+        K::Insert => Some(2),
+        K::Delete => Some(3),
+        K::PageUp => Some(5),
+        K::PageDown => Some(6),
+        K::F5 => Some(15),
+        K::F6 => Some(17),
+        K::F7 => Some(18),
+        K::F8 => Some(19),
+        K::F9 => Some(20),
+        K::F10 => Some(21),
+        K::F11 => Some(23),
+        K::F12 => Some(24),
+        K::F13 => Some(25),
+        K::F14 => Some(26),
+        K::F15 => Some(28),
+        K::F16 => Some(29),
+        K::F17 => Some(31),
+        K::F18 => Some(32),
+        K::F19 => Some(33),
+        K::F20 => Some(34),
+        _ => None,
+    };
+    if let Some(code) = code {
+        return Some(tilde(code, param));
+    }
+    if t.application_keypad && param == 1 {
+        let ss3 = match key {
+            K::Numpad0 => b'p',
+            K::Numpad1 => b'q',
+            K::Numpad2 => b'r',
+            K::Numpad3 => b's',
+            K::Numpad4 => b't',
+            K::Numpad5 => b'u',
+            K::Numpad6 => b'v',
+            K::Numpad7 => b'w',
+            K::Numpad8 => b'x',
+            K::Numpad9 => b'y',
+            K::NumpadDecimal => b'n',
+            K::NumpadAdd => b'k',
+            K::NumpadSubtract => b'm',
+            K::NumpadMultiply => b'j',
+            K::NumpadDivide => b'o',
+            K::NumpadEnter => b'M',
+            K::NumpadEquals => b'X',
+            _ => 0,
+        };
+        if ss3 != 0 {
+            return Some(alloc::vec![0x1b, b'O', ss3]);
+        }
+    }
+    let meta = m.alt && t.alt_sends_escape;
+    let with_meta = |byte: u8| -> Vec<u8> {
+        if meta {
+            alloc::vec![0x1b, byte]
+        } else {
+            alloc::vec![byte]
+        }
+    };
+    match key {
+        K::Return | K::NumpadEnter => return Some(with_meta(b'\r')),
+        K::Tab if m.shift => return Some(b"\x1b[Z".to_vec()),
+        K::Tab => return Some(with_meta(b'\t')),
+        K::Back => return Some(with_meta(if m.ctrl { 0x08 } else { 0x7f })),
+        K::Escape => return Some(with_meta(0x1b)),
+        _ => {}
+    }
+    // Ctrl+Alt is AltGr on Windows: the layout types its character.
+    if m.ctrl && m.alt {
+        return None;
+    }
+    if m.ctrl {
+        return ctrl_byte(key).map(|c| alloc::vec![c]);
+    }
+    if meta {
+        return us_char(key, m.shift).map(|c| alloc::vec![0x1b, c]);
+    }
+    None
+}
+
+/// The bytes of [`TerminalModes::encode_mouse`]; `None` when nothing is
+/// reported.
+fn mouse_bytes(
+    t: &TerminalModes,
+    button: TerminalMouseButton,
+    action: TerminalMouseAction,
+    point: TerminalPoint,
+    m: KeyModifiers,
+) -> Option<Vec<u8>> {
+    use TerminalMouseAction as A;
+    use TerminalMouseButton as B;
+    match (t.mouse, action) {
+        (TerminalMouseMode::Off, _) | (TerminalMouseMode::Click, A::Motion) => return None,
+        (TerminalMouseMode::Drag, A::Motion) if button == B::None => return None,
+        _ => {}
+    }
+    let wheel = matches!(button, B::WheelUp | B::WheelDown);
+    if wheel && action != A::Press {
+        return None;
+    }
+    let base: u32 = match button {
+        B::Left => 0,
+        B::Middle => 1,
+        B::Right => 2,
+        B::None => 3,
+        B::WheelUp => 64,
+        B::WheelDown => 65,
+    };
+    let mods = 4 * u32::from(m.shift) + 8 * u32::from(m.alt) + 16 * u32::from(m.ctrl);
+    let motion = if action == A::Motion { 32 } else { 0 };
+    let x = point.column.saturating_add(1);
+    let y = point.line.saturating_add(1);
+    if t.mouse_encoding == TerminalMouseEncoding::Sgr {
+        let code = base + mods + motion;
+        let final_char = if action == A::Release { 'm' } else { 'M' };
+        return Some(alloc::format!("\x1b[<{code};{x};{y}{final_char}").into_bytes());
+    }
+    // X10 / normal: a release says button 3, every value is 32 + it.
+    let pressed = if action == A::Release { 3 } else { base };
+    let code = pressed + mods + motion;
+    let mut out = alloc::vec![0x1b, b'[', b'M'];
+    for value in [code, x, y] {
+        let v = value.checked_add(32)?;
+        if t.mouse_encoding == TerminalMouseEncoding::Utf8 {
+            // xterm's 1005 limit: 2047 as a two-byte character.
+            if v > 2047 {
+                return None;
+            }
+            let c = char::from_u32(v)?;
+            let mut buf = [0u8; 4];
+            out.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+        } else {
+            out.push(u8::try_from(v).ok()?);
+        }
+    }
+    Some(out)
 }
 
 /// The button of a pointer report.
@@ -606,34 +887,67 @@ impl TerminalPalette {
     }
 
     /// Flat's terminal: dark text on the page white by day, the desktop's
-    /// night console at night (Windows Terminal's Campbell colours).
+    /// night console at night (Windows Terminal's Campbell colours) -
+    /// `themes::flat::terminal_palette`.
     #[must_use]
     pub const fn flat() -> Self {
-        Self::uniform(ChartColor::same(ColorU::rgb(0, 0, 0)))
+        crate::widgets::themes::flat::terminal_palette()
     }
 
     /// Flora's "ink" terminal: the code panel's warm ink ground in both
     /// modes (`--fl-code-bg #211F1B`, `--fl-code-fg #E4E1D6`; the dark
     /// room `#141414` / `#E2E2E2` at night), the ANSI colours from Flora's
-    /// accent families.
+    /// accent families - `themes::flora::terminal_palette`.
     #[must_use]
     pub const fn flora_ink() -> Self {
-        Self::uniform(ChartColor::same(ColorU::rgb(0, 0, 0)))
+        crate::widgets::themes::flora::terminal_palette()
+    }
+
+    /// The palette of the app theme the DOM is built for (flat or flora).
+    #[must_use]
+    pub fn of_app_theme() -> Self {
+        match crate::widgets::themes::UiTheme::current() {
+            crate::widgets::themes::UiTheme::Flat => Self::flat(),
+            crate::widgets::themes::UiTheme::Flora => Self::flora_ink(),
+        }
     }
 
     /// ANSI colour `index` (0..15; past 15 the last bright one).
     #[must_use]
     pub const fn ansi(&self, index: u8) -> ChartColor {
-        let _ = index;
-        self.foreground
+        match index {
+            0 => self.black,
+            1 => self.red,
+            2 => self.green,
+            3 => self.yellow,
+            4 => self.blue,
+            5 => self.magenta,
+            6 => self.cyan,
+            7 => self.white,
+            8 => self.bright_black,
+            9 => self.bright_red,
+            10 => self.bright_green,
+            11 => self.bright_yellow,
+            12 => self.bright_blue,
+            13 => self.bright_magenta,
+            14 => self.bright_cyan,
+            _ => self.bright_white,
+        }
     }
 
     /// The colour `color` is drawn in (`foreground` for the default ink,
     /// `background` for the default ground).
     #[must_use]
-    pub fn color_of(&self, color: TerminalColor) -> ChartColor {
-        let _ = color;
-        self.foreground
+    pub const fn color_of(&self, color: TerminalColor) -> ChartColor {
+        match color {
+            TerminalColor::Foreground => self.foreground,
+            TerminalColor::Background => self.background,
+            TerminalColor::Indexed(i) => match xterm_256_color(i) {
+                Some(c) => ChartColor::same(c),
+                None => self.ansi(i),
+            },
+            TerminalColor::Rgb(c) => ChartColor::same(c),
+        }
     }
 
     /// The ink and the ground `style` is drawn in - inverse, hidden and dim
@@ -641,14 +955,37 @@ impl TerminalPalette {
     /// view's own surface).
     #[must_use]
     pub fn colors_of(&self, style: &TerminalStyle) -> TerminalStyleColors {
-        let _ = style;
+        let mut ink = self.color_of(style.fg);
+        let mut ground = self.color_of(style.bg);
+        let mut paints_ground = style.bg != TerminalColor::Background;
+        if style.inverse {
+            core::mem::swap(&mut ink, &mut ground);
+            paints_ground = true;
+        }
+        if style.hidden {
+            ink = ground;
+        } else if style.dim {
+            ink = ChartColor::create(
+                ColorU {
+                    a: DIM_ALPHA,
+                    ..ink.light
+                },
+                ColorU {
+                    a: DIM_ALPHA,
+                    ..ink.dark
+                },
+            );
+        }
         TerminalStyleColors {
-            ink: self.foreground,
-            ground: self.background,
-            paints_ground: false,
+            ink,
+            ground,
+            paints_ground,
         }
     }
 }
+
+/// The alpha of dim (`SGR 2`) text: two thirds.
+const DIM_ALPHA: u8 = 170;
 
 /// The colours of a style: what [`TerminalPalette::colors_of`] resolves.
 #[repr(C)]
@@ -673,8 +1010,23 @@ impl_option!(
 /// ramp (8 to 238 in steps of 10). `None` below 16.
 #[must_use]
 pub const fn xterm_256_color(index: u8) -> Option<ColorU> {
-    let _ = index;
-    None
+    /// A cube step's level: 0, then 95 + 40 a step.
+    const fn level(step: u8) -> u8 {
+        if step == 0 {
+            0
+        } else {
+            55 + 40 * step
+        }
+    }
+    if index < 16 {
+        None
+    } else if index < 232 {
+        let n = index - 16;
+        Some(ColorU::rgb(level(n / 36), level((n / 6) % 6), level(n % 6)))
+    } else {
+        let grey = 8 + 10 * (index - 232);
+        Some(ColorU::rgb(grey, grey, grey))
+    }
 }
 
 // ---- what the app answers ----
@@ -700,9 +1052,16 @@ impl TerminalGridSize {
     /// `cell_width` x `line_height` px, at least 2 x 1 (what a terminal
     /// engine accepts); 2 x 1 for a box that is not there yet.
     #[must_use]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // floored, saturating
     pub fn fitting(width: f32, height: f32, cell_width: f32, line_height: f32) -> Self {
-        let _ = (width, height, cell_width, line_height);
-        Self::create(2, 1)
+        let fit = |len: f32, cell: f32, least: u32| -> u32 {
+            if len.is_finite() && cell.is_finite() && len > 0.0 && cell > 0.0 {
+                ((len / cell).floor() as u32).max(least)
+            } else {
+                least
+            }
+        };
+        Self::create(fit(width, cell_width, 2), fit(height, line_height, 1))
     }
 }
 
@@ -750,8 +1109,57 @@ impl TerminalScreen {
     /// blanks of a row dropped.
     #[must_use]
     pub fn selected_text(&self) -> AzString {
-        AzString::from(String::new())
+        let Some(selection) = self.selection.into_option() else {
+            return AzString::from_const_str("");
+        };
+        let mut out = String::new();
+        let mut joined_to_previous = true;
+        for (i, line) in self.lines.as_slice().iter().enumerate() {
+            let row = u32::try_from(i).unwrap_or(u32::MAX);
+            let Some((first, last)) = selection.columns_on(row, u32::MAX) else {
+                continue;
+            };
+            if !joined_to_previous {
+                out.push('\n');
+            }
+            let text = cells_text(line, first, last);
+            // A soft-wrapped row runs on into the next one: its blanks are
+            // the text's, not the end of a line.
+            let runs_on = line.wrapped && !selection.block && row < selection.end.line;
+            if runs_on {
+                out.push_str(&text);
+            } else {
+                out.push_str(text.trim_end_matches(' '));
+            }
+            joined_to_previous = runs_on;
+        }
+        AzString::from(out)
     }
+}
+
+/// The characters of `line` in columns `first..=last`: a run's characters
+/// cover `columns / chars` columns each (1, or 2 for wide characters - the
+/// app keeps the two apart in their own runs); a character counts when any
+/// of its columns is selected.
+fn cells_text(line: &TerminalLine, first: u32, last: u32) -> String {
+    let mut out = String::new();
+    let mut column = 0u32;
+    for run in line.runs.as_slice() {
+        let chars = u32::try_from(run.text.as_str().chars().count()).unwrap_or(u32::MAX);
+        let width = if chars > 0 && run.columns >= chars.saturating_mul(2) {
+            2
+        } else {
+            1
+        };
+        for c in run.text.as_str().chars() {
+            let end = column.saturating_add(width - 1);
+            if column <= last && end >= first {
+                out.push(c);
+            }
+            column = column.saturating_add(width);
+        }
+    }
+    out
 }
 
 impl Default for TerminalScreen {
@@ -1117,27 +1525,60 @@ impl Metrics {
     /// `measured_width` (the face's advance; `None` or nonsense: 0.6 em)
     /// wide. A font size that is not a positive number is 13 px.
     pub(crate) fn of(font_size: f32, line_height: f32, measured_width: Option<f32>) -> Self {
-        let _ = (font_size, line_height, measured_width);
+        let font_size = if font_size.is_finite() && font_size > 0.0 {
+            font_size
+        } else {
+            TERMINAL_FONT_SIZE
+        };
+        let line_height = if line_height.is_finite() && line_height > 0.0 {
+            line_height
+        } else {
+            (font_size * LINE_HEIGHT_EM).round().max(1.0)
+        };
+        let cell_width = match measured_width {
+            Some(w) if w.is_finite() && w > 0.0 => w,
+            _ => font_size * CELL_WIDTH_EM,
+        };
         Self {
-            font_size: TERMINAL_FONT_SIZE,
-            cell_width: 1.0,
-            line_height: 1.0,
+            font_size,
+            cell_width,
+            line_height,
         }
     }
 
     /// The cell under `(x, y)` px from the text area's top-left in a grid of
     /// `grid` (clamped into it), and whether `x` is in its right half.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // floored, clamped
     pub(crate) fn cell_at(&self, grid: TerminalGridSize, x: f32, y: f32) -> (TerminalPoint, bool) {
-        let _ = (grid, x, y);
-        (TerminalPoint::create(0, 0), false)
+        let last_column = grid.columns.max(1) - 1;
+        let last_line = grid.rows.max(1) - 1;
+        let fx = if x.is_finite() {
+            x.max(0.0) / self.cell_width
+        } else {
+            0.0
+        };
+        let fy = if y.is_finite() {
+            y.max(0.0) / self.line_height
+        } else {
+            0.0
+        };
+        let column = fx.floor() as u32;
+        let line = (fy.floor() as u32).min(last_line);
+        if column > last_column {
+            (TerminalPoint::create(line, last_column), true)
+        } else {
+            (TerminalPoint::create(line, column), fx - fx.floor() >= 0.5)
+        }
     }
 }
 
-/// The display offset `lines` lines further up (positive: older lines; negative: back
-/// towards the output), kept within `0..=history`.
+/// The display offset `lines` lines further up (positive: older lines;
+/// negative: back towards the output), kept within `0..=history`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped to a u32
 pub(crate) fn scroll_after(scroll: u32, history: u32, lines: i64) -> u32 {
-    let _ = (history, lines);
-    scroll
+    i64::from(scroll)
+        .saturating_add(lines)
+        .clamp(0, i64::from(history)) as u32
 }
 
 /// The scroll bar of a view `height` px tall at `x`: the thumb shows
@@ -1150,20 +1591,45 @@ pub(crate) fn scroll_bar(
     history: u32,
     scroll: u32,
 ) -> Option<crate::widgets::data_table::ScrollBar> {
-    let _ = (x, height, rows, history, scroll);
-    None
+    if history == 0 || !height.is_finite() || height <= 0.0 {
+        return None;
+    }
+    #[allow(clippy::cast_precision_loss)] // line counts far below 2^24 per px
+    let (page, total) = (rows as f32, history as f32 + rows as f32);
+    let top = history - scroll.min(history);
+    let (thumb_start, thumb_len) =
+        crate::widgets::data_table::thumb(height, page, total, top, history);
+    Some(crate::widgets::data_table::ScrollBar {
+        track: (x, 0.0, SCROLLBAR_PX, height),
+        thumb_start,
+        thumb_len,
+    })
 }
 
-/// The display offset that puts the thumb of `bar` with its top at `thumb_top` px
-/// along the track: the top of the track is the oldest line (`history`), the
-/// bottom the output (0).
+/// The display offset that puts the thumb of `bar` with its top at
+/// `thumb_top` px along the track: the top of the track is the oldest line
+/// (`history`), the bottom the output (0).
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)] // a fraction of the scrollback, clamped
 pub(crate) fn scroll_for_thumb(
     bar: &crate::widgets::data_table::ScrollBar,
     thumb_top: f32,
     history: u32,
 ) -> u32 {
-    let _ = (bar, thumb_top, history);
-    0
+    let room = bar.track.3 - bar.thumb_len;
+    if history == 0 || !room.is_finite() || room <= 0.0 {
+        return 0;
+    }
+    let fraction = if thumb_top.is_finite() {
+        (thumb_top / room).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let top = ((fraction * history as f32).round() as u32).min(history);
+    history - top
 }
 
 /// What a key does in the view.
@@ -1193,8 +1659,44 @@ pub(crate) fn key_action(
     modifiers: KeyModifiers,
     mac: bool,
 ) -> KeyAction {
-    let _ = (screen, rows, key, modifiers, mac);
-    KeyAction::Nothing
+    use VirtualKeyCode as K;
+    let m = modifiers;
+    let chord = if mac {
+        m.meta && !m.ctrl && !m.alt
+    } else {
+        m.ctrl && m.shift && !m.alt && !m.meta
+    };
+    if chord {
+        match key {
+            K::C => return KeyAction::Copy,
+            K::V => return KeyAction::Paste,
+            _ => {}
+        }
+    }
+    let shift_only = m.shift && !m.ctrl && !m.alt && !m.meta;
+    if shift_only && key == K::Insert {
+        return KeyAction::Paste;
+    }
+    if shift_only && !screen.modes.alternate_screen {
+        let page = i64::from(rows.saturating_sub(1).max(1));
+        match key {
+            K::PageUp => {
+                return KeyAction::Scroll(scroll_after(screen.scroll, screen.history, page))
+            }
+            K::PageDown => {
+                return KeyAction::Scroll(scroll_after(screen.scroll, screen.history, -page))
+            }
+            K::Home => return KeyAction::Scroll(screen.history),
+            K::End => return KeyAction::Scroll(0),
+            _ => {}
+        }
+    }
+    let bytes = screen.modes.encode_key(key, m);
+    if bytes.is_empty() {
+        KeyAction::Nothing
+    } else {
+        KeyAction::Bytes(bytes.as_slice().to_vec())
+    }
 }
 
 /// What the wheel does, `notches` notches (positive: towards the user,
@@ -1207,8 +1709,42 @@ pub(crate) fn wheel_action(
     point: TerminalPoint,
     modifiers: KeyModifiers,
 ) -> KeyAction {
-    let _ = (screen, notches, point, modifiers);
-    KeyAction::Nothing
+    if notches == 0 {
+        return KeyAction::Nothing;
+    }
+    let t = &screen.modes;
+    // A burst of momentum must not send thousands of reports.
+    let count = usize::try_from(notches.unsigned_abs().min(64)).unwrap_or(64);
+    let up = notches < 0;
+    if t.mouse != TerminalMouseMode::Off {
+        let button = if up {
+            TerminalMouseButton::WheelUp
+        } else {
+            TerminalMouseButton::WheelDown
+        };
+        let one = t.encode_mouse(button, TerminalMouseAction::Press, point, modifiers);
+        if one.is_empty() {
+            return KeyAction::Nothing;
+        }
+        return KeyAction::Bytes(one.as_slice().repeat(count));
+    }
+    if t.alternate_screen {
+        if !t.alternate_scroll {
+            return KeyAction::Nothing;
+        }
+        let arrow: &[u8] = match (up, t.application_cursor) {
+            (true, false) => b"\x1b[A",
+            (true, true) => b"\x1bOA",
+            (false, false) => b"\x1b[B",
+            (false, true) => b"\x1bOB",
+        };
+        let lines = count * TERMINAL_WHEEL_LINES as usize;
+        return KeyAction::Bytes(arrow.repeat(lines));
+    }
+    let lines = notches
+        .saturating_mul(i64::from(TERMINAL_WHEEL_LINES))
+        .saturating_neg();
+    KeyAction::Scroll(scroll_after(screen.scroll, screen.history, lines))
 }
 
 // TERM9-NEXT: the build, the handlers.
@@ -1418,7 +1954,10 @@ mod encoding_tests {
     #[test]
     fn typed_text_goes_out_as_utf8_without_control_characters() {
         let t = modes();
-        assert_eq!(t.encode_text(AzString::from("é€")).as_slice(), "é€".as_bytes());
+        assert_eq!(
+            t.encode_text(AzString::from("é€")).as_slice(),
+            "é€".as_bytes()
+        );
         assert_eq!(t.encode_text(AzString::from("a\u{3}b\r")).as_slice(), b"ab");
         assert!(t.encode_text(AzString::from("")).as_slice().is_empty());
     }
@@ -1428,7 +1967,8 @@ mod encoding_tests {
         let mut t = modes();
         t.bracketed_paste = true;
         assert_eq!(
-            t.encode_paste(AzString::from("ls\x1b[201~ -la\n")).as_slice(),
+            t.encode_paste(AzString::from("ls\x1b[201~ -la\n"))
+                .as_slice(),
             b"\x1b[200~ls[201~ -la\n\x1b[201~"
         );
     }
@@ -1436,7 +1976,10 @@ mod encoding_tests {
     #[test]
     fn an_unbracketed_paste_sends_line_breaks_as_carriage_returns() {
         let t = modes();
-        assert_eq!(t.encode_paste(AzString::from("a\r\nb\nc")).as_slice(), b"a\rb\rc");
+        assert_eq!(
+            t.encode_paste(AzString::from("a\r\nb\nc")).as_slice(),
+            b"a\rb\rc"
+        );
     }
 
     #[test]
@@ -1479,22 +2022,43 @@ mod encoding_tests {
         assert_eq!(mouse(&t, B::Left, A::Press, 4, 9, NONE), b"\x1b[<0;10;5M");
         assert_eq!(mouse(&t, B::Left, A::Release, 4, 9, NONE), b"\x1b[<0;10;5m");
         assert_eq!(mouse(&t, B::Middle, A::Press, 0, 0, NONE), b"\x1b[<1;1;1M");
-        assert_eq!(mouse(&t, B::Right, A::Press, 4, 9, ctrl()), b"\x1b[<18;10;5M");
+        assert_eq!(
+            mouse(&t, B::Right, A::Press, 4, 9, ctrl()),
+            b"\x1b[<18;10;5M"
+        );
         assert_eq!(mouse(&t, B::Left, A::Press, 0, 0, shift()), b"\x1b[<4;1;1M");
         assert_eq!(mouse(&t, B::Left, A::Press, 0, 0, alt()), b"\x1b[<8;1;1M");
-        assert_eq!(mouse(&t, B::WheelUp, A::Press, 4, 9, NONE), b"\x1b[<64;10;5M");
-        assert_eq!(mouse(&t, B::WheelDown, A::Press, 4, 9, NONE), b"\x1b[<65;10;5M");
+        assert_eq!(
+            mouse(&t, B::WheelUp, A::Press, 4, 9, NONE),
+            b"\x1b[<64;10;5M"
+        );
+        assert_eq!(
+            mouse(&t, B::WheelDown, A::Press, 4, 9, NONE),
+            b"\x1b[<65;10;5M"
+        );
         // Past the old 223-column limit: SGR says it.
-        assert_eq!(mouse(&t, B::Left, A::Press, 0, 299, NONE), b"\x1b[<0;300;1M");
+        assert_eq!(
+            mouse(&t, B::Left, A::Press, 0, 299, NONE),
+            b"\x1b[<0;300;1M"
+        );
     }
 
     #[test]
     fn a_default_report_is_three_offset_bytes_and_a_release_is_button_3() {
         let mut t = modes();
         t.mouse = TerminalMouseMode::Click;
-        assert_eq!(mouse(&t, B::Left, A::Press, 0, 0, NONE), [0x1b, b'[', b'M', 32, 33, 33]);
-        assert_eq!(mouse(&t, B::Right, A::Press, 2, 5, NONE), [0x1b, b'[', b'M', 34, 38, 35]);
-        assert_eq!(mouse(&t, B::Left, A::Release, 0, 0, NONE), [0x1b, b'[', b'M', 35, 33, 33]);
+        assert_eq!(
+            mouse(&t, B::Left, A::Press, 0, 0, NONE),
+            [0x1b, b'[', b'M', 32, 33, 33]
+        );
+        assert_eq!(
+            mouse(&t, B::Right, A::Press, 2, 5, NONE),
+            [0x1b, b'[', b'M', 34, 38, 35]
+        );
+        assert_eq!(
+            mouse(&t, B::Left, A::Release, 0, 0, NONE),
+            [0x1b, b'[', b'M', 35, 33, 33]
+        );
         // A cell the three bytes cannot say is not reported.
         assert!(mouse(&t, B::Left, A::Press, 0, 300, NONE).is_empty());
     }
@@ -1615,15 +2179,17 @@ mod palette_tests {
 
     #[test]
     fn both_built_in_palettes_keep_the_text_readable_on_their_ground() {
-        let luma = |c: ColorU| {
-            0.2126 * f32::from(c.r) + 0.7152 * f32::from(c.g) + 0.0722 * f32::from(c.b)
-        };
+        let luma =
+            |c: ColorU| 0.2126 * f32::from(c.r) + 0.7152 * f32::from(c.g) + 0.0722 * f32::from(c.b);
         for p in [TerminalPalette::flat(), TerminalPalette::flora_ink()] {
             for (ink, ground) in [
                 (p.foreground.light, p.background.light),
                 (p.foreground.dark, p.background.dark),
             ] {
-                assert!((luma(ink) - luma(ground)).abs() > 120.0, "{ink:?} on {ground:?}");
+                assert!(
+                    (luma(ink) - luma(ground)).abs() > 120.0,
+                    "{ink:?} on {ground:?}"
+                );
             }
         }
     }
@@ -1761,18 +2327,27 @@ mod view_tests {
         let s = screen(24, 0, 0);
         let k = |key, mods, mac| key_action(&s, 24, key, mods, mac);
         assert_eq!(k(K::C, m(false, false, false, true), true), KeyAction::Copy);
-        assert_eq!(k(K::V, m(false, false, false, true), true), KeyAction::Paste);
+        assert_eq!(
+            k(K::V, m(false, false, false, true), true),
+            KeyAction::Paste
+        );
         assert_eq!(
             k(K::C, m(false, true, false, false), true),
             KeyAction::Bytes(alloc::vec![3])
         );
         assert_eq!(k(K::C, m(true, true, false, false), false), KeyAction::Copy);
-        assert_eq!(k(K::V, m(true, true, false, false), false), KeyAction::Paste);
+        assert_eq!(
+            k(K::V, m(true, true, false, false), false),
+            KeyAction::Paste
+        );
         assert_eq!(
             k(K::C, m(false, true, false, false), false),
             KeyAction::Bytes(alloc::vec![3])
         );
-        assert_eq!(k(K::Insert, m(true, false, false, false), false), KeyAction::Paste);
+        assert_eq!(
+            k(K::Insert, m(true, false, false, false), false),
+            KeyAction::Paste
+        );
         assert_eq!(k(K::A, NONE, false), KeyAction::Nothing);
         assert_eq!(k(K::Up, NONE, false), KeyAction::Bytes(b"\x1b[A".to_vec()));
     }
@@ -1781,10 +2356,22 @@ mod view_tests {
     fn shift_page_up_scrolls_a_screen_and_shift_end_returns_to_the_output() {
         let shift = m(true, false, false, false);
         let s = screen(24, 100, 10);
-        assert_eq!(key_action(&s, 24, K::PageUp, shift, false), KeyAction::Scroll(33));
-        assert_eq!(key_action(&s, 24, K::PageDown, shift, false), KeyAction::Scroll(0));
-        assert_eq!(key_action(&s, 24, K::Home, shift, false), KeyAction::Scroll(100));
-        assert_eq!(key_action(&s, 24, K::End, shift, false), KeyAction::Scroll(0));
+        assert_eq!(
+            key_action(&s, 24, K::PageUp, shift, false),
+            KeyAction::Scroll(33)
+        );
+        assert_eq!(
+            key_action(&s, 24, K::PageDown, shift, false),
+            KeyAction::Scroll(0)
+        );
+        assert_eq!(
+            key_action(&s, 24, K::Home, shift, false),
+            KeyAction::Scroll(100)
+        );
+        assert_eq!(
+            key_action(&s, 24, K::End, shift, false),
+            KeyAction::Scroll(0)
+        );
         // On the alternate screen they are the program's.
         let mut full = screen(24, 0, 0);
         full.modes.alternate_screen = true;
