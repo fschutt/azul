@@ -43,17 +43,36 @@ Report: scripts/MEDIA9_2026_10_03.md (date = the day it finishes).
 
 - B3 434685558 RED / 08d778b41 GREEN MediaControls (media_controls.rs, looks, manifest INPUTS).
 
+- B4 b30b92f55 RED / 25cf3510b GREEN Waveform widget (on the seek bar's surface: SeekSurface,
+  seek_callbacks, move_surface shared - no twin). PHASE B (widgets) DONE.
+
 ## IN PROGRESS
-- NEXT STEP: B4 the Waveform widget part in layout/src/widgets/waveform.rs (pure peaks part exists):
-  Waveform { peaks F32Vec, position_s, duration_s, on_seek OptionSeekBarOnSeek (REUSE seek_bar's
-  callback triple + SeekBarState - no twin), accessibility_name, theme, bar_gap? }; DOM: root
-  (Slider role, focus stop, value "1:12 of 9:22" via seek_bar's value text - make it pub(crate)),
-  flex row align-end, one div per peak (height = peak*100 %, min 1px, flex-grow 1), the bars
-  before the position fraction carry the played skin; pointer/keys: reuse seek_bar's handlers if
-  the dataset is a SeekBarWrapper (they call show_position, which assumes the seek bar's parts -
-  so give the waveform its own small show (recolor not possible in place: just report and let the
-  app rebuild, or set the played class? keep: report only + update via rebuild)). Look + flat/flora
-  appends + manifest INPUTS. Then C AzMusic (examples/azul-music), D AzPlayer.
+- NEXT STEP: Phase C AzMusic in examples/azul-music (model on examples/azul-dashboard: appkit
+  Kit, ShellThemeScope::body, Titlebar via kit::title_row, NoTitle via kit::window_options).
+  Files: Cargo.toml (package AzMusic, lib azmusic, bin AzMusic; azul link-dynamic exactly as
+  azul-drive, azul-appkit {features azul}, azul-storage {features azul}, serde, serde_json);
+  src/main.rs (azmusic::start()); src/ids.rs (names! macro, prefix `__azmusic_`);
+  src/library.rs (PURE, tests first: Track {id, path, title, artist, album, album_artist, genre,
+  year, track_no, disc_no, duration_s}, Library {tracks, albums() grouped by album_artist+album
+  sorted by track/disc, artists(), search(query), JSON round trip, AUDIO_EXTENSIONS});
+  src/queue.rs (PURE, tests first: PlayQueue {order, current, shuffle with a seeded
+  permutation, repeat Off/All/One, next/previous (previous restarts if > 3 s in), play_next,
+  enqueue, the track to queue gaplessly after the current one}); src/playlists.rs (Playlist
+  {id uuid, name, track ids} as music/playlists/<id>.json); src/scan.rs (walk the music folder on a
+  Thread, AudioFileDecoder::open(path).info() per file -> Track); src/sample.rs (--sample: a few
+  generated WAV tones written into music/sample/ + library.json, through the Drive);
+  src/lib.rs (state, layout on MediaShell: sidebar (Library: Albums / Artists / Songs, Playlists),
+  content (Songs = DataTable; Albums / Artists = simple lists - TODO(WIDGETS9A) IconGrid), now
+  playing bar = cover + title/artist + MediaControls + SeekBar + LevelMeter; a 250 ms Timer polls
+  AudioPlayer::get_state -> SeekBar::update_position / LevelMeter::update_level in place, track
+  change -> queue the next gaplessly (AudioPlayer::queue_file) + set_now_playing; media keys and
+  get_media_control_request; settings section "Music folder" + Rescan; About; shortcuts; CloseGuard
+  not needed (no document)). Register: root Cargo.toml members, scripts/workspace_test_members.txt,
+  .github/workflows/rust.yml dll_tests step. scripts/azmusic_e2e.py (AZ_SYNTHETIC_DEVICES=audio_sink).
+- then D AzPlayer (examples/azul-player): MediaShell::create_player + VideoWidget (VideoSource::File)
+  + AudioPlayer for the file's audio track (audio follows the video's on_status position, 150 ms
+  dead band) + overlay MediaControls/SeekBar, fullscreen (F / double click), keys; library of recent
+  files with resume positions in player/history.json.
 
 ## api.json so far (for the report)
 - audio.AudioFileDecoder (external azul_dll::unified::audio::AudioFileDecoder, Clone Default Drop,
@@ -86,6 +105,21 @@ Report: scripts/MEDIA9_2026_10_03.md (date = the day it finishes).
   widgets.LevelMeterOrientation enum (Horizontal, Vertical; repr C). option.OptionLevelMeter.
 - widgets.LevelMeterThrottle (Copy, repr C: interval_ms u64, last_ms u64, level f32, min_step f32,
   moved bool): create(interval_ms u64) (const fn), next(refmut, level f32, now_ms u64) -> OptionF32.
+- widgets.MediaControls (repr C: on_action OptionMediaControlsOnAction, accessibility_name
+  OptionString, theme OptionUiTheme, volume f32, repeat MediaRepeat, playing shuffle show_skip
+  show_shuffle_repeat bool): create(playing bool); set_/with_volume(f32), set_/with_shuffle_repeat(
+  shuffle bool, repeat MediaRepeat), set_/with_show_skip(bool), set_/with_on_action (callback
+  triple MediaControlsOnAction / OptionMediaControlsOnAction / MediaControlsOnActionCallback /
+  MediaControlsOnActionCallbackType = extern fn(RefAny, CallbackInfo, MediaControlsEvent) ->
+  Update), with_accessibility_name, set_/with_theme, swap_with_default, dom.
+  widgets.MediaControlsAction enum (Previous, PlayPause, Next, SkipBack, SkipForward, Shuffle,
+  Repeat, Volume), widgets.MediaRepeat enum (Off, All, One) with next() -> MediaRepeat,
+  widgets.MediaControlsEvent (Copy, repr C: value f32, action MediaControlsAction).
+- widgets.Waveform (repr C: position_s duration_s f64, peaks F32Vec, on_seek OptionSeekBarOnSeek,
+  accessibility_name OptionString, theme OptionUiTheme): create(peaks F32Vec, position_s f64,
+  duration_s f64); set_/with_on_seek (the SeekBar's callback types), with_accessibility_name,
+  set_/with_theme, swap_with_default, dom; static update_position(callback_info, node_id,
+  position_s f64) -> bool. Rust-only: WaveformPeaks, resample_peaks (or export later).
 - widgets.SeekBar (external ...::seek_bar::SeekBar, repr C: position_s duration_s buffered_s f64,
   chapters F32Vec, on_seek OptionSeekBarOnSeek, accessibility_name OptionString, theme
   OptionUiTheme, show_times bool): create(position_s f64, duration_s f64); set_/with_buffered,
