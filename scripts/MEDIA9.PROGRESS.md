@@ -49,9 +49,16 @@ Report: scripts/MEDIA9_2026_10_03.md (date = the day it finishes).
 - C1 c7e499dec RED / 6a99ac291 GREEN examples/azul-music crate + library.rs; C2 b3dbcaa34 RED /
   227752629 GREEN queue.rs (5 tests pass standalone with rustc).
 
+- C3 701e7d5b3 / 2682bafcd playlists.rs; C4 b6233d001 / ead57eeb4 ids.rs + sample.rs + scan.rs (4 tests
+  pass standalone: /tmp/media9_tc/music_pure.rs); 8b2313ee8 LevelMeter::peak_level.
+
 ## IN PROGRESS
-- NEXT STEP: AzMusic playlists.rs (Playlist {id, name, tracks}, music/playlists/<id>.json; tests:
-  round trip, add/remove/move, drop unknown ids), then ids.rs, scan.rs, sample.rs, lib.rs window.
+- NEXT STEP: AzMusic lib.rs - the window (state MusicApp, start(), file jobs for library.json /
+  playlists (FileJob::Get / GetAll / Put), the scan Thread (AudioFileDecoder::open(path).info()),
+  the layout on MediaShell, the playback timer, MediaControls / SeekBar / keys / media control
+  requests). Media keys: VirtualKeyCode::{PlayPause, NextTrack, PrevTrack, MediaStop}; OS seek /
+  volume: EventFilter::Application(ApplicationEventFilter::MediaControl) +
+  info.get_media_control_request(); config.expose_system_media_controls = true.
   Original Phase C plan: AzMusic in examples/azul-music (model on examples/azul-dashboard: appkit
   Kit, ShellThemeScope::body, Titlebar via kit::title_row, NoTitle via kit::window_options).
   Files: Cargo.toml (package AzMusic, lib azmusic, bin AzMusic; azul link-dynamic exactly as
