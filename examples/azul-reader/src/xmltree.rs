@@ -62,7 +62,10 @@ pub fn full_name(node: &XmlNode) -> String {
 #[must_use]
 pub fn attr<'a>(node: &'a XmlNode, key: &str) -> Option<&'a str> {
     let pairs = node.attributes.inner.as_slice();
-    if let Some(pair) = pairs.iter().find(|p| p.key.as_str().eq_ignore_ascii_case(key)) {
+    if let Some(pair) = pairs
+        .iter()
+        .find(|p| p.key.as_str().eq_ignore_ascii_case(key))
+    {
         return Some(pair.value.as_str());
     }
     if key.contains(':') {
@@ -94,7 +97,10 @@ pub fn elements(node: &XmlNode) -> impl Iterator<Item = &XmlNode> {
 }
 
 /// The element children of `node` whose local name is `local_name`.
-pub fn children_named<'a>(node: &'a XmlNode, local_name: &'a str) -> impl Iterator<Item = &'a XmlNode> {
+pub fn children_named<'a>(
+    node: &'a XmlNode,
+    local_name: &'a str,
+) -> impl Iterator<Item = &'a XmlNode> {
     elements(node).filter(move |e| name(e) == local_name)
 }
 
@@ -175,7 +181,10 @@ mod tests {
         );
         assert_eq!(how, Parsed::Xml);
         let anchor = find_first(xml.root.as_slice(), "a").expect("the anchor");
-        assert!(anchor.children.as_slice().is_empty(), "<a/> is empty in XHTML");
+        assert!(
+            anchor.children.as_slice().is_empty(),
+            "<a/> is empty in XHTML"
+        );
         let paragraphs = find_all(xml.root.as_slice(), "p");
         assert_eq!(paragraphs.len(), 2, "the empty <title/> swallowed nothing");
         assert_eq!(text(paragraphs[0]), "One");
@@ -184,13 +193,20 @@ mod tests {
 
     #[test]
     fn a_malformed_document_falls_back_to_the_html_parser() {
-        let (xml, how) = parse_document("<div class=intro><p>One<p>Two &amp; three<br> four</div>", false);
+        let (xml, how) = parse_document(
+            "<div class=intro><p>One<p>Two &amp; three<br> four</div>",
+            false,
+        );
         assert_eq!(how, Parsed::Html, "an unquoted attribute is no XML");
         let paragraphs = find_all(xml.root.as_slice(), "p");
         assert_eq!(paragraphs.len(), 2);
         assert_eq!(text(paragraphs[1]), "Two & three four");
         let (xml, how) = parse_document("<p>One<p>Two", true);
-        assert_eq!(how, Parsed::Html, "an HTML document goes straight to the HTML parser");
+        assert_eq!(
+            how,
+            Parsed::Html,
+            "an HTML document goes straight to the HTML parser"
+        );
         assert_eq!(find_all(xml.root.as_slice(), "p").len(), 2);
     }
 
@@ -204,10 +220,18 @@ mod tests {
         let title = find_first(xml.root.as_slice(), "title").expect("dc:Title by its local name");
         assert_eq!(name(title), "title");
         assert_eq!(full_name(title), "dc:title");
-        assert_eq!(attr(title, "lang"), Some("en"), "xml:lang by its local name");
+        assert_eq!(
+            attr(title, "lang"),
+            Some("en"),
+            "xml:lang by its local name"
+        );
         let nav = find_first(xml.root.as_slice(), "nav").expect("nav");
         assert_eq!(attr(nav, "epub:type"), Some("toc"));
         assert_eq!(attr(nav, "type"), Some("toc"));
-        assert_eq!(attr(nav, "other:type"), None, "a prefixed key matches exactly only");
+        assert_eq!(
+            attr(nav, "other:type"),
+            None,
+            "a prefixed key matches exactly only"
+        );
     }
 }
