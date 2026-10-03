@@ -46,6 +46,9 @@ mod cpal_sink;
 // engine (AudioToolbox on Apple).
 pub mod codec;
 pub use codec::{AudioDecoder, AudioEncoder};
+// The AudioToolbox Opus engine behind them (dlopen'd, like VideoToolbox).
+#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+mod opus_apple;
 
 /// Internal playback state behind an open `AudioSink` handle.
 struct AudioSinkInner {

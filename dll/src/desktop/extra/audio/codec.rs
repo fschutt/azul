@@ -16,18 +16,53 @@
 //! resamples); a decoder hands frames out at its config's rate.
 
 use core::ffi::c_void;
+use std::collections::VecDeque;
 
 use azul_core::audio::{AudioConfig, AudioFrame, OptionAudioFrame};
-use azul_css::{corety::OptionU8Vec, AzString, U8Vec};
+use azul_css::{corety::OptionU8Vec, AzString, F32Vec, U8Vec};
+
+#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+use super::opus_apple::{OpusDecoderEngine, OpusEncoderEngine};
 
 /// Milliseconds of audio in one Opus packet.
 pub const OPUS_FRAME_MS: u32 = 20;
 /// Opus's own sample rate: packets always carry 48 kHz audio.
 pub const OPUS_SAMPLE_RATE: u32 = 48_000;
+/// Samples per channel in one Opus packet, at 48 kHz (960).
+const OPUS_PACKET_FRAMES: u32 = OPUS_SAMPLE_RATE * OPUS_FRAME_MS / 1000;
 
 /// The Opus engine of this build on this machine, or why there is none.
 fn engine() -> Result<&'static str, String> {
-    Err(String::from("this build has no Opus engine"))
+    #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+    {
+        if super::opus_apple::is_available() {
+            Ok("AudioToolbox")
+        } else {
+            Err(String::from(
+                "the AudioToolbox framework did not load (see the [audio] log lines)",
+            ))
+        }
+    }
+    #[cfg(not(all(any(target_os = "macos", target_os = "ios"), feature = "libloading")))]
+    {
+        let why = if cfg!(any(target_os = "macos", target_os = "ios")) {
+            "this build has no `libloading` feature, so the AudioToolbox Opus engine is compiled out"
+        } else {
+            "there is no Opus engine on this platform yet (Apple's AudioToolbox only)"
+        };
+        Err(String::from(why))
+    }
+}
+
+/// Whether the codec takes `config`: one or two channels at a rate.
+fn usable(config: AudioConfig) -> Result<(), String> {
+    if config.sample_rate == 0 || !(1..=2).contains(&config.channels) {
+        return Err(format!(
+            "Opus takes one or two channels at a sample rate, not {} Hz x{}",
+            config.sample_rate, config.channels
+        ));
+    }
+    Ok(())
 }
 
 /// Says why a codec handle did not open: once per distinct reason.
@@ -40,6 +75,57 @@ fn say_not_open(what: &str, why: &str) {
     if !said.contains(&line) {
         eprintln!("[azul][audio] {line} - the handle is closed (is_open() = false)");
         said.push(line);
+    }
+}
+
+/// Engine-side encoder state: exists only with a live engine, so an open `AudioEncoder` always
+/// encodes. Never built where this build has no Opus engine.
+#[cfg_attr(
+    not(all(any(target_os = "macos", target_os = "ios"), feature = "libloading")),
+    allow(dead_code)
+)]
+struct EncoderInner {
+    config: AudioConfig,
+    /// Packets made, not yet pulled with `recv_packet`.
+    packets: VecDeque<U8Vec>,
+    #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+    engine: OpusEncoderEngine,
+}
+
+impl EncoderInner {
+    /// A live Opus encoder for `config`, or why none opens here.
+    fn open(config: AudioConfig, bitrate_kbps: u32) -> Result<EncoderInner, String> {
+        usable(config)?;
+        engine()?;
+        #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+        {
+            let engine = OpusEncoderEngine::open(
+                config.sample_rate,
+                u32::from(config.channels),
+                bitrate_kbps,
+                OPUS_PACKET_FRAMES,
+            )?;
+            Ok(EncoderInner {
+                config,
+                packets: VecDeque::new(),
+                engine,
+            })
+        }
+        #[cfg(not(all(any(target_os = "macos", target_os = "ios"), feature = "libloading")))]
+        {
+            let _ = bitrate_kbps;
+            Err(String::from("this build has no Opus engine"))
+        }
+    }
+
+    /// Hands whole frames of interleaved samples to the engine; the packets it completes queue up.
+    fn encode(&mut self, samples: &[f32]) {
+        #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+        for packet in self.engine.encode(samples) {
+            self.packets.push_back(U8Vec::from_vec(packet));
+        }
+        #[cfg(not(all(any(target_os = "macos", target_os = "ios"), feature = "libloading")))]
+        let _ = samples;
     }
 }
 
@@ -72,16 +158,25 @@ impl AudioEncoder {
     /// An Opus encoder for frames in `config` (sample rate, 1 or 2 channels) at `bitrate_kbps`
     /// (32 is good for one voice). A closed handle wherever this build has no Opus engine.
     pub fn create(config: AudioConfig, bitrate_kbps: u32) -> AudioEncoder {
-        let _ = (config, bitrate_kbps);
-        if let Err(why) = engine() {
-            say_not_open("AudioEncoder::create", &why);
+        match EncoderInner::open(config, bitrate_kbps) {
+            Ok(inner) => AudioEncoder {
+                ptr: Box::into_raw(Box::new(inner)) as *mut c_void,
+                run_destructor: true,
+            },
+            Err(why) => {
+                say_not_open("AudioEncoder::create", &why);
+                AudioEncoder::default()
+            }
         }
-        AudioEncoder::default()
     }
 
     /// The engine this build would use ("AudioToolbox", or "none").
     pub fn backend_name() -> AzString {
-        AzString::from_const_str("none")
+        AzString::from_const_str(if cfg!(any(target_os = "macos", target_os = "ios")) {
+            "AudioToolbox"
+        } else {
+            "none"
+        })
     }
 
     /// Whether the encoder opened.
@@ -94,17 +189,34 @@ impl AudioEncoder {
     /// ([`recv_packet`](Self::recv_packet)). False when the encoder is not open or the frame is
     /// in another format.
     pub fn encode(&mut self, frame: AudioFrame) -> bool {
-        let _ = frame;
-        false
+        let Some(inner) = (unsafe { (self.ptr as *mut EncoderInner).as_mut() }) else {
+            return false;
+        };
+        if frame.sample_rate != inner.config.sample_rate || frame.channels != inner.config.channels
+        {
+            return false;
+        }
+        let samples = frame.samples.as_ref();
+        let whole = samples.len() - samples.len() % usize::from(frame.channels.max(1));
+        inner.encode(&samples[..whole]);
+        true
     }
 
     /// The next Opus packet, or `None` when no whole packet is ready yet.
     pub fn recv_packet(&mut self) -> OptionU8Vec {
-        OptionU8Vec::None
+        match unsafe { (self.ptr as *mut EncoderInner).as_mut() } {
+            Some(inner) => inner.packets.pop_front().into(),
+            None => OptionU8Vec::None,
+        }
     }
 
     /// Release the encoder. (Drop does this too.)
     pub fn close(&mut self) {
+        if self.run_destructor && !self.ptr.is_null() {
+            unsafe {
+                drop(Box::from_raw(self.ptr as *mut EncoderInner));
+            }
+        }
         self.ptr = core::ptr::null_mut();
         self.run_destructor = false;
     }
@@ -113,6 +225,51 @@ impl AudioEncoder {
 impl Drop for AudioEncoder {
     fn drop(&mut self) {
         self.close();
+    }
+}
+
+/// Engine-side decoder state (see [`EncoderInner`]).
+#[cfg_attr(
+    not(all(any(target_os = "macos", target_os = "ios"), feature = "libloading")),
+    allow(dead_code)
+)]
+struct DecoderInner {
+    config: AudioConfig,
+    #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+    engine: OpusDecoderEngine,
+}
+
+impl DecoderInner {
+    /// A live Opus decoder handing frames out in `config`, or why none opens here.
+    fn open(config: AudioConfig) -> Result<DecoderInner, String> {
+        usable(config)?;
+        engine()?;
+        #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+        {
+            let engine = OpusDecoderEngine::open(
+                config.sample_rate,
+                u32::from(config.channels),
+                OPUS_PACKET_FRAMES,
+            )?;
+            Ok(DecoderInner { config, engine })
+        }
+        #[cfg(not(all(any(target_os = "macos", target_os = "ios"), feature = "libloading")))]
+        {
+            Err(String::from("this build has no Opus engine"))
+        }
+    }
+
+    /// The interleaved samples `packet` decodes to, or `None` when it does not decode.
+    fn decode(&mut self, packet: &[u8]) -> Option<Vec<f32>> {
+        #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+        {
+            self.engine.decode(packet)
+        }
+        #[cfg(not(all(any(target_os = "macos", target_os = "ios"), feature = "libloading")))]
+        {
+            let _ = packet;
+            None
+        }
     }
 }
 
@@ -145,11 +302,16 @@ impl AudioDecoder {
     /// An Opus decoder that hands frames out in `config` (the output's sample rate, 1 or 2
     /// channels). A closed handle wherever this build has no Opus engine.
     pub fn create(config: AudioConfig) -> AudioDecoder {
-        let _ = config;
-        if let Err(why) = engine() {
-            say_not_open("AudioDecoder::create", &why);
+        match DecoderInner::open(config) {
+            Ok(inner) => AudioDecoder {
+                ptr: Box::into_raw(Box::new(inner)) as *mut c_void,
+                run_destructor: true,
+            },
+            Err(why) => {
+                say_not_open("AudioDecoder::create", &why);
+                AudioDecoder::default()
+            }
         }
-        AudioDecoder::default()
     }
 
     /// Whether the decoder opened.
@@ -157,15 +319,30 @@ impl AudioDecoder {
         !self.ptr.is_null()
     }
 
-    /// Decodes one Opus packet into its audio (20 ms for AzMeet's packets), in the config's
-    /// rate and channels. `None` when the decoder is not open or the packet does not decode.
+    /// Decodes one Opus packet into its audio (20 ms for AzMeet's packets; the first packet of a
+    /// stream may give less, the decoder's look-ahead), in the config's rate and channels.
+    /// `None` when the decoder is not open or the packet does not decode.
     pub fn decode(&mut self, packet: U8Vec) -> OptionAudioFrame {
-        let _ = packet;
-        OptionAudioFrame::None
+        let Some(inner) = (unsafe { (self.ptr as *mut DecoderInner).as_mut() }) else {
+            return OptionAudioFrame::None;
+        };
+        match inner.decode(packet.as_ref()) {
+            Some(samples) => OptionAudioFrame::Some(AudioFrame {
+                sample_rate: inner.config.sample_rate,
+                channels: inner.config.channels,
+                samples: F32Vec::from_vec(samples),
+            }),
+            None => OptionAudioFrame::None,
+        }
     }
 
     /// Release the decoder. (Drop does this too.)
     pub fn close(&mut self) {
+        if self.run_destructor && !self.ptr.is_null() {
+            unsafe {
+                drop(Box::from_raw(self.ptr as *mut DecoderInner));
+            }
+        }
         self.ptr = core::ptr::null_mut();
         self.run_destructor = false;
     }
