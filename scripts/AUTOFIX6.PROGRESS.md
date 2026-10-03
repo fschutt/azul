@@ -50,12 +50,14 @@ noted in the report). Never compile; the parent runs `cargo test -p azul-doc --b
 
 - item 5 RED + GREEN + scan integration (mod.rs: `removed_classes`, `gone`, patches `NNNN_remove_fns_<Class>`)
 
+- item 6 RED + GREEN (diff.rs repr_loss_tests, still_exposed_in_source, removed-type filter; mod.rs warning filter)
+
 ## NEXT (exact)
-- item 6 (gap 6) RED: diff.rs test module `repr_loss_tests`: `a_type_that_lost_its_c_repr_gets_no_repr_patch`
-  (compare_derives_and_impls) and `an_unreachable_type_without_a_c_repr_is_removed` (generate_diff_v2 with
-  ResolvedTypeSet::default(), index via add_type_for_test). GREEN: in compare_derives_and_impls skip ReprChanged
-  when workspace repr is None; `still_exposed_in_source(index, name)` (Some def and, for struct/enum, repr.is_some())
-  replaces `index.resolve(..).is_some()/is_none()` at the 3 removal guards; at the end drop modifications /
-  additions / path_fixes / module_moves of every removed type; mod.rs: drop FFI warnings of removed classes
-  (reuse `removed_classes` - move its computation up before the ffi checks).
-- then items 7, 8, 9 as in the plan above.
+- item 7 (gap 4) RED: new doc/src/autofix/pending.rs (register `pub mod pending;` in mod.rs) with tests:
+  `an_add_after_a_pending_remove_of_the_same_entry_goes_through_in_one_round` (PendingRemovals::read / apply_to /
+  supersede_pending_removals on a tempfile dir; then both apply orders give the new entry), and in
+  doc/src/patch/mod.rs tests `patches_in_a_folder_apply_in_file_name_order` (ApiPatch::from_directory sorted).
+  Stubs in RED. GREEN: implement; sort in from_directory_with_context; main.rs add (exists path): read pending,
+  stop on a pending whole-class removal, candidates against `pending.apply_to(class)`, after writing the patch
+  call supersede_pending_removals.
+- then items 8, 9.
