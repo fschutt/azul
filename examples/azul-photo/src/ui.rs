@@ -48,28 +48,39 @@ pub struct Palette {
     pub muted: &'static str,
     pub selected: &'static str,
     pub ruler: &'static str,
+    /// A face that stands out of the chrome (the document tab).
+    pub raised: &'static str,
 }
+
+// DEDUP_OFFICE D16: the chrome no longer has colours of its own. Surfaces
+// are tints over the ground the ShellThemeScope paints (flat's grey, flora's
+// paper), lines and text are `system:` colours, the selection is the app
+// accent's soft wash (`--az-accent-soft`, published by the scope with its
+// night value) - so flat and flora, light and dark each look like themselves.
+// Only the canvas workspace keeps app colours (`view::ViewColors`).
 
 pub const LIGHT: Palette = Palette {
     dark: false,
-    chrome: "#eceef2",
-    panel: "#f7f8fa",
-    line: "#d5d8de",
-    text: "#1d2330",
-    muted: "#5d6677",
-    selected: "#d6e4fb",
-    ruler: "#e4e6ea",
+    chrome: "rgba(0, 0, 0, 0.04)",
+    panel: "transparent",
+    line: "system:separator",
+    text: "system:text",
+    muted: "system:secondary-text",
+    selected: "var(--az-accent-soft, #eae0dd)",
+    ruler: "rgba(0, 0, 0, 0.06)",
+    raised: "rgba(255, 255, 255, 0.7)",
 };
 
 pub const DARK: Palette = Palette {
     dark: true,
-    chrome: "#2b2d31",
-    panel: "#232428",
-    line: "#3a3c42",
-    text: "#e6e7ea",
-    muted: "#a0a4ad",
-    selected: "#2f4a72",
-    ruler: "#303237",
+    chrome: "rgba(255, 255, 255, 0.04)",
+    panel: "transparent",
+    line: "system:separator",
+    text: "system:text",
+    muted: "system:secondary-text",
+    selected: "var(--az-accent-soft, #5e332d)",
+    ruler: "rgba(255, 255, 255, 0.06)",
+    raised: "rgba(255, 255, 255, 0.08)",
 };
 
 // ==== Small builders ====
@@ -525,12 +536,23 @@ fn tools_column(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
 // ==== Panels ====
 
 fn section(title: &str, id: AzString, p: &Palette, body: Dom) -> Dom {
+    section_with(title, id, p, None, body)
+}
+
+/// A panel section whose title row also carries `actions` (right-aligned,
+/// Photoshop's place for a panel's own buttons).
+fn section_with(title: &str, id: AzString, p: &Palette, actions: Option<Dom>, body: Dom) -> Dom {
+    let title = text(
+        title,
+        &format!("font-size: 11px; font-weight: bold; color: {}; flex-grow: 1;", p.muted),
+    );
+    let mut head = row("align-items: center; margin-bottom: 4px;").with_child(title);
+    if let Some(actions) = actions {
+        head.add_child(actions);
+    }
     column(&format!("border-bottom: 1px solid {}; padding: 6px 8px; flex-shrink: 0;", p.line))
         .with_id(id)
-        .with_child(text(
-            title,
-            &format!("font-size: 11px; font-weight: bold; color: {}; margin-bottom: 4px;", p.muted),
-        ))
+        .with_child(head)
         .with_child(body)
 }
 
@@ -770,14 +792,12 @@ fn history_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
                 .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), cmd(app, Command::HistoryJump(i)), commands::on_command),
         );
     }
-    let body = column("")
-        .with_child(list)
-        .with_child(
-            row("margin-top: 4px;")
-                .with_child(icon_button(app, "undo", "Undo", Command::Undo).with_id(ids::HISTORY_UNDO))
-                .with_child(icon_button(app, "redo", "Redo", Command::Redo).with_id(ids::HISTORY_REDO)),
-        );
-    section("HISTORY", ids::PANEL_HISTORY, p, body)
+    // Undo / redo sit in the title row: below the list they ended under the
+    // status bar at 1400 x 900 (the panels column 13 px too tall).
+    let actions = row("")
+        .with_child(icon_button(app, "undo", "Undo", Command::Undo).with_id(ids::HISTORY_UNDO))
+        .with_child(icon_button(app, "redo", "Redo", Command::Redo).with_id(ids::HISTORY_REDO));
+    section_with("HISTORY", ids::PANEL_HISTORY, p, Some(actions), list)
 }
 
 /// The panels column (scrolls when it is taller than the window).
@@ -869,7 +889,7 @@ fn canvas_area(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
 fn doc_tab(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
     row(&format!("padding: 2px 8px; background: {}; flex-shrink: 0;", p.chrome))
         .with_child(
-            row(&format!("padding: 2px 8px; background: {}; border-radius: 4px 4px 0px 0px;", p.panel))
+            row(&format!("padding: 2px 8px; background: {}; border-radius: 4px 4px 0px 0px;", p.raised))
                 .with_id(ids::DOC_TAB)
                 .with_child(text(
                     &format!("{}{}", a.s.name, if a.s.modified { " \u{25cf}" } else { "" }),
@@ -1131,7 +1151,7 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_css("display: flex; flex-direction: column; margin: 0px; height: 100%;")
         .with_child(
             ShellThemeScope::create(root)
-                .with_accent(ShellThemeAccent::Blue)
+                .with_accent(ShellThemeAccent::Clay)
                 .dom()
                 .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;"),
         )
