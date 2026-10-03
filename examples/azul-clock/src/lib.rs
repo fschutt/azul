@@ -14,6 +14,8 @@
 //!   sample data;
 //! - [`fmt`]: how durations and times read;
 //! - [`tone`]: the alarm sounds, synthesised into PCM for azul's AudioSink.
+//!
+//! [`ui`] is the window on top of it (azul + azul-appkit).
 
 pub mod alarm;
 pub mod fmt;
@@ -24,7 +26,11 @@ pub mod stopwatch;
 pub mod store;
 pub mod timer;
 pub mod tone;
+/// The window (azul's UtilityShell, the four screens, the dialogs, the settings page).
+pub mod ui;
 pub mod world;
 
 /// Starts AzClock (the switches are read from the command line).
-pub fn start() {}
+pub fn start() {
+    ui::start();
+}
