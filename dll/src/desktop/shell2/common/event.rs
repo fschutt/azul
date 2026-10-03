@@ -4222,15 +4222,55 @@ pub trait PlatformWindow {
     }
 
     /// The keystroke a native command stands for, pressed and released
-    /// through the ordinary key passes (EVENTS7).
+    /// through the ordinary key passes (EVENTS7): `keys` held - modifiers
+    /// first, the key itself last - and one pass (the key handlers, then the
+    /// key's default action, which a `prevent_default` vetoes), then released
+    /// and another pass.
+    ///
+    /// A native menu item is the equivalent of its keystroke (macOS Edit >
+    /// Undo is Cmd+Z). Run as that keystroke, a command picked with the
+    /// pointer gives the app's key handlers the same first say the key gives
+    /// them - an editor that owns its undo history takes Undo - where applying
+    /// the engine's text undo directly ran it behind the editor's back. A key
+    /// the user already holds stays held; only what this pressed comes up.
     fn press_shortcut_keys(
         &mut self,
         keys: &[azul_core::window::VirtualKeyCode],
         site: &str,
     ) -> ProcessEventResult {
-        // RED stub: presses nothing.
-        let _ = (keys, site);
-        ProcessEventResult::DoNothing
+        let Some(&key) = keys.last() else {
+            return ProcessEventResult::DoNothing;
+        };
+
+        self.snapshot_window_state_baseline(site);
+        let pressed_here: Vec<azul_core::window::VirtualKeyCode> = {
+            let keyboard = self.get_common_mut().keyboard_state_mut();
+            let pressed_here: Vec<azul_core::window::VirtualKeyCode> = keys
+                .iter()
+                .copied()
+                .filter(|k| !keyboard.is_key_down(*k))
+                .collect();
+            for k in &pressed_here {
+                keyboard.pressed_virtual_keycodes.insert_hm_item(*k);
+            }
+            keyboard.current_virtual_keycode = azul_core::window::OptionVirtualKeyCode::Some(key);
+            keyboard.is_repeat = false;
+            keyboard.sync_modifiers();
+            pressed_here
+        };
+        let down = self.process_window_events(0);
+
+        self.snapshot_window_state_baseline(site);
+        {
+            let keyboard = self.get_common_mut().keyboard_state_mut();
+            for k in &pressed_here {
+                keyboard.pressed_virtual_keycodes.remove_hm_item(k);
+            }
+            keyboard.current_virtual_keycode = azul_core::window::OptionVirtualKeyCode::None;
+            keyboard.sync_modifiers();
+        }
+        let up = self.process_window_events(0);
+        down.max(up)
     }
 
     // Resource Access
