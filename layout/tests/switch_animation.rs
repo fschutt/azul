@@ -15,6 +15,11 @@
 //!
 //! This pins the layout half; the shell's driver and its relayout are verified
 //! live (AzWidgets, `AZ_E2E`).
+//!
+//! The switch itself slides its knob by `transform` now - a GPU property, no
+//! relayout per frame (`a_transform_tween_moves_no_box_and_rebuilds_no_list.rs`).
+//! These tests keep pinning a LAYOUT-property tween: the switch here is given
+//! the knob style it had before, a `margin-left` and its declared tween.
 
 use azul_core::{
     dom::{Dom, DomId, DomNodeId, NodeId},
@@ -22,18 +27,64 @@ use azul_core::{
     resources::RendererResources,
     styled_dom::StyledDom,
 };
-use azul_css::props::{
-    layout::LayoutMarginLeft,
-    property::{CssProperty, CssPropertyType},
+use azul_css::{
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    props::{
+        basic::{
+            animation::{
+                AnimationIterationCount, AnimationTiming, StyleAnimation, StyleAnimationVec,
+            },
+            time::CssDuration,
+        },
+        layout::LayoutMarginLeft,
+        property::{CssProperty, CssPropertyType, StyleAnimationVecValue},
+    },
+    AzString,
 };
 use azul_layout::{
-    callbacks::ExternalSystemCallbacks, overlay::ContentChange, widgets::switch::Switch,
-    window::LayoutWindow, window_state::FullWindowState,
+    callbacks::ExternalSystemCallbacks,
+    overlay::ContentChange,
+    widgets::switch::{build_knob_style, Switch},
+    window::LayoutWindow,
+    window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
 
+/// A switch whose knob slides by `margin-left` (a LAYOUT property) with a
+/// declared 150 ms spring tween - the knob as it was styled before it moved to
+/// `transform`, and the shape every layout-property tween has.
+fn margin_knob_switch() -> Switch {
+    let mut props: Vec<CssPropertyWithConditions> = build_knob_style(false)
+        .as_ref()
+        .iter()
+        .filter(|p| {
+            !matches!(
+                p.property,
+                CssProperty::Transform(_) | CssProperty::Animation(_)
+            )
+        })
+        .cloned()
+        .collect();
+    props.push(CssPropertyWithConditions::simple(CssProperty::Animation(
+        StyleAnimationVecValue::Exact(StyleAnimationVec::from_vec(vec![StyleAnimation {
+            name: AzString::from_const_str("margin-left"),
+            duration: CssDuration::from_millis(150),
+            delay: CssDuration::from_millis(0),
+            iterations: AnimationIterationCount::Count(1),
+            timing: AnimationTiming::Spring,
+            clip: true,
+        }])),
+    )));
+    props.push(CssPropertyWithConditions::simple(
+        CssProperty::const_margin_left(LayoutMarginLeft::const_px(0)),
+    ));
+    let mut switch = Switch::create(false);
+    switch.knob_style = Some(CssPropertyWithConditionsVec::from_vec(props)).into();
+    switch
+}
+
 fn switch_window() -> (LayoutWindow, NodeId) {
-    let mut dom = Dom::create_body().with_child(Switch::create(false).dom());
+    let mut dom = Dom::create_body().with_child(margin_knob_switch().dom());
     let styled_dom = StyledDom::create(&mut dom, azul_css::css::Css::empty());
     let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
     let mut ws = FullWindowState::default();
