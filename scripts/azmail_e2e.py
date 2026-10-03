@@ -532,7 +532,7 @@ class SampleRun(Run):
         self.click(NEWSLETTER)
         self.until('the newsletter in the reading pane', lambda: self.printed('AZMAIL_OPEN'))
         self.frame(None, 3)
-        lists = self.widths('__azul-native-message-list')
+        lists = self.widths('__azul-native-summary-list')
         panes = self.widths('__azul-native-reading-pane')
         # RED until the engine fix (MAILENG6): the split's panes collapse to 0 px after the
         # HTML mail with its table is opened (a resize lays them out right).

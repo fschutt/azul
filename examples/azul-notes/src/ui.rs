@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use azul::{
     callbacks::{
         ButtonOnClickCallbackType, CallbackInfo, ChipOnRemoveCallbackType, LayoutCallbackInfo,
-        MessageListOnEventCallbackType, RefAny, SegmentedOnChangeCallbackType,
+        SummaryListOnEventCallbackType, RefAny, SegmentedOnChangeCallbackType,
         ShellCommandPaletteOnQueryCallbackType, ShellCommandPaletteOnRunCallbackType,
         ShellNavigationPaneOnEventCallbackType, ShellOnPaneResizeCallbackType,
         StandardDialogOnEventCallbackType, TextInputOnFocusLostCallbackType, TextInputOnTextInputCallbackType,
@@ -25,10 +25,10 @@ use azul::{
         ShellPaletteCommand, ShellThemeAccent, ShellThemeScope,
     },
     str::String as AzString,
-    vec::{MessageRowVec, StringVec},
+    vec::{SummaryRowVec, StringVec},
     widgets::{
-        AboutDialog, Button, ButtonType, Chip, ChipState, MessageList, MessageListEvent,
-        MessageListEventKind, MessageListMark, MessageRow, OnTextInputReturn, RichBlockKind,
+        AboutDialog, Button, ButtonType, Chip, ChipState, SummaryList, SummaryListEvent,
+        SummaryListEventKind, SummaryListMark, SummaryRow, OnTextInputReturn, RichBlockKind,
         RichCheck, RichFormat, RichTextCommand, Segmented, SegmentedState, StatusBar,
         StatusBarSegment, StatusBarSync, StatusBarSyncKind, TextInput, TextInputState,
         TextInputValid, Titlebar, TreeViewNode, Modal, ModalState, StandardDialogEvent,
@@ -552,7 +552,7 @@ fn note_list(s: &AppState, app: &RefAny) -> Dom {
     let mut message_rows = Vec::with_capacity(rows.len());
     for row in &rows {
         match row {
-            ListRow::Section(title) => message_rows.push(MessageRow::create_group(title.as_str())),
+            ListRow::Section(title) => message_rows.push(SummaryRow::create_group(title.as_str())),
             ListRow::Note(i) => {
                 let note = &s.library.notes[*i];
                 let date = if s.query.sort == SortKey::Created {
@@ -568,7 +568,7 @@ fn note_list(s: &AppState, app: &RefAny) -> Dom {
                     preview = String::from("No text");
                 }
                 message_rows.push(
-                    MessageRow::create(id, note.display_title(), preview)
+                    SummaryRow::create(id, note.display_title(), preview)
                         .with_preview(row_detail(note))
                         .with_date(model::short_date(date, now, offset))
                         .with_icon(row_icon(note))
@@ -578,13 +578,13 @@ fn note_list(s: &AppState, app: &RefAny) -> Dom {
             }
         }
     }
-    let cb = on_list_event as MessageListOnEventCallbackType;
-    let list = MessageList::create(MessageRowVec::from_vec(message_rows))
+    let cb = on_list_event as SummaryListOnEventCallbackType;
+    let list = SummaryList::create(SummaryRowVec::from_vec(message_rows))
         .with_search(s.query.search.as_str())
         .with_search_placeholder("Search notes")
         .with_sort("Arrange by:", s.query.sort.label(), s.query.descending)
         .with_sort_direction_label(s.query.sort.direction_label(s.query.descending))
-        .with_mark(MessageListMark::Pin)
+        .with_mark(SummaryListMark::Pin)
         .with_row_height(64)
         .with_on_select(app.clone(), cb)
         .with_on_open(app.clone(), cb)
@@ -634,27 +634,27 @@ fn note_list(s: &AppState, app: &RefAny) -> Dom {
 }
 
 /// The note of row `event.id` (the library index plus one).
-fn event_note(s: &AppState, event: &MessageListEvent) -> Option<String> {
+fn event_note(s: &AppState, event: &SummaryListEvent) -> Option<String> {
     let index = usize::try_from(event.id).ok()?.checked_sub(1)?;
     s.library.notes.get(index).map(|n| n.id.clone())
 }
 
-extern "C" fn on_list_event(mut data: RefAny, mut info: CallbackInfo, event: MessageListEvent) -> Update {
+extern "C" fn on_list_event(mut data: RefAny, mut info: CallbackInfo, event: SummaryListEvent) -> Update {
     with_state(&mut data, &mut info, |s, info, app| match event.kind {
-        MessageListEventKind::Select => {
+        SummaryListEventKind::Select => {
             if let Some(id) = event_note(s, &event) {
                 jobs::open_note(info, app, s, &id);
             }
             Update::RefreshDom
         }
-        MessageListEventKind::Open => {
+        SummaryListEventKind::Open => {
             if let Some(id) = event_note(s, &event) {
                 jobs::open_note(info, app, s, &id);
                 editor::focus_editor(info);
             }
             Update::RefreshDom
         }
-        MessageListEventKind::Flag => match event_note(s, &event) {
+        SummaryListEventKind::Flag => match event_note(s, &event) {
             Some(id) => {
                 if let Some(note) = s.library.get_mut(&id) {
                     note.meta.pinned = !note.meta.pinned;
@@ -665,27 +665,27 @@ extern "C" fn on_list_event(mut data: RefAny, mut info: CallbackInfo, event: Mes
             }
             None => Update::DoNothing,
         },
-        MessageListEventKind::Delete => match event_note(s, &event) {
+        SummaryListEventKind::Delete => match event_note(s, &event) {
             Some(id) => {
                 delete_note(info, app, s, &id);
                 Update::RefreshDom
             }
             None => Update::DoNothing,
         },
-        MessageListEventKind::Sort => {
+        SummaryListEventKind::Sort => {
             s.query.sort = s.query.sort.next();
             s.query.descending = s.query.sort != SortKey::Title;
             Update::RefreshDom
         }
-        MessageListEventKind::SortDirection => {
+        SummaryListEventKind::SortDirection => {
             s.query.descending = !s.query.descending;
             Update::RefreshDom
         }
-        MessageListEventKind::Search => {
+        SummaryListEventKind::Search => {
             s.query.search = event.text.as_str().to_string();
             Update::RefreshDom
         }
-        MessageListEventKind::Scope | MessageListEventKind::Scroll => Update::DoNothing,
+        SummaryListEventKind::Scope | SummaryListEventKind::Scroll => Update::DoNothing,
     })
 }
 

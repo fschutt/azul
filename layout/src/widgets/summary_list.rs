@@ -4,7 +4,7 @@
 //! the sort header ("Arrange by: Date" and the "Newest on top" toggle), then
 //! the rows, grouped under headers ("Today", "Yesterday"), each row an icon
 //! beside its title in bold when unread, the subject, a preview line, the
-//! date at the right and a mark (a flag, or a pin). Named `MessageList` until
+//! date at the right and a mark (a flag, or a pin). Named `SummaryList` until
 //! wave 7 (DEDUP_WIDGETS_API F20); its fields still use the mail words.
 //!
 //! THOUSANDS OF ROWS: the list is virtualised. The app hands it the WINDOW

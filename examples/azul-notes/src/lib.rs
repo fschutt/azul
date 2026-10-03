@@ -1,7 +1,7 @@
 //! AzNotes: notes on the public azul API, in the three-pane PIM shell (S4).
 //!
 //! The navigation pane lists All notes / Pinned, the notebooks as a tree
-//! (nested, with counts) and the tags; the note list (azul's MessageList,
+//! (nested, with counts) and the tags; the note list (azul's SummaryList,
 //! with the pin as its row mark) shows the scope's notes under "Pinned" /
 //! date sections, searched as you type over title, text, tags and
 //! notebook, sorted by date modified / created / title; the editor pane

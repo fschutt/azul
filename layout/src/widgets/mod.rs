@@ -267,7 +267,7 @@ pub mod map_themes;
 /// Renders a window's `Menu` as a horizontal bar; items open dropdowns via the
 /// unified `WindowPosition::RelativeToParentWindow` popup path.
 pub mod menubar;
-/// Summary list widget (was `MessageList`).
+/// Summary list widget (was `SummaryList`).
 ///
 /// A mail window's middle pane, a notes app's note list: a search row, the
 /// sort header and the virtualised, grouped rows; see `summary_list.rs`.

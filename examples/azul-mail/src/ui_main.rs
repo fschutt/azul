@@ -12,14 +12,14 @@
 //!
 //! Everything is the toolkit's: `PimShell` (an `OfficeShell`), `Ribbon`, `Backstage`,
 //! `ShellNavigationPane` (`TreeView` per account, unread counts as node badges),
-//! `MessageList`, `ReadingPane` (+ `InfoBar`), `ToDoBar`, `StatusBar` (+ `StatusBarSync`),
+//! `SummaryList`, `ReadingPane` (+ `InfoBar`), `ToDoBar`, `StatusBar` (+ `StatusBarSync`),
 //! inside a `ShellThemeScope`; the app theme (flat / flora) and the mode (light / dark) are
 //! azul's, switched from the View tab.
 
 use azul::{
     callbacks::{
         BackstageOnNavSelectCallbackType, ButtonOnClickCallbackType, ModalOnCloseCallbackType,
-        MessageListOnEventCallbackType, ReadingPaneOnEventCallbackType, ResumeCallbackType,
+        SummaryListOnEventCallbackType, ReadingPaneOnEventCallbackType, ResumeCallbackType,
         RibbonOnTabClickCallbackType, ShellNavigationPaneOnEventCallbackType,
         SliderOnValueChangeCallbackType, StandardDialogOnEventCallbackType,
         ToDoBarOnEventCallbackType, WriteBackCallbackType,
@@ -35,9 +35,9 @@ use azul::{
     },
     str::String as AzString,
     widgets::{
-        AboutDialog, Backstage, BackstageNavItem, InfoBar, MessageList, MessageListEvent, Modal,
+        AboutDialog, Backstage, BackstageNavItem, InfoBar, SummaryList, SummaryListEvent, Modal,
         ModalState, StandardDialogEvent,
-        MessageListEventKind, MessageRow, ReadingPane, ReadingPaneEvent, ReadingPaneEventKind,
+        SummaryListEventKind, SummaryRow, ReadingPane, ReadingPaneEvent, ReadingPaneEventKind,
         Ribbon, RibbonAppButton, RibbonButton, RibbonGroup, RibbonItem, RibbonTab, StatusBar,
         SliderState, StatusBarSegment, StatusBarSync, StatusBarSyncKind, StatusBarZoom, Titlebar,
         ToDoBar, ToDoBarEvent, ToDoBarEventKind, ToDoTask, TreeViewNode,
@@ -1065,11 +1065,11 @@ fn message_list(s: &MailApp, app: &RefAny) -> Dom {
     let outgoing = matches!(role, Role::Sent | Role::Drafts);
     let today = chrono::NaiveDate::from_ymd_opt(s.today.0 as i32, s.today.1, s.today.2)
         .unwrap_or_default();
-    let rows: Vec<MessageRow> = s.rows[first..end]
+    let rows: Vec<SummaryRow> = s.rows[first..end]
         .iter()
         .enumerate()
         .filter_map(|(offset, row)| match row {
-            ListRow::Group(group) => Some(MessageRow::create_group(group.label())),
+            ListRow::Group(group) => Some(SummaryRow::create_group(group.label())),
             ListRow::Message(uid) => {
                 let entry = s.view.iter().find(|e| e.uid == *uid)?;
                 let who = if outgoing {
@@ -1092,7 +1092,7 @@ fn message_list(s: &MailApp, app: &RefAny) -> Dom {
                     _ => "mail",
                 };
                 Some(
-                    MessageRow::create(u64::from(*uid), who, subject)
+                    SummaryRow::create(u64::from(*uid), who, subject)
                         .with_date(listing::list_date(&entry.date, today, &chrono::Local))
                         .with_icon(icon)
                         .with_unread(!read)
@@ -1103,7 +1103,7 @@ fn message_list(s: &MailApp, app: &RefAny) -> Dom {
         })
         .collect();
     let folder = current_folder_label(s).unwrap_or_else(|| String::from("Mail"));
-    MessageList::create(rows)
+    SummaryList::create(rows)
         .with_window(first, total)
         .with_row_height(ROW_HEIGHT)
         .with_search(s.search.as_str())
@@ -1122,14 +1122,14 @@ fn message_list(s: &MailApp, app: &RefAny) -> Dom {
         } else {
             "Oldest on top"
         })
-        .with_on_select(app.clone(), on_list_event as MessageListOnEventCallbackType)
-        .with_on_open(app.clone(), on_list_event as MessageListOnEventCallbackType)
-        .with_on_flag(app.clone(), on_list_event as MessageListOnEventCallbackType)
-        .with_on_delete(app.clone(), on_list_event as MessageListOnEventCallbackType)
-        .with_on_sort(app.clone(), on_list_event as MessageListOnEventCallbackType)
-        .with_on_search(app.clone(), on_list_event as MessageListOnEventCallbackType)
-        .with_on_scope(app.clone(), on_list_event as MessageListOnEventCallbackType)
-        .with_on_scroll(app.clone(), on_list_event as MessageListOnEventCallbackType)
+        .with_on_select(app.clone(), on_list_event as SummaryListOnEventCallbackType)
+        .with_on_open(app.clone(), on_list_event as SummaryListOnEventCallbackType)
+        .with_on_flag(app.clone(), on_list_event as SummaryListOnEventCallbackType)
+        .with_on_delete(app.clone(), on_list_event as SummaryListOnEventCallbackType)
+        .with_on_sort(app.clone(), on_list_event as SummaryListOnEventCallbackType)
+        .with_on_search(app.clone(), on_list_event as SummaryListOnEventCallbackType)
+        .with_on_scope(app.clone(), on_list_event as SummaryListOnEventCallbackType)
+        .with_on_scroll(app.clone(), on_list_event as SummaryListOnEventCallbackType)
         .dom()
 }
 
@@ -1146,10 +1146,10 @@ fn module_placeholder(module: usize) -> Dom {
         .dom()
 }
 
-extern "C" fn on_list_event(mut data: RefAny, mut info: CallbackInfo, event: MessageListEvent) -> Update {
+extern "C" fn on_list_event(mut data: RefAny, mut info: CallbackInfo, event: SummaryListEvent) -> Update {
     with_app(&mut data, |s, app| {
         match event.kind {
-            MessageListEventKind::Select | MessageListEventKind::Open => {
+            SummaryListEventKind::Select | SummaryListEventKind::Open => {
                 let index = event.index;
                 // A row beyond the rendered window (Home, End, a page): move the window there.
                 if index < s.first_row || index >= s.first_row + LIST_WINDOW {
@@ -1168,13 +1168,13 @@ extern "C" fn on_list_event(mut data: RefAny, mut info: CallbackInfo, event: Mes
                     }
                 }
                 // A draft opens in a compose window again.
-                if event.kind == MessageListEventKind::Open
+                if event.kind == SummaryListEventKind::Open
                     && s.folder.as_deref() == Some(crate::compose::DRAFTS_FOLDER)
                 {
                     ui_compose::open_compose(s, &mut info, app, ComposeKind::Draft);
                 }
             }
-            MessageListEventKind::Flag => {
+            SummaryListEventKind::Flag => {
                 let Some(entry) = s.entry_of_row(event.index).cloned() else {
                     return Update::DoNothing;
                 };
@@ -1183,32 +1183,32 @@ extern "C" fn on_list_event(mut data: RefAny, mut info: CallbackInfo, event: Mes
                 let flags = s.flags.clone();
                 crate::save_flags(s, &mut info, app, flags);
             }
-            MessageListEventKind::Delete => {
+            SummaryListEventKind::Delete => {
                 s.notice = String::from(
                     "AzMail keeps the server's folders as they are (it receives read-only); \
                      deleting comes with two-way sync.",
                 );
             }
-            MessageListEventKind::Sort => {
+            SummaryListEventKind::Sort => {
                 s.notice = String::from("Messages are arranged by date.");
             }
-            MessageListEventKind::SortDirection => {
+            SummaryListEventKind::SortDirection => {
                 s.newest_first = !s.newest_first;
                 s.first_row = 0;
                 s.rebuild_view();
             }
-            MessageListEventKind::Search => {
+            SummaryListEventKind::Search => {
                 s.search = event.text.as_str().to_string();
                 s.first_row = 0;
                 s.selection = azul::widgets::ListSelection::create();
                 s.rebuild_view();
             }
-            MessageListEventKind::Scope => {
+            SummaryListEventKind::Scope => {
                 s.scope = event.index.min(1);
                 s.first_row = 0;
                 s.rebuild_view();
             }
-            MessageListEventKind::Scroll => {
+            SummaryListEventKind::Scroll => {
                 let (start, end) = (event.index, event.end);
                 let window_end = s.first_row + LIST_WINDOW;
                 // Rebuild only when the view comes near the window's edges.

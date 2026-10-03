@@ -23881,8 +23881,8 @@
                             }
                         }
                     },
-                    "MessageListOnEventCallbackType": {
-                        "external": "azul_layout::widgets::message_list::MessageListOnEventCallbackType",
+                    "SummaryListOnEventCallbackType": {
+                        "external": "azul_layout::widgets::summary_list::SummaryListOnEventCallbackType",
                         "callback_typedef": {
                             "fn_args": [
                                 {
@@ -23892,7 +23892,7 @@
                                     "type": "CallbackInfo"
                                 },
                                 {
-                                    "type": "MessageListEvent"
+                                    "type": "SummaryListEvent"
                                 }
                             ],
                             "returns": {
@@ -35790,8 +35790,8 @@
                         ],
                         "repr": "C"
                     },
-                    "MessageListOnEventCallback": {
-                        "external": "azul_layout::widgets::message_list::MessageListOnEventCallback",
+                    "SummaryListOnEventCallback": {
+                        "external": "azul_layout::widgets::summary_list::SummaryListOnEventCallback",
                         "custom_impls": [
                             "Clone",
                             "Debug",
@@ -35813,7 +35813,7 @@
                         "struct_fields": [
                             {
                                 "cb": {
-                                    "type": "MessageListOnEventCallbackType"
+                                    "type": "SummaryListOnEventCallbackType"
                                 },
                                 "callable": {
                                     "type": "OptionRefAny"
@@ -79663,8 +79663,8 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "MessageRowKind": {
-                        "external": "azul_layout::widgets::message_list::MessageRowKind",
+                    "SummaryRowKind": {
+                        "external": "azul_layout::widgets::summary_list::SummaryRowKind",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -81028,8 +81028,8 @@
                         ],
                         "repr": "C"
                     },
-                    "MessageList": {
-                        "external": "azul_layout::widgets::message_list::MessageList",
+                    "SummaryList": {
+                        "external": "azul_layout::widgets::summary_list::SummaryList",
                         "custom_impls": [
                             "Default"
                         ],
@@ -81040,7 +81040,7 @@
                         "struct_fields": [
                             {
                                 "rows": {
-                                    "type": "MessageRowVec"
+                                    "type": "SummaryRowVec"
                                 },
                                 "scopes": {
                                     "type": "StringVec"
@@ -81061,28 +81061,28 @@
                                     "type": "String"
                                 },
                                 "on_select": {
-                                    "type": "OptionMessageListOnEvent"
+                                    "type": "OptionSummaryListOnEvent"
                                 },
                                 "on_open": {
-                                    "type": "OptionMessageListOnEvent"
+                                    "type": "OptionSummaryListOnEvent"
                                 },
                                 "on_flag": {
-                                    "type": "OptionMessageListOnEvent"
+                                    "type": "OptionSummaryListOnEvent"
                                 },
                                 "on_delete": {
-                                    "type": "OptionMessageListOnEvent"
+                                    "type": "OptionSummaryListOnEvent"
                                 },
                                 "on_sort": {
-                                    "type": "OptionMessageListOnEvent"
+                                    "type": "OptionSummaryListOnEvent"
                                 },
                                 "on_search": {
-                                    "type": "OptionMessageListOnEvent"
+                                    "type": "OptionSummaryListOnEvent"
                                 },
                                 "on_scope": {
-                                    "type": "OptionMessageListOnEvent"
+                                    "type": "OptionSummaryListOnEvent"
                                 },
                                 "on_scroll": {
-                                    "type": "OptionMessageListOnEvent"
+                                    "type": "OptionSummaryListOnEvent"
                                 },
                                 "total_rows": {
                                     "type": "usize"
@@ -81097,7 +81097,7 @@
                                     "type": "usize"
                                 },
                                 "mark": {
-                                    "type": "MessageListMark"
+                                    "type": "SummaryListMark"
                                 },
                                 "theme": {
                                     "type": "OptionUiTheme"
@@ -81115,10 +81115,10 @@
                                 ],
                                 "fn_args": [
                                     {
-                                        "rows": "MessageRowVec"
+                                        "rows": "SummaryRowVec"
                                     }
                                 ],
-                                "fn_body": "azul_layout::widgets::message_list::MessageList::create(rows)"
+                                "fn_body": "azul_layout::widgets::summary_list::SummaryList::create(rows)"
                             }
                         },
                         "functions": {
@@ -81155,7 +81155,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageList"
+                                    "type": "SummaryList"
                                 },
                                 "fn_body": "object.with_window(first_row, total_rows)"
                             },
@@ -81186,7 +81186,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageList"
+                                    "type": "SummaryList"
                                 },
                                 "fn_body": "object.with_row_height(row_height)"
                             },
@@ -81223,7 +81223,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageList"
+                                    "type": "SummaryList"
                                 },
                                 "fn_body": "object.with_scopes(scopes, active)"
                             },
@@ -81254,7 +81254,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageList"
+                                    "type": "SummaryList"
                                 },
                                 "fn_body": "object.with_search(search)"
                             },
@@ -81285,7 +81285,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageList"
+                                    "type": "SummaryList"
                                 },
                                 "fn_body": "object.with_search_placeholder(placeholder)"
                             },
@@ -81328,7 +81328,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageList"
+                                    "type": "SummaryList"
                                 },
                                 "fn_body": "object.with_sort(label, field, descending)"
                             },
@@ -81359,7 +81359,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageList"
+                                    "type": "SummaryList"
                                 },
                                 "fn_body": "object.with_sort_direction_label(label)"
                             },
@@ -81390,7 +81390,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageList"
+                                    "type": "SummaryList"
                                 },
                                 "fn_body": "object.with_theme(theme)"
                             },
@@ -81406,7 +81406,7 @@
                                         "data": "RefAny"
                                     },
                                     {
-                                        "cb": "MessageListOnEventCallback"
+                                        "cb": "SummaryListOnEventCallback"
                                     }
                                 ],
                                 "fn_body": "object.set_on_select(data, cb)"
@@ -81423,11 +81423,11 @@
                                         "data": "RefAny"
                                     },
                                     {
-                                        "cb": "MessageListOnEventCallback"
+                                        "cb": "SummaryListOnEventCallback"
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageList"
+                                    "type": "SummaryList"
                                 },
                                 "fn_body": "object.with_on_select(data, cb)"
                             },
@@ -81443,7 +81443,7 @@
                                         "data": "RefAny"
                                     },
                                     {
-                                        "cb": "MessageListOnEventCallback"
+                                        "cb": "SummaryListOnEventCallback"
                                     }
                                 ],
                                 "fn_body": "object.set_on_open(data, cb)"
@@ -81460,11 +81460,11 @@
                                         "data": "RefAny"
                                     },
                                     {
-                                        "cb": "MessageListOnEventCallback"
+                                        "cb": "SummaryListOnEventCallback"
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageList"
+                                    "type": "SummaryList"
                                 },
                                 "fn_body": "object.with_on_open(data, cb)"
                             },
@@ -81480,7 +81480,7 @@
                                         "data": "RefAny"
                                     },
                                     {
-                                        "cb": "MessageListOnEventCallback"
+                                        "cb": "SummaryListOnEventCallback"
                                     }
                                 ],
                                 "fn_body": "object.set_on_flag(data, cb)"
@@ -81497,11 +81497,11 @@
                                         "data": "RefAny"
                                     },
                                     {
-                                        "cb": "MessageListOnEventCallback"
+                                        "cb": "SummaryListOnEventCallback"
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageList"
+                                    "type": "SummaryList"
                                 },
                                 "fn_body": "object.with_on_flag(data, cb)"
                             },
@@ -81517,7 +81517,7 @@
                                         "data": "RefAny"
                                     },
                                     {
-                                        "cb": "MessageListOnEventCallback"
+                                        "cb": "SummaryListOnEventCallback"
                                     }
                                 ],
                                 "fn_body": "object.set_on_delete(data, cb)"
@@ -81534,11 +81534,11 @@
                                         "data": "RefAny"
                                     },
                                     {
-                                        "cb": "MessageListOnEventCallback"
+                                        "cb": "SummaryListOnEventCallback"
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageList"
+                                    "type": "SummaryList"
                                 },
                                 "fn_body": "object.with_on_delete(data, cb)"
                             },
@@ -81554,7 +81554,7 @@
                                         "data": "RefAny"
                                     },
                                     {
-                                        "cb": "MessageListOnEventCallback"
+                                        "cb": "SummaryListOnEventCallback"
                                     }
                                 ],
                                 "fn_body": "object.set_on_sort(data, cb)"
@@ -81571,11 +81571,11 @@
                                         "data": "RefAny"
                                     },
                                     {
-                                        "cb": "MessageListOnEventCallback"
+                                        "cb": "SummaryListOnEventCallback"
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageList"
+                                    "type": "SummaryList"
                                 },
                                 "fn_body": "object.with_on_sort(data, cb)"
                             },
@@ -81591,7 +81591,7 @@
                                         "data": "RefAny"
                                     },
                                     {
-                                        "cb": "MessageListOnEventCallback"
+                                        "cb": "SummaryListOnEventCallback"
                                     }
                                 ],
                                 "fn_body": "object.set_on_search(data, cb)"
@@ -81608,11 +81608,11 @@
                                         "data": "RefAny"
                                     },
                                     {
-                                        "cb": "MessageListOnEventCallback"
+                                        "cb": "SummaryListOnEventCallback"
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageList"
+                                    "type": "SummaryList"
                                 },
                                 "fn_body": "object.with_on_search(data, cb)"
                             },
@@ -81628,7 +81628,7 @@
                                         "data": "RefAny"
                                     },
                                     {
-                                        "cb": "MessageListOnEventCallback"
+                                        "cb": "SummaryListOnEventCallback"
                                     }
                                 ],
                                 "fn_body": "object.set_on_scope(data, cb)"
@@ -81645,11 +81645,11 @@
                                         "data": "RefAny"
                                     },
                                     {
-                                        "cb": "MessageListOnEventCallback"
+                                        "cb": "SummaryListOnEventCallback"
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageList"
+                                    "type": "SummaryList"
                                 },
                                 "fn_body": "object.with_on_scope(data, cb)"
                             },
@@ -81665,7 +81665,7 @@
                                         "data": "RefAny"
                                     },
                                     {
-                                        "cb": "MessageListOnEventCallback"
+                                        "cb": "SummaryListOnEventCallback"
                                     }
                                 ],
                                 "fn_body": "object.set_on_scroll(data, cb)"
@@ -81682,11 +81682,11 @@
                                         "data": "RefAny"
                                     },
                                     {
-                                        "cb": "MessageListOnEventCallback"
+                                        "cb": "SummaryListOnEventCallback"
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageList"
+                                    "type": "SummaryList"
                                 },
                                 "fn_body": "object.with_on_scroll(data, cb)"
                             },
@@ -81700,14 +81700,14 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageList"
+                                    "type": "SummaryList"
                                 },
                                 "fn_body": "object.swap_with_default()"
                             },
                             "dom": {
                                 "doc": [
                                     "The list's DOM. The look comes from the theme module",
-                                    "(`themes::flat::message_list` / `themes::flora::message_list`);",
+                                    "(`themes::flat::summary_list` / `themes::flora::summary_list`);",
                                     "`None` carries both looks, each in its `@theme(<name>)` block, and",
                                     "the app theme picks."
                                 ],
@@ -81730,7 +81730,7 @@
                                         "self": "refmut"
                                     },
                                     {
-                                        "mark": "MessageListMark"
+                                        "mark": "SummaryListMark"
                                     }
                                 ],
                                 "fn_body": "object.set_mark(mark)"
@@ -81744,11 +81744,11 @@
                                         "self": "value"
                                     },
                                     {
-                                        "mark": "MessageListMark"
+                                        "mark": "SummaryListMark"
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageList"
+                                    "type": "SummaryList"
                                 },
                                 "fn_body": "object.with_mark(mark)"
                             }
@@ -81787,8 +81787,8 @@
                         ],
                         "repr": "C"
                     },
-                    "MessageListOnEvent": {
-                        "external": "azul_layout::widgets::message_list::MessageListOnEvent",
+                    "SummaryListOnEvent": {
+                        "external": "azul_layout::widgets::summary_list::SummaryListOnEvent",
                         "custom_impls": [
                             "Clone",
                             "Debug",
@@ -81813,7 +81813,7 @@
                                     "type": "RefAny"
                                 },
                                 "callback": {
-                                    "type": "MessageListOnEventCallback"
+                                    "type": "SummaryListOnEventCallback"
                                 }
                             }
                         ],
@@ -82294,8 +82294,8 @@
                         },
                         "repr": "C"
                     },
-                    "MessageRow": {
-                        "external": "azul_layout::widgets::message_list::MessageRow",
+                    "SummaryRow": {
+                        "external": "azul_layout::widgets::summary_list::SummaryRow",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -82323,7 +82323,7 @@
                                     "type": "String"
                                 },
                                 "kind": {
-                                    "type": "MessageRowKind"
+                                    "type": "SummaryRowKind"
                                 },
                                 "unread": {
                                     "type": "bool"
@@ -82355,7 +82355,7 @@
                                         "subject": "String"
                                     }
                                 ],
-                                "fn_body": "azul_layout::widgets::message_list::MessageRow::create(id, from, subject)"
+                                "fn_body": "azul_layout::widgets::summary_list::SummaryRow::create(id, from, subject)"
                             },
                             "create_group": {
                                 "doc": [
@@ -82366,7 +82366,7 @@
                                         "title": "String"
                                     }
                                 ],
-                                "fn_body": "azul_layout::widgets::message_list::MessageRow::create_group(title)"
+                                "fn_body": "azul_layout::widgets::summary_list::SummaryRow::create_group(title)"
                             }
                         },
                         "functions": {
@@ -82383,7 +82383,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageRow"
+                                    "type": "SummaryRow"
                                 },
                                 "fn_body": "object.with_preview(preview)"
                             },
@@ -82400,7 +82400,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageRow"
+                                    "type": "SummaryRow"
                                 },
                                 "fn_body": "object.with_date(date)"
                             },
@@ -82417,7 +82417,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageRow"
+                                    "type": "SummaryRow"
                                 },
                                 "fn_body": "object.with_icon(icon)"
                             },
@@ -82434,7 +82434,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageRow"
+                                    "type": "SummaryRow"
                                 },
                                 "fn_body": "object.with_unread(unread)"
                             },
@@ -82451,7 +82451,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageRow"
+                                    "type": "SummaryRow"
                                 },
                                 "fn_body": "object.with_flagged(flagged)"
                             },
@@ -82468,7 +82468,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageRow"
+                                    "type": "SummaryRow"
                                 },
                                 "fn_body": "object.with_attachment(has_attachment)"
                             },
@@ -82485,7 +82485,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageRow"
+                                    "type": "SummaryRow"
                                 },
                                 "fn_body": "object.with_selected(selected)"
                             }
@@ -82646,8 +82646,8 @@
                         ],
                         "repr": "C"
                     },
-                    "MessageListEventKind": {
-                        "external": "azul_layout::widgets::message_list::MessageListEventKind",
+                    "SummaryListEventKind": {
+                        "external": "azul_layout::widgets::summary_list::SummaryListEventKind",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -82695,8 +82695,8 @@
                         ],
                         "repr": "C"
                     },
-                    "MessageListEvent": {
-                        "external": "azul_layout::widgets::message_list::MessageListEvent",
+                    "SummaryListEvent": {
+                        "external": "azul_layout::widgets::summary_list::SummaryListEvent",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -82718,7 +82718,7 @@
                                     "type": "usize"
                                 },
                                 "kind": {
-                                    "type": "MessageListEventKind"
+                                    "type": "SummaryListEventKind"
                                 },
                                 "shift": {
                                     "type": "bool"
@@ -82735,7 +82735,7 @@
                                 ],
                                 "fn_args": [
                                     {
-                                        "kind": "MessageListEventKind"
+                                        "kind": "SummaryListEventKind"
                                     },
                                     {
                                         "index": "usize"
@@ -82744,13 +82744,13 @@
                                         "id": "u64"
                                     }
                                 ],
-                                "fn_body": "azul_layout::widgets::message_list::MessageListEvent::create(kind, index, id)"
+                                "fn_body": "azul_layout::widgets::summary_list::SummaryListEvent::create(kind, index, id)"
                             }
                         },
                         "repr": "C"
                     },
-                    "MessageRowVecSlice": {
-                        "external": "azul_layout::widgets::message_list::MessageRowVecSlice",
+                    "SummaryRowVecSlice": {
+                        "external": "azul_layout::widgets::summary_list::SummaryRowVecSlice",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -82759,7 +82759,7 @@
                         "struct_fields": [
                             {
                                 "ptr": {
-                                    "type": "MessageRow",
+                                    "type": "SummaryRow",
                                     "ref_kind": "constptr",
                                     "doc": [
                                         "Pointer to the slice data"
@@ -82775,8 +82775,8 @@
                         ],
                         "repr": "C"
                     },
-                    "MessageListMark": {
-                        "external": "azul_layout::widgets::message_list::MessageListMark",
+                    "SummaryListMark": {
+                        "external": "azul_layout::widgets::summary_list::SummaryListMark",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -145678,8 +145678,8 @@
                         },
                         "repr": "C"
                     },
-                    "MessageRowVecDestructor": {
-                        "external": "azul_layout::widgets::message_list::MessageRowVecDestructor",
+                    "SummaryRowVecDestructor": {
+                        "external": "azul_layout::widgets::summary_list::SummaryRowVecDestructor",
                         "derive": [
                             "Debug"
                         ],
@@ -145688,7 +145688,7 @@
                                 "DefaultRust": {},
                                 "NoDestructor": {},
                                 "External": {
-                                    "type": "MessageRowVecDestructorType"
+                                    "type": "SummaryRowVecDestructorType"
                                 },
                                 "AlreadyDestroyed": {}
                             }
@@ -146374,13 +146374,13 @@
                         },
                         "repr": "C"
                     },
-                    "MessageRowVecDestructorType": {
-                        "external": "azul_layout::widgets::message_list::MessageRowVecDestructorType",
+                    "SummaryRowVecDestructorType": {
+                        "external": "azul_layout::widgets::summary_list::SummaryRowVecDestructorType",
                         "callback_typedef": {
                             "fn_args": [
                                 {
                                     "name": "ptr",
-                                    "type": "MessageRowVec",
+                                    "type": "SummaryRowVec",
                                     "ref_kind": "mutptr"
                                 }
                             ],
@@ -146811,8 +146811,8 @@
                             "returns": null
                         }
                     },
-                    "MessageRowVec": {
-                        "external": "azul_layout::widgets::message_list::MessageRowVec",
+                    "SummaryRowVec": {
+                        "external": "azul_layout::widgets::summary_list::SummaryRowVec",
                         "custom_impls": [
                             "Clone",
                             "Debug"
@@ -146823,7 +146823,7 @@
                         "struct_fields": [
                             {
                                 "ptr": {
-                                    "type": "MessageRow",
+                                    "type": "SummaryRow",
                                     "ref_kind": "constptr"
                                 },
                                 "len": {
@@ -146833,7 +146833,7 @@
                                     "type": "usize"
                                 },
                                 "destructor": {
-                                    "type": "MessageRowVecDestructor"
+                                    "type": "SummaryRowVecDestructor"
                                 },
                                 "flags": {
                                     "type": "u8"
@@ -146843,17 +146843,17 @@
                         "functions": {
                             "create": {
                                 "doc": [
-                                    "Creates an empty `MessageRowVec`"
+                                    "Creates an empty `SummaryRowVec`"
                                 ],
                                 "fn_args": [],
                                 "returns": {
-                                    "type": "MessageRowVec"
+                                    "type": "SummaryRowVec"
                                 },
                                 "fn_body": "Self::new()"
                             },
                             "with_capacity": {
                                 "doc": [
-                                    "Creates a `MessageRowVec` with a given capacity"
+                                    "Creates a `SummaryRowVec` with a given capacity"
                                 ],
                                 "fn_args": [
                                     {
@@ -146861,7 +146861,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageRowVec"
+                                    "type": "SummaryRowVec"
                                 },
                                 "fn_body": "Self::with_capacity(cap)"
                             },
@@ -146909,32 +146909,32 @@
                             },
                             "from_item": {
                                 "doc": [
-                                    "Creates a `MessageRowVec` containing a single element"
+                                    "Creates a `SummaryRowVec` containing a single element"
                                 ],
                                 "fn_args": [
                                     {
-                                        "item": "MessageRow"
+                                        "item": "SummaryRow"
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageRowVec"
+                                    "type": "SummaryRowVec"
                                 },
                                 "fn_body": "Self::from_item(item)"
                             },
                             "copy_from_ptr": {
                                 "doc": [
-                                    "Copies elements from a C array into a `MessageRowVec`. The array must be valid for `len` elements."
+                                    "Copies elements from a C array into a `SummaryRowVec`. The array must be valid for `len` elements."
                                 ],
                                 "fn_args": [
                                     {
-                                        "ptr": "*const MessageRow"
+                                        "ptr": "*const SummaryRow"
                                     },
                                     {
                                         "len": "usize"
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageRowVec"
+                                    "type": "SummaryRowVec"
                                 },
                                 "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
                             },
@@ -146951,13 +146951,13 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "OptionMessageRow"
+                                    "type": "OptionSummaryRow"
                                 },
                                 "fn_body": "message_row_vec.c_get(index).into()"
                             },
                             "as_c_slice": {
                                 "doc": [
-                                    "Returns a C-compatible slice of the entire Vec as a `MessageRowVecSlice`."
+                                    "Returns a C-compatible slice of the entire Vec as a `SummaryRowVecSlice`."
                                 ],
                                 "fn_args": [
                                     {
@@ -146965,7 +146965,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageRowVecSlice"
+                                    "type": "SummaryRowVecSlice"
                                 },
                                 "fn_body": "message_row_vec.as_c_slice()"
                             },
@@ -146985,7 +146985,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "MessageRowVecSlice"
+                                    "type": "SummaryRowVecSlice"
                                 },
                                 "fn_body": "message_row_vec.as_c_slice_range(start, end)"
                             }
@@ -159107,8 +159107,8 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "OptionMessageListOnEvent": {
-                        "external": "azul_layout::widgets::message_list::OptionMessageListOnEvent",
+                    "OptionSummaryListOnEvent": {
+                        "external": "azul_layout::widgets::summary_list::OptionSummaryListOnEvent",
                         "custom_impls": [
                             "Clone",
                             "Debug",
@@ -159131,7 +159131,7 @@
                             {
                                 "None": {},
                                 "Some": {
-                                    "type": "MessageListOnEvent"
+                                    "type": "SummaryListOnEvent"
                                 }
                             }
                         ],
@@ -159329,8 +159329,8 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "OptionMessageRow": {
-                        "external": "azul_layout::widgets::message_list::OptionMessageRow",
+                    "OptionSummaryRow": {
+                        "external": "azul_layout::widgets::summary_list::OptionSummaryRow",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -159345,9 +159345,9 @@
                                     ]
                                 },
                                 "Some": {
-                                    "type": "MessageRow",
+                                    "type": "SummaryRow",
                                     "doc": [
-                                        "Some value of type MessageRow"
+                                        "Some value of type SummaryRow"
                                     ]
                                 }
                             }

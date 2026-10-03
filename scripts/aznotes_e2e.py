@@ -310,7 +310,7 @@ def first_session(app, data, out):
     log("file on disk:\n%s" % text)
 
     # Search as you type.
-    app.click(".__azul-native-message-list-search")
+    app.click(".__azul-native-summary-list-search")
     app.type("bakery")
     app.frame(2)
     if app.shows("Nothing matches"):

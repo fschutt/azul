@@ -2,7 +2,7 @@
 //! messages newest first under date groups ("Today", "Yesterday", "Monday", "Last Week", ...),
 //! read / unread and flags from the server's flags plus AzMail's own marks, and the folders as a
 //! tree in Outlook's order with their unread counts. No azul types here: `lib.rs` turns these
-//! into the `MessageList` and the navigation pane's trees.
+//! into the `SummaryList` and the navigation pane's trees.
 //!
 //! AzMail never writes to the server (the sync is read-only, `EXAMINE` + `BODY.PEEK[]`), so what
 //! the user does to a message - opening it marks it read, the flag column flags it - is kept in a
