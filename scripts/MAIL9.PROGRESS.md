@@ -63,6 +63,10 @@ dumb as possible". Order now:
 - d7cb18ec8 RED send.rs (signed vs defaults, unsigned outbox + sign at attempt, refusal causes, port 25);
   35ec74153 GREEN send.rs
 - e977cf9e8 RED / a20b19f9a GREEN sending.rs DKIM form part (NEXT step 1 done)
+- 005c94973 keyring queue + DKIM key read at Send / Receive + retry signs (step 2 done)
+- 21b40fa53 RED / acd4358e4 GREEN dkim::report_lines; e15821659 IoJob DkimKey / DkimCheck, editor
+  fields (dkim_new_key, dkim_busy, dkim_report), sending_settings(), key to keyring on save (step 3 done,
+  step 4 model half done)
 
 ## IN PROGRESS
 - wiring DKIM into the app (Sending page: key creation, record, notes, DNS check; keyring store / read;
@@ -76,14 +80,14 @@ dumb as possible". Order now:
    `dkim::can_sign_for`, selector typed / saved / `dkim::default_selector(now)`, `dkim::is_selector`,
    key = given public key or the saved one or a key_file, else Err "Create a key first");
    `describe()` appends ", DKIM-signed (<domain>)".
-2. lib.rs: keyring QUEUE (`KeyringCall { op, key, secret: Option<Secret> }`, `s.keyring_queue:
+2. DONE - lib.rs: keyring QUEUE (`KeyringCall { op, key, secret: Option<Secret> }`, `s.keyring_queue:
    VecDeque`, `keyring_call()` / `keyring_next()` called at the end of `on_keyring_result`); new ops
    `StoreDkim`, `GetDkim { account }`; `s.dkim_keys: HashMap<String, Option<Secret>>`; `start_sync` reads
    the DKIM key after the IMAP secret when sending.json signs without a key_file; `SyncInit.dkim_key` ->
    `settings.dkim_key` before `retry_outbox` in `sync_thread`.
-3. lib.rs IoJob: `DkimKey` (thread: `dkim::generate_key`) -> `IoDone::DkimKey(Result<KeyPair,String>)`
+3. DONE - lib.rs IoJob: `DkimKey` (thread: `dkim::generate_key`) -> `IoDone::DkimKey(Result<KeyPair,String>)`
    and `DkimCheck { selector, domain, public_key }` -> `IoDone::DkimChecked(DnsReport)`.
-4. ui_account.rs: DKIM section in `sending_fields` (check box Flag::Dkim, fields DkimDomain /
+4. LEFT: only the VIEW - ui_account.rs: DKIM section in `sending_fields` (check box Flag::Dkim, fields DkimDomain /
    DkimSelector, "Create a key" button, the record name / value / zone line with ids
    `__azmail_dkim_name` / `__azmail_dkim_value` in ids.rs, `dkim::setup_notes`, "Check DNS" button +
    result lines); `AccountEditor` gets `dkim_new_key: Option<KeyPair>`, `dkim_busy`, `dkim_report`;
