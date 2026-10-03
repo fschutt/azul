@@ -12,7 +12,7 @@
 //! itself. The `FcFontCache` used to resolve the font is threaded in via
 //! `new()`. Runtime verification needs a real Wayland compositor.
 
-use std::{ffi::CString, rc::Rc, sync::Arc};
+use std::{rc::Rc, sync::Arc};
 
 use azul_core::{geom::LogicalPosition, resources::DpiScaleFactor};
 use azul_css::props::basic::ColorU;
@@ -259,57 +259,20 @@ impl TooltipWindow {
         self.is_visible
     }
 
-    /// Allocate a shared memory buffer for tooltip rendering.
-    /// Uses `memfd_create` with `shm_open` fallback (matching mod.rs pattern).
+    /// Allocate a shared memory buffer for tooltip rendering, through the one
+    /// shm allocator (`shm.rs`: sealed memfd, page-rounded size).
     fn allocate_shm_buffer(&mut self, width: i32, height: i32) -> Result<(), String> {
         self.cleanup_buffer();
 
-        let stride = width * 4; // ARGB8888
-        let size = stride * height;
+        let layout = super::shm::pool_layout(width, height, 1, super::shm::page_size())
+            .ok_or_else(|| "tooltip buffer too large".to_string())?;
+        let stride = layout.stride; // ARGB8888, tight rows
+        let size = layout.pool_bytes as i32;
 
-        // Try memfd_create first (Linux 3.17+, glibc 2.27+)
-        // Fall back to shm_open for older systems
-        let fd = unsafe {
-            #[cfg(target_os = "linux")]
-            {
-                let result = libc::syscall(
-                    libc::SYS_memfd_create,
-                    CString::new("azul-tooltip").unwrap().as_ptr(),
-                    1 as libc::c_int, // MFD_CLOEXEC
-                );
-
-                if result != -1 {
-                    result as libc::c_int
-                } else {
-                    let name =
-                        CString::new(format!("/azul-tooltip-{}", std::process::id())).unwrap();
-                    let fd = libc::shm_open(
-                        name.as_ptr(),
-                        libc::O_CREAT | libc::O_RDWR | libc::O_EXCL,
-                        0o600,
-                    );
-                    if fd != -1 {
-                        libc::shm_unlink(name.as_ptr());
-                    }
-                    fd
-                }
-            }
-            #[cfg(not(target_os = "linux"))]
-            {
-                -1
-            }
-        };
-
-        if fd < 0 {
-            return Err("Failed to create shared memory".to_string());
-        }
+        let fd = super::shm::create_shm_file("azul-tooltip", layout.pool_bytes)
+            .map_err(|e| e.to_string())?;
 
         unsafe {
-            if libc::ftruncate(fd, size as libc::off_t) < 0 {
-                libc::close(fd);
-                return Err("Failed to resize shared memory".to_string());
-            }
-
             let data = libc::mmap(
                 std::ptr::null_mut(),
                 size as usize,
