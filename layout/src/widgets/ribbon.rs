@@ -3771,9 +3771,12 @@ fn styled_button(
     trailing_icon_style: CssPropertyWithConditionsVec,
     on_click: OptionButtonOnClick,
     disabled_reason: AzString,
+    alt: AzString,
     theme: UiTheme,
 ) -> Dom {
     let mut b = Button::create(label);
+    // An icon-only button's name ("Bold"); empty = the label names it.
+    b.alt = alt;
     b.icon = icon;
     b.trailing_icon = trailing_icon;
     b.container_style = OptionCssPropertyWithConditionsVec::Some(container_style);
@@ -3830,6 +3833,7 @@ fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: U
         s.resolved_arrow_icon_style(),
         rb.on_click,
         rb.disabled_reason,
+        rb.alt,
         theme,
     );
     if disabled {
@@ -3953,6 +3957,7 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior, theme: UiTh
             s.resolved_arrow_icon_style(),
             Some(l).into(),
             AzString::from_const_str(""),
+            AzString::from_const_str("More options"),
             theme,
         ));
     }
@@ -4057,6 +4062,7 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior, theme
                 s.resolved_arrow_icon_style(),
                 OptionButtonOnClick::None,
                 AzString::from_const_str(""),
+                AzString::from_const_str(["Previous row", "Next row", "More"][i]),
                 theme,
             );
             // The third button is "More": it expands the panel.
