@@ -3440,7 +3440,7 @@ impl LayoutWindow {
     /// consumers: raster, hit-test, and this.
     pub fn window_space_offset_of_dom(&self, dom_id: DomId) -> LogicalPosition {
         let resolve_scroll = |d: DomId, n: NodeId| self.scroll_manager.get_current_offset(d, n);
-        let resolve_transform = |d: DomId, n: NodeId| self.css_transform_of(d, n);
+        let resolve_transform = |d: DomId, n: NodeId| self.painted_transform_of(d, n);
         crate::headless::nested_dom_window_origin(
             &self.layout_results,
             dom_id,
@@ -9824,7 +9824,7 @@ impl LayoutWindow {
                 idx.index(),
                 rect,
                 &|d, n| self.scroll_manager.get_current_offset(d, n),
-                &|d, n| self.css_transform_of(d, n),
+                &|d, n| self.painted_transform_of(d, n),
             );
         }
         Some(rect)
@@ -11699,7 +11699,7 @@ impl LayoutWindow {
             DomId,
             NodeId,
         ) -> Option<crate::managers::scroll_state::ScrollNodeInfo> = &scroll_info;
-        let transform = |dom: DomId, node: NodeId| self.css_transform_of(dom, node);
+        let transform = |dom: DomId, node: NodeId| self.painted_transform_of(dom, node);
         let transform_dyn: &dyn Fn(
             DomId,
             NodeId,
@@ -14464,11 +14464,13 @@ impl LayoutWindow {
     /// the *offset back toward where the node came from*, shrinking to zero. The
     /// display list is not rebuilt, and neither is the layout.
     ///
-    /// Writes into `css_current_transform_values` / `current_opacity_values` —
-    /// the same maps the CSS `transform` property feeds, and the same ones the
-    /// CPU rasteriser, the hit-tester and the a11y snapshot already read. An
-    /// animated node is therefore hit-testable at its *animated* position for
-    /// free, rather than at a phantom pre-animation rect.
+    /// Writes into the ANIMATION channel (`anim_transform_keys` /
+    /// `anim_current_transform_values`, `anim_opacity_keys` / ...), apart from
+    /// the maps the CSS `transform` property feeds (`synchronize` owns those).
+    /// The display list, the CPU rasteriser, the hit-tester and the a11y
+    /// snapshot read both channels through `GpuValueCache::reference_frame_of`
+    /// / `GpuStateManager::painted_transform_of`, so an animated node is hit
+    /// at its *animated* position, not at a phantom pre-animation rect.
     pub fn tick_animations(&mut self, dt: f32) -> bool {
         if self.animations.is_empty() && !self.has_track_work() {
             return false;
@@ -14500,9 +14502,9 @@ impl LayoutWindow {
             };
             let t = anim.current_transform();
             // A reference frame requires BOTH a key and a value: the display
-            // list builder emits `PushReferenceFrame` only when
-            // `css_transform_keys` AND `css_current_transform_values` both have
-            // an entry for the node. Keys are otherwise minted from the CSS
+            // list builder emits `PushReferenceFrame` only when one channel
+            // has both for the node (`GpuValueCache::reference_frame_of`).
+            // CSS keys are otherwise minted from the CSS
             // `transform` property, which an animating node generally does not
             // have — so writing only the value published a transform nothing
             // could read, and the element jumped instead of moving.
@@ -16277,7 +16279,7 @@ impl LayoutWindow {
             layout_idx.index(),
             cursor_rect,
             &|d, n| self.scroll_manager.get_current_offset(d, n),
-            &|d, n| self.css_transform_of(d, n),
+            &|d, n| self.painted_transform_of(d, n),
         );
 
         // STEP 3: lift out of the node's own dom into WINDOW space. A nested
@@ -16296,20 +16298,17 @@ impl LayoutWindow {
         ))
     }
 
-    /// The CSS transform the raster applies to `node` of `dom` right now:
-    /// the value the display list's reference frame for it is bound to
-    /// (`GpuValueCache::css_current_transform_values`). THE lookup every
-    /// "where is it on screen" question passes as its `resolve_transform`.
-    pub(crate) fn css_transform_of(
+    /// The transform the raster applies to `node` of `dom` right now: the
+    /// value the display list's reference frame for it is bound to, CSS
+    /// `transform` or the animation channel (`GpuStateManager::
+    /// painted_transform_of`). THE lookup every "where is it on screen"
+    /// question passes as its `resolve_transform`.
+    pub(crate) fn painted_transform_of(
         &self,
         dom: DomId,
         node: NodeId,
     ) -> Option<azul_core::transform::ComputedTransform3D> {
-        self.gpu_state_manager
-            .caches
-            .get(&dom)
-            .and_then(|c| c.css_current_transform_values.get(&node))
-            .copied()
+        self.gpu_state_manager.painted_transform_of(dom, node)
     }
 
     /// Find the nearest scrollable ancestor for a given node

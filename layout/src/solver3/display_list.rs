@@ -4902,25 +4902,12 @@ where
 
         // Check if this node has a GPU-accelerated transform (CSS transform or drag).
         // If so, wrap in a reference frame so WebRender can animate it on the GPU.
+        // CSS transform first, then the ANIMATION channel: an engine-driven
+        // transition animates nodes that have no CSS `transform` of their own
+        // (`GpuValueCache::reference_frame_of`, the hit tester's rule too).
         let has_reference_frame = node.dom_node_id.and_then(|dom_id| {
-            self.gpu_value_cache.and_then(|cache| {
-                // CSS transform first, then the ANIMATION channel. An
-                // engine-driven transition animates nodes that have no CSS
-                // `transform` of their own, so without this second lookup they
-                // get no reference frame and the element jumps to its
-                // destination instead of travelling there.
-                let (key, transform) = cache
-                    .css_transform_keys
-                    .get(&dom_id)
-                    .zip(cache.css_current_transform_values.get(&dom_id))
-                    .or_else(|| {
-                        cache
-                            .anim_transform_keys
-                            .get(&dom_id)
-                            .zip(cache.anim_current_transform_values.get(&dom_id))
-                    })?;
-                Some((*key, *transform))
-            })
+            self.gpu_value_cache
+                .and_then(|cache| cache.reference_frame_of(dom_id))
         });
         // Push a stacking context for WebRender
         // Get the node's bounds for the stacking context
@@ -5500,23 +5487,8 @@ where
 
         // Check if this child has a GPU transform (CSS transform or drag)
         let child_ref_frame = child_node.dom_node_id.and_then(|dom_id| {
-            self.gpu_value_cache.and_then(|cache| {
-                // CSS transform first, then the ANIMATION channel — an
-                // engine-driven transition animates nodes that have no CSS
-                // `transform` of their own, and without this they get no
-                // reference frame and jump to their destination.
-                let (key, transform) = cache
-                    .css_transform_keys
-                    .get(&dom_id)
-                    .zip(cache.css_current_transform_values.get(&dom_id))
-                    .or_else(|| {
-                        cache
-                            .anim_transform_keys
-                            .get(&dom_id)
-                            .zip(cache.anim_current_transform_values.get(&dom_id))
-                    })?;
-                Some((*key, *transform))
-            })
+            self.gpu_value_cache
+                .and_then(|cache| cache.reference_frame_of(dom_id))
         });
 
         // Push reference frame if child has a transform

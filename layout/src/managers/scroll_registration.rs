@@ -394,7 +394,7 @@ fn publish_nested_dom_placements(layout_window: &mut LayoutWindow) {
     // now; the frames stay symbolic, for the live offsets.
     let viewports = crate::headless::nested_dom_viewports(
         &layout_window.layout_results,
-        &|dom, node| layout_window.css_transform_of(dom, node),
+        &|dom, node| layout_window.painted_transform_of(dom, node),
     );
     let placements: alloc::collections::BTreeMap<DomId, NestedDomPlacement> = viewports
         .into_iter()

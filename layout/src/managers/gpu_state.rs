@@ -252,6 +252,22 @@ impl GpuStateManager {
         self.caches.entry(dom_id).or_default()
     }
 
+    /// The matrix `node` of `dom_id` is painted with now - the transform of
+    /// the reference frame the display list opens for it, from the CSS or
+    /// the animation channel (`GpuValueCache::reference_frame_of`). THE
+    /// `resolve_transform` every hit test and "where is it on screen"
+    /// question passes, so pointer targets follow the pixels.
+    #[must_use]
+    pub fn painted_transform_of(
+        &self,
+        dom_id: DomId,
+        node: NodeId,
+    ) -> Option<azul_core::transform::ComputedTransform3D> {
+        self.caches
+            .get(&dom_id)
+            .and_then(|cache| cache.painted_transform_of(node))
+    }
+
     /// Updates scrollbar thumb transforms based on current scroll positions.
     ///
     /// Calculates the transform needed to position scrollbar thumbs correctly
