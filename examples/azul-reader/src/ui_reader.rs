@@ -13,6 +13,7 @@ use azul::{
     callbacks::{ButtonOnClickCallbackType, RefAny},
     css::{EventFilter, HoverEventFilter},
     dom::Dom,
+    option::OptionString,
     str::String as AzString,
     widgets::{Button, StatusBar, StatusBarSegment},
 };
@@ -237,7 +238,7 @@ pub fn pages(app: &RefAny, st: &AppState) -> Dom {
     let colors = st.settings.paper.colors(st.dark);
     let mut area = Dom::create_div()
         .with_id(ids::READING_AREA)
-        .with_marker(st.area_marker.clone())
+        .with_marker(OptionString::Some(st.area_marker.clone()))
         .with_css(
             "display: flex; flex-direction: column; align-items: center; justify-content: center; \
              flex-grow: 1; min-height: 0px; min-width: 0px; overflow: hidden; \
