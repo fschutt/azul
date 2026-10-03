@@ -1857,6 +1857,12 @@ mod label_convention {
         // The chart: three series of bars over four categories, a legend and
         // the table view.
         all.push(("chart", super::chart::fixtures::sample().dom()));
+        // The terminal view: a prompt, a listing, a selection, a cursor
+        // (rendered by its VirtualView; the manifest sees the host).
+        all.push((
+            "terminal_view",
+            super::terminal_view::fixtures::sample().dom(),
+        ));
         all
     }
 
@@ -2801,6 +2807,9 @@ mod theme_contrast {
         // A chart: a data surface like the grid (its title, ticks, legend
         // and table text on the chart's own sheet).
         "chart",
+        // The terminal view: a developer window's surface (its rows are
+        // drawn in the terminal palette inside its VirtualView).
+        "terminal_view",
     ];
 
     /// A widget added to the manifest must land in a group, or it is simply
