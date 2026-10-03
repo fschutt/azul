@@ -39,31 +39,26 @@ Report: scripts/MEDIA9_2026_10_03.md (date = the day it finishes).
 
 - B2 34b36c681 RED layout/src/widgets/seek_bar.rs (types, callback triple, 6 tests).
 
+- B2 e174ff797 GREEN SeekBar (seek_bar.rs, flat/flora appends, manifest INPUTS).
+
 ## IN PROGRESS
-- NEXT STEP: GREEN seek_bar.rs (media_time, seek_fraction, time_at, key_target, build + look,
-  pointer / key callbacks on the track with a SeekBarWrapper dataset {on_seek, inner, chapters?},
-  merge callback keeping `dragging`, update_position, flat/flora appends, manifest INPUTS).
-  Original B2 design notes: layout/src/widgets/seek_bar.rs (append `pub mod seek_bar;` after
-  `pub mod level_meter;` in widgets/mod.rs). Design: `media_time(seconds) -> String` ("m:ss",
-  "h:mm:ss" past an hour, "-" for unknown/NaN; the ONE media clock helper - timeline.rs tick_label
-  has the same branches, note the twin); SeekBar { position_s f64, duration_s f64, buffered_s f64,
-  chapters F64Vec (chapter start times; check an F64Vec exists, else F32Vec), show_times bool,
-  on_seek OptionSeekBarOnSeek (callback triple like Slider's: extern fn(RefAny, CallbackInfo,
-  SeekBarState) -> Update), accessibility_name, theme }; SeekBarState { position_s, duration_s,
-  dragging bool }. DOM: row [time label p, track (grow 1, height 6, relative: played fill width %,
-  buffered fill, chapter ticks (absolute left %), thumb (absolute left % - 6px)), duration label p].
-  Pointer: down on the track -> dragging + seek to cursor x / width * duration, move while dragging,
-  up ends (report on up with dragging false, so an app seeks the player once on release and moves
-  only the thumb while dragging - both reported, state.dragging tells). Keys: Left/Right -5/+5 s
-  (Shift: 30 s? use primary_down for 10% like Slider), Home/End; a11y Slider role, value
-  "1:12 of 9:22". merge callback carries dragging across rebuilds (like merge_slider_state).
-  `SeekBar::update_position(info, node, position_s)` moves fill + thumb + label in place (a player
-  ticks it 4x a second without a rebuild). Look struct + flat/flora appends + manifest INPUTS.
-- then B3 MediaControls (prev / play-pause / next, optional shuffle / repeat toggles, -15/+30 skip
-  (podcast), volume Slider; variants compact / large / overlay; one on_action callback with a
-  MediaControlsAction enum + value; Buttons (use existing Button + icons), a11y Toolbar role) and
-  B4 the Waveform widget part (bars from peaks, played part in accent, click/drag seeks via the
-  same SeekBarState callback type - reuse SeekBar's callback triple, no twin).
+- NEXT STEP: B3 MediaControls, new file layout/src/widgets/media_controls.rs (append `pub mod
+  media_controls;` after `pub mod seek_bar;`). Design: MediaControlsAction enum (Previous, PlayPause,
+  Next, SkipBack, SkipForward, Shuffle, Repeat, Volume, Mute) ; MediaControlsEvent { action, value
+  f32 (the volume for Volume) }; callback triple MediaControlsOnAction (extern fn(RefAny,
+  CallbackInfo, MediaControlsEvent) -> Update) like SeekBar's; MediaControls { playing, shuffle,
+  repeat: MediaRepeat (Off, All, One), volume f32 (-1 = no volume control), show_skip (podcast
+  -15/+30), show_shuffle_repeat, size: MediaControlsSize (Compact, Large), on_action, theme }.
+  DOM: Toolbar-role row of icon Buttons (existing Button widget with Dom::create_icon glyph names
+  "skip_previous", "play_arrow"/"pause", "skip_next", "replay_10"/"forward_30", "shuffle",
+  "repeat"/"repeat_one", "volume_up"/"volume_off" - check the icon pack names in
+  layout/src/icons or core/icon), each with accessibility_name, toggled state via
+  Button::with_toggled for shuffle/repeat, then a Slider (volume 0..100) - its on_value_change
+  reports Volume. One button handler per action: the button's RefAny carries (action, shared
+  RefAny of the on_action hook). Look + flat/flora appends + manifest INPUTS. RED first.
+- then B4 the Waveform widget part (waveform.rs: bars from peaks as divs (heights %), played part in
+  the accent up to position fraction, click / drag seeks reusing SeekBarOnSeek + SeekBarState - no
+  twin; update_position like SeekBar). Then C AzMusic, D AzPlayer.
 
 ## api.json so far (for the report)
 - audio.AudioFileDecoder (external azul_dll::unified::audio::AudioFileDecoder, Clone Default Drop,
@@ -86,6 +81,26 @@ Report: scripts/MEDIA9_2026_10_03.md (date = the day it finishes).
   get_state -> AudioPlayerState, error_message -> OptionString, close (refmut).
 - audio.AudioSink new functions (all ref): try_play(frame AudioFrame) -> bool, queued_frames ->
   u64, samples_played -> u64, pause -> bool, resume, clear -> bool, config -> AudioConfig.
+- widgets.LevelMeter (external azul_layout::widgets::level_meter::LevelMeter, Clone Debug
+  PartialEq, repr C: accessibility_name OptionString, theme OptionUiTheme, level f32, orientation
+  LevelMeterOrientation): create(level f32); set_level / with_level, set_orientation /
+  with_orientation, with_accessibility_name(String), set_theme / with_theme, swap_with_default,
+  dom; static level_of(frame AudioFrame) -> f32; static update_level(callback_info CallbackInfo,
+  node_id DomNodeId, level f32) -> bool (fn_body like ProgressBar.update_progress: `{ let mut
+  callback_info = callback_info; ...::update_level(&mut callback_info, node_id, level) }`).
+  widgets.LevelMeterOrientation enum (Horizontal, Vertical; repr C). option.OptionLevelMeter.
+- widgets.LevelMeterThrottle (Copy, repr C: interval_ms u64, last_ms u64, level f32, min_step f32,
+  moved bool): create(interval_ms u64) (const fn), next(refmut, level f32, now_ms u64) -> OptionF32.
+- widgets.SeekBar (external ...::seek_bar::SeekBar, repr C: position_s duration_s buffered_s f64,
+  chapters F32Vec, on_seek OptionSeekBarOnSeek, accessibility_name OptionString, theme
+  OptionUiTheme, show_times bool): create(position_s f64, duration_s f64); set_/with_buffered,
+  set_/with_chapters(F32Vec), set_/with_show_times(bool), set_/with_on_seek (callback triple:
+  CallbackType fn_body as the Slider's), with_accessibility_name, set_/with_theme,
+  swap_with_default, dom; static update_position(callback_info, node_id, position_s f64) -> bool;
+  static media_time(seconds f64) -> String (module fn `media_time`; export as a static method).
+  widgets.SeekBarState (Copy, repr C: position_s duration_s f64, dragging bool); callback types
+  SeekBarOnSeek / OptionSeekBarOnSeek / SeekBarOnSeekCallback / SeekBarOnSeekCallbackType
+  (extern fn(RefAny, CallbackInfo, SeekBarState) -> Update), like SliderOnValueChange's entries.
 
 ## NEXT (in order)
 - A1 playback.rs pure pieces: Rechunker, LinearResampler, remix (channels), apply_gain,
