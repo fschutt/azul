@@ -36,6 +36,36 @@ pub const NAME: &str = "name";
 pub const QUALITY: &str = "quality";
 /// The longest meeting folder name.
 const MAX_FOLDER: usize = 64;
+/// The video qualities as the settings file names them, in the settings' order (automatic up to
+/// 720p, data saver up to 360p, low up to 180p).
+pub const QUALITY_NAMES: [&str; 3] = ["automatic", "data-saver", "low"];
+
+/// What AzMeet remembers besides the app theme and the mode.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Prefs {
+    /// The meeting server that answered last.
+    pub server: Option<String>,
+    /// The name others see, as typed in the lobby.
+    pub name: Option<String>,
+    /// The video quality: an index into [`QUALITY_NAMES`].
+    pub quality: usize,
+}
+
+impl Prefs {
+    /// What `settings` remember; an unknown quality is the first, an empty name none.
+    #[must_use]
+    pub fn read(settings: &AppSettings) -> Prefs {
+        // RED: nothing is read yet.
+        let _ = settings;
+        Prefs::default()
+    }
+
+    /// Writes these into `settings` (a missing server or name is removed).
+    pub fn write(&self, settings: &mut AppSettings) {
+        // RED: nothing is written yet.
+        let _ = settings;
+    }
+}
 
 /// `meet/settings.json`.
 #[must_use]
@@ -218,6 +248,18 @@ extern "C" fn on_saved(_data: RefAny, mut msg: RefAny, _info: CallbackInfo) -> U
     Update::DoNothing
 }
 
+/// A file waiting to be written: the data root, the key, the bytes.
+type Pending = (PathBuf, String, Vec<u8>);
+
+/// Queues `files` under `root` behind what waits already; a file queued again replaces its older
+/// bytes (one write, the newer bytes, in the newer place).
+fn enqueue(queue: &mut Vec<Pending>, root: &Path, files: Vec<(String, Vec<u8>)>) {
+    // RED: no file replaces an older one yet.
+    for (key, bytes) in files {
+        queue.push((root.to_path_buf(), key, bytes));
+    }
+}
+
 /// Writes `files` (key, bytes) into the data tree at `root` on an azul Thread.
 pub fn save(info: &mut CallbackInfo, root: &Path, files: Vec<(String, Vec<u8>)>) {
     if files.is_empty() {
@@ -293,6 +335,59 @@ mod tests {
         assert_eq!(parsed[1]["text"], "line one\nline two", "a newline stays inside its line");
         assert!(lines.ends_with('\n'));
         assert_eq!(chat_lines(&[]), "");
+    }
+
+    #[test]
+    fn the_server_the_name_and_the_quality_are_remembered_in_the_settings_file() {
+        let mut settings = AppSettings::default();
+        assert_eq!(Prefs::read(&settings), Prefs::default());
+        let prefs = Prefs {
+            server: Some(String::from("https://meet.example.com")),
+            name: Some(String::from("Ada")),
+            quality: 2,
+        };
+        prefs.write(&mut settings);
+        assert_eq!(settings.get(SERVER), Some("https://meet.example.com"));
+        assert_eq!(settings.get(NAME), Some("Ada"));
+        assert_eq!(settings.get(QUALITY), Some("low"));
+        let (back, problem) = AppSettings::parse(&settings.to_json());
+        assert_eq!(problem, None);
+        assert_eq!(Prefs::read(&back), prefs, "through the file and back");
+        Prefs::default().write(&mut settings);
+        assert_eq!(settings.get(SERVER), None, "no server, no line");
+        assert_eq!(settings.get(QUALITY), Some("automatic"));
+    }
+
+    #[test]
+    fn an_unknown_quality_or_a_blank_name_reads_as_the_default() {
+        let mut settings = AppSettings::default();
+        settings.set(QUALITY, "ultra");
+        settings.set(NAME, "   ");
+        settings.set(SERVER, "https://meet.example.com");
+        let prefs = Prefs::read(&settings);
+        assert_eq!(prefs.quality, 0);
+        assert_eq!(prefs.name, None);
+        assert_eq!(prefs.server.as_deref(), Some("https://meet.example.com"));
+        settings.set(QUALITY, "data-saver");
+        assert_eq!(Prefs::read(&settings).quality, 1);
+    }
+
+    #[test]
+    fn a_file_saved_again_before_the_thread_writes_it_is_written_once_with_the_newer_bytes() {
+        let root = PathBuf::from("/data");
+        let mut queue = Vec::new();
+        enqueue(&mut queue, &root, vec![(String::from("meet/a/chat.jsonl"), b"1".to_vec())]);
+        enqueue(&mut queue, &root, vec![(String::from("meet/settings.json"), b"s".to_vec())]);
+        enqueue(&mut queue, &root, vec![(String::from("meet/a/chat.jsonl"), b"12".to_vec())]);
+        let keys: Vec<(&str, &[u8])> =
+            queue.iter().map(|(_, k, b)| (k.as_str(), b.as_slice())).collect();
+        assert_eq!(
+            keys,
+            vec![("meet/settings.json", &b"s"[..]), ("meet/a/chat.jsonl", &b"12"[..])],
+            "the older bytes are dropped, the newer go last"
+        );
+        enqueue(&mut queue, &PathBuf::from("/other"), vec![(String::from("meet/settings.json"), b"o".to_vec())]);
+        assert_eq!(queue.len(), 3, "the same key under another root is another file");
     }
 
     #[test]
