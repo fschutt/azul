@@ -207,6 +207,19 @@ pub struct NodeCache {
     /// rides the `cache_map` remap with them, so a clean node's final layout
     /// is served across passes exactly while its subtree still holds it.
     pub final_layout_current: bool,
+
+    /// The second way of this node's taffy measurement cache
+    /// (`LayoutNodeWarm::taffy_cache`) - see
+    /// [`super::taffy_bridge::TaffyMeasureSpill`]. Allocated only for a node
+    /// one of whose measurement slot classes was stored into twice since its
+    /// taffy cache was last empty; never read while that cache is empty, and
+    /// dropped by the first store into it after it was emptied.
+    pub taffy_measure_spill: Option<Box<super::taffy_bridge::TaffyMeasureSpill>>,
+
+    /// One bit per taffy measurement slot class stored into since the node's
+    /// taffy cache was last empty - what tells a second store into a class
+    /// (an eviction) from the first. Reset with `taffy_measure_spill`.
+    pub taffy_slots_stored: u16,
 }
 
 impl Default for NodeCache {
@@ -217,6 +230,8 @@ impl Default for NodeCache {
             is_empty: true, // fresh cache is empty/dirty
             last_containing_block: None,
             final_layout_current: false,
+            taffy_measure_spill: None,
+            taffy_slots_stored: 0,
         }
     }
 }
@@ -231,6 +246,8 @@ impl NodeCache {
         self.layout_entry = None;
         self.is_empty = true;
         self.final_layout_current = false;
+        self.taffy_measure_spill = None;
+        self.taffy_slots_stored = 0;
     }
 
     /// Compute the deterministic slot index from constraint dimensions.
@@ -787,6 +804,9 @@ impl LayoutCache {
             if let Some(le) = &e.layout_entry {
                 cache_map_bytes +=
                     le.child_positions.capacity() * size_of::<(usize, LogicalPosition)>();
+            }
+            if e.taffy_measure_spill.is_some() {
+                cache_map_bytes += size_of::<super::taffy_bridge::TaffyMeasureSpill>();
             }
         }
         let cached_dl = self

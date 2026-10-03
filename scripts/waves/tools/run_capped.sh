@@ -33,6 +33,17 @@ until mkdir "$lock" 2>/dev/null; do
 done
 echo $$ > "$lock/pid"
 export DYLD_LIBRARY_PATH=${DYLD_LIBRARY_PATH:-/Users/fschutt/Development/azul/target/azul-lib}
+# A leading `env VAR=VALUE ...` is applied HERE, and the program after it is started directly.
+# SIP strips every DYLD_* variable when it starts a protected binary - /usr/bin/env, /bin/sh,
+# /bin/bash - so `-- env AZ_BACKEND=headless App` started App WITHOUT DYLD_LIBRARY_PATH, and App
+# loaded the libazul.dylib its install path names (target/release/build/azul-dll-*/out/, which a
+# build can leave stale) instead of the one above: LAYOUTPERF8B's re-measure of a 19:04 build ran
+# the 18:38 library and saw none of the fix (2026-10-03). (A harness that starts the app itself -
+# python3 probe scripts - must pass DYLD_LIBRARY_PATH on to it; a system python strips it too.)
+if [ "${1:-}" = "env" ]; then
+  shift
+  while [ $# -gt 0 ] && [[ "$1" == *=* ]]; do export "$1"; shift; done
+fi
 "$@" > "$log" 2>&1 &
 pid=$!
 start=$(date +%s)

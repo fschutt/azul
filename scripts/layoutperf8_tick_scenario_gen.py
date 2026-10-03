@@ -9,9 +9,17 @@ and ends in a failing assert so the runner prints the last response.
 Run it with the cpu profile on, ONE app at a time, through the capped runner:
 
     python3 scripts/layoutperf8_tick_scenario_gen.py /tmp/lp8/tick.json
-    scripts/waves/tools/run_capped.sh --cap-mb 1500 --seconds 150 --log /tmp/lp8/tick.log -- \\
-      env AZ_BACKEND=headless AZ_PROFILE=cpu AZ_E2E=/tmp/lp8/tick.json \\
+    AZ_BACKEND=headless AZ_PROFILE=cpu AZ_E2E=/tmp/lp8/tick.json \\
+      scripts/waves/tools/run_capped.sh --cap-mb 1500 --seconds 150 --log /tmp/lp8/tick.log -- \\
       /Users/fschutt/Development/azul/target/release/AzWidgets
+
+The AZ_* variables go BEFORE the runner, with no `env` after `--`: SIP strips
+DYLD_LIBRARY_PATH when it starts /usr/bin/env, and the app then loads the
+libazul.dylib its install name points at (target/release/build/azul-dll-*/out/,
+which a build can leave stale) instead of target/azul-lib's - the LAYOUTPERF8B
+re-measure ran an older library that way (run_capped.sh applies a leading `env`
+itself since LAYOUTPERF8C). Check which library was loaded: the root pass's
+`[CPU]` block must show no `font_chain_resolve` on a tick (LAYOUTPERF8B).
 
 Then read the `[CPU]` blocks of the tick relayouts in the log: the counts of
 `text_layout_flow` (text re-flows), `taffy_cache_get_miss` (flex items laid

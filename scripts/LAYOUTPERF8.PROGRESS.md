@@ -75,3 +75,39 @@ with counts, fix, expected numbers. Report scripts/LAYOUTPERF8B_<date>.md.
 Nothing left on wt/layoutperf8b. Parent: build, run the report's test commands, re-measure the tick.
 Open levers (report "Left"): css-dirty DL splicing, a css-only reconcile skip, a11y_update_tree per relayout,
 css_transition_tick, VirtualView re-invocation per relayout (identity latch), bugs B/C.
+
+# LAYOUTPERF8C (branch wt/layoutperf8c, base 615cccdfd = 8B merged + built 19:04)
+
+Coordinator: on the 8B build the tick is UNCHANGED (288 flows, 618 misses, root pass 19.2 ms,
+font_chain_resolve in the root pass). Verify on THIS build with AZ_TAFFY_DEBUG / AZ_RECON_DEBUG, root-cause,
+RED that reproduces the real app, fix; append to scripts/LAYOUTPERF8B_2026_10_03.md.
+
+## 8C DONE
+- 0537e8f6b progress section
+- 653a502ca run_capped.sh: a leading `env VAR=...` is applied by the runner (SIP stripped DYLD_LIBRARY_PATH
+  through /usr/bin/env, so every `-- env ... App` run loaded the app's install-name dylib:
+  target/release/build/azul-dll-78dff1e65276e337/out/libazul.dylib 18:38 = PRE-8B; target/azul-lib is 19:04)
+
+## 8C FINDINGS
+- The "unchanged" re-measure ran the stale 18:38 library. Run correctly (env vars before run_capped, no
+  `env`): root pass 5.8 ms (19.4), solver3 20.0 ms (33.6), flows 76 (288), taffy misses 184 (618),
+  no root font resolution, no fresh root nodes; 38.8-43 ms wall profiled (55-58). Log /tmp/lp8b/c2.log.
+- Still left: 76 flows / 184 misses / fc_flex_grid 59 / size_cache_miss 148 per tick - next: find them.
+
+- 7bc800e7b progress
+- cac602bc1 RED: the knob-frame page gets AzWidgets' measure shape (page column with visible overflow inside
+  the scroll column; each card holds a column-wrap group) -> cost doubles with the page again
+- e281247e7 GREEN: TaffyMeasureSpill (taffy_bridge.rs) in NodeCache - keeps evicted measurements;
+  c0ef10773 made it a 12-entry ring of any class (AzWidgets nodes see up to 4 keys/class, 7/node per pass)
+- ccd671d20 tick probe docstring: SIP-safe invocation
+- On the RIGHT library (8B), unprofiled: tick 27-30 ms, no-op relayout 12.6 ms, click regenerate 427 ms.
+- Remaining misses (AZ_TAFFY_DEBUG, /tmp/lp8b/c3.log): 173 of 184 in the form section, from the page
+  column's two measures (basis at max-content, automatic minimum at min-content) asking its items' cross
+  size at two different main sizes -> one slot class, two keys, evicting each other every pass.
+
+- 424c3c275 report: scripts/LAYOUTPERF8B_2026_10_03.md, section "LAYOUTPERF8C"
+
+## 8C STATUS: DONE
+Parent: merge, build, and measure with the SIP-safe invocation (or the fixed run_capped.sh) - check no
+font_chain_resolve in the root pass's [CPU] block, i.e. the new library is the one loaded. Expected per tick:
+~11 taffy misses, 0-3 text flows, root_layout_pass ~1-2 ms, ~22-25 ms unprofiled.
