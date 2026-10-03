@@ -23,13 +23,23 @@ worktree guard - edit files with the Edit tool; `rustfmt --edition 2021 <file>` 
 ## IN PROGRESS
 - DateRangePicker (layout/src/widgets/date_range_picker.rs, new).
 
+- DateRangePicker so far: 98edb438a `date_picker_look()` in both themes, ffc835915 `date_picker::day_grid` +
+  pub(crate) helpers (month_name, day_accessibility_name, build_weekday_row_from, header_nav_button, ringed,
+  washed, shifted_date, cell_faces, PREV_ARROW / NEXT_ARROW, HEADER_CLASS / HEADER_LABEL_CLASS),
+  0974aae78 types + stubs, 0414f8059 RED range tests (`mod range_tests`).
+
 ## NEXT (exact)
-4. DateRangePicker (D4): (a) refactor themes::flat::date_picker and themes::flora::date_picker into
-   `pub(crate) fn date_picker_look() -> DatePickerLook` + `date_picker(d) = build(d, &date_picker_look())`
-   (in place, no reorder); (b) in date_picker.rs extract `pub(crate) fn day_grid(year, month, start,
-   look, day_cell: &mut dyn FnMut(u32) -> Dom) -> Dom` out of `build_grid_with`, and make the helpers named in
-   D4 pub(crate); (c) date_range_picker.rs types + pure range logic (stubs) -> RED -> GREEN -> DOM + handlers ->
-   theme appends (`date_range_picker_skin`: presets column, footer) -> tests -> manifest (INPUTS).
+4. DateRangePicker GREEN in layout/src/widgets/date_range_picker.rs: DateRange::create (order by `key`),
+   contains, day_count (ordinal difference + 1; use a days-since-epoch helper), DateRangePreset::range
+   (date_picker::shifted_date / weekday / days_in_month), DateRangePickerView::with_range / turned /
+   right_month, click_day (anchor keeps view.range; second click -> range, anchor None), shown_range,
+   range_text ("4 Mar 2026 \u{2013} 10 Mar 2026", `&month_name(m)[..3]`).
+   Then: the DOM (presets column of PushButton <p>s; two calendars = date_picker_look parts merged per part with
+   theme_blocks::part_of over [flat::date_picker_look(), flora::date_picker_look()] when unpinned; header with
+   ‹ on the left month / › on the right via header_nav_button; build_weekday_row_from; day_grid with own day
+   cells (payload {date, shared}), click / MouseEnter preview / keys; summary line), handlers (restyle both grids
+   in place: endpoints faces.selected, between washed(other), today ringed), theme appends
+   `date_range_picker_skin` (root, presets, preset, summary), tests, manifest (INPUTS).
 5. ComboBox extensions + ReferencePicker (D5).
 6. Report scripts/WIDGETS9B_<date>.md (api.json list, least-sure spots, test commands).
 
