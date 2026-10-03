@@ -476,8 +476,38 @@ pub(crate) fn copy_rgba_rects_into(
     rects: &[(u32, u32, u32, u32)],
     swap_rb: bool,
 ) -> usize {
-    let _ = (dst, dst_pitch, src, src_pitch, width, height, rects, swap_rb);
-    0
+    let mut written = 0usize;
+    // Rows that fit BOTH buffers (a configure race can leave either short).
+    let rows_dst = if dst_pitch == 0 { 0 } else { dst.len() / dst_pitch };
+    let rows_src = if src_pitch == 0 { 0 } else { src.len() / src_pitch };
+    let h = height.min(rows_dst).min(rows_src);
+    let w = width.min(dst_pitch / 4).min(src_pitch / 4);
+    for &(rx, ry, rw, rh) in rects {
+        let x0 = (rx as usize).min(w);
+        let y0 = (ry as usize).min(h);
+        let x1 = (rx as usize).saturating_add(rw as usize).min(w);
+        let y1 = (ry as usize).saturating_add(rh as usize).min(h);
+        if x1 <= x0 || y1 <= y0 {
+            continue;
+        }
+        let n = (x1 - x0) * 4;
+        for y in y0..y1 {
+            let s = &src[y * src_pitch + x0 * 4..y * src_pitch + x0 * 4 + n];
+            let d = &mut dst[y * dst_pitch + x0 * 4..y * dst_pitch + x0 * 4 + n];
+            if swap_rb {
+                for (sp, dp) in s.chunks_exact(4).zip(d.chunks_exact_mut(4)) {
+                    dp[0] = sp[2];
+                    dp[1] = sp[1];
+                    dp[2] = sp[0];
+                    dp[3] = sp[3];
+                }
+            } else {
+                d.copy_from_slice(s);
+            }
+            written += n;
+        }
+    }
+    written
 }
 
 pub fn native_backbuffer_enabled() -> bool {
