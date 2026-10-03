@@ -1655,29 +1655,618 @@ pub(crate) fn key_event(
     key: VirtualKeyCode,
     mods: Mods,
 ) -> Option<CodeViewEvent> {
-    todo!("GREEN: key_event {key:?} {mods:?} {}", lines.count() + cv.line_count)
+    use VirtualKeyCode as K;
+    if mods.primary && !mods.alt {
+        match key {
+            K::A => return Some(select_all(cv, lines)),
+            K::C => return Some(copy_event(cv, lines)),
+            K::X => return Some(cut_event(cv, lines)),
+            K::Z | K::Y if cv.read_only => return None,
+            K::Z if mods.shift => return Some(CodeViewEvent::create(CodeViewEventKind::Redo, cv.view.clone())),
+            K::Z => return Some(CodeViewEvent::create(CodeViewEventKind::Undo, cv.view.clone())),
+            K::Y => return Some(CodeViewEvent::create(CodeViewEventKind::Redo, cv.view.clone())),
+            K::D => return next_occurrence(cv, lines),
+            _ => {}
+        }
+    }
+    match key {
+        K::Left | K::Right | K::Up | K::Down | K::Home | K::End | K::PageUp | K::PageDown => {
+            Some(move_key(cv, lines, key, mods))
+        }
+        K::Back => delete_back(cv, lines, mods),
+        K::Delete => delete_forward(cv, lines, mods),
+        K::Return | K::NumpadEnter if !mods.primary => enter(cv, lines),
+        K::Tab if !mods.primary => tab_key(cv, lines, mods),
+        K::Escape => escape(cv),
+        _ => None,
+    }
+}
+
+/// An `Edit` event: `edits` and the next `view`, kept in sight.
+fn edit_event(cv: &CodeView, lines: &dyn Lines, edits: Vec<CodeViewEdit>, mut view: CodeViewView) -> CodeViewEvent {
+    reveal_in(cv, &mut view, lines);
+    let mut e = CodeViewEvent::create(CodeViewEventKind::Edit, view);
+    e.edits = CodeViewEditVec::from_vec(edits);
+    e
+}
+
+/// A `Move` event leaving `view`, kept in sight.
+fn move_event(cv: &CodeView, lines: &dyn Lines, mut view: CodeViewView) -> CodeViewEvent {
+    reveal_in(cv, &mut view, lines);
+    CodeViewEvent::create(CodeViewEventKind::Move, view)
+}
+
+/// [`reveal`] with the view's own measure of what fits.
+fn reveal_in(cv: &CodeView, view: &mut CodeViewView, lines: &dyn Lines) {
+    let geo = geometry(cv);
+    reveal(view, lines, cv.tab_width, fit_lines_of(cv), geo.fit_columns);
+}
+
+/// The same change for every cursor: `f(cursor)` (clamped to the text)
+/// gives its changes.
+fn per_cursor(
+    cv: &CodeView,
+    lines: &dyn Lines,
+    mut f: impl FnMut(CodeViewCursor) -> Vec<Change>,
+) -> Vec<Vec<Change>> {
+    cv.view
+        .cursors
+        .as_slice()
+        .iter()
+        .map(|c| {
+            let clamped = CodeViewCursor {
+                anchor: clamp_pos(lines, c.anchor),
+                head: clamp_pos(lines, c.head),
+                goal: c.goal,
+            };
+            f(clamped)
+        })
+        .collect()
+}
+
+/// `per` applied, or `None` when no cursor changes anything.
+fn changed(
+    cv: &CodeView,
+    lines: &dyn Lines,
+    per: Vec<Vec<Change>>,
+    rule: CaretRule,
+) -> Option<CodeViewEvent> {
+    if per.iter().all(Vec::is_empty) {
+        return None;
+    }
+    let (edits, view) = apply_changes(&cv.view, per, rule);
+    if edits.is_empty() {
+        return None;
+    }
+    Some(edit_event(cv, lines, edits, view))
+}
+
+/// Every cursor's selection replaced by `text`.
+fn replace_selections(cv: &CodeView, lines: &dyn Lines, text: &str) -> Option<CodeViewEvent> {
+    let per = per_cursor(cv, lines, |c| {
+        alloc::vec![Change {
+            start: c.start(),
+            end: c.end(),
+            text: String::from(text),
+        }]
+    });
+    changed(cv, lines, per, CaretRule::AfterInsert)
+}
+
+/// Ctrl/Cmd+A: one cursor over the whole text.
+fn select_all(cv: &CodeView, lines: &dyn Lines) -> CodeViewEvent {
+    let mut view = cv.view.clone();
+    view.select(CodeViewPosition::default(), text_end(lines));
+    move_event(cv, lines, view)
+}
+
+/// Ctrl/Cmd+C: the selections (or the carets' lines) as a `Copy` event.
+fn copy_event(cv: &CodeView, lines: &dyn Lines) -> CodeViewEvent {
+    let mut e = CodeViewEvent::create(CodeViewEventKind::Copy, cv.view.clone());
+    e.text = AzString::from(copy_text(&cv.view, lines));
+    e
+}
+
+/// The whole line `line` with its break (the last line: with the break
+/// before it), what a cut without a selection takes.
+fn whole_line(lines: &dyn Lines, line: u32) -> (CodeViewPosition, CodeViewPosition) {
+    let last = last_line(lines);
+    if line < last {
+        (CodeViewPosition::create(line, 0), CodeViewPosition::create(line + 1, 0))
+    } else if line > 0 {
+        (
+            CodeViewPosition::create(line - 1, len32(&lines.text(line - 1))),
+            CodeViewPosition::create(line, len32(&lines.text(line))),
+        )
+    } else {
+        (CodeViewPosition::create(0, 0), CodeViewPosition::create(0, len32(&lines.text(0))))
+    }
+}
+
+/// Ctrl/Cmd+X: copied, then removed (a read-only view only copies).
+fn cut_event(cv: &CodeView, lines: &dyn Lines) -> CodeViewEvent {
+    let copied = copy_event(cv, lines);
+    if cv.read_only {
+        return copied;
+    }
+    let whole = cv.view.cursors.as_slice().iter().all(CodeViewCursor::is_empty);
+    let per = per_cursor(cv, lines, |c| {
+        if whole {
+            let (start, end) = whole_line(lines, c.head.line);
+            alloc::vec![Change { start, end, text: String::new() }]
+        } else if c.is_empty() {
+            Vec::new()
+        } else {
+            alloc::vec![Change {
+                start: c.start(),
+                end: c.end(),
+                text: String::new(),
+            }]
+        }
+    });
+    match changed(cv, lines, per, CaretRule::AfterInsert) {
+        Some(mut e) => {
+            e.text = copied.text;
+            e
+        }
+        None => copied,
+    }
+}
+
+/// Ctrl/Cmd+D: the word at a lone caret selected; with a selection, its
+/// next occurrence (after the primary cursor, round past the end) becomes
+/// one more cursor. `None` when every occurrence has one.
+fn next_occurrence(cv: &CodeView, lines: &dyn Lines) -> Option<CodeViewEvent> {
+    let primary = cv.view.primary();
+    let mut view = cv.view.clone();
+    if primary.is_empty() {
+        let head = clamp_pos(lines, primary.head);
+        let (s, e) = word_at(&lines.text(head.line), head.column);
+        if s == e {
+            return None;
+        }
+        let mut all = view.cursors.as_slice().to_vec();
+        if let Some(last) = all.last_mut() {
+            *last = CodeViewCursor::create_selection(
+                CodeViewPosition::create(head.line, s),
+                CodeViewPosition::create(head.line, e),
+            );
+        }
+        view.cursors = CodeViewCursorVec::from_vec(all);
+        return Some(move_event(cv, lines, view));
+    }
+    let (start, end) = (clamp_pos(lines, primary.start()), clamp_pos(lines, primary.end()));
+    if start.line != end.line {
+        return None;
+    }
+    let needle = range_text(lines, start, end);
+    if needle.is_empty() {
+        return None;
+    }
+    let whole_word = needle.chars().all(is_word_char);
+    let taken: Vec<CodeViewPosition> = view.cursors.as_slice().iter().map(CodeViewCursor::start).collect();
+    let count = u64::from(lines.count());
+    for step in 0..=count {
+        let line = u32::try_from((u64::from(end.line) + step) % count).unwrap_or(0);
+        let text = lines.text(line);
+        let from = if step == 0 { end.column as usize } else { 0 };
+        for (i, _) in text[from.min(text.len())..].match_indices(needle.as_str()) {
+            let at = from + i;
+            let after = at + needle.len();
+            if whole_word {
+                let left_ok = text[..at].chars().next_back().map_or(true, |c| !is_word_char(c));
+                let right_ok = text[after..].chars().next().map_or(true, |c| !is_word_char(c));
+                if !left_ok || !right_ok {
+                    continue;
+                }
+            }
+            let found = CodeViewPosition::create(line, u32::try_from(at).unwrap_or(u32::MAX));
+            if taken.contains(&found) {
+                continue;
+            }
+            let mut all = view.cursors.as_slice().to_vec();
+            all.push(CodeViewCursor::create_selection(
+                found,
+                CodeViewPosition::create(line, u32::try_from(after).unwrap_or(u32::MAX)),
+            ));
+            view.cursors = CodeViewCursorVec::from_vec(all);
+            return Some(move_event(cv, lines, view));
+        }
+    }
+    None
+}
+
+/// Where Up / Down (`delta` lines) take `head`, keeping visual column
+/// `goal`: (the place, the goal it keeps).
+fn vertical(lines: &dyn Lines, head: CodeViewPosition, goal: u32, delta: i64, tab: u32) -> (CodeViewPosition, u32) {
+    let text = lines.text(head.line);
+    let goal = if goal == CODE_VIEW_NO_GOAL {
+        visual_column(&text, head.column, tab)
+    } else {
+        goal
+    };
+    let target = i64::from(head.line) + delta;
+    if target < 0 {
+        return (CodeViewPosition::default(), CODE_VIEW_NO_GOAL);
+    }
+    let last = last_line(lines);
+    if target > i64::from(last) {
+        return (text_end(lines), CODE_VIEW_NO_GOAL);
+    }
+    let line = u32::try_from(target).unwrap_or(last);
+    let column = byte_at_visual(&lines.text(line), goal, tab);
+    (CodeViewPosition::create(line, column), goal)
+}
+
+/// One character left of `head` (onto the line above at a line's start).
+fn char_left(lines: &dyn Lines, head: CodeViewPosition, word: bool) -> CodeViewPosition {
+    if head.column > 0 {
+        let text = lines.text(head.line);
+        let column = if word {
+            word_left(&text, head.column)
+        } else {
+            prev_char(&text, head.column)
+        };
+        CodeViewPosition::create(head.line, column)
+    } else if head.line > 0 {
+        CodeViewPosition::create(head.line - 1, len32(&lines.text(head.line - 1)))
+    } else {
+        head
+    }
+}
+
+/// One character right of `head` (onto the next line at a line's end).
+fn char_right(lines: &dyn Lines, head: CodeViewPosition, word: bool) -> CodeViewPosition {
+    let text = lines.text(head.line);
+    if head.column < len32(&text) {
+        let column = if word {
+            word_right(&text, head.column)
+        } else {
+            next_char(&text, head.column)
+        };
+        CodeViewPosition::create(head.line, column)
+    } else if head.line < last_line(lines) {
+        CodeViewPosition::create(head.line + 1, 0)
+    } else {
+        head
+    }
+}
+
+/// The arrows, Home / End, Page Up / Down: every cursor moved (Shift
+/// keeps its anchor), the view kept on the primary one.
+fn move_key(cv: &CodeView, lines: &dyn Lines, key: VirtualKeyCode, mods: Mods) -> CodeViewEvent {
+    use VirtualKeyCode as K;
+    let tab = cv.tab_width.max(1);
+    let page = fit_lines_of(cv).saturating_sub(1).max(1);
+    let moved: Vec<CodeViewCursor> = cv
+        .view
+        .cursors
+        .as_slice()
+        .iter()
+        .map(|c| {
+            let head = clamp_pos(lines, c.head);
+            if !mods.shift && !c.is_empty() && !mods.word && !mods.line {
+                match key {
+                    K::Left => return CodeViewCursor::create(clamp_pos(lines, c.start())),
+                    K::Right => return CodeViewCursor::create(clamp_pos(lines, c.end())),
+                    _ => {}
+                }
+            }
+            let line_start = CodeViewPosition::create(head.line, 0);
+            let line_end = CodeViewPosition::create(head.line, len32(&lines.text(head.line)));
+            let (to, goal) = match key {
+                K::Left if mods.line => (line_start, CODE_VIEW_NO_GOAL),
+                K::Right if mods.line => (line_end, CODE_VIEW_NO_GOAL),
+                K::Left => (char_left(lines, head, mods.word), CODE_VIEW_NO_GOAL),
+                K::Right => (char_right(lines, head, mods.word), CODE_VIEW_NO_GOAL),
+                K::Up if mods.line => (CodeViewPosition::default(), CODE_VIEW_NO_GOAL),
+                K::Down if mods.line => (text_end(lines), CODE_VIEW_NO_GOAL),
+                K::Up => vertical(lines, head, c.goal, -1, tab),
+                K::Down => vertical(lines, head, c.goal, 1, tab),
+                K::PageUp => vertical(lines, head, c.goal, -i64::from(page), tab),
+                K::PageDown => vertical(lines, head, c.goal, i64::from(page), tab),
+                K::Home if mods.primary => (CodeViewPosition::default(), CODE_VIEW_NO_GOAL),
+                K::End if mods.primary => (text_end(lines), CODE_VIEW_NO_GOAL),
+                K::Home => {
+                    let first = first_non_blank(&lines.text(head.line));
+                    let column = if head.column == first { 0 } else { first };
+                    (CodeViewPosition::create(head.line, column), CODE_VIEW_NO_GOAL)
+                }
+                K::End => (line_end, CODE_VIEW_NO_GOAL),
+                _ => (head, c.goal),
+            };
+            CodeViewCursor {
+                anchor: if mods.shift { clamp_pos(lines, c.anchor) } else { to },
+                head: to,
+                goal,
+            }
+        })
+        .collect();
+    let mut view = cv.view.clone();
+    view.cursors = CodeViewCursorVec::from_vec(normalized(moved));
+    let last = last_line(lines);
+    match key {
+        K::PageUp => view.top_line = view.top_line.min(last).saturating_sub(page),
+        K::PageDown => view.top_line = view.top_line.saturating_add(page).min(last),
+        _ => {}
+    }
+    move_event(cv, lines, view)
+}
+
+/// Backspace: every selection, else the character (the word modifier: the
+/// word; macOS Cmd: the line up to the caret) left of every caret - at a
+/// line's start, the break before it.
+fn delete_back(cv: &CodeView, lines: &dyn Lines, mods: Mods) -> Option<CodeViewEvent> {
+    if cv.read_only {
+        return None;
+    }
+    let per = per_cursor(cv, lines, |c| {
+        if !c.is_empty() {
+            return alloc::vec![Change {
+                start: c.start(),
+                end: c.end(),
+                text: String::new(),
+            }];
+        }
+        let head = c.head;
+        let start = if head.column > 0 && mods.line {
+            CodeViewPosition::create(head.line, 0)
+        } else {
+            char_left(lines, head, mods.word)
+        };
+        if start == head {
+            return Vec::new();
+        }
+        alloc::vec![Change {
+            start,
+            end: head,
+            text: String::new(),
+        }]
+    });
+    changed(cv, lines, per, CaretRule::AfterInsert)
+}
+
+/// Delete: every selection, else the character (or word) right of every
+/// caret - at a line's end, the break after it.
+fn delete_forward(cv: &CodeView, lines: &dyn Lines, mods: Mods) -> Option<CodeViewEvent> {
+    if cv.read_only {
+        return None;
+    }
+    let per = per_cursor(cv, lines, |c| {
+        if !c.is_empty() {
+            return alloc::vec![Change {
+                start: c.start(),
+                end: c.end(),
+                text: String::new(),
+            }];
+        }
+        let head = c.head;
+        let end = if mods.line {
+            CodeViewPosition::create(head.line, len32(&lines.text(head.line)))
+        } else {
+            char_right(lines, head, mods.word)
+        };
+        if end == head {
+            return Vec::new();
+        }
+        alloc::vec![Change {
+            start: head,
+            end,
+            text: String::new(),
+        }]
+    });
+    changed(cv, lines, per, CaretRule::AfterInsert)
+}
+
+/// One level of indentation in the style of `text`: a tab where the line
+/// is indented with tabs, else `tab` spaces.
+fn indent_unit(text: &str, tab: u32) -> String {
+    if text.starts_with('\t') {
+        String::from("\t")
+    } else {
+        " ".repeat(tab.max(1) as usize)
+    }
+}
+
+/// Enter: a line break and the line's indentation (one level more after
+/// an opening bracket) at every cursor.
+fn enter(cv: &CodeView, lines: &dyn Lines) -> Option<CodeViewEvent> {
+    if cv.read_only {
+        return None;
+    }
+    let tab = cv.tab_width.max(1);
+    let per = per_cursor(cv, lines, |c| {
+        let start = c.start();
+        let text = lines.text(start.line);
+        let caret = start.column as usize;
+        let indent_end = (first_non_blank(&text) as usize).min(caret);
+        let mut inserted = String::from("\n");
+        inserted.push_str(&text[..indent_end]);
+        if text[..caret].trim_end().ends_with(&['{', '(', '['][..]) {
+            inserted.push_str(&indent_unit(&text, tab));
+        }
+        alloc::vec![Change {
+            start,
+            end: c.end(),
+            text: inserted,
+        }]
+    });
+    changed(cv, lines, per, CaretRule::AfterInsert)
+}
+
+/// The lines a cursor covers for indenting: its first to its last, the
+/// last left out when the selection ends at its very start.
+fn covered_lines(c: &CodeViewCursor) -> (u32, u32) {
+    let (start, end) = (c.start(), c.end());
+    let last = if end.line > start.line && end.column == 0 {
+        end.line - 1
+    } else {
+        end.line
+    };
+    (start.line, last)
+}
+
+/// The bytes Shift+Tab removes at the start of `text`: one tab, or up to
+/// `tab` spaces.
+fn outdent_len(text: &str, tab: u32) -> u32 {
+    if text.starts_with('\t') {
+        return 1;
+    }
+    let spaces = text.bytes().take_while(|b| *b == b' ').count();
+    u32::try_from(spaces.min(tab.max(1) as usize)).unwrap_or(0)
+}
+
+/// Tab / Shift+Tab: a selection over several lines (or Shift) indents /
+/// outdents the cursors' lines; a caret gets spaces to the next tab stop.
+fn tab_key(cv: &CodeView, lines: &dyn Lines, mods: Mods) -> Option<CodeViewEvent> {
+    if cv.read_only {
+        return None;
+    }
+    let tab = cv.tab_width.max(1);
+    let multi_line = cv
+        .view
+        .cursors
+        .as_slice()
+        .iter()
+        .any(|c| !c.is_empty() && c.start().line != c.end().line);
+    if mods.shift || multi_line {
+        let per = per_cursor(cv, lines, |c| {
+            let (first, last) = covered_lines(&c);
+            (first..=last)
+                .filter_map(|line| {
+                    let text = lines.text(line);
+                    let at = CodeViewPosition::create(line, 0);
+                    if mods.shift {
+                        let n = outdent_len(&text, tab);
+                        (n > 0).then(|| Change {
+                            start: at,
+                            end: CodeViewPosition::create(line, n),
+                            text: String::new(),
+                        })
+                    } else {
+                        Some(Change {
+                            start: at,
+                            end: at,
+                            text: indent_unit(&text, tab),
+                        })
+                    }
+                })
+                .collect()
+        });
+        return changed(cv, lines, per, CaretRule::Carry);
+    }
+    let per = per_cursor(cv, lines, |c| {
+        let start = c.start();
+        let column = visual_column(&lines.text(start.line), start.column, tab);
+        let n = tab - column % tab;
+        alloc::vec![Change {
+            start,
+            end: c.end(),
+            text: " ".repeat(n as usize),
+        }]
+    });
+    changed(cv, lines, per, CaretRule::AfterInsert)
+}
+
+/// Escape: the extra cursors dropped, else the selection collapsed;
+/// `None` for a lone caret (the app hears Escape).
+fn escape(cv: &CodeView) -> Option<CodeViewEvent> {
+    let primary = cv.view.primary();
+    let mut view = cv.view.clone();
+    if cv.view.cursor_count() > 1 {
+        view.cursors = CodeViewCursorVec::from_vec(alloc::vec![primary]);
+    } else if !primary.is_empty() {
+        view.set_cursor(primary.head);
+    } else {
+        return None;
+    }
+    Some(CodeViewEvent::create(CodeViewEventKind::Move, view))
 }
 
 /// Typed text replacing every selection.
 pub(crate) fn typed_event(cv: &CodeView, lines: &dyn Lines, typed: &str) -> Option<CodeViewEvent> {
-    todo!("GREEN: typed_event {typed} {}", lines.count() + cv.line_count)
+    if cv.read_only || typed.is_empty() {
+        return None;
+    }
+    replace_selections(cv, lines, typed)
 }
 
 /// The clipboard's text pasted at every cursor (one line each when there
 /// are as many lines as cursors).
 pub(crate) fn paste_event(cv: &CodeView, lines: &dyn Lines, text: &str) -> Option<CodeViewEvent> {
-    todo!("GREEN: paste_event {text} {}", lines.count() + cv.line_count)
+    if cv.read_only {
+        return None;
+    }
+    let text = text.replace("\r\n", "\n").replace('\r', "\n");
+    if text.is_empty() {
+        return None;
+    }
+    let count = cv.view.cursor_count();
+    let parts: Vec<&str> = text.split('\n').collect();
+    if count < 2 || parts.len() != count {
+        return replace_selections(cv, lines, &text);
+    }
+    // One line per cursor, in the order the cursors sit in the text.
+    let mut order: Vec<usize> = (0..count).collect();
+    let cursors = cv.view.cursors.as_slice();
+    order.sort_by_key(|&i| cursors[i].start());
+    let mut part_of = alloc::vec![0_usize; count];
+    for (rank, &i) in order.iter().enumerate() {
+        part_of[i] = rank;
+    }
+    let mut index = 0;
+    let per = per_cursor(cv, lines, |c| {
+        let part = parts[part_of[index]];
+        index += 1;
+        alloc::vec![Change {
+            start: c.start(),
+            end: c.end(),
+            text: String::from(part),
+        }]
+    });
+    changed(cv, lines, per, CaretRule::AfterInsert)
 }
 
 /// What a copy takes: every selection (a cursor without one: its whole
 /// line and its break), the cursors' texts on lines of their own.
 pub(crate) fn copy_text(view: &CodeViewView, lines: &dyn Lines) -> String {
-    todo!("GREEN: copy_text {} {}", view.cursor_count(), lines.count())
+    let cursors = view.cursors.as_slice();
+    if cursors.iter().all(CodeViewCursor::is_empty) {
+        let mut taken: Vec<u32> = cursors.iter().map(|c| c.head.line).collect();
+        taken.sort_unstable();
+        taken.dedup();
+        return taken
+            .into_iter()
+            .map(|l| alloc::format!("{}\n", lines.text(l)))
+            .collect();
+    }
+    let mut selections: Vec<&CodeViewCursor> = cursors.iter().filter(|c| !c.is_empty()).collect();
+    selections.sort_by_key(|c| c.start());
+    selections
+        .into_iter()
+        .map(|c| range_text(lines, c.start(), c.end()))
+        .collect::<Vec<String>>()
+        .join("\n")
 }
 
-/// The view scrolled so the primary caret is in sight.
-pub(crate) fn reveal(view: &mut CodeViewView, lines: &dyn Lines, tab: u32) {
-    todo!("GREEN: reveal {} {tab}", lines.count() + view.top_line)
+/// The view scrolled the least so the primary caret is in sight:
+/// `fit_lines` whole lines and `fit_columns` whole columns show.
+pub(crate) fn reveal(view: &mut CodeViewView, lines: &dyn Lines, tab: u32, fit_lines: u32, fit_columns: u32) {
+    let head = clamp_pos(lines, view.primary().head);
+    let fit = fit_lines.max(1);
+    if head.line < view.top_line {
+        view.top_line = head.line;
+    } else if head.line >= view.top_line.saturating_add(fit) {
+        view.top_line = head.line + 1 - fit;
+    }
+    let column = visual_column(&lines.text(head.line), head.column, tab.max(1));
+    let columns = fit_columns.max(1);
+    let margin = (columns / 4).min(8);
+    if column < view.left_column {
+        view.left_column = column.saturating_sub(margin);
+    } else if column >= view.left_column.saturating_add(columns) {
+        view.left_column = column.saturating_add(margin).saturating_add(1).saturating_sub(columns);
+    }
 }
 
 // ---- the pointer ----
