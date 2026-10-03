@@ -2336,3 +2336,371 @@ mod geometry_tests {
         assert!(g.frame.y_max > g.frame.y_min);
     }
 }
+
+#[cfg(test)]
+mod dom_tests {
+    use azul_core::dom::{Dom, IdOrClass, NodeType, SvgNodeData};
+    use azul_css::props::property::{CssProperty, CssPropertyType};
+
+    use super::*;
+
+    fn classes(dom: &Dom) -> Vec<String> {
+        dom.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .filter_map(|c| match c {
+                IdOrClass::Class(s) => Some(s.as_str().to_string()),
+                IdOrClass::Id(_) => None,
+            })
+            .collect()
+    }
+
+    fn all_nodes(dom: &Dom) -> Vec<&Dom> {
+        let mut out = vec![dom];
+        for child in dom.children.as_ref() {
+            out.extend(all_nodes(child));
+        }
+        out
+    }
+
+    fn with_class<'a>(dom: &'a Dom, name: &str) -> Vec<&'a Dom> {
+        all_nodes(dom)
+            .into_iter()
+            .filter(|n| classes(n).iter().any(|c| c == name))
+            .collect()
+    }
+
+    fn one<'a>(dom: &'a Dom, name: &str) -> &'a Dom {
+        let found = with_class(dom, name);
+        assert_eq!(found.len(), 1, "exactly one {name}");
+        found[0]
+    }
+
+    fn declares(node: &Dom, ty: CssPropertyType) -> bool {
+        node.root
+            .style
+            .iter_inline_properties()
+            .any(|(p, _)| p.get_type() == ty)
+    }
+
+    fn texts(dom: &Dom) -> Vec<String> {
+        all_nodes(dom)
+            .into_iter()
+            .filter_map(|n| match n.root.get_node_type() {
+                NodeType::Text(t) => Some(t.as_str().to_string()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn series(name: &str, ys: &[f64]) -> ChartSeries {
+        ChartSeries::create(
+            AzString::from(name),
+            ChartPointVec::from_vec(
+                ys.iter()
+                    .enumerate()
+                    .map(|(i, y)| ChartPoint::create(i as f64, *y))
+                    .collect(),
+            ),
+        )
+    }
+
+    fn months() -> StringVec {
+        StringVec::from_vec(
+            ["Jan", "Feb", "Mar", "Apr"]
+                .iter()
+                .map(|s| AzString::from(*s))
+                .collect(),
+        )
+    }
+
+    fn line_chart() -> Chart {
+        Chart::create(ChartKind::Line, 640.0, 320.0)
+            .with_title(AzString::from("Revenue by month"))
+            .with_categories(months())
+            .with_added_series(series("North", &[10.0, 40.0, 25.0, 60.0]))
+            .with_added_series(series("South", &[5.0, 15.0, 35.0, 30.0]))
+            .with_added_series(series("West", &[20.0, 22.0, 18.0, 26.0]))
+    }
+
+    #[test]
+    fn the_plot_declares_a_user_space_of_one_unit_per_px() {
+        let chart = line_chart();
+        let g = chart_geometry(&chart);
+        let dom = chart.dom();
+        let plot = one(&dom, PLOT_CLASS);
+        match plot.root.get_svg_data() {
+            Some(SvgNodeData::ViewBox {
+                min_x,
+                min_y,
+                width,
+                height,
+            }) => {
+                assert_eq!((*min_x, *min_y), (0.0, 0.0));
+                assert_eq!((*width, *height), (g.frame.width, g.frame.height));
+            }
+            other => panic!("the plot carries no viewBox: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn every_series_is_one_shape_node() {
+        let dom = line_chart().dom();
+        let shapes = with_class(&dom, SERIES_CLASS);
+        assert_eq!(shapes.len(), 3, "one node per series");
+        for s in shapes {
+            assert!(matches!(s.root.get_svg_data(), Some(SvgNodeData::Path(_))));
+        }
+    }
+
+    #[test]
+    fn a_line_is_stroked_and_a_bar_is_filled() {
+        let dom = line_chart().dom();
+        let line = with_class(&dom, SERIES_CLASS)[0];
+        assert!(
+            declares(line, CssPropertyType::BorderTopWidth),
+            "a line is its stroke"
+        );
+        assert!(declares(line, CssPropertyType::BorderTopColor));
+        assert!(
+            !declares(line, CssPropertyType::BackgroundContent),
+            "a line has no fill"
+        );
+
+        let dom = line_chart().with_kind(ChartKind::Bar).dom();
+        let bars = with_class(&dom, SERIES_CLASS)[0];
+        assert!(
+            declares(bars, CssPropertyType::BackgroundContent),
+            "bars are their fill"
+        );
+    }
+
+    #[test]
+    fn an_area_chart_draws_a_wash_under_each_line() {
+        let dom = line_chart().with_kind(ChartKind::Area).dom();
+        assert_eq!(
+            with_class(&dom, SERIES_CLASS).len(),
+            6,
+            "a wash and a line per series"
+        );
+    }
+
+    #[test]
+    fn the_overlay_is_one_tab_stop_named_by_the_title_and_described_by_the_summary() {
+        let chart = line_chart();
+        let summary = chart.summary();
+        let dom = chart.dom();
+        let overlay = one(&dom, OVERLAY_CLASS);
+        assert!(overlay.root.get_tab_index().is_some());
+        let a11y = overlay
+            .root
+            .get_accessibility_info()
+            .expect("the overlay is named");
+        assert_eq!(a11y.role, AccessibilityRole::Chart);
+        assert_eq!(
+            a11y.accessibility_name
+                .as_ref()
+                .map(|s| s.as_str().to_string()),
+            Some("Revenue by month".to_string())
+        );
+        assert_eq!(
+            a11y.description.as_ref().map(|s| s.as_str().to_string()),
+            Some(summary.as_str().to_string())
+        );
+        let tab_stops = all_nodes(&dom)
+            .into_iter()
+            .filter(|n| n.root.get_tab_index().is_some())
+            .count();
+        assert_eq!(tab_stops, 1, "the chart is ONE Tab stop");
+    }
+
+    #[test]
+    fn the_overlay_holds_the_crosshair_a_marker_per_series_and_the_tooltip() {
+        let dom = line_chart().dom();
+        let overlay = one(&dom, OVERLAY_CLASS);
+        let kids = overlay.children.as_ref();
+        assert_eq!(kids.len(), 1 + 3 + 1);
+        assert!(classes(&kids[0]).iter().any(|c| c == CROSSHAIR_CLASS));
+        for k in &kids[1..4] {
+            assert!(classes(k).iter().any(|c| c == MARKER_CLASS));
+        }
+        assert!(classes(&kids[4]).iter().any(|c| c == TOOLTIP_CLASS));
+    }
+
+    #[test]
+    fn the_tooltip_starts_hidden_and_is_a_live_region() {
+        let dom = line_chart().dom();
+        let tip = one(&dom, TOOLTIP_CLASS);
+        let hidden = tip.root.style.iter_inline_properties().any(|(p, _)| {
+            matches!(p, CssProperty::Opacity(v) if v.get_property().map(|o| o.inner.normalized() == 0.0).unwrap_or(false))
+        });
+        assert!(hidden, "the tooltip is hidden until a point is hovered");
+        let a11y = tip
+            .root
+            .get_accessibility_info()
+            .expect("the tip is announced");
+        assert!(a11y.is_live_region);
+        assert_eq!(
+            tip.children.as_ref().len(),
+            1,
+            "one text node the pointer rewrites"
+        );
+    }
+
+    #[test]
+    fn a_legend_names_every_series_and_one_series_has_none() {
+        let dom = line_chart().dom();
+        assert_eq!(with_class(&dom, LEGEND_ITEM_CLASS).len(), 3);
+        let legend = one(&dom, LEGEND_CLASS);
+        let names = texts(legend);
+        for n in ["North", "South", "West"] {
+            assert!(names.iter().any(|t| t == n), "{n} missing from {names:?}");
+        }
+        let single = Chart::create(ChartKind::Line, 400.0, 200.0)
+            .with_added_series(series("Only", &[1.0, 2.0]))
+            .dom();
+        assert!(with_class(&single, LEGEND_CLASS).is_empty());
+    }
+
+    #[test]
+    fn a_pie_draws_a_wedge_per_category_and_names_them_in_the_legend() {
+        let dom = Chart::create(ChartKind::Pie, 400.0, 300.0)
+            .with_categories(months())
+            .with_added_series(series("Share", &[1.0, 2.0, 3.0, 4.0]))
+            .dom();
+        assert_eq!(with_class(&dom, SERIES_CLASS).len(), 4);
+        let legend = one(&dom, LEGEND_CLASS);
+        let names = texts(legend);
+        assert!(names.iter().any(|t| t == "Apr"), "{names:?}");
+        assert!(with_class(&dom, TICK_CLASS).is_empty(), "a pie has no axes");
+    }
+
+    #[test]
+    fn the_y_axis_labels_every_nice_tick() {
+        let chart = line_chart();
+        let g = chart_geometry(&chart);
+        let ticks = g.y_ticks.expect("a line chart has a y axis").values().len();
+        let dom = chart.dom();
+        let labels = with_class(&dom, TICK_CLASS);
+        assert!(
+            labels.len() >= ticks,
+            "{} labels for {ticks} ticks",
+            labels.len()
+        );
+        let all = texts(&dom);
+        assert!(
+            all.iter().any(|t| t == "Mar"),
+            "the categories label the x axis"
+        );
+    }
+
+    #[test]
+    fn a_large_series_is_drawn_decimated() {
+        let points: Vec<ChartPoint> = (0..500_000)
+            .map(|i| ChartPoint::create(f64::from(i), (f64::from(i) * 0.01).sin()))
+            .collect();
+        let chart = Chart::create(ChartKind::Line, 800.0, 300.0).with_added_series(
+            ChartSeries::create(AzString::from("Signal"), ChartPointVec::from_vec(points)),
+        );
+        let width = chart_geometry(&chart).frame.width;
+        let dom = chart.dom();
+        let line = with_class(&dom, SERIES_CLASS)[0];
+        let Some(SvgNodeData::Path(shape)) = line.root.get_svg_data() else {
+            panic!("the line has a path");
+        };
+        let segments: usize = shape
+            .rings
+            .as_slice()
+            .iter()
+            .map(|r| r.items.as_slice().len())
+            .sum();
+        assert!(
+            segments <= 4 * (width as usize + 2),
+            "{segments} segments drawn for {width} px"
+        );
+    }
+
+    #[test]
+    fn the_table_view_lists_every_category() {
+        let dom = line_chart().with_show_table(true).dom();
+        let table = one(&dom, TABLE_CLASS);
+        let rows = all_nodes(table)
+            .into_iter()
+            .filter(|n| matches!(n.root.get_node_type(), NodeType::Tr))
+            .count();
+        assert_eq!(rows, 1 + 4, "a header and a row per category");
+        let cells = texts(table);
+        assert!(cells.iter().any(|t| t == "South"));
+        assert!(cells.iter().any(|t| t == "35"));
+    }
+
+    #[test]
+    fn a_big_series_is_summarised_in_the_table() {
+        let points: Vec<ChartPoint> = (0..5000)
+            .map(|i| ChartPoint::create(f64::from(i), f64::from(i % 7)))
+            .collect();
+        let (head, rows) = table_rows(
+            &Chart::create(ChartKind::Scatter, 400.0, 300.0).with_added_series(
+                ChartSeries::create(AzString::from("Dots"), ChartPointVec::from_vec(points)),
+            ),
+        );
+        assert_eq!(rows.len(), 1, "one summary row per series");
+        assert_eq!(head.len(), rows[0].len());
+        assert_eq!(rows[0][0], "Dots");
+        assert_eq!(rows[0][1], "5,000");
+    }
+
+    #[test]
+    fn the_summary_names_the_kind_the_series_and_their_ranges() {
+        let s = line_chart().summary();
+        let s = s.as_str();
+        assert!(s.starts_with("Revenue by month: line chart"), "{s}");
+        assert!(s.contains("3 series"), "{s}");
+        assert!(s.contains("Jan to Apr"), "{s}");
+        assert!(s.contains("North"), "{s}");
+        assert!(s.contains("60"), "{s}");
+    }
+
+    #[test]
+    fn a_selected_point_is_ringed() {
+        let dom = line_chart()
+            .with_selected(ChartSelection::create(1, 2, 2.0, 35.0))
+            .dom();
+        assert_eq!(with_class(&dom, SELECTION_CLASS).len(), 1);
+        assert!(with_class(&line_chart().dom(), SELECTION_CLASS).is_empty());
+    }
+
+    #[test]
+    fn an_empty_chart_builds() {
+        let dom = Chart::create(ChartKind::Line, 300.0, 200.0).dom();
+        assert_eq!(with_class(&dom, OVERLAY_CLASS).len(), 1);
+        assert!(with_class(&dom, SERIES_CLASS).is_empty());
+        for kind in [
+            ChartKind::Area,
+            ChartKind::Bar,
+            ChartKind::StackedBar,
+            ChartKind::Scatter,
+            ChartKind::Pie,
+            ChartKind::Donut,
+        ] {
+            let _ = Chart::create(kind, 300.0, 200.0).dom();
+        }
+    }
+
+    #[test]
+    fn the_palette_keeps_its_order_and_a_series_may_wear_its_own_colour() {
+        let own = ChartColor::same(ColorU::rgb(1, 2, 3));
+        let skin = crate::widgets::themes::flat::chart_skin();
+        assert_eq!(series_color(&series("a", &[]), 0, &skin), skin.palette[0]);
+        assert_eq!(
+            series_color(&series("a", &[]), 9, &skin),
+            skin.palette[1],
+            "a ninth series starts the order again"
+        );
+        assert_eq!(
+            series_color(&series("a", &[]).with_color(own), 0, &skin),
+            own
+        );
+    }
+}
