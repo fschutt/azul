@@ -64,6 +64,18 @@ impl Pdf {
     ) -> azul_layout::resource_handles::PaginationSnapshot {
         azul_layout::resource_handles::PaginationSnapshot::empty()
     }
+    /// No PDF backend on wasm: returns an empty (0-page) handle.
+    pub fn compute_pagination_with_policy(
+        &self,
+        _styled_dom: azul_core::styled_dom::StyledDom,
+        _page_width_px: f32,
+        _page_height_px: f32,
+        _font_cache: &azul_layout::resource_handles::FontCacheSnapshot,
+        _image_cache: &azul_layout::resource_handles::ImageCacheSnapshot,
+        _policy: azul_layout::solver3::page_breaks::BreakPolicy,
+    ) -> azul_layout::resource_handles::PaginationSnapshot {
+        azul_layout::resource_handles::PaginationSnapshot::empty()
+    }
     /// No PDF backend on wasm: returns an empty byte vec.
     pub fn from_styled_dom_with_resources(
         &self,

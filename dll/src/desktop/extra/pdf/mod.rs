@@ -235,6 +235,33 @@ impl Pdf {
         font_cache: &azul_layout::resource_handles::FontCacheSnapshot,
         image_cache: &azul_layout::resource_handles::ImageCacheSnapshot,
     ) -> azul_layout::resource_handles::PaginationSnapshot {
+        self.compute_pagination_with_policy(
+            styled_dom,
+            page_width_px,
+            page_height_px,
+            font_cache,
+            image_cache,
+            azul_layout::solver3::page_breaks::BreakPolicy::default(),
+        )
+    }
+
+    /// [`Self::compute_pagination`] with the break-awareness `policy`:
+    /// `atomic_lines` never ends a page inside a line of text,
+    /// `widows_orphans` honours CSS `widows` / `orphans`, `honor_break_inside`
+    /// keeps a `break-inside: avoid` box whole, `atomic_table_rows` a table
+    /// row. The default policy (all off) is the plain interval slicing, which
+    /// cuts through whatever lies on the page edge - right for a page view
+    /// that only needs page COUNTS, wrong for a reader or a print whose page
+    /// edges must fall between lines (AzReader).
+    pub fn compute_pagination_with_policy(
+        &self,
+        styled_dom: azul_core::styled_dom::StyledDom,
+        page_width_px: f32,
+        page_height_px: f32,
+        font_cache: &azul_layout::resource_handles::FontCacheSnapshot,
+        image_cache: &azul_layout::resource_handles::ImageCacheSnapshot,
+        policy: azul_layout::solver3::page_breaks::BreakPolicy,
+    ) -> azul_layout::resource_handles::PaginationSnapshot {
         #[cfg(feature = "pdf")]
         {
             let mut font_manager = match font_cache.as_font_manager() {
@@ -251,12 +278,13 @@ impl Pdf {
             };
             let empty_images = azul_core::resources::ImageCache::default();
             let images = image_cache.as_image_cache().unwrap_or(&empty_images);
-            engine::styled_dom_pagination(
+            engine::styled_dom_pagination_with_policy(
                 &styled_dom,
                 page_width_px,
                 page_height_px,
                 &mut font_manager,
                 images,
+                policy,
             )
             .map_or_else(
                 azul_layout::resource_handles::PaginationSnapshot::empty,
@@ -272,6 +300,7 @@ impl Pdf {
                 page_height_px,
                 font_cache,
                 image_cache,
+                policy,
             );
             azul_layout::resource_handles::PaginationSnapshot::empty()
         }
@@ -635,12 +664,15 @@ mod engine {
     /// resolved.
     /// The precalculation twin of [`styled_dom_to_bytes_with`]: same layout
     /// pipeline, stops after the break analysis (no page is sliced).
-    pub fn styled_dom_pagination(
+    /// `policy`: the break-awareness of the analysis (see
+    /// `Pdf::compute_pagination_with_policy`; the default is plain slicing).
+    pub fn styled_dom_pagination_with_policy(
         styled_dom: &azul_core::styled_dom::StyledDom,
         page_w_px: f32,
         page_h_px: f32,
         font_manager: &mut azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
         image_cache: &azul_core::resources::ImageCache,
+        policy: azul_layout::solver3::page_breaks::BreakPolicy,
     ) -> Option<azul_layout::resource_handles::PaginationAnalysis> {
         use std::collections::BTreeMap;
 
@@ -668,7 +700,10 @@ mod engine {
         let mut debug_messages = None;
         let loader = PathLoader::new();
         let font_loader = |bytes, index| loader.load_font_shared(bytes, index);
-        let page_config = FakePageConfig::new();
+        let page_config = FakePageConfig {
+            break_policy: policy,
+            ..FakePageConfig::new()
+        };
 
         let info = compute_document_pagination(
             &mut layout_cache,
