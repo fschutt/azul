@@ -147,3 +147,7 @@ Do: (1) 256-byte stride + page-aligned slot offsets (or a pool per slot); (2) dr
 it on demand - an idle window holds ONE buffer; (3) note the ARGB8888-only swizzle copy; (4) X11: the CPU path uses
 plain XPutImage (socket copy + server copy) - report an MIT-SHM (XShmPutImage) plan with bytes per frame before /
 after, implement if time allows (the X11 files are WAYLAND8's for this).
+USER 2026-10-03: "tell the agent to implement the wayland fix and MIT-SHM" - both are REQUIRED now (MIT-SHM no longer
+optional): XShmQueryExtension / XShmCreateImage / XShmAttach / XShmPutImage per damaged rect, segment re-created on
+resize, XShmCompletionEvent before reuse (or two segments), fallback to XPutImage (no extension / remote display /
+attach failure); libXext dlopen'd like the other X libs.
