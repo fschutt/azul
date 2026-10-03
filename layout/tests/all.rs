@@ -906,3 +906,7 @@ mod a_background_is_painted_within_its_background_clip;
 mod a_one_box_slide_does_not_re_lay_out_the_page;
 #[path = "a_virtual_view_leaves_its_hosts_font_chains_in_place.rs"]
 mod a_virtual_view_leaves_its_hosts_font_chains_in_place;
+#[path = "an_svg_paints_any_css_colour_and_nests_its_transforms.rs"]
+mod an_svg_paints_any_css_colour_and_nests_its_transforms;
+#[path = "an_svg_renders_at_the_size_its_fit_asks_for.rs"]
+mod an_svg_renders_at_the_size_its_fit_asks_for;
