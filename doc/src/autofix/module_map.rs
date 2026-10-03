@@ -1388,6 +1388,12 @@ mod tests {
             new_type_module("ListViewError", "azul_layout::widgets::list_view::ListViewError").0,
             "error"
         );
+        // DEDUP_WIDGETS_API F17: a `*VecSlice` lives with its element - a
+        // widget's slice in widgets, even when a word of its name is a
+        // keyword of another module ("grid", "range")
+        let slice = "azul_layout::widgets::cell_grid::CellGridRangeVecSlice";
+        assert_eq!(new_type_module("CellGridRangeVecSlice", slice).0, "widgets");
+        assert_eq!(get_correct_module_with_path("CellGridRangeVecSlice", "css", Some(slice)).as_deref(), Some("widgets"));
         for (name, path) in [
             ("TextRasterStyle", raster),
             ("Quux", "azul_layout::cpurender::quux::Quux"),

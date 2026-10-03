@@ -5729,3 +5729,56 @@ mod function_signature_tests {
         ));
     }
 }
+
+#[cfg(test)]
+mod macro_path_tests {
+    /// The source of a file of the workspace (this crate is `doc/`).
+    fn source(rel: &str) -> String {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join(rel);
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    }
+
+    /// The lines of `text` (comments left out) that call the macro `name!(`
+    /// without `$crate::` in front.
+    fn unqualified_calls<'a>(text: &'a str, name: &str) -> Vec<&'a str> {
+        let call = format!("{name}!(");
+        let qualified = format!("$crate::{call}");
+        text.lines()
+            .map(str::trim)
+            .filter(|l| !l.starts_with("//") && l.contains(&call))
+            .filter(|l| !l.contains(&qualified))
+            .collect()
+    }
+
+    /// DEDUP_WIDGETS_API F1: `impl_option!` / `impl_result!` called their
+    /// inner helpers unqualified, so 77 files imported `impl_option_inner`
+    /// by hand to use them. Every call inside css/src/macros.rs names the
+    /// helper through `$crate::`, and `impl_widget_callback!` names `RefAny`
+    /// by its full path (a source scan: it always runs).
+    #[test]
+    fn the_exported_macros_name_their_helpers_by_crate_path() {
+        let macros = source("css/src/macros.rs");
+        for inner in ["impl_option_inner", "impl_result_inner"] {
+            let bare = unqualified_calls(&macros, inner);
+            assert!(bare.is_empty(), "{inner} called unqualified: {bare:?}");
+        }
+        let widgets = source("layout/src/widgets/mod.rs");
+        let start = widgets
+            .find("macro_rules! impl_widget_callback")
+            .expect("impl_widget_callback");
+        let body = &widgets[start..];
+        let body = &body[..body.find("\n}\n").unwrap_or(body.len())];
+        let bare: Vec<&str> = body
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.starts_with("//"))
+            .filter(|l| {
+                l.match_indices("RefAny").any(|(at, _)| {
+                    let before = &l[..at];
+                    !before.ends_with("::") && !before.ends_with("Option")
+                })
+            })
+            .collect();
+        assert!(bare.is_empty(), "impl_widget_callback! names RefAny unqualified: {bare:?}");
+    }
+}
