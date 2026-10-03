@@ -87,17 +87,21 @@ pub(crate) fn page_size() -> usize {
 /// Lay out a pool of `count` buffers of `width` x `height` pixels (clamped to
 /// at least 1 x 1). `None` when the pool would not fit the protocol's `int32`
 /// size.
+///
+/// Every buffer starts on a `page` boundary and owns a whole number of pages
+/// (its pixels, rounded up), so each one passes [`udmabuf_importable`] - the
+/// padding is less than one page per buffer. The row pitch stays tight (see
+/// the module docs).
 pub(crate) fn pool_layout(
     width: i32,
     height: i32,
     count: usize,
     page: usize,
 ) -> Option<ShmPoolLayout> {
-    let _ = page;
     let w = width.max(1) as usize;
     let h = height.max(1) as usize;
     let stride = w.checked_mul(BYTES_PER_PIXEL)?;
-    let slot_bytes = stride.checked_mul(h)?;
+    let slot_bytes = align_up(stride.checked_mul(h)?, page)?;
     let pool_bytes = slot_bytes.checked_mul(count.max(1))?;
     if pool_bytes > i32::MAX as usize {
         return None;
