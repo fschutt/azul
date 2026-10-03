@@ -16,24 +16,42 @@
   - a88f2ce23 GREEN free_fn_entry + by-value CallbackInfo + function_data_for_call
   - cd2b046b9 feat: main.rs `--fn` arm + multi-spec `autofix add T.a T.b`; generate_add_entries_patch
   - eafac9034 test add::tests::an_add_with_fn_writes_the_entry_into_the_class
+- item 2 (bare `object`):
+  - 25c3f85ba RED mod.rs function_signature_tests::a_fn_body_passing_a_bare_object_receiver_is_a_critical_error
+  - e5de1ad90 GREEN check_fn_body_receivers + BareObjectInFnBody (critical)
+  - 89c1fc76c RED function_diff::tests::a_destroy_method_is_called_and_no_body_passes_a_bare_object
+  - a3d68900c GREEN destroy* bodies call the method (generate_destructor_body gone)
+- item 3 (module choice, private paths):
+  - ff9d487db RED module_map::tests::a_new_type_goes_where_the_scan_keeps_it
+  - 5c2d874a6 GREEN new_type_module (one rule: add, deps, scan additions, Add-op fallback);
+    is_structural helper; cpurender -> image arm; table entry TextRasterStyle -> image
+  - 3c1d0d238 AzPhoto import azul::image::TextRasterStyle (depends on the scan's move!)
+  - e09122405 RED type_index::tests::a_type_in_a_private_module_is_indexed_by_its_public_re_export_path
+  - 2d2e48396 GREEN ModuleFacts / public_path / private_modules / private_module_on
+  - c11f9e711 RED diff path_fix_tests::a_path_through_a_private_module_is_fixed_to_the_public_re_export,
+    mod.rs ..::a_class_behind_a_private_module_nothing_re_exports_is_a_critical_error
+  - 1b4de30bd GREEN needs_path_fix(index) + check_private_paths + PrivateExternalPath
+  - 1a1d8ef44 RED add::tests::an_add_of_a_type_behind_a_private_module_is_refused
+  - dd86e0d78 GREEN refusal in generate_add_type_patches
+  - 3e7b3ac3c refactor preflight uses CRATE_DIRS
 
 ## IN PROGRESS
-- item 2: bare `object` argument in a fn_body with a self arg = critical scan error
+- item 4 (AUTOFIX6 list)
 
 ## NEXT
-- item 2 RED (mod.rs check_function_signatures neighbourhood), GREEN
-- item 3 (module for new types / --module / private module path)
-- item 4 (AUTOFIX6 list), item 5 (css/src/macros.rs + module_map VecSlice)
+- item 4: &T return by name (.clone()), Option<T> args, &[T] -> XxxVecSlice, suffix splice
+  -> templates, ClassPatch::is_empty with remove_* lists, whole-class removal + add in one round
+- item 5: css/src/macros.rs $crate:: in impl_option!/impl_result!/impl_widget_callback! RefAny;
+  module_map VecSlice rule (already one rule: is_vec_family - verify + list the scan's moves)
 - report scripts/TOOLS7_2026_10_03.md
 
 ## Decisions / open questions
-- item 0: root cause = file-name collision in the new-type add path (each add overwrote
-  add_<type>_<i> / add_<type>_functions). Fixed by naming; the apply-side merge was already right.
-- item 1: the receiver of a free fn (first arg of the class type) is passed as the codegen's
-  receiver name (receiver_arg_name: `raw_image`), which is the generated C fn's parameter
-  (DLL: no rewrite needed; Python rewrites it to __cloned).
-- item 1: `&`/`&mut` *CallbackInfo args cross by value (+ `let mut x = x;` rebinding for &mut):
-  is_by_value_handle = name ends with "CallbackInfo". Also fixes the drift report on
-  ProgressBar.update_progress seen with the prebuilt `autofix list ProgressBar`.
-- commit messages: written with the Write tool to /tmp/tools7_msg.txt (heredocs with quotes
-  trip the worktree guard); git via `git -C`.
+- item 0: root cause = file-name collision in the new-type add path. Fixed by naming.
+- item 1: free-fn receiver passed as receiver_arg_name (`raw_image`); *CallbackInfo by value.
+- item 3: no `--module` flag: the scan's move check would move a hand-picked module back unless
+  the exceptions table names it; the table IS the persistent choice. Path-first placement was
+  rejected (1223 api.json classes sit in a module other than their path's - by-concern modules
+  like component/font/time); new types follow the move check's order instead.
+- item 3: TextRasterStyle moves css -> image at the next scan; css/src/codegen/lower_types.rs
+  (generated) must be regenerated; AzPhoto import already switched.
+- commit messages: Write tool -> /tmp/tools7_msg.txt; git via `git -C`.
