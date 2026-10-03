@@ -874,3 +874,5 @@ mod a_line_of_small_text_is_as_tall_as_its_line_box;
 mod spaces_at_a_lines_edges_do_not_widen_its_max_content;
 #[path = "inline_blocks_in_a_right_to_left_line_run_from_the_right.rs"]
 mod inline_blocks_in_a_right_to_left_line_run_from_the_right;
+#[path = "an_hr_is_a_two_pixel_inset_rule_as_wide_as_its_block.rs"]
+mod an_hr_is_a_two_pixel_inset_rule_as_wide_as_its_block;
