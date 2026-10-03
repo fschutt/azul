@@ -13,16 +13,17 @@
 
 use azul::{
     callbacks::{
-        ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, DatePickerOnChangeCallbackType,
-        RecurrenceEditorOnChangeCallbackType, TextAreaOnTextInputCallbackType,
-        TimePickerOnChangeCallbackType,
+        ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, CloseGuardOnEventCallbackType,
+        DatePickerOnChangeCallbackType, RecurrenceEditorOnChangeCallbackType,
+        TextAreaOnTextInputCallbackType, TimePickerOnChangeCallbackType,
     },
     dom::VirtualKeyCode,
     prelude::*,
     shells::{OfficeShell, ShellPane, ShellPaneKind, ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
     widgets::{
-        ButtonType, CheckBoxState, DatePicker, DatePickerState, DatePickerWeekStart,
+        ButtonType, CheckBoxState, CloseGuard, CloseGuardEvent, CloseGuardEventKind, DatePicker,
+        DatePickerState, DatePickerWeekStart,
         OnTextInputReturn, RecurrenceEditor, RecurrenceRule, Ribbon, RibbonButton, RibbonGroup,
         RibbonItem, RibbonTab, TextArea, TextAreaState, TextInputState, TimePicker,
         TimePickerState, Titlebar,
@@ -130,6 +131,8 @@ pub(crate) fn open_form(
         return Update::RefreshDom;
     }
     let title = form.window_title();
+    s.editor_opened = Some(form.clone());
+    s.editor_asking = false;
     s.editor = Some(form);
     s.editor_occurrence = occurrence;
     s.draft = None;
@@ -150,6 +153,8 @@ fn closed(s: &mut CalState) {
     if s.editor.take().is_some() {
         println!("AZCAL_EDITOR closed");
     }
+    s.editor_opened = None;
+    s.editor_asking = false;
     s.editor_occurrence = None;
 }
 
@@ -180,6 +185,18 @@ extern "C" fn editor_layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         None => Dom::create_div()
             .with_css(PAGE)
             .with_child(Dom::create_span_with_text("This appointment is closed.")),
+    };
+    // "Save changes?" over the window: the close guard's question and answers. Its veto is
+    // `on_editor_close_requested`'s, made from the form as it is when the close comes - the
+    // guard's own reads the form as this DOM was built, and would stop the close a Save &
+    // Close makes right after its save (reported to INFRA6).
+    let shell = match &s.editor {
+        Some(form) => CloseGuard::create(shell, form.window_title())
+            .with_dirty(false)
+            .with_asking(s.editor_asking)
+            .with_on_event(app.clone(), on_editor_answer as CloseGuardOnEventCallbackType)
+            .dom(),
+        None => shell,
     };
     Dom::create_body()
         .with_css(BODY)
@@ -818,6 +835,11 @@ extern "C" fn on_cancel(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut s) = data.downcast_mut::<CalState>() else {
         return Update::DoNothing;
     };
+    // An edited appointment asks first (Outlook's "Do you want to save changes?").
+    if s.editor_dirty() {
+        s.editor_asking = true;
+        return Update::RefreshDom;
+    }
     closed(&mut s);
     info.close_window();
     Update::RefreshDomAllWindows
@@ -889,15 +911,54 @@ extern "C" fn on_delete_occurrence(mut data: RefAny, mut info: CallbackInfo) -> 
 }
 
 /// The window is closed by its close button (or the system): the form goes unsaved.
-extern "C" fn on_editor_close_requested(mut data: RefAny, _info: CallbackInfo) -> Update {
+extern "C" fn on_editor_close_requested(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut s) = data.downcast_mut::<CalState>() else {
         return Update::DoNothing;
     };
     if s.editor.is_none() {
         return Update::DoNothing;
     }
+    // An edited appointment is not lost to the close button (B29): the close is held and the
+    // window asks "save changes?" (`on_editor_answer` hears the answer).
+    if s.editor_dirty() {
+        s.editor_asking = true;
+        println!("AZCAL_EDITOR asking");
+        info.prevent_window_close();
+        return Update::RefreshDom;
+    }
     closed(&mut s);
     Update::RefreshDomAllWindows
+}
+
+/// The answer to "save changes?": Save saves and closes (or shows why it cannot), Don't Save
+/// drops the form (the guard closes the window), Cancel keeps the window as it is.
+extern "C" fn on_editor_answer(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    event: CloseGuardEvent,
+) -> Update {
+    match event.kind {
+        CloseGuardEventKind::Save => {
+            if let Some(mut s) = data.downcast_mut::<CalState>() {
+                s.editor_asking = false;
+            }
+            save(&mut data, &mut info)
+        }
+        CloseGuardEventKind::Discard => {
+            let Some(mut s) = data.downcast_mut::<CalState>() else {
+                return Update::DoNothing;
+            };
+            closed(&mut s);
+            Update::RefreshDomAllWindows
+        }
+        CloseGuardEventKind::Cancel | CloseGuardEventKind::Ask => {
+            let Some(mut s) = data.downcast_mut::<CalState>() else {
+                return Update::DoNothing;
+            };
+            s.editor_asking = false;
+            Update::RefreshDom
+        }
+    }
 }
 
 /// Ctrl / Cmd + S (or + Enter) saves and closes.
