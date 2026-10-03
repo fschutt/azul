@@ -72,7 +72,7 @@ pub fn sha256_hex(data: &[u8]) -> String {
 
 /// [`sha256_hex`] of everything `reader` yields, read in pieces (a file of any
 /// size without holding it in memory).
-pub fn sha256_hex_of(mut reader: impl std::io::Read) -> std::io::Result<String> {
+pub fn sha256_hex_of<R: std::io::Read>(mut reader: R) -> std::io::Result<String> {
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; 64 * 1024];
     loop {
