@@ -75,7 +75,8 @@ use azul::{
         CellGridEventKind, CellGridHorizontalAlign, CellGridRange, CellGridSize,
         CellGridVerticalAlign, CellGridView, OnTextInputReturn, Ribbon, RibbonAppButton,
         RibbonButton, RibbonColumn, RibbonGroup, RibbonItem, RibbonRow, RibbonTab, SliderState, StatusBar,
-        StandardDialogEvent, StatusBarSegment, StatusBarZoom, TextInput, TextInputState,
+        FindReplaceDialog, StandardDialogEvent, StandardDialogEventKind, StatusBarSegment,
+        StatusBarZoom, TextInput, TextInputState,
         TextInputValid, Titlebar,
     },
 };
@@ -122,7 +123,7 @@ pub const SHORTCUTS: [Shortcut; 20] = [
     Shortcut::new("Edit", "Mod+Y / Mod+Shift+Z", "Redo"),
     Shortcut::new("Edit", "Mod+C / Mod+X / Mod+V", "Copy / cut / paste the selection"),
     Shortcut::new("Edit", "Delete", "Clear the selection's contents"),
-    Shortcut::new("Edit", "Mod+F", "Find"),
+    Shortcut::new("Edit", "Mod+F / Mod+H", "Find / replace"),
     Shortcut::new("Format", "Mod+B / Mod+I / Mod+U", "Bold / italic / underline"),
     Shortcut::new("Cells", "F2", "Edit the active cell"),
     Shortcut::new("Cells", "Enter / Tab", "Commit and move down / right (Shift: back)"),
@@ -174,6 +175,8 @@ pub enum Pending {
     Other,
     /// `Reply::found`: move the cursor there.
     Find,
+    /// `Reply::count`: cells changed by Replace All.
+    Replaced,
     /// `Reply::area`: propose `=SUM(area)` in this cell's editor.
     SumRange(CellAddr),
     /// `Reply::count`: duplicates removed.
@@ -282,8 +285,13 @@ pub struct AppState {
     /// A sheet tab being renamed: (sheet, text).
     pub renaming: Option<(u32, String)>,
     pub panel: Panel,
-    /// The find field's text.
+    /// The Find / Replace dialog's fields, options and result line.
     pub find: String,
+    pub replace: String,
+    pub find_opts: ops::FindOptions,
+    pub find_status: String,
+    /// The dialog shows the replace field (Mod+H, HOME > Replace).
+    pub show_replace: bool,
     /// A line for the user (an error, a result).
     pub message: String,
     /// The internal clipboard of the ribbon's Copy / Cut: the range, cut?,
@@ -337,6 +345,10 @@ impl AppState {
             renaming: None,
             panel: Panel::None,
             find: String::new(),
+            replace: String::new(),
+            find_opts: ops::FindOptions::default(),
+            find_status: String::new(),
+            show_replace: false,
             message: String::new(),
             clipboard: None,
             drive: Arc::new(LocalDrive::new(data_root.clone())),
@@ -787,9 +799,15 @@ fn apply_reply(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, reply: R
             Some(at) => {
                 let cell = to_cell(at);
                 go_to(s, at.sheet, CellGridRange { first: cell, last: cell });
+                s.find_status = format!("Found in {}.", a1(at));
             }
-            None => s.message = format!("\"{}\" was not found.", s.find),
+            None => s.find_status = format!("\"{}\" was not found.", s.find),
         },
+        Pending::Replaced => {
+            if let Some(n) = reply.count {
+                s.find_status = format!("{n} cell(s) replaced.");
+            }
+        }
         Pending::SumRange(at) => {
             let formula = match reply.area {
                 Some(area) => format!("=SUM({})", a1_area(area)),
@@ -1186,6 +1204,7 @@ pub enum Action {
     ClearFilter,
     RemoveDuplicates,
     Find,
+    Replace,
     ClearContents,
     ClearFormats,
     Chart,
@@ -1392,6 +1411,7 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
                             icon(app, "arrow_downward", "Fill down", Action::FillDown, false),
                             icon(app, "arrow_forward", "Fill right", Action::FillRight, false),
                             icon(app, "backspace", "Clear contents", Action::ClearContents, false),
+                            icon(app, "find_replace", "Replace", Action::Replace, false),
                         ]),
                     ]),
                     large(app, "search", "Find", Action::Find),
@@ -1504,7 +1524,6 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
 enum Field {
     NameBox,
     Formula,
-    Find,
     Rename,
 }
 
@@ -1812,15 +1831,17 @@ fn panel(s: &AppState, app: &RefAny) -> Option<Dom> {
             Some(p.with_child(close()))
         }
         Panel::Find => {
-            let mut p = frame("Find");
-            p.add_child(
-                field(app, Field::Find, &s.find, "Find what")
-                    .with_accessibility_name(AzString::from("Find what"))
-                    .dom()
-                    .with_id(ids::FIND),
-            );
-            p.add_child(line("Enter finds the next cell."));
-            Some(p.with_child(close()))
+            // The standard Find / Replace dialog (DEDUP_OFFICE D12): its
+            // fields, options and buttons report to on_find_event.
+            let mut dialog = FindReplaceDialog::create(AzString::from(s.find.as_str()))
+                .with_options(s.find_opts.match_case, s.find_opts.whole_word)
+                .with_status(AzString::from(s.find_status.as_str()))
+                .with_on_event(app.clone(), on_find_event as StandardDialogOnEventCallbackType);
+            if s.show_replace {
+                dialog = dialog.with_replace(AzString::from(s.replace.as_str()));
+            }
+            let title = if s.show_replace { "Find and Replace" } else { "Find" };
+            Some(frame(title).with_child(dialog.dom().with_id(ids::FIND)))
         }
         Panel::Chart => {
             let mut p = frame("Charts");
@@ -2551,7 +2572,11 @@ fn act(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, action: Action) 
                 Post::None,
             );
         }
-        Action::Find => s.panel = Panel::Find,
+        Action::Find | Action::Replace => {
+            s.panel = Panel::Find;
+            s.show_replace = action == Action::Replace;
+            s.find_status.clear();
+        }
         Action::ClearContents => {
             let areas = s.areas();
             run(info, app, s, Command::Clear { areas });
@@ -2701,7 +2726,6 @@ extern "C" fn on_field_text(mut data: RefAny, mut info: CallbackInfo, state: Tex
     let mut rebuild = false;
     with_app(&mut app, &mut info, |_, _, s| match which {
         Field::NameBox => s.name_box = Some(text),
-        Field::Find => s.find = text,
         Field::Rename => {
             if let Some((sheet, _)) = s.renaming.clone() {
                 s.renaming = Some((sheet, text));
@@ -2797,14 +2821,6 @@ extern "C" fn on_field_key(mut data: RefAny, mut info: CallbackInfo, state: Text
         }
         (Field::Formula, Some(VirtualKeyCode::Tab)) => commit_formula(info, app, s, false),
         (Field::Formula, _) => commit_formula(info, app, s, true),
-        (Field::Find, Some(VirtualKeyCode::Return)) => {
-            let needle = s.find.clone();
-            if !needle.is_empty() {
-                let from = s.active();
-                send(info, app, s, Command::Find { from, needle }, Pending::Find, Post::None);
-            }
-        }
-        (Field::Find, _) => s.panel = Panel::None,
         (Field::Rename, Some(VirtualKeyCode::Return)) => {
             if let Some((sheet, name)) = s.renaming.take() {
                 let name = name.trim().to_string();
@@ -2931,6 +2947,70 @@ extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, index: 
     })
 }
 
+/// The Find / Replace dialog: its fields and options are kept in the state
+/// (no rebuild while typing - the field shows its own text), its buttons ask
+/// the engine.
+extern "C" fn on_find_event(mut data: RefAny, mut info: CallbackInfo, event: StandardDialogEvent) -> Update {
+    if event.kind == StandardDialogEventKind::FieldChanged {
+        if let Some(mut s) = data.downcast_mut::<AppState>() {
+            let text = event.text.as_str().to_string();
+            if event.index == 0 {
+                s.find = text;
+            } else {
+                s.replace = text;
+            }
+        }
+        return Update::DoNothing;
+    }
+    with_app(&mut data, &mut info, |info, app, s| {
+        let needle = s.find.clone();
+        let opts = s.find_opts;
+        match event.kind {
+            StandardDialogEventKind::OptionToggled => {
+                if event.index == 0 {
+                    s.find_opts.match_case = event.checked;
+                } else {
+                    s.find_opts.whole_word = event.checked;
+                }
+            }
+            StandardDialogEventKind::FindNext | StandardDialogEventKind::FindPrevious if !needle.is_empty() => {
+                let opts = ops::FindOptions {
+                    backwards: event.kind == StandardDialogEventKind::FindPrevious,
+                    ..opts
+                };
+                let from = s.active();
+                send(info, app, s, Command::Find { from, needle, opts }, Pending::Find, Post::None);
+            }
+            StandardDialogEventKind::Replace if !needle.is_empty() => {
+                let at = s.active();
+                let replacement = s.replace.clone();
+                s.doc.dirty = true;
+                let command = Command::Replace {
+                    at,
+                    needle,
+                    replacement,
+                    opts,
+                };
+                send(info, app, s, command, Pending::Find, Post::None);
+            }
+            StandardDialogEventKind::ReplaceAll if !needle.is_empty() => {
+                let sheet = s.sheet;
+                let replacement = s.replace.clone();
+                s.doc.dirty = true;
+                let command = Command::ReplaceAll {
+                    sheet,
+                    needle,
+                    replacement,
+                    opts,
+                };
+                send(info, app, s, command, Pending::Replaced, Post::None);
+            }
+            StandardDialogEventKind::Cancel => s.panel = Panel::None,
+            _ => {}
+        }
+    })
+}
+
 /// The About box's OK: back to the workbook.
 extern "C" fn on_about_event(mut data: RefAny, mut info: CallbackInfo, _event: StandardDialogEvent) -> Update {
     with_app(&mut data, &mut info, |_, _, s| s.screen = Screen::Workbook)
@@ -3040,6 +3120,7 @@ extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update 
         Some(VirtualKeyCode::I) if command => Some(Action::Italic),
         Some(VirtualKeyCode::U) if command => Some(Action::Underline),
         Some(VirtualKeyCode::F) if command => Some(Action::Find),
+        Some(VirtualKeyCode::H) if command => Some(Action::Replace),
         Some(VirtualKeyCode::F9) => Some(Action::CalculateNow),
         _ => None,
     };
