@@ -473,27 +473,35 @@ mod tests {
         );
     }
 
+    /// Every call into libazul that a program can make BEFORE it holds any
+    /// value libazul made - a wrapper without `self`: a constructor, a static
+    /// method, `create_default()` and `impl Default`, an enum-variant
+    /// constructor (`BorderStyle::none()`, `OptionX::some(..)`). Any of them
+    /// can be a program's first call, so each one checks the ABI first: a
+    /// stale app must abort before it reads a struct of another layout, not
+    /// after (audit 2026-10-03: `X::create_default()`, `impl Default` and the
+    /// enum-variant constructors entered libazul unchecked).
     #[test]
-    fn every_constructor_of_the_rust_binding_checks_the_abi_before_entering_libazul() {
+    fn every_wrapper_a_program_can_call_first_checks_the_abi_before_entering_libazul() {
         let ir = ir();
-        let entry: std::collections::BTreeSet<&str> = ir
+        let label = |k: FunctionKind| match k {
+            FunctionKind::Constructor => Some("constructor"),
+            FunctionKind::StaticMethod => Some("static method"),
+            FunctionKind::Default => Some("default"),
+            FunctionKind::EnumVariantConstructor => Some("enum variant constructor"),
+            _ => None,
+        };
+        let entry: std::collections::BTreeMap<&str, &str> = ir
             .functions
             .iter()
-            .filter(|f| {
-                matches!(
-                    f.kind,
-                    FunctionKind::Constructor | FunctionKind::StaticMethod
-                )
-            })
-            .map(|f| f.c_name.as_str())
+            .filter_map(|f| Some((f.c_name.as_str(), label(f.kind)?)))
             .collect();
         let text = CodeGenerator::generate(ir, &CodegenConfig::dll_dynamic()).unwrap();
-        let mut checked = 0usize;
+        let lines: Vec<&str> = text.lines().map(str::trim).collect();
+        let mut checked: std::collections::BTreeMap<&str, usize> = Default::default();
+        let mut trait_bodies_checked = 0usize;
         let mut offenders = Vec::new();
-        for line in text.lines().map(str::trim) {
-            if !line.starts_with("pub fn ") {
-                continue;
-            }
+        for (i, line) in lines.iter().enumerate() {
             let Some(p) = line.find("unsafe { Az") else {
                 continue;
             };
@@ -501,23 +509,45 @@ mod tests {
                 .chars()
                 .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
                 .collect();
-            if !entry.contains(callee.as_str()) {
+            let Some(&kind) = entry.get(callee.as_str()) else {
                 continue;
-            }
-            if line.contains(&format!("{{ {RUST_CHECK_CALL} unsafe {{ {callee}(")) {
-                checked += 1;
+            };
+            // A one-line wrapper: `pub fn x(..) -> T { az_abi_check(); unsafe { AzX_y(..) } }`;
+            // a trait body (`impl Default`): `az_abi_check();` on the line before.
+            let same_line = line.contains(&format!("{RUST_CHECK_CALL} unsafe {{ {callee}("));
+            let line_before = i > 0 && lines[i - 1] == RUST_CHECK_CALL;
+            if same_line || line_before {
+                *checked.entry(kind).or_default() += 1;
+                if !line.starts_with("pub fn ") {
+                    trait_bodies_checked += 1;
+                }
             } else {
-                offenders.push(line.to_string());
+                offenders.push(format!("{kind}: {line}"));
             }
         }
         assert!(
             offenders.is_empty(),
-            "wrappers without the ABI check:\n{}",
-            offenders.join("\n")
+            "{} wrappers enter libazul without the ABI check, e.g.:\n{}",
+            offenders.len(),
+            offenders
+                .iter()
+                .take(20)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("\n")
         );
+        for kind in [
+            "constructor",
+            "static method",
+            "default",
+            "enum variant constructor",
+        ] {
+            let n = checked.get(kind).copied().unwrap_or(0);
+            assert!(n > 100, "only {n} checked {kind} wrappers found");
+        }
         assert!(
-            checked > 100,
-            "only {checked} checked constructor wrappers found"
+            trait_bodies_checked > 100,
+            "only {trait_bodies_checked} checked `impl Default` bodies found"
         );
         // The internal bindings (link-static / libazul itself) never check.
         let dll = CodeGenerator::generate(ir, &CodegenConfig::dll_internal()).unwrap();
