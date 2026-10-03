@@ -13,7 +13,16 @@ agents - keep files under `m6/` (a `msg.txt` at the root got overwritten).
   1-based FFI decoder) on a 0-based index in `collect_font_stacks_from_styled_dom` - every
   text node took the font of the node before it.
 
-## IN PROGRESS (last commit: the progress commit after 2b5bae827; worktree clean)
+## DONE (items 3/7 so far)
+- RED `b3f6847fb` (layout/tests/a_normal_line_is_as_tall_as_chromes.rs), GREEN 1 `789331579`
+  (`LayoutFontMetrics::line_metrics_px` + field `browser_ascent_boost`; LineHeight::resolve*),
+  GREEN 2 `c847b4b6c` (font.rs `browser_ascent_boost(family)` replaces `browser_compat_ascent`).
+- NEXT (GREEN 3): route the glyph A/D in text3/cache.rs `get_item_vertical_metrics` (~10750) and
+  `_approx` (~10640), the dense.rs twins (`let m = &run.font_metrics;` at ~691/952/1181/1296/1465)
+  and the fc.rs strut (~5391 `first_available_font_metrics`) through `line_metrics_px`; split the
+  half-leading floor((L - (A+D))/2) above / rest below.
+
+## (older notes, items 3/7 plan)
 - item 3 + 7 (Chrome's rounded font metrics + the Times/Helvetica/Courier ascent hack).
   VERIFIED against Chrome 154 (m6/chrome_metrics.py, 11 Mac families x 13 sizes = 143 cases,
   0 mismatches): `line-height: normal` = A + D + G with A = round(hhea asc * s),
