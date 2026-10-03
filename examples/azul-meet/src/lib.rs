@@ -761,7 +761,8 @@ fn people(s: &MeetState) -> Vec<ui::PersonView> {
     let now = now_ms(s);
     let me = my_state(s);
     let mut rows = vec![ui::PersonView {
-        name: format!("{} (you)", s.name),
+        name: s.name.clone(),
+        me: true,
         status: String::from(if s.cam_on { "camera on" } else { "camera off" }),
         muted: me.muted,
         deafened: me.deafened,
@@ -769,6 +770,7 @@ fn people(s: &MeetState) -> Vec<ui::PersonView> {
     }];
     let person = |name: String, status: &str, r: Option<&Remote>| ui::PersonView {
         name,
+        me: false,
         status: status.to_string(),
         muted: r.and_then(|r| r.state).is_some_and(|state| state.muted),
         deafened: r.and_then(|r| r.state).is_some_and(|state| state.deafened),
@@ -814,7 +816,7 @@ fn tile_view(s: &MeetState, tile: tiles::Tile, now: u64) -> ui::TileView {
         return ui::TileView {
             kind: tile.kind,
             me: true,
-            name: format!("{} (you)", s.name),
+            name: s.name.clone(),
             marker: None,
             muted: !s.mic_on,
             speaking: false,
@@ -878,8 +880,8 @@ fn roster_lines(s: &MeetState) -> Vec<String> {
     people(s)
         .into_iter()
         .map(|person| {
-            let label = if person.status.is_empty() || person.name.ends_with("(you)") {
-                person.name
+            let label = if person.status.is_empty() || person.me {
+                ui::shown_name(&person.name, person.me)
             } else {
                 format!("{} · {}", person.name, person.status)
             };

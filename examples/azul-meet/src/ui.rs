@@ -73,6 +73,8 @@ pub(crate) struct TileView {
 #[derive(Debug, Clone)]
 pub(crate) struct PersonView {
     pub name: String,
+    /// This side (shown as "<name> (you)").
+    pub me: bool,
     /// "connected", "connecting", "you" ...
     pub status: String,
     pub muted: bool,
@@ -375,7 +377,8 @@ pub(crate) fn shown_name(name: &str, me: bool) -> String {
 
 fn tile_label(t: &TileView) -> String {
     let mut label = match t.kind {
-        TileKind::Camera => t.name.clone(),
+        TileKind::Camera => shown_name(&t.name, t.me),
+        TileKind::Screen if t.me => String::from("Your screen"),
         TileKind::Screen => format!("{}'s screen", t.name),
     };
     if t.muted && t.kind == TileKind::Camera {
@@ -505,7 +508,7 @@ fn people(view: &CallView) -> Dom {
                         "display: flex; flex-direction: column; flex-grow: 1; min-width: 0px; \
                          margin-left: 8px;",
                     )
-                    .with_child(text(&person.name, "font-size: 13px;"))
+                    .with_child(text(&shown_name(&person.name, person.me), "font-size: 13px;"))
                     .with_child(text(&person.status, SECONDARY)),
             );
         if person.speaking {
