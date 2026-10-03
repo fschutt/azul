@@ -3074,8 +3074,15 @@ extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, index: 
 /// replacement made in the stored input). Whether it replaced; `false` with
 /// no edit in progress (the engine replaces) or no match in it.
 fn replace_in_edit(s: &mut AppState, needle: &str, replacement: &str, opts: ops::FindOptions) -> bool {
-    let _ = (s, needle, replacement, opts);
-    false
+    if s.view.edit_mode == CellGridEditMode::None {
+        return false;
+    }
+    let Some(text) = ops::replace_text(s.view.edit_text.as_str(), needle, replacement, opts) else {
+        return false;
+    };
+    s.view.edit_cursor = u32::try_from(text.chars().count()).unwrap_or(0);
+    s.view.edit_text = AzString::from(text);
+    true
 }
 
 /// The Find / Replace dialog: its fields and options are kept in the state
@@ -3111,6 +3118,15 @@ extern "C" fn on_find_event(mut data: RefAny, mut info: CallbackInfo, event: Sta
                 };
                 let from = s.active();
                 send(info, app, s, Command::Find { from, needle, opts }, Pending::Find, Post::None);
+            }
+            StandardDialogEventKind::Replace if !needle.is_empty() && s.view.edit_mode != CellGridEditMode::None => {
+                // The active cell is in the grid's own edit: replace there.
+                let replacement = s.replace.clone();
+                s.find_status = if replace_in_edit(s, &needle, &replacement, opts) {
+                    String::from("Replaced in the cell being edited.")
+                } else {
+                    format!("\"{needle}\" is not in the cell being edited.")
+                };
             }
             StandardDialogEventKind::Replace if !needle.is_empty() => {
                 let at = s.active();
