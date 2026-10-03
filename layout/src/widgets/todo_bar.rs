@@ -43,7 +43,10 @@ use crate::{
     widgets::{
         button::{Button, ButtonOnClickCallbackType, ButtonType},
         check_box::{CheckBox, CheckBoxOnToggleCallbackType, CheckBoxState},
-        date_picker::{DatePicker, DatePickerOnChangeCallbackType, DatePickerState, OptionDatePickerState},
+        date_picker::{
+            DatePicker, DatePickerOnChangeCallbackType, DatePickerState, DatePickerWeekStart,
+            OptionDatePickerState,
+        },
         text_input::{
             OnTextInputReturn, TextInput, TextInputOnVirtualKeyDownCallbackType, TextInputState,
             TextInputValid,
@@ -228,6 +231,9 @@ pub struct ToDoBar {
     pub calendar: DatePickerState,
     /// Today, ringed in the calendar; `None` rings nothing.
     pub today: OptionDatePickerState,
+    /// The weekday the calendar's rows start on (Sunday unless set; a
+    /// calendar app passes its own, so the bar's weeks are its weeks).
+    pub week_start: DatePickerWeekStart,
     /// The widget theme this widget is PINNED to (`with_theme`), or `None`
     /// to follow the app theme.
     pub theme: crate::widgets::themes::OptionUiTheme,
@@ -324,6 +330,7 @@ impl ToDoBar {
             on_appointment: None.into(),
             calendar: DatePickerState { year, month, day },
             today: OptionDatePickerState::None,
+            week_start: DatePickerWeekStart::Sunday,
             theme: crate::widgets::themes::OptionUiTheme::None,
         }
     }
@@ -337,6 +344,18 @@ impl ToDoBar {
     #[must_use]
     pub const fn with_today(mut self, year: u32, month: u32, day: u32) -> Self {
         self.set_today(year, month, day);
+        self
+    }
+
+    /// The weekday the calendar's rows start on (`DatePicker::set_week_start`).
+    pub const fn set_week_start(&mut self, week_start: DatePickerWeekStart) {
+        self.week_start = week_start;
+    }
+
+    /// [`Self::set_week_start`] for the builder chain.
+    #[must_use]
+    pub const fn with_week_start(mut self, week_start: DatePickerWeekStart) -> Self {
+        self.set_week_start(week_start);
         self
     }
 
@@ -653,6 +672,7 @@ pub(crate) fn build(bar: ToDoBar, look: &ToDoBarLook) -> Dom {
         on_appointment,
         calendar,
         today,
+        week_start: _,
         theme,
     } = bar;
     let theme = theme.into_option();
@@ -887,6 +907,41 @@ mod todo_bar_tests {
             }
         }
         panic!("no node is labelled {label:?}");
+    }
+
+    /// The weekday the bar's calendar rows start on: its first weekday name.
+    fn first_weekday(dom: &Dom) -> Option<String> {
+        const NAMES: [&str; 7] = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+        let mut calendar = Vec::new();
+        texts(&dom.children.as_ref()[0], &mut calendar);
+        calendar.into_iter().find(|t| NAMES.contains(&t.as_str()))
+    }
+
+    /// AzCalendar's navigator runs Monday to Sunday, its To-Do bar ran
+    /// Sunday to Saturday beside it (PIM6): the bar passes the week start it
+    /// is given to its calendar; Sunday stays the default.
+    #[test]
+    fn a_bar_lays_its_calendar_on_the_week_start_it_is_given() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        for theme in checks::BOTH {
+            let monday = bar(&log)
+                .with_week_start(DatePickerWeekStart::Monday)
+                .with_theme(theme)
+                .dom();
+            assert_eq!(
+                first_weekday(&monday).as_deref(),
+                Some("Mo"),
+                "{}: Monday first",
+                theme.name()
+            );
+            let default = bar(&log).with_theme(theme).dom();
+            assert_eq!(
+                first_weekday(&default).as_deref(),
+                Some("Su"),
+                "{}: Sunday by default",
+                theme.name()
+            );
+        }
     }
 
     #[test]
