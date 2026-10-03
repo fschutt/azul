@@ -229,3 +229,61 @@ impl AudioDecoder {
     }
     pub fn close(&mut self) {}
 }
+
+/// wasm stub of the desktop `EchoCanceller` (`audio::echo`): closed, so
+/// `process` hands the microphone back unchanged. `#[repr(C)]` layout MUST
+/// match the desktop type (ptr + run_destructor).
+#[cfg(target_arch = "wasm32")]
+#[repr(C)]
+pub struct EchoCanceller {
+    pub ptr: *mut c_void,
+    pub run_destructor: bool,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Clone for EchoCanceller {
+    fn clone(&self) -> Self {
+        EchoCanceller {
+            ptr: self.ptr,
+            run_destructor: false,
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Default for EchoCanceller {
+    fn default() -> Self {
+        EchoCanceller {
+            ptr: core::ptr::null_mut(),
+            run_destructor: false,
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Drop for EchoCanceller {
+    fn drop(&mut self) {}
+}
+
+#[cfg(target_arch = "wasm32")]
+impl EchoCanceller {
+    pub fn create(_sample_rate: u32, _tail_ms: u32) -> EchoCanceller {
+        EchoCanceller::default()
+    }
+    pub fn is_open(&self) -> bool {
+        false
+    }
+    pub fn far_end(&self, _frame: AudioFrame) -> bool {
+        false
+    }
+    pub fn process(&self, frame: AudioFrame) -> AudioFrame {
+        frame
+    }
+    pub fn latency_samples(&self) -> u32 {
+        0
+    }
+    pub fn erle_db(&self) -> f32 {
+        0.0
+    }
+    pub fn close(&mut self) {}
+}
