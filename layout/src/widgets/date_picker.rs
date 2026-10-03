@@ -104,10 +104,10 @@ static DATE_PICKER_VALUE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
 static DATE_PICKER_PANEL_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-date-picker-panel",
 ))];
-static HEADER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+pub(crate) static HEADER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-date-picker-header",
 ))];
-static HEADER_LABEL_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+pub(crate) static HEADER_LABEL_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-date-picker-label",
 ))];
 static NAV_BTN_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
@@ -149,8 +149,8 @@ static DATE_PICKER_INLINE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str
 ))];
 const DAY_CELL_KEY: &str = "__azul-native-date-picker-day";
 
-const PREV_ARROW: AzString = AzString::from_const_str("\u{2039}"); // ‹
-const NEXT_ARROW: AzString = AzString::from_const_str("\u{203A}"); // ›
+pub(crate) const PREV_ARROW: AzString = AzString::from_const_str("\u{2039}"); // ‹
+pub(crate) const NEXT_ARROW: AzString = AzString::from_const_str("\u{203A}"); // ›
 
 const WEEKDAY_NAMES: [AzString; 7] = [
     AzString::from_const_str("Su"),
@@ -329,7 +329,7 @@ impl DatePickerLook {
     /// The faces a grid cell of this look is built in, with `extra`
     /// declarations after each (a month cell's width): what the day and month
     /// builders render AND what their payloads repaint with - one source.
-    fn cell_faces(&self, extra: &[CssPropertyWithConditions]) -> CellFaces {
+    pub(crate) fn cell_faces(&self, extra: &[CssPropertyWithConditions]) -> CellFaces {
         let face = |base: &[CssPropertyWithConditions]| {
             let mut v = base.to_vec();
             v.extend_from_slice(extra);
@@ -455,7 +455,7 @@ pub(crate) fn weekday(year: u32, month: u32, day: u32) -> u32 {
 }
 
 /// English month name for a 1-based month index.
-const fn month_name(month: u32) -> &'static str {
+pub(crate) const fn month_name(month: u32) -> &'static str {
     const NAMES: [&str; 12] = [
         "January",
         "February",
@@ -500,7 +500,7 @@ const fn weekday_name(weekday: u32) -> &'static str {
 /// What a screen reader announces for one day of the grid: the full date
 /// ("Tuesday, 23 June 2026"), because the grid is ONE Tab stop and the arrow
 /// keys move within it, so a bare "23" would not say where focus landed.
-fn day_accessibility_name(year: u32, month: u32, day: u32) -> AzString {
+pub(crate) fn day_accessibility_name(year: u32, month: u32, day: u32) -> AzString {
     AzString::from(format!(
         "{}, {} {} {}",
         weekday_name(weekday(year, month, day)),
@@ -1564,7 +1564,7 @@ fn build_weekday_row() -> Dom {
 }
 
 /// The weekday header, starting on `start`.
-fn build_weekday_row_from(start: DatePickerWeekStart, look: &DatePickerLook) -> Dom {
+pub(crate) fn build_weekday_row_from(start: DatePickerWeekStart, look: &DatePickerLook) -> Dom {
     let offset = match start {
         DatePickerWeekStart::Sunday => 0,
         DatePickerWeekStart::Monday => 1,
@@ -1625,8 +1625,6 @@ fn build_grid_with(
             day == sel_day
         }
     };
-    let total = leading + dim;
-    let rows = total.div_ceil(7);
     // WAI-ARIA APG date grid: the days are ONE Tab stop - the selected day,
     // or the 1st when the selected day is not in this month. The arrow keys
     // move focus within the grid (`on_day_key`).
@@ -1636,6 +1634,65 @@ fn build_grid_with(
         1
     };
 
+    day_grid(year, month, start, look, &mut |day| {
+        let tab_index = if day == stop_day {
+            TabIndex::Auto
+        } else {
+            TabIndex::NoKeyboardFocus
+        };
+        let is_today = marks.today == Some(day);
+        let in_range = marks.lit.is_some_and(|(from, to)| (from..=to).contains(&day));
+        // Today says so in its name: the ring is not a name.
+        let name = if is_today {
+            AzString::from(format!(
+                "{}, today",
+                day_accessibility_name(year, month, day).as_str()
+            ))
+        } else {
+            day_accessibility_name(year, month, day)
+        };
+        // A date is its own identity: rebuilt onto another month (an arrow
+        // past the edge, ‹ / ›), the focused day unmounts instead of handing
+        // its focus to whatever day now sits in its slot.
+        let mut cell = build_day_cell_in(
+            day,
+            is_selected(day),
+            DayMarks {
+                today: is_today.then_some(day),
+                lit: in_range.then_some((day, day)),
+            },
+            shared.clone(),
+            look,
+        )
+        .with_accessibility_name(name)
+        .with_tab_index(tab_index)
+        .with_key((DAY_CELL_KEY, year, month, day));
+        if day == stop_day {
+            // The day the calendar asks focus for: when its popup opens, and
+            // when a rebuild took the focused day away.
+            cell = cell.with_attribute(AttributeType::Autofocus);
+        }
+        cell
+    })
+}
+
+/// The frame of a month's day grid - ONE layout every calendar grid shares
+/// (the date picker's, the date range picker's): rows of seven starting on
+/// `start`, a blank cell for every weekday before the 1st and after the
+/// last, and `day_cell(day)` for each day of `year`-`month`. The rows and
+/// the grid wear `look`'s row and grid parts and the week-row / grid
+/// classes the handlers walk by.
+pub(crate) fn day_grid(
+    year: u32,
+    month: u32,
+    start: DatePickerWeekStart,
+    look: &DatePickerLook,
+    day_cell: &mut dyn FnMut(u32) -> Dom,
+) -> Dom {
+    let leading = start.leading_blanks(year, month);
+    let dim = days_in_month(year, month);
+    let rows = (leading + dim).div_ceil(7);
+
     let mut week_rows: Vec<Dom> = Vec::with_capacity(rows as usize);
     for r in 0..rows {
         let mut cells: Vec<Dom> = Vec::with_capacity(7);
@@ -1644,47 +1701,7 @@ fn build_grid_with(
             if i < leading || i >= leading + dim {
                 cells.push(build_blank_cell_in(look));
             } else {
-                let day = i - leading + 1;
-                let tab_index = if day == stop_day {
-                    TabIndex::Auto
-                } else {
-                    TabIndex::NoKeyboardFocus
-                };
-                let is_today = marks.today == Some(day);
-                let in_range = marks.lit.is_some_and(|(from, to)| (from..=to).contains(&day));
-                // Today says so in its name: the ring is not a name.
-                let name = if is_today {
-                    AzString::from(format!(
-                        "{}, today",
-                        day_accessibility_name(year, month, day).as_str()
-                    ))
-                } else {
-                    day_accessibility_name(year, month, day)
-                };
-                // A date is its own identity: rebuilt onto another month
-                // (an arrow past the edge, ‹ / ›), the focused day unmounts
-                // instead of handing its focus to whatever day now sits in
-                // its slot.
-                let mut cell =
-                    build_day_cell_in(
-                        day,
-                        is_selected(day),
-                        DayMarks {
-                            today: is_today.then_some(day),
-                            lit: in_range.then_some((day, day)),
-                        },
-                        shared.clone(),
-                        look,
-                    )
-                        .with_accessibility_name(name)
-                        .with_tab_index(tab_index)
-                        .with_key((DAY_CELL_KEY, year, month, day));
-                if day == stop_day {
-                    // The day the calendar asks focus for: when its popup
-                    // opens, and when a rebuild took the focused day away.
-                    cell = cell.with_attribute(AttributeType::Autofocus);
-                }
-                cells.push(cell);
+                cells.push(day_cell(i - leading + 1));
             }
         }
         week_rows.push(
@@ -1722,7 +1739,7 @@ struct MonthCellData {
 
 /// A header button (the previous / next arrow) that says what it does - its
 /// glyph is not a name.
-fn header_nav_button(
+pub(crate) fn header_nav_button(
     arrow: AzString,
     name: &'static str,
     cb: usize,
@@ -2076,14 +2093,14 @@ fn build_day_cell(day: u32, selected: bool, shared: RefAny) -> Dom {
 }
 
 /// `face` with the ring of today after it.
-fn ringed(face: &CssPropertyWithConditionsVec, faces: &CellFaces) -> CssPropertyWithConditionsVec {
+pub(crate) fn ringed(face: &CssPropertyWithConditionsVec, faces: &CellFaces) -> CssPropertyWithConditionsVec {
     let mut v = face.as_ref().to_vec();
     v.extend_from_slice(faces.today.as_ref());
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
 /// `face` with the wash of the lit range after it.
-fn washed(face: &CssPropertyWithConditionsVec, faces: &CellFaces) -> CssPropertyWithConditionsVec {
+pub(crate) fn washed(face: &CssPropertyWithConditionsVec, faces: &CellFaces) -> CssPropertyWithConditionsVec {
     let mut v = face.as_ref().to_vec();
     v.extend_from_slice(faces.in_range.as_ref());
     CssPropertyWithConditionsVec::from_vec(v)
@@ -2544,7 +2561,7 @@ fn move_to_date(mut data: RefAny, info: CallbackInfo, year: u32, month: u32, day
 /// The date `by` days away from `year`-`month`-`day` (negative: back),
 /// across month and year boundaries - where an arrow past the displayed
 /// month lands. The year floors at 1, like `month_nav`'s.
-fn shifted_date(year: u32, month: u32, day: u32, by: i32) -> (u32, u32, u32) {
+pub(crate) fn shifted_date(year: u32, month: u32, day: u32, by: i32) -> (u32, u32, u32) {
     let (mut year, mut month) = (year.max(1), month.clamp(1, 12));
     let mut d = i64::from(day) + i64::from(by);
     loop {
