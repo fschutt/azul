@@ -22,6 +22,7 @@ pub mod about;
 pub mod args;
 pub mod data;
 pub mod files;
+pub mod find;
 pub mod history;
 pub mod settings;
 pub mod shortcuts;

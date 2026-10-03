@@ -6,6 +6,8 @@
 
 use std::{cmp::Ordering, collections::HashSet};
 
+use azul_appkit::find::{self, TextMatch};
+
 use crate::engine::{CellAddr, CellArea, CellValue, EngineError, HAlign, SheetEngine, StylePatch};
 
 /// Count / Sum / Min / Max of a selection (the status bar's Average comes
@@ -275,65 +277,24 @@ pub fn find_match(engine: &dyn SheetEngine, from: CellAddr, needle: &str, opts: 
     None
 }
 
-/// Whether two characters are the same under `match_case`.
-fn same_char(a: char, b: char, match_case: bool) -> bool {
-    a == b || (!match_case && a.to_lowercase().eq(b.to_lowercase()))
-}
-
-/// A character that is part of a word (a whole-word match stops at others).
-fn is_word_char(c: char) -> bool {
-    c.is_alphanumeric() || c == '_'
-}
-
-/// The byte ranges of the matches of `needle` in `text`, left to right, not
-/// overlapping. Compared character by character, so a case change that
-/// alters a character's byte length cannot shift a range.
-fn matches_in(text: &str, needle: &str, opts: FindOptions) -> Vec<(usize, usize)> {
-    let chars: Vec<(usize, char)> = text.char_indices().collect();
-    let pattern: Vec<char> = needle.chars().collect();
-    let mut out = Vec::new();
-    if pattern.is_empty() || pattern.len() > chars.len() {
-        return out;
+/// How the shared matcher (azul-appkit's `find`) reads the options.
+const fn how(opts: FindOptions) -> TextMatch {
+    TextMatch {
+        match_case: opts.match_case,
+        whole_word: opts.whole_word,
     }
-    let mut i = 0;
-    while i + pattern.len() <= chars.len() {
-        let end = i + pattern.len();
-        let hit = (0..pattern.len()).all(|j| same_char(chars[i + j].1, pattern[j], opts.match_case));
-        let whole = !opts.whole_word
-            || ((i == 0 || !is_word_char(chars[i - 1].1))
-                && (end == chars.len() || !is_word_char(chars[end].1)));
-        if hit && whole {
-            out.push((chars[i].0, chars.get(end).map_or(text.len(), |c| c.0)));
-            i = end;
-        } else {
-            i += 1;
-        }
-    }
-    out
 }
 
 /// Whether `text` holds `needle` under `opts`.
 fn holds(text: &str, needle: &str, opts: FindOptions) -> bool {
-    !matches_in(text, needle, opts).is_empty()
+    find::holds(text, needle, how(opts))
 }
 
 /// `text` with every match of `needle` replaced by `replacement`; `None`
 /// when nothing matches.
 #[must_use]
 pub fn replace_text(text: &str, needle: &str, replacement: &str, opts: FindOptions) -> Option<String> {
-    let found = matches_in(text, needle, opts);
-    if found.is_empty() {
-        return None;
-    }
-    let mut out = String::with_capacity(text.len());
-    let mut last = 0;
-    for (a, b) in found {
-        out.push_str(&text[last..a]);
-        out.push_str(replacement);
-        last = b;
-    }
-    out.push_str(&text[last..]);
-    Some(out)
+    find::replace(text, needle, replacement, how(opts))
 }
 
 /// Replace All on `sheet`: every cell whose INPUT holds `needle` gets it
