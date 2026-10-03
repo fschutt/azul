@@ -14922,11 +14922,17 @@ impl LayoutWindow {
                 NodeId,
                 azul_css::props::basic::color::ColorU,
                 azul_css::props::basic::color::ColorU,
-                bool,
+                crate::solver3::display_list::PaintColorSlot,
             )> = Vec::new();
             // A `transform` tween stepped by publishing its matrix alone (the
             // GPU property path below): a repaint, like a patched colour.
             let mut gpu_values_moved = false;
+            // Overrides written through the lean channel that the cascade's
+            // derived tables (compact cache, inheritance) must still see:
+            // refreshed ONCE after the loop, however many tweens asked.
+            // `restyle_fonts`: one of them can move a resolved font size.
+            let mut needs_restyle = false;
+            let mut restyle_fonts = false;
             if let Some(result) = self.layout_results.get_mut(&DomId::ROOT_ID) {
                 for (tr, rect) in self.css_transitions.iter_mut().zip(rects) {
                     if tr.delay_s > 0.0 {
@@ -15010,28 +15016,54 @@ impl LayoutWindow {
                     // differ and stay untouched), so the override can take
                     // the LEAN channel that skips inheritance recompute.
                     let patchable = tr.scope == azul_css::props::property::RelayoutScope::None;
-                    let colors = transition_patch_color(&shown).and_then(|(to_c, is_text)| {
+                    let colors = transition_patch_color(&shown).and_then(|(to_c, slot)| {
                         let from_c = match tr.last_color {
                             Some(c) => c,
                             None => transition_patch_color(&tr.from)?.0,
                         };
-                        Some((from_c, to_c, is_text))
+                        Some((from_c, to_c, slot))
                     });
-                    if let (true, Some((from_c, to_c, is_text))) = (patchable, colors) {
+                    if let (true, Some((from_c, to_c, slot))) = (patchable, colors) {
                         result.styled_dom.set_user_property_override_fast(
                             &tr.node,
                             core::slice::from_ref(&over),
                         );
+                        // A border colour is ALSO served from the compact
+                        // cache - the display-list builder reads it there,
+                        // not through the override - so its entry follows the
+                        // patch: a list built for any other reason mid-fade
+                        // (a caret blink, a relayout) or after it paints the
+                        // colour on screen, not the last full restyle's.
+                        patch_compact_border_color(&mut result.styled_dom, tr.node, slot, to_c);
                         if from_c != to_c {
-                            patch_jobs.push((tr.node, from_c, to_c, is_text));
+                            patch_jobs.push((tr.node, from_c, to_c, slot));
                             tr.last_color = Some(to_c);
                         }
+                        // A text colour reaches the node's descendants through
+                        // the inheritance tables, which the lean channel does
+                        // not touch (the patch's from-match stands in for them
+                        // frame by frame). The LAST frame refreshes them, so a
+                        // list built after the fade paints the settled colour.
+                        if tr.t >= 1.0
+                            && slot == crate::solver3::display_list::PaintColorSlot::Text
+                        {
+                            needs_restyle = true;
+                            restyle_fonts = true;
+                        }
                     } else {
-                        drop(
-                            result
-                                .styled_dom
-                                .restyle_user_property(&tr.node, core::slice::from_ref(&over)),
+                        // THE RESTYLE PATH, batched: the override goes in
+                        // through the lean channel now and the cascade's
+                        // derived tables are refreshed once after the loop.
+                        // `restyle_user_property` per tween rebuilt the
+                        // compact cache of the whole DOM per tween per frame
+                        // (2.75 ms each in AzWidgets).
+                        result.styled_dom.set_user_property_override_fast(
+                            &tr.node,
+                            core::slice::from_ref(&over),
                         );
+                        needs_restyle = true;
+                        restyle_fonts |=
+                            tr.prop_type.can_trigger_relayout() || tr.prop_type.is_inheritable();
                         dirty.push((tr.node, tr.scope));
                         if tr.scope != azul_css::props::property::RelayoutScope::None {
                             needs_relayout = true;
@@ -15051,22 +15083,36 @@ impl LayoutWindow {
                             .collect()
                     };
                     let dl = Arc::make_mut(&mut result.display_list);
-                    for ((node, from_c, to_c, is_text), (_, end)) in
+                    for ((node, from_c, to_c, slot), (_, end)) in
                         patch_jobs.iter().zip(subtree_ends)
                     {
-                        let dmg = dl.patch_paint_colors(
-                            node.index()..end,
-                            *from_c,
-                            *to_c,
-                            *is_text,
-                            !*is_text,
-                        );
+                        let dmg = dl.patch_paint_colors(node.index()..end, *from_c, *to_c, *slot);
                         if dmg.is_none() {
                             // Nothing matched (the item paints somewhere this
                             // walk can't see): this node must take the rebuild
-                            // path or its colour freezes at `from`.
+                            // path or its colour freezes at `from` - and the
+                            // rebuild reads the cascade's derived tables, which
+                            // the lean channel left behind.
                             dirty.push((*node, azul_css::props::property::RelayoutScope::None));
+                            needs_restyle = true;
+                            restyle_fonts |=
+                                *slot == crate::solver3::display_list::PaintColorSlot::Text;
                         }
+                    }
+                }
+
+                // The one cascade refresh of this frame (see `needs_restyle`):
+                // what `restyle_user_property` did per tween - the compact
+                // cache and the inheritance tables rebuilt with every override
+                // applied, a new cascade epoch, resolved font sizes dropped
+                // when a tween could move one.
+                if needs_restyle {
+                    result.styled_dom.recompute_inheritance_and_compact_cache();
+                    if restyle_fonts {
+                        result
+                            .styled_dom
+                            .get_css_property_cache_mut()
+                            .invalidate_resolved_font_sizes();
                     }
                 }
             }
@@ -29197,22 +29243,73 @@ fn size_transition_start(
     }
 }
 
-/// A colour-carrying paint transition prop: `(colour, is_text)` —
-/// `TextColor` and single-solid `background` are the patchable set; anything
-/// else (gradients, images, borders) falls back to the DL rebuild.
+/// A colour-carrying paint transition prop: `(colour, the painted colour it
+/// is)` - `TextColor`, a single-solid `background` and the four
+/// `border-*-color`s are the patchable set; anything else (gradients, images,
+/// shadows) falls back to the DL rebuild.
 fn transition_patch_color(
     prop: &azul_css::props::property::CssProperty,
-) -> Option<(azul_css::props::basic::color::ColorU, bool)> {
+) -> Option<(
+    azul_css::props::basic::color::ColorU,
+    crate::solver3::display_list::PaintColorSlot,
+)> {
     use azul_css::props::property::CssProperty;
+
+    use crate::solver3::display_list::PaintColorSlot;
     match prop {
-        CssProperty::TextColor(v) => Some((v.get_property()?.inner, true)),
+        CssProperty::TextColor(v) => Some((v.get_property()?.inner, PaintColorSlot::Text)),
         CssProperty::BackgroundContent(v) => match v.get_property()?.as_ref() {
             [azul_css::props::style::background::StyleBackgroundContent::Color(c)] => {
-                Some((*c, false))
+                Some((*c, PaintColorSlot::Background))
             }
             _ => None,
         },
+        CssProperty::BorderTopColor(v) => {
+            Some((v.get_property()?.inner, PaintColorSlot::BorderTop))
+        }
+        CssProperty::BorderRightColor(v) => {
+            Some((v.get_property()?.inner, PaintColorSlot::BorderRight))
+        }
+        CssProperty::BorderBottomColor(v) => {
+            Some((v.get_property()?.inner, PaintColorSlot::BorderBottom))
+        }
+        CssProperty::BorderLeftColor(v) => {
+            Some((v.get_property()?.inner, PaintColorSlot::BorderLeft))
+        }
         _ => None,
+    }
+}
+
+/// Keep `node`'s compact-cache entry for a BORDER colour in step with a
+/// colour patched into the display list (`slot` names the side; the other
+/// slots are not served from the compact cache's colour words).
+///
+/// The display-list builder reads border colours from the compact cache
+/// (`getters::get_border_info`), not through the user override the lean
+/// channel writes; without this the next list built for any reason painted
+/// the side at the colour of the last full restyle.
+fn patch_compact_border_color(
+    styled_dom: &mut StyledDom,
+    node: NodeId,
+    slot: crate::solver3::display_list::PaintColorSlot,
+    color: azul_css::props::basic::color::ColorU,
+) {
+    use crate::solver3::display_list::PaintColorSlot;
+    let Some(cold) = styled_dom
+        .get_css_property_cache_mut()
+        .compact_cache
+        .as_mut()
+        .and_then(|cc| cc.tier2_cold.get_mut(node.index()))
+    else {
+        return;
+    };
+    let raw = azul_css::compact_cache::encode_color_u32(&color);
+    match slot {
+        PaintColorSlot::BorderTop => cold.border_top_color = raw,
+        PaintColorSlot::BorderRight => cold.border_right_color = raw,
+        PaintColorSlot::BorderBottom => cold.border_bottom_color = raw,
+        PaintColorSlot::BorderLeft => cold.border_left_color = raw,
+        PaintColorSlot::Text | PaintColorSlot::Background => {}
     }
 }
 
