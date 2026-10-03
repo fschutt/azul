@@ -275,6 +275,197 @@ impl A11yTreeMirror {
             children: merged,
         })
     }
+
+    /// [`Self::apply`] for a PATCH (`tree: None`), in place: the same rules,
+    /// at the cost of the patch and of what it removes - [`Self::apply`]
+    /// clones the whole tree, and a patch arrives every frame of a tween.
+    ///
+    /// Validates everything first; a refused patch leaves the mirror exactly
+    /// as it was. Returns the ids the patch cut loose: children an updated
+    /// node no longer lists and no updated node lists, with their subtrees -
+    /// what the consumer removes. A patch that both updates a node and cuts it
+    /// loose is malformed (accesskit: "neither the child nor any of its
+    /// descendants may be included") and refused as an orphan.
+    ///
+    /// # Errors
+    ///
+    /// The invariant the consumer would have panicked on.
+    pub fn apply_patch_in_place(
+        &mut self,
+        update: &TreeUpdate,
+    ) -> Result<BTreeSet<A11yNodeId>, A11yUpdateError> {
+        let Some(root) = self.root else {
+            return Err(A11yUpdateError::NoTreeYet);
+        };
+        let update_ids: BTreeSet<A11yNodeId> = update.nodes.iter().map(|(id, _)| *id).collect();
+
+        let mut listed = BTreeSet::new();
+        for (id, node) in &update.nodes {
+            for &child in node.children() {
+                if !listed.insert(child) {
+                    return Err(A11yUpdateError::DuplicateChild(child));
+                }
+                if !self.children.contains_key(&child) && !update_ids.contains(&child) {
+                    return Err(A11yUpdateError::UnknownChild { parent: *id, child });
+                }
+            }
+        }
+        for id in &update_ids {
+            if *id != root && !self.children.contains_key(id) && !listed.contains(id) {
+                return Err(A11yUpdateError::OrphanNode(*id));
+            }
+        }
+
+        // What the patch cuts loose.
+        let mut removed = BTreeSet::new();
+        let mut stack: Vec<A11yNodeId> = Vec::new();
+        for (id, _) in &update.nodes {
+            if let Some(old) = self.children.get(id) {
+                stack.extend(old.iter().copied().filter(|c| !listed.contains(c)));
+            }
+        }
+        while let Some(n) = stack.pop() {
+            if n == root || listed.contains(&n) {
+                continue;
+            }
+            if removed.insert(n) {
+                if let Some(cs) = self.children.get(&n) {
+                    stack.extend(cs.iter().copied());
+                }
+            }
+        }
+        if let Some(id) = update_ids.iter().find(|id| removed.contains(*id)) {
+            return Err(A11yUpdateError::OrphanNode(*id));
+        }
+
+        let focus = update.focus;
+        let focus_survives = focus == root
+            || ((self.children.contains_key(&focus) || update_ids.contains(&focus))
+                && !removed.contains(&focus));
+        if !focus_survives {
+            return Err(A11yUpdateError::FocusNotInTree(focus));
+        }
+
+        for (id, node) in &update.nodes {
+            self.children.insert(*id, node.children().to_vec());
+        }
+        for id in &removed {
+            self.children.remove(id);
+        }
+        Ok(removed)
+    }
+}
+
+/// One node of the accessibility tree as it was last published.
+#[cfg(feature = "a11y")]
+#[derive(Debug, Clone)]
+pub struct RetainedA11yNode {
+    /// Signature of every input the node's content was built from
+    /// ([`A11yManager::node_signature`]). Equal inputs reuse `content`
+    /// without building it; `0` means "unknown - build it again".
+    pub inputs: u64,
+    /// The pass ([`A11yRetainedTree::pass`]) that last found the node in the
+    /// tree; whatever a pass did not find has left it.
+    pub seen: u64,
+    /// The node without its child list - exactly what a full build makes of
+    /// it before it links the children.
+    pub content: Node,
+    /// Its children, set LAST, as the full build does (`None`: the build
+    /// sets none).
+    pub children: Option<Vec<A11yNodeId>>,
+}
+
+#[cfg(feature = "a11y")]
+impl RetainedA11yNode {
+    /// The node as the platform adapter holds it.
+    #[must_use]
+    pub fn node(&self) -> Node {
+        let mut node = self.content.clone();
+        if let Some(children) = &self.children {
+            node.set_children(children.clone());
+        }
+        node
+    }
+}
+
+/// The accessibility tree as it was last published - what every pass diffs
+/// against, so a pass sends only what changed (and nothing when nothing did),
+/// and what a full tree is rebuilt from without building a node.
+#[cfg(feature = "a11y")]
+#[derive(Debug, Clone, Default)]
+pub struct A11yRetainedTree {
+    pub nodes: HashMap<A11yNodeId, RetainedA11yNode>,
+    /// The ids in document order (the root first), as the last pass found
+    /// them.
+    pub order: Vec<A11yNodeId>,
+    /// The focus the last pass published.
+    pub focus: Option<A11yNodeId>,
+    /// Counts the passes ([`RetainedA11yNode::seen`]).
+    pub pass: u64,
+}
+
+#[cfg(feature = "a11y")]
+impl A11yRetainedTree {
+    /// The whole tree, as one full `TreeUpdate` (every node, in document
+    /// order) - for a platform adapter that needs a complete tree.
+    #[must_use]
+    pub fn full_update(&self, root_id: A11yNodeId) -> TreeUpdate {
+        TreeUpdate {
+            nodes: self
+                .order
+                .iter()
+                .filter_map(|id| self.nodes.get(id).map(|r| (*id, r.node())))
+                .collect(),
+            tree: Some(Tree::new(root_id)),
+            focus: self.focus.unwrap_or(root_id),
+            tree_id: accesskit::TreeId::ROOT,
+        }
+    }
+}
+
+/// One frame's inputs to the accessibility tree: everything a node's
+/// content, its place and the focus are built from.
+#[cfg(feature = "a11y")]
+#[derive(Debug, Clone, Copy)]
+pub struct A11yTreeInputs<'a> {
+    pub layout_results: &'a BTreeMap<DomId, DomLayoutResult>,
+    pub scroll_manager: &'a crate::managers::scroll_state::ScrollManager,
+    pub window_title: &'a AzString,
+    pub window_size: LogicalSize,
+    pub focused_node: Option<DomNodeId>,
+    pub hidpi_factor: f32,
+    pub dirty_text_overrides: &'a BTreeMap<(DomId, NodeId), String>,
+    pub cursor_info: Option<CursorA11yInfo>,
+}
+
+/// What one accessibility pass did ([`A11yManager::refresh`]) - the cost
+/// counters an animation frame is held to.
+#[cfg(feature = "a11y")]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct A11yPassStats {
+    /// Nodes in the tree, the root included.
+    pub nodes: usize,
+    /// Nodes whose content was built (new, or an input changed).
+    pub built: usize,
+    /// Nodes in the published update.
+    pub sent: usize,
+    /// Nodes that left the tree.
+    pub removed: usize,
+    /// The pass published an update at all.
+    pub published: bool,
+    /// The update was a full tree (the first one, or a resync).
+    pub full: bool,
+}
+
+/// What [`A11yManager::rebuild_retained`] found.
+#[cfg(feature = "a11y")]
+struct A11yRebuild {
+    /// Nodes that are new or differ from what was last published, in
+    /// document order.
+    changed: Vec<A11yNodeId>,
+    built: usize,
+    removed: usize,
+    focus_changed: bool,
 }
 
 /// Manager for accessibility tree state and updates.
