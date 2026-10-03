@@ -15,6 +15,7 @@
 //! `AZCODE_SAVED <path>`, `AZCODE_FOUND <n>`, `AZCODE_REPLACED <n>`.
 
 pub mod buffer;
+pub mod highlight;
 
 /// Starts the app (filled in by the UI half of this crate).
 pub fn start() {}
