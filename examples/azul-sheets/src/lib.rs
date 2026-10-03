@@ -157,6 +157,8 @@ pub enum Screen {
 pub const BACKSTAGE_ITEMS: [&str; 9] = [
     "Info", "New", "Open", "Save", "Save As", "Export", "Close", "Options", "About",
 ];
+/// "Options" in [`BACKSTAGE_ITEMS`].
+pub const OPTIONS_PANE: usize = 7;
 
 /// A side panel over the grid's right edge.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -3058,13 +3060,16 @@ extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update 
     }
 }
 
-/// The window is up: act on the command line.
+/// The window is up: act on the command line (and start appkit's `--shot`).
 extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_app(&mut data, &mut info, |info, app, s| {
+        if let Some(kit_ref) = s.kit.clone() {
+            kit::on_window_created(&kit_ref, info);
+        }
         let args = s.args.take().unwrap_or_default();
         if let Some(path) = args.open.clone() {
             spawn_job(info, app, Job::Import { path });
-        } else if args.sample {
+        } else if args.sample() {
             new_workbook(info, app, s, true);
         } else {
             send(info, app, s, Command::Fetch, Pending::Other, Post::None);
@@ -3074,6 +3079,7 @@ extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
             args::Screen::BackstageInfo => backstage_pane(info, app, s, 0),
             args::Screen::BackstageNew => backstage_pane(info, app, s, 1),
             args::Screen::BackstageOpen => backstage_pane(info, app, s, 2),
+            args::Screen::Options => backstage_pane(info, app, s, OPTIONS_PANE),
         }
         println!("AZSHEETS_READY {}", s.data_root.display());
     })
@@ -3081,51 +3087,36 @@ extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
 
 // ==== Entry ====
 
-fn user_data_dir() -> Option<PathBuf> {
-    FilePath::get_data_dir()
-        .into_option()
-        .map(|dir| PathBuf::from(dir.inner.as_str()))
-}
-
 /// The engine the app runs: IronCalc, built on the engine thread.
 fn make_engine() -> Box<dyn engine::SheetEngine> {
     Box::new(IronCalcEngine::new_empty())
 }
 
+/// The data root the kit resolved (`--data-dir`, `AZLIN_DATA`, the user's
+/// data folder).
+fn kit_data_root(kit_ref: &RefAny) -> PathBuf {
+    let mut k = kit_ref.clone();
+    k.downcast_ref::<kit::Kit>()
+        .map_or_else(|| PathBuf::from(azul_appkit::data::ROOT_DIR), |k| k.data_root.clone())
+}
+
+/// Starts AzSheets on azul-appkit: the kit reads the settings file (the
+/// app theme and the mode the user picked last time), the data root and
+/// the switches; the window is the kit's (`NoTitle`, `--size`, a minimum).
 pub fn start(args: Args) {
-    let data_root = storage::data_root(
-        std::env::var(storage::DATA_VAR).ok().as_deref(),
-        user_data_dir(),
-    );
-    let mut state = AppState::new(data_root);
+    let kit_ref = kit::create_kit(args::SPEC, ABOUT, &SHORTCUTS, &[], args.kit.clone());
+    let mut state = AppState::new(kit_data_root(&kit_ref));
+    state.kit = Some(kit_ref.clone());
     match worker::spawn_engine(make_engine) {
         Ok(tx) => state.engine = Some(tx),
         Err(e) => state.message = format!("The spreadsheet engine could not start: {e}"),
     }
-    let (width, height) = args.size.unwrap_or((1280.0, 800.0));
-    state.window = (width, height);
-    let mut config = AppConfig::create();
-    if let Some(theme) = args.theme {
-        config = config.with_theme(AzString::from(match theme {
-            args::Theme::Flat => "flat",
-            args::Theme::Flora => "flora",
-        }));
-    }
-    if let Some(mode) = args.mode {
-        config = config.with_mode(OptionDarkLightMode::Some(match mode {
-            args::Mode::Light => DarkLightMode::Light,
-            args::Mode::Dark => DarkLightMode::Dark,
-        }));
-    }
+    state.window = args.size().unwrap_or((1280.0, 800.0));
+    let config = kit::app_config(&kit_ref);
     eprintln!("[azsheets] data folder {}", state.data_root.display());
     state.args = Some(args);
-    let app = App::create(RefAny::new(state), config);
-    let mut window = WindowCreateOptions::create(layout);
-    window.window_state.size.dimensions = LogicalSize::create(width, height);
-    window.window_state.title = AzString::from("AzSheets");
-    window.window_state.flags.decorations = WindowDecorations::NoTitle;
-    window.create_callback = Some(Callback::create(startup)).into();
-    app.run(window);
+    let window = kit::window_options(&kit_ref, layout, (1280.0, 800.0), (720.0, 480.0), startup);
+    App::create(RefAny::new(state), config).run(window);
 }
 
 #[cfg(test)]
