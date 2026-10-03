@@ -372,6 +372,52 @@ impl Args {
     }
 }
 
+/// The names `--screen` takes (azul-appkit's switch): the wizard's steps by
+/// name, then the settings window and the About box. The first is the
+/// default.
+pub const SCREENS: [&str; 10] = [
+    "welcome",
+    "license",
+    "destination",
+    "components",
+    "options",
+    "ready",
+    "installing",
+    "finish",
+    "settings",
+    "about",
+];
+
+/// The window and the wizard step a `--screen` name opens on (an unknown
+/// name: the wizard's first step).
+#[must_use]
+pub fn open_on(screen: &str) -> (Screen, Step) {
+    let _ = screen;
+    todo!()
+}
+
+/// AzSetup's own switches, besides azul-appkit's: `--frame` and `--step`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SetupSwitches {
+    pub frame: Frame,
+    /// `--step N` (0 = welcome), the number form of `--screen <step>`.
+    pub step: Option<usize>,
+}
+
+/// Takes AzSetup's own switches out of `argv` (without the program name)
+/// and leaves the rest, in order, for azul-appkit's parser.
+///
+/// # Errors
+/// The reason, for a bad `--frame` or `--step` value.
+pub fn split_switches<I, S>(argv: I) -> Result<(SetupSwitches, Vec<String>), String>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+{
+    let _ = argv.into_iter().map(Into::into).count();
+    todo!()
+}
+
 // ---------------------------------------------------------------------------
 // stdout, for the scripts
 // ---------------------------------------------------------------------------
@@ -480,6 +526,44 @@ mod model_tests {
         );
         assert!(Args::parse(["--theme", "neon"]).is_err());
         assert!(Args::parse(["--bogus"]).is_err());
+    }
+
+    #[test]
+    fn the_apps_own_switches_are_taken_out_and_the_rest_left_to_the_kit() {
+        let (own, rest) = split_switches([
+            "--frame",
+            "side",
+            "--theme=flora",
+            "--step=3",
+            "--screen",
+            "settings",
+        ])
+        .expect("valid");
+        assert_eq!(
+            own,
+            SetupSwitches {
+                frame: Frame::Side,
+                step: Some(3)
+            }
+        );
+        assert_eq!(rest, vec!["--theme=flora", "--screen", "settings"]);
+        let (own, rest) = split_switches(Vec::<String>::new()).expect("empty");
+        assert_eq!(own, SetupSwitches::default());
+        assert!(rest.is_empty());
+        assert!(split_switches(["--frame", "boxy"]).is_err());
+        assert!(split_switches(["--step"]).is_err());
+        assert!(split_switches(["--step", "three"]).is_err());
+    }
+
+    #[test]
+    fn a_screen_names_a_step_of_the_wizard_the_settings_or_the_about_box() {
+        assert_eq!(SCREENS[0], "welcome", "the default screen is the first step");
+        for (i, step) in STEPS.iter().enumerate() {
+            assert_eq!(open_on(SCREENS[i]), (Screen::Setup, *step), "{}", SCREENS[i]);
+        }
+        assert_eq!(open_on("settings"), (Screen::Settings, Step::Welcome));
+        assert_eq!(open_on("about"), (Screen::About, Step::Welcome));
+        assert_eq!(open_on("nowhere"), (Screen::Setup, Step::Welcome));
     }
 
     #[test]
