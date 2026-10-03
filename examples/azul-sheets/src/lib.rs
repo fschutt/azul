@@ -33,6 +33,7 @@ pub mod args;
 pub mod engine;
 pub mod fake_engine;
 pub mod functions;
+pub mod ids;
 pub mod ironcalc_engine;
 pub mod model;
 pub mod ops;
@@ -92,12 +93,6 @@ use crate::{
     worker::{Command, EngineMsg, Reply, Snapshot, ValueKind, ViewRequest},
 };
 
-/// The grid node's id (scripts focus it by it).
-pub const GRID_ID: &str = "cell-grid";
-/// The formula bar's field.
-pub const FORMULA_ID: &str = "formula-bar";
-/// The name box.
-pub const NAME_BOX_ID: &str = "name-box";
 /// The px the chrome around the grid takes (title row, ribbon, formula bar,
 /// sheet tabs, status bar) - the rest of the window is the grid's viewport.
 const CHROME_HEIGHT: f32 = 236.0;
@@ -1106,7 +1101,7 @@ fn grid(s: &AppState, app: &RefAny) -> Dom {
         u32::try_from(LAST_ROW).unwrap_or(1_048_576),
         u32::try_from(LAST_COLUMN).unwrap_or(16_384),
     )
-    .with_id(AzString::from(GRID_ID))
+    .with_id(ids::GRID)
     .with_accessibility_name(AzString::from(name))
     .with_view(s.view.clone())
     .with_viewport(s.window.0, (s.window.1 - CHROME_HEIGHT).max(120.0))
@@ -1561,7 +1556,7 @@ fn formula_bar(s: &AppState, app: &RefAny) -> Dom {
             field(app, Field::NameBox, &name, "Name box")
                 .with_accessibility_name(AzString::from("Name box"))
                 .dom()
-                .with_id(AzString::from(NAME_BOX_ID)),
+                .with_id(ids::NAME_BOX),
         );
     let fx = Button::create(AzString::from("fx"))
         .with_on_click(
@@ -1576,10 +1571,10 @@ fn formula_bar(s: &AppState, app: &RefAny) -> Dom {
     let input = field(app, Field::Formula, &formula, "")
         .with_accessibility_name(AzString::from("Formula bar"))
         .dom()
-        .with_id(AzString::from(FORMULA_ID))
+        .with_id(ids::FORMULA)
         .with_css("flex-grow: 1; min-width: 0px;");
     let bar = Dom::create_div()
-        .with_id(AzString::from("formula-row"))
+        .with_id(ids::FORMULA_ROW)
         .with_css(
             "display: flex; flex-direction: row; align-items: center; flex-grow: 0; padding: 4px \
              8px; border-bottom: 1px solid rgba(128, 128, 128, 0.35);",
@@ -1597,7 +1592,7 @@ fn formula_bar(s: &AppState, app: &RefAny) -> Dom {
             let found = functions::by_prefix(&prefix, SUGGESTIONS);
             if !found.is_empty() {
                 let mut row = Dom::create_div()
-                    .with_id(AzString::from("formula-suggestions"))
+                    .with_id(ids::SUGGESTIONS)
                     .with_css(
                         "display: flex; flex-direction: row; align-items: center; flex-grow: 0; \
                          padding: 2px 8px; font-size: 12px;",
@@ -1631,7 +1626,7 @@ struct TabRef {
 }
 
 fn sheet_tabs(s: &AppState, app: &RefAny) -> Dom {
-    let mut row = Dom::create_div().with_id(AzString::from("sheet-tabs")).with_css(
+    let mut row = Dom::create_div().with_id(ids::SHEET_TABS).with_css(
         "display: flex; flex-direction: row; align-items: center; flex-grow: 0; padding: 2px 8px; \
          border-top: 1px solid rgba(128, 128, 128, 0.35);",
     );
@@ -1666,7 +1661,7 @@ fn sheet_tabs(s: &AppState, app: &RefAny) -> Dom {
                     field(app, Field::Rename, text, "Sheet name")
                         .with_accessibility_name(AzString::from("Sheet name"))
                         .dom()
-                        .with_id(AzString::from("sheet-rename"))
+                        .with_id(ids::SHEET_RENAME)
                         .with_css("width: 140px; flex-grow: 0; margin-right: 4px;"),
                 );
                 continue;
@@ -1759,7 +1754,7 @@ struct NameRef {
 fn panel(s: &AppState, app: &RefAny) -> Option<Dom> {
     let frame = |title: &str| {
         Dom::create_div()
-            .with_id(AzString::from("side-panel"))
+            .with_id(ids::SIDE_PANEL)
             .with_css(
                 "display: flex; flex-direction: column; flex-grow: 0; width: 280px; padding: 8px; \
                  border-left: 1px solid rgba(128, 128, 128, 0.35); overflow-y: auto;",
@@ -1822,7 +1817,7 @@ fn panel(s: &AppState, app: &RefAny) -> Option<Dom> {
                 field(app, Field::Find, &s.find, "Find what")
                     .with_accessibility_name(AzString::from("Find what"))
                     .dom()
-                    .with_id(AzString::from("find-field")),
+                    .with_id(ids::FIND),
             );
             p.add_child(line("Enter finds the next cell."));
             Some(p.with_child(close()))
@@ -1872,7 +1867,7 @@ fn backstage(s: &AppState, app: &RefAny) -> Dom {
             .with_css("flex-grow: 0; margin: 4px 0px; width: 220px;")
     };
     let mut pane = Dom::create_div()
-        .with_id(AzString::from("backstage-pane"))
+        .with_id(ids::BACKSTAGE_PANE)
         .with_css("display: flex; flex-direction: column; flex-grow: 1; padding: 24px 40px;")
         .with_child(
             Dom::create_p_with_text(AzString::from(BACKSTAGE_ITEMS[s.backstage_pane.min(BACKSTAGE_ITEMS.len() - 1)]))
@@ -1891,14 +1886,14 @@ fn backstage(s: &AppState, app: &RefAny) -> Dom {
                 Button::create(AzString::from("Blank workbook"))
                     .with_on_click(app.clone(), on_new_blank as ButtonOnClickCallbackType)
                     .dom()
-                    .with_id(AzString::from("new-blank"))
+                    .with_id(ids::NEW_BLANK)
                     .with_css("flex-grow: 0; margin: 4px 0px; width: 220px;"),
             );
             pane.add_child(
                 Button::create(AzString::from("Budget 2027 (sample)"))
                     .with_on_click(app.clone(), on_new_sample as ButtonOnClickCallbackType)
                     .dom()
-                    .with_id(AzString::from("new-sample"))
+                    .with_id(ids::NEW_SAMPLE)
                     .with_css("flex-grow: 0; margin: 4px 0px; width: 220px;"),
             );
         }
@@ -1924,7 +1919,7 @@ fn backstage(s: &AppState, app: &RefAny) -> Dom {
                             on_open_entry as ButtonOnClickCallbackType,
                         )
                         .dom()
-                        .with_id(AzString::from(format!("open-{i}"))),
+                        .with_id(ids::open_row(i)),
                 );
             }
         }
@@ -2023,7 +2018,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             middle.add_child(p);
         }
         let document = Dom::create_div()
-            .with_id(AzString::from("workbook"))
+            .with_id(ids::WORKBOOK)
             .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
             .with_child(formula_bar(s, &app))
             .with_child(middle)
