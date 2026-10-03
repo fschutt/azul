@@ -2071,3 +2071,670 @@ pub(crate) fn filter_rect(geo: &Geometry, column: u32) -> Option<(f32, f32, f32,
     let c = geo.columns.iter().find(|b| b.index == column)?;
     Some((c.start, geo.header_height, c.size, geo.filter_height))
 }
+
+// ---- the build: the rows in view, the header, the filter row, the overlays ----
+
+use azul_css::{
+    css::CssPropertyValue,
+    props::{
+        basic::{length::FloatValue, StyleFontSize},
+        layout::{
+            LayoutAlignItems, LayoutBoxSizing, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
+            LayoutFlexShrink, LayoutJustifyContent, LayoutMinHeight, LayoutMinWidth, LayoutOverflow,
+            LayoutPaddingLeft, LayoutPaddingRight, LayoutPosition,
+        },
+        property::CssProperty,
+        style::{StyleCursor, StyleUserSelect, StyleWhiteSpace},
+    },
+};
+
+/// The table's class; the table node also carries the app's `id`.
+pub(crate) const TABLE_CLASS_NAME: &str = "__azul-native-data-table";
+/// A row (the header row and the filter row too).
+pub(crate) const ROW_CLASS_NAME: &str = "__azul-native-data-table-row";
+/// A column's header.
+pub(crate) const HEADER_CLASS_NAME: &str = "__azul-native-data-table-header";
+/// A column's filter.
+pub(crate) const FILTER_CLASS_NAME: &str = "__azul-native-data-table-filter";
+/// A cell.
+pub(crate) const CELL_CLASS_NAME: &str = "__azul-native-data-table-cell";
+/// The line after the frozen columns.
+pub(crate) const FREEZE_CLASS_NAME: &str = "__azul-native-data-table-freeze";
+/// The outline of the cursor's cell.
+pub(crate) const CURSOR_CLASS_NAME: &str = "__azul-native-data-table-cursor";
+/// The in-cell (or in-filter) editor.
+pub(crate) const EDITOR_CLASS_NAME: &str = "__azul-native-data-table-editor";
+/// The editor's caret.
+pub(crate) const CARET_CLASS_NAME: &str = "__azul-native-data-table-caret";
+/// A scroll bar's track.
+pub(crate) const TRACK_CLASS_NAME: &str = "__azul-native-data-table-track";
+/// A scroll bar's thumb.
+pub(crate) const THUMB_CLASS_NAME: &str = "__azul-native-data-table-thumb";
+/// "Sorting ..." / "No rows ..." over the rows.
+pub(crate) const NOTICE_CLASS_NAME: &str = "__azul-native-data-table-notice";
+
+static TABLE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(TABLE_CLASS_NAME))];
+static ROW_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(ROW_CLASS_NAME))];
+static HEADER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(HEADER_CLASS_NAME))];
+static FILTER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(FILTER_CLASS_NAME))];
+static CELL_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(CELL_CLASS_NAME))];
+static FREEZE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(FREEZE_CLASS_NAME))];
+static CURSOR_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(CURSOR_CLASS_NAME))];
+static EDITOR_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(EDITOR_CLASS_NAME))];
+static CARET_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(CARET_CLASS_NAME))];
+static TRACK_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(TRACK_CLASS_NAME))];
+static THUMB_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(THUMB_CLASS_NAME))];
+static NOTICE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(NOTICE_CLASS_NAME))];
+
+/// What a theme decides about a table: the SKIN of each part, laid over
+/// the part's base (the structure, the same in every theme) by [`build`].
+pub(crate) struct DataTableLook {
+    /// The table: the face, the ink, the paper.
+    pub table: Vec<CssPropertyWithConditions>,
+    /// A column header: the strip, the strong ink, the hairlines.
+    pub header: Vec<CssPropertyWithConditions>,
+    /// Added to the header of a column the rows are sorted by.
+    pub header_sorted: Vec<CssPropertyWithConditions>,
+    /// A filter: a field's face, the hairlines.
+    pub filter: Vec<CssPropertyWithConditions>,
+    /// Added to an empty filter (its "Filter" placeholder's ink).
+    pub filter_empty: Vec<CssPropertyWithConditions>,
+    /// A cell's right hairline.
+    pub cell: Vec<CssPropertyWithConditions>,
+    /// A row's bottom hairline.
+    pub row: Vec<CssPropertyWithConditions>,
+    /// Added to every other row (the zebra band).
+    pub row_alternate: Vec<CssPropertyWithConditions>,
+    /// Added to a selected row.
+    pub row_selected: Vec<CssPropertyWithConditions>,
+    /// The outline of the cursor's cell.
+    pub cursor: Vec<CssPropertyWithConditions>,
+    /// The editor.
+    pub editor: Vec<CssPropertyWithConditions>,
+    /// The editor's caret.
+    pub caret: Vec<CssPropertyWithConditions>,
+    /// The line after the frozen columns.
+    pub freeze_line: Vec<CssPropertyWithConditions>,
+    /// A scroll bar's track.
+    pub track: Vec<CssPropertyWithConditions>,
+    /// A scroll bar's thumb.
+    pub thumb: Vec<CssPropertyWithConditions>,
+    /// "Sorting ..." / "No rows ...".
+    pub notice: Vec<CssPropertyWithConditions>,
+    /// The theme's marker class on the table, if it has one.
+    pub marker: Option<&'static str>,
+}
+
+/// The table: a column of rows that takes its pane, clips what does not
+/// fit, is the containing block of the overlays, and is ONE focus stop
+/// whose text a drag never selects.
+pub(crate) static DATA_TABLE_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+    simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    simple(CssProperty::const_min_height(LayoutMinHeight::const_px(0))),
+    simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
+    simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+    simple(CssProperty::const_position(LayoutPosition::Relative)),
+    simple(CssProperty::const_cursor(StyleCursor::Default)),
+    simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// A row: the cells side by side, never shrinking, its hairline inside its
+/// height.
+pub(crate) static DATA_TABLE_ROW_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+    simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+];
+
+/// A cell (a header, a filter): its width, its content centred on the
+/// row's line and set by its alignment, clipped.
+pub(crate) static DATA_TABLE_CELL_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+    simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+    simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(6))),
+    simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(6))),
+];
+
+/// A header: a cell that is clicked.
+pub(crate) static DATA_TABLE_HEADER_BASE: &[CssPropertyWithConditions] =
+    &[simple(CssProperty::const_cursor(StyleCursor::Pointer))];
+
+/// A filter: a cell that is typed into.
+pub(crate) static DATA_TABLE_FILTER_BASE: &[CssPropertyWithConditions] =
+    &[simple(CssProperty::const_cursor(StyleCursor::Text))];
+
+/// The freeze line between the frozen and the scrolled columns.
+pub(crate) static DATA_TABLE_FREEZE_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+];
+
+/// An overlay (the cursor, a track, a notice): placed by px.
+pub(crate) static DATA_TABLE_OVERLAY_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_position(LayoutPosition::Absolute)),
+    simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+];
+
+/// The editor: the text and the caret on one line.
+pub(crate) static DATA_TABLE_EDITOR_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_position(LayoutPosition::Absolute)),
+    simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    simple(CssProperty::const_cursor(StyleCursor::Text)),
+];
+
+/// A cell's text: one line.
+pub(crate) static DATA_TABLE_TEXT_BASE: &[CssPropertyWithConditions] = &[simple(
+    CssProperty::WhiteSpace(CssPropertyValue::Exact(StyleWhiteSpace::Pre)),
+)];
+
+/// One row in view: the app's row (none past the end of a stale order)
+/// and the cells of the columns in view.
+#[derive(Debug, Clone)]
+pub(crate) struct ResolvedRow {
+    pub row: Option<u32>,
+    pub cells: Vec<DataTableCell>,
+}
+
+/// The table with its window laid out and the cells in view asked for
+/// ONCE (both looks are built from it when the table follows the app
+/// theme).
+#[derive(Debug, Clone)]
+pub(crate) struct DataTableResolved {
+    /// The table, its view's `top` / `left_column` kept in range.
+    pub table: DataTable,
+    /// Where the rows and columns in view sit.
+    pub geo: Geometry,
+    /// `rows[i]` for `geo.rows[i]`.
+    pub rows: Vec<ResolvedRow>,
+}
+
+/// Lays the table out and asks the data callback for the cells in view.
+pub(crate) fn resolve(mut table: DataTable) -> DataTableResolved {
+    let geo = geometry(&table);
+    table.view.top = geo.top;
+    table.view.left_column = geo.left;
+    let rows = geo
+        .rows
+        .iter()
+        .map(|b| {
+            let row = table.view.row_at(b.index, table.row_count).into_option();
+            let cells = geo
+                .columns
+                .iter()
+                .map(|c| match row {
+                    Some(r) => cell_content(&table.data_source, DataTableCellRef::create(r, c.index)),
+                    None => DataTableCell::empty(),
+                })
+                .collect();
+            ResolvedRow { row, cells }
+        })
+        .collect();
+    DataTableResolved { table, geo, rows }
+}
+
+impl DataTable {
+    /// The table's DOM. The data callback is asked ONCE for the cells in
+    /// view; the look comes from the theme module
+    /// (`themes::flat::data_table` / `themes::flora::data_table`), `None`
+    /// carrying both looks.
+    #[must_use]
+    pub fn dom(self) -> Dom {
+        use crate::widgets::themes::UiTheme;
+        let theme = self.theme.into_option();
+        let resolved = resolve(self);
+        match theme {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::data_table(resolved),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::data_table(resolved),
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                resolved,
+                crate::widgets::themes::flat::data_table,
+                crate::widgets::themes::flora::data_table,
+            ),
+        }
+    }
+}
+
+impl From<DataTable> for Dom {
+    fn from(t: DataTable) -> Self {
+        t.dom()
+    }
+}
+
+/// How a cell of `column` lines up its content.
+fn justify(column: Option<&DataTableColumn>) -> LayoutJustifyContent {
+    let Some(c) = column else {
+        return LayoutJustifyContent::Start;
+    };
+    match c.align {
+        CellGridHorizontalAlign::Left => LayoutJustifyContent::Start,
+        CellGridHorizontalAlign::Center => LayoutJustifyContent::Center,
+        CellGridHorizontalAlign::Right => LayoutJustifyContent::End,
+        CellGridHorizontalAlign::General => match c.sort_kind {
+            DataTableSortKind::Text => LayoutJustifyContent::Start,
+            DataTableSortKind::Number | DataTableSortKind::Date => LayoutJustifyContent::End,
+        },
+    }
+}
+
+/// `left` / `top` / `width` / `height` of an overlay.
+fn place(x: f32, y: f32, w: f32, h: f32) -> [CssPropertyWithConditions; 4] {
+    [px_left(x), px_top(y), px_width(w.max(0.0)), px_height(h.max(0.0))]
+}
+
+/// A line of text the table wrote (one line, never selected).
+fn text_line(text: AzString) -> Dom {
+    crate::widgets::widget_p_with_text(text)
+        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(DATA_TABLE_TEXT_BASE))
+}
+
+/// "12,345" - a count with thousands separators.
+pub(crate) fn grouped(n: u32) -> String {
+    let digits = alloc::format!("{n}");
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, ch) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// The header's label: the title, and for a sorted column its arrow (and
+/// its place among several keys).
+fn header_label(title: &str, sort: Option<(usize, DataTableSortDirection)>, keys: usize) -> String {
+    match sort {
+        None => String::from(title),
+        Some((i, direction)) => {
+            let arrow = match direction {
+                DataTableSortDirection::Ascending => '\u{25B2}',
+                DataTableSortDirection::Descending => '\u{25BC}',
+            };
+            if keys > 1 {
+                alloc::format!("{title} {arrow}{}", i + 1)
+            } else {
+                alloc::format!("{title} {arrow}")
+            }
+        }
+    }
+}
+
+/// What a screen reader hears the table say where the cursor is.
+fn cursor_value(t: &DataTable, shown: u32) -> String {
+    let column = t
+        .columns
+        .get(t.view.active_column as usize)
+        .map_or("", |c| c.title.as_str());
+    let position = t
+        .view
+        .cursor_row()
+        .into_option()
+        .and_then(|r| t.view.position_of(r, t.row_count).into_option());
+    match position {
+        Some(p) => alloc::format!("Row {} of {}, {column}", grouped(p + 1), grouped(shown)),
+        None => alloc::format!("{} rows", grouped(shown)),
+    }
+}
+
+/// The table's DOM in `look`: table [header row, filter row?, rows ..,
+/// cursor?, editor?, notice?, scroll bars?].
+#[allow(clippy::too_many_lines, clippy::cast_possible_truncation)]
+pub(crate) fn build(resolved: DataTableResolved, look: &DataTableLook) -> Dom {
+    use azul_core::a11y::{AccessibilityInfo, AccessibilityRole, AccessibilityState, AccessibilityStateVec};
+
+    let part = |base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]| {
+        super::themes::decl::on_base(base, skin)
+    };
+    let DataTableResolved { table, geo, rows } = resolved;
+    let view = &table.view;
+    let columns = table.columns.as_slice();
+    let keys = view.sort.len();
+    let any_frozen = geo.frozen_columns > 0;
+    let cursor = view.cursor_row().into_option();
+
+    let freeze = |height: f32| -> Dom {
+        let mut p = part(DATA_TABLE_FREEZE_BASE, &look.freeze_line);
+        p.push(px_width(FREEZE_LINE_PX));
+        p.push(px_height(height));
+        Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(FREEZE_CLASS))
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(p))
+    };
+    let row_node = |height: f32, skin: Vec<CssPropertyWithConditions>, a11y: AccessibilityInfo, cells: Vec<Dom>| {
+        let mut p = part(DATA_TABLE_ROW_BASE, &skin);
+        p.push(px_height(height));
+        Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(ROW_CLASS))
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(p))
+            .with_accessibility_info(a11y)
+            .with_children(DomVec::from_vec(cells))
+    };
+
+    let mut children: Vec<Dom> = Vec::with_capacity(geo.rows.len() + 8);
+
+    // The header row: the titles, the sort state.
+    let mut header_cells: Vec<Dom> = Vec::with_capacity(geo.columns.len() + 1);
+    for (i, c) in geo.columns.iter().enumerate() {
+        if i == geo.frozen_columns && any_frozen {
+            header_cells.push(freeze(geo.header_height));
+        }
+        let column = columns.get(c.index as usize);
+        let title = column.map_or("", |x| x.title.as_str());
+        let sort = view.sort_of(c.index);
+        let mut p = part(DATA_TABLE_CELL_BASE, DATA_TABLE_HEADER_BASE);
+        p.extend(look.header.iter().cloned());
+        if sort.is_some() {
+            p.extend(look.header_sorted.iter().cloned());
+        }
+        p.push(px_width(c.size));
+        p.push(simple(CssProperty::const_justify_content(justify(column))));
+        let states = match sort {
+            Some((_, DataTableSortDirection::Ascending)) => alloc::vec![AccessibilityState::SortedAscending],
+            Some((_, DataTableSortDirection::Descending)) => alloc::vec![AccessibilityState::SortedDescending],
+            None => Vec::new(),
+        };
+        header_cells.push(
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(HEADER_CLASS))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(p))
+                .with_accessibility_info(AccessibilityInfo {
+                    column_index: azul_css::corety::OptionUsize::Some(c.index as usize + 1),
+                    states: AccessibilityStateVec::from_vec(states),
+                    ..AccessibilityInfo::named(AzString::from(title), AccessibilityRole::ColumnHeader)
+                })
+                .with_child(text_line(AzString::from(header_label(title, sort, keys)))),
+        );
+    }
+    if geo.frozen_columns == geo.columns.len() && any_frozen {
+        header_cells.push(freeze(geo.header_height));
+    }
+    children.push(row_node(
+        geo.header_height,
+        Vec::new(),
+        AccessibilityInfo {
+            role: AccessibilityRole::Row,
+            ..Default::default()
+        },
+        header_cells,
+    ));
+
+    // The filter row: what each column is filtered by, or a placeholder.
+    if table.show_filter_row {
+        let mut filter_cells: Vec<Dom> = Vec::with_capacity(geo.columns.len() + 1);
+        for (i, c) in geo.columns.iter().enumerate() {
+            if i == geo.frozen_columns && any_frozen {
+                filter_cells.push(freeze(geo.filter_height));
+            }
+            let column = columns.get(c.index as usize);
+            let title = column.map_or("", |x| x.title.as_str());
+            let filterable = column.is_some_and(|x| x.filterable);
+            let editing_here = view.edit == DataTableEditTarget::Filter && view.edit_column == c.index;
+            let text = view.filter_text(c.index);
+            let empty = text.as_str().is_empty();
+            let mut p = part(DATA_TABLE_CELL_BASE, DATA_TABLE_FILTER_BASE);
+            p.extend(look.filter.iter().cloned());
+            if empty {
+                p.extend(look.filter_empty.iter().cloned());
+            }
+            p.push(px_width(c.size));
+            let shown_text = if editing_here || !filterable {
+                AzString::from_const_str("")
+            } else if empty {
+                AzString::from_const_str("Filter")
+            } else {
+                text.clone()
+            };
+            let value = if empty { None } else { Some(text) };
+            let mut node = Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(FILTER_CLASS))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(p))
+                .with_accessibility_info(AccessibilityInfo {
+                    column_index: azul_css::corety::OptionUsize::Some(c.index as usize + 1),
+                    accessibility_value: value.into(),
+                    ..AccessibilityInfo::named(
+                        AzString::from(alloc::format!("Filter {title}")),
+                        AccessibilityRole::Text,
+                    )
+                });
+            if !shown_text.as_str().is_empty() {
+                node = node.with_child(text_line(shown_text));
+            }
+            filter_cells.push(node);
+        }
+        if geo.frozen_columns == geo.columns.len() && any_frozen {
+            filter_cells.push(freeze(geo.filter_height));
+        }
+        children.push(row_node(
+            geo.filter_height,
+            Vec::new(),
+            AccessibilityInfo {
+                role: AccessibilityRole::Row,
+                ..Default::default()
+            },
+            filter_cells,
+        ));
+    }
+
+    // The rows in view.
+    let mut cursor_rect = None;
+    for (band, resolved_row) in geo.rows.iter().zip(rows) {
+        let ResolvedRow { row, cells } = resolved_row;
+        let selected = row.is_some_and(|r| view.selection.contains(u64::from(r)));
+        let mut skin = look.row.clone();
+        if band.index % 2 == 1 {
+            skin.extend(look.row_alternate.iter().cloned());
+        }
+        if selected {
+            skin.extend(look.row_selected.iter().cloned());
+        }
+        let mut row_cells: Vec<Dom> = Vec::with_capacity(geo.columns.len() + 1);
+        for (i, (c, cell)) in geo.columns.iter().zip(cells).enumerate() {
+            if i == geo.frozen_columns && any_frozen {
+                row_cells.push(freeze(band.size));
+            }
+            let column = columns.get(c.index as usize);
+            let title = column.map_or("", |x| x.title.as_str());
+            let editing_here = view.edit == DataTableEditTarget::Cell
+                && row == Some(view.edit_row)
+                && view.edit_column == c.index;
+            if row.is_some() && row == cursor && c.index == view.active_column {
+                cursor_rect = Some((c.start, band.start, c.size, band.size));
+            }
+            let mut p = part(DATA_TABLE_CELL_BASE, &look.cell);
+            p.push(px_width(c.size));
+            p.push(simple(CssProperty::const_justify_content(justify(column))));
+            let text = if editing_here {
+                AzString::from_const_str("")
+            } else {
+                cell.text
+            };
+            let value = if text.as_str().is_empty() {
+                None
+            } else {
+                Some(text.clone())
+            };
+            let mut node = Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(CELL_CLASS))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(p))
+                .with_accessibility_info(AccessibilityInfo {
+                    row_index: azul_css::corety::OptionUsize::Some(band.index as usize + 1),
+                    column_index: azul_css::corety::OptionUsize::Some(c.index as usize + 1),
+                    accessibility_value: value.into(),
+                    ..AccessibilityInfo::named(AzString::from(title), AccessibilityRole::GridCell)
+                });
+            if !text.as_str().is_empty() {
+                node = node.with_child(text_line(text));
+            }
+            row_cells.push(node);
+        }
+        if geo.frozen_columns == geo.columns.len() && any_frozen {
+            row_cells.push(freeze(band.size));
+        }
+        let states = if selected {
+            alloc::vec![AccessibilityState::Selected]
+        } else {
+            Vec::new()
+        };
+        children.push(row_node(
+            band.size,
+            skin,
+            AccessibilityInfo {
+                role: AccessibilityRole::Row,
+                row_index: azul_css::corety::OptionUsize::Some(band.index as usize + 1),
+                states: AccessibilityStateVec::from_vec(states),
+                ..Default::default()
+            },
+            row_cells,
+        ));
+    }
+
+    // The overlays: the cursor's outline, the editor, the notice, the bars.
+    if let (Some((x, y, w, h)), false) = (cursor_rect, view.is_editing()) {
+        let mut p = part(DATA_TABLE_OVERLAY_BASE, &look.cursor);
+        p.extend(place(x, y, w, h));
+        children.push(
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(CURSOR_CLASS))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(p)),
+        );
+    }
+    let editor_rect = match view.edit {
+        DataTableEditTarget::None => None,
+        DataTableEditTarget::Filter => filter_rect(&geo, view.edit_column),
+        DataTableEditTarget::Cell => view
+            .position_of(view.edit_row, table.row_count)
+            .into_option()
+            .and_then(|pos| cell_rect(&geo, pos, view.edit_column)),
+    };
+    if let Some((x, y, w, h)) = editor_rect {
+        let chars: Vec<char> = view.edit_text.as_str().chars().collect();
+        let caret = (view.edit_cursor as usize).min(chars.len());
+        let before: String = chars[..caret].iter().collect();
+        let after: String = chars[caret..].iter().collect();
+        let mut p = part(DATA_TABLE_EDITOR_BASE, &look.editor);
+        p.extend(place(x, y, w, h));
+        let mut caret_props = look.caret.clone();
+        caret_props.push(px_width(1.0));
+        caret_props.push(px_height((table.font_size + 2.0).max(8.0)));
+        children.push(
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(EDITOR_CLASS))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(p))
+                .with_children(DomVec::from_vec(alloc::vec![
+                    text_line(AzString::from(before)),
+                    Dom::create_div()
+                        .with_ids_and_classes(IdOrClassVec::from_const_slice(CARET_CLASS))
+                        .with_css_props(CssPropertyWithConditionsVec::from_vec(caret_props)),
+                    text_line(AzString::from(after)),
+                ])),
+        );
+    }
+    let notice = if view.is_sorting() {
+        Some(alloc::format!(
+            "Sorting {} rows...",
+            grouped(table.row_count)
+        ))
+    } else if geo.shown == 0 {
+        Some(String::from(if view.filters.is_empty() {
+            "No rows"
+        } else {
+            "No rows match the filters"
+        }))
+    } else {
+        None
+    };
+    if let Some(text) = notice {
+        let mut p = part(DATA_TABLE_OVERLAY_BASE, &look.notice);
+        p.push(px_left(8.0));
+        p.push(px_top(geo.body_top + 6.0));
+        children.push(
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(NOTICE_CLASS))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(p))
+                .with_accessibility_info(AccessibilityInfo {
+                    is_live_region: true,
+                    ..AccessibilityInfo::named(AzString::from(text.clone()), AccessibilityRole::StaticText)
+                })
+                .with_child(text_line(AzString::from(text))),
+        );
+    }
+    let bar = |b: &ScrollBar, vertical: bool, name: &'static str| -> Dom {
+        let (x, y, w, h) = b.track;
+        let mut track = part(DATA_TABLE_OVERLAY_BASE, &look.track);
+        track.extend(place(x, y, w, h));
+        let mut thumb = part(DATA_TABLE_OVERLAY_BASE, &look.thumb);
+        if vertical {
+            thumb.extend(place(2.0, b.thumb_start, (w - 4.0).max(1.0), b.thumb_len));
+        } else {
+            thumb.extend(place(b.thumb_start, 2.0, b.thumb_len, (h - 4.0).max(1.0)));
+        }
+        Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(TRACK_CLASS))
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(track))
+            .with_accessibility_info(AccessibilityInfo::named(
+                AzString::from_const_str(name),
+                AccessibilityRole::ScrollBar,
+            ))
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(THUMB_CLASS))
+                    .with_css_props(CssPropertyWithConditionsVec::from_vec(thumb)),
+            )
+    };
+    if let Some(v) = &geo.vbar {
+        children.push(bar(v, true, "Rows"));
+    }
+    if let Some(h) = &geo.hbar {
+        children.push(bar(h, false, "Columns"));
+    }
+
+    // The table: one focus stop; its value says where the cursor is.
+    let mut classes: Vec<IdOrClass> = TABLE_CLASS.to_vec();
+    if let Some(marker) = look.marker {
+        classes.push(Class(AzString::from_const_str(marker)));
+    }
+    let mut table_props = part(DATA_TABLE_BASE, &look.table);
+    table_props.push(simple(CssProperty::const_font_size(StyleFontSize::px(table.font_size))));
+    let mut states = alloc::vec![AccessibilityState::Multiselectable];
+    if view.is_sorting() {
+        states.push(AccessibilityState::Busy);
+    }
+    let a11y = AccessibilityInfo {
+        accessibility_value: Some(AzString::from(cursor_value(&table, geo.shown))).into(),
+        states: AccessibilityStateVec::from_vec(states),
+        ..AccessibilityInfo::named(table.accessibility_name.clone(), AccessibilityRole::Grid)
+    };
+    let id = table.id.clone();
+    let shared = RefAny::new(TableShared { table, geo });
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+        .with_id(id.clone())
+        .with_marker(azul_css::OptionString::Some(id))
+        .with_dataset(azul_core::refany::OptionRefAny::Some(shared.clone()))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(table_props))
+        .with_tab_index(azul_core::dom::TabIndex::Auto)
+        .with_accessibility_info(a11y)
+        .with_callbacks(table_callbacks(&shared).into())
+        .with_children(DomVec::from_vec(children))
+}
