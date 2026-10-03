@@ -10,7 +10,29 @@ Commit messages go through `<scratchpad>/infra6/msg.txt` (the scratchpad root is
   without_manifest, config DriveEntry::open, sigv4 uri_decode + sha256_hex_of)
 - c9b579c04 sigv4 helper tests (+ progress d301b6153)
 - 9c5e32262 migration RED (appkit migrate.rs, stub + 8 tests), a639fc30a migration GREEN + hook in ui::create_kit
-- LAST COMMIT: see `git log -1`; next step = CLOSE investigation + RED (NEXT 2).
+- b39b4d731 CLOSE RED (dll/tests/close_requested_headless.rs, 7 tests)
+- LAST COMMIT: see `git log -1`; next step = CLOSE GREEN step A (common/event.rs), see the plan below.
+
+## CLOSE GREEN plan (exact)
+A. common/event.rs: CommonWindowState gets `close_unconfirmed: bool` (init false in `new`) + `pub fn
+   close_unconfirmed(&self)`, `pub fn take_close_unconfirmed(&mut self)`, `pub fn rebuild_owed(&self)`.
+   apply_user_change: CloseWindow arm raises the flag AND sets the marker only on false->true;
+   ModifyWindowState arm: old false -> new true sets the marker.
+   `request_window_close`: clears the marker; a flag already up is lowered + `discard_input_delta` (instead
+   of the snapshot) so the pass sees false->true. New trait methods: `run_close_protocol(site)` = build an
+   owed DOM (rebuild_owed -> regen_epoch / regenerate_layout / clear_regeneration_unless_reraised) then
+   request_window_close; `confirm_app_close(site) -> Option<WindowCloseOutcome>` = if take marker ->
+   Some(run_close_protocol), and raise a regeneration when the pass asked for one.
+B. headless: HeadlessEvent::Close -> run_close_protocol (close if confirmed, else route result);
+   phase 2b: confirm_app_close first, then the old `if flag -> close`.
+C. Linux run.rs (~2502): `window.confirm_app_close();` before the `close_requested()` check; LinuxWindow
+   wrapper method in linux/mod.rs.
+D. macOS: process_close_event -> run_close_protocol; sync_window_state close branch skips when
+   `close_unconfirmed()` (drain_loop_work runs the protocol).
+E. Windows: route_main_window_result tail + Win32 sync_window_state start + poll_event_internal: if
+   take_close_unconfirmed -> self.close() (posts WM_CLOSE); WM_CLOSE -> run_close_protocol.
+F. remove FullWindowState::close_callback (window_state.rs 125/384/570/652, macos 5901, wayland 2135/9510,
+   x11 4243, windows 633, event.rs 1596), core/src/window.rs:1592 comment, doc/guide windowing.md.
 
 ## IN PROGRESS
 - 4. CLOSE
