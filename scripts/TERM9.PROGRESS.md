@@ -19,34 +19,26 @@ if /tmp was wiped).
   write / resize / is_live / size, Signals {dirty, title, bell, exited} polled by the UI (take_dirty / take_title /
   take_bell); Listener answers PtyWrite through the EventLoopSender
 - 1f69d558f src/ids.rs (const AzString __azterm_ ids) + src/sample.rs (build_session, log_session(n), PROMPT)
+- f9bad78f0 RED + 7f5f1a588 GREEN: key_action leaves Ctrl+Shift+letter to the window off macOS
+- 48776e635 src/lib.rs: the window (DeveloperShell: activity bar, side bar of tabs, the TerminalView pane, status
+  bar), AppState (tabs, open / close / select / cycle), the data callback (resize + vt::screen), on_terminal
+  (write / scroll / select / copy), the 16 ms output timer, window keys, About, settings; tests
+- f208e30fd registration (root Cargo.toml member, workspace_test_members.txt, rust.yml dll_tests step)
 
 ## IN PROGRESS
 - (none - between units)
 
 ## NEXT
-1. (done) Manifest. 2. (done) Engine paste fix (focus_hears_paste; see commits above). The widget's key handler
-   leaves the paste chord alone (KeyAction::Paste -> DoNothing): the engine's Paste event brings the text to
-   on_terminal_paste. Shift+Insert has no engine paste yet (limitation for the report).
-3. examples/azul-term (AzTerm) - NEXT FILE: src/lib.rs (replace the
-   stub start(); the window), then registration + scripts/azterm_e2e.py:
-   - src/lib.rs (start; layout: ShellThemeScope::body + appkit title row + a tab strip + the
-     TerminalView pane (a `position: relative; flex-grow: 1` container) + StatusBar; CloseGuard asks when a tab
-     runs a command; About; settings page). TerminalView data source = an extern "C" fn(RefAny, TerminalGridSize)
-     -> TerminalScreen that locks the session's FairMutex<Term>, resizes it (and the PTY) when the grid differs,
-     returns vt::screen. on_event: Input -> notifier.notify(bytes) + scroll_display(Bottom); Scroll ->
-     term.scroll_display(Scroll::Delta(new - old)); SelectStart/Extend/End/Clear -> alacritty Selection with
-     term::viewport_to_point(display_offset, Point<usize>); Copy -> term.selection_to_string() ->
-     info.set_clipboard_content(...) (check api.json for ClipboardContent / a text setter).
-   - src/session.rs: alacritty_terminal::tty::new(&Options, WindowSize, id) + EventLoop::new(term, listener, pty,
-     false, false).spawn() + Notifier(loop.channel()); the Listener sets an AtomicBool on Wakeup / Title / Bell /
-     ChildExit; a 16 ms azul Timer calls trigger_all_virtual_view_rerender when dirty (RefreshDom for title / exit).
-     Resize: the data callback sees a new TerminalGridSize -> term.resize + notifier.on_resize (TIOCSWINSZ).
-   - src/profiles.rs: profiles + settings json in <data root>/term/ through the Drive from a Thread (appkit jobs).
-   - src/sample.rs: --sample replays recorded sessions (cargo build, git status, a TUI frame) into a Term with no
-     PTY - deterministic for the headless E2E.
-   - Register: root Cargo.toml members, scripts/workspace_test_members.txt, .github/workflows/rust.yml dll_tests.
-   - scripts/azterm_e2e.py against the debug server.
-4. Report scripts/TERM9_<date>.md (api.json list: see "API" below).
+1. scripts/azterm_e2e.py (model: scripts/shells_e2e.py): start `AzTerm --sample` headless (capped runner), wait for
+   AZTERM_READY, get_node_hierarchy / get_node_layout of `__azterm_terminal`, `__azterm_tabs`; text_input "echo hi"
+   + key Return (the replay echoes) -> wait_frame -> screenshot; click `__azterm_new-tab` -> AZTERM_TABS 2; click
+   `__azterm_tab-0`; set_mode dark + wait_settled + screenshot. Commit.
+2. Report scripts/TERM9_2026_10_03.md (what was built, commits, the api.json list from "API" below, least-sure spots,
+   test commands, what is left). Commit.
+3. Left for later (put in the report): profiles / settings files through the Drive (settings page sections:
+   font size, Alt as Meta, scrollback, shell command), split panes, find in scrollback (FindBar), tab tear-off,
+   URL Ctrl+click, the bell flashing the tab, Shift+Insert paste (no engine paste for it), triple-click line select,
+   motion reports with no button held (1003), cursor blink, IME preedit drawing, a CloseGuard for running commands.
 
 ## Decisions
 - VT ENGINE + PTY: `alacritty_terminal` 0.26.0 (one crate for both). Why: the xterm-compatible state machine Alacritty
