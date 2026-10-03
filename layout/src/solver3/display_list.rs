@@ -255,6 +255,24 @@ pub struct StyleBorderColors {
     pub left: Option<CssPropertyValue<StyleBorderLeftColor>>,
 }
 
+/// Which painted colour [`DisplayList::patch_paint_colors`] rewrites in place:
+/// the per-frame fast path of a colour `animation` transition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaintColorSlot {
+    /// Text runs and their underline / strikethrough (`color`).
+    Text,
+    /// A solid background fill (`background` of one colour layer).
+    Background,
+    /// The top side of a border (`border-top-color`).
+    BorderTop,
+    /// The right side of a border (`border-right-color`).
+    BorderRight,
+    /// The bottom side of a border (`border-bottom-color`).
+    BorderBottom,
+    /// The left side of a border (`border-left-color`).
+    BorderLeft,
+}
+
 /// Border styles for all four sides.
 ///
 /// Each field is optional to allow partial border specifications.
@@ -1219,14 +1237,21 @@ impl DisplayList {
     /// cascade pass (a descendant with its OWN explicit colour differs from
     /// `from` and is untouched). Returns the damage union, `None` when
     /// nothing matched (the caller falls back to a full rebuild).
+    ///
+    /// `slot` names the painted colour: text (runs and their decorations), a
+    /// solid background fill, or one side of a border - a flat Button's face
+    /// fade tweens its background AND its four border colours, and one
+    /// unpatchable side used to force the whole tick onto a display-list
+    /// rebuild plus a whole-DOM restyle per side.
     pub fn patch_paint_colors(
         &mut self,
         range: core::ops::Range<usize>,
         from: ColorU,
         to: ColorU,
-        patch_text: bool,
-        patch_background: bool,
+        slot: PaintColorSlot,
     ) -> Option<LogicalRect> {
+        let patch_text = slot == PaintColorSlot::Text;
+        let patch_background = slot == PaintColorSlot::Background;
         let mut damage: Option<LogicalRect> = None;
         let mut grow = |bounds: LogicalRect| {
             damage = Some(damage.map_or(bounds, |d| {
@@ -1269,6 +1294,45 @@ impl DisplayList {
                 {
                     *color = to;
                     grow(*bounds.inner());
+                }
+                DisplayListItem::Border { colors, bounds, .. } => {
+                    // The side's colour as the list carries it: an exact
+                    // colour equal to `from` (a token or an unset side does
+                    // not match, and the caller rebuilds instead).
+                    let hit = match slot {
+                        PaintColorSlot::BorderTop => match &mut colors.top {
+                            Some(CssPropertyValue::Exact(c)) if c.inner == from => {
+                                c.inner = to;
+                                true
+                            }
+                            _ => false,
+                        },
+                        PaintColorSlot::BorderRight => match &mut colors.right {
+                            Some(CssPropertyValue::Exact(c)) if c.inner == from => {
+                                c.inner = to;
+                                true
+                            }
+                            _ => false,
+                        },
+                        PaintColorSlot::BorderBottom => match &mut colors.bottom {
+                            Some(CssPropertyValue::Exact(c)) if c.inner == from => {
+                                c.inner = to;
+                                true
+                            }
+                            _ => false,
+                        },
+                        PaintColorSlot::BorderLeft => match &mut colors.left {
+                            Some(CssPropertyValue::Exact(c)) if c.inner == from => {
+                                c.inner = to;
+                                true
+                            }
+                            _ => false,
+                        },
+                        PaintColorSlot::Text | PaintColorSlot::Background => false,
+                    };
+                    if hit {
+                        grow(*bounds.inner());
+                    }
                 }
                 _ => {}
             }

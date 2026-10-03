@@ -2401,6 +2401,7 @@ impl LayoutWindow {
             layout_cache: Solver3LayoutCache {
                 tree: None,
                 resize_only_hint: false,
+                overrides_only_hint: None,
                 last_reconcile_was_skipped: false,
                 last_reconcile_structure_preserved: false,
                 last_build_was_patched: false,
@@ -2692,6 +2693,13 @@ impl LayoutWindow {
         self.sync_frame_report();
         self.frame_report.layout_passes = self.frame_report.layout_passes.saturating_add(1);
 
+        // A DOM the app just built is never an override-only frame of the
+        // one the tick looked at, however alike their stamps
+        // (`LayoutCache::overrides_only_hint`).
+        if new_generation {
+            self.layout_cache.overrides_only_hint = None;
+        }
+
         // A frame transition re-invokes every view, BEFORE this pass scans for
         // them, so a view that renders from the frame is right in the same
         // frame the window is maximized in. Without it the only path back is a
@@ -2728,12 +2736,27 @@ impl LayoutWindow {
             }
         }
 
+        // A RELAYOUT of the same DOM (an animation frame, a restyle, a
+        // resize) keeps every VirtualView whose host node is unchanged: its
+        // child result stays, its callback does not run again, and its own
+        // lifecycle decides (`check_reinvoke`: the box grew, an edge scroll;
+        // a box of another size re-renders it). Every relayout used to clear
+        // all child results and re-invoke every view - user code and a cold
+        // child layout per view per animation frame. A new generation (the
+        // app re-rendered from its model) re-renders every view, as before.
+        let (kept_views, kept_doms) = if new_generation {
+            (BTreeSet::new(), BTreeSet::new())
+        } else {
+            self.unchanged_virtual_views(&root_dom)
+        };
+
         // Stash every child dom's arena before the clear, so re-materialization
         // can reconcile against it (see `previous_child_arenas`). Rebuilt fresh
-        // each pass so a vanished host cannot leak a stale stash.
+        // each pass so a vanished host cannot leak a stale stash. A kept
+        // view's child stays live, where the reconcile finds it anyway.
         self.previous_child_arenas.clear();
         for (dom_id, result) in &self.layout_results {
-            if *dom_id == DomId::ROOT_ID {
+            if *dom_id == DomId::ROOT_ID || kept_doms.contains(dom_id) {
                 continue;
             }
             self.previous_child_arenas.insert(
@@ -2745,14 +2768,18 @@ impl LayoutWindow {
             );
         }
 
-        // Clear previous results for a full relayout
-        self.layout_results.clear();
+        // Clear previous results for a full relayout - all but the kept
+        // views' children.
+        self.layout_results
+            .retain(|dom_id, _| kept_doms.contains(dom_id));
 
-        // CRITICAL: Reset VirtualView invocation flags so check_reinvoke() returns
-        // InitialRender for every tracked VirtualView. Without this, the VirtualViewManager
-        // still has was_invoked=true from the previous frame, so it skips
-        // re-invocation — but the child DOM was just destroyed by clear().
-        self.virtual_view_manager.reset_all_invocation_flags();
+        // CRITICAL: Reset the invocation flags of every view that was not
+        // kept, so check_reinvoke() returns InitialRender for it. Without
+        // this, the VirtualViewManager still has was_invoked=true from the
+        // previous frame, so it skips re-invocation — but the child DOM was
+        // just destroyed by the clear. The kept ones are CARRIED: their first
+        // check of this pass verifies the child still fits the box.
+        self.virtual_view_manager.carry_over_views(&kept_views);
 
         if let Some(msgs) = debug_messages.as_mut() {
             msgs.push(LayoutDebugMessage::info(format!(
@@ -2770,6 +2797,25 @@ impl LayoutWindow {
             system_callbacks,
             debug_messages,
         );
+        // A kept view this pass never reached (its host laid out no box for
+        // it any more - hidden by a restyle) keeps nothing: its child result
+        // goes, as the clear above took it before views were kept, and the
+        // view renders afresh when its box comes back.
+        // The views inside such a child go with it.
+        let mut unreached = self.virtual_view_manager.take_all_carried();
+        while let Some((host, node)) = unreached.pop() {
+            let _ = self.virtual_view_manager.force_reinvoke(host, node);
+            if let Some(nested) = self.virtual_view_manager.get_nested_dom_id(host, node) {
+                if self.layout_results.remove(&nested).is_some() {
+                    unreached.extend(
+                        self.virtual_view_manager
+                            .all_view_keys()
+                            .into_iter()
+                            .filter(|(inner_host, _)| *inner_host == nested),
+                    );
+                }
+            }
+        }
         // Mirror AFTER the build: the marker describes THIS pass's DL build
         // (patched splice vs full emission), not the previous one.
         self.frame_report.last_dl_build_patched = self.layout_cache.last_build_was_patched;
@@ -5569,6 +5615,7 @@ impl LayoutWindow {
         let mut scratch_cache = Solver3LayoutCache {
             tree: None,
             resize_only_hint: false,
+            overrides_only_hint: None,
             last_reconcile_was_skipped: false,
             last_reconcile_structure_preserved: false,
             last_build_was_patched: false,
@@ -7142,22 +7189,12 @@ impl LayoutWindow {
                 let size = lr.layout_tree.nodes.get(idx.index())?.used_size?;
                 Some((size.width, size.height))
             };
-            let mut transform_opacity_events = self
-                .gpu_state_manager
-                .get_or_create_cache(dom_id)
-                .synchronize_with_sizes(&styled_dom, &previous_size);
-            // MWA-C-gpu_state: drop the PREVIOUS pass's events before
-            // merging this one's. `pending_changes` has zero drain call
-            // sites (both renderers re-read cache values via
-            // synchronize_gpu_values / from_gpu_cache instead), and
-            // merge() appends Vecs — so this accumulated every layout's
-            // events forever, an unbounded leak in any long-running app.
-            // The field stays as a same-pass event record until a consumer
-            // exists (see FOLLOW-UPS).
-            drop(self.gpu_state_manager.take_pending_changes());
-            self.gpu_state_manager
-                .pending_changes
-                .merge(&mut transform_opacity_events);
+            sync_css_gpu_values(
+                &mut self.gpu_state_manager,
+                dom_id,
+                &styled_dom,
+                &previous_size,
+            );
         }
         // M12.7: in the headless web path the GPU cache is empty (sync skipped),
         // and `.clone()` of an empty hashbrown table drives RawTable::clone's
@@ -8427,6 +8464,12 @@ impl LayoutWindow {
     ) -> crate::overlay::ContentChangeResult {
         use crate::overlay::{AppliedChange, ContentChange, ContentChangeResult, ContentDirtyTier};
 
+        // A content change is not an override-only frame: whatever latch an
+        // animation tick armed for the next pass no longer describes the DOM
+        // (`LayoutCache::overrides_only_hint`; its stamp would catch most of
+        // these too, this makes it all of them).
+        self.layout_cache.overrides_only_hint = None;
+
         // Pagination dirty tracking (editor architecture, AZUL-STILL-TODO B6):
         // any content change that can move layout must min-in its document Y
         // so a paged embedder's lazy re-break sees non-text edits too. The
@@ -9449,6 +9492,7 @@ impl LayoutWindow {
         self.layout_cache = Solver3LayoutCache {
             tree: None,
             resize_only_hint: false,
+            overrides_only_hint: None,
             last_reconcile_was_skipped: false,
             last_reconcile_structure_preserved: false,
             last_build_was_patched: false,
@@ -9516,6 +9560,62 @@ impl LayoutWindow {
     /// Get selection state for a DOM (always None: `selection_manager` removed)
     pub const fn get_selection(&self, _dom_id: DomId) -> Option<&SelectionState> {
         None
+    }
+
+    /// The VirtualViews a relayout of `root_dom` may keep as they are: every
+    /// view whose host node still carries exactly the `VirtualViewNode` - the
+    /// callback and its dataset instance - it was last invoked for, in a host
+    /// DOM that is itself kept (the root, or the child of a kept view), and
+    /// whose child result exists. Returns the view keys and the child DOMs
+    /// they own.
+    ///
+    /// Identity, not equality of content: a host rebuilt by the app hands in
+    /// new nodes (another dataset instance), and its views render again.
+    fn unchanged_virtual_views(
+        &self,
+        root_dom: &StyledDom,
+    ) -> (BTreeSet<(DomId, NodeId)>, BTreeSet<DomId>) {
+        let mut views: BTreeSet<(DomId, NodeId)> = BTreeSet::new();
+        let mut doms: BTreeSet<DomId> = BTreeSet::new();
+        let keys = self.virtual_view_manager.all_view_keys();
+        // From the root down: a view inside a view is kept only once the
+        // view holding it is.
+        loop {
+            let mut grew = false;
+            for &(host, node) in &keys {
+                if views.contains(&(host, node))
+                    || (host != DomId::ROOT_ID && !doms.contains(&host))
+                {
+                    continue;
+                }
+                let host_dom = if host == DomId::ROOT_ID {
+                    Some(root_dom)
+                } else {
+                    self.layout_results.get(&host).map(|r| &r.styled_dom)
+                };
+                let Some(host_dom) = host_dom else {
+                    continue;
+                };
+                let Some(nested) = self.virtual_view_manager.get_nested_dom_id(host, node) else {
+                    continue;
+                };
+                let node_data = host_dom.node_data.as_container();
+                let current = node_data
+                    .get(node)
+                    .and_then(|nd| nd.get_virtual_view_node_ref());
+                let unchanged = current.is_some()
+                    && current == self.virtual_view_manager.invoked_node(host, node);
+                if unchanged && self.layout_results.contains_key(&nested) {
+                    views.insert((host, node));
+                    doms.insert(nested);
+                    grew = true;
+                }
+            }
+            if !grew {
+                break;
+            }
+        }
+        (views, doms)
     }
 
     /// Invoke a `VirtualView` callback and perform layout on the returned DOM.
@@ -9705,16 +9805,36 @@ impl LayoutWindow {
 
         // Check with the VirtualViewManager to see if re-invocation is necessary.
         // It handles all 5 conditional rules.
-        let Some(reason) = self.virtual_view_manager.check_reinvoke(
+        //
+        // A view CARRIED over this relayout (its host node unchanged, the
+        // funnel kept its child result) is trusted with "nothing to do" only
+        // while its child was laid out for the box it has now: a box of
+        // another size renders it again, as every relayout did before views
+        // were kept (a growth also reads as `BoundsExpanded` below).
+        let carried = self
+            .virtual_view_manager
+            .take_carried(parent_dom_id, node_id);
+        let reason = match self.virtual_view_manager.check_reinvoke(
             parent_dom_id,
             node_id,
             &self.scroll_manager,
             bounds,
-        ) else {
-            // No re-invocation needed, but we still need the child_dom_id for the display list.
-            return self
-                .virtual_view_manager
-                .get_nested_dom_id(parent_dom_id, node_id);
+        ) {
+            Some(reason) => reason,
+            None => {
+                // No re-invocation needed, but we still need the child_dom_id
+                // for the display list.
+                let nested = self
+                    .virtual_view_manager
+                    .get_nested_dom_id(parent_dom_id, node_id);
+                let fits = nested
+                    .and_then(|child| self.layout_results.get(&child))
+                    .is_some_and(|child| size_eq(child.viewport.size, bounds.size));
+                if !carried || fits {
+                    return nested;
+                }
+                VirtualViewCallbackReason::InitialRender
+            }
         };
 
         if let Some(msgs) = debug_messages {
@@ -9791,6 +9911,10 @@ impl LayoutWindow {
         // Mark the VirtualView as invoked to prevent duplicate InitialRender calls
         self.virtual_view_manager
             .mark_invoked(parent_dom_id, node_id, reason);
+        // ...and for WHICH host node: a relayout of a host that still carries
+        // exactly this node (callback and dataset) keeps the view.
+        self.virtual_view_manager
+            .record_invoked_node(parent_dom_id, node_id, virtual_view_node);
 
         // A CONTENT-SIZED view reported a size the solver has not seen: the
         // box was sized from the previous report (or the 300x150 default on
@@ -14531,6 +14655,36 @@ impl LayoutWindow {
         core::mem::take(&mut self.transition_patched)
     }
 
+    /// The work the frame after an animation tick owes - THE decision every
+    /// frame driver takes from here (the shells' CSS driver, the debug
+    /// server's `tick_animations`, the E2E runner), consuming the tick's
+    /// one-shot flags:
+    ///
+    /// - a LAYOUT-affecting transition value -> `ShouldIncrementalRelayout`;
+    /// - every value patched into the display list in place, or published as a GPU value under a
+    ///   key the list already binds (a `transform` tween, a FLIP slide, a keyframe track:
+    ///   [`Self::animation_tick_is_values_only`]) -> `ShouldReRenderCurrentWindow`, a repaint;
+    /// - anything else (a paint-scope value the list must be rebuilt for, a key that appeared or
+    ///   went) -> `ShouldUpdateDisplayListCurrentWindow`.
+    ///
+    /// The three drivers each had their own copy of this, and the copies
+    /// drifted: the debug server's and the runner's never asked about
+    /// values-only ticks, so every frame of a slide they drove rebuilt the
+    /// whole display list for a matrix the renderers read live anyway.
+    #[must_use]
+    pub fn take_animation_frame_work(&mut self) -> azul_core::events::ProcessEventResult {
+        use azul_core::events::ProcessEventResult;
+        let relayout = self.take_transition_relayout();
+        let patched = self.take_transition_patched();
+        if relayout {
+            ProcessEventResult::ShouldIncrementalRelayout
+        } else if patched || self.animation_tick_is_values_only() {
+            ProcessEventResult::ShouldReRenderCurrentWindow
+        } else {
+            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+        }
+    }
+
     /// [`Self::tick_animations`] with `dt` taken from the wall clock.
     ///
     /// The clock is read ONLY when something is actually animating.
@@ -14902,8 +15056,23 @@ impl LayoutWindow {
                 NodeId,
                 azul_css::props::basic::color::ColorU,
                 azul_css::props::basic::color::ColorU,
-                bool,
+                crate::solver3::display_list::PaintColorSlot,
             )> = Vec::new();
+            // A `transform` tween stepped by publishing its matrix alone (the
+            // GPU property path below): a repaint, like a patched colour.
+            let mut gpu_values_moved = false;
+            // Overrides written through the lean channel that the cascade's
+            // derived tables (compact cache, inheritance) must still see:
+            // refreshed ONCE after the loop, however many tweens asked.
+            // `restyle_fonts`: one of them can move a resolved font size.
+            let mut needs_restyle = false;
+            let mut restyle_fonts = false;
+            // Whether this frame's relayout may take the retained layout tree
+            // (`LayoutCache::overrides_only_hint`): every layout-scope tween
+            // moves only sizes and offsets, and no paint-scope tween needs a
+            // re-emitted node the patch cannot vouch for.
+            let mut tree_shape_kept = true;
+            let mut paint_restyled = false;
             if let Some(result) = self.layout_results.get_mut(&DomId::ROOT_ID) {
                 for (tr, rect) in self.css_transitions.iter_mut().zip(rects) {
                     if tr.delay_s > 0.0 {
@@ -14954,6 +15123,32 @@ impl LayoutWindow {
                         shown.clone()
                     };
 
+                    // THE GPU PROPERTY PATH: a `transform` tween on a node whose
+                    // reference frame exists moves no box and changes no item -
+                    // only the frame's matrix, which both compositors read live
+                    // from the GPU value cache (as a FLIP slide's). So the
+                    // override goes in through the lean channel (the compact
+                    // cache holds no transform value, only its presence bit,
+                    // which a transform-to-transform tween cannot flip) and the
+                    // matrix is published under the key the node already has:
+                    // no restyle, no relayout, no display-list rebuild. The
+                    // AzWidgets switch knob slides this way.
+                    //
+                    // A node with no reference frame yet, or one whose target
+                    // is no transform at all, changes the key POPULATION - only
+                    // a display-list build can show that, so it falls through
+                    // to the rebuild path below (which syncs the GPU values).
+                    if tr.prop_type == azul_css::props::property::CssPropertyType::Transform {
+                        result.styled_dom.set_user_property_override_fast(
+                            &tr.node,
+                            core::slice::from_ref(&over),
+                        );
+                        if cache.refresh_transform_value_of(&result.styled_dom, tr.node, (w, h)) {
+                            gpu_values_moved = true;
+                            continue;
+                        }
+                    }
+
                     // THE PATCH FAST PATH: colour-carrying paint transitions
                     // rewrite their display-list items in place — no cascade
                     // recompute, no DL rebuild. The from-match doubles as the
@@ -14961,31 +15156,60 @@ impl LayoutWindow {
                     // differ and stay untouched), so the override can take
                     // the LEAN channel that skips inheritance recompute.
                     let patchable = tr.scope == azul_css::props::property::RelayoutScope::None;
-                    let colors = transition_patch_color(&shown).and_then(|(to_c, is_text)| {
+                    let colors = transition_patch_color(&shown).and_then(|(to_c, slot)| {
                         let from_c = match tr.last_color {
                             Some(c) => c,
                             None => transition_patch_color(&tr.from)?.0,
                         };
-                        Some((from_c, to_c, is_text))
+                        Some((from_c, to_c, slot))
                     });
-                    if let (true, Some((from_c, to_c, is_text))) = (patchable, colors) {
+                    if let (true, Some((from_c, to_c, slot))) = (patchable, colors) {
                         result.styled_dom.set_user_property_override_fast(
                             &tr.node,
                             core::slice::from_ref(&over),
                         );
+                        // A border colour is ALSO served from the compact
+                        // cache - the display-list builder reads it there,
+                        // not through the override - so its entry follows the
+                        // patch: a list built for any other reason mid-fade
+                        // (a caret blink, a relayout) or after it paints the
+                        // colour on screen, not the last full restyle's.
+                        patch_compact_border_color(&mut result.styled_dom, tr.node, slot, to_c);
                         if from_c != to_c {
-                            patch_jobs.push((tr.node, from_c, to_c, is_text));
+                            patch_jobs.push((tr.node, from_c, to_c, slot));
                             tr.last_color = Some(to_c);
                         }
+                        // A text colour reaches the node's descendants through
+                        // the inheritance tables, which the lean channel does
+                        // not touch (the patch's from-match stands in for them
+                        // frame by frame). The LAST frame refreshes them, so a
+                        // list built after the fade paints the settled colour.
+                        if tr.t >= 1.0
+                            && slot == crate::solver3::display_list::PaintColorSlot::Text
+                        {
+                            needs_restyle = true;
+                            restyle_fonts = true;
+                        }
                     } else {
-                        drop(
-                            result
-                                .styled_dom
-                                .restyle_user_property(&tr.node, core::slice::from_ref(&over)),
+                        // THE RESTYLE PATH, batched: the override goes in
+                        // through the lean channel now and the cascade's
+                        // derived tables are refreshed once after the loop.
+                        // `restyle_user_property` per tween rebuilt the
+                        // compact cache of the whole DOM per tween per frame
+                        // (2.75 ms each in AzWidgets).
+                        result.styled_dom.set_user_property_override_fast(
+                            &tr.node,
+                            core::slice::from_ref(&over),
                         );
+                        needs_restyle = true;
+                        restyle_fonts |=
+                            tr.prop_type.can_trigger_relayout() || tr.prop_type.is_inheritable();
                         dirty.push((tr.node, tr.scope));
-                        if tr.scope != azul_css::props::property::RelayoutScope::None {
+                        if tr.scope == azul_css::props::property::RelayoutScope::None {
+                            paint_restyled = true;
+                        } else {
                             needs_relayout = true;
+                            tree_shape_kept &= tween_keeps_layout_tree_shape(tr.prop_type);
                         }
                     }
                 }
@@ -15002,22 +15226,37 @@ impl LayoutWindow {
                             .collect()
                     };
                     let dl = Arc::make_mut(&mut result.display_list);
-                    for ((node, from_c, to_c, is_text), (_, end)) in
+                    for ((node, from_c, to_c, slot), (_, end)) in
                         patch_jobs.iter().zip(subtree_ends)
                     {
-                        let dmg = dl.patch_paint_colors(
-                            node.index()..end,
-                            *from_c,
-                            *to_c,
-                            *is_text,
-                            !*is_text,
-                        );
+                        let dmg = dl.patch_paint_colors(node.index()..end, *from_c, *to_c, *slot);
                         if dmg.is_none() {
                             // Nothing matched (the item paints somewhere this
                             // walk can't see): this node must take the rebuild
-                            // path or its colour freezes at `from`.
+                            // path or its colour freezes at `from` - and the
+                            // rebuild reads the cascade's derived tables, which
+                            // the lean channel left behind.
                             dirty.push((*node, azul_css::props::property::RelayoutScope::None));
+                            needs_restyle = true;
+                            paint_restyled = true;
+                            restyle_fonts |=
+                                *slot == crate::solver3::display_list::PaintColorSlot::Text;
                         }
+                    }
+                }
+
+                // The one cascade refresh of this frame (see `needs_restyle`):
+                // what `restyle_user_property` did per tween - the compact
+                // cache and the inheritance tables rebuilt with every override
+                // applied, a new cascade epoch, resolved font sizes dropped
+                // when a tween could move one.
+                if needs_restyle {
+                    result.styled_dom.recompute_inheritance_and_compact_cache();
+                    if restyle_fonts {
+                        result
+                            .styled_dom
+                            .get_css_property_cache_mut()
+                            .invalidate_resolved_font_sizes();
                     }
                 }
             }
@@ -15038,6 +15277,20 @@ impl LayoutWindow {
             self.css_transitions.retain(|tr| tr.t < 1.0);
             if needs_relayout {
                 self.transition_relayout = true;
+                // The relayout this frame owes changes no node: only the
+                // overrides just written moved. Let it take the retained tree
+                // (no reconcile of the unchanged DOM) - when every tween keeps
+                // the tree's shape and nothing else staged a diff for the pass
+                // (`pending_css_dirty` still empty: a rebuild's diff or another
+                // restyle may need the reconcile). The stamp is taken AFTER the
+                // frame's own cascade refresh; any later change of the DOM's
+                // nodes, epoch or interaction states voids it.
+                if tree_shape_kept && !paint_restyled && self.pending_css_dirty.is_none() {
+                    self.layout_cache.overrides_only_hint = self
+                        .layout_results
+                        .get(&DomId::ROOT_ID)
+                        .map(|r| solver3::cache::OverridesOnlyStamp::of(&r.styled_dom));
+                }
             }
             let dirty_empty = dirty.is_empty();
             if !dirty_empty {
@@ -15051,7 +15304,10 @@ impl LayoutWindow {
             }
             // The rebuild-free frame is only sound when NOTHING ELSE needs
             // one: a mixed tick (patchable + unpatchable) rebuilds.
-            if !patch_jobs.is_empty() && dirty_empty && self.pending_css_dirty.is_none() {
+            if (!patch_jobs.is_empty() || gpu_values_moved)
+                && dirty_empty
+                && self.pending_css_dirty.is_none()
+            {
                 self.transition_patched = true;
             }
         }
@@ -22194,6 +22450,20 @@ impl LayoutWindow {
         // Get scroll offsets from scroll manager
         let scroll_offsets = self.scroll_manager.get_scroll_states_for_dom(dom_id);
 
+        // The CSS `transform` / `opacity` values this list binds, from the
+        // styles as they are NOW - exactly what the layout pass does before
+        // its build. A paint-scope write (`set_css_property(transform)`, a
+        // tween frame that changed the key population) reaches the screen
+        // through this path, and used to be built against the old matrix.
+        if !self.skip_gpu_sync {
+            let size_of = |node: NodeId| -> Option<(f32, f32)> {
+                let idx = *tree.dom_to_layout.get(&node)?.first()?;
+                let size = tree.nodes.get(idx.index())?.used_size?;
+                Some((size.width, size.height))
+            };
+            sync_css_gpu_values(&mut self.gpu_state_manager, dom_id, styled_dom, &size_of);
+        }
+
         // Get GPU cache for this DOM
         let gpu_cache = self.gpu_state_manager.get_or_create_cache(dom_id).clone();
 
@@ -22335,6 +22605,23 @@ impl LayoutWindow {
                 if dom_id == DomId::ROOT_ID {
                     self.root_display_list_gpu_fingerprint =
                         Some(gpu_cache.dl_emission_fingerprint());
+                }
+                // PAINT dirt staged for this DOM is served: the list was just
+                // built from the styles it describes. A paint-scope tween
+                // frame stages its node here and asks for exactly this
+                // rebuild; leaving the entry made the dirt grow by one per
+                // frame until some layout pass ate it, and refused every
+                // frame in between the values-only repaint
+                // (`animation_tick_is_values_only`). Layout-scope dirt stays:
+                // a layout pass still owes it.
+                if matches!(
+                    &self.pending_css_dirty,
+                    Some((d, list)) if *d == dom_id
+                        && list
+                            .iter()
+                            .all(|(_, scope)| *scope == azul_css::props::property::RelayoutScope::None)
+                ) {
+                    self.pending_css_dirty = None;
                 }
                 // Refresh the solver's structural-identity DL cache with the
                 // SAME list, keyed on the fingerprint of the gpu cache this
@@ -28817,6 +29104,36 @@ const fn flip_to_matrix(
     }
 }
 
+/// Bring `dom_id`'s CSS `transform` / `opacity` GPU values in line with
+/// `styled_dom` - keys minted for nodes that gained one, dropped for nodes
+/// that lost theirs, every value re-read (`node_size`: the box percentages
+/// resolve against) - and record the events as this build's pending
+/// changes.
+///
+/// The step EVERY display-list build owes before it reads the cache: the
+/// list opens a reference frame exactly for a keyed node and bakes the value
+/// it finds. The layout pass did it; the display-list-only rebuild
+/// (`regenerate_display_list_for_dom`) did not, so a `transform` written
+/// without a layout (a paint-scope `set_css_property`, a tween's frame) was
+/// built against the OLD matrix and showed nothing until an unrelated
+/// relayout.
+fn sync_css_gpu_values(
+    gpu_state_manager: &mut GpuStateManager,
+    dom_id: DomId,
+    styled_dom: &StyledDom,
+    node_size: &dyn Fn(NodeId) -> Option<(f32, f32)>,
+) {
+    let mut events = gpu_state_manager
+        .get_or_create_cache(dom_id)
+        .synchronize_with_sizes(styled_dom, node_size);
+    // MWA-C-gpu_state: drop the PREVIOUS build's events before merging this
+    // one's. `pending_changes` has no drain (both renderers re-read the cache
+    // values instead), and `merge` appends: without the drop it grew by every
+    // build's events forever.
+    drop(gpu_state_manager.take_pending_changes());
+    gpu_state_manager.pending_changes.merge(&mut events);
+}
+
 /// Everything the DOM diff learned, captured while BOTH trees are still alive.
 ///
 /// Produced by [`LayoutWindow::begin_reconciliation`] and consumed by
@@ -29084,22 +29401,114 @@ fn size_transition_start(
     }
 }
 
-/// A colour-carrying paint transition prop: `(colour, is_text)` —
-/// `TextColor` and single-solid `background` are the patchable set; anything
-/// else (gradients, images, borders) falls back to the DL rebuild.
+/// A colour-carrying paint transition prop: `(colour, the painted colour it
+/// is)` - `TextColor`, a single-solid `background` and the four
+/// `border-*-color`s are the patchable set; anything else (gradients, images,
+/// shadows) falls back to the DL rebuild.
 fn transition_patch_color(
     prop: &azul_css::props::property::CssProperty,
-) -> Option<(azul_css::props::basic::color::ColorU, bool)> {
+) -> Option<(
+    azul_css::props::basic::color::ColorU,
+    crate::solver3::display_list::PaintColorSlot,
+)> {
     use azul_css::props::property::CssProperty;
+
+    use crate::solver3::display_list::PaintColorSlot;
     match prop {
-        CssProperty::TextColor(v) => Some((v.get_property()?.inner, true)),
+        CssProperty::TextColor(v) => Some((v.get_property()?.inner, PaintColorSlot::Text)),
         CssProperty::BackgroundContent(v) => match v.get_property()?.as_ref() {
             [azul_css::props::style::background::StyleBackgroundContent::Color(c)] => {
-                Some((*c, false))
+                Some((*c, PaintColorSlot::Background))
             }
             _ => None,
         },
+        CssProperty::BorderTopColor(v) => {
+            Some((v.get_property()?.inner, PaintColorSlot::BorderTop))
+        }
+        CssProperty::BorderRightColor(v) => {
+            Some((v.get_property()?.inner, PaintColorSlot::BorderRight))
+        }
+        CssProperty::BorderBottomColor(v) => {
+            Some((v.get_property()?.inner, PaintColorSlot::BorderBottom))
+        }
+        CssProperty::BorderLeftColor(v) => {
+            Some((v.get_property()?.inner, PaintColorSlot::BorderLeft))
+        }
         _ => None,
+    }
+}
+
+/// Whether a LAYOUT-scope tween leaves the layout TREE as it is - the boxes,
+/// their formatting contexts, the anonymous wrappers - and moves only sizes
+/// and offsets: what lets its frames take the retained tree
+/// (`LayoutCache::overrides_only_hint`). `display`, `position`, `float`,
+/// `overflow` and the like decide which boxes exist and what kind they are,
+/// which the reconcile re-derives from the cascade; they are not on the list.
+fn tween_keeps_layout_tree_shape(ty: azul_css::props::property::CssPropertyType) -> bool {
+    use azul_css::props::property::CssPropertyType as T;
+    matches!(
+        ty,
+        T::Width
+            | T::Height
+            | T::MinWidth
+            | T::MinHeight
+            | T::MaxWidth
+            | T::MaxHeight
+            | T::PaddingTop
+            | T::PaddingRight
+            | T::PaddingBottom
+            | T::PaddingLeft
+            | T::MarginTop
+            | T::MarginRight
+            | T::MarginBottom
+            | T::MarginLeft
+            | T::Top
+            | T::Right
+            | T::Bottom
+            | T::Left
+            | T::FlexGrow
+            | T::FlexShrink
+            | T::FlexBasis
+            | T::RowGap
+            | T::ColumnGap
+            | T::Gap
+            | T::BorderTopWidth
+            | T::BorderRightWidth
+            | T::BorderBottomWidth
+            | T::BorderLeftWidth
+    )
+}
+
+/// Keep `node`'s compact-cache entry for a BORDER colour in step with a
+/// colour patched into the display list (`slot` names the side; the other
+/// slots are not served from the compact cache's colour words).
+///
+/// The display-list builder reads border colours from the compact cache
+/// (`getters::get_border_info`), not through the user override the lean
+/// channel writes; without this the next list built for any reason painted
+/// the side at the colour of the last full restyle.
+fn patch_compact_border_color(
+    styled_dom: &mut StyledDom,
+    node: NodeId,
+    slot: crate::solver3::display_list::PaintColorSlot,
+    color: azul_css::props::basic::color::ColorU,
+) {
+    use crate::solver3::display_list::PaintColorSlot;
+    let Some(cold) = styled_dom
+        .get_css_property_cache_mut()
+        .compact_cache
+        .as_mut()
+        .and_then(|cc| cc.tier2_cold.get_mut(node.index()))
+    else {
+        return;
+    };
+    let raw = azul_css::compact_cache::encode_color_u32(&color);
+    match slot {
+        PaintColorSlot::BorderTop => cold.border_top_color = raw,
+        PaintColorSlot::BorderRight => cold.border_right_color = raw,
+        PaintColorSlot::BorderBottom => cold.border_bottom_color = raw,
+        PaintColorSlot::BorderLeft => cold.border_left_color = raw,
+        PaintColorSlot::Text | PaintColorSlot::Background => {}
     }
 }
 

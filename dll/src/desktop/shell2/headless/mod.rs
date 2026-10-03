@@ -8801,8 +8801,8 @@ mod tests {
     // --- The CSS animation driver's frame rate ----------------------------
     //
     // REPORTED: "the toggle animates smooth on macOS but not on wayland or
-    // x11". The switch's knob and track glide through a declared 150 ms
-    // `animation`, which the CPU renderer advances with the CSS animation
+    // x11". The switch's knob (its `transform`) and track glide through a
+    // declared 150 ms `animation`, which the CPU renderer advances with the CSS animation
     // driver (`CSS_ANIMATION_TIMER_ID`, 16 ms). Its callback is an inert
     // marker, and `invoke_expired_timers` counts it as fired whenever it is
     // REGISTERED. macOS and Windows reach `process_timers_and_threads` only
@@ -8838,7 +8838,11 @@ mod tests {
     /// caller resets.
     fn toggled_switch_window() -> HeadlessWindow {
         use azul_core::dom::DomId;
-        use azul_css::props::{layout::LayoutMarginLeft, property::CssProperty};
+        use azul_css::props::{
+            basic::PixelValue,
+            property::CssProperty,
+            style::{StyleTransform, StyleTransformVec},
+        };
         use azul_layout::overlay::ContentChange;
 
         azul_core::task::reset_test_clock();
@@ -8852,8 +8856,8 @@ mod tests {
             let _ = lw.apply_content_change(ContentChange::NodeCss {
                 dom_id: DomId::ROOT_ID,
                 node_id: knob,
-                props: vec![CssProperty::const_margin_left(LayoutMarginLeft::const_px(
-                    16,
+                props: vec![CssProperty::const_transform(StyleTransformVec::from_vec(
+                    vec![StyleTransform::TranslateX(PixelValue::const_px(16))],
                 ))],
                 override_only: false,
             });
@@ -8872,7 +8876,7 @@ mod tests {
             .as_ref()?
             .css_transitions
             .iter()
-            .find(|tr| tr.prop_type == CssPropertyType::MarginLeft)
+            .find(|tr| tr.prop_type == CssPropertyType::Transform)
             .map(|tr| tr.t)
     }
 

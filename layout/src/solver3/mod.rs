@@ -541,6 +541,56 @@ pub fn set_skip_display_list(skip: bool) {
     SKIP_DISPLAY_LIST.store(skip, core::sync::atomic::Ordering::Relaxed);
 }
 
+/// The layout indices a css-dirty pass on the RETAINED tree must re-emit
+/// instead of splicing from the previous display list: every box of a
+/// restyled node, and every box below one. Its own items were painted from
+/// its old style, and a value it changed can be inherited by what it
+/// contains. Empty when the pass carries no css dirt (a resize).
+fn css_dirty_reemit_set(
+    tree: &layout_tree::LayoutTree,
+    css_dirty: &[(NodeId, azul_css::props::property::RelayoutScope)],
+) -> std::collections::BTreeSet<usize> {
+    let mut out = std::collections::BTreeSet::new();
+    if css_dirty.is_empty() {
+        return out;
+    }
+    let dirty: std::collections::BTreeSet<NodeId> = css_dirty.iter().map(|(n, _)| *n).collect();
+    // Per layout index: 0 = not decided yet, 1 = re-emits, 2 = splices. Each
+    // walk up stops at the first decided ancestor, so the whole tree costs
+    // one visit per node and edge.
+    let mut verdict = vec![0_u8; tree.nodes.len()];
+    let mut chain: Vec<usize> = Vec::new();
+    for start in 0..tree.nodes.len() {
+        chain.clear();
+        let mut answer = 2_u8;
+        let mut cur = Some(start);
+        while let Some(i) = cur {
+            let Some(node) = tree.nodes.get(i) else {
+                break;
+            };
+            if verdict[i] != 0 {
+                answer = verdict[i];
+                break;
+            }
+            chain.push(i);
+            if node.dom_node_id.is_some_and(|d| dirty.contains(&d)) {
+                answer = 1;
+                break;
+            }
+            cur = node.parent;
+        }
+        for &i in &chain {
+            verdict[i] = answer;
+        }
+    }
+    for (i, v) in verdict.iter().enumerate() {
+        if *v == 1 {
+            out.insert(i);
+        }
+    }
+    out
+}
+
 // M12.7: keep this out-of-line so the web lift sees it as its own wasm fn
 // (not inlined into layout_dom_recursive). An opt-folded infinite loop in the
 // solver (a mis-lifted loop exit) is otherwise hidden inside the giant inlined
@@ -710,14 +760,31 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // against a stale hint meeting a swapped DOM.
     drop(doc_setup_span);
     let resize_only = core::mem::take(&mut cache.resize_only_hint);
+    // OVERRIDES-ONLY SKIP: the frame of a layout-property tween changed no
+    // node - only the user override the tween walks (`tick_animations` arms
+    // the latch, stamped with the DOM it describes). The reconcile reads node
+    // data and interaction states, never overrides, so it would rebuild
+    // exactly the retained tree: take it as it is, like the resize path. The
+    // css dirt of this pass (Step 1.15) names the boxes to lay out again, and
+    // its nodes re-emit in the display-list patch (Step 4). A stamp that no
+    // longer matches (a node added, a restyle, a hover moved since the tick)
+    // reconciles as before.
+    let overrides_only = cache
+        .overrides_only_hint
+        .take()
+        .is_some_and(|stamp| stamp == cache::OverridesOnlyStamp::of(new_dom));
     let dom_len_for_hint = new_dom.node_data.as_ref().len();
-    let (new_tree_val, mut recon_result) = if resize_only
+    let (new_tree_val, mut recon_result) = if (resize_only || overrides_only)
         && cache.tree.as_ref().is_some_and(|t| {
             t.dom_to_layout
                 .last_key_value()
                 .is_none_or(|(max_id, _)| max_id.index() < dom_len_for_hint)
         }) {
-        let _p = crate::probe::Probe::span("reconcile_skipped_resize_only");
+        let _p = crate::probe::Probe::span(if resize_only {
+            "reconcile_skipped_resize_only"
+        } else {
+            "reconcile_skipped_overrides_only"
+        });
         cache.last_reconcile_was_skipped = true;
         let tree = cache.tree.take().expect("checked is_some above");
         // DL-patching input: the sizes the PREVIOUS pass computed — the
@@ -725,7 +792,11 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // object), so this is the only moment they can be captured.
         cache.previous_sizes = tree.nodes.iter().map(|n| n.used_size).collect();
         let mut r = cache::ReconciliationResult::default();
-        r.layout_roots.insert(tree.root);
+        // A resize re-runs the top-down pass from the root at the new size;
+        // an override frame lays out only what its css dirt names.
+        if resize_only {
+            r.layout_roots.insert(tree.root);
+        }
         r.reused_nodes = tree.nodes.len();
         r.fresh_nodes = 0;
         (tree, r)
@@ -1665,6 +1736,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             || (cache.last_reconcile_structure_preserved
                 && css_dirty.is_empty()
                 && cascade_ctx_unchanged);
+        // On the retained tree a pass may carry css dirt (an override-only
+        // frame: a layout-property tween): its restyled boxes, and what they
+        // contain, re-emit; everything else splices. Empty for a resize.
+        let css_dirty_reemit = if cache.last_reconcile_was_skipped {
+            css_dirty_reemit_set(&new_tree, css_dirty)
+        } else {
+            std::collections::BTreeSet::new()
+        };
         #[cfg(feature = "std")]
         if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
             eprintln!(
@@ -1708,6 +1787,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     // PatchState's own size diff).
                     let mut reemit = ctx.reflowed_ifcs.clone();
                     reemit.extend(recon_result.fresh_indices.iter().copied());
+                    reemit.extend(css_dirty_reemit.iter().copied());
                     display_list::PatchState::build(
                         prev_dl,
                         &cache.calculated_positions, // last pass's positions (replaced later)
@@ -1746,6 +1826,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             let mut rects: Vec<LogicalRect> = Vec::new();
             let mut changed: std::collections::BTreeSet<usize> = ctx.reflowed_ifcs.clone();
             changed.extend(recon_result.fresh_indices.iter().copied());
+            changed.extend(css_dirty_reemit.iter().copied());
             for (idx, node) in new_tree.nodes.iter().enumerate() {
                 let old_pos = pos_get(&cache.calculated_positions, idx);
                 let new_pos = pos_get(&calculated_positions, idx);
@@ -1774,6 +1855,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 new_tree.nodes.iter().map(|n| n.used_size).collect();
             let mut reemit_full = ctx.reflowed_ifcs.clone();
             reemit_full.extend(recon_result.fresh_indices.iter().copied());
+            reemit_full.extend(css_dirty_reemit.iter().copied());
             for (i, (prev, new)) in cache
                 .previous_sizes
                 .iter()

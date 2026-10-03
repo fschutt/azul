@@ -2070,19 +2070,13 @@ impl Runner {
                 for ch in &track_changes {
                     extra = extra.max(self.apply_user_change(ch));
                 }
-                // A layout-affecting `animation` transition (width, margins)
-                // must re-solve, not just repaint — the display-list rebuild
-                // reads geometry the solver has not recomputed yet.
-                extra.max(if self.layout_window.take_transition_relayout() {
-                    ProcessEventResult::ShouldIncrementalRelayout
-                } else if self.layout_window.take_transition_patched() {
-                    // Every transitioning value was PATCHED into the DL in
-                    // place: no rebuild, just re-render — the DL diff turns
-                    // the patched items into bounded damage.
-                    ProcessEventResult::ShouldReRenderCurrentWindow
-                } else {
-                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
-                })
+                // The one decision every frame driver takes after a tick: a
+                // layout-affecting `animation` transition (width, margins)
+                // re-solves; values patched into the DL in place or bound by
+                // key (a transform tween, a FLIP slide) only re-render - the
+                // DL / GPU-value diff turns them into bounded damage; anything
+                // else rebuilds the display list.
+                extra.max(self.layout_window.take_animation_frame_work())
             }
 
             CallbackChange::StopE2eJson { .. } => ProcessEventResult::DoNothing,
