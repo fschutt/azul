@@ -78,15 +78,28 @@ Files (all `azul_core::xml::html`, re-exported from xml_html.rs so every path st
 
 ## DONE
 
-(none yet)
+- `bd4963f9d` progress file + design.
+- Chrome probe written (UNCOMMITTED on purpose, in the worktree): `scratchpad/xml8/chrome_outline.py` (stdin JSON
+  list of snippets -> Chrome outlines), `scratchpad/xml8/rows.py` (the ~110 candidate rows), its output
+  `scratchpad/xml8/rows_chrome.txt` (Chrome's body / document outline + compatMode per row). Re-run:
+  `python3 scratchpad/xml8/rows.py > scratchpad/xml8/rows_chrome.txt`.
+  Findings: no doctype => BackCompat (quirks: `<p>a<table>` nests the table in the p); HTML 4.01 Transitional
+  with a system id / XHTML 1.0 Transitional / about:legacy-compat => CSS1Compat; the head always exists;
+  `<body id=c>` merges missing attributes; foster parenting puts text / div / span / b / p / `input type=text`
+  before the table (`input type=hidden`, `form`, `style` stay in it); a second `<table>` in a row closes the first;
+  `<col>` implies a colgroup; `</span>` with a div inside is ignored; `</div title=">">` ends at the second `>`;
+  CDATA outside svg is a bogus comment (`a<![CDATA[x>y]]>b` -> "a" "y]]>b"); `<svg><font color>` breaks out,
+  `<svg><font>` does not; `<image>` is img; `<noframes>` before the body goes into the head; `<noscript>` (scripting
+  off) is markup; `<select><div>` keeps the div (customizable select: Chrome's current parser); `<frameset>`
+  replaces the body (not modelled: D5).
 
 ## IN PROGRESS
 
-- Progress file + design (this commit).
+- (nothing half-edited)
 
 ## NEXT
 
-1. Chrome probe (scratchpad/xml8/chrome_outline.py, not committed) -> expected outlines for the new rows.
+1. (done: Chrome probe, see DONE.)
 2. RED: core/src/xml_html_test.rs rows per rule (foster parenting, adoption agency, quirks, head always,
    attribute merge, colgroup / tbody implied, table in table, any other end tag, plaintext, CDATA, doctype).
 3. GREEN: xml_html_rules.rs, xml_html_tokenizer.rs, xml_html_tree.rs, wire in xml_html.rs.
