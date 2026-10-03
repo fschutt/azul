@@ -379,6 +379,12 @@ def main():
         chat(ada, ben, "Ada", MESSAGE, True, deadline, procs)
         chat(ben, ada, "Ben", ANSWER, False, deadline, procs)
 
+        # The side panel's link line: the link gives way, "Copy link" stays on one line (LOOK
+        # 2026-10-03: the button was squeezed into two lines beside the long link).
+        node, rect = ada.node_rect(ada.id("copy-link"))
+        if node is None or not 0 < float(rect.get("height", 0)) <= 34.0:
+            raise Failure("Ada's Copy link button is %s (one line is at most 34 px high)" % (rect or "not there"))
+
         # The meeting's files in each side's data tree.
         check_files(ada, data_ada, "Ben", deadline, procs)
         check_files(ben, data_ben, "Ada", deadline, procs)
