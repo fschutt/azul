@@ -353,10 +353,14 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // store the real intrinsic size below, then return zero to the caller so
         // the parent ignores it. (Previously this early-returned zero AND stored
         // zero on the node, collapsing every auto-width abs-pos box to width 0.)
-        let is_out_of_flow = matches!(
-            get_position_type(self.ctx.styled_dom, dom_node_id),
-            LayoutPosition::Absolute | LayoutPosition::Fixed
-        );
+        // A list item's `::marker` that rides the item's first line is laid
+        // out with that line, not as a block of the item: it adds nothing
+        // either (`fc::is_marker_on_a_line`).
+        let is_out_of_flow =
+            matches!(
+                get_position_type(self.ctx.styled_dom, dom_node_id),
+                LayoutPosition::Absolute | LayoutPosition::Fixed
+            ) || crate::solver3::fc::is_marker_on_a_line(tree, self.ctx.styled_dom, node_index);
 
         // Copy child indices before recursive calls (which need &mut tree).
         // Stack buffer for the common case (≤32 children); heap only for huge nodes.
@@ -461,6 +465,9 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                     get_css_width(self.ctx.styled_dom, dom_id, node_state)
                 {
                     if let Some(mut w) = super::calc::resolve_pixel_value_no_percent(&px, em, rem)
+                        .map(|v| {
+                            super::getters::zoomed_length(self.ctx.styled_dom, dom_id, px.metric, v)
+                        })
                         .filter(|_| !is_table_cell)
                     {
                         if box_sizing == LayoutBoxSizing::BorderBox {
@@ -481,7 +488,11 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 if let MultiValue::Exact(LayoutHeight::Px(px)) =
                     get_css_height(self.ctx.styled_dom, dom_id, node_state)
                 {
-                    if let Some(mut h) = super::calc::resolve_pixel_value_no_percent(&px, em, rem) {
+                    if let Some(mut h) = super::calc::resolve_pixel_value_no_percent(&px, em, rem)
+                        .map(|v| {
+                            super::getters::zoomed_length(self.ctx.styled_dom, dom_id, px.metric, v)
+                        })
+                    {
                         if box_sizing == LayoutBoxSizing::BorderBox {
                             h = (h
                                 - bp.border.top
@@ -511,6 +522,14 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                     ) {
                         if let Some(mut cap) =
                             super::calc::resolve_pixel_value_no_percent(&mw.inner, em, rem)
+                                .map(|v| {
+                                    super::getters::zoomed_length(
+                                        self.ctx.styled_dom,
+                                        dom_id,
+                                        mw.inner.metric,
+                                        v,
+                                    )
+                                })
                                 .filter(|v| v.is_finite() && *v < f32::MAX / 2.0)
                         {
                             if box_sizing == LayoutBoxSizing::BorderBox {
@@ -531,8 +550,35 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             if let MultiValue::Exact(mw) =
                 get_css_min_width(self.ctx.styled_dom, dom_id, node_state)
             {
-                if let Some(min_w) = super::calc::resolve_pixel_value_no_percent(&mw.inner, em, rem)
+                if let Some(mut min_w) =
+                    super::calc::resolve_pixel_value_no_percent(&mw.inner, em, rem).map(|v| {
+                        super::getters::zoomed_length(
+                            self.ctx.styled_dom,
+                            dom_id,
+                            mw.inner.metric,
+                            v,
+                        )
+                    })
                 {
+                    // Intrinsics are CONTENT sizes: a border-box min-width
+                    // sheds its border and padding, as `width` and
+                    // `max-width` do above (a `min-width: 300px` border box
+                    // with 12px padding offered 300px of content: 324).
+                    if matches!(
+                        get_css_box_sizing(self.ctx.styled_dom, dom_id, node_state),
+                        MultiValue::Exact(azul_css::props::layout::LayoutBoxSizing::BorderBox)
+                    ) {
+                        let bp = tree
+                            .get(LayoutNodeId::new(node_index))
+                            .map(|n| n.box_props.unpack())
+                            .unwrap_or_default();
+                        min_w = (min_w
+                            - bp.border.left
+                            - bp.border.right
+                            - bp.padding.left
+                            - bp.padding.right)
+                            .max(0.0);
+                    }
                     intrinsic.min_content_width = intrinsic.min_content_width.max(min_w);
                     intrinsic.max_content_width = intrinsic.max_content_width.max(min_w);
                 }
@@ -542,6 +588,14 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 get_css_min_height(self.ctx.styled_dom, dom_id, node_state)
             {
                 if let Some(min_h) = super::calc::resolve_pixel_value_no_percent(&mh.inner, em, rem)
+                    .map(|v| {
+                        super::getters::zoomed_length(
+                            self.ctx.styled_dom,
+                            dom_id,
+                            mh.inner.metric,
+                            v,
+                        )
+                    })
                 {
                     intrinsic.min_content_height = intrinsic.min_content_height.max(min_h);
                     intrinsic.max_content_height = intrinsic.max_content_height.max(min_h);
@@ -668,6 +722,10 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                     let w = self.ctx.viewport_size.width.min(300.0);
                     (w, w / 2.0)
                 };
+                // CSS `zoom` scales a picture's natural size like any
+                // absolute length (LAYOUT7).
+                let zoom = super::getters::get_effective_zoom(self.ctx.styled_dom, dom_id);
+                let (width, height) = (width * zoom, height * zoom);
                 // A replaced element with NO intrinsic size (e.g. a RenderImageCallback
                 // <img> like the AzulPaint canvas) must behave like a VirtualView: keep
                 // the 300×150 fallback as the min/max-content (so it has a sensible
@@ -816,7 +874,18 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 // layout (`calculate_used_size_for_node` sizes a DOM-less box
                 // by these intrinsics under a measurement constraint).
                 let is_anonymous_wrapper = node.dom_node_id.is_none();
-                if is_text_node || has_text_in_subtree || is_anonymous_wrapper {
+                // Case 3 is an inline BOX (`display: inline` after
+                // blockification, e.g. a `<span>`), never a block container
+                // that establishes this IFC: a `<div style="width:
+                // max-content">` holding nothing but an inline-block has no
+                // text anywhere and was measured 0 wide (Chrome: the
+                // inline-block's width).
+                let is_inline_box = !is_text_node
+                    && !is_anonymous_wrapper
+                    && tree
+                        .warm(LayoutNodeId::new(node_index))
+                        .is_some_and(|w| w.computed_style.display == LayoutDisplay::Inline);
+                if is_text_node || has_text_in_subtree || is_anonymous_wrapper || !is_inline_box {
                     // Case 1, 2 or 4: measure the inline content
                     self.calculate_ifc_root_intrinsic_sizes(tree, node_index)
                 } else {
@@ -1824,6 +1893,14 @@ fn process_layout_children<T: ParsedFontTrait>(
                     let em = get_element_font_size(ctx.styled_dom, child_dom_id, node_state);
                     let rem = super::getters::get_root_font_size(ctx.styled_dom, node_state);
                     super::calc::resolve_pixel_value_no_percent(&px, em, rem)
+                        .map(|v| {
+                            super::getters::zoomed_length(
+                                ctx.styled_dom,
+                                child_dom_id,
+                                px.metric,
+                                v,
+                            )
+                        })
                         .unwrap_or(intrinsic_sizes.max_content_height)
                 }
                 // is equivalent to automatic size
@@ -1862,6 +1939,10 @@ fn process_layout_children<T: ParsedFontTrait>(
                 alignment: crate::solver3::getters::get_vertical_align_for_node(
                     ctx.styled_dom,
                     child_dom_id,
+                    azul_css::props::basic::PhysicalSize::new(
+                        ctx.viewport_size.width,
+                        ctx.viewport_size.height,
+                    ),
                 ),
                 source_node_id: Some(child_dom_id),
             }));
@@ -2152,15 +2233,16 @@ pub fn calculate_used_size_for_node(
 
     // +spec:intrinsic-sizing:9e1c9d - non-quantitative values (auto, min-content, max-content) are
     // not influenced by box-sizing
+    // `fit-content` is one of them: its size is a CONTENT size (the
+    // min/max-content clamp below), the padding and border go outside it
+    // whatever `box-sizing` says.
     let width_is_quantitative = matches!(
         &css_width,
-        MultiValue::Exact(LayoutWidth::Px(_) | LayoutWidth::FitContent(_) | LayoutWidth::Calc(_))
+        MultiValue::Exact(LayoutWidth::Px(_) | LayoutWidth::Calc(_))
     );
     let height_is_quantitative = matches!(
         &css_height,
-        MultiValue::Exact(
-            LayoutHeight::Px(_) | LayoutHeight::FitContent(_) | LayoutHeight::Calc(_)
-        )
+        MultiValue::Exact(LayoutHeight::Px(_) | LayoutHeight::Calc(_))
     );
 
     // +spec:width-calculation:50d67a - automatic sizing concepts (width/height auto resolution)
@@ -2353,13 +2435,15 @@ pub fn calculate_used_size_for_node(
         LayoutWidth::Px(px) => {
             let em = get_element_font_size(styled_dom, id, node_state);
             let rem = super::getters::get_root_font_size(styled_dom, node_state);
+            // CSS `zoom` scales an absolute length (LAYOUT7).
             let pixels_opt = super::calc::resolve_pixel_value_no_percent_with_viewport(
                 &px,
                 em,
                 rem,
                 viewport_size.width,
                 viewport_size.height,
-            );
+            )
+            .map(|v| super::getters::zoomed_length(styled_dom, id, px.metric, v));
 
             pixels_opt.unwrap_or_else(|| {
                 px.to_percent().map_or(intrinsic.max_content_width, |p| {
@@ -2404,9 +2488,35 @@ pub fn calculate_used_size_for_node(
                 viewport_size.width,
                 viewport_size.height,
             );
-            intrinsic
-                .max_content_width
-                .min(intrinsic.min_content_width.max(arg))
+            let arg = super::getters::zoomed_length(styled_dom, id, px.metric, arg);
+            // The argument takes the place of the AVAILABLE space (css-sizing-3
+            // 3.2): the content box gets its stretch-fit size, the argument
+            // less this box's margins, borders and padding. So the
+            // `fit-content` keyword, parsed as `fit-content(100%)`, is
+            // min(max-content, max(min-content, stretch-fit)) - a padded
+            // fit-content box of wrapping text fits its container. The result
+            // is a content size whatever `box-sizing` says
+            // (`width_is_quantitative`).
+            if arg.is_finite() {
+                let stretch_fit = (arg
+                    - box_props.margin.left
+                    - box_props.margin.right
+                    - box_props.border.left
+                    - box_props.border.right
+                    - box_props.padding.left
+                    - box_props.padding.right)
+                    .max(0.0);
+                intrinsic
+                    .max_content_width
+                    .min(intrinsic.min_content_width.max(stretch_fit))
+            } else {
+                // Against an indefinite basis it behaves as auto: the
+                // contribution of the pass's kind.
+                match cb_w {
+                    Text3AvailableSpace::MinContent => intrinsic.min_content_width,
+                    _ => intrinsic.max_content_width,
+                }
+            }
         }
         LayoutWidth::Calc(items) => {
             use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
@@ -2529,13 +2639,15 @@ pub fn calculate_used_size_for_node(
         LayoutHeight::Px(px) => {
             let em = get_element_font_size(styled_dom, id, node_state);
             let rem = super::getters::get_root_font_size(styled_dom, node_state);
+            // CSS `zoom` scales an absolute length (LAYOUT7).
             let pixels_opt = super::calc::resolve_pixel_value_no_percent_with_viewport(
                 &px,
                 em,
                 rem,
                 viewport_size.width,
                 viewport_size.height,
-            );
+            )
+            .map(|v| super::getters::zoomed_length(styled_dom, id, px.metric, v));
 
             // +spec:height-calculation:37bc8c - percentage heights resolve against definite
             // containing block height
@@ -2577,6 +2689,7 @@ pub fn calculate_used_size_for_node(
                 viewport_size.width,
                 viewport_size.height,
             );
+            let arg = super::getters::zoomed_length(styled_dom, id, px.metric, arg);
             let auto_height = intrinsic.max_content_height;
             auto_height.min(auto_height.max(arg))
         }
@@ -2717,15 +2830,46 @@ pub fn calculate_used_size_for_node(
             box_props,
         )
     } else {
-        // Non-replaced element: apply width and height constraints independently
-        let cw = apply_width_constraints(
-            styled_dom,
-            id,
-            node_state,
-            resolved_width,
-            cbw_unresolvable_nan,
-            box_props,
-        );
+        // Non-replaced element: apply width and height constraints independently.
+        //
+        // The min/max widths and the tentative width must be in ONE box
+        // space. With `box-sizing: border-box` the min/max widths are
+        // border-box sizes (CSS Box Sizing 3 s3); a quantitative width is
+        // one too, but an auto / intrinsic-keyword width is a CONTENT size
+        // (`width_is_quantitative`). Clamping that content size with a
+        // border-box `min-width: 100%` and adding the padding afterwards made
+        // AzMail's inline-block paper 524px wide in a 500px pane (MAIL6,
+        // Chrome 500): the content width goes into border-box space for the
+        // clamp and back out of it.
+        let border_box_constraints_on_content = !width_is_quantitative
+            && matches!(
+                get_css_box_sizing(styled_dom, id, node_state),
+                MultiValue::Exact(azul_css::props::layout::LayoutBoxSizing::BorderBox)
+            );
+        let cw = if border_box_constraints_on_content {
+            let pb_w = box_props.padding.left
+                + box_props.padding.right
+                + box_props.border.left
+                + box_props.border.right;
+            (apply_width_constraints(
+                styled_dom,
+                id,
+                node_state,
+                resolved_width + pb_w,
+                cbw_unresolvable_nan,
+                box_props,
+            ) - pb_w)
+                .max(0.0)
+        } else {
+            apply_width_constraints(
+                styled_dom,
+                id,
+                node_state,
+                resolved_width,
+                cbw_unresolvable_nan,
+                box_props,
+            )
+        };
 
         let ch = apply_height_constraints(
             styled_dom,
@@ -2904,6 +3048,7 @@ fn apply_constraint_violation_table(
     let min_w = match get_css_min_width(styled_dom, id, node_state) {
         MultiValue::Exact(mw) => {
             resolve_px_with_box_model(&mw.inner, containing_block_width, box_props, true, em, rem)
+                .map(|v| super::getters::zoomed_length(styled_dom, id, mw.inner.metric, v))
                 .unwrap_or(0.0)
         }
         _ => 0.0,
@@ -2923,6 +3068,7 @@ fn apply_constraint_violation_table(
                     em,
                     rem,
                 )
+                .map(|v| super::getters::zoomed_length(styled_dom, id, mw.inner.metric, v))
                 .unwrap_or(f32::MAX)
             }
         }
@@ -2939,6 +3085,7 @@ fn apply_constraint_violation_table(
             em,
             rem,
         )
+        .map(|v| super::getters::zoomed_length(styled_dom, id, mh.inner.metric, v))
         .unwrap_or(0.0),
         _ => 0.0,
     };
@@ -2957,6 +3104,7 @@ fn apply_constraint_violation_table(
                     em,
                     rem,
                 )
+                .map(|v| super::getters::zoomed_length(styled_dom, id, mh.inner.metric, v))
                 .unwrap_or(f32::MAX)
             }
         }
@@ -3054,6 +3202,7 @@ fn apply_width_constraints(
     let min_width = match get_css_min_width(styled_dom, id, node_state) {
         MultiValue::Exact(mw) => {
             resolve_px_with_box_model(&mw.inner, containing_block_width, box_props, true, em, rem)
+                .map(|v| super::getters::zoomed_length(styled_dom, id, mw.inner.metric, v))
                 .unwrap_or(0.0)
         }
         _ => 0.0,
@@ -3073,6 +3222,7 @@ fn apply_width_constraints(
                     em,
                     rem,
                 )
+                .map(|v| super::getters::zoomed_length(styled_dom, id, mw.inner.metric, v))
             }
         }
         _ => None,
@@ -3119,6 +3269,7 @@ fn apply_height_constraints(
             em,
             rem,
         )
+        .map(|v| super::getters::zoomed_length(styled_dom, id, mh.inner.metric, v))
         .unwrap_or(0.0),
         _ => 0.0,
     };
@@ -3137,6 +3288,7 @@ fn apply_height_constraints(
                     em,
                     rem,
                 )
+                .map(|v| super::getters::zoomed_length(styled_dom, id, mh.inner.metric, v))
             }
         }
         _ => None,

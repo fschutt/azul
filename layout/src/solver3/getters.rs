@@ -109,8 +109,165 @@ pub fn get_element_font_size(
     // only on the lifted web path's small DOMs. The cache-block lift bug — likely the
     // compute_all_font_sizes_px closure's control/FP — is documented for a later remill
     // fix that can restore the fast path.)
-    let _ = compute_all_font_sizes_px; // referenced so other callers / native keep it
-    resolve_font_size_slow(styled_dom, dom_id, node_state)
+    // referenced so other callers / native keep it
+    let _ = compute_all_font_sizes_px;
+    // CSS `zoom` scales the font size by the node's effective zoom (the
+    // cascade's value is unzoomed: an inherited size is the parent's
+    // UNZOOMED one, so the product never applies a zoom twice); em lengths
+    // follow it (LAYOUT7).
+    resolve_font_size_slow(styled_dom, dom_id, node_state) * get_effective_zoom(styled_dom, dom_id)
+}
+
+// ==== CSS zoom (LAYOUT7) ====
+
+/// A node's own `zoom` factor in the `Normal` state, 1.0 without one.
+fn own_zoom(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
+    let (Some(node_data), Some(styled)) = (
+        styled_dom.node_data.as_container().get(dom_id),
+        styled_dom.styled_nodes.as_container().get(dom_id),
+    ) else {
+        return 1.0;
+    };
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_zoom(node_data, &dom_id, &styled.styled_node_state)
+        .and_then(|v| v.get_property().copied())
+        .map_or(1.0, |zoom| zoom.factor())
+}
+
+/// Every node's effective zoom in one top-down walk (the arena is
+/// pre-order: a parent precedes its children). EMPTY when no node zooms.
+#[cfg_attr(feature = "web_lift", allow(dead_code))]
+fn compute_all_zooms(styled_dom: &StyledDom) -> Vec<f32> {
+    let n = styled_dom.node_data.len();
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let mut zooms = vec![1.0f32; n];
+    let mut any = false;
+    for idx in 0..n {
+        let id = NodeId::new(idx);
+        let own = own_zoom(styled_dom, id);
+        any |= (own - 1.0).abs() > f32::EPSILON;
+        let parent = hierarchy
+            .get(id)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+            .filter(|p| p.index() < idx)
+            .map_or(1.0, |p| zooms[p.index()]);
+        zooms[idx] = parent * own;
+    }
+    if any {
+        zooms
+    } else {
+        Vec::new()
+    }
+}
+
+/// Whether any node of the document declares a `zoom` other than 1 (the
+/// zoom memo is not empty).
+#[must_use]
+pub fn document_has_zoom(styled_dom: &StyledDom) -> bool {
+    #[cfg(feature = "web_lift")]
+    {
+        (0..styled_dom.node_data.len())
+            .any(|i| (own_zoom(styled_dom, NodeId::new(i)) - 1.0).abs() > f32::EPSILON)
+    }
+    #[cfg(not(feature = "web_lift"))]
+    {
+        !styled_dom
+            .css_property_cache
+            .ptr
+            .resolved_zooms
+            .get_or_init(|| compute_all_zooms(styled_dom))
+            .is_empty()
+    }
+}
+
+/// The EFFECTIVE `zoom` of a node (CSS Viewport 1 `zoom`, as Chrome
+/// implements it): the product of `zoom` on the node and on every ancestor.
+/// 1.0 in an unzoomed document - the memo is empty then, no index is read.
+#[must_use]
+pub fn get_effective_zoom(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
+    // The OnceLock memo mis-lifts on the web lift (see `get_element_font_size`):
+    // walk the ancestors there.
+    #[cfg(feature = "web_lift")]
+    {
+        let hierarchy = styled_dom.node_hierarchy.as_container();
+        let mut zoom = 1.0f32;
+        let mut cur = Some(dom_id);
+        let mut guard = styled_dom.node_data.len();
+        while let Some(id) = cur {
+            if guard == 0 {
+                break;
+            }
+            guard -= 1;
+            zoom *= own_zoom(styled_dom, id);
+            cur = hierarchy
+                .get(id)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+        }
+        zoom
+    }
+    #[cfg(not(feature = "web_lift"))]
+    {
+        styled_dom
+            .css_property_cache
+            .ptr
+            .resolved_zooms
+            .get_or_init(|| compute_all_zooms(styled_dom))
+            .get(dom_id.index())
+            .copied()
+            .unwrap_or(1.0)
+    }
+}
+
+/// A length of node `dom_id` resolved to `resolved` px, under its effective
+/// zoom ([`scale_length_for_zoom`]).
+#[must_use]
+pub fn zoomed_length(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    metric: azul_css::props::basic::SizeMetric,
+    resolved: f32,
+) -> f32 {
+    let zoom = get_effective_zoom(styled_dom, dom_id);
+    if (zoom - 1.0).abs() <= f32::EPSILON {
+        return resolved;
+    }
+    scale_length_for_zoom(
+        metric,
+        resolved,
+        zoom,
+        get_effective_zoom(styled_dom, NodeId::new(0)),
+    )
+}
+
+/// THE zoom rule of every length the solver resolves: a length resolved to
+/// `resolved` px on a box of effective zoom `zoom` (the root's `root_zoom`).
+/// An absolute length (px, pt, in, cm, mm) scales by the zoom, a rem by it
+/// relative to the root's (the root font size already carries the root's
+/// zoom); em, percentages and viewport units come back as they are - em
+/// follows the zoomed font size, a percentage the zoomed containing block.
+#[must_use]
+pub fn scale_length_for_zoom(
+    metric: azul_css::props::basic::SizeMetric,
+    resolved: f32,
+    zoom: f32,
+    root_zoom: f32,
+) -> f32 {
+    use azul_css::props::basic::SizeMetric;
+    match metric {
+        SizeMetric::Px | SizeMetric::Pt | SizeMetric::In | SizeMetric::Cm | SizeMetric::Mm => {
+            resolved * zoom
+        }
+        SizeMetric::Rem if root_zoom > 0.0 => resolved * zoom / root_zoom,
+        SizeMetric::Rem
+        | SizeMetric::Em
+        | SizeMetric::Percent
+        | SizeMetric::Vw
+        | SizeMetric::Vh
+        | SizeMetric::Vmin
+        | SizeMetric::Vmax => resolved,
+    }
 }
 
 /// Bottom-up single-pass resolve of every node's font-size.
@@ -3027,6 +3184,9 @@ pub fn get_computed_display(
 pub fn get_vertical_align_for_node(
     styled_dom: &StyledDom,
     dom_id: NodeId,
+    // The layout viewport: `vw` / `vh` / `vmin` / `vmax` resolve against it
+    // (a `vertical-align: 5vh` raised the box by the bare number, TEXT7).
+    viewport: PhysicalSize,
 ) -> crate::text3::cache::VerticalAlign {
     let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
     let va = match get_vertical_align_property(styled_dom, dom_id, node_state) {
@@ -3046,31 +3206,28 @@ pub fn get_vertical_align_for_node(
         // = baseline
         StyleVerticalAlign::Percentage(p) => {
             let font_size = get_element_font_size(styled_dom, dom_id, node_state);
-            // The element's used line-height (`normal` as 1.2em). No viewport
-            // reaches this getter (see the <length> arm's TODO), so a
-            // viewport-unit line-height counts as 0 here.
-            let line_height = get_used_line_height(
-                styled_dom,
-                dom_id,
-                node_state,
-                font_size,
-                PhysicalSize::new(0.0, 0.0),
-            )
-            .resolve(font_size, 0.0, 0.0, 0.0, 0);
+            // The element's used line-height (`normal` as 1.2em).
+            let line_height =
+                get_used_line_height(styled_dom, dom_id, node_state, font_size, viewport)
+                    .resolve(font_size, 0.0, 0.0, 0.0, 0);
             crate::text3::cache::VerticalAlign::Offset(p.normalized() * line_height)
         }
         // §10.8.1: <length> is absolute offset from baseline
         StyleVerticalAlign::Length(l) => {
             let font_size = get_element_font_size(styled_dom, dom_id, node_state);
-            // TODO(superplan): viewport units (vw/vh/...) in a vertical-align <length>
-            // fall back to raw pixels here because this getter has no viewport ctx.
-            // Threading `viewport_size` requires changing this fn's signature, but one
-            // of its callers (`sizing.rs::process_layout_children`) lives outside
-            // Group 2's file ownership — deferred. (The sibling path in
-            // fc.rs::translate_to_text3_constraints already resolves it via
-            // `resolve_pixel_value_with_viewport`.)
-            let px = super::calc::resolve_pixel_value(&l, 0.0, font_size, font_size);
-            crate::text3::cache::VerticalAlign::Offset(px)
+            // em against the element's font size, rem against the root's, the
+            // viewport units against the viewport; CSS `zoom` by its rule.
+            let px = super::calc::resolve_pixel_value_with_viewport(
+                &l,
+                0.0,
+                font_size,
+                get_root_font_size(styled_dom, node_state),
+                viewport.width,
+                viewport.height,
+            );
+            crate::text3::cache::VerticalAlign::Offset(zoomed_length(
+                styled_dom, dom_id, l.metric, px,
+            ))
         }
     }
 }
@@ -3257,7 +3414,13 @@ pub fn get_style_properties_for_state(
     // Get font-size: either from this node's CSS, or inherit from parent
     // font-size is an inheritable property, so if the node doesn't have
     // an explicit font-size, it should inherit from the parent (not default to 16px)
-    let font_size = {
+    //
+    // In a document with a CSS `zoom` the text takes the ONE zoom-aware
+    // resolution the layout's lengths use (`get_element_font_size`): the
+    // fast path below mixes the parent's ZOOMED size with unzoomed px.
+    let font_size = if document_has_zoom(styled_dom) {
+        get_element_font_size(styled_dom, dom_id, node_state)
+    } else {
         // FAST PATH: compact cache for normal state.
         // Sentinel/inherit/initial → inherit from parent directly (which is
         // what the slow cascade walk would fall back to via `.unwrap_or(parent_font_size)`
@@ -3422,13 +3585,16 @@ pub fn get_style_properties_for_state(
     };
 
     // Get letter-spacing from CSS
+    // CSS `zoom` (LAYOUT7): the compact cache's spacings are computed px;
+    // a cascaded length scales by the zoom rule.
+    let zoom = get_effective_zoom(styled_dom, dom_id);
     let letter_spacing = {
         // FAST PATH: compact cache for letter-spacing (i16 resolved px × 10)
         let mut fast_ls = None;
         if node_state.is_normal() {
             if let Some(ref cc) = cache.compact_cache {
                 if let Some(px_val) = cc.get_letter_spacing(dom_id.index()) {
-                    fast_ls = Some(crate::text3::cache::Spacing::PxF(px_val));
+                    fast_ls = Some(crate::text3::cache::Spacing::PxF(px_val * zoom));
                 }
             }
         }
@@ -3440,7 +3606,12 @@ pub fn get_style_properties_for_state(
                     let px_value = v
                         .inner
                         .resolve_with_context(&font_size_context, PropertyContext::FontSize);
-                    crate::text3::cache::Spacing::PxF(px_value)
+                    crate::text3::cache::Spacing::PxF(zoomed_length(
+                        styled_dom,
+                        dom_id,
+                        v.inner.metric,
+                        px_value,
+                    ))
                 })
                 .unwrap_or_default()
         })
@@ -3453,7 +3624,7 @@ pub fn get_style_properties_for_state(
         if node_state.is_normal() {
             if let Some(ref cc) = cache.compact_cache {
                 if let Some(px_val) = cc.get_word_spacing(dom_id.index()) {
-                    fast_ws = Some(crate::text3::cache::Spacing::PxF(px_val));
+                    fast_ws = Some(crate::text3::cache::Spacing::PxF(px_val * zoom));
                 }
             }
         }
@@ -3465,7 +3636,12 @@ pub fn get_style_properties_for_state(
                     let px_value = v
                         .inner
                         .resolve_with_context(&font_size_context, PropertyContext::FontSize);
-                    crate::text3::cache::Spacing::PxF(px_value)
+                    crate::text3::cache::Spacing::PxF(zoomed_length(
+                        styled_dom,
+                        dom_id,
+                        v.inner.metric,
+                        px_value,
+                    ))
                 })
                 .unwrap_or_default()
         })
@@ -3566,7 +3742,7 @@ pub fn get_style_properties_for_state(
         // its text clusters (get_item_vertical_align reads this). Without it every text
         // cluster fell back to the IFC root's alignment (baseline), so sub/super/length
         // vertical-align on inline spans had no effect.
-        vertical_align: get_vertical_align_for_node(styled_dom, dom_id),
+        vertical_align: get_vertical_align_for_node(styled_dom, dom_id, viewport_size),
         // These still use defaults - could be extended in future:
         // font_features, font_variations, writing_mode,
         // text_orientation, text_combine_upright, font_variant_*
@@ -6639,12 +6815,17 @@ pub fn get_used_line_height(
     use crate::text3::cache::LineHeight;
 
     let cache = &styled_dom.css_property_cache.ptr;
+    // CSS `zoom` (LAYOUT7): a number or a percentage is of the (zoomed)
+    // `font_size_px` already; a length scales by the zoom rule - the compact
+    // cache's px are computed lengths (an em the cascade computed against the
+    // UNZOOMED font size included), so they take the node's zoom whole.
+    let zoom = get_effective_zoom(styled_dom, dom_id);
     if node_state.is_normal() {
         if let Some(ref cc) = cache.compact_cache {
             match cc.get_line_height(dom_id.index()) {
                 CompactLineHeight::Normal => return LineHeight::Normal,
                 CompactLineHeight::Factor(factor) => return LineHeight::Px(factor * font_size_px),
-                CompactLineHeight::Px(px) => return LineHeight::Px(px),
+                CompactLineHeight::Px(px) => return LineHeight::Px(px * zoom),
                 CompactLineHeight::Uncached => {}
             }
         }
@@ -6654,12 +6835,18 @@ pub fn get_used_line_height(
         .get_line_height(node_data, &dom_id, node_state)
         .and_then(|v| v.get_property().copied())
         .and_then(|lh| {
-            lh.resolve_px(
+            let resolved = lh.resolve_px(
                 font_size_px,
                 get_root_font_size(styled_dom, node_state),
                 viewport.width,
                 viewport.height,
-            )
+            )?;
+            Some(match lh {
+                azul_css::props::style::text::StyleLineHeight::Length(length) => {
+                    zoomed_length(styled_dom, dom_id, length.metric, resolved)
+                }
+                _ => resolved,
+            })
         })
         .map_or(LineHeight::Normal, LineHeight::Px)
 }
@@ -9644,7 +9831,7 @@ mod autotest_generated {
 
         // vertical-align defaults to the baseline for an unstyled div.
         assert!(matches!(
-            get_vertical_align_for_node(&sd, id),
+            get_vertical_align_for_node(&sd, id, PhysicalSize::new(800.0, 600.0)),
             crate::text3::cache::VerticalAlign::Baseline
         ));
     }

@@ -1551,6 +1551,72 @@ mod autotest_generated {
         );
     }
 
+    #[test]
+    fn a_leaf_does_not_follow_its_subtree_into_a_container_with_another_id() {
+        // LAYOUT7 item 7 (AzMail's Add Account wizard, MAIL6): page 1's field
+        // `#acct-name > p > "x"` is replaced by page 2's `#acct-imap-host > p
+        // > "x"` at the same place. The exact-subtree tier (A2) matched the
+        // text "x" across: it checked only the IMMEDIATE parent's identity
+        // (the anonymous `p`, none on both sides), so the text overlay of the
+        // name field - what the user typed - moved into the host field.
+        //
+        // old:  0 root ── 1 (#acct-name)      ── 2 p ── 3 "x"
+        // new:  0 root ── 1 (#acct-imap-host) ── 2 p ── 3 "x"
+        let hier = vec![
+            hitem(None, None, None, Some(1)),
+            hitem(Some(0), None, None, Some(2)),
+            hitem(Some(1), None, None, Some(3)),
+            hitem(Some(2), None, None, None),
+        ];
+        let field = |id: &str| {
+            vec![
+                NodeData::create_div(),
+                id_node(id),
+                NodeData::create_node(crate::dom::NodeType::P),
+                NodeData::create_text_do_not_use_without_block_level_wrapper("x"),
+            ]
+        };
+        let r = reconcile_dom(
+            &field("acct-name"),
+            &field("acct-imap-host"),
+            &hier,
+            &hier,
+            &no_layout(),
+            &no_layout(),
+            DomId::ROOT_ID,
+            Instant::now(),
+        );
+        for node in [2, 3] {
+            assert!(
+                !r.node_moves
+                    .iter()
+                    .any(|m| m.new_node_id.index() == node && m.old_node_id.index() == node),
+                "node {node} lives in a container the author named differently: it is a new \
+                 element; moves = {:?}",
+                r.node_moves,
+            );
+        }
+
+        // The same field rendered again is the same element, all the way down.
+        let same = reconcile_dom(
+            &field("acct-name"),
+            &field("acct-name"),
+            &hier,
+            &hier,
+            &no_layout(),
+            &no_layout(),
+            DomId::ROOT_ID,
+            Instant::now(),
+        );
+        assert!(
+            same.node_moves
+                .iter()
+                .any(|m| m.new_node_id.index() == 3 && m.old_node_id.index() == 3),
+            "moves = {:?}",
+            same.node_moves,
+        );
+    }
+
     // ========================================================================
     // create_migration_map
     // ========================================================================

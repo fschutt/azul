@@ -993,6 +993,9 @@ fn resolve_explicit_dimension_width<T: ParsedFontTrait>(
                     get_element_font_size(ctx.styled_dom, id, node_state),
                     get_root_font_size(ctx.styled_dom, node_state),
                 );
+                // CSS `zoom` scales an absolute length (LAYOUT7).
+                let pixels =
+                    crate::solver3::getters::zoomed_length(ctx.styled_dom, id, px.metric, pixels);
                 let content_px = border_box_to_content(
                     ctx,
                     node,
@@ -1048,6 +1051,9 @@ fn resolve_explicit_dimension_height<T: ParsedFontTrait>(
                     get_element_font_size(ctx.styled_dom, id, node_state),
                     get_root_font_size(ctx.styled_dom, node_state),
                 );
+                // CSS `zoom` scales an absolute length (LAYOUT7).
+                let pixels =
+                    crate::solver3::getters::zoomed_length(ctx.styled_dom, id, px.metric, pixels);
                 // box-sizing:border-box + an ABSOLUTE length is a border-box
                 // value; the caller re-adds border+padding to reach the
                 // taffy border-box, so convert to content-box here to avoid
@@ -1463,7 +1469,17 @@ fn layout_bfc<T: ParsedFontTrait>(
     {
         let mut temp_positions: super::PositionVec = Vec::new();
 
-        let bfc_children = tree.children(node_index).to_vec();
+        // A `::marker` riding the first line is laid out with that line, not
+        // as a block of this flow (`is_marker_on_a_line`).
+        let bfc_children: Vec<usize> = {
+            let shared: &LayoutTree = tree;
+            shared
+                .children(node_index)
+                .iter()
+                .copied()
+                .filter(|&child| !is_marker_on_a_line(shared, ctx.styled_dom, child))
+                .collect()
+        };
         // [g147c az-web-lift DIAG] layout_bfc Pass-1 child-sizing loop: record bfc_children.len per
         // parent node (0x60A00+slot). If body shows len=2 but the divs never get the
         // per-child "sized" marker (0x60A40+childslot) below → the loop skips them; if they
@@ -1581,7 +1597,17 @@ fn layout_bfc<T: ParsedFontTrait>(
 
     // +spec:display-property:9f6e18 - BFC dispatches normal flow, floats, and relative positioning
     // (CSS 2.2 §9.8)
-    let pos_children = tree.children(node_index).to_vec();
+    // A `::marker` riding the first line is no block of this flow
+    // (`is_marker_on_a_line`): it took a line of its own.
+    let pos_children: Vec<usize> = {
+        let shared: &LayoutTree = tree;
+        shared
+            .children(node_index)
+            .iter()
+            .copied()
+            .filter(|&child| !is_marker_on_a_line(shared, ctx.styled_dom, child))
+            .collect()
+    };
 
     // +spec:width-calculation:bef810 - margin percentages resolve against the containing block
     // +spec:box-model:66e123 - ...whose INLINE size is the basis in CSS3 (writing-modes-4 §7.2)
@@ -4319,13 +4345,30 @@ fn layout_ifc<T: ParsedFontTrait>(
     // property (text-align, text-align-last, text-indent, direction, line-height,
     // white-space, columns) — which is NOT covered by the per-run content hash — would
     // otherwise silently reuse a stale, differently-aligned/indented cached layout.
-    let text3_constraints = translate_to_text3_constraints(
+    let mut text3_constraints = translate_to_text3_constraints(
         ctx,
         constraints,
         ctx.styled_dom,
         ifc_root_dom_id,
         ifc_root_is_anonymous,
     );
+    // CSS 2.1 s16.1 / CSS Text 3 s8.1: `text-indent` indents the FIRST
+    // formatted line of the block container. An anonymous block (which
+    // borrows the container's style) holds that line only when it is the
+    // container's first in-flow box: the text after a nested block
+    // (`<div>first<div>..</div>after</div>`) is not indented (Chrome);
+    // it was (TEXT7's finding). `each-line` keeps its own rule.
+    if ifc_root_is_anonymous
+        && !text3_constraints.text_indent_each_line
+        && tree
+            .get(LayoutNodeId::new(node_index))
+            .and_then(|n| n.parent)
+            .is_some_and(|parent| {
+                first_in_flow_child(tree, ctx.styled_dom, parent) != Some(node_index)
+            })
+    {
+        text3_constraints.text_indent = 0.0;
+    }
 
     let current_content_hash = {
         let _p = crate::probe::Probe::span("ifc_content_hash");
@@ -4965,6 +5008,15 @@ fn establishes_new_bfc<T: ParsedFontTrait>(
     // +spec:height-calculation:e20498 - table wrapper box establishes BFC (CSS 2.2 §17.4)
     // +spec:positioning:b780d3 - Table wrapper box establishes BFC (CSS 2.2 § 17.4)
     if cold.and_then(|c| c.anonymous_type) == Some(AnonymousBoxType::TableWrapper) {
+        return true;
+    }
+    // CSS 2.2 s9.4.1: a table cell establishes a BFC - an ANONYMOUS cell
+    // too (s17.2.1: the one a `display: table` box's `<p>` sits in). With
+    // no DOM node it answered "no", its first child's top margin and its
+    // last child's bottom margin escaped the cell, and no box outside a
+    // cell takes them: `display: table; padding: 12px` around `<p>Hi</p>`
+    // was 44px tall, Chrome 76 (MAIL6).
+    if matches!(node.formatting_context, FormattingContext::TableCell) {
         return true;
     }
     let Some(dom_id) = node.dom_node_id else {
@@ -8892,37 +8944,12 @@ fn calculate_column_widths_auto_with_width<T: ParsedFontTrait>(
 /// `layout_formatting_context` (7534be8c7, reverted) also changed the final
 /// passes and dropped whole tables from the layout.
 fn cell_is_inline_formatting_context(styled_dom: &StyledDom, cell_dom_id: NodeId) -> bool {
-    let any_text = cell_dom_id
-        .az_children(&styled_dom.node_hierarchy.as_container())
-        .any(|child_id| {
-            matches!(
-                styled_dom.node_data.as_container()[child_id].get_node_type(),
-                NodeType::Text(_)
-            )
-        });
+    // A cell whose inline box holds a block (`<td><a><img style="display:
+    // block"></a></td>`) is not one: that inline is split around the block
+    // (CSS 2.2 s9.2.1.1), which `has_only_inline_children` answers - the
+    // twin walk `inline_children_hold_a_block` that kept such cells on the
+    // block branch is gone (`layout_tree::inline_holds_a_block`).
     crate::solver3::layout_tree::has_only_inline_children(styled_dom, cell_dom_id)
-        && (any_text || !inline_children_hold_a_block(styled_dom, cell_dom_id))
-}
-
-/// Whether an inline box among `node`'s children holds a block-level box
-/// (block-in-inline, CSS 2.2 9.2.1.1: `<a><img style="display: block"></a>`),
-/// looking through `display: inline` boxes only: an atomic inline
-/// (inline-block, inline-table, inline-flex, inline-grid) is a leaf, its
-/// content is its own formatting context.
-fn inline_children_hold_a_block(styled_dom: &StyledDom, node: NodeId) -> bool {
-    use crate::solver3::layout_tree::{get_display_type, is_block_level};
-    node.az_children(&styled_dom.node_hierarchy.as_container())
-        .any(|child| {
-            if matches!(
-                styled_dom.node_data.as_container()[child].get_node_type(),
-                NodeType::Text(_)
-            ) {
-                return false;
-            }
-            is_block_level(styled_dom, child)
-                || (get_display_type(styled_dom, child) == LayoutDisplay::Inline
-                    && inline_children_hold_a_block(styled_dom, child))
-        })
 }
 
 /// Layout a cell with its computed column width to determine its content height
@@ -10511,7 +10538,11 @@ fn measure_atomic_inline<T: ParsedFontTrait>(
         stroke: None,
         // Already measured from the margin box's bottom edge.
         baseline_offset,
-        alignment: crate::solver3::getters::get_vertical_align_for_node(ctx.styled_dom, dom_id),
+        alignment: crate::solver3::getters::get_vertical_align_for_node(
+            ctx.styled_dom,
+            dom_id,
+            PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+        ),
         source_node_id: Some(dom_id),
     })
 }
@@ -10717,6 +10748,22 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
         is_anonymous
     );
 
+    // CSS Lists 3 s3.1: the `::marker` of every list item whose FIRST LINE
+    // BOX this IFC holds opens its content - the item's own IFC, the
+    // anonymous block of `<li>Item<ul>..</ul></li>`, the first `<p>` of
+    // `<li><p>a</p><p>b</p></li>` (and only the first: every IFC whose parent
+    // was a list item got a marker before, the anonymous block none).
+    for marker_idx in markers_on_first_line(tree, ctx.styled_dom, ifc_root_index) {
+        push_marker_content(ctx, tree, marker_idx, content);
+    }
+    // A marker laid out as an IFC of its own (its item has no line box to
+    // ride) holds its marker and nothing else: its DOM node is the LIST
+    // ITEM, whose children are the item's content, not the marker's - read
+    // as its own, they were laid out (and painted) a second time.
+    if is_marker_box(tree, ifc_root_index) {
+        return Ok(());
+    }
+
     // For anonymous IFC wrappers, we collect content from layout tree children
     // For regular IFC roots, we also check DOM children for text nodes
     if is_anonymous {
@@ -10852,158 +10899,8 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
         return Ok(());
     }
 
-    // Regular (non-anonymous) IFC root - check for list markers and use DOM traversal
-
-    // Check if this IFC root OR its parent is a list-item and needs a marker
-    // Case 1: IFC root itself is list-item (e.g., <li> with display: list-item)
-    // Case 2: IFC root's parent is list-item (e.g., <li><text>...</text></li>)
-    let ifc_root_node = tree
-        .get(LayoutNodeId::new(ifc_root_index))
-        .ok_or(LayoutError::InvalidTree)?;
-    // [g135] reached past the 6706 tree.get.
-    #[cfg(feature = "web_lift")]
-    unsafe {
-        crate::az_mark((0x606A4) as u32, (0x0000_6706u32) as u32);
-    }
-    let mut list_item_dom_id: Option<NodeId> = None;
-
-    // Check IFC root itself
-    if let Some(dom_id) = ifc_root_node.dom_node_id {
-        use crate::solver3::getters::get_display_property;
-        if let MultiValue::Exact(display) = get_display_property(ctx.styled_dom, Some(dom_id)) {
-            use LayoutDisplay;
-            if display == LayoutDisplay::ListItem {
-                debug_ifc_layout!(ctx, "IFC root NodeId({:?}) is list-item", dom_id);
-                list_item_dom_id = Some(dom_id);
-            }
-        }
-    }
-
-    // Check IFC root's parent
-    if list_item_dom_id.is_none() {
-        if let Some(parent_idx) = ifc_root_node.parent {
-            if let Some(parent_node) = tree.get(LayoutNodeId::new(parent_idx)) {
-                if let Some(parent_dom_id) = parent_node.dom_node_id {
-                    use crate::solver3::getters::get_display_property;
-                    if let MultiValue::Exact(display) =
-                        get_display_property(ctx.styled_dom, Some(parent_dom_id))
-                    {
-                        use LayoutDisplay;
-                        if display == LayoutDisplay::ListItem {
-                            debug_ifc_layout!(
-                                ctx,
-                                "IFC root parent NodeId({:?}) is list-item",
-                                parent_dom_id
-                            );
-                            list_item_dom_id = Some(parent_dom_id);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // If we found a list-item, generate markers
-    if let Some(list_dom_id) = list_item_dom_id {
-        debug_ifc_layout!(
-            ctx,
-            "Found list-item (NodeId({:?})), generating marker",
-            list_dom_id
-        );
-
-        // Find the layout node index for the list-item DOM node
-        let list_item_layout_idx = tree
-            .nodes
-            .iter()
-            .enumerate()
-            .find(|(idx, node)| {
-                node.dom_node_id == Some(list_dom_id)
-                    && tree
-                        .warm(LayoutNodeId::new(*idx))
-                        .and_then(|w| w.pseudo_element)
-                        .is_none()
-            })
-            .map(|(idx, _)| idx);
-
-        if let Some(list_idx) = list_item_layout_idx {
-            // Per CSS spec, the ::marker pseudo-element is the first child of the list-item
-            // Find the ::marker pseudo-element in the list-item's children
-            let marker_idx = tree
-                .children(list_idx)
-                .iter()
-                .find(|&&child_idx| {
-                    tree.warm(LayoutNodeId::new(child_idx))
-                        .is_some_and(|w| w.pseudo_element == Some(PseudoElement::Marker))
-                })
-                .copied();
-
-            if let Some(marker_idx) = marker_idx {
-                debug_ifc_layout!(ctx, "Found ::marker pseudo-element at index {}", marker_idx);
-
-                // Get the DOM ID for style resolution (marker references the same DOM node as
-                // list-item)
-                let list_dom_id_for_style = tree
-                    .get(LayoutNodeId::new(marker_idx))
-                    .and_then(|n| n.dom_node_id)
-                    .unwrap_or(list_dom_id);
-
-                // Get list-style-position to determine marker positioning
-                // Default is 'outside' per CSS Lists Module Level 3
-
-                let list_style_position =
-                    get_list_style_position(ctx.styled_dom, Some(list_dom_id));
-                let position_outside =
-                    matches!(list_style_position, StyleListStylePosition::Outside);
-
-                debug_ifc_layout!(
-                    ctx,
-                    "List marker list-style-position: {:?} (outside={})",
-                    list_style_position,
-                    position_outside
-                );
-
-                // Generate marker text segments - font fallback happens during shaping
-                let base_style = crate::solver3::getters::get_style_properties_cached(
-                    &mut ctx.style_cache,
-                    ctx.styled_dom,
-                    list_dom_id_for_style,
-                    ctx.system_style.as_ref(),
-                    PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
-                );
-                let marker_segments = generate_list_marker_segments(
-                    tree,
-                    ctx.styled_dom,
-                    marker_idx, // Pass the marker index, not the list-item index
-                    ctx.counters,
-                    base_style,
-                    ctx.debug_messages,
-                );
-
-                debug_ifc_layout!(
-                    ctx,
-                    "Generated {} list marker segments",
-                    marker_segments.len()
-                );
-
-                // Add markers as InlineContent::Marker with position information
-                // Outside markers will be positioned in the padding gutter by the layout engine
-                for segment in marker_segments {
-                    content.push(InlineContent::Marker {
-                        run: segment,
-                        position_outside,
-                    });
-                }
-            } else {
-                debug_ifc_layout!(
-                    ctx,
-                    "WARNING: List-item at index {} has no ::marker pseudo-element",
-                    list_idx
-                );
-            }
-        }
-    }
-
-    drop(ifc_root_node);
+    // Regular (non-anonymous) IFC root: DOM traversal (its list marker, if
+    // any, is already in `content` - `markers_on_first_line` above)
 
     // IMPORTANT: We need to traverse the DOM, not just the layout tree!
     //
@@ -11544,6 +11441,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
             alignment: crate::solver3::getters::get_vertical_align_for_node(
                 ctx.styled_dom,
                 span_dom_id,
+                PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
             ),
             source_node_id: Some(span_dom_id),
         }));
@@ -12071,6 +11969,163 @@ fn is_empty_block(tree: &LayoutTree, node_index: usize) -> bool {
     true
 }
 
+// ==== list markers on the first line box (CSS Lists 3 s3.1, CSS 2.2 s12.5.1) ====
+
+/// Deepest chain of first children the marker helpers follow.
+const MARKER_WALK_LIMIT: usize = 128;
+
+/// Whether the box at `index` is a `::marker` pseudo-element.
+pub(crate) fn is_marker_box(tree: &LayoutTree, index: usize) -> bool {
+    tree.warm(LayoutNodeId::new(index))
+        .is_some_and(|w| w.pseudo_element == Some(PseudoElement::Marker))
+}
+
+/// Whether the box at `index` is in its parent's flow: not a `::marker`,
+/// not absolutely positioned, not floated. Anonymous boxes are.
+fn is_in_flow_box(tree: &LayoutTree, styled_dom: &StyledDom, index: usize) -> bool {
+    if is_marker_box(tree, index) {
+        return false;
+    }
+    let Some(dom_id) = tree
+        .get(LayoutNodeId::new(index))
+        .and_then(|n| n.dom_node_id)
+    else {
+        return true;
+    };
+    !matches!(
+        get_position_type(styled_dom, Some(dom_id)),
+        LayoutPosition::Absolute | LayoutPosition::Fixed
+    ) && get_float_property(styled_dom, Some(dom_id)) == LayoutFloat::None
+}
+
+/// The first in-flow child box of `index` ([`is_in_flow_box`]).
+fn first_in_flow_child(tree: &LayoutTree, styled_dom: &StyledDom, index: usize) -> Option<usize> {
+    tree.children(index)
+        .iter()
+        .copied()
+        .find(|&child| is_in_flow_box(tree, styled_dom, child))
+}
+
+/// The inline formatting context holding a list item's FIRST LINE BOX, the
+/// line its `::marker` sits on (CSS Lists 3 s3.1, CSS 2.2 s12.5.1): the item
+/// itself when it is one, else the first one down the item's first in-flow
+/// block children - the anonymous block of `<li>Item<div>..</div></li>`, the
+/// `<p>` of `<li><div><p>..</p></div></li>`.
+///
+/// `None` when there is no line box there (an empty item, or a first child
+/// that is a table, a flex box, a replaced element): the marker box is then
+/// laid out as a line of its own, as before.
+pub(crate) fn marker_line_host(
+    tree: &LayoutTree,
+    styled_dom: &StyledDom,
+    list_item: usize,
+) -> Option<usize> {
+    let mut node = list_item;
+    for _ in 0..MARKER_WALK_LIMIT {
+        match tree.get(LayoutNodeId::new(node))?.formatting_context {
+            FormattingContext::Inline => return Some(node),
+            FormattingContext::Block { .. } => {}
+            _ => return None,
+        }
+        node = first_in_flow_child(tree, styled_dom, node)?;
+    }
+    None
+}
+
+/// A list item's `::marker` box that rides the item's first line box
+/// ([`marker_line_host`]): it is no block of the item's flow - its content
+/// is laid out with that line - so the block layout and the intrinsic
+/// sizes pass it by (it took a line of its own: every `<li>` with a block
+/// child was one line too tall).
+pub(crate) fn is_marker_on_a_line(tree: &LayoutTree, styled_dom: &StyledDom, index: usize) -> bool {
+    is_marker_box(tree, index)
+        && tree
+            .get(LayoutNodeId::new(index))
+            .and_then(|n| n.parent)
+            .is_some_and(|item| marker_line_host(tree, styled_dom, item).is_some())
+}
+
+/// The `::marker` boxes whose content opens the first line of the inline
+/// formatting context rooted at `ifc_root`, outermost list item first: one
+/// for each list item (the root itself, or an ancestor it starts) whose
+/// [`marker_line_host`] it is. A marker box laid out as an IFC of its own
+/// holds just itself.
+fn markers_on_first_line(tree: &LayoutTree, styled_dom: &StyledDom, ifc_root: usize) -> Vec<usize> {
+    if is_marker_box(tree, ifc_root) {
+        return vec![ifc_root];
+    }
+    let mut markers = Vec::new();
+    let mut node = ifc_root;
+    for _ in 0..MARKER_WALK_LIMIT {
+        if let Some(marker) = tree
+            .children(node)
+            .iter()
+            .copied()
+            .find(|&child| is_marker_box(tree, child))
+        {
+            if marker_line_host(tree, styled_dom, node) == Some(ifc_root) {
+                markers.push(marker);
+            }
+        }
+        let Some(parent) = tree.get(LayoutNodeId::new(node)).and_then(|n| n.parent) else {
+            break;
+        };
+        // The first line of `parent` is here only if `node` starts it.
+        if first_in_flow_child(tree, styled_dom, parent) != Some(node) {
+            break;
+        }
+        node = parent;
+    }
+    markers.reverse();
+    markers
+}
+
+/// The content of the `::marker` box `marker_index` (its list item's
+/// counter in its `list-style-type`, styled as the item) appended to an
+/// IFC's `content`, inside or outside by the item's `list-style-position`.
+fn push_marker_content<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    marker_index: usize,
+    content: &mut Vec<InlineContent>,
+) {
+    // The marker box references its list item's DOM node.
+    let Some(list_dom_id) = tree
+        .get(LayoutNodeId::new(marker_index))
+        .and_then(|n| n.dom_node_id)
+    else {
+        return;
+    };
+    // Default is 'outside' per CSS Lists Module Level 3
+    let position_outside = matches!(
+        get_list_style_position(ctx.styled_dom, Some(list_dom_id)),
+        StyleListStylePosition::Outside
+    );
+    // Font fallback happens during shaping
+    let base_style = crate::solver3::getters::get_style_properties_cached(
+        &mut ctx.style_cache,
+        ctx.styled_dom,
+        list_dom_id,
+        ctx.system_style.as_ref(),
+        PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+    );
+    let segments = generate_list_marker_segments(
+        tree,
+        ctx.styled_dom,
+        marker_index,
+        ctx.counters,
+        base_style,
+        ctx.debug_messages,
+    );
+    // Outside markers are positioned in the padding gutter by text3
+    for segment in segments {
+        content.push(InlineContent::Marker {
+            run: segment,
+            position_outside,
+        });
+    }
+}
+
 /// Generates marker text for a list item marker.
 ///
 /// This function looks up the counter value from the cache and formats it
@@ -12145,25 +12200,13 @@ fn generate_list_marker_text(
         )));
     }
 
-    // Get list-style-type from the list-item or its container
-    let list_container_dom_id = list_item_node.parent.and_then(|grandparent_index| {
-        tree.get(LayoutNodeId::new(grandparent_index))
-            .and_then(|grandparent| grandparent.dom_node_id)
-    });
-
-    // Try to get list-style-type from the list container first,
-    // then fall back to the list-item
-    let list_style_type = list_container_dom_id.map_or_else(
-        || get_list_style_type(styled_dom, Some(list_item_dom_id)),
-        |container_id| {
-            let container_type = get_list_style_type(styled_dom, Some(container_id));
-            if container_type == StyleListStyleType::default() {
-                get_list_style_type(styled_dom, Some(list_item_dom_id))
-            } else {
-                container_type
-            }
-        },
-    );
+    // The list item's own list-style-type: it inherits, so `<ol>`'s decimal
+    // reaches its items, and an item's own value wins over its list's (the
+    // container's type was read first, so `<li style="list-style-type:
+    // none">` in a styled list kept the list's marker). The same value
+    // decides whether the marker has a box at all
+    // (`LayoutTreeBuilder::create_marker_pseudo_element`).
+    let list_style_type = get_list_style_type(styled_dom, Some(list_item_dom_id));
 
     // Get the counter value for "list-item" counter from the LIST-ITEM node
     // Per CSS spec, counters are scoped to elements, and the list-item counter
@@ -12190,6 +12233,10 @@ fn generate_list_marker_text(
 
     // Format the counter according to the list-style-type
     let marker_text = format_counter(counter_value, list_style_type);
+    // No marker string (`none`): no marker - not a lone space.
+    if marker_text.is_empty() {
+        return String::new();
+    }
 
     // For ordered lists (non-symbolic markers), add a period and space
     // For unordered lists (symbolic markers like •, ◦, ▪), just add a space

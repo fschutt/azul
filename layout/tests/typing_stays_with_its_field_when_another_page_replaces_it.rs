@@ -63,20 +63,29 @@ fn page(first: &str, second: &str) -> StyledDom {
     StyledDom::create(&mut dom, css)
 }
 
-/// The app renders a page: a new generation.
+/// The app renders a page: a new generation, installed the way the shells'
+/// `regenerate_layout` (and the E2E runner) install one - the reconciliation
+/// first (which old node became which new one: node-keyed state such as the
+/// text overlay follows it), then the layout, then the reconciliation's
+/// completion. (LAYOUT7: the test called `layout_new_generation` alone, a
+/// path no app takes, where nothing ever moves or drops node-keyed state.)
 fn render(lw: &mut LayoutWindow, first: &str, second: &str) {
     let window_state = lw.current_window_state.clone();
     let renderer_resources = RendererResources::default();
     let system_callbacks = ExternalSystemCallbacks::rust_internal();
     let mut debug_messages = Some(Vec::new());
+    let mut styled = page(first, second);
+    let pending =
+        lw.begin_reconciliation(DomId::ROOT_ID, &mut styled, azul_core::task::Instant::now());
     lw.layout_new_generation(
-        page(first, second),
+        styled,
         &window_state,
         &renderer_resources,
         &system_callbacks,
         &mut debug_messages,
     )
     .unwrap();
+    lw.finish_reconciliation(DomId::ROOT_ID, &pending);
 }
 
 fn window(first: &str, second: &str) -> LayoutWindow {

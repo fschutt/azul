@@ -507,6 +507,12 @@ pub struct UnresolvedBoxProps {
     /// the real containing block) picks the right axis without re-reading
     /// the cascade.
     pub vertical_writing_mode: bool,
+    /// The node's effective CSS `zoom` and the root's (captured at collection
+    /// time, `getters::get_effective_zoom`): absolute margin / padding /
+    /// border lengths scale by it (`getters::scale_length_for_zoom`). 0.0 -
+    /// the default - is no zoom.
+    pub zoom: f32,
+    pub root_zoom: f32,
 }
 
 impl UnresolvedBoxProps {
@@ -515,10 +521,48 @@ impl UnresolvedBoxProps {
     pub fn resolve(&self, params: &ResolutionParams) -> ResolvedBoxProps {
         let mut ctx = params.to_resolution_context();
         ctx.vertical_writing_mode = self.vertical_writing_mode;
+        let mut margin = self.margin.resolve(&ctx);
+        let mut padding = self.padding.resolve(&ctx, PropertyContext::Padding);
+        let mut border = self.border.resolve(&ctx, PropertyContext::BorderWidth);
+        let zoom = if self.zoom > 0.0 { self.zoom } else { 1.0 };
+        if (zoom - 1.0).abs() > f32::EPSILON {
+            let root_zoom = if self.root_zoom > 0.0 {
+                self.root_zoom
+            } else {
+                1.0
+            };
+            let scale = |metric: Option<SizeMetric>, px: f32| {
+                metric.map_or(px, |m| {
+                    crate::solver3::getters::scale_length_for_zoom(m, px, zoom, root_zoom)
+                })
+            };
+            let margin_metric = |m: &UnresolvedMargin| match m {
+                UnresolvedMargin::Length(pv) => Some(pv.metric),
+                UnresolvedMargin::Zero | UnresolvedMargin::Auto => None,
+            };
+            margin = EdgeSizes {
+                top: scale(margin_metric(&self.margin.top), margin.top),
+                right: scale(margin_metric(&self.margin.right), margin.right),
+                bottom: scale(margin_metric(&self.margin.bottom), margin.bottom),
+                left: scale(margin_metric(&self.margin.left), margin.left),
+            };
+            padding = EdgeSizes {
+                top: scale(Some(self.padding.top.metric), padding.top),
+                right: scale(Some(self.padding.right.metric), padding.right),
+                bottom: scale(Some(self.padding.bottom.metric), padding.bottom),
+                left: scale(Some(self.padding.left.metric), padding.left),
+            };
+            border = EdgeSizes {
+                top: scale(Some(self.border.top.metric), border.top),
+                right: scale(Some(self.border.right.metric), border.right),
+                bottom: scale(Some(self.border.bottom.metric), border.bottom),
+                left: scale(Some(self.border.left.metric), border.left),
+            };
+        }
         ResolvedBoxProps {
-            margin: self.margin.resolve(&ctx),
-            padding: self.padding.resolve(&ctx, PropertyContext::Padding),
-            border: self.border.resolve(&ctx, PropertyContext::BorderWidth),
+            margin,
+            padding,
+            border,
             margin_auto: self.margin.get_margin_auto(),
         }
     }
@@ -1531,6 +1575,7 @@ mod autotest_generated {
                 PixelValue::px(2.0),
                 PixelValue::px(2.0),
             ),
+            ..UnresolvedBoxProps::default()
         };
         let r = b.resolve(&p);
 

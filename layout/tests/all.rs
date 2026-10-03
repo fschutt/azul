@@ -836,3 +836,21 @@ mod a_stretched_flex_container_keeps_its_min_height;
 mod a_rich_text_editor_sets_its_line_height_and_scales_its_indents_with_its_text;
 #[path = "a_slide_rails_thumbnails_line_up_with_and_without_a_badge.rs"]
 mod a_slide_rails_thumbnails_line_up_with_and_without_a_badge;
+#[path = "an_absolutely_positioned_child_does_not_split_its_parents_line.rs"]
+mod an_absolutely_positioned_child_does_not_split_its_parents_line;
+#[path = "a_block_inside_an_inline_splits_the_inline_around_it.rs"]
+mod a_block_inside_an_inline_splits_the_inline_around_it;
+#[path = "a_border_box_min_width_bounds_the_border_box.rs"]
+mod a_border_box_min_width_bounds_the_border_box;
+#[path = "a_fit_content_width_shrinks_to_its_content.rs"]
+mod a_fit_content_width_shrinks_to_its_content;
+#[path = "an_anonymous_table_cell_keeps_its_blocks_margins.rs"]
+mod an_anonymous_table_cell_keeps_its_blocks_margins;
+#[path = "a_block_taller_than_a_page_is_split_across_pages.rs"]
+mod a_block_taller_than_a_page_is_split_across_pages;
+#[path = "css_zoom_scales_the_lengths_of_its_subtree.rs"]
+mod css_zoom_scales_the_lengths_of_its_subtree;
+#[path = "text_after_a_nested_block_is_not_indented.rs"]
+mod text_after_a_nested_block_is_not_indented;
+#[path = "a_vertical_align_in_viewport_units_resolves_against_the_viewport.rs"]
+mod a_vertical_align_in_viewport_units_resolves_against_the_viewport;

@@ -50,7 +50,7 @@ use crate::{
             get_writing_mode, MultiValue,
         },
         layout_tree::{
-            get_display_type, is_block_level, AnonymousBoxType, DirtyFlag, LayoutNode,
+            get_display_type, in_flow_block_level_mask, AnonymousBoxType, DirtyFlag, LayoutNode,
             LayoutNodeHot, LayoutTreeBuilder, SubtreeHash,
         },
         positioning::get_position_type,
@@ -1224,7 +1224,7 @@ fn layout_relevant_child_count(
 ) -> usize {
     use super::{
         getters::{get_display_property, MultiValue},
-        layout_tree::{is_block_level, is_whitespace_only_text},
+        layout_tree::is_whitespace_only_text,
     };
 
     let parent_display = match get_display_property(styled_dom, Some(parent_id)) {
@@ -1249,14 +1249,17 @@ fn layout_relevant_child_count(
             | LayoutDisplay::InlineGrid
     );
 
-    let has_any_block_child = children.iter().any(|&id| is_block_level(styled_dom, id));
+    // In-flow block-level children only (CSS 2.2 s9.2.1.1, the builders'
+    // `in_flow_block_level_mask`).
+    let block_level = in_flow_block_level_mask(styled_dom, children);
+    let has_any_block_child = block_level.iter().any(|&b| b);
 
     let mut count = 0usize;
     // When parent has any block child, whitespace-only inline runs
     // surrounding blocks collapse. We approximate that by skipping
     // whitespace text whenever any block sibling exists.
     let collapse_inline_whitespace = has_any_block_child;
-    for &id in children {
+    for (&id, &is_block) in children.iter().zip(&block_level) {
         // display:none drops
         let display = match get_display_property(styled_dom, Some(id)) {
             MultiValue::Exact(d) => d,
@@ -1270,10 +1273,7 @@ fn layout_relevant_child_count(
             continue;
         }
         // Whitespace-only inline run collapse when mixed with blocks.
-        if collapse_inline_whitespace
-            && !is_block_level(styled_dom, id)
-            && is_whitespace_only_text(styled_dom, id)
-        {
+        if collapse_inline_whitespace && !is_block && is_whitespace_only_text(styled_dom, id) {
             continue;
         }
         count += 1;
@@ -1676,10 +1676,16 @@ fn reconcile_table_children(
             // The anonymous cell is a block container: its block-level
             // children as they are, each run of inline-level ones in an
             // anonymous inline wrapper (none for collapsible whitespace).
-            let content = &run[cell_start..j];
+            // An inline holding a block is split around it (CSS 2.2 s9.2.1.1).
+            let split_content = super::layout_tree::split_inlines_around_blocks(
+                styled_dom,
+                run[cell_start..j].to_vec(),
+            );
+            let content = &split_content[..];
+            let block_level = in_flow_block_level_mask(styled_dom, content);
             let mut k = 0;
             while k < content.len() {
-                if is_block_level(styled_dom, content[k]) {
+                if block_level[k] {
                     reconcile_child_under(
                         styled_dom,
                         content[k],
@@ -1697,7 +1703,7 @@ fn reconcile_table_children(
                     continue;
                 }
                 let inline_start = k;
-                while k < content.len() && !is_block_level(styled_dom, content[k]) {
+                while k < content.len() && !block_level[k] {
                     k += 1;
                 }
                 let inline_run: Vec<(usize, NodeId)> =
@@ -2086,6 +2092,30 @@ pub fn reconcile_recursive(
             parent_display,
             new_children_dom_ids,
         );
+        // CSS 2.2 s9.2.1.1: in a block container an inline box that holds a
+        // block is split around it - its children take its place (the fresh
+        // tree's `process_block_children` does the same). Flex / grid items
+        // and table parts are not block containers' children.
+        if !matches!(
+            parent_display,
+            LayoutDisplay::Flex
+                | LayoutDisplay::InlineFlex
+                | LayoutDisplay::Grid
+                | LayoutDisplay::InlineGrid
+                | LayoutDisplay::Table
+                | LayoutDisplay::InlineTable
+                | LayoutDisplay::TableRowGroup
+                | LayoutDisplay::TableHeaderGroup
+                | LayoutDisplay::TableFooterGroup
+                | LayoutDisplay::TableRow
+                | LayoutDisplay::TableColumnGroup
+                | LayoutDisplay::TableColumn
+                | LayoutDisplay::Contents
+                | LayoutDisplay::None
+        ) {
+            new_children_dom_ids =
+                super::layout_tree::split_inlines_around_blocks(styled_dom, new_children_dom_ids);
+        }
     }
 
     // Compute both positional and DOM-keyed lookups for the old
@@ -2177,9 +2207,11 @@ pub fn reconcile_recursive(
     // 1. Wrap consecutive inline children in anonymous block boxes
     // 2. Leave block-level children as direct children
 
-    let has_block_child = new_children_dom_ids
-        .iter()
-        .any(|&id| is_block_level(styled_dom, id));
+    // Only IN-FLOW block-level children split the inline content: an
+    // absolutely positioned block goes with the inline run around it (the
+    // fresh tree's rule, `in_flow_block_level_mask`).
+    let block_level = in_flow_block_level_mask(styled_dom, &new_children_dom_ids);
+    let has_block_child = block_level.iter().any(|&b| b);
 
     // CSS Flexbox §4 / Grid §6: every in-flow child of a flex/grid container
     // becomes a (blockified) flex/grid item. Anonymous-block wrapping of inline
@@ -2295,7 +2327,7 @@ pub fn reconcile_recursive(
         let mut anon_ordinal: usize = 0;
 
         for (i, &new_child_dom_id) in new_children_dom_ids.iter().enumerate() {
-            if is_block_level(styled_dom, new_child_dom_id) {
+            if block_level[i] {
                 // End current inline run if any
                 if !inline_run.is_empty() {
                     // CSS 2.2 § 9.2.2.1: If the inline run consists entirely of
@@ -3375,6 +3407,12 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
 
         let position_type = get_position_type(ctx.styled_dom, Some(child_dom_id));
         if position_type != LayoutPosition::Absolute && position_type != LayoutPosition::Fixed {
+            continue;
+        }
+        // A `::marker` box carries its LIST ITEM's DOM node, so an
+        // absolutely positioned item made its marker look positioned too;
+        // one that rides the item's first line is laid out with that line.
+        if fc::is_marker_on_a_line(tree, ctx.styled_dom, child_index) {
             continue;
         }
 
