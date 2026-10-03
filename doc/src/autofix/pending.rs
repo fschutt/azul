@@ -83,7 +83,57 @@ pub fn prepare_add(
     class_name: &str,
     version_data: &crate::api::VersionData,
 ) -> anyhow::Result<PendingRemovals> {
-    let _ = version_data;
+    let pending = PendingRemovals::read(dir, class_name);
+    if !pending.class {
+        return Ok(pending);
+    }
+    let Some(class) = crate::autofix::function_diff::find_api_class(class_name, version_data) else {
+        return Ok(pending);
+    };
+    let names = |map: &Option<indexmap::IndexMap<String, crate::api::FunctionData>>| {
+        let names: Vec<String> = map.iter().flat_map(|m| m.keys().cloned()).collect();
+        (!names.is_empty()).then_some(names)
+    };
+    for path in patch_files(dir) {
+        // Only the one-item commands' format (a scan patch is left as it is)
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
+        if serde_json::from_str::<AutofixPatch>(&text).is_ok() {
+            continue;
+        }
+        let Ok(mut patch) = serde_json::from_str::<ApiPatch>(&text) else {
+            continue;
+        };
+        let mut changed = false;
+        for version in patch.versions.values_mut() {
+            for module in version.modules.values_mut() {
+                let Some(cp) = module.classes.get_mut(class_name) else {
+                    continue;
+                };
+                if !cp.is_removal() {
+                    continue;
+                }
+                cp.remove = None;
+                cp.remove_functions = names(&class.functions);
+                cp.remove_constructors = names(&class.constructors);
+                changed = true;
+                if cp.is_empty() {
+                    module.classes.remove(class_name);
+                }
+            }
+            version.modules.retain(|_, m| !m.classes.is_empty());
+        }
+        if !changed {
+            continue;
+        }
+        patch.versions.retain(|_, v| !v.modules.is_empty());
+        if patch.versions.is_empty() {
+            fs::remove_file(&path)?;
+        } else {
+            fs::write(&path, serde_json::to_string_pretty(&patch)?)?;
+        }
+    }
     Ok(PendingRemovals::read(dir, class_name))
 }
 

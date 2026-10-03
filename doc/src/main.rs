@@ -941,6 +941,8 @@ fn main() -> anyhow::Result<()> {
                     );
                     autofix::add::write_patch_files(&patches_dir, std::slice::from_ref(&file))?;
                     let class_name = fn_spec.rsplit('.').nth(1).unwrap_or_default();
+                    // a pending removal of the whole class: remove, then add = replace
+                    autofix::pending::prepare_add(&patches_dir, class_name, version_data)?;
                     let superseded =
                         autofix::pending::supersede_pending_removals(&patches_dir, class_name, &patch)?;
                     if !superseded.is_empty() {
@@ -1093,8 +1095,10 @@ fn main() -> anyhow::Result<()> {
 
                 // api.json as the pending patches will leave it: an entry a pending
                 // `autofix remove` drops can be re-added (a changed signature) in
-                // the same round
-                let pending = autofix::pending::PendingRemovals::read(&patches_dir, type_name);
+                // the same round; a pending removal of the whole class becomes a
+                // removal of its entries (remove, then add = replace)
+                let pending =
+                    autofix::pending::prepare_add(&patches_dir, type_name, version_data)?;
                 if pending.class {
                     eprintln!(
                         "Error: a pending patch in {} removes the class '{}'; run `autofix apply` \
