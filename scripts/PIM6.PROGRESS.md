@@ -44,9 +44,18 @@ Screenshots: target/pim6-shots (not committed).
 - Restart 2026-10-03: scratchpad wiped (look.py gone; rewrite if a LOOK run is needed). INFRA6
   note (Save closes without asking) was already covered by 219816350/fe972fc15.
 
+- 250bd4ef7 exports INTO the data tree (house rule): exports/<name> via the data queue; export
+  Browse removed. b8fae0803/09c532370/f4ec7a1c1 week::block_lines (short blocks one line,
+  CLIPPED_* flex-shrink 0, meeting line kept).
+- fef32b38d/14a3769a8 RecurrenceEditor end_option / month_weekday_option.
+- 8e67e07ce/d5bf1e84d AzTasks repeat_form (rule_of / repeat_of / only_the_number_changed /
+  picker_week_start); 1d6850a06 detail.rs custom repeat = RecurrenceEditor, date pickers week start.
+- Navigator DatePicker was Monday already; no `ctrl || meta` in the three apps.
+
 ## IN PROGRESS
-- AzCalendar finish checklist: navigator DatePicker week start (chrome.rs), `__azcal_` prefix
-  constants, `ctrl || meta` grep, timegrid short-event block (flex-shrink 0). Then AzTasks.
+- AzTasks VTODO import/export (azul_pim content_line), then theme+mode in settings, LOOK fixes
+  (body margin 0, pane widths), E2E for repeat editor. Later: `__az<app>_` prefixes (all three
+  apps + their E2E scripts), AzContacts features, report.
 
 ## (old notes, done) RecurrenceEditor GREEN part 2 steps, in layout/src/widgets/recurrence_editor.rs:
   1. replace the 4 remaining `todo!()`: `RecurrenceEditor::create` (week_start Monday default,
