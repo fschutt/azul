@@ -19,6 +19,10 @@ headless Chrome and the prebuilt azul (AzPaint `mount`, capped runner), prints r
   only atomics measured; intrinsic-keyword boxes are STF).
 - item 5: RED ff7f62126 (an_anonymous_table_cell_keeps_its_blocks_margins.rs); GREEN dd3412ea4
   (establishes_new_bfc: FormattingContext::TableCell, anonymous cells included).
+- item 7: RED a4746426a (core diff_test a_leaf_does_not_follow_its_subtree_into_a_container_with_another_id;
+  the layout RED test now installs pages via begin_reconciliation + layout_new_generation +
+  finish_reconciliation like the shells); GREEN 3ccc3c8c5 (core/src/diff.rs A2 gate = nearest terminal
+  ancestor). Touched core (unowned this wave).
 
 ## NOTES item 1 (done)
 - item 1: abspos child treated as in-flow + ::marker with list-style-type none.
@@ -45,7 +49,7 @@ headless Chrome and the prebuilt azul (AzPaint `mount`, capped runner), prints r
   skip a marker that has a host, a marker IFC collects only its marker; no marker box for none.
 
 ## IN PROGRESS
-- item 7: AzMail wizard page 2 (RED cc7040ae5) - read the test, root-cause
+- item 8: inline-block in an inline span sized from max-content (fc.rs collect_inline_span_recursive) - probe + RED
 - DECISION: item 6 (CSS zoom) moved after items 7-10: a new CssProperty touches property.rs (~30 spots),
   css codegen (format.rs, lower_types.rs ~9 lists), core prop_cache, 30 codegen golden files, and the
   used-length effect needs ~140 resolution sites or a paint transform in core/gpu.rs + display_list
