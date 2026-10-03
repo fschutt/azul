@@ -58,6 +58,12 @@ screenshots + hierarchy dumps under target/sheetshow6-shots/.
   Number (Action::FormatCells(tab)); zoom_action renamed action_ref. OK = one style command per change (not one undo
   step - noted for the report).
 
+- Merge cells: 45bacf578 RED / 4c91ed670 GREEN CellGrid.merges (overlay cell, click selects all; api.json
+  CellGrid.merges / set_merges / with_merges / merge_of); ff35486dc RED / 1e3c65e08 + a500a7182 + 48eef7015 GREEN
+  engines (SheetEngine::merges / merge / unmerge, IronCalc keeps them by sheet_id and writes them into a copy of the
+  model on save; ops::merge_and_center); 482c0f9b5 worker MergeCenter / Unmerge + Snapshot.merges; 3d3d23065 HOME
+  Merge & Center toggle. Not undo steps; rows inserted do not shift merges (report).
+
 ## IN PROGRESS
 - (none)
 
