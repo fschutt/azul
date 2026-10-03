@@ -812,3 +812,5 @@ mod a_box_painted_after_a_layer_shows_over_it_in_the_cpu_compositor;
 mod a_node_mid_slide_is_hit_where_it_is_painted;
 #[path = "a_css_id_image_registration_rebuilds_the_display_list_itself.rs"]
 mod a_css_id_image_registration_rebuilds_the_display_list_itself;
+#[path = "a_clipped_box_inside_a_scrolled_frame_shows_all_of_its_lines.rs"]
+mod a_clipped_box_inside_a_scrolled_frame_shows_all_of_its_lines;
