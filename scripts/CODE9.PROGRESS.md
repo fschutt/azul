@@ -12,9 +12,44 @@ Branch: wt/code9 (base e537ddbe2). Brief: scripts/waves/wave9/PLAN.md "CODE9", p
 - GREEN code_view.rs (no todo!() left): d72494c31 columns, 910520ddc window + pieces, 448d88861 edit
   engine, ae70e2b8d keys, af901ab31 pointer, fe48c679d build + flat / flora looks + handlers + manifest
 
+- a02cb89dc AzCode crate registered (root Cargo.toml, workspace_test_members.txt, rust.yml dll_tests step),
+  Cargo.toml (syntect 5.2 parsing + default-syntaxes + regex-fancy), main.rs, lib.rs stub (`start()` empty),
+  buffer.rs RED; f9ee7aa18 buffer.rs GREEN (TextBuffer: from_text, line, slice, offset_of, pos_of,
+  apply(&[Edit]) -> Vec<LineChange>, undo / redo -> Undone { caret, changes }, is_dirty, mark_saved,
+  to_file_text)
+
 ## IN PROGRESS
-- AzCode app: examples/azul-code (see NEXT 4). Next file to write: examples/azul-code/Cargo.toml, then
-  src/buffer.rs RED tests.
+- NEXT STEP: examples/azul-code/src/highlight.rs RED then GREEN. Design (decided):
+  - `static SYNTAXES: OnceLock<SyntaxSet>` = `SyntaxSet::load_defaults_newlines()` (parse `line + "\n"`);
+    `syntax_for(file_name, first_line) -> &'static SyntaxReference` (by extension, then first line, else
+    plain text).
+  - `LineState { parse: ParseState, scopes: ScopeStack }` (Clone + Eq).
+  - `Highlighter { syntax: &'static SyntaxReference, checkpoints: Vec<(usize, LineState)>` sorted, line 0
+    always; `stale: Vec<(usize, LineState)>` (checkpoints after an edit, lines shifted by the delta; adopted
+    when a parse reaches one with an EQUAL state - the convergence), `cache: BTreeMap<usize, (Vec<CodeSpan>,
+    LineState /*after the line*/)>` capped ~4000, `lines_parsed: usize` counter for tests, `generation: u64`
+    bumped per edit }`.
+  - `line_spans(line, &dyn Fn(usize)->String) -> Option<Vec<CodeSpan>>`: cached -> Some; start = max(cached
+    line below with its end state, checkpoint <= line); `line - start > SYNC_LIMIT (1500)` -> None (the app
+    starts the job); else parse forward caching, appending a checkpoint every EVERY (64) lines past the last.
+  - `edited(LineChange)`: keep checkpoints <= first; those > first + removed -> stale shifted by
+    added - removed; cache >= first dropped; generation += 1.
+  - `HighlightJob { syntax, start: (usize, LineState), lines: Vec<String>, every, generation }` ->
+    `run() -> Vec<(usize, LineState)>`, `Highlighter::adopt(job_result, generation)`.
+  - scope -> CodeTokenKind: any `comment*` in the stack -> Comment, any `string*` -> StringLiteral, else the
+    innermost scope matched against prefixes (constant.numeric -> Number, constant.character -> String,
+    constant -> Constant, keyword.operator -> Operator, keyword / storage -> Keyword, entity.name.function /
+    support.function / variable.function -> Function, entity.name.type|struct|enum|class / support.type /
+    support.class -> Type, entity.name.tag -> Tag, entity.other.attribute-name / meta.annotation /
+    meta.attribute -> Attribute, support.macro / entity.name.macro -> Macro, markup.heading /
+    entity.name.section -> Heading, markup.underline.link -> Link, invalid -> Invalid, variable -> Variable,
+    punctuation -> Punctuation). `CodeSpan { start: u32, end: u32, kind: TokenKind }` app-side, mapped to
+    azul's CodeViewSpan in the UI.
+  - tests: keyword / function / string spans of a Rust line; a block comment carries to the next lines;
+    an edit invalidates from its line (cache below kept); opening a comment recolours the lines after it;
+    a far line returns None, the job's checkpoints are adopted, then Some; after an edit that keeps the
+    state, re-highlighting line 300 parses < 80 lines (convergence).
+- then: lib.rs app (see NEXT 4).
 
 ## (done) design notes of the CodeView GREEN, kept for review:
   Design notes for each (so a resumed agent need not re-derive them):
