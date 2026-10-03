@@ -971,16 +971,14 @@ fn main() -> anyhow::Result<()> {
                     type_name
                 );
 
-                let method_spec_opt = Some(method_spec);
-
-                match autofix::function_diff::generate_add_type_patches(
+                match autofix::add::new_type_patch_files(
                     type_name,
-                    method_spec_opt,
+                    method_spec,
                     &index,
                     version_data,
                     &version,
                 ) {
-                    Ok((patches, result)) => {
+                    Ok((files, result)) => {
                         // Show what will be added
                         println!("Types to add:");
                         for (ty, module) in &result.added_types {
@@ -1008,53 +1006,14 @@ fn main() -> anyhow::Result<()> {
                             }
                         }
 
-                        // Write patches to files
-                        let patches_dir =
-                            project_root.join("target").join("autofix").join("patches");
-                        fs::create_dir_all(&patches_dir)?;
-
-                        for (i, patch) in patches.iter().enumerate() {
-                            let patch_filename =
-                                format!("add_{}_{}.patch.json", type_name.to_lowercase(), i);
-                            let patch_path = patches_dir.join(&patch_filename);
-
-                            let json = patch
-                                .to_json()
-                                .unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e));
-                            fs::write(&patch_path, &json)?;
-                        }
-
-                        // Also generate the functions patch if methods were requested
-                        if !result.added_methods.is_empty() {
-                            let all: Vec<_> = type_def.methods.iter().collect();
-                            let methods = autofix::function_diff::api_candidate_methods(
-                                type_name,
-                                &all,
-                                method_spec,
-                                None,
-                                &|t: &str| {
-                                    autofix::function_diff::ffi_carries(t, version_data, &index)
-                                },
-                            );
-
-                            let func_patch = autofix::function_diff::generate_add_functions_patch(
-                                type_name,
-                                &methods,
-                                &result.primary_module,
-                                &version,
-                                type_def,
-                            );
-
-                            let patch_filename =
-                                format!("add_{}_functions.patch.json", type_name.to_lowercase());
-                            let patch_path = patches_dir.join(&patch_filename);
-                            let json = serde_json::to_string_pretty(&func_patch)?;
-                            fs::write(&patch_path, &json)?;
+                        autofix::add::write_patch_files(&patches_dir, &files)?;
+                        for file in &files {
+                            println!("  [FILE] {}", file.name);
                         }
 
                         println!(
                             "\n[OK] {} patches written to: {}",
-                            patches.len() + 1,
+                            files.len(),
                             patches_dir.display()
                         );
                         println!(
@@ -1142,19 +1101,8 @@ fn main() -> anyhow::Result<()> {
             );
 
             // Write patch to file
-            let patches_dir = project_root.join("target").join("autofix").join("patches");
-            fs::create_dir_all(&patches_dir)?;
-
-            let patch_filename = format!(
-                "add_{}_{}.patch.json",
-                type_name.to_lowercase(),
-                if method_spec == "*" {
-                    "all"
-                } else {
-                    method_spec
-                }
-            );
-            let patch_path = patches_dir.join(&patch_filename);
+            let patch_path = patches_dir
+                .join(autofix::add::functions_patch_file_name(type_name, method_spec));
 
             let json = serde_json::to_string_pretty(&patch)?;
             fs::write(&patch_path, &json)?;

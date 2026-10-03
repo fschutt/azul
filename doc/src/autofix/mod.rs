@@ -6,6 +6,7 @@ use colored::Colorize;
 use crate::api::ApiData;
 
 // V2 architecture modules - actively used
+pub mod add;
 pub mod debug;
 pub mod diff;
 pub mod function_diff;

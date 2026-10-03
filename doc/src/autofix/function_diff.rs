@@ -1526,6 +1526,9 @@ pub struct AddTypeResult {
     pub skipped_types: Vec<String>,
     /// Types that couldn't be found in workspace (warnings)
     pub missing_types: Vec<String>,
+    /// The functions / constructors of the primary type (merge mode), when
+    /// methods were requested and some matched
+    pub functions_patch: Option<ApiPatch>,
 }
 
 /// Check if a type already exists in api.json
@@ -1733,6 +1736,7 @@ pub fn generate_add_type_patches(
         added_methods: Vec::new(),
         skipped_types: Vec::new(),
         missing_types: Vec::new(),
+        functions_patch: None,
     };
 
     // Track which types we've already processed to avoid infinite loops
@@ -2092,18 +2096,15 @@ pub fn generate_add_type_patches(
                 result.added_methods.push(method.name.clone());
             }
 
-            // Generate the functions patch
-            let func_patch = generate_add_functions_patch(
+            // The functions patch (the one-item commands' format): the
+            // caller writes it next to the type patches
+            result.functions_patch = Some(generate_add_functions_patch(
                 type_name,
                 &methods,
                 &result.primary_module,
                 version,
                 type_def,
-            );
-
-            // Convert ApiPatch to AutofixPatch format
-            // For now, we'll write the function patch separately
-            // The caller should apply both the type patches and the function patch
+            ));
         }
     }
 
