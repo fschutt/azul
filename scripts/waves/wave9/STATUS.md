@@ -5,7 +5,7 @@ Resume: SendMessage the agent id ("continue from your progress file"). Worktrees
 | Task | Agent id | Branch | State |
 |---|---|---|---|
 | WIDGETS9A | a18aaef546b141fde | wt/widgets9a | DONE (report scripts/WIDGETS9A_2026_10_03.md with the api.json entries; Toolbar (overflow menu, one Tab stop), TokenInput (app-owned state like DataTable), IconGrid (row-scrolled, data callback, rubber band, drag out); engine gap: :focus-within parsed but never set) |
-| WIDGETS9B | acb99bc6296facd68 | wt/widgets9b | running (base e537ddbe2) |
+| WIDGETS9B | acb99bc6296facd68 | wt/widgets9b | DONE (765ae4548; report scripts/WIDGETS9B_2026_10_03.md with the api.json entries - incl. CHANGED ComboBoxStateWrapper (item_details, open_on_type) + ComboBox.status; MoneyInput (minor units), Gauge (Chart vector path), DateRangePicker (DatePicker day_grid shared), ReferencePicker (on ComboBox); ComboBox two-clicks-to-close fixed) |
 | MAIL9 | a4d36f4ef063912bd | wt/mail9 | PAUSED - resume from scripts/MAIL9.PROGRESS.md (report scripts/MAIL9_2026_10_03.md: direct delivery + client DKIM DONE end to end; submission via lettre started; remote-content pre-pass NOT started) |
 | PDF9 | a90ecd8756e4fac61 | wt/pdf9 | DONE (19 commits; report scripts/PDF9_2026_10_03.md; ParsedPdf -> page SVG in the API (api list in report), CPU SVG renderer: rgb() colours, transform order / lists, fit honoured; AzPdf viewer + export; scripts/pdf_chrome_probe.py; NEXT: azul SVG renderer lacks <text> / <image> (PDF pages show shapes only) - plan in PDF9.PROGRESS.md) |
 | READER9 | ad5e2a07b9e50eb78 | wt/reader9 | running (base e537ddbe2) |
