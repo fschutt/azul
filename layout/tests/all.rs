@@ -772,3 +772,5 @@ mod a_captions_own_caption_side_places_it;
 mod a_spanning_cells_percentage_is_shared_by_its_columns;
 #[path = "a_right_to_left_tables_columns_run_from_the_right.rs"]
 mod a_right_to_left_tables_columns_run_from_the_right;
+#[path = "text_inside_an_opacity_group_keeps_its_colour.rs"]
+mod text_inside_an_opacity_group_keeps_its_colour;
