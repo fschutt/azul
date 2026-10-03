@@ -3554,7 +3554,10 @@ pub(crate) extern "C" fn on_chart_pointer_move(mut data: RefAny, mut info: Callb
 /// The pointer left the plot: hide the point - unless it only left one of
 /// the overlay's own parts (every leave bubbles here; the cursor decides,
 /// as the slider's leave does).
-pub(crate) extern "C" fn on_chart_pointer_leave(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub(crate) extern "C" fn on_chart_pointer_leave(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+) -> Update {
     let inside = match (
         info.get_cursor_relative_to_node().into_option(),
         info.get_hit_node_rect(),
