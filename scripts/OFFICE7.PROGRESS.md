@@ -18,18 +18,16 @@ Branch `wt/office7` from `2e55eef06` (the wave-6 integration; every app compiles
   container item loses min-height, `a_stretched_flex_container_keeps_its_min_height`; measured with
   `mount`: 12 px instead of 22).
 
+- 5. AzMail on the Drive: 165b8506b RED (store tests), 1dd27a351 store (`DriveFolder` + `MailStore`),
+  db92bd2df account.rs, ab714f5a6 send.rs (+ testutil `TempDir::folder`), d1d40d3fd sync.rs, 0c83c2ccc
+  compose.rs, 77e58380d sample.rs, bb4307a44 lib.rs (MailApp.root: DriveFolder, start() places it with
+  `DriveFolder::of(root_path, data_root)`), 92631d148 UI + azmail-send + `write_atomic` deleted, fdcc5397a
+  attachments via `read_outside`, bec3cdff3 CSS-zoom TODO(LAYOUT7), 7ca925758 move_prefix fix.
+
 ## IN PROGRESS
-- 5. AzMail mail files on the Drive (one Drive, per-account scope).
-  - DONE: 165b8506b RED (store tests), 1dd27a351 store.rs: `DriveFolder` (of / outside / locate / child /
-    path / is_data_tree) + `MailStore` (put/get/delete/size_of/keys/subfolders/move_prefix/folders) replace
-    `LocalFolder`; `write_atomic` still there for account.rs / send.rs.
-  - NEXT (crate does not build until done): the AzMail folder `root` becomes a `DriveFolder` (MailApp.root,
-    jobs); account.rs (`account_dir`/`mail_root` -> DriveFolder, save/load_all through MailStore);
-    send.rs (settings, policy, outbox, file_message through MailStore); sync.rs (MailStore rename);
-    compose.rs, sample.rs, ui_compose.rs, ui_account.rs, ui_main.rs, lib.rs; then delete `write_atomic`.
+- 6. AzShow: rail drop indicator, tables in place, presenter monitor; text boxes on RichTextDoc (delete ir.rs).
 
 ## NEXT
-- 6. AzShow: rail drop indicator, tables in place, presenter monitor; text boxes on RichTextDoc (delete ir.rs).
 - 7. AzSheets: Replace in the grid's edit, pickers, Format Cells = one undo step.
 - 8. LOOK at each app.
 - Report `scripts/OFFICE7_2026_10_03.md`.
