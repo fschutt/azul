@@ -874,6 +874,548 @@ pub(crate) fn edit_money(
     }
 }
 
+// ---- the callbacks ----
+
+/// Callback invoked on every accepted edit that changes the state (the
+/// amount or what is wrong with the text).
+pub type MoneyInputOnChangeCallbackType =
+    extern "C" fn(RefAny, CallbackInfo, MoneyInputState) -> Update;
+impl_widget_callback!(
+    MoneyInputOnChange,
+    OptionMoneyInputOnChange,
+    MoneyInputOnChangeCallback,
+    MoneyInputOnChangeCallbackType
+);
+
+azul_core::impl_managed_callback! {
+    wrapper:        MoneyInputOnChangeCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: MONEY_INPUT_ON_CHANGE_INVOKER,
+    invoker_ty:     AzMoneyInputOnChangeCallbackInvoker,
+    thunk_fn:       az_money_input_on_change_callback_thunk,
+    setter_fn:      AzApp_setMoneyInputOnChangeCallbackInvoker,
+    from_handle_fn: AzMoneyInputOnChangeCallback_createFromHostHandle,
+    from_handle_byref_fn: AzMoneyInputOnChangeCallback_createFromHostHandleByref,
+    extra_args:     [ state: MoneyInputState ],
+}
+
+/// Callback invoked when the field loses focus: the amount the user settled
+/// on (the text is then shown in its canonical form).
+pub type MoneyInputOnCommitCallbackType =
+    extern "C" fn(RefAny, CallbackInfo, MoneyInputState) -> Update;
+impl_widget_callback!(
+    MoneyInputOnCommit,
+    OptionMoneyInputOnCommit,
+    MoneyInputOnCommitCallback,
+    MoneyInputOnCommitCallbackType
+);
+
+azul_core::impl_managed_callback! {
+    wrapper:        MoneyInputOnCommitCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: MONEY_INPUT_ON_COMMIT_INVOKER,
+    invoker_ty:     AzMoneyInputOnCommitCallbackInvoker,
+    thunk_fn:       az_money_input_on_commit_callback_thunk,
+    setter_fn:      AzApp_setMoneyInputOnCommitCallbackInvoker,
+    from_handle_fn: AzMoneyInputOnCommitCallback_createFromHostHandle,
+    from_handle_byref_fn: AzMoneyInputOnCommitCallback_createFromHostHandleByref,
+    extra_args:     [ state: MoneyInputState ],
+}
+
+/// [`MoneyInputState`] with the hooks it reports to.
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MoneyInputStateWrapper {
+    /// The amount, the bounds, what is wrong.
+    pub inner: MoneyInputState,
+    /// Every accepted edit that changes `inner`.
+    pub on_change: OptionMoneyInputOnChange,
+    /// The field lost focus.
+    pub on_commit: OptionMoneyInputOnCommit,
+}
+
+// ---- the widget ----
+
+/// An amount of money in a currency (module docs).
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MoneyInput {
+    /// The amount, the bounds and the hooks.
+    pub money_state: MoneyInputStateWrapper,
+    /// The text field the amount is typed into (its placeholder and style
+    /// are the caller's to set; its text and hooks are the money input's).
+    pub text_input: TextInput,
+    /// The currency: its minor digits and the code the addon shows.
+    pub currency: MoneyCurrency,
+    /// What this control is CALLED, for assistive technology (the field is
+    /// announced as "<name> (<code>)").
+    pub accessibility_name: OptionString,
+    /// How the amount is written.
+    pub locale: MoneyLocale,
+    /// The widget theme, or `None` to follow the app theme.
+    pub theme: OptionUiTheme,
+    /// Show the currency code in an addon beside the field (default on).
+    pub show_currency: bool,
+}
+
+impl Default for MoneyInput {
+    fn default() -> Self {
+        Self::create_empty(MoneyCurrency::default())
+    }
+}
+
+/// What a theme decides about a money input: the row's and the addon's
+/// paint. Built by `themes::flat::money_input_skin` and
+/// `themes::flora::money_input_skin`; the field is the text input's own.
+#[derive(Debug, Clone)]
+pub(crate) struct MoneyInputSkin {
+    /// The row holding the field and the addon.
+    pub(crate) root: Vec<CssPropertyWithConditions>,
+    /// The currency addon: its face, edge, ink and corners.
+    pub(crate) addon: Vec<CssPropertyWithConditions>,
+    /// The theme's marker class on the root, if it has one.
+    pub(crate) marker: Option<&'static str>,
+}
+
+/// The row's structure, the same in every theme: the field and the addon
+/// side by side, as tall as each other.
+fn root_base() -> Vec<CssPropertyWithConditions> {
+    use azul_css::props::layout::{LayoutAlignItems, LayoutFlexDirection};
+
+    use crate::widgets::themes::decl;
+    alloc::vec![
+        decl::display_flex(),
+        decl::flex_direction(LayoutFlexDirection::Row),
+        decl::simple(azul_css::props::property::CssProperty::const_align_items(
+            LayoutAlignItems::Stretch
+        )),
+    ]
+}
+
+/// The field's slot: it takes the row's width the addon leaves.
+fn field_slot_base() -> Vec<CssPropertyWithConditions> {
+    use crate::widgets::themes::decl;
+    alloc::vec![decl::display_flex(), decl::grow(1), decl::px_min_width(0.0)]
+}
+
+/// The addon's structure: its code centred on the field's midline, never
+/// growing, never wrapping.
+fn addon_base() -> Vec<CssPropertyWithConditions> {
+    use azul_css::props::layout::LayoutAlignItems;
+
+    use crate::widgets::themes::decl;
+    alloc::vec![
+        decl::display_flex(),
+        decl::simple(azul_css::props::property::CssProperty::const_align_items(
+            LayoutAlignItems::Center
+        )),
+        decl::grow(0),
+        decl::no_shrink(),
+        decl::nowrap(),
+    ]
+}
+
+/// What every money-input hook shares: the state, the currency and the
+/// locale the text is read in.
+pub(crate) struct MoneyInputData {
+    pub(crate) state: MoneyInputStateWrapper,
+    pub(crate) currency: MoneyCurrency,
+    pub(crate) locale: MoneyLocale,
+}
+
+impl MoneyInput {
+    /// A money input holding `amount` minor units of `currency` (written in
+    /// English until [`Self::with_locale`]).
+    #[must_use]
+    pub fn create(amount: i64, currency: MoneyCurrency) -> Self {
+        let mut m = Self::create_empty(currency);
+        m.money_state.inner.amount = OptionI64::Some(amount);
+        m
+    }
+
+    /// An empty money input for `currency`.
+    #[must_use]
+    pub fn create_empty(currency: MoneyCurrency) -> Self {
+        Self {
+            money_state: MoneyInputStateWrapper::default(),
+            text_input: TextInput::create(),
+            currency,
+            accessibility_name: OptionString::None,
+            locale: MoneyLocale::en_us(),
+            theme: OptionUiTheme::None,
+            show_currency: true,
+        }
+    }
+
+    /// Name this control for assistive technology.
+    #[must_use]
+    pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
+        self.accessibility_name = Some(name.into()).into();
+        self
+    }
+
+    /// The amount in minor units (`None`: empty).
+    pub fn set_amount(&mut self, amount: OptionI64) {
+        self.money_state.inner.amount = amount;
+    }
+
+    /// [`Self::set_amount`] for the builder chain.
+    #[must_use]
+    pub fn with_amount(mut self, amount: OptionI64) -> Self {
+        self.set_amount(amount);
+        self
+    }
+
+    /// How the amount is written (separators, the currency's side).
+    pub fn set_locale(&mut self, locale: MoneyLocale) {
+        self.locale = locale;
+    }
+
+    /// [`Self::set_locale`] for the builder chain.
+    #[must_use]
+    pub fn with_locale(mut self, locale: MoneyLocale) -> Self {
+        self.set_locale(locale);
+        self
+    }
+
+    /// The smallest amount the app accepts, in minor units (reported as
+    /// `BelowMin`, never refused while typing).
+    pub fn set_min(&mut self, min: i64) {
+        self.money_state.inner.min = OptionI64::Some(min);
+    }
+
+    /// [`Self::set_min`] for the builder chain.
+    #[must_use]
+    pub fn with_min(mut self, min: i64) -> Self {
+        self.set_min(min);
+        self
+    }
+
+    /// The largest amount the app accepts, in minor units (reported as
+    /// `AboveMax`).
+    pub fn set_max(&mut self, max: i64) {
+        self.money_state.inner.max = OptionI64::Some(max);
+    }
+
+    /// [`Self::set_max`] for the builder chain.
+    #[must_use]
+    pub fn with_max(mut self, max: i64) -> Self {
+        self.set_max(max);
+        self
+    }
+
+    /// Whether a negative amount may be typed (default: yes).
+    pub fn set_allow_negative(&mut self, allow_negative: bool) {
+        self.money_state.inner.allow_negative = allow_negative;
+    }
+
+    /// [`Self::set_allow_negative`] for the builder chain.
+    #[must_use]
+    pub fn with_allow_negative(mut self, allow_negative: bool) -> Self {
+        self.set_allow_negative(allow_negative);
+        self
+    }
+
+    /// The prompt of the empty field (default: zero in the locale, `0.00`).
+    pub fn set_placeholder(&mut self, placeholder: AzString) {
+        self.text_input.set_placeholder(placeholder);
+    }
+
+    /// [`Self::set_placeholder`] for the builder chain.
+    #[must_use]
+    pub fn with_placeholder(mut self, placeholder: AzString) -> Self {
+        self.set_placeholder(placeholder);
+        self
+    }
+
+    /// Show the currency code beside the field (default on).
+    pub fn set_show_currency(&mut self, show_currency: bool) {
+        self.show_currency = show_currency;
+    }
+
+    /// [`Self::set_show_currency`] for the builder chain.
+    #[must_use]
+    pub fn with_show_currency(mut self, show_currency: bool) -> Self {
+        self.set_show_currency(show_currency);
+        self
+    }
+
+    /// The callback every accepted edit that changes the state reports to.
+    pub fn set_on_change<C: Into<MoneyInputOnChangeCallback>>(
+        &mut self,
+        data: RefAny,
+        callback: C,
+    ) {
+        self.money_state.on_change = Some(MoneyInputOnChange::create(data, callback)).into();
+    }
+
+    /// [`Self::set_on_change`] for the builder chain.
+    #[must_use]
+    pub fn with_on_change<C: Into<MoneyInputOnChangeCallback>>(
+        mut self,
+        data: RefAny,
+        callback: C,
+    ) -> Self {
+        self.set_on_change(data, callback);
+        self
+    }
+
+    /// The callback the field reports to when it loses focus.
+    pub fn set_on_commit<C: Into<MoneyInputOnCommitCallback>>(
+        &mut self,
+        data: RefAny,
+        callback: C,
+    ) {
+        self.money_state.on_commit = Some(MoneyInputOnCommit::create(data, callback)).into();
+    }
+
+    /// [`Self::set_on_commit`] for the builder chain.
+    #[must_use]
+    pub fn with_on_commit<C: Into<MoneyInputOnCommitCallback>>(
+        mut self,
+        data: RefAny,
+        callback: C,
+    ) -> Self {
+        self.set_on_commit(data, callback);
+        self
+    }
+
+    /// Pin the widget theme. Unset (`None`), it follows the app theme.
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
+    /// Replaces `self` with an empty money input and returns the original.
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
+        let mut s = Self::default();
+        core::mem::swap(&mut s, self);
+        s
+    }
+
+    /// `amount` minor units of `currency` as `locale` writes them, with the
+    /// currency's symbol on its side (`1.234,56 €`, `$1,234.56`): for a
+    /// table, a label, a total.
+    #[must_use]
+    pub fn format_amount(amount: i64, currency: MoneyCurrency, locale: MoneyLocale) -> AzString {
+        AzString::from(format_money(
+            amount,
+            &locale,
+            currency.minor_digits,
+            Some(currency.symbol.as_str()),
+        ))
+    }
+
+    /// `text` read as an amount of `currency` written in `locale` (an
+    /// imported CSV cell, a pasted value): the minor units, or the reason
+    /// there are none.
+    #[must_use]
+    pub fn parse_amount(
+        text: AzString,
+        currency: MoneyCurrency,
+        locale: MoneyLocale,
+    ) -> MoneyParseResult {
+        match parse_money(text.as_str(), &locale, &currency) {
+            Ok(amount) => MoneyParseResult {
+                amount: amount.map_or(OptionI64::None, OptionI64::Some),
+                error: MoneyInputError::None,
+            },
+            Err(error) => MoneyParseResult {
+                amount: OptionI64::None,
+                error,
+            },
+        }
+    }
+
+    /// The field's text for the state's amount: canonical (grouped, every
+    /// decimal), or empty.
+    fn amount_text(&self) -> String {
+        match self.money_state.inner.amount {
+            OptionI64::Some(a) => format_money(a, &self.locale, self.currency.minor_digits, None),
+            OptionI64::None => String::new(),
+        }
+    }
+
+    /// Renders the money input: the field and the currency addon, in the
+    /// theme's skin (pinned, or both skins merged to follow the app theme).
+    #[must_use]
+    pub fn dom(self) -> Dom {
+        use crate::widgets::themes::{flat, flora, theme_blocks::skins_of};
+        let skins = skins_of(self.theme, flat::money_input_skin, flora::money_input_skin);
+        self.build(&skins)
+    }
+
+    /// The DOM in `skins` (`theme_blocks::skins_of`).
+    pub(crate) fn build(mut self, skins: &[MoneyInputSkin]) -> Dom {
+        use crate::widgets::themes::theme_blocks::{part_of, structure_skin};
+
+        let marker = structure_skin(skins, self.theme).and_then(|s| s.marker);
+        let root_style = part_of(skins, |s| {
+            let mut v = root_base();
+            v.extend(s.root.iter().cloned());
+            v
+        });
+        let addon_style = part_of(skins, |s| {
+            let mut v = addon_base();
+            v.extend(s.addon.iter().cloned());
+            v
+        });
+
+        // The field: the amount's canonical text, the locale's zero as its
+        // prompt, named with the currency, the two hooks.
+        let text = self.amount_text();
+        self.text_input.set_text(AzString::from(text));
+        if self.text_input.text_input_state.inner.placeholder.is_none() {
+            let zero = format_money(0, &self.locale, self.currency.minor_digits, None);
+            self.text_input.set_placeholder(AzString::from(zero));
+        }
+        let name = match self.accessibility_name.as_ref() {
+            Some(n) => alloc::format!("{} ({})", n.as_str(), self.currency.code.as_str()),
+            None => alloc::format!("Amount ({})", self.currency.code.as_str()),
+        };
+        self.text_input.accessibility_name = OptionString::Some(AzString::from(name));
+        if let Some(theme) = self.theme.into_option() {
+            self.text_input.set_theme(theme);
+        }
+        let data = RefAny::new(MoneyInputData {
+            state: self.money_state,
+            currency: self.currency.clone(),
+            locale: self.locale,
+        });
+        let on_input: TextInputOnTextInputCallbackType = on_money_text_input;
+        self.text_input.set_on_text_input(data.clone(), on_input);
+        let on_blur: TextInputOnFocusLostCallbackType = on_money_focus_lost;
+        self.text_input.set_on_focus_lost(data, on_blur);
+        let field = Dom::create_div()
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(field_slot_base()))
+            .with_child(self.text_input.dom());
+
+        let mut children = Vec::with_capacity(2);
+        let addon = self.show_currency.then(|| {
+            crate::widgets::widget_p_with_text(self.currency.code.clone())
+                .with_ids_and_classes(IdOrClassVec::from_vec(alloc::vec![Class(
+                    AzString::from_const_str(MONEY_INPUT_ADDON_CLASS)
+                )]))
+                .with_css_props(addon_style)
+        });
+        match (addon, self.locale.symbol_position) {
+            (Some(addon), MoneySymbolPosition::Before) => {
+                children.push(addon);
+                children.push(field);
+            }
+            (Some(addon), MoneySymbolPosition::After) => {
+                children.push(field);
+                children.push(addon);
+            }
+            (None, _) => children.push(field),
+        }
+
+        let mut classes: Vec<IdOrClass> =
+            alloc::vec![Class(AzString::from_const_str(MONEY_INPUT_CLASS))];
+        if let Some(marker) = marker {
+            classes.push(Class(AzString::from_const_str(marker)));
+        }
+        Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+            .with_css_props(root_style)
+            .with_children(children.into())
+    }
+}
+
+impl From<MoneyInput> for Dom {
+    fn from(m: MoneyInput) -> Self {
+        m.dom()
+    }
+}
+
+/// The field's text changed: accept the edit or refuse it (module docs),
+/// store the new state and tell the app when it changed.
+extern "C" fn on_money_text_input(
+    mut data: RefAny,
+    info: CallbackInfo,
+    field: TextInputState,
+) -> OnTextInputReturn {
+    let text = field.get_text();
+    let (state, hook) = {
+        let Some(mut d) = data.downcast_mut::<MoneyInputData>() else {
+            return OnTextInputReturn {
+                update: Update::DoNothing,
+                valid: TextInputValid::Yes,
+            };
+        };
+        let edit = edit_money(&text, d.state.inner, &d.locale, &d.currency);
+        if !edit.accepted {
+            return OnTextInputReturn {
+                update: Update::DoNothing,
+                valid: TextInputValid::No,
+            };
+        }
+        let changed = edit.state != d.state.inner;
+        d.state.inner = edit.state;
+        let hook = if changed {
+            d.state.on_change.clone()
+        } else {
+            OptionMoneyInputOnChange::None
+        };
+        (edit.state, hook)
+    };
+    let update = match hook.as_ref() {
+        Some(MoneyInputOnChange { callback, refany }) => {
+            callback.invoke(refany.clone(), info, state)
+        }
+        None => Update::DoNothing,
+    };
+    OnTextInputReturn {
+        update,
+        valid: TextInputValid::Yes,
+    }
+}
+
+/// The field lost focus: read its final text once more, show an amount in
+/// its canonical form (`1234,5` -> `1.234,50`) and report the commit.
+extern "C" fn on_money_focus_lost(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    field: TextInputState,
+) -> Update {
+    let container = info.get_hit_node();
+    let text = field.get_text();
+    let (state, canonical, hook) = {
+        let Some(mut d) = data.downcast_mut::<MoneyInputData>() else {
+            return Update::DoNothing;
+        };
+        let edit = edit_money(&text, d.state.inner, &d.locale, &d.currency);
+        if edit.accepted {
+            d.state.inner = edit.state;
+        }
+        let canonical = match d.state.inner.amount {
+            OptionI64::Some(a) => Some(format_money(a, &d.locale, d.currency.minor_digits, None)),
+            OptionI64::None => None,
+        };
+        (d.state.inner, canonical, d.state.on_commit.clone())
+    };
+    if let Some(canonical) = canonical.filter(|c| *c != text) {
+        TextInput::set_text_in(&mut info, container, AzString::from(canonical));
+    }
+    match hook.as_ref() {
+        Some(MoneyInputOnCommit { callback, refany }) => {
+            callback.invoke(refany.clone(), info, state)
+        }
+        None => Update::DoNothing,
+    }
+}
+
 #[cfg(test)]
 mod money_tests {
     use super::*;
