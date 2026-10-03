@@ -110,14 +110,33 @@ extern "C" fn on_tab_click(mut data: RefAny, mut info: CallbackInfo, index: usiz
     crate::commands::run(&mut data, Command::RibbonTab(index), &mut info)
 }
 
+/// How many cells each gallery shows in the ribbon (the row holding the
+/// selected one; "More" opens all): every tab fits a 1280 px window
+/// (HOME's seven layouts inline were 863 px and pushed Font, Paragraph and
+/// Editing off it).
+fn visible_cells(kind: GalleryKind) -> usize {
+    match kind {
+        GalleryKind::Layout => 3,
+        GalleryKind::NewSlide | GalleryKind::Theme => 4,
+        GalleryKind::Variant | GalleryKind::Fonts => 3,
+        GalleryKind::Transition => 4,
+        GalleryKind::Animation => 6,
+    }
+}
+
 fn gallery(app: &RefAny, kind: GalleryKind, cells: Vec<RibbonGalleryCell>, selected: usize) -> RibbonItem {
-    RibbonItem::Gallery(RibbonGallery::create(cells).with_selected(selected).with_on_select(
-        RefAny::new(GalleryData {
-            app: app.clone(),
-            kind,
-        }),
-        on_gallery as RibbonGalleryOnSelectCallbackType,
-    ))
+    RibbonItem::Gallery(
+        RibbonGallery::create(cells)
+            .with_selected(selected)
+            .with_visible(visible_cells(kind))
+            .with_on_select(
+                RefAny::new(GalleryData {
+                    app: app.clone(),
+                    kind,
+                }),
+                on_gallery as RibbonGalleryOnSelectCallbackType,
+            ),
+    )
 }
 
 /// A layout's little picture: the title bar and the bodies as grey blocks.

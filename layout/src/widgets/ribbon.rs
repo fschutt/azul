@@ -4001,13 +4001,15 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior, theme: UiTh
 }
 
 /// The cells the in-ribbon strip shows: the row of `visible` cells holding
-/// `selected` (the last row filled from the end), or every cell when
-/// `visible` is 0 or covers them all.
+/// `selected` (the last row filled from the end; no selection - an index
+/// past the cells - is the first row), or every cell when `visible` is 0 or
+/// covers them all.
 fn gallery_window(len: usize, selected: usize, visible: usize) -> core::ops::Range<usize> {
     if visible == 0 || visible >= len {
         return 0..len;
     }
-    let start = ((selected.min(len - 1) / visible) * visible).min(len - visible);
+    let selected = if selected < len { selected } else { 0 };
+    let start = ((selected / visible) * visible).min(len - visible);
     start..start + visible
 }
 
@@ -5687,6 +5689,11 @@ mod tests {
         let strip = &last.children.as_ref()[0].children.as_ref()[0];
         assert_eq!(text_of(&strip.children.as_ref()[0].children.as_ref()[1]), Some("Style 4"));
         assert_eq!(strip.children.as_ref().len(), 3);
+
+        // No selection (AzShow's New Slide gallery): the first row.
+        let none = render_item(RibbonItem::Gallery(gallery(7).with_selected(usize::MAX).with_visible(3)));
+        let strip = &none.children.as_ref()[0].children.as_ref()[0];
+        assert_eq!(text_of(&strip.children.as_ref()[0].children.as_ref()[1]), Some("Style 0"));
 
         // 0 (the default) shows every cell.
         let all = render_item(RibbonItem::Gallery(gallery(5)));
