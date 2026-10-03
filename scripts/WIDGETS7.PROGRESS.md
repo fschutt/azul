@@ -31,11 +31,16 @@ Look run (one at a time, capped): run_capped.sh --cap-mb 1500 --seconds 90 --log
 - Seen for others: AzCalendar week view (light, --sample): three 1-hour event blocks show NO title
   (Thu 16:00, Tue 18:00, Fri 14:00 - only colour), "Lunch with Ana"'s time line clipped (known, PAINT7).
 
+- item 6a zoom slider: LOOK prebuilt AzWriter flora dark: #151515 rect over the rail. Root cause: the
+  slider looks append dark paint after a caller-set track/thumb style. 949656e2f RED (slider.rs
+  a_style_the_caller_set_gets_no_paint_from_the_theme), 5cdb53b49 GREEN (flat.rs/flora.rs guards).
+- item 6b check box colour: the token prints as hex. 25f1e9804 RED (css text.rs
+  a_system_colour_prints_as_its_keyword), cbd4265ee GREEN (ColorU::to_css_value pub(crate) + printers).
+
 ## IN PROGRESS
-- item 6: flora-dark zoom slider; check box colour
+- item 7: DEDUP F2 (ModuleSwitcher vs ShellNavigationPane), F20 (MessageList -> SummaryList)
 
 ## NEXT
-6. flora-dark zoom slider; check box colour transparent in the HTML dump
 7. DEDUP F2 ModuleSwitcher vs ShellNavigationPane; F20 MessageList -> SummaryList (only if mechanical)
 
 ## Decisions
