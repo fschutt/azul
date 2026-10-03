@@ -8848,8 +8848,19 @@ fn calculate_column_widths_auto_with_width<T: ParsedFontTrait>(
     Ok(())
 }
 
-/// Does this cell establish an INLINE formatting context: loose text, and
-/// only inline-level children (CSS 2.2 9.4.2)?
+/// Does this cell establish an INLINE formatting context: only inline-level
+/// children (CSS 2.2 9.4.2), with or without loose text?
+///
+/// A cell of only inline BOXES (`<td><span>$10.00</span></td>`, Postmark's
+/// `<td align="center"><a style="display: inline-block">`) is an IFC like any
+/// block container of inline content: its `text-align` places them. It
+/// needed a loose text child, so such a cell took the block branch and its
+/// box sat at the cell's left edge (MAILENG6 item 5). One exception keeps the
+/// block branch: an inline child that holds a block-level box
+/// (`<a><img style="display: block"></a>`, block-in-inline, CSS 2.2
+/// 9.2.1.1) with no loose text beside it - `layout_ifc` does not split an
+/// inline around a block yet, and the block branch is what lays such a
+/// linked picture out today.
 ///
 /// Then it is laid out as ONE IFC, on two explicit paths that never meet:
 /// the table's min/max-content MEASUREMENT ([`measure_cell_content_width`])
@@ -8871,7 +8882,29 @@ fn cell_is_inline_formatting_context(styled_dom: &StyledDom, cell_dom_id: NodeId
                 NodeType::Text(_)
             )
         });
-    any_text && crate::solver3::layout_tree::has_only_inline_children(styled_dom, cell_dom_id)
+    crate::solver3::layout_tree::has_only_inline_children(styled_dom, cell_dom_id)
+        && (any_text || !inline_children_hold_a_block(styled_dom, cell_dom_id))
+}
+
+/// Whether an inline box among `node`'s children holds a block-level box
+/// (block-in-inline, CSS 2.2 9.2.1.1: `<a><img style="display: block"></a>`),
+/// looking through `display: inline` boxes only: an atomic inline
+/// (inline-block, inline-table, inline-flex, inline-grid) is a leaf, its
+/// content is its own formatting context.
+fn inline_children_hold_a_block(styled_dom: &StyledDom, node: NodeId) -> bool {
+    use crate::solver3::layout_tree::{get_display_type, is_block_level};
+    node.az_children(&styled_dom.node_hierarchy.as_container())
+        .any(|child| {
+            if matches!(
+                styled_dom.node_data.as_container()[child].get_node_type(),
+                NodeType::Text(_)
+            ) {
+                return false;
+            }
+            is_block_level(styled_dom, child)
+                || (get_display_type(styled_dom, child) == LayoutDisplay::Inline
+                    && inline_children_hold_a_block(styled_dom, child))
+        })
 }
 
 /// Layout a cell with its computed column width to determine its content height
