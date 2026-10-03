@@ -14,13 +14,15 @@ Branch `wt/pdf9` from `e537ddbe2`. Report: `scripts/PDF9_2026_10_03.md` (not wri
 - da684d01a RED: examples/azul-pdf skeleton (Cargo.toml, main.rs, lib.rs stub) + src/model_tests.rs
 - 52cff2660 GREEN: examples/azul-pdf/src/model.rs
 - f09856dbe registered AzPdf (root Cargo.toml members, scripts/workspace_test_members.txt, rust.yml dll_tests step)
-- examples/azul-pdf/src/ids.rs written (commit with the next unit if not yet committed)
+- 2a986919e ids.rs; 3bd89abb2 RED export-switch test (+ jobs.rs); b4339c1db parse_export; fe54679a4 lib.rs;
+  3a2efd8de ui.rs - the AzPdf app is written (not compiled).
 
 ## IN PROGRESS
-- AzPdf app: jobs.rs (threads), lib.rs (AppState, run, callbacks, pump timer), ui.rs (layout).
+- scripts/pdf_chrome_probe.py, scripts/azpdf_e2e.py, then the report.
 
 ## NEXT (exact)
-1. examples/azul-pdf/src/jobs.rs: `Kind {Page, Thumb}`, `Doc {path,title,pdf: azul::pdf::ParsedPdf,sizes,outline,warnings}`,
+(1-3 DONE: jobs.rs, lib.rs, ui.rs written)
+1. (done) examples/azul-pdf/src/jobs.rs: `Kind {Page, Thumb}`, `Doc {path,title,pdf: azul::pdf::ParsedPdf,sizes,outline,warnings}`,
    `Job {Open{generation,path}, Render{generation,pdf,pages:Vec<(Kind,usize,u32)>}, Texts{generation,pdf}, Sample}`,
    `Outcome {Opened, Rendered, RenderDone, Texts, Sample}`, `job_thread` (pattern: examples/azul-drive/src/jobs.rs
    send()/job_thread), `open(path)` via azul_appkit::files::read_outside + ParsedPdf::create_from_bytes(U8VecRef),
