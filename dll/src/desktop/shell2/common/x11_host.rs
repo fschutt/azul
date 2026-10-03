@@ -266,8 +266,38 @@ pub(crate) enum X11Upload {
 /// path) a server on THIS machine reached through a local socket?
 #[must_use]
 pub(crate) fn display_is_local(display: &str) -> bool {
-    let _ = display;
-    false
+    // A socket path (`/tmp/.X11-unix/X0`, XQuartz's launchd socket).
+    if display.starts_with('/') {
+        return true;
+    }
+    // `host:display[.screen]` - the host is everything before the LAST ':'.
+    let Some(colon) = display.rfind(':') else {
+        return false;
+    };
+    let (mut host, number) = (&display[..colon], &display[colon + 1..]);
+    if !number.as_bytes().first().is_some_and(u8::is_ascii_digit) {
+        return false;
+    }
+    // DECnet `host::0`: the host ends in the other ':'.
+    if host.ends_with(':') {
+        return false;
+    }
+    // `protocol/host`: only the local transports are local, whatever host.
+    if let Some(slash) = host.find('/') {
+        let protocol = &host[..slash];
+        if protocol.eq_ignore_ascii_case("unix") || protocol.eq_ignore_ascii_case("local") {
+            return true;
+        }
+        if !protocol.is_empty() {
+            // tcp / inet / inet6: a network transport, even to localhost.
+            return false;
+        }
+        host = &host[slash + 1..];
+    }
+    // No host = the local socket; `unix` names it explicitly. Anything else
+    // (`localhost`, an address, a name) is TCP - `ssh -X` forwards through
+    // `localhost:10`, where our memory is on the wrong machine.
+    host.is_empty() || host.eq_ignore_ascii_case("unix")
 }
 
 /// The upload decision, in the order its inputs are learned: the switch, the
@@ -279,8 +309,17 @@ pub(crate) fn x11_upload(
     extension: bool,
     attach_ok: bool,
 ) -> X11Upload {
-    let _ = (enabled, display_local, extension, attach_ok);
-    X11Upload::PutImage(PutImageWhy::Disabled)
+    if !enabled {
+        X11Upload::PutImage(PutImageWhy::Disabled)
+    } else if !display_local {
+        X11Upload::PutImage(PutImageWhy::RemoteDisplay)
+    } else if !extension {
+        X11Upload::PutImage(PutImageWhy::NoExtension)
+    } else if !attach_ok {
+        X11Upload::PutImage(PutImageWhy::AttachFailed)
+    } else {
+        X11Upload::Shm
+    }
 }
 
 /// Can a segment made for `segment` (w, h) pixels carry a `want` (w, h) frame
@@ -289,8 +328,9 @@ pub(crate) fn x11_upload(
 /// a new `shmget` / attach per configure.
 #[must_use]
 pub(crate) fn shm_segment_reusable(segment: (u32, u32), want: (u32, u32)) -> bool {
-    let _ = (segment, want);
-    false
+    let (sw, sh) = (u64::from(segment.0), u64::from(segment.1));
+    let (ww, wh) = (u64::from(want.0), u64::from(want.1));
+    ww > 0 && wh > 0 && ww <= sw && wh <= sh && sw * sh <= 2 * ww * wh
 }
 
 /// The segment-reuse law: `XShmPutImage` requests that READ the segment and
@@ -305,15 +345,19 @@ pub(crate) struct ShmPending {
 
 impl ShmPending {
     /// An `XShmPutImage` with `send_event = True` was issued.
-    pub(crate) fn put(&mut self) {}
+    pub(crate) fn put(&mut self) {
+        self.pending = self.pending.saturating_add(1);
+    }
 
     /// A `ShmCompletion` event arrived.
-    pub(crate) fn completed(&mut self) {}
+    pub(crate) fn completed(&mut self) {
+        self.pending = self.pending.saturating_sub(1);
+    }
 
     /// Must the client `XSync` before it writes into the segment?
     #[must_use]
     pub(crate) fn must_sync_before_write(self) -> bool {
-        false
+        self.pending > 0
     }
 }
 
