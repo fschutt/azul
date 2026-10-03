@@ -2738,3 +2738,367 @@ pub(crate) fn build(resolved: DataTableResolved, look: &DataTableLook) -> Dom {
         .with_callbacks(table_callbacks(&shared).into())
         .with_children(DomVec::from_vec(children))
 }
+
+// ---- navigation, selection and editing: keys and clicks to the next view ----
+
+/// What every handler of one table build shares: the table (its view,
+/// columns and callbacks) and where its rows and columns sit. A drag in
+/// progress updates the view here too, so the next move compares against
+/// it before the app's rebuild arrives. It is also the table node's
+/// dataset: the order job finds the latest view through it.
+#[derive(Debug)]
+pub(crate) struct TableShared {
+    pub table: DataTable,
+    pub geo: Geometry,
+}
+
+/// A copy of the table and its geometry from a handler's payload.
+pub(crate) fn shared_of(data: &mut RefAny) -> Option<(DataTable, Geometry)> {
+    let s = data.downcast_ref::<TableShared>()?;
+    Some((s.table.clone(), s.geo.clone()))
+}
+
+/// Records `view` as the table's view in the payload.
+fn store_view(data: &mut RefAny, view: &DataTableView) {
+    if let Some(mut s) = data.downcast_mut::<TableShared>() {
+        s.table.view = view.clone();
+    }
+}
+
+/// Hands `event` to the app.
+fn fire(table: &DataTable, info: CallbackInfo, event: DataTableEvent) -> Update {
+    match table.on_event.as_ref() {
+        Some(DataTableOnEvent { refany, callback }) => callback.invoke(refany.clone(), info, event),
+        None => Update::DoNothing,
+    }
+}
+
+/// The rows shown as selection keys, in their order - `None` when every
+/// row shows in the app's order (the keys are then the positions).
+fn order_keys(view: &DataTableView) -> Option<U64Vec> {
+    view.ordered.then(|| {
+        U64Vec::from_vec(view.order.as_slice().iter().map(|r| u64::from(*r)).collect())
+    })
+}
+
+/// The cursor's position among the rows shown.
+fn cursor_position(t: &DataTable) -> Option<u32> {
+    let row = t.view.cursor_row().into_option()?;
+    t.view.position_of(row, t.row_count).into_option()
+}
+
+/// The view after a CLICK on the row at `position`: alone, `ctrl` toggles
+/// it, `shift` takes the rows from the anchor (both: adds them).
+pub(crate) fn click_select(t: &DataTable, view: &DataTableView, position: u32, shift: bool, ctrl: bool) -> DataTableView {
+    let mut next = view.clone();
+    let Some(row) = view.row_at(position, t.row_count).into_option() else {
+        return next;
+    };
+    match order_keys(view) {
+        Some(order) => next.selection.select_in(order, u64::from(row), shift, ctrl),
+        None => next.selection.select(u64::from(row), shift, ctrl),
+    }
+    next
+}
+
+/// The view after a KEY moved the cursor to `position`: the row alone,
+/// `shift` from the anchor to it, `keep` (Ctrl / Cmd) the cursor alone.
+pub(crate) fn key_select(t: &DataTable, view: &DataTableView, position: u32, shift: bool, keep: bool) -> DataTableView {
+    let mut next = view.clone();
+    let Some(row) = view.row_at(position, t.row_count).into_option() else {
+        return next;
+    };
+    let key = u64::from(row);
+    if keep {
+        next.selection.focus = azul_css::corety::OptionU64::Some(key);
+    } else if shift {
+        match order_keys(view) {
+            Some(order) => next.selection.extend_in(order, key),
+            None => next.selection.extend(key),
+        }
+    } else {
+        next.selection.click(key);
+    }
+    next
+}
+
+/// `view` scrolled so the row at `position` is in view.
+pub(crate) fn reveal_row(view: &mut DataTableView, geo: &Geometry, position: u32) {
+    let page = geo.page_rows.max(1);
+    if position < view.top {
+        view.top = position;
+    } else if position >= view.top + page {
+        view.top = position + 1 - page;
+    }
+    view.top = view.top.min(geo.max_top);
+}
+
+/// `view` scrolled so `column` is wholly in view (a frozen one always is).
+pub(crate) fn reveal_column(t: &DataTable, view: &mut DataTableView, geo: &Geometry, column: u32) {
+    let frozen = t.frozen_columns;
+    if column < frozen {
+        return;
+    }
+    if column < view.left_column.max(frozen) {
+        view.left_column = column;
+        return;
+    }
+    let sizes = column_sizes(t);
+    let room = (geo.body_width - geo.frozen_width).max(0.0);
+    let span = |from: u32| -> f32 { (from..=column).map(|i| size_at(&sizes, i, DEFAULT_COLUMN_PX)).sum() };
+    let mut left = view.left_column.max(frozen);
+    while left < column && span(left) > room {
+        left += 1;
+    }
+    view.left_column = left.min(geo.max_left.max(frozen));
+}
+
+/// The one-line editor's keys: the caret and the deletions. `None` for any
+/// other key.
+#[allow(clippy::cast_possible_truncation)]
+pub(crate) fn line_edit(text: &str, caret: usize, key: VirtualKeyCode) -> Option<(String, usize)> {
+    use VirtualKeyCode as K;
+    let mut chars: Vec<char> = text.chars().collect();
+    let caret = caret.min(chars.len());
+    let done = |chars: &[char], caret: usize| Some((chars.iter().collect::<String>(), caret));
+    match key {
+        K::Left => done(&chars, caret.saturating_sub(1)),
+        K::Right => done(&chars, (caret + 1).min(chars.len())),
+        K::Home => done(&chars, 0),
+        K::End => done(&chars, chars.len()),
+        K::Back => {
+            if caret > 0 {
+                chars.remove(caret - 1);
+                done(&chars, caret - 1)
+            } else {
+                done(&chars, 0)
+            }
+        }
+        K::Delete => {
+            if caret < chars.len() {
+                chars.remove(caret);
+            }
+            done(&chars, caret)
+        }
+        _ => None,
+    }
+}
+
+/// `text` with `inserted` typed at `caret`, and the caret after it.
+fn insert_at(text: &str, caret: usize, inserted: &str) -> (String, usize) {
+    let mut chars: Vec<char> = text.chars().collect();
+    let caret = caret.min(chars.len());
+    let new: Vec<char> = inserted.chars().collect();
+    let n = new.len();
+    for (i, ch) in new.into_iter().enumerate() {
+        chars.insert(caret + i, ch);
+    }
+    (chars.into_iter().collect(), caret + n)
+}
+
+/// The view with no edit.
+fn without_edit(view: &DataTableView) -> DataTableView {
+    let mut v = view.clone();
+    v.edit = DataTableEditTarget::None;
+    v.edit_text = AzString::from_const_str("");
+    v.edit_cursor = 0;
+    v
+}
+
+/// Whether the cell of app row `row`, `column` may be edited.
+fn editable(t: &DataTable, column: u32) -> bool {
+    !t.read_only && t.columns.get(column as usize).is_some_and(|c| c.editable)
+}
+
+/// An edit of the cell `row` x `column` starting with `text` (the cell's
+/// own text, or what was typed over it).
+pub(crate) fn start_cell_edit(view: &DataTableView, row: u32, column: u32, text: &str) -> DataTableEvent {
+    let mut next = without_edit(view);
+    next.edit = DataTableEditTarget::Cell;
+    next.edit_row = row;
+    next.edit_column = column;
+    next.active_column = column;
+    next.edit_text = AzString::from(String::from(text));
+    next.edit_cursor = u32::try_from(text.chars().count()).unwrap_or(u32::MAX);
+    let mut e = DataTableEvent::create(DataTableEventKind::EditStart, next);
+    e.cell = DataTableCellRef::create(row, column);
+    e
+}
+
+/// An edit of `column`'s filter (its text as it is).
+pub(crate) fn start_filter_edit(view: &DataTableView, column: u32) -> DataTableEvent {
+    let text = view.filter_text(column);
+    let mut next = without_edit(view);
+    next.edit = DataTableEditTarget::Filter;
+    next.edit_column = column;
+    next.edit_cursor = u32::try_from(text.as_str().chars().count()).unwrap_or(u32::MAX);
+    next.edit_text = text;
+    let mut e = DataTableEvent::create(DataTableEventKind::EditStart, next);
+    e.index = column;
+    e
+}
+
+/// A filter edit's text is now `text` (caret at `caret`): the filter
+/// follows at once (the order is the caller's to request).
+pub(crate) fn filter_typed(t: &DataTable, view: &DataTableView, text: String, caret: usize) -> DataTableEvent {
+    let column = view.edit_column;
+    let kind = t
+        .columns
+        .get(column as usize)
+        .map_or(DataTableSortKind::Text, |c| c.sort_kind);
+    let mut next = view.clone();
+    next.edit_cursor = u32::try_from(caret).unwrap_or(u32::MAX);
+    next.edit_text = AzString::from(text.clone());
+    next.set_filter(column, kind, AzString::from(text));
+    let mut e = DataTableEvent::create(DataTableEventKind::Filter, next);
+    e.index = column;
+    e
+}
+
+/// What a key does while nothing is edited. `None`: not the table's key.
+#[allow(clippy::too_many_lines)]
+pub(crate) fn table_key(
+    t: &DataTable,
+    geo: &Geometry,
+    key: VirtualKeyCode,
+    shift: bool,
+    ctrl: bool,
+) -> Option<DataTableEvent> {
+    use VirtualKeyCode as K;
+    let view = &t.view;
+    let shown = geo.shown;
+    let ncols = u32::try_from(t.columns.len()).unwrap_or(0);
+    let last = shown.saturating_sub(1);
+    let here = cursor_position(t);
+    let column = view.active_column.min(ncols.saturating_sub(1));
+    let page = geo.page_rows.max(1);
+
+    // A move of the cursor to `position` (and `col`), selecting as the
+    // modifiers say, scrolled into view.
+    let move_to = |position: u32, col: u32| -> Option<DataTableEvent> {
+        if shown == 0 {
+            return None;
+        }
+        let position = position.min(last);
+        let mut next = key_select(t, view, position, shift, ctrl && !shift);
+        next.active_column = col;
+        reveal_row(&mut next, geo, position);
+        reveal_column(t, &mut next, geo, col);
+        let mut e = DataTableEvent::create(DataTableEventKind::Select, next);
+        e.shift = shift;
+        e.ctrl = ctrl;
+        Some(e)
+    };
+    let row_move = |delta: i64| -> Option<DataTableEvent> {
+        let target = match here {
+            Some(p) => (i64::from(p) + delta).clamp(0, i64::from(last)),
+            None if delta < 0 => i64::from(last),
+            None => 0,
+        };
+        move_to(u32::try_from(target).unwrap_or(0), column)
+    };
+    let cursor_cell = || -> Option<DataTableCellRef> {
+        let row = view.cursor_row().into_option()?;
+        Some(DataTableCellRef::create(row, column))
+    };
+
+    match key {
+        K::Up => row_move(-1),
+        K::Down => row_move(1),
+        K::PageUp => row_move(-i64::from(page)),
+        K::PageDown => row_move(i64::from(page)),
+        K::Home if ctrl => move_to(0, column),
+        K::End if ctrl => move_to(last, column),
+        K::Home => move_to(here.unwrap_or(0), 0),
+        K::End => move_to(here.unwrap_or(0), ncols.saturating_sub(1)),
+        K::Left => move_to(here.unwrap_or(0), column.saturating_sub(1)),
+        K::Right => move_to(here.unwrap_or(0), (column + 1).min(ncols.saturating_sub(1))),
+        K::A if ctrl => {
+            let mut next = view.clone();
+            match order_keys(view) {
+                Some(order) => next.selection.select_all_in(order),
+                None => next.selection.select_all(u64::from(t.row_count)),
+            }
+            Some(DataTableEvent::create(DataTableEventKind::Select, next))
+        }
+        K::Space if ctrl => {
+            let mut next = view.clone();
+            next.selection.toggle_focused();
+            Some(DataTableEvent::create(DataTableEventKind::Select, next))
+        }
+        K::F if ctrl => {
+            let filterable = t.columns.get(column as usize).is_some_and(|c| c.filterable);
+            (t.show_filter_row && filterable).then(|| start_filter_edit(view, column))
+        }
+        K::F2 | K::Return | K::NumpadEnter => {
+            let cell = cursor_cell()?;
+            if editable(t, cell.column) {
+                let text = cell_content(&t.data_source, cell).text;
+                Some(start_cell_edit(view, cell.row, cell.column, text.as_str()))
+            } else if key == K::F2 {
+                None
+            } else {
+                let mut e = DataTableEvent::create(DataTableEventKind::Activate, view.clone());
+                e.cell = cell;
+                Some(e)
+            }
+        }
+        K::Escape if view.drag.kind != DataTableDragKind::None => {
+            let mut next = view.clone();
+            next.drag = DataTableDrag::default();
+            Some(DataTableEvent::create(DataTableEventKind::Drag, next))
+        }
+        _ => None,
+    }
+}
+
+/// What a key does while a filter is edited (the order is the caller's to
+/// request after a `Filter` event).
+pub(crate) fn filter_edit_key(t: &DataTable, key: VirtualKeyCode) -> Option<DataTableEvent> {
+    use VirtualKeyCode as K;
+    let view = &t.view;
+    match key {
+        K::Escape | K::Return | K::NumpadEnter | K::Tab | K::Down => {
+            let mut e = DataTableEvent::create(DataTableEventKind::EditCancel, without_edit(view));
+            e.index = view.edit_column;
+            Some(e)
+        }
+        _ => {
+            let (text, caret) = line_edit(view.edit_text.as_str(), view.edit_cursor as usize, key)?;
+            if text == view.edit_text.as_str() {
+                let mut next = view.clone();
+                next.edit_cursor = u32::try_from(caret).unwrap_or(u32::MAX);
+                return Some(DataTableEvent::create(DataTableEventKind::EditText, next));
+            }
+            Some(filter_typed(t, view, text, caret))
+        }
+    }
+}
+
+/// What a key does while a cell is edited: `Ok(event)` for the caret and
+/// the text, `Err(move)` when the edit is to be kept (Enter: 0, Tab: +1,
+/// Shift+Tab: -1 columns after it); `None` for other keys.
+pub(crate) fn cell_edit_key(
+    t: &DataTable,
+    key: VirtualKeyCode,
+    shift: bool,
+) -> Option<Result<DataTableEvent, i32>> {
+    use VirtualKeyCode as K;
+    let view = &t.view;
+    match key {
+        K::Escape => {
+            let mut e = DataTableEvent::create(DataTableEventKind::EditCancel, without_edit(view));
+            e.cell = DataTableCellRef::create(view.edit_row, view.edit_column);
+            Some(Ok(e))
+        }
+        K::Return | K::NumpadEnter => Some(Err(0)),
+        K::Tab => Some(Err(if shift { -1 } else { 1 })),
+        _ => {
+            let (text, caret) = line_edit(view.edit_text.as_str(), view.edit_cursor as usize, key)?;
+            let mut next = view.clone();
+            next.edit_text = AzString::from(text);
+            next.edit_cursor = u32::try_from(caret).unwrap_or(u32::MAX);
+            Some(Ok(DataTableEvent::create(DataTableEventKind::EditText, next)))
+        }
+    }
+}
