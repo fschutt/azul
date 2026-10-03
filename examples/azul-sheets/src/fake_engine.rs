@@ -36,6 +36,9 @@ struct FakeSheet {
     hidden_rows: BTreeSet<i32>,
     frozen: (i32, i32),
     grid_lines: bool,
+    /// The merged areas (their `sheet` is not kept up to date: the sheet
+    /// they belong to is the one holding them).
+    merges: Vec<CellArea>,
 }
 
 impl FakeSheet {
@@ -417,6 +420,19 @@ impl SheetEngine for FakeEngine {
                     sheet.hidden_rows.insert(r as i32);
                 }
             }
+            for m in s["merges"].as_array().cloned().unwrap_or_default() {
+                if let (Some(row), Some(column), Some(width), Some(height)) =
+                    (m[0].as_i64(), m[1].as_i64(), m[2].as_i64(), m[3].as_i64())
+                {
+                    sheet.merges.push(CellArea {
+                        sheet: 0,
+                        row: row as i32,
+                        column: column as i32,
+                        width: width as i32,
+                        height: height as i32,
+                    });
+                }
+            }
             book.sheets.push(sheet);
         }
         for n in json["names"].as_array().cloned().unwrap_or_default() {
@@ -451,6 +467,7 @@ impl SheetEngine for FakeEngine {
                     "widths": s.widths.iter().map(|(c, px)| serde_json::json!([c, px])).collect::<Vec<_>>(),
                     "heights": s.heights.iter().map(|(r, px)| serde_json::json!([r, px])).collect::<Vec<_>>(),
                     "hidden_rows": s.hidden_rows.iter().collect::<Vec<_>>(),
+                    "merges": s.merges.iter().map(|m| serde_json::json!([m.row, m.column, m.width, m.height])).collect::<Vec<_>>(),
                 })
             })
             .collect();
@@ -940,17 +957,34 @@ impl SheetEngine for FakeEngine {
     }
 
     fn merges(&self, sheet: u32) -> Vec<CellArea> {
-        let _ = sheet;
-        Vec::new()
+        let mut out: Vec<CellArea> = self
+            .book
+            .sheets
+            .get(sheet as usize)
+            .map(|s| s.merges.iter().map(|m| CellArea { sheet, ..*m }).collect())
+            .unwrap_or_default();
+        out.sort_by_key(|m| (m.row, m.column));
+        out
     }
 
     fn merge(&mut self, area: CellArea) -> Result<(), EngineError> {
-        let _ = area;
+        self.check_sheet(area.sheet)?;
+        if area.width * area.height <= 1 {
+            return Ok(());
+        }
+        self.checkpoint();
+        let merges = &mut self.book.sheets[area.sheet as usize].merges;
+        merges.retain(|m| !CellArea { sheet: area.sheet, ..*m }.overlaps(&area));
+        merges.push(area);
         Ok(())
     }
 
     fn unmerge(&mut self, area: CellArea) -> Result<(), EngineError> {
-        let _ = area;
+        self.check_sheet(area.sheet)?;
+        self.checkpoint();
+        self.book.sheets[area.sheet as usize]
+            .merges
+            .retain(|m| !CellArea { sheet: area.sheet, ..*m }.overlaps(&area));
         Ok(())
     }
 }
