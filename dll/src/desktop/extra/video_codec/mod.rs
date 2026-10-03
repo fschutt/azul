@@ -708,6 +708,17 @@ impl VideoEncoder {
         )
     }
 
+    /// Spend `kbps` kilobits a second from the next frame the encoder takes
+    /// on - what a call does when its network gets slower or faster (the
+    /// app's rate controller reads the path statistics). The stream goes on:
+    /// no new session, no forced keyframe, no frame lost. False when the
+    /// encoder is not open.
+    pub fn set_bitrate(&self, kbps: u32) -> bool {
+        // RED stub: the encoder keeps the bitrate it opened with.
+        let _ = kbps;
+        false
+    }
+
     /// [`encode`](Self::encode) / [`encode_at`](Self::encode_at): the wall
     /// clock's stamp when `micros` is `None`.
     fn submit(&self, frame: VideoFrame, force_keyframe: bool, micros: Option<i64>) -> bool {

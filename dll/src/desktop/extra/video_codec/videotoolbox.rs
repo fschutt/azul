@@ -2041,6 +2041,61 @@ mod vt_tests {
         );
     }
 
+    /// A call's encoder follows its network: told a lower bitrate in the
+    /// middle of a stream, it spends that rate from then on - the same
+    /// stream, nothing re-opened. Noise frames stamped 1/30 s apart (the rate
+    /// control spends bits by the stamps): two seconds at 8000 kbps, then
+    /// the change to 3000 kbps; the first second after it is the rate
+    /// control settling and is not counted, the two seconds after that are.
+    #[test]
+    fn an_encoder_told_a_lower_bitrate_mid_stream_spends_it_from_then_on() {
+        use azul_css::corety::OptionU8Vec;
+
+        use crate::desktop::extra::video_codec::VideoEncoder;
+
+        if VtLib::get().is_none() {
+            eprintln!("VideoToolbox unavailable — skipping");
+            return;
+        }
+        let (w, h, high, low) = (320u32, 240u32, 8000u32, 3000u32);
+        let mut encoder = VideoEncoder::open(w, h, false, high);
+        assert!(encoder.is_open(), "an H.264 encoder opens on this Mac");
+        let (mut before, mut after) = (0usize, 0usize);
+        for f in 0..150u32 {
+            if f == 60 {
+                assert!(
+                    encoder.set_bitrate(low),
+                    "an open encoder takes a new bitrate"
+                );
+            }
+            assert!(encoder.encode_at(noise_frame(f, w, h), u64::from(f) * 33_333, f == 0));
+            encoder.flush();
+            let mut bytes = 0usize;
+            while let OptionU8Vec::Some(packet) = encoder.recv_packet() {
+                bytes += packet.as_ref().len();
+            }
+            match f {
+                0..=59 => before += bytes,
+                90.. => after += bytes,
+                _ => {}
+            }
+        }
+        let low_budget = 2 * low as usize * 1000 / 8;
+        eprintln!(
+            "two seconds of noise: {before} B at {high} kbps, {after} B after the change to \
+             {low} kbps (budget {low_budget} B)"
+        );
+        assert!(
+            after * 10 <= before * 6,
+            "after the change to {low} kbps the encoder still spends about what it did at \
+             {high} kbps: {after} B against {before} B"
+        );
+        assert!(
+            after * 10 >= low_budget * 5,
+            "the encoder spends far less than {low} kbps: {after} B of {low_budget} B"
+        );
+    }
+
     /// A flat NV12 frame: every luma sample `luma`, neutral chroma, in
     /// `format` (the matrix and range the bytes are in).
     fn flat_nv12(luma: u8, w: u32, h: u32, format: RawImageFormat) -> VideoFrame {
