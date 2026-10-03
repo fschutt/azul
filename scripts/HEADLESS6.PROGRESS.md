@@ -26,11 +26,15 @@ Branch `wt/headless6` from base 25d78e309. Brief: scripts/waves/wave6/HEADLESS6.
 - item 4: 5560f330d RED / 590c06dc1 GREEN: LayoutCallbackInfoRefData.window_id (last field) +
   LayoutCallbackInfo::get_window_id() -> AzString. api.json: LayoutCallbackInfo.get_window_id
   (self: ref) -> String, fn_body `object.get_window_id()`.
+- item 5: routing by window_id exists (MAIL2 forwarding, unit-tested). Found: the single wake flag was
+  taken by the first window -> a forwarded request's window stayed at the 2 s idle poll.
+  0adb73655 RED / ea1d8434c GREEN: DebugWakeSeen per window (E2eScratch) + generation counter.
+  Live verification (AzCalendar editor via AZ_DEBUG + window_id) still to do when power allows.
 
 ## IN PROGRESS
-- item 5: child-window routing by window_id: read dll debug_server/platform.rs create_debug_timer /
-  the timer callback in layout/src/e2e/full.rs (how a request with window_id is matched; the spmc
-  queue: a window's timer that receives a request for ANOTHER window consumes it?).
+- item 3: headless menus. Next: read show_menu_from_callback in headless/mod.rs and how other backends
+  show a context menu (common/transient.rs? menu window via WindowCreateOptions + menu DOM?), decide
+  the design (a real menu window = child HeadlessWindow the debug server can address by window_id).
 
 ## NEXT
 - items 3 (headless menus), 4 (window id on LayoutCallbackInfo), 5 (child-window routing).
