@@ -4031,13 +4031,42 @@ fn written_type_name(ty: &syn::Type) -> String {
         syn::Type::Reference(r) => r.elem.as_ref(),
         other => other,
     };
+    written_type(ty)
+}
+
+/// A type as the source writes it, each path by its last segment and with
+/// its generic arguments (`Option<AzString>` vs `Option<String>`, `&str`):
+/// the index's own spelling strips the `Az` prefix and cannot tell an
+/// `Option` of a std `String` from one of an `AzString`.
+fn written_type(ty: &syn::Type) -> String {
     match ty {
-        syn::Type::Path(p) if p.qself.is_none() => p
-            .path
-            .segments
-            .last()
-            .map(|seg| seg.ident.to_string())
-            .unwrap_or_default(),
+        syn::Type::Path(p) if p.qself.is_none() => match p.path.segments.last() {
+            Some(seg) => {
+                let ident = seg.ident.to_string();
+                let syn::PathArguments::AngleBracketed(args) = &seg.arguments else {
+                    return ident;
+                };
+                let inner: Vec<String> = args
+                    .args
+                    .iter()
+                    .filter_map(|a| match a {
+                        syn::GenericArgument::Type(t) => Some(written_type(t)),
+                        _ => None,
+                    })
+                    .collect();
+                if inner.is_empty() {
+                    ident
+                } else {
+                    format!("{ident}<{}>", inner.join(", "))
+                }
+            }
+            None => String::new(),
+        },
+        syn::Type::Reference(r) => format!(
+            "&{}{}",
+            if r.mutability.is_some() { "mut " } else { "" },
+            written_type(&r.elem)
+        ),
         other => clean_type_string(&other.to_token_stream().to_string()),
     }
 }

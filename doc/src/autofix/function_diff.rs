@@ -783,13 +783,7 @@ fn same_ffi_arg_type(api_ty: &str, source_ty: &str) -> bool {
         .strip_prefix("Option<")
         .and_then(|t| t.strip_suffix('>'))
     {
-        let inner = inner.trim();
-        let mut cap = inner.chars();
-        let upper = cap
-            .next()
-            .map(|c| c.to_ascii_uppercase().to_string() + cap.as_str())
-            .unwrap_or_default();
-        return api_ty == format!("Option{upper}");
+        return api_ty == format!("Option{}", capitalize(inner.trim()));
     }
     false
 }
@@ -899,6 +893,49 @@ fn slice_arg_type(elem: &str) -> Option<String> {
         return Some(format!("{}VecSlice", capitalize(elem)));
     }
     Some(format!("{elem}VecSlice"))
+}
+
+/// The api.json type and body accessor of an `Option<inner>` argument
+/// (`source_ty` as written, `Option<AzString>` / `Option<String>`): its FFI
+/// option, converted back - `.into()` for an owned value (a std `String`
+/// through `into_library_owned_string`), `.as_ref()` for a borrow, the
+/// `Option<&str>` from the `OptionString`. `None` when the inner type is not
+/// one plain name (`Option<Vec<T>>`, `Option<&mut T>`): no FFI form here.
+/// `Option<i32>` went out as written, a type api.json does not have.
+fn option_arg_ffi_type(inner: &str, source_ty: &str) -> Option<(String, Option<String>)> {
+    let plain = |t: &str| !t.is_empty() && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if inner == "&str" || inner == "str" {
+        return Some((
+            "OptionString".to_string(),
+            Some("{}.as_ref().map(|s| s.as_str())".to_string()),
+        ));
+    }
+    if let Some(borrowed) = inner.strip_prefix('&') {
+        let borrowed = borrowed.trim();
+        return plain(borrowed).then(|| {
+            (
+                crate::autofix::utils::canonicalize_option_type_name(borrowed),
+                Some("{}.as_ref()".to_string()),
+            )
+        });
+    }
+    if !plain(inner) {
+        return None;
+    }
+    let written_inner = source_ty
+        .strip_prefix("Option<")
+        .and_then(|r| r.strip_suffix('>'))
+        .map(str::trim);
+    if inner == "String" && written_inner == Some("String") {
+        return Some((
+            "OptionString".to_string(),
+            Some("{}.map(|s| s.into_library_owned_string())".to_string()),
+        ));
+    }
+    Some((
+        crate::autofix::utils::canonicalize_option_type_name(inner),
+        Some("{}.into()".to_string()),
+    ))
 }
 
 /// `u32` -> `U32`, `LayoutRect` stays.
@@ -1081,11 +1118,11 @@ pub fn api_candidate_methods<'a>(
 /// - it returns no borrow (`&T`, `&str`, `&[T]`, `&mut T`, `Option<&T>`):
 ///   those are Rust-side accessors;
 /// - every argument and the return type, spelled as api.json spells it
-///   (`&str` -> `String`, `&T` -> `*const T`, `Option<X>` -> `OptionX`), is a
-///   scalar, the type itself, or a type `carries` says the FFI carries (an
-///   api.json type, a C-repr workspace type: [`ffi_carries`]). `Vec<T>`,
-///   slices, tuples, `Option<&str>` arguments, `Instant`, a struct without a
-///   C repr have no FFI form.
+///   (`&str` -> `String`, `&T` -> `*const T`, `Option<X>` -> `OptionX`,
+///   `Option<&str>` -> `OptionString`, `&[T]` -> `TVecSlice`), is a scalar,
+///   the type itself, or a type `carries` says the FFI carries (an api.json
+///   type, a C-repr workspace type: [`ffi_carries`]). `Vec<T>`, tuples,
+///   `Instant`, a struct without a C repr have no FFI form.
 ///
 /// Everything else is a Rust-only helper (RichTextDoc's 29 of wave 5). A
 /// helper that HAS an FFI form but is not API stays `pub(crate)` (house
@@ -1393,6 +1430,14 @@ fn source_arg_ffi_type(arg: &super::type_index::MethodArg) -> (String, Option<St
             crate::api::RefKind::RefMut => return (arg.ty.clone(), Some("&mut {}".to_string())),
             crate::api::RefKind::Ref => return (arg.ty.clone(), Some("&{}".to_string())),
             _ => {}
+        }
+    }
+    // An `Option<X>` crosses as its FFI option and is converted back
+    if arg.ref_kind == crate::api::RefKind::Value {
+        if let Some(inner) = arg.ty.strip_prefix("Option<").and_then(|r| r.strip_suffix('>')) {
+            if let Some(converted) = option_arg_ffi_type(inner.trim(), &arg.source_ty) {
+                return converted;
+            }
         }
     }
     let (ffi_type, accessor) = convert_arg_type_for_ffi(&arg.ty);
@@ -2567,9 +2612,11 @@ mod tests {
             .map(|m| api_name_of(m))
             .collect();
         names.sort();
+        // `set_link(url: Option<&str>)` crosses as `OptionString` since the
+        // add converts Option arguments (TOOLS7)
         assert_eq!(
             names,
-            vec!["block_count", "create", "link_at", "preview", "same", "set_kind"]
+            vec!["block_count", "create", "link_at", "preview", "same", "set_kind", "set_link"]
         );
 
         let named = api_candidate_methods("T", &refs, "take_blocks", None, &carries);
