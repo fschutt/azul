@@ -15,6 +15,9 @@ if /tmp was wiped).
   fixtures::sample, build_tests
 - 219d37e10 RED + efa08418d GREEN: examples/azul-term crate begun (Cargo.toml, main.rs, stub lib.rs) and src/vt.rs
   (`vt::screen(&Term, alt_sends_escape) -> azul::widgets::TerminalScreen`, `vt::GridSize` implements Dimensions)
+- 200eaef7c src/session.rs: Session::spawn (tty::new + EventLoop + Notifier), Session::replay (recording, echo),
+  write / resize / is_live / size, Signals {dirty, title, bell, exited} polled by the UI (take_dirty / take_title /
+  take_bell); Listener answers PtyWrite through the EventLoopSender
 
 ## IN PROGRESS
 - (none - between units)
@@ -23,7 +26,8 @@ if /tmp was wiped).
 1. (done) Manifest. 2. (done) Engine paste fix (focus_hears_paste; see commits above). The widget's key handler
    leaves the paste chord alone (KeyAction::Paste -> DoNothing): the engine's Paste event brings the text to
    on_terminal_paste. Shift+Insert has no engine paste yet (limitation for the report).
-3. examples/azul-term (AzTerm) - next file: src/session.rs, then src/lib.rs (replace the stub start()):
+3. examples/azul-term (AzTerm) - next file: src/ids.rs + src/sample.rs (recordings), then src/lib.rs (replace the
+   stub start(); the window), then registration + scripts/azterm_e2e.py:
    - src/lib.rs (start; layout: ShellThemeScope::body + appkit title row + a tab strip + the
      TerminalView pane (a `position: relative; flex-grow: 1` container) + StatusBar; CloseGuard asks when a tab
      runs a command; About; settings page). TerminalView data source = an extern "C" fn(RefAny, TerminalGridSize)
