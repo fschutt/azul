@@ -270,6 +270,11 @@ impl ApiPatch {
             }
         }
 
+        // File-name order, not the file system's: the scan numbers its
+        // patches (`0001_...`) for it, and a pending `add_*` goes before a
+        // later `remove_*` of the same entry.
+        patches.sort_by(|a, b| a.0.cmp(&b.0));
+
         Ok(patches)
     }
 
