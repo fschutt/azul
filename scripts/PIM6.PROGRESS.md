@@ -58,8 +58,13 @@ Screenshots: target/pim6-shots (not committed).
   185469b93 Job::ReadImport; 540558f4f Settings > Data > Import and export UI; 3d2c907b1 E2E
   (export/import/kept flora); deafa752f body margin 0 + pane ratios (not seen).
 
+- 2f33a1679 AzTasks + AzContacts body = ShellThemeScope::body() (SMALL6 API on wt/small6:
+  compiles only after integration). 545ade16c/5543fdba7 azul_pim::data_uri (additive).
+
 ## IN PROGRESS
-- AzContacts: photo preview, CSV import with column mapping, birthday as DatePicker. Then
+- AzContacts: NEXT = ui.rs base64 -> azul_pim::data_uri (remove twin + its test), then photo
+  preview (decoded ImageRef cache keyed by photo hash, filled in with_app), then birthday
+  DatePicker, then CSV import with column mapping. Then
   `__az<app>_` prefixes (three apps + E2E scripts), report scripts/PIM6_2026_10_03.md.
 
 ## (old notes, done) RecurrenceEditor GREEN part 2 steps, in layout/src/widgets/recurrence_editor.rs:
