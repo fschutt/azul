@@ -22,6 +22,9 @@
 //! - [`task`] and [`task_store`]: the one task store - `tasks/<list>/<task
 //!   uuid>.json` - every app reads and writes, through `azul-storage`'s
 //!   `Drive`, with the migration of AzCalendar's old To-Do bar files.
+//! - [`write_queue`]: the write-behind queue the apps' durable writes go
+//!   through (one write per key, one batch in flight, failures kept for a
+//!   retry), run as a batch on a `Drive` from a file thread.
 
 pub mod content_line;
 pub mod dates;
@@ -32,6 +35,7 @@ pub mod rrule;
 pub mod search;
 pub mod task;
 pub mod task_store;
+pub mod write_queue;
 
 /// A temporary folder for tests: this crate's, and the apps' through the `test-util` feature.
 #[cfg(any(test, feature = "test-util"))]
