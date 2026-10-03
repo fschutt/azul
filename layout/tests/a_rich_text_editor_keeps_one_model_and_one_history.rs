@@ -410,3 +410,133 @@ fn an_undo_of_a_format_puts_the_typing_and_the_format_back_one_step_at_a_time() 
     });
     assert_eq!(kept.doc.blocks()[0].flat(), "hello world!");
 }
+
+// ---- WRITER6: the formats and the undo keys come from the engine ----
+
+/// The key `key` pressed with the primary modifier and Shift.
+fn press_primary_shift(lw: &mut LayoutWindow, key: VirtualKeyCode) {
+    lw.current_window_state.keyboard_state = KeyboardState {
+        current_virtual_keycode: Some(key).into(),
+        pressed_virtual_keycodes: vec![
+            VirtualKeyCode::LControl,
+            VirtualKeyCode::LWin,
+            VirtualKeyCode::LShift,
+            key,
+        ]
+        .into(),
+        ..Default::default()
+    };
+}
+
+/// What the shell does with a callback's acknowledgements: the synced
+/// revision and a reset of the host's editing state.
+fn apply_acks(lw: &mut LayoutWindow, changes: &[CallbackChange]) {
+    for change in changes {
+        match change {
+            CallbackChange::MarkTextRevisionSynced { revision } => {
+                lw.mark_text_revision_synced(*revision);
+            }
+            CallbackChange::ResetEditorContent { host, caret_at_end } => {
+                let _ = lw.reset_editor_content(*host, *caret_at_end);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The engine's typing style (its Ctrl/Cmd+B default action, or a toolbar
+/// button's `toggle_text_format`) set where the editor's key handler never
+/// saw it: the typed text is bold on screen, and the editor takes the bold
+/// from the engine's edit report (`DocumentTextEdit::runs`), not from a
+/// mirror of its own.
+#[test]
+fn text_typed_after_the_engines_bold_toggle_at_a_caret_is_bold_in_the_model() {
+    let (mut lw, log) = editor(RichTextDoc::from_blocks(vec![RichBlock::paragraph(
+        "hello world",
+    )]));
+    let text = text_node(&lw, "hello world");
+    select(&mut lw, text, 5, text, 5);
+    let host_node = dnid(host(&lw));
+    let _ = lw.toggle_text_format(host_node, azul_core::events::TextFormat::Bold);
+    type_text(&mut lw, "X");
+
+    let _ = fire(&lw, EventFilter::Focus(FocusEventFilter::TextChanged));
+
+    assert_eq!(
+        last(&log).doc.blocks()[0].runs_vec(),
+        vec![plain("hello"), bold("X"), plain(" world")]
+    );
+}
+
+/// An inline formatted paste (`a <b>b</b> c`) lands in the engine's
+/// overlay with its bold; the model keeps the bold (DEDUP_EDITORS D1).
+#[test]
+fn a_pasted_bold_word_is_bold_in_the_model() {
+    let (mut lw, log) = editor(RichTextDoc::from_blocks(vec![RichBlock::paragraph(
+        "hello world",
+    )]));
+    let text = text_node(&lw, "hello world");
+    select(&mut lw, text, 5, text, 5);
+    let _ = lw.paste_clipboard_content(
+        &crate::a_rich_paste_inserts_formatting_and_blocks::clipboard("a <b>b</b> c", "a b c"),
+    );
+    let _ = lw.apply_text_changeset();
+
+    let _ = fire(&lw, EventFilter::Focus(FocusEventFilter::TextChanged));
+
+    assert_eq!(
+        last(&log).doc.blocks()[0].runs_vec(),
+        vec![plain("helloa "), bold("b"), plain(" c world")]
+    );
+}
+
+/// Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z and Ctrl/Cmd+Y reach the editor (the
+/// engine's text undo is only the key's default action now): the editor
+/// runs its ONE history and cancels the engine's undo.
+#[test]
+fn ctrl_or_cmd_z_undoes_the_editors_own_history_and_cancels_the_engines_text_undo() {
+    let (mut lw, log) = editor(RichTextDoc::from_blocks(vec![RichBlock::paragraph(
+        "hello world",
+    )]));
+    let text = text_node(&lw, "hello world");
+    select(&mut lw, text, 11, text, 11);
+    type_text(&mut lw, "!");
+    let (_, changes) = fire(&lw, EventFilter::Focus(FocusEventFilter::TextChanged));
+    apply_acks(&mut lw, &changes);
+    assert_eq!(last(&log).doc.blocks()[0].flat(), "hello world!");
+
+    press_primary(&mut lw, VirtualKeyCode::Z);
+    let (update, changes) = fire(&lw, EventFilter::Focus(FocusEventFilter::VirtualKeyDown));
+    assert!(prevented(&changes), "the engine's text undo is cancelled");
+    assert_eq!(update, Update::RefreshDom);
+    assert_eq!(last(&log).doc.blocks()[0].flat(), "hello world");
+    assert!(
+        changes
+            .iter()
+            .any(|c| matches!(c, CallbackChange::ResetEditorContent { .. })),
+        "the engine drops its editing state of the undone text: {changes:?}"
+    );
+    apply_acks(&mut lw, &changes);
+
+    press_primary_shift(&mut lw, VirtualKeyCode::Z);
+    let (_, changes) = fire(&lw, EventFilter::Focus(FocusEventFilter::VirtualKeyDown));
+    assert!(prevented(&changes));
+    assert_eq!(
+        last(&log).doc.blocks()[0].flat(),
+        "hello world!",
+        "Shift+Z redoes"
+    );
+    apply_acks(&mut lw, &changes);
+
+    press_primary(&mut lw, VirtualKeyCode::Z);
+    let (_, changes) = fire(&lw, EventFilter::Focus(FocusEventFilter::VirtualKeyDown));
+    apply_acks(&mut lw, &changes);
+    press_primary(&mut lw, VirtualKeyCode::Y);
+    let (_, changes) = fire(&lw, EventFilter::Focus(FocusEventFilter::VirtualKeyDown));
+    assert!(prevented(&changes));
+    assert_eq!(
+        last(&log).doc.blocks()[0].flat(),
+        "hello world!",
+        "Y redoes too"
+    );
+}
