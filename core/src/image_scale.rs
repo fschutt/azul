@@ -731,6 +731,20 @@ mod tests {
 
     // --- thumbnails --------------------------------------------------------
 
+    /// An app that sizes its own buffer by the thumbnail rule (a video
+    /// decoder's output, a monitor) asks `RawImage::fit_within` - the C API
+    /// face of [`fit_within`] - instead of keeping a copy of it (AzVideoCut
+    /// did, in f32, DEDUP_OFFICE D15).
+    #[test]
+    fn raw_image_fit_within_is_the_thumbnail_rule_as_a_size() {
+        use crate::{geom::PhysicalSizeU32, resources::RawImage};
+
+        assert_eq!(RawImage::fit_within(1920, 1080, 640, 360), PhysicalSizeU32::new(640, 360));
+        assert_eq!(RawImage::fit_within(1000, 1000, 640, 360), PhysicalSizeU32::new(360, 360));
+        assert_eq!(RawImage::fit_within(320, 240, 640, 360), PhysicalSizeU32::new(320, 240), "never up");
+        assert_eq!(RawImage::fit_within(0, 10, 10, 10), PhysicalSizeU32::new(0, 0), "nothing to fit");
+    }
+
     /// A file manager's Large icons show pictures as thumbnails: an image
     /// scaled down to a box, its aspect kept, never enlarged, as straight
     /// RGBA8 - a few kilobytes on the GPU instead of the whole photo.
