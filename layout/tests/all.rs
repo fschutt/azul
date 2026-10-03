@@ -804,3 +804,5 @@ mod typing_stays_with_its_field_when_another_page_replaces_it;
 mod text_inside_an_opacity_group_keeps_its_colour;
 #[path = "a_positioned_box_paints_in_tree_order_with_stacking_contexts.rs"]
 mod a_positioned_box_paints_in_tree_order_with_stacking_contexts;
+#[path = "the_incremental_raster_paints_a_transformed_box_where_the_compositor_does.rs"]
+mod the_incremental_raster_paints_a_transformed_box_where_the_compositor_does;
