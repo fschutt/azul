@@ -512,22 +512,7 @@ fn page_sheet(s: &AppState, data: &RefAny, file: &code::SourceFile, page: usize)
         .as_str(),
     );
     for (i, line) in lines.iter().enumerate() {
-        let mut row = Dom::create_div()
-            .with_css(format!("display: flex; flex-direction: row; height: {LINE_H}px;").as_str());
-        row.add_child(
-            Dom::create_div_with_text(format!("{}", first_line + i).as_str()).with_css(
-                format!(
-                    "width: {}px; flex-shrink: 0; text-align: right; padding-right: 10px; \
-                     font-family: monospace; font-size: 11px; color: #b0aaa0;",
-                    GUTTER_W as isize - 10,
-                )
-                .as_str(),
-            ),
-        );
-        row.add_child(Dom::create_div_with_text(line.as_str()).with_css(
-            "font-family: monospace; font-size: 11px; color: #1f1f1f; white-space: pre;",
-        ));
-        col.add_child(row);
+        col.add_child(code_row(first_line + i, line.as_str()));
     }
     sheet.add_child(col);
 
@@ -539,6 +524,26 @@ fn page_sheet(s: &AppState, data: &RefAny, file: &code::SourceFile, page: usize)
     });
     sheet.add_child(ink_layer(data, cache, page));
     sheet
+}
+
+/// One line of code: its number in the gutter, then the line.
+fn code_row(number: usize, line: &str) -> Dom {
+    let mut row = Dom::create_div()
+        .with_css(format!("display: flex; flex-direction: row; height: {LINE_H}px;").as_str());
+    row.add_child(
+        Dom::create_div_with_text(format!("{number}").as_str()).with_css(
+            format!(
+                "width: {}px; flex-shrink: 0; text-align: right; padding-right: 10px; \
+                 font-family: monospace; font-size: 11px; color: #b0aaa0;",
+                GUTTER_W as isize - 10,
+            )
+            .as_str(),
+        ),
+    );
+    row.add_child(Dom::create_div_with_text(line).with_css(
+        "font-family: monospace; font-size: 11px; color: #1f1f1f; white-space: pre;",
+    ));
+    row
 }
 
 /// The ink over page `page`: `cache` (an [`InkLayer`]) drawn by
@@ -641,6 +646,21 @@ mod tests {
             .filter(|c| c.callback.cb == handler as usize)
             .map(|c| c.event)
             .collect()
+    }
+
+    /// A line of code and its number are text spans, not anonymous divs: a
+    /// screen reader is told what they are (and azul's div-as-text check stays
+    /// quiet).
+    #[test]
+    fn a_code_line_and_its_number_are_text_spans() {
+        let row = code_row(7, "fn main() {}");
+        let kinds: Vec<bool> = row
+            .children
+            .as_slice()
+            .iter()
+            .map(|c| matches!(c.root.node_type, NodeType::Span))
+            .collect();
+        assert_eq!(kinds, vec![true, true]);
     }
 
     /// W3C `mouseover` fires once, when the pointer ENTERS the page; the
