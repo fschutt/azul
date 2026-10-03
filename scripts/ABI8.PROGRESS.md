@@ -31,8 +31,14 @@ Brief: scripts/waves/wave8/PLAN.md section "ABI8". Report: scripts/ABI8_2026_10_
   cpp FAILS on today's azul17.hpp (the macro clash, fixed by 8d7ef1110) and PASSES on a copy of azul.h
   without the macro (/tmp/abi8/c/inc).
 
+- 2c583d92f RED gap 3 / 22c858698 GREEN gap 3 (azul.h `#elif defined(_MSC_VER)` arm: .CRT$XCU selectany entry
+  + /include). Checked with clang --target=x86_64/i686-pc-windows-msvc -fms-extensions (object has the entry and
+  the /include directive); cl.exe unverified.
+- Simulated this branch's azul.h (/tmp/abi8/simulate_header.py -> /tmp/abi8/sim): e2e c 2/2, cpp PASS on
+  azul03/11/14/17/20/23.hpp.
+
 ## IN PROGRESS
-- Gap 3: MSVC C `.CRT$XCU` entry in abi_guard.rs c_items (RED test in abi_guard.rs tests, then GREEN).
+- CI wiring of scripts/abi_guard_e2e.py.
 
 ## NEXT
 - CI: add `python3 scripts/abi_guard_e2e.py --only c,cpp` where target/codegen exists (rust.yml), and
