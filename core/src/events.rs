@@ -5318,6 +5318,10 @@ fn handle_key_down(
             if kbd.seat_id != crate::window::PRIMARY_POINTER_SEAT {
                 return None;
             }
+            // Text editing: anywhere else Ctrl/Cmd+D is the app's key.
+            if !focus_is_editable {
+                return None;
+            }
             return Some(InternalEventAction::AddAndSkip(
                 SystemChange::SelectNextOccurrence { target },
             ));
