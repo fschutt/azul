@@ -18,6 +18,11 @@ Commit messages are written to scripts/.paint7_msg.txt (untracked, never staged)
 - 9376e3075 GREEN compositor.rs: `painted_over_later` - a group painted over later is not promoted
   (in place); `translation_2d` + pub(crate) `is_identity_2d` shared with raster; layer_soup spaced
 
+- 222cccbec RED item 2: layout/tests/a_node_mid_slide_is_hit_where_it_is_painted.rs
+- a3f14f4fb GREEN item 2: GpuValueCache::reference_frame_of / painted_transform_of (core/src/gpu.rs),
+  GpuStateManager::painted_transform_of; hit tester chains + all resolve_tf closures + DL use it;
+  LayoutWindow::css_transform_of renamed painted_transform_of
+
 ## IN PROGRESS (old notes)
 - item 1/4a CPU side. Findings:
   - the layered compositor composites every child layer AFTER all of its parent's own items
@@ -33,7 +38,7 @@ Commit messages are written to scripts/.paint7_msg.txt (untracked, never staged)
     IN PLACE (scroll / opacity / transform; blur stays a layer - note in report).
 
 ## NEXT
-- item 2 (RED: a node mid-slide is hit where it is painted), then items 2 (hit test anim channel: one helper GpuValueCache::reference_frame_of), 3 (ImageById
+- item 3 (ImageById
   rebuilds the list in window.rs), 4d, 5, 6 (run prebuilt AzTasks/AzCalendar with wait_settled),
   7 (overflow:hidden span clip)
 
