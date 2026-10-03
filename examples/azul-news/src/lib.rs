@@ -20,6 +20,7 @@
 pub mod dates;
 pub mod feed;
 pub mod ids;
+pub mod library;
 pub mod links;
 pub mod opml;
 pub mod reader;
