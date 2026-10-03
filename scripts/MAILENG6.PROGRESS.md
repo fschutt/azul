@@ -40,11 +40,15 @@ agents - keep files under `m6/` (a `msg.txt` at the root got overwritten).
 - item 6: RED `429d3580f` + FIX `b1e6c7409` (span children: inline-flex/grid/table atomic,
   `<img>` via the new ONE helper `push_inline_image`); RED `b52c5f07c` + FIX `0896d5138`
   (OS/2 sxHeight/sCapHeight parsed; strut x/cap from the face). Item 6 DONE.
-- NEXT: item 2 (percentage heights vs auto-height parents). Plan: grep list m6/h100.txt (37 app
-  /widget sites, most are `height: 100%` on the ROOT body or inside flex/abspos parents, which
-  the change must not touch); RED test, then change `layout_bfc`'s
-  `children_containing_block_size` (fc.rs ~1354) + cache.rs ~2651 `available_size_for_children`
-  so an auto-height block passes an INDEFINITE block size to its children.
+- (power cut + restart ~here; scratchpad /tmp wiped: m6/probe2.py, chrome_metrics.* are gone)
+- item 2: RED `ceb4169a6` (layout/tests/a_percentage_height_in_an_auto_height_block_is_auto.rs)
+  + FIX `188afe95a`: cache.rs `forwards_containing_block_height` (the ONE decision, used by
+  `prepare_layout_context`; `layout_bfc` reads it back via constraints.available_size) +
+  `is_percentage_height` (a % height against an indefinite cb is content-sized). All 48 app /
+  widget `height: N%` sites checked (Explore agent): none affected. Caveat: CSD-wrapped windows
+  (injected auto-height <html>): `body(no height) > div{height:100%}` now content-sized.
+- IN PROGRESS: an Explore agent classifies the ~36 test files with % heights; NEXT = update the
+  tests whose old expectations relied on the forwarded window height (commit per file).
 
 ## (older notes, items 3/7 plan)
 - item 3 + 7 (Chrome's rounded font metrics + the Times/Helvetica/Courier ascent hack).
