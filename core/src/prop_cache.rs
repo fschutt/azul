@@ -1527,6 +1527,10 @@ fn inherits_its_computed_length(p: &CssProperty) -> bool {
         CssProperty::LineHeight(v) => v
             .get_property()
             .is_some_and(|lh| lh.is_font_relative_length()),
+        // `bolder` / `lighter` compute against the declaring element's
+        // PARENT (CSS Fonts 4 s2.2): the raw keyword re-applied at every
+        // descendant made the text inside a `<b>` bolder than the `<b>`.
+        CssProperty::FontWeight(v) => v.get_property().is_some_and(|w| w.is_relative()),
         _ => false,
     }
 }
@@ -5434,6 +5438,8 @@ impl CssPropertyCache {
 
         let resolved = if prop_type == CssPropertyType::FontSize {
             Self::resolve_font_size_property(prop, parent_computed)
+        } else if prop_type == CssPropertyType::FontWeight {
+            Self::resolve_font_weight_property(prop, parent_computed)
         } else {
             Self::resolve_other_property(prop, &ctx.computed_values)
         };
@@ -5492,6 +5498,36 @@ impl CssPropertyCache {
         ctx.computed_values[lh_idx].1.property = CssProperty::LineHeight(
             CssPropertyValue::Exact(line_height.computed(font_size_px)),
         );
+    }
+
+    /// `font-weight: bolder` / `lighter` compute against the PARENT's
+    /// computed weight (CSS Fonts 4 s2.2, `StyleFontWeight::computed`); the
+    /// descendants inherit the resulting number. Any other weight is its own
+    /// computed value.
+    fn resolve_font_weight_property(
+        prop: &CssProperty,
+        parent_computed: Option<&Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
+    ) -> CssProperty {
+        use azul_css::{css::CssPropertyValue, props::basic::font::StyleFontWeight};
+
+        let CssProperty::FontWeight(CssPropertyValue::Exact(weight)) = prop else {
+            return prop.clone();
+        };
+        if !weight.is_relative() {
+            return prop.clone();
+        }
+        let parent_weight = parent_computed
+            .and_then(|p| {
+                p.binary_search_by_key(&CssPropertyType::FontWeight, |(k, _)| *k)
+                    .ok()
+                    .map(|idx| &p[idx].1.property)
+            })
+            .and_then(|p| match p {
+                CssProperty::FontWeight(v) => v.get_property().copied(),
+                _ => None,
+            })
+            .unwrap_or(StyleFontWeight::Normal);
+        CssProperty::FontWeight(CssPropertyValue::Exact(weight.computed(parent_weight)))
     }
 
     /// Resolve font-size property (uses parent's font-size as reference)

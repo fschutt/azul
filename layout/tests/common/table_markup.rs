@@ -24,9 +24,16 @@ use rust_fontconfig::FcFontCache;
 /// `markup` parsed by the XML loader, styled and laid out in a
 /// `width` x `height` window.
 pub fn laid_out(markup: &str, width: f32, height: f32) -> LayoutWindow {
+    let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+    lay_out_in(&mut lw, markup, width, height);
+    lw
+}
+
+/// `markup` parsed, styled and laid out AGAIN in the existing window `lw`,
+/// now `width` x `height`: the window's caches survive, as across a resize.
+pub fn lay_out_in(lw: &mut LayoutWindow, markup: &str, width: f32, height: f32) {
     let parsed = azul_layout::xml::parse_xml(markup).expect("the markup parses");
     let styled = StyledDom::create_from_dom(azul_layout::xml::dom_from_parsed_xml(parsed));
-    let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
     let mut ws = FullWindowState::default();
     ws.size.dimensions = LogicalSize::new(width, height);
     lw.current_window_state = ws.clone();
@@ -35,7 +42,6 @@ pub fn laid_out(markup: &str, width: f32, height: f32) -> LayoutWindow {
     let mut dbg = Some(Vec::new());
     lw.layout_and_generate_display_list(styled, &ws, &rr, &sc, &mut dbg)
         .expect("the markup lays out");
-    lw
 }
 
 /// `<html><head></head><body style="margin: 0">{body}</body></html>` laid

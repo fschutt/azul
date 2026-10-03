@@ -1065,6 +1065,12 @@ impl CssPropertyCache {
             // Pre-order traversal guarantees parent's font_size is already resolved.
             resolve_font_size_to_px(&mut result.tier2_dims, i, parent_id);
 
+            // `bolder` / `lighter` compute against the parent's weight (CSS
+            // Fonts 4 s2.2): the children copy this slot in Step 1, so they
+            // inherit the number, not the keyword (which made every `<b>` and
+            // its text ask for 900, and a `<b>` in a `<b>` no bolder).
+            resolve_relative_font_weight(&mut result.tier1_enums, i, parent_id);
+
             // A `line-height` in `em` / `%` computes to a length against THIS
             // node's font size, resolved just above (`rem` against the
             // root's): the children copy this slot in Step 1, so they inherit
@@ -1175,6 +1181,29 @@ fn apply_ua_css_to_compact(
 /// Resolve a node's font-size from relative units (em, %, rem, pt) to absolute px.
 /// CSS 2.1: inherited font-size is the COMPUTED (px) value, not the specified value.
 /// Pre-order traversal guarantees parent's `font_size` is already resolved.
+/// Node `node_idx`'s tier-1 `font-weight` slot holding `bolder` / `lighter`
+/// becomes the weight it computes to against its parent's slot
+/// (`StyleFontWeight::computed`). A slot copied from the parent is already a
+/// number (the parent was computed first: pre-order arena), so a keyword here
+/// is always the node's OWN declaration.
+fn resolve_relative_font_weight(tier1: &mut [u64], node_idx: usize, parent_id: Option<NodeId>) {
+    let own = decode_font_weight(tier1[node_idx]);
+    if !own.is_relative() {
+        return;
+    }
+    let parent = parent_id
+        .map(|pid| pid.index())
+        .filter(|&pi| pi < node_idx)
+        .map_or(
+            azul_css::props::basic::font::StyleFontWeight::Normal,
+            |pi| decode_font_weight(tier1[pi]),
+        );
+    let encoded = u64::from(style_font_weight_to_u8(own.computed(parent)));
+    let mask = FONT_WEIGHT_MASK << FONT_WEIGHT_SHIFT;
+    tier1[node_idx] =
+        (tier1[node_idx] & !mask) | ((encoded & FONT_WEIGHT_MASK) << FONT_WEIGHT_SHIFT);
+}
+
 fn resolve_font_size_to_px(
     tier2_dims: &mut [CompactNodeProps],
     node_idx: usize,

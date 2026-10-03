@@ -1555,6 +1555,40 @@ get_css_property!(
     compact = get_font_weight
 );
 
+/// The COMPUTED `font-weight` of a node: `bolder` / `lighter` resolved
+/// against the parent's computed weight (CSS Fonts 4 section 2.2,
+/// `StyleFontWeight::computed`). The ONE weight reader of the layout: the font
+/// stack of a run, the chain collection and its dedup key.
+///
+/// The compact cache (resting state) holds the computed number already; the
+/// cascade (any other state) answers with the node's OWN keyword - a
+/// descendant never inherits the keyword (it reads the number through
+/// `computed_values`), so the keyword is resolved here against the parent.
+#[must_use]
+pub fn get_computed_font_weight(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> StyleFontWeight {
+    let own = match get_font_weight_property(styled_dom, node_id, node_state) {
+        MultiValue::Exact(weight) => weight,
+        _ => StyleFontWeight::Normal,
+    };
+    if !own.is_relative() {
+        return own;
+    }
+    let parent_weight = styled_dom
+        .node_hierarchy
+        .as_container()
+        .get(node_id)
+        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+        .map_or(StyleFontWeight::Normal, |parent_id| {
+            let parent_state = &styled_dom.styled_nodes.as_container()[parent_id].styled_node_state;
+            get_computed_font_weight(styled_dom, parent_id, parent_state)
+        });
+    own.computed(parent_weight)
+}
+
 get_css_property!(
     get_font_style_property,
     get_font_style,
@@ -3348,11 +3382,8 @@ pub fn get_style_properties_for_state(
             (None, Vec::new(), None)
         };
 
-    // Query font-weight from CSS cache
-    let font_weight = match get_font_weight_property(styled_dom, dom_id, node_state) {
-        MultiValue::Exact(v) => v,
-        _ => StyleFontWeight::Normal,
-    };
+    // Query font-weight from CSS cache (computed: bolder / lighter resolved)
+    let font_weight = get_computed_font_weight(styled_dom, dom_id, node_state);
 
     // Query font-style from CSS cache
     let font_style = match get_font_style_property(styled_dom, dom_id, node_state) {
@@ -4284,10 +4315,7 @@ pub fn collect_font_stacks_from_styled_dom(
         // was dropped (TABLES' OPEN font bug, MAILENG6 item 1).
         let dom_id = NodeId::new(i);
         let node_state = &styled_nodes_phase1[dom_id].styled_node_state;
-        let weight = match get_font_weight_property(styled_dom, dom_id, node_state) {
-            MultiValue::Exact(v) => v,
-            _ => StyleFontWeight::Normal,
-        };
+        let weight = get_computed_font_weight(styled_dom, dom_id, node_state);
         let style = match get_font_style_property(styled_dom, dom_id, node_state) {
             MultiValue::Exact(v) => v,
             _ => StyleFontStyle::Normal,
@@ -4357,10 +4385,7 @@ pub fn collect_font_stacks_from_styled_dom(
             continue;
         }
 
-        let font_weight = match get_font_weight_property(styled_dom, dom_id, node_state) {
-            MultiValue::Exact(v) => v,
-            _ => StyleFontWeight::Normal,
-        };
+        let font_weight = get_computed_font_weight(styled_dom, dom_id, node_state);
         let font_style = match get_font_style_property(styled_dom, dom_id, node_state) {
             MultiValue::Exact(v) => v,
             _ => StyleFontStyle::Normal,
@@ -6653,6 +6678,57 @@ pub fn get_text_indent_value(
         .get_text_indent(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .copied()
+}
+
+/// The resolved `text-indent` of an inline formatting context's root, for
+/// text3: `(indent in px, each-line, hanging)` (CSS Text 3 section 8.1).
+///
+/// A length resolves against the node's font sizes and the viewport, a
+/// percentage against `containing_block_width` - or as 0 when `intrinsic`:
+/// "Percentages must be treated as 0 for the purpose of calculating intrinsic
+/// size contributions, but are always resolved normally when performing
+/// layout." The ONE resolution of the layout pass
+/// (`fc::translate_to_text3_constraints`) and the intrinsic-size scan
+/// (`sizing`, which must count the indent: it narrows the first line box).
+#[must_use]
+pub fn resolve_text_indent(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+    containing_block_width: f32,
+    viewport_size: LogicalSize,
+    intrinsic: bool,
+) -> (f32, bool, bool) {
+    // No node of this DOM declares it: the cascade walk would find nothing.
+    let declared = styled_dom
+        .css_property_cache
+        .ptr
+        .compact_cache
+        .as_ref()
+        .is_none_or(|cc| cc.dom_declared_flags & azul_css::compact_cache::DOM_HAS_TEXT_INDENT != 0);
+    if !declared {
+        return (0.0, false, false);
+    }
+    let Some(text_indent) = get_text_indent_value(styled_dom, node_id, node_state) else {
+        return (0.0, false, false);
+    };
+    let px = if intrinsic && text_indent.inner.to_percent().is_some() {
+        0.0
+    } else {
+        let context = ResolutionContext {
+            vertical_writing_mode: false,
+            element_font_size: get_element_font_size(styled_dom, node_id, node_state),
+            parent_font_size: get_parent_font_size(styled_dom, node_id, node_state),
+            root_font_size: get_root_font_size(styled_dom, node_state),
+            containing_block_size: PhysicalSize::new(containing_block_width, 0.0),
+            element_size: None,
+            viewport_size: PhysicalSize::new(viewport_size.width, viewport_size.height),
+        };
+        text_indent
+            .inner
+            .resolve_with_context(&context, PropertyContext::Other)
+    };
+    (px, text_indent.each_line, text_indent.hanging)
 }
 
 /// Get column-count property. Returns Option<ColumnCount>.

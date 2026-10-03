@@ -1555,7 +1555,7 @@ pub fn regenerate_layout(
                         azul_layout::managers::permission::Capability::Geolocation,
                         azul_core::dom::DomNodeId {
                             dom: *dom_id,
-                            node: azul_core::dom::NodeId::from_usize(i).into(),
+                            node: Some(azul_core::dom::NodeId::new(i)).into(),
                         },
                     ));
                 }

@@ -8488,6 +8488,17 @@ impl TextShapingCache {
         let mut cur_word = 0.0f32;
         let mut max_line_height = 0.0f32;
 
+        // `text-indent` counts in the intrinsic sizes (CSS Text 3 8.1; the
+        // caller passes a percentage as 0): a line box is narrower by its indent
+        // (`text_indent_of_line`), so a box sized from these widths must hold
+        // indent + content. A line between forced breaks takes its own indent
+        // (max-content); the FIRST word of such a line takes it too, every later
+        // word may start a soft-wrapped line and takes that line's (min-content).
+        let soft_wrap_indent = text_indent_of_line(constraints, false, false);
+        let mut forced_lines = 0usize;
+        let mut line_indent = text_indent_of_line(constraints, true, false);
+        let mut word_indent = line_indent;
+
         for item in oriented_items.iter() {
             // A forced break (preserved LF, <br>) ends the current line. max-content
             // is the widest line BETWEEN forced breaks, not the running sum across
@@ -8495,14 +8506,17 @@ impl TextShapingCache {
             // content) over-measures its max-content as the concatenation of all
             // lines. Reset the line accumulators here.
             if let ShapedItem::Break { .. } = item {
-                if total > max_line {
-                    max_line = total;
+                if total + line_indent > max_line {
+                    max_line = total + line_indent;
                 }
-                if cur_word > max_word {
-                    max_word = cur_word;
+                if cur_word > 0.0 && cur_word + word_indent > max_word {
+                    max_word = cur_word + word_indent;
                 }
                 total = 0.0;
                 cur_word = 0.0;
+                forced_lines += 1;
+                line_indent = text_indent_of_line(constraints, false, forced_lines > 0);
+                word_indent = line_indent;
                 continue;
             }
             // The scan MUST fold the same per-item measure, in the same order,
@@ -8520,8 +8534,11 @@ impl TextShapingCache {
             }
 
             if is_break_opportunity_with_word_break(item, word_break, hyphens) {
-                if cur_word > max_word {
-                    max_word = cur_word;
+                if cur_word > 0.0 {
+                    if cur_word + word_indent > max_word {
+                        max_word = cur_word + word_indent;
+                    }
+                    word_indent = soft_wrap_indent;
                 }
                 // A break opportunity that is itself a rendered unit (a CJK
                 // ideograph in normal mode, or any cluster under break-all /
@@ -8529,19 +8546,24 @@ impl TextShapingCache {
                 // of its own advance; only true separators (spaces) contribute 0.
                 // Without this, pure-CJK / break-all text measures min-content = 0
                 // and the box collapses to zero inline width.
-                if !is_word_separator(item) && adv > max_word {
-                    max_word = adv;
+                if !is_word_separator(item) {
+                    if adv + word_indent > max_word {
+                        max_word = adv + word_indent;
+                    }
+                    word_indent = soft_wrap_indent;
                 }
                 cur_word = 0.0;
             } else {
                 cur_word += adv;
             }
         }
-        if cur_word > max_word {
-            max_word = cur_word;
+        if cur_word > 0.0 && cur_word + word_indent > max_word {
+            max_word = cur_word + word_indent;
         }
-        if total > max_line {
-            max_line = total;
+        // The last line: an indent only counts on a line that holds something
+        // (an empty paragraph has no line box to indent).
+        if (total > 0.0 || forced_lines > 0) && total + line_indent > max_line {
+            max_line = total + line_indent;
         }
 
         // white-space:nowrap forbids soft-wrap opportunities entirely, so the
@@ -9289,6 +9311,7 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
             }));
         } else {
             // Cache miss — shape this group
+            let deficit_before = thread_font_shape_deficit();
             let group_items = shape_visual_items(
                 &visual_items[idx..coalesce_end],
                 font_chain_cache,
@@ -9296,24 +9319,31 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
                 loaded_fonts,
                 debug_messages,
             )?;
-            let total_advance: f32 = group_items
-                .iter()
-                .map(|item| match item {
-                    ShapedItem::Cluster(c) => c.advance,
-                    _ => 0.0,
-                })
-                .sum();
-            per_item_cache.insert(
-                group_key,
-                Arc::new(PerItemShapedEntry {
-                    compact: CompactShapedEntry::build(&group_items),
-                    total_advance,
-                    items: self::group_items(&visual_items[idx..coalesce_end])
-                        .into_iter()
-                        .map(|it| (it.source, it.run_byte_offset))
-                        .collect(),
-                }),
-            );
+            // A group shaped short of a font (its face not loaded YET) is not
+            // cached: the key is its text and layout style, not the loaded
+            // faces, so the empty / partial result would be served after the
+            // face arrives and the text would stay invisible. The next pass
+            // shapes it again.
+            if thread_font_shape_deficit() == deficit_before {
+                let total_advance: f32 = group_items
+                    .iter()
+                    .map(|item| match item {
+                        ShapedItem::Cluster(c) => c.advance,
+                        _ => 0.0,
+                    })
+                    .sum();
+                per_item_cache.insert(
+                    group_key,
+                    Arc::new(PerItemShapedEntry {
+                        compact: CompactShapedEntry::build(&group_items),
+                        total_advance,
+                        items: self::group_items(&visual_items[idx..coalesce_end])
+                            .into_iter()
+                            .map(|it| (it.source, it.run_byte_offset))
+                            .collect(),
+                    }),
+                );
+            }
             shaped.extend(group_items);
         }
 
@@ -9497,6 +9527,29 @@ pub fn take_font_shape_deficit() -> u32 {
     FONT_SHAPE_DEFICIT.swap(0, core::sync::atomic::Ordering::Relaxed)
 }
 
+std::thread_local! {
+    /// This thread's running count of font-shape deficits. The global
+    /// [`FONT_SHAPE_DEFICIT`] is shared by every thread and drained by the
+    /// frame report, so it cannot tell whether ONE shaping call came up short;
+    /// this one can (shaping is synchronous on its thread).
+    static THREAD_FONT_SHAPE_DEFICIT: core::cell::Cell<u32> =
+        const { core::cell::Cell::new(0) };
+}
+
+/// Count one shaping that came up short of a font (its face not loaded, or
+/// no face for any of its characters): the frame report's counter and this
+/// thread's.
+fn note_font_shape_deficit() {
+    FONT_SHAPE_DEFICIT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    THREAD_FONT_SHAPE_DEFICIT.with(|count| count.set(count.get().wrapping_add(1)));
+}
+
+/// This thread's deficit count so far: unchanged across a shaping call means
+/// that call had every face it needed.
+fn thread_font_shape_deficit() -> u32 {
+    THREAD_FONT_SHAPE_DEFICIT.with(core::cell::Cell::get)
+}
+
 /// Shape text with per-character font fallback.
 ///
 /// Splits the text into segments by font coverage, shapes each segment with
@@ -9617,7 +9670,7 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
                     text.chars().take(20).collect::<String>()
                 );
             }
-            FONT_SHAPE_DEFICIT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            note_font_shape_deficit();
             return Ok(Vec::new());
         };
         let font = if let Some(f) = loaded_fonts.get(font_id) {
@@ -9636,7 +9689,7 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
                     text.chars().take(20).collect::<String>()
                 );
             }
-            FONT_SHAPE_DEFICIT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            note_font_shape_deficit();
             return Ok(Vec::new());
         };
         // If segment covers the full text (overwhelmingly common), skip substr+fixup
@@ -9683,6 +9736,9 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
                      {seg_start}..{seg_end}"
                 );
             }
+            // The segment's glyphs are missing: as much a deficit as a whole
+            // run shaped to nothing (it was skipped silently).
+            note_font_shape_deficit();
             continue;
         };
         let segment_text = &text[*seg_start..*seg_end];
@@ -11144,6 +11200,12 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     // Gated on num_columns>1 with no shape boundaries and non-intrinsic sizing — exactly the
     // otherwise-broken case — so single-column and shaped/intrinsic layouts are untouched
     // (zero blast radius). column-fill:auto (fill-then-advance) is rare and not modelled here.
+    // The paragraph's first formatted line is the first line of the fragment
+    // whose cursor starts at the paragraph's start; a continuation fragment of
+    // a flow starts mid-paragraph and gets no first-line `text-indent`.
+    let mut is_first_formatted_line =
+        cursor.next_item_index == 0 && cursor.partial_remainder.is_empty();
+
     let balanced_lines_per_column: Option<usize> = if num_columns > 1
         && fragment_constraints.shape_boundaries.is_empty()
         && !is_min_content
@@ -11158,9 +11220,11 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         let mut total_lines = 0usize;
         let mut probe_y = 0.0_f32;
         let mut probe_guard = 0usize;
+        let mut probe_first_line = is_first_formatted_line;
+        let mut probe_after_forced_break = false;
         while !probe.is_done() && probe_guard < iter_cap {
             probe_guard += 1;
-            let lc = get_line_constraints(
+            let mut lc = get_line_constraints(
                 probe_y,
                 probe_line_height,
                 &probe_col_constraints,
@@ -11169,6 +11233,15 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             if lc.segments.is_empty() {
                 break;
             }
+            indent_line_box(
+                &mut lc,
+                text_indent_of_line(
+                    fragment_constraints,
+                    probe_first_line,
+                    probe_after_forced_break,
+                ),
+                base_direction,
+            );
             let (probe_line, _) = break_one_line(
                 &mut probe,
                 &lc,
@@ -11182,6 +11255,10 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             if probe_line.is_empty() {
                 break;
             }
+            probe_first_line = false;
+            probe_after_forced_break = probe_line
+                .iter()
+                .any(|item| matches!(item, ShapedItem::Break { .. }));
             total_lines += 1;
             probe_y += probe_line_height;
         }
@@ -11314,11 +11391,22 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             } else {
                 column_constraints.available_width = AvailableSpace::Definite(column_width);
             }
-            let line_constraints = get_line_constraints(
+            let mut line_constraints = get_line_constraints(
                 line_top_y,
                 fragment_constraints.resolved_line_height(),
                 &column_constraints,
                 debug_messages,
+            );
+            // CSS Text 3 8.1: the indent is a margin on the line box's start
+            // edge - the line is broken, justified and aligned in what is left.
+            indent_line_box(
+                &mut line_constraints,
+                text_indent_of_line(
+                    fragment_constraints,
+                    is_first_formatted_line,
+                    is_after_forced_break,
+                ),
+                base_direction,
             );
 
             if line_constraints.segments.is_empty() {
@@ -11499,11 +11587,11 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 fragment_constraints,
                 debug_messages,
                 fonts,
-                is_after_forced_break,
             );
 
             // Track whether the next line follows a forced break
             is_after_forced_break = line_ends_with_forced_break;
+            is_first_formatted_line = false;
 
             for item in &mut line_pos_items {
                 item.position.x += column_start_x;
@@ -12133,7 +12221,9 @@ fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
 /// - \u274c MISSING: `distribute` (CJK justification)
 ///
 /// ### CSS Text \u00a7 8.1 Text Indentation (text-indent)
-/// \u2705 IMPLEMENTED: First line indentation
+/// \u2705 IMPLEMENTED by the caller: `indent_line_box` takes the indent off the
+/// start-side segment of `line_constraints` before the line is broken, so the
+/// segment's `start_x` / `width` already hold it here.
 ///
 /// ### CSS Text \u00a7 4.1 Word Spacing (word-spacing)
 /// \u2705 IMPLEMENTED: Additional space between words
@@ -12150,8 +12240,6 @@ fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
 /// ## Known Issues:
 /// - \u26a0\ufe0f If segment.width is infinite (from intrinsic sizing), sets `alignment_offset=0`
 ///   to avoid infinite positioning. This is correct for measurement but documented for clarity.
-/// - The function assumes `line_index == 0` means first line for text-indent. A more robust system
-///   would track paragraph boundaries.
 ///
 /// # Missing Features:
 /// - \u274c \u00a7 6 Trimming Leading (text-box-trim, text-box-edge)
@@ -12181,7 +12269,6 @@ pub fn position_one_line<T: ParsedFontTrait>(
     constraints: &UnifiedConstraints,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     fonts: &LoadedFonts<T>,
-    is_after_forced_break: bool,
 ) -> (Vec<PositionedItem>, f32) {
     let line_text: String = line_items
         .iter()
@@ -12246,7 +12333,6 @@ pub fn position_one_line<T: ParsedFontTrait>(
 
     // --- Segment-Aware Positioning ---
     let mut item_cursor = 0;
-    let is_first_line_of_para = line_index == 0; // Simplified assumption
 
     // white-space: nowrap / pre suppress soft wrapping, so break_one_line already
     // put the WHOLE line (overflowing content and all) into `line_items`. The
@@ -12447,26 +12533,8 @@ pub fn position_one_line<T: ParsedFontTrait>(
             )));
         }
 
-        // Default: indent first line only. each-line: also indent after forced breaks.
-        // hanging: invert which lines get the indent.
-        if segment_idx == 0 {
-            let is_indent_target = if constraints.text_indent_each_line {
-                // each-line: first line AND each line after a forced break
-                is_first_line_of_para || is_after_forced_break
-            } else {
-                // Default: only the first line of the block
-                is_first_line_of_para
-            };
-            // hanging: inverts which lines are affected
-            let should_indent = if constraints.text_indent_hanging {
-                !is_indent_target
-            } else {
-                is_indent_target
-            };
-            if should_indent {
-                main_axis_pen += constraints.text_indent;
-            }
-        }
+        // `text-indent` is already in the segment: `indent_line_box` took it off
+        // the line box's start edge before the line was broken.
 
         // Calculate total marker width for proper outside marker positioning
         // We need to position all marker clusters together in the padding gutter
@@ -12790,6 +12858,61 @@ pub(crate) fn line_alignment_offset(
         TextAlign::Right => remaining_space,
         _ => 0.0, // Left, and Justify (a justified line fills its box)
     }
+}
+
+/// The `text-indent` of one line box (CSS Text 3 section 8.1): the first
+/// formatted line of the block container is indented - with `each-line`
+/// every line after a forced line break too, never a line after a soft wrap -
+/// and `hanging` inverts which lines are. 0 for the others.
+///
+/// `is_first_formatted_line` is the paragraph's first line, not a fragment's:
+/// a continuation fragment of a flow starts mid-paragraph. The ONE choice of
+/// the greedy breaker, the Knuth-Plass path and the intrinsic-size scan.
+pub(crate) fn text_indent_of_line(
+    constraints: &UnifiedConstraints,
+    is_first_formatted_line: bool,
+    is_after_forced_break: bool,
+) -> f32 {
+    let picked =
+        is_first_formatted_line || (constraints.text_indent_each_line && is_after_forced_break);
+    if picked == constraints.text_indent_hanging {
+        0.0
+    } else {
+        constraints.text_indent
+    }
+}
+
+/// Takes a line's `text-indent` off the start edge of its line box. CSS Text 3
+/// section 8.1: the indent "is treated as a margin applied to the start edge of
+/// the line box" - the line box is that much narrower (a negative indent:
+/// wider), so the breaker fills, `justify` spreads over and the alignment
+/// places the line in what is left. The start-side segment is the leftmost one
+/// of a left-to-right line (and of a vertical one: its top) and the rightmost
+/// one of a right-to-left line, whose start edge is its right edge.
+///
+/// Shifting the finished line by the indent instead (as both positioners
+/// did) broke the first line against the full width: it ended `indent` past
+/// the paragraph (pdfocr, 2026-10-02).
+pub(crate) fn indent_line_box(
+    line_constraints: &mut LineConstraints,
+    indent: f32,
+    base_direction: BidiDirection,
+) {
+    if indent == 0.0 || !indent.is_finite() {
+        return;
+    }
+    let start_segment = match base_direction {
+        BidiDirection::Ltr => line_constraints.segments.first_mut(),
+        BidiDirection::Rtl => line_constraints.segments.last_mut(),
+    };
+    let Some(segment) = start_segment else {
+        return;
+    };
+    if base_direction == BidiDirection::Ltr {
+        segment.start_x += indent;
+    }
+    segment.width -= indent;
+    line_constraints.total_available -= indent;
 }
 
 /// Calculates the extra spacing needed for justification without modifying the items.
@@ -18914,6 +19037,106 @@ mod autotest_generated {
             m.get_font_by_hash(0xDEAD).is_none(),
             "an unreferenced face must eventually be dropped — the GC exists because font-cycling \
              apps leaked every font they ever touched"
+        );
+    }
+}
+
+/// TEXT7 (MAILENG6 "seen broken"): a run shaped while its face is not loaded
+/// shapes to nothing (the font-shape deficit), and the per-item shaping cache
+/// kept that nothing under the run's text and style - so the text stayed
+/// invisible after the face arrived, until something changed the text.
+#[cfg(test)]
+mod a_run_shaped_before_its_font_loads {
+    use azul_css::props::basic::FontRef;
+
+    use super::*;
+
+    fn glyph_count(flow: &FlowLayout) -> usize {
+        flow.fragment_layouts
+            .values()
+            .flat_map(|layout| layout.items.iter())
+            .map(|positioned| match &positioned.item {
+                ShapedItem::Cluster(c) => c.glyphs.len(),
+                _ => 0,
+            })
+            .sum()
+    }
+
+    #[test]
+    fn draws_once_its_font_is_loaded() {
+        let fm: FontManager<FontRef> =
+            FontManager::new(FcFontCache::default()).expect("a font manager");
+        let selectors = vec![FontSelector {
+            family: "Azul Mock Mono".to_string(),
+            ..FontSelector::default()
+        }];
+        let key = FontChainKey::from_selectors(&selectors);
+        let chain = resolve_chain_on_miss(&key, &fm.fc_cache);
+        let mut chain_cache = HashMap::new();
+        chain_cache.insert(key.clone(), chain.clone());
+        let style = Arc::new(StyleProperties {
+            font_stack: FontStack::Stack(selectors),
+            font_size_px: 20.0,
+            ..StyleProperties::default()
+        });
+        let content = vec![InlineContent::Text(StyledRun {
+            text: Arc::from("HELLO"),
+            style,
+            logical_start_byte: 0,
+            source_node_id: None,
+        })];
+        let fragments = vec![LayoutFragment {
+            id: "main".to_string(),
+            constraints: UnifiedConstraints {
+                available_width: AvailableSpace::Definite(400.0),
+                ..UnifiedConstraints::default()
+            },
+        }];
+        let mut cache = TextShapingCache::new();
+
+        let before = cache
+            .layout_flow(
+                &content,
+                &[],
+                &fragments,
+                &chain_cache,
+                &fm.fc_cache,
+                &fm.get_loaded_fonts(),
+                &mut None,
+            )
+            .expect("the run lays out");
+        assert_eq!(
+            glyph_count(&before),
+            0,
+            "premise: no face is loaded yet, nothing to draw with"
+        );
+
+        let mut resolved = crate::solver3::getters::ResolvedFontChains::default();
+        resolved.chains.insert(FontChainKeyOrRef::Chain(key), chain);
+        let loader = crate::text3::default::PathLoader::new();
+        let failed = fm.load_missing_for_chains(&resolved, |bytes, index| {
+            loader.load_font_shared(bytes, index)
+        });
+        assert!(
+            failed.is_empty(),
+            "premise: the mock face loads: {failed:?}"
+        );
+
+        let after = cache
+            .layout_flow(
+                &content,
+                &[],
+                &fragments,
+                &chain_cache,
+                &fm.fc_cache,
+                &fm.get_loaded_fonts(),
+                &mut None,
+            )
+            .expect("the run lays out");
+        assert_eq!(
+            glyph_count(&after),
+            5,
+            "the same run laid out again once its face is loaded draws its five glyphs"
         );
     }
 }

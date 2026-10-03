@@ -12066,6 +12066,10 @@ mod tests {
     // this backend (`tests/e2e_host.rs`, HEADLESS6).
     mod e2e_host;
 
+    // A permission-bearing node subscribes under its own node id
+    // (`tests/permission_probe.rs`, TEXT7).
+    mod permission_probe;
+
     // --- Video tiles: a new frame is an image CONTENT update ---------------
     //
     // A camera / decoder frame reaches its tile as `ChangeNodeImage` (the

@@ -802,3 +802,11 @@ mod the_undo_keys_are_a_default_action_an_editor_can_veto;
 mod typing_stays_with_its_field_when_another_page_replaces_it;
 #[path = "text_inside_an_opacity_group_keeps_its_colour.rs"]
 mod text_inside_an_opacity_group_keeps_its_colour;
+#[path = "a_text_indent_narrows_the_first_line.rs"]
+mod a_text_indent_narrows_the_first_line;
+#[path = "bolder_and_lighter_are_relative_to_the_parent_weight.rs"]
+mod bolder_and_lighter_are_relative_to_the_parent_weight;
+#[path = "a_line_height_is_the_line_pitch_on_screen.rs"]
+mod a_line_height_is_the_line_pitch_on_screen;
+#[path = "a_line_height_in_rem_or_viewport_units_is_the_pitch_on_screen.rs"]
+mod a_line_height_in_rem_or_viewport_units_is_the_pitch_on_screen;

@@ -135,7 +135,6 @@ pub fn position_one_line_compat(
         constraints,
         &mut None,
         &mock_loaded_fonts(),
-        false,
     )
 }
 

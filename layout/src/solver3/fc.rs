@@ -5147,8 +5147,8 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         DOM_HAS_HYPHENS, DOM_HAS_INITIAL_LETTER, DOM_HAS_INITIAL_LETTER_ALIGN, DOM_HAS_LINE_BREAK,
         DOM_HAS_LINE_CLAMP, DOM_HAS_OVERFLOW_WRAP, DOM_HAS_SHAPE_INSIDE,
         DOM_HAS_SHAPE_MARGIN, DOM_HAS_SHAPE_OUTSIDE, DOM_HAS_TEXT_ALIGN_LAST,
-        DOM_HAS_TEXT_COMBINE_UPRIGHT, DOM_HAS_TEXT_INDENT, DOM_HAS_TEXT_JUSTIFY,
-        DOM_HAS_UNICODE_BIDI, DOM_HAS_WORD_BREAK,
+        DOM_HAS_TEXT_COMBINE_UPRIGHT, DOM_HAS_TEXT_JUSTIFY, DOM_HAS_UNICODE_BIDI,
+        DOM_HAS_WORD_BREAK,
     };
     unsafe {
         crate::az_mark(0x60704_u32, (0x30u32));
@@ -5628,41 +5628,21 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     // hanging keywords +spec:floats:17c74a - text-indent applied to first line (5em indentation
     // with no floats) +spec:positioning:1e32b1 - text-indent with hanging/each-line keywords
     // resolved and passed to text layout
-    let text_indent_prop = if dom_declared & DOM_HAS_TEXT_INDENT != 0 {
-        styled_dom
-            .css_property_cache
-            .ptr
-            .get_text_indent(node_data, &id, node_state)
-            .and_then(|s| s.get_property().copied())
-    } else {
-        None
-    };
+    // +spec:intrinsic-sizing:0e8625 - percentage text-indent treated as 0 for intrinsic size
+    // contributions (`getters::resolve_text_indent`, shared with the intrinsic scan)
     let is_intrinsic_sizing = matches!(
         constraints.available_width_type,
         Text3AvailableSpace::MinContent | Text3AvailableSpace::MaxContent
     );
-    // +spec:intrinsic-sizing:0e8625 - percentage text-indent treated as 0 for intrinsic size
-    // contributions
-    let text_indent = text_indent_prop.map_or(0.0, |ti| {
-        // CSS Text 3 §8.1: "Percentages must be treated as 0 for the purpose
-        // of calculating intrinsic size contributions"
-        if is_intrinsic_sizing && ti.inner.to_percent().is_some() {
-            return 0.0;
-        }
-        let context = ResolutionContext {
-            vertical_writing_mode: false,
-            element_font_size: get_element_font_size(styled_dom, id, node_state),
-            parent_font_size: get_parent_font_size(styled_dom, id, node_state),
-            root_font_size: get_root_font_size(styled_dom, node_state),
-            containing_block_size: PhysicalSize::new(constraints.available_size.width, 0.0),
-            element_size: None,
-            viewport_size: PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
-        };
-        ti.inner
-            .resolve_with_context(&context, PropertyContext::Other)
-    });
-    let text_indent_each_line = text_indent_prop.is_some_and(|ti| ti.each_line);
-    let text_indent_hanging = text_indent_prop.is_some_and(|ti| ti.hanging);
+    let (text_indent, text_indent_each_line, text_indent_hanging) =
+        crate::solver3::getters::resolve_text_indent(
+            styled_dom,
+            id,
+            node_state,
+            constraints.available_size.width,
+            ctx.viewport_size,
+            is_intrinsic_sizing,
+        );
 
     // Multi-column: THE reader of the column declarations and THE column
     // resolution (`multicol::column_style` / `ColumnStyle::geometry`, CSS

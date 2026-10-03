@@ -979,6 +979,20 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 StyleWhiteSpace::PreLine => crate::text3::cache::WhiteSpaceMode::PreLine,
                 StyleWhiteSpace::BreakSpaces => crate::text3::cache::WhiteSpaceMode::BreakSpaces,
             };
+            // `text-indent` narrows its line box, so it counts in the intrinsic
+            // widths too (a percentage as 0, CSS Text 3 8.1) - or a box sized
+            // from them wraps its first line's last word.
+            let (indent, each_line, hanging) = crate::solver3::getters::resolve_text_indent(
+                self.ctx.styled_dom,
+                dom_id,
+                node_state,
+                0.0,
+                self.ctx.viewport_size,
+                true,
+            );
+            constraints.text_indent = indent;
+            constraints.text_indent_each_line = each_line;
+            constraints.text_indent_hanging = hanging;
         }
         // [g79 DIAG] Probe the font state at shaping time, then convert the downstream shape_text
         // HANG (g47 hashbrown empty-map loop) → trap so the harness RETURNS and these markers are
