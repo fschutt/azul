@@ -77,6 +77,9 @@ pub struct TooltipWindow {
     mapped_size: usize, // Size of the mmap'd region for proper cleanup
     width: i32,
     height: i32,
+    /// Row pitch in bytes of the mapped buffer (`shm::pool_layout`: padded to
+    /// 256 bytes) - never `width * 4`.
+    stride: i32,
 
     /// Font cache used to resolve + shape the tooltip text (Wayland has no
     /// native server-side text drawing, so glyphs are rasterized client-side).
@@ -148,6 +151,7 @@ impl TooltipWindow {
                 mapped_size: 0,
                 width: 0,
                 height: 0,
+                stride: 0,
                 fc_cache,
                 is_visible: false,
             })
@@ -203,8 +207,8 @@ impl TooltipWindow {
 
         if let Some(data) = self.data {
             match &pixmap {
-                Some(p) => Self::blit_pixmap(data, self.width, self.height, p),
-                None => Self::render_fallback_background(data, self.width, self.height),
+                Some(p) => Self::blit_pixmap(data, self.mapped_size, self.stride, self.width, self.height, p),
+                None => Self::render_fallback_background(data, self.stride, self.width, self.height),
             }
         }
 
@@ -316,51 +320,43 @@ impl TooltipWindow {
             self.data = Some(data);
             self.width = width;
             self.height = height;
+            self.stride = stride;
         }
 
         Ok(())
     }
 
     /// Copy a shaped, rasterized [`AzulPixmap`] (RGBA8) into the `wl_shm` buffer
-    /// (ARGB8888 little-endian = BGRA byte order). The pixmap already contains
-    /// the tooltip background + shaped glyphs at device resolution, so this is a
-    /// straight per-pixel channel swap.
+    /// (ARGB8888 little-endian = BGRA byte order) at the buffer's own row pitch,
+    /// through the one pitched upload. The pixmap already contains the tooltip
+    /// background + shaped glyphs at device resolution.
     fn blit_pixmap(
         data: *mut u8,
+        mapped_size: usize,
+        stride: i32,
         width: i32,
         height: i32,
         pixmap: &azul_layout::cpurender::AzulPixmap,
     ) {
-        let stride = width * 4;
-        let src = pixmap.data();
-        let src_w = pixmap.width() as i32;
-        let src_h = pixmap.height() as i32;
-        let copy_w = width.min(src_w);
-        let copy_h = height.min(src_h);
-        let src_stride = src_w * 4;
-
-        unsafe {
-            for y in 0..copy_h {
-                for x in 0..copy_w {
-                    let s = (y * src_stride + x * 4) as usize;
-                    let d = (y * stride + x * 4) as isize;
-                    let r = src[s];
-                    let g = src[s + 1];
-                    let b = src[s + 2];
-                    let a = src[s + 3];
-                    *data.offset(d) = b; // Blue
-                    *data.offset(d + 1) = g; // Green
-                    *data.offset(d + 2) = r; // Red
-                    *data.offset(d + 3) = a; // Alpha
-                }
-            }
-        }
+        // SAFETY: `data` is the live mapping of `mapped_size` bytes owned by
+        // this tooltip (allocate_shm_buffer), not aliased while we write.
+        let dst = unsafe { core::slice::from_raw_parts_mut(data, mapped_size) };
+        let (sw, sh) = (pixmap.width(), pixmap.height());
+        crate::desktop::shell2::headless::copy_rgba_rects_into(
+            dst,
+            stride.max(0) as usize,
+            pixmap.data(),
+            sw as usize * 4,
+            width.max(0) as usize,
+            height.max(0) as usize,
+            &[(0, 0, sw, sh)],
+            true,
+        );
     }
 
     /// Fallback for when no system font could be resolved: fill the buffer with
     /// the tooltip background colour so a positioned (text-less) box still shows.
-    fn render_fallback_background(data: *mut u8, width: i32, height: i32) {
-        let stride = width * 4;
+    fn render_fallback_background(data: *mut u8, stride: i32, width: i32, height: i32) {
         unsafe {
             for y in 0..height {
                 for x in 0..width {
