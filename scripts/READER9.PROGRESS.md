@@ -30,7 +30,8 @@ AzReader, lib azreader). Never compile; rustfmt --edition 2021 <file> as the par
    image_cache ImageCacheSnapshot, policy BreakPolicy) -> PaginationSnapshot, fn_body
    `object.compute_pagination_with_policy(styled_dom, page_width_px, page_height_px,
    &font_cache, &image_cache, policy)`.
-3. src/paginate.rs (append below page_map): reading column Dom (root css from settings: width, font-family, font-size,
+3. DONE 2a0665a93 (column_dom, ChapterRequest/ChapterReady, load_chapter, spawn_chapter,
+   take_ready - the write-back message is RefAny<Option<ChapterReady>>). Was: reading column Dom (root css from settings: width, font-family, font-size,
    line-height, text-align) + chapter Dom (Dom::create_from_parsed_xml(chapter.xml)), the
    chapter thread (read_chapter + decode pictures with RawImage::decode_image_bytes_any,
    thumbnail to <= 2x page, then pagination) -> write-back {book, chapter, generation, Chapter,
@@ -95,6 +96,11 @@ AzReader, lib azreader). Never compile; rustfmt --edition 2021 <file> as the par
   cache under `azreader:<book>/<path>` (the `<img src>` the content writes).
 - LINKS: `href` is dropped in v1 (parsed links are not clickable in azul); footnote / internal
   link following is a later step (walk the Dom for `a` nodes, add a callback).
+
+- NETWORK / PRIVACY (house rule 2026-10-03): AzReader sends nothing anywhere - no network
+  request at all (books are local files; remote images in a book are dropped by content.rs's
+  has_scheme). Any later fetch (a catalog, OPDS) must not carry personal data; a User-Agent
+  would be `azul-build-agent (https://github.com/fschutt/azul)`.
 
 ## Open questions
 - (none)
