@@ -806,3 +806,7 @@ mod text_inside_an_opacity_group_keeps_its_colour;
 mod an_absolutely_positioned_child_does_not_split_its_parents_line;
 #[path = "a_block_inside_an_inline_splits_the_inline_around_it.rs"]
 mod a_block_inside_an_inline_splits_the_inline_around_it;
+#[path = "a_border_box_min_width_bounds_the_border_box.rs"]
+mod a_border_box_min_width_bounds_the_border_box;
+#[path = "a_fit_content_width_shrinks_to_its_content.rs"]
+mod a_fit_content_width_shrinks_to_its_content;
