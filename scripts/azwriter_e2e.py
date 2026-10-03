@@ -72,7 +72,11 @@ def click_dialog_button(app, label):
 
     for node in nodes:
         if (node.get("text") or "").strip() == label and in_buttons(node):
-            app.must("click", node_id=node["index"])
+            # A text node may have no box of its own: click its nearest ancestor that has one.
+            target = node
+            while target is not None and not target.get("rect"):
+                target = by_index.get(target.get("parent"))
+            app.must("click", node_id=(target or node)["index"])
             app.frame(2)
             return
     raise e.Failure("no dialog button %r" % label)
