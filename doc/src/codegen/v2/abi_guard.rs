@@ -37,8 +37,9 @@
 //!   constructor; [`is_first_call_kind`]) and the `AzString` `From` impls call
 //!   again before entering libazul (one relaxed atomic load after the first);
 //! - `azul.h` (C, and C++ through it): `AZ_ABI_HASH`, the declaration,
-//!   `AzAbi_check()`, and a load-time call of it (a GCC/Clang constructor, or
-//!   a static object in C++ on other compilers). `AZ_NO_ABI_CHECK` opts out.
+//!   `AzAbi_check()`, and a load-time call of it (a GCC/Clang constructor, a
+//!   static object in C++ on other compilers, a `.CRT$XCU` initializer entry
+//!   for MSVC compiling C). `AZ_NO_ABI_CHECK` opts out.
 //!
 //! The Python extension is not a separate binding in this sense: it is
 //! compiled INTO the library it calls (`python-extension` builds libazul
@@ -481,6 +482,22 @@ pub fn c_items(ir: &CodegenIR) -> String {
     b.line("struct AzAbiCheckAtLoad { AzAbiCheckAtLoad() { AzAbi_check(); } };");
     b.line("static AzAbiCheckAtLoad az_abi_check_at_load;");
     b.line("}");
+    // MSVC compiling C: no constructor attribute, so an entry in the CRT's
+    // initializer table. `selectany`: every translation unit that includes
+    // azul.h defines the entry, the linker keeps one; `/include:` keeps that
+    // one although nothing references it (32-bit x86 C names carry a `_`).
+    b.line("#elif defined(_MSC_VER)");
+    b.line("#pragma section(\".CRT$XCU\", read)");
+    b.line("static void __cdecl AzAbi_checkAtLoad(void) { AzAbi_check(); }");
+    b.line(
+        "__declspec(selectany) __declspec(allocate(\".CRT$XCU\")) void (__cdecl \
+         *AzAbi_checkAtLoadEntry)(void) = AzAbi_checkAtLoad;",
+    );
+    b.line("#if defined(_M_IX86)");
+    b.line("#pragma comment(linker, \"/include:_AzAbi_checkAtLoadEntry\")");
+    b.line("#else");
+    b.line("#pragma comment(linker, \"/include:AzAbi_checkAtLoadEntry\")");
+    b.line("#endif");
     b.line("#endif");
     b.line("#endif /* AZ_NO_ABI_CHECK */");
     b.blank();
