@@ -34,13 +34,16 @@ Never compile; never touch layout/src/solver3/page_breaks.rs (nor display_list.r
   `layout_bfc` children_containing_block_size `height_is_auto` uses it with
   `constraints.containing_block_size.height.is_finite()`.
 
+- group A GREEN part 2: 6813ac111 (steps 1+2 below DONE: `sizing::height_is_auto_for_children` used by
+  cache.rs prepare_layout_context + fc.rs layout_bfc; measure_atomic_inline % -> content height).
+
 ## NEXT (exact)
-1. Table guard (decided: table boxes keep their used height for their children, CSS 2.2 17.5.3): in
+1. DONE - Table guard (decided: table boxes keep their used height for their children, CSS 2.2 17.5.3): in
    cache.rs `prepare_layout_context` and fc.rs `layout_bfc` only apply the % -> auto rule when
    `node.formatting_context` is NOT Table / TableRowGroup / TableRow / TableCell / TableColumnGroup /
    TableCaption. Do it with ONE helper next to `percentage_height_computes_to_auto` in sizing.rs
    (e.g. `height_is_auto_for_children(fc, height, cb_definite)`), used by both sites.
-2. fc.rs `measure_atomic_inline`: `final_height` match - a % height with
+2. DONE - fc.rs `measure_atomic_inline`: `final_height` match - a % height with
    `atomic_inline_containing_block(constraints).height` not finite goes the `Auto` (content) arm.
 3. Baseline: text3 cache.rs new `UnifiedLayout::last_line_baseline()` (positioned: items of the max
    line_index; prefer baseline-aligned (`get_item_vertical_align` None/Baseline); cluster with glyphs ->
