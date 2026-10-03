@@ -812,24 +812,37 @@ pub fn reconcile_dom(
         }
         None
     };
-    let old_parent_terminal = |old_id: NodeId| -> Option<u64> {
-        old_hierarchy
-            .get(old_id.index())
-            .and_then(NodeHierarchyItem::parent_id)
-            .and_then(|p| terminal_key_of(&old_node_data[p.index()]))
-    };
+    // The gate is the NEAREST ancestor with a terminal identity, not just the
+    // parent: in AzMail's account wizard page 1's `#acct-name > p > "x"`
+    // gave way to page 2's `#acct-imap-host > p > "x"`, and the text "x"
+    // (its parent the anonymous `p` on both sides) matched across - the
+    // user's typing in the name field moved into the host field (MAIL6).
+    // Anonymous containers (re-pagination's pages) are still crossed freely.
+    // One forward pass: the arena is pre-order, a parent precedes its child.
+    let container_identities =
+        |data: &[NodeData], hierarchy: &[NodeHierarchyItem]| -> Vec<Option<u64>> {
+            let mut out: Vec<Option<u64>> = vec![None; data.len()];
+            for idx in 0..data.len() {
+                let container = hierarchy
+                    .get(idx)
+                    .and_then(NodeHierarchyItem::parent_id)
+                    .filter(|p| p.index() < idx)
+                    .and_then(|p| terminal_key_of(&data[p.index()]).or(out[p.index()]));
+                out[idx] = container;
+            }
+            out
+        };
+    let old_containers = container_identities(old_node_data, old_hierarchy);
+    let new_containers = container_identities(new_node_data, new_hierarchy);
     for new_idx in 0..n_new {
         if matched[new_idx].is_some() || new_node_data[new_idx].get_key().is_some() {
             continue;
         }
-        let new_parent_terminal: Option<u64> = new_hierarchy
-            .get(new_idx)
-            .and_then(NodeHierarchyItem::parent_id)
-            .and_then(|p| terminal_key_of(&new_node_data[p.index()]));
+        let new_container = new_containers.get(new_idx).copied().flatten();
         if let Some(queue) = old_by_subtree.get_mut(&new_subtree_hashes[new_idx]) {
             if let Some(pos) = queue.iter().position(|&old_id| {
                 !old_nodes_consumed[old_id.index()]
-                    && old_parent_terminal(old_id) == new_parent_terminal
+                    && old_containers.get(old_id.index()).copied().flatten() == new_container
             }) {
                 if let Some(old_id) = queue.remove(pos) {
                     old_nodes_consumed[old_id.index()] = true;
