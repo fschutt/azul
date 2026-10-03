@@ -818,5 +818,1124 @@ impl TreeBuilder {
         self.pop_to(sink, i);
     }
 
-    // ==== HTML (part 2) ====
+    // ---- HTML: where nodes go ----
+
+    /// 13.2.6.1 "the appropriate place for inserting a node": the end of the current node
+    /// (or of the override target, a stack index) - but in front of the table when foster
+    /// parenting is enabled and the target is a table, a row group or a row.
+    fn appropriate_place(&self, override_target: Option<usize>) -> Place {
+        let Some(target) = override_target.or_else(|| self.stack.len().checked_sub(1)) else {
+            return Place {
+                parent: DOCUMENT,
+                before: None,
+            };
+        };
+        let e = &self.stack[target];
+        if !(self.foster && !e.foreign && rules::is(&e.key, FOSTER_TARGET)) {
+            return Place {
+                parent: e.node,
+                before: None,
+            };
+        }
+        let last = |name: &str| {
+            self.stack
+                .iter()
+                .rposition(|e| e.key == name && !e.foreign)
+        };
+        let last_table = last("table");
+        if let Some(template) = last("template") {
+            if last_table.map_or(true, |t| template > t) {
+                return Place {
+                    parent: self.stack[template].node,
+                    before: None,
+                };
+            }
+        }
+        let Some(table) = last_table else {
+            return Place {
+                parent: self.stack[0].node,
+                before: None,
+            };
+        };
+        let table_node = self.stack[table].node;
+        match self.tree.parent(table_node) {
+            Some(parent) => Place {
+                parent,
+                before: Some(table_node),
+            },
+            None => Place {
+                parent: self.stack[table.saturating_sub(1)].node,
+                before: None,
+            },
+        }
+    }
+
+    /// HTML: text where it goes (13.2.6.1 "insert a character").
+    fn insert_text(&mut self, text: &str) {
+        let place = self.appropriate_place(None);
+        self.tree.insert_text(place, text);
+    }
+
+    /// HTML: an element of the document (`html`, `head`, `body`, an implied `tbody` ...),
+    /// opened.
+    fn insert_named(&mut self, sink: &mut dyn TreeSink, key: &str, attributes: Vec<(String, String)>) -> usize {
+        self.insert_element(sink, key, key, attributes, true, false)
+    }
+
+    /// HTML: the attributes the open element at `index` (`html`, `body`) lacks, added.
+    fn merge_into(&mut self, index: usize, attributes: Vec<(String, String)>) {
+        if let Some(e) = self.stack.get(index) {
+            let node = e.node;
+            self.tree.merge_attributes(node, attributes);
+        }
+    }
+
+    /// HTML: close the open `name` and everything above it, if it is open.
+    fn pop_named(&mut self, sink: &mut dyn TreeSink, name: &str) {
+        if let Some(i) = self.stack.iter().rposition(|e| e.key == name && !e.foreign) {
+            self.pop_to(sink, i);
+        }
+    }
+
+    /// HTML: the current node holds raw text or RCDATA (13.2.6.4.8 "text": the tokenizer
+    /// reads its content as text, its end tag ends it).
+    fn in_text_element(&self) -> bool {
+        self.stack
+            .last()
+            .is_some_and(|e| !e.foreign && rules::content(&e.key) != Content::Markup)
+    }
+
+    // ---- HTML: the list of active formatting elements (13.2.4.3) ----
+
+    fn last_marker_end(&self) -> usize {
+        self.active
+            .iter()
+            .rposition(|f| matches!(f, Formatting::Marker))
+            .map_or(0, |m| m + 1)
+    }
+
+    fn is_open(&self, node: usize) -> bool {
+        self.stack.iter().any(|e| e.node == node)
+    }
+
+    fn active_index(&self, node: usize) -> Option<usize> {
+        self.active
+            .iter()
+            .position(|f| matches!(f, Formatting::Element { node: n, .. } if *n == node))
+    }
+
+    /// "Reconstruct the active formatting elements": reopen the formatting elements that
+    /// were closed by a block's start (`<p><b>x<p>y`: y is bold too).
+    fn reconstruct(&mut self, sink: &mut dyn TreeSink) {
+        let start = self.last_marker_end();
+        let mut first = self.active.len();
+        while first > start {
+            match &self.active[first - 1] {
+                Formatting::Element { node, .. } if !self.is_open(*node) => first -= 1,
+                _ => break,
+            }
+        }
+        for index in first..self.active.len() {
+            if self.stack.len() >= MAX_XML_NESTING_DEPTH {
+                return;
+            }
+            let (key, attributes) = match &self.active[index] {
+                Formatting::Element {
+                    key, attributes, ..
+                } => (key.clone(), attributes.clone()),
+                Formatting::Marker => continue,
+            };
+            let node = self.insert_element(sink, &key, &key, attributes, true, false);
+            if let Some(Formatting::Element { node: n, .. }) = self.active.get_mut(index) {
+                *n = node;
+            }
+        }
+    }
+
+    /// Put a formatting element on the list; at most three equal ones after
+    /// the last marker (the HTML Standard's "Noah's Ark" clause), so a
+    /// thousand unclosed `<font>`s are not reopened a thousand times.
+    fn remember_formatting(&mut self, node: usize, key: &str, attributes: Vec<(String, String)>) {
+        let start = self.last_marker_end();
+        let equal: Vec<usize> = self.active[start..]
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| {
+                matches!(f, Formatting::Element { key: k, attributes: a, .. } if k == key && *a == attributes)
+            })
+            .map(|(i, _)| start + i)
+            .collect();
+        if equal.len() >= 3 {
+            let _ = self.active.remove(equal[0]);
+        }
+        self.active.push(Formatting::Element {
+            node,
+            key: String::from(key),
+            attributes,
+        });
+    }
+
+    /// The start tag `a` while an `a` is in the list after the last marker: the adoption
+    /// agency for `a`, then that `a` leaves the list and the stack (a link does not nest in
+    /// a link).
+    fn close_open_link(&mut self, sink: &mut dyn TreeSink) {
+        let start = self.last_marker_end();
+        let Some(node) = self.active[start..].iter().rev().find_map(|f| match f {
+            Formatting::Element { node, key, .. } if key == "a" => Some(*node),
+            _ => None,
+        }) else {
+            return;
+        };
+        let _ = self.adoption_agency(sink, "a");
+        if let Some(i) = self.active_index(node) {
+            let _ = self.active.remove(i);
+        }
+        if let Some(i) = self.stack.iter().position(|e| e.node == node) {
+            self.remove_entry(i);
+        }
+    }
+
+    /// 13.2.6.4.7 "the adoption agency algorithm" for the end tag `subject`: a formatting
+    /// element with a block open inside it ends where it stands, the block moves out of
+    /// it, and a clone of it takes the block's content. `false`: "act as described in the
+    /// any other end tag entry".
+    fn adoption_agency(&mut self, sink: &mut dyn TreeSink, subject: &str) -> bool {
+        // 2. The current node is a `subject` the list does not know: it simply closes.
+        if let Some(current) = self.stack.last() {
+            if current.key == subject && self.active_index(current.node).is_none() {
+                self.pop_one(sink);
+                return true;
+            }
+        }
+        // 3. - 4. The outer loop.
+        for _ in 0..8 {
+            // 4.3 The formatting element: the last `subject` after the last marker.
+            let start = self.last_marker_end();
+            let Some((fe_list, fe_node)) =
+                self.active[start..]
+                    .iter()
+                    .enumerate()
+                    .rev()
+                    .find_map(|(i, f)| match f {
+                        Formatting::Element { node, key, .. } if key == subject => {
+                            Some((start + i, *node))
+                        }
+                        _ => None,
+                    })
+            else {
+                return false;
+            };
+            // 4.4 Not open: it leaves the list.
+            let Some(fe_stack) = self.stack.iter().rposition(|e| e.node == fe_node) else {
+                let _ = self.active.remove(fe_list);
+                return true;
+            };
+            // 4.5 Open but not in scope: the end tag is ignored.
+            if !self.node_in_scope(fe_stack, Scope::Default) {
+                return true;
+            }
+            // 4.7 The furthest block: the first special element above it.
+            let Some(fb_stack) =
+                (fe_stack + 1..self.stack.len()).find(|&i| rules::is(&self.stack[i].key, SPECIAL))
+            else {
+                // 4.8 None: close it (and what is open inside it).
+                while self.stack.len() > fe_stack {
+                    self.pop_one(sink);
+                }
+                let _ = self.active.remove(fe_list);
+                return true;
+            };
+            // 4.9 - 4.12
+            let common_ancestor = fe_stack.saturating_sub(1);
+            let mut fe_list = fe_list;
+            let mut bookmark = fe_list;
+            let furthest_block = self.stack[fb_stack].node;
+            let mut last_node = furthest_block;
+            let mut node_index = fb_stack;
+            // 4.13 The inner loop: the elements between the formatting element and the
+            // furthest block are cloned (formatting ones) or left behind (the others).
+            let mut inner = 0;
+            loop {
+                inner += 1;
+                node_index -= 1;
+                if node_index <= fe_stack {
+                    break;
+                }
+                let node = self.stack[node_index].node;
+                let mut list_index = self.active_index(node);
+                if inner > 3 {
+                    if let Some(li) = list_index.take() {
+                        let _ = self.active.remove(li);
+                        if li < bookmark {
+                            bookmark -= 1;
+                        }
+                        if li < fe_list {
+                            fe_list -= 1;
+                        }
+                    }
+                }
+                let Some(li) = list_index else {
+                    self.remove_entry(node_index);
+                    continue;
+                };
+                let (key, attributes) = match &self.active[li] {
+                    Formatting::Element {
+                        key, attributes, ..
+                    } => (key.clone(), attributes.clone()),
+                    Formatting::Marker => break,
+                };
+                let clone = self.tree.create(NodeData::Element {
+                    name: key.clone(),
+                    attributes: attributes.clone(),
+                });
+                self.active[li] = Formatting::Element {
+                    node: clone,
+                    key,
+                    attributes,
+                };
+                self.stack[node_index].node = clone;
+                if last_node == furthest_block {
+                    bookmark = li + 1;
+                }
+                self.tree.append(clone, last_node);
+                last_node = clone;
+            }
+            // 4.14 The last node goes where the common ancestor takes it.
+            let place = self.appropriate_place(Some(common_ancestor));
+            self.tree.insert(place, last_node);
+            // 4.15 - 4.17 A clone of the formatting element takes the furthest block's
+            // content and goes into it.
+            let (key, attributes) = match &self.active[fe_list] {
+                Formatting::Element {
+                    key, attributes, ..
+                } => (key.clone(), attributes.clone()),
+                Formatting::Marker => return true,
+            };
+            let new_element = self.tree.create(NodeData::Element {
+                name: key.clone(),
+                attributes: attributes.clone(),
+            });
+            self.tree.move_children(furthest_block, new_element);
+            self.tree.append(furthest_block, new_element);
+            // 4.18 The clone replaces the formatting element in the list (at the bookmark)
+            let _ = self.active.remove(fe_list);
+            if fe_list < bookmark {
+                bookmark -= 1;
+            }
+            let bookmark = bookmark.min(self.active.len());
+            self.active.insert(
+                bookmark,
+                Formatting::Element {
+                    node: new_element,
+                    key: key.clone(),
+                    attributes,
+                },
+            );
+            // 4.19 ... and on the stack, right above the furthest block.
+            self.stack.remove(fe_stack);
+            let fb_now = self
+                .stack
+                .iter()
+                .position(|e| e.node == furthest_block)
+                .unwrap_or(self.stack.len() - 1);
+            let mode = self.stack[fb_now].mode;
+            self.stack.insert(
+                fb_now + 1,
+                OpenElement {
+                    key,
+                    node: new_element,
+                    pending_close: false,
+                    mode,
+                    foreign: false,
+                },
+            );
+        }
+        true
+    }
+
+    // ---- HTML: start tags ----
+
+    /// A start tag, by the document's phase (13.2.6.4.1 - 13.2.6.4.6) and in the body by
+    /// the insertion mode.
+    fn html_start_tag(&mut self, sink: &mut dyn TreeSink, tag: &mut Tag) {
+        loop {
+            let again = match self.phase {
+                Phase::Initial => {
+                    // No doctype: quirks mode.
+                    self.quirks = true;
+                    self.phase = Phase::BeforeHtml;
+                    true
+                }
+                Phase::BeforeHtml => {
+                    let attributes = if tag.key == "html" {
+                        core::mem::take(&mut tag.attributes)
+                    } else {
+                        Vec::new()
+                    };
+                    let _ = self.insert_named(sink, "html", attributes);
+                    self.phase = Phase::BeforeHead;
+                    tag.key != "html"
+                }
+                Phase::BeforeHead => match tag.key.as_str() {
+                    "html" => {
+                        self.merge_into(0, core::mem::take(&mut tag.attributes));
+                        false
+                    }
+                    "head" => {
+                        let attributes = core::mem::take(&mut tag.attributes);
+                        self.head = Some(self.insert_named(sink, "head", attributes));
+                        self.phase = Phase::InHead;
+                        false
+                    }
+                    _ => {
+                        // The implied head.
+                        self.head = Some(self.insert_named(sink, "head", Vec::new()));
+                        self.phase = Phase::InHead;
+                        true
+                    }
+                },
+                Phase::InHead => self.in_head_start(sink, tag),
+                Phase::AfterHead => self.after_head_start(sink, tag),
+                Phase::InBody => self.body_start(sink, tag),
+            };
+            if !again {
+                return;
+            }
+        }
+    }
+
+    /// The head's content (13.2.6.4.4), inserted where it stands.
+    fn insert_head_content(&mut self, sink: &mut dyn TreeSink, tag: &mut Tag) {
+        let step = if rules::is(&tag.key, VOID) {
+            Step::InsertVoid
+        } else {
+            Step::Insert
+        };
+        self.insert_for(sink, step, tag);
+    }
+
+    /// 13.2.6.4.4 "in head" and 13.2.6.4.5 "in head noscript"; `true`: reprocess.
+    fn in_head_start(&mut self, sink: &mut dyn TreeSink, tag: &mut Tag) -> bool {
+        let key = tag.key.as_str();
+        if key == "html" {
+            self.merge_into(0, core::mem::take(&mut tag.attributes));
+            return false;
+        }
+        if self.current() == Some("noscript") {
+            // Scripting off: a `<noscript>` in the head holds only these.
+            return match key {
+                "basefont" | "bgsound" | "link" | "meta" | "noframes" | "style" => {
+                    self.insert_head_content(sink, tag);
+                    false
+                }
+                "head" | "noscript" => false,
+                _ => {
+                    self.pop_one(sink);
+                    true
+                }
+            };
+        }
+        match key {
+            "head" => false,
+            "noscript" => {
+                self.insert_for(sink, Step::Insert, tag);
+                false
+            }
+            k if rules::is(k, HEAD) => {
+                self.insert_head_content(sink, tag);
+                false
+            }
+            _ => {
+                // Anything else ends the head.
+                self.pop_named(sink, "head");
+                self.phase = Phase::AfterHead;
+                true
+            }
+        }
+    }
+
+    /// 13.2.6.4.6 "after head"; `true`: reprocess.
+    fn after_head_start(&mut self, sink: &mut dyn TreeSink, tag: &mut Tag) -> bool {
+        match tag.key.as_str() {
+            "html" => {
+                self.merge_into(0, core::mem::take(&mut tag.attributes));
+                false
+            }
+            "body" => {
+                let attributes = core::mem::take(&mut tag.attributes);
+                let _ = self.insert_named(sink, "body", attributes);
+                self.phase = Phase::InBody;
+                false
+            }
+            "head" => false,
+            k if rules::is(k, HEAD) => {
+                // "Push the node pointed to by the head element pointer onto the stack of
+                // open elements. Process the token using the rules for the "in head"
+                // insertion mode. Remove the node pointed to by the head element pointer
+                // from the stack of open elements."
+                let Some(head) = self.head else {
+                    return false;
+                };
+                self.push_entry("head", head, false);
+                self.insert_head_content(sink, tag);
+                if let Some(i) = self.stack.iter().rposition(|e| e.node == head) {
+                    self.remove_entry(i);
+                }
+                false
+            }
+            _ => {
+                // The implied body.
+                let _ = self.insert_named(sink, "body", Vec::new());
+                self.phase = Phase::InBody;
+                true
+            }
+        }
+    }
+
+    /// A start tag in the body: foreign content (13.2.6.5), the table modes, "in body";
+    /// `true`: reprocess.
+    fn body_start(&mut self, sink: &mut dyn TreeSink, tag: &mut Tag) -> bool {
+        if self.foreign_for_start() {
+            let breaks_out = rules::is(&tag.key, BREAKOUT)
+                || (tag.key == "font"
+                    && tag
+                        .attributes
+                        .iter()
+                        .any(|(k, _)| matches!(k.as_str(), "color" | "face" | "size")));
+            if breaks_out {
+                // HTML ends the SVG / MathML content.
+                while self.foreign_for_start() {
+                    self.pop_one(sink);
+                }
+                return true;
+            }
+            let attributes = core::mem::take(&mut tag.attributes);
+            let push = !tag.self_closing && self.stack.len() < MAX_XML_NESTING_DEPTH;
+            let _ = self.insert_element(sink, &tag.name, &tag.key, attributes, push, true);
+            return false;
+        }
+        let mode = self.mode();
+        match mode {
+            Mode::Body => self.in_body_start(sink, tag),
+            Mode::Cell | Mode::Caption => match rules::table_start(mode, &tag.key) {
+                Some(action) => self.table_start(sink, action, tag),
+                None => self.in_body_start(sink, tag),
+            },
+            Mode::ColumnGroup => match rules::table_start(mode, &tag.key) {
+                Some(action) => self.table_start(sink, action, tag),
+                None => {
+                    // Anything else ends the column group.
+                    if self.current() == Some("colgroup") {
+                        self.pop_one(sink);
+                        true
+                    } else {
+                        false
+                    }
+                }
+            },
+            Mode::Table | Mode::TableBody | Mode::Row => {
+                let action = rules::table_start(mode, &tag.key).or_else(|| {
+                    (mode != Mode::Table)
+                        .then(|| rules::table_start(Mode::Table, &tag.key))
+                        .flatten()
+                });
+                match action {
+                    Some(action) => self.table_start(sink, action, tag),
+                    None => self.fostered_start(sink, tag),
+                }
+            }
+        }
+    }
+
+    /// 13.2.6.4.9 "in table", anything else: the body's rules with foster parenting.
+    fn fostered_start(&mut self, sink: &mut dyn TreeSink, tag: &mut Tag) -> bool {
+        self.foster = true;
+        let again = self.in_body_start(sink, tag);
+        self.foster = false;
+        again
+    }
+
+    /// A row of [`rules::TABLE_START_TAGS`]; `true`: reprocess.
+    fn table_start(&mut self, sink: &mut dyn TreeSink, action: TableStart, tag: &mut Tag) -> bool {
+        match action {
+            TableStart::Insert(context, marker) => {
+                self.clear_to(sink, context);
+                self.insert_for(
+                    sink,
+                    if marker {
+                        Step::InsertMarker
+                    } else {
+                        Step::Insert
+                    },
+                    tag,
+                );
+                false
+            }
+            TableStart::Imply(context, implied) => {
+                self.clear_to(sink, context);
+                let _ = self.insert_named(sink, implied, Vec::new());
+                true
+            }
+            TableStart::CloseAndReprocess(names) => self.close_and_reprocess(sink, names),
+            TableStart::InsertHere => {
+                self.insert_head_content(sink, tag);
+                false
+            }
+            TableStart::Input => {
+                let hidden = tag
+                    .attributes
+                    .iter()
+                    .any(|(k, v)| k == "type" && v.eq_ignore_ascii_case("hidden"));
+                if hidden {
+                    self.insert_for(sink, Step::InsertVoid, tag);
+                    false
+                } else {
+                    self.fostered_start(sink, tag)
+                }
+            }
+            TableStart::Form => {
+                if self.form.is_none() && !self.template_open() {
+                    let attributes = core::mem::take(&mut tag.attributes);
+                    let node = self.insert_element(sink, "form", "form", attributes, false, false);
+                    self.form = Some(node);
+                }
+                false
+            }
+            TableStart::InsertVoid => {
+                self.insert_for(sink, Step::InsertVoid, tag);
+                false
+            }
+        }
+    }
+
+    /// "Clear the stack back to a ... context".
+    fn clear_to(&mut self, sink: &mut dyn TreeSink, context: rules::Context) {
+        while self.stack.last().is_some_and(|e| !context.holds(&e.key)) {
+            self.pop_one(sink);
+        }
+    }
+
+    /// If one of `names` is open in table scope: close it (and what is open in it) and
+    /// reprocess the token (`true`); else ignore the token.
+    fn close_and_reprocess(&mut self, sink: &mut dyn TreeSink, names: &[&str]) -> bool {
+        match self.in_scope_any(names, Scope::Table) {
+            Some(i) => {
+                self.pop_to(sink, i);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// 13.2.6.4.7 "in body", a start tag; `true`: reprocess.
+    fn in_body_start(&mut self, sink: &mut dyn TreeSink, tag: &mut Tag) -> bool {
+        match tag.key.as_str() {
+            "html" => {
+                // A second `<html>`: its attributes the first one lacks.
+                self.merge_into(0, core::mem::take(&mut tag.attributes));
+                return false;
+            }
+            "body" => {
+                // A second `<body>`: the same.
+                if self.stack.get(1).is_some_and(|e| e.key == "body") && !self.template_open() {
+                    self.merge_into(1, core::mem::take(&mut tag.attributes));
+                }
+                return false;
+            }
+            "frameset" => return false,
+            _ => {}
+        }
+        if let Some((_, alias)) = rules::ALIASES.iter().find(|(from, _)| *from == tag.key) {
+            tag.key = (*alias).to_string();
+            tag.name = (*alias).to_string();
+        }
+        for step in rules::start_steps(&tag.key) {
+            if !self.run_step(sink, *step, tag) {
+                break;
+            }
+        }
+        false
+    }
+
+    // ---- HTML: end tags ----
+
+    /// An end tag, by the document's phase and in the body by the insertion mode; `true`:
+    /// reprocess.
+    fn html_end_tag(&mut self, sink: &mut dyn TreeSink, key: &str) -> bool {
+        if self.in_text_element() {
+            // 13.2.6.4.8 "text": the only end tag the tokenizer reads in raw text is the
+            // element's own.
+            self.pop_one(sink);
+            return false;
+        }
+        let ends_head = matches!(key, "head" | "body" | "html" | "br");
+        match self.phase {
+            Phase::Initial => {
+                self.quirks = true;
+                self.phase = Phase::BeforeHtml;
+                true
+            }
+            Phase::BeforeHtml => {
+                if ends_head {
+                    let _ = self.insert_named(sink, "html", Vec::new());
+                    self.phase = Phase::BeforeHead;
+                }
+                ends_head
+            }
+            Phase::BeforeHead => {
+                if ends_head {
+                    self.head = Some(self.insert_named(sink, "head", Vec::new()));
+                    self.phase = Phase::InHead;
+                }
+                ends_head
+            }
+            Phase::InHead => {
+                if self.current() == Some("noscript") {
+                    return match key {
+                        "noscript" => {
+                            self.pop_one(sink);
+                            false
+                        }
+                        "br" => {
+                            self.pop_one(sink);
+                            true
+                        }
+                        _ => false,
+                    };
+                }
+                match key {
+                    "template" => {
+                        self.pop_named(sink, "template");
+                        false
+                    }
+                    "head" | "body" | "html" | "br" => {
+                        self.pop_named(sink, "head");
+                        self.phase = Phase::AfterHead;
+                        key != "head"
+                    }
+                    _ => false,
+                }
+            }
+            Phase::AfterHead => match key {
+                "template" => {
+                    self.pop_named(sink, "template");
+                    false
+                }
+                "body" | "html" | "br" => {
+                    let _ = self.insert_named(sink, "body", Vec::new());
+                    self.phase = Phase::InBody;
+                    true
+                }
+                _ => false,
+            },
+            Phase::InBody => self.body_end(sink, key),
+        }
+    }
+
+    /// An end tag in the body: foreign content, the table modes, "in body"; `true`:
+    /// reprocess.
+    fn body_end(&mut self, sink: &mut dyn TreeSink, key: &str) -> bool {
+        if self.stack.last().is_some_and(|e| e.foreign) {
+            // 13.2.6.5 "any other end tag" in foreign content.
+            if key == "br" || key == "p" {
+                while self.foreign_for_start() {
+                    self.pop_one(sink);
+                }
+                return true;
+            }
+            let mut i = self.stack.len() - 1;
+            loop {
+                if i == 0 {
+                    return false;
+                }
+                if self.stack[i].key == key {
+                    self.pop_to(sink, i);
+                    return false;
+                }
+                i -= 1;
+                if !self.stack[i].foreign {
+                    break;
+                }
+            }
+        }
+        let mode = self.mode();
+        match mode {
+            Mode::Body => self.in_body_end(sink, key),
+            Mode::Cell | Mode::Caption => match rules::table_end(mode, key) {
+                Some(action) => self.table_end(sink, action, key),
+                None => self.in_body_end(sink, key),
+            },
+            Mode::ColumnGroup => match rules::table_end(mode, key) {
+                Some(action) => self.table_end(sink, action, key),
+                None => {
+                    if self.current() == Some("colgroup") {
+                        self.pop_one(sink);
+                        true
+                    } else {
+                        false
+                    }
+                }
+            },
+            Mode::Table | Mode::TableBody | Mode::Row => {
+                let action = rules::table_end(mode, key).or_else(|| {
+                    (mode != Mode::Table)
+                        .then(|| rules::table_end(Mode::Table, key))
+                        .flatten()
+                });
+                match action {
+                    Some(action) => self.table_end(sink, action, key),
+                    None => {
+                        self.foster = true;
+                        let again = self.in_body_end(sink, key);
+                        self.foster = false;
+                        again
+                    }
+                }
+            }
+        }
+    }
+
+    /// A row of [`rules::TABLE_END_TAGS`]; `true`: reprocess.
+    fn table_end(&mut self, sink: &mut dyn TreeSink, action: TableEnd, key: &str) -> bool {
+        match action {
+            TableEnd::Close => {
+                if let Some(i) = self.find_in_scope(key, Scope::Table) {
+                    self.pop_to(sink, i);
+                }
+                false
+            }
+            TableEnd::CloseAndReprocess(names) => self.close_and_reprocess(sink, names),
+            TableEnd::CloseIfOpen(names) => {
+                self.find_in_scope(key, Scope::Table).is_some()
+                    && self.close_and_reprocess(sink, names)
+            }
+            TableEnd::Ignore => false,
+        }
+    }
+
+    /// 13.2.6.4.7 "in body", an end tag ([`rules::END_TAGS`]); `true`: reprocess.
+    fn in_body_end(&mut self, sink: &mut dyn TreeSink, key: &str) -> bool {
+        let (scope, action) = rules::end_rule(key);
+        match action {
+            EndAction::Ignore => {}
+            EndAction::CloseInScope => {
+                if let Some(i) = self.find_in_scope(key, scope) {
+                    self.pop_to(sink, i);
+                }
+            }
+            EndAction::P => {
+                if self.find_in_scope("p", Scope::Button).is_some() {
+                    self.close_p(sink);
+                } else {
+                    // `</p>` without a `<p>` is an empty paragraph.
+                    let _ = self.insert_element(sink, "p", "p", Vec::new(), false, false);
+                }
+            }
+            EndAction::Heading => {
+                for i in (0..self.stack.len()).rev() {
+                    let k = self.stack[i].key.as_str();
+                    if rules::is(k, HEADING) {
+                        self.pop_to(sink, i);
+                        break;
+                    }
+                    if Scope::Default.is_boundary(k) {
+                        break;
+                    }
+                }
+            }
+            EndAction::Adoption => {
+                if !self.adoption_agency(sink, key) {
+                    self.any_other_end(sink, key);
+                }
+            }
+            EndAction::CloseToMarker => {
+                // The marker goes when the element closes ([`Self::pop_one`]).
+                if let Some(i) = self.find_in_scope(key, Scope::Default) {
+                    self.pop_to(sink, i);
+                }
+            }
+            EndAction::Br => {
+                // `</br>` is a line break.
+                self.reconstruct(sink);
+                let _ = self.insert_element(sink, "br", "br", Vec::new(), false, false);
+            }
+            EndAction::Form => self.close_form(sink),
+            EndAction::AnyOther => self.any_other_end(sink, key),
+        }
+        false
+    }
+
+    /// "Any other end tag": the nearest open element of this name closes, unless a special
+    /// element (a block) is open above it.
+    fn any_other_end(&mut self, sink: &mut dyn TreeSink, key: &str) {
+        for i in (0..self.stack.len()).rev() {
+            let k = self.stack[i].key.as_str();
+            if k == key {
+                self.pop_to(sink, i);
+                return;
+            }
+            if rules::is(k, SPECIAL) {
+                return;
+            }
+        }
+    }
+
+    /// `</form>`: the form element pointer's element leaves the stack; what is open in it
+    /// stays open.
+    fn close_form(&mut self, sink: &mut dyn TreeSink) {
+        if self.template_open() {
+            if let Some(i) = self.find_in_scope("form", Scope::Default) {
+                self.pop_to(sink, i);
+            }
+            return;
+        }
+        let Some(node) = self.form.take() else {
+            return;
+        };
+        let Some(i) = self.stack.iter().rposition(|e| e.node == node) else {
+            return;
+        };
+        if !self.node_in_scope(i, Scope::Default) {
+            return;
+        }
+        self.generate_implied_end_tags(sink, None);
+        if let Some(i) = self.stack.iter().rposition(|e| e.node == node) {
+            self.remove_entry(i);
+        }
+    }
+
+    // ---- HTML: text ----
+
+    /// Text, by the document's phase and in the body by the insertion mode.
+    fn html_text(&mut self, sink: &mut dyn TreeSink, text: &str) {
+        let mut text = text;
+        loop {
+            if self.in_text_element() {
+                self.insert_text(text);
+                return;
+            }
+            match self.phase {
+                Phase::Initial | Phase::BeforeHtml | Phase::BeforeHead => {
+                    // White space before the document is nothing.
+                    let (_, rest) = split_space(text);
+                    if rest.is_empty() {
+                        return;
+                    }
+                    text = rest;
+                    match self.phase {
+                        Phase::Initial => {
+                            self.quirks = true;
+                            self.phase = Phase::BeforeHtml;
+                        }
+                        Phase::BeforeHtml => {
+                            let _ = self.insert_named(sink, "html", Vec::new());
+                            self.phase = Phase::BeforeHead;
+                        }
+                        _ => {
+                            self.head = Some(self.insert_named(sink, "head", Vec::new()));
+                            self.phase = Phase::InHead;
+                        }
+                    }
+                }
+                Phase::InHead | Phase::AfterHead => {
+                    // White space stays where it is; the rest is the body's.
+                    let (space, rest) = split_space(text);
+                    self.insert_text(space);
+                    if rest.is_empty() {
+                        return;
+                    }
+                    text = rest;
+                    if self.phase == Phase::InHead {
+                        self.pop_named(sink, "head");
+                        self.phase = Phase::AfterHead;
+                    } else {
+                        let _ = self.insert_named(sink, "body", Vec::new());
+                        self.phase = Phase::InBody;
+                    }
+                }
+                Phase::InBody => {
+                    self.body_text(sink, text);
+                    return;
+                }
+            }
+        }
+    }
+
+    /// Text in the body.
+    fn body_text(&mut self, sink: &mut dyn TreeSink, text: &str) {
+        if self.foreign_for_start() {
+            self.insert_text(text);
+            return;
+        }
+        match self.mode() {
+            Mode::Body | Mode::Cell | Mode::Caption => {
+                self.reconstruct(sink);
+                self.insert_text(text);
+            }
+            Mode::Table | Mode::TableBody | Mode::Row => {
+                // 13.2.6.4.10 "in table text": white space stays in the table; text with
+                // anything else in it goes in front of the table.
+                let in_structure = self.stack.last().is_some_and(|e| {
+                    !e.foreign && (rules::is(&e.key, FOSTER_TARGET) || e.key == "template")
+                });
+                if in_structure && text.bytes().all(is_html_space) {
+                    self.insert_text(text);
+                    return;
+                }
+                self.foster = true;
+                self.reconstruct(sink);
+                self.insert_text(text);
+                self.foster = false;
+            }
+            Mode::ColumnGroup => {
+                let (space, rest) = split_space(text);
+                self.insert_text(space);
+                if !rest.is_empty() && self.current() == Some("colgroup") {
+                    self.pop_one(sink);
+                    self.body_text(sink, rest);
+                }
+            }
+        }
+    }
+
+    // ---- the tokens ----
+
+    /// A start tag `<name ...>` (`self_closing`: `<name ... />`).
+    pub fn start_tag(
+        &mut self,
+        sink: &mut dyn TreeSink,
+        name: &str,
+        attributes: Vec<(String, String)>,
+        self_closing: bool,
+    ) {
+        self.skip_newline = false;
+        if !self.html() {
+            self.xml_start_tag(sink, name, attributes, self_closing);
+            return;
+        }
+        let key = lower(name).into_owned();
+        let mut tag = Tag {
+            name: key.clone(),
+            key,
+            attributes,
+            self_closing,
+        };
+        self.html_start_tag(sink, &mut tag);
+    }
+
+    /// An end tag `</name>`.
+    pub fn end_tag(&mut self, sink: &mut dyn TreeSink, name: &str) {
+        self.skip_newline = false;
+        let key = lower(name);
+        if !self.html() {
+            self.xml_end_tag(sink, &key);
+            return;
+        }
+        while self.html_end_tag(sink, &key) {}
+    }
+
+    /// Text (already decoded).
+    pub fn text(&mut self, sink: &mut dyn TreeSink, text: &str) {
+        let mut text = text;
+        if core::mem::take(&mut self.skip_newline) {
+            text = text.strip_prefix('\n').unwrap_or(text);
+        }
+        if text.is_empty() {
+            return;
+        }
+        if self.html() {
+            self.html_text(sink, text);
+        } else {
+            self.pending_text.push_str(text);
+        }
+    }
+
+    /// A comment: dropped (HTML: also a bogus one); XML keeps one inside a `<style>`
+    /// (`<style><!-- .. --></style>`, how Outlook writes every stylesheet) as part of the
+    /// sheet - HTML reads a `<style>`'s content as raw text anyway.
+    pub fn comment(&mut self, _sink: &mut dyn TreeSink, text: &str) {
+        self.skip_newline = false;
+        if !self.html() && self.current() == Some("style") {
+            self.pending_text.push_str("<!--");
+            self.pending_text.push_str(text);
+            self.pending_text.push_str("-->");
+        }
+    }
+
+    /// A CDATA section: HTML reads one only in SVG / MathML, as text; XML keeps its text
+    /// inside a `<style>`, else drops it.
+    pub fn cdata(&mut self, sink: &mut dyn TreeSink, text: &str) {
+        self.skip_newline = false;
+        if self.html() {
+            if !text.is_empty() {
+                self.html_text(sink, text);
+            }
+            return;
+        }
+        if self.current() == Some("style") {
+            self.pending_text.push_str(text);
+        }
+    }
+
+    /// A `<!DOCTYPE>`: at the start of an HTML document it decides quirks mode (13.2.6.4.1);
+    /// anywhere else, and in XML, it is nothing.
+    pub fn doctype(&mut self, doctype: &Doctype) {
+        self.skip_newline = false;
+        if self.html() && self.phase == Phase::Initial {
+            self.quirks = rules::doctype_is_quirky(
+                &doctype.name,
+                doctype.public_id.as_deref(),
+                doctype.system_id.as_deref(),
+                doctype.force_quirks,
+            );
+            self.phase = Phase::BeforeHtml;
+        }
+    }
+
+    /// The end of the input: every open element closes. The number of
+    /// elements that were open (under [`TreeRules::Html`] the `<html>` and
+    /// `<body>` a document always has count too).
+    pub fn finish(mut self, sink: &mut dyn TreeSink) -> usize {
+        if !self.html() {
+            self.flush_text(sink);
+            let open = self.stack.len();
+            while self.stack.pop().is_some() {
+                sink.close_element();
+            }
+            return open;
+        }
+        // An element whose content is text ends with the input.
+        while self.in_text_element() {
+            self.pop_one(sink);
+        }
+        // Every document has its html, head and body.
+        loop {
+            match self.phase {
+                Phase::Initial => {
+                    self.quirks = true;
+                    self.phase = Phase::BeforeHtml;
+                }
+                Phase::BeforeHtml => {
+                    let _ = self.insert_named(sink, "html", Vec::new());
+                    self.phase = Phase::BeforeHead;
+                }
+                Phase::BeforeHead => {
+                    self.head = Some(self.insert_named(sink, "head", Vec::new()));
+                    self.phase = Phase::InHead;
+                }
+                Phase::InHead => {
+                    self.pop_named(sink, "head");
+                    self.phase = Phase::AfterHead;
+                }
+                Phase::AfterHead => {
+                    let _ = self.insert_named(sink, "body", Vec::new());
+                    self.phase = Phase::InBody;
+                }
+                Phase::InBody => break,
+            }
+        }
+        let open = self.stack.len();
+        self.tree.replay(sink);
+        open
+    }
 }
