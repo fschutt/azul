@@ -16,6 +16,7 @@
 
 pub mod buffer;
 pub mod highlight;
+pub mod sample;
 pub mod search;
 pub mod workspace;
 
