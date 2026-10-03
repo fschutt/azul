@@ -70,10 +70,10 @@ pub fn should_suppress_type_not_found(type_name: &str) -> bool {
 /// Catches syntax errors (e.g., stray braces) that would cause silent parse
 /// failures in the type index, leading to missing types.
 fn preflight_syntax_check(project_root: &Path) -> Result<()> {
-    let crate_dirs = ["core/src", "css/src", "layout/src", "dll/src"];
     let mut errors = Vec::new();
 
-    for src_path in &crate_dirs {
+    // The crates the index reads (one list)
+    for (_, src_path) in type_index::CRATE_DIRS {
         let src_dir = project_root.join(src_path);
         if !src_dir.exists() {
             continue;
