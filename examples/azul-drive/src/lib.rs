@@ -1382,7 +1382,8 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     }
     let mut body = Dom::create_body()
         .with_css(
-            "display: flex; flex-direction: column; height: 100%; margin: 0px; font-size: 13px;",
+            "display: flex; flex-direction: column; height: 100%; margin: 0px; font-size: 13px; \
+             font-family: system:ui; color: system:text;",
         )
         .with_child(
             Dom::create_div()

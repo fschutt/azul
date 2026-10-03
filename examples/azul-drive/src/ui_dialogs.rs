@@ -710,7 +710,7 @@ pub(crate) fn inline_sheet(title: String, panel: Dom) -> Dom {
     Dom::create_div()
         .with_id(ids::SHEET)
         .with_css(
-            "position: absolute; top: 120px; right: 24px; width: 440px; padding: 16px; \
+            "position: absolute; z-index: 100; top: 120px; right: 24px; width: 440px; padding: 16px; \
              display: flex; flex-direction: column; background: system:window-background; \
              border: 1px solid system:separator; border-radius: 6px; \
              box-shadow: 0px 4px 16px rgba(0, 0, 0, 0.25);",
