@@ -9,8 +9,9 @@
 //! Audio rides the iroh frame path on its own track. One frame, numbers little endian:
 //!
 //! ```text
-//! [version u8 = 1][codec u8 = 1: PCM s16][count u8][reserved u8 = 0][sample_rate u32]
-//! count times: [sequence u32][length u16][length samples, i16 each]      oldest packet first
+//! [version u8 = 1][codec u8: 1 PCM s16, 2 Opus][count u8][reserved u8 = 0][sample_rate u32]
+//! PCM:  count times [sequence u32][length u16][length samples, i16 each]   oldest packet first
+//! Opus: count times [sequence u32][length u16][length bytes: one Opus packet]   rate 48000
 //! ```
 //!
 //! A packet is 20 ms of mono audio at the sender's microphone rate (960 samples at 48 kHz).
@@ -19,8 +20,10 @@
 //! carries the newest packet and the [`REDUNDANCY`] - 1 packets before it: a skipped frame loses
 //! nothing while the next one arrives, and the jitter buffer drops the copies.
 //!
-//! PCM s16 is codec 1. The codec byte leaves room for Opus, the next step (about 32 kbit/s
-//! instead of 768, with its own loss concealment and forward error correction).
+//! Opus (codec 2, `AudioEncoder` / `AudioDecoder`: about 32 kbit/s instead of 768) is sent when
+//! this side encodes it and every peer said in its caps that it decodes it ([`send_opus`]); else
+//! PCM s16 (codec 1). The two codecs number their packets apart. A receiver decodes each Opus
+//! packet once, in order ([`OpusOrder`]), into PCM packets for the same jitter buffer.
 //!
 //! # Control messages
 //!
