@@ -8794,22 +8794,7 @@ impl LayoutWindow {
                     .iter()
                     .filter_map(|prop| {
                         let ty = prop.get_type();
-                        // The animation meta-properties are a mode switch, not
-                        // a value to tween.
-                        if matches!(
-                            ty,
-                            azul_css::props::property::CssPropertyType::Animation
-                                | azul_css::props::property::CssPropertyType::AnimationIn
-                                | azul_css::props::property::CssPropertyType::AnimationOut
-                        ) {
-                            return None;
-                        }
-                        // A LIST scopes properties independently; the last
-                        // covering entry wins, web-cascade style.
-                        let anim =
-                            anims.as_ref().iter().rev().find(|a| {
-                                a.name.as_str() == "all" || a.name.as_str() == ty.to_str()
-                            })?;
+                        let anim = declared_animation_for(&anims, ty)?;
                         let from = cache
                             .get_property(nd, &node_id, &state.styled_node_state, &ty)
                             .cloned()
@@ -8823,19 +8808,14 @@ impl LayoutWindow {
                         if from == *prop {
                             return None;
                         }
-                        Some(CssTransition {
-                            node: node_id,
-                            prop_type: ty,
-                            from: from.resolve_system_colors(sys_ctx),
-                            to: prop.clone().resolve_system_colors(sys_ctx),
-                            t: 0.0,
-                            duration_s: anim.duration.millis() as f32 / 1000.0,
-                            delay_s: anim.delay.millis() as f32 / 1000.0,
-                            timing: anim.timing,
-                            scope: ty.relayout_scope(false),
-                            last_color: None,
-                            keeps_target: true,
-                        })
+                        Some(CssTransition::declared(
+                            node_id,
+                            ty,
+                            from.resolve_system_colors(sys_ctx),
+                            prop.clone().resolve_system_colors(sys_ctx),
+                            anim,
+                            true,
+                        ))
                     })
                     .collect(),
             }
@@ -13854,56 +13834,31 @@ impl LayoutWindow {
                         // arm, which upgrades rather than downgrades.
                         worst = worst.max(ty.relayout_scope(false));
 
-                        if let Some(anims) = &old_anims {
-                            // The animation meta-properties themselves never
-                            // transition — `animation` appearing/disappearing
-                            // is a mode switch, not a value to tween.
-                            let meta = matches!(
-                                ty,
-                                azul_css::props::property::CssPropertyType::Animation
-                                    | azul_css::props::property::CssPropertyType::AnimationIn
-                                    | azul_css::props::property::CssPropertyType::AnimationOut
-                            );
-                            // A LIST scopes properties independently
-                            // (`animation: width 1s, color 2s`): the LAST
-                            // covering entry wins, web-cascade style.
-                            let winner = anims.as_ref().iter().rev().find(|anim| {
-                                anim.name.as_str() == "all" || anim.name.as_str() == ty.to_str()
-                            });
-                            if let (Some(anim), false) = (winner, meta) {
-                                use azul_css::dynamic_selector::ResolveSystemColors;
-                                // Endpoints with their `system:` colours
-                                // resolved, each against its own cascade's
-                                // theme: the frames interpolate colours,
-                                // never keyword tokens.
-                                captured_transitions.push(CssTransition {
-                                    node: m.new_node_id,
-                                    prop_type: *ty,
-                                    from: before
-                                        .map_or_else(
-                                            || azul_css::props::property::CssProperty::auto(*ty),
-                                            Clone::clone,
-                                        )
-                                        .resolve_system_colors(
-                                            old_cache.dynamic_context.as_deref(),
-                                        ),
-                                    to: after
-                                        .map_or_else(
-                                            || azul_css::props::property::CssProperty::auto(*ty),
-                                            Clone::clone,
-                                        )
-                                        .resolve_system_colors(
-                                            new_cache.dynamic_context.as_deref(),
-                                        ),
-                                    t: 0.0,
-                                    duration_s: anim.duration.millis() as f32 / 1000.0,
-                                    delay_s: anim.delay.millis() as f32 / 1000.0,
-                                    timing: anim.timing,
-                                    scope: ty.relayout_scope(false),
-                                    last_color: None,
-                                    keeps_target: false,
-                                });
-                            }
+                        // The entry of the OLD tree's `animation` covering
+                        // this property, if any (`declared_animation_for`).
+                        if let Some(anim) =
+                            old_anims.as_ref().and_then(|a| declared_animation_for(a, *ty))
+                        {
+                            use azul_css::dynamic_selector::ResolveSystemColors;
+                            // Endpoints with their `system:` colours resolved,
+                            // each against its own cascade's theme: the frames
+                            // interpolate colours, never keyword tokens.
+                            let value = |v: Option<&azul_css::props::property::CssProperty>| {
+                                v.map_or_else(
+                                    || azul_css::props::property::CssProperty::auto(*ty),
+                                    Clone::clone,
+                                )
+                            };
+                            captured_transitions.push(CssTransition::declared(
+                                m.new_node_id,
+                                *ty,
+                                value(before)
+                                    .resolve_system_colors(old_cache.dynamic_context.as_deref()),
+                                value(after)
+                                    .resolve_system_colors(new_cache.dynamic_context.as_deref()),
+                                anim,
+                                false,
+                            ));
                         }
                     }
                 }
