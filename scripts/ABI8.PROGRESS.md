@@ -23,25 +23,20 @@ Brief: scripts/waves/wave8/PLAN.md section "ABI8". Report: scripts/ABI8_2026_10_
 - 53f20424e RED gap 1 / 01f38b238 GREEN gap 1 (`is_first_call_kind`; impl Default body checks)
 - 8f9b78d9a RED gap 2 / 8188e5625 GREEN gap 2 (`rust_load_time_check`: AZ_ABI_CHECK_AT_LOAD)
 
+## DONE (cont.)
+- 8d7ef1110 lang_c.rs: no variant-checker macro shadows an api function (AzChartKind_isBar broke azul17.hpp);
+  RED = existing bug_classes::azul_h_never_emits_one_name_as_macro_and_function_or_with_two_linkages
+- ff19facfb..f96663e16 scripts/abi_guard_e2e.py (C, C++, Rust app with patched libazul). Ran on the prebuilt
+  binaries: c 2/2 PASS, rust 2/2 PASS (AzCalculator aborts before its first line with both hashes),
+  cpp FAILS on today's azul17.hpp (the macro clash, fixed by 8d7ef1110) and PASSES on a copy of azul.h
+  without the macro (/tmp/abi8/c/inc).
+
 ## IN PROGRESS
-- Gap 4: scripts/abi_guard_e2e.py (NOT written yet). Verified by hand in /tmp/abi8/c: main.c including the
-  prebuilt target/codegen/azul.h + stub.c (`uint64_t AzAbi_getHash(void){return STUB_HASH;}`), `clang -std=c11`,
-  STUB_HASH=0xdead -> exit 134 with the message, before main (0.4 s, 96 MB).
-- FOUND: azul17.hpp does not compile (`clang++ -std=c++17 -nostdinc++ -isystem <SDK>/usr/include/c++/v1`;
-  this Mac's CLT c++/v1 dir is a stub, use the SDK's): azul17.hpp:87715 `AzChartKind_isBar(self)` hits azul.h's
-  helper MACRO `#define AzChartKind_isBar(value) (*(value) == AzChartKind_Bar)` (azul.h:115671) - api.json's
-  ChartKind has a method `isBar` that collides with the generated enum-variant test macro. One error only.
-  Codegen bug in lang_c.rs (macro emitter) - fix if in reach (doc/src/codegen is ABI8's).
+- Gap 3: MSVC C `.CRT$XCU` entry in abi_guard.rs c_items (RED test in abi_guard.rs tests, then GREEN).
 
 ## NEXT
-- Write scripts/abi_guard_e2e.py: tests (a) C header aborts before main on a mismatch / passes a match,
-  (b) C++ (azul.h in C++ mode; azul17.hpp once the macro clash is fixed), (c) Rust app: copy
-  target/azul-lib/libazul.dylib to a temp dir, patch `_AzAbi_getHash` (arm64 at file off 0x1280: movz/3x movk/ret
-  -> `movz x0,#0xdead` 0xD2800000|0xdead<<5 ; `ret` 0xD65F03C0; x86_64: B8 AD DE 00 00 C3), `codesign -f -s -`,
-  run AzCalculator via scripts/waves/tools/run_capped.sh -- env DYLD_LIBRARY_PATH=<tmp> AZ_BACKEND=headless <app>
-  (SIP strips DYLD_* from /bin/bash, so set it through `env`), expect exit 134 + both hashes in the log.
-- Then the ChartKind_isBar macro clash (lang_c.rs), RED test in doc crate.
-- Gap 3: MSVC C `.CRT$XCU` entry (RED c_items test, GREEN).
+- CI: add `python3 scripts/abi_guard_e2e.py --only c,cpp` where target/codegen exists (rust.yml), and
+  `--only rust` in the dll_tests job if it has a built app (check).
 - Report scripts/ABI8_2026_10_03.md.
 
 ## Decisions
