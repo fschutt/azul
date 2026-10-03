@@ -57,6 +57,12 @@ pub mod pipeline;
 #[cfg(az_gpu_video)]
 mod decode_vulkan;
 
+// Real Vulkan Video H.264 ENCODER (Linux + Windows, the same gate as the
+// decoder): a call off Apple sends H.264 instead of JPEG where the GPU
+// encodes (`VK_KHR_video_encode_h264`).
+#[cfg(az_gpu_video)]
+mod encode_vulkan;
+
 // Real VideoToolbox H.264 encoder + decoder (macOS/iOS). Every framework
 // symbol is dlopen'd at runtime (no build-time link — loads on any macOS
 // version), so this needs only `libloading` and is NOT behind `video-native`:
@@ -104,6 +110,20 @@ const fn decode_engine_compiled() -> bool {
 /// are not wired. `VideoEncoder::open` and `VideoEncodeCheck` both answer
 /// from here, so neither claims an encoder that cannot give a packet back.
 pub(crate) fn encode_engine() -> Result<&'static str, String> {
+    #[cfg(az_gpu_video)]
+    {
+        // Asked of the driver once per process (a Vulkan instance each time
+        // would cost every encoder open tens of milliseconds).
+        static ENCODES: std::sync::OnceLock<Option<bool>> = std::sync::OnceLock::new();
+        match *ENCODES.get_or_init(provision::vulkan_encode_h264) {
+            Some(true) => Ok("Vulkan Video"),
+            Some(false) => Err(String::from(
+                "this GPU / driver has no Vulkan Video H.264 encode (no \
+                 VK_KHR_video_encode_h264 - e.g. NVIDIA Maxwell / GTX 9xx decode only)",
+            )),
+            None => Err(String::from("no Vulkan loader or no usable GPU")),
+        }
+    }
     #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
     {
         if videotoolbox::is_available() {
@@ -114,14 +134,18 @@ pub(crate) fn encode_engine() -> Result<&'static str, String> {
             ))
         }
     }
-    #[cfg(not(all(any(target_os = "macos", target_os = "ios"), feature = "libloading")))]
+    #[cfg(not(any(
+        all(any(target_os = "macos", target_os = "ios"), feature = "libloading"),
+        az_gpu_video
+    )))]
     {
         let why = if cfg!(any(target_os = "macos", target_os = "ios")) {
             "this build has no `libloading` feature, so the VideoToolbox backend is compiled out"
         } else if cfg!(target_os = "android") {
             "the MediaCodec backend is not implemented yet"
         } else if cfg!(any(target_os = "linux", target_os = "windows")) {
-            "gpu-video ENCODE is not wired yet on Linux/Windows (decode only)"
+            "this build has no Vulkan Video (H.264 encode needs `video-native` on x86_64 \
+             Linux (glibc) or Windows)"
         } else {
             "there is no native video backend on this OS"
         };
@@ -196,7 +220,10 @@ fn decode_engine_missing_reason() -> String {
 /// full is not taken (`VideoEncoder::encode` returns false): a realtime
 /// encoder that falls behind drops frames instead of queueing latency.
 #[cfg_attr(
-    not(all(any(target_os = "macos", target_os = "ios"), feature = "libloading")),
+    not(any(
+        all(any(target_os = "macos", target_os = "ios"), feature = "libloading"),
+        az_gpu_video
+    )),
     allow(dead_code)
 )]
 const ENCODE_QUEUE_FRAMES: usize = 3;
@@ -343,7 +370,10 @@ impl<J: Send + 'static> Drop for CodecThread<J> {
 
 /// One job for an encoder's codec thread.
 #[cfg_attr(
-    not(all(any(target_os = "macos", target_os = "ios"), feature = "libloading")),
+    not(any(
+        all(any(target_os = "macos", target_os = "ios"), feature = "libloading"),
+        az_gpu_video
+    )),
     allow(dead_code)
 )]
 enum EncodeJob {
@@ -358,7 +388,10 @@ enum EncodeJob {
 /// [`EncoderInner::open_h264`]), so an open `VideoEncoder` always encodes.
 /// Never built where this build has no encode engine.
 #[cfg_attr(
-    not(all(any(target_os = "macos", target_os = "ios"), feature = "libloading")),
+    not(any(
+        all(any(target_os = "macos", target_os = "ios"), feature = "libloading"),
+        az_gpu_video
+    )),
     allow(dead_code)
 )]
 struct EncoderInner {
@@ -377,12 +410,94 @@ struct EncoderInner {
     bitrate_kbps: std::sync::Arc<core::sync::atomic::AtomicU32>,
 }
 
+/// The encode engine of this build, made and used on an encoder's codec
+/// thread: VideoToolbox (Apple) or Vulkan Video (x86_64 Linux / Windows with
+/// `video-native`). One copy of the per-backend dispatch, as
+/// [`DecodeEngine`] for decoding.
+#[cfg(any(
+    all(any(target_os = "macos", target_os = "ios"), feature = "libloading"),
+    az_gpu_video
+))]
+enum EncodeEngine {
+    #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+    Vt(videotoolbox::VtEncoder),
+    #[cfg(az_gpu_video)]
+    Vulkan(encode_vulkan::VulkanVideoEncoder),
+}
+
+#[cfg(any(
+    all(any(target_os = "macos", target_os = "ios"), feature = "libloading"),
+    az_gpu_video
+))]
+impl EncodeEngine {
+    /// A live `width` x `height` H.264 engine at `bitrate_kbps`, and whether
+    /// it said it runs in hardware; or why none opens here.
+    fn open(width: u32, height: u32, bitrate_kbps: u32) -> Result<(EncodeEngine, bool), String> {
+        #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+        {
+            let refused = || {
+                format!(
+                    "VideoToolbox could not create a {width}x{height} H.264 session (see the \
+                     [video] log lines)"
+                )
+            };
+            let vt =
+                videotoolbox::VtEncoder::open(width, height, bitrate_kbps).ok_or_else(refused)?;
+            let hardware = vt.settings().hardware == Some(true);
+            Ok((EncodeEngine::Vt(vt), hardware))
+        }
+        #[cfg(az_gpu_video)]
+        {
+            // Vulkan Video encodes on the GPU's video-encode queue: hardware.
+            let vulkan = encode_vulkan::VulkanVideoEncoder::open(width, height, bitrate_kbps)?;
+            Ok((EncodeEngine::Vulkan(vulkan), true))
+        }
+    }
+
+    /// The rate the engine spends now (kbit/s).
+    fn bitrate_kbps(&self) -> u32 {
+        match self {
+            #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+            EncodeEngine::Vt(vt) => vt.bitrate_kbps(),
+            #[cfg(az_gpu_video)]
+            EncodeEngine::Vulkan(vulkan) => vulkan.bitrate_kbps(),
+        }
+    }
+
+    /// Spend `kbps` from the next frame on.
+    fn set_bitrate(&mut self, kbps: u32) {
+        match self {
+            #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+            EncodeEngine::Vt(vt) => vt.set_bitrate(kbps),
+            #[cfg(az_gpu_video)]
+            EncodeEngine::Vulkan(vulkan) => vulkan.set_bitrate(kbps),
+        }
+    }
+
+    /// One frame's Annex-B packets: stamped `micros` (an export), else with
+    /// the wall clock (a live call).
+    fn encode(&mut self, frame: &VideoFrame, force_keyframe: bool, micros: Option<i64>) -> Vec<u8> {
+        match self {
+            #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+            EncodeEngine::Vt(vt) => match micros {
+                Some(micros) => vt.encode_at(frame, force_keyframe, micros),
+                None => vt.encode(frame, force_keyframe),
+            },
+            #[cfg(az_gpu_video)]
+            EncodeEngine::Vulkan(vulkan) => vulkan.encode(frame, force_keyframe, micros),
+        }
+    }
+}
+
 impl EncoderInner {
     /// A live H.264 encoder for `width` x `height` on a codec thread of its
     /// own, or why none opens. Only called once [`encode_engine`] said this
     /// build has one.
     fn open_h264(width: u32, height: u32, bitrate_kbps: u32) -> Result<EncoderInner, String> {
-        #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+        #[cfg(any(
+            all(any(target_os = "macos", target_os = "ios"), feature = "libloading"),
+            az_gpu_video
+        ))]
         {
             let packets = std::sync::Arc::new(std::sync::Mutex::new(
                 std::collections::VecDeque::new(),
@@ -396,33 +511,22 @@ impl EncoderInner {
                 "azul-video-encode",
                 Some(ENCODE_QUEUE_FRAMES),
                 move || {
-                    let vt = videotoolbox::VtEncoder::open(width, height, bitrate_kbps)
-                        .ok_or_else(|| {
-                            format!(
-                                "VideoToolbox could not create a {width}x{height} H.264 session \
-                                 (see the [video] log lines)"
-                            )
-                        })?;
-                    said.store(
-                        vt.settings().hardware == Some(true),
-                        core::sync::atomic::Ordering::Release,
-                    );
-                    Ok(vt)
+                    let (engine, hardware) = EncodeEngine::open(width, height, bitrate_kbps)?;
+                    said.store(hardware, core::sync::atomic::Ordering::Release);
+                    Ok(engine)
                 },
-                move |vt: &mut videotoolbox::VtEncoder, job: EncodeJob| match job {
+                move |engine: &mut EncodeEngine, job: EncodeJob| match job {
                     EncodeJob::Frame(frame, force_keyframe, micros) => {
                         // A new bitrate applies from this frame on.
                         let kbps = wanted.load(core::sync::atomic::Ordering::Acquire);
-                        if kbps != vt.bitrate_kbps() {
-                            vt.set_bitrate(kbps);
+                        if kbps != engine.bitrate_kbps() {
+                            engine.set_bitrate(kbps);
                         }
-                        // NV12 goes into a pooled buffer as it is, BGRA as it
-                        // is, RGBA swizzled (see `VtEncoder::encode`), which
-                        // hands this frame's packets back at once.
-                        let chunk = match micros {
-                            Some(micros) => vt.encode_at(&frame, force_keyframe, micros),
-                            None => vt.encode(&frame, force_keyframe),
-                        };
+                        // The engine hands this frame's packets back at once
+                        // (VideoToolbox: NV12 into a pooled buffer as it is,
+                        // BGRA as it is, RGBA swizzled; Vulkan Video: NV12 as
+                        // it is, RGB converted once).
+                        let chunk = engine.encode(&frame, force_keyframe, micros);
                         if !chunk.is_empty() {
                             lock(&out).push_back(U8Vec::from_vec(chunk));
                         }
@@ -441,7 +545,10 @@ impl EncoderInner {
                 bitrate_kbps: bitrate,
             })
         }
-        #[cfg(not(all(any(target_os = "macos", target_os = "ios"), feature = "libloading")))]
+        #[cfg(not(any(
+            all(any(target_os = "macos", target_os = "ios"), feature = "libloading"),
+            az_gpu_video
+        )))]
         {
             let _ = (width, height, bitrate_kbps);
             Err(String::from("this build has no H.264 encode engine"))
