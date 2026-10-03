@@ -967,17 +967,12 @@ impl ReferenceFrameGroup {
         real_clip_stack: &mut Vec<Option<AzRect>>,
         scroll_offset_stack: &mut Vec<(f32, f32)>,
     ) -> Self {
-        const EPS: f32 = 1e-6;
-        let linear_identity = (m[0][0] - 1.0).abs() < EPS
-            && m[0][1].abs() < EPS
-            && m[1][0].abs() < EPS
-            && (m[1][1] - 1.0).abs() < EPS;
-        let affine = m[0][3].abs() < EPS && m[1][3].abs() < EPS && (m[3][3] - 1.0).abs() < EPS;
-        if linear_identity && affine {
-            let (tx, ty) = (m[3][0], m[3][1]);
-            if tx.abs() < EPS && ty.abs() < EPS {
-                return Self::Identity;
-            }
+        // The layer builder's tests: a frame it would not promote is painted
+        // where it is laid out, one it would is moved.
+        if super::compositor::is_identity_2d(m) {
+            return Self::Identity;
+        }
+        if let Some((tx, ty)) = super::compositor::translation_2d(m) {
             let (sx, sy) = scroll_offset_stack.last().copied().unwrap_or((0.0, 0.0));
             scroll_offset_stack.push((sx - tx, sy - ty));
             return Self::Translated;

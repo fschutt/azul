@@ -69,14 +69,28 @@ const IDENTITY_EPSILON: f32 = 0.0001;
 
 /// Does a reference frame's matrix leave its content where it is (the 2-D
 /// part the compositor applies is the identity)? The one test the layer
-/// builder promotes by and the animation culler maps by.
-fn is_identity_2d(m: &[[f32; 4]; 4]) -> bool {
+/// builder promotes by, the animation culler maps by and the flat raster
+/// paints a reference frame in place by.
+pub(crate) fn is_identity_2d(m: &[[f32; 4]; 4]) -> bool {
     (m[0][0] - 1.0).abs() < IDENTITY_EPSILON
         && m[0][1].abs() < IDENTITY_EPSILON
         && m[1][0].abs() < IDENTITY_EPSILON
         && (m[1][1] - 1.0).abs() < IDENTITY_EPSILON
         && m[3][0].abs() < IDENTITY_EPSILON
         && m[3][1].abs() < IDENTITY_EPSILON
+}
+
+/// The `(x, y)` offset of a matrix that only MOVES its content - a 2-D
+/// translation, no scale, rotation, skew or perspective - else `None`.
+pub(crate) fn translation_2d(m: &[[f32; 4]; 4]) -> Option<(f32, f32)> {
+    let moves_only = (m[0][0] - 1.0).abs() < IDENTITY_EPSILON
+        && m[0][1].abs() < IDENTITY_EPSILON
+        && m[1][0].abs() < IDENTITY_EPSILON
+        && (m[1][1] - 1.0).abs() < IDENTITY_EPSILON
+        && m[0][3].abs() < IDENTITY_EPSILON
+        && m[1][3].abs() < IDENTITY_EPSILON
+        && (m[3][3] - 1.0).abs() < IDENTITY_EPSILON;
+    moves_only.then_some((m[3][0], m[3][1]))
 }
 
 // ============================================================================
@@ -446,6 +460,33 @@ impl CompositorState {
                 *pushes_per_id.entry(*scroll_id).or_insert(0) += 1;
             }
         }
+        // The scroll and reference frames open at each point of the walk,
+        // promoted or not, outermost first - where a group's pixels can land
+        // once the walk is outside them (`painted_over_later`).
+        let mut open_groups: Vec<OpenGroup> = Vec::new();
+        // A layer is composited after ALL of its parent's own items. A group
+        // the parent paints something over LATER is therefore painted in
+        // place, where list order is paint order (scroll frames, opacity and
+        // reference frames are exact in place; blur and backdrop filters
+        // need a layer and keep it).
+        let painted_over = |layer_stack: &[LayerId],
+                            layers: &HashMap<LayerId, Layer>,
+                            end: usize,
+                            extent: Option<LogicalRect>,
+                            open_groups: &[OpenGroup]| {
+            let parent_end = layer_stack
+                .last()
+                .and_then(|id| layers.get(id))
+                .map_or(display_list.items.len(), |p| p.display_list_range.1);
+            painted_over_later(
+                &display_list.items,
+                end,
+                parent_end,
+                extent.unwrap_or(UNBOUNDED),
+                open_groups,
+                live_transforms,
+            )
+        };
         let mut i = 0;
 
         while i < display_list.items.len() {
@@ -488,7 +529,19 @@ impl CompositorState {
                                 >= root.height - 1.0
                     });
                     let split = pushes_per_id.get(scroll_id).is_some_and(|n| *n > 1);
-                    let created = !covers_root && !split && pw > 0 && ph > 0 && end > i + 1;
+                    let created = !covers_root
+                        && !split
+                        && pw > 0
+                        && ph > 0
+                        && end > i + 1
+                        && !painted_over(
+                            layer_stack.as_slice(),
+                            &self.layers,
+                            end,
+                            Some(bounds),
+                            open_groups.as_slice(),
+                        );
+                    open_groups.push(OpenGroup::Frame(bounds));
                     scroll_promoted.push(created);
                     if !created {
                         in_place_frames.push((*scroll_id, layer_stack.len()));
@@ -510,6 +563,12 @@ impl CompositorState {
                     }
                 }
                 DisplayListItem::PopScrollFrame => {
+                    if let Some(at) = open_groups
+                        .iter()
+                        .rposition(|g| matches!(g, OpenGroup::Frame(_)))
+                    {
+                        open_groups.truncate(at);
+                    }
                     // Pair by recorded decision (see PopOpacity): a frame that
                     // allocated no layer must not pop its parent.
                     match scroll_promoted.pop() {
@@ -540,7 +599,17 @@ impl CompositorState {
                     let b = *bounds.inner();
                     let (pw, ph) = layer_pixel_size(b.size, dpi_factor, node_of(display_list, i));
                     let end = find_matching_pop(&display_list.items, i, MatchKind::Opacity);
-                    let promote = effective < 1.0 && pw > 0 && ph > 0 && end > i + 1;
+                    let promote = effective < 1.0
+                        && pw > 0
+                        && ph > 0
+                        && end > i + 1
+                        && !painted_over(
+                            layer_stack.as_slice(),
+                            &self.layers,
+                            end,
+                            Some(b),
+                            open_groups.as_slice(),
+                        );
                     opacity_promoted.push(promote);
                     if promote {
                         let new_id = self.alloc_layer_id();
@@ -621,7 +690,22 @@ impl CompositorState {
                     let is_identity = is_identity_2d(m);
                     // Record the decision so the matching pop can be exact.
                     let end = find_matching_pop(&display_list.items, i, MatchKind::ReferenceFrame);
-                    let promote = !is_identity && end > i + 1;
+                    // Where the layer's pixels land: its box (the layer's
+                    // extent) through the matrix about its origin.
+                    let live = azul_core::transform::ComputedTransform3D { m: *m };
+                    let origin = bounds.inner().origin;
+                    let promote = !is_identity
+                        && end > i + 1
+                        && !painted_over(
+                            layer_stack.as_slice(),
+                            &self.layers,
+                            end,
+                            affine_rect_about(&live, origin, *bounds.inner()),
+                            open_groups.as_slice(),
+                        );
+                    open_groups.push(OpenGroup::Transform(
+                        (!is_identity).then_some((live, origin)),
+                    ));
                     ref_frame_promoted.push(promote);
                     if promote {
                         let b = *bounds.inner();
@@ -651,6 +735,12 @@ impl CompositorState {
                     }
                 }
                 DisplayListItem::PopReferenceFrame => {
+                    if let Some(at) = open_groups
+                        .iter()
+                        .rposition(|g| matches!(g, OpenGroup::Transform(_)))
+                    {
+                        open_groups.truncate(at);
+                    }
                     // Pair with the push by RECORDED DECISION, never by asking
                     // whether the top layer's transform looks non-identity: an
                     // identity frame nested inside a moved one allocates
@@ -1369,6 +1459,130 @@ enum MatchKind {
     Filter,
     BackdropFilter,
     ReferenceFrame,
+}
+
+/// A frame open at some point of the layer allocation walk, as
+/// [`painted_over_later`] needs it: where the pixels painted inside it land
+/// in the space around it.
+#[derive(Debug, Clone, Copy)]
+enum OpenGroup {
+    /// A scroll frame: whatever is inside shows through this window (its
+    /// clip bounds, in the space around the frame).
+    Frame(LogicalRect),
+    /// A reference frame: its live matrix and origin, `None` for the
+    /// identity.
+    Transform(Option<(azul_core::transform::ComputedTransform3D, LogicalPosition)>),
+}
+
+/// "Anywhere": the extent of pixels whose place cannot be told (a
+/// perspective matrix).
+const UNBOUNDED: LogicalRect = LogicalRect {
+    origin: LogicalPosition {
+        x: -1.0e30,
+        y: -1.0e30,
+    },
+    size: LogicalSize {
+        width: 2.0e30,
+        height: 2.0e30,
+    },
+};
+
+/// Do two rects share any area?
+fn rects_overlap(a: &LogicalRect, b: &LogicalRect) -> bool {
+    a.origin.x < b.origin.x + b.size.width
+        && b.origin.x < a.origin.x + a.size.width
+        && a.origin.y < b.origin.y + b.size.height
+        && b.origin.y < a.origin.y + a.size.height
+}
+
+/// Does the list paint anything over the group that closes at `end`, later
+/// in the same layer (before `parent_end`)?
+///
+/// A layer is composited after ALL of its parent's own items, so such a
+/// group must be painted in place, where list order is paint order.
+/// `extent` is where the group's pixels can land, in the space of its push;
+/// `open_groups` the frames open around that push, outermost first: once
+/// the walk leaves one, the extent is seen through it (a scroll frame's
+/// window, a reference frame's matrix). An item inside a scroll frame opened
+/// later counts as that frame's whole window, and a reference frame opened
+/// later as its content moved by its live matrix. Conservative: a false
+/// "yes" costs a layer, never a wrong picture.
+fn painted_over_later(
+    items: &[DisplayListItem],
+    end: usize,
+    parent_end: usize,
+    extent: LogicalRect,
+    open_groups: &[OpenGroup],
+    live_transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
+) -> bool {
+    let mut extent = extent;
+    // The frames around the group the walk has not left yet.
+    let mut enclosing = open_groups.len();
+    // Frames opened after the group and still open: scroll windows (`Some`)
+    // and identity reference frames (`None`), innermost last.
+    let mut later: Vec<Option<LogicalRect>> = Vec::new();
+    let stop = parent_end.min(items.len());
+    let mut i = end.saturating_add(1);
+    while i < stop {
+        let item = &items[i];
+        match item {
+            DisplayListItem::PushScrollFrame { clip_bounds, .. } => {
+                later.push(Some(*clip_bounds.inner()));
+            }
+            DisplayListItem::PushReferenceFrame {
+                transform_key,
+                initial_transform,
+                bounds,
+            } => {
+                let m = live_transforms
+                    .get(&transform_key.id)
+                    .unwrap_or(initial_transform);
+                if is_identity_2d(&m.m) {
+                    later.push(None);
+                } else {
+                    // Everything it paints, moved - then past its pop.
+                    let content =
+                        reference_frame_content(items, i).unwrap_or_else(|| *bounds.inner());
+                    let moved = affine_rect_about(m, bounds.inner().origin, content)
+                        .unwrap_or(UNBOUNDED);
+                    let seen = later.iter().flatten().next().copied().unwrap_or(moved);
+                    if rects_overlap(&seen, &extent) {
+                        return true;
+                    }
+                    i = find_matching_pop(items, i, MatchKind::ReferenceFrame).saturating_add(1);
+                    continue;
+                }
+            }
+            DisplayListItem::PopScrollFrame | DisplayListItem::PopReferenceFrame => {
+                if later.pop().is_none() && enclosing > 0 {
+                    // A frame around the group closes: outside it the group
+                    // shows through it.
+                    enclosing -= 1;
+                    extent = match open_groups[enclosing] {
+                        OpenGroup::Frame(window) => window,
+                        OpenGroup::Transform(None) => extent,
+                        OpenGroup::Transform(Some((m, origin))) => {
+                            affine_rect_about(&m, origin, extent).unwrap_or(UNBOUNDED)
+                        }
+                    };
+                }
+            }
+            DisplayListItem::HitTestArea { .. } => {}
+            other if !other.is_state_management() => {
+                if let Some(b) = other.visual_bounds().or_else(|| other.bounds()) {
+                    // Inside a later scroll frame it shows somewhere in the
+                    // outermost one's window.
+                    let seen = later.iter().flatten().next().copied().unwrap_or(b);
+                    if rects_overlap(&seen, &extent) {
+                        return true;
+                    }
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    false
 }
 
 /// Find the matching Pop for a given Push at index `start`.
@@ -7266,6 +7480,9 @@ mod autotest_generated {
     }
 
     /// A display list that wants one layer of every kind.
+    /// One group of each promotable kind, side by side: none paints over
+    /// another, so each keeps its layer (a group the list paints over later
+    /// is painted in place - `painted_over_later`).
     fn layer_soup() -> DisplayList {
         dlist(vec![
             push_scroll(1, 0.0, 0.0, 20.0, 20.0),
@@ -7283,12 +7500,12 @@ mod autotest_generated {
             ),
             DisplayListItem::PopScrollFrame,
             DisplayListItem::PushOpacity {
-                bounds: wlr(0.0, 0.0, 20.0, 20.0),
+                bounds: wlr(22.0, 0.0, 20.0, 20.0),
                 opacity: 0.5,
                 opacity_key: None,
             },
             rect_item(
-                0.0,
+                22.0,
                 0.0,
                 16.0,
                 16.0,
@@ -7301,14 +7518,14 @@ mod autotest_generated {
             ),
             DisplayListItem::PopOpacity,
             DisplayListItem::PushFilter {
-                bounds: wlr(0.0, 0.0, 20.0, 20.0),
+                bounds: wlr(44.0, 0.0, 20.0, 20.0),
                 filters: vec![StyleFilter::Blur(StyleBlur {
                     width: PixelValue::px(2.0),
                     height: PixelValue::px(2.0),
                 })],
             },
             rect_item(
-                0.0,
+                44.0,
                 0.0,
                 16.0,
                 16.0,
@@ -7395,6 +7612,80 @@ mod autotest_generated {
             3,
             "all three are direct children of the root"
         );
+    }
+
+    #[test]
+    fn a_group_the_list_paints_over_later_is_painted_in_place() {
+        // A layer is composited after ALL of its parent's own items, so a
+        // group something later overlaps keeps list order only in place.
+        let blue = ColorU {
+            r: 0,
+            g: 0,
+            b: 255,
+            a: 255,
+        };
+        let list = dlist(vec![
+            push_scroll(1, 0.0, 0.0, 20.0, 20.0),
+            rect_item(0.0, 0.0, 16.0, 16.0, blue),
+            DisplayListItem::PopScrollFrame,
+            DisplayListItem::PushOpacity {
+                bounds: wlr(30.0, 0.0, 20.0, 20.0),
+                opacity: 0.5,
+                opacity_key: None,
+            },
+            rect_item(30.0, 0.0, 16.0, 16.0, blue),
+            DisplayListItem::PopOpacity,
+            // Over both groups, painted after them.
+            rect_item(10.0, 5.0, 30.0, 5.0, blue),
+        ]);
+        let mut c = CompositorState::new(64, 64);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
+        assert_eq!(
+            c.layers.len(),
+            1,
+            "the scroll frame and the translucent group are painted over later: both in place"
+        );
+
+        // The same groups with the later rect beside them keep their layers.
+        let mut beside = list.clone();
+        beside.items[6] = rect_item(0.0, 40.0, 30.0, 5.0, blue);
+        let mut c2 = CompositorState::new(64, 64);
+        c2.allocate_layers_from_display_list(&beside, 1.0, &HashMap::new(), &HashMap::new());
+        assert_eq!(c2.layers.len(), 3, "root + scroll + opacity");
+    }
+
+    #[test]
+    fn a_rect_painted_over_a_scroll_frame_later_is_on_top_of_it() {
+        let (red, blue) = (
+            ColorU {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+            ColorU {
+                r: 0,
+                g: 0,
+                b: 255,
+                a: 255,
+            },
+        );
+        let list = dlist(vec![
+            push_scroll(1, 0.0, 0.0, 40.0, 40.0),
+            rect_item(0.0, 0.0, 40.0, 40.0, red),
+            DisplayListItem::PopScrollFrame,
+            rect_item(10.0, 10.0, 10.0, 10.0, blue),
+        ]);
+        let mut c = CompositorState::new(64, 64);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
+        let (rr, mut gc, st) = render_deps();
+        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st)
+            .unwrap();
+        let mut out = AzulPixmap::new(64, 64).unwrap();
+        out.fill(255, 255, 255, 255);
+        c.composite_frame(&mut out, 1.0);
+        assert_eq!(at(&out, 15, 15), [0, 0, 255, 255], "the later rect is on top");
+        assert_eq!(at(&out, 30, 30), [255, 0, 0, 255], "the frame's content around it");
     }
 
     #[test]
