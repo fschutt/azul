@@ -173,6 +173,10 @@ pub fn autofix_api(
     let doc_warnings = check_doc_characters(api_data);
     ffi_warnings.extend(doc_warnings);
 
+    // Every type a function signature names must cross the FFI (a raw `str`
+    // made the codegen emit `Azstr`, wave 5)
+    ffi_warnings.extend(check_function_signatures(api_data, &addition_names));
+
     // Check for reserved keywords across all target languages
     let keyword_warnings = check_reserved_keywords(api_data);
     ffi_warnings.extend(keyword_warnings);
