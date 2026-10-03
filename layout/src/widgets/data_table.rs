@@ -3309,3 +3309,638 @@ extern "C" fn order_ready(mut reply: RefAny, mut msg: RefAny, mut info: Callback
     store_view(&mut latest, &view);
     fire(&table, info, DataTableEvent::create(DataTableEventKind::OrderReady, view))
 }
+
+// ---- the pointer: presses, drags, the wheel (the pure halves) ----
+
+/// The row position nearest to `y` in view (a drag that left the table
+/// keeps a target).
+pub(crate) fn nearest_row(geo: &Geometry, y: f32) -> Option<u32> {
+    let first = geo.rows.first()?;
+    if y < first.start {
+        return Some(first.index);
+    }
+    Some(
+        geo.rows
+            .iter()
+            .rev()
+            .find(|b| y >= b.start)
+            .map_or(first.index, |b| b.index),
+    )
+}
+
+/// The view scrolled by `rows` rows and `columns` columns (kept in range).
+pub(crate) fn scroll_by(t: &DataTable, geo: &Geometry, rows: i64, columns: i64) -> DataTableView {
+    let mut next = t.view.clone();
+    let top = (i64::from(geo.top) + rows).clamp(0, i64::from(geo.max_top));
+    next.top = u32::try_from(top).unwrap_or(0);
+    let frozen = i64::from(t.frozen_columns.min(geo.max_left));
+    let left = (i64::from(geo.left) + columns).clamp(frozen, i64::from(geo.max_left).max(frozen));
+    next.left_column = u32::try_from(left).unwrap_or(0);
+    next
+}
+
+/// What a press on `hit` does (the pure half of the handler); `window_px`
+/// is the pointer's window position (a drag measures from it).
+#[allow(clippy::cast_precision_loss)]
+pub(crate) fn press(
+    t: &DataTable,
+    geo: &Geometry,
+    hit: Hit,
+    shift: bool,
+    ctrl: bool,
+    window_px: (f32, f32),
+) -> Option<DataTableEvent> {
+    let view = &t.view;
+    let column_of = |c: u32| t.columns.get(c as usize);
+    match hit {
+        Hit::Header(c) => {
+            if !column_of(c).is_some_and(|x| x.sortable) {
+                return None;
+            }
+            let mut next = view.clone();
+            next.click_sort(c, shift);
+            let mut e = DataTableEvent::create(DataTableEventKind::Sort, next);
+            e.index = c;
+            e.shift = shift;
+            Some(e)
+        }
+        Hit::HeaderEdge(c) => {
+            let width = size_at(&column_sizes(t), c, DEFAULT_COLUMN_PX);
+            let mut next = view.clone();
+            next.drag = DataTableDrag {
+                start_px: window_px.0,
+                start_size: width,
+                size: width,
+                column: c,
+                kind: DataTableDragKind::ResizeColumn,
+            };
+            Some(DataTableEvent::create(DataTableEventKind::Drag, next))
+        }
+        Hit::Filter(c) => {
+            if !(t.show_filter_row && column_of(c).is_some_and(|x| x.filterable)) {
+                return None;
+            }
+            Some(start_filter_edit(view, c))
+        }
+        Hit::Cell(position, c) => {
+            let mut next = click_select(t, view, position, shift, ctrl);
+            next.active_column = c;
+            reveal_column(t, &mut next, geo, c);
+            next.drag = DataTableDrag {
+                column: position,
+                kind: DataTableDragKind::Select,
+                ..DataTableDrag::default()
+            };
+            let mut e = DataTableEvent::create(DataTableEventKind::Select, next);
+            e.shift = shift;
+            e.ctrl = ctrl;
+            Some(e)
+        }
+        Hit::RowsTrack(after) => {
+            let page = i64::from(geo.page_rows.max(1));
+            let next = scroll_by(t, geo, if after { page } else { -page }, 0);
+            Some(DataTableEvent::create(DataTableEventKind::Scroll, next))
+        }
+        Hit::ColumnsTrack(after) => {
+            let page = i64::from(geo.page_columns.max(1));
+            let next = scroll_by(t, geo, 0, if after { page } else { -page });
+            Some(DataTableEvent::create(DataTableEventKind::Scroll, next))
+        }
+        Hit::RowsThumb | Hit::ColumnsThumb => {
+            let rows = hit == Hit::RowsThumb;
+            let mut next = view.clone();
+            next.drag = DataTableDrag {
+                start_px: if rows { window_px.1 } else { window_px.0 },
+                start_size: if rows { geo.top as f32 } else { geo.left as f32 },
+                size: 0.0,
+                column: 0,
+                kind: if rows {
+                    DataTableDragKind::ScrollRows
+                } else {
+                    DataTableDragKind::ScrollColumns
+                },
+            };
+            Some(DataTableEvent::create(DataTableEventKind::Drag, next))
+        }
+        Hit::Nothing => None,
+    }
+}
+
+/// What a pointer move during a drag does (the pure half): `row` is the
+/// row position under the pointer, `window_px` its window position.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+pub(crate) fn drag_move(
+    t: &DataTable,
+    geo: &Geometry,
+    row: Option<u32>,
+    window_px: (f32, f32),
+) -> Option<DataTableEvent> {
+    let view = &t.view;
+    let drag = view.drag;
+    match drag.kind {
+        DataTableDragKind::None => None,
+        DataTableDragKind::ResizeColumn => {
+            let size = (drag.start_size + (window_px.0 - drag.start_px)).max(MIN_COLUMN_PX);
+            if !size.is_finite() || (size - drag.size).abs() < 0.5 {
+                return None;
+            }
+            let mut next = view.clone();
+            next.drag.size = size;
+            Some(DataTableEvent::create(DataTableEventKind::Drag, next))
+        }
+        DataTableDragKind::ScrollRows => {
+            let bar = geo.vbar?;
+            let travel = bar.track.3 - bar.thumb_len;
+            if travel <= 0.0 || geo.max_top == 0 {
+                return None;
+            }
+            let moved = (window_px.1 - drag.start_px) * geo.max_top as f32 / travel;
+            let top = (drag.start_size + moved).round().clamp(0.0, geo.max_top as f32) as u32;
+            if top == view.top {
+                return None;
+            }
+            let mut next = view.clone();
+            next.top = top;
+            Some(DataTableEvent::create(DataTableEventKind::Scroll, next))
+        }
+        DataTableDragKind::ScrollColumns => {
+            let bar = geo.hbar?;
+            let travel = bar.track.2 - bar.thumb_len;
+            let frozen = t.frozen_columns.min(geo.max_left);
+            let span = geo.max_left.saturating_sub(frozen);
+            if travel <= 0.0 || span == 0 {
+                return None;
+            }
+            let moved = (window_px.0 - drag.start_px) * span as f32 / travel;
+            let left = (drag.start_size + moved)
+                .round()
+                .clamp(frozen as f32, geo.max_left as f32) as u32;
+            if left == view.left_column {
+                return None;
+            }
+            let mut next = view.clone();
+            next.left_column = left;
+            Some(DataTableEvent::create(DataTableEventKind::Scroll, next))
+        }
+        DataTableDragKind::Select => {
+            let position = row?;
+            let origin = view.row_at(drag.column, t.row_count).into_option()?;
+            let target = view.row_at(position, t.row_count).into_option()?;
+            if view.cursor_row().into_option() == Some(target) {
+                return None;
+            }
+            let mut base = view.clone();
+            base.selection.anchor = azul_css::corety::OptionU64::Some(u64::from(origin));
+            let mut next = key_select(t, &base, position, true, false);
+            reveal_row(&mut next, geo, position);
+            Some(DataTableEvent::create(DataTableEventKind::Select, next))
+        }
+    }
+}
+
+/// What the release of a drag does (the pure half): a resize keeps the
+/// width in the view.
+pub(crate) fn drag_end(t: &DataTable) -> Option<DataTableEvent> {
+    let view = &t.view;
+    let drag = view.drag;
+    let mut next = view.clone();
+    next.drag = DataTableDrag::default();
+    match drag.kind {
+        DataTableDragKind::None => None,
+        DataTableDragKind::ResizeColumn => {
+            let mut widths: Vec<CellGridSize> = view
+                .widths
+                .as_slice()
+                .iter()
+                .copied()
+                .filter(|w| w.index != drag.column)
+                .collect();
+            widths.push(CellGridSize::create(drag.column, drag.size));
+            next.widths = CellGridSizeVec::from_vec(widths);
+            let mut e = DataTableEvent::create(DataTableEventKind::ResizeColumn, next);
+            e.index = drag.column;
+            e.size = drag.size;
+            Some(e)
+        }
+        _ => Some(DataTableEvent::create(DataTableEventKind::Drag, next)),
+    }
+}
+
+/// What a double-click on `hit` does: edit an editable cell, open the row
+/// of any other.
+pub(crate) fn double_click(t: &DataTable, hit: Hit) -> Option<DataTableEvent> {
+    let Hit::Cell(position, column) = hit else {
+        return None;
+    };
+    let row = t.view.row_at(position, t.row_count).into_option()?;
+    let cell = DataTableCellRef::create(row, column);
+    if editable(t, column) {
+        let text = cell_content(&t.data_source, cell).text;
+        return Some(start_cell_edit(&without_edit(&t.view), row, column, text.as_str()));
+    }
+    let mut e = DataTableEvent::create(DataTableEventKind::Activate, t.view.clone());
+    e.cell = cell;
+    Some(e)
+}
+
+/// The most rows a copy puts on the clipboard.
+pub(crate) const DATA_TABLE_COPY_ROWS: usize = 50_000;
+
+/// What a copy puts on the clipboard: the titles, then the selected rows
+/// in the order they show (the cursor's row when nothing is selected), at
+/// most [`DATA_TABLE_COPY_ROWS`].
+pub(crate) fn copied_rows(t: &DataTable) -> Vec<Vec<String>> {
+    let view = &t.view;
+    let selection = &view.selection;
+    let picked: Vec<u32> = if selection.is_empty() {
+        view.cursor_row().into_option().into_iter().collect()
+    } else if view.ordered {
+        view.order
+            .as_slice()
+            .iter()
+            .copied()
+            .filter(|r| selection.contains(u64::from(*r)))
+            .take(DATA_TABLE_COPY_ROWS)
+            .collect()
+    } else {
+        selection
+            .keys
+            .as_slice()
+            .iter()
+            .filter_map(|k| u32::try_from(*k).ok())
+            .filter(|r| *r < t.row_count)
+            .take(DATA_TABLE_COPY_ROWS)
+            .collect()
+    };
+    if picked.is_empty() {
+        return Vec::new();
+    }
+    let ncols = u32::try_from(t.columns.len()).unwrap_or(0);
+    let mut rows = Vec::with_capacity(picked.len() + 1);
+    rows.push(
+        t.columns
+            .as_slice()
+            .iter()
+            .map(|c| String::from(c.title.as_str()))
+            .collect(),
+    );
+    for r in picked {
+        rows.push(
+            (0..ncols)
+                .map(|c| String::from(cell_content(&t.data_source, DataTableCellRef::create(r, c)).text.as_str()))
+                .collect(),
+        );
+    }
+    rows
+}
+
+// ---- the handlers: one set on the table node, the table hit-tests itself ----
+
+/// The table node's handlers.
+pub(crate) fn table_callbacks(shared: &RefAny) -> Vec<CoreCallbackData> {
+    alloc::vec![
+        CoreCallbackData::create(
+            EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+            shared.clone(),
+            on_table_key as usize
+        ),
+        CoreCallbackData::create(
+            EventFilter::Focus(FocusEventFilter::TextInput),
+            shared.clone(),
+            on_table_text as usize
+        ),
+        CoreCallbackData::create(EventFilter::Focus(FocusEventFilter::Copy), shared.clone(), on_table_copy as usize),
+        CoreCallbackData::create(
+            EventFilter::Hover(HoverEventFilter::LeftMouseDown),
+            shared.clone(),
+            on_table_mouse_down as usize
+        ),
+        CoreCallbackData::create(
+            EventFilter::Hover(HoverEventFilter::MouseMove),
+            shared.clone(),
+            on_table_mouse_move as usize
+        ),
+        CoreCallbackData::create(
+            EventFilter::Hover(HoverEventFilter::MouseUp),
+            shared.clone(),
+            on_table_mouse_up as usize
+        ),
+        CoreCallbackData::create(
+            EventFilter::Hover(HoverEventFilter::DoubleClick),
+            shared.clone(),
+            on_table_double_click as usize
+        ),
+        CoreCallbackData::create(
+            EventFilter::Hover(HoverEventFilter::Scroll),
+            shared.clone(),
+            on_table_wheel as usize
+        ),
+    ]
+}
+
+/// Hands `event` to the app; a new sort or filter first brings its order
+/// along (at once, or by starting the job).
+fn deliver(data: &mut RefAny, t: &DataTable, mut info: CallbackInfo, mut event: DataTableEvent) -> Update {
+    if event.view.is_sorting()
+        && matches!(event.kind, DataTableEventKind::Sort | DataTableEventKind::Filter)
+    {
+        let view = core::mem::take(&mut event.view);
+        event.view = requery(t, view, &mut info);
+    }
+    store_view(data, &event.view);
+    fire(t, info, event)
+}
+
+/// Keeps the cell edit (the app's `on_edit` decides), then moves `step`
+/// columns (Tab); a refused edit stays open and the app hears why.
+fn commit_edit(data: &mut RefAny, t: &DataTable, geo: &Geometry, info: CallbackInfo, step: i32) -> Update {
+    let view = &t.view;
+    let cell = DataTableCellRef::create(view.edit_row, view.edit_column);
+    let text = view.edit_text.clone();
+    let verdict = match t.on_edit.as_ref() {
+        Some(DataTableOnEdit { refany, callback }) => callback.invoke(
+            refany.clone(),
+            info,
+            DataTableEdit {
+                text: text.clone(),
+                cell,
+            },
+        ),
+        None => DataTableEditResult::create_accepted(),
+    };
+    if !verdict.accepted {
+        let mut e = DataTableEvent::create(DataTableEventKind::EditRefused, view.clone());
+        e.text = verdict.message;
+        e.cell = cell;
+        store_view(data, &e.view);
+        return fire(t, info, e);
+    }
+    let mut next = without_edit(view);
+    if step != 0 {
+        let last = i64::try_from(t.columns.len()).unwrap_or(1).saturating_sub(1).max(0);
+        let column = (i64::from(view.edit_column) + i64::from(step)).clamp(0, last);
+        next.active_column = u32::try_from(column).unwrap_or(0);
+        reveal_column(t, &mut next, geo, next.active_column);
+    }
+    let mut e = DataTableEvent::create(DataTableEventKind::EditCommit, next);
+    e.text = text;
+    e.cell = cell;
+    store_view(data, &e.view);
+    fire(t, info, e)
+}
+
+/// The keys (see the module's KEYBOARD).
+extern "C" fn on_table_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((t, geo)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let ks = info.get_current_keyboard_state();
+    let Some(key) = ks.current_virtual_keycode.into_option() else {
+        return Update::DoNothing;
+    };
+    if ks.alt_down() {
+        return Update::DoNothing;
+    }
+    let shift = ks.shift_down();
+    let ctrl = ks.primary_down();
+    match t.view.edit {
+        DataTableEditTarget::Cell => match cell_edit_key(&t, key, shift) {
+            Some(Ok(event)) => {
+                info.prevent_default();
+                deliver(&mut data, &t, info, event)
+            }
+            Some(Err(step)) => {
+                info.prevent_default();
+                commit_edit(&mut data, &t, &geo, info, step)
+            }
+            None => Update::DoNothing,
+        },
+        DataTableEditTarget::Filter => match filter_edit_key(&t, key) {
+            Some(event) => {
+                info.prevent_default();
+                deliver(&mut data, &t, info, event)
+            }
+            None => Update::DoNothing,
+        },
+        DataTableEditTarget::None => {
+            if key == VirtualKeyCode::C && ctrl {
+                info.prevent_default();
+                return copy_rows(&t, info);
+            }
+            match table_key(&t, &geo, key, shift, ctrl) {
+                Some(event) => {
+                    // The key is the table's: no spatial navigation, no scrolling.
+                    info.prevent_default();
+                    deliver(&mut data, &t, info, event)
+                }
+                None => Update::DoNothing,
+            }
+        }
+    }
+}
+
+/// A character typed on the table: into the edit at its caret, or the
+/// start of an edit that replaces the cursor's cell. The table node holds
+/// no text of its own, so the engine's own insertion is cancelled.
+extern "C" fn on_table_text(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((t, _)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let Some(inserted) = info
+        .get_text_changeset()
+        .map(|c| String::from(c.inserted_text.as_str()))
+    else {
+        return Update::DoNothing;
+    };
+    info.prevent_default();
+    let typed: String = inserted.chars().filter(|c| !c.is_control()).collect();
+    if typed.is_empty() {
+        return Update::DoNothing;
+    }
+    let view = &t.view;
+    let event = match view.edit {
+        DataTableEditTarget::Cell => {
+            let (text, caret) = insert_at(view.edit_text.as_str(), view.edit_cursor as usize, &typed);
+            let mut next = view.clone();
+            next.edit_text = AzString::from(text);
+            next.edit_cursor = u32::try_from(caret).unwrap_or(u32::MAX);
+            DataTableEvent::create(DataTableEventKind::EditText, next)
+        }
+        DataTableEditTarget::Filter => {
+            let (text, caret) = insert_at(view.edit_text.as_str(), view.edit_cursor as usize, &typed);
+            filter_typed(&t, view, text, caret)
+        }
+        DataTableEditTarget::None => {
+            let Some(row) = view.cursor_row().into_option() else {
+                return Update::DoNothing;
+            };
+            if !editable(&t, view.active_column) {
+                return Update::DoNothing;
+            }
+            start_cell_edit(view, row, view.active_column, &typed)
+        }
+    };
+    deliver(&mut data, &t, info, event)
+}
+
+/// The selected rows onto the clipboard (tab-separated text and an HTML
+/// table), then the app hears it.
+fn copy_rows(t: &DataTable, mut info: CallbackInfo) -> Update {
+    let rows = copied_rows(t);
+    if rows.len() < 2 {
+        return Update::DoNothing;
+    }
+    let tsv = crate::widgets::cell_grid::cells_to_tsv(&rows);
+    let html = crate::widgets::cell_grid::cells_to_html(&rows);
+    info.set_clipboard_content(crate::managers::selection::ClipboardContent {
+        plain_text: AzString::from(tsv.clone()),
+        styled_runs: crate::managers::selection::StyledTextRunVec::from_const_slice(&[]),
+        html: Some(AzString::from(html)).into(),
+    });
+    let mut e = DataTableEvent::create(DataTableEventKind::Copy, t.view.clone());
+    e.text = AzString::from(tsv);
+    fire(t, info, e)
+}
+
+/// The engine's Copy (a menu's, or Ctrl+C while it claims the shortcut).
+extern "C" fn on_table_copy(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((t, _)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    if t.view.is_editing() {
+        return Update::DoNothing;
+    }
+    info.prevent_default();
+    copy_rows(&t, info)
+}
+
+/// A press: sort, resize, filter, select, page or grab a thumb. A cell
+/// edit in progress is kept first (a click elsewhere commits it).
+extern "C" fn on_table_mouse_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut t, geo)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let Some((x, y)) = crate::widgets::cell_grid::cursor_in(&info) else {
+        return Update::DoNothing;
+    };
+    let ks = info.get_current_keyboard_state();
+    let (shift, ctrl) = (ks.shift_down(), ks.primary_down());
+    let window_px = info.get_cursor_position().map_or((x, y), |p| (p.x, p.y));
+    let hit = hit_test(&geo, x, y);
+    match t.view.edit {
+        DataTableEditTarget::Cell => {
+            let inside = matches!(hit, Hit::Cell(position, column)
+                if column == t.view.edit_column
+                    && t.view.row_at(position, t.row_count).into_option() == Some(t.view.edit_row));
+            if inside {
+                return Update::DoNothing;
+            }
+            return commit_edit(&mut data, &t, &geo, info, 0);
+        }
+        DataTableEditTarget::Filter => {
+            if matches!(hit, Hit::Filter(c) if c == t.view.edit_column) {
+                return Update::DoNothing;
+            }
+        }
+        DataTableEditTarget::None => {}
+    }
+    let closed_filter = t.view.edit == DataTableEditTarget::Filter;
+    if closed_filter {
+        t.view = without_edit(&t.view);
+    }
+    let event = match press(&t, &geo, hit, shift, ctrl, window_px) {
+        Some(e) => e,
+        None if closed_filter => DataTableEvent::create(DataTableEventKind::EditCancel, t.view.clone()),
+        None => return Update::DoNothing,
+    };
+    if event.view.drag.kind != DataTableDragKind::None {
+        let node = info.get_hit_node();
+        info.capture_pointer(node);
+    }
+    deliver(&mut data, &t, info, event)
+}
+
+/// A move while a drag is in progress.
+extern "C" fn on_table_mouse_move(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((t, geo)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    if t.view.drag.kind == DataTableDragKind::None {
+        return Update::DoNothing;
+    }
+    let pos = crate::widgets::cell_grid::cursor_in(&info);
+    let row = pos.and_then(|(_, y)| nearest_row(&geo, y));
+    let window_px = info
+        .get_cursor_position()
+        .map(|p| (p.x, p.y))
+        .or(pos)
+        .unwrap_or((0.0, 0.0));
+    let Some(event) = drag_move(&t, &geo, row, window_px) else {
+        return Update::DoNothing;
+    };
+    deliver(&mut data, &t, info, event)
+}
+
+/// The release ends a drag: a resize keeps the width.
+extern "C" fn on_table_mouse_up(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((t, _)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let Some(event) = drag_end(&t) else {
+        return Update::DoNothing;
+    };
+    deliver(&mut data, &t, info, event)
+}
+
+/// A double-click edits an editable cell or opens the row.
+extern "C" fn on_table_double_click(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((t, geo)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let Some((x, y)) = crate::widgets::cell_grid::cursor_in(&info) else {
+        return Update::DoNothing;
+    };
+    let Some(event) = double_click(&t, hit_test(&geo, x, y)) else {
+        return Update::DoNothing;
+    };
+    deliver(&mut data, &t, info, event)
+}
+
+/// The wheel scrolls by whole rows (Shift: columns). The table IS the
+/// scroll surface, so the page under it does not scroll as well.
+extern "C" fn on_table_wheel(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((t, geo)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let hit = info.get_hit_node();
+    let Some(node_id) = hit.node.into_crate_internal() else {
+        return Update::DoNothing;
+    };
+    let Some(delta) = info.get_scroll_delta(hit.dom, node_id) else {
+        return Update::DoNothing;
+    };
+    // THE WHEEL HAS ONE CONSUMER (see the cell grid).
+    info.prevent_default();
+    info.stop_propagation();
+    let shift = info.get_current_keyboard_state().shift_down();
+    let (dx, dy) = if shift && delta.x.abs() < f32::EPSILON {
+        (delta.y, 0.0)
+    } else {
+        (delta.x, delta.y)
+    };
+    let (rows, columns) =
+        crate::widgets::cell_grid::take_wheel(dx, dy, t.row_height.max(1.0), DEFAULT_COLUMN_PX);
+    if rows == 0 && columns == 0 {
+        return Update::DoNothing;
+    }
+    let next = scroll_by(&t, &geo, rows, columns);
+    if next == t.view {
+        return Update::DoNothing;
+    }
+    deliver(
+        &mut data,
+        &t,
+        info,
+        DataTableEvent::create(DataTableEventKind::Scroll, next),
+    )
+}
