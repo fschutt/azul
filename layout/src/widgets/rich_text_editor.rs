@@ -1645,7 +1645,7 @@ const fn engine_format(format: RichFormat) -> Option<TextFormat> {
 /// `formats` with the bold / italic / underline / strike the ENGINE has
 /// (its edit report, its pending format at the caret); inline code stays
 /// the model's - the engine has no such format.
-const fn with_engine_formats(
+fn with_engine_formats(
     mut formats: RichFormats,
     engine: azul_core::events::TextFormatSet,
 ) -> RichFormats {
