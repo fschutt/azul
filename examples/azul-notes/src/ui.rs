@@ -1007,7 +1007,10 @@ fn reading_pane(s: &AppState, app: &RefAny, look: &Look) -> Dom {
                     .with_on_virtual_key_down(app.clone(), on_title_key as TextInputOnVirtualKeyDownCallbackType)
                     .dom()
                     .with_id(ids::NOTE_TITLE)
-                    .with_css("flex-grow: 1;"),
+                    // The title reads as a title: a heading's size and weight
+                    // on the field, which its value line inherits (as an
+                    // <input>'s font does).
+                    .with_css("flex-grow: 1; font-size: 22px; font-weight: bold;"),
             ),
     );
 
