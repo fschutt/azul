@@ -9,13 +9,18 @@ Brief: scripts/waves/wave7/EVENTS7.md. Report at the end: scripts/EVENTS7_2026_1
     path version)
   - 971c2fa9a GREEN get_event_path crosses hosts
   - 5e56a6547 dll event.rs + layout/src/e2e/runner.rs Hover arms take core's hover_callbacks_along_path
-  - (next commit) layout/src/context_menu.rs nearest_context_menu walks core's get_event_path (twin removed)
+  - 95c932691 layout/src/context_menu.rs nearest_context_menu walks core's get_event_path (twin removed)
+- item 2 (macOS Edit menu through the key path):
+  - c074af165 RED dll/src/desktop/shell2/headless/tests/shortcut_keys.rs (+ `mod shortcut_keys;` in
+    headless/mod.rs tests) + stub PlatformWindow::press_shortcut_keys
+  - 76bafe411 GREEN press_shortcut_keys (common/event.rs, after consume_keyboard_delta)
+  - b47d4f120 macos/mod.rs edit_command -> press_shortcut_keys(EditCommand::keys()); can_undo/can_redo
+    true on an editing focus; dead perform_undo/perform_redo removed
 
 ## IN PROGRESS
-- item 2: macOS Edit menu (read dll/src/desktop/shell2/macos menu / edit_command code)
+- item 3: runner.rs UndoTextEdit / RedoTextEdit arms (read dll event.rs `undo_text_edit_on` ~15869)
 
 ## NEXT
-2. macOS Edit menu Undo/Redo/Cut/Copy/Paste/SelectAll through the key default-action path
 3. layout/src/e2e/runner.rs: DefaultAction::UndoTextEdit / RedoTextEdit arms (LayoutWindow method shared with dll)
 4. headless menus close on outside click / Escape
 5. Ctrl+B with no selection reported to the app
@@ -24,6 +29,9 @@ Brief: scripts/waves/wave7/EVENTS7.md. Report at the end: scripts/EVENTS7_2026_1
 - item 1: the plan lives in core (core/src/events.rs, mine), both dispatchers call it with closures over
   layout_results + VirtualViewManager::host_of_nested_dom; no new layout file.
 - the one plan plans each callback once (the old twins planned a node with two same-filter callbacks 4x).
+- item 2: ONE path for menu click and key equivalent: the keystroke is pressed + released through the
+  key passes (no NSApp.currentEvent inspection; layout-independent; also releases the letter key, which
+  AppKit never sends a keyUp: for while Cmd is held).
 
 ## Open questions
 - (none yet)
