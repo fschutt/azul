@@ -864,3 +864,5 @@ mod a_short_list_in_a_shell_pane_fills_its_pane_from_the_top;
 mod focusing_a_search_field_by_its_id_focuses_its_text;
 #[path = "a_line_holding_only_an_inline_block_is_as_tall_as_its_strut.rs"]
 mod a_line_holding_only_an_inline_block_is_as_tall_as_its_strut;
+#[path = "an_atomic_inline_sits_on_the_baseline_of_its_content.rs"]
+mod an_atomic_inline_sits_on_the_baseline_of_its_content;
