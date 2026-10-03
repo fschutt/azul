@@ -7629,10 +7629,15 @@ pub(crate) struct CollapsedBorders {
     /// `(num_rows + 1) * num_cols` edges: the edge above row `r` in column
     /// `c` is `r * num_cols + c` (row line `num_rows` is the bottom edge).
     pub(crate) horizontal: Vec<Option<BorderInfo>>,
-    /// `num_rows * (num_cols + 1)` edges: the edge left of column `c` in
-    /// row `r` is `r * (num_cols + 1) + c` (column line `num_cols` is the
-    /// right edge).
+    /// `num_rows * (num_cols + 1)` edges: the edge on column line `c` -
+    /// before column `c` in the table's direction - in row `r` is
+    /// `r * (num_cols + 1) + c` (column line `num_cols` is the end edge).
+    /// Line `c` is the LEFT of column `c` in an ltr table, its RIGHT in an
+    /// rtl one ([`Self::rtl`]).
     pub(crate) vertical: Vec<Option<BorderInfo>>,
+    /// The table's `direction` is rtl: its columns run from the right
+    /// (`TableLayoutContext::rtl`), so a column line's physical side flips.
+    pub(crate) rtl: bool,
 }
 
 impl CollapsedBorders {
@@ -7648,8 +7653,8 @@ impl CollapsedBorders {
             .flatten()
     }
 
-    /// The edge left of column line `col_line` (the table's right edge at
-    /// `num_cols`) in row `row`.
+    /// The edge on column line `col_line` (the table's end edge at
+    /// `num_cols`; see [`Self::vertical`]) in row `row`.
     pub(crate) fn vertical_at(&self, row: usize, col_line: usize) -> Option<BorderInfo> {
         if col_line > self.num_cols || row >= self.num_rows {
             return None;
@@ -7665,11 +7670,21 @@ impl CollapsedBorders {
     pub(crate) fn cell_border(&self, cell: &TableCellInfo) -> EdgeSizes {
         let row_end = (cell.row + cell.rowspan).min(self.num_rows);
         let col_end = (cell.column + cell.colspan).min(self.num_cols);
+        // The line before the cell is its left in ltr, its right in rtl.
+        let (left_line, right_line) = if self.rtl {
+            (col_end, cell.column)
+        } else {
+            (cell.column, col_end)
+        };
         EdgeSizes {
             top: half_of_widest((cell.column..col_end).map(|c| self.horizontal_at(cell.row, c))),
             bottom: half_of_widest((cell.column..col_end).map(|c| self.horizontal_at(row_end, c))),
-            left: half_of_widest((cell.row..row_end).map(|r| self.vertical_at(r, cell.column))),
-            right: half_of_widest((cell.row..row_end).map(|r| self.vertical_at(r, col_end))),
+            left: half_of_widest(
+                (cell.row..row_end).map(|r| self.vertical_at(r, left_line)),
+            ),
+            right: half_of_widest(
+                (cell.row..row_end).map(|r| self.vertical_at(r, right_line)),
+            ),
         }
     }
 
@@ -7677,14 +7692,19 @@ impl CollapsedBorders {
     /// its sides; the other half of every outer edge spills into the margin
     /// (CSS 2.2 17.6.2, as browsers take it for all four sides).
     pub(crate) fn table_border(&self) -> EdgeSizes {
+        let (left_line, right_line) = if self.rtl {
+            (self.num_cols, 0)
+        } else {
+            (0, self.num_cols)
+        };
         EdgeSizes {
             top: half_of_widest((0..self.num_cols).map(|c| self.horizontal_at(0, c))),
             bottom: half_of_widest(
                 (0..self.num_cols).map(|c| self.horizontal_at(self.num_rows, c)),
             ),
-            left: half_of_widest((0..self.num_rows).map(|r| self.vertical_at(r, 0))),
+            left: half_of_widest((0..self.num_rows).map(|r| self.vertical_at(r, left_line))),
             right: half_of_widest(
-                (0..self.num_rows).map(|r| self.vertical_at(r, self.num_cols)),
+                (0..self.num_rows).map(|r| self.vertical_at(r, right_line)),
             ),
         }
     }
@@ -7747,7 +7767,12 @@ pub(crate) fn resolve_collapsed_borders<T: ParsedFontTrait>(
         num_cols: cols,
         horizontal: vec![None; (rows + 1) * cols],
         vertical: vec![None; rows * (cols + 1)],
+        rtl: grid.rtl,
     };
+    // A column line's two sides in the table's direction (CSS 2.2 17.5): the
+    // cell BEFORE a line meets it with its end side (right in ltr, left in
+    // rtl), the cell after it with its start side.
+    let (start_side, end_side) = if grid.rtl { (RIGHT, LEFT) } else { (LEFT, RIGHT) };
     if rows == 0 || cols == 0 {
         return out;
     }
@@ -7857,23 +7882,24 @@ pub(crate) fn resolve_collapsed_borders<T: ParsedFontTrait>(
         }
     }
 
-    // Vertical edges: row `r`, column line `c` (0 = the table's left).
+    // Vertical edges: row `r`, column line `c` (0 = the table's start: its
+    // left in ltr, its right in rtl).
     for r in 0..rows {
         for c in 0..=cols {
-            let left = if c > 0 { owner(r, c - 1) } else { None };
-            let right = if c < cols { owner(r, c) } else { None };
-            if left.is_some() && left == right {
+            let before = if c > 0 { owner(r, c - 1) } else { None };
+            let after = if c < cols { owner(r, c) } else { None };
+            if before.is_some() && before == after {
                 continue; // inside a cell that spans both columns
             }
             participants.clear();
-            if let Some(l) = left {
-                participants.push(cell_sides[l][RIGHT]);
+            if let Some(b) = before {
+                participants.push(cell_sides[b][end_side]);
             }
-            if let Some(rt) = right {
-                participants.push(cell_sides[rt][LEFT]);
+            if let Some(a) = after {
+                participants.push(cell_sides[a][start_side]);
             }
             if c == 0 || c == cols {
-                let side = if c == 0 { LEFT } else { RIGHT };
+                let side = if c == 0 { start_side } else { end_side };
                 participants.push(row_sides[r][side]);
                 if let Some(g) = group_of(r).and_then(|g| group_sides.get(&g)) {
                     participants.push(g[side]);
@@ -7882,35 +7908,35 @@ pub(crate) fn resolve_collapsed_borders<T: ParsedFontTrait>(
             if c > 0 {
                 if let Some((b, s)) = &column_sides[c - 1] {
                     if b.start + b.span == c {
-                        participants.push(s[RIGHT]);
+                        participants.push(s[end_side]);
                     }
                 }
             }
             if c < cols {
                 if let Some((b, s)) = &column_sides[c] {
                     if b.start == c {
-                        participants.push(s[LEFT]);
+                        participants.push(s[start_side]);
                     }
                 }
             }
             if c > 0 {
                 if let Some((g, s)) = &column_group_sides[c - 1] {
                     if g.start + g.span == c {
-                        participants.push(s[RIGHT]);
+                        participants.push(s[end_side]);
                     }
                 }
             }
             if c < cols {
                 if let Some((g, s)) = &column_group_sides[c] {
                     if g.start == c {
-                        participants.push(s[LEFT]);
+                        participants.push(s[start_side]);
                     }
                 }
             }
             if c == 0 {
-                participants.push(table[LEFT]);
+                participants.push(table[start_side]);
             } else if c == cols {
-                participants.push(table[RIGHT]);
+                participants.push(table[end_side]);
             }
             out.vertical[r * (cols + 1) + c] = collapse_edge(&participants);
         }
