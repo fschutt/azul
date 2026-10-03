@@ -5,6 +5,7 @@
 //!   "kdf":  { "algorithm": "argon2id", "version": 19, "memory_kib": 65536, "iterations": 3,
 //!             "parallelism": 1, "salt": "<base64, 16 bytes>" },
 //!   "key":  { "cipher": "xchacha20poly1305", "nonce": "<base64, 24 bytes>", "sealed": "..." },
+//!   "check": "<base64, 16 bytes of SHA-256 over the vault key>",
 //!   "data": { "cipher": "xchacha20poly1305", "nonce": "<base64, 24 bytes>", "sealed": "..." } }
 //! ```
 //!
@@ -22,7 +23,8 @@
 //! What is authenticated besides the ciphertext (the AEAD's associated data): for `key` the
 //! format, the vault id and every KDF parameter with the salt (a lowered cost or a swapped salt
 //! does not open); for `data` the format, the id and the name (a renamed vault file does not
-//! open). XChaCha20-Poly1305's 192-bit nonces are random per seal: no counter to keep between
+//! open). `check` tells a wrong vault key (the keyring's, of a vault re-created since) from
+//! damaged data, and commits the data to their key. XChaCha20-Poly1305's 192-bit nonces are random per seal: no counter to keep between
 //! two devices that share the bucket.
 //!
 //! Secrets in memory: [`SecretKey`] wipes itself when dropped and prints as `SecretKey(***)`;
@@ -31,7 +33,12 @@
 
 use std::fmt;
 
+use chacha20poly1305::{
+    aead::{Aead, Payload},
+    Key, KeyInit, XChaCha20Poly1305, XNonce,
+};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, Zeroizing};
 
 /// The `format` of a vault file.
@@ -100,14 +107,20 @@ pub struct SecretKey([u8; KEY_LEN]);
 impl SecretKey {
     /// A new random key.
     pub fn random() -> Result<SecretKey, VaultError> {
-        todo!("GREEN")
+        let mut key = SecretKey([0u8; KEY_LEN]);
+        random_bytes(&mut key.0)?;
+        Ok(key)
     }
 
     /// The key of exactly [`KEY_LEN`] bytes.
     #[must_use]
     pub fn from_bytes(bytes: &[u8]) -> Option<SecretKey> {
-        let _ = bytes;
-        todo!("GREEN")
+        if bytes.len() != KEY_LEN {
+            return None;
+        }
+        let mut key = SecretKey([0u8; KEY_LEN]);
+        key.0.copy_from_slice(bytes);
+        Some(key)
     }
 
     #[must_use]
@@ -118,14 +131,14 @@ impl SecretKey {
     /// The key as base64, for the OS keyring (a buffer wiped when dropped).
     #[must_use]
     pub fn to_base64(&self) -> Zeroizing<String> {
-        todo!("GREEN")
+        Zeroizing::new(azul_pim::data_uri::encode_base64(&self.0))
     }
 
     /// The key of the keyring's base64.
     #[must_use]
     pub fn from_base64(text: &str) -> Option<SecretKey> {
-        let _ = text;
-        todo!("GREEN")
+        let bytes = Zeroizing::new(azul_pim::data_uri::decode_base64(text)?);
+        SecretKey::from_bytes(&bytes)
     }
 }
 
@@ -193,21 +206,106 @@ impl KdfParams {
         iterations: u32,
         parallelism: u32,
     ) -> Result<KdfParams, VaultError> {
-        let _ = (memory_kib, iterations, parallelism);
-        todo!("GREEN")
+        let mut salt = [0u8; SALT_LEN];
+        random_bytes(&mut salt)?;
+        Ok(KdfParams {
+            algorithm: KDF_ALGORITHM.to_string(),
+            version: ARGON2_VERSION,
+            memory_kib,
+            iterations,
+            parallelism,
+            salt: azul_pim::data_uri::encode_base64(&salt),
+        })
+    }
+
+    /// The salt's bytes when the parameters are ones this build derives with: Argon2id 1.3, the
+    /// cost in bounds (Argon2 needs 8 KiB of memory per lane), a salt of [`SALT_LEN`] bytes.
+    fn checked_salt(&self) -> Result<Vec<u8>, VaultError> {
+        if self.algorithm != KDF_ALGORITHM {
+            return Err(VaultError::Unsupported(format!(
+                "the key derivation \"{}\" is not Argon2id",
+                self.algorithm
+            )));
+        }
+        if self.version != ARGON2_VERSION {
+            return Err(VaultError::Unsupported(format!(
+                "Argon2 version {} (only 19, i.e. 1.3)",
+                self.version
+            )));
+        }
+        let lanes_ok = (1..=MAX_PARALLELISM).contains(&self.parallelism);
+        let passes_ok = (1..=MAX_ITERATIONS).contains(&self.iterations);
+        let memory_ok = self.memory_kib <= MAX_MEMORY_KIB
+            && u64::from(self.memory_kib) >= 8 * u64::from(self.parallelism.max(1));
+        if !(lanes_ok && passes_ok && memory_ok) {
+            return Err(VaultError::Unsupported(format!(
+                "an Argon2id cost out of bounds ({} KiB, {} passes, {} lanes)",
+                self.memory_kib, self.iterations, self.parallelism
+            )));
+        }
+        match azul_pim::data_uri::decode_base64(&self.salt) {
+            Some(salt) if salt.len() == SALT_LEN => Ok(salt),
+            _ => Err(VaultError::Corrupt(
+                "the salt is not 16 bytes of base64".to_string(),
+            )),
+        }
     }
 
     /// Whether this build can derive with these parameters (known algorithm, cost in bounds, a
     /// salt of the right length).
     pub fn check(&self) -> Result<(), VaultError> {
-        todo!("GREEN")
+        self.checked_salt().map(|_| ())
     }
 
     /// The password key of `password`.
     pub fn derive(&self, password: &str) -> Result<SecretKey, VaultError> {
-        let _ = password;
-        todo!("GREEN")
+        let salt = self.checked_salt()?;
+        let params = argon2::Params::new(
+            self.memory_kib,
+            self.iterations,
+            self.parallelism,
+            Some(KEY_LEN),
+        )
+        .map_err(|e| VaultError::Unsupported(format!("Argon2id parameters: {e}")))?;
+        let argon =
+            argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
+        let mut key = SecretKey([0u8; KEY_LEN]);
+        argon
+            .hash_password_into(password.as_bytes(), &salt, &mut key.0)
+            .map_err(|e| VaultError::Unsupported(format!("Argon2id: {e}")))?;
+        Ok(key)
     }
+
+    /// The associated data that binds a sealed vault key to these parameters and the vault id.
+    fn key_aad(&self, id: &str) -> Vec<u8> {
+        format!(
+            "{FORMAT}/{VERSION}/key/{id}/{}/{}/{}/{}/{}/{}",
+            self.algorithm,
+            self.version,
+            self.memory_kib,
+            self.iterations,
+            self.parallelism,
+            self.salt
+        )
+        .into_bytes()
+    }
+}
+
+/// The associated data that binds the sealed vault JSON to the vault's id and name.
+fn data_aad(id: &str, name: &str) -> Vec<u8> {
+    format!("{FORMAT}/{VERSION}/data/{id}/{name}").into_bytes()
+}
+
+/// The check value of a vault key: base64 of the first 16 bytes of SHA-256 over a label and the
+/// key. Says whether a key is the vault's before the data are tried (a 256-bit random key cannot
+/// be found from it), and commits the data to their key.
+#[must_use]
+pub fn key_check(key: &SecretKey) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"azkeys-vault/key-check/");
+    hasher.update(key.as_bytes());
+    let digest = hasher.finalize();
+    azul_pim::data_uri::encode_base64(&digest[..16])
 }
 
 /// One sealed part of the file: the cipher, the nonce and ciphertext + tag (base64).
@@ -218,10 +316,29 @@ pub struct Sealed {
     pub sealed: String,
 }
 
+/// The cipher of `key`.
+fn cipher_of(key: &SecretKey) -> XChaCha20Poly1305 {
+    XChaCha20Poly1305::new(Key::from_slice(key.as_bytes()))
+}
+
 /// Seals `plaintext` with `key` and a fresh random nonce, authenticating `aad` with it.
 pub fn seal(key: &SecretKey, plaintext: &[u8], aad: &[u8]) -> Result<Sealed, VaultError> {
-    let _ = (key, plaintext, aad);
-    todo!("GREEN")
+    let mut nonce = [0u8; NONCE_LEN];
+    random_bytes(&mut nonce)?;
+    let sealed = cipher_of(key)
+        .encrypt(
+            XNonce::from_slice(&nonce),
+            Payload {
+                msg: plaintext,
+                aad,
+            },
+        )
+        .map_err(|_| VaultError::Corrupt("the cipher refused to seal".to_string()))?;
+    Ok(Sealed {
+        cipher: CIPHER.to_string(),
+        nonce: azul_pim::data_uri::encode_base64(&nonce),
+        sealed: azul_pim::data_uri::encode_base64(&sealed),
+    })
 }
 
 /// Opens what [`seal`] sealed; `Err(Corrupt)` when the key, the nonce, the ciphertext or `aad`
@@ -231,8 +348,35 @@ pub fn open(
     sealed: &Sealed,
     aad: &[u8],
 ) -> Result<Zeroizing<Vec<u8>>, VaultError> {
-    let _ = (key, sealed, aad);
-    todo!("GREEN")
+    if sealed.cipher != CIPHER {
+        return Err(VaultError::Unsupported(format!(
+            "the cipher \"{}\" is not XChaCha20-Poly1305",
+            sealed.cipher
+        )));
+    }
+    let nonce = match azul_pim::data_uri::decode_base64(&sealed.nonce) {
+        Some(n) if n.len() == NONCE_LEN => n,
+        _ => {
+            return Err(VaultError::Corrupt(
+                "a nonce is not 24 bytes of base64".to_string(),
+            ))
+        }
+    };
+    let Some(ciphertext) = azul_pim::data_uri::decode_base64(&sealed.sealed) else {
+        return Err(VaultError::Corrupt(
+            "a sealed part is not base64".to_string(),
+        ));
+    };
+    cipher_of(key)
+        .decrypt(
+            XNonce::from_slice(&nonce),
+            Payload {
+                msg: &ciphertext,
+                aad,
+            },
+        )
+        .map(Zeroizing::new)
+        .map_err(|_| VaultError::Corrupt("a sealed part does not authenticate".to_string()))
 }
 
 /// A vault file.
@@ -244,6 +388,8 @@ pub struct Envelope {
     pub name: String,
     pub kdf: KdfParams,
     pub key: Sealed,
+    /// [`key_check`] of the vault key: tells a wrong key from damaged data.
+    pub check: String,
     pub data: Sealed,
 }
 
@@ -257,33 +403,77 @@ impl Envelope {
         kdf: KdfParams,
         plaintext: &[u8],
     ) -> Result<(Envelope, SecretKey), VaultError> {
-        let _ = (id, name, password, kdf, plaintext);
-        todo!("GREEN")
+        let vault_key = SecretKey::random()?;
+        let password_key = kdf.derive(password)?;
+        let key = seal(&password_key, vault_key.as_bytes(), &kdf.key_aad(id))?;
+        let data = seal(&vault_key, plaintext, &data_aad(id, name))?;
+        let envelope = Envelope {
+            format: FORMAT.to_string(),
+            version: VERSION,
+            id: id.to_string(),
+            name: name.to_string(),
+            kdf,
+            key,
+            check: key_check(&vault_key),
+            data,
+        };
+        Ok((envelope, vault_key))
     }
 
     /// The file's header and sealed parts, without opening anything (the unlock screen lists
     /// vaults by name). Refuses another format or version.
     pub fn parse(bytes: &[u8]) -> Result<Envelope, VaultError> {
-        let _ = bytes;
-        todo!("GREEN")
+        let envelope: Envelope = serde_json::from_slice(bytes)
+            .map_err(|e| VaultError::Corrupt(format!("not a vault file: line {}", e.line())))?;
+        if envelope.format != FORMAT {
+            return Err(VaultError::Unsupported(format!(
+                "the format \"{}\" is not an AzKeys vault",
+                envelope.format
+            )));
+        }
+        if envelope.version != VERSION {
+            return Err(VaultError::Unsupported(format!(
+                "vault version {} (this AzKeys reads version {VERSION}; a newer AzKeys wrote it)",
+                envelope.version
+            )));
+        }
+        Ok(envelope)
     }
 
     /// The file's bytes (pretty JSON: the header is readable, the rest is sealed).
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
-        todo!("GREEN")
+        let mut bytes = serde_json::to_vec_pretty(self).unwrap_or_default();
+        bytes.push(b'\n');
+        bytes
     }
 
     /// The vault key, opened with the master password.
     pub fn unwrap_key(&self, password: &str) -> Result<SecretKey, VaultError> {
-        let _ = password;
-        todo!("GREEN")
+        let password_key = self.kdf.derive(password)?;
+        let bytes = match open(&password_key, &self.key, &self.kdf.key_aad(&self.id)) {
+            Ok(bytes) => bytes,
+            Err(VaultError::Corrupt(_)) => return Err(VaultError::WrongPassword),
+            Err(e) => return Err(e),
+        };
+        let key = SecretKey::from_bytes(&bytes)
+            .ok_or_else(|| VaultError::Corrupt("the vault key is not 32 bytes".to_string()))?;
+        if key_check(&key) != self.check {
+            return Err(VaultError::Corrupt(
+                "the vault key does not match its check value".to_string(),
+            ));
+        }
+        Ok(key)
     }
 
-    /// The vault's JSON, opened with the vault key.
+    /// The vault's JSON, opened with the vault key. `WrongKey` when `key` is not this vault's
+    /// (its check value differs: the keyring holds the key of a vault re-created since),
+    /// `Corrupt` when it is but the data do not authenticate.
     pub fn open_data(&self, key: &SecretKey) -> Result<Zeroizing<Vec<u8>>, VaultError> {
-        let _ = key;
-        todo!("GREEN")
+        if key_check(key) != self.check {
+            return Err(VaultError::WrongKey);
+        }
+        open(key, &self.data, &data_aad(&self.id, &self.name))
     }
 
     /// The file after a save: `plaintext` sealed with the vault key under a fresh nonce, the name
@@ -294,8 +484,12 @@ impl Envelope {
         name: &str,
         plaintext: &[u8],
     ) -> Result<Envelope, VaultError> {
-        let _ = (key, name, plaintext);
-        todo!("GREEN")
+        let data = seal(key, plaintext, &data_aad(&self.id, name))?;
+        Ok(Envelope {
+            name: name.to_string(),
+            data,
+            ..self.clone()
+        })
     }
 
     /// The file after a new master password: the same vault key sealed under `kdf` (a fresh salt)
@@ -306,8 +500,13 @@ impl Envelope {
         new_password: &str,
         kdf: KdfParams,
     ) -> Result<Envelope, VaultError> {
-        let _ = (key, new_password, kdf);
-        todo!("GREEN")
+        let password_key = kdf.derive(new_password)?;
+        let sealed_key = seal(&password_key, key.as_bytes(), &kdf.key_aad(&self.id))?;
+        Ok(Envelope {
+            kdf,
+            key: sealed_key,
+            ..self.clone()
+        })
     }
 }
 
