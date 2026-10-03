@@ -28,13 +28,11 @@ worktree guard - edit files with the Edit tool; `rustfmt --edition 2021 <file>` 
   washed, shifted_date, cell_faces, PREV_ARROW / NEXT_ARROW, HEADER_CLASS / HEADER_LABEL_CLASS),
   0974aae78 types + stubs, 0414f8059 RED range tests (`mod range_tests`).
 
+  cd879c8ed GREEN range logic (day_number, presets, with_range / turned / right_month, click_day, shown_range,
+  range_text).
+
 ## NEXT (exact)
-4. DateRangePicker GREEN in layout/src/widgets/date_range_picker.rs: DateRange::create (order by `key`),
-   contains, day_count (ordinal difference + 1; use a days-since-epoch helper), DateRangePreset::range
-   (date_picker::shifted_date / weekday / days_in_month), DateRangePickerView::with_range / turned /
-   right_month, click_day (anchor keeps view.range; second click -> range, anchor None), shown_range,
-   range_text ("4 Mar 2026 \u{2013} 10 Mar 2026", `&month_name(m)[..3]`).
-   Then: the DOM (presets column of PushButton <p>s; two calendars = date_picker_look parts merged per part with
+4. DateRangePicker: the DOM (presets column of PushButton <p>s; two calendars = date_picker_look parts merged per part with
    theme_blocks::part_of over [flat::date_picker_look(), flora::date_picker_look()] when unpinned; header with
    ‹ on the left month / › on the right via header_nav_button; build_weekday_row_from; day_grid with own day
    cells (payload {date, shared}), click / MouseEnter preview / keys; summary line), handlers (restyle both grids
