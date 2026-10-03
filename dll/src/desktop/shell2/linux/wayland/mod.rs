@@ -9013,8 +9013,9 @@ impl CpuFallbackState {
         // TWO buffers in one pool, each on whole pages, inside a memfd sealed
         // against shrinking (shm.rs): that is what lets a compositor wrap a
         // buffer as a udmabuf and sample it in place (KWin 6.7+) instead of
-        // copying every frame on its main thread. The pitch stays tight -
-        // the renderer draws straight into a slot.
+        // copying every frame on its main thread. Rows are padded to a
+        // 256-byte pitch (the LINEAR pitch every common GPU samples); the
+        // renderer draws straight into a slot through a pitch-wide pixmap.
         let page = shm::page_size();
         let layout = shm::pool_layout(width, height, 2, page).ok_or_else(|| {
             WindowError::PlatformError(format!("shm pool for {width}x{height} exceeds 2 GiB"))
