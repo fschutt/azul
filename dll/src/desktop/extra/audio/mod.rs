@@ -56,6 +56,10 @@ pub use echo::EchoCanceller;
 // The arithmetic of playing decoded audio (chunks, rates, channels, gain,
 // levels, which track is heard): pure, every target.
 pub(crate) mod playback;
+// Audio FILES decoded (MP3 / AAC / FLAC / ...): the `AudioFileDecoder` handle,
+// on Symphonia (feature `audio-decode`).
+pub mod decode;
+pub use decode::{AudioFileDecoder, AudioFileInfo, OptionAudioFileInfo};
 
 /// Internal playback state behind an open `AudioSink` handle.
 struct AudioSinkInner {
