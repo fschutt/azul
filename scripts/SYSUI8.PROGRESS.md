@@ -35,9 +35,19 @@ Report (at the end): scripts/SYSUI8_2026_10_03.md. Probes (not committed): targe
 - be0e68ea3 RED: text that only changes size is drawn at the new size
 - 28dc312fe GREEN: window.rs font-stack signature mixes weight/style/raw font size
 - a87af32f1 RED unit test + c4ebf6301 GREEN: unloaded covering face -> next loaded face + deficit
+- ece48a76b RED + 4f77dc395 GREEN C: `system-ui` generic = SystemFontType::Ui chain (font.rs
+  browser_generic_families), prefer_system_ui_font / use_system_ui_font (Linux desktop font, dll
+  shell2/common/layout.rs), `system:ui` + Apple aliases build the one `system-ui` selector
+- 19bfd7f51 RED + fd7e59d41 GREEN: style attribute split_once(':') (core/src/xml_attributes.rs):
+  `font-family: system:ui` in markup was cut to `system` (prebuilt AzPaint: Helvetica 136.98)
 
-## NEXT
-1. GREEN C: `-apple-system` / `BlinkMacSystemFont` = system-ui on Apple (build_font_selector_stack);
+## Prebuilt AzPaint probe (target/sysui8/app_probe.py, 16px "Hello world agenda")
+system:ui (markup) 136.98 (the colon bug -> Helvetica), system-ui 128.30, 'System Font' 128.30,
+'Helvetica Neue' 138.36, Helvetica 136.98, BlinkMacSystemFont / -apple-system 136.98 (Helvetica).
+The widgets' const `System("system:ui")` is not parsed, so production widgets draw SF Display.
+
+## NEXT (old list, 1. done)
+1. (done) GREEN C: `-apple-system` / `BlinkMacSystemFont` = system-ui on Apple (build_font_selector_stack);
    ONE OS UI font list for CSS `system-ui` and `system:ui` (browser_generic_families sets
    SystemUi = SystemFontType::Ui's chain); Linux: the desktop's detected UI font first (SystemStyle);
    Windows: Segoe UI Variable (already in the Ui chain).
