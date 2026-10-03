@@ -21144,6 +21144,37 @@ pub fn take_debug_request_wake() -> bool {
     DEBUG_REQUEST_WAKE.swap(false, core::sync::atomic::Ordering::AcqRel)
 }
 
+/// What still moves in this window on its own clock, or `None` once it has
+/// settled - what `wait_settled` waits for.
+///
+/// A screenshot taken a few milliseconds after a DOM rebuild shows the
+/// window MID-ANIMATION: a rebuild that moves nodes slides them from where
+/// they were (the layout animations), a changed property under `animation`
+/// tweens (the CSS transitions), a scrolled box eases and its bar fades. The
+/// frame is not stale - the display list is current - it is in motion, and
+/// read as a still it shows "two layouts at once" (SMALL6, 2026-10-03:
+/// AzShells' S4 after a picker click carried 26 sliding nodes for ~300 ms).
+#[cfg(feature = "std")]
+#[must_use]
+pub fn window_still_moving(layout_window: &azul_layout::window::LayoutWindow) -> Option<String> {
+    let _ = layout_window;
+    None
+}
+
+/// One `wait_settled` waiter's verdict at `now`: `None` keeps waiting,
+/// `Some(Ok(()))` answers "settled", `Some(Err(..))` gives up at the
+/// deadline, naming what still moves.
+#[cfg(feature = "std")]
+#[must_use]
+pub fn settle_verdict(
+    moving: Option<&str>,
+    now: std::time::Instant,
+    deadline: std::time::Instant,
+) -> Option<Result<(), String>> {
+    let _ = (moving, now, deadline);
+    None
+}
+
 /// Counts [`announce_debug_request`]s, so that EVERY window sees each one
 /// ([`take_debug_request_wake_for`]) - the flag above is taken by whichever
 /// loop looks first.
@@ -21252,6 +21283,37 @@ mod debug_request_wake_tests {
         assert!(dialog.take_at(1), "and so does the window it is forwarded to");
         assert!(!main.take_at(1) && !dialog.take_at(1), "once per announcement");
         assert!(dialog.take_at(3), "a later announcement re-arms again");
+    }
+
+    /// SMALL6: a screenshot right after a rebuild caught 26 nodes mid-slide
+    /// and read as "two layouts at once". `wait_settled` waits until nothing
+    /// moves on the window's own clock; this is its test of "moving".
+    #[test]
+    fn a_window_with_a_fading_scrollbar_is_still_moving() {
+        let mut lw =
+            azul_layout::window::LayoutWindow::new(rust_fontconfig::FcFontCache::default())
+                .expect("a layout window");
+        assert_eq!(window_still_moving(&lw), None, "a new window has settled");
+        lw.gpu_state_manager.scrollbar_fade_active = true;
+        let moving = window_still_moving(&lw).expect("a fading bar is motion");
+        assert!(moving.contains("scrollbar"), "{moving}");
+    }
+
+    #[test]
+    fn a_settle_waiter_answers_when_settled_and_gives_up_at_its_deadline() {
+        let start = std::time::Instant::now();
+        let deadline = start + std::time::Duration::from_millis(100);
+        assert_eq!(settle_verdict(None, start, deadline), Some(Ok(())));
+        assert_eq!(
+            settle_verdict(Some("1 layout animation"), start, deadline),
+            None,
+            "still moving before the deadline: keep waiting"
+        );
+        let late = settle_verdict(Some("1 layout animation"), deadline, deadline);
+        let Some(Err(why)) = late else {
+            panic!("at the deadline the waiter gives up, got {late:?}");
+        };
+        assert!(why.contains("1 layout animation"), "{why}");
     }
 
     #[test]
