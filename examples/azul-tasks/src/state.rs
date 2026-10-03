@@ -344,8 +344,24 @@ impl Tasks {
         now: NaiveDateTime,
         to_utc: &dyn Fn(NaiveDateTime) -> NaiveDateTime,
     ) -> (String, usize) {
-        let _ = (now, to_utc);
-        todo!()
+        let list = match &self.view {
+            View::List(id) => self.lists.iter().find(|l| &l.id == id).cloned(),
+            _ => None,
+        };
+        let name = list.as_ref().map_or("Tasks", |l| l.name.as_str());
+        let tasks: Vec<&Task> = self
+            .tasks
+            .iter()
+            .filter(|t| list.as_ref().map_or(true, |l| t.list == l.id))
+            .collect();
+        let count = tasks.len();
+        let text = crate::vtodo::write(&tasks, name, to_utc(now), to_utc);
+        let key = azul_appkit::data::app_key(
+            crate::appearance::APP_FOLDER,
+            &format!("exports/{}", crate::vtodo::file_name_for(name)),
+        );
+        self.queue.put(key.clone(), text.into_bytes());
+        (key, count)
     }
 
     /// Imports the to-dos of the iCalendar `text` into the default list, after its tasks, each
@@ -356,8 +372,19 @@ impl Tasks {
         now: NaiveDateTime,
         to_local: &dyn Fn(NaiveDateTime) -> NaiveDateTime,
     ) -> Vec<String> {
-        let _ = (text, now, to_local);
-        todo!()
+        let Some(list) = self.default_list() else {
+            return vec![String::from(
+                "There is no list to import the to-dos into: make a list first.",
+            )];
+        };
+        let mut ids = new_id;
+        let imported = crate::vtodo::read(text, &list, now, &mut ids, to_local);
+        for mut t in imported.tasks {
+            t.order = model::next_order(&self.tasks, &list);
+            self.tasks.push(t);
+            self.save_task(self.tasks.len() - 1);
+        }
+        imported.problems
     }
 
     // ==== Saving ====
@@ -933,7 +960,8 @@ mod tests {
             .filter(|t| t.id != "a")
             .map(|t| (t.title.as_str(), t.list.as_str(), t.order))
             .collect();
-        assert_eq!(added, [("One", "work", 5), ("Two", "work", 6)]);
+        let step = model::ORDER_STEP;
+        assert_eq!(added, [("One", "work", 4 + step), ("Two", "work", 4 + 2 * step)]);
         let batch = s.queue.take().expect("the new tasks are queued");
         assert_eq!(batch.len(), 2);
         // No list yet: nothing to import into.
