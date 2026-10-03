@@ -69,6 +69,7 @@ pub mod week;
 
 mod chrome;
 mod editor_ui;
+mod ids;
 mod timegrid;
 mod views_ui;
 mod writes;
@@ -501,7 +502,7 @@ pub(crate) fn text_field(
     text: &str,
     placeholder: &str,
     name: &str,
-    id: &str,
+    id: AzString,
     data: RefAny,
     cb: azul::callbacks::TextInputOnTextInputCallbackType,
 ) -> Dom {
@@ -526,7 +527,7 @@ pub(crate) fn drop_down(
     labels: Vec<String>,
     selected: usize,
     name: &str,
-    id: &str,
+    id: AzString,
     data: RefAny,
     cb: azul::callbacks::DropDownOnChoiceChangeCallbackType,
 ) -> Dom {
@@ -567,7 +568,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     };
     let s = &*guard;
     let root = Dom::create_div()
-        .with_id(MAIN_WINDOW_ID)
+        .with_id(ids::ROOT)
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0;")
         .with_callback(
             EventFilter::Component(ComponentEventFilter::AfterMount),

@@ -37,7 +37,7 @@ use chrono::{Datelike, Duration, NaiveDate};
 use crate::{
     args::BackstagePage,
     calendars::{self, Calendar, Colour},
-    editor_ui, event, ics, meet_rooms, meeting, settings, tasks, views,
+    editor_ui, event, ics, ids, meet_rooms, meeting, settings, tasks, views,
     views::ViewKind,
     views_ui, CalState, ERROR, LABEL, PAGE, SECONDARY,
 };
@@ -67,14 +67,14 @@ pub(crate) fn office_shell(s: &CalState, app: &RefAny, window_height: f32) -> Do
     let width = if s.nav_folded { NAV_FOLDED_PX } else { NAV_PX };
     shell = shell
         .with_pane(
-            ShellPane::create("shell-navigation", navigation_pane(s, app))
+            ShellPane::create(ids::NAVIGATION_PANE, navigation_pane(s, app))
                 .with_kind(ShellPaneKind::Navigation)
                 .with_label("Navigation pane")
                 .with_width(width),
         )
         .with_pane(
             ShellPane::create(
-                "shell-calendar",
+                ids::CALENDAR_PANE,
                 views_ui::calendar_pane(s, app, window_height),
             )
             .with_kind(ShellPaneKind::Main)
@@ -242,13 +242,13 @@ fn date_navigator(s: &CalState, app: &RefAny) -> Dom {
         .with_accessibility_name("Date navigator")
         .with_on_change(app.clone(), on_nav_date)
         .dom()
-        .with_id("date-navigator")
+        .with_id(ids::DATE_NAVIGATOR)
 }
 
 /// "My calendars": a row per calendar - its box (shown or not), its colour, its name.
 fn my_calendars(s: &CalState, app: &RefAny) -> Dom {
     let mut list = Dom::create_div()
-        .with_id("my-calendars")
+        .with_id(ids::MY_CALENDARS)
         .with_css("display: flex; flex-direction: column; margin-top: 12px;")
         .with_child(
             Dom::create_span_with_text("My calendars")
@@ -261,7 +261,7 @@ fn my_calendars(s: &CalState, app: &RefAny) -> Dom {
         });
         list.add_child(
             Dom::create_div()
-                .with_id(format!("calendar-{index}"))
+                .with_id(ids::calendar_row(index))
                 .with_css(
                     "display: flex; flex-direction: row; align-items: center; padding: 2px 0px;",
                 )
@@ -390,7 +390,7 @@ fn todo_bar(s: &CalState, app: &RefAny) -> Dom {
     .with_on_task(app.clone(), on_todo_event)
     .with_on_appointment(app.clone(), on_todo_event)
     .dom()
-    .with_id("todo-bar")
+    .with_id(ids::TODO_BAR)
 }
 
 // ==== Backstage ====
@@ -420,7 +420,7 @@ fn backstage(s: &CalState, app: &RefAny, page: BackstagePage) -> Dom {
         .with_active_item(page.index())
         .with_on_nav_select(app.clone(), on_backstage_nav)
         .with_on_back(app.clone(), on_backstage_back)
-        .with_content(content.with_id(format!("backstage-{}", page.name())))
+        .with_content(content.with_id(ids::backstage_page(page.name())))
         .dom()
 }
 
@@ -447,7 +447,7 @@ fn line(children: Vec<Dom>) -> Dom {
     row
 }
 
-fn button(label: &str, id: &str, app: &RefAny, cb: ButtonOnClickCallbackType) -> Dom {
+fn button(label: &str, id: AzString, app: &RefAny, cb: ButtonOnClickCallbackType) -> Dom {
     Button::create(label)
         .with_on_click(app.clone(), cb)
         .dom()
@@ -455,7 +455,7 @@ fn button(label: &str, id: &str, app: &RefAny, cb: ButtonOnClickCallbackType) ->
         .with_css("margin-right: 8px;")
 }
 
-fn primary(label: &str, id: &str, app: &RefAny, cb: ButtonOnClickCallbackType) -> Dom {
+fn primary(label: &str, id: AzString, app: &RefAny, cb: ButtonOnClickCallbackType) -> Dom {
     Button::with_type(label, ButtonType::Primary)
         .with_on_click(app.clone(), cb)
         .dom()
@@ -493,7 +493,7 @@ fn info_page(s: &CalState, app: &RefAny) -> Dom {
         .with_child(note(&sync_status(s)))
         .with_child(line(vec![button(
             "Sync meeting links now",
-            "info-sync",
+            ids::INFO_SYNC,
             app,
             crate::on_sync_now,
         )]))
@@ -522,11 +522,11 @@ fn open_page(s: &CalState, app: &RefAny) -> Dom {
                 &s.import_path,
                 "/path/to/calendar.ics",
                 "File to import",
-                "import-path",
+                ids::IMPORT_PATH,
                 app.clone(),
                 on_import_path,
             ),
-            button("Browse\u{2026}", "import-browse", app, on_import_browse),
+            button("Browse\u{2026}", ids::IMPORT_BROWSE, app, on_import_browse),
         ]))
         .with_child(line(vec![
             Dom::create_span_with_text("Into").with_css(format!("margin-right: 8px; {SECONDARY}")),
@@ -534,11 +534,11 @@ fn open_page(s: &CalState, app: &RefAny) -> Dom {
                 calendar_names(s, "A new calendar named after the file"),
                 s.import_calendar.min(s.calendars.len()),
                 "Import into",
-                "import-calendar",
+                ids::IMPORT_CALENDAR,
                 app.clone(),
                 on_import_calendar,
             ),
-            primary("Import", "import-run", app, on_import_run),
+            primary("Import", ids::IMPORT_RUN, app, on_import_run),
         ]))
         .with_child(heading("Export a calendar as an iCalendar file"))
         .with_child(line(vec![
@@ -547,7 +547,7 @@ fn open_page(s: &CalState, app: &RefAny) -> Dom {
                 &s.export_path,
                 "calendar.ics (in the exports folder)",
                 "File name to export to",
-                "export-path",
+                ids::EXPORT_PATH,
                 app.clone(),
                 on_export_path,
             ),
@@ -559,11 +559,11 @@ fn open_page(s: &CalState, app: &RefAny) -> Dom {
                 calendar_names(s, "All calendars"),
                 s.export_calendar.min(s.calendars.len()),
                 "Calendar to export",
-                "export-calendar",
+                ids::EXPORT_CALENDAR,
                 app.clone(),
                 on_export_calendar,
             ),
-            primary("Export", "export-run", app, on_export_run),
+            primary("Export", ids::EXPORT_RUN, app, on_export_run),
         ]));
     if !s.io_message.is_empty() {
         let css = if s.io_failed {
@@ -573,7 +573,7 @@ fn open_page(s: &CalState, app: &RefAny) -> Dom {
         };
         page.add_child(
             Dom::create_span_with_text(s.io_message.as_str())
-                .with_id("io-message")
+                .with_id(ids::IO_MESSAGE)
                 .with_css(css),
         );
     }
@@ -621,13 +621,13 @@ fn calendars_page(s: &CalState, app: &RefAny) -> Dom {
                         .with_accessibility_name(format!("Name of {}", c.name))
                         .with_on_virtual_key_down(target(), on_calendar_rename as TextInputOnVirtualKeyDownCallbackType)
                         .dom()
-                        .with_id(format!("calendar-name-{index}")),
+                        .with_id(ids::calendar_name(index)),
                 ),
             crate::drop_down(
                 colours.clone(),
                 Colour::ALL.iter().position(|x| *x == c.colour).unwrap_or(0),
                 &format!("Colour of {}", c.name),
-                &format!("calendar-colour-{index}"),
+                ids::calendar_colour(index),
                 target(),
                 on_calendar_colour,
             ),
@@ -637,7 +637,7 @@ fn calendars_page(s: &CalState, app: &RefAny) -> Dom {
                 Button::create("Remove")
                     .with_on_click(target(), on_calendar_remove)
                     .dom()
-                    .with_id(format!("calendar-remove-{index}")),
+                    .with_id(ids::calendar_remove(index)),
             );
         }
         page.add_child(line(row));
@@ -648,11 +648,11 @@ fn calendars_page(s: &CalState, app: &RefAny) -> Dom {
             &s.calendar_name,
             "Name",
             "New calendar's name",
-            "calendar-new",
+            ids::CALENDAR_NEW,
             app.clone(),
             on_new_calendar_name,
         ),
-        primary("Add", "calendar-add", app, on_calendar_add),
+        primary("Add", ids::CALENDAR_ADD, app, on_calendar_add),
     ]));
     if !s.calendar_error.is_empty() {
         page.add_child(Dom::create_span_with_text(s.calendar_error.as_str()).with_css(ERROR));
@@ -669,7 +669,7 @@ fn options_page(s: &CalState, app: &RefAny) -> Dom {
             &s.server_text,
             "https://meet.example.com",
             "Meeting server",
-            "settings-server",
+            ids::SETTINGS_SERVER,
             app.clone(),
             on_server_text,
         )]))
@@ -682,10 +682,10 @@ fn options_page(s: &CalState, app: &RefAny) -> Dom {
         server.add_child(Dom::create_span_with_text(s.server_error.as_str()).with_css(ERROR));
     }
     let server = server.with_child(line(vec![
-        button("Sync now", "settings-sync", app, crate::on_sync_now),
-        primary("Save", "settings-save", app, on_server_save),
+        button("Sync now", ids::SETTINGS_SYNC, app, crate::on_sync_now),
+        primary("Save", ids::SETTINGS_SAVE, app, on_server_save),
     ]));
-    let check = |checked: bool, label: &str, id: &str, cb: CheckBoxOnToggleCallbackType| {
+    let check = |checked: bool, label: &str, id: AzString, cb: CheckBoxOnToggleCallbackType| {
         line(vec![
             CheckBox::create(checked)
                 .with_accessibility_name(label)
@@ -699,21 +699,21 @@ fn options_page(s: &CalState, app: &RefAny) -> Dom {
         .with_css("display: flex; flex-direction: column;")
         .with_child(Dom::create_span_with_text("Theme and mode").with_css(LABEL))
         .with_child(line(vec![
-            button("Flat", "settings-flat", app, on_flat),
-            button("Flora", "settings-flora", app, on_flora),
-            button("Light", "settings-light", app, on_light),
-            button("Dark", "settings-dark", app, on_dark),
+            button("Flat", ids::SETTINGS_FLAT, app, on_flat),
+            button("Flora", ids::SETTINGS_FLORA, app, on_flora),
+            button("Light", ids::SETTINGS_LIGHT, app, on_light),
+            button("Dark", ids::SETTINGS_DARK, app, on_dark),
         ]))
         .with_child(check(
             s.todo_bar,
             "Show the To-Do bar",
-            "settings-todo",
+            ids::SETTINGS_TODO,
             on_todo_checked,
         ))
         .with_child(check(
             !s.nav_folded,
             "Show the navigation pane",
-            "settings-navigation",
+            ids::SETTINGS_NAVIGATION,
             on_navigation_checked,
         ));
     Dom::create_div()

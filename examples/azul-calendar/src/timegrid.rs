@@ -31,6 +31,7 @@ use crate::{
     editor::EditorForm,
     editor_ui,
     event::{self, Event, Meeting},
+    ids,
     root_dom, settings, views, views_ui, week, CalState, EventRef, CLIPPED_LINE, CLIPPED_TITLE,
     DAY_PAINT, DRAFT_PAINT, DRAFT_TITLE, ERROR, LINE, NOW_LINE, POPOVER, SECONDARY, SELECTED_RING,
     TODAY_PAINT, UNTITLED,
@@ -38,8 +39,6 @@ use crate::{
 
 /// Width of the hour labels left of the days.
 const GUTTER_PX: u32 = 56;
-/// The `id` of the hours' scroll area.
-pub(crate) const WEEK_SCROLL_ID: &str = "week-scroll";
 /// A press this soon after the popover closed by a click outside it is that click: it makes no
 /// new draft (on some systems the popover's own window reports the click first).
 const DISMISSING_PRESS: std::time::Duration = std::time::Duration::from_millis(250);
@@ -129,7 +128,7 @@ pub(crate) fn time_grid(s: &CalState, app: &RefAny) -> Dom {
         ))
         .with_child(Dom::create_div().with_css(gutter.as_str()));
     let mut all_day = Dom::create_div()
-        .with_id("all-day")
+        .with_id(ids::ALL_DAY)
         .with_css(format!(
             "display: flex; flex-direction: row; flex-shrink: 0; {DAY_PAINT} border-bottom: \
              1px solid {LINE};"
@@ -154,7 +153,7 @@ pub(crate) fn time_grid(s: &CalState, app: &RefAny) -> Dom {
         );
     }
     let mut grid = Dom::create_div()
-        .with_id("week-grid")
+        .with_id(ids::WEEK_GRID)
         .with_css(format!(
             "display: flex; flex-direction: row; flex-shrink: 0; height: {:.3}px;",
             week::day_height(hour)
@@ -183,7 +182,7 @@ pub(crate) fn time_grid(s: &CalState, app: &RefAny) -> Dom {
         grid.add_child(day_column(s, index, *date, today.then_some(now), app));
     }
     let scroll = Dom::create_div()
-        .with_id(WEEK_SCROLL_ID)
+        .with_id(ids::WEEK_SCROLL)
         .with_css(
             "flex-grow: 1; flex-basis: 0px; min-height: 0; overflow-y: auto; overflow-x: hidden;",
         )
@@ -220,7 +219,7 @@ fn day_header(date: NaiveDate, today: bool) -> Dom {
 /// A day's all-day events (`#all-day-<index>`): one bar each, in its calendar's colour.
 fn all_day_cell(s: &CalState, index: usize, date: NaiveDate, app: &RefAny) -> Dom {
     let mut cell = Dom::create_div()
-        .with_id(format!("all-day-{index}"))
+        .with_id(ids::all_day_column(index))
         .with_css(format!(
             "display: flex; flex-direction: column; flex-grow: 1; flex-basis: 0px; min-width: \
              0; min-height: 22px; padding: 2px; border-left: 1px solid {LINE}; box-sizing: \
@@ -264,7 +263,7 @@ fn day_column(s: &CalState, index: usize, date: NaiveDate, now: Option<u32>, app
         day: index,
     });
     let mut column = Dom::create_div()
-        .with_id(format!("day-{index}"))
+        .with_id(ids::day_column(index))
         .with_css(format!(
             "position: relative; flex-grow: 1; flex-basis: 0px; min-width: 0; height: \
              {:.3}px; border-left: 1px solid {LINE}; {paint}",
@@ -295,7 +294,7 @@ fn day_column(s: &CalState, index: usize, date: NaiveDate, now: Option<u32>, app
         column.add_child(event_block(s, list[p.index], date, &p, app));
     }
     if let Some(now) = now {
-        column.add_child(Dom::create_div().with_id("now-line").with_css(format!(
+        column.add_child(Dom::create_div().with_id(ids::NOW_LINE).with_css(format!(
             "position: absolute; left: 0px; width: 100%; top: {:.3}px; height: 2px; {NOW_LINE}",
             week::y_of_minute(now as f32, hour)
         )));
@@ -317,7 +316,7 @@ fn event_block(s: &CalState, e: &Event, date: NaiveDate, p: &week::Placement, ap
     let selected = views_ui::is_selected(s, &e.id, date);
     let time = week::time_range(e.start, e.end);
     let mut dom = Dom::create_div()
-        .with_id(views_ui::occurrence_dom_id(&e.id, date))
+        .with_id(ids::occurrence(&e.id, date))
         .with_css(format!(
             "position: absolute; top: {top:.3}px; left: {left:.3}%; width: {width:.3}%; \
              height: {height:.3}px; box-sizing: border-box; display: flex; flex-direction: \
@@ -414,7 +413,7 @@ fn draft_block(s: &CalState, draft: DraftShown, app: &RefAny) -> Dom {
         week::time_of_minute(draft.end),
     );
     let mut block = Dom::create_div()
-        .with_id("draft")
+        .with_id(ids::DRAFT)
         .with_css(format!(
             "position: absolute; top: {top:.3}px; left: 0px; width: 100%; height: \
              {height:.3}px; box-sizing: border-box; display: flex; flex-direction: column; \
@@ -467,7 +466,7 @@ fn popover(d: &Draft, app: &RefAny) -> Dom {
 /// link", and More options (`#draft-more`), Cancel (`#draft-cancel`) / Save (`#draft-save`).
 fn popover_panel(d: &Draft, app: &RefAny) -> Dom {
     let mut panel = Dom::create_div()
-        .with_id("draft-panel")
+        .with_id(ids::DRAFT_PANEL)
         .with_css(POPOVER)
         .with_child(
             TextInput::create()
@@ -476,11 +475,11 @@ fn popover_panel(d: &Draft, app: &RefAny) -> Dom {
                 .with_on_text_input(app.clone(), on_draft_title)
                 .with_on_virtual_key_down(app.clone(), on_draft_title_key)
                 .dom()
-                .with_id("draft-title"),
+                .with_id(ids::DRAFT_TITLE),
         )
         .with_child(
             Dom::create_span_with_text(week::draft_label(d.date, d.start, d.end))
-                .with_id("draft-when")
+                .with_id(ids::DRAFT_WHEN)
                 .with_css("font-size: 13px; color: system:secondary-text; margin-top: 10px;"),
         )
         .with_child(meet_toggle(d, app));
@@ -494,21 +493,21 @@ fn popover_panel(d: &Draft, app: &RefAny) -> Dom {
                 Button::create("More options")
                     .with_on_click(app.clone(), on_draft_more)
                     .dom()
-                    .with_id("draft-more")
+                    .with_id(ids::DRAFT_MORE)
                     .with_css("margin-right: auto;"),
             )
             .with_child(
                 Button::create("Cancel")
                     .with_on_click(app.clone(), on_draft_cancel)
                     .dom()
-                    .with_id("draft-cancel")
+                    .with_id(ids::DRAFT_CANCEL)
                     .with_css("margin-right: 8px;"),
             )
             .with_child(
                 Button::with_type("Save", ButtonType::Primary)
                     .with_on_click(app.clone(), on_draft_save)
                     .dom()
-                    .with_id("draft-save"),
+                    .with_id(ids::DRAFT_SAVE),
             ),
     )
 }
@@ -524,7 +523,7 @@ fn meet_toggle(d: &Draft, app: &RefAny) -> Dom {
                     .with_on_toggle(app.clone(), on_draft_meet_toggled)
                     .with_accessibility_name("Add AzMeet link")
                     .dom()
-                    .with_id("draft-meet"),
+                    .with_id(ids::DRAFT_MEET),
             )
             .with_child(
                 Dom::create_span_with_text("Add AzMeet link")
@@ -557,7 +556,7 @@ struct WeekScroll {
 }
 
 fn week_scroll(info: &CallbackInfo) -> Option<WeekScroll> {
-    let node = info.get_node_id_by_id_attribute(root_dom(), WEEK_SCROLL_ID);
+    let node = info.get_node_id_by_id_attribute(root_dom(), ids::WEEK_SCROLL);
     // 0 is "no node"; a node's raw id is its index + 1.
     let index = node.into_raw().checked_sub(1)?;
     let rect = info
