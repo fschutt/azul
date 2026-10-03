@@ -590,6 +590,14 @@ impl<T> MultiValue<T> {
         }
     }
 
+    /// Borrows the exact value if present
+    pub const fn as_exact(&self) -> Option<&T> {
+        match self {
+            Self::Exact(v) => Some(v),
+            _ => None,
+        }
+    }
+
     /// Gets the exact value or returns the provided default
     pub fn unwrap_or(self, default: T) -> T {
         match self {

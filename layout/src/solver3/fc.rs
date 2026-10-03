@@ -1360,9 +1360,16 @@ fn layout_bfc<T: ParsedFontTrait>(
             // where its content decides it (`cache::forwards_containing_block_height`,
             // CSS 2.2 10.5).
             let inner = node.box_props.inner_size(used_size, writing_mode);
-            let height_is_auto = tree
-                .warm(LayoutNodeId::new(node_index))
-                .is_none_or(|w| w.computed_style.height.is_none());
+            // A percentage height against this box's own indefinite containing
+            // block is `auto` as well (CSS 2.2 10.5): its used height is the
+            // placeholder too (AzMail's `height: 100%` paper, an inline-block).
+            let height_is_auto = tree.warm(LayoutNodeId::new(node_index)).is_none_or(|w| {
+                crate::solver3::sizing::height_is_auto_for_children(
+                    &node.formatting_context,
+                    w.computed_style.height.as_ref(),
+                    constraints.containing_block_size.height.is_finite(),
+                )
+            });
             if height_is_auto {
                 LogicalSize::new(inner.width, constraints.available_size.height)
             } else {
@@ -9133,26 +9140,20 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
         )?;
 
         // The CONTENT box's height, like the text branch's: the sum below
-        // adds the padding and border. The layout just done at the column
-        // width reports its content extent (wrapped at the column, not at the
-        // measurement width); `used_size` is the measurement's BORDER box,
-        // which carries an explicit `height`, so it counts only after its own
-        // padding and border come off. Reading `used_size` whole counted them
-        // twice: every block-level cell's row came out 2 x (padding + border)
-        // too tall, its content pushed down by `vertical-align: middle`.
-        let cell_node = tree
-            .get(LayoutNodeId::new(cell_index))
-            .ok_or(LayoutError::InvalidTree)?;
-        let laid_out = tree
-            .warm(LayoutNodeId::new(cell_index))
+        // adds the padding and border. It is the extent of the layout just
+        // done at the column width (wrapped at the column, CSS 2.2 17.5.3),
+        // and only that: `used_size` still holds the min/max-content
+        // MEASUREMENT's box (a cell's own layout never overwrites it), laid
+        // out at another width - a nested `width: 80%` table at its
+        // min-content, one word per line - and taking the larger of the two
+        // made Mailgun's invoice row 89px too tall, its content centred in it
+        // (MAILREF8 group C). The cell's own `height` is read below
+        // (`cell_specified_border_box_height`), which is what the measured
+        // term once stood in for.
+        tree.warm(LayoutNodeId::new(cell_index))
             .and_then(|w| w.overflow_content_size)
-            .map_or(0.0, |s| s.height);
-        let measured = cell_node.used_size.unwrap_or_default().height
-            - padding.main_start(writing_mode)
-            - padding.main_end(writing_mode)
-            - border.main_start(writing_mode)
-            - border.main_end(writing_mode);
-        laid_out.max(measured).max(0.0)
+            .map_or(0.0, |s| s.height)
+            .max(0.0)
     };
 
     // Add padding and border to get the total height
@@ -9244,6 +9245,85 @@ fn first_line_baseline(index: usize, tree: &LayoutTree, depth: usize) -> Option<
             .and_then(|w| w.relative_position)
             .map_or(0.0, |p| p.y);
         if let Some(baseline) = first_line_baseline(child, tree, depth + 1) {
+            return Some(content_top + child_top + baseline);
+        }
+    }
+    None
+}
+
+/// The baseline an inline-block takes from its content, measured from the
+/// top of the border box of `index` - CSS 2.2 10.8.1, "the baseline of its
+/// last line box in the normal flow" - searched the way Chrome searches it:
+/// - a box holding lines answers with its last line's baseline;
+/// - otherwise its in-flow children are asked from the LAST one up, each
+///   offset by where it sits; out-of-flow boxes (absolute, fixed, floats)
+///   have no line box in the normal flow;
+/// - a TABLE answers nothing (Blink's `LayoutTable::InlineBlockBaseline` is
+///   -1; LayoutNG skips tables for the inline-block baseline): the search
+///   goes on above it;
+/// - a child whose `overflow` is not `visible` answers with its bottom margin
+///   edge, not its own lines (10.8.1's overflow rule, applied by Blink to
+///   every block on the way down);
+/// - a flex or grid child answers with its FIRST baseline (LayoutNG: "some
+///   fragments use their first baseline"), `first_line_baseline`.
+///
+/// `None`: no line box at all - the caller's baseline is then the inline-
+/// block's bottom margin edge. Mail templates (Cerberus) open with a clipped
+/// preheader and go on in tables, so AzMail's inline-block paper sits on the
+/// preheader's bottom edge, one strut ascent below the line's top.
+fn inline_block_baseline(index: usize, tree: &LayoutTree, depth: usize) -> Option<f32> {
+    const MAX_DEPTH: usize = 64;
+    let node = tree.get(LayoutNodeId::new(index))?;
+    let bp = node.box_props.unpack();
+    let content_top = bp.padding.top + bp.border.top;
+    if let Some(cached_layout) = tree
+        .warm(LayoutNodeId::new(index))
+        .and_then(|w| w.inline_layout_result.as_ref())
+    {
+        // (d6h) Materialized: sentinel-safe.
+        return cached_layout
+            .materialized()
+            .last_line_baseline()
+            .map(|baseline| content_top + baseline);
+    }
+    if depth >= MAX_DEPTH {
+        return None;
+    }
+    for &child in tree.children(index).iter().rev() {
+        let Some(child_node) = tree.get(LayoutNodeId::new(child)) else {
+            continue;
+        };
+        let child_warm = tree.warm(LayoutNodeId::new(child));
+        let out_of_flow = child_warm.is_some_and(|w| {
+            matches!(
+                w.computed_style.position,
+                LayoutPosition::Absolute | LayoutPosition::Fixed
+            ) || w.computed_style.float != LayoutFloat::None
+        });
+        if out_of_flow || matches!(child_node.formatting_context, FormattingContext::Table) {
+            continue;
+        }
+        let child_top = child_warm
+            .and_then(|w| w.relative_position)
+            .map_or(0.0, |p| p.y);
+        let clips = child_warm.is_some_and(|w| {
+            w.computed_style.overflow_x != LayoutOverflow::Visible
+                || w.computed_style.overflow_y != LayoutOverflow::Visible
+        });
+        if clips {
+            let height = child_node.used_size.map_or(0.0, |s| s.height);
+            let margin_bottom = child_node.box_props.unpack().margin.bottom;
+            return Some(content_top + child_top + height + margin_bottom);
+        }
+        let baseline = if matches!(
+            child_node.formatting_context,
+            FormattingContext::Flex | FormattingContext::Grid
+        ) {
+            first_line_baseline(child, tree, depth + 1)
+        } else {
+            inline_block_baseline(child, tree, depth + 1)
+        };
+        if let Some(baseline) = baseline {
             return Some(content_top + child_top + baseline);
         }
     }
@@ -10459,9 +10539,21 @@ fn measure_atomic_inline<T: ParsedFontTrait>(
         let nd = &ctx.styled_dom.node_data.as_container()[dom_id];
         matches!(nd.get_node_type(), NodeType::Image(_)) || nd.is_virtual_view_node()
     };
+    // A percentage height against the IFC's indefinite block size computes to
+    // `auto` (CSS 2.2 10.5): as tall as the content, like an `auto` height -
+    // `tentative_size` holds only the sizing estimate for it (AzMail's
+    // `height: 100%` paper ended hundreds of px above the mail's end).
+    let percentage_is_auto = crate::solver3::sizing::percentage_height_computes_to_auto(
+        css_height.as_exact(),
+        atomic_inline_containing_block(constraints)
+            .height
+            .is_finite(),
+    );
+    let height_is_auto =
+        percentage_is_auto || matches!(css_height.clone().unwrap_or_default(), LayoutHeight::Auto);
     // Determine final border-box height
-    let final_height = match css_height.clone().unwrap_or_default() {
-        LayoutHeight::Auto if !is_replaced_atomic => atomic_inline_auto_height(
+    let final_height = match height_is_auto {
+        true if !is_replaced_atomic => atomic_inline_auto_height(
             tree.get(LayoutNodeId::new(child_index))
                 .map(|n| n.formatting_context),
             tree.get(LayoutNodeId::new(child_index))
@@ -10499,11 +10591,26 @@ fn measure_atomic_inline<T: ParsedFontTrait>(
         (overflow_x, overflow_y),
         (LayoutOverflow::Visible, LayoutOverflow::Visible)
     );
-    let baseline_from_top = layout_result.output.baseline;
+    // An inline-table's baseline is its first row's and an inline-flex /
+    // -grid box's its first item's (their own layouts report them); an
+    // inline-block's is its last line box (`inline_block_baseline`, from the
+    // border box's top - `layout_bfc` reports none, `layout_ifc` only the raw
+    // ascent of its last item).
+    let content_box_top = box_props.padding.top + box_props.border.top;
+    let baseline_from_top = match tree
+        .get(LayoutNodeId::new(child_index))
+        .map(|n| n.formatting_context)
+    {
+        Some(FormattingContext::Table | FormattingContext::Flex | FormattingContext::Grid) => {
+            layout_result.output.baseline
+        }
+        _ => inline_block_baseline(child_index, tree, 0)
+            .map(|from_border_box_top| from_border_box_top - content_box_top),
+    };
     let baseline_offset = atomic_inline_baseline_offset(
         baseline_from_top,
         final_height,
-        box_props.padding.top + box_props.border.top,
+        content_box_top,
         box_props.margin.bottom,
         overflow_is_visible,
     );

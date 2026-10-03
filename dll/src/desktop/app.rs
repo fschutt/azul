@@ -709,6 +709,11 @@ impl AppInternal {
             // this point today; the first-layout `request_fonts` warmup in
             // shell2/common/layout.rs already front-loads the detected fonts).
             let registry = FcFontRegistry::new();
+            // The generic families as Chrome resolves them (macOS
+            // `sans-serif` = Helvetica; user ruling 2026-10-03). Chain
+            // resolution goes through the registry's own cache, and every
+            // snapshot of it (`shared_cache`) shares this config.
+            azul_layout::font::loading::use_browser_generic_families(&registry.cache);
 
             // Try to load on-disk font cache (~10-20ms if cache exists, 0ms otherwise)
             let had_cache = registry.load_from_disk_cache();
