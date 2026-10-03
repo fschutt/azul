@@ -41,7 +41,6 @@ use azul::{
     callbacks::WriteBackCallbackType,
     prelude::*,
     shells::{RecordsShell, ShellThemeAccent, ShellThemeScope},
-    str::String as AzString,
     task::{Thread, ThreadId, ThreadReceiveMsg, ThreadReceiver, ThreadSender, ThreadWriteBackMsg},
 };
 use azul_appkit::{
@@ -194,6 +193,7 @@ extern "C" fn on_generated(mut app: RefAny, mut msg: RefAny, _info: CallbackInfo
     s.source = Some(RefAny::new(set));
     s.table.reset(rows);
     println!("AZDASH_READY {rows}");
+    println!("AZDASH_SHOWN {rows} {rows}");
     Update::RefreshDom
 }
 
