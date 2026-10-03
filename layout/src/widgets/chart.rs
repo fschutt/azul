@@ -222,7 +222,7 @@ impl ChartKind {
 
     /// The chart's name, for the text summary ("line chart").
     #[must_use]
-    pub const fn noun(self) -> &'static str {
+    pub(crate) const fn noun(self) -> &'static str {
         match self {
             Self::Line => "line chart",
             Self::Area => "area chart",
@@ -747,7 +747,7 @@ const TICK_EPS: f64 = 1e-9;
 /// The ticks of an axis: from `min` to `max` (both ticks) every `step`,
 /// the step 1, 2 or 5 times a power of ten.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct NiceTicks {
+pub(crate) struct NiceTicks {
     /// The axis' lower end: the first tick.
     pub min: f64,
     /// The axis' upper end: the last tick.
@@ -778,7 +778,7 @@ impl NiceTicks {
 /// The smallest "nice" step not below `raw`: 1, 2 or 5 times a power of
 /// ten. A step that is not a positive finite number is 1.
 #[must_use]
-pub fn nice_step(raw: f64) -> f64 {
+pub(crate) fn nice_step(raw: f64) -> f64 {
     if !raw.is_finite() || raw <= 0.0 {
         return 1.0;
     }
@@ -802,7 +802,7 @@ pub fn nice_step(raw: f64) -> f64 {
 /// (`lo == hi`) is widened around its value; the ends may come in either
 /// order; a non-finite end reads as 0.
 #[must_use]
-pub fn nice_ticks(lo: f64, hi: f64, target: usize) -> NiceTicks {
+pub(crate) fn nice_ticks(lo: f64, hi: f64, target: usize) -> NiceTicks {
     let finite = |v: f64| if v.is_finite() { v } else { 0.0 };
     let (mut lo, mut hi) = (finite(lo), finite(hi));
     if lo > hi {
@@ -829,7 +829,7 @@ pub fn nice_ticks(lo: f64, hi: f64, target: usize) -> NiceTicks {
 /// plot's size in px. A category axis (`bands > 0`) puts category `i` at the
 /// centre of the `i`-th of `bands` equal bands.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct PlotFrame {
+pub(crate) struct PlotFrame {
     /// The x domain's left end (a number axis).
     pub x_min: f64,
     /// The x domain's right end (a number axis).
@@ -942,7 +942,7 @@ impl ColumnRun {
 /// column. A line short enough to draw whole comes back whole. Points with
 /// a non-finite coordinate are left out.
 #[must_use]
-pub fn decimate_line(points: &[ChartPoint], frame: &PlotFrame) -> Vec<usize> {
+pub(crate) fn decimate_line(points: &[ChartPoint], frame: &PlotFrame) -> Vec<usize> {
     let finite = |p: &ChartPoint| p.x.is_finite() && p.y.is_finite();
     let columns = frame.width.max(1.0).ceil() as usize;
     if points.len() <= columns * 4 {
@@ -989,7 +989,7 @@ pub fn decimate_line(points: &[ChartPoint], frame: &PlotFrame) -> Vec<usize> {
 /// `cell` x `cell` px cell it occupies, in drawing order. Dots outside the
 /// plot or with a non-finite coordinate are left out.
 #[must_use]
-pub fn thin_scatter(points: &[ChartPoint], frame: &PlotFrame, cell: f32) -> Vec<usize> {
+pub(crate) fn thin_scatter(points: &[ChartPoint], frame: &PlotFrame, cell: f32) -> Vec<usize> {
     let cell = if cell.is_finite() && cell > 0.0 {
         cell
     } else {
@@ -1020,14 +1020,14 @@ pub fn thin_scatter(points: &[ChartPoint], frame: &PlotFrame, cell: f32) -> Vec<
 
 /// Whether the points' x never decreases (a line over time).
 #[must_use]
-pub fn is_sorted_by_x(points: &[ChartPoint]) -> bool {
+pub(crate) fn is_sorted_by_x(points: &[ChartPoint]) -> bool {
     points.windows(2).all(|w| w[0].x <= w[1].x)
 }
 
 /// The point whose x is nearest to `x` in points sorted by x (binary
 /// search); ties go to the earlier point.
 #[must_use]
-pub fn nearest_by_x(points: &[ChartPoint], x: f64) -> Option<usize> {
+pub(crate) fn nearest_by_x(points: &[ChartPoint], x: f64) -> Option<usize> {
     if points.is_empty() {
         return None;
     }
@@ -1050,7 +1050,7 @@ pub fn nearest_by_x(points: &[ChartPoint], x: f64) -> Option<usize> {
 /// billions) with `suffix` ("", "K", "M", "B") and `decimals` places - one
 /// format for every tick of an axis, so they line up.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct TickFormat {
+pub(crate) struct TickFormat {
     /// What one written unit is worth.
     pub unit: f64,
     /// The unit's suffix.
@@ -1134,7 +1134,7 @@ fn group_thousands(text: &str) -> String {
 /// thousands separators, others with two places (four significant digits
 /// under 1), trailing zeros dropped.
 #[must_use]
-pub fn format_value(v: f64) -> String {
+pub(crate) fn format_value(v: f64) -> String {
     if !v.is_finite() {
         return String::from("-");
     }
@@ -3534,7 +3534,7 @@ fn show(st: &ChartState, info: &mut CallbackInfo, overlay: DomNodeId) {
 }
 
 /// The pointer moved over the plot: show the point under it.
-pub extern "C" fn on_chart_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub(crate) extern "C" fn on_chart_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut st) = data.downcast_mut::<ChartState>() else {
         return Update::DoNothing;
     };
@@ -3554,7 +3554,7 @@ pub extern "C" fn on_chart_pointer_move(mut data: RefAny, mut info: CallbackInfo
 /// The pointer left the plot: hide the point - unless it only left one of
 /// the overlay's own parts (every leave bubbles here; the cursor decides,
 /// as the slider's leave does).
-pub extern "C" fn on_chart_pointer_leave(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub(crate) extern "C" fn on_chart_pointer_leave(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let inside = match (
         info.get_cursor_relative_to_node().into_option(),
         info.get_hit_node_rect(),
@@ -3578,7 +3578,7 @@ pub extern "C" fn on_chart_pointer_leave(mut data: RefAny, mut info: CallbackInf
 }
 
 /// The plot lost the keyboard: hide the point.
-pub extern "C" fn on_chart_blur(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub(crate) extern "C" fn on_chart_blur(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut st) = data.downcast_mut::<ChartState>() else {
         return Update::DoNothing;
     };
@@ -3593,7 +3593,7 @@ pub extern "C" fn on_chart_blur(mut data: RefAny, mut info: CallbackInfo) -> Upd
 
 /// A key on the focused plot ([`ChartState::step`]); the keys the chart
 /// takes do not also scroll the page.
-pub extern "C" fn on_chart_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub(crate) extern "C" fn on_chart_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(key) = info
         .get_current_keyboard_state()
         .current_virtual_keycode
@@ -3619,7 +3619,7 @@ pub extern "C" fn on_chart_key(mut data: RefAny, mut info: CallbackInfo) -> Upda
 /// An activation of the plot - a click, Enter / Space, an assistive
 /// technology's default action: report the shown point (or the one under
 /// the pointer) to the app's `on_select`.
-pub extern "C" fn on_chart_click(mut data: RefAny, info: CallbackInfo) -> Update {
+pub(crate) extern "C" fn on_chart_click(mut data: RefAny, info: CallbackInfo) -> Update {
     let (hook, selection) = {
         let Some(st) = data.downcast_ref::<ChartState>() else {
             return Update::DoNothing;
