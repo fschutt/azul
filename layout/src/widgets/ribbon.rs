@@ -2708,6 +2708,11 @@ pub struct RibbonButton {
     /// reason as its description, and shows the reason as a tooltip on hover
     /// and on click (Office's greyed commands and their tooltips).
     pub disabled_reason: AzString,
+    /// The name of an icon-only button (empty `label`): what a screen reader
+    /// says ("Bold"). Office's Font and Alignment groups are rows of such
+    /// buttons; without a name each was announced as "button". Empty = the
+    /// label names the button.
+    pub alt: AzString,
 }
 
 /// Drop-down decoration of a [`RibbonButton`].
@@ -3066,7 +3071,21 @@ impl RibbonButton {
             toggled: false,
             on_click: OptionButtonOnClick::None,
             disabled_reason: AzString::from_const_str(""),
+            alt: AzString::from_const_str(""),
         }
+    }
+
+    /// Names an icon-only button for assistive technology (see
+    /// [`Self::alt`]).
+    pub fn set_alt(&mut self, alt: AzString) {
+        self.alt = alt;
+    }
+
+    /// Builder method: [`Self::set_alt`].
+    #[must_use]
+    pub fn with_alt(mut self, alt: AzString) -> Self {
+        self.set_alt(alt);
+        self
     }
 
     /// Disables the button: `reason` says why the command cannot run now
@@ -5175,6 +5194,16 @@ mod tests {
             inline_props(&ch[2]),
             style_props(&s.resolved_arrow_icon_style())
         );
+    }
+
+    /// AzSheets' Font and Alignment groups become rows of icon-only buttons
+    /// (Excel's); each must still say what it is.
+    #[test]
+    fn an_icon_only_button_is_named_by_its_alt() {
+        let rb = small_btn("format_bold", "").with_alt(AzString::from_const_str("Bold"));
+        let node = render_item(RibbonItem::SmallButton(rb));
+        let info = node.root.get_accessibility_info().expect("a button role");
+        assert_eq!(info.accessibility_name.as_ref().map(|n| n.as_str()), Some("Bold"));
     }
 
     #[test]
