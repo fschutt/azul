@@ -47,6 +47,7 @@ tested: AzTasks              # dll_tests (quick-add parser, repeat rules, smart 
 tested: azul-pim             # dll_tests (dates, RRULE, repeats, content lines, addresses, search, initials, the task store)
 tested: AzDashboard          # dll_tests (the generated orders, their texts and values, edit validation, the table glue)
 tested: AzMusic              # dll_tests (the library, the play queue, playlists, the sample tones, the folder scan, the songs table)
+tested: AzPlayer             # dll_tests (the history and resume positions, the picture / sound sync rule, the controls' auto-hide)
 
 # ── members with genuinely no tests. The script verifies the claim by grepping
 #    for #[test]; if any of these grows one, it fails until it is moved up and
