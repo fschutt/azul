@@ -12197,14 +12197,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
     // +spec:text-alignment-spacing:d497af - line box inline base direction affects text-align
     // resolution +spec:text-alignment-spacing:68332e - bidi direction determines start/end to
     // left/right mapping
-    let physical_align = match (text_align, base_direction) {
-        (TextAlign::Start, BidiDirection::Ltr) => TextAlign::Left,
-        (TextAlign::Start, BidiDirection::Rtl) => TextAlign::Right,
-        (TextAlign::End, BidiDirection::Ltr) => TextAlign::Right,
-        (TextAlign::End, BidiDirection::Rtl) => TextAlign::Left,
-        // Physical alignments are returned as-is, regardless of direction.
-        (other, _) => other,
-    };
+    let physical_align = physical_text_align(text_align, base_direction);
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
             "[Pos1Line] Physical align: {physical_align:?}"
@@ -12429,20 +12422,20 @@ pub fn position_one_line<T: ParsedFontTrait>(
         let alignment_offset = if is_indefinite_width {
             0.0 // No alignment offset for indefinite width
         } else {
-            match physical_align {
-                TextAlign::Center => remaining_space / 2.0,
-                TextAlign::Right => remaining_space,
+            let align = match physical_align {
+                // CSS Text §6.4.3: If text cannot be stretched to full width
+                // and text-align-last is justify, align as center.
                 TextAlign::Justify | TextAlign::JustifyAll
                     if remaining_space > 0.0
                         && extra_word_spacing == 0.0
                         && extra_char_spacing == 0.0 =>
                 {
-                    // CSS Text §6.4.3: If text cannot be stretched to full width
-                    // and text-align-last is justify, align as center.
-                    remaining_space / 2.0
+                    TextAlign::Center
                 }
-                _ => 0.0, // Left, Justify (when justification succeeded)
-            }
+                other => other,
+            };
+            // An overflowing line is start-aligned (CSS Text 3 7.1).
+            line_alignment_offset(align, remaining_space, base_direction)
         };
 
         let mut main_axis_pen = segment.start_x + alignment_offset;
@@ -12743,42 +12736,59 @@ pub fn position_one_line<T: ParsedFontTrait>(
     (positioned, line_box_height)
 }
 
-/// Calculates the starting pen offset to achieve the desired text alignment.
-fn calculate_alignment_offset(
-    items: &[ShapedItem],
-    line_constraints: &LineConstraints,
-    align: TextAlign,
-    is_vertical: bool,
-    constraints: &UnifiedConstraints,
-) -> f32 {
-    // Simplified to use the first segment for alignment.
-    if let Some(segment) = line_constraints.segments.first() {
-        // Include letter/word-spacing so center/right alignment matches the width the
-        // text is actually positioned at (position_one_line adds the spacing).
-        let total_width: f32 = items
-            .iter()
-            .map(|item| get_item_measure_with_spacing(item, is_vertical))
-            .sum();
-
-        let available_width = if constraints.segment_alignment == SegmentAlignment::Total {
-            line_constraints.total_available
-        } else {
-            segment.width
-        };
-
-        if total_width >= available_width {
-            return 0.0; // No alignment needed if line is full or overflows
+/// `text-align: start` / `end` as the physical side of a line whose inline
+/// base direction is `base_direction` (start = left in a left-to-right line,
+/// right in a right-to-left one); physical alignments are returned as they
+/// are. The one mapping of both line positioners.
+pub(crate) const fn physical_text_align(
+    text_align: TextAlign,
+    base_direction: BidiDirection,
+) -> TextAlign {
+    match (text_align, base_direction) {
+        (TextAlign::Start, BidiDirection::Ltr) | (TextAlign::End, BidiDirection::Rtl) => {
+            TextAlign::Left
         }
+        (TextAlign::Start, BidiDirection::Rtl) | (TextAlign::End, BidiDirection::Ltr) => {
+            TextAlign::Right
+        }
+        (other, _) => other,
+    }
+}
 
-        let remaining_space = available_width - total_width;
-
-        match align {
-            TextAlign::Center => remaining_space / 2.0,
-            TextAlign::Right => remaining_space,
-            _ => 0.0, // Left, Justify, Start, End
+/// Where a line's content starts in its line box: the offset from the box's
+/// left edge for the PHYSICAL alignment `physical_align` (start / end already
+/// resolved against `base_direction`), with `remaining_space` = the box's
+/// width - the content's.
+///
+/// CSS Text 3 section 7.1: "If ... the inline contents of a line box are too
+/// long to fit within it, then the contents are start-aligned: any content
+/// that doesn't fit overflows the line box's end edge" - whatever
+/// `text-align` says, as in Chrome ("wide lines spill out of the block based
+/// off direction"). In a left-to-right line that is offset 0 (overflow on the
+/// right); in a right-to-left one the content's right edge stays on the box's
+/// (offset = the negative `remaining_space`, overflow on the left). Applying a
+/// right / center alignment to the negative space cut off the line's START
+/// (AzCalculator's long results).
+///
+/// The ONE alignment rule of both line positioners: `position_one_line` and
+/// the Knuth-Plass path (`knuth_plass::position_lines_from_breaks`).
+pub(crate) fn line_alignment_offset(
+    physical_align: TextAlign,
+    remaining_space: f32,
+    base_direction: BidiDirection,
+) -> f32 {
+    let align = if remaining_space < 0.0 {
+        match base_direction {
+            BidiDirection::Ltr => TextAlign::Left,
+            BidiDirection::Rtl => TextAlign::Right,
         }
     } else {
-        0.0
+        physical_align
+    };
+    match align {
+        TextAlign::Center => remaining_space / 2.0,
+        TextAlign::Right => remaining_space,
+        _ => 0.0, // Left, and Justify (a justified line fills its box)
     }
 }
 

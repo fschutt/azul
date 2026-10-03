@@ -688,25 +688,17 @@ fn position_lines_from_breaks(
         };
 
         // +spec:writing-modes:155a06 - resolve start/end edges of line box per bidi direction
-        let physical_align = match (effective_align, base_direction) {
-            (TextAlign::Start, BidiDirection::Ltr) => TextAlign::Left,
-            (TextAlign::Start, BidiDirection::Rtl) => TextAlign::Right,
-            (TextAlign::End, BidiDirection::Ltr) => TextAlign::Right,
-            (TextAlign::End, BidiDirection::Rtl) => TextAlign::Left,
-            (other, _) => other,
-        };
+        let physical_align =
+            crate::text3::cache::physical_text_align(effective_align, base_direction);
 
         // +spec:display-contents:5a1b30 - overflowing lines are start-aligned (overflow off end
-        // edge)
-        let mut main_axis_pen = if remaining_space < 0.0 {
-            0.0
-        } else {
-            match physical_align {
-                TextAlign::Center => remaining_space / 2.0,
-                TextAlign::Right => remaining_space,
-                _ => 0.0,
-            }
-        };
+        // edge): the one rule of both line positioners (it was offset 0 here
+        // in a right-to-left line too, where the start edge is the right one).
+        let mut main_axis_pen = crate::text3::cache::line_alignment_offset(
+            physical_align,
+            remaining_space,
+            base_direction,
+        );
 
         // +spec:display-contents:21b27a - text-indent applies to initial letter's originating line
         // as usual +spec:line-breaking:bc389d - text-indent with each-line/hanging keywords
