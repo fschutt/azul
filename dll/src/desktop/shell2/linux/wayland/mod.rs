@@ -247,6 +247,7 @@ mod events;
 mod gl;
 pub mod menu;
 pub(crate) mod screencopy;
+mod shm;
 mod tooltip;
 
 use std::{
