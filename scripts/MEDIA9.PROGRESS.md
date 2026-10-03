@@ -17,8 +17,29 @@ Report: scripts/MEDIA9_2026_10_03.md (date = the day it finishes).
   against real symphonia (built in /tmp by /tmp/media9_tools/build_symphonia.sh) + stand-in azul
   crates (/tmp/media9_tc/stubs): 5/5 tests pass. Harness: bash /tmp/media9_tools/test_decode.sh
 
+- A4 c6c94e29a RED player.rs: AudioPlayerState, PcmSource / PcmOutput seams (FileSource and
+  AudioSink implement them), PlayerCore stubs + 8 tests (player_tests, FakeOutput, Ramp).
+
 ## IN PROGRESS
-- A4 player.rs (AudioPlayer handle + PlayerCore::pump): RED next.
+- A4 GREEN: implement PlayerCore in dll/src/desktop/extra/audio/player.rs (fields: current
+  Option<(id, Box<dyn PcmSource>)>, queue VecDeque, resampler Option<(u32 rate, LinearResampler)>,
+  chunker Rechunker, held Option<Vec<f32>>, clock TrackClock, levels LevelHistory, volume, gain,
+  paused, written, lead, out_rate/out_channels, durations Vec<(u64,f64)>). pump: while
+  out.queued_frames() < lead (cap lead frames per call): held or next_chunk -> try_play -> on
+  success levels.push(written, chunk_peaks), written += frames; next_chunk: chunker.pop, else
+  current.next_samples -> remix to out channels -> resample to out rate -> chunker.push; at a
+  source's end the next queued one begins its TrackClock segment at written + pending (gapless),
+  else flush. load/seek/skip/stop: out.clear(), written = played + queued, clock.clear + begin.
+  state: clock.at(played), levels.at(played, written), finished = nothing left && played >= written.
+  Test it standalone like decode: a harness in /tmp/media9_tc/stubs that #[path]s playback.rs +
+  player.rs (stand-in super::decode::FileSource / super::AudioSink, or cfg them out).
+- then the AudioPlayer handle (same file): ptr + run_destructor, a thread owning PlayerCore +
+  AudioSink (opened at the first source's rate x 2 channels, 48 kHz fallback with resampling),
+  commands through Arc<(Mutex<Shared>, Condvar)>; create, load_file(path)->u64,
+  load_bytes(bytes, ext)->u64, queue_file, queue_bytes, clear_queue, play, pause, toggle, stop,
+  seek(position_s), skip, set_volume, get_state, error_message, close. Sink opener injectable
+  (tests use AudioSink::open_as(config, MockDevice::Synthetic)). wasm stubs in unified/audio.rs
+  for AudioFileDecoder + AudioPlayer.
 
 ## NEXT (in order)
 - A1 playback.rs pure pieces: Rechunker, LinearResampler, remix (channels), apply_gain,
