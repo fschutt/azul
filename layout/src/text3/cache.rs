@@ -191,6 +191,20 @@ impl Hash for LineHeight {
     }
 }
 
+/// `(above, below)` the baseline of a box of `ascent` and `descent` (px) in a
+/// line `line_height` px tall: CSS 2.2 §10.8.1's leading `L = line-height -
+/// (A + D)` shared between the two sides, the share ABOVE floored to a whole
+/// pixel and the rest below, as LayoutNG does (`InlineBoxState::
+/// CalculateLeadingSpace`). The two always add up to `line_height`; with
+/// whole-pixel metrics a glyph's box and the strut of the same face split
+/// alike, so one line's boxes coincide.
+#[must_use]
+pub fn split_leading(line_height: f32, ascent: f32, descent: f32) -> (f32, f32) {
+    let leading = line_height - (ascent + descent);
+    let above = (leading / 2.0).floor();
+    (ascent + above, descent + (leading - above))
+}
+
 // Stub type when hyphenation is disabled
 #[cfg(not(feature = "text_layout_hyphenation"))]
 pub struct Standard;
@@ -2877,6 +2891,17 @@ impl LayoutFontMetrics {
             ascent += round((ascent + descent) * 0.15);
         }
         Some((ascent, descent, line_gap))
+    }
+
+    /// `(above, below)` the baseline of a glyph of this face in a line of
+    /// `line_height`: the rounded ascent and descent
+    /// ([`Self::line_metrics_px`]) with the leading shared out by
+    /// [`split_leading`]. `None` for a face without units.
+    #[must_use]
+    pub fn inline_box_px(&self, font_size_px: f32, line_height: &LineHeight) -> Option<(f32, f32)> {
+        let (ascent, descent, _) = self.line_metrics_px(font_size_px)?;
+        let line_height = line_height.resolve_with_metrics(font_size_px, self);
+        Some(split_leading(line_height, ascent, descent))
     }
 
     // +spec:font-metrics:006bd8 - baseline position from font design coordinates, scaled with font
@@ -10693,23 +10718,15 @@ pub fn get_item_vertical_metrics_approx(item: &ShapedItem) -> (f32, f32) {
                 c.glyphs
                     .iter()
                     .fold((0.0f32, 0.0f32), |(max_asc, max_desc), glyph| {
-                        let metrics = &glyph.font_metrics;
-                        if metrics.units_per_em == 0 {
-                            return (max_asc, max_desc);
+                        match glyph
+                            .font_metrics
+                            .inline_box_px(c.style.font_size_px, &c.style.line_height)
+                        {
+                            Some((item_asc, item_desc)) => {
+                                (max_asc.max(item_asc), max_desc.max(item_desc))
+                            }
+                            None => (max_asc, max_desc),
                         }
-                        let scale = c.style.font_size_px / f32::from(metrics.units_per_em);
-                        let font_ascent = metrics.ascent * scale;
-                        let font_descent = (-metrics.descent * scale).max(0.0);
-                        let ad = font_ascent + font_descent;
-                        let resolved_lh = c
-                            .style
-                            .line_height
-                            .resolve_with_metrics(c.style.font_size_px, &glyph.font_metrics);
-                        let half_leading = (resolved_lh - ad) / 2.0;
-                        (
-                            max_asc.max(font_ascent + half_leading),
-                            max_desc.max(font_descent + half_leading),
-                        )
                     });
             return (asc, desc);
         }
@@ -10764,16 +10781,18 @@ pub fn get_item_vertical_metrics(
                 // zero-width inline box with element's font/line-height
                 // §10.8.1 strut: if inline box contains no glyphs, it is considered to
                 // contain a strut with A and D of the element's first available font.
-                // Half-leading: L = line-height - (A + D), A' = A + L/2, D' = D + L/2
-                let ad = constraints.strut_ascent + constraints.strut_descent;
-                let resolved_lh =
-                    c.style
-                        .line_height
-                        .resolve(c.style.font_size_px, 0.0, 0.0, 0.0, 0);
-                let half_leading = (resolved_lh - ad) / 2.0;
-                return (
-                    constraints.strut_ascent + half_leading,
-                    constraints.strut_descent + half_leading,
+                // Half-leading: L = line-height - (A + D), shared by `split_leading`.
+                // `normal` is the strut's own (A + D + gap of the container's
+                // first available font, `UnifiedConstraints::resolved_line_height`),
+                // not a 1.2em guess.
+                let resolved_lh = match c.style.line_height {
+                    LineHeight::Px(px) => px,
+                    LineHeight::Normal => constraints.resolved_line_height(),
+                };
+                return split_leading(
+                    resolved_lh,
+                    constraints.strut_ascent,
+                    constraints.strut_descent,
                 );
             }
             // +spec:box-model:0b3e1f - inline non-replaced box height uses only line-height, not
@@ -10791,28 +10810,20 @@ pub fn get_item_vertical_metrics(
             // Note: L may be negative.
             // +spec:height-calculation:eb98b5 - multi-font normal line-height uses max across glyph
             // metrics
+            // A and D are the face's ROUNDED pixel metrics, as in Chrome
+            // (`LayoutFontMetrics::inline_box_px` / `line_metrics_px`).
             c.glyphs
                 .iter()
                 .fold((0.0f32, 0.0f32), |(max_asc, max_desc), glyph| {
-                    let metrics = &glyph.font_metrics;
-                    if metrics.units_per_em == 0 {
-                        return (max_asc, max_desc);
+                    match glyph
+                        .font_metrics
+                        .inline_box_px(c.style.font_size_px, &c.style.line_height)
+                    {
+                        Some((item_asc, item_desc)) => {
+                            (max_asc.max(item_asc), max_desc.max(item_desc))
+                        }
+                        None => (max_asc, max_desc),
                     }
-                    let scale = c.style.font_size_px / f32::from(metrics.units_per_em);
-                    let a = metrics.ascent * scale;
-                    // Descent in OpenType is typically negative, so we negate it to get a positive
-                    // distance.
-                    let d = (-metrics.descent * scale).max(0.0);
-                    let ad = a + d;
-                    let resolved_lh = c
-                        .style
-                        .line_height
-                        .resolve_with_metrics(c.style.font_size_px, &glyph.font_metrics);
-                    let leading = resolved_lh - ad;
-                    let half_leading = leading / 2.0;
-                    let item_asc = a + half_leading;
-                    let item_desc = d + half_leading;
-                    (max_asc.max(item_asc), max_desc.max(item_desc))
                 })
         }
         ShapedItem::Object {
@@ -12226,10 +12237,13 @@ pub fn position_one_line<T: ParsedFontTrait>(
     // available font. Half-leading L/2 is applied: L = line-height - (A + D), strut_above = A +
     // L/2, strut_below = D + L/2. +spec:height-calculation:8e91b2 - specified line-height used
     // in line box height calculation
-    let strut_ad = constraints.strut_ascent + constraints.strut_descent;
-    let strut_leading_half = (constraints.resolved_line_height() - strut_ad) / 2.0;
-    let strut_above = constraints.strut_ascent + strut_leading_half;
-    let strut_below = constraints.strut_descent + strut_leading_half;
+    // The leading is shared exactly as a glyph's (`split_leading`), so the
+    // strut and the text of the same face coincide.
+    let (strut_above, strut_below) = split_leading(
+        constraints.resolved_line_height(),
+        constraints.strut_ascent,
+        constraints.strut_descent,
+    );
     let line_ascent = content_ascent.max(strut_above);
     let line_descent = content_descent.max(strut_below);
     let line_box_height = line_ascent + line_descent;
