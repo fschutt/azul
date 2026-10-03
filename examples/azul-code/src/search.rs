@@ -34,33 +34,69 @@ impl Found {
 /// [`MAX_FOUND`]; a needle with a line break matches nothing).
 #[must_use]
 pub fn find_all(buffer: &TextBuffer, needle: &str, how: TextMatch) -> Vec<Found> {
-    todo!("GREEN: find_all {} {needle} {how:?}", buffer.len())
+    let mut out = Vec::new();
+    if needle.is_empty() || needle.contains('\n') {
+        return out;
+    }
+    for line in 0..buffer.line_count() {
+        let text = buffer.line(line);
+        for (start, end) in matches(&text, needle, how) {
+            out.push(Found { line, start, end });
+            if out.len() >= MAX_FOUND {
+                return out;
+            }
+        }
+    }
+    out
 }
 
 /// The first match at or after `at`, round past the end.
 #[must_use]
 pub fn next_after(found: &[Found], at: Pos) -> Option<usize> {
-    todo!("GREEN: next_after {} {at:?}", found.len())
+    if found.is_empty() {
+        return None;
+    }
+    let i = found.partition_point(|f| f.start_pos() < at);
+    Some(if i < found.len() { i } else { 0 })
 }
 
 /// The last match before `at`, round past the start.
 #[must_use]
 pub fn previous_before(found: &[Found], at: Pos) -> Option<usize> {
-    todo!("GREEN: previous_before {} {at:?}", found.len())
+    if found.is_empty() {
+        return None;
+    }
+    let i = found.partition_point(|f| f.start_pos() < at);
+    Some(if i > 0 { i - 1 } else { found.len() - 1 })
 }
 
 /// The edits replacing every match with `replacement`, last in the text
 /// first (what `TextBuffer::apply` takes as one undo step).
 #[must_use]
 pub fn replace_all(buffer: &TextBuffer, needle: &str, replacement: &str, how: TextMatch) -> Vec<Edit> {
-    todo!("GREEN: replace_all {} {needle} {replacement} {how:?}", buffer.len())
+    find_all(buffer, needle, how)
+        .into_iter()
+        .rev()
+        .map(|f| Edit::new(f.start_pos(), f.end_pos(), replacement))
+        .collect()
 }
 
 /// "120" (line 120) or "120:5" (line 120, column 5) as a position in a text
 /// of `line_count` lines (1-based input, past the end: the last line).
 #[must_use]
 pub fn go_to_line(input: &str, line_count: usize) -> Option<Pos> {
-    todo!("GREEN: go_to_line {input} {line_count}")
+    let input = input.trim();
+    let (line, column) = match input.split_once(':') {
+        Some((l, c)) => (l.trim(), Some(c.trim())),
+        None => (input, None),
+    };
+    let line: usize = line.parse().ok()?;
+    let column: usize = match column {
+        Some(c) => c.parse().ok()?,
+        None => 1,
+    };
+    let last = line_count.max(1) - 1;
+    Some(Pos::new(line.saturating_sub(1).min(last), column.saturating_sub(1)))
 }
 
 #[cfg(test)]
