@@ -17,26 +17,19 @@ worktree guard - edit files with the Edit tool; `rustfmt --edition 2021 <file>` 
 - Gauge (layout/src/widgets/gauge.rs): 7839d2b66 types/stubs, 571023f09 RED geometry tests, df38b2a03 GREEN,
   0ed2f6ca5 the DOM (dial / ring / bar, `GaugeSkin`, `value_color`, a11y meter). chart::over_plot is now pub(crate).
 
+- Gauge done: 0a291c47b flat/flora `gauge_skin` (theme APPENDS `// ==== gauge ====`), 63dfe564d DOM tests +
+  manifest (every_widget_dom "gauge", "gauge (linear)"; theme-contrast STATUS group).
+
 ## IN PROGRESS
-- Gauge: NOT yet done - the theme skins and the DOM tests and the manifest.
+- DateRangePicker (layout/src/widgets/date_range_picker.rs, new).
 
 ## NEXT (exact)
-1. Gauge theme APPENDS: `pub(crate) fn gauge_skin() -> crate::widgets::gauge::GaugeSkin` at the END of
-   layout/src/widgets/themes/flat.rs and flora.rs under `// ==== gauge ====` (append after `money_input_skin`).
-   flat: root = [font_family(SYSTEM_UI_FAMILY)] + themed_ink(LIGHT_INK, DARK_INK); value_text = [semibold] +
-   themed_ink(LIGHT_INK, DARK_INK); label = themed_ink(LIGHT_INTRO, DARK_INTRO); track (LIGHT_TRACK, DARK_TRACK);
-   ok (#198754, #75B798), warn (#E0A800, #FFDA6A), bad (#DC3545, #EA868F), neutral (#6C757D, #ADB5BD),
-   accent (LIGHT_ACC, DARK_ACC), marker None. flora: same inks; ok/warn/bad/neutral = STONE_LEAF / STONE_AMBER /
-   STONE_CLAY / STONE_SLATE as ChartColor::create(stone, glow); accent (LIGHT_ACC, DARK_GLOW);
-   marker Some("__azul-theme-flora").
-2. Gauge tests (`mod dom_tests` at the end of gauge.rs) + `pub(crate) mod fixtures { sample() }` (CPU 73 %, bands
-   ok 0-70 / warn 70-90 / bad 90-100, label "CPU", unit "%") and `linear()`: dial ViewBox = size; one path node
-   each for track / band / value; no value node at min; value_color = band colour / accent; texts "73%" + "CPU";
-   root role Indicator, name "CPU", value "73% (warning)"; no tab index; linear value width = f * size;
-   follows the app theme (theme_blocks::checks::assert_follows_the_app_theme); invariants per theme.
-3. Manifest in layout/src/widgets/mod.rs: append `all.push(("gauge", super::gauge::fixtures::sample().dom()))`
-   and `("gauge (linear)", ...)` after the money_input pushes; add both names to the theme-contrast STATUS group.
-4. DateRangePicker (date_range_picker.rs) - design below (D4).
+4. DateRangePicker (D4): (a) refactor themes::flat::date_picker and themes::flora::date_picker into
+   `pub(crate) fn date_picker_look() -> DatePickerLook` + `date_picker(d) = build(d, &date_picker_look())`
+   (in place, no reorder); (b) in date_picker.rs extract `pub(crate) fn day_grid(year, month, start,
+   look, day_cell: &mut dyn FnMut(u32) -> Dom) -> Dom` out of `build_grid_with`, and make the helpers named in
+   D4 pub(crate); (c) date_range_picker.rs types + pure range logic (stubs) -> RED -> GREEN -> DOM + handlers ->
+   theme appends (`date_range_picker_skin`: presets column, footer) -> tests -> manifest (INPUTS).
 5. ComboBox extensions + ReferencePicker (D5).
 6. Report scripts/WIDGETS9B_<date>.md (api.json list, least-sure spots, test commands).
 
