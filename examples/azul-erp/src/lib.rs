@@ -37,3 +37,5 @@ pub mod money;
 /// The records (asset, category, location, maintenance entry, check-out)
 /// and their files.
 pub mod model;
+/// Straight-line and declining-balance schedules, the book value on a day.
+pub mod depreciation;
