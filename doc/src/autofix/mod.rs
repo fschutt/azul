@@ -11,6 +11,7 @@ pub mod diff;
 pub mod function_diff;
 pub mod module_map;
 pub mod patch_format;
+pub mod pending;
 pub mod type_index;
 pub mod type_resolver;
 pub mod unified_index;

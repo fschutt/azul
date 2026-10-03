@@ -1829,6 +1829,39 @@ mod tests {
             "External path should be updated when in patch"
         );
     }
+
+    /// The patches of a folder apply in file-name order: the scan numbers its
+    /// patches for that, and a pending `add_*` must go before a later
+    /// `remove_*` of the same entry. `read_dir` order is the file system's.
+    #[test]
+    fn patches_in_a_folder_apply_in_file_name_order() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let names = [
+            "remove_x_m.patch.json",
+            "0002_modify_b.patch.json",
+            "add_x_m.patch.json",
+            "0001_add_a.patch.json",
+            "0010_remove_c.patch.json",
+        ];
+        for name in names {
+            fs::write(dir.path().join(name), r#"{"versions": {}}"#).expect("patch written");
+        }
+        let loaded: Vec<String> = ApiPatch::from_directory(dir.path())
+            .expect("folder loads")
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        assert_eq!(
+            loaded,
+            vec![
+                "0001_add_a.patch.json",
+                "0002_modify_b.patch.json",
+                "0010_remove_c.patch.json",
+                "add_x_m.patch.json",
+                "remove_x_m.patch.json",
+            ]
+        );
+    }
 }
 
 /// Rename classes where the external path's last segment differs from the API name
