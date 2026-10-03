@@ -75,11 +75,18 @@ fn card(i: usize, edited: bool) -> Dom {
             )),
         ))
         .with_child(
+            // Text before a block and text after it: two anonymous blocks.
+            // The run AFTER the block ends the box, as AzWidgets' form column
+            // ends with its "Send the raw form" button.
             Dom::create_div()
                 .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
                     format!("Note {i}"),
                 ))
-                .with_child(Dom::create_div_with_text("details")),
+                .with_child(Dom::create_div_with_text("details"))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    format!("More about note {i} "),
+                ))
+                .with_child(Dom::create_span_with_text("link")),
         )
 }
 
@@ -427,6 +434,48 @@ fn the_cards_beside_a_moving_knob_paint_what_they_painted() {
         assert!(
             after == before,
             "knob at {px} px: a glyph moved although only the knob did"
+        );
+    }
+}
+
+/// Text after a block is carried over by the next layout, like every clean
+/// node.
+///
+/// A box holding a block and then inline content keeps that content in an
+/// anonymous block. The reconcile finds each inline child's old layout node
+/// in the whole old tree for a run BEFORE a block, but for the run that ENDS
+/// the box it looked only among the box's direct children - where the child
+/// never is, it sits in the anonymous block. So text, a span or a button that
+/// ends a box after a block was rebuilt fresh by every relayout and dirtied
+/// every ancestor up to the root: AzWidgets' form column ends with its "Send
+/// the raw form" button, and every switch-knob frame of the wave-8 build
+/// re-laid out the form (607 of its 618 flex items laid out again, 288 text
+/// re-flows, `root_layout_pass` 19 ms). A relayout of an unchanged page must
+/// build nothing fresh and find nothing dirty.
+#[test]
+fn text_after_a_block_is_carried_over_by_the_next_layout() {
+    let mut lw = window(
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_child(Dom::create_div_with_text("a block"))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "text after it ",
+                ))
+                .with_child(Dom::create_span_with_text("and a span")),
+        ),
+    );
+    for pass in 1..=2 {
+        relayout(&mut lw);
+        assert_eq!(
+            lw.layout_cache.last_reconcile_fresh, 0,
+            "relayout {pass} of an unchanged page built {} layout nodes fresh: the inline content \
+             after the block was not matched with its old self",
+            lw.layout_cache.last_reconcile_fresh
+        );
+        assert_eq!(
+            lw.layout_cache.last_intrinsic_dirty, 0,
+            "relayout {pass} of an unchanged page found {} nodes dirty",
+            lw.layout_cache.last_intrinsic_dirty
         );
     }
 }
