@@ -1353,6 +1353,15 @@ fn source_arg_ffi_type(arg: &super::type_index::MethodArg) -> (String, Option<St
             return ("String".to_string(), accessor.map(str::to_string));
         }
     }
+    // A borrowed callback info crosses by value and is re-borrowed (a `&mut`
+    // one from a mutable copy the fn_body binds: `rebound_handle_args`)
+    if is_by_value_handle(&arg.ty) {
+        match arg.ref_kind {
+            crate::api::RefKind::RefMut => return (arg.ty.clone(), Some("&mut {}".to_string())),
+            crate::api::RefKind::Ref => return (arg.ty.clone(), Some("&{}".to_string())),
+            _ => {}
+        }
+    }
     let (ffi_type, accessor) = convert_arg_type_for_ffi(&arg.ty);
     // The source parser splits `&mut Dom` into ty="Dom" + ref_kind=RefMut
     // BEFORE this point, so the string-prefix arms in
@@ -1379,37 +1388,81 @@ fn source_arg_ffi_type(arg: &super::type_index::MethodArg) -> (String, Option<St
     }
 }
 
+/// Whether a borrowed argument of type `ty` crosses the FFI by value: a
+/// callback info handle (`CallbackInfo`, `TimerCallbackInfo`, ...). A
+/// callback receives its info by value (CallbackType's fn_args) and the info
+/// is a set of pointers into the window state, so a `&mut` call through a
+/// copy changes the same state: `{ let mut info = info; f(&mut info, ..) }`
+/// (ProgressBar.update_progress, TextInput.set_text_in). Any other struct
+/// borrowed `&mut` crosses as a pointer: a copy would lose the change.
+fn is_by_value_handle(ty: &str) -> bool {
+    ty.ends_with("CallbackInfo")
+}
+
+/// The arguments a fn_body binds as a mutable copy before the call: the
+/// `&mut` callback infos ([`is_by_value_handle`]).
+fn rebound_handle_args(method: &MethodDef) -> Vec<&str> {
+    method
+        .args
+        .iter()
+        .filter(|a| is_by_value_handle(&a.ty) && a.ref_kind == crate::api::RefKind::RefMut)
+        .map(|a| a.name.as_str())
+        .collect()
+}
+
 /// The api.json entry `autofix add <class>.<api_name> --fn <path>` writes,
 /// and whether it is a constructor: a function of `class_name` whose body
-/// calls the free function.
+/// calls the free function. A first argument of the class's own type (by
+/// value, `&` or `&mut`) is the receiver (`self`: value / ref / refmut),
+/// passed on under the codegen's receiver name (`raw_image` for RawImage:
+/// the generated function's parameter, which no fn_body rewrite has to
+/// find); every other argument as for a method. A constructor when the API
+/// name is `create*` and the function returns the class.
 pub fn free_fn_entry(
     class_name: &str,
     api_name: &str,
     free_fn: &super::type_index::FreeFnDef,
 ) -> (FunctionData, bool) {
-    let _ = (class_name, api_name, free_fn);
-    (
-        FunctionData {
-            doc: None,
-            priority: None,
-            fn_args: Vec::new(),
-            returns: None,
-            fn_body: None,
-            use_patches: None,
-            const_fn: false,
-            generic_params: None,
-            generic_bounds: None,
-        },
-        false,
-    )
+    let mut method = free_fn.method.clone();
+    let receiver = method
+        .args
+        .first()
+        .filter(|a| {
+            a.ty == class_name
+                && matches!(
+                    a.ref_kind,
+                    crate::api::RefKind::Value | crate::api::RefKind::Ref | crate::api::RefKind::RefMut
+                )
+        })
+        .cloned();
+    let mut call_args: Vec<String> = Vec::new();
+    if let Some(receiver) = &receiver {
+        method.args.remove(0);
+        method.self_kind = Some(match receiver.ref_kind {
+            crate::api::RefKind::Ref => SelfKind::Ref,
+            crate::api::RefKind::RefMut => SelfKind::RefMut,
+            _ => SelfKind::Value,
+        });
+        call_args.push(crate::codegen::v2::ir::receiver_arg_name(class_name));
+    }
+    call_args.extend(method.args.iter().map(|a| a.name.clone()));
+    method.is_constructor =
+        receiver.is_none() && method.is_constructor && api_name.starts_with("create");
+    let call = format!("{}({})", free_fn.path, call_args.join(", "));
+    let is_constructor = method.is_constructor;
+    (function_data_for_call(&method, class_name, call), is_constructor)
 }
 
 fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData {
-    use super::type_index::SelfKind;
-
     // Extract class name from full_path for Self replacement
     let class_name = full_path.rsplit("::").next().unwrap_or(full_path);
+    function_data_for_call(method, class_name, generate_fn_body(method, full_path))
+}
 
+/// The api.json entry for `method` of `class_name` whose fn_body is `call`
+/// (the plain call: the arguments by name), with the arguments converted
+/// for the FFI and the return value converted to its api.json type.
+fn function_data_for_call(method: &MethodDef, class_name: &str, call: String) -> FunctionData {
     // Build fn_args - first add self if present (non-constructor)
     let mut fn_args: Vec<IndexMap<String, String>> = Vec::new();
 
@@ -1475,8 +1528,7 @@ fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData 
         (None, ReturnConversion::None)
     };
 
-    // Generate fn_body using the full external path
-    let mut fn_body_str = generate_fn_body(method, full_path);
+    let mut fn_body_str = call;
 
     // Apply argument accessors to fn_body
     // Replace each argument reference with the accessor version
@@ -1509,6 +1561,18 @@ fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData 
     // Convert the return value to its api.json type (`.into()` for the
     // Result / Option wrappers, an owned `String` for a borrowed `str`)
     let fn_body_str = conversion.wrap(fn_body_str);
+
+    // A `&mut` callback info is re-borrowed from a mutable copy
+    let rebound = rebound_handle_args(method);
+    let fn_body_str = if rebound.is_empty() {
+        fn_body_str
+    } else {
+        let bindings: String = rebound
+            .iter()
+            .map(|name| format!("let mut {name} = {name}; "))
+            .collect();
+        format!("{{ {bindings}{fn_body_str} }}")
+    };
 
     let fn_body = Some(fn_body_str);
 
