@@ -8,6 +8,8 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Instant};
 use azul::{
     callbacks::RefAny,
     image::ImageRef,
+    option::OptionString,
+    vec::MonitorVec,
     widgets::{AdornerFrame, AdornerGuide},
 };
 use azul_storage::{Drive, LocalDrive};
@@ -178,14 +180,18 @@ impl PresenterMonitor {
     /// The choice a settings value names: a monitor index, else automatic.
     #[must_use]
     pub fn parse(value: Option<&str>) -> Self {
-        let _ = value;
-        PresenterMonitor::Automatic
+        value
+            .and_then(|v| v.trim().parse::<u32>().ok())
+            .map_or(PresenterMonitor::Automatic, PresenterMonitor::Monitor)
     }
 
     /// The settings value of the choice.
     #[must_use]
     pub fn to_setting(self) -> String {
-        String::new()
+        match self {
+            PresenterMonitor::Automatic => String::from("auto"),
+            PresenterMonitor::Monitor(index) => index.to_string(),
+        }
     }
 
     /// The monitor the presenter window opens on, among the connected
@@ -194,8 +200,39 @@ impl PresenterMonitor {
     /// `None` (the system's choice) with one screen.
     #[must_use]
     pub fn resolve(self, monitors: &[u32], show: Option<u32>) -> Option<u32> {
-        let _ = (monitors, show);
-        None
+        if let PresenterMonitor::Monitor(index) = self {
+            if monitors.contains(&index) {
+                return Some(index);
+            }
+        }
+        match show {
+            Some(show) => monitors.iter().copied().find(|m| *m != show),
+            None => monitors.get(1).copied(),
+        }
+    }
+
+    /// The monitors a presenter view can open on, as `(index, label)`:
+    /// "Monitor 1 (primary)", "Monitor 2: DELL U2720Q".
+    #[must_use]
+    pub fn choices(monitors: &MonitorVec) -> Vec<(u32, String)> {
+        monitors
+            .as_ref()
+            .iter()
+            .enumerate()
+            .map(|(n, m)| {
+                let mut label = format!("Monitor {}", n + 1);
+                if let OptionString::Some(name) = &m.monitor_name {
+                    if !name.as_str().is_empty() {
+                        label.push_str(": ");
+                        label.push_str(name.as_str());
+                    }
+                }
+                if m.is_primary_monitor {
+                    label.push_str(" (primary)");
+                }
+                (m.monitor_id.index as u32, label)
+            })
+            .collect()
     }
 }
 
@@ -248,6 +285,8 @@ pub struct AppState {
     pub asking_close: bool,
     /// The window closes once the save in flight is written.
     pub close_after_save: bool,
+    /// Where the presenter view opens (remembered in settings.json).
+    pub presenter_monitor: PresenterMonitor,
 }
 
 impl AppState {
@@ -281,6 +320,7 @@ impl AppState {
             find: None,
             asking_close: false,
             close_after_save: false,
+            presenter_monitor: PresenterMonitor::Automatic,
         }
     }
 
@@ -417,6 +457,8 @@ pub enum Command {
     ZoomFit,
     ToggleNotes,
     RibbonTab(usize),
+    /// Slide Show > Monitors: where the presenter view opens.
+    PresenterMonitor(PresenterMonitor),
 }
 
 /// A button's payload: the app and the command it runs.

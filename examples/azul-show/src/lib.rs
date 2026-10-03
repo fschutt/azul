@@ -92,7 +92,7 @@ fn title_row(st: &AppState, suffix: &str) -> Dom {
 
 /// The editor window: the S1 shell with the ribbon (or the backstage), the
 /// rail, the view's document, the format pane and the status bar.
-fn editor_window(app: &RefAny, st: &AppState, w: f32, h: f32) -> Dom {
+fn editor_window(app: &RefAny, st: &AppState, w: f32, h: f32, monitors: &[(u32, String)]) -> Dom {
     let title = title_row(st, "");
     if st.screen == Screen::Backstage {
         return DocumentShell::create(Dom::create_div())
@@ -103,7 +103,7 @@ fn editor_window(app: &RefAny, st: &AppState, w: f32, h: f32) -> Dom {
     }
     let zoom = st.zoom_percent(w, h);
     let status = views::status_bar(app, st, zoom);
-    let ribbon = ribbon::ribbon(app, st);
+    let ribbon = ribbon::ribbon(app, st, monitors);
     let Some(ed) = st.editor.as_ref() else {
         let empty = ShellEmptyState::create(s("No presentation is open"))
             .with_icon(s("slideshow"))
@@ -177,7 +177,9 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let content = if st.screen == Screen::Show {
         show::show_screen(&app, st, w, h)
     } else {
-        editor_window(&app, st, w, h)
+        // The connected screens, for Slide Show > Monitors.
+        let monitors = crate::app::PresenterMonitor::choices(&info.get_monitors());
+        editor_window(&app, st, w, h, &monitors)
     };
     // "Save changes?" before the window closes with an unsaved deck: the
     // close request is held while the deck is dirty, the standard question
@@ -595,6 +597,14 @@ pub fn start(args: Args) {
     let root = kit_data_root(&kit_ref);
     let mut st = AppState::new(args.clone(), root.clone());
     st.kit = Some(kit_ref.clone());
+    // Slide Show > Monitors, as it was left.
+    st.presenter_monitor = {
+        let mut k = kit_ref.clone();
+        let value = k
+            .downcast_ref::<kit::Kit>()
+            .and_then(|k| k.settings.get(crate::app::PresenterMonitor::SETTING).map(str::to_string));
+        crate::app::PresenterMonitor::parse(value.as_deref())
+    };
     if args.sample() {
         let deck = model::sample_deck(&commands::new_deck_id(), themes::theme(1, 0, 0));
         commands::open_deck(&mut st, deck);

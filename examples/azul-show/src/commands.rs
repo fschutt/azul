@@ -7,7 +7,7 @@ use azul::{
     callbacks::{CallbackInfo, RefAny, Update},
     dialog::{FileDialog, FileOpenResult},
     dom::{Callback, Dom, DomId, DomNodeId, TextFormat},
-    option::{OptionFileTypeList, OptionString},
+    option::{OptionFileTypeList, OptionString, OptionU32},
     pdf::Pdf,
     str::String as AzString,
     task::{TimerId, Timer},
@@ -210,6 +210,19 @@ pub fn start_show(s: &mut AppState, info: &mut CallbackInfo, from_current: bool)
         options.window_state.size.dimensions.height = 700.0;
         options.window_state.flags.decorations = WindowDecorations::NoTitle;
         options.create_callback = Some(Callback::create(crate::on_presenter_created)).into();
+        // On a screen of its own, or the one picked under Slide Show > Monitors.
+        let monitors: Vec<u32> = crate::app::PresenterMonitor::choices(&info.get_monitors())
+            .into_iter()
+            .map(|(index, _)| index)
+            .collect();
+        let show_monitor = info
+            .get_current_monitor()
+            .into_option()
+            .map(|m| m.monitor_id.index as u32);
+        if let Some(index) = s.presenter_monitor.resolve(&monitors, show_monitor) {
+            options.window_state.monitor_id = OptionU32::Some(index);
+            println!("AZSHOW_PRESENTER_ON {index}");
+        }
         info.create_window(options);
     }
     println!("AZSHOW_SHOW {} {}", state.slide + 1, state.step);
@@ -492,6 +505,19 @@ pub fn apply(app: &RefAny, s: &mut AppState, cmd: Command, info: &mut CallbackIn
         }
         C::RibbonTab(i) => {
             s.ribbon_tab = *i;
+            return Update::RefreshDom;
+        }
+        C::PresenterMonitor(choice) => {
+            s.presenter_monitor = *choice;
+            if let Some(kit_ref) = s.kit.as_ref() {
+                azul_appkit::ui::set_value(
+                    kit_ref,
+                    info,
+                    crate::app::PresenterMonitor::SETTING,
+                    &choice.to_setting(),
+                );
+            }
+            println!("AZSHOW_PRESENTER_MONITOR {}", choice.to_setting());
             return Update::RefreshDom;
         }
         C::Find(replace) => {
