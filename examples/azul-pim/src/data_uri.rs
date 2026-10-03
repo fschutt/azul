@@ -7,31 +7,89 @@
 /// `bytes` in standard base64, padded.
 #[must_use]
 pub fn encode_base64(bytes: &[u8]) -> String {
-    let _ = bytes;
-    todo!()
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        let at = |shift: u32| char::from(TABLE[(n >> shift) as usize & 63]);
+        out.push(at(18));
+        out.push(at(12));
+        out.push(if chunk.len() > 1 { at(6) } else { '=' });
+        out.push(if chunk.len() > 2 { at(0) } else { '=' });
+    }
+    out
 }
 
 /// The bytes of standard base64 `text` (padding optional, whitespace skipped); `None` for a
 /// character base64 does not have, or a length no base64 has.
 #[must_use]
 pub fn decode_base64(text: &str) -> Option<Vec<u8>> {
-    let _ = text;
-    todo!()
+    let mut out = Vec::with_capacity(text.len() / 4 * 3);
+    let (mut buf, mut bits, mut count) = (0u32, 0u32, 0usize);
+    let mut padded = false;
+    for c in text.bytes() {
+        if c.is_ascii_whitespace() {
+            continue;
+        }
+        if c == b'=' {
+            padded = true;
+            continue;
+        }
+        if padded {
+            // A character after the padding.
+            return None;
+        }
+        let value = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        };
+        buf = (buf << 6) | u32::from(value);
+        bits += 6;
+        count += 1;
+        if bits >= 8 {
+            bits -= 8;
+            out.push(u8::try_from((buf >> bits) & 0xff).unwrap_or(0));
+            buf &= (1 << bits) - 1;
+        }
+    }
+    // One character of a group of four holds no whole byte.
+    (count % 4 != 1).then_some(out)
 }
 
 /// `data:<mime>;base64,<bytes>`.
 #[must_use]
 pub fn data_uri(mime: &str, bytes: &[u8]) -> String {
-    let _ = (mime, bytes);
-    todo!()
+    format!("data:{mime};base64,{}", encode_base64(bytes))
 }
 
 /// The type and the bytes of a `data:` URI (`data:image/png;base64,...`, or percent-free
 /// plain text `data:text/plain,hello`); `None` for anything else.
 #[must_use]
 pub fn parse_data_uri(uri: &str) -> Option<(String, Vec<u8>)> {
-    let _ = uri;
-    todo!()
+    let uri = uri.trim();
+    if !uri.get(..5)?.eq_ignore_ascii_case("data:") {
+        return None;
+    }
+    let (meta, payload) = uri[5..].split_once(',')?;
+    let mut parts = meta.split(';');
+    let mime = parts.next().unwrap_or_default().trim().to_ascii_lowercase();
+    let base64 = parts.any(|p| p.trim().eq_ignore_ascii_case("base64"));
+    let bytes = if base64 {
+        decode_base64(payload)?
+    } else {
+        payload.as_bytes().to_vec()
+    };
+    let mime = if mime.is_empty() {
+        String::from("text/plain")
+    } else {
+        mime
+    };
+    Some((mime, bytes))
 }
 
 #[cfg(test)]
