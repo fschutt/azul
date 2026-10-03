@@ -468,6 +468,11 @@ impl Editor {
         )
     }
 
+    /// The selected pictures are fitted by `fit` (one undo step).
+    pub fn set_image_fit(&mut self, fit: ImageFit) {
+        let _ = fit;
+    }
+
     /// Deletes the selected elements.
     pub fn delete_selection(&mut self) {
         if self.selection.is_empty() {
@@ -959,6 +964,21 @@ mod tests {
         let pic = ed.insert_image("media/a.png", 800.0, 600.0);
         let at = ed.slide().index_of(pic).expect("the picture");
         assert!(!ed.activate(at));
+    }
+
+    #[test]
+    fn the_selected_picture_takes_the_fit_and_undo_restores_it() {
+        let mut ed = editor();
+        let pic = ed.insert_image("media/a.png", 800.0, 600.0);
+        ed.select_indices(&[ed.slide().index_of(pic).expect("the picture")]);
+        ed.set_image_fit(ImageFit::Cover);
+        let fit = |ed: &Editor| match &ed.slide().element(pic).expect("the picture").kind {
+            ElementKind::Image { fit, .. } => *fit,
+            _ => panic!("not a picture"),
+        };
+        assert_eq!(fit(&ed), ImageFit::Cover);
+        assert!(ed.undo());
+        assert_eq!(fit(&ed), ImageFit::Contain);
     }
 
     #[test]
