@@ -13,33 +13,25 @@ if /tmp was wiped).
 - 09d398619 manifest; 685641fd0 + 272d4eb5e engine: a focus that listens for paste gets the paste chord
 - 980e5fd76 widget build + handlers (VirtualView host, render_terminal, merge, key/text/paste/focus/mouse/wheel),
   fixtures::sample, build_tests
+- 219d37e10 RED + efa08418d GREEN: examples/azul-term crate begun (Cargo.toml, main.rs, stub lib.rs) and src/vt.rs
+  (`vt::screen(&Term, alt_sends_escape) -> azul::widgets::TerminalScreen`, `vt::GridSize` implements Dimensions)
 
 ## IN PROGRESS
 - (none - between units)
 
 ## NEXT
-1. (done 09d398619) Manifest.
-   `all.push(("terminal_view", super::terminal_view::fixtures::sample().dom()));` and check the theme_contrast
-   groups (~line 2775 in mod.rs) to see whether a new widget must be listed there.
-2. (done 685641fd0 RED, 272d4eb5e GREEN) Engine paste: focus_hears_paste. Was: handle_key_down returned None for Cmd/Ctrl+V on a non-editable focus without
-   a selection, and CallbackInfo cannot READ the clipboard -> a terminal never gets a Paste event. Fix: a new
-   `InputInterpreterState` field `focus_hears_paste` (the focused node has a FocusEventFilter::Paste callback), set in
-   dll/src/desktop/shell2/common/event.rs (~11995) and layout/src/e2e/runner.rs (~1207), carried through the ctx
-   (core/src/events.rs ~5201 / 5234 / 5283), and in handle_key_down: Paste is the engine's (AddAndSkip -> the
-   deferred Paste event) when focus_is_editable || has_selection || focus_hears_paste; Copy / Cut / SelectAll
-   unchanged (Ctrl+C / Ctrl+A must reach the terminal's key handler). Update the struct literals in
-   core/src/events_test.rs (~3678 / 3750 / 3786 / 3831) and core/src/events.rs ~5214. RED test first in
-   core/src/events_test.rs ("a paste chord on a node that listens for paste becomes a paste event").
-3. examples/azul-term (AzTerm):
-   - Cargo.toml (alacritty_terminal = "0.26", azul-appkit, azul-storage, serde, serde_json) like azul-drive's.
-   - src/main.rs (thin), src/lib.rs (start; layout: ShellThemeScope::body + appkit title row + a tab strip + the
+1. (done) Manifest. 2. (done) Engine paste fix (focus_hears_paste; see commits above). The widget's key handler
+   leaves the paste chord alone (KeyAction::Paste -> DoNothing): the engine's Paste event brings the text to
+   on_terminal_paste. Shift+Insert has no engine paste yet (limitation for the report).
+3. examples/azul-term (AzTerm) - next file: src/session.rs, then src/lib.rs (replace the stub start()):
+   - src/lib.rs (start; layout: ShellThemeScope::body + appkit title row + a tab strip + the
      TerminalView pane (a `position: relative; flex-grow: 1` container) + StatusBar; CloseGuard asks when a tab
-     runs a command; About; settings page).
-   - src/vt.rs: Term<Listener> + the mapping grid -> TerminalScreen (runs split at style AND at wide-char changes,
-     colours Named/Indexed/Spec -> TerminalColor, Flags -> TerminalStyle, cursor -> view rows through
-     display_offset (alacritty term::point_to_viewport), the selection range -> view rows clipped, TermMode ->
-     TerminalModes). RED tests first: feed bytes with `vte::ansi::Processor::<vte::ansi::StdSyncHandler>::new()`
-     `.advance(&mut term, bytes)`.
+     runs a command; About; settings page). TerminalView data source = an extern "C" fn(RefAny, TerminalGridSize)
+     -> TerminalScreen that locks the session's FairMutex<Term>, resizes it (and the PTY) when the grid differs,
+     returns vt::screen. on_event: Input -> notifier.notify(bytes) + scroll_display(Bottom); Scroll ->
+     term.scroll_display(Scroll::Delta(new - old)); SelectStart/Extend/End/Clear -> alacritty Selection with
+     term::viewport_to_point(display_offset, Point<usize>); Copy -> term.selection_to_string() ->
+     info.set_clipboard_content(...) (check api.json for ClipboardContent / a text setter).
    - src/session.rs: alacritty_terminal::tty::new(&Options, WindowSize, id) + EventLoop::new(term, listener, pty,
      false, false).spawn() + Notifier(loop.channel()); the Listener sets an AtomicBool on Wakeup / Title / Bell /
      ChildExit; a 16 ms azul Timer calls trigger_all_virtual_view_rerender when dirty (RefreshDom for title / exit).
