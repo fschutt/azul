@@ -22,6 +22,7 @@
 
 pub mod about;
 pub mod args;
+pub mod css;
 pub mod data;
 pub mod files;
 pub mod find;
