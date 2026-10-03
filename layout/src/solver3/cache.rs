@@ -201,9 +201,11 @@ pub struct NodeCache {
     /// hypothetical (content) width, a column's text at the width of its
     /// min-content probe. Cleared by every computation of the node, set by
     /// its final computation; a `PerformLayout` cache hit requires it
-    /// (`TaffyBridge::cache_get`). Only reachable when taffy's caches survive
-    /// a pass - the resize fast path (`resize_only_hint`) - since a
-    /// reconciled tree's clones start with empty taffy caches.
+    /// (`TaffyBridge::cache_get`). Taffy's caches survive every pass - the
+    /// resize fast path keeps the tree, and a reconciled tree's clones carry
+    /// theirs (`LayoutTreeBuilder::clone_node_from_old`) - and this field
+    /// rides the `cache_map` remap with them, so a clean node's final layout
+    /// is served across passes exactly while its subtree still holds it.
     pub final_layout_current: bool,
 }
 
@@ -844,6 +846,13 @@ pub struct ReconciliationResult {
     /// proved the node (and its ancestors) unchanged. See
     /// `LayoutCache::dom_diff_clean`.
     pub fingerprint_skips: usize,
+    /// Where the nodes this reconcile CARRIED over from the previous tree
+    /// went: old layout index -> new layout index, for every clone and every
+    /// matched anonymous block. A carried node keeps what the previous tree
+    /// wrote into it, and some of that names other nodes by their OLD index
+    /// (a text node's `ifc_membership` names its IFC root); the reconcile
+    /// re-points those through this map.
+    pub carried_indices: HashMap<usize, usize>,
 }
 
 impl ReconciliationResult {
@@ -1752,27 +1761,42 @@ fn reconcile_table_children(
 /// — the same matching `layout_document`'s `cache_map` remap already performs
 /// post-hoc for the size caches.
 ///
-/// Only SELF-VALIDATING or content-derived caches are carried:
-/// `inline_content_cache` re-validates itself against the subtree
-/// fingerprint, and `intrinsic_sizes` are content-derived with the children
-/// verified identical. Layout-derived state (`inline_layout_result`, used
-/// sizes, baselines) stays `None` and re-derives through the CB-size-keyed
-/// caches like any other clean node.
+/// A matched wrapper IS its old self, as a clean clone is, and carries what a
+/// clone carries: the content-derived caches (`inline_content_cache`
+/// re-validates itself against the subtree fingerprint, `intrinsic_sizes`
+/// with the children verified identical) AND the layout it last produced -
+/// its inline layout, used size, offset in its parent, baseline, overflow,
+/// scrollbars and escaped margins.
 ///
-/// "Self-validating" is not the whole story, and the gap is worth naming: a
-/// collection containing an atomic inline child also STANDS FOR that child's
-/// layout, because the collection call is what sizes it — and that layout is
-/// exactly the layout-derived state the line above deliberately drops. The
-/// fingerprint cannot see this; it describes content, not whether anything has
-/// been laid out. `layout_ifc` therefore re-checks that precondition where it
-/// USES the cache (`atomic_inline_children_are_laid_out`), which is the only
-/// place that can know, and the reason this function can go on carrying the
-/// cache for the case it was measured on.
+/// The layout half used to stay `None`, on the assumption that it
+/// "re-derives through the CB-size-keyed caches like any other clean node".
+/// It does not: those caches are what let a clean box NOT be laid out again,
+/// and a clean box is exactly the one whose wrapper nothing visits. A block
+/// page whose box restyled lost the text beside the block in its sibling -
+/// the sibling was skipped (its parent only re-stacks it), its wrapper was
+/// new and empty, and the display list painted no inline layout for it
+/// (the prebuilt azul-doc e2e runner: 3 text runs before, 2 after); a flex
+/// item served from its kept measurements skips its wrapper the same way.
+/// When the wrapper IS laid out again (a dirty child, a changed width), the
+/// carried inline layout is re-validated where it is used: `layout_ifc`
+/// reuses it only at the same width and the same content hash.
+///
+/// "Self-validating" is not the whole story for the collection, and the gap
+/// is worth naming: a collection containing an atomic inline child also
+/// STANDS FOR that child's layout, because the collection call is what sizes
+/// it. The fingerprint cannot see this; it describes content, not whether
+/// anything has been laid out. `layout_ifc` therefore re-checks that
+/// precondition where it USES the cache (`atomic_inline_children_are_laid_out`),
+/// which is the only place that can know - and the same check keeps the
+/// carried inline layout honest: by the time `layout_ifc` could reuse it, the
+/// atomic children it places are laid out (carried by their own clones, or
+/// measured by a fresh collection).
 ///
 /// Returns whether the wrapper matched; the caller folds `!matched` into
 /// `children_are_different` instead of flipping it unconditionally. A DIRTY
 /// child inside a matched run still invalidates through that child's own
 /// `mark_dirty` propagation — matching the wrapper never masks content edits.
+/// A match is recorded in `recon.carried_indices`.
 fn try_reuse_anon_wrapper(
     old_tree: Option<&LayoutTree>,
     old_parent_idx: Option<usize>,
@@ -1780,6 +1804,7 @@ fn try_reuse_anon_wrapper(
     inline_run: &[(usize, NodeId)],
     new_tree_builder: &mut LayoutTreeBuilder,
     anon_idx: usize,
+    recon: &mut ReconciliationResult,
 ) -> bool {
     let (Some(t), Some(op)) = (old_tree, old_parent_idx) else {
         return false;
@@ -1822,7 +1847,19 @@ fn try_reuse_anon_wrapper(
             .inline_content_cache
             .clone_from(&old_warm.inline_content_cache);
         new_node.intrinsic_sizes = old_warm.intrinsic_sizes;
+        // The layout it last produced (see the doc comment).
+        new_node.used_size = t.get(LayoutNodeId::new(old_anon)).and_then(|h| h.used_size);
+        new_node
+            .inline_layout_result
+            .clone_from(&old_warm.inline_layout_result);
+        new_node.baseline = old_warm.baseline;
+        new_node.relative_position = old_warm.relative_position;
+        new_node.overflow_content_size = old_warm.overflow_content_size;
+        new_node.scrollbar_info = old_warm.scrollbar_info;
+        new_node.escaped_top_margin = old_warm.escaped_top_margin;
+        new_node.escaped_bottom_margin = old_warm.escaped_bottom_margin;
     }
+    recon.carried_indices.insert(old_anon, anon_idx);
     true
 }
 
@@ -2047,6 +2084,46 @@ pub fn reconcile_recursive(
             if let Some(cloned) = new_tree_builder.get_mut(idx) {
                 cloned.node_data_fingerprint = new_fingerprint;
                 cloned.dirty_flag = DirtyFlag::Paint;
+            }
+        }
+        if let Some(old_idx) = old_tree_idx {
+            recon.carried_indices.insert(old_idx, idx);
+        }
+        // Paired by POSITION with an old node of another identity (the
+        // fallback above): the clone carries that node's measurements, while
+        // `layout_document`'s `cache_map` remap hands it the per-node cache -
+        // and `final_layout_current` - of its own id. The two must describe
+        // the same node for a memoised final layout to be served.
+        let paired_by_position = old_full_node.dom_node_id != Some(new_dom_id);
+        if let Some(cloned) = new_tree_builder.get_mut(idx) {
+            // The clone keeps its flex measurements (`clone_node_from_old`) -
+            // unless a restyle on it or above it may have moved what it
+            // INHERITS (a font size, an `em` padding): no dirty mark reaches a
+            // clean descendant of a restyled node, and its measurements would
+            // describe the old values. Such a node is laid out again, as every
+            // clone was before; so is a node paired by position.
+            if subtree_style_changed || paired_by_position {
+                cloned.taffy_cache.clear();
+                cloned.measured_content_sizes = (None, None);
+            }
+            // A text node names the IFC root it was laid out in by the OLD
+            // tree's index. Re-point it at that root's place in this tree (the
+            // root is an ancestor, so it was reconciled first); a root that was
+            // built fresh is laid out again this pass and re-registers its
+            // members, so until then the membership names nothing.
+            let old_root = cloned
+                .ifc_membership
+                .as_ref()
+                .map(|m| m.ifc_root_layout_index);
+            if let Some(old_root) = old_root {
+                match recon.carried_indices.get(&old_root).copied() {
+                    Some(new_root) => {
+                        if let Some(m) = cloned.ifc_membership.as_mut() {
+                            m.ifc_root_layout_index = new_root;
+                        }
+                    }
+                    None => cloned.ifc_membership = None,
+                }
             }
         }
         idx
@@ -2361,6 +2438,7 @@ pub fn reconcile_recursive(
                             &inline_run,
                             new_tree_builder,
                             anon_idx,
+                            recon,
                         );
                         anon_ordinal += 1;
 
@@ -2517,6 +2595,7 @@ pub fn reconcile_recursive(
                     &inline_run,
                     new_tree_builder,
                     anon_idx,
+                    recon,
                 );
                 anon_ordinal += 1;
 

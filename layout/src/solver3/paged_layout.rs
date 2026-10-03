@@ -771,8 +771,20 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport, None)?
     };
 
-    // Step 1.2: Clear Taffy Caches for Dirty Nodes
-    for &node_idx in &recon_result.intrinsic_dirty {
+    // Step 1.2: Clear Taffy Caches - ALL of them on this path.
+    //
+    // A reconciled tree's clones keep their flex measurements
+    // (`clone_node_from_old`), and `layout_document` keeps them for every
+    // clean node: it clears the dirty nodes' and their ancestors' (its Step
+    // 1.2), and its `cache_map` remap carries each node's
+    // `NodeCache::final_layout_current` to the node's new index, which is
+    // what lets a memoised final layout be served. This path resizes the
+    // `cache_map` by POSITION (Step 1.4), so after a structural change a
+    // node can read another node's flag; serving a kept final layout on that
+    // word would skip a subtree a measure has rewritten. So the paged path
+    // lays every flex item out again, as it did when the clone dropped the
+    // measurements.
+    for node_idx in 0..new_tree.nodes.len() {
         if let Some(warm) = new_tree.warm_mut(LayoutNodeId::new(node_idx)) {
             warm.taffy_cache.clear();
             warm.measured_content_sizes = (None, None);

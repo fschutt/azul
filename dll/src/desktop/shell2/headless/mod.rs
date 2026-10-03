@@ -9746,19 +9746,19 @@ mod tests {
     /// same state (baseline 34.6 against 33.1), with an IDENTICAL header
     /// box of 66x26 @ (126, 16). Only the CONTENT moved.
     ///
-    /// Root cause: `clone_node_from_old` carried the node's taffy
-    /// measurement cache. A clone is taken because the node's own data is
-    /// unchanged, but that says nothing about its surroundings — and a
-    /// clone is taken precisely when a sibling changed enough to re-lay the
-    /// parent out. Tab 2 was answering with a size measured while tab 0 was
-    /// still active.
+    /// First fixed (deac0bebb) by making `clone_node_from_old` drop the
+    /// node's taffy measurement cache: tab 2's final layout was served from
+    /// that cache after a MEASURE of the tab had re-placed its label. The
+    /// root cause - a memoised final layout whose side effects a measure
+    /// had overwritten - is guarded where the memo is used since c60844cab
+    /// (`NodeCache::final_layout_current`), and the clone keeps its
+    /// measurements again (LAYOUTPERF8: dropping them made every relayout
+    /// lay out every flex item of the window). This test is the guard that
+    /// a kept measurement never shifts the tabs that did not change.
     ///
     /// Found by the per-tab border aid (`RibbonTab::style`), which is why
     /// this runs with `bordered: true`: without borders the stale
     /// measurement happens to agree.
-    ///
-    /// NEGATIVE CONTROL: restoring the cache on the clone (dropping
-    /// `new_node.taffy_cache.clear()`) makes this fail — run and seen.
     #[test]
     fn switching_tabs_does_not_shift_the_other_tabs_text() {
         let state = Arc::new(RefCell::new(RefAny::new(RibbonUiState {

@@ -929,6 +929,30 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             }
         }
     }
+    // ...and every node's, when the viewport changed under a document that
+    // uses viewport units. A `vw` / `vh` length resolves against the viewport,
+    // which no measurement key carries, so a clean node's measurement may be
+    // stale at its old key. A reconciled tree's clones keep their
+    // measurements (`clone_node_from_old`); the reconcile used to throw them
+    // all away, and this keeps that for exactly the case the keys cannot
+    // see. The resize fast path (`resize_only`) is left as it was. Same gate
+    // as the inline-collection cache's viewport fold (`layout_ifc`).
+    if !resize_only && cache.viewport.is_some_and(|v| v.size != viewport.size) {
+        let doc_uses_viewport_units = new_dom
+            .css_property_cache
+            .ptr
+            .compact_cache
+            .as_ref()
+            .is_none_or(|cc| cc.uses_viewport_units);
+        if doc_uses_viewport_units {
+            for node_idx in 0..new_tree.nodes.len() {
+                if let Some(warm) = new_tree.warm_mut(LayoutNodeId::new(node_idx)) {
+                    warm.taffy_cache.clear();
+                    warm.measured_content_sizes = (None, None);
+                }
+            }
+        }
+    }
 
     // Step 1.3: Compute CSS Counters
     // This must be done after tree generation but before layout,

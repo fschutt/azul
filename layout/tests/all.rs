@@ -902,3 +902,5 @@ mod a_border_defaults_to_a_medium_width_in_the_text_colour;
 mod a_box_shadow_follows_its_box_outside_or_inside;
 #[path = "a_background_is_painted_within_its_background_clip.rs"]
 mod a_background_is_painted_within_its_background_clip;
+#[path = "a_one_box_slide_does_not_re_lay_out_the_page.rs"]
+mod a_one_box_slide_does_not_re_lay_out_the_page;
