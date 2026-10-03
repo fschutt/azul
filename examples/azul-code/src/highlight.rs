@@ -159,36 +159,275 @@ impl Highlighter {
     /// Line `line`'s colours, `text_of(i)` being line i's text; `None` when
     /// the line is too far below anything known (run a [`HighlightJob`]).
     pub fn line_spans(&mut self, line: usize, text_of: &dyn Fn(usize) -> String) -> Option<Vec<CodeSpan>> {
-        todo!("GREEN: line_spans {line} {}", text_of(0).len())
+        if let Some((spans, _)) = self.cache.get(&line) {
+            return Some(spans.clone());
+        }
+        let (mut at, mut state) = self.start_for(line);
+        if line - at > SYNC_LIMIT {
+            return None;
+        }
+        loop {
+            if self.converge(at, &state) {
+                let (jump, jumped) = self.start_for(line);
+                if jump > at {
+                    at = jump;
+                    state = jumped;
+                }
+            }
+            self.checkpoint(at, &state);
+            let (spans, next) = parse_line(&state, &text_of(at));
+            self.lines_parsed += 1;
+            self.cache.insert(at, (spans.clone(), next.clone()));
+            if at >= line {
+                self.trim_cache(line);
+                return Some(spans);
+            }
+            state = next;
+            at += 1;
+        }
     }
 
-    /// The text changed: `change` (line `first` and `removed` lines after
-    /// it became `first` and `added` lines after it).
+    /// The text changed: line `first` and the `removed` lines after it
+    /// became `first` and `added` lines after it.
     pub fn edited(&mut self, first: usize, removed: usize, added: usize) {
-        todo!("GREEN: edited {first} {removed} {added}")
+        let old_end = first + removed;
+        let moved = |l: usize| (l + added).saturating_sub(removed);
+        let mut kept = Vec::with_capacity(self.checkpoints.len());
+        let mut stale = Vec::new();
+        for (l, s) in self.checkpoints.drain(..) {
+            if l <= first {
+                kept.push((l, s));
+            } else if l > old_end {
+                stale.push((moved(l), s));
+            }
+        }
+        for (l, s) in self.stale.drain(..) {
+            if l <= first {
+                stale.push((l, s));
+            } else if l > old_end {
+                stale.push((moved(l), s));
+            }
+        }
+        stale.sort_by_key(|(l, _)| *l);
+        self.checkpoints = kept;
+        self.stale = stale;
+        let _below = self.cache.split_off(&first);
+        self.generation += 1;
     }
 
     /// The walk a thread should do to reach line `line`.
     pub fn job_for(&self, line: usize, text_of: &dyn Fn(usize) -> String) -> HighlightJob {
-        todo!("GREEN: job_for {line} {}", text_of(0).len())
+        let (first, state) = self.start_for(line);
+        HighlightJob {
+            first,
+            state,
+            lines: (first..=line).map(|i| text_of(i)).collect(),
+            generation: self.generation,
+        }
     }
 
     /// A job's checkpoints taken in; `false` when an edit came since.
     pub fn adopt(&mut self, result: JobResult) -> bool {
-        todo!("GREEN: adopt {}", result.generation)
+        if result.generation != self.generation {
+            return false;
+        }
+        for (l, s) in result.checkpoints {
+            if self.checkpoints.iter().any(|(x, _)| *x == l) {
+                continue;
+            }
+            let i = self.checkpoints.partition_point(|(x, _)| *x < l);
+            self.checkpoints.insert(i, (l, s));
+        }
+        true
+    }
+
+    /// Where a walk to `line` starts: the nearest checkpoint at or above
+    /// it, or the line after the nearest coloured line above it.
+    fn start_for(&self, line: usize) -> (usize, LineState) {
+        let i = self.checkpoints.partition_point(|(l, _)| *l <= line).saturating_sub(1);
+        let (mut at, mut state) = match self.checkpoints.get(i) {
+            Some((l, s)) => (*l, s.clone()),
+            None => (0, LineState::start(self.syntax)),
+        };
+        if let Some((&l, (_, end))) = self.cache.range(..line).next_back() {
+            if l + 1 > at {
+                at = l + 1;
+                state = end.clone();
+            }
+        }
+        (at, state)
+    }
+
+    /// A walk reached line `at` in `state`: an old checkpoint there with
+    /// the same state means the rest of the old ones hold again - they are
+    /// taken back (`true`).
+    fn converge(&mut self, at: usize, state: &LineState) -> bool {
+        self.stale.retain(|(l, _)| *l >= at);
+        let here = matches!(self.stale.first(), Some((l, _)) if *l == at);
+        if !here {
+            return false;
+        }
+        if self.stale[0].1 != *state {
+            self.stale.remove(0);
+            return false;
+        }
+        let back: Vec<(usize, LineState)> = self.stale.drain(..).collect();
+        self.checkpoints.retain(|(l, _)| *l < at);
+        self.checkpoints.extend(back);
+        true
+    }
+
+    /// A checkpoint at `at` when the last one is `EVERY` lines above.
+    fn checkpoint(&mut self, at: usize, state: &LineState) {
+        let last = self.checkpoints.last().map_or(0, |(l, _)| *l);
+        if at >= last + EVERY {
+            self.checkpoints.push((at, state.clone()));
+        }
+    }
+
+    /// The cache kept to [`CACHE_LINES`] lines around `around`.
+    fn trim_cache(&mut self, around: usize) {
+        if self.cache.len() <= CACHE_LINES {
+            return;
+        }
+        let low = around.saturating_sub(CACHE_LINES / 2);
+        let high = around + CACHE_LINES / 2;
+        self.cache.retain(|l, _| *l >= low && *l <= high);
     }
 }
 
 impl HighlightJob {
     /// Parses the job's lines (on any thread).
     pub fn run(self) -> JobResult {
-        todo!("GREEN: run {}", self.first)
+        let mut state = self.state;
+        let mut checkpoints = Vec::new();
+        for (k, text) in self.lines.iter().enumerate() {
+            let at = self.first + k;
+            if k > 0 && at % EVERY == 0 {
+                checkpoints.push((at, state.clone()));
+            }
+            state = parse_line(&state, text).1;
+        }
+        checkpoints.push((self.first + self.lines.len(), state));
+        JobResult {
+            checkpoints,
+            generation: self.generation,
+        }
     }
 }
 
-/// The kind a run inside `scopes` is (outermost first).
+/// One line parsed from `state`: its runs and the state after it.
+fn parse_line(state: &LineState, text: &str) -> (Vec<CodeSpan>, LineState) {
+    let mut next = state.clone();
+    let mut line = String::with_capacity(text.len() + 1);
+    line.push_str(text);
+    line.push('\n');
+    let ops = next.parse.parse_line(&line, syntaxes()).unwrap_or_default();
+    let len = text.len();
+    let mut spans = Vec::new();
+    let mut last = 0_usize;
+    for (at, op) in ops {
+        let at = at.min(len);
+        if at > last {
+            push_span(&mut spans, last, at, classify(next.scopes.as_slice()));
+            last = at;
+        }
+        let _ = next.scopes.apply(&op);
+    }
+    if len > last {
+        push_span(&mut spans, last, len, classify(next.scopes.as_slice()));
+    }
+    (spans, next)
+}
+
+/// A run added (merged into the one before when it continues it; plain
+/// runs are not kept).
+fn push_span(spans: &mut Vec<CodeSpan>, start: usize, end: usize, kind: TokenKind) {
+    if kind == TokenKind::Plain || start >= end {
+        return;
+    }
+    let start = u32::try_from(start).unwrap_or(u32::MAX);
+    let end = u32::try_from(end).unwrap_or(u32::MAX);
+    if let Some(last) = spans.last_mut() {
+        if last.kind == kind && last.end == start {
+            last.end = end;
+            return;
+        }
+    }
+    spans.push(CodeSpan { start, end, kind });
+}
+
+/// The scope prefixes and what they are.
+struct Rules {
+    comment: Option<Scope>,
+    string: Option<Scope>,
+    list: Vec<(Scope, TokenKind)>,
+}
+
+fn rules() -> &'static Rules {
+    static RULES: OnceLock<Rules> = OnceLock::new();
+    RULES.get_or_init(|| {
+        use TokenKind as K;
+        let table: [(&str, TokenKind); 30] = [
+            ("constant.numeric", K::Number),
+            ("constant.character", K::StringLiteral),
+            ("constant", K::Constant),
+            ("keyword.operator", K::Operator),
+            ("keyword", K::Keyword),
+            ("storage", K::Keyword),
+            ("entity.name.function", K::Function),
+            ("support.function", K::Function),
+            ("variable.function", K::Function),
+            ("entity.name.type", K::Type),
+            ("entity.name.struct", K::Type),
+            ("entity.name.enum", K::Type),
+            ("entity.name.class", K::Type),
+            ("entity.name.trait", K::Type),
+            ("support.type", K::Type),
+            ("support.class", K::Type),
+            ("entity.name.tag", K::Tag),
+            ("entity.other.attribute-name", K::Attribute),
+            ("meta.annotation", K::Attribute),
+            ("meta.attribute", K::Attribute),
+            ("support.macro", K::Macro),
+            ("entity.name.macro", K::Macro),
+            ("markup.heading", K::Heading),
+            ("entity.name.section", K::Heading),
+            ("markup.underline.link", K::Link),
+            ("invalid", K::Invalid),
+            ("variable.parameter", K::Variable),
+            ("variable", K::Variable),
+            ("punctuation", K::Punctuation),
+            ("entity.name", K::Type),
+        ];
+        Rules {
+            comment: Scope::new("comment").ok(),
+            string: Scope::new("string").ok(),
+            list: table
+                .iter()
+                .filter_map(|(name, kind)| Scope::new(name).ok().map(|s| (s, *kind)))
+                .collect(),
+        }
+    })
+}
+
+/// The kind a run inside `scopes` is (outermost first): inside a comment or
+/// a string it is that; else the innermost scope that names a kind decides.
 pub fn classify(scopes: &[Scope]) -> TokenKind {
-    todo!("GREEN: classify {}", scopes.len())
+    let r = rules();
+    let within = |prefix: Option<Scope>| prefix.map_or(false, |p| scopes.iter().any(|s| p.is_prefix_of(*s)));
+    if within(r.comment) {
+        return TokenKind::Comment;
+    }
+    if within(r.string) {
+        return TokenKind::StringLiteral;
+    }
+    for s in scopes.iter().rev() {
+        if let Some((_, kind)) = r.list.iter().find(|(p, _)| p.is_prefix_of(*s)) {
+            return *kind;
+        }
+    }
+    TokenKind::Plain
 }
 
 #[cfg(test)]
