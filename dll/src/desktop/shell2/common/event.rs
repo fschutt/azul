@@ -2996,6 +2996,11 @@ pub struct CommonWindowState {
     /// animations move only with the scenario's `tick_animations`, as in the
     /// in-process runner.
     pub scripted_animation_clock: bool,
+    /// A press outside this window's window-based menus closed them
+    /// ([`PlatformWindow::dismiss_menu_windows`]) and was spent there; its
+    /// RELEASE is owed to the menus too, so it reaches nothing under the
+    /// pointer either (EVENTS7).
+    menu_release_owed: bool,
 }
 
 impl CommonWindowState {
@@ -3335,6 +3340,7 @@ impl CommonWindowState {
             renderer_clear_color: None,
             close_unconfirmed: false,
             scripted_animation_clock: super::debug_server::scripted_run_owns_the_clock(),
+            menu_release_owed: false,
         }
     }
 
@@ -5175,6 +5181,19 @@ pub trait PlatformWindow {
     /// (headless: the test drives it).
     fn deliver_forwarded_keys(&mut self) {}
 
+    /// Close every window-based MENU this window opened - the whole chain
+    /// (a menu and the submenus it opened) - because the user left them: a
+    /// press landed in this window, outside them, or an Escape reached it.
+    /// Returns whether any were open.
+    ///
+    /// Default: none to close. macOS and Win32 menus are native and close
+    /// themselves; X11 and Wayland dismiss their fallback menus through the
+    /// menu's own pointer / seat grab, before this window ever sees the
+    /// press. Headless has no grab, so its owner closes them (EVENTS7).
+    fn dismiss_menu_windows(&mut self) -> bool {
+        false
+    }
+
     /// `<transient-window>`, parent side: after a layout pass, turn the
     /// engine's popup diff into child windows / mailbox writes, and act on
     /// popups that dismissed themselves. See `common::transient`.
@@ -5340,8 +5359,26 @@ pub trait PlatformWindow {
         };
         let current = self.get_current_window_state().clone();
 
+        // The release of the press that closed this window's menus is the
+        // menus' too (see the parent side below): spent here, it reaches
+        // nothing under the pointer.
+        if self.get_common_mut().menu_release_owed
+            && super::transient::fresh_release(&previous, &current)
+        {
+            self.get_common_mut().menu_release_owed = false;
+            self.discard_input_delta("menu.outside_release");
+            return;
+        }
+
         if let Some(cause) = popup_dismiss_cause(&previous, &current) {
-            if post_dismissed(&current) {
+            // A window-based MENU (a fallback / headless menu window) has no
+            // mailbox and no parent node to post to: it just closes, and its
+            // owner takes the rest of the chain down with it. It used to stay
+            // open - `popup_dismiss_cause` answered for it, the close below
+            // waited for a mailbox it never has.
+            let is_window_menu = super::transient::mailbox_of(&current).is_none()
+                && current.flags.window_type == azul_core::window::WindowType::Menu;
+            if post_dismissed(&current) || is_window_menu {
                 log_debug!(
                     super::debug_server::LogCategory::Window,
                     "[transient] popup dismissing itself: {cause:?}"
@@ -5370,6 +5407,29 @@ pub trait PlatformWindow {
                 super::debug_server::LogCategory::Window,
                 "[transient] closing window reports itself dismissed"
             );
+            self.request_regeneration_all_windows();
+            return;
+        }
+
+        // The parent side for window-based MENUS this window owns: they
+        // light-dismiss like an `outside` popup - a fresh press here is
+        // outside them, an Escape that reached their owner leaves them - but
+        // the click that leaves a menu does nothing else (a native menu eats
+        // it, X11's grab does): the press is spent, its release owed.
+        let menu_press = super::transient::fresh_press(&previous, &current);
+        let menu_escape = super::transient::fresh_escape(&previous, &current);
+        if (menu_press || menu_escape) && self.dismiss_menu_windows() {
+            log_debug!(
+                super::debug_server::LogCategory::Window,
+                "[menu] the owner dismissed its menu windows (press={menu_press} \
+                 escape={menu_escape})"
+            );
+            if menu_press {
+                self.discard_input_delta("menu.outside_press");
+                self.get_common_mut().menu_release_owed = true;
+            } else {
+                self.consume_keyboard_delta("menu.escape_dismissed");
+            }
             self.request_regeneration_all_windows();
             return;
         }
