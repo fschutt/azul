@@ -7142,22 +7142,12 @@ impl LayoutWindow {
                 let size = lr.layout_tree.nodes.get(idx.index())?.used_size?;
                 Some((size.width, size.height))
             };
-            let mut transform_opacity_events = self
-                .gpu_state_manager
-                .get_or_create_cache(dom_id)
-                .synchronize_with_sizes(&styled_dom, &previous_size);
-            // MWA-C-gpu_state: drop the PREVIOUS pass's events before
-            // merging this one's. `pending_changes` has zero drain call
-            // sites (both renderers re-read cache values via
-            // synchronize_gpu_values / from_gpu_cache instead), and
-            // merge() appends Vecs — so this accumulated every layout's
-            // events forever, an unbounded leak in any long-running app.
-            // The field stays as a same-pass event record until a consumer
-            // exists (see FOLLOW-UPS).
-            drop(self.gpu_state_manager.take_pending_changes());
-            self.gpu_state_manager
-                .pending_changes
-                .merge(&mut transform_opacity_events);
+            sync_css_gpu_values(
+                &mut self.gpu_state_manager,
+                dom_id,
+                &styled_dom,
+                &previous_size,
+            );
         }
         // M12.7: in the headless web path the GPU cache is empty (sync skipped),
         // and `.clone()` of an empty hashbrown table drives RawTable::clone's
@@ -22256,6 +22246,20 @@ impl LayoutWindow {
         // Get scroll offsets from scroll manager
         let scroll_offsets = self.scroll_manager.get_scroll_states_for_dom(dom_id);
 
+        // The CSS `transform` / `opacity` values this list binds, from the
+        // styles as they are NOW - exactly what the layout pass does before
+        // its build. A paint-scope write (`set_css_property(transform)`, a
+        // tween frame that changed the key population) reaches the screen
+        // through this path, and used to be built against the old matrix.
+        if !self.skip_gpu_sync {
+            let size_of = |node: NodeId| -> Option<(f32, f32)> {
+                let idx = *tree.dom_to_layout.get(&node)?.first()?;
+                let size = tree.nodes.get(idx.index())?.used_size?;
+                Some((size.width, size.height))
+            };
+            sync_css_gpu_values(&mut self.gpu_state_manager, dom_id, styled_dom, &size_of);
+        }
+
         // Get GPU cache for this DOM
         let gpu_cache = self.gpu_state_manager.get_or_create_cache(dom_id).clone();
 
@@ -22397,6 +22401,23 @@ impl LayoutWindow {
                 if dom_id == DomId::ROOT_ID {
                     self.root_display_list_gpu_fingerprint =
                         Some(gpu_cache.dl_emission_fingerprint());
+                }
+                // PAINT dirt staged for this DOM is served: the list was just
+                // built from the styles it describes. A paint-scope tween
+                // frame stages its node here and asks for exactly this
+                // rebuild; leaving the entry made the dirt grow by one per
+                // frame until some layout pass ate it, and refused every
+                // frame in between the values-only repaint
+                // (`animation_tick_is_values_only`). Layout-scope dirt stays:
+                // a layout pass still owes it.
+                if matches!(
+                    &self.pending_css_dirty,
+                    Some((d, list)) if *d == dom_id
+                        && list
+                            .iter()
+                            .all(|(_, scope)| *scope == azul_css::props::property::RelayoutScope::None)
+                ) {
+                    self.pending_css_dirty = None;
                 }
                 // Refresh the solver's structural-identity DL cache with the
                 // SAME list, keyed on the fingerprint of the gpu cache this
@@ -28877,6 +28898,36 @@ const fn flip_to_matrix(
             [t.translate_x, t.translate_y, 0.0, 1.0],
         ],
     }
+}
+
+/// Bring `dom_id`'s CSS `transform` / `opacity` GPU values in line with
+/// `styled_dom` - keys minted for nodes that gained one, dropped for nodes
+/// that lost theirs, every value re-read (`node_size`: the box percentages
+/// resolve against) - and record the events as this build's pending
+/// changes.
+///
+/// The step EVERY display-list build owes before it reads the cache: the
+/// list opens a reference frame exactly for a keyed node and bakes the value
+/// it finds. The layout pass did it; the display-list-only rebuild
+/// (`regenerate_display_list_for_dom`) did not, so a `transform` written
+/// without a layout (a paint-scope `set_css_property`, a tween's frame) was
+/// built against the OLD matrix and showed nothing until an unrelated
+/// relayout.
+fn sync_css_gpu_values(
+    gpu_state_manager: &mut GpuStateManager,
+    dom_id: DomId,
+    styled_dom: &StyledDom,
+    node_size: &dyn Fn(NodeId) -> Option<(f32, f32)>,
+) {
+    let mut events = gpu_state_manager
+        .get_or_create_cache(dom_id)
+        .synchronize_with_sizes(styled_dom, node_size);
+    // MWA-C-gpu_state: drop the PREVIOUS build's events before merging this
+    // one's. `pending_changes` has no drain (both renderers re-read the cache
+    // values instead), and `merge` appends: without the drop it grew by every
+    // build's events forever.
+    drop(gpu_state_manager.take_pending_changes());
+    gpu_state_manager.pending_changes.merge(&mut events);
 }
 
 /// Everything the DOM diff learned, captured while BOTH trees are still alive.
