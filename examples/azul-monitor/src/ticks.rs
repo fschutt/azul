@@ -84,8 +84,27 @@ pub struct TickPlan {
 /// the screen shown, `settings_open` = the settings page covers it.
 #[must_use]
 pub fn plan(first: bool, screen: Screen, settings_open: bool) -> TickPlan {
-    let _ = (first, screen, settings_open);
-    todo!("GREEN: ticks::plan")
+    if first {
+        // The empty state gives way to the page: one build, every view in it.
+        return TickPlan {
+            refresh_dom: true,
+            views: Vec::new(),
+            status: false,
+        };
+    }
+    let views = if settings_open {
+        Vec::new()
+    } else {
+        match screen {
+            Screen::Processes => vec![LiveView::Cards, LiveView::Table],
+            Screen::Performance => vec![LiveView::Performance],
+        }
+    };
+    TickPlan {
+        refresh_dom: false,
+        views,
+        status: true,
+    }
 }
 
 #[cfg(test)]

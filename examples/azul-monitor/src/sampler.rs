@@ -91,8 +91,17 @@ impl Shared {
 /// Runs `commands` against `source`: what each came to (one sentence each)
 /// and whether a reading is wanted at once.
 pub fn run_commands(source: &mut dyn Source, commands: &[Command]) -> (Vec<String>, bool) {
-    let _ = (source, commands);
-    todo!("GREEN: run_commands")
+    let mut notices = Vec::new();
+    for command in commands {
+        match *command {
+            Command::End { pid, force } => match source.end(pid, force) {
+                Ok(done) => notices.push(done),
+                Err(why) => notices.push(why),
+            },
+            Command::ReadNow => {}
+        }
+    }
+    (notices, !commands.is_empty())
 }
 
 /// Whether to read now: `since_ms` after the previous reading, readings
@@ -100,8 +109,10 @@ pub fn run_commands(source: &mut dyn Source, commands: &[Command]) -> (Vec<Strin
 /// Never sooner than [`MIN_GAP_MS`].
 #[must_use]
 pub fn due(since_ms: u64, interval_ms: u64, urgent: bool) -> bool {
-    let _ = (since_ms, interval_ms, urgent);
-    todo!("GREEN: due")
+    if since_ms < MIN_GAP_MS {
+        return false;
+    }
+    urgent || (interval_ms > 0 && since_ms >= interval_ms)
 }
 
 /// One reading on its way to the window (the write-back's payload).
