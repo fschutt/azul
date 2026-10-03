@@ -2529,15 +2529,36 @@ impl HeadlessWindow {
         use azul_core::events::ProcessEventResult as R;
 
         // Mirror the desktop event-arm routing: a regenerate-tier result marks
-        // the DOM rebuild; an incremental-relayout result means the chokepoint
-        // ALREADY re-ran layout on the existing StyledDom, so the frame takes
-        // the relayout-only path (raise-time guard: never downgrade a pending
-        // rebuild).
+        // the DOM rebuild; an incremental-relayout result re-runs layout on the
+        // existing StyledDom HERE, as X11's `handle_event` / macOS's input arm
+        // do, and the frame then takes the relayout-only path, which PAINTS:
+        // every relayout-only request means "the layout already ran"
+        // (`process_timers_and_threads`, `adopt_system_style` and this arm
+        // all lay out before they raise it). Headless used to raise the flag
+        // here and lay out in the frame, so a request raised after a layout
+        // laid the window out twice - and the second build, with nothing left
+        // to patch, replaced the patched display list (e2e/dl-text-patch).
         if tier >= R::ShouldRegenerateDomCurrentWindow {
             self.common
                 .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
         } else if tier == R::ShouldIncrementalRelayout {
-            self.common.request_relayout_only();
+            let mut debug_messages = None;
+            match self.incremental_relayout_dispatching(
+                event::IncrementalRelayout::Restyle,
+                &mut debug_messages,
+            ) {
+                Ok(()) => self.common.request_relayout_only(),
+                Err(e) => {
+                    log_warn!(
+                        LogCategory::Layout,
+                        "[Headless] incremental relayout failed: {} - falling back to a full \
+                         regeneration",
+                        e
+                    );
+                    self.common
+                        .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                }
+            }
         }
 
         let relayout_only = self.common.take_relayout_only();
@@ -2553,22 +2574,51 @@ impl HeadlessWindow {
         let resize_relayout = self.common.take_resize_relayout();
         let regen_requested = self.common.take_regeneration();
         let content_repaint = core::mem::take(&mut self.common.content_repaint_pending);
+        // A display list marked dirty (a css-id image registered, a caret
+        // blink): rebuilt from the layout as it stands by `repaint_only`, as
+        // macOS's `build_atomic_txn` consumes the flag. Headless had no
+        // consumer at all, so such a change re-laid-out the unchanged tree,
+        // kept the cached list and painted nothing
+        // (e2e/op-image-cache-id-repaints).
+        let display_list_dirty = self.common.display_list_dirty;
 
         let (res, what) = if relayout_only {
-            (self.relayout_only(), "relayout")
+            // The layout ran where the request was raised (see the top of
+            // this fn) and built the display list - patched where it could:
+            // paint it. Rebuilding the list for the dirty flag would replace
+            // that patch with a full build (macOS clears the flag here too).
+            self.common.display_list_dirty = false;
+            (self.paint_laid_out(), "relayout")
         } else if regen_requested {
-            (self.regenerate_layout().map(|_| ()), "regeneration")
+            let result = self.regenerate_layout();
+            // An unchanged DOM reuses its layout and its display list - the
+            // dirty list still owes its rebuild (macOS: "layout unchanged but
+            // display_list_dirty").
+            if display_list_dirty
+                && matches!(
+                    result,
+                    Ok(crate::desktop::shell2::common::layout::LayoutRegenerateResult::LayoutUnchanged)
+                )
+            {
+                (self.repaint_only(), "regeneration + display-list rebuild")
+            } else {
+                (result.map(|_| ()), "regeneration")
+            }
         } else if resize_relayout {
             (
                 self.relayout_existing_dom(event::IncrementalRelayout::Resize),
                 "resize",
             )
-        } else if content_repaint && !resize_relayout && tier <= R::ShouldReRenderCurrentWindow {
+        } else if (content_repaint || display_list_dirty)
+            && !resize_relayout
+            && tier <= R::ShouldUpdateDisplayListCurrentWindow
+        {
             // A content change patched the display list in place (a video
-            // frame on a visible tile) and nothing else asked for more: paint
-            // the frame from the layout as it stands, the way the desktop
-            // frame paths do - no layout pass, no display-list rebuild. The
-            // display-list diff damages exactly the patched items.
+            // frame on a visible tile), or marked it for a rebuild, and nothing
+            // else asked for more: paint the frame from the layout as it
+            // stands, the way the desktop frame paths do - no layout pass;
+            // `repaint_only` rebuilds a dirty list first. The display-list
+            // diff damages exactly the changed items.
             (self.repaint_only(), "content repaint")
         } else {
             // Pure repaint (request_repaint, a paint-only change): render from
@@ -2650,6 +2700,20 @@ impl HeadlessWindow {
     /// patched in place), exactly what a desktop frame path does for it: no
     /// layout pass. A display list marked dirty in the same pass (a caret
     /// blink) is regenerated from the existing layout first.
+    /// Paint the layout a relayout-only request says already ran (its raiser
+    /// laid the existing StyledDom out and rebuilt the shared hit tester):
+    /// the backend's own hit tester, then the CPU frame - the finalize tail of
+    /// [`Self::relayout_existing_dom`] without its layout pass.
+    fn paint_laid_out(&mut self) -> Result<(), String> {
+        if let Some(lw) = self.common.layout_window.as_ref() {
+            self.cpu_backend
+                .hit_tester
+                .rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
+        }
+        self.paint_cpu_frame();
+        Ok(())
+    }
+
     fn repaint_only(&mut self) -> Result<(), String> {
         if core::mem::take(&mut self.common.display_list_dirty) {
             if let Some(lw) = self.common.layout_window.as_mut() {
