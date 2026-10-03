@@ -54,7 +54,7 @@ impl StyleTextColor {
 
 impl PrintAsCssValue for StyleTextColor {
     fn print_as_css_value(&self) -> String {
-        self.inner.to_hash()
+        self.inner.to_css_value()
     }
 }
 
@@ -2618,7 +2618,7 @@ impl Default for CaretColor {
 
 impl PrintAsCssValue for CaretColor {
     fn print_as_css_value(&self) -> String {
-        self.inner.to_hash()
+        self.inner.to_css_value()
     }
 }
 

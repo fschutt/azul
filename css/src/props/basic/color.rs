@@ -891,6 +891,19 @@ impl ColorU {
         format!("#{:02x}{:02x}{:02x}{:02x}", self.r, self.g, self.b, self.a)
     }
 
+    /// The colour as a CSS VALUE, what the property printers write:
+    /// [`Self::to_hash`], or the `system:<name>` keyword when the colour is a
+    /// [`SystemColorRef`] token ([`SystemColorRef::to_color_token`]) - the
+    /// token itself is a transparent placeholder, so its hex would print a
+    /// colour that does not read back as the one the style names.
+    #[must_use]
+    pub(crate) fn to_css_value(&self) -> String {
+        match SystemColorRef::from_color_token(*self) {
+            Some(system) => String::from(system.as_css_str()),
+            None => self.to_hash(),
+        }
+    }
+
     /// The colour as CSS writes it, lower case: `#rrggbb`, or `#rrggbbaa`
     /// when it is not fully opaque. [`Self::parse_hex`] reads it back.
     #[must_use]

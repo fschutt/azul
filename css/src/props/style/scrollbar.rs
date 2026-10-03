@@ -413,7 +413,7 @@ impl PrintAsCssValue for StyleScrollbarColor {
     fn print_as_css_value(&self) -> String {
         match self {
             Self::Auto => "auto".to_string(),
-            Self::Custom(c) => format!("{} {}", c.thumb.to_hash(), c.track.to_hash()),
+            Self::Custom(c) => format!("{} {}", c.thumb.to_css_value(), c.track.to_css_value()),
         }
     }
 }

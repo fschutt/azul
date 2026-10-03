@@ -276,7 +276,7 @@ impl PrintAsCssValue for StyleFilter {
     fn print_as_css_value(&self) -> String {
         match self {
             Self::Blend(mode) => format!("blend({})", mode.print_as_css_value()),
-            Self::Flood(c) => format!("flood({})", c.to_hash()),
+            Self::Flood(c) => format!("flood({})", c.to_css_value()),
             Self::Blur(c) => {
                 if c.width == c.height {
                     format!("blur({})", c.width)
