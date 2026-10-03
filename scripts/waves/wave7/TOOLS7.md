@@ -3,6 +3,13 @@ Owns: doc/src/autofix/*, doc/src/codegen/*, css/src/macros.rs (the macros only -
 files alone, they keep compiling). Read first: scripts/AUTOFIX6_2026_10_03.md ("Seen broken", "Left").
 Test commands you write for the parent: `cargo test -p azul-doc --bin azul-doc -- autofix::` (and codegen tests).
 
+0. (FOUND AT THE INTEGRATION, top priority) `autofix add T.m` for a type NOT yet in api.json writes a patch that
+   adds the type WITH that one method; several such patches for the same new type each replace the class, so only
+   one method per new type survived (2026-10-03: DateRepeatPicker kept `dom`, DateRepeatRule `from_rrule`,
+   TextRasterStyle `with_line_height` - every patch reported "Successfully applied"). Re-adding after the type
+   existed merged correctly. Fix: a class patch for an existing class merges its functions / constructors (or the
+   add writes one patch per type with every requested method, or a multi-method `autofix add T.a T.b`), and the
+   apply reports a dropped function. RED test: two add patches for one new type keep both methods.
 1. `autofix add` cannot make a static function whose body calls a FREE function: at the wave-6 integration
    Xml.encode_text / encode_attribute (azul_core::xml::html::encode_text), RawImage.from_text / draw_text
    (azul_layout::cpurender::text_image / draw_text) and TextInput.set_text_in (takes &mut CallbackInfo) needed a
