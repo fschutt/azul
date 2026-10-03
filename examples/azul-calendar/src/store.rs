@@ -1,0 +1,122 @@
+//! Every durable write of AzCalendar - events, calendars, the settings, the To-Do bar's tasks,
+//! exports - goes through the azul-storage `Drive` (a `LocalDrive` on the data folder today,
+//! the user's `S3Drive` later), on an azul `Thread`, never from a callback (DEDUP_EDITORS B2).
+//!
+//! A callback queues the write in one of two write-behind queues (`azul_pim::write_queue`,
+//! AzTasks' queue: one write per key, one batch in flight, failures kept for a retry): the
+//! calendar's data folder and the task store's folder (the same folder when a data folder was
+//! named). A short timer hands each queue's batch to a file thread
+//! (`azul_appkit::ui::spawn_file_jobs`, the jobs below); the outcomes come back to the UI
+//! thread, which finishes the batch. The main window does not close while a write waits.
+
+use azul_appkit::files::{FileJob, FileOutcome};
+use azul_pim::write_queue::Write;
+
+/// The reply tag of a batch written into the calendar's data folder.
+pub const TAG_DATA: u64 = 1;
+/// The reply tag of a batch written into the task store.
+pub const TAG_TASKS: u64 = 2;
+
+/// The folder an export goes to, in the data folder (the data tree is what a sync sees).
+pub const EXPORTS_DIR: &str = "exports";
+
+/// The file jobs that write `batch`, in order.
+#[must_use]
+pub fn jobs_of(batch: &[Write]) -> Vec<FileJob> {
+    let _ = batch;
+    todo!()
+}
+
+/// The writes of `batch` that `outcomes` say did not land, each with why.
+#[must_use]
+pub fn failures_of(batch: &[Write], outcomes: &[FileOutcome]) -> Vec<(Write, String)> {
+    let _ = (batch, outcomes);
+    todo!()
+}
+
+/// The key an export named `file_name` (`Work.ics`) is written to.
+#[must_use]
+pub fn export_key(file_name: &str) -> String {
+    let _ = file_name;
+    todo!()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn put(key: &str, bytes: &str) -> Write {
+        Write::Put {
+            key: key.to_string(),
+            bytes: bytes.as_bytes().to_vec(),
+        }
+    }
+
+    #[test]
+    fn a_batch_is_written_as_file_jobs_in_its_order() {
+        let batch = vec![
+            put("events/a.json", "{}"),
+            Write::Delete {
+                key: "events/b.json".to_string(),
+            },
+            put("settings.txt", "view=week\n"),
+        ];
+        assert_eq!(
+            jobs_of(&batch),
+            vec![
+                FileJob::Put {
+                    key: "events/a.json".to_string(),
+                    bytes: b"{}".to_vec()
+                },
+                FileJob::Delete {
+                    key: "events/b.json".to_string()
+                },
+                FileJob::Put {
+                    key: "settings.txt".to_string(),
+                    bytes: b"view=week\n".to_vec()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_write_that_did_not_land_comes_back_for_a_retry_with_why() {
+        let batch = vec![
+            put("events/a.json", "{}"),
+            Write::Delete {
+                key: "events/b.json".to_string(),
+            },
+        ];
+        let outcomes = vec![
+            FileOutcome::Put {
+                key: "events/a.json".to_string(),
+                result: Err("the disk is full".to_string()),
+            },
+            FileOutcome::Deleted {
+                key: "events/b.json".to_string(),
+                result: Ok(()),
+            },
+        ];
+        assert_eq!(
+            failures_of(&batch, &outcomes),
+            vec![(put("events/a.json", "{}"), "the disk is full".to_string())]
+        );
+        // A batch whose thread never answered for a write: that write did not land either.
+        let short = vec![FileOutcome::Put {
+            key: "events/a.json".to_string(),
+            result: Ok(()),
+        }];
+        let failed = failures_of(&batch, &short);
+        assert_eq!(failed.len(), 1);
+        assert_eq!(failed[0].0.key(), "events/b.json");
+    }
+
+    #[test]
+    fn an_export_goes_into_the_exports_folder_of_the_data_tree() {
+        assert_eq!(export_key("Work.ics"), "exports/Work.ics");
+        // Only a file name: no folders of its own, no way out of the tree.
+        assert_eq!(export_key("../../etc/Work.ics"), "exports/Work.ics");
+        assert_eq!(export_key("C:\\Users\\me\\Work.ics"), "exports/Work.ics");
+        assert_eq!(export_key(""), "exports/AzCalendar.ics");
+    }
+}
