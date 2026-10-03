@@ -20,20 +20,30 @@ Branch `wt/media6` from `25d78e309`. Brief: `scripts/waves/wave6/MEDIA6.md`.
   thumbnail (needs api.json `RawImage.fit_within` -> PhysicalSizeU32, report); `0c6d624e4`
   ProgressDialog + AboutDialog; `a5999b54d` args on appkit; `fa2145ef1` start on the kit, settings
   page, ABOUT/SHORTCUTS, store::data_root gone, E2E --data-dir; `d1687bc41` __azvideocut_ markers.
-- AzPaint: `6449be8a0` RED E2E scripts/azpaint_e2e.py (live raster, undo/redo, exports in tree).
+- AzPaint: `6449be8a0` RED E2E scripts/azpaint_e2e.py (live raster, undo/redo, exports in tree);
+  `09e246bd0` E2E on pixels (azlin_e2e read_png / dark_pixels); `94478e917` GREEN 1 (MouseMove,
+  poke node raw-1, __azpaint_ ids, body margin, AZPAINT_RASTER/STROKES).
+- ENGINE `4192aa092` RED layout/tests/an_image_patched_in_place_survives_a_cached_relayout.rs,
+  `a27ded13e` GREEN window.rs apply_image_change: patched DL handed to layout_cache.cached_display_list.
+- AzPhoto `796d2da1a` canvas on MouseMove (same W3C MouseOver bug).
 
 ## IN PROGRESS
 - (between units)
 
 ## NEXT (in order)
-4. AzPaint GREEN: stroke not shown (poke_canvas `NodeId{inner: raw}` vs Photo/VideoCut raw-1 -
-   verify via DomNodeId encoding); body margin/height; appkit (args, data root, settings, kit
-   keys); `__azpaint_` markers as consts (not Uuid::short); UndoHistory for strokes (Mod+Z /
-   Mod+Shift+Z); exports PNG/SVG into paint/exports/ via Drive (AZPAINT_EXPORTED key bytes);
-   AZPAINT_RASTER / AZPAINT_STROKES lines for the E2E.
+4. AzPaint: B UndoHistory<Vec<Stroke>> + menu accelerators (Undo LWin+Z, Redo LWin+LShift+Z;
+   the engine dispatches menu accelerators, headless too - NOT in the key handler, double);
+   C appkit (Cargo azul-appkit features=["azul"] - link features already coexist on android;
+   args SPEC, kit, settings page, kit::handle_key in a window VirtualKeyDown handler,
+   on_window_created, AboutDialog from Help); D exports: CPU raster in the menu callback ->
+   encode_png -> kit::spawn_file_jobs Put paint/exports/canvas-<secs>.png / strokes-<secs>.svg,
+   AZPAINT_EXPORTED <key> <bytes> in on_files_done (pending map key->len); drop export_path /
+   export_png / std::fs::write; --sample strokes.
 5. AzPhoto leftovers: P1 private Palette (D16); P3 History undo/redo row cut off.
-6. Report scripts/MEDIA6_2026_10_03.md (api.json list: TextRasterStyle + RawImage.from_text /
-   draw_text, RawImage.fit_within; appkit features on Photo/VideoCut).
+6. Verify brief items: UndoHistory in Photo (engine.rs history) and VideoCut; VideoCut CloseGuard?
+   (project autosaved?); ids from Uuid::from_seed(random_seed()) in all three.
+7. Report scripts/MEDIA6_2026_10_03.md (api.json: TextRasterStyle + RawImage.from_text /
+   draw_text, RawImage.fit_within; engine fix; AzReview ui.rs:547 still MouseOver - owner).
 
 ## Seen broken (LOOK)
 Screenshots: `target/media6/{photo,vc,paint}/*.png` (not committed). LOOK harness:
@@ -64,8 +74,17 @@ AzVideoCut (`--sample`): opens after ~2 s (sample encoded through VideoToolbox).
 - V5 Cmd+E did not open the export dialog in the LOOK run (to verify after V1).
 - V6 About / export progress hand-made (D12); `fit_within` / `scale_to` twins of core (D15).
 
-AzPaint: (run pending - the disk was full at 14:xx)
+AzPaint (prebuilt, AZ_PAINT_DEBUG, scratchpad diag): after a mouse stroke "1 strokes" over an
+empty canvas. (1) no on_pointer_move during the drag: MouseOver is ENTRY since 2a7712f66, movement
+is MouseMove; (2) poke_canvas NodeId{inner: raw} (1-based) pokes the next node; (3) ENGINE: the
+canvas re-rasterised on the pointer-up RefreshDom frame but the window kept the old picture until
+a resize - apply_image_change's make_mut leaves the solver's cached_display_list with the
+pre-patch Arc, the next cache-hit relayout serves it back. (4) 8 px body margin.
 
 ## Decisions
+- AzPaint keeps its android/ios targets; appkit with `azul` is added unconditionally (azul-dll is
+  already listed with link-dynamic AND link-static there, so no new feature conflict).
+- AzPaint undo/redo/export keys live on the menu items' accelerators (engine dispatch), the window
+  key handler only forwards the kit's keys.
 
 ## Open questions
