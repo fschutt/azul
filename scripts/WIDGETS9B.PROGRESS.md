@@ -31,8 +31,18 @@ worktree guard - edit files with the Edit tool; `rustfmt --edition 2021 <file>` 
   cd879c8ed GREEN range logic (day_number, presets, with_range / turned / right_month, click_day, shown_range,
   range_text).
 
+  3fb03e2b0 the DOM + handlers (calendar_look merges both date_picker_looks per part; RangeShared /
+  RangeDayData / PresetData payloads; days_around + repaint in place; report) + flat/flora
+  `date_range_picker_skin` (theme APPENDS `// ==== date_range_picker ====`).
+
 ## NEXT (exact)
-4. DateRangePicker: the DOM (presets column of PushButton <p>s; two calendars = date_picker_look parts merged per part with
+4. DateRangePicker tests (`mod dom_tests` at the end of date_range_picker.rs) + `pub(crate) mod fixtures
+   { sample() }` (March 2026 left, today 2026-03-04, Monday start, range 4-10 Mar, named "Report period"):
+   two months with 31 + 30 day cells, one Tab stop (4 Mar), presets column with 6 buttons, summary text,
+   click on a day via rv::fire -> event Anchored then Picked (log through on_event), MouseEnter preview writes
+   SetNodeStyle for every day, Escape after anchoring -> Cancelled, PageDown -> Navigated (view.month 4),
+   preset click -> Preset with the span, follows the app theme, invariants; then manifest (INPUTS:
+   "date_range_picker"). OLD notes for reference: the DOM (presets column of PushButton <p>s; two calendars = date_picker_look parts merged per part with
    theme_blocks::part_of over [flat::date_picker_look(), flora::date_picker_look()] when unpinned; header with
    ‹ on the left month / › on the right via header_nav_button; build_weekday_row_from; day_grid with own day
    cells (payload {date, shared}), click / MouseEnter preview / keys; summary line), handlers (restyle both grids
