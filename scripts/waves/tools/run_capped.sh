@@ -32,12 +32,16 @@ until mkdir "$lock" 2>/dev/null; do
   sleep 2; waited=$((waited + 2))
 done
 echo $$ > "$lock/pid"
-trap 'rm -rf "$lock"' EXIT
 export DYLD_LIBRARY_PATH=${DYLD_LIBRARY_PATH:-/Users/fschutt/Development/azul/target/azul-lib}
 "$@" > "$log" 2>&1 &
 pid=$!
 start=$(date +%s)
 tree() { echo $1; for c in $(pgrep -P $1 2>/dev/null); do tree $c; done; }
+# A stop of the runner (Ctrl+C, a tool timeout, `kill`) stops the whole tree it
+# started: a harness killed mid-run left its headless app running (MAIL6, 2026-10-03).
+stop_tree() { local p; p=$(tree $pid 2>/dev/null | tr '\n' ' '); [ -n "$p" ] && kill $p 2>/dev/null; sleep 1; [ -n "$p" ] && kill -9 $p 2>/dev/null; }
+trap 'stop_tree; rm -rf "$lock"; exit 143' INT TERM HUP
+trap 'rm -rf "$lock"' EXIT
 while kill -0 $pid 2>/dev/null; do
   pids=$(tree $pid | paste -sd, -)
   rss=$(ps -o rss= -p "$pids" 2>/dev/null | awk '{s+=$1} END {print s+0}')

@@ -5,7 +5,7 @@ Base: 25d78e309 (launched 2026-10-03 ~02:30). Resume a stopped agent: SendMessag
 | Task | Agent id | Branch | Worktree | State |
 |---|---|---|---|---|
 | INFRA6 | a2920336ddc00cc70 | wt/infra6 | .claude/worktrees/agent-a2920336ddc00cc70 | DONE (report scripts/INFRA6_2026_10_03.md; api: remove FullWindowState.close_callback; Windows/Linux close paths compile first in CI; notes forwarded to MEETDRIVE6, SHEETSHOW6, PIM6, HEADLESS6, MAIL6, WRITER6) |
-| MAIL6 | ac5bc58e39fd4ed88 (was a516d913c267d173a, stopped by the restart) | wt/mail6 | .claude/worktrees/agent-a516d913c267d173a | running (continued) |
+| MAIL6 | ac5bc58e39fd4ed88 (was a516d913c267d173a) | wt/mail6 | .claude/worktrees/agent-a516d913c267d173a | DONE (report scripts/MAIL6_2026_10_03.md; api: Xml.encode_text / encode_attribute REQUIRED for AzMail to build; E2E sample phase 3 pass / 8 fail on the prebuilt binary - all 8 need this branch; wizard page-2 engine bug RED cc7040ae5 has no owner) |
 | MEETDRIVE6 | a2b7fd9b18e455a3c (was ad47cdc4a01c95c37, stopped by the restart) | wt/meetdrive6 | .claude/worktrees/agent-ad47cdc4a01c95c37 | running (continued) |
 | SHEETSHOW6 | a763890131c8611a5 | wt/sheetshow6 | .claude/worktrees/agent-a763890131c8611a5 | running |
 | MEDIA6 | a0593b6c7ec695651 | wt/media6 | .claude/worktrees/agent-a0593b6c7ec695651 | running |
