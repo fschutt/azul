@@ -16,6 +16,8 @@ Brief: scripts/waves/wave8/PLAN.md section "RULINGS8".
 - bb434c120 STRUT GREEN (c): text3 cache.rs baseline_shift helper (line box + placement), strut in pass 1,
   middle raises
 - 1e5ec4293 BASELINE RED: layout/tests/an_atomic_inline_sits_on_the_baseline_of_its_content.rs (Chrome numbers)
+- d06b7c8b6 BASELINE GREEN (d): fc.rs line_baseline(LineEdge) + atomic_inline_content_baseline in
+  measure_atomic_inline (flex/grid First, block Last, overflow rule inline-block only)
 - 91928b72d FOCUS GREEN: managers::hover::focusable_under_pointer walks core::events::get_event_path (4th closure
   host_of); dll event.rs + runner.rs pass virtual_view_manager.host_of_nested_dom; hover.rs unit tests updated.
 
@@ -80,11 +82,14 @@ Brief: scripts/waves/wave8/PLAN.md section "RULINGS8".
 - 4b. FOUND (scan + probe target/rulings8/baseline.json): flex/grid (layout_flex_grid) and BFC (layout_bfc sets
      output.baseline = None) report no baseline -> inline-flex buttons / block-holding inline-blocks sit on the
      baseline by their bottom; with the strut they would grow by the strut descent (dialog invoker 31 -> ~35).
-     NEXT GREEN (d) in solver3/fc.rs measure_atomic_inline (~10500): when layout_result.output.baseline is
+     DONE d06b7c8b6. (was: GREEN (d) in solver3/fc.rs measure_atomic_inline (~10500): when layout_result.output.baseline is
      None, walk the laid-out subtree: generalize first_line_baseline (~9220) into line_baseline(index, tree,
      depth, LineEdge::First|Last) (First = the old code exactly; Last = items.last() / children reversed);
      flex/grid -> First and ignore the overflow rule; block -> Last. Subtract padding.top+border.top
      (first_line_baseline is from the border-box top; atomic_inline_baseline_offset wants content-top).
+- 4c. NEXT: scan more apps one at a time (scan.py <App> target/rulings8/<app>.json; analyze.py) - lines of
+     only atomics WITHOUT text inside (icons, swatches, images) are what grows (by the strut descent, and to
+     the strut ascent if shorter); boxes with text sit on their label baseline now (unchanged height).
 - 5. Report scripts/RULINGS8_2026_10_03.md.
 
 ## Decisions / open questions
