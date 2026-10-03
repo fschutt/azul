@@ -1128,19 +1128,36 @@ pub fn generate_add_functions_patch(
     version: &str,
     type_def: &TypeDefinition,
 ) -> ApiPatch {
-    let mut functions: IndexMap<String, FunctionData> = IndexMap::new();
-    let mut constructors: IndexMap<String, FunctionData> = IndexMap::new();
-
     // Use the full_path from type_def (e.g. "azul_core::dom::Dom")
     let full_path = &type_def.full_path;
+    let entries = methods
+        .iter()
+        .map(|method| {
+            (
+                api_name_of(method),
+                method_to_function_data(method, full_path),
+                method.is_constructor,
+            )
+        })
+        .collect();
+    generate_add_entries_patch(type_name, entries, module_name, version)
+}
 
-    for method in methods {
-        let fn_data = method_to_function_data(method, full_path);
-
-        if method.is_constructor {
-            constructors.insert(api_name_of(method), fn_data);
+/// A patch adding `entries` - (api.json name, entry, is a constructor) -
+/// to the class `type_name`, merged with what the class has.
+pub fn generate_add_entries_patch(
+    type_name: &str,
+    entries: Vec<(String, FunctionData, bool)>,
+    module_name: &str,
+    version: &str,
+) -> ApiPatch {
+    let mut functions: IndexMap<String, FunctionData> = IndexMap::new();
+    let mut constructors: IndexMap<String, FunctionData> = IndexMap::new();
+    for (name, data, is_constructor) in entries {
+        if is_constructor {
+            constructors.insert(name, data);
         } else {
-            functions.insert(api_name_of(method), fn_data);
+            functions.insert(name, data);
         }
     }
 

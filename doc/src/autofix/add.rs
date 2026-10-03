@@ -9,10 +9,14 @@ use std::path::Path;
 use crate::{
     api::VersionData,
     autofix::{
-        function_diff::{generate_add_type_patches, AddTypeResult},
+        function_diff::{
+            find_type_module, free_fn_entry, generate_add_entries_patch, generate_add_type_patches,
+            AddTypeResult,
+        },
         patch_format::PatchOperation,
-        type_index::TypeIndex,
+        type_index::{find_free_fn, FreeFnDef, TypeIndex},
     },
+    patch::ApiPatch,
 };
 
 /// One patch file: its name in the patch folder and its JSON.
@@ -76,6 +80,45 @@ pub fn new_type_patch_files(
         });
     }
     Ok((files, result))
+}
+
+/// The patch file `autofix add <Class>.<name> --fn <path>` writes (and its
+/// patch, and the free function it read): one entry of a class api.json
+/// has, whose body calls the public free function `free_fn_path`
+/// ([`free_fn_entry`]).
+pub fn free_fn_patch_file(
+    workspace_root: &Path,
+    fn_spec: &str,
+    free_fn_path: &str,
+    version_data: &VersionData,
+    version: &str,
+) -> Result<(PatchFile, ApiPatch, FreeFnDef), String> {
+    let parts: Vec<&str> = fn_spec.split('.').collect();
+    let (class_name, api_name) = match parts.as_slice() {
+        [.., class, name] if !class.is_empty() && !name.is_empty() && *name != "*" => {
+            (*class, *name)
+        }
+        _ => return Err(format!("`{fn_spec}`: --fn adds one function, `Class.name`")),
+    };
+    let module = find_type_module(class_name, version_data).ok_or_else(|| {
+        format!(
+            "class `{class_name}` is not in api.json: add the type first \
+             (`autofix add {class_name}.<method>`)"
+        )
+    })?;
+    let free_fn = find_free_fn(workspace_root, free_fn_path, class_name)?;
+    let (entry, is_constructor) = free_fn_entry(class_name, api_name, &free_fn);
+    let patch = generate_add_entries_patch(
+        class_name,
+        vec![(api_name.to_string(), entry, is_constructor)],
+        module,
+        version,
+    );
+    let file = PatchFile {
+        name: functions_patch_file_name(class_name, api_name),
+        json: serde_json::to_string_pretty(&patch).map_err(|e| e.to_string())?,
+    };
+    Ok((file, patch, free_fn))
 }
 
 /// Write `files` into the patch folder `dir`.
