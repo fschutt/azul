@@ -4024,5 +4024,23 @@ pub mod parsed {
                 );
             }
         }
+
+        /// A parsed face carries its OS/2 x-height and cap height (version 2+:
+        /// `sxHeight`, `sCapHeight`), which the strut's `vertical-align:
+        /// middle` and `text-box-edge: ex / cap` read; they were always
+        /// `None`, so every face fell back to 0.5em / 0.7em (MAILENG6 item 6).
+        /// Arial: 1062 and 1467 at 2048 upem, where the machine has it.
+        #[test]
+        fn a_parsed_face_carries_its_os2_x_height_and_cap_height() {
+            let Ok(bytes) = std::fs::read("/System/Library/Fonts/Supplemental/Arial.ttf") else {
+                return;
+            };
+            let mut warnings = Vec::new();
+            let m = ParsedFont::from_bytes(&bytes, 0, &mut warnings)
+                .expect("the system Arial parses")
+                .font_metrics;
+            assert_eq!(m.x_height, Some(1062.0), "Arial's OS/2 sxHeight");
+            assert_eq!(m.cap_height, Some(1467.0), "Arial's OS/2 sCapHeight");
+        }
     }
 }
