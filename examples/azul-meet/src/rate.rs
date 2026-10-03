@@ -111,9 +111,26 @@ impl RateControl {
 
     /// Every pump, at `now_ms`: the new rate when the encoder must be told one, else `None`.
     pub fn tick(&mut self, now_ms: u64) -> Option<u32> {
-        // RED stub: the rate never moves.
-        let _ = now_ms;
-        None
+        // The first tick starts the clock; a decision every DECIDE_EVERY_MS after it.
+        let last = *self.decided_at_ms.get_or_insert(now_ms);
+        if now_ms.saturating_sub(last) < DECIDE_EVERY_MS {
+            return None;
+        }
+        self.decided_at_ms = Some(now_ms);
+        let worst = core::mem::take(&mut self.worst_in_flight);
+        let before = self.rate_kbps;
+        let rate = u64::from(before);
+        if worst >= DECREASE_AT {
+            let lowered = u32::try_from(rate * DECREASE_PERCENT / 100).unwrap_or(u32::MAX);
+            self.rate_kbps = lowered.max(self.floor_kbps());
+            self.hold_until_ms = now_ms.saturating_add(HOLD_AFTER_DECREASE_MS);
+        } else if worst <= INCREASE_BELOW && now_ms >= self.hold_until_ms {
+            let step = u32::try_from(rate * INCREASE_STEP_PERCENT / 100)
+                .unwrap_or(u32::MAX)
+                .max(MIN_STEP_KBPS);
+            self.rate_kbps = before.saturating_add(step).min(self.ladder_kbps);
+        }
+        (self.rate_kbps != before).then_some(self.rate_kbps)
     }
 
     /// "600 of 1000 kbps": for the statistics.
