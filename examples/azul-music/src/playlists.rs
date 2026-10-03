@@ -21,47 +21,57 @@ impl Playlist {
     /// An empty playlist called `name`.
     #[must_use]
     pub fn new(id: String, name: String) -> Self {
-        let _ = (id, name);
-        Self::default()
+        Self {
+            id,
+            name,
+            tracks: Vec::new(),
+        }
     }
 
     /// The playlist's file name in [`PLAYLISTS_DIR`]: `<id>.json`.
     #[must_use]
     pub fn file_name(&self) -> String {
-        String::new()
+        format!("{}.json", self.id)
     }
 
     /// The playlist from its file's text, or why not.
     pub fn from_json(text: &str) -> Result<Playlist, String> {
-        let _ = text;
-        Err(String::from("not built yet"))
+        serde_json::from_str(text).map_err(|e| format!("the playlist file does not read: {e}"))
     }
 
     /// The playlist as its file's text.
     #[must_use]
     pub fn to_json(&self) -> String {
-        String::new()
+        serde_json::to_string_pretty(self).unwrap_or_default()
     }
 
     /// Appends tracks.
     pub fn add(&mut self, ids: &[String]) {
-        let _ = ids;
+        self.tracks.extend_from_slice(ids);
     }
 
     /// Removes the entry at `index` (not every entry of that track).
     pub fn remove_at(&mut self, index: usize) {
-        let _ = index;
+        if index < self.tracks.len() {
+            self.tracks.remove(index);
+        }
     }
 
     /// Moves the entry at `from` so it ends up at `to` (a drag in the list).
     pub fn move_entry(&mut self, from: usize, to: usize) {
-        let _ = (from, to);
+        if from >= self.tracks.len() {
+            return;
+        }
+        let entry = self.tracks.remove(from);
+        let to = to.min(self.tracks.len());
+        self.tracks.insert(to, entry);
     }
 
     /// Drops the entries whose track is no longer in the library (`known`). Returns how many.
     pub fn retain_known(&mut self, known: impl Fn(&str) -> bool) -> usize {
-        let _ = known;
-        0
+        let before = self.tracks.len();
+        self.tracks.retain(|id| known(id));
+        before - self.tracks.len()
     }
 }
 
