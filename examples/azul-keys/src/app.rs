@@ -53,9 +53,8 @@ pub const ABOUT: AboutInfo = AboutInfo {
 };
 
 /// The keyboard shortcuts (the settings page and F1 list them).
-pub const SHORTCUTS: [Shortcut; 13] = [
+pub const SHORTCUTS: [Shortcut; 12] = [
     Shortcut::new("Vault", "Mod+N", "New login"),
-    Shortcut::new("Vault", "Mod+F", "Search"),
     Shortcut::new("Vault", "Mod+L", "Lock the vault"),
     Shortcut::new("Vault", "Mod+G", "Password generator"),
     Shortcut::new("Vault", "Up / Down", "Previous / next item"),

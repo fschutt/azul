@@ -1553,7 +1553,7 @@ extern "C" fn on_import_run(mut data: RefAny, mut info: CallbackInfo) -> Update 
             return;
         };
         let (added, known) = crate::import::merge(&mut session.open.vault, imported.items, now());
-        session.dirty = added > 0;
+        session.dirty |= added > 0;
         session.reading = Reading::Item;
         session.keep_selection_in_view();
         s.notice = format!(
