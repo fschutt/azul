@@ -774,3 +774,15 @@ mod a_spanning_cells_percentage_is_shared_by_its_columns;
 mod a_right_to_left_tables_columns_run_from_the_right;
 #[path = "an_apps_shell_body_fills_its_window.rs"]
 mod an_apps_shell_body_fills_its_window;
+#[path = "a_normal_line_is_as_tall_as_chromes.rs"]
+mod a_normal_line_is_as_tall_as_chromes;
+#[path = "a_cell_of_only_inline_boxes_aligns_them_like_text.rs"]
+mod a_cell_of_only_inline_boxes_aligns_them_like_text;
+#[path = "a_right_to_left_collapsed_border_stays_on_its_side.rs"]
+mod a_right_to_left_collapsed_border_stays_on_its_side;
+#[path = "an_atomic_inline_inside_a_span_keeps_its_box.rs"]
+mod an_atomic_inline_inside_a_span_keeps_its_box;
+#[path = "a_percentage_height_in_an_auto_height_block_is_auto.rs"]
+mod a_percentage_height_in_an_auto_height_block_is_auto;
+#[path = "an_overflowing_line_overflows_past_its_end_edge.rs"]
+mod an_overflowing_line_overflows_past_its_end_edge;

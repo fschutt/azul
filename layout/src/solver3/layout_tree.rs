@@ -5311,6 +5311,7 @@ mod autotest_generated {
                     units_per_em: 0,
                     x_height: None,
                     cap_height: None,
+                    browser_ascent_boost: false,
                 },
             })
             .collect();

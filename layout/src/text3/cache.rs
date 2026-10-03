@@ -129,7 +129,9 @@ impl LineHeight {
     /// Resolve to a pixel value, using font metrics when `Normal`.
     ///
     /// `ascent`, `descent` (negative in OpenType convention), `line_gap` are in font units.
-    /// `font_size_px` and `units_per_em` are used to scale.
+    /// `font_size_px` and `units_per_em` are used to scale. `normal` is the
+    /// browsers' rounded `A + D + G` ([`LayoutFontMetrics::line_metrics_px`],
+    /// for a face without the macOS ascent boost), 1.2em without units.
     #[must_use]
     pub fn resolve(
         &self,
@@ -139,28 +141,32 @@ impl LineHeight {
         line_gap: f32,
         units_per_em: u16,
     ) -> f32 {
-        match self {
-            Self::Px(px) => *px,
-            Self::Normal => {
-                if units_per_em == 0 {
-                    return font_size_px * 1.2; // fallback
-                }
-                let scale = font_size_px / f32::from(units_per_em);
-                (ascent - descent + line_gap) * scale
-            }
-        }
+        self.resolve_with_metrics(
+            font_size_px,
+            &LayoutFontMetrics {
+                ascent,
+                descent,
+                line_gap,
+                units_per_em,
+                x_height: None,
+                cap_height: None,
+                browser_ascent_boost: false,
+            },
+        )
     }
 
-    /// Resolve using a `LayoutFontMetrics` struct for convenience.
+    /// Resolve against a face's metrics: `normal` is the line height a
+    /// browser gives a line of that face, `A + D + G` each rounded to whole
+    /// pixels at the font size ([`LayoutFontMetrics::line_metrics_px`]),
+    /// 1.2em for a face without units.
     #[must_use]
     pub fn resolve_with_metrics(&self, font_size_px: f32, metrics: &LayoutFontMetrics) -> f32 {
-        self.resolve(
-            font_size_px,
-            metrics.ascent,
-            metrics.descent,
-            metrics.line_gap,
-            metrics.units_per_em,
-        )
+        match self {
+            Self::Px(px) => *px,
+            Self::Normal => metrics
+                .line_metrics_px(font_size_px)
+                .map_or(font_size_px * 1.2, |(a, d, g)| a + d + g),
+        }
     }
 }
 
@@ -183,6 +189,20 @@ impl Hash for LineHeight {
             v.to_bits().hash(state);
         }
     }
+}
+
+/// `(above, below)` the baseline of a box of `ascent` and `descent` (px) in a
+/// line `line_height` px tall: CSS 2.2 §10.8.1's leading `L = line-height -
+/// (A + D)` shared between the two sides, the share ABOVE floored to a whole
+/// pixel and the rest below, as LayoutNG does (`InlineBoxState::
+/// CalculateLeadingSpace`). The two always add up to `line_height`; with
+/// whole-pixel metrics a glyph's box and the strut of the same face split
+/// alike, so one line's boxes coincide.
+#[must_use]
+pub fn split_leading(line_height: f32, ascent: f32, descent: f32) -> (f32, f32) {
+    let leading = line_height - (ascent + descent);
+    let above = (leading / 2.0).floor();
+    (ascent + above, descent + (leading - above))
 }
 
 // Stub type when hyphenation is disabled
@@ -2833,9 +2853,57 @@ pub struct LayoutFontMetrics {
     /// OS/2 sCapHeight: height of capital letters from baseline (in font units).
     /// Used for drop cap / initial-letter alignment per CSS Inline 3 §7.1.1.
     pub cap_height: Option<f32>,
+    /// The face is Apple's Times, Helvetica or Courier on macOS: browsers
+    /// there grow its rounded ascent by 15% of ascent + descent
+    /// ([`Self::line_metrics_px`]). Set where the face is parsed
+    /// (`crate::font::parsed::browser_ascent_boost`).
+    pub browser_ascent_boost: bool,
 }
 
 impl LayoutFontMetrics {
+    /// The `(ascent, descent, line gap)` a browser lays a line of this face
+    /// out with at `font_size_px`, in px, `None` for a face without units.
+    ///
+    /// Each is rounded to a whole pixel AT THE FONT SIZE (Blink
+    /// `FontMetrics::AscentDescentWithHacks`: `SkScalarRoundToScalar` of the
+    /// ascent and descent; `SimpleFontData::PlatformInit`: `lroundf` of the
+    /// line gap), so `line-height: normal` is `A + D + G` in whole pixels: a
+    /// 16px Arial line is 14 + 3 + 1 = 18px, as in Chrome (the unrounded sum
+    /// is 18.4px, and every line of a mail drifted 0.4px against Chrome).
+    /// Then, for [`Self::browser_ascent_boost`] faces only, the rounded
+    /// ascent grows by `floor((A + D) * 0.15 + 0.5)` (Blink, macOS; WebKit
+    /// `SimpleFontData::platformInit`): 16px Helvetica is 14 + 4 + 0 = 18px.
+    /// The descent is the hhea descender's distance below the baseline
+    /// (stored negative), the line gap is floored at zero (CSS Inline 3
+    /// §3.2.2). Measured against Chrome 154 for 11 faces x 13 sizes
+    /// (layout/tests/a_normal_line_is_as_tall_as_chromes.rs).
+    #[must_use]
+    pub fn line_metrics_px(&self, font_size_px: f32) -> Option<(f32, f32, f32)> {
+        if self.units_per_em == 0 {
+            return None;
+        }
+        let scale = font_size_px / f32::from(self.units_per_em);
+        let round = |v: f32| (v + 0.5).floor();
+        let mut ascent = round(self.ascent * scale);
+        let descent = round((-self.descent * scale).max(0.0));
+        let line_gap = round((self.line_gap * scale).max(0.0));
+        if self.browser_ascent_boost {
+            ascent += round((ascent + descent) * 0.15);
+        }
+        Some((ascent, descent, line_gap))
+    }
+
+    /// `(above, below)` the baseline of a glyph of this face in a line of
+    /// `line_height`: the rounded ascent and descent
+    /// ([`Self::line_metrics_px`]) with the leading shared out by
+    /// [`split_leading`]. `None` for a face without units.
+    #[must_use]
+    pub fn inline_box_px(&self, font_size_px: f32, line_height: &LineHeight) -> Option<(f32, f32)> {
+        let (ascent, descent, _) = self.line_metrics_px(font_size_px)?;
+        let line_height = line_height.resolve_with_metrics(font_size_px, self);
+        Some(split_leading(line_height, ascent, descent))
+    }
+
     // +spec:font-metrics:006bd8 - baseline position from font design coordinates, scaled with font
     // size +spec:font-metrics:910c0a - dominant-baseline: auto resolves to alphabetic for
     // horizontal text +spec:writing-modes:098958 - baseline is along the inline axis, used to
@@ -2910,6 +2978,9 @@ impl LayoutFontMetrics {
             units_per_em: metrics.units_per_em,
             x_height,
             cap_height,
+            // No family name reaches this constructor (an embedder's face
+            // metrics): only `ParsedFont` sets the macOS ascent boost.
+            browser_ascent_boost: false,
         }
     }
 
@@ -7202,6 +7273,7 @@ impl CompactShapedEntry {
                     ascent: 0.0,
                     descent: 0.0,
                     cap_height: None,
+                    browser_ascent_boost: false,
                     x_height: None,
                     line_gap: 0.0,
                     units_per_em: 0,
@@ -10646,23 +10718,15 @@ pub fn get_item_vertical_metrics_approx(item: &ShapedItem) -> (f32, f32) {
                 c.glyphs
                     .iter()
                     .fold((0.0f32, 0.0f32), |(max_asc, max_desc), glyph| {
-                        let metrics = &glyph.font_metrics;
-                        if metrics.units_per_em == 0 {
-                            return (max_asc, max_desc);
+                        match glyph
+                            .font_metrics
+                            .inline_box_px(c.style.font_size_px, &c.style.line_height)
+                        {
+                            Some((item_asc, item_desc)) => {
+                                (max_asc.max(item_asc), max_desc.max(item_desc))
+                            }
+                            None => (max_asc, max_desc),
                         }
-                        let scale = c.style.font_size_px / f32::from(metrics.units_per_em);
-                        let font_ascent = metrics.ascent * scale;
-                        let font_descent = (-metrics.descent * scale).max(0.0);
-                        let ad = font_ascent + font_descent;
-                        let resolved_lh = c
-                            .style
-                            .line_height
-                            .resolve_with_metrics(c.style.font_size_px, &glyph.font_metrics);
-                        let half_leading = (resolved_lh - ad) / 2.0;
-                        (
-                            max_asc.max(font_ascent + half_leading),
-                            max_desc.max(font_descent + half_leading),
-                        )
                     });
             return (asc, desc);
         }
@@ -10717,16 +10781,18 @@ pub fn get_item_vertical_metrics(
                 // zero-width inline box with element's font/line-height
                 // §10.8.1 strut: if inline box contains no glyphs, it is considered to
                 // contain a strut with A and D of the element's first available font.
-                // Half-leading: L = line-height - (A + D), A' = A + L/2, D' = D + L/2
-                let ad = constraints.strut_ascent + constraints.strut_descent;
-                let resolved_lh =
-                    c.style
-                        .line_height
-                        .resolve(c.style.font_size_px, 0.0, 0.0, 0.0, 0);
-                let half_leading = (resolved_lh - ad) / 2.0;
-                return (
-                    constraints.strut_ascent + half_leading,
-                    constraints.strut_descent + half_leading,
+                // Half-leading: L = line-height - (A + D), shared by `split_leading`.
+                // `normal` is the strut's own (A + D + gap of the container's
+                // first available font, `UnifiedConstraints::resolved_line_height`),
+                // not a 1.2em guess.
+                let resolved_lh = match c.style.line_height {
+                    LineHeight::Px(px) => px,
+                    LineHeight::Normal => constraints.resolved_line_height(),
+                };
+                return split_leading(
+                    resolved_lh,
+                    constraints.strut_ascent,
+                    constraints.strut_descent,
                 );
             }
             // +spec:box-model:0b3e1f - inline non-replaced box height uses only line-height, not
@@ -10744,28 +10810,20 @@ pub fn get_item_vertical_metrics(
             // Note: L may be negative.
             // +spec:height-calculation:eb98b5 - multi-font normal line-height uses max across glyph
             // metrics
+            // A and D are the face's ROUNDED pixel metrics, as in Chrome
+            // (`LayoutFontMetrics::inline_box_px` / `line_metrics_px`).
             c.glyphs
                 .iter()
                 .fold((0.0f32, 0.0f32), |(max_asc, max_desc), glyph| {
-                    let metrics = &glyph.font_metrics;
-                    if metrics.units_per_em == 0 {
-                        return (max_asc, max_desc);
+                    match glyph
+                        .font_metrics
+                        .inline_box_px(c.style.font_size_px, &c.style.line_height)
+                    {
+                        Some((item_asc, item_desc)) => {
+                            (max_asc.max(item_asc), max_desc.max(item_desc))
+                        }
+                        None => (max_asc, max_desc),
                     }
-                    let scale = c.style.font_size_px / f32::from(metrics.units_per_em);
-                    let a = metrics.ascent * scale;
-                    // Descent in OpenType is typically negative, so we negate it to get a positive
-                    // distance.
-                    let d = (-metrics.descent * scale).max(0.0);
-                    let ad = a + d;
-                    let resolved_lh = c
-                        .style
-                        .line_height
-                        .resolve_with_metrics(c.style.font_size_px, &glyph.font_metrics);
-                    let leading = resolved_lh - ad;
-                    let half_leading = leading / 2.0;
-                    let item_asc = a + half_leading;
-                    let item_desc = d + half_leading;
-                    (max_asc.max(item_asc), max_desc.max(item_desc))
                 })
         }
         ShapedItem::Object {
@@ -12139,14 +12197,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
     // +spec:text-alignment-spacing:d497af - line box inline base direction affects text-align
     // resolution +spec:text-alignment-spacing:68332e - bidi direction determines start/end to
     // left/right mapping
-    let physical_align = match (text_align, base_direction) {
-        (TextAlign::Start, BidiDirection::Ltr) => TextAlign::Left,
-        (TextAlign::Start, BidiDirection::Rtl) => TextAlign::Right,
-        (TextAlign::End, BidiDirection::Ltr) => TextAlign::Right,
-        (TextAlign::End, BidiDirection::Rtl) => TextAlign::Left,
-        // Physical alignments are returned as-is, regardless of direction.
-        (other, _) => other,
-    };
+    let physical_align = physical_text_align(text_align, base_direction);
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
             "[Pos1Line] Physical align: {physical_align:?}"
@@ -12179,10 +12230,13 @@ pub fn position_one_line<T: ParsedFontTrait>(
     // available font. Half-leading L/2 is applied: L = line-height - (A + D), strut_above = A +
     // L/2, strut_below = D + L/2. +spec:height-calculation:8e91b2 - specified line-height used
     // in line box height calculation
-    let strut_ad = constraints.strut_ascent + constraints.strut_descent;
-    let strut_leading_half = (constraints.resolved_line_height() - strut_ad) / 2.0;
-    let strut_above = constraints.strut_ascent + strut_leading_half;
-    let strut_below = constraints.strut_descent + strut_leading_half;
+    // The leading is shared exactly as a glyph's (`split_leading`), so the
+    // strut and the text of the same face coincide.
+    let (strut_above, strut_below) = split_leading(
+        constraints.resolved_line_height(),
+        constraints.strut_ascent,
+        constraints.strut_descent,
+    );
     let line_ascent = content_ascent.max(strut_above);
     let line_descent = content_descent.max(strut_below);
     let line_box_height = line_ascent + line_descent;
@@ -12368,20 +12422,20 @@ pub fn position_one_line<T: ParsedFontTrait>(
         let alignment_offset = if is_indefinite_width {
             0.0 // No alignment offset for indefinite width
         } else {
-            match physical_align {
-                TextAlign::Center => remaining_space / 2.0,
-                TextAlign::Right => remaining_space,
+            let align = match physical_align {
+                // CSS Text §6.4.3: If text cannot be stretched to full width
+                // and text-align-last is justify, align as center.
                 TextAlign::Justify | TextAlign::JustifyAll
                     if remaining_space > 0.0
                         && extra_word_spacing == 0.0
                         && extra_char_spacing == 0.0 =>
                 {
-                    // CSS Text §6.4.3: If text cannot be stretched to full width
-                    // and text-align-last is justify, align as center.
-                    remaining_space / 2.0
+                    TextAlign::Center
                 }
-                _ => 0.0, // Left, Justify (when justification succeeded)
-            }
+                other => other,
+            };
+            // An overflowing line is start-aligned (CSS Text 3 7.1).
+            line_alignment_offset(align, remaining_space, base_direction)
         };
 
         let mut main_axis_pen = segment.start_x + alignment_offset;
@@ -12682,42 +12736,59 @@ pub fn position_one_line<T: ParsedFontTrait>(
     (positioned, line_box_height)
 }
 
-/// Calculates the starting pen offset to achieve the desired text alignment.
-fn calculate_alignment_offset(
-    items: &[ShapedItem],
-    line_constraints: &LineConstraints,
-    align: TextAlign,
-    is_vertical: bool,
-    constraints: &UnifiedConstraints,
-) -> f32 {
-    // Simplified to use the first segment for alignment.
-    if let Some(segment) = line_constraints.segments.first() {
-        // Include letter/word-spacing so center/right alignment matches the width the
-        // text is actually positioned at (position_one_line adds the spacing).
-        let total_width: f32 = items
-            .iter()
-            .map(|item| get_item_measure_with_spacing(item, is_vertical))
-            .sum();
-
-        let available_width = if constraints.segment_alignment == SegmentAlignment::Total {
-            line_constraints.total_available
-        } else {
-            segment.width
-        };
-
-        if total_width >= available_width {
-            return 0.0; // No alignment needed if line is full or overflows
+/// `text-align: start` / `end` as the physical side of a line whose inline
+/// base direction is `base_direction` (start = left in a left-to-right line,
+/// right in a right-to-left one); physical alignments are returned as they
+/// are. The one mapping of both line positioners.
+pub(crate) const fn physical_text_align(
+    text_align: TextAlign,
+    base_direction: BidiDirection,
+) -> TextAlign {
+    match (text_align, base_direction) {
+        (TextAlign::Start, BidiDirection::Ltr) | (TextAlign::End, BidiDirection::Rtl) => {
+            TextAlign::Left
         }
+        (TextAlign::Start, BidiDirection::Rtl) | (TextAlign::End, BidiDirection::Ltr) => {
+            TextAlign::Right
+        }
+        (other, _) => other,
+    }
+}
 
-        let remaining_space = available_width - total_width;
-
-        match align {
-            TextAlign::Center => remaining_space / 2.0,
-            TextAlign::Right => remaining_space,
-            _ => 0.0, // Left, Justify, Start, End
+/// Where a line's content starts in its line box: the offset from the box's
+/// left edge for the PHYSICAL alignment `physical_align` (start / end already
+/// resolved against `base_direction`), with `remaining_space` = the box's
+/// width - the content's.
+///
+/// CSS Text 3 section 7.1: "If ... the inline contents of a line box are too
+/// long to fit within it, then the contents are start-aligned: any content
+/// that doesn't fit overflows the line box's end edge" - whatever
+/// `text-align` says, as in Chrome ("wide lines spill out of the block based
+/// off direction"). In a left-to-right line that is offset 0 (overflow on the
+/// right); in a right-to-left one the content's right edge stays on the box's
+/// (offset = the negative `remaining_space`, overflow on the left). Applying a
+/// right / center alignment to the negative space cut off the line's START
+/// (AzCalculator's long results).
+///
+/// The ONE alignment rule of both line positioners: `position_one_line` and
+/// the Knuth-Plass path (`knuth_plass::position_lines_from_breaks`).
+pub(crate) fn line_alignment_offset(
+    physical_align: TextAlign,
+    remaining_space: f32,
+    base_direction: BidiDirection,
+) -> f32 {
+    let align = if remaining_space < 0.0 {
+        match base_direction {
+            BidiDirection::Ltr => TextAlign::Left,
+            BidiDirection::Rtl => TextAlign::Right,
         }
     } else {
-        0.0
+        physical_align
+    };
+    match align {
+        TextAlign::Center => remaining_space / 2.0,
+        TextAlign::Right => remaining_space,
+        _ => 0.0, // Left, and Justify (a justified line fills its box)
     }
 }
 
@@ -14567,6 +14638,7 @@ mod autotest_generated {
             units_per_em: upem,
             x_height: None,
             cap_height: None,
+            browser_ascent_boost: false,
         }
     }
 
@@ -14878,21 +14950,29 @@ mod autotest_generated {
             LineHeight::Normal.resolve(16.0, 800.0, -200.0, 250.0, 1000),
             20.0,
         );
-        // A descent given with the WRONG (positive) sign shrinks the line box —
-        // the formula subtracts it unconditionally.
+        // A descent given with the WRONG (positive) sign lies ABOVE the
+        // baseline: the line keeps no descent at all (floored at zero), and
+        // the ascent alone rounds to 13px (MAILENG6: rounded like Chrome).
         approx(
             LineHeight::Normal.resolve(16.0, 800.0, 200.0, 0.0, 1000),
-            9.6,
+            13.0,
+        );
+        // Each of A, D and G is rounded to whole pixels BEFORE the sum
+        // (Blink): Arial 16px is 14 + 3 + 1 = 18, not the 18.4 of the
+        // unrounded sum.
+        approx(
+            LineHeight::Normal.resolve(16.0, 1854.0, -434.0, 67.0, 2048),
+            18.0,
         );
     }
 
     #[test]
     fn line_height_normal_at_u16_max_upem_does_not_panic() {
         let v = LineHeight::Normal.resolve(16.0, 800.0, -200.0, 0.0, u16::MAX);
-        assert!(v.is_finite() && v > 0.0, "got {v}");
+        assert!(v.is_finite() && v >= 0.0, "got {v}");
         assert!(
             v < 1.0,
-            "a 65535-upem font must produce a tiny scale, got {v}"
+            "a 65535-upem font must produce a tiny scale (0.2px of ascent rounds to 0), got {v}"
         );
     }
 
@@ -14904,10 +14984,11 @@ mod autotest_generated {
         assert!(LineHeight::Normal
             .resolve(f32::INFINITY, 800.0, -200.0, 0.0, 1000)
             .is_infinite());
-        // ascent == descent == inf → inf - inf == NaN
+        // ascent == descent == +inf: the (positive) descent is floored at
+        // zero, the ascent stays infinite.
         assert!(LineHeight::Normal
             .resolve(16.0, f32::INFINITY, f32::INFINITY, 0.0, 1000)
-            .is_nan());
+            .is_infinite());
     }
 
     #[test]
@@ -16591,10 +16672,12 @@ mod autotest_generated {
 
     #[test]
     fn get_item_vertical_metrics_approx_for_every_variant() {
-        // Cluster with real glyphs: ascent 12.8, descent 3.2, no leading (lh == a+d).
+        // Cluster with real glyphs: 800 / -200 at 1000 upem and 16px is 12.8 /
+        // 3.2, rounded to whole pixels as in Chrome (`line_metrics_px`): ascent
+        // 13, descent 3, no leading (`normal` == A + D + 0).
         let (a, d) = get_item_vertical_metrics_approx(&cl("a", 8.0));
-        approx(a, 12.8);
-        approx(d, 3.2);
+        approx(a, 13.0);
+        approx(d, 3.0);
 
         // Glyph-less cluster → 80/20 split of the fallback 1.2em line box.
         let (a, d) = get_item_vertical_metrics_approx(&cl_no_glyphs("", 0.0));
@@ -16630,9 +16713,11 @@ mod autotest_generated {
     fn get_item_vertical_metrics_uses_the_strut_for_glyphless_clusters() {
         let c = UnifiedConstraints::default();
         let (a, d) = get_item_vertical_metrics(&cl_no_glyphs("", 0.0), &c);
-        // resolved lh = 1.2 * 16 = 19.2; a+d = 16.0; half-leading = 1.6
-        approx(a, DEFAULT_STRUT_ASCENT + 1.6);
-        approx(d, DEFAULT_STRUT_DESCENT + 1.6);
+        // `normal` is the strut's own line height (A + D,
+        // `UnifiedConstraints::resolved_line_height`), not a 1.2em guess: no
+        // leading, the glyphless cluster IS the strut.
+        approx(a, DEFAULT_STRUT_ASCENT);
+        approx(d, DEFAULT_STRUT_DESCENT);
 
         assert_eq!(get_item_vertical_metrics(&brk(), &c), (0.0, 0.0));
         // Objects clamp negative ascent/descent at 0.

@@ -15264,6 +15264,7 @@ mod dense_scroll_extent_tests {
             ascent: 800.0,
             descent: -200.0,
             cap_height: None,
+            browser_ascent_boost: false,
             x_height: None,
             line_gap: 0.0,
             units_per_em: 1000,

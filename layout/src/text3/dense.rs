@@ -254,6 +254,7 @@ impl DenseText {
                     ascent: 0.0,
                     descent: 0.0,
                     cap_height: None,
+                    browser_ascent_boost: false,
                     x_height: None,
                     line_gap: 0.0,
                     units_per_em: 0,
@@ -687,19 +688,12 @@ impl DenseText {
     /// sizes mix), while the line record's y is only the FIRST item's.
     #[must_use]
     pub fn resolved_run_ascent(run: &DenseRun) -> f32 {
-        let m = &run.font_metrics;
-        if m.units_per_em == 0 {
-            return 0.0;
-        }
-        let scale = run.style.font_size_px / f32::from(m.units_per_em);
-        let font_ascent = m.ascent * scale;
-        let font_descent = (-m.descent * scale).max(0.0);
-        let ad = font_ascent + font_descent;
-        let lh = run
-            .style
-            .line_height
-            .resolve_with_metrics(run.style.font_size_px, m);
-        font_ascent + (lh - ad) / 2.0
+        // The glyph box of the sparse path, exactly
+        // (`text3::cache::get_item_vertical_metrics`): the face's rounded
+        // ascent plus its share of the leading. 0 for a face without units.
+        run.font_metrics
+            .inline_box_px(run.style.font_size_px, &run.style.line_height)
+            .map_or(0.0, |(above, _)| above)
     }
 
     /// The run containing cluster `ci` (runs partition clusters in
@@ -1177,20 +1171,7 @@ pub fn get_glyph_positions_dense(dense: &DenseText) -> Vec<PositionedGlyph> {
         let top_y = line_iter.peek().map_or(0.0, |l| l.top_y);
         // Per-run ascent: the same math the reference derives per item
         // (metrics + half-leading), amortised — run metrics are uniform.
-        let m = &run.font_metrics;
-        let ascent = if m.units_per_em == 0 {
-            0.0
-        } else {
-            let scale = run.style.font_size_px / f32::from(m.units_per_em);
-            let font_ascent = m.ascent * scale;
-            let font_descent = (-m.descent * scale).max(0.0);
-            let ad = font_ascent + font_descent;
-            let lh = run
-                .style
-                .line_height
-                .resolve_with_metrics(run.style.font_size_px, m);
-            font_ascent + (lh - ad) / 2.0
-        };
+        let ascent = DenseText::resolved_run_ascent(run);
         // The RUN's own solved y, not the line's: a line mixing sizes puts
         // its taller run on a different baseline (see DenseRun::y).
         let baseline_y = run.y + ascent;
@@ -1292,20 +1273,7 @@ pub fn get_glyph_runs_simple_dense(dense: &DenseText) -> Vec<SimpleGlyphRun> {
             }
         }
         let top_y = line_iter.peek().map_or(0.0, |l| l.top_y);
-        let m = &run.font_metrics;
-        let ascent = if m.units_per_em == 0 {
-            0.0
-        } else {
-            let scale = run.style.font_size_px / f32::from(m.units_per_em);
-            let font_ascent = m.ascent * scale;
-            let font_descent = (-m.descent * scale).max(0.0);
-            let ad = font_ascent + font_descent;
-            let lh = run
-                .style
-                .line_height
-                .resolve_with_metrics(run.style.font_size_px, m);
-            font_ascent + (lh - ad) / 2.0
-        };
+        let ascent = DenseText::resolved_run_ascent(run);
         // The RUN's own solved y, not the line's: a line mixing sizes puts
         // its taller run on a different baseline (see DenseRun::y).
         let baseline_y = run.y + ascent;
@@ -1461,20 +1429,7 @@ pub fn get_glyph_runs_pdf_dense<T: ParsedFontTrait>(
         let (top_y, line_index) = line_iter
             .peek()
             .map_or((0.0, 0usize), |l| (l.top_y, l.source_index as usize));
-        let m = &run.font_metrics;
-        let ascent = if m.units_per_em == 0 {
-            0.0
-        } else {
-            let scale = run.style.font_size_px / f32::from(m.units_per_em);
-            let font_ascent = m.ascent * scale;
-            let font_descent = (-m.descent * scale).max(0.0);
-            let ad = font_ascent + font_descent;
-            let lh = run
-                .style
-                .line_height
-                .resolve_with_metrics(run.style.font_size_px, m);
-            font_ascent + (lh - ad) / 2.0
-        };
+        let ascent = DenseText::resolved_run_ascent(run);
         // The RUN's own solved y, not the line's: a line mixing sizes puts
         // its taller run on a different baseline (see DenseRun::y).
         let baseline_y = run.y + ascent;

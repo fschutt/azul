@@ -4210,10 +4210,6 @@ pub fn collect_font_stacks_from_styled_dom(
     styled_dom: &StyledDom,
     platform: &azul_css::system::Platform,
 ) -> CollectedFontStacks {
-    use azul_css::compact_cache::{
-        FONT_STYLE_MASK, FONT_STYLE_SHIFT, FONT_WEIGHT_MASK, FONT_WEIGHT_SHIFT,
-    };
-
     let mut font_stacks = Vec::new();
     let mut hash_to_index: HashMap<u64, usize> = HashMap::new();
     let mut font_refs: HashMap<usize, azul_css::props::basic::font::FontRef> = HashMap::new();
@@ -4228,15 +4224,15 @@ pub fn collect_font_stacks_from_styled_dom(
         };
     };
 
-    // Phase 1: Scan compact cache arrays (just u64 reads) to find unique
+    // Phase 1: Scan the text nodes (compact-cache reads) to find unique
     // (font_family_hash, weight, style) tuples. Record one representative
     // node index per unique tuple for the expensive CSS lookup in Phase 2.
-    // Key: (font_family_hash, weight_encoded, style_encoded) → representative node index
+    // Key: (font_family_hash, fontconfig weight, fontconfig style) → representative node index
     // (2026-06-10: reverted to HashMap — the historic g81/g47 empty-hashbrown mis-lift was the
     // un-mirrored EMPTY_GROUP static, fixed transpiler-side in symbol_table.rs::
     // compute_hashbrown_empty_group_ranges. std HashMap lifts correctly now; RandomState seeds
     // via the transpiler's HashmapRandomKeys fixed-seed body.)
-    let mut unique_font_keys: HashMap<(u64, u8, u8), usize> = HashMap::new();
+    let mut unique_font_keys: HashMap<(u64, u16, u8), usize> = HashMap::new();
     let node_count = node_data.internal.len();
 
     // WEB-LIFT: probe node_type bytes (NodeType #[repr(C,u8)], Text=177 per AzDom_createText).
@@ -4273,33 +4269,34 @@ pub fn collect_font_stacks_from_styled_dom(
             continue;
         }
         let fh = compact.tier2b_text[i].font_family_hash;
-        let t1 = compact.tier1_enums[i];
-        let mut weight_bits = ((t1 >> FONT_WEIGHT_SHIFT) & FONT_WEIGHT_MASK) as u8;
-        let mut style_bits = ((t1 >> FONT_STYLE_SHIFT) & FONT_STYLE_MASK) as u8;
-        // The compact bits see only AUTHOR css. Two text nodes with all-
-        // default bits can still resolve to DIFFERENT weights/styles through
-        // UA rules on their parents (an h1's bold vs a p's normal), and
-        // deduping them into one bucket resolved+loaded only the
-        // REPRESENTATIVE's chain — every run asking for the other weight was
-        // unshapeable (skipped: zero lines) and its font never loaded.
-        // Whenever the fast bits are at their defaults, key on the real
-        // cascade instead (the same reads Phase 2 does on representatives).
-        if weight_bits == 0 && style_bits == 0 {
-            if let Some(dom_id) = NodeId::from_usize(i) {
-                let node_state = &styled_nodes_phase1[dom_id].styled_node_state;
-                if let MultiValue::Exact(w) =
-                    get_font_weight_property(styled_dom, dom_id, node_state)
-                {
-                    weight_bits = super::fc::convert_font_weight(w) as u8;
-                }
-                if let MultiValue::Exact(st) =
-                    get_font_style_property(styled_dom, dom_id, node_state)
-                {
-                    style_bits = st as u8;
-                }
-            }
-        }
-        let key = (fh, weight_bits, style_bits);
+        // Key on the weight and style THIS text node resolves to - the very
+        // reads `get_style_properties` makes when its runs are shaped (O(1)
+        // compact reads in the normal state), in ONE encoding (the fontconfig
+        // weight, the CSS style). Two text nodes that resolve alike share a
+        // representative; any that differ get their own chain, or the face
+        // their runs ask for is never loaded and they shape to nothing.
+        //
+        // `i` is a plain 0-based arena index: it is `NodeId::new(i)`. It was
+        // `NodeId::from_usize(i)` - the 1-based FFI DECODER (0 = None, n =
+        // node n - 1) - so every text node was keyed on the node BEFORE it
+        // in document order: " tail" in `<p><b>bold</b> tail</p>` took the
+        // bold text's weight, no regular chain was collected, and " tail"
+        // was dropped (TABLES' OPEN font bug, MAILENG6 item 1).
+        let dom_id = NodeId::new(i);
+        let node_state = &styled_nodes_phase1[dom_id].styled_node_state;
+        let weight = match get_font_weight_property(styled_dom, dom_id, node_state) {
+            MultiValue::Exact(v) => v,
+            _ => StyleFontWeight::Normal,
+        };
+        let style = match get_font_style_property(styled_dom, dom_id, node_state) {
+            MultiValue::Exact(v) => v,
+            _ => StyleFontStyle::Normal,
+        };
+        let key = (
+            fh,
+            super::fc::convert_font_weight(weight) as u16,
+            super::fc::convert_font_style(style) as u8,
+        );
         unique_font_keys.entry(key).or_insert(i);
     }
 
@@ -4338,9 +4335,8 @@ pub fn collect_font_stacks_from_styled_dom(
     let styled_nodes = styled_dom.styled_nodes.as_container();
 
     for (&(fh, _wb, _sb), &repr_idx) in &unique_font_keys {
-        let Some(dom_id) = NodeId::from_usize(repr_idx) else {
-            continue;
-        };
+        // A 0-based arena index, like the key's (see Phase 1).
+        let dom_id = NodeId::new(repr_idx);
         let node_state = &styled_nodes[dom_id].styled_node_state;
 
         // Use reverse map from compact cache: hash → actual font families.
@@ -10063,6 +10059,96 @@ mod unresolved_family_reporting_tests {
             azul_core::diagnostics::any_contains("Totally Not Installed Sans"),
             "the warning must be recorded, not just printed: {:?}",
             azul_core::diagnostics::recorded()
+        );
+    }
+}
+
+/// MAILENG6 item 1 (the font bug TABLES left OPEN): the font stacks the
+/// document collects must include the face EVERY text node asks for, in
+/// particular a text node that follows an element of another weight or
+/// style (`<p><b>bold</b> tail</p>`). Font-independent: these read the
+/// collected selector stacks, not shaped glyphs.
+#[cfg(test)]
+mod text_node_font_stack_tests {
+    use azul_core::dom::Dom;
+    use azul_css::css::Css;
+
+    use super::*;
+
+    fn text(s: &str) -> Dom {
+        Dom::create_text_do_not_use_without_block_level_wrapper(s)
+    }
+
+    /// `<body><p>{children}</p></body>` with no author CSS (UA only).
+    fn paragraph(children: Vec<Dom>) -> StyledDom {
+        let mut dom = Dom::create_body()
+            .with_children(vec![Dom::create_p().with_children(children.into())].into());
+        StyledDom::create(&mut dom, Css::empty())
+    }
+
+    fn collected_weights_and_styles(sd: &StyledDom) -> Vec<(FcWeight, FontStyle)> {
+        let platform = azul_css::system::Platform::current();
+        collect_font_stacks_from_styled_dom(sd, &platform)
+            .font_stacks
+            .iter()
+            .map(|stack| (stack[0].weight, stack[0].style))
+            .collect()
+    }
+
+    #[test]
+    fn the_text_after_a_bold_element_collects_its_own_regular_font() {
+        let sd = paragraph(vec![
+            Dom::create_b().with_children(vec![text("bold")].into()),
+            text(" tail"),
+        ]);
+        let got = collected_weights_and_styles(&sd);
+        assert!(
+            got.iter()
+                .any(|(w, s)| *w == FcWeight::Normal && *s == FontStyle::Normal),
+            "\" tail\" is regular text: its regular stack must be collected, or its face is \
+             never loaded and the run shapes to nothing: {got:?}"
+        );
+        assert!(
+            got.iter().any(|(w, _)| *w >= FcWeight::Bold),
+            "\"bold\" keeps its bold stack: {got:?}"
+        );
+    }
+
+    #[test]
+    fn the_text_after_an_italic_element_collects_its_own_upright_font() {
+        let sd = paragraph(vec![
+            Dom::create_i().with_children(vec![text("it")].into()),
+            text(" tail"),
+        ]);
+        let got = collected_weights_and_styles(&sd);
+        assert!(
+            got.iter()
+                .any(|(w, s)| *w == FcWeight::Normal && *s == FontStyle::Normal),
+            "\" tail\" is upright: {got:?}"
+        );
+        assert!(
+            got.iter().any(|(_, s)| *s == FontStyle::Italic),
+            "\"it\" keeps its italic stack: {got:?}"
+        );
+    }
+
+    #[test]
+    fn a_text_nodes_font_is_read_from_the_text_node_itself_not_from_the_node_before_it() {
+        // `<b><i></i>bold</b>`: the only text is bold and upright; the node
+        // right before it in document order is an (empty) bold ITALIC
+        // element, whose style it must not take.
+        let sd = paragraph(vec![
+            Dom::create_b().with_children(vec![Dom::create_i(), text("bold")].into())
+        ]);
+        let got = collected_weights_and_styles(&sd);
+        assert!(
+            got.iter()
+                .any(|(w, s)| *w >= FcWeight::Bold && *s == FontStyle::Normal),
+            "the only text is bold and upright: {got:?}"
+        );
+        assert!(
+            !got.iter().any(|(_, s)| *s == FontStyle::Italic),
+            "no text of the document is italic, so no italic stack: {got:?}"
         );
     }
 }

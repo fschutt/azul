@@ -29,9 +29,14 @@
 //! / `resolve_font_chains_fast`) or the shaping lookup of the run's chain
 //! (`text3::cache`), not at layout.
 //!
-//! OPEN: the tests are `#[ignore]`d until the text/font owner fixes the
-//! cause (scripts/TABLES_2026_10_02.md). Box sizes are fixed, so the numbers
-//! do not depend on the machine's fonts.
+//! ROOT CAUSE (MAILENG6, wave 6): `collect_font_stacks_from_styled_dom` read
+//! each text node's weight and style through `NodeId::from_usize(i)` - the
+//! 1-based FFI decoder - on a plain 0-based index, i.e. from the node BEFORE
+//! the text node in document order. A text that follows an element of
+//! another weight or style (the `<b>` itself, or the text inside it) asked
+//! for that element's face; its own face was never collected, never loaded,
+//! and the run shaped to nothing. Box sizes are fixed, so the numbers do not
+//! depend on the machine's fonts.
 
 use crate::table_markup::{body, glyph_runs, near, rect, rects_of_color};
 
@@ -45,8 +50,6 @@ fn italic_box(w: u32, (r, g, b): (u8, u8, u8)) -> String {
 }
 
 #[test]
-#[ignore = "OPEN (TABLES wave 5, E-INLINE): the spaces between italic boxes get no font - see the \
-            module doc and scripts/TABLES_2026_10_02.md"]
 fn spaces_between_italic_inline_blocks_are_break_opportunities() {
     let boxes = (0..3)
         .map(|_| italic_box(100, (200, 0, 0)))
@@ -66,8 +69,6 @@ fn spaces_between_italic_inline_blocks_are_break_opportunities() {
 }
 
 #[test]
-#[ignore = "OPEN (TABLES wave 5, E-INLINE): the spaces between italic boxes get no font - see the \
-            module doc and scripts/TABLES_2026_10_02.md"]
 fn spaces_between_italic_inline_blocks_take_their_width() {
     let lw = body(&format!(
         "<div>{} {}</div>",
@@ -89,8 +90,6 @@ fn spaces_between_italic_inline_blocks_take_their_width() {
 }
 
 #[test]
-#[ignore = "OPEN (TABLES wave 5, E-INLINE): text after a bold element gets no font when nothing \
-            else in the document is regular - see scripts/TABLES_2026_10_02.md"]
 fn text_after_a_bold_element_is_painted() {
     let lw = body("<p><b>bold</b> tail</p>");
     let glyphs: usize = glyph_runs(&lw).iter().map(Vec::len).sum();

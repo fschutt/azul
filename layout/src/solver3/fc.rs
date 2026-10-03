@@ -1347,9 +1347,12 @@ fn layout_bfc<T: ParsedFontTrait>(
             // For auto-height containers, the pre-layout `used_size.height` is a
             // placeholder (calculate_used_size_for_node returns 0 for block-level
             // auto-height; apply_content_based_height resolves it after children lay
-            // out). In that window, `constraints.available_size.height` holds the
-            // containing block's height — the value children should use as their own
-            // containing block for percentage-height / indefinite-height semantics.
+            // out). In that window, `constraints.available_size.height` holds what
+            // `cache::prepare_layout_context` decided the children's percentage
+            // heights resolve against: the containing block's height where this box's
+            // height is decided by its surroundings, or an indefinite one (INFINITY)
+            // where its content decides it (`cache::forwards_containing_block_height`,
+            // CSS 2.2 10.5).
             let inner = node.box_props.inner_size(used_size, writing_mode);
             let height_is_auto = tree
                 .warm(LayoutNodeId::new(node_index))
@@ -5370,13 +5373,6 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         ctx.system_style.as_ref(),
         PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
     );
-    // The used line-height as a length, for the readers that need one
-    // (`vertical-align: <percentage>`, `initial-letter`); `normal` stands in
-    // as 1.2em there, as it always did.
-    let line_height_px = match root_style.line_height {
-        text3::cache::LineHeight::Px(px) => px,
-        text3::cache::LineHeight::Normal => font_size * 1.2,
-    };
     // CSS 2.2 §10.8.1: the strut has the ascent and descent of the block
     // container's FIRST AVAILABLE FONT. A synthetic 0.8em / 0.2em split
     // stood in for it, and the strut is part of EVERY line box (text3's
@@ -5385,24 +5381,48 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     // sat at different heights around the same baseline, and every line box
     // came out taller than its line-height by |(A - D) / 2 - 0.3em| -
     // `line-height: 19px` on 11pt text pitched its lines 19.55px apart. The
-    // descent is taken exactly as `text3::cache::get_item_vertical_metrics`
-    // takes a glyph's, so both boxes coincide for the same font. Until the
-    // face is loaded the approximation stays.
-    let (strut_ascent, strut_descent) = ctx
+    // ascent and descent are the face's ROUNDED pixel metrics, exactly as a
+    // glyph's (`LayoutFontMetrics::line_metrics_px`, Chrome's rounding), so
+    // both boxes coincide for the same font. Until the face is loaded the
+    // approximation stays.
+    let strut_face = ctx
         .font_manager
         .first_available_font_metrics(&root_style.font_stack)
-        .filter(|m| m.units_per_em > 0)
-        .map_or((font_size * 0.8, font_size * 0.2), |m| {
-            let scale = root_style.font_size_px / f32::from(m.units_per_em);
-            // Half the font's line gap on each side: the strut's
-            // `line-height: normal` is then A + D + gap, the normal line height
-            // of text in that font, so a blank line (`<div><br></div>`, every
-            // blank line Gmail writes) is as tall as a line of text, as in a
-            // browser. A definite line-height is unaffected: its half-leading
-            // places the strut at (L + A - D) / 2 whatever the gap.
-            let half_gap = m.line_gap.max(0.0) / 2.0 * scale;
-            (m.ascent * scale + half_gap, (-m.descent * scale).max(0.0) + half_gap)
-        });
+        .filter(|m| m.units_per_em > 0);
+    let strut_font = strut_face.and_then(|m| m.line_metrics_px(root_style.font_size_px));
+    // The same face's OS/2 x-height and cap height (`vertical-align:
+    // middle`, `text-box-edge: ex / cap`); 0.5em / 0.7em where the face has
+    // none or is not loaded yet.
+    let strut_scale = strut_face.map(|m| root_style.font_size_px / f32::from(m.units_per_em));
+    let strut_x_height = strut_face
+        .and_then(|m| m.x_height)
+        .zip(strut_scale)
+        .map_or(font_size * 0.5, |(x_height, scale)| x_height * scale);
+    let strut_cap_height = strut_face
+        .and_then(|m| m.cap_height)
+        .zip(strut_scale)
+        .map_or(font_size * 0.7, |(cap_height, scale)| cap_height * scale);
+    let (strut_ascent, strut_descent) =
+        strut_font.map_or((font_size * 0.8, font_size * 0.2), |(a, d, _)| (a, d));
+    // The root's `line-height: normal` IS that face's A + D + line gap: the
+    // strut of a line holding nothing else (`<div><br></div>`, every blank
+    // line Gmail writes) is as tall as a line of text in that font, as in a
+    // browser, and its leading is shared like a glyph's
+    // (`text3::cache::split_leading`). Without a loaded face `normal` stays
+    // (the strut's 1em).
+    let root_line_height = match (root_style.line_height, strut_font) {
+        (text3::cache::LineHeight::Normal, Some((a, d, gap))) => {
+            text3::cache::LineHeight::Px(a + d + gap)
+        }
+        (line_height, _) => line_height,
+    };
+    // The used line-height as a length, for the readers that need one
+    // (`vertical-align: <percentage>`, `initial-letter`); `normal` without a
+    // loaded face stands in as 1.2em there, as it always did.
+    let line_height_px = match root_line_height {
+        text3::cache::LineHeight::Px(px) => px,
+        text3::cache::LineHeight::Normal => font_size * 1.2,
+    };
 
     let hyphenation = if dom_declared & DOM_HAS_HYPHENS != 0 {
         styled_dom
@@ -5987,25 +6007,23 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         },
         // +spec:line-height:79f3aa - line-height resolved: `normal` uses the font's real
         // metrics (ascent - descent + line_gap), <number>/<percentage> × font-size.
-        // When line-height is NOT declared the computed value is `normal`; it stays
-        // LineHeight::Normal so text3 resolves it against the run's actual font
-        // metrics (CoreText/Chrome parity) instead of a synthetic 1.2 ratio. The
-        // value is the root style's, the one its runs carry (see `root_style`).
-        line_height: root_style.line_height,
-        // The strut's ascent and descent: the container's first available font's
-        // (see `strut_ascent` above).
-        // TODO(superplan): x-height and cap-height are still approximated as
-        // 50% / 70% of font_size; take them from the same face's OS/2 metrics
-        // (`LayoutFontMetrics::x_height` / `cap_height`) and `get_space_width`
-        // for `ch_width`.
+        // When line-height is NOT declared the computed value is `normal`: the
+        // ROOT's (the strut's) is its first available face's rounded A + D +
+        // gap (`root_line_height` above); each run still resolves its own
+        // `normal` against its own glyphs' faces (CoreText/Chrome parity)
+        // instead of a synthetic 1.2 ratio. The value is the root style's,
+        // the one its runs carry (see `root_style`).
+        line_height: root_line_height,
+        // The strut's ascent, descent, x-height and cap height: the
+        // container's first available font's (see `strut_ascent` above; the
+        // x-height falls back to 0.5em per CSS Inline 3 Appendix A, the cap
+        // height to the typical Latin 0.7em - Appendix A.2's formal fallback,
+        // the ascent, would make cap-edge trimming a no-op).
+        // TODO(superplan): `ch_width` from `get_space_width` / the "0" glyph.
         strut_ascent,
         strut_descent,
-        strut_x_height: font_size * 0.5, // 0.5em fallback per CSS Inline 3 Appendix A
-        // Typical Latin cap ratio, same approximation spirit as the rest of
-        // the strut block (Appendix A.2's formal fallback is "ascent", which
-        // would make cap-edge trimming a no-op; 0.7em keeps it meaningful
-        // until real OS/2 metrics are threaded here - see the TODO above).
-        strut_cap_height: font_size * 0.7,
+        strut_x_height,
+        strut_cap_height,
         ch_width: font_size * 0.5,
         vertical_align,
         // +spec:inline-formatting-context:48ce44 - overflow-wrap property: break at otherwise
@@ -7623,10 +7641,15 @@ pub(crate) struct CollapsedBorders {
     /// `(num_rows + 1) * num_cols` edges: the edge above row `r` in column
     /// `c` is `r * num_cols + c` (row line `num_rows` is the bottom edge).
     pub(crate) horizontal: Vec<Option<BorderInfo>>,
-    /// `num_rows * (num_cols + 1)` edges: the edge left of column `c` in
-    /// row `r` is `r * (num_cols + 1) + c` (column line `num_cols` is the
-    /// right edge).
+    /// `num_rows * (num_cols + 1)` edges: the edge on column line `c` -
+    /// before column `c` in the table's direction - in row `r` is
+    /// `r * (num_cols + 1) + c` (column line `num_cols` is the end edge).
+    /// Line `c` is the LEFT of column `c` in an ltr table, its RIGHT in an
+    /// rtl one ([`Self::rtl`]).
     pub(crate) vertical: Vec<Option<BorderInfo>>,
+    /// The table's `direction` is rtl: its columns run from the right
+    /// (`TableLayoutContext::rtl`), so a column line's physical side flips.
+    pub(crate) rtl: bool,
 }
 
 impl CollapsedBorders {
@@ -7642,8 +7665,8 @@ impl CollapsedBorders {
             .flatten()
     }
 
-    /// The edge left of column line `col_line` (the table's right edge at
-    /// `num_cols`) in row `row`.
+    /// The edge on column line `col_line` (the table's end edge at
+    /// `num_cols`; see [`Self::vertical`]) in row `row`.
     pub(crate) fn vertical_at(&self, row: usize, col_line: usize) -> Option<BorderInfo> {
         if col_line > self.num_cols || row >= self.num_rows {
             return None;
@@ -7659,11 +7682,21 @@ impl CollapsedBorders {
     pub(crate) fn cell_border(&self, cell: &TableCellInfo) -> EdgeSizes {
         let row_end = (cell.row + cell.rowspan).min(self.num_rows);
         let col_end = (cell.column + cell.colspan).min(self.num_cols);
+        // The line before the cell is its left in ltr, its right in rtl.
+        let (left_line, right_line) = if self.rtl {
+            (col_end, cell.column)
+        } else {
+            (cell.column, col_end)
+        };
         EdgeSizes {
             top: half_of_widest((cell.column..col_end).map(|c| self.horizontal_at(cell.row, c))),
             bottom: half_of_widest((cell.column..col_end).map(|c| self.horizontal_at(row_end, c))),
-            left: half_of_widest((cell.row..row_end).map(|r| self.vertical_at(r, cell.column))),
-            right: half_of_widest((cell.row..row_end).map(|r| self.vertical_at(r, col_end))),
+            left: half_of_widest(
+                (cell.row..row_end).map(|r| self.vertical_at(r, left_line)),
+            ),
+            right: half_of_widest(
+                (cell.row..row_end).map(|r| self.vertical_at(r, right_line)),
+            ),
         }
     }
 
@@ -7671,14 +7704,19 @@ impl CollapsedBorders {
     /// its sides; the other half of every outer edge spills into the margin
     /// (CSS 2.2 17.6.2, as browsers take it for all four sides).
     pub(crate) fn table_border(&self) -> EdgeSizes {
+        let (left_line, right_line) = if self.rtl {
+            (self.num_cols, 0)
+        } else {
+            (0, self.num_cols)
+        };
         EdgeSizes {
             top: half_of_widest((0..self.num_cols).map(|c| self.horizontal_at(0, c))),
             bottom: half_of_widest(
                 (0..self.num_cols).map(|c| self.horizontal_at(self.num_rows, c)),
             ),
-            left: half_of_widest((0..self.num_rows).map(|r| self.vertical_at(r, 0))),
+            left: half_of_widest((0..self.num_rows).map(|r| self.vertical_at(r, left_line))),
             right: half_of_widest(
-                (0..self.num_rows).map(|r| self.vertical_at(r, self.num_cols)),
+                (0..self.num_rows).map(|r| self.vertical_at(r, right_line)),
             ),
         }
     }
@@ -7741,7 +7779,12 @@ pub(crate) fn resolve_collapsed_borders<T: ParsedFontTrait>(
         num_cols: cols,
         horizontal: vec![None; (rows + 1) * cols],
         vertical: vec![None; rows * (cols + 1)],
+        rtl: grid.rtl,
     };
+    // A column line's two sides in the table's direction (CSS 2.2 17.5): the
+    // cell BEFORE a line meets it with its end side (right in ltr, left in
+    // rtl), the cell after it with its start side.
+    let (start_side, end_side) = if grid.rtl { (RIGHT, LEFT) } else { (LEFT, RIGHT) };
     if rows == 0 || cols == 0 {
         return out;
     }
@@ -7851,23 +7894,24 @@ pub(crate) fn resolve_collapsed_borders<T: ParsedFontTrait>(
         }
     }
 
-    // Vertical edges: row `r`, column line `c` (0 = the table's left).
+    // Vertical edges: row `r`, column line `c` (0 = the table's start: its
+    // left in ltr, its right in rtl).
     for r in 0..rows {
         for c in 0..=cols {
-            let left = if c > 0 { owner(r, c - 1) } else { None };
-            let right = if c < cols { owner(r, c) } else { None };
-            if left.is_some() && left == right {
+            let before = if c > 0 { owner(r, c - 1) } else { None };
+            let after = if c < cols { owner(r, c) } else { None };
+            if before.is_some() && before == after {
                 continue; // inside a cell that spans both columns
             }
             participants.clear();
-            if let Some(l) = left {
-                participants.push(cell_sides[l][RIGHT]);
+            if let Some(b) = before {
+                participants.push(cell_sides[b][end_side]);
             }
-            if let Some(rt) = right {
-                participants.push(cell_sides[rt][LEFT]);
+            if let Some(a) = after {
+                participants.push(cell_sides[a][start_side]);
             }
             if c == 0 || c == cols {
-                let side = if c == 0 { LEFT } else { RIGHT };
+                let side = if c == 0 { start_side } else { end_side };
                 participants.push(row_sides[r][side]);
                 if let Some(g) = group_of(r).and_then(|g| group_sides.get(&g)) {
                     participants.push(g[side]);
@@ -7876,35 +7920,35 @@ pub(crate) fn resolve_collapsed_borders<T: ParsedFontTrait>(
             if c > 0 {
                 if let Some((b, s)) = &column_sides[c - 1] {
                     if b.start + b.span == c {
-                        participants.push(s[RIGHT]);
+                        participants.push(s[end_side]);
                     }
                 }
             }
             if c < cols {
                 if let Some((b, s)) = &column_sides[c] {
                     if b.start == c {
-                        participants.push(s[LEFT]);
+                        participants.push(s[start_side]);
                     }
                 }
             }
             if c > 0 {
                 if let Some((g, s)) = &column_group_sides[c - 1] {
                     if g.start + g.span == c {
-                        participants.push(s[RIGHT]);
+                        participants.push(s[end_side]);
                     }
                 }
             }
             if c < cols {
                 if let Some((g, s)) = &column_group_sides[c] {
                     if g.start == c {
-                        participants.push(s[LEFT]);
+                        participants.push(s[start_side]);
                     }
                 }
             }
             if c == 0 {
-                participants.push(table[LEFT]);
+                participants.push(table[start_side]);
             } else if c == cols {
-                participants.push(table[RIGHT]);
+                participants.push(table[end_side]);
             }
             out.vertical[r * (cols + 1) + c] = collapse_edge(&participants);
         }
@@ -8842,8 +8886,19 @@ fn calculate_column_widths_auto_with_width<T: ParsedFontTrait>(
     Ok(())
 }
 
-/// Does this cell establish an INLINE formatting context: loose text, and
-/// only inline-level children (CSS 2.2 9.4.2)?
+/// Does this cell establish an INLINE formatting context: only inline-level
+/// children (CSS 2.2 9.4.2), with or without loose text?
+///
+/// A cell of only inline BOXES (`<td><span>$10.00</span></td>`, Postmark's
+/// `<td align="center"><a style="display: inline-block">`) is an IFC like any
+/// block container of inline content: its `text-align` places them. It
+/// needed a loose text child, so such a cell took the block branch and its
+/// box sat at the cell's left edge (MAILENG6 item 5). One exception keeps the
+/// block branch: an inline child that holds a block-level box
+/// (`<a><img style="display: block"></a>`, block-in-inline, CSS 2.2
+/// 9.2.1.1) with no loose text beside it - `layout_ifc` does not split an
+/// inline around a block yet, and the block branch is what lays such a
+/// linked picture out today.
 ///
 /// Then it is laid out as ONE IFC, on two explicit paths that never meet:
 /// the table's min/max-content MEASUREMENT ([`measure_cell_content_width`])
@@ -8865,7 +8920,29 @@ fn cell_is_inline_formatting_context(styled_dom: &StyledDom, cell_dom_id: NodeId
                 NodeType::Text(_)
             )
         });
-    any_text && crate::solver3::layout_tree::has_only_inline_children(styled_dom, cell_dom_id)
+    crate::solver3::layout_tree::has_only_inline_children(styled_dom, cell_dom_id)
+        && (any_text || !inline_children_hold_a_block(styled_dom, cell_dom_id))
+}
+
+/// Whether an inline box among `node`'s children holds a block-level box
+/// (block-in-inline, CSS 2.2 9.2.1.1: `<a><img style="display: block"></a>`),
+/// looking through `display: inline` boxes only: an atomic inline
+/// (inline-block, inline-table, inline-flex, inline-grid) is a leaf, its
+/// content is its own formatting context.
+fn inline_children_hold_a_block(styled_dom: &StyledDom, node: NodeId) -> bool {
+    use crate::solver3::layout_tree::{get_display_type, is_block_level};
+    node.az_children(&styled_dom.node_hierarchy.as_container())
+        .any(|child| {
+            if matches!(
+                styled_dom.node_data.as_container()[child].get_node_type(),
+                NodeType::Text(_)
+            ) {
+                return false;
+            }
+            is_block_level(styled_dom, child)
+                || (get_display_type(styled_dom, child) == LayoutDisplay::Inline
+                    && inline_children_hold_a_block(styled_dom, child))
+        })
 }
 
 /// Layout a cell with its computed column width to determine its content height
@@ -11183,100 +11260,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             ctx.styled_dom.node_data.as_container()[dom_id].get_node_type(),
             NodeType::Image(_)
         ) {
-            // +spec:replaced-elements:31a782 - replaced elements (img) not rendered purely by CSS
-            // box concepts Images are replaced elements - they have intrinsic
-            // dimensions and CSS width/height can constrain them
-
-            // Re-get child_node since we dropped it earlier for the inline-block case
-            let child_node = tree
-                .get(LayoutNodeId::new(child_index))
-                .ok_or(LayoutError::InvalidTree)?;
-            let box_props = child_node.box_props.unpack();
-
-            // Get intrinsic size from the image data or fall back to layout node
-            let intrinsic_size = tree
-                .warm(LayoutNodeId::new(child_index))
-                .and_then(|w| w.intrinsic_sizes)
-                .unwrap_or_else(|| IntrinsicSizes {
-                    max_content_width: 50.0,
-                    max_content_height: 50.0,
-                    ..Default::default()
-                });
-
-            // Get styled node state for CSS property lookup
-            let styled_node_state = ctx
-                .styled_dom
-                .styled_nodes
-                .as_container()
-                .get(dom_id)
-                .map(|n| n.styled_node_state)
-                .unwrap_or_default();
-
-            // Calculate the used size respecting CSS width/height constraints
-            let tentative_size = crate::solver3::sizing::calculate_used_size_for_node(
-                ctx.styled_dom,
-                Some(dom_id),
-                &CBTY::from_flattened_with_width_type(
-                    atomic_inline_containing_block(constraints),
-                    constraints.available_width_type,
-                ),
-                intrinsic_size,
-                &box_props,
-                &ctx.viewport_size,
-            )?;
-
-            // Drop immutable borrow before mutable access
-            drop(child_node);
-
-            // Set the used_size on the layout node so paint_rect works correctly
-            let final_size = LogicalSize::new(tentative_size.width, tentative_size.height);
-            tree.get_mut(LayoutNodeId::new(child_index))
-                .unwrap()
-                .used_size = Some(final_size);
-
-            // Calculate display size for text3 (this is what text3 uses for positioning)
-            let display_width = if final_size.width > 0.0 {
-                Some(final_size.width)
-            } else {
-                None
-            };
-            let display_height = if final_size.height > 0.0 {
-                Some(final_size.height)
-            } else {
-                None
-            };
-
-            content.push(InlineContent::Image(InlineImage {
-                // Snapshot the NODE, not the ImageRef: paint resolves the live
-                // content (overlay→DOM) at display-list build, so a runtime
-                // image swap repaints without rebuilding this IFC. (The old
-                // `Ref` snapshot froze the ImageRef here — inline `<img>`
-                // swaps stayed invisible until an unrelated full relayout.)
-                source: ImageSource::Node(dom_id),
-                intrinsic_size: crate::text3::cache::Size {
-                    width: intrinsic_size.max_content_width,
-                    height: intrinsic_size.max_content_height,
-                },
-                display_size: if display_width.is_some() || display_height.is_some() {
-                    Some(crate::text3::cache::Size {
-                        width: display_width.unwrap_or(intrinsic_size.max_content_width),
-                        height: display_height.unwrap_or(intrinsic_size.max_content_height),
-                    })
-                } else {
-                    None
-                },
-                // Images are bottom-aligned with the baseline by default
-                baseline_offset: 0.0,
-                alignment: text3::cache::VerticalAlign::Baseline,
-                object_fit: ObjectFit::Fill,
-            }));
-            // For images, text3 uses the content array index as run_index
-            // and always item_index=0 for objects. We must match this.
-            let image_content_index = ContentIndex {
-                run_index: (content.len() - 1) as u32, // -1 because we just pushed
-                item_index: 0,
-            };
-            child_map.insert(image_content_index, child_index);
+            push_inline_image(ctx, tree, child_index, dom_id, constraints, content, child_map)?;
         } else {
             // This is a regular inline box (display: inline) - e.g., <span>, <em>, <strong>
             //
@@ -11313,6 +11297,120 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
         crate::az_mark((0x60698) as u32, (content.len() as u32) as u32);
         crate::az_mark((0x6069C) as u32, (0xC0DE069Cu32) as u32);
     }
+    Ok(())
+}
+
+/// An `<img>` (a replaced element, `display: inline`) as a line's
+/// [`InlineImage`]: its used size (intrinsic, constrained by CSS width /
+/// height and the `width` / `height` attributes) set on its layout node and
+/// handed to text3, mapped for positioning. The ONE image path of the IFC
+/// collection: the IFC root's children and an inline span's children
+/// ([`collect_inline_span_recursive`]) both come here - an `<img>` in `<a>`
+/// was an empty inline span, its picture taking no room in the line
+/// (MAILENG6 item 6).
+fn push_inline_image<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    child_index: usize,
+    dom_id: NodeId,
+    constraints: &LayoutConstraints<'_>,
+    content: &mut Vec<InlineContent>,
+    child_map: &mut HashMap<ContentIndex, usize>,
+) -> Result<()> {
+    // +spec:replaced-elements:31a782 - replaced elements (img) not rendered purely by CSS
+    // box concepts Images are replaced elements - they have intrinsic
+    // dimensions and CSS width/height can constrain them
+
+    // Re-get child_node since we dropped it earlier for the inline-block case
+    let child_node = tree
+        .get(LayoutNodeId::new(child_index))
+        .ok_or(LayoutError::InvalidTree)?;
+    let box_props = child_node.box_props.unpack();
+
+    // Get intrinsic size from the image data or fall back to layout node
+    let intrinsic_size = tree
+        .warm(LayoutNodeId::new(child_index))
+        .and_then(|w| w.intrinsic_sizes)
+        .unwrap_or_else(|| IntrinsicSizes {
+            max_content_width: 50.0,
+            max_content_height: 50.0,
+            ..Default::default()
+        });
+
+    // Get styled node state for CSS property lookup
+    let styled_node_state = ctx
+        .styled_dom
+        .styled_nodes
+        .as_container()
+        .get(dom_id)
+        .map(|n| n.styled_node_state)
+        .unwrap_or_default();
+
+    // Calculate the used size respecting CSS width/height constraints
+    let tentative_size = crate::solver3::sizing::calculate_used_size_for_node(
+        ctx.styled_dom,
+        Some(dom_id),
+        &CBTY::from_flattened_with_width_type(
+            atomic_inline_containing_block(constraints),
+            constraints.available_width_type,
+        ),
+        intrinsic_size,
+        &box_props,
+        &ctx.viewport_size,
+    )?;
+
+    // Drop immutable borrow before mutable access
+    drop(child_node);
+
+    // Set the used_size on the layout node so paint_rect works correctly
+    let final_size = LogicalSize::new(tentative_size.width, tentative_size.height);
+    tree.get_mut(LayoutNodeId::new(child_index))
+        .unwrap()
+        .used_size = Some(final_size);
+
+    // Calculate display size for text3 (this is what text3 uses for positioning)
+    let display_width = if final_size.width > 0.0 {
+        Some(final_size.width)
+    } else {
+        None
+    };
+    let display_height = if final_size.height > 0.0 {
+        Some(final_size.height)
+    } else {
+        None
+    };
+
+    content.push(InlineContent::Image(InlineImage {
+        // Snapshot the NODE, not the ImageRef: paint resolves the live
+        // content (overlay→DOM) at display-list build, so a runtime
+        // image swap repaints without rebuilding this IFC. (The old
+        // `Ref` snapshot froze the ImageRef here — inline `<img>`
+        // swaps stayed invisible until an unrelated full relayout.)
+        source: ImageSource::Node(dom_id),
+        intrinsic_size: crate::text3::cache::Size {
+            width: intrinsic_size.max_content_width,
+            height: intrinsic_size.max_content_height,
+        },
+        display_size: if display_width.is_some() || display_height.is_some() {
+            Some(crate::text3::cache::Size {
+                width: display_width.unwrap_or(intrinsic_size.max_content_width),
+                height: display_height.unwrap_or(intrinsic_size.max_content_height),
+            })
+        } else {
+            None
+        },
+        // Images are bottom-aligned with the baseline by default
+        baseline_offset: 0.0,
+        alignment: text3::cache::VerticalAlign::Baseline,
+        object_fit: ObjectFit::Fill,
+    }));
+    // For images, text3 uses the content array index as run_index
+    // and always item_index=0 for objects. We must match this.
+    let image_content_index = ContentIndex {
+        run_index: (content.len() - 1) as u32, // -1 because we just pushed
+        item_index: 0,
+    };
+    child_map.insert(image_content_index, child_index);
     Ok(())
 }
 
@@ -11546,6 +11644,27 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
             .copied();
 
         match child_display {
+            // An `<img>` is a replaced box, not an inline span: the IFC
+            // root's image path (`push_inline_image`), whatever wraps it.
+            LayoutDisplay::Inline if matches!(node_data.get_node_type(), NodeType::Image(_)) => {
+                let Some(child_index) = child_index else {
+                    debug_info!(
+                        ctx,
+                        "[collect_inline_span_recursive] WARNING: img {:?} has no layout node",
+                        child_dom_id
+                    );
+                    continue;
+                };
+                push_inline_image(
+                    ctx,
+                    tree,
+                    child_index,
+                    child_dom_id,
+                    constraints,
+                    content,
+                    child_map,
+                )?;
+            }
             LayoutDisplay::Inline => {
                 // Nested inline span - recurse with child's style
                 debug_info!(
@@ -11571,17 +11690,22 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     constraints,
                 )?;
             }
-            LayoutDisplay::InlineBlock => {
-                // An inline-block inside the span is the same atomic inline as
-                // a direct child of the IFC root (an inline box is a
-                // transparent wrapper): its layout node is one of the root's
-                // children, so it is measured and mapped for positioning
-                // exactly like one.
+            LayoutDisplay::InlineBlock
+            | LayoutDisplay::InlineFlex
+            | LayoutDisplay::InlineGrid
+            | LayoutDisplay::InlineTable => {
+                // An atomic inline inside the span (an inline-block, and the
+                // inline-level flex / grid / table boxes, CSS Display 3 §2.4)
+                // is the same atomic inline as a direct child of the IFC root
+                // (an inline box is a transparent wrapper): measured and
+                // mapped for positioning exactly like one. The inline-flex /
+                // grid / table boxes fell to the "inlinify" arm below and
+                // poured their children into the line (MAILENG6 item 6).
                 let Some(child_index) = child_index else {
                     debug_info!(
                         ctx,
-                        "[collect_inline_span_recursive] WARNING: inline-block {:?} has no layout \
-                         node",
+                        "[collect_inline_span_recursive] WARNING: atomic inline {:?} has no \
+                         layout node",
                         child_dom_id
                     );
                     continue;
