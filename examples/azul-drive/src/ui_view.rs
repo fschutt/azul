@@ -634,7 +634,7 @@ extern "C" fn on_rename_text(
 extern "C" fn on_rename_key(
     mut data: RefAny,
     mut info: CallbackInfo,
-    _state: TextInputState,
+    state: TextInputState,
 ) -> OnTextInputReturn {
     let key = info
         .get_current_keyboard_state()
@@ -643,9 +643,7 @@ extern "C" fn on_rename_key(
     let update = match key {
         Some(VirtualKeyCode::Return) | Some(VirtualKeyCode::NumpadEnter) => {
             info.stop_propagation();
-            with_state(&mut data, &mut info, |info, app, s| {
-                actions::commit_rename(info, app, s)
-            })
+            commit_rename_with(&mut data, &mut info, &state)
         }
         Some(VirtualKeyCode::Escape) => {
             info.stop_propagation();
@@ -659,8 +657,20 @@ extern "C" fn on_rename_key(
     }
 }
 
-extern "C" fn on_rename_blur(mut data: RefAny, mut info: CallbackInfo, _state: TextInputState) -> Update {
-    with_state(&mut data, &mut info, |info, app, s| {
+extern "C" fn on_rename_blur(mut data: RefAny, mut info: CallbackInfo, state: TextInputState) -> Update {
+    commit_rename_with(&mut data, &mut info, &state)
+}
+
+/// Renames to the field's text as the widget hands it to its key and blur hooks (the engine's
+/// buffer, Backspace and Delete included). `on_rename_text` only sees typing: committing from
+/// its copy lost every deletion since the last character typed (`notes.txt`, End, nine
+/// Backspaces, `todo.txt` renamed to `todo.txtn`).
+fn commit_rename_with(data: &mut RefAny, info: &mut CallbackInfo, state: &TextInputState) -> Update {
+    let text = state.get_text().as_str().to_string();
+    with_state(data, info, |info, app, s| {
+        if let Some(renaming) = s.renaming.as_mut() {
+            renaming.text = text;
+        }
         actions::commit_rename(info, app, s)
     })
 }
