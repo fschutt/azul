@@ -347,12 +347,13 @@ impl Alarm {
 
     /// Switches it on for the next time its time comes: a one-time alarm's
     /// day becomes today when its time is still ahead, else tomorrow; a
-    /// repeating alarm keeps its day. A snooze and the memory of the last
-    /// ring are dropped.
+    /// repeating alarm keeps its day. A snooze is dropped, and everything up
+    /// to `now` counts as rung: an alarm switched on (or edited) at 07:10
+    /// does not ring late for its 07:00.
     pub fn arm<Tz: TimeZone>(&mut self, now: DateTime<Utc>, tz: &Tz) {
         self.enabled = true;
         self.snoozed_until = None;
-        self.last_rang = None;
+        self.last_rang = Some(now.timestamp_millis());
         if self.repeats() {
             return;
         }
@@ -560,6 +561,15 @@ mod tests {
         alarm.rang(again);
         assert_eq!(alarm.snoozed_until, None);
         assert_eq!(alarm.next_ring(utc(2026, 10, 3, 5, 12), &Berlin), Some(utc(2026, 10, 4, 5, 0)));
+    }
+
+    #[test]
+    fn switching_an_alarm_on_after_its_time_does_not_ring_it_late() {
+        let mut alarm = Alarm::new("a", 7, 0, day(2026, 10, 1)).repeating("FREQ=DAILY");
+        alarm.enabled = false;
+        alarm.arm(utc(2026, 10, 3, 5, 10), &Berlin); // 07:10 CEST
+        assert_eq!(alarm.due(utc(2026, 10, 3, 5, 11), &Berlin), None, "today's 07:00 is past");
+        assert_eq!(alarm.next_ring(utc(2026, 10, 3, 5, 11), &Berlin), Some(utc(2026, 10, 4, 5, 0)));
     }
 
     #[test]
