@@ -1627,8 +1627,15 @@ impl TextInput {
     /// with `with_text` alone does not: the user's typing outranks the DOM
     /// until the DOM catches up. A password field shows its mask.
     pub fn set_text_in(info: &mut CallbackInfo, container: DomNodeId, text: AzString) {
-        // RED: nothing is written yet.
-        let _ = (info, container, text);
+        let password = info
+            .get_node_attribute(container, "type")
+            .is_some_and(|t| t.as_str() == "password");
+        let shown = if password {
+            mask_for(text.as_str())
+        } else {
+            text.as_str().to_string()
+        };
+        replace_engine_line(info, container, &shown);
     }
 }
 
