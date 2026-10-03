@@ -19,14 +19,16 @@
 //! `LocalDrive` in the user's data folder (an `S3Drive` later), from an azul
 //! `Thread`. Exports are PNG or JPEG (with a quality).
 //!
-//! Environment: `AZPHOTO_DATA` (the data folder), `AZPHOTO_EXPORT_DIR`
-//! (export there without a dialog: scripts).
+//! On azul-appkit: the switches (`--data-dir`, `--theme`, `--mode`,
+//! `--screen`, `--sample`, `--shot`, a bare image path), the data root
+//! (`$AZLIN_DATA` or the user's), the settings page (theme and mode
+//! remembered in `photo/settings.json`), the shortcuts table, About.
 //!
 //! On stdout, for scripts (`scripts/azphoto_e2e.py`): `AZPHOTO_DOC <w>x<h>
 //! <layers> <name>`, `AZPHOTO_LAYERS <n> <active>`, `AZPHOTO_HISTORY <n>
 //! <current> <label>`, `AZPHOTO_VIEW <w>x<h>`, `AZPHOTO_UPDATE <x> <y> <w>
 //! <h>` (a partial canvas update), `AZPHOTO_OPACITY <layer> <percent>`,
-//! `AZPHOTO_SAVED <uuid> <tiles>`, `AZPHOTO_EXPORTED <bytes> <path>`,
+//! `AZPHOTO_SAVED <uuid> <tiles>`, `AZPHOTO_EXPORTED <bytes> <key>`,
 //! `AZPHOTO_STATUS <text>`.
 
 pub mod args;
@@ -45,24 +47,53 @@ use std::{
     sync::Arc,
 };
 
-use azul::{
-    css::DarkLightMode,
-    file::FilePath,
-    image::ImageRef,
-    option::OptionDarkLightMode,
-    prelude::*,
-    str::String as AzString,
-    window::WindowDecorations,
-};
+use azul::{image::ImageRef, prelude::*};
+use azul_appkit::{about::AboutInfo, shortcuts::Shortcut, ui as kit};
 use azul_storage::{Drive, LocalDrive};
 
 use crate::{
-    args::{Args, Screen},
+    args::{Args, Screen, SPEC},
     jobs::{Done, ExportFormat, Job, Outcome},
     raster::{Adjustment, BlendMode, Document, LayerId, Op, RasterEngine, TileEngine},
     state::PhotoState,
     storage::DocEntry,
 };
+
+/// What the About dialog and the settings page say about AzPhoto.
+pub const ABOUT: AboutInfo = AboutInfo {
+    name: "AzPhoto",
+    version: env!("CARGO_PKG_VERSION"),
+    summary: "A photo editor: layers with blend modes, brushes with pen pressure, selections, \
+              adjustment layers, filters, transforms and text. Part of the Azlin apps, built with azul.",
+    license: "MIT",
+    app_folder: "photo",
+};
+
+/// The keyboard shortcuts the settings page lists (`Mod` = Cmd / Ctrl).
+pub const SHORTCUTS: [Shortcut; 22] = [
+    Shortcut::new("Tools", "V", "Move"),
+    Shortcut::new("Tools", "M", "Rectangular / elliptical marquee"),
+    Shortcut::new("Tools", "L", "Lasso"),
+    Shortcut::new("Tools", "W", "Magic wand"),
+    Shortcut::new("Tools", "C", "Crop"),
+    Shortcut::new("Tools", "I", "Eyedropper"),
+    Shortcut::new("Tools", "B", "Brush / pencil"),
+    Shortcut::new("Tools", "E", "Eraser"),
+    Shortcut::new("Tools", "G", "Paint bucket / gradient"),
+    Shortcut::new("Tools", "S", "Clone stamp"),
+    Shortcut::new("Tools", "T", "Text (Enter places it, Escape drops it)"),
+    Shortcut::new("Tools", "U  H  Z", "Shape, hand, zoom"),
+    Shortcut::new("Painting", "[  ]", "Brush smaller, larger"),
+    Shortcut::new("Painting", "X  D", "Swap colours, default colours"),
+    Shortcut::new("Painting", "0 .. 9", "Paint opacity (a brush) or layer opacity"),
+    Shortcut::new("Edit", "Mod+Z  Mod+Shift+Z", "Undo, redo"),
+    Shortcut::new("Edit", "Mod+A  Mod+D  Mod+Shift+I", "Select all, deselect, inverse"),
+    Shortcut::new("File", "Mod+N  Mod+O  Mod+S", "New, open, save"),
+    Shortcut::new("File", "Mod+Shift+E", "Export into the data folder"),
+    Shortcut::new("Layer", "Mod+Shift+N  Mod+J  Mod+E", "New layer, duplicate, merge down"),
+    Shortcut::new("View", "Mod+0  Mod+1", "Fit on screen, actual pixels"),
+    Shortcut::new("View", "Mod+=  Mod+-", "Zoom in, out"),
+];
 
 /// The sample photo (examples/assets): a 1920 x 1080 JPEG.
 const SAMPLE_JPEG: &[u8] = include_bytes!("../../assets/images/cat_image.jpg");
@@ -133,8 +164,6 @@ pub struct PhotoApp {
     pub sheet: Option<Sheet>,
     pub drive: Arc<dyn Drive>,
     pub data_root: PathBuf,
-    /// Export straight into this folder (no dialog).
-    pub export_dir: Option<PathBuf>,
     pub recent: Vec<DocEntry>,
     /// Jobs running.
     pub busy: usize,
@@ -154,6 +183,10 @@ pub struct PhotoApp {
     pub ants_timer: bool,
     /// The last pinch scale (pinches report it cumulatively).
     pub last_pinch: Option<f32>,
+    /// azul-appkit's kit: settings (remembered), the settings page, About.
+    pub kit: RefAny,
+    /// "Save changes?" is showing (the close guard asks).
+    pub closing: bool,
 }
 
 /// Print one line for scripts.
@@ -325,20 +358,6 @@ extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackIn
     Update::RefreshDom
 }
 
-fn env_path(var: &str) -> Option<PathBuf> {
-    std::env::var(var)
-        .ok()
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-}
-
-fn user_data_dir() -> Option<PathBuf> {
-    FilePath::get_data_dir()
-        .into_option()
-        .map(|dir| PathBuf::from(dir.inner.as_str()))
-}
-
 /// Read and decode an image file now (startup, before the window).
 fn open_now(path: &Path) -> Result<(String, Document), String> {
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -349,26 +368,42 @@ fn open_now(path: &Path) -> Result<(String, Document), String> {
     Ok((name, Document::from_rgba(w, h, rgba, "Background")))
 }
 
+/// The window is up: the `--shot` timer, then the saved documents for the
+/// start screen (read on a job, never in a callback).
+extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let handle = data.clone();
+    let Some(mut guard) = data.downcast_mut::<PhotoApp>() else {
+        return Update::DoNothing;
+    };
+    let a = &mut *guard;
+    kit::on_window_created(&a.kit, &mut info);
+    a.busy += 1;
+    jobs::spawn(&mut info, &handle, Job::List {
+        drive: a.drive.clone(),
+    });
+    Update::DoNothing
+}
+
 pub fn start() {
-    let args = match Args::parse(std::env::args().skip(1)) {
+    let (app_args, args) = match Args::parse(std::env::args().skip(1)) {
         Ok(a) => a,
-        Err(msg) if msg.contains("USAGE") => {
-            println!("{msg}");
-            return;
-        }
         Err(msg) => {
-            eprintln!("{msg}");
-            std::process::exit(2);
+            println!("{msg}");
+            std::process::exit(if msg.contains("USAGE") { 0 } else { 2 });
         }
     };
-    let data_root = args
-        .data
-        .clone()
-        .or_else(|| env_path("AZPHOTO_DATA"))
-        .unwrap_or_else(|| user_data_dir().unwrap_or_else(|| PathBuf::from(".")).join("Azul"));
+    // The kit: the data root (--data-dir, $AZLIN_DATA, the user's), the
+    // settings file (app theme and mode, remembered), the shortcuts, About.
+    let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[], app_args.clone());
+    let data_root = {
+        let mut k = kit_ref.clone();
+        let root = k.downcast_ref::<kit::Kit>().map(|k| k.data_root.clone());
+        root.unwrap_or_else(|| PathBuf::from("."))
+    };
+    if args.screen == Screen::Settings {
+        kit::open_settings(&kit_ref, None);
+    }
     let drive: Arc<dyn Drive> = Arc::new(LocalDrive::new(&data_root));
-    let export_dir = args.export_dir.clone().or_else(|| env_path("AZPHOTO_EXPORT_DIR"));
-    let recent = storage::list(drive.as_ref()).unwrap_or_default();
 
     let mut status = String::new();
     let opened: Option<(String, Document)> = if args.sample {
@@ -401,25 +436,22 @@ pub fn start() {
     s.status = status;
     let screen = match args.screen {
         Screen::Start => AppScreen::Start,
-        Screen::Auto if !has_doc => AppScreen::Start,
+        Screen::Auto | Screen::Settings if !has_doc => AppScreen::Start,
         _ => AppScreen::Editor,
     };
     let sheet = match args.screen {
         Screen::Export => Some(Sheet::Export),
         Screen::NewImage => Some(Sheet::NewImage),
-        Screen::Settings => Some(Sheet::Settings),
         Screen::About => Some(Sheet::About),
         _ => None,
     };
-    let dark = args.dark.unwrap_or(false);
     let app = PhotoApp {
         s,
         screen,
         sheet,
         drive,
         data_root: data_root.clone(),
-        export_dir,
-        recent,
+        recent: Vec::new(),
         busy: 0,
         canvas_image: None,
         hidpi: 1.0,
@@ -427,32 +459,19 @@ pub fn start() {
         export_format: ExportFormat::Png,
         jpeg_quality: 85,
         form: Form::default(),
-        theme: args.theme.clone().unwrap_or_else(|| "flat".to_string()),
-        dark,
+        theme: String::from("flat"),
+        dark: false,
         ants_timer: false,
         last_pinch: None,
+        kit: kit_ref.clone(),
+        closing: false,
     };
     eprintln!("[azphoto] data folder {}", data_root.display());
     app.announce();
 
-    let mut config = AppConfig::create();
-    if let Some(theme) = &args.theme {
-        config.set_theme(theme.as_str());
-    }
-    if let Some(dark) = args.dark {
-        config.set_mode(OptionDarkLightMode::Some(if dark {
-            DarkLightMode::Dark
-        } else {
-            DarkLightMode::Light
-        }));
-    }
-    let (w, h) = args.size.unwrap_or((1440.0, 900.0));
-    let app = App::create(RefAny::new(app), config);
-    let mut window = WindowCreateOptions::create(ui::layout);
-    window.window_state.size.dimensions = LogicalSize::create(w, h);
-    window.window_state.title = AzString::from("AzPhoto");
-    window.window_state.flags.decorations = WindowDecorations::NoTitle;
-    app.run(window);
+    let config = kit::app_config(&kit_ref);
+    let window = kit::window_options(&kit_ref, ui::layout, (1440.0, 900.0), (900.0, 600.0), on_window_created);
+    App::create(RefAny::new(app), config).run(window);
 }
 
 #[cfg(test)]
