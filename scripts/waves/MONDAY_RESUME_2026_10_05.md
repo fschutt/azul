@@ -20,6 +20,11 @@ a77d97682c470b269, KEYS9 ad62e1cc06f76a821, MONITOR9 a21e54e23b6931c52, NEWS9 af
 Worktree of each: /Users/fschutt/Development/azul/.claude/worktrees/agent-<id>; branch wt/<task lowercased>; progress
 file scripts/<TASK>.PROGRESS.md inside it; report scripts/<TASK>_<date>.md when done.
 
+## Finished since this guide was written (on their branches, NOT merged)
+ANIMFRAME8 (knob on transform; one tick decision; expected ~0.5-1.5 ms/tick), A11YPATCH8 (incremental a11y; a telemetry
+bug that hid spans fixed), SYSUI8 (SF at its optical size; after the build run scripts/sysui8_look.py record + compare
+and fix the widget CSS it flags - macOS UI text gets 10-14 % wider at 11-14 px). Merge these three first.
+
 ## How to resume
 1. Check: `uptime`, `pmset -g batt`, `df -h /` (>= 20 GB free: `python3 scripts/waves/tools/clean_stale_deps.py`), network.
 2. For each task, see where it is: `git log --oneline -3 wt/<task>` and whether `scripts/<TASK>_*.md` (the report) exists
