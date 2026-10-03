@@ -427,13 +427,7 @@ fn element_bounds(
         layout_idx.index(),
         local,
         &|d, n| scroll_manager.get_current_offset(d, n),
-        &|d, n| {
-            gpu_state
-                .caches
-                .get(&d)
-                .and_then(|c| c.css_current_transform_values.get(&n))
-                .copied()
-        },
+        &|d, n| gpu_state.painted_transform_of(d, n),
     );
 
     let clamp = |v: f32, max: f32| v.max(0.0).min(max);

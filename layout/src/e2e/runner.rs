@@ -359,10 +359,7 @@ impl Runner {
                 scroll_manager.get_current_offset(d, n)
             };
             let resolve_tf = |d: azul_core::dom::DomId, n: azul_core::dom::NodeId| {
-                gpu.caches
-                    .get(&d)
-                    .and_then(|c| c.css_current_transform_values.get(&n))
-                    .copied()
+                gpu.painted_transform_of(d, n)
             };
             let hits = self
                 .cpu_hit_tester
@@ -412,10 +409,7 @@ impl Runner {
                     scroll_manager.get_current_offset(d, n)
                 };
                 let resolve_tf = |d: azul_core::dom::DomId, n: azul_core::dom::NodeId| {
-                    gpu.caches
-                        .get(&d)
-                        .and_then(|c| c.css_current_transform_values.get(&n))
-                        .copied()
+                    gpu.painted_transform_of(d, n)
                 };
                 let hits =
                     self.cpu_hit_tester

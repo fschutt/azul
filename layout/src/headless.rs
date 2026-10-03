@@ -141,8 +141,8 @@ pub enum HitChainLink {
     Scroll(DomId, NodeId),
     /// An ancestor wrapped in a `PushReferenceFrame` (CSS transform / drag /
     /// animation) — the CURRENT matrix lives in the GPU value cache
-    /// (`css_current_transform_values`), the same source the CPU raster
-    /// reads at paint time.
+    /// (`GpuStateManager::painted_transform_of`: the CSS or the animation
+    /// channel), the same source the CPU raster reads at paint time.
     Transform(DomId, NodeId),
 }
 
@@ -523,8 +523,9 @@ impl Default for CpuHitTester {
 /// A node's chain is everything between it and the window that moves its
 /// box: the reference frames of its transformed layout ancestors AND its
 /// own (the exact set the display-list builder wrapped in
-/// `PushReferenceFrame`, read off the GPU value cache's `css_transform_keys`
-/// via `has_transform`), in the order they nest, and the scroll frames of its
+/// `PushReferenceFrame`, read off the GPU value cache's
+/// `reference_frame_of` - CSS or animation channel - via `has_transform`),
+/// in the order they nest, and the scroll frames of its
 /// [`ScrollChain`] - the same frames the builder opened around it
 /// (`scroll_chains`).
 ///
@@ -953,9 +954,9 @@ impl CpuHitTester {
 
     /// Like [`Self::rebuild_from_layout`], but transform-aware: `gpu` is the
     /// window's [`GpuStateManager`](crate::managers::gpu_state::GpuStateManager),
-    /// whose per-DOM `css_transform_keys` is the EXACT set of nodes the
-    /// display list wrapped in `PushReferenceFrame` (the display-list builder
-    /// reads the same cache) — so hit-test chains and painted frames cannot
+    /// whose per-DOM `GpuValueCache::reference_frame_of` names the EXACT set
+    /// of nodes the display list wrapped in `PushReferenceFrame` (the
+    /// display-list builder asks the same question) — so hit-test chains and painted frames cannot
     /// disagree about which nodes transform. Pass `None` only when no
     /// transforms can exist (unit tests, static popups).
     /// The DOM node ids currently registered as USER-wheel scroll targets.
@@ -1032,9 +1033,9 @@ impl CpuHitTester {
                 .collect();
 
             let scroll_ids = &layout_result.scroll_ids;
-            let transform_nodes = gpu
-                .and_then(|g| g.caches.get(dom_id))
-                .map(|c| &c.css_transform_keys);
+            // The nodes the display list opens a reference frame for - CSS
+            // `transform` or the animation channel (a node mid-slide).
+            let gpu_cache = gpu.and_then(|g| g.caches.get(dom_id));
             // The frames every node of this dom is painted in - one answer
             // with the display list (see `solver3::scroll_chain`).
             let scroll_chains = ScrollChains::compute(
@@ -1047,7 +1048,7 @@ impl CpuHitTester {
                 &scroll_chains,
                 *dom_id,
                 base_chain,
-                &|n| transform_nodes.is_some_and(|t| t.contains_key(&n)),
+                &|n| gpu_cache.is_some_and(|c| c.reference_frame_of(n).is_some()),
                 &mut self.chains,
                 &mut chain_lookup,
             );
@@ -1231,8 +1232,8 @@ impl CpuHitTester {
     /// `resolve_scroll` returns the CURRENT scroll offset of a scroll
     /// container (`ScrollManager::get_current_offset`); `resolve_transform`
     /// the CURRENT matrix of a reference-frame owner
-    /// (`GpuValueCache::css_current_transform_values` — the same map the CPU
-    /// raster reads at paint time). Content painted at
+    /// (`GpuStateManager::painted_transform_of` — the same value the CPU
+    /// raster paints with, CSS or animation channel). Content painted at
     /// `T_total(static_pos − scroll_total)` is hit at the same place: a
     /// point `p` hits a node iff `T⁻¹(p) + scroll_total` lands in the node's
     /// static rect. Clip boxes are shifted by the clip OWNER's chain — a

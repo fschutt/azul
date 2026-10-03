@@ -3851,13 +3851,7 @@ impl CommonWindowState {
             let lw = unsafe { &*layout_results_ptr };
             let resolve = |d: DomId, n: NodeId| lw.scroll_manager.get_current_offset(d, n);
             // Same map the CPU raster paints reference frames from.
-            let resolve_tf = |d: DomId, n: NodeId| {
-                lw.gpu_state_manager
-                    .caches
-                    .get(&d)
-                    .and_then(|c| c.css_current_transform_values.get(&n))
-                    .copied()
-            };
+            let resolve_tf = |d: DomId, n: NodeId| lw.gpu_state_manager.painted_transform_of(d, n);
             let nodes = cpu_ht.hit_test_scrolled(position, &resolve, &resolve_tf);
             return crate::desktop::wr_translate2::convert_cpu_hit_test_to_full(
                 cpu_ht,

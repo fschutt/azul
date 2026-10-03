@@ -810,3 +810,19 @@ mod bolder_and_lighter_are_relative_to_the_parent_weight;
 mod a_line_height_is_the_line_pitch_on_screen;
 #[path = "a_line_height_in_rem_or_viewport_units_is_the_pitch_on_screen.rs"]
 mod a_line_height_in_rem_or_viewport_units_is_the_pitch_on_screen;
+#[path = "a_positioned_box_paints_in_tree_order_with_stacking_contexts.rs"]
+mod a_positioned_box_paints_in_tree_order_with_stacking_contexts;
+#[path = "the_incremental_raster_paints_a_transformed_box_where_the_compositor_does.rs"]
+mod the_incremental_raster_paints_a_transformed_box_where_the_compositor_does;
+#[path = "a_box_painted_after_a_layer_shows_over_it_in_the_cpu_compositor.rs"]
+mod a_box_painted_after_a_layer_shows_over_it_in_the_cpu_compositor;
+#[path = "a_node_mid_slide_is_hit_where_it_is_painted.rs"]
+mod a_node_mid_slide_is_hit_where_it_is_painted;
+#[path = "a_css_id_image_registration_rebuilds_the_display_list_itself.rs"]
+mod a_css_id_image_registration_rebuilds_the_display_list_itself;
+#[path = "a_clipped_box_inside_a_scrolled_frame_shows_all_of_its_lines.rs"]
+mod a_clipped_box_inside_a_scrolled_frame_shows_all_of_its_lines;
+#[path = "a_sliding_box_moves_its_sliding_children_once.rs"]
+mod a_sliding_box_moves_its_sliding_children_once;
+#[path = "the_animation_channel_holds_only_what_an_animation_drives.rs"]
+mod the_animation_channel_holds_only_what_an_animation_drives;

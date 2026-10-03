@@ -3440,7 +3440,7 @@ impl LayoutWindow {
     /// consumers: raster, hit-test, and this.
     pub fn window_space_offset_of_dom(&self, dom_id: DomId) -> LogicalPosition {
         let resolve_scroll = |d: DomId, n: NodeId| self.scroll_manager.get_current_offset(d, n);
-        let resolve_transform = |d: DomId, n: NodeId| self.css_transform_of(d, n);
+        let resolve_transform = |d: DomId, n: NodeId| self.painted_transform_of(d, n);
         crate::headless::nested_dom_window_origin(
             &self.layout_results,
             dom_id,
@@ -8483,7 +8483,15 @@ impl LayoutWindow {
                 // css-id images resolve at display-list build time
                 // (`background-image: url(...)`), so a registration change
                 // must rebuild the DL — the old handler returned `DoNothing`
-                // and the registration took effect "sometime later".
+                // and the registration took effect "sometime later". Rebuilt
+                // HERE, like the clip-mask and node-style arms: the tier
+                // means "rebuilt, send it" (the dll marks the list dirty and
+                // a GPU backend resends a dirty list as it is - X11 sent the
+                // stale one). Any dom may use the id: every one is rebuilt.
+                let doms: Vec<DomId> = self.layout_results.keys().copied().collect();
+                for dom_id in doms {
+                    self.regenerate_display_list_for_dom(dom_id);
+                }
                 ContentChangeResult {
                     tier: ContentDirtyTier::RebuildDisplayList,
                 }
@@ -9824,7 +9832,7 @@ impl LayoutWindow {
                 idx.index(),
                 rect,
                 &|d, n| self.scroll_manager.get_current_offset(d, n),
-                &|d, n| self.css_transform_of(d, n),
+                &|d, n| self.painted_transform_of(d, n),
             );
         }
         Some(rect)
@@ -11699,7 +11707,7 @@ impl LayoutWindow {
             DomId,
             NodeId,
         ) -> Option<crate::managers::scroll_state::ScrollNodeInfo> = &scroll_info;
-        let transform = |dom: DomId, node: NodeId| self.css_transform_of(dom, node);
+        let transform = |dom: DomId, node: NodeId| self.painted_transform_of(dom, node);
         let transform_dyn: &dyn Fn(
             DomId,
             NodeId,
@@ -14090,6 +14098,9 @@ impl LayoutWindow {
         if dom_id == DomId::ROOT_ID {
             let placed = &self.anim_key_to_node;
             let _dropped = self.animations.drop_unplaced(|key| placed.contains_key(&key));
+            // What the dropped slides (and the slides re-keyed to other
+            // nodes by the rebuilt map) had published goes with them.
+            self.release_undriven_animation_values();
         }
 
         // Publish the STARTING values immediately, with a zero-length step.
@@ -14455,6 +14466,126 @@ impl LayoutWindow {
             })
     }
 
+    /// The FLIP transform to PUBLISH for every node in a move / enter / exit
+    /// animation: its own - in ABSOLUTE terms, old place minus new place -
+    /// relative to the sliding frame its frame is painted inside.
+    ///
+    /// The reconcile slides every node whose layout position changed, so
+    /// when a section moves, the section and each of its descendants slide
+    /// by the same absolute offset. The display list nests their reference
+    /// frames and every renderer composes nested frames: published as they
+    /// are, a child moved by its own offset and its parent's, a grandchild
+    /// three times (AzTasks mid-slide: rows over rows). Published relative to
+    /// the enclosing slide, a child that moves with its parent is still.
+    ///
+    /// Which frame encloses a node's is the display list's paint structure:
+    /// everything below a stacking context is painted inside its frame; an
+    /// in-flow box or a positioned box (`node_paints_as_positioned_box`)
+    /// wraps only what its in-flow walk paints - a stacking context or a
+    /// positioned box below it is painted by the enclosing stacking context.
+    /// With the enclosing slide `e` (origin `o`, scale `S`, offset `t`; the
+    /// frames act about their box's origin), `A = o - S o + t` and the
+    /// published slide of `n` is `S_n / S_e`, `(A_n - A_e) / S_e - o_n + S o_n`
+    /// - for pure moves simply `t_n - t_e`.
+    fn published_flips(&self) -> BTreeMap<NodeId, azul_core::animation::FlipTransform> {
+        use azul_core::animation::FlipTransform;
+
+        use crate::solver3::display_list::{
+            node_establishes_stacking_context, node_paints_as_positioned_box,
+        };
+
+        let own: BTreeMap<NodeId, FlipTransform> = self
+            .animations
+            .iter()
+            .filter_map(|(key, anim)| {
+                Some((
+                    self.anim_key_to_node.get(&key).copied()?,
+                    anim.current_transform(),
+                ))
+            })
+            .collect();
+        let Some(result) = self.layout_results.get(&DomId::ROOT_ID) else {
+            return own;
+        };
+        let tree = &result.layout_tree;
+        let styled_dom = &result.styled_dom;
+        let layout_index = |node: &NodeId| {
+            tree.dom_to_layout
+                .get(node)
+                .and_then(|indices| indices.first())
+                .map(|index| index.index())
+        };
+        let origin_of = |index: usize| {
+            result
+                .calculated_positions
+                .get(index)
+                .copied()
+                .unwrap_or_default()
+        };
+        // Painted by the stacking-context walk, not by an in-flow parent's.
+        let leaves_in_flow_frames = |index: usize| {
+            node_establishes_stacking_context(styled_dom, tree, index)
+                || node_paints_as_positioned_box(styled_dom, tree, index)
+        };
+
+        own.iter()
+            .map(|(node, t)| {
+                let Some(index) = layout_index(node) else {
+                    return (*node, *t);
+                };
+                // The nearest sliding ancestor whose frame paints this one.
+                let mut escaped = leaves_in_flow_frames(index);
+                let mut cur = index;
+                let mut enclosing: Option<(usize, FlipTransform)> = None;
+                for _ in 0..tree.nodes.len() {
+                    let Some(parent) = tree.get(LayoutNodeId::new(cur)).and_then(|n| n.parent)
+                    else {
+                        break;
+                    };
+                    let is_context = node_establishes_stacking_context(styled_dom, tree, parent);
+                    let slide = tree
+                        .get(LayoutNodeId::new(parent))
+                        .and_then(|n| n.dom_node_id)
+                        .and_then(|id| own.get(&id));
+                    if let Some(slide) = slide {
+                        if is_context || !escaped {
+                            enclosing = Some((parent, *slide));
+                            break;
+                        }
+                    }
+                    escaped |= is_context || leaves_in_flow_frames(parent);
+                    cur = parent;
+                }
+                let Some((e_index, e)) = enclosing else {
+                    return (*node, *t);
+                };
+                let (o_n, o_e) = (origin_of(index), origin_of(e_index));
+                let axis = |o_n: f32, s_n: f32, t_n: f32, o_e: f32, s_e: f32, t_e: f32| {
+                    if s_e.abs() < f32::EPSILON {
+                        return (s_n, t_n);
+                    }
+                    let a_n = o_n - s_n * o_n + t_n;
+                    let a_e = o_e - s_e * o_e + t_e;
+                    let s = s_n / s_e;
+                    (s, (a_n - a_e) / s_e - o_n + s * o_n)
+                };
+                let (scale_x, translate_x) =
+                    axis(o_n.x, t.scale_x, t.translate_x, o_e.x, e.scale_x, e.translate_x);
+                let (scale_y, translate_y) =
+                    axis(o_n.y, t.scale_y, t.translate_y, o_e.y, e.scale_y, e.translate_y);
+                (
+                    *node,
+                    FlipTransform {
+                        translate_x,
+                        translate_y,
+                        scale_x,
+                        scale_y,
+                    },
+                )
+            })
+            .collect()
+    }
+
     /// Advance layout animations by `dt` seconds and publish the result to the
     /// GPU value cache. Returns true while anything is still moving, which is
     /// the caller's signal to schedule another frame.
@@ -14464,13 +14595,16 @@ impl LayoutWindow {
     /// the *offset back toward where the node came from*, shrinking to zero. The
     /// display list is not rebuilt, and neither is the layout.
     ///
-    /// Writes into `css_current_transform_values` / `current_opacity_values` —
-    /// the same maps the CSS `transform` property feeds, and the same ones the
-    /// CPU rasteriser, the hit-tester and the a11y snapshot already read. An
-    /// animated node is therefore hit-testable at its *animated* position for
-    /// free, rather than at a phantom pre-animation rect.
+    /// Writes into the ANIMATION channel (`anim_transform_keys` /
+    /// `anim_current_transform_values`, `anim_opacity_keys` / ...), apart from
+    /// the maps the CSS `transform` property feeds (`synchronize` owns those).
+    /// The display list, the CPU rasteriser, the hit-tester and the a11y
+    /// snapshot read both channels through `GpuValueCache::reference_frame_of`
+    /// / `GpuStateManager::painted_transform_of`, so an animated node is hit
+    /// at its *animated* position, not at a phantom pre-animation rect.
     pub fn tick_animations(&mut self, dt: f32) -> bool {
         if self.animations.is_empty() && !self.has_track_work() {
+            self.release_undriven_animation_values();
             return false;
         }
         let finished = self.animations.tick(dt);
@@ -14487,6 +14621,10 @@ impl LayoutWindow {
             })
             .collect();
 
+        // Each slide relative to the sliding frame it is painted inside
+        // (`published_flips`), read BEFORE the GPU cache borrow below.
+        let published = self.published_flips();
+
         let dom_id = DomId::ROOT_ID;
         let cache = self.gpu_state_manager.caches.entry(dom_id).or_default();
 
@@ -14498,11 +14636,14 @@ impl LayoutWindow {
                 // to write and skipping is correct, not a lost frame.
                 continue;
             };
-            let t = anim.current_transform();
+            let t = published
+                .get(&node_id)
+                .copied()
+                .unwrap_or_else(|| anim.current_transform());
             // A reference frame requires BOTH a key and a value: the display
-            // list builder emits `PushReferenceFrame` only when
-            // `css_transform_keys` AND `css_current_transform_values` both have
-            // an entry for the node. Keys are otherwise minted from the CSS
+            // list builder emits `PushReferenceFrame` only when one channel
+            // has both for the node (`GpuValueCache::reference_frame_of`).
+            // CSS keys are otherwise minted from the CSS
             // `transform` property, which an animating node generally does not
             // have — so writing only the value published a transform nothing
             // could read, and the element jumped instead of moving.
@@ -14750,8 +14891,56 @@ impl LayoutWindow {
                 cache.anim_opacity_keys.remove(&node_id);
             }
         }
+        // And every value no animation drives any more - a slide a rebuild
+        // dropped or re-keyed to another node never FINISHES here.
+        self.release_undriven_animation_values();
 
         !self.animations.is_empty() || self.has_track_work()
+    }
+
+    /// Releases every ANIMATION-channel value (transform and opacity, key
+    /// and value) that no animation drives: the channel holds exactly the
+    /// nodes of the slides in flight (`animations` through
+    /// `anim_key_to_node`) and of the live keyframe tracks.
+    ///
+    /// A slide's value used to be released only when the slide FINISHED,
+    /// through `anim_key_to_node` - but a rebuild mid-slide rebuilds that map
+    /// wholesale and drops the slides whose node it cannot place
+    /// (`finish_reconciliation`), and those values stayed in the cache for
+    /// good: a reference frame with a stranger's offset on every later frame
+    /// (AzDrive after a theme switch during the backstage's exit: its back
+    /// button in the window corner, the search box gone).
+    fn release_undriven_animation_values(&mut self) {
+        let Some(cache) = self.gpu_state_manager.caches.get(&DomId::ROOT_ID) else {
+            return;
+        };
+        if cache.anim_transform_keys.is_empty()
+            && cache.anim_current_transform_values.is_empty()
+            && cache.anim_opacity_keys.is_empty()
+            && cache.anim_current_opacity_values.is_empty()
+        {
+            return;
+        }
+        let driven: BTreeSet<NodeId> = self
+            .animations
+            .iter()
+            .filter_map(|(key, _)| self.anim_key_to_node.get(&key).copied())
+            .chain(self.live_tracks.keys().copied())
+            .collect();
+        if let Some(cache) = self.gpu_state_manager.caches.get_mut(&DomId::ROOT_ID) {
+            cache
+                .anim_transform_keys
+                .retain(|node, _| driven.contains(node));
+            cache
+                .anim_current_transform_values
+                .retain(|node, _| driven.contains(node));
+            cache
+                .anim_opacity_keys
+                .retain(|node, _| driven.contains(node));
+            cache
+                .anim_current_opacity_values
+                .retain(|node, _| driven.contains(node));
+        }
     }
 
     #[allow(clippy::too_many_lines)] // one cohesive fade state machine per scrollbar; no natural
@@ -16277,7 +16466,7 @@ impl LayoutWindow {
             layout_idx.index(),
             cursor_rect,
             &|d, n| self.scroll_manager.get_current_offset(d, n),
-            &|d, n| self.css_transform_of(d, n),
+            &|d, n| self.painted_transform_of(d, n),
         );
 
         // STEP 3: lift out of the node's own dom into WINDOW space. A nested
@@ -16296,20 +16485,17 @@ impl LayoutWindow {
         ))
     }
 
-    /// The CSS transform the raster applies to `node` of `dom` right now:
-    /// the value the display list's reference frame for it is bound to
-    /// (`GpuValueCache::css_current_transform_values`). THE lookup every
-    /// "where is it on screen" question passes as its `resolve_transform`.
-    pub(crate) fn css_transform_of(
+    /// The transform the raster applies to `node` of `dom` right now: the
+    /// value the display list's reference frame for it is bound to, CSS
+    /// `transform` or the animation channel (`GpuStateManager::
+    /// painted_transform_of`). THE lookup every "where is it on screen"
+    /// question passes as its `resolve_transform`.
+    pub(crate) fn painted_transform_of(
         &self,
         dom: DomId,
         node: NodeId,
     ) -> Option<azul_core::transform::ComputedTransform3D> {
-        self.gpu_state_manager
-            .caches
-            .get(&dom)
-            .and_then(|c| c.css_current_transform_values.get(&node))
-            .copied()
+        self.gpu_state_manager.painted_transform_of(dom, node)
     }
 
     /// Find the nearest scrollable ancestor for a given node
