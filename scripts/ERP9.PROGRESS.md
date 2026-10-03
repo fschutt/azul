@@ -35,8 +35,21 @@ Crate: examples/azul-erp (package + bin AzERP, lib azerp). NEVER compile; parse-
 - ceaefae32 / 4b41cd384 reports RED / GREEN
 - 304be1f17 views JSON (src/views/ui.assets.json corrected + menu, erp.ui.assets.json original, en.json labels)
 - c466b906c views RED: src/views/{mod,spec,rows}.rs - signatures + tests, bodies `todo!("GREEN")`
+- 55fbfd5cf views/mod.rs GREEN; 3f48260d8 views/spec.rs GREEN; f7e2c33f2 views/rows.rs GREEN (+ MaintenanceKind
+  code/parse). Steps 1-3 below are DONE.
 
-## NEXT (exact)
+## NEXT (exact) - step 4 is next
+4a. src/sample.rs: `pub fn book(today, new_id: &mut dyn FnMut() -> String) -> Book` (4 categories, 3 locations,
+    ~12 assets, maintenance, check-outs) + tests (every asset has no problems, every kind present).
+4b. src/app.rs: the pure state `State` (views, labels, book, page path, back stack, detail tab, `FormDraft`,
+    notice, azul_pim WriteQueue, today, import draft, run year) and its operations returning nothing but queueing
+    writes: open(path) (form / form_modal open a draft over the page), save(), cancel(), check_in, delete_asset,
+    export_register, export_schedule, depreciation_run(year) (journal CSV into erp/exports, D6), import, load,
+    seed_sample. RED tests first, then GREEN.
+4c. UI: src/ids.rs, src/ui/{mod,table,form,detail,panels}.rs, lib.rs start() (AppSpec / AboutInfo / shortcuts
+    like examples/azul-dashboard/src/lib.rs; RecordsShell tabs = menu, table = page, form = side pane draft).
+
+## Old plan of steps 1-3 (done)
 1. GREEN src/views/mod.rs: `View::kind_of_records` (api.get else post else put -> api_kind), `ViewFile::parse`
    (serde_json::from_str, map_err to_string), `ViewFile::route` (for each view, each pattern of view.path.all():
    match_path; pick the match with the most literal segments), `match_path` (split '/' ignoring empty trailing
