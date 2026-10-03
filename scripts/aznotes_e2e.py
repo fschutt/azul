@@ -257,16 +257,16 @@ def first_session(app, data, out):
     log("empty state shown")
 
     # A new note, its title.
-    app.click("#new-note")
+    app.click("#__aznotes_new-note")
     note_id = app.until("the new note", lambda: (app.printed("AZNOTES_NEW", r"[0-9a-f-]+") or [None])[-1])
     app.until("the new note to open", lambda: note_id in app.printed("AZNOTES_OPEN", r"[0-9a-f-]+"))
     log("new note %s" % note_id)
-    app.type_into("#note-title", "Shopping list")
+    app.type_into("#__aznotes_note-title", "Shopping list")
 
     # The body, with Markdown shortcuts.
-    app.must("focus_node", selector="#note-body")
+    app.must("focus_node", selector="#__aznotes_note-body")
     app.frame(2)
-    app.click("#note-body-0")  # the caret into the note's first (empty) block (`<host id>-<index>`)
+    app.click("#__aznotes_note-body-0")  # the caret into the note's first (empty) block (`<host id>-<index>`; every id carries the app's prefix `__aznotes_`)
     app.type("# ")
     app.type("Groceries")
     app.key("return")
@@ -280,10 +280,10 @@ def first_session(app, data, out):
     app.type("call the bakery")
 
     # A tag, the pin.
-    app.type_into("#tag-input", "errands")
+    app.type_into("#__aznotes_tag-input", "errands")
     app.key("return")
     app.until("the tag chip", lambda: app.shows("#errands"))
-    app.click("#pin-note")
+    app.click("#__aznotes_pin-note")
     app.until("the note counted as pinned", lambda: app.shows("Pinned (1)"))
     log("typed, tagged, pinned")
 
@@ -321,7 +321,7 @@ def first_session(app, data, out):
     # Export as PDF (the save dialog answers yes).
     app.must("mock", set={"save_bytes": {"accept": True}})
     before = len(app.printed("AZNOTES_EXPORTED", r"pdf \d+"))
-    app.click("#export-pdf")
+    app.click("#__aznotes_export-pdf")
     app.until("the PDF export", lambda: len(app.printed("AZNOTES_EXPORTED", r"pdf \d+")) > before)
     log("exported %s" % app.printed("AZNOTES_EXPORTED", r"pdf \d+")[-1])
 
@@ -333,7 +333,7 @@ def first_session(app, data, out):
     app.screenshot(os.path.join(out, "flora-dark.png"))
     app.must("set_theme", theme="flat")
     app.must("set_mode", mode="light")
-    app.click("#open-settings")
+    app.click("#__aznotes_open-settings")
     app.until("the settings", lambda: app.shows("Keyboard shortcuts"))
     app.screenshot(os.path.join(out, "settings.png"))
     app.key("escape")

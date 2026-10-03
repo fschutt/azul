@@ -39,6 +39,7 @@ use azul::{
 };
 
 use crate::{
+    ids,
     editor, jobs,
     look::{self, Look, TextSize},
     model::{self, ListRow, NotebookNode, Scope, SortKey},
@@ -100,7 +101,7 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         Screen::History => history_screen(s, &app, look),
     };
     let area = Dom::create_div()
-        .with_id("notes-area")
+        .with_id(ids::NOTES_AREA)
         .with_css("position: relative; display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
         .with_child(content)
         .with_child(overlay_dom(s, &app, look));
@@ -377,7 +378,7 @@ fn navigation_pane(s: &AppState, app: &RefAny) -> Dom {
                 .with_button_type(ButtonType::Primary)
                 .with_on_click(app.clone(), on_new_note as ButtonOnClickCallbackType)
                 .dom()
-                .with_id("new-note")
+                .with_id(ids::NEW_NOTE)
                 .with_css("margin-right: 6px;"),
         )
         .with_child(
@@ -385,7 +386,7 @@ fn navigation_pane(s: &AppState, app: &RefAny) -> Dom {
                 .with_icon("create_new_folder")
                 .with_on_click(app.clone(), on_new_notebook as ButtonOnClickCallbackType)
                 .dom()
-                .with_id("new-notebook")
+                .with_id(ids::NEW_NOTEBOOK)
                 .with_accessibility_name("New notebook"),
         )
         .with_child(
@@ -393,7 +394,7 @@ fn navigation_pane(s: &AppState, app: &RefAny) -> Dom {
                 .with_icon("settings")
                 .with_on_click(app.clone(), on_open_settings as ButtonOnClickCallbackType)
                 .dom()
-                .with_id("open-settings")
+                .with_id(ids::OPEN_SETTINGS)
                 .with_accessibility_name("Settings")
                 .with_css("margin-left: 4px;"),
         );
@@ -607,12 +608,12 @@ fn note_list(s: &AppState, app: &RefAny) -> Dom {
         .with_on_search(app.clone(), cb)
         .dom();
     let mut column = Dom::create_div()
-        .with_id("note-list")
+        .with_id(ids::NOTE_LIST)
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;");
     if !s.notice.is_empty() {
         column.add_child(
             Dom::create_div()
-                .with_id("notice")
+                .with_id(ids::NOTICE)
                 .with_css("padding: 6px 10px; font-size: 12px;")
                 .with_child(text_line(&s.notice, "")),
         );
@@ -808,18 +809,18 @@ fn tools() -> Vec<(&'static str, &'static str, &'static str, &'static str, Tool)
     let kind = |kind: RichBlockKind| Tool::Command(RichTextCommand::ToggleKind(kind));
     let format = |format: RichFormat| Tool::Command(RichTextCommand::ToggleFormat(format));
     vec![
-        ("tool-h1", "", "H1", "Heading 1", kind(RichBlockKind::Heading(1))),
-        ("tool-h2", "", "H2", "Heading 2", kind(RichBlockKind::Heading(2))),
-        ("tool-h3", "", "H3", "Heading 3", kind(RichBlockKind::Heading(3))),
-        ("tool-bold", "format_bold", "", "Bold", format(RichFormat::Bold)),
-        ("tool-italic", "format_italic", "", "Italic", format(RichFormat::Italic)),
-        ("tool-underline", "format_underlined", "", "Underline", format(RichFormat::Underline)),
-        ("tool-strike", "format_strikethrough", "", "Strikethrough", format(RichFormat::Strike)),
-        ("tool-code", "code", "", "Inline code", format(RichFormat::Code)),
-        ("tool-bullets", "format_list_bulleted", "", "Bulleted list", kind(RichBlockKind::Bullet(0))),
-        ("tool-numbers", "format_list_numbered", "", "Numbered list", kind(RichBlockKind::Numbered(0))),
+        (ids::TOOL_H1, "", "H1", "Heading 1", kind(RichBlockKind::Heading(1))),
+        (ids::TOOL_H2, "", "H2", "Heading 2", kind(RichBlockKind::Heading(2))),
+        (ids::TOOL_H3, "", "H3", "Heading 3", kind(RichBlockKind::Heading(3))),
+        (ids::TOOL_BOLD, "format_bold", "", "Bold", format(RichFormat::Bold)),
+        (ids::TOOL_ITALIC, "format_italic", "", "Italic", format(RichFormat::Italic)),
+        (ids::TOOL_UNDERLINE, "format_underlined", "", "Underline", format(RichFormat::Underline)),
+        (ids::TOOL_STRIKE, "format_strikethrough", "", "Strikethrough", format(RichFormat::Strike)),
+        (ids::TOOL_CODE, "code", "", "Inline code", format(RichFormat::Code)),
+        (ids::TOOL_BULLETS, "format_list_bulleted", "", "Bulleted list", kind(RichBlockKind::Bullet(0))),
+        (ids::TOOL_NUMBERS, "format_list_numbered", "", "Numbered list", kind(RichBlockKind::Numbered(0))),
         (
-            "tool-checklist",
+            ids::TOOL_CHECKLIST,
             "checklist",
             "",
             "Checklist",
@@ -828,18 +829,18 @@ fn tools() -> Vec<(&'static str, &'static str, &'static str, &'static str, Tool)
                 checked: false,
             })),
         ),
-        ("tool-outdent", "format_indent_decrease", "", "Outdent", Tool::Command(RichTextCommand::Outdent)),
-        ("tool-indent", "format_indent_increase", "", "Indent", Tool::Command(RichTextCommand::Indent)),
-        ("tool-quote", "format_quote", "", "Quote", Tool::Command(RichTextCommand::ToggleQuote)),
+        (ids::TOOL_OUTDENT, "format_indent_decrease", "", "Outdent", Tool::Command(RichTextCommand::Outdent)),
+        (ids::TOOL_INDENT, "format_indent_increase", "", "Indent", Tool::Command(RichTextCommand::Indent)),
+        (ids::TOOL_QUOTE, "format_quote", "", "Quote", Tool::Command(RichTextCommand::ToggleQuote)),
         (
-            "tool-codeblock",
+            ids::TOOL_CODEBLOCK,
             "data_object",
             "",
             "Code block",
             kind(RichBlockKind::Code(AzString::from(""))),
         ),
-        ("tool-link", "link", "", "Link", Tool::Link),
-        ("tool-rule", "horizontal_rule", "", "Horizontal rule", Tool::Command(RichTextCommand::InsertRule)),
+        (ids::TOOL_LINK, "link", "", "Link", Tool::Link),
+        (ids::TOOL_RULE, "horizontal_rule", "", "Horizontal rule", Tool::Command(RichTextCommand::InsertRule)),
     ]
 }
 
@@ -847,7 +848,7 @@ fn tools() -> Vec<(&'static str, &'static str, &'static str, &'static str, Tool)
 /// show pressed.
 fn toolbar(s: &AppState, app: &RefAny, look: &Look) -> Dom {
     let mut row = Dom::create_div()
-        .with_id("format-toolbar")
+        .with_id(ids::FORMAT_TOOLBAR)
         .with_accessibility_name("Formatting")
         .with_css(format!(
             "display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; padding: 4px 24px; \
@@ -883,7 +884,7 @@ fn toolbar(s: &AppState, app: &RefAny, look: &Look) -> Dom {
                 .with_accessibility_name(name)
                 .with_css("margin-right: 2px; margin-bottom: 2px;"),
         );
-        if matches!(id, "tool-h3" | "tool-code" | "tool-indent" | "tool-codeblock") {
+        if [ids::TOOL_H3, ids::TOOL_CODE, ids::TOOL_INDENT, ids::TOOL_CODEBLOCK].contains(&id) {
             row.add_child(Dom::create_div().with_css(format!(
                 "width: 1px; height: 20px; margin: 0px 6px; background: {};",
                 look.line
@@ -946,7 +947,7 @@ fn reading_pane(s: &AppState, app: &RefAny, look: &Look) -> Dom {
             .dom();
     };
     let offset = AppState::utc_offset();
-    let mut pane = Dom::create_div().with_id("editor-pane").with_css(format!(
+    let mut pane = Dom::create_div().with_id(ids::EDITOR_PANE).with_css(format!(
         "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; background: {}; color: {};",
         look.paper, look.text
     ));
@@ -954,7 +955,7 @@ fn reading_pane(s: &AppState, app: &RefAny, look: &Look) -> Dom {
     if note.is_trashed() {
         pane.add_child(
             Dom::create_div()
-                .with_id("trash-bar")
+                .with_id(ids::TRASH_BAR)
                 .with_css(format!(
                     "display: flex; flex-direction: row; align-items: center; padding: 6px 24px; \
                      background: {}; flex-shrink: 0;",
@@ -965,14 +966,14 @@ fn reading_pane(s: &AppState, app: &RefAny, look: &Look) -> Dom {
                     Button::create("Restore")
                         .with_on_click(app.clone(), on_restore as ButtonOnClickCallbackType)
                         .dom()
-                        .with_id("restore-note"),
+                        .with_id(ids::RESTORE_NOTE),
                 )
                 .with_child(
                     Button::create("Delete forever")
                         .with_button_type(ButtonType::Danger)
                         .with_on_click(app.clone(), on_delete_forever as ButtonOnClickCallbackType)
                         .dom()
-                        .with_id("delete-forever")
+                        .with_id(ids::DELETE_FOREVER)
                         .with_css("margin-left: 6px;"),
                 ),
         );
@@ -984,26 +985,26 @@ fn reading_pane(s: &AppState, app: &RefAny, look: &Look) -> Dom {
     pane.add_child(
         Dom::create_div()
             .with_css("display: flex; flex-direction: row; align-items: center; padding: 10px 24px 0px 24px; flex-shrink: 0;")
-            .with_child(text_line(&meta, &format!("flex-grow: 1; font-size: 12px; color: {};", look.muted)).with_id("note-meta"))
+            .with_child(text_line(&meta, &format!("flex-grow: 1; font-size: 12px; color: {};", look.muted)).with_id(ids::NOTE_META))
             .with_child(header_button(
                 app,
-                "pin-note",
+                ids::PIN_NOTE,
                 "push_pin",
                 if note.meta.pinned { "Unpin" } else { "Pin" },
                 note.meta.pinned,
                 on_pin as ButtonOnClickCallbackType,
             ))
-            .with_child(header_button(app, "note-history", "history", "Version history", false, on_history as ButtonOnClickCallbackType))
-            .with_child(header_button(app, "export-pdf", "picture_as_pdf", "Export as PDF", false, on_export_pdf as ButtonOnClickCallbackType))
+            .with_child(header_button(app, ids::NOTE_HISTORY, "history", "Version history", false, on_history as ButtonOnClickCallbackType))
+            .with_child(header_button(app, ids::EXPORT_PDF, "picture_as_pdf", "Export as PDF", false, on_export_pdf as ButtonOnClickCallbackType))
             .with_child(header_button(
                 app,
-                "export-markdown",
+                ids::EXPORT_MARKDOWN,
                 "file_download",
                 "Export as Markdown",
                 false,
                 on_export_markdown as ButtonOnClickCallbackType,
             ))
-            .with_child(header_button(app, "trash-note", "delete", "Move to Trash", false, on_trash as ButtonOnClickCallbackType)),
+            .with_child(header_button(app, ids::TRASH_NOTE, "delete", "Move to Trash", false, on_trash as ButtonOnClickCallbackType)),
     );
 
     // The title.
@@ -1018,14 +1019,14 @@ fn reading_pane(s: &AppState, app: &RefAny, look: &Look) -> Dom {
                     .with_on_text_input(app.clone(), on_title_input as TextInputOnTextInputCallbackType)
                     .with_on_virtual_key_down(app.clone(), on_title_key as TextInputOnVirtualKeyDownCallbackType)
                     .dom()
-                    .with_id("note-title")
+                    .with_id(ids::NOTE_TITLE)
                     .with_css("flex-grow: 1;"),
             ),
     );
 
     // The tags: a chip each, then the field that adds one.
     let mut tags = Dom::create_div()
-        .with_id("note-tags")
+        .with_id(ids::NOTE_TAGS)
         .with_css("display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; padding: 6px 24px; flex-shrink: 0;");
     for tag in &note.meta.tags {
         tags.add_child(
@@ -1051,7 +1052,7 @@ fn reading_pane(s: &AppState, app: &RefAny, look: &Look) -> Dom {
             .with_on_virtual_key_down(app.clone(), on_tag_key as TextInputOnVirtualKeyDownCallbackType)
             .with_on_focus_lost(app.clone(), on_tag_blur as TextInputOnFocusLostCallbackType)
             .dom()
-            .with_id("tag-input")
+            .with_id(ids::TAG_INPUT)
             .with_css("width: 140px;"),
     );
     pane.add_child(tags);
@@ -1061,7 +1062,7 @@ fn reading_pane(s: &AppState, app: &RefAny, look: &Look) -> Dom {
     // The text, scrolling.
     pane.add_child(
         Dom::create_div()
-            .with_id("note-scroll")
+            .with_id(ids::NOTE_SCROLL)
             .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; overflow-y: auto; padding: 8px 32px 0px 32px;")
             .with_child(editor::editor_dom(s, app, note)),
     );
@@ -1283,7 +1284,7 @@ fn export_markdown(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
 /// A sheet: a panel centred over a backdrop, `id` on the panel.
 fn sheet(look: &Look, id: &str, title: &str, body: Dom, buttons: Dom) -> Dom {
     Dom::create_div()
-        .with_id("sheet-backdrop")
+        .with_id(ids::SHEET_BACKDROP)
         .with_css(format!(
             "position: absolute; left: 0px; top: 0px; right: 0px; bottom: 0px; background: {}; \
              display: flex; flex-direction: column; align-items: center; justify-content: center;",
@@ -1338,15 +1339,15 @@ fn overlay_dom(s: &AppState, app: &RefAny, look: &Look) -> Dom {
                         .with_on_text_input(app.clone(), on_sheet_text as TextInputOnTextInputCallbackType)
                         .with_on_virtual_key_down(app.clone(), on_sheet_key as TextInputOnVirtualKeyDownCallbackType)
                         .dom()
-                        .with_id("sheet-field"),
+                        .with_id(ids::SHEET_FIELD),
                 );
             if !error.is_empty() {
                 body.add_child(text_line(error, &format!("font-size: 12px; color: {}; margin-top: 6px;", look.error)));
             }
             let buttons = Dom::create_div()
-                .with_child(sheet_button(app, "sheet-cancel", "Cancel", ButtonType::Default, on_sheet_cancel))
-                .with_child(sheet_button(app, "sheet-ok", "Create", ButtonType::Primary, on_sheet_ok));
-            sheet(look, "sheet-new-notebook", "New notebook", body, buttons)
+                .with_child(sheet_button(app, ids::SHEET_CANCEL, "Cancel", ButtonType::Default, on_sheet_cancel))
+                .with_child(sheet_button(app, ids::SHEET_OK, "Create", ButtonType::Primary, on_sheet_ok));
+            sheet(look, ids::SHEET_NEW_NOTEBOOK, "New notebook", body, buttons)
         }
         Overlay::Link { url, spans, .. } => {
             let hint = if spans.is_empty() {
@@ -1365,17 +1366,17 @@ fn overlay_dom(s: &AppState, app: &RefAny, look: &Look) -> Dom {
                         .with_on_text_input(app.clone(), on_sheet_text as TextInputOnTextInputCallbackType)
                         .with_on_virtual_key_down(app.clone(), on_sheet_key as TextInputOnVirtualKeyDownCallbackType)
                         .dom()
-                        .with_id("sheet-field"),
+                        .with_id(ids::SHEET_FIELD),
                 );
             let mut buttons = Dom::create_div();
             if !url.trim().is_empty() {
-                buttons.add_child(sheet_button(app, "sheet-open", "Open", ButtonType::Link, on_link_open));
+                buttons.add_child(sheet_button(app, ids::SHEET_OPEN, "Open", ButtonType::Link, on_link_open));
             }
             let buttons = buttons
-                .with_child(sheet_button(app, "sheet-remove", "Remove link", ButtonType::Default, on_link_remove))
-                .with_child(sheet_button(app, "sheet-cancel", "Cancel", ButtonType::Default, on_sheet_cancel))
-                .with_child(sheet_button(app, "sheet-ok", "Link", ButtonType::Primary, on_sheet_ok));
-            sheet(look, "sheet-link", "Link", body, buttons)
+                .with_child(sheet_button(app, ids::SHEET_REMOVE, "Remove link", ButtonType::Default, on_link_remove))
+                .with_child(sheet_button(app, ids::SHEET_CANCEL, "Cancel", ButtonType::Default, on_sheet_cancel))
+                .with_child(sheet_button(app, ids::SHEET_OK, "Link", ButtonType::Primary, on_sheet_ok));
+            sheet(look, ids::SHEET_LINK, "Link", body, buttons)
         }
         Overlay::ConfirmDelete { id } => {
             let title = s.library.get(id).map_or(model::UNTITLED, |n| n.display_title());
@@ -1384,9 +1385,9 @@ fn overlay_dom(s: &AppState, app: &RefAny, look: &Look) -> Dom {
                 "font-size: 13px;",
             );
             let buttons = Dom::create_div()
-                .with_child(sheet_button(app, "sheet-cancel", "Cancel", ButtonType::Default, on_sheet_cancel))
-                .with_child(sheet_button(app, "sheet-ok", "Delete forever", ButtonType::Danger, on_sheet_ok));
-            sheet(look, "sheet-delete", "Delete forever?", body, buttons)
+                .with_child(sheet_button(app, ids::SHEET_CANCEL, "Cancel", ButtonType::Default, on_sheet_cancel))
+                .with_child(sheet_button(app, ids::SHEET_OK, "Delete forever", ButtonType::Danger, on_sheet_ok));
+            sheet(look, ids::SHEET_DELETE, "Delete forever?", body, buttons)
         }
     }
 }
@@ -1803,7 +1804,7 @@ fn settings_sections(s: &AppState, app: &RefAny, look: &Look, category: usize) -
                     Setting::Theme,
                     &["Flat", "Flora"],
                     usize::from(s.settings.theme == "flora"),
-                    "setting-theme",
+                    ids::SETTING_THEME,
                 ),
             ),
             section(
@@ -1813,7 +1814,7 @@ fn settings_sections(s: &AppState, app: &RefAny, look: &Look, category: usize) -
                     Setting::Mode,
                     &["Follow the system", "Light", "Dark"],
                     MODES.iter().position(|m| *m == s.settings.mode).unwrap_or(0),
-                    "setting-mode",
+                    ids::SETTING_MODE,
                 ),
             ),
         ],
@@ -1825,7 +1826,7 @@ fn settings_sections(s: &AppState, app: &RefAny, look: &Look, category: usize) -
                     Setting::TextSize,
                     &["Small", "Medium", "Large"],
                     TextSize::ALL.iter().position(|t| *t == s.settings.text_size).unwrap_or(1),
-                    "setting-text-size",
+                    ids::SETTING_TEXT_SIZE,
                 ),
             ),
             section(
@@ -1835,7 +1836,7 @@ fn settings_sections(s: &AppState, app: &RefAny, look: &Look, category: usize) -
                     Setting::Autosave,
                     &["0.5 s", "2 s", "5 s"],
                     AUTOSAVE_MS.iter().position(|m| *m == s.settings.autosave_ms).unwrap_or(0),
-                    "setting-autosave",
+                    ids::SETTING_AUTOSAVE,
                 ),
             ),
             section(
@@ -1848,7 +1849,7 @@ fn settings_sections(s: &AppState, app: &RefAny, look: &Look, category: usize) -
                         .iter()
                         .position(|m| *m == s.settings.version_minutes)
                         .unwrap_or(1),
-                    "setting-versions",
+                    ids::SETTING_VERSIONS,
                 ),
             ),
             section(
@@ -1864,7 +1865,7 @@ fn settings_sections(s: &AppState, app: &RefAny, look: &Look, category: usize) -
             let folder = s.root.join("notes");
             let content = Dom::create_div()
                 .with_css("display: flex; flex-direction: column;")
-                .with_child(info_text(&format!("Notes folder: {}", folder.display()), look).with_id("setting-folder"))
+                .with_child(info_text(&format!("Notes folder: {}", folder.display()), look).with_id(ids::SETTING_FOLDER))
                 .with_child(info_text(
                     "Every note is a Markdown file, notes/<notebook>/<id>.md, with its title, tags, \
                      pin and dates in a front matter; its images sit in notes/<notebook>/<id>/assets/, \
@@ -1877,12 +1878,12 @@ fn settings_sections(s: &AppState, app: &RefAny, look: &Look, category: usize) -
                         .with_icon("refresh")
                         .with_on_click(app.clone(), on_reload as ButtonOnClickCallbackType)
                         .dom()
-                        .with_id("setting-reload"),
+                        .with_id(ids::SETTING_RELOAD),
                 );
             vec![section("Files", content)]
         }
         SETTINGS_SHORTCUTS => {
-            let mut table = Dom::create_div().with_id("shortcuts").with_css("display: flex; flex-direction: column;");
+            let mut table = Dom::create_div().with_id(ids::SHORTCUTS).with_css("display: flex; flex-direction: column;");
             for (what, keys) in SHORTCUTS {
                 table.add_child(
                     Dom::create_div()
@@ -1899,7 +1900,7 @@ fn settings_sections(s: &AppState, app: &RefAny, look: &Look, category: usize) -
         _ => {
             let counts = s.library.counts();
             let content = Dom::create_div()
-                .with_id("about")
+                .with_id(ids::ABOUT)
                 .with_css("display: flex; flex-direction: column;")
                 .with_child(text_line(
                     &format!("AzNotes {}", env!("CARGO_PKG_VERSION")),
@@ -1942,10 +1943,10 @@ fn settings_screen(s: &AppState, app: &RefAny, look: &Look) -> Dom {
                 .with_icon("arrow_back")
                 .with_on_click(app.clone(), on_settings_back as ButtonOnClickCallbackType)
                 .dom()
-                .with_id("settings-back"),
+                .with_id(ids::SETTINGS_BACK),
         );
     Dom::create_div()
-        .with_id("settings")
+        .with_id(ids::SETTINGS)
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
         .with_child(back)
         .with_child(
@@ -2072,7 +2073,7 @@ fn history_screen(s: &AppState, app: &RefAny, look: &Look) -> Dom {
                 .with_icon("arrow_back")
                 .with_on_click(app.clone(), on_settings_back as ButtonOnClickCallbackType)
                 .dom()
-                .with_id("history-back"),
+                .with_id(ids::HISTORY_BACK),
         )
         .with_child(text_line(
             &format!("History: {}", note.display_title()),
@@ -2084,11 +2085,11 @@ fn history_screen(s: &AppState, app: &RefAny, look: &Look) -> Dom {
                 .with_button_type(ButtonType::Primary)
                 .with_on_click(app.clone(), on_restore_version as ButtonOnClickCallbackType)
                 .dom()
-                .with_id("history-restore"),
+                .with_id(ids::HISTORY_RESTORE),
         );
 
     // The versions, newest first.
-    let mut list = Dom::create_div().with_id("history-versions").with_css(format!(
+    let mut list = Dom::create_div().with_id(ids::HISTORY_VERSIONS).with_css(format!(
         "display: flex; flex-direction: column; width: 240px; flex-shrink: 0; overflow-y: auto; \
          border-right: 1px solid {}; padding: 6px;",
         look.line
@@ -2115,13 +2116,13 @@ fn history_screen(s: &AppState, app: &RefAny, look: &Look) -> Dom {
         }
         list.add_child(
             row.dom()
-                .with_id(format!("version-{index}"))
+                .with_id(format!("{}{index}", ids::VERSION_PREFIX))
                 .with_css("margin-bottom: 4px;"),
         );
     }
 
     // The selected version, then what changed from it to now.
-    let mut detail = Dom::create_div().with_id("history-detail").with_css(format!(
+    let mut detail = Dom::create_div().with_id(ids::HISTORY_DETAIL).with_css(format!(
         "display: flex; flex-direction: column; flex-grow: 1; min-width: 0px; overflow-y: auto; \
          padding: 12px 24px; background: {}; color: {};",
         look.paper, look.text
@@ -2146,12 +2147,12 @@ fn history_screen(s: &AppState, app: &RefAny, look: &Look) -> Dom {
                 meta.title.as_str()
             };
             detail.add_child(
-                editor::print_dom(s, note, &doc, title, s.settings.text_size.px()).with_id("history-version"),
+                editor::print_dom(s, note, &doc, title, s.settings.text_size.px()).with_id(ids::HISTORY_VERSION),
             );
             let then = doc.to_markdown();
             let now = note.doc.to_markdown();
             if let Some(diff) = model::line_diff(then.as_str(), now.as_str()) {
-                let mut changes = Dom::create_div().with_id("history-changes").with_css(format!(
+                let mut changes = Dom::create_div().with_id(ids::HISTORY_CHANGES).with_css(format!(
                     "display: flex; flex-direction: column; margin-top: 18px; padding-top: 8px; \
                      border-top: 1px solid {}; font-family: monospace; font-size: 12px;",
                     look.line
@@ -2180,7 +2181,7 @@ fn history_screen(s: &AppState, app: &RefAny, look: &Look) -> Dom {
         }
     }
     Dom::create_div()
-        .with_id("history")
+        .with_id(ids::HISTORY)
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
         .with_child(header)
         .with_child(

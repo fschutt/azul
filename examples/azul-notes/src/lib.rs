@@ -28,6 +28,7 @@
 
 pub mod args;
 pub mod editor;
+pub mod ids;
 mod jobs;
 pub mod look;
 pub mod markdown;
