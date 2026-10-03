@@ -1489,14 +1489,22 @@ fn mirror_insertion(state: &mut TextInputState, inserted: &str, caret: Option<us
 /// The byte offset in `text` a caret stands at: a LEADING caret before its
 /// grapheme cluster, a TRAILING one after it.
 fn caret_byte(cursor: &azul_core::selection::TextCursor, text: &str) -> usize {
-    // RED: the affinity is not read yet.
-    let _ = text;
-    cursor.cluster_id.start_byte_in_run as usize
+    let start = (cursor.cluster_id.start_byte_in_run as usize).min(text.len());
+    match cursor.affinity {
+        azul_core::selection::CursorAffinity::Leading => start,
+        azul_core::selection::CursorAffinity::Trailing => text
+            .get(start..)
+            .and_then(|rest| rest.graphemes(true).next())
+            .map_or(start, |cluster| start + cluster.len()),
+    }
 }
 
+/// The engine's caret in `node`, as a byte offset into the engine's buffer
+/// (the bullets of a password).
 fn engine_caret(info: &CallbackInfo, node: DomNodeId) -> Option<usize> {
-    info.get_node_cursor_position(node)
-        .map(|c| c.cluster_id.start_byte_in_run as usize)
+    let cursor = info.get_node_cursor_position(node)?;
+    let text = info.get_node_text_content(node).unwrap_or_default();
+    Some(caret_byte(&cursor, &text))
 }
 
 /// The engine's selection in the widget's public shape, as offsets into the
