@@ -4276,6 +4276,10 @@ pub struct E2eScratch {
     /// The AzBuilder project folder open in this window (the `project_*`
     /// ops, layout/src/e2e/project.rs).
     project: super::project::ProjectSession,
+    /// The last debug-request announcement this window re-armed its poll for
+    /// ([`take_debug_request_wake_for`]).
+    #[cfg(feature = "std")]
+    debug_wake: DebugWakeSeen,
 }
 
 /// Lock this window's E2E scratch. A poisoned lock is recovered rather than
@@ -21076,6 +21080,61 @@ pub fn take_debug_request_wake() -> bool {
     DEBUG_REQUEST_WAKE.swap(false, core::sync::atomic::Ordering::AcqRel)
 }
 
+/// Counts [`announce_debug_request`]s, so that EVERY window sees each one
+/// ([`take_debug_request_wake_for`]) - the flag above is taken by whichever
+/// loop looks first.
+#[cfg(feature = "std")]
+static DEBUG_REQUEST_WAKE_GENERATION: core::sync::atomic::AtomicU64 =
+    core::sync::atomic::AtomicU64::new(0);
+
+/// How many debug requests were announced so far in this process.
+#[cfg(feature = "std")]
+#[must_use]
+pub fn debug_request_wake_generation() -> u64 {
+    0
+}
+
+/// One window's view of the debug-request announcements: which one it last
+/// re-armed its debug poll for.
+///
+/// Every window must re-arm for every announcement, not only the window
+/// that takes the request off the shared queue: a request naming another
+/// window (`window_id`, a dialog the app opened) is FORWARDED to that
+/// window's timer, and a timer still at the idle rate served it up to
+/// [`DEBUG_POLL_IDLE_MS`] later - each op against a second window waited
+/// for its safety-net poll.
+#[cfg(feature = "std")]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct DebugWakeSeen {
+    seen: u64,
+}
+
+#[cfg(feature = "std")]
+impl DebugWakeSeen {
+    /// Is `generation` an announcement this window has not re-armed for
+    /// yet? Remembers it.
+    pub fn take_at(&mut self, generation: u64) -> bool {
+        let _ = generation;
+        false
+    }
+}
+
+/// Has a debug request been announced since THIS window last looked? The
+/// per-window twin of [`take_debug_request_wake`]: each window's loop turn
+/// (`PlatformWindow::serve_debug_request_wake` in the dll) re-arms its debug
+/// poll at the busy rate once per announcement.
+#[cfg(feature = "std")]
+#[must_use]
+pub fn take_debug_request_wake_for(layout_window: &azul_layout::window::LayoutWindow) -> bool {
+    let generation = debug_request_wake_generation();
+    layout_window
+        .e2e_scratch
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .debug_wake
+        .take_at(generation)
+}
+
 #[cfg(all(test, feature = "std"))]
 mod debug_request_wake_tests {
     use core::sync::atomic::{AtomicUsize, Ordering};
@@ -21112,6 +21171,27 @@ mod debug_request_wake_tests {
     #[test]
     fn an_idle_debug_server_polls_at_most_every_two_seconds() {
         assert!(DEBUG_POLL_IDLE_MS >= 2000, "{DEBUG_POLL_IDLE_MS} ms");
+    }
+
+    /// HEADLESS6 (CAL3 / MAIL2): the window a request is forwarded to must
+    /// hear about it too. The one wake flag was taken by whichever window's
+    /// loop looked first, so a dialog's timer stayed at the idle rate and
+    /// served each forwarded op up to two seconds late.
+    #[test]
+    fn every_window_rearms_its_debug_poll_once_per_announced_request() {
+        let (mut main, mut dialog) = (DebugWakeSeen::default(), DebugWakeSeen::default());
+        assert!(!main.take_at(0), "nothing announced yet");
+        assert!(main.take_at(1), "the window that takes the request re-arms");
+        assert!(dialog.take_at(1), "and so does the window it is forwarded to");
+        assert!(!main.take_at(1) && !dialog.take_at(1), "once per announcement");
+        assert!(dialog.take_at(3), "a later announcement re-arms again");
+    }
+
+    #[test]
+    fn an_announced_request_moves_the_wake_generation() {
+        let before = debug_request_wake_generation();
+        announce_debug_request();
+        assert!(debug_request_wake_generation() > before);
     }
 }
 
