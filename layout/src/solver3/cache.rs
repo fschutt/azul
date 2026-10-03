@@ -3380,6 +3380,12 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
         if position_type != LayoutPosition::Absolute && position_type != LayoutPosition::Fixed {
             continue;
         }
+        // A `::marker` box carries its LIST ITEM's DOM node, so an
+        // absolutely positioned item made its marker look positioned too;
+        // one that rides the item's first line is laid out with that line.
+        if fc::is_marker_on_a_line(tree, ctx.styled_dom, child_index) {
+            continue;
+        }
 
         // Set static position to parent's content-box origin
         super::pos_set(calculated_positions, child_index, self_content_box_pos);

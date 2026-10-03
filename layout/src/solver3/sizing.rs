@@ -353,10 +353,14 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // store the real intrinsic size below, then return zero to the caller so
         // the parent ignores it. (Previously this early-returned zero AND stored
         // zero on the node, collapsing every auto-width abs-pos box to width 0.)
-        let is_out_of_flow = matches!(
-            get_position_type(self.ctx.styled_dom, dom_node_id),
-            LayoutPosition::Absolute | LayoutPosition::Fixed
-        );
+        // A list item's `::marker` that rides the item's first line is laid
+        // out with that line, not as a block of the item: it adds nothing
+        // either (`fc::is_marker_on_a_line`).
+        let is_out_of_flow =
+            matches!(
+                get_position_type(self.ctx.styled_dom, dom_node_id),
+                LayoutPosition::Absolute | LayoutPosition::Fixed
+            ) || crate::solver3::fc::is_marker_on_a_line(tree, self.ctx.styled_dom, node_index);
 
         // Copy child indices before recursive calls (which need &mut tree).
         // Stack buffer for the common case (≤32 children); heap only for huge nodes.
