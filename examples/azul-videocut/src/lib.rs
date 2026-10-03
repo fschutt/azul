@@ -59,17 +59,14 @@ use azul::{
     dom::{NodeId, VirtualKeyCode},
     file::{FilePath, FileTypeList},
     image::{ImageRef, RawImage, RawImageFormat},
-    option::{OptionDarkLightMode, OptionFileTypeList, OptionString},
+    option::{OptionFileTypeList, OptionString},
     prelude::*,
-    shells::{
-        ShellEmptyState, ShellSettingsLayout, ShellSettingsSection, ShellThemeAccent,
-        ShellThemeScope, TimelineShell,
-    },
+    shells::{ShellEmptyState, ShellThemeAccent, ShellThemeScope, TimelineShell},
     str::String as AzString,
     time::SystemTimeDiff,
     uuid::Uuid,
     vec::{
-        ShellSettingsSectionVec, StatusBarSegmentVec, StringVec, TimelineClipVec, TimelineTrackVec,
+        StatusBarSegmentVec, StringVec, TimelineClipVec, TimelineTrackVec,
         U8Vec, U8VecRef,
     },
     video::{VideoDecoder, VideoEncoder},
@@ -80,12 +77,12 @@ use azul::{
         TimelineClipTint, TimelineEdge, TimelineEvent, TimelineEventKind, TimelineTrack,
         TimelineTrackKind, Titlebar,
     },
-    window::WindowDecorations,
 };
+use azul_appkit::{about::AboutInfo, shortcuts::Shortcut, ui as kit};
 use azul_storage::{Drive, LocalDrive};
 
 use crate::{
-    args::{Args, Mode, Screen},
+    args::{Args, Screen, SPEC},
     decode::{Library, MediaFiles},
     export::{ExportRange, ExportSettings, ExportShared, OutputFormat},
     model::{
@@ -229,7 +226,9 @@ pub struct VideoCut {
     thumbs: HashMap<u64, ImageRef>,
     playback: Option<Playback>,
     export: ExportState,
-    settings_open: bool,
+    /// azul-appkit's kit: settings (theme and mode remembered), the
+    /// settings page, the shortcuts table.
+    kit: RefAny,
     about_open: bool,
     window_width: f32,
     dark: bool,
@@ -1116,8 +1115,16 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     app.window_width = width;
     app.dark = matches!(mode, DarkLightMode::Dark);
     app.flora = theme.as_str() == "flora";
+    let settings = kit::settings_open(&app.kit);
 
-    let main = if app.loading {
+    let main = if settings {
+        // azul-appkit's settings page: Playback, Export, then Appearance
+        // (remembered), Data, Shortcuts, About.
+        Dom::create_div()
+            .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
+            .with_child(kit::title_row("AzVideoCut"))
+            .with_child(kit::settings_page(&app.kit, settings_sections(app)))
+    } else if app.loading {
         Dom::create_div()
             .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
             .with_child(Titlebar::create("AzVideoCut").without_border_bottom().dom())
@@ -1132,13 +1139,10 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         editor(app, &app_ref)
     };
     let mut column = Dom::create_div().with_css(ROOT_CSS).with_child(main);
-    if app.project.is_some() && app.export.open {
+    if app.project.is_some() && app.export.open && !settings {
         column.add_child(export_dialog(app, &app_ref));
     }
-    if app.settings_open {
-        column.add_child(settings_dialog(app, &app_ref));
-    }
-    if app.about_open {
+    if app.about_open && !settings {
         column.add_child(about_dialog(&app_ref));
     }
     // The body and the theme scope fill the window: the S3 shell's panes
@@ -1222,8 +1226,7 @@ fn menu_row(app: &VideoCut, app_ref: &RefAny) -> Dom {
         .with_child(button("Import...", app_ref, on_import))
         .with_child(primary("Export...", app_ref, on_export_open))
         .with_child(button("Settings", app_ref, on_settings_open))
-        .with_child(button(if app.flora { "Theme: Flora" } else { "Theme: Flat" }, app_ref, on_theme_toggle))
-        .with_child(button(if app.dark { "Mode: Dark" } else { "Mode: Light" }, app_ref, on_mode_toggle));
+        .with_child(button("About", app_ref, on_about_open));
     Dom::create_div()
         .with_css("display: flex; flex-direction: column;")
         .with_child(
@@ -1674,57 +1677,6 @@ fn export_dialog(app: &VideoCut, app_ref: &RefAny) -> Dom {
         .dom()
 }
 
-/// The settings: playback, export, storage, about.
-fn settings_dialog(app: &VideoCut, app_ref: &RefAny) -> Dom {
-    let root = app.drive_root.clone();
-    let sections = vec![
-        ShellSettingsSection::create(
-            "Playback",
-            text(
-                "Playback is paced by the monitor's refresh: each tick shows the frame that is \
-                 due. Pictures are composed on the CPU at the monitor's size.",
-                NOTE_CSS,
-            ),
-        ),
-        ShellSettingsSection::create(
-            "Export",
-            text(
-                &format!(
-                    "Encoder: {}. Exports go to videocut/<project>/exports/ on the data drive.",
-                    app.encoder
-                ),
-                NOTE_CSS,
-            ),
-        ),
-        ShellSettingsSection::create(
-            "Storage",
-            text(&format!("Data root: {root}"), NOTE_CSS),
-        ),
-        ShellSettingsSection::create(
-            "About",
-            row(vec![
-                text("AzVideoCut 0.1 on azul's video stack.", NOTE_CSS),
-                button("About...", app_ref, on_about_open),
-            ]),
-        ),
-    ];
-    let layout = ShellSettingsLayout::create(StringVec::from_vec(vec![
-        AzString::from("Playback"),
-        AzString::from("Export"),
-        AzString::from("Storage"),
-        AzString::from("About"),
-    ]))
-    .with_sections(ShellSettingsSectionVec::from_vec(sections))
-    .dom();
-    Dialog::create(Dom::create_div().with_css(DIALOG_BODY_CSS).with_child(layout))
-        .with_title("Settings")
-        .with_open(true)
-        .with_modal(true)
-        .with_close_button(true)
-        .with_on_close(app_ref.clone(), on_dialog_close as DialogOnCloseCallbackType)
-        .dom()
-}
-
 /// About AzVideoCut: azul's standard AboutDialog.
 fn about_dialog(app_ref: &RefAny) -> Dom {
     let body = AboutDialog::create("AzVideoCut", env!("CARGO_PKG_VERSION"))
@@ -1973,6 +1925,17 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     }
     let timeline_focused = focus_has_class(&info, "__azul-native-timeline-lanes");
+    // The kit's keys first (Mod+, the settings, F1 the shortcuts, Escape
+    // closes them); the settings page takes no editing keys.
+    let Some(kit_ref) = data.downcast_ref::<VideoCut>().map(|a| a.kit.clone()) else {
+        return Update::DoNothing;
+    };
+    if let Some(update) = kit::handle_key(&kit_ref, &mut info) {
+        return update;
+    }
+    if kit::settings_open(&kit_ref) {
+        return Update::DoNothing;
+    }
     if cmd && matches!(key, VirtualKeyCode::I) {
         return on_import(data, info);
     }
@@ -1981,7 +1944,6 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     };
     let app = &mut *guard;
     if matches!(key, VirtualKeyCode::Escape) {
-        app.settings_open = false;
         app.about_open = false;
         if app.export.shared.as_ref().map_or(true, |s| s.progress.lock().map_or(true, |p| p.finished)) {
             app.export.open = false;
@@ -2695,7 +2657,6 @@ extern "C" fn on_dialog_close(mut data: RefAny, _info: CallbackInfo, _state: Dia
         return Update::DoNothing;
     };
     app.export.open = false;
-    app.settings_open = false;
     app.about_open = false;
     Update::RefreshDom
 }
@@ -2803,10 +2764,10 @@ extern "C" fn on_export_cancel(mut data: RefAny, _info: CallbackInfo) -> Update 
 }
 
 extern "C" fn on_settings_open(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
+    let Some(app) = data.downcast_ref::<VideoCut>() else {
         return Update::DoNothing;
     };
-    app.settings_open = true;
+    kit::open_settings(&app.kit, None);
     Update::RefreshDom
 }
 
@@ -2814,7 +2775,7 @@ extern "C" fn on_about_open(mut data: RefAny, _info: CallbackInfo) -> Update {
     let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
-    app.settings_open = false;
+    kit::close_settings(&app.kit);
     app.about_open = true;
     Update::RefreshDom
 }
@@ -2837,21 +2798,6 @@ extern "C" fn on_export_event(data: RefAny, info: CallbackInfo, event: StandardD
     }
 }
 
-extern "C" fn on_theme_toggle(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let flora = data.downcast_ref::<VideoCut>().is_some_and(|a| a.flora);
-    info.set_theme(AzString::from(if flora { "flat" } else { "flora" }));
-    Update::DoNothing
-}
-
-extern "C" fn on_mode_toggle(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let dark = data.downcast_ref::<VideoCut>().is_some_and(|a| a.dark);
-    info.set_mode(OptionDarkLightMode::Some(if dark {
-        DarkLightMode::Light
-    } else {
-        DarkLightMode::Dark
-    }));
-    Update::DoNothing
-}
 
 /// Makes the sample project (a job: it may encode two clips).
 extern "C" fn on_make_sample(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -2895,6 +2841,7 @@ extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
+    kit::on_window_created(&app.kit, &mut info);
     let sample_id = app.args.sample.then(|| new_project_id());
     let project = app.args.project.clone();
     app.loading = true;
@@ -2915,29 +2862,82 @@ fn encoder_line() -> String {
     }
 }
 
+/// What the settings page and About say about AzVideoCut.
+pub const ABOUT: AboutInfo = AboutInfo {
+    name: "AzVideoCut",
+    version: env!("CARGO_PKG_VERSION"),
+    summary: "A video editor on azul's video stack: a media bin, source and program monitors, \
+              a timeline of tracks, effects, transitions and H.264 export. Part of the Azlin apps.",
+    license: "MIT",
+    app_folder: store::APP_FOLDER,
+};
+
+/// The keyboard shortcuts the settings page lists (`Mod` = Cmd / Ctrl).
+pub const SHORTCUTS: [Shortcut; 14] = [
+    Shortcut::new("Playback", "Space", "Play, pause"),
+    Shortcut::new("Playback", "J  K  L", "Shuttle back, stop, forward"),
+    Shortcut::new("Playback", "Left  Right", "One frame (Shift: one second)"),
+    Shortcut::new("Playback", "Home  End  Up  Down", "Start, end, previous / next edit"),
+    Shortcut::new("Marks", "I  O", "Mark in, out (the active monitor)"),
+    Shortcut::new("Edit", ",  .", "Insert, overwrite the source range"),
+    Shortcut::new("Edit", "Mod+K", "Razor every track at the playhead"),
+    Shortcut::new("Edit", "Delete  Shift+Delete", "Lift, ripple delete"),
+    Shortcut::new("Edit", "Mod+Z  Mod+Shift+Z", "Undo, redo"),
+    Shortcut::new("Tools", "V C B Y H Z", "Select, razor, ripple, slip, hand, zoom"),
+    Shortcut::new("Timeline", "S", "Snapping on / off"),
+    Shortcut::new("Timeline", "=  -", "Zoom in, out"),
+    Shortcut::new("File", "Mod+I", "Import media"),
+    Shortcut::new("File", "Mod+E", "Export into the data folder"),
+];
+
+/// The settings page's own categories (before the kit's).
+const APP_CATEGORIES: [&str; 2] = ["Playback", "Export"];
+
+/// The settings page's own sections.
+fn settings_sections(app: &VideoCut) -> Vec<kit::AppSection> {
+    vec![
+        kit::AppSection {
+            category: 0,
+            title: String::from("Playback"),
+            content: kit::note(
+                "Playback is paced by the monitor's refresh: each tick shows the frame that is \
+                 due. Pictures are composed on the CPU at the monitor's size.",
+            ),
+        },
+        kit::AppSection {
+            category: 1,
+            title: String::from("Export"),
+            content: kit::note(&format!(
+                "Encoder: {}. Exports go to videocut/<project>/exports/ in the data folder.",
+                app.encoder
+            )),
+        },
+    ]
+}
+
 /// Starts AzVideoCut (`--help` for the switches).
 pub fn start() {
-    let args = match Args::parse(std::env::args().skip(1)) {
+    let (app_args, args) = match Args::parse(std::env::args().skip(1)) {
         Ok(a) => a,
         Err(message) => {
-            let help = message.contains("USAGE");
-            if help {
-                println!("{message}");
-            } else {
-                eprintln!("{message}");
-            }
-            std::process::exit(if help { 0 } else { 2 });
+            println!("{message}");
+            std::process::exit(if message.contains("USAGE") { 0 } else { 2 });
         }
     };
-    let data_dir = FilePath::get_data_dir()
-        .into_option()
-        .map(|d| PathBuf::from(d.inner.as_str()))
-        .filter(|p| !p.as_os_str().is_empty());
-    let root = store::data_root(std::env::var(store::DATA_VAR).ok(), data_dir);
+    // The kit: the data root (--data-dir, $AZLIN_DATA, the user's), the
+    // remembered theme and mode, the shortcuts.
+    let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &APP_CATEGORIES, app_args.clone());
+    let root = {
+        let mut k = kit_ref.clone();
+        let root = k.downcast_ref::<kit::Kit>().map(|k| k.data_root.clone());
+        root.unwrap_or_else(|| PathBuf::from("."))
+    };
+    if args.screen == Screen::Settings {
+        kit::open_settings(&kit_ref, None);
+    }
     let drive: Arc<dyn Drive> = Arc::new(LocalDrive::new(&root));
     let encoder = encoder_line();
     eprintln!("[azvideocut] data root {}; video: {encoder}", root.display());
-    let flora = args.theme.as_deref() == Some("flora");
     let state = VideoCut {
         drive,
         drive_root: root.display().to_string(),
@@ -2972,32 +2972,17 @@ pub fn start() {
             timer: None,
             last_line: String::new(),
         },
-        settings_open: args.screen == Screen::Settings,
+        kit: kit_ref.clone(),
         about_open: args.screen == Screen::About,
         window_width: 1280.0,
-        dark: args.mode == Some(Mode::Dark),
-        flora,
+        dark: false,
+        flora: false,
         encoder,
         args: args.clone(),
     };
-    let mut config = AppConfig::create();
-    if let Some(theme) = args.theme.as_deref() {
-        config = config.with_theme(theme);
-    }
-    let app = App::create(RefAny::new(state), config);
-    let mut window = WindowCreateOptions::create(layout);
-    let (w, h) = args.size.unwrap_or((1280.0, 800.0));
-    window.window_state.size.dimensions = LogicalSize::create(w, h);
-    window.window_state.title = AzString::from("AzVideoCut");
-    window.window_state.flags.decorations = WindowDecorations::NoTitle;
-    if let Some(mode) = args.mode {
-        window.mode = OptionDarkLightMode::Some(match mode {
-            Mode::Light => DarkLightMode::Light,
-            Mode::Dark => DarkLightMode::Dark,
-        });
-    }
-    window.create_callback = Some(Callback::create(startup)).into();
-    app.run(window);
+    let config = kit::app_config(&kit_ref);
+    let window = kit::window_options(&kit_ref, layout, (1280.0, 800.0), (960.0, 600.0), startup);
+    App::create(RefAny::new(state), config).run(window);
 }
 
 /// A fresh project id (the project's folder in the drive): random, so no

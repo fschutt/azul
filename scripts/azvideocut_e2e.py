@@ -2,7 +2,7 @@
 """AzVideoCut end to end over the debug server.
 
     1. starts AzVideoCut headless with --sample (AZ_BACKEND=headless, the debug server on
-       --debug-port, a fresh data root in AZVIDEOCUT_DATA) and waits for the sample project
+       --debug-port, a fresh data root by --data-dir) and waits for the sample project
        (`AZVIDEOCUT_PROJECT <id> 4 200`: three clips on V1, a picture in picture on V2, 200
        frames) and its first program frame (`AZVIDEOCUT_FRAME 0`);
     2. checks the S3 layout: the media bin, the source and program monitors, the effect
@@ -84,13 +84,13 @@ def find_binary(explicit):
 class App:
     """AzVideoCut under its debug server."""
 
-    def __init__(self, binary, port, env, logs, deadline):
+    def __init__(self, binary, port, env, logs, deadline, data_root):
         self.port = port
         self.deadline = deadline
         self.out_path = os.path.join(logs, "azvideocut.stdout")
         self.err_path = os.path.join(logs, "azvideocut.stderr")
         self.process = subprocess.Popen(
-            [binary, "--sample"], env=env, stdin=subprocess.DEVNULL,
+            [binary, "--sample", "--data-dir", data_root], env=env, stdin=subprocess.DEVNULL,
             stdout=open(self.out_path, "wb"), stderr=open(self.err_path, "wb"),
         )
 
@@ -264,9 +264,8 @@ def run(args, logs, out, data_root):
     env.update({
         "AZ_BACKEND": "headless",
         "AZ_DEBUG": str(args.debug_port),
-        "AZVIDEOCUT_DATA": data_root,
     })
-    app = App(binary, args.debug_port, env, logs, deadline)
+    app = App(binary, args.debug_port, env, logs, deadline, data_root)
     try:
         # 1. The sample project and its first frame.
         line = app.until("the sample project", lambda: (app.printed("PROJECT", r"\S+ \d+ \d+") or [None])[-1])
