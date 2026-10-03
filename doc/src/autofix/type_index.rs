@@ -846,8 +846,149 @@ pub struct FreeFnDef {
 /// declaration names has the declared module's path (`xml::html` lives in
 /// xml_html.rs).
 pub fn find_free_fn(workspace_root: &Path, path: &str, class_name: &str) -> Result<FreeFnDef, String> {
-    let _ = (workspace_root, class_name);
-    Err(format!("free function `{path}` not found"))
+    let segments: Vec<&str> = path.split("::").collect();
+    let (crate_name, module, fn_name) = match segments.as_slice() {
+        [crate_name, modules @ .., fn_name] if !fn_name.is_empty() => {
+            (*crate_name, modules.join("::"), *fn_name)
+        }
+        _ => return Err(format!("`{path}` is not a path `<crate>::<module>::<fn>`")),
+    };
+    let Some((_, src)) = CRATE_DIRS.iter().find(|(c, _)| *c == crate_name) else {
+        let known: Vec<&str> = CRATE_DIRS.iter().map(|(c, _)| *c).collect();
+        return Err(format!(
+            "unknown crate `{crate_name}` in `{path}` (the index reads {})",
+            known.join(", ")
+        ));
+    };
+    let mut files = Vec::new();
+    collect_rust_files(&mut files, crate_name, &workspace_root.join(src));
+
+    // Files a `#[path = ".."]` module declaration names: the declared path
+    let mut declared: BTreeMap<PathBuf, String> = BTreeMap::new();
+    for (_, file) in &files {
+        let Ok(text) = fs::read_to_string(file) else {
+            continue;
+        };
+        if !text.contains("#[path") {
+            continue;
+        }
+        let Ok(ast) = syn::parse_file(&text) else {
+            continue;
+        };
+        let parent_module = infer_module_path(crate_name, file);
+        for item in &ast.items {
+            let Item::Mod(m) = item else { continue };
+            if m.content.is_some() {
+                continue;
+            }
+            let Some(target) = m.attrs.iter().find_map(path_attr_value) else {
+                continue;
+            };
+            let Some(dir) = file.parent() else { continue };
+            let module_path = if parent_module.is_empty() {
+                m.ident.to_string()
+            } else {
+                format!("{parent_module}::{}", m.ident)
+            };
+            declared.insert(dir.join(target), module_path);
+        }
+    }
+
+    let needle = format!("fn {fn_name}");
+    let mut found: Vec<(String, MethodDef)> = Vec::new();
+    for (_, file) in &files {
+        let Ok(text) = fs::read_to_string(file) else {
+            continue;
+        };
+        if !text.contains(&needle) {
+            continue;
+        }
+        let Ok(ast) = syn::parse_file(&text) else {
+            continue;
+        };
+        let module_path = declared
+            .get(file)
+            .cloned()
+            .unwrap_or_else(|| infer_module_path(crate_name, file));
+        collect_free_fns(&ast.items, &module_path, fn_name, class_name, &mut found);
+    }
+
+    let child = format!("{module}::");
+    let exact: Vec<&(String, MethodDef)> = found.iter().filter(|(m, _)| *m == module).collect();
+    let children: Vec<&(String, MethodDef)> = found
+        .iter()
+        .filter(|(m, _)| module.is_empty() || m.starts_with(&child))
+        .collect();
+    let chosen = match (exact.as_slice(), children.as_slice()) {
+        ([one], _) | ([], [one]) => *one,
+        _ => {
+            let at: Vec<&str> = found.iter().map(|(m, _)| m.as_str()).collect();
+            return Err(if found.is_empty() {
+                format!("no public fn `{fn_name}` in {crate_name}")
+            } else {
+                format!(
+                    "`{path}`: no single public fn `{fn_name}` in `{module}` or a child of it \
+                     (found in: {})",
+                    at.join(", ")
+                )
+            });
+        }
+    };
+    Ok(FreeFnDef {
+        path: path.to_string(),
+        defined_in: chosen.0.clone(),
+        method: chosen.1.clone(),
+    })
+}
+
+/// The file a `#[path = "file.rs"]` attribute names.
+fn path_attr_value(attr: &syn::Attribute) -> Option<String> {
+    if !attr.path().is_ident("path") {
+        return None;
+    }
+    let syn::Meta::NameValue(nv) = &attr.meta else {
+        return None;
+    };
+    match &nv.value {
+        syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Str(s),
+            ..
+        }) => Some(s.value()),
+        _ => None,
+    }
+}
+
+/// The public free functions `fn_name` in `items` (inline modules too),
+/// with their module paths.
+fn collect_free_fns(
+    items: &[Item],
+    module: &str,
+    fn_name: &str,
+    class_name: &str,
+    out: &mut Vec<(String, MethodDef)>,
+) {
+    for item in items {
+        match item {
+            Item::Fn(f)
+                if f.sig.ident == fn_name && matches!(f.vis, syn::Visibility::Public(_)) =>
+            {
+                if let Some(method) = free_fn_method(f, class_name) {
+                    out.push((module.to_string(), method));
+                }
+            }
+            Item::Mod(m) => {
+                if let Some((_, nested)) = &m.content {
+                    let nested_module = if module.is_empty() {
+                        m.ident.to_string()
+                    } else {
+                        format!("{module}::{}", m.ident)
+                    };
+                    collect_free_fns(nested, &nested_module, fn_name, class_name, out);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// The signature of the free function `f` as a static method of
@@ -3764,7 +3905,7 @@ mod tests {
 
         let found = find_free_fn(root.path(), "azul_core::xml::html::encode_text", "Xml")
             .expect("found in the #[path] module");
-        assert_eq!(found.defined_in, "xml_html");
+        assert_eq!(found.defined_in, "xml::html", "the declared module path");
 
         assert!(find_free_fn(root.path(), "azul_layout::other::text_image", "RawImage").is_err(), "not public");
         assert!(find_free_fn(root.path(), "azul_layout::cpurender::nope", "RawImage").is_err());
