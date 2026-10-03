@@ -23,6 +23,15 @@ headless Chrome and the prebuilt azul (AzPaint `mount`, capped runner), prints r
   the layout RED test now installs pages via begin_reconciliation + layout_new_generation +
   finish_reconciliation like the shells); GREEN 3ccc3c8c5 (core/src/diff.rs A2 gate = nearest terminal
   ancestor). Touched core (unowned this wave).
+- item 8: VERIFIED already fixed (TEXTENG wave 5: measure_atomic_inline in the span arm; pinned by
+  layout/tests/an_inline_block_inside_a_span_is_sized_by_its_own_css.rs). Probe: px / % / auto widths
+  in spans = Chrome. Ledger item stale. No change.
+- item 9: VERIFIED already done: f120ecc14 (TABLES wave 5) restored the per-cell 2-baseline + 3.9.3
+  assertion; the inline-block min-content bug 56b105f60 dodged was the font-stack off-by-one
+  (MAILENG6 2b5bae827), pinned by text_beside_an_italic_or_bold_box_keeps_a_font; probe: table of
+  `<i>` boxes 106 = Chrome, narrow prose table columns 131.8/82.2 vs Chrome 131.6/82.5. No change.
+  Seen: lines of only atomic inlines get no strut (Chrome 18px line around a 10px box, azul 10) -
+  candidate extra item (fc.rs strut).
 
 ## NOTES item 1 (done)
 - item 1: abspos child treated as in-flow + ::marker with list-style-type none.
@@ -49,7 +58,7 @@ headless Chrome and the prebuilt azul (AzPaint `mount`, capped runner), prints r
   skip a marker that has a host, a marker IFC collects only its marker; no marker box for none.
 
 ## IN PROGRESS
-- item 8: inline-block in an inline span sized from max-content (fc.rs collect_inline_span_recursive) - probe + RED
+- item 10: a block taller than a page overflows its sheet (pagination, NOT page_breaks.rs) - study + RED
 - DECISION: item 6 (CSS zoom) moved after items 7-10: a new CssProperty touches property.rs (~30 spots),
   css codegen (format.rs, lower_types.rs ~9 lists), core prop_cache, 30 codegen golden files, and the
   used-length effect needs ~140 resolution sites or a paint transform in core/gpu.rs + display_list
