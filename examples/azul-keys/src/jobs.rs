@@ -203,6 +203,8 @@ fn handle(s: &mut KeysApp, info: &mut CallbackInfo, app: &RefAny, done: Done) {
             println!("AZKEYS_FAILED {}", f.what);
             let t = now();
             if f.wrong_password {
+                // The field starts empty for the next try.
+                zeroize::Zeroize::zeroize(&mut *s.unlock.password);
                 s.attempts.failed(t);
                 s.unlock.message = s.attempts.message(t);
                 println!("AZKEYS_WRONG_PASSWORD {}", s.attempts.wait(t));
