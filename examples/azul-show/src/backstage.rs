@@ -1,22 +1,27 @@
 //! File: the backstage. Info, New (the theme picker with live previews,
 //! colour variant, fonts, slide size), Open (the decks under `show/`, the
-//! sample deck), Save, Export (PDF, the slide as a picture), Close and
-//! Options (the app theme and the mode on `ShellSettingsLayout`, About,
-//! the keyboard shortcuts).
+//! sample deck), Save, Export (PDF, the slide as a picture, into
+//! `show/exports/`), Close, Options (azul-appkit's settings page: the app
+//! theme and the mode, remembered; the data folder; the shortcuts table)
+//! and About (the standard About box).
 
 use std::collections::HashMap;
 
 use azul::{
     callbacks::{
         BackstageOnNavSelectCallbackType, ButtonOnClickCallbackType, CallbackInfo, RefAny,
-        SegmentedOnChangeCallbackType, ShellSettingsLayoutOnCategoryCallbackType, Update,
+        SegmentedOnChangeCallbackType, StandardDialogOnEventCallbackType, Update,
     },
     dom::Dom,
-    shells::{ShellEmptyState, ShellSettingsLayout, ShellSettingsSection},
+    shells::ShellEmptyState,
     str::String as AzString,
     vec::StringVec,
-    widgets::{Backstage, BackstageNavItem, Button, ButtonType, Segmented, SegmentedState},
+    widgets::{
+        AboutDialog, Backstage, BackstageNavItem, Button, ButtonType, Segmented, SegmentedState,
+        StandardDialogEvent,
+    },
 };
+use azul_appkit::ui as kit;
 
 use crate::{
     app::{command, AppState, BackstagePage, Command},
@@ -67,8 +72,6 @@ enum Segment {
     Variant,
     Fonts,
     Size,
-    AppTheme,
-    Mode,
 }
 
 struct SegmentData {
@@ -86,12 +89,6 @@ extern "C" fn on_segment(mut data: RefAny, mut info: CallbackInfo, state: Segmen
         Segment::Variant => Command::NewVariant(i),
         Segment::Fonts => Command::NewFonts(i),
         Segment::Size => Command::NewSize(if i == 1 { SlideSize::Standard } else { SlideSize::Wide }),
-        Segment::AppTheme => Command::AppTheme(String::from(if i == 1 { "flora" } else { "flat" })),
-        Segment::Mode => Command::Mode(match i {
-            1 => Some(false),
-            2 => Some(true),
-            _ => None,
-        }),
     };
     crate::commands::run(&mut app, cmd, &mut info)
 }
@@ -118,8 +115,9 @@ extern "C" fn on_nav(mut data: RefAny, mut info: CallbackInfo, index: usize) -> 
     crate::commands::run(&mut data, cmd, &mut info)
 }
 
-extern "C" fn on_settings_category(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
-    crate::commands::run(&mut data, Command::SettingsCategory(index), &mut info)
+/// The About box's OK: back from the backstage.
+extern "C" fn on_about_event(mut data: RefAny, mut info: CallbackInfo, _event: StandardDialogEvent) -> Update {
+    crate::commands::run(&mut data, Command::CloseBackstage, &mut info)
 }
 
 /// A theme's card on File > New: a live title slide in the theme, its name.
@@ -247,67 +245,46 @@ fn info_page(app: &RefAny, st: &AppState) -> Dom {
 fn export_page(app: &RefAny) -> Dom {
     pane(vec![
         heading("Export"),
-        line("Create a PDF: every slide shown in the show, one per page, through azul's PDF path (opacity and filters are dropped)."),
+        line("Create a PDF: every slide shown in the show, one per page, through azul's PDF path (opacity and filters are dropped). It is written to show/exports/ in the data folder."),
         primary(app, "Create PDF", Command::ExportPdf),
         Dom::create_div().with_css("height: 20px;"),
-        line("Save the current slide as a PNG picture (open the normal view first)."),
+        line("Save the current slide as a PNG picture in show/exports/ (open the normal view first)."),
         button(app, "Save Slide as Picture", Command::ExportImages),
     ])
 }
 
-fn options_page(app: &RefAny, st: &AppState, app_theme: &str, mode: Option<bool>) -> Dom {
-    let appearance = Dom::create_div()
-        .with_css("display: flex; flex-direction: column;")
-        .with_child(line("App theme"))
-        .with_child(segmented(app, Segment::AppTheme, &["Flat", "Flora"], usize::from(app_theme == "flora")))
-        .with_child(Dom::create_div().with_css("height: 12px;"))
-        .with_child(line("Mode"))
-        .with_child(segmented(
-            app,
-            Segment::Mode,
-            &["System", "Light", "Dark"],
-            match mode {
-                None => 0,
-                Some(false) => 1,
-                Some(true) => 2,
-            },
-        ));
-    let shortcuts = [
-        "F5 / Shift+F5: start the show from the beginning / the current slide",
-        "In the show: Space, Right, Down, click: next; Left, Up, Backspace: back; B / W: black / white; a number and Enter: that slide; Esc: end",
-        "Ctrl+M: new slide; Ctrl+D: duplicate; Ctrl+G / Ctrl+Shift+G: group / ungroup",
-        "Ctrl+B / I / U: bold, italic, underline; Ctrl+S: save; Ctrl+Z / Ctrl+Y: undo / redo",
-        "On the slide: arrows nudge (Ctrl: finely), Tab walks the objects, Enter edits the text, Esc leaves it",
-        "F6: the next pane",
-    ];
-    let mut keys = Dom::create_div().with_css("display: flex; flex-direction: column;");
-    for k in shortcuts {
-        keys.add_child(line(k));
+/// Options: azul-appkit's settings page - Appearance (the app theme and the
+/// mode, saved to settings.json and applied at once), Data (the folder), the
+/// shortcuts table, About - one page for every Azlin app (DEDUP_OFFICE D13).
+fn options_page(st: &AppState) -> Dom {
+    match &st.kit {
+        Some(kit_ref) => pane(vec![heading("Options"), kit::settings_page(kit_ref, Vec::new())]),
+        None => pane(vec![heading("Options"), line("The settings are not available.")]),
     }
-    let about = Dom::create_div()
-        .with_css("display: flex; flex-direction: column;")
-        .with_child(line("AzShow 0.1 - presentations on the azul toolkit."))
-        .with_child(line(&format!("Data folder: {}", st.data_root.display())));
-    ShellSettingsLayout::create(strings(&["Appearance", "Keyboard", "About"]))
-        .with_section(ShellSettingsSection::create(s("Appearance"), appearance))
-        .with_section(ShellSettingsSection::create(s("Keyboard"), keys))
-        .with_section(ShellSettingsSection::create(s("About"), about))
-        .with_active_category(st.settings_category)
-        .with_on_category(app.clone(), on_settings_category as ShellSettingsLayoutOnCategoryCallbackType)
-        .dom()
 }
 
-/// The backstage for the app's state. `app_theme` and `mode` are the
-/// window's (the Options page shows them).
+/// About: the standard About box (DEDUP_OFFICE D12); OK goes back.
+fn about_page(app: &RefAny) -> Dom {
+    pane(vec![AboutDialog::create(s(crate::ABOUT.name), s(crate::ABOUT.version))
+        .with_icon(s("slideshow"))
+        .with_description(s(crate::ABOUT.summary))
+        .with_copyright(s("Copyright 2026 Felix Schuett. MIT license."))
+        .with_credit(s("azul"), s("MIT"))
+        .with_on_event(app.clone(), on_about_event as StandardDialogOnEventCallbackType)
+        .dom()])
+}
+
+/// The backstage for the app's state.
 #[must_use]
-pub fn backstage(app: &RefAny, st: &AppState, app_theme: &str, mode: Option<bool>) -> Dom {
+pub fn backstage(app: &RefAny, st: &AppState) -> Dom {
     let content = match st.page {
         BackstagePage::Info | BackstagePage::Save => info_page(app, st),
         BackstagePage::New => new_page(app, st),
         BackstagePage::Open => open_page(app, st),
         BackstagePage::Export => export_page(app),
         BackstagePage::Close => info_page(app, st),
-        BackstagePage::Options => options_page(app, st, app_theme, mode),
+        BackstagePage::Options => options_page(st),
+        BackstagePage::About => about_page(app),
     };
     let nav: Vec<BackstageNavItem> = BackstagePage::NAV
         .iter()

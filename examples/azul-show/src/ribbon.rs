@@ -519,19 +519,11 @@ fn view_tab(app: &RefAny, st: &AppState) -> RibbonTab {
                 toggle(app, "fit_screen", "Fit to Window", Command::ZoomFit, st.zoom.is_none()),
             ])],
         ))
+        // The app theme and the mode are File > Options (appkit's settings
+        // page: one switch, remembered across restarts).
         .with_group(group(
             "Window",
-            vec![
-                column(vec![
-                    small(app, "palette", "Flat", Command::AppTheme(String::from("flat"))),
-                    small(app, "spa", "Flora", Command::AppTheme(String::from("flora"))),
-                ]),
-                column(vec![
-                    small(app, "light_mode", "Light", Command::Mode(Some(false))),
-                    small(app, "dark_mode", "Dark", Command::Mode(Some(true))),
-                    small(app, "contrast", "System", Command::Mode(None)),
-                ]),
-            ],
+            vec![small(app, "settings", "Options", Command::OpenBackstage(BackstagePage::Options))],
         ))
 }
 
