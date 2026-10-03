@@ -415,6 +415,36 @@ impl GpuValueCache {
         changed
     }
 
+    /// One node's [`Self::refresh_transform_values`]: re-read `node`'s CSS
+    /// `transform` from the cascade (its user override first) and publish it
+    /// under the key it ALREADY has, with percentages resolved against
+    /// `size` (its border box, logical px).
+    ///
+    /// The per-frame channel of a `transform` tween: the reference frame
+    /// exists (the key was minted by `synchronize`), only its matrix moves,
+    /// and both compositors read the matrix live from here - no layout, no
+    /// display-list rebuild. Returns `false` and changes nothing when the
+    /// node has no key, or no longer resolves to a transform: that is a
+    /// change of the key POPULATION, which only a display-list build can
+    /// show (`synchronize` then adds or removes the key).
+    pub fn refresh_transform_value_of(
+        &mut self,
+        styled_dom: &StyledDom,
+        node_id: NodeId,
+        size: (f32, f32),
+    ) -> bool {
+        if node_id.index() >= styled_dom.node_data.len()
+            || !self.css_transform_keys.contains_key(&node_id)
+        {
+            return false;
+        }
+        let Some(fresh) = Self::css_transform_of(styled_dom, node_id, size) else {
+            return false;
+        };
+        self.css_current_transform_values.insert(node_id, fresh);
+        true
+    }
+
     fn compute_transform_events(
         &self,
         styled_dom: &StyledDom,
