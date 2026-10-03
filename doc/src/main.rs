@@ -1129,13 +1129,29 @@ fn main() -> anyhow::Result<()> {
                 .unwrap()
                 .to_string();
 
+            // api.json as the pending patches will leave it: an entry a pending
+            // `autofix remove` drops can be re-added (a changed signature) in
+            // the same round
+            let pending = autofix::pending::PendingRemovals::read(&patches_dir, type_name);
+            if pending.class {
+                eprintln!(
+                    "Error: a pending patch in {} removes the class '{}'; run `autofix apply` \
+                     first, then add",
+                    patches_dir.display(),
+                    type_name
+                );
+                std::process::exit(1);
+            }
+            let api_class = autofix::function_diff::find_api_class(type_name, version_data)
+                .map(|class| pending.apply_to(class));
+
             // Get matching methods
             let all: Vec<_> = type_def.methods.iter().collect();
             let methods = autofix::function_diff::api_candidate_methods(
                 type_name,
                 &all,
                 method_spec,
-                autofix::function_diff::find_api_class(type_name, version_data),
+                api_class.as_ref(),
                 &|t: &str| autofix::function_diff::ffi_carries(t, version_data, &index),
             );
 
@@ -1189,6 +1205,18 @@ fn main() -> anyhow::Result<()> {
 
             let json = serde_json::to_string_pretty(&patch)?;
             fs::write(&patch_path, &json)?;
+
+            // The re-added entries supersede their pending removals, whatever
+            // order `autofix apply` takes the patches in
+            let superseded =
+                autofix::pending::supersede_pending_removals(&patches_dir, type_name, &patch)?;
+            if !superseded.is_empty() {
+                println!(
+                    "[ADD] Supersedes the pending removal of {}: {}",
+                    type_name,
+                    superseded.join(", ")
+                );
+            }
 
             println!("\n[OK] Patch written to: {}", patch_path.display());
             println!(
