@@ -34,11 +34,18 @@ capture's CVPixelBuffer).
   rate, AZMEET_RATE stdout line, ", H.264 at X of Y kbps" in the sending line
   => BITRATE ADAPTATION DONE (needs api.json VideoEncoder.set_bitrate).
 
+- 5d8b51825 test(audio): Opus RED (audio/codec.rs opus_tests)
+- 1a244218c feat(audio): AudioEncoder / AudioDecoder + opus_apple.rs (AudioToolbox, dlopen'd)
+- 79d702934 feat(audio): wasm stubs (unified/audio.rs)
+- ded162435 refactor(audio): no magic cookie (verified with a ctypes replay on this Mac: 50 packets,
+  31 kbit/s, share 1.000; probe /tmp/video8/tc/opus_probe.py, not committed)
+  => OPUS ENGINE DONE (needs api.json AudioEncoder / AudioDecoder).
+
 ## IN PROGRESS
-- nothing half-done; the worktree is clean after this commit.
+- AzMeet Opus: audio.rs codec byte 2, lib.rs send / receive with PCM fallback.
 
 ## NEXT (exact)
-1. Opus through AudioToolbox on Apple: new file dll/src/desktop/extra/audio/opus_codec.rs (or
+1. (engine DONE, AzMeet wiring next) Opus through AudioToolbox on Apple: new file dll/src/desktop/extra/audio/opus_codec.rs (or
    video_codec-style `audio_codec` module): dlopen AudioToolbox (`AudioConverterNew`,
    `AudioConverterFillComplexBuffer`, `AudioConverterDispose`), kAudioFormatOpus ('opus') 48 kHz
    mono 20 ms (960 frames); C-ABI handles `AudioEncoder` / `AudioDecoder` (ptr + run_destructor,
