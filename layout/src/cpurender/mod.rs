@@ -9,9 +9,11 @@ pub mod pixmap;
 mod raster;
 mod shape;
 mod svg;
+mod text_raster;
 
 pub use compositor::*;
 pub use pixmap::*;
 pub use raster::*;
 pub use shape::*;
 pub use svg::*;
+pub use text_raster::*;
