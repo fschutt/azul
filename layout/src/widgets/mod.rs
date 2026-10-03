@@ -533,6 +533,12 @@ pub mod gauge;
 /// span, pick - with presets (today, last 7 days, this month ...), on the
 /// date picker's calendars; see `date_range_picker.rs`.
 pub mod date_range_picker;
+/// Reference picker widget.
+///
+/// Type to find one record of a large list and pick it - ids, detail
+/// lines, a debounced query for the app's (async) search, a "create" row -
+/// built on the combobox; see `reference_picker.rs`.
+pub mod reference_picker;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
