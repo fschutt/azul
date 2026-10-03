@@ -51,12 +51,15 @@ Branch `wt/headless6` from base 25d78e309. Brief: scripts/waves/wave6/HEADLESS6.
   picker click's rebuild) decaying over ~300 ms wall clock. a9867c02e RED / ecb58ec9d GREEN
   window_still_moving + settle_verdict; 2c782047c `wait_settled` op (debug timer queues the request in
   E2eSession.settle_waiters, answers when settled or at timeout_ms, default 3000); gene2e OP_POLICY row.
+- D: a21472c60 RED / 3ffe382e7 GREEN: CommonWindowState::scripted_animation_clock (from
+  debug_server::scripted_run_owns_the_clock = E2E_ACTIVE; stub false): the CSS driver is never armed /
+  never steps under AZ_E2E. f7b86a6fd: menu ids take the first free azul-menu-N.
 - coordinator (INFRA6 note): runner close protocol. 021331d4c RED / b150ef6ba GREEN
   (runner.rs close_unconfirmed + confirm_app_close + run_frame extracted; tests mod close_protocol_tests).
 
 ## IN PROGRESS
-- D: the live CSS animation driver steps on the wall clock under AZ_E2E (css-animation-multi: 197.333 /
-  117.336 = one extra 16.666 ms frame). Decide + implement, RED first. Then the report.
+- item 5 live check: scripts/azcalendar_e2e.py --only editor against the prebuilt AzCalendar (old binary:
+  routing works? latency?). Then the report scripts/HEADLESS6_2026_10_03.md (skeleton first, commit, fill).
 
 ## NEXT
 - C..G need a probe run (power permitting): probe scenarios in scratchpad/probe.
