@@ -1225,6 +1225,36 @@ pub fn generate_remove_type_patch(type_name: &str, module_name: &str, version: &
     ApiPatch { versions }
 }
 
+/// What `autofix remove` / `autofix difficult remove` removes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RemoveTarget {
+    /// A whole class: `Type` or `module.Type`
+    Class { module: String, class: String },
+    /// One function or constructor: `Type.fn` or `module.Type.fn`
+    Function {
+        module: String,
+        class: String,
+        name: String,
+    },
+}
+
+impl RemoveTarget {
+    /// The removal patch.
+    pub fn patch(&self, _version: &str) -> ApiPatch {
+        ApiPatch::default()
+    }
+
+    /// The patch file name.
+    pub fn file_name(&self) -> String {
+        String::new()
+    }
+}
+
+/// Parse an item of `autofix remove`.
+pub fn parse_remove_spec(_spec: &str, _version_data: &VersionData) -> Result<RemoveTarget, String> {
+    Err("not implemented".to_string())
+}
+
 /// Convert a MethodDef to FunctionData for api.json
 /// A source argument's api.json type and the `fn_body` accessor it needs:
 /// what `autofix add` writes for it, and so what an existing api.json entry
@@ -2249,6 +2279,53 @@ mod tests {
                 row("with_theme", "with_theme", false),
             ]
         );
+    }
+
+    /// `autofix remove` took `module.Type.method` but not `module.Type`: a
+    /// whole class (the ModuleSwitcher family, wave 5) needed `autofix
+    /// difficult remove`, which clears the pending patches. One parser for
+    /// both commands: `module.Type.fn`, `Type.fn`, `module.Type`, `Type`.
+    #[test]
+    fn a_remove_spec_names_a_function_or_a_whole_class() {
+        let api: ApiData = serde_json::from_value(serde_json::json!({
+            "0.2.0": {"apiversion": 1, "git": "", "date": "", "api": {
+                "widgets": {"classes": {"ModuleSwitcher": {"functions": {"dom": {}}}}},
+                "dom": {"classes": {"Dom": {}}}
+            }}
+        }))
+        .expect("test api parses");
+        let v = api.get_version("0.2.0").expect("version");
+        let class = |module: &str, class: &str| RemoveTarget::Class {
+            module: module.to_string(),
+            class: class.to_string(),
+        };
+        let function = |module: &str, class: &str, name: &str| RemoveTarget::Function {
+            module: module.to_string(),
+            class: class.to_string(),
+            name: name.to_string(),
+        };
+
+        assert_eq!(parse_remove_spec("widgets.ModuleSwitcher", v), Ok(class("widgets", "ModuleSwitcher")));
+        assert_eq!(parse_remove_spec("ModuleSwitcher", v), Ok(class("widgets", "ModuleSwitcher")));
+        assert_eq!(
+            parse_remove_spec("ModuleSwitcher.dom", v),
+            Ok(function("widgets", "ModuleSwitcher", "dom"))
+        );
+        assert_eq!(
+            parse_remove_spec("widgets.ModuleSwitcher.dom", v),
+            Ok(function("widgets", "ModuleSwitcher", "dom"))
+        );
+        assert!(parse_remove_spec("Nope.dom", v).is_err());
+        assert!(parse_remove_spec("dom.ModuleSwitcher", v).is_err(), "not in that module");
+
+        // the patch each one writes
+        let removes_class = class("widgets", "ModuleSwitcher").patch("0.2.0");
+        let cp = &removes_class.versions["0.2.0"].modules["widgets"].classes["ModuleSwitcher"];
+        assert!(cp.is_removal());
+        let removes_fn = function("widgets", "ModuleSwitcher", "dom").patch("0.2.0");
+        let cp = &removes_fn.versions["0.2.0"].modules["widgets"].classes["ModuleSwitcher"];
+        assert_eq!(cp.remove_functions.as_deref(), Some(&["dom".to_string()][..]));
+        assert_eq!(class("widgets", "ModuleSwitcher").file_name(), "remove_moduleswitcher.patch.json");
     }
 
     /// `autofix add RichTextDoc.*` exported 29 Rust-only helpers (RichRun 7):
