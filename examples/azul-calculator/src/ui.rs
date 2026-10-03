@@ -1263,9 +1263,10 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let column = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
         .with_child(shell.dom());
-    Dom::create_body()
-        .with_css("display: flex; flex-direction: column;")
-        .with_child(ShellThemeScope::create(column).with_accent(ShellThemeAccent::Slate).dom())
+    // The scope as the window's body: no UA margin, the full window height.
+    ShellThemeScope::create(column)
+        .with_accent(ShellThemeAccent::Slate)
+        .body()
         .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app.clone(), on_key)
         .with_callback(EventFilter::Focus(FocusEventFilter::Paste), app.clone(), on_paste)
         .with_callback(EventFilter::Focus(FocusEventFilter::Copy), app, on_copy)
