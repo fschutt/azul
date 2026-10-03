@@ -127,7 +127,45 @@ impl TextBuffer {
     /// A buffer holding `text` as a file has it.
     #[must_use]
     pub fn from_text(text: &str) -> TextBuffer {
-        todo!("GREEN: from_text {}", text.len())
+        let (bom, text) = match text.strip_prefix('\u{feff}') {
+            Some(rest) => (true, rest),
+            None => (false, text),
+        };
+        let ending = match text.find('\n') {
+            Some(i) if i > 0 && text.as_bytes()[i - 1] == b'\r' => LineEnding::CrLf,
+            _ => LineEnding::Lf,
+        };
+        let original = normalized(text);
+        let original_breaks = break_offsets(&original, 0);
+        let pieces = if original.is_empty() {
+            Vec::new()
+        } else {
+            vec![Piece {
+                source: Source::Original,
+                start: 0,
+                len: original.len(),
+                breaks: original_breaks.len(),
+            }]
+        };
+        let mut b = TextBuffer {
+            original,
+            added: String::new(),
+            original_breaks,
+            added_breaks: Vec::new(),
+            pieces,
+            bytes_before: Vec::new(),
+            breaks_before: Vec::new(),
+            len: 0,
+            breaks: 0,
+            ending,
+            bom,
+            undo: Vec::new(),
+            redo: Vec::new(),
+            typing: false,
+            saved_depth: 0,
+        };
+        b.reindex();
+        b
     }
 
     /// How many lines there are (an empty text has one).
@@ -162,7 +200,209 @@ impl TextBuffer {
     /// Line `line`'s text without its break ("" past the end).
     #[must_use]
     pub fn line(&self, line: usize) -> String {
-        todo!("GREEN: line {line}")
+        if line > self.breaks {
+            return String::new();
+        }
+        let (start, end) = self.line_range(line);
+        self.slice(start, end)
+    }
+
+    /// The bytes of line `line` (without its break); `line` must exist.
+    fn line_range(&self, line: usize) -> (usize, usize) {
+        let start = self.line_start(line);
+        let end = if line < self.breaks {
+            self.line_start(line + 1) - 1
+        } else {
+            self.len
+        };
+        (start, end)
+    }
+
+    /// The byte line `line` starts at (the text's end past the last line).
+    fn line_start(&self, line: usize) -> usize {
+        if line == 0 {
+            return 0;
+        }
+        if line > self.breaks {
+            return self.len;
+        }
+        // The line-th break (1-based) ends the line before.
+        let p = self.breaks_before.partition_point(|&x| x < line) - 1;
+        let piece = self.pieces[p];
+        let j = line - self.breaks_before[p];
+        let breaks = self.source_breaks(piece.source);
+        let first = breaks.partition_point(|&x| x < piece.start);
+        let at = breaks[first + j - 1];
+        self.bytes_before[p] + (at - piece.start) + 1
+    }
+
+    fn source(&self, source: Source) -> &str {
+        match source {
+            Source::Original => &self.original,
+            Source::Added => &self.added,
+        }
+    }
+
+    fn source_breaks(&self, source: Source) -> &[usize] {
+        match source {
+            Source::Original => &self.original_breaks,
+            Source::Added => &self.added_breaks,
+        }
+    }
+
+    /// The breaks of `source` in its bytes `start..end`.
+    fn breaks_in(&self, source: Source, start: usize, end: usize) -> usize {
+        let breaks = self.source_breaks(source);
+        breaks.partition_point(|&x| x < end) - breaks.partition_point(|&x| x < start)
+    }
+
+    /// The piece holding byte `offset` (the last piece for the end).
+    fn piece_at(&self, offset: usize) -> usize {
+        self.bytes_before.partition_point(|&x| x <= offset).saturating_sub(1)
+    }
+
+    /// The prefix sums after the pieces changed.
+    fn reindex(&mut self) {
+        self.bytes_before.clear();
+        self.breaks_before.clear();
+        let (mut bytes, mut breaks) = (0, 0);
+        for p in &self.pieces {
+            self.bytes_before.push(bytes);
+            self.breaks_before.push(breaks);
+            bytes += p.len;
+            breaks += p.breaks;
+        }
+        self.len = bytes;
+        self.breaks = breaks;
+    }
+
+    /// `text` (LF breaks) inserted at byte `offset`.
+    fn insert_raw(&mut self, offset: usize, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        let start = self.added.len();
+        let new_breaks = break_offsets(text, start);
+        let count = new_breaks.len();
+        self.added_breaks.extend(new_breaks);
+        self.added.push_str(text);
+        // Typing on: the piece that ends here and ends the add buffer grows.
+        if offset > 0 && !self.pieces.is_empty() {
+            let i = self.piece_at(offset - 1);
+            let p = self.pieces[i];
+            if self.bytes_before[i] + p.len == offset && p.source == Source::Added && p.start + p.len == start {
+                self.pieces[i].len += text.len();
+                self.pieces[i].breaks += count;
+                self.reindex();
+                return;
+            }
+        }
+        let new = Piece {
+            source: Source::Added,
+            start,
+            len: text.len(),
+            breaks: count,
+        };
+        if offset >= self.len {
+            self.pieces.push(new);
+        } else {
+            let i = self.piece_at(offset);
+            let p = self.pieces[i];
+            let within = offset - self.bytes_before[i];
+            if within == 0 {
+                self.pieces.insert(i, new);
+            } else {
+                let left_breaks = self.breaks_in(p.source, p.start, p.start + within);
+                let left = Piece {
+                    len: within,
+                    breaks: left_breaks,
+                    ..p
+                };
+                let right = Piece {
+                    start: p.start + within,
+                    len: p.len - within,
+                    breaks: p.breaks - left_breaks,
+                    ..p
+                };
+                self.pieces[i] = left;
+                self.pieces.insert(i + 1, new);
+                self.pieces.insert(i + 2, right);
+            }
+        }
+        self.reindex();
+    }
+
+    /// Bytes `from..to` removed.
+    fn delete_raw(&mut self, from: usize, to: usize) {
+        if from >= to {
+            return;
+        }
+        let mut kept = Vec::with_capacity(self.pieces.len() + 1);
+        for (i, p) in self.pieces.iter().enumerate() {
+            let ps = self.bytes_before[i];
+            let pe = ps + p.len;
+            if pe <= from || ps >= to {
+                kept.push(*p);
+                continue;
+            }
+            if ps < from {
+                let keep = from - ps;
+                kept.push(Piece {
+                    len: keep,
+                    breaks: self.breaks_in(p.source, p.start, p.start + keep),
+                    ..*p
+                });
+            }
+            if pe > to {
+                let cut = to - ps;
+                kept.push(Piece {
+                    start: p.start + cut,
+                    len: p.len - cut,
+                    breaks: self.breaks_in(p.source, p.start + cut, p.start + p.len),
+                    ..*p
+                });
+            }
+        }
+        self.pieces = kept;
+        self.reindex();
+    }
+
+    /// Bytes `from..to` replaced by `text`; what it did to the lines.
+    fn replace_raw(&mut self, from: usize, to: usize, text: &str) -> LineChange {
+        let start = self.pos_of(from);
+        let end = self.pos_of(to);
+        self.delete_raw(from, to);
+        self.insert_raw(from, text);
+        LineChange {
+            first: start.line,
+            removed: end.line - start.line,
+            added: newlines(text),
+        }
+    }
+
+    /// One more undo step (merged into the last when both are typing).
+    fn record(&mut self, mut steps: Vec<Step>) {
+        let typing = steps.len() == 1
+            && steps[0].removed.is_empty()
+            && steps[0].inserted.chars().count() == 1
+            && !steps[0].inserted.contains('\n');
+        if typing && self.typing && self.redo.is_empty() && self.undo.len() != self.saved_depth {
+            if let Some(group) = self.undo.last_mut() {
+                let follows = group
+                    .last()
+                    .map_or(false, |prev| prev.offset + prev.inserted.len() == steps[0].offset);
+                if follows {
+                    group.append(&mut steps);
+                    return;
+                }
+            }
+        }
+        if self.saved_depth > self.undo.len() {
+            self.saved_depth = usize::MAX;
+        }
+        self.redo.clear();
+        self.undo.push(steps);
+        self.typing = typing;
     }
 
     /// The whole text, LF breaks.
@@ -174,41 +414,112 @@ impl TextBuffer {
     /// The whole text as the file has it: its line endings, its BOM.
     #[must_use]
     pub fn to_file_text(&self) -> String {
-        todo!("GREEN: to_file_text")
+        let text = self.text();
+        let text = match self.ending {
+            LineEnding::Lf => text,
+            LineEnding::CrLf => text.replace('\n', "\r\n"),
+        };
+        if self.bom {
+            format!("\u{feff}{text}")
+        } else {
+            text
+        }
     }
 
     /// Bytes `from..to` of the text.
     #[must_use]
     pub fn slice(&self, from: usize, to: usize) -> String {
-        todo!("GREEN: slice {from} {to}")
+        let to = to.min(self.len);
+        if from >= to {
+            return String::new();
+        }
+        let mut out = String::with_capacity(to - from);
+        let mut i = self.piece_at(from);
+        while i < self.pieces.len() && self.bytes_before[i] < to {
+            let p = self.pieces[i];
+            let ps = self.bytes_before[i];
+            let a = from.max(ps) - ps;
+            let b = to.min(ps + p.len) - ps;
+            out.push_str(&self.source(p.source)[p.start + a..p.start + b]);
+            i += 1;
+        }
+        out
     }
 
     /// The byte offset of `at` (clamped into the text).
     #[must_use]
     pub fn offset_of(&self, at: Pos) -> usize {
-        todo!("GREEN: offset_of {at:?}")
+        let (start, end) = self.line_range(at.line.min(self.breaks));
+        start + at.column.min(end - start)
     }
 
     /// The position of byte `offset`.
     #[must_use]
     pub fn pos_of(&self, offset: usize) -> Pos {
-        todo!("GREEN: pos_of {offset}")
+        let offset = offset.min(self.len);
+        let line = if self.pieces.is_empty() {
+            0
+        } else {
+            let i = self.piece_at(offset);
+            let p = self.pieces[i];
+            let within = (offset - self.bytes_before[i]).min(p.len);
+            self.breaks_before[i] + self.breaks_in(p.source, p.start, p.start + within)
+        };
+        Pos::new(line, offset - self.line_start(line))
     }
 
     /// Applies `edits` in order (CodeView's order: last in the text first)
     /// as ONE undo step; returns what each did to the lines.
     pub fn apply(&mut self, edits: &[Edit]) -> Vec<LineChange> {
-        todo!("GREEN: apply {}", edits.len())
+        let mut steps = Vec::with_capacity(edits.len());
+        let mut changes = Vec::with_capacity(edits.len());
+        for e in edits {
+            let text = normalized(&e.text);
+            let from = self.offset_of(e.start);
+            let to = self.offset_of(e.end).max(from);
+            let removed = self.slice(from, to);
+            if removed.is_empty() && text.is_empty() {
+                continue;
+            }
+            changes.push(self.replace_raw(from, to, &text));
+            steps.push(Step {
+                offset: from,
+                removed,
+                inserted: text,
+            });
+        }
+        if !steps.is_empty() {
+            self.record(steps);
+        }
+        changes
     }
 
     /// Takes back the last step; `None` when there is none.
     pub fn undo(&mut self) -> Option<Undone> {
-        todo!("GREEN: undo")
+        let steps = self.undo.pop()?;
+        self.typing = false;
+        let mut changes = Vec::with_capacity(steps.len());
+        for s in steps.iter().rev() {
+            changes.push(self.replace_raw(s.offset, s.offset + s.inserted.len(), &s.removed));
+        }
+        let first = steps.iter().min_by_key(|s| s.offset)?;
+        let caret = self.pos_of(first.offset + first.removed.len());
+        self.redo.push(steps);
+        Some(Undone { caret, changes })
     }
 
     /// Does again the last step taken back.
     pub fn redo(&mut self) -> Option<Undone> {
-        todo!("GREEN: redo")
+        let steps = self.redo.pop()?;
+        self.typing = false;
+        let mut changes = Vec::with_capacity(steps.len());
+        for s in &steps {
+            changes.push(self.replace_raw(s.offset, s.offset + s.removed.len(), &s.inserted));
+        }
+        let first = steps.iter().min_by_key(|s| s.offset)?;
+        let caret = self.pos_of(first.offset + first.inserted.len());
+        self.undo.push(steps);
+        Some(Undone { caret, changes })
     }
 
     /// The text differs from what was last saved (or read).
@@ -222,6 +533,29 @@ impl TextBuffer {
         self.saved_depth = self.undo.len();
         self.typing = false;
     }
+}
+
+/// `text` with its CRLF and lone CR breaks as LF.
+fn normalized(text: &str) -> String {
+    if text.contains('\r') {
+        text.replace("\r\n", "\n").replace('\r', "\n")
+    } else {
+        text.to_string()
+    }
+}
+
+/// The offsets of the `\n`s of `text`, plus `base`.
+fn break_offsets(text: &str, base: usize) -> Vec<usize> {
+    text.bytes()
+        .enumerate()
+        .filter(|(_, b)| *b == b'\n')
+        .map(|(i, _)| base + i)
+        .collect()
+}
+
+/// How many line breaks `text` has.
+fn newlines(text: &str) -> usize {
+    text.bytes().filter(|b| *b == b'\n').count()
 }
 
 #[cfg(test)]
