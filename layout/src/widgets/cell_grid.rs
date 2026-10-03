@@ -3928,6 +3928,35 @@ mod cell_grid_tests {
         assert_eq!(end.view.edit_text.as_str(), "=SUM(A1:B3");
     }
 
+    /// In Enter mode the arrows point too: from the edited cell first, then
+    /// from the pointed one. After a value they commit, as before.
+    #[test]
+    fn the_arrows_point_while_a_formula_waits_for_a_reference() {
+        let mut view = CellGridView::create().with_active(at(1, 1));
+        view.edit_mode = CellGridEditMode::Enter;
+        view.edit_text = AzString::from_const_str("=");
+        view.edit_cursor = 1;
+        let g = small().with_view(view);
+        let geo = geometry(&g);
+        let b = bounds_of(&g, &geo);
+        let down = edit_key(&g, &b, VirtualKeyCode::Down, false).expect("Down points");
+        assert_eq!(down.kind, CellGridEventKind::EditText);
+        assert_eq!(down.view.edit_text.as_str(), "=B3", "the cell below the edited B2");
+        assert_eq!(down.view.active, at(1, 1));
+        let g2 = small().with_view(down.view);
+        let right = edit_key(&g2, &b, VirtualKeyCode::Right, false).expect("Right points");
+        assert_eq!(right.view.edit_text.as_str(), "=C3", "from the pointed cell");
+        assert_eq!(right.view.edit_cursor, 3);
+
+        let mut typed = CellGridView::create().with_active(at(1, 1));
+        typed.edit_mode = CellGridEditMode::Enter;
+        typed.edit_text = AzString::from_const_str("=1+2");
+        typed.edit_cursor = 4;
+        let g3 = small().with_view(typed);
+        let commit = edit_key(&g3, &b, VirtualKeyCode::Down, false).expect("Down commits");
+        assert_eq!(commit.kind, CellGridEventKind::EditCommit);
+    }
+
     #[test]
     fn a_click_after_a_value_or_in_plain_text_still_commits() {
         for (text, cursor) in [("=1+2", 4u32), ("Total", 5), ("=SUM(A1", 4)] {
