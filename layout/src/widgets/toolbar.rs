@@ -1290,6 +1290,44 @@ struct MenuPick {
     shared: RefAny,
 }
 
+// ==== fixtures (the widget manifest's sample) ====
+
+/// The toolbar the widget manifest builds (`widgets::label_convention`):
+/// a labelled button, two toggles (one on), a separator, a menu button with
+/// its label, a disabled tool, a spacer and an embedded control.
+#[cfg(test)]
+pub(crate) mod fixtures {
+    use super::*;
+
+    /// The sample bar (no width limit; `with_available_width(240.0)` makes it
+    /// overflow into the more menu).
+    fn s(text: &str) -> AzString {
+        AzString::from(text)
+    }
+
+    pub(crate) fn sample() -> Toolbar {
+        Toolbar::create(s("Formatting"))
+            .with_item(ToolbarItem::create_button(s("share"), s("Share"), s("share")).with_show_label(true))
+            .with_item(ToolbarItem::create_toggle(s("bold"), s("Bold"), s("format_bold"), true))
+            .with_item(ToolbarItem::create_toggle(s("italic"), s("Italic"), s("format_italic"), false))
+            .with_item(ToolbarItem::create_separator())
+            .with_item(
+                ToolbarItem::create_menu_button(
+                    s("align"),
+                    s("Align"),
+                    s("format_align_left"),
+                    StringVec::from_vec(alloc::vec![s("Left"), s("Center"), s("Right")]),
+                )
+                .with_show_label(true),
+            )
+            .with_item(ToolbarItem::create_button(s("delete"), s("Delete"), s("delete")).with_disabled(s("Nothing selected")))
+            .with_item(ToolbarItem::create_spacer())
+            .with_item(
+                ToolbarItem::create_custom(s("search"), s("Search"), Dom::create_div(), 120.0).with_never_overflow(true),
+            )
+    }
+}
+
 #[cfg(test)]
 mod toolbar_tests {
     use std::sync::{Arc, Mutex};

@@ -1855,6 +1855,14 @@ mod label_convention {
         // The chart: three series of bars over four categories, a legend and
         // the table view.
         all.push(("chart", super::chart::fixtures::sample().dom()));
+        // The toolbar: a labelled button, toggles, a separator, a menu
+        // button, a disabled tool, a spacer and an embedded control; and the
+        // same bar too narrow for them (the more button).
+        all.push(("toolbar", super::toolbar::fixtures::sample().dom()));
+        all.push((
+            "toolbar (overflow)",
+            super::toolbar::fixtures::sample().with_available_width(240.0).dom(),
+        ));
         all
     }
 
@@ -2799,6 +2807,9 @@ mod theme_contrast {
         // A chart: a data surface like the grid (its title, ticks, legend
         // and table text on the chart's own sheet).
         "chart",
+        // The toolbar: application chrome (its labels on the bar's strip).
+        "toolbar",
+        "toolbar (overflow)",
     ];
 
     /// A widget added to the manifest must land in a group, or it is simply
