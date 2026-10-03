@@ -12,11 +12,16 @@ Branch `wt/office7` from `2e55eef06` (the wave-6 integration; every app compiles
   `ui::spawn_outside_read`; the file thread's drive is `without_manifest` outside the data tree);
   2c86643c0 / 59bdedafa (AzWriter RED / GREEN: `commands::imported`, `finish_import`, tag IMPORT).
 
+- 4. AzNotes title: ce4e7d98f (RED E2E: title >= 28 px and taller than the tag field), 4ed56d37a (GREEN:
+  font-size 22px + bold on the field). Engine REDs for others: 4afd055db (WIDGETS7: the value <p> pins
+  11 px, `a_text_field_takes_the_font_size_its_app_gives_it`), f246c017c (LAYOUT7: a stretched flex
+  container item loses min-height, `a_stretched_flex_container_keeps_its_min_height`; measured with
+  `mount`: 12 px instead of 22).
+
 ## IN PROGRESS
-- 4. AzNotes title field.
+- 5. AzMail mail files on the Drive (one Drive, per-account scope).
 
 ## NEXT
-- 5. AzMail mail files on the Drive (one Drive, per-account scope).
 - 6. AzShow: rail drop indicator, tables in place, presenter monitor; text boxes on RichTextDoc (delete ir.rs).
 - 7. AzSheets: Replace in the grid's edit, pickers, Format Cells = one undo step.
 - 8. LOOK at each app.
@@ -24,6 +29,13 @@ Branch `wt/office7` from `2e55eef06` (the wave-6 integration; every app compiles
 
 ## Decisions
 - Item 1 is a refactor (no behaviour change): no RED commit.
+- Item 3: the import is read on appkit's file thread (Drive pattern, `without_manifest` at the file's
+  folder); the docx / Markdown parse runs on the UI thread when the answer arrives (as an Open does).
+- Item 4: no app workaround for the two engine bugs (no `align-items: center` on the title row).
+
+## LOOK tools (not committed)
+- `/tmp/office7_look.py` (four theme/mode shots + layouts), `/tmp/office7_mount.py` (mount HTML cases);
+  run through run_capped.sh. AzNotes LOOK shots: /tmp/office7_look/notes/.
 
 ## Open questions
 - (none)
