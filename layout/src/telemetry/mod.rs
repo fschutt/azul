@@ -727,6 +727,15 @@ pub fn probe_bridge_enabled() -> bool {
 /// Returns the number of events consumed.
 #[must_use]
 pub fn drain_probe_events() -> usize {
+    drain_probe_events_for(azul_core::profile::cpu_enabled())
+}
+
+/// [`drain_probe_events`], told whether the `AZ_PROFILE=cpu` report reads
+/// the same buffer (it prints and drains it once per layout pass).
+#[doc(hidden)]
+#[must_use]
+pub fn drain_probe_events_for(cpu_report: bool) -> usize {
+    let _ = cpu_report;
     let events = crate::probe::Probe::drain();
     if !is_collecting() {
         return 0;

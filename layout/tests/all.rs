@@ -908,3 +908,5 @@ mod a_one_box_slide_does_not_re_lay_out_the_page;
 mod a_virtual_view_leaves_its_hosts_font_chains_in_place;
 #[path = "an_animation_frame_sends_assistive_technology_only_what_moved.rs"]
 mod an_animation_frame_sends_assistive_technology_only_what_moved;
+#[path = "a_frame_pump_leaves_the_cpu_profiles_spans_for_its_report.rs"]
+mod a_frame_pump_leaves_the_cpu_profiles_spans_for_its_report;
