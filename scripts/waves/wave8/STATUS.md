@@ -14,3 +14,4 @@ progress file"). Worktrees: /Users/fschutt/Development/azul/.claude/worktrees/ag
 | XML8 | acfe4639b5484119d | wt/xml8 | running (worktree .claude/worktrees/agent-acfe4639b5484119d) |
 | VIDEO8 | a6e731cce5b11a63a | wt/video8 | running (worktree .claude/worktrees/agent-a6e731cce5b11a63a) |
 | RULINGS8 | addd801aa5b76e026 | wt/rulings8 | running (worktree .claude/worktrees/agent-addd801aa5b76e026; base 72d0d6639) |
+| LAYOUTPERF8 | a8bde8e3457166c14 | wt/layoutperf8 | running (worktree .claude/worktrees/agent-a8bde8e3457166c14; base e290321da) |
