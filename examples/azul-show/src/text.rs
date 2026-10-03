@@ -46,8 +46,7 @@ pub fn host_id(element: u64) -> String {
 /// The DOM id of cell `row`, `col` of table `element` (edited in place).
 #[must_use]
 pub fn cell_id(element: u64, row: usize, col: usize) -> String {
-    let _ = (row, col);
-    host_id(element)
+    format!("{}-{row}-{col}", host_id(element))
 }
 
 fn rich_align(a: Align) -> RichAlign {

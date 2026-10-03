@@ -622,7 +622,7 @@ pub fn apply(app: &RefAny, s: &mut AppState, cmd: Command, info: &mut CallbackIn
         }
         C::TextBox => {
             let id = ed.insert_text_box();
-            s.focus_text = Some(id);
+            s.focus_text = Some(text::host_id(id));
             crate::focus_text_soon(info, app);
         }
         C::Table => {

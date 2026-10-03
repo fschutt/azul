@@ -343,6 +343,11 @@ pub fn element_dom(deck: &Deck, slide: &Slide, element: &Element, opts: &RenderO
             node.with_css(css).with_child(inner)
         }
         ElementKind::Table { rows, header } => {
+            // Edited in place: every cell its own editing host.
+            let editing = match opts.hooks {
+                Some(app) if opts.editing == Some(element.id) => Some(app),
+                _ => None,
+            };
             let size = (24.0 * scale).max(1.0);
             let mut table = Dom::create_table_no_a11y().with_css(format!(
                 "border-collapse: collapse; width: 100%; font-size: {size:.2}px; font-family: {}; color: {};",
@@ -352,7 +357,7 @@ pub fn element_dom(deck: &Deck, slide: &Slide, element: &Element, opts: &RenderO
             for (r, row) in rows.iter().enumerate() {
                 let is_head = *header && r == 0;
                 let mut tr = Dom::create_tr();
-                for cell in row {
+                for (c, cell) in row.iter().enumerate() {
                     let cell_css = if is_head {
                         format!(
                             "padding: {p:.2}px; border: 1px solid {b}; background: {bg}; color: {ink}; font-weight: bold;",
@@ -368,7 +373,11 @@ pub fn element_dom(deck: &Deck, slide: &Slide, element: &Element, opts: &RenderO
                             b = css_color(deck.theme.colors.accent.with_alpha(140)),
                         )
                     };
-                    tr.add_child(Dom::create_td_with_text(cell.as_str()).with_css(cell_css));
+                    let td = Dom::create_td_with_text(cell.as_str()).with_css(cell_css);
+                    tr.add_child(match editing {
+                        Some(app) => crate::views::editable_cell(td, app, element.id, r, c),
+                        None => td,
+                    });
                 }
                 table.add_child(tr);
             }

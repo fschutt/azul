@@ -330,8 +330,18 @@ impl Editor {
     }
 
     /// The canvas's Activate on element `index`: edit its text (text boxes
-    /// and shapes; a shape gets an empty paragraph to type into).
+    /// and shapes; a shape gets an empty paragraph to type into), or a
+    /// table's cells in place.
     pub fn activate(&mut self, index: usize) -> bool {
+        let table = match self.slide().elements.get(index) {
+            Some(e) if matches!(e.kind, ElementKind::Table { .. }) => Some(e.id),
+            _ => None,
+        };
+        if let Some(id) = table {
+            self.selection.click(id);
+            self.start_editing(id);
+            return true;
+        }
         let Some(e) = self.slide_mut().elements.get_mut(index) else {
             return false;
         };
@@ -365,15 +375,33 @@ impl Editor {
     /// Cell `row`, `col` of table `id` on the current slide takes `text`
     /// (typed in place). Whether it changed.
     pub fn set_cell(&mut self, id: u64, row: usize, col: usize, text: &str) -> bool {
-        let _ = (id, row, col, text);
-        false
+        let Some(cell) = self.table_rows_mut(id).and_then(|rows| rows.get_mut(row)?.get_mut(col)) else {
+            return false;
+        };
+        if cell.as_str() == text {
+            return false;
+        }
+        *cell = text.to_string();
+        self.dirty = true;
+        true
+    }
+
+    /// The rows of table `id` on the current slide.
+    fn table_rows_mut(&mut self, id: u64) -> Option<&mut Vec<Vec<String>>> {
+        match &mut self.slide_mut().elements.iter_mut().find(|e| e.id == id)?.kind {
+            ElementKind::Table { rows, .. } => Some(rows),
+            _ => None,
+        }
     }
 
     /// A row of empty cells at the end of table `id` (Tab in its last
     /// cell); the new row's index.
     pub fn add_table_row(&mut self, id: u64) -> Option<usize> {
-        let _ = id;
-        None
+        self.checkpoint();
+        let rows = self.table_rows_mut(id)?;
+        let columns = rows.iter().map(Vec::len).max().unwrap_or(1).max(1);
+        rows.push(vec![String::new(); columns]);
+        Some(rows.len() - 1)
     }
 
     /// The body of the text being edited.

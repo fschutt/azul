@@ -275,8 +275,9 @@ pub struct AppState {
     /// Storage jobs in flight.
     pub busy: usize,
     pub args: Args,
-    /// The element whose text gets the focus after the next layout.
-    pub focus_text: Option<u64>,
+    /// The DOM id (a text's editing host, a table's cell) that gets the
+    /// focus after the next layout.
+    pub focus_text: Option<String>,
     /// The build / transition player's timer is running.
     pub playing_timer: bool,
     /// The Find / Replace pane, while it is open.

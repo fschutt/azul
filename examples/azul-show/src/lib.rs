@@ -311,7 +311,7 @@ extern "C" fn focus_text_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> 
         info.callback_info.set_focus_to_path(
             DomId { inner: 0 },
             CssPath {
-                selectors: vec![CssPathSelector::Id(AzString::from(text::host_id(id)))].into(),
+                selectors: vec![CssPathSelector::Id(AzString::from(id))].into(),
             },
         );
     }
