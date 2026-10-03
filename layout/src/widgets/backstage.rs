@@ -325,16 +325,26 @@ fn push_nav_hover(v: &mut Vec<Cond>, t: &BackstageTheme) {
     v.extend(flat::hover_bg_both(t.nav_hover_bg, t.nav_hover_bg));
 }
 
+/// The page (the root, the right side, the pane): the palette's `content_bg`
+/// by day, flat's page (`DARK_PG`) at night. The page is a page-neutral
+/// surface (the rule in `themes::flat`'s chrome states): the caller's pane is
+/// written in the window's ink, which is light at night whatever the palette
+/// says, so a palette's day colour there put white text on a white page.
+fn page_bg(t: &BackstageTheme) -> [Cond; 2] {
+    super::themes::decl::themed_fill(t.content_bg, flat::DARK_PG)
+}
+
 fn theme_root(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
+    let mut v = vec![
         cond_border_box(),
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
         Cond::simple(P::const_font_family(SYSTEM_UI_FAMILY)),
         Cond::simple(P::const_font_size(StyleFontSize::const_px(NAV_TEXT_PX))),
-        cond_bg(t.content_bg),
-    ])
+    ];
+    v.extend(page_bg(t));
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_nav(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
@@ -420,23 +430,25 @@ fn theme_nav_item_gap(_t: &BackstageTheme) -> CssPropertyWithConditionsVec {
 }
 
 fn theme_right(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
+    let mut v = vec![
         cond_border_box(),
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
-        cond_bg(t.content_bg),
-    ])
+    ];
+    v.extend(page_bg(t));
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_content(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
+    let mut v = vec![
         cond_border_box(),
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
-        cond_bg(t.content_bg),
-    ])
+    ];
+    v.extend(page_bg(t));
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 // -- Style --
@@ -1872,5 +1884,23 @@ mod flora_tests {
             button.children.as_ref()[0].root.style,
             css(office.resolved_back_icon_style())
         );
+    }
+
+    /// The flat page (the root, the right side and the pane) is the Office
+    /// white by day and flat's dark page at night: the caller's pane is
+    /// written in the window's ink, and AzCalendar's dark backstage showed
+    /// white headings and buttons on a white page (WIDGETS7, prebuilt
+    /// AzCalendar `--mode dark`, FILE > Calendars).
+    #[test]
+    fn the_flat_backstage_page_is_dark_in_the_dark_mode() {
+        let dom = pinned(UiTheme::Flat);
+        for part in [&dom, node(&dom, RIGHT), node(&dom, CONTENT)] {
+            assert_eq!(face(part, false, None), fill(WHITE), "the page by day");
+            assert_eq!(
+                face(part, true, None),
+                fill(flat::DARK_PG),
+                "the page at night"
+            );
+        }
     }
 }

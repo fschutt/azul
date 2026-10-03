@@ -3080,12 +3080,28 @@ impl CssPropertyCache {
         // styling is unchanged.
         let ctx = self.dynamic_context.as_deref();
         let no_context_theme = ctx.is_none().then(crate::app_theme::current_theme);
+        // `::placeholder` is a pseudo-ELEMENT, not a state of the host: only
+        // a declaration that names it styles the prompt. A declaration
+        // conditioned only on the mode or the app theme (every declaration
+        // of a widget that follows the app theme sits in an `@theme(..)`
+        // block) is the HOST's - it reaches the prompt through the Normal
+        // tier, where the prompt declares nothing - and must not outrank
+        // the prompt's own declaration by coming later in source order.
         let matches_pseudo_state = |conds: &azul_css::dynamic_selector::DynamicSelectorVec,
                                     state: PseudoStateType|
          -> bool {
             let conditions = conds.as_slice();
             if conditions.is_empty() {
                 state == PseudoStateType::Normal
+            } else if state == PseudoStateType::Placeholder
+                && !conditions.iter().any(|c| {
+                    matches!(
+                        c,
+                        DynamicSelector::PseudoState(PseudoStateType::Placeholder)
+                    )
+                })
+            {
+                false
             } else {
                 conditions.iter().all(|c| match c {
                     DynamicSelector::PseudoState(s) => *s == state,

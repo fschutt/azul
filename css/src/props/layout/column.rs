@@ -187,7 +187,7 @@ impl Default for ColumnRuleColor {
 
 impl PrintAsCssValue for ColumnRuleColor {
     fn print_as_css_value(&self) -> String {
-        self.inner.to_hash()
+        self.inner.to_css_value()
     }
 }
 

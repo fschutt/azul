@@ -94,7 +94,7 @@ impl PrintAsCssValue for StyleBoxShadow {
         }
         if self.color != ColorU::BLACK {
             // Assuming black is the default
-            components.push(self.color.to_hash());
+            components.push(self.color.to_css_value());
         }
 
         components.join(" ")

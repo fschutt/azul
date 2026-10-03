@@ -2290,6 +2290,48 @@ mod autotest_generated {
         }
     }
 
+    /// A track or thumb style the CALLER set is the caller's in the dark
+    /// mode too: `Some` is an answer (the field docs), so the theme lays no
+    /// paint of its own over it. The status bar's zoom slider injects a
+    /// transparent hit area over its own rail and a raised-paper thumb; the
+    /// looks appended their dark rail fill and accent thumb after them - a
+    /// black box over the rail in flora's dark status bar (WRITER6 W3), a
+    /// grey one in flat's.
+    #[test]
+    fn a_style_the_caller_set_gets_no_paint_from_the_theme() {
+        use crate::widgets::themes::UiTheme;
+        let caller = || {
+            OptionCssPropertyWithConditionsVec::Some(CssPropertyWithConditionsVec::from_vec(
+                alloc::vec![CssPropertyWithConditions::simple(
+                    CssProperty::const_width(LayoutWidth::const_px(100)),
+                )],
+            ))
+        };
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let mut s = Slider::create(75.0, 0.0, 100.0).with_theme(theme);
+            s.track_style = caller();
+            s.thumb_style = caller();
+            let dom = s.dom();
+            for (what, node) in [("track", &dom), ("thumb", &dom.children.as_ref()[0])] {
+                let painted = |props: Vec<CssProperty>| {
+                    props
+                        .iter()
+                        .any(|p| matches!(p, CssProperty::BackgroundContent(_)))
+                };
+                assert!(
+                    !painted(theme_probe::unthemed(node)),
+                    "{}: the theme painted the caller's {what}",
+                    theme.name()
+                );
+                assert!(
+                    !painted(theme_probe::dark(node)),
+                    "{}: the theme painted the caller's {what} at night",
+                    theme.name()
+                );
+            }
+        }
+    }
+
     #[test]
     fn dom_does_not_panic_for_hostile_widgets() {
         for (value, min, max) in [

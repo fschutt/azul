@@ -54,7 +54,7 @@ impl StyleTextColor {
 
 impl PrintAsCssValue for StyleTextColor {
     fn print_as_css_value(&self) -> String {
-        self.inner.to_hash()
+        self.inner.to_css_value()
     }
 }
 
@@ -2618,7 +2618,7 @@ impl Default for CaretColor {
 
 impl PrintAsCssValue for CaretColor {
     fn print_as_css_value(&self) -> String {
-        self.inner.to_hash()
+        self.inner.to_css_value()
     }
 }
 
@@ -2750,6 +2750,30 @@ impl From<StyleTextDecoration> for crate::props::property::CssProperty {
 mod tests {
     use super::*;
     use crate::props::basic::{color::ColorU, length::PercentageValue, pixel::PixelValue};
+
+    /// A `system:` colour travels as a reserved, fully transparent token
+    /// (`SystemColorRef::to_color_token`); printed as CSS it is the keyword
+    /// again, so a printed style (the HTML dump, a CSS export) reads back as
+    /// the colour it names. AzNotes' check box (`color: system:accent`)
+    /// printed `#53590200` - a transparent colour - in the HTML dump
+    /// (WRITER6 N2).
+    #[test]
+    fn a_system_colour_prints_as_its_keyword() {
+        use crate::props::basic::color::SystemColorRef;
+        let accent = parse_style_text_color("system:accent").unwrap();
+        assert_eq!(accent.inner, SystemColorRef::Accent.to_color_token());
+        assert_eq!(accent.print_as_css_value(), "system:accent");
+        assert_eq!(
+            parse_style_text_color(&accent.print_as_css_value()).unwrap(),
+            accent,
+            "the printed value parses back to the same token"
+        );
+        assert_eq!(
+            parse_style_text_color("#aabbcc").unwrap().print_as_css_value(),
+            "#aabbccff",
+            "an ordinary colour prints as before"
+        );
+    }
 
     #[test]
     fn test_parse_style_text_color() {

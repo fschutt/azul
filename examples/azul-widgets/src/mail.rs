@@ -126,11 +126,11 @@ impl MailDemo {
     }
 
     /// The flat list the message list renders: group headers and messages.
-    fn rows(&self) -> Vec<MessageRow> {
+    fn rows(&self) -> Vec<SummaryRow> {
         let mut rows = Vec::with_capacity(INBOX.len() + GROUPS.len());
         for (i, (id, from, subject, preview, date, _, attachment)) in INBOX.iter().enumerate() {
             if let Some((_, title)) = GROUPS.iter().find(|(at, _)| *at == i) {
-                rows.push(MessageRow::create_group(AzString::from(*title)));
+                rows.push(SummaryRow::create_group(AzString::from(*title)));
             }
             let unread = !self.read[i];
             if self.scope == 1 && !unread {
@@ -138,7 +138,7 @@ impl MailDemo {
             }
             let index = rows.len() as u64;
             rows.push(
-                MessageRow::create(*id, AzString::from(*from), AzString::from(*subject))
+                SummaryRow::create(*id, AzString::from(*from), AzString::from(*subject))
                     .with_preview(AzString::from(*preview))
                     .with_date(AzString::from(*date))
                     .with_icon(AzString::from(if unread { "mail" } else { "drafts" }))
@@ -168,7 +168,7 @@ fn note(text: &str) -> Dom {
 
 /// The "Mail" section.
 pub(crate) fn mail_section(data: &RefAny, m: &MailDemo, theme: UiTheme) -> Dom {
-    let list = MessageList::create(m.rows())
+    let list = SummaryList::create(m.rows())
         .with_scopes(strs(&["Alle", "Ungelesen"]), m.scope)
         .with_search(m.search.clone())
         .with_search_placeholder("Posteingang durchsuchen (Strg+E)")
@@ -314,7 +314,7 @@ pub(crate) fn mail_section(data: &RefAny, m: &MailDemo, theme: UiTheme) -> Dom {
         "Mail",
         vec![
             captioned(
-                "MessageList, ReadingPane + InfoBar, ToDoBar",
+                "SummaryList, ReadingPane + InfoBar, ToDoBar",
                 Dom::create_div()
                     .with_css(WINDOW_CSS)
                     .with_child(
@@ -352,36 +352,36 @@ pub(crate) fn mail_section(data: &RefAny, m: &MailDemo, theme: UiTheme) -> Dom {
     )
 }
 
-extern "C" fn on_list(mut data: RefAny, _: CallbackInfo, event: MessageListEvent) -> Update {
+extern "C" fn on_list(mut data: RefAny, _: CallbackInfo, event: SummaryListEvent) -> Update {
     keep(&mut data, |m| {
         let text = event.text.as_str().to_string();
         m.status = match event.kind {
-            MessageListEventKind::Select => {
+            SummaryListEventKind::Select => {
                 m.selection = m.selection.clone().apply(event.index as u64, event.shift, event.ctrl);
                 format!("Zeile {} ausgewaehlt (id {})", event.index, event.id)
             }
-            MessageListEventKind::Open => format!("Nachricht {} geoeffnet", event.id),
-            MessageListEventKind::Flag => {
+            SummaryListEventKind::Open => format!("Nachricht {} geoeffnet", event.id),
+            SummaryListEventKind::Flag => {
                 if let Some(i) = entry(event.id) {
                     m.flagged[i] = !m.flagged[i];
                 }
                 format!("Nachricht {} markiert", event.id)
             }
-            MessageListEventKind::Delete => format!("Nachricht {} geloescht", event.id),
-            MessageListEventKind::Sort => format!("Sortieren nach {text}"),
-            MessageListEventKind::SortDirection => {
+            SummaryListEventKind::Delete => format!("Nachricht {} geloescht", event.id),
+            SummaryListEventKind::Sort => format!("Sortieren nach {text}"),
+            SummaryListEventKind::SortDirection => {
                 m.descending = !m.descending;
                 "Sortierrichtung umgekehrt".to_string()
             }
-            MessageListEventKind::Search => {
+            SummaryListEventKind::Search => {
                 m.search = text.as_str().into();
                 format!("Suche: {text}")
             }
-            MessageListEventKind::Scope => {
+            SummaryListEventKind::Scope => {
                 m.scope = event.index;
                 format!("Bereich {}", event.index)
             }
-            MessageListEventKind::Scroll => {
+            SummaryListEventKind::Scroll => {
                 format!("Zeilen {}..{} sichtbar", event.index, event.end)
             }
         }

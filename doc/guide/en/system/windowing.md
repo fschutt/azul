@@ -191,7 +191,7 @@ let content = Dom::create_div().with_callback(
 );
 ```
 
-For a document window the `CloseGuard` widget does all of this: wrap the window's content in it, keep its `dirty` flag up to date and answer its events (`Ask`: show the question; `Save`: save, then `close_window()`; `Discard`; `Cancel`).
+For a document window the `CloseGuard` widget does all of this: wrap the window's content in it, keep its `dirty` flag up to date and answer its events (`Ask`: show the question; `Save`: save, then `close_window()`; `Discard`; `Cancel`). If the document can change between the last DOM build and the close (a save and a `close_window()` in one callback, a save that lands on a thread), give it `with_dirty_check(data, callback)` instead of keeping `dirty` up to date: the guard calls it when the close request arrives and the callback answers `CloseGuardDocumentState::Saved` or `Unsaved`.
 
 ## Menus
 

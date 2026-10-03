@@ -38,7 +38,7 @@ impl Default for SelectionBackgroundColor {
 
 impl PrintAsCssValue for SelectionBackgroundColor {
     fn print_as_css_value(&self) -> String {
-        self.inner.to_hash()
+        self.inner.to_css_value()
     }
 }
 
@@ -84,7 +84,7 @@ impl Default for SelectionColor {
 
 impl PrintAsCssValue for SelectionColor {
     fn print_as_css_value(&self) -> String {
-        self.inner.to_hash()
+        self.inner.to_css_value()
     }
 }
 

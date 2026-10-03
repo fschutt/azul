@@ -1770,6 +1770,9 @@ pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
     // borrow `&slider`, and the thumb's margin is derived from the state.
     let resolved_track_style = slider.resolved_track_style();
     let resolved_thumb_style = slider.resolved_thumb_style();
+    // A part the caller styled (`Some`) is the caller's: no theme paint on it.
+    let track_is_callers = slider.track_style.is_some();
+    let thumb_is_callers = slider.thumb_style.is_some();
 
     let state = RefAny::new(slider.slider_state);
     let mk = |event: EventFilter, cb: usize| CoreCallbackData {
@@ -1824,28 +1827,36 @@ pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
     // with `.fl-orb-gloss`: laid OVER whatever colour the widget resolved for
     // the thumb — read back rather than restated, so it cannot drift from
     // slider.rs — and over the theme's accent in dark mode.
-    track_style.push(CssPropertyWithConditions::dark_mode(
-        CssProperty::BackgroundContent(
-            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_TRACK)])
+    // Only on the widget's own parts: a style the caller set is the caller's
+    // (the status bar's zoom slider draws its own rail and thumb).
+    if !track_is_callers {
+        track_style.push(CssPropertyWithConditions::dark_mode(
+            CssProperty::BackgroundContent(
+                StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(
+                    DARK_TRACK,
+                )])
                 .into(),
-        ),
-    ));
-    let mut thumb_layers: Vec<StyleBackgroundContent> = thumb_style
-        .iter()
-        .rev()
-        .find_map(|p| match &p.property {
-            CssProperty::BackgroundContent(b) if p.apply_if.as_ref().is_empty() => {
-                b.get_property().map(|b| b.as_ref().to_vec())
-            }
-            _ => None,
-        })
-        .unwrap_or_default();
-    thumb_layers.push(ORB_GLOSS);
-    thumb_style.push(CssPropertyWithConditions::simple(layers(thumb_layers)));
-    thumb_style.push(CssPropertyWithConditions::dark_mode(layers(vec![
-        StyleBackgroundContent::Color(DARK_ACC),
-        ORB_GLOSS,
-    ])));
+            ),
+        ));
+    }
+    if !thumb_is_callers {
+        let mut thumb_layers: Vec<StyleBackgroundContent> = thumb_style
+            .iter()
+            .rev()
+            .find_map(|p| match &p.property {
+                CssProperty::BackgroundContent(b) if p.apply_if.as_ref().is_empty() => {
+                    b.get_property().map(|b| b.as_ref().to_vec())
+                }
+                _ => None,
+            })
+            .unwrap_or_default();
+        thumb_layers.push(ORB_GLOSS);
+        thumb_style.push(CssPropertyWithConditions::simple(layers(thumb_layers)));
+        thumb_style.push(CssPropertyWithConditions::dark_mode(layers(vec![
+            StyleBackgroundContent::Color(DARK_ACC),
+            ORB_GLOSS,
+        ])));
+    }
 
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(
@@ -6974,7 +6985,7 @@ fn flora_label() -> Vec<CssPropertyWithConditions> {
     v
 }
 
-// ==== message_list ====
+// ==== summary_list ====
 //
 // A flora message list is a leaf under a toolbar strip and a sort band: the
 // rows a --fl-sep hairline apart, the sender in --fl-ink (bold when unread),
@@ -6984,9 +6995,9 @@ fn flora_label() -> Vec<CssPropertyWithConditions> {
 // inside; a group header is `.fl-label` on the strip. At night every ink
 // and wash takes its night value.
 
-/// Flora's message-list look.
+/// Flora's summary-list look.
 #[must_use]
-pub(crate) fn message_list_look() -> crate::widgets::message_list::MessageListLook {
+pub(crate) fn summary_list_look() -> crate::widgets::summary_list::SummaryListLook {
     use super::decl;
 
     let mut toolbar = decl::padding(6, 8, 6, 8).to_vec();
@@ -7024,7 +7035,7 @@ pub(crate) fn message_list_look() -> crate::widgets::message_list::MessageListLo
     let mut attachment = vec![decl::font_size(14)];
     attachment.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
 
-    crate::widgets::message_list::MessageListLook {
+    crate::widgets::summary_list::SummaryListLook {
         list: flora_leaf(),
         toolbar,
         search: decl::margin(0, 6, 0, 0).to_vec(),
@@ -7049,8 +7060,8 @@ pub(crate) fn message_list_look() -> crate::widgets::message_list::MessageListLo
 
 /// The flora message list.
 #[must_use]
-pub fn message_list(l: crate::widgets::message_list::MessageList) -> Dom {
-    crate::widgets::message_list::build(l, &message_list_look())
+pub fn summary_list(l: crate::widgets::summary_list::SummaryList) -> Dom {
+    crate::widgets::summary_list::build(l, &summary_list_look())
 }
 
 // ==== reading_pane ====
