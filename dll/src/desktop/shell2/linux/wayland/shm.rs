@@ -147,42 +147,67 @@ pub(crate) fn udmabuf_importable(
 }
 
 /// Create the anonymous shared-memory file behind a `wl_shm_pool`, `size`
-/// bytes long. The caller owns the returned fd (pass it to
-/// `wl_shm.create_pool`, then keep or close it).
-///
-/// # Safety
-/// Plain libc calls; safe to call from any thread.
-pub(crate) unsafe fn create_shm_file(name: &str, size: usize) -> Result<libc::c_int, &'static str> {
+/// bytes long, sealed against shrinking where the kernel allows it. The
+/// caller owns the returned fd (pass it to `wl_shm.create_pool`, then keep or
+/// close it).
+pub(crate) fn create_shm_file(name: &str, size: usize) -> Result<libc::c_int, &'static str> {
     if size == 0 || size > i32::MAX as usize {
         return Err("shared memory size out of range");
     }
     let cname = CString::new(name).unwrap_or_default();
     // memfd_create (Linux 3.17+) through the raw syscall: glibc only grew the
-    // wrapper in 2.27.
-    let mut fd = libc::syscall(
-        libc::SYS_memfd_create,
-        cname.as_ptr(),
-        libc::MFD_CLOEXEC as libc::c_int,
-    ) as libc::c_int;
+    // wrapper in 2.27. MFD_ALLOW_SEALING so the file can carry F_SEAL_SHRINK
+    // (the udmabuf import refuses an unsealed memfd). MFD_NOEXEC_SEAL first
+    // (6.3+): it implies sealing, silences the kernel's "neither MFD_EXEC nor
+    // MFD_NOEXEC_SEAL" warning and is REQUIRED under vm.memfd_noexec=2; older
+    // kernels reject the unknown flag with EINVAL, then plain sealing is used.
+    let memfd = |flags: libc::c_uint| -> libc::c_int {
+        // SAFETY: a NUL-terminated name that outlives the call, plain flags.
+        unsafe {
+            libc::syscall(libc::SYS_memfd_create, cname.as_ptr(), flags as libc::c_int)
+                as libc::c_int
+        }
+    };
+    let mut fd = memfd(libc::MFD_CLOEXEC | libc::MFD_ALLOW_SEALING | libc::MFD_NOEXEC_SEAL);
+    if fd == -1 && std::io::Error::last_os_error().raw_os_error() == Some(libc::EINVAL) {
+        fd = memfd(libc::MFD_CLOEXEC | libc::MFD_ALLOW_SEALING);
+    }
     if fd == -1 {
         // Older systems: a POSIX shm object, unlinked at once so it dies with
         // the last fd.
         let path = CString::new(format!("/{}-{}", name, std::process::id())).unwrap_or_default();
-        fd = libc::shm_open(
-            path.as_ptr(),
-            libc::O_CREAT | libc::O_RDWR | libc::O_EXCL,
-            0o600,
-        );
-        if fd != -1 {
-            libc::shm_unlink(path.as_ptr());
+        // SAFETY: a NUL-terminated path that outlives both calls.
+        unsafe {
+            fd = libc::shm_open(
+                path.as_ptr(),
+                libc::O_CREAT | libc::O_RDWR | libc::O_EXCL,
+                0o600,
+            );
+            if fd != -1 {
+                libc::shm_unlink(path.as_ptr());
+            }
         }
     }
     if fd == -1 {
         return Err("Failed to create shared memory");
     }
-    if libc::ftruncate(fd, size as libc::off_t) == -1 {
-        libc::close(fd);
-        return Err("ftruncate failed");
+    // SAFETY: `fd` is the file just created and owned here.
+    unsafe {
+        if libc::ftruncate(fd, size as libc::off_t) == -1 {
+            libc::close(fd);
+            return Err("ftruncate failed");
+        }
+        // Seal AFTER sizing: the file may never shrink (the udmabuf rule; it
+        // also lets libwayland-server skip its SIGBUS guard for this pool), and
+        // F_SEAL_SEAL keeps anyone holding the fd - the compositor included -
+        // from adding F_SEAL_WRITE / F_SEAL_FUTURE_WRITE later. Growing stays
+        // allowed. Best effort: the shm_open fallback cannot be sealed and
+        // still works as a plain (copied) wl_shm pool.
+        let _ = libc::fcntl(
+            fd,
+            libc::F_ADD_SEALS,
+            libc::F_SEAL_SHRINK | libc::F_SEAL_SEAL,
+        );
     }
     Ok(fd)
 }
@@ -388,9 +413,7 @@ mod tests {
 
     #[test]
     fn an_empty_or_oversized_shm_file_is_refused() {
-        unsafe {
-            assert!(create_shm_file("azul-shm-test-0", 0).is_err());
-            assert!(create_shm_file("azul-shm-test-big", i32::MAX as usize + 1).is_err());
-        }
+        assert!(create_shm_file("azul-shm-test-0", 0).is_err());
+        assert!(create_shm_file("azul-shm-test-big", i32::MAX as usize + 1).is_err());
     }
 }
