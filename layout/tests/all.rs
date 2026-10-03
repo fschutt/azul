@@ -780,3 +780,5 @@ mod a_cell_of_only_inline_boxes_aligns_them_like_text;
 mod a_right_to_left_collapsed_border_stays_on_its_side;
 #[path = "an_atomic_inline_inside_a_span_keeps_its_box.rs"]
 mod an_atomic_inline_inside_a_span_keeps_its_box;
+#[path = "a_percentage_height_in_an_auto_height_block_is_auto.rs"]
+mod a_percentage_height_in_an_auto_height_block_is_auto;
