@@ -2730,7 +2730,10 @@ impl LayoutTreeBuilder {
             )));
         }
 
-        let has_block_child = children.iter().any(|&id| is_block_level(styled_dom, id));
+        // CSS 2.2 s9.2.1.1: only in-flow block-level children split the
+        // inline content (`in_flow_block_level_mask`).
+        let block_level = in_flow_block_level_mask(styled_dom, &children);
+        let has_block_child = block_level.iter().any(|&b| b);
 
         if let Some(msgs) = debug_messages.as_mut() {
             msgs.push(LayoutDebugMessage::info(format!(
@@ -2738,9 +2741,9 @@ impl LayoutTreeBuilder {
                 has_block_child,
                 children
                     .iter()
-                    .map(|c| {
+                    .zip(&block_level)
+                    .map(|(c, is_block)| {
                         let dt = get_display_type(styled_dom, *c);
-                        let is_block = is_block_level(styled_dom, *c);
                         format!("{}:{:?}(block={})", c.index(), dt, is_block)
                     })
                     .collect::<Vec<_>>()
@@ -2764,8 +2767,8 @@ impl LayoutTreeBuilder {
         // Mixed block and inline content requires anonymous wrappers.
         let mut inline_run = Vec::new();
 
-        for child_id in children {
-            if is_block_level(styled_dom, child_id) {
+        for (child_id, is_block) in children.into_iter().zip(block_level) {
+            if is_block {
                 // +spec:display-contents:02a534 - contiguous text sequences with no text don't
                 // generate boxes End the current inline run — but skip if all nodes
                 // are whitespace-only text. +spec:display-property:7d1570 -
@@ -2914,8 +2917,9 @@ impl LayoutTreeBuilder {
             return Ok(());
         }
         let mut inline_run: Vec<NodeId> = Vec::new();
-        for &child_id in children {
-            if is_block_level(styled_dom, child_id) {
+        let block_level = in_flow_block_level_mask(styled_dom, children);
+        for (&child_id, is_block) in children.iter().zip(block_level) {
+            if is_block {
                 self.flush_inline_run(styled_dom, anon_idx, &mut inline_run, debug_messages)?;
                 self.process_node(styled_dom, child_id, Some(anon_idx), debug_messages)?;
             } else {
@@ -3909,6 +3913,79 @@ pub fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     )
 }
 
+/// Whether a DOM node is taken out of the flow by its `position`
+/// (`absolute` / `fixed`, CSS 2.2 s9.6). Text nodes and `display: none`
+/// nodes never are.
+#[must_use]
+pub(crate) fn is_out_of_flow_positioned(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    let Some(node_data) = styled_dom.node_data.as_container().get(node_id) else {
+        return false;
+    };
+    if matches!(node_data.get_node_type(), NodeType::Text(_))
+        || get_display_type(styled_dom, node_id) == LayoutDisplay::None
+    {
+        return false;
+    }
+    styled_dom
+        .styled_nodes
+        .as_container()
+        .get(node_id)
+        .is_some_and(|n| {
+            get_position(styled_dom, node_id, &n.styled_node_state).is_absolute_or_fixed()
+        })
+}
+
+/// For each of a block container's `children` (in order): whether it is
+/// placed as a block-level box of the container (`true`) or goes into the
+/// container's inline content (`false`) - THE rule every builder of
+/// anonymous block boxes follows (the fresh tree's `process_block_children`
+/// and anonymous table cells, the reconciler's `reconcile_recursive` and
+/// `reconcile_table_children`, and `has_only_inline_children`).
+///
+/// CSS 2.2 s9.2.1.1: only IN-FLOW block-level boxes make a block container
+/// wrap its inline content in anonymous block boxes. An absolutely
+/// positioned box is out of flow: `<li>text<div style="position: absolute">`
+/// stays ONE line (the RichTextEditor's check item was two - WRITER6 N1).
+/// Such a box goes with the inline content around it (as in Blink, where an
+/// out-of-flow child joins its parent's current inline run); only where
+/// there is none - between two blocks, or beside nothing but collapsible
+/// white space - it stays a direct child of the container, so it never
+/// makes an anonymous block of white space.
+#[must_use]
+pub(crate) fn in_flow_block_level_mask(styled_dom: &StyledDom, children: &[NodeId]) -> Vec<bool> {
+    let out_of_flow: Vec<bool> = children
+        .iter()
+        .map(|&c| is_out_of_flow_positioned(styled_dom, c))
+        .collect();
+    let mut mask: Vec<bool> = children
+        .iter()
+        .zip(&out_of_flow)
+        .map(|(&c, &oof)| !oof && is_block_level(styled_dom, c))
+        .collect();
+    // Each stretch between two in-flow block-level children is one inline
+    // run: its out-of-flow block boxes join it only if it has content.
+    let mut start = 0;
+    for end in 0..=children.len() {
+        if end < children.len() && !mask[end] {
+            continue;
+        }
+        let has_inline_content = (start..end).any(|k| {
+            !out_of_flow[k]
+                && get_display_type(styled_dom, children[k]) != LayoutDisplay::None
+                && !is_whitespace_only_text(styled_dom, children[k])
+        });
+        if !has_inline_content {
+            for k in start..end {
+                if out_of_flow[k] && is_block_level(styled_dom, children[k]) {
+                    mask[k] = true;
+                }
+            }
+        }
+        start = end + 1;
+    }
+    mask
+}
+
 // +spec:display-property:23f111 - Inline-level elements: inline, inline-block, inline-table,
 // inline-flex, inline-grid
 /// Checks if a node is inline-level (including text nodes).
@@ -3949,33 +4026,31 @@ pub(crate) fn has_only_inline_children(styled_dom: &StyledDom, node_id: NodeId) 
         return false;
     };
 
-    // Get the first child
+    // Collect the children (sibling walk)
+    let mut children = Vec::new();
     let mut current_child = node_hier.first_child_id(node_id);
+    while let Some(child_id) = current_child {
+        children.push(child_id);
+        current_child = hierarchy
+            .get(child_id)
+            .and_then(|child_hier| child_hier.next_sibling_id());
+    }
 
     // If there are no children, it's not an IFC (it's empty)
-    if current_child.is_none() {
+    if children.is_empty() {
         return false;
     }
 
-    // Check all children
-    while let Some(child_id) = current_child {
-        let is_inline = is_inline_level(styled_dom, child_id);
-
-        if !is_inline {
-            // Found a block-level child
-            return false;
-        }
-
-        // Move to next sibling
-        if let Some(child_hier) = hierarchy.get(child_id) {
-            current_child = child_hier.next_sibling_id();
-        } else {
-            break;
-        }
-    }
-
-    // All children are inline-level
-    true
+    // Every child inline-level - or an out-of-flow box that goes with the
+    // inline content (`in_flow_block_level_mask`: CSS 2.2 s9.2.1.1, an
+    // absolutely positioned child does not make its parent a block
+    // container of blocks).
+    let mask = in_flow_block_level_mask(styled_dom, &children);
+    children.iter().zip(mask).all(|(&child_id, block_level)| {
+        !block_level
+            && (is_inline_level(styled_dom, child_id)
+                || is_out_of_flow_positioned(styled_dom, child_id))
+    })
 }
 
 /// Pre-computes all CSS properties needed during layout for a single node.
