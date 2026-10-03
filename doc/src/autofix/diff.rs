@@ -1283,7 +1283,7 @@ fn generate_diff_v2(
                 // exposed standalone type (e.g. MapTileId, OnAudioFrame) that just isn't
                 // reachable from a public fn signature - removing it would drop a valid
                 // binding and make `autofix apply <dir>` destructive (false-remove drift).
-                if index.resolve(api_name, None).is_none() {
+                if !still_exposed_in_source(index, api_name) {
                     diff.removals
                         .push(format!("{}:{}", api_name, api_info.path));
                 }
@@ -1445,7 +1445,7 @@ fn generate_diff_v2(
             // Same guard as the unmatched-type removal above: never auto-remove a type
             // that still exists in the workspace source (a valid exposed standalone type),
             // only one genuinely gone - keeps `autofix apply <dir>` non-destructive.
-            if index.resolve(dead_type, None).is_some() {
+            if still_exposed_in_source(index, dead_type) {
                 continue;
             }
             if let Some(api_info) = current_api_types.get(dead_type) {
@@ -1466,7 +1466,7 @@ fn generate_diff_v2(
     // received their parameter names).
     let removed_dead: BTreeSet<&String> = dead_types
         .iter()
-        .filter(|t| index.resolve(t, None).is_none())
+        .filter(|t| !still_exposed_in_source(index, t))
         .collect();
     if !removed_dead.is_empty() {
         diff.modifications
@@ -1475,7 +1475,38 @@ fn generate_diff_v2(
             .retain(|a| !removed_dead.contains(&a.type_name));
     }
 
+    // No other patch of a type this round removes: a modify / path fix of it
+    // competes with the removal, and a module move takes it away from the
+    // module the removal targets (the remove then finds nothing and the type
+    // comes back every round).
+    let removed: BTreeSet<String> = diff
+        .removals
+        .iter()
+        .map(|r| r.split(':').next().unwrap_or(r).to_string())
+        .collect();
+    if !removed.is_empty() {
+        diff.modifications.retain(|m| !removed.contains(&m.type_name));
+        diff.additions.retain(|a| !removed.contains(&a.type_name));
+        diff.path_fixes.retain(|f| !removed.contains(&f.type_name));
+        diff.module_moves.retain(|m| !removed.contains(&m.type_name));
+    }
+
     diff
+}
+
+/// Whether an api.json type nothing reaches is kept because its source still
+/// exposes it (a deliberately standalone type like MapTileId). A type whose
+/// source is gone is not; nor is a struct / enum with no repr at all - it
+/// cannot cross the FFI, so it cannot be exposed (it looped on a `set_repr`
+/// to none instead, wave 5).
+fn still_exposed_in_source(index: &TypeIndex, api_name: &str) -> bool {
+    match index.resolve(api_name, None) {
+        None => false,
+        Some(def) => match &def.kind {
+            TypeDefKind::Struct { repr, .. } | TypeDefKind::Enum { repr, .. } => repr.is_some(),
+            _ => true,
+        },
+    }
 }
 
 /// Detect dead circular type clusters in api.json.
@@ -1734,8 +1765,12 @@ fn compare_derives_and_impls(
         });
     }
 
-    // Compare repr - now using Option<String> for exact value comparison
-    if workspace_repr != api_info.repr {
+    // Compare repr - now using Option<String> for exact value comparison.
+    // A source type that LOST its repr gets no patch: api.json cannot carry a
+    // type without a C repr, and a `None` in the patch means "leave it" - the
+    // set_repr changed nothing and came back every round (wave 5). The FFI
+    // check reports it; when nothing reaches it, generate_diff_v2 removes it.
+    if workspace_repr.is_some() && workspace_repr != api_info.repr {
         modifications.push(TypeModification {
             type_name: type_name.to_string(),
             kind: ModificationKind::ReprChanged {

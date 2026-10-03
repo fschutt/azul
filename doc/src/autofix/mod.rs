@@ -151,6 +151,13 @@ pub fn autofix_api(
     // Run the full diff analysis (returns diff, type index, and type resolver warnings)
     let (diff, index, type_warnings) = analyze_api_diff(project_root, api_data, verbose)?;
 
+    // The classes this round removes as a whole
+    let removed_classes: std::collections::BTreeSet<&str> = diff
+        .removals
+        .iter()
+        .map(|r| r.split(':').next().unwrap_or(r))
+        .collect();
+
     // Check FFI safety for types that exist in api.json AND types about to be added
     let addition_names: Vec<String> = diff.additions.iter().map(|a| a.type_name.clone()).collect();
     let mut ffi_warnings = check_ffi_safety(&index, api_data, &addition_names);
@@ -185,6 +192,13 @@ pub fn autofix_api(
     // colliding with auto-emitted `isOk()` for the `Ok` variant).
     let enum_variant_warnings = check_enum_variant_method_collisions(api_data);
     ffi_warnings.extend(enum_variant_warnings);
+
+    // A class this round removes is no FFI error (an unreachable struct that
+    // lost its C repr is removed, not reported); `Class::fn` names a function
+    ffi_warnings.retain(|w| {
+        let class = w.type_name.split("::").next().unwrap_or("");
+        !removed_classes.contains(class)
+    });
 
     print_ffi_safety_warnings(&ffi_warnings);
 
@@ -231,11 +245,6 @@ pub fn autofix_api(
     // api.json functions whose Rust method is gone (BLOCKS' 84 preset-shell
     // setters, wave 5): reported here, removal patches written below. A class
     // this round removes as a whole needs no function removals.
-    let removed_classes: std::collections::BTreeSet<&str> = diff
-        .removals
-        .iter()
-        .map(|r| r.split(':').next().unwrap_or(r))
-        .collect();
     let gone: Vec<function_diff::GoneApiFunction> = function_diff::gone_api_functions(&index, api_data)
         .into_iter()
         .filter(|g| !removed_classes.contains(g.class.as_str()))
