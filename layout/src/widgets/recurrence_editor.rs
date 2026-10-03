@@ -1,0 +1,888 @@
+//! Recurrence editor widget - how an appointment or a to-do repeats: never,
+//! daily, weekly (on chosen weekdays), monthly (on the first day's day of
+//! the month, or on its nth weekday) or yearly; every N of them; ending
+//! never, after a number of times or on a date - and, for a to-do, counted
+//! from the day it is completed. Outlook's "Appointment Recurrence" and
+//! Google Calendar's "Custom recurrence" as one form, row by row.
+//!
+//! COMPOSED, not drawn: a [`Segmented`] for the frequency, a
+//! [`NumberInput`] for the interval, toggle [`Button`]s for the weekdays, a
+//! [`Segmented`] for a month's day or weekday, a [`Segmented`] and a
+//! [`NumberInput`] or a [`DatePicker`] for the end, a [`CheckBox`] for
+//! "from completion". Each part folds its change into ONE
+//! [`RecurrenceRule`] and reports that to the app, which keeps it and
+//! rebuilds - the form shows only the rows its frequency needs.
+//!
+//! The rule speaks RFC 5545: [`RecurrenceRule::to_rrule`] is the `RRULE`
+//! value an app stores or exports, [`RecurrenceRule::from_rrule`] reads one
+//! back - the part of RRULE this form can show; any other rule is a custom
+//! one the app keeps as it is (and says so beside the form).
+//!
+//! Key types: [`RecurrenceEditor`], [`RecurrenceRule`],
+//! [`RecurrenceEditorOnChange`].
+
+use alloc::{string::String, vec::Vec};
+
+use azul_core::{
+    callbacks::Update,
+    dom::{Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec},
+    refany::RefAny,
+};
+use azul_css::{
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    props::{
+        basic::length::FloatValue,
+        layout::{
+            LayoutAlignItems, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
+            LayoutFlexShrink, LayoutFlexWrap, LayoutMinWidth,
+        },
+        property::CssProperty,
+        style::StyleUserSelect,
+    },
+    AzString, OptionString, StringVec,
+};
+
+use crate::{
+    callbacks::CallbackInfo,
+    widgets::{
+        button::{Button, ButtonOnClickCallbackType},
+        check_box::{CheckBox, CheckBoxOnToggleCallbackType, CheckBoxState},
+        date_picker::{
+            DatePicker, DatePickerOnChangeCallbackType, DatePickerState, DatePickerWeekStart,
+        },
+        number_input::{NumberInput, NumberInputOnValueChangeCallbackType, NumberInputState},
+        segmented::{Segmented, SegmentedOnChangeCallbackType, SegmentedState},
+        themes::{OptionUiTheme, UiTheme},
+    },
+};
+
+/// The class of the editor (the column of rows).
+pub const RECURRENCE_EDITOR_CLASS: &str = "__azul-native-recurrence-editor";
+
+static EDITOR_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(RECURRENCE_EDITOR_CLASS))];
+static ROW_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-recurrence-editor-row",
+))];
+static LABEL_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-recurrence-editor-label",
+))];
+static UNIT_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-recurrence-editor-unit",
+))];
+static NUMBER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-recurrence-editor-number",
+))];
+static WEEKDAYS_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-recurrence-editor-weekdays",
+))];
+
+/// The RRULE codes of the weekdays, Monday first (bit 0 of
+/// [`RecurrenceRule::weekdays`] is Monday).
+const WEEKDAY_CODES: [&str; 7] = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
+/// What a weekday's toggle says.
+const WEEKDAY_SHORT: [&str; 7] = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+/// A weekday's name, for the monthly choice.
+const WEEKDAY_NAMES: [&str; 7] = [
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+];
+/// The frequency row's segments, in [`RecurrenceFrequency`] order.
+const FREQUENCY_LABELS: [&str; 5] = ["Never", "Daily", "Weekly", "Monthly", "Yearly"];
+/// The end row's segments, in [`RecurrenceEnd`] order.
+const END_LABELS: [&str; 3] = ["Never", "After", "On"];
+/// The largest interval and count the form takes.
+const MAX_NUMBER: u32 = 999;
+
+/// How often a rule repeats.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum RecurrenceFrequency {
+    /// It does not repeat.
+    #[default]
+    Never,
+    /// Every `interval` days.
+    Daily,
+    /// Every `interval` weeks, on the chosen weekdays.
+    Weekly,
+    /// Every `interval` months, on the start's day or its nth weekday.
+    Monthly,
+    /// Every `interval` years, on the start's date.
+    Yearly,
+}
+
+/// Which day of the month a monthly rule repeats on.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum RecurrenceMonthly {
+    /// The start's day of the month ("on day 14").
+    #[default]
+    DayOfMonth,
+    /// The start's nth weekday ("on the second Wednesday"; a fifth one is
+    /// "the last").
+    Weekday,
+}
+
+/// When a rule stops.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum RecurrenceEnd {
+    /// It goes on.
+    #[default]
+    Never,
+    /// After `count` occurrences, the first one included.
+    AfterCount,
+    /// On `until`, the last day an occurrence may fall on.
+    OnDate,
+}
+
+/// What a [`RecurrenceEditor`] edits: a repeat rule, from its first
+/// occurrence on.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[repr(C)]
+pub struct RecurrenceRule {
+    /// The first occurrence: an appointment's first day, a to-do's due
+    /// date. The weekly, monthly and yearly choices are made from it.
+    pub start: DatePickerState,
+    /// The last day an occurrence may fall on (`end == OnDate`).
+    pub until: DatePickerState,
+    /// Every `interval` days, weeks, months or years (1 to 999).
+    pub interval: u32,
+    /// How many occurrences (`end == AfterCount`, 1 to 999).
+    pub count: u32,
+    pub frequency: RecurrenceFrequency,
+    pub monthly: RecurrenceMonthly,
+    pub end: RecurrenceEnd,
+    /// The weekdays of a weekly rule: bit 0 Monday .. bit 6 Sunday. 0
+    /// means the start's weekday.
+    pub weekdays: u8,
+    /// The next occurrence counts from the day the to-do was completed, not
+    /// from its due date (RRULE has no word for it: the app keeps it).
+    pub from_completion: bool,
+}
+
+azul_css::impl_option!(
+    RecurrenceRule,
+    OptionRecurrenceRule,
+    [Debug, Copy, Clone, PartialEq, Eq]
+);
+
+impl Default for RecurrenceRule {
+    fn default() -> Self {
+        Self::create(DatePickerState::default())
+    }
+}
+
+impl RecurrenceRule {
+    /// A rule that does not repeat, from `start`: every 1, ending never
+    /// (10 times, or on `start`, once an end is chosen).
+    #[must_use]
+    pub const fn create(start: DatePickerState) -> Self {
+        let _ = start;
+        todo!()
+    }
+
+    /// The rule as the value of an RFC 5545 `RRULE` (`FREQ=WEEKLY;
+    /// INTERVAL=2;COUNT=10;BYDAY=MO,WE`), its parts in the order `FREQ`,
+    /// `INTERVAL` (when not 1), `COUNT` / `UNTIL` (a date), `BYMONTHDAY` /
+    /// `BYDAY`; empty when it does not repeat.
+    #[must_use]
+    pub fn to_rrule(&self) -> AzString {
+        todo!()
+    }
+
+    /// The rule an RRULE value (with or without its `RRULE:` name) makes for
+    /// an event or a to-do starting on `start`, when the form can show it;
+    /// `None` for a rule it cannot (another frequency, `BYSETPOS`, days that
+    /// are not the start's): the app keeps such a rule as it is. An empty
+    /// value is a rule that does not repeat.
+    #[must_use]
+    pub fn from_rrule(rrule: AzString, start: DatePickerState) -> OptionRecurrenceRule {
+        let _ = (rrule, start);
+        todo!()
+    }
+}
+
+/// One part of the form changed (what [`apply`] folds into the rule).
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub(crate) enum Part {
+    /// The frequency row's segment.
+    Frequency(usize),
+    /// The interval as typed.
+    Interval(f32),
+    /// A weekday toggle (0 = Monday).
+    Weekday(u32),
+    /// The monthly row's segment.
+    Monthly(usize),
+    /// The end row's segment.
+    End(usize),
+    /// The count as typed.
+    Count(f32),
+    /// The last day.
+    Until(DatePickerState),
+    /// "From completion" ticked or cleared.
+    Completion(bool),
+}
+
+/// Folds one part's change into `rule`.
+pub(crate) fn apply(rule: &mut RecurrenceRule, part: Part) {
+    let _ = (rule, part);
+    todo!()
+}
+
+/// Callback invoked when any part of the form changes; it is handed the
+/// whole rule.
+pub type RecurrenceEditorOnChangeCallbackType =
+    extern "C" fn(RefAny, CallbackInfo, RecurrenceRule) -> Update;
+impl_widget_callback!(
+    RecurrenceEditorOnChange,
+    OptionRecurrenceEditorOnChange,
+    RecurrenceEditorOnChangeCallback,
+    RecurrenceEditorOnChangeCallbackType
+);
+
+azul_core::impl_managed_callback! {
+    wrapper:        RecurrenceEditorOnChangeCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: RECURRENCE_EDITOR_ON_CHANGE_INVOKER,
+    invoker_ty:     AzRecurrenceEditorOnChangeCallbackInvoker,
+    thunk_fn:       az_recurrence_editor_on_change_callback_thunk,
+    setter_fn:      AzApp_setRecurrenceEditorOnChangeCallbackInvoker,
+    from_handle_fn: AzRecurrenceEditorOnChangeCallback_createFromHostHandle,
+    from_handle_byref_fn: AzRecurrenceEditorOnChangeCallback_createFromHostHandleByref,
+    extra_args:     [ rule: RecurrenceRule ],
+}
+
+/// [`RecurrenceRule`] with the app's change callback: the state every part
+/// of one editor shares.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[repr(C)]
+pub struct RecurrenceEditorStateWrapper {
+    pub inner: RecurrenceRule,
+    pub on_change: OptionRecurrenceEditorOnChange,
+}
+
+/// The recurrence editor: a repeat rule, row by row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C)]
+pub struct RecurrenceEditor {
+    pub state: RecurrenceEditorStateWrapper,
+    /// What the editor is CALLED, for assistive technology ("Repeat" when
+    /// unset).
+    pub accessibility_name: OptionString,
+    /// The widget theme this editor and its parts are PINNED to
+    /// (`with_theme`), or `None` to follow the app theme.
+    pub theme: OptionUiTheme,
+    /// The weekday the weekday toggles and the end date's calendar start on.
+    pub week_start: DatePickerWeekStart,
+    /// Show "Repeat from the day it is completed" (a to-do's choice).
+    pub completion_option: bool,
+}
+
+/// What a theme decides about a recurrence editor: the SKIN of each part,
+/// laid over the part's base (the structure, the same in every theme) by
+/// [`build`].
+pub(crate) struct RecurrenceEditorLook {
+    /// The editor (the column of rows).
+    pub editor: Vec<CssPropertyWithConditions>,
+    /// One row.
+    pub row: Vec<CssPropertyWithConditions>,
+    /// A row's label ("Repeats", "Every", "On", "Ends").
+    pub label: Vec<CssPropertyWithConditions>,
+    /// A unit after a number ("weeks", "times") and the completion text.
+    pub unit: Vec<CssPropertyWithConditions>,
+    /// The box around a number field.
+    pub number: Vec<CssPropertyWithConditions>,
+    /// The row of weekday toggles.
+    pub weekdays: Vec<CssPropertyWithConditions>,
+    /// The theme's marker class on the editor, if it has one.
+    pub marker: Option<&'static str>,
+}
+
+impl RecurrenceEditor {
+    /// An editor showing `rule`.
+    #[must_use]
+    pub fn create(rule: RecurrenceRule) -> Self {
+        let _ = rule;
+        todo!()
+    }
+
+    /// Sets the callback invoked when any part changes.
+    pub fn set_on_change<C: Into<RecurrenceEditorOnChangeCallback>>(
+        &mut self,
+        data: RefAny,
+        callback: C,
+    ) {
+        let _ = (data, callback);
+        todo!()
+    }
+
+    /// [`Self::set_on_change`] for the builder chain.
+    #[must_use]
+    pub fn with_on_change<C: Into<RecurrenceEditorOnChangeCallback>>(
+        mut self,
+        data: RefAny,
+        callback: C,
+    ) -> Self {
+        self.set_on_change(data, callback);
+        self
+    }
+
+    /// The weekday the weekday toggles and the end date's calendar start on.
+    pub const fn set_week_start(&mut self, week_start: DatePickerWeekStart) {
+        self.week_start = week_start;
+    }
+
+    /// [`Self::set_week_start`] for the builder chain.
+    #[must_use]
+    pub const fn with_week_start(mut self, week_start: DatePickerWeekStart) -> Self {
+        self.set_week_start(week_start);
+        self
+    }
+
+    /// Show the "Repeat from the day it is completed" box (a to-do's
+    /// choice; an appointment has none).
+    pub const fn set_completion_option(&mut self, shown: bool) {
+        self.completion_option = shown;
+    }
+
+    /// [`Self::set_completion_option`] for the builder chain.
+    #[must_use]
+    pub const fn with_completion_option(mut self, shown: bool) -> Self {
+        self.set_completion_option(shown);
+        self
+    }
+
+    /// Name this control for assistive technology.
+    #[must_use]
+    pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
+        self.accessibility_name = Some(name.into()).into();
+        self
+    }
+
+    /// Pin the widget theme of the editor and its parts; unset, they follow
+    /// the app theme.
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
+    /// Replaces `self` with the default editor and returns the original.
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
+        let mut s = Self::default();
+        core::mem::swap(&mut s, self);
+        s
+    }
+
+    /// The editor's DOM. The look comes from the theme module
+    /// (`themes::flat::recurrence_editor` / `themes::flora::
+    /// recurrence_editor`); `None` carries both looks, each in its
+    /// `@theme(<name>)` block, and the app theme picks.
+    #[must_use]
+    pub fn dom(self) -> Dom {
+        todo!()
+    }
+}
+
+impl Default for RecurrenceEditor {
+    fn default() -> Self {
+        Self::create(RecurrenceRule::default())
+    }
+}
+
+impl From<RecurrenceEditor> for Dom {
+    fn from(e: RecurrenceEditor) -> Self {
+        e.dom()
+    }
+}
+
+/// The editor's DOM in `look`.
+pub(crate) fn build(editor: RecurrenceEditor, look: &RecurrenceEditorLook) -> Dom {
+    let _ = (editor, look);
+    todo!()
+}
+
+#[cfg(test)]
+mod recurrence_editor_tests {
+    use std::sync::{Arc, Mutex};
+
+    use azul_core::{
+        dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, NodeId, NodeType},
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+    };
+
+    use super::*;
+    use crate::widgets::{
+        roving::test_support as rv,
+        themes::{theme_blocks::checks, theme_checks},
+    };
+
+    /// Wednesday 30 September 2026: the fifth (so the last) Wednesday.
+    const WED_30_SEP: DatePickerState = DatePickerState {
+        year: 2026,
+        month: 9,
+        day: 30,
+    };
+    /// Wednesday 14 October 2026: the second Wednesday.
+    const WED_14_OCT: DatePickerState = DatePickerState {
+        year: 2026,
+        month: 10,
+        day: 14,
+    };
+
+    fn rrule(rule: &RecurrenceRule) -> String {
+        rule.to_rrule().as_str().to_string()
+    }
+
+    fn read(text: &str, start: DatePickerState) -> Option<RecurrenceRule> {
+        RecurrenceRule::from_rrule(AzString::from(text), start).into_option()
+    }
+
+    fn weekly(start: DatePickerState) -> RecurrenceRule {
+        let mut r = RecurrenceRule::create(start);
+        r.frequency = RecurrenceFrequency::Weekly;
+        r
+    }
+
+    #[test]
+    fn a_new_rule_does_not_repeat_and_writes_no_rrule() {
+        let r = RecurrenceRule::create(WED_30_SEP);
+        assert_eq!(r.frequency, RecurrenceFrequency::Never);
+        assert_eq!((r.interval, r.end), (1, RecurrenceEnd::Never));
+        assert_eq!(r.until, WED_30_SEP, "an end date starts on the first day");
+        assert!(r.count >= 1, "an end after a number of times starts at a count");
+        assert_eq!(rrule(&r), "");
+    }
+
+    #[test]
+    fn a_weekly_rule_without_chosen_days_repeats_on_the_starts_weekday() {
+        assert_eq!(rrule(&weekly(WED_30_SEP)), "FREQ=WEEKLY;BYDAY=WE");
+        let mut r = RecurrenceRule::create(WED_30_SEP);
+        r.frequency = RecurrenceFrequency::Daily;
+        assert_eq!(rrule(&r), "FREQ=DAILY");
+        r.frequency = RecurrenceFrequency::Yearly;
+        assert_eq!(rrule(&r), "FREQ=YEARLY");
+    }
+
+    #[test]
+    fn the_rrule_names_interval_end_and_days_in_the_order_azul_pim_writes_them() {
+        let mut r = weekly(WED_30_SEP);
+        r.interval = 2;
+        r.weekdays = 0b000_0101; // Monday and Wednesday
+        r.end = RecurrenceEnd::AfterCount;
+        r.count = 10;
+        assert_eq!(rrule(&r), "FREQ=WEEKLY;INTERVAL=2;COUNT=10;BYDAY=MO,WE");
+        r.end = RecurrenceEnd::OnDate;
+        r.until = DatePickerState {
+            year: 2026,
+            month: 12,
+            day: 31,
+        };
+        assert_eq!(rrule(&r), "FREQ=WEEKLY;INTERVAL=2;UNTIL=20261231;BYDAY=MO,WE");
+    }
+
+    #[test]
+    fn a_monthly_rule_repeats_on_the_starts_day_or_its_nth_weekday() {
+        let mut r = RecurrenceRule::create(WED_14_OCT);
+        r.frequency = RecurrenceFrequency::Monthly;
+        assert_eq!(rrule(&r), "FREQ=MONTHLY;BYMONTHDAY=14");
+        r.monthly = RecurrenceMonthly::Weekday;
+        assert_eq!(rrule(&r), "FREQ=MONTHLY;BYDAY=2WE");
+        // A fifth weekday, which most months lack, is "the last".
+        r.start = WED_30_SEP;
+        assert_eq!(rrule(&r), "FREQ=MONTHLY;BYDAY=-1WE");
+    }
+
+    #[test]
+    fn every_rrule_the_form_writes_reads_back_as_the_same_rule() {
+        for (text, start) in [
+            ("", WED_30_SEP),
+            ("FREQ=DAILY", WED_30_SEP),
+            ("FREQ=DAILY;INTERVAL=3;COUNT=5", WED_30_SEP),
+            ("FREQ=WEEKLY;BYDAY=WE", WED_30_SEP),
+            ("FREQ=WEEKLY;INTERVAL=2;UNTIL=20261231;BYDAY=MO,WE", WED_30_SEP),
+            ("FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR", WED_30_SEP),
+            ("FREQ=MONTHLY;BYMONTHDAY=14", WED_14_OCT),
+            ("FREQ=MONTHLY;BYDAY=2WE", WED_14_OCT),
+            ("FREQ=MONTHLY;BYDAY=-1WE", WED_30_SEP),
+            ("FREQ=YEARLY;INTERVAL=2", WED_30_SEP),
+        ] {
+            let r =
+                read(text, start).unwrap_or_else(|| panic!("{text:?} is a rule the form shows"));
+            assert_eq!(rrule(&r), text, "{text:?} comes back as written");
+        }
+    }
+
+    #[test]
+    fn the_short_and_named_forms_of_a_rule_read_as_the_rule_they_mean() {
+        // `RRULE:` in front, lower case, WKST, the bare weekly / monthly /
+        // yearly forms, an UNTIL with a time.
+        let r = read("RRULE:freq=weekly;wkst=MO", WED_30_SEP).expect("a weekly rule");
+        assert_eq!(rrule(&r), "FREQ=WEEKLY;BYDAY=WE");
+        let r = read("FREQ=MONTHLY", WED_14_OCT).expect("a monthly rule");
+        assert_eq!(rrule(&r), "FREQ=MONTHLY;BYMONTHDAY=14");
+        let r = read("FREQ=YEARLY;BYMONTH=10;BYMONTHDAY=14", WED_14_OCT).expect("a yearly rule");
+        assert_eq!(rrule(&r), "FREQ=YEARLY");
+        let r = read("FREQ=DAILY;UNTIL=20261231T235959Z", WED_30_SEP).expect("a daily rule");
+        assert_eq!(r.end, RecurrenceEnd::OnDate);
+        assert_eq!((r.until.year, r.until.month, r.until.day), (2026, 12, 31));
+    }
+
+    #[test]
+    fn an_rrule_the_form_cannot_show_reads_as_none() {
+        for text in [
+            "FREQ=HOURLY",
+            "FREQ=MONTHLY;BYDAY=MO;BYSETPOS=1",
+            "FREQ=DAILY;BYDAY=MO",
+            "FREQ=MONTHLY;BYMONTHDAY=3",
+            "FREQ=MONTHLY;BYDAY=3WE",
+            "FREQ=MONTHLY;BYDAY=TU,TH",
+            "FREQ=YEARLY;BYMONTH=3",
+            "FREQ=WEEKLY;BYDAY=XX",
+            "FREQ=DAILY;INTERVAL=0",
+            "FREQ=DAILY;COUNT=many",
+            "INTERVAL=2",
+            "nonsense",
+        ] {
+            assert_eq!(read(text, WED_14_OCT), None, "{text:?} is no rule the form shows");
+        }
+    }
+
+    #[test]
+    fn a_frequency_click_keeps_the_interval_and_the_end() {
+        let mut r = RecurrenceRule::create(WED_30_SEP);
+        apply(&mut r, Part::Frequency(2));
+        assert_eq!(r.frequency, RecurrenceFrequency::Weekly);
+        apply(&mut r, Part::Interval(3.0));
+        apply(&mut r, Part::End(1));
+        apply(&mut r, Part::Count(4.0));
+        apply(&mut r, Part::Frequency(3));
+        assert_eq!(r.frequency, RecurrenceFrequency::Monthly);
+        assert_eq!((r.interval, r.end, r.count), (3, RecurrenceEnd::AfterCount, 4));
+        apply(&mut r, Part::Frequency(0));
+        assert_eq!(rrule(&r), "", "Never writes no rule, whatever else is set");
+        // A segment that is not there changes nothing.
+        apply(&mut r, Part::Frequency(9));
+        assert_eq!(r.frequency, RecurrenceFrequency::Never);
+    }
+
+    #[test]
+    fn a_weekday_toggle_adds_and_removes_days_but_never_the_last_one() {
+        let mut r = weekly(WED_30_SEP);
+        apply(&mut r, Part::Weekday(0)); // Monday joins Wednesday
+        assert_eq!(rrule(&r), "FREQ=WEEKLY;BYDAY=MO,WE");
+        apply(&mut r, Part::Weekday(2)); // Wednesday goes
+        assert_eq!(rrule(&r), "FREQ=WEEKLY;BYDAY=MO");
+        apply(&mut r, Part::Weekday(0)); // the last day stays
+        assert_eq!(rrule(&r), "FREQ=WEEKLY;BYDAY=MO");
+        apply(&mut r, Part::Weekday(7)); // no such day
+        assert_eq!(rrule(&r), "FREQ=WEEKLY;BYDAY=MO");
+    }
+
+    #[test]
+    fn an_interval_or_a_count_is_held_between_1_and_999() {
+        let mut r = weekly(WED_30_SEP);
+        apply(&mut r, Part::Interval(0.0));
+        assert_eq!(r.interval, 1);
+        apply(&mut r, Part::Interval(2.6));
+        assert_eq!(r.interval, 3);
+        apply(&mut r, Part::Interval(5000.0));
+        assert_eq!(r.interval, 999);
+        apply(&mut r, Part::Interval(f32::NAN));
+        assert_eq!(r.interval, 999, "no number keeps the interval");
+        apply(&mut r, Part::Count(-4.0));
+        assert_eq!(r.count, 1);
+        apply(&mut r, Part::Count(12.0));
+        assert_eq!(r.count, 12);
+    }
+
+    #[test]
+    fn choosing_an_end_date_before_the_start_moves_it_to_the_start() {
+        let mut r = weekly(WED_30_SEP);
+        r.until = DatePickerState {
+            year: 2026,
+            month: 1,
+            day: 2,
+        };
+        apply(&mut r, Part::End(2));
+        assert_eq!(r.end, RecurrenceEnd::OnDate);
+        assert_eq!(r.until, WED_30_SEP);
+        let later = DatePickerState {
+            year: 2027,
+            month: 3,
+            day: 1,
+        };
+        apply(&mut r, Part::Until(later));
+        assert_eq!(r.until, later);
+        apply(&mut r, Part::Completion(true));
+        assert!(r.from_completion);
+        assert_eq!(
+            rrule(&r),
+            "FREQ=WEEKLY;UNTIL=20270301;BYDAY=WE",
+            "from completion is the app's, not RRULE's"
+        );
+    }
+
+    /// Every text of the subtree, in document order.
+    fn texts(node: &Dom, out: &mut Vec<String>) {
+        if let NodeType::Text(s) = node.root.get_node_type() {
+            out.push(s.as_ref().as_str().to_string());
+        }
+        for c in node.children.as_ref() {
+            texts(c, out);
+        }
+    }
+
+    fn all_texts(dom: &Dom) -> Vec<String> {
+        let mut out = Vec::new();
+        texts(dom, &mut out);
+        out
+    }
+
+    fn rows(dom: &Dom) -> usize {
+        dom.children
+            .as_ref()
+            .iter()
+            .filter(|c| theme_checks::has_class(c, "__azul-native-recurrence-editor-row"))
+            .count()
+    }
+
+    #[test]
+    fn the_editor_shows_only_the_rows_its_frequency_needs() {
+        let never = RecurrenceEditor::create(RecurrenceRule::create(WED_30_SEP))
+            .with_theme(UiTheme::Flat)
+            .dom();
+        assert_eq!(rows(&never), 1, "Never: the frequency row alone");
+        assert!(theme_checks::has_class(&never, RECURRENCE_EDITOR_CLASS));
+
+        let dom = RecurrenceEditor::create(weekly(WED_30_SEP))
+            .with_theme(UiTheme::Flat)
+            .dom();
+        assert_eq!(rows(&dom), 4, "Weekly: frequency, every, weekdays, ends");
+        let t = all_texts(&dom);
+        for want in ["Repeats", "Every", "week", "On", "Mo", "Su", "Ends"] {
+            assert!(t.iter().any(|s| s == want), "{want:?} is missing from {t:?}");
+        }
+
+        let mut monthly = RecurrenceRule::create(WED_14_OCT);
+        monthly.frequency = RecurrenceFrequency::Monthly;
+        let dom = RecurrenceEditor::create(monthly)
+            .with_theme(UiTheme::Flat)
+            .dom();
+        assert_eq!(rows(&dom), 4, "Monthly: frequency, every, the day, ends");
+        let t = all_texts(&dom);
+        assert!(t.iter().any(|s| s == "On day 14"), "{t:?}");
+        assert!(t.iter().any(|s| s == "On the second Wednesday"), "{t:?}");
+
+        let mut daily = RecurrenceRule::create(WED_30_SEP);
+        daily.frequency = RecurrenceFrequency::Daily;
+        daily.interval = 2;
+        daily.end = RecurrenceEnd::AfterCount;
+        let dom = RecurrenceEditor::create(daily)
+            .with_completion_option(true)
+            .with_theme(UiTheme::Flat)
+            .dom();
+        assert_eq!(rows(&dom), 4, "Daily: frequency, every, ends, from completion");
+        let t = all_texts(&dom);
+        assert!(t.iter().any(|s| s == "days"), "two days: {t:?}");
+        assert!(t.iter().any(|s| s == "times"), "the count's unit: {t:?}");
+        assert!(
+            t.iter().any(|s| s == "Repeat from the day it is completed"),
+            "{t:?}"
+        );
+    }
+
+    #[test]
+    fn the_weekday_toggles_follow_the_week_start() {
+        let first_day = |start: DatePickerWeekStart| {
+            let dom = RecurrenceEditor::create(weekly(WED_30_SEP))
+                .with_week_start(start)
+                .with_theme(UiTheme::Flat)
+                .dom();
+            let toggles = theme_checks::find(&dom, "__azul-native-recurrence-editor-weekdays")
+                .expect("the weekday toggles");
+            all_texts(toggles).first().cloned()
+        };
+        assert_eq!(first_day(DatePickerWeekStart::Monday).as_deref(), Some("Mo"));
+        assert_eq!(first_day(DatePickerWeekStart::Sunday).as_deref(), Some("Su"));
+    }
+
+    #[test]
+    fn the_editor_is_a_group_named_repeat_unless_named_otherwise() {
+        let dom = RecurrenceEditor::create(RecurrenceRule::create(WED_30_SEP))
+            .with_theme(UiTheme::Flat)
+            .dom();
+        let info = dom.root.get_accessibility_info().expect("a role");
+        assert_eq!(info.role, azul_core::a11y::AccessibilityRole::Grouping);
+        assert_eq!(
+            info.accessibility_name.as_ref().map(|n| n.as_str()),
+            Some("Repeat")
+        );
+    }
+
+    type Log = Arc<Mutex<Vec<RecurrenceRule>>>;
+
+    extern "C" fn record(mut data: RefAny, _: CallbackInfo, rule: RecurrenceRule) -> Update {
+        if let Some(log) = data.downcast_ref::<Log>() {
+            log.lock().expect("log").push(rule);
+        }
+        Update::RefreshDom
+    }
+
+    fn id(n: NodeId) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+        }
+    }
+
+    /// The nearest node at or above the text `label` that takes a click.
+    fn clickable(styled: &StyledDom, label: &str) -> NodeId {
+        let hierarchy = styled.node_hierarchy.as_ref();
+        let nodes = styled.node_data.as_ref();
+        let text = nodes
+            .iter()
+            .position(|nd| {
+                matches!(nd.get_node_type(), NodeType::Text(s) if s.as_ref().as_str() == label)
+            })
+            .unwrap_or_else(|| panic!("no text {label:?}"));
+        let mut at = Some(NodeId::new(text));
+        while let Some(n) = at {
+            if nodes[n.index()]
+                .get_callbacks()
+                .as_ref()
+                .iter()
+                .any(|cb| cb.event == EventFilter::Hover(HoverEventFilter::Click))
+            {
+                return n;
+            }
+            at = hierarchy[n.index()].parent_id();
+        }
+        panic!("nothing takes a click on {label:?}");
+    }
+
+    #[test]
+    fn a_click_on_a_part_reports_the_whole_rule_to_the_app() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let editor = || {
+            RecurrenceEditor::create(weekly(WED_30_SEP))
+                .with_on_change(
+                    RefAny::new(log.clone()),
+                    record as RecurrenceEditorOnChangeCallbackType,
+                )
+                .with_theme(UiTheme::Flat)
+        };
+        // The frequency: "Daily".
+        let styled = StyledDom::create_from_dom(editor().dom());
+        let (update, _) = rv::fire(
+            &styled,
+            id(clickable(&styled, "Daily")),
+            EventFilter::Hover(HoverEventFilter::Click),
+        )
+        .expect("a segment takes the click");
+        assert_eq!(update, Update::RefreshDom, "the app's verdict is forwarded");
+        // A weekday: Friday joins Wednesday.
+        let styled = StyledDom::create_from_dom(editor().dom());
+        rv::fire(
+            &styled,
+            id(clickable(&styled, "Fr")),
+            EventFilter::Hover(HoverEventFilter::Click),
+        )
+        .expect("a weekday takes the click");
+        let seen = log.lock().expect("log").clone();
+        assert_eq!(seen.len(), 2, "one report per click: {seen:?}");
+        assert_eq!(seen[0].frequency, RecurrenceFrequency::Daily);
+        assert_eq!(rrule(&seen[1]), "FREQ=WEEKLY;BYDAY=WE,FR");
+    }
+
+    #[test]
+    fn both_themes_style_the_editor_in_light_and_dark() {
+        for theme in checks::BOTH {
+            let dom = RecurrenceEditor::create(weekly(WED_30_SEP))
+                .with_theme(theme)
+                .dom();
+            let label = theme_checks::find(&dom, "__azul-native-recurrence-editor-label")
+                .expect("a row label");
+            assert!(
+                !crate::widgets::theme_probe::dark(label).is_empty(),
+                "{theme:?}: a row label has no dark-mode ink"
+            );
+        }
+    }
+}
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's.
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    fn rule() -> RecurrenceRule {
+        let mut r = RecurrenceRule::create(DatePickerState {
+            year: 2026,
+            month: 10,
+            day: 14,
+        });
+        r.frequency = RecurrenceFrequency::Weekly;
+        r.end = RecurrenceEnd::AfterCount;
+        r
+    }
+
+    #[test]
+    fn a_recurrence_editor_without_a_theme_follows_the_app_theme() {
+        checks::assert_follows_the_app_theme(
+            "recurrence_editor",
+            || RecurrenceEditor::create(rule()).dom(),
+            |t: UiTheme| RecurrenceEditor::create(rule()).with_theme(t).dom(),
+        );
+    }
+
+    /// Only the editor's own nodes: its parts are other widgets, which
+    /// answer for their own structure in their own tests.
+    fn own_nodes(dom: &Dom) -> Dom {
+        let mut copy = dom.clone();
+        let kept: Vec<Dom> = dom
+            .children
+            .as_ref()
+            .iter()
+            .filter(|c| {
+                c.root.get_ids_and_classes().as_ref().iter().any(|class| {
+                    matches!(class, IdOrClass::Class(s)
+                        if s.as_str().starts_with(RECURRENCE_EDITOR_CLASS))
+                })
+            })
+            .map(own_nodes)
+            .collect();
+        copy.children = DomVec::from_vec(kept);
+        copy
+    }
+
+    /// R5: the editor's structure (display, flex, alignment, ...) is
+    /// declared ONCE, outside every `@theme` block.
+    #[test]
+    fn a_recurrence_editor_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        for theme in checks::BOTH {
+            let editor = checks::under(theme, || RecurrenceEditor::create(rule()).dom());
+            assert_structure_is_shared(
+                &format!("recurrence_editor built for {}", theme.name()),
+                &own_nodes(&editor),
+                &[],
+            );
+        }
+    }
+}

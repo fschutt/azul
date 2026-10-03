@@ -492,6 +492,13 @@ pub mod rich_text;
 /// check items, quotes, code, tables, Markdown shortcuts, one undo history;
 /// see `rich_text_editor.rs`.
 pub mod rich_text_editor;
+/// Recurrence editor widget.
+///
+/// How an appointment or a to-do repeats: daily / weekly on chosen days /
+/// monthly on a day or a weekday / yearly, every N, ending never / after N
+/// times / on a date (and "from completion" for a to-do), producing an
+/// RFC 5545 RRULE; see `recurrence_editor.rs`.
+pub mod recurrence_editor;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
