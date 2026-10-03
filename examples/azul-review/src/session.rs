@@ -124,12 +124,12 @@ fn wav(samples: &[f32], sample_rate: u32) -> Vec<u8> {
     out
 }
 
-pub fn save(s: &AppState) -> bool {
-    let dir = crate::scratch_dir();
-    if std::fs::create_dir_all(&dir).is_err() {
-        return false;
-    }
-
+/// The session as an archive: its file name ([`archive_name`]) and its
+/// bytes - every voice clip as a WAV and `session.json` (the strokes, the
+/// findings, the clips). No disk here: the caller writes it into the data
+/// tree on a Thread (`crate::save_session`).
+#[must_use]
+pub fn archive(s: &AppState) -> (String, Vec<u8>) {
     let mut zip = Zip::create();
 
     let clips: Vec<&VoiceClip> = s.clips.iter().chain(s.recording.iter()).collect();
@@ -160,12 +160,10 @@ pub fn save(s: &AppState) -> bool {
         bytes(model.to_string_pretty().as_str().as_bytes()),
     );
 
-    let final_path = archive_path(s);
-    let temp_path = final_path.with_extension("zip.part");
-    if !zip.to_file(temp_path.to_string_lossy().as_ref()) {
-        return false;
-    }
-    std::fs::rename(&temp_path, &final_path).is_ok()
+    (
+        archive_name(s.file().map(|f| f.display.as_str())),
+        zip.to_bytes().as_slice().to_vec(),
+    )
 }
 
 /// The archive's file name for the file under review (`src/lib.rs` ->
@@ -176,10 +174,6 @@ pub fn archive_name(display: Option<&str>) -> String {
         .filter(|d| !d.is_empty())
         .map_or_else(|| "session".to_string(), |d| d.replace(['/', '\\'], "_"));
     format!("{stem}.azreview.zip")
-}
-
-fn archive_path(s: &AppState) -> std::path::PathBuf {
-    crate::scratch_dir().join(archive_name(s.file().map(|f| f.display.as_str())))
 }
 
 #[cfg(test)]
