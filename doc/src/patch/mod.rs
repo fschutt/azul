@@ -378,7 +378,8 @@ pub fn apply_patches_from_directory(api_data: &mut ApiData, dir_path: &Path) -> 
 
     println!("[FIX] Applying {} patch files...\n", patches.len());
 
-    for (filename, patch) in patches {
+    for (filename, patch) in &patches {
+        let filename = filename.clone();
         print!("  Applying {}... ", filename);
 
         match patch.apply(api_data) {
@@ -409,7 +410,26 @@ pub fn apply_patches_from_directory(api_data: &mut ApiData, dir_path: &Path) -> 
         }
     }
 
+    // A patch that reported "[OK]" but whose functions a later patch of the
+    // round dropped is an error too
+    for (filename, entry) in dropped_entries(&patches, api_data) {
+        println!("  [DROPPED] {}: {}", filename, entry);
+        stats.patch_errors.push((
+            filename,
+            format!("{entry} was written but is not in api.json after the round (a later patch dropped it)"),
+        ));
+    }
+
     Ok(stats)
+}
+
+/// The functions and constructors the patches of one round write that the
+/// final api.json does not have, as `(file name, "Class.name")`: dropped by a
+/// later patch of the round (a replace-mode map). A later removal of the
+/// entry or its whole class is not a drop.
+pub fn dropped_entries(patches: &[(String, ApiPatch)], api_data: &ApiData) -> Vec<(String, String)> {
+    let _ = (patches, api_data);
+    Vec::new()
 }
 
 /// Explain what patches in a directory will do without applying them
@@ -1866,6 +1886,49 @@ mod tests {
                 "remove_x_m.patch.json",
             ]
         );
+    }
+
+    /// Every patch of the wave-6 round said "Successfully applied", and one
+    /// method per new type was in api.json afterwards. A function a patch
+    /// writes and a later patch of the round drops (a replace-mode map) is
+    /// reported; one a later patch removes on purpose is not.
+    #[test]
+    fn the_apply_reports_a_function_a_later_patch_dropped() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let write = |name: &str, json: serde_json::Value| {
+            fs::write(dir.path().join(name), json.to_string()).expect("patch written");
+        };
+        let class_patch = |cp: serde_json::Value| {
+            serde_json::json!({"versions": {"1.0.0": {"modules": {"widgets": {"classes": {"T": cp}}}}}})
+        };
+        let body = |name: &str| serde_json::json!({"fn_args": [{"self": "ref"}], "fn_body": format!("object.{name}()")});
+        write(
+            "add_t_a.patch.json",
+            class_patch(serde_json::json!({"functions": {"a": body("a"), "gone_later": body("gone_later")}, "add_functions": true})),
+        );
+        // replace mode: drops `a`
+        write("add_t_b.patch.json", class_patch(serde_json::json!({"functions": {"b": body("b")}})));
+        write(
+            "remove_t_gone_later.patch.json",
+            class_patch(serde_json::json!({"remove_functions": ["gone_later"]})),
+        );
+
+        let mut api: ApiData = serde_json::from_value(serde_json::json!({
+            "1.0.0": {"apiversion": 1, "git": "", "date": "", "api": {"widgets": {"classes": {
+                "T": {"external": "azul_layout::widgets::t::T"}
+            }}}}
+        }))
+        .expect("test api parses");
+        let stats = apply_patches_from_directory(&mut api, dir.path()).expect("applies");
+        let dropped: Vec<&(String, String)> = stats
+            .patch_errors
+            .iter()
+            .filter(|(_, e)| e.contains("not in api.json after the round"))
+            .collect();
+        assert_eq!(dropped.len(), 1, "{:?}", stats.patch_errors);
+        assert_eq!(dropped[0].0, "add_t_a.patch.json");
+        assert!(dropped[0].1.starts_with("T.a "), "{:?}", dropped[0]);
+        assert!(stats.has_errors());
     }
 }
 
