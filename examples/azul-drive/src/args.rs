@@ -209,9 +209,10 @@ fn sample_files() -> Vec<(&'static str, Vec<u8>)> {
 }
 
 /// Writes the sample files into the folder `home` through a `LocalDrive`
-/// (never over a file that is there). Returns how many it wrote.
+/// (never over a file that is there). Returns how many it wrote. The home
+/// folder is not the data tree: no `.azlin/` bookkeeping is left there.
 pub fn write_sample(home: &Path) -> Result<usize, String> {
-    let drive = LocalDrive::new(home);
+    let drive = LocalDrive::without_manifest(home);
     let mut written = 0;
     for (key, bytes) in sample_files() {
         if key.ends_with('/') {

@@ -1489,7 +1489,8 @@ pub(crate) fn upload_paths(
         }
     }
     for (parent, items) in groups {
-        let source: Arc<dyn Drive> = Arc::new(LocalDrive::new(parent.clone()));
+        // An OS folder, not the data tree: no `.azlin/` bookkeeping there.
+        let source: Arc<dyn Drive> = Arc::new(LocalDrive::without_manifest(parent.clone()));
         enqueue_with(
             info,
             app,
@@ -1551,7 +1552,7 @@ fn download_selected(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) 
     };
     let items = s.selected_items();
     let folder = s.downloads.clone();
-    let target: Arc<dyn Drive> = Arc::new(LocalDrive::new(folder.clone()));
+    let target: Arc<dyn Drive> = Arc::new(LocalDrive::without_manifest(folder.clone()));
     enqueue_with(
         info,
         app,
