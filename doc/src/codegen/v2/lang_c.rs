@@ -1395,6 +1395,13 @@ impl CGenerator {
         builder.line("/* Enum variant checker functions */");
         builder.blank();
 
+        // A checker is a function-like MACRO, so it would shadow a libazul
+        // function of the same name in every translation unit after it: the
+        // api.json method wins (`ChartKind.isBar` vs the `Bar` variant's
+        // `AzChartKind_isBar(value)`, which broke every C++ header, B3 class).
+        let functions: std::collections::BTreeSet<&str> =
+            ir.functions.iter().map(|f| f.c_name.as_str()).collect();
+
         for enum_def in &ir.enums {
             if !config.should_include_type(&enum_def.name) {
                 continue;
@@ -1411,6 +1418,9 @@ impl CGenerator {
             let first_variant_name = enum_def.variants.first().map(|v| &v.name);
 
             for variant in &enum_def.variants {
+                if functions.contains(format!("{}_is{}", name, variant.name).as_str()) {
+                    continue;
+                }
                 // Generate is{Variant}() function
                 // For unions, we check the tag via the first variant's struct
                 // (the tag is at the same offset in all variant structs)
