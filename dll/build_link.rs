@@ -396,6 +396,15 @@ fn link_shared(target: &str, src: &Path, is_system: bool, out_dir: &str, bin_dir
                 .status();
         }
     }
+    // Re-run (and so re-copy) whenever the library itself changes: the copy's
+    // install name is what the binary loads, so a stale copy here silently
+    // ran an OLD libazul after every dylib rebuild unless DYLD_LIBRARY_PATH
+    // reached the app - and macOS SIP strips DYLD_* through /usr/bin/env
+    // (found 2026-10-03: a "fix that did nothing" was the old library).
+    // The static path above already does this.
+    if src.exists() {
+        println!("cargo:rerun-if-changed={}", src.display());
+    }
     println!("cargo:rustc-link-search=native={}", link_dir.display());
     println!("cargo:rustc-link-lib=dylib={dylib_link_name}");
 
