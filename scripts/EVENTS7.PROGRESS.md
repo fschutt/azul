@@ -24,13 +24,20 @@ Brief: scripts/waves/wave7/EVENTS7.md. Report at the end: scripts/EVENTS7_2026_1
     SystemChange arms
   - 500c88730 JSON scenario test a_json_scenarios_undo_key_undoes_the_typing
 
+- item 4 (headless menus close on Escape / outside press, as a chain):
+  - 515c695e4 RED dll/src/desktop/shell2/headless/tests/e2e_host.rs (3 tests at the end)
+  - d3e4ebcfc refactor transient.rs fresh_press / fresh_release / fresh_escape (3 twins -> 1)
+  - 4708e715e GREEN common/event.rs (menu self-dismissal without mailbox; owner side
+    PlatformWindow::dismiss_menu_windows + CommonWindowState::menu_release_owed swallow); headless
+    dismiss_menu_windows + chain rule in pump_children
+
 ## IN PROGRESS
-- item 4: headless menus close on outside click / Escape (read dll headless show_menu_from_callback,
-  pump_children, desktop::menu)
+- item 5: Ctrl+B with no selection reported to the app (read DEDUP_EDITORS formats finding,
+  layout ToggleTextFormat / toggle_text_format, DocumentTextEdit runs)
 
 ## NEXT
-4. headless menus close on outside click / Escape
 5. Ctrl+B with no selection reported to the app
+6. report scripts/EVENTS7_2026_10_03.md
 
 ## Decisions
 - item 1: the plan lives in core (core/src/events.rs, mine), both dispatchers call it with closures over
@@ -39,6 +46,9 @@ Brief: scripts/waves/wave7/EVENTS7.md. Report at the end: scripts/EVENTS7_2026_1
 - item 2: ONE path for menu click and key equivalent: the keystroke is pressed + released through the
   key passes (no NSApp.currentEvent inspection; layout-independent; also releases the letter key, which
   AppKit never sends a keyUp: for while Cmd is held).
+
+- item 4: the click that leaves a headless menu is spent (press discarded, release owed) like a
+  native menu / X11 grab; a menu child closing closes every menu child of its owner (one chain).
 
 ## Open questions
 - (none yet)
