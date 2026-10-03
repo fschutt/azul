@@ -862,3 +862,7 @@ mod a_long_list_of_avatar_rows_lays_out_in_linear_time;
 mod a_short_list_in_a_shell_pane_fills_its_pane_from_the_top;
 #[path = "focusing_a_search_field_by_its_id_focuses_its_text.rs"]
 mod focusing_a_search_field_by_its_id_focuses_its_text;
+#[path = "common/painted.rs"]
+mod painted;
+#[path = "the_root_background_covers_the_whole_canvas.rs"]
+mod the_root_background_covers_the_whole_canvas;
