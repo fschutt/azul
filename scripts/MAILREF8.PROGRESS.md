@@ -55,9 +55,15 @@ Never compile; never touch layout/src/solver3/page_breaks.rs (nor display_list.r
    bottom, Flex/Grid -> first_line_baseline(child), else recurse. measure_atomic_inline: for FC not
    Table/Flex/Grid use `inline_block_baseline(child_index, tree, 0).map(|b| b - (padding.top +
    border.top))` instead of `layout_result.output.baseline`.
-4. NEXT: group B (postmark invoice azr-54 / receipt azr-44: an inner table whose tbody is 183 wide and
-   whose th/td cells stack vertically). Look at target/refci/mail-wave8-base/postmark_receipt/chrome.html
-   around azr-44, reduce to a snippet, probe (target/mailref8/probe.py <json>), RED, fix.
+4. DONE (no engine fix) - group B ROOT CAUSE = HTML foster parenting, not layout: the templates'
+   `{{#each receipt_details}}` / `{{/each}}` text sits between `<tr>`s. Chrome's HTML parser fosters it
+   BEFORE the table (one 18px line above the inner table in the td); azul's `Xml::create_from_html`
+   (core/src/xml_html.rs, header: "foster parenting ... stays where it is") keeps it in the tbody, where
+   the layout correctly wraps it in an anonymous row + cell (Chrome lays the same DISPLAY-based table out
+   exactly like azul: probe target/mailref8/b1.json css_table_stray_text). Owner: XML8 (its brief lists
+   table foster parenting). Expected effect when XML8 lands it: ~73 boxes (invoice 32, receipt 41).
+   (The mail_boxes 'tbody 183 wide / stacked cells' rows were the measure pairing azul's anonymous boxes.)
+5. NEXT: group C (mailgun billing: row azr-21 412 tall vs Chrome 323, then +90 below).
 - Group A expected effect (after the parent's build): cerberus x3 ~390 boxes y -14 -> 0, azr-1/azr-2
   heights fixed (paper = content). Left in A: an IFC's height is its items' bounds, not its line boxes
   (strut descent below an inline-block: t1 wrap 46 vs Chrome 60, t3 30 vs 34) - text3 cache.rs
