@@ -37,11 +37,22 @@ AzReader, lib azreader). Never compile; rustfmt --edition 2021 <file> as the par
    PageMap, images: Vec<(src, ImageRef)>}.
 4. DONE 7f66dfcff src/plainbook.rs (and 96cda63f5 src/settings.rs = step 6): .txt / .html files as a Container + Book (split text at CHAPTER headings
    or every ~60 KB; TOC from headings).
-5. src/library.rs + src/storage.rs: keys reader/books/<uuid>/{book.<ext>, info.json,
-   state.json, cover.png}; BookInfo, BookState (position, bookmarks, last_read, finished);
-   the library scan thread (info + state + cover decode); the import thread.
-6. src/settings.rs: ReadingSettings (font_px, line_height, margin_px, font, paper Auto/White/
-   Sepia/Night, layout Single/Spread/Auto, justify) <-> appkit settings values.
+5. MODEL DONE abba9deaa src/library.rs (keys, Format of_name/sniff, BookInfo, BookState +
+   toggle_bookmark, entries_from, Shelf, Sort, shown, title_from_file_name, now_secs).
+   LEFT -> src/jobs.rs (NEXT TO WRITE): azul Thread workers on a LocalDrive at the data root
+   (azul_storage::LocalDrive::new(root), like azul_appkit::ui::file_thread) -
+   a) ScanLibrary: GetAll prefix BOOKS suffix "info.json" + suffix "state.json" through
+      azul_appkit::files::run_jobs, then decode each cover.png (RawImage::decode_image_bytes_any
+      -> ImageRef::create_rawimage) -> reply Library{entries, covers: Vec<(id, ImageRef)>};
+   b) Import{path}: read outside file (azul_appkit::files::read_outside), Format::of_name/sniff,
+      parse (epub::Container::from_zip_bytes + parse_book | plainbook), new id
+      (azul_storage::ids::new_uuid), put book file, info.json, state.json, cover.png (cover
+      bytes -> decode -> thumbnail(240, 360) -> encode_png) -> reply Imported{entry, cover};
+   c) OpenBook{id, format}: get book file -> Container + Book (plainbook for txt/html) ->
+      reply Opened{id, Arc<Container>, Book};
+   d) Chapter{...} lives in paginate.rs (step 3);
+   e) SaveState{id, BookState} -> Put state.json (via azul_appkit::ui::spawn_file_jobs is enough).
+6. DONE 96cda63f5 src/settings.rs.
 7. UI: src/ids.rs (const AzString `__azreader_*`), src/app.rs (AppState, Command), src/lib.rs
    start/layout/callbacks, library screen (DocumentShell, covers grid; TODO(WIDGETS9A) IconGrid),
    reader screen (DocumentShell: TOC + bookmarks pane, page view of clip windows, status bar
