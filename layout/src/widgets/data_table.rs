@@ -1793,8 +1793,6 @@ pub(crate) const MIN_THUMB_PX: f32 = 24.0;
 pub(crate) const DEFAULT_COLUMN_PX: f32 = 100.0;
 /// The narrowest a drag leaves a column, px.
 pub(crate) const MIN_COLUMN_PX: f32 = 24.0;
-/// A cell's left and right padding, px.
-pub(crate) const CELL_PADDING_PX: f32 = 6.0;
 
 /// One scroll bar: its track (px from the table's top-left) and its thumb
 /// along it.
