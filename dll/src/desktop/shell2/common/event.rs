@@ -4611,26 +4611,30 @@ pub trait PlatformWindow {
             }
         }
 
-        // `values_only`: the tick moved only values the display list binds
-        // by key (a spinner's rotation and fade) - repaint, do not rebuild.
-        let (needs_relayout, patched, values_only) = match self.get_layout_window_mut() {
-            Some(lw) => (
-                lw.take_transition_relayout(),
-                lw.take_transition_patched(),
-                lw.animation_tick_is_values_only(),
-            ),
-            None => (false, false, false),
-        };
+        // What this frame owes - relayout, display-list rebuild or a bare
+        // repaint (values patched in place or bound by key: a transform
+        // tween, a spinner's rotation and fade) - decided once, in the layout
+        // window, for every frame driver.
+        let work = self.take_animation_frame_work();
         // A settled step still owes this frame, so the final value reaches
         // the screen; only then does the driver go idle.
         self.disarm_css_animation_timer_if_idle();
-        result.max(if needs_relayout {
-            ProcessEventResult::ShouldIncrementalRelayout
-        } else if patched || values_only {
-            ProcessEventResult::ShouldReRenderCurrentWindow
-        } else {
-            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
-        })
+        result.max(work)
+    }
+
+    /// [`LayoutWindow::take_animation_frame_work`] for this window, and the
+    /// paint-only flag a repaint frame raises: the backends whose bare
+    /// repaint would otherwise re-run layout (headless `service_frame`) paint
+    /// it from the layout as it stands, as the desktop shells present it.
+    fn take_animation_frame_work(&mut self) -> ProcessEventResult {
+        let work = match self.get_layout_window_mut() {
+            Some(lw) => lw.take_animation_frame_work(),
+            None => return ProcessEventResult::DoNothing,
+        };
+        if work == ProcessEventResult::ShouldReRenderCurrentWindow {
+            self.get_common_mut().content_repaint_pending = true;
+        }
+        work
     }
 
     /// Stop the CSS animation driver once nothing is left to move.
@@ -5834,20 +5838,11 @@ pub trait PlatformWindow {
                     extra = extra.max(self.apply_user_change(change));
                 }
                 // A settled step still owes one frame, so the final (identity)
-                // transform actually reaches the screen. A layout-affecting
-                // `animation` transition escalates to a real relayout.
-                let (needs_relayout, patched) = match self.get_layout_window_mut() {
-                    Some(lw) => (lw.take_transition_relayout(), lw.take_transition_patched()),
-                    None => (false, false),
-                };
-                return extra.max(if needs_relayout {
-                    ProcessEventResult::ShouldIncrementalRelayout
-                } else if patched {
-                    // The DL was patched in place — re-render only.
-                    ProcessEventResult::ShouldReRenderCurrentWindow
-                } else {
-                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
-                });
+                // transform actually reaches the screen. The same decision as
+                // the real driver's (`take_animation_frame_work`): a
+                // layout-affecting transition relayouts, values patched in
+                // place or bound by key only repaint.
+                return extra.max(self.take_animation_frame_work());
             }
 
             // NOT YET EXECUTED ON THE DESKTOP SHELL.
