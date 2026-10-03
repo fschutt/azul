@@ -180,6 +180,25 @@ fn finish_page() -> WizardFinishPage {
     ]))
 }
 
+/// The key a setting's applied value is kept under in settings.json.
+fn setting_key(id: &str) -> String {
+    format!("setting.{id}")
+}
+
+/// A setting's value as settings.json keeps it (`None`: not kept - a
+/// shortcut, which the demo does not remember).
+fn stored(value: &ShellSettingValue) -> Option<String> {
+    let _ = value;
+    todo!()
+}
+
+/// `text` from settings.json read back as a value of `like`'s kind, inside
+/// its range (`None`: unreadable, the default stays).
+fn restored(like: &ShellSettingValue, text: &str) -> Option<ShellSettingValue> {
+    let _ = (like, text);
+    todo!()
+}
+
 /// The settings window's table: every kind of setting.
 fn settings_dialog(theme: &str) -> ShellSettingsDialog {
     let shortcut = |ctrl: bool, shift: bool, key: VirtualKeyCode| {
@@ -880,4 +899,45 @@ pub fn start() {
         setup_window(&kit_ref)
     };
     app.run(window);
+}
+
+#[cfg(test)]
+mod remembered_settings_tests {
+    use super::*;
+
+    #[test]
+    fn every_kind_of_setting_but_a_shortcut_survives_the_trip_through_settings_json() {
+        let values = [
+            ShellSettingValue::Toggle(false),
+            ShellSettingValue::Choice(ShellSettingChoice::create(strs(&["A", "B", "C"]), 2)),
+            ShellSettingValue::Radio(ShellSettingChoice::create(strs(&["Light", "Dark"]), 1)),
+            ShellSettingValue::Number(ShellSettingNumber::create(42.0, 1.0, 120.0)),
+            ShellSettingValue::Slider(ShellSettingNumber::create(150.0, 50.0, 200.0)),
+            ShellSettingValue::Text(s("Ada Lovelace")),
+            ShellSettingValue::Path(s("/home/ada/Documents")),
+            ShellSettingValue::Color(ColorU::rgba(12, 34, 56, 255)),
+        ];
+        for v in values {
+            let text = stored(&v).expect("kept");
+            let back = restored(&v, &text).expect("read back");
+            assert_eq!(back.display_text().as_str(), v.display_text().as_str(), "{text}");
+        }
+        let shortcut = settings_dialog("flat")
+            .value_of(s("editing.palette"))
+            .into_option()
+            .expect("the palette shortcut");
+        assert!(stored(&shortcut).is_none(), "a shortcut is not kept");
+    }
+
+    #[test]
+    fn a_value_out_of_range_or_unreadable_keeps_the_default() {
+        let number = ShellSettingValue::Number(ShellSettingNumber::create(10.0, 1.0, 120.0));
+        assert!(restored(&number, "500").is_none(), "past the maximum");
+        assert!(restored(&number, "ten").is_none());
+        let choice = ShellSettingValue::Choice(ShellSettingChoice::create(strs(&["A", "B"]), 0));
+        assert!(restored(&choice, "7").is_none(), "no such option");
+        assert!(restored(&ShellSettingValue::Toggle(true), "maybe").is_none());
+        assert!(restored(&ShellSettingValue::Color(ColorU::rgba(0, 0, 0, 255)), "#zz").is_none());
+        assert_eq!(setting_key("general.reopen"), "setting.general.reopen");
+    }
 }
