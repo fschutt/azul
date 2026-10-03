@@ -49,6 +49,10 @@ pub use codec::{AudioDecoder, AudioEncoder};
 // The AudioToolbox Opus engine behind them (dlopen'd, like VideoToolbox).
 #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
 mod opus_apple;
+// Acoustic echo cancellation: the `EchoCanceller` handle (pure Rust, every
+// target).
+pub mod echo;
+pub use echo::EchoCanceller;
 
 /// Internal playback state behind an open `AudioSink` handle.
 struct AudioSinkInner {
