@@ -3102,3 +3102,210 @@ pub(crate) fn cell_edit_key(
         }
     }
 }
+
+// ---- the order job: the keys in slices on a timer, the sort on a Thread ----
+
+use azul_core::{
+    callbacks::TimerCallbackReturn,
+    task::{ThreadId, ThreadReceiver, TimerId},
+};
+
+use crate::{
+    thread::{Thread, ThreadCallback, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg, WriteBackCallback},
+    timer::{Timer, TimerCallback, TimerCallbackInfo},
+};
+
+/// The rows one timer tick reads the keys of (a few milliseconds of the
+/// app's data callback per column).
+pub(crate) const JOB_SLICE_ROWS: u32 = 25_000;
+
+/// The view with every row in the app's order for its query (a query
+/// that needs no keys: a sort on an unsortable column).
+fn in_app_order(mut view: DataTableView) -> DataTableView {
+    view.order = U32Vec::from_const_slice(&[]);
+    view.ordered = false;
+    view.order_serial = view.query_serial;
+    view
+}
+
+/// Brings `view`'s order up to its query: at once for a table of at most
+/// [`DATA_TABLE_SYNC_ROWS`] rows, else by starting the job (the view then
+/// stays "sorting" until `OrderReady`). A view that waits for nothing is
+/// returned as it is.
+pub(crate) fn requery(t: &DataTable, view: DataTableView, info: &mut CallbackInfo) -> DataTableView {
+    if !view.is_sorting() {
+        return view;
+    }
+    let plan = plan_of(&view, t.columns.as_slice());
+    if plan.is_empty() {
+        return in_app_order(view);
+    }
+    if t.row_count <= DATA_TABLE_SYNC_ROWS {
+        return order_now(t, view, &plan);
+    }
+    start_order_job(t, &view, plan, info);
+    view
+}
+
+/// The order of `view`'s query, computed here and now.
+pub(crate) fn order_now(t: &DataTable, view: DataTableView, plan: &QueryPlan) -> DataTableView {
+    let mut keys = Vec::new();
+    read_keys(&t.data_source, plan, &mut keys, 0, t.row_count);
+    let order = compute_order(t.row_count, plan, &keys);
+    let serial = view.query_serial;
+    view.with_order(serial, order)
+}
+
+impl DataTable {
+    /// Starts bringing the order up to `self.view`'s query - for the app,
+    /// after it changed the sort or the filters itself
+    /// ([`DataTableView::clear_filters`], [`DataTableView::set_sort`] ...)
+    /// or its rows. The order arrives as an `OrderReady` event (also for a
+    /// small table: never inside the app's own callback). Nothing happens
+    /// when the view waits for nothing.
+    pub fn start_query(&self, info: &mut CallbackInfo) {
+        if !self.view.is_sorting() {
+            return;
+        }
+        let plan = plan_of(&self.view, self.columns.as_slice());
+        start_order_job(self, &self.view, plan, info);
+    }
+}
+
+/// The job's state on the UI thread: the keys read so far.
+struct OrderJob {
+    /// The table as the query found it (columns, data source, row count,
+    /// id); its view is not used - the latest one is looked up.
+    table: DataTable,
+    /// The query the job orders for.
+    serial: u32,
+    plan: QueryPlan,
+    keys: Vec<ColumnKeys>,
+    /// The next row to read.
+    next_row: u32,
+}
+
+/// What the sorting Thread is handed: plain keys, no callbacks.
+struct SortInit {
+    row_count: u32,
+    plan: QueryPlan,
+    keys: Vec<ColumnKeys>,
+}
+
+/// What the Thread hands back.
+struct SortDone {
+    order: Option<Vec<u32>>,
+}
+
+/// Which table the write-back is for.
+struct OrderReply {
+    id: AzString,
+    serial: u32,
+}
+
+/// Starts the job for `view`'s query: a timer reads the keys in slices,
+/// then a Thread sorts them.
+fn start_order_job(t: &DataTable, view: &DataTableView, plan: QueryPlan, info: &mut CallbackInfo) {
+    let mut table = t.clone();
+    table.view = DataTableView::create();
+    let job = OrderJob {
+        table,
+        serial: view.query_serial,
+        plan,
+        keys: Vec::new(),
+        next_row: 0,
+    };
+    let timer = Timer::create(
+        RefAny::new(job),
+        TimerCallback::create(order_job_tick),
+        info.get_system_time_fn(),
+    );
+    info.add_timer(TimerId::unique(), timer);
+}
+
+/// The table node named `id` in the window: its handler payload (the
+/// latest table and geometry).
+fn latest_shared(info: &mut CallbackInfo, id: &AzString) -> Option<RefAny> {
+    let node = info.get_node_id_by_marker(id.clone())?;
+    info.get_dataset(node)
+}
+
+/// One tick: give up when a newer query took over, else read one slice of
+/// keys; with every key read, hand them to the sorting Thread.
+extern "C" fn order_job_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
+    let Some((id, serial)) = data.downcast_ref::<OrderJob>().map(|j| (j.table.id.clone(), j.serial)) else {
+        return TimerCallbackReturn::terminate_unchanged();
+    };
+    if let Some(mut latest) = latest_shared(info.get_callback_info_mut(), &id) {
+        let superseded = latest
+            .downcast_ref::<TableShared>()
+            .is_some_and(|s| s.table.view.query_serial != serial);
+        if superseded {
+            return TimerCallbackReturn::terminate_unchanged();
+        }
+    }
+    let init = {
+        let Some(mut job) = data.downcast_mut::<OrderJob>() else {
+            return TimerCallbackReturn::terminate_unchanged();
+        };
+        let job = &mut *job;
+        let rows = job.table.row_count;
+        let to = job.next_row.saturating_add(JOB_SLICE_ROWS).min(rows);
+        read_keys(&job.table.data_source, &job.plan, &mut job.keys, job.next_row, to);
+        job.next_row = to;
+        if to < rows {
+            return TimerCallbackReturn::continue_unchanged();
+        }
+        SortInit {
+            row_count: rows,
+            plan: core::mem::take(&mut job.plan),
+            keys: core::mem::take(&mut job.keys),
+        }
+    };
+    info.add_thread(
+        ThreadId::unique(),
+        Thread::create(
+            RefAny::new(init),
+            RefAny::new(OrderReply { id, serial }),
+            ThreadCallback::new(sort_worker),
+        ),
+    );
+    TimerCallbackReturn::terminate_unchanged()
+}
+
+/// The Thread: filters and sorts the keys, sends the order back.
+extern "C" fn sort_worker(mut init: RefAny, mut sender: ThreadSender, _receiver: ThreadReceiver) {
+    let Some(order) = init
+        .downcast_ref::<SortInit>()
+        .map(|i| compute_order(i.row_count, &i.plan, &i.keys))
+    else {
+        return;
+    };
+    let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
+        WriteBackCallback::new(order_ready),
+        RefAny::new(SortDone { order: Some(order) }),
+    )));
+}
+
+/// Back on the UI thread: the order goes into the LATEST view (a scroll or
+/// a selection made while sorting stays), unless a newer query took over.
+extern "C" fn order_ready(mut reply: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(order) = msg.downcast_mut::<SortDone>().and_then(|mut d| d.order.take()) else {
+        return Update::DoNothing;
+    };
+    let Some((id, serial)) = reply.downcast_ref::<OrderReply>().map(|r| (r.id.clone(), r.serial)) else {
+        return Update::DoNothing;
+    };
+    let Some(mut latest) = latest_shared(&mut info, &id) else {
+        return Update::DoNothing;
+    };
+    let Some((table, _)) = shared_of(&mut latest) else {
+        return Update::DoNothing;
+    };
+    if table.view.query_serial != serial {
+        return Update::DoNothing;
+    }
+    let view = table.view.clone().with_order(serial, order);
+    store_view(&mut latest, &view);
+    fire(&table, info, DataTableEvent::create(DataTableEventKind::OrderReady, view))
+}
