@@ -36,7 +36,6 @@ use crate::{
     preview,
     refresh, save_settings, spawn, with_state, ClipboardItems, DriveState, KeyringCall,
     KeyringOp, Popup, PreviewState, PropertiesState, Renaming, Slot, TransferJob, UndoOp,
-    HOME_ID,
 };
 
 // ==== Actions ====
@@ -221,8 +220,8 @@ pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
             }
         }),
         Action::RemoveDrive => match s.selected_drive.or(s.current_drive()) {
-            Some(i) if s.slots.get(i).is_some_and(|slot| slot.entry.id == HOME_ID) => {
-                Some(String::from("The Home drive stays."))
+            Some(i) if s.slots.get(i).is_some_and(Slot::is_built_in) => {
+                Some(String::from("Home and the Azlin data folder stay."))
             }
             Some(_) => None,
             None => Some(String::from("Select a drive on This PC first.")),
@@ -415,7 +414,7 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         }
         Action::Options => {
             s.backstage = Some(0);
-            s.settings_category = 0;
+            azul_appkit::ui::open_settings(&s.kit, Some("View"));
         }
         Action::AddDrive => {
             if s.popup.is_none() {
@@ -573,6 +572,17 @@ pub(crate) extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -
         ctrl: m.primary_down(),
         alt: m.alt,
     };
+    // azul-appkit's keys first: Mod+, opens the Options, F1 at the keyboard shortcuts, Escape
+    // closes them.
+    let kit = data.downcast_ref::<DriveState>().map(|s| s.kit.clone());
+    if let Some(kit) = kit {
+        if let Some(update) = azul_appkit::ui::handle_key(&kit, &mut info) {
+            if let Some(mut s) = data.downcast_mut::<DriveState>() {
+                s.backstage = azul_appkit::ui::settings_open(&kit).then_some(0);
+            }
+            return update;
+        }
+    }
     if in_text_field(&info) {
         return Update::DoNothing;
     }
@@ -584,7 +594,7 @@ pub(crate) extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -
         return Update::DoNothing;
     };
     let s = &mut *guard;
-    if s.popup.is_some() || s.backstage.is_some() {
+    if s.popup.is_some() || s.backstage_shown().is_some() {
         if command == Command::Escape {
             close_popup(&mut info, &app, s);
             s.backstage = None;

@@ -1,24 +1,25 @@
 //! The dialogs (a modal window, or a sheet inside the window for scripts):
 //! Add drive, delete for good, remove a drive, Replace or Skip Files,
 //! Properties (General / Details), Choose location, the transfer queue;
-//! and the FILE backstage with the Options (ShellSettingsLayout) and About.
+//! and the FILE backstage with the Options (azul-appkit's settings page: View, Navigation and
+//! Drives, then the kit's Appearance, Data, Keyboard shortcuts and About) and azul's About box.
 
 use azul::{
     callbacks::{
         BackstageOnNavSelectCallbackType, ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType,
-        DropDownOnChoiceChangeCallbackType, ShellSettingsLayoutOnCategoryCallbackType,
-        ShellSettingsLayoutOnSearchCallbackType, TabOnClickCallbackType,
-        TextInputOnTextInputCallbackType,
+        DropDownOnChoiceChangeCallbackType, StandardDialogOnEventCallbackType,
+        TabOnClickCallbackType, TextInputOnTextInputCallbackType,
     },
     prelude::*,
-    shells::{ShellSettingsLayout, ShellSettingsSection},
     str::String as AzString,
     vec::{BackstageNavItemVec, StringVec},
     widgets::{
-        Backstage, BackstageNavItem, ButtonType, CheckBoxState, DialogState, DropDown,
-        OnTextInputReturn, TabHeader, TabHeaderState, TextInputState, TextInputValid,
+        AboutDialog, Backstage, BackstageNavItem, ButtonType, CheckBoxState, DialogState,
+        DropDown, OnTextInputReturn, StandardDialogEvent, TabHeader, TabHeaderState,
+        TextInputState, TextInputValid,
     },
 };
+use azul_appkit::ui::AppSection;
 use azul_storage::{config::DriveLocation, key};
 
 use crate::{
@@ -27,7 +28,7 @@ use crate::{
     fileops::{ConflictChoice, JobState},
     ids,
     model::{StartPlace, ViewLayout},
-    save_settings, with_state, DriveState, Popup, PropertiesState, HOME_ID,
+    save_settings, with_state, DriveState, Popup, PropertiesState,
 };
 
 // ==== Pieces ====
@@ -753,7 +754,7 @@ pub(crate) fn backstage(s: &DriveState, app: &RefAny, page: usize) -> Dom {
         BackstageNavItem::create(AzString::from("About")),
         BackstageNavItem::create(AzString::from("Close")).with_gap_before(),
     ];
-    let content = if page == 1 { about(s) } else { options(s, app) };
+    let content = if page == 1 { about(app) } else { options(s, app) };
     Backstage::create(BackstageNavItemVec::from(items))
         .with_active_item(page.min(1))
         .with_content(content)
@@ -767,6 +768,9 @@ extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, index: 
         if index == 2 {
             info.close_window();
         } else {
+            if index == 0 {
+                azul_appkit::ui::open_settings(&s.kit, None);
+            }
             s.backstage = Some(index);
         }
     })
@@ -776,8 +780,9 @@ extern "C" fn on_backstage_back(mut data: RefAny, mut info: CallbackInfo) -> Upd
     with_state(&mut data, &mut info, |_info, _app, s| s.backstage = None)
 }
 
-/// The Options' categories.
-const CATEGORIES: [&str; 4] = ["View", "Navigation", "Drives", "About"];
+/// AzDrive's own categories of the Options; azul-appkit adds Appearance, Data, Keyboard
+/// shortcuts and About after them.
+pub(crate) const CATEGORIES: [&str; 3] = ["View", "Navigation", "Drives"];
 
 /// A setting's check box with its label (both toggle it).
 fn setting_check(app: &RefAny, text: &str, which: Toggle, on: bool) -> Dom {
@@ -821,13 +826,35 @@ fn column_of(children: Vec<Dom>) -> Dom {
         .with_children(DomVec::from(children))
 }
 
-fn section(title: &str, content: Dom) -> ShellSettingsSection {
-    ShellSettingsSection::create(AzString::from(title), content)
+fn section(title: &str, content: Dom) -> (String, Dom) {
+    (title.to_string(), content)
 }
 
-/// The Options: the sections of the chosen category.
+/// The Options: azul-appkit's settings page with AzDrive's sections (View, Navigation, Drives)
+/// before the kit's (Appearance, Data, Keyboard shortcuts, About); the kit keeps the category
+/// and the search, and saves the theme and mode.
 fn options(s: &DriveState, app: &RefAny) -> Dom {
-    let sections: Vec<ShellSettingsSection> = match s.settings_category {
+    let mut sections = Vec::new();
+    for category in 0..CATEGORIES.len() {
+        sections.extend(
+            options_of(s, app, category)
+                .into_iter()
+                .map(|(title, content)| AppSection {
+                    category,
+                    title,
+                    content,
+                }),
+        );
+    }
+    Dom::create_div()
+        .with_id(ids::SETTINGS)
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
+        .with_child(azul_appkit::ui::settings_page(&s.kit, sections))
+}
+
+/// The sections of one of AzDrive's categories: (title, content).
+fn options_of(s: &DriveState, app: &RefAny, category: usize) -> Vec<(String, Dom)> {
+    match category {
         0 => {
             let layouts: Vec<AzString> = ViewLayout::ALL
                 .iter()
@@ -919,7 +946,7 @@ fn options(s: &DriveState, app: &RefAny) -> Dom {
                 ]),
             ),
         ],
-        2 => {
+        _ => {
             let rows: Vec<Dom> = s
                 .slots
                 .iter()
@@ -954,7 +981,7 @@ fn options(s: &DriveState, app: &RefAny) -> Dom {
                                     .with_css("font-size: 12px; opacity: 0.75;"),
                                 ),
                         );
-                    if slot.entry.id != HOME_ID {
+                    if !slot.is_built_in() {
                         row.add_child(
                             Button::create(AzString::from("Remove"))
                                 .with_on_click(
@@ -996,54 +1023,29 @@ fn options(s: &DriveState, app: &RefAny) -> Dom {
                 ),
             ]
         }
-        _ => vec![section("About AzDrive", about(s))],
-    };
-    let categories: Vec<AzString> = CATEGORIES.iter().map(|c| AzString::from(*c)).collect();
-    ShellSettingsLayout::create(StringVec::from(categories))
-        .with_sections(azul::vec::ShellSettingsSectionVec::from(sections))
-        .with_active_category(s.settings_category)
-        .with_search(AzString::from(s.settings_search.as_str()))
-        .with_search_placeholder(AzString::from("Search the options"))
-        .with_on_category(
-            app.clone(),
-            on_settings_category as ShellSettingsLayoutOnCategoryCallbackType,
-        )
-        .with_on_search(
-            app.clone(),
-            on_settings_search as ShellSettingsLayoutOnSearchCallbackType,
-        )
-        .dom()
-        .with_id(ids::SETTINGS)
+    }
 }
 
-/// About AzDrive.
-fn about(s: &DriveState) -> Dom {
-    let settings_file = s
-        .settings_drive
-        .as_ref()
-        .map_or_else(|| String::from("(none)"), |d| {
-            d.root().join(crate::SETTINGS_KEY).display().to_string()
-        });
-    column_of(vec![
-        Dom::create_span_with_text(AzString::from(format!(
-            "AzDrive {}",
-            env!("CARGO_PKG_VERSION")
-        )))
-        .with_css("font-size: 18px; font-weight: bold;"),
-        line(
-            "A file manager like Windows Explorer for the folders of this computer and S3 \
-             buckets (AWS S3, Cloudflare R2, MinIO), built on azul: the BrowserShell, the Ribbon, \
-             the navigation pane, the address bar, tiles, the InfoBar and the status bar.",
-        ),
-        line(&format!("Settings: {settings_file}")).with_css("font-size: 12px; opacity: 0.75;"),
-        line(
-            "Keys: Enter opens, Backspace / Alt+Up goes up, Alt+Left / Alt+Right walk the \
-             history, F2 renames, Delete / Shift+Delete, Ctrl+C / Ctrl+X / Ctrl+V, Ctrl+A, \
-             Ctrl+Z, Ctrl+Shift+N, F5, Ctrl+F, the menu key; type a name to jump to it.",
-        )
-        .with_css("font-size: 12px; opacity: 0.75;"),
-    ])
-    .with_id(ids::ABOUT)
+/// FILE > About: azul's standard About box (DEDUP_OFFICE D12); OK closes the backstage. The
+/// data folder and the keys are on the Options' Data and Keyboard shortcuts pages.
+fn about(app: &RefAny) -> Dom {
+    let about = crate::ABOUT;
+    AboutDialog::create(about.name, about.version)
+        .with_icon("folder_open")
+        .with_description(about.summary)
+        .with_credit("azul", "MIT")
+        .with_credit("azul-storage", about.license)
+        .with_on_event(app.clone(), on_about_event as StandardDialogOnEventCallbackType)
+        .dom()
+        .with_id(ids::ABOUT)
+}
+
+extern "C" fn on_about_event(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    _event: StandardDialogEvent,
+) -> Update {
+    with_state(&mut data, &mut info, |_info, _app, s| s.backstage = None)
 }
 
 struct DriveRef {
@@ -1084,11 +1086,3 @@ extern "C" fn on_start_place(mut data: RefAny, mut info: CallbackInfo, index: us
     })
 }
 
-extern "C" fn on_settings_category(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
-    with_state(&mut data, &mut info, |_info, _app, s| s.settings_category = index)
-}
-
-extern "C" fn on_settings_search(mut data: RefAny, mut info: CallbackInfo, text: AzString) -> Update {
-    let text = text.as_str().to_string();
-    with_state(&mut data, &mut info, |_info, _app, s| s.settings_search = text)
-}
