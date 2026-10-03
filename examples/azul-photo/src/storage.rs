@@ -400,6 +400,22 @@ mod tests {
     }
 
     #[test]
+    fn an_export_lands_in_the_documents_exports_folder_and_a_resave_keeps_it() {
+        let (drive, dir) = temp_drive("export");
+        let doc = sample_doc();
+        save(&drive, "u3", "A", &doc, &fake_encode).unwrap();
+        let key = export(&drive, "u3", "Harbour.png", b"PNGDATA").unwrap();
+        assert_eq!(key, "photo/u3/exports/Harbour.png", "into the data tree, beside the document");
+        assert_eq!(drive.get(&key).unwrap(), b"PNGDATA".to_vec());
+        save(&drive, "u3", "A", &doc, &fake_encode).unwrap();
+        assert!(drive.head(&key).is_ok(), "saving the document again keeps its exports");
+        let names: Vec<String> = list(&drive).unwrap().into_iter().map(|e| e.name).collect();
+        assert_eq!(names, vec!["A".to_string()], "an exports folder is not a document");
+        assert_eq!(export_key("u3", "a/b:c.png"), "photo/u3/exports/a_b_c.png", "one key segment");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn a_foreign_file_is_refused() {
         let mut file = doc_to_file(&sample_doc(), "x");
         file.format = "something/9".into();
