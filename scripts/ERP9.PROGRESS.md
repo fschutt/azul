@@ -38,6 +38,15 @@ Crate: examples/azul-erp (package + bin AzERP, lib azerp). NEVER compile; parse-
 - 55fbfd5cf views/mod.rs GREEN; 3f48260d8 views/spec.rs GREEN; f7e2c33f2 views/rows.rs GREEN (+ MaintenanceKind
   code/parse). Steps 1-3 below are DONE.
 
+- b9d176cee / 654519384 sample RED / GREEN (4a done)
+- 2af7f47f6 app.rs RED (4b tests + stubs `todo!("GREEN")`): NEXT = GREEN of every stub in src/app.rs
+  (State::new, open, go_back, save_form (+ helpers per view: asset form with number uniqueness + problems(),
+  category / location forms, maintenance form (parent = params id), checkout form (refuse when open; asset
+  CheckedOut + custodian), dispose form (status Disposed)), check_in, delete_asset, export_register,
+  export_schedule, run_preview, post_run, load (notice "N file(s) could not be read"), seed_sample (only when
+  no assets), start_import (page "/assets/import"), set_mapping, commit_import).
+- D8 (coordinator rule 2026-10-03): nothing personal leaves the machine; AzERP talks to no outside service.
+
 ## NEXT (exact) - step 4 is next
 4a. src/sample.rs: `pub fn book(today, new_id: &mut dyn FnMut() -> String) -> Book` (4 categories, 3 locations,
     ~12 assets, maintenance, check-outs) + tests (every asset has no problems, every kind present).
