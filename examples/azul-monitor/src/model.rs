@@ -370,6 +370,24 @@ pub fn matches(row: &ProcRow, query: &str) -> bool {
         || row.pid.to_string().starts_with(query)
 }
 
+// ---- what a sampler reads ----
+
+/// What a sampler reads the system through: the live machine (`sysinfo`,
+/// [`crate::live`]) or the sample machine ([`crate::sample`]). Lives on
+/// the sampler's Thread.
+pub trait Source: Send {
+    /// One reading; every "since the previous reading" count covers
+    /// `elapsed_ms` (0 for the first reading).
+    fn read(&mut self, elapsed_ms: u64) -> Snapshot;
+
+    /// Ends process `pid` (`force`: kill it rather than ask it to quit):
+    /// what was done ("Ended cargo (5102)"), or why it was not.
+    ///
+    /// # Errors
+    /// The process is gone, or ending it needs rights the app lacks.
+    fn end(&mut self, pid: u32, force: bool) -> Result<String, String>;
+}
+
 // ---- the model ----
 
 /// The latest machine-wide figures (the cards, the status bar, the stats).
