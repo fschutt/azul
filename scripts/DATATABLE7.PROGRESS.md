@@ -2,12 +2,33 @@
 
 ## DONE
 - c1a08a335 progress file
-- (next commit) examples/azul-dashboard skeleton: Cargo.toml, main.rs, lib.rs (RecordsShell window,
+- a89b27c27 examples/azul-dashboard skeleton: Cargo.toml, main.rs, lib.rs (RecordsShell window,
   the generating Thread, the CHART7 marked block), ids.rs, data.rs (500k x 25 deterministic orders +
   tests), table.rs (STUB), registered in Cargo.toml / workspace_test_members.txt / rust.yml dll_tests
+- 9bbf7bc1c, db50c5e84 data_table.rs: value types, view methods (click_sort, set_filter, with_order ...),
+  filter grammar (number / date bounds, days_from_civil)
+- 3c6b3d50e RED model tests (layout/src/widgets/data_table_tests.rs) + events, callbacks, DataTable
+  struct + builders, fixtures; `pub mod data_table;` in widgets/mod.rs
+- a7e892f8c GREEN plan_of / read_keys / compute_order
 
-## IN PROGRESS
-- layout/src/widgets/data_table.rs: the model first (types, sort / filter, order computation, RED tests)
+- 43a754724 cell_grid: axis_bands / band_at / take_wheel / cursor_in pub(crate)
+- 55d00b13c RED + 8e2a57e3b GREEN aria-sort: AccessibilityState::SortedAscending / SortedDescending
+  (core/src/a11y.rs append, a11y_test canary, layout/src/managers/a11y.rs mapping + test)
+- b5da12b58 geometry, c81c5b492 build, 146485034 theme looks (flat.rs / flora.rs appends)
+- 6f838ebdb keys / selection / editors (pure), 28548d408 the order job, b94f1a648 the handlers
+
+- d000d64c4 widget tests (data_table_tests.rs) + Ctrl+Home/End select fix
+- bdcf3637e manifest registration in widgets/mod.rs (every_widget_dom, CHROME group, wheel takers)
+- (this commit) examples/azul-dashboard/src/table.rs for real: DataTable over the DataSet, on_event /
+  on_edit / data callback, Clear filters / Clear sort (DataTable::start_query), status bar
+
+## IN PROGRESS / NEXT (exact)
+1. review examples/azul-dashboard/src/lib.rs against table.rs (table::view / tools / status_bar
+   signatures already match; nothing else expected)
+2. write scripts/azdashboard_e2e.py (model: scripts/azcalculator_e2e.py + scripts/azlin_e2e.py helpers):
+   wait AZDASH_READY, click a header (sort) -> wait AZDASH_SHOWN, Ctrl+F filter type -> AZDASH_SHOWN,
+   F2 edit (refused "0" then accepted "7") -> AZDASH_REFUSED / AZDASH_EDIT, Ctrl+End -> AZDASH_TOP last
+3. report scripts/DATATABLE7_2026_10_03.md (api.json list, least-sure spots, test commands, left)
 
 ## NEXT
 1. data_table.rs model: DataTableColumn / Cell / CellRef / SortKey / Filter (+ parse) / View / Event,
