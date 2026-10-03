@@ -44,7 +44,15 @@ impl Position {
     /// fraction in `0..=1` (a NaN is 0).
     #[must_use]
     pub fn clamped(self, chapters: usize) -> Self {
-        unimplemented!("RED: Position::clamped {chapters} {self:?}")
+        let fraction = if self.fraction.is_nan() {
+            0.0
+        } else {
+            self.fraction.clamp(0.0, 1.0)
+        };
+        Self {
+            chapter: self.chapter.min(chapters.saturating_sub(1)),
+            fraction,
+        }
     }
 }
 
@@ -78,7 +86,25 @@ impl PageMap {
     /// column kept, the first page at 0.
     #[must_use]
     pub fn from_breaks(breaks: &[f32], total: f32) -> Self {
-        unimplemented!("RED: PageMap::from_breaks {} {total}", breaks.len())
+        let total = if total.is_finite() {
+            total.max(0.0)
+        } else {
+            0.0
+        };
+        let mut inside: Vec<f32> = breaks
+            .iter()
+            .copied()
+            .filter(|y| y.is_finite() && *y > 0.0 && *y < total)
+            .collect();
+        inside.sort_by(f32::total_cmp);
+        let mut starts = vec![0.0_f32];
+        for y in inside {
+            let last = starts.last().copied().unwrap_or(0.0);
+            if y - last > 0.5 {
+                starts.push(y);
+            }
+        }
+        Self { starts, total }
     }
 
     /// The number of pages (at least 1).
@@ -97,32 +123,43 @@ impl PageMap {
     /// the column's end). A page past the end is the last page.
     #[must_use]
     pub fn span(&self, page: usize) -> (f32, f32) {
-        unimplemented!("RED: PageMap::span {page} {}", self.starts.len())
+        let last = self.page_count() - 1;
+        let page = page.min(last);
+        let top = self.starts.get(page).copied().unwrap_or(0.0);
+        let end = self.starts.get(page + 1).copied().unwrap_or(self.total);
+        (top, (end - top).max(0.0))
     }
 
     /// The page the column's `y` is on.
     #[must_use]
     pub fn page_of_y(&self, y: f32) -> usize {
-        unimplemented!("RED: PageMap::page_of_y {y} {}", self.starts.len())
+        if !(y > 0.0) {
+            return 0;
+        }
+        self.starts.iter().rposition(|s| *s <= y).unwrap_or(0)
     }
 
     /// The page a position's fraction lands on (1.0 = the last page), with half a pixel of
     /// tolerance so a page's own start fraction comes back to that page.
     #[must_use]
     pub fn page_of_fraction(&self, fraction: f32) -> usize {
-        unimplemented!(
-            "RED: PageMap::page_of_fraction {fraction} {}",
-            self.starts.len()
-        )
+        if fraction.is_nan() {
+            return 0;
+        }
+        if fraction >= 1.0 {
+            return self.page_count() - 1;
+        }
+        self.page_of_y(fraction.max(0.0) * self.total + 0.5)
     }
 
     /// The fraction page `page` starts at.
     #[must_use]
     pub fn fraction_of_page(&self, page: usize) -> f32 {
-        unimplemented!(
-            "RED: PageMap::fraction_of_page {page} {}",
-            self.starts.len()
-        )
+        if self.total <= 0.0 {
+            return 0.0;
+        }
+        let (top, _) = self.span(page);
+        (top / self.total).clamp(0.0, 1.0)
     }
 }
 
@@ -130,7 +167,8 @@ impl PageMap {
 /// pages side by side (1, or 2 for a spread whose left page is an even page).
 #[must_use]
 pub fn view_start(page: usize, per_view: usize) -> usize {
-    unimplemented!("RED: view_start {page} {per_view}")
+    let per_view = per_view.max(1);
+    page - page % per_view
 }
 
 /// Where a page turn goes.
@@ -159,26 +197,88 @@ pub fn turn(
     chapters: usize,
     forward: bool,
 ) -> Turn {
-    unimplemented!("RED: turn {page} {per_view} {page_count} {chapter} {chapters} {forward}")
+    let per_view = per_view.max(1);
+    let page_count = page_count.max(1);
+    let start = view_start(page.min(page_count - 1), per_view);
+    if forward {
+        let next = start + per_view;
+        if next < page_count {
+            Turn::Page(next)
+        } else if chapter + 1 < chapters {
+            Turn::NextChapter
+        } else {
+            Turn::AtEnd
+        }
+    } else if start > 0 {
+        Turn::Page(start.saturating_sub(per_view))
+    } else if chapter > 0 {
+        Turn::PreviousChapterEnd
+    } else {
+        Turn::AtStart
+    }
 }
 
 /// The book's progress (`0..=1`) at `position`, each chapter weighing `weights[chapter]`.
 #[must_use]
 pub fn book_progress(weights: &[u64], position: Position) -> f32 {
-    unimplemented!("RED: book_progress {} {position:?}", weights.len())
+    if weights.is_empty() {
+        return 0.0;
+    }
+    let total: u64 = weights.iter().sum();
+    if total == 0 {
+        return 0.0;
+    }
+    let at = position.clamped(weights.len());
+    let before: u64 = weights[..at.chapter].iter().sum();
+    let into = weights[at.chapter] as f64 * f64::from(at.fraction);
+    (((before as f64) + into) / total as f64).clamp(0.0, 1.0) as f32
 }
 
 /// The position at the book's progress `progress` (`0..=1`; the progress slider): the
 /// chapter it falls in and how far into it.
 #[must_use]
 pub fn position_at_progress(weights: &[u64], progress: f32) -> Position {
-    unimplemented!("RED: position_at_progress {} {progress}", weights.len())
+    let total: u64 = weights.iter().sum();
+    if weights.is_empty() || total == 0 {
+        return Position::default();
+    }
+    let progress = if progress.is_nan() {
+        0.0
+    } else {
+        progress.clamp(0.0, 1.0)
+    };
+    if progress >= 1.0 {
+        return Position::chapter_end(weights.len() - 1);
+    }
+    let target = f64::from(progress) * total as f64;
+    let mut before = 0.0_f64;
+    for (chapter, weight) in weights.iter().enumerate() {
+        let weight = *weight as f64;
+        if target < before + weight {
+            let fraction = if weight > 0.0 {
+                ((target - before) / weight) as f32
+            } else {
+                0.0
+            };
+            return Position {
+                chapter,
+                fraction: fraction.clamp(0.0, 1.0),
+            };
+        }
+        before += weight;
+    }
+    Position::chapter_end(weights.len() - 1)
 }
 
 /// A progress as a whole percentage: `"37%"`.
 #[must_use]
 pub fn percent_label(progress: f32) -> String {
-    unimplemented!("RED: percent_label {progress}")
+    let progress = if progress.is_nan() {
+        0.0
+    } else {
+        progress.clamp(0.0, 1.0)
+    };
+    format!("{}%", (progress * 100.0).round() as u32)
 }
 
 #[cfg(test)]
