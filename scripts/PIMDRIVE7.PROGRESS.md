@@ -50,10 +50,12 @@ Scratch helpers (not committed): /tmp/pimdrive7/rep.py (exact replacements from 
 - D6 AzDrive Details NOT moved: ListView lacks multi-select / resize; DATATABLE7's DataTable (wt/datatable7,
   not in this base) lacks icon cells, row drag-out onto folders, a secondary-click event - spec in report
 
+- item 7 LOOK (prebuilt): AzCalendar week / month / backstage (flat light, flora dark), AzDrive (E2E shots),
+  AzMeet (E2E shots), AzContacts flora light, AzTasks (items 2-3). Fixed: 585108542 / 2ceadc980 AzMeet Copy link.
+  64edad9c3 e2e App.name kept the method (the capped change had shadowed it).
+
 ## IN PROGRESS
-- 7. LOOK at all five apps, flat / flora x light / dark (AzTasks, AzContacts partly done). Next: AzCalendar
-  (--screen week, month, backstage-options), AzDrive (E2E shots in /tmp/pimdrive7/azdrive_shots), AzMeet
-  (/tmp/pimdrive7/azmeet_shots).
+- the report scripts/PIMDRIVE7_2026_10_03.md
 
 ## NEXT
 
