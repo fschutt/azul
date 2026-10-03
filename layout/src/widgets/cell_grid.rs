@@ -2857,6 +2857,97 @@ fn commit_to(grid: &CellGrid, b: &Bounds<'_>, to: CellGridCellRef) -> CellGridEv
     e
 }
 
+/// A character after which a formula waits for a reference (point mode).
+fn waits_for_reference(c: char) -> bool {
+    matches!(
+        c,
+        '=' | '(' | ',' | ';' | ':' | '+' | '-' | '*' | '/' | '^' | '&' | '<' | '>' | ' '
+    )
+}
+
+/// Whether `word` is a cell reference (`$?A-ZZZ$?1..`) or a range of two.
+fn is_reference(word: &str) -> bool {
+    let mut parts = word.split(':');
+    let ok = |p: Option<&str>| p.is_some_and(|p| parse_a1(p).is_some());
+    match (parts.next(), parts.next(), parts.next()) {
+        (first, None, None) => ok(first),
+        (first, second, None) => ok(first) && ok(second),
+        _ => false,
+    }
+}
+
+/// Where a pointed reference goes in the formula `text` being edited with
+/// the caret at `caret` (characters): the start of the reference just
+/// before the caret (it is replaced), or the caret itself right after `=`,
+/// `(`, `,`, `:` or an operator. `None` when the formula waits for no
+/// reference - plain text, a caret after a value, inside a string.
+pub(crate) fn point_start(text: &str, caret: usize) -> Option<usize> {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.first() != Some(&'=') {
+        return None;
+    }
+    let caret = caret.min(chars.len());
+    if caret == 0 || chars[..caret].iter().filter(|c| **c == '"').count() % 2 == 1 {
+        return None;
+    }
+    if waits_for_reference(chars[caret - 1]) {
+        return Some(caret);
+    }
+    let mut start = caret;
+    while start > 1 && (chars[start - 1].is_ascii_alphanumeric() || matches!(chars[start - 1], '$' | ':')) {
+        start -= 1;
+    }
+    if !waits_for_reference(chars[start - 1]) {
+        return None;
+    }
+    let word: String = chars[start..caret].iter().collect();
+    is_reference(&word).then_some(start)
+}
+
+/// The cell pointed at last: the first cell of the reference just before
+/// the caret, if there is one.
+fn pointed_cell(view: &CellGridView) -> Option<CellGridCellRef> {
+    let text = view.edit_text.as_str();
+    let caret = view.edit_cursor as usize;
+    let start = point_start(text, caret)?;
+    let word: String = text.chars().skip(start).take(caret.saturating_sub(start)).collect();
+    word.split(':').next().and_then(parse_a1)
+}
+
+/// `view` with the range `origin`..`target` pointed at: its reference
+/// (`B3`, `A1:B3`) put at the caret in place of the one pointed before, the
+/// caret after it, a point drag from `origin`. `None` when the formula
+/// waits for no reference.
+pub(crate) fn point_at(view: &CellGridView, origin: CellGridCellRef, target: CellGridCellRef) -> Option<CellGridView> {
+    let text = view.edit_text.as_str();
+    let chars: Vec<char> = text.chars().collect();
+    let caret = (view.edit_cursor as usize).min(chars.len());
+    let start = point_start(text, caret)?;
+    let range = CellGridRange::spanning(origin, target);
+    let reference = if range.first == range.last {
+        alloc::string::String::from(CellGrid::cell_label(range.first).as_str())
+    } else {
+        alloc::format!(
+            "{}:{}",
+            CellGrid::cell_label(range.first).as_str(),
+            CellGrid::cell_label(range.last).as_str()
+        )
+    };
+    let mut out: alloc::string::String = chars[..start].iter().collect();
+    out.push_str(&reference);
+    out.extend(&chars[caret..]);
+    let mut next = view.clone();
+    next.edit_text = AzString::from(out);
+    next.edit_cursor = u32::try_from(start + reference.chars().count()).unwrap_or(u32::MAX);
+    next.drag = CellGridDrag {
+        origin,
+        target,
+        kind: CellGridDragKind::Point,
+        ..CellGridDrag::default()
+    };
+    Some(next)
+}
+
 /// The view editing `cell` in `mode`, the edit starting as `text`.
 fn start_edit(view: &CellGridView, cell: CellGridCellRef, mode: CellGridEditMode, text: &str) -> CellGridView {
     let mut next = if cell == view.active {
@@ -2890,8 +2981,22 @@ pub(crate) fn edit_key(
     };
     let enter_mode = view.edit_mode == CellGridEditMode::Enter;
     let moved = |dir: Dir| commit_to(grid, b, b.step(view.active, dir));
+    // Point mode (Enter mode, a formula waiting for a reference): an arrow
+    // points at the next cell - from the pointed one, else the edited one.
+    let pointing = enter_mode && point_start(view.edit_text.as_str(), caret).is_some();
+    let point = |dir: Dir| {
+        let from = pointed_cell(view).unwrap_or(view.active);
+        let to = b.step(from, dir);
+        let mut next = point_at(view, to, to).unwrap_or_else(|| view.clone());
+        next.drag = CellGridDrag::default();
+        CellGridEvent::create(CellGridEventKind::EditText, next)
+    };
     Some(match key {
         K::Escape => CellGridEvent::create(CellGridEventKind::EditCancel, without_edit(view)),
+        K::Up if pointing => point(Dir::Up),
+        K::Down if pointing => point(Dir::Down),
+        K::Left if pointing => point(Dir::Left),
+        K::Right if pointing => point(Dir::Right),
         K::Return | K::NumpadEnter => moved(if shift { Dir::Up } else { Dir::Down }),
         K::Tab => moved(if shift { Dir::Left } else { Dir::Right }),
         K::Up if enter_mode => moved(Dir::Up),
@@ -3224,6 +3329,11 @@ pub(crate) fn press(
                 if cell == view.active {
                     return None;
                 }
+                // Point mode: the formula waits for a reference - the
+                // click puts the cell's there instead of committing.
+                if let Some(next) = point_at(view, cell, cell) {
+                    return Some(CellGridEvent::create(CellGridEventKind::EditText, next));
+                }
                 return Some(commit_to(grid, &b, cell));
             }
             let mut next = select(view, cell, shift, ctrl);
@@ -3300,7 +3410,14 @@ pub(crate) fn drag_move(
             next.drag.target = cell;
             Some(CellGridEvent::create(CellGridEventKind::Drag, next))
         }
-        CellGridDragKind::Point => None,
+        CellGridDragKind::Point => {
+            let cell = cell?;
+            if cell == drag.target {
+                return None;
+            }
+            let next = point_at(view, drag.origin, cell)?;
+            Some(CellGridEvent::create(CellGridEventKind::EditText, next))
+        }
         CellGridDragKind::ResizeColumn | CellGridDragKind::ResizeRow => {
             let at = if drag.kind == CellGridDragKind::ResizeColumn {
                 window_px.0
