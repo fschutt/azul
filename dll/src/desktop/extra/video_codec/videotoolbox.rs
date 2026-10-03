@@ -701,6 +701,14 @@ fn session_source(format: RawImageFormat) -> RawImageFormat {
 
 unsafe impl Send for VtEncoder {}
 
+/// `kVTCompressionPropertyKey_AverageBitRate`'s value (bits a second, an
+/// SInt32) for `kbps`: at least 64 kbit/s, saturating at the SInt32 range.
+fn average_bitrate_bps(kbps: u32) -> i32 {
+    i32::try_from(kbps.max(64))
+        .unwrap_or(i32::MAX)
+        .saturating_mul(1000)
+}
+
 /// A CFNumber (SInt32), or null. The caller releases it.
 unsafe fn cf_i32(lib: &VtLib, value: i32) -> *const c_void {
     unsafe {
@@ -922,7 +930,7 @@ impl VtEncoder {
                 lib,
                 session,
                 lib.kVTCompressionPropertyKey_AverageBitRate,
-                (bitrate_kbps.max(64) as i32).saturating_mul(1000),
+                average_bitrate_bps(bitrate_kbps),
             );
             set_i32_property(lib, session, lib.kVTCompressionPropertyKey_MaxKeyFrameInterval, 60);
             set_i32_property(lib, session, lib.kVTCompressionPropertyKey_ExpectedFrameRate, 30);
@@ -998,6 +1006,29 @@ impl VtEncoder {
     /// What this session got (hardware, low latency, profile).
     pub(super) fn settings(&self) -> EncoderSettings {
         self.settings
+    }
+
+    /// The bitrate the session spends, in kbit/s.
+    pub(super) fn bitrate_kbps(&self) -> u32 {
+        self.bitrate_kbps
+    }
+
+    /// Spend `kbps` from the next frame on: the live session's average
+    /// bitrate (VideoToolbox's rate control takes a new one mid-stream - the
+    /// session, its reference frames and the stream go on), and the rate a
+    /// session re-made for frames in another format starts at.
+    pub(super) fn set_bitrate(&mut self, kbps: u32) {
+        self.bitrate_kbps = kbps;
+        if let Some(lib) = VtLib::get() {
+            unsafe {
+                set_i32_property(
+                    lib,
+                    self.session,
+                    lib.kVTCompressionPropertyKey_AverageBitRate,
+                    average_bitrate_bps(kbps),
+                );
+            }
+        }
     }
 
     /// An empty source buffer for this session's frames: from the session's

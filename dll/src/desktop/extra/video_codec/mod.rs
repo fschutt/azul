@@ -370,6 +370,11 @@ struct EncoderInner {
     thread: CodecThread<EncodeJob>,
     /// The engine said, when it opened, that it runs in hardware.
     hardware: bool,
+    /// The bitrate (kbit/s) the app last asked for: the codec thread hands
+    /// it to the engine before the next frame when it changed
+    /// ([`VideoEncoder::set_bitrate`]). Shared, so a change never waits for
+    /// room in the frame queue and is never lost when the queue is full.
+    bitrate_kbps: std::sync::Arc<core::sync::atomic::AtomicU32>,
 }
 
 impl EncoderInner {
@@ -385,6 +390,8 @@ impl EncoderInner {
             let out = std::sync::Arc::clone(&packets);
             let hardware = std::sync::Arc::new(core::sync::atomic::AtomicBool::new(false));
             let said = std::sync::Arc::clone(&hardware);
+            let bitrate = std::sync::Arc::new(core::sync::atomic::AtomicU32::new(bitrate_kbps));
+            let wanted = std::sync::Arc::clone(&bitrate);
             let thread = CodecThread::spawn(
                 "azul-video-encode",
                 Some(ENCODE_QUEUE_FRAMES),
@@ -404,6 +411,11 @@ impl EncoderInner {
                 },
                 move |vt: &mut videotoolbox::VtEncoder, job: EncodeJob| match job {
                     EncodeJob::Frame(frame, force_keyframe, micros) => {
+                        // A new bitrate applies from this frame on.
+                        let kbps = wanted.load(core::sync::atomic::Ordering::Acquire);
+                        if kbps != vt.bitrate_kbps() {
+                            vt.set_bitrate(kbps);
+                        }
                         // NV12 goes into a pooled buffer as it is, BGRA as it
                         // is, RGBA swizzled (see `VtEncoder::encode`), which
                         // hands this frame's packets back at once.
@@ -426,6 +438,7 @@ impl EncoderInner {
                 thread,
                 // The open's answer came back before `spawn` returned.
                 hardware: hardware.load(core::sync::atomic::Ordering::Acquire),
+                bitrate_kbps: bitrate,
             })
         }
         #[cfg(not(all(any(target_os = "macos", target_os = "ios"), feature = "libloading")))]
@@ -714,9 +727,15 @@ impl VideoEncoder {
     /// no new session, no forced keyframe, no frame lost. False when the
     /// encoder is not open.
     pub fn set_bitrate(&self, kbps: u32) -> bool {
-        // RED stub: the encoder keeps the bitrate it opened with.
-        let _ = kbps;
-        false
+        match unsafe { (self.ptr as *const EncoderInner).as_ref() } {
+            Some(inner) => {
+                inner
+                    .bitrate_kbps
+                    .store(kbps.max(1), core::sync::atomic::Ordering::Release);
+                true
+            }
+            None => false,
+        }
     }
 
     /// [`encode`](Self::encode) / [`encode_at`](Self::encode_at): the wall
