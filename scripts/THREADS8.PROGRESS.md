@@ -14,16 +14,28 @@ THREADS8 closes the gaps left around it.
 - a2346a221 progress file
 - ff44c1340 RED video: the test-pattern and replay workers stop when told to terminate
 - 0e68e6d7e GREEN video: both poll capture_common::terminate_requested each frame
+- 339d58966 RED thread_owner.rs tests::a_window_that_closes (3 workers x 300 ms stop together < 600 ms;
+  3 stuck workers cost one ORPHAN_GRACE, not three)
+- a742a0149 GREEN part 1: `managers::thread_owner::stop_all(&mut BTreeMap<ThreadId, Thread>)` (tell all,
+  poll together via poll_orphan against one grace, clear). poll_orphan's message now covers both paths.
 
-## IN PROGRESS
-- Gap 2: a closing window tells its workers to stop one at a time (BTreeMap drop -> each Thread destructor
-  sends Terminate then waits up to 2 s) -> serial stop latencies; N misbehaving workers = N x 2 s UI hang.
-  Plan: LayoutWindow::stop_all_threads (tell all first, wait on ONE shared grace, detach the rest) +
-  `impl Drop for LayoutWindow` calling it; headless shutdown_threads uses it.
-
-## NEXT
-- Gap 3 (decide): timers a node's lifecycle callback started (map's 250 ms sweep timer) never stop.
-- Report scripts/THREADS8_2026_10_03.md.
+## IN PROGRESS / NEXT (exact)
+1. layout/src/window.rs: right after the `pub struct LayoutWindow { .. }` closing brace (line ~2008), add
+   `impl Drop for LayoutWindow { fn drop(&mut self) { #[cfg(feature = "std")]
+   crate::managers::thread_owner::stop_all(&mut self.threads); } }` with a doc comment. (Checked: no
+   by-value destructure / field move of LayoutWindow anywhere in layout/, dll/, layout/tests - only `ref`
+   destructures, so Drop does not trip E0509.) Commit.
+2. dll/src/desktop/shell2/headless/mod.rs `fn shutdown_threads` (~line 2438): replace `lw.threads.clear()`
+   with `azul_layout::managers::thread_owner::stop_all(&mut lw.threads)` and update its doc. Commit.
+3. Gap 3 (decide): timers a node's lifecycle callback started never stop (map.rs map_on_after_mount adds a
+   250 ms sweep timer, TerminateTimer::Continue forever; a remount adds a second). Option: bind timers in the
+   same ThreadOwnerManager (owner on CallbackChange::AddTimer, set in event.rs dispatch_events_propagated next
+   to AddThread; remap orphans -> remove from lw.timers + a drain the dll turns into stop_timer). Risk: app
+   timers started in AfterMount (AzCalendar on_app_mounted -> start_syncing; its root has an id so it always
+   matches). Decide, note it here.
+4. Report scripts/THREADS8_2026_10_03.md.
 
 ## Decisions / open questions
 - The core mechanism exists; no rewrite. Gaps only.
+- Window teardown is fixed in `Drop for LayoutWindow` (one place, every shell's close path) rather than in
+  each shell's close code.
