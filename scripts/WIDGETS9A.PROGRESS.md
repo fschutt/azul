@@ -1,48 +1,59 @@
 # WIDGETS9A progress - IconGrid, Toolbar, TokenInput (wave 9, 2026-10-03)
 
 Branch `wt/widgets9a` from `e537ddbe2`. Nothing compiled (house rule). Report: `scripts/WIDGETS9A_2026_10_03.md`.
+Parse check: `sh /tmp/w9a_parse.sh <files>` (rustfmt --emit stdout; recreate the 6-line script if /tmp was wiped).
+Commit messages via `printf ... > /tmp/w9a_msg.txt && git commit -F /tmp/w9a_msg.txt` (heredocs are refused).
 
 ## DONE (commits)
 - 75c86029c progress file
 - Toolbar (`layout/src/widgets/toolbar.rs`): 288e31797 skeleton, 49bf1cad7 RED tests, 7a8badc52 GREEN fit (+ button.rs
-  tooltip handlers pub(crate)), b433a4229 GREEN build/handlers/menus, 8e0794816 flat/flora looks, ab1b3a910 manifest
-  (`toolbar`, `toolbar (overflow)` in every_widget_dom + theme_contrast CHROME)
+  tooltip handlers `show_disabled_reason` / `hide_disabled_reason` made pub(crate)), b433a4229 GREEN build / handlers
+  / menus, 8e0794816 flat/flora looks, ab1b3a910 manifest (`toolbar`, `toolbar (overflow)`: every_widget_dom +
+  theme_contrast CHROME)
+- TokenInput (`layout/src/widgets/token_input.rs`): abd8bf85c skeleton, b8bbd71c2 RED, 87ee03dbb rules GREEN,
+  98dc8aeb1 build + handlers GREEN, c7723ab15 flat/flora looks, 454feb519 manifest (`token_input`: every_widget_dom +
+  theme_contrast INPUTS)
 
 ## IN PROGRESS
-- TokenInput: `layout/src/widgets/token_input.rs` - skeleton abd8bf85c, RED tests b8bbd71c2, rules GREEN 87ee03dbb.
-  build + handlers GREEN 98dc8aeb1. Steps 2a and 2b DONE; continue at 2c (theme appends `token_input_look()` in
-  flat.rs / flora.rs - `look_for` already calls them), then 2d (fixtures + manifest).
+- IconGrid: nothing written yet.
 
-## NEXT (exact)
-2. TokenInput, in `layout/src/widgets/token_input.rs`:
-   a. RED: append `#[cfg(test)] mod token_input_tests` (model on `toolbar.rs`'s tests): split_tokens ("a, b; c" ->
-      ["a","b"] + "c"), add_tokens (trim, case-folded dedupe, allow_duplicates), remove_token, matching_suggestions
-      (prefix first, then contains, no existing token, cap, empty text -> none), step_active (wraps), entry_key table
-      (Enter -> CommitSuggestion(active) / CommitText, Tab with text -> CommitText, Back on empty -> RemoveLast,
-      Down/Up -> Navigate, Escape -> Dismiss, Left on empty -> ToChips, modified -> Pass); DOM: root class + Grouping
-      + name, field holds one chip (CHIP_CLASS) per token whose "x" is NoKeyboardFocus, the entry (ENTRY_CLASS) the one
-      Tab stop, list (LIST_CLASS, role List) only when text matches, active option OPTION_ACTIVE_CLASS + Selected;
-      chip "x" click -> Remove event; suggestion click -> Add; key Back on the entry (empty) -> Remove last;
-      follows the app theme. Commit RED.
-   b. GREEN: implement the stubs; `build`: root (position relative, column) > [field (flex row wrap) > chips (Chip
-      removable, on_remove/on_click -> TokenData{index, shared}; x set NoKeyboardFocus + VirtualKeyDown handler) +
-      entry (TextInput::create().with_text(state.text).with_placeholder.with_accessibility_name + container style =
-      TextInput's default + overrides (no border, transparent, flex-grow 1, min-width 80) + look.entry; hooks
-      `with_on_text_input(shared, on_entry_text)` (separator typed/pasted -> validate -> Add/Refuse, veto with
-      valid No + TextInput::set_text_in) and `with_on_virtual_key_down(shared, on_entry_key)` (entry_key)), list
-      (absolute, top 100%, z-index) > options (Click -> commit, focus back to the entry)]. Shared:
-      `TokenShared { on_event, on_validate, state, shown: Vec<AzString>, allow_duplicates }`.
-   c. Theme appends `// ==== token_input ====` in flat.rs / flora.rs: `token_input_look()` (flat field LIGHT_FLD +
-      system_palette::DARK_CONTROL_BACKGROUND, flora field LIGHT_FLD / DARK_SUR - the entry's dark fills).
-   d. Manifest: `token_input::fixtures::sample()` (tokens + text "al" + suggestions) in every_widget_dom, group INPUTS.
-3. IconGrid (see design below), then the report `scripts/WIDGETS9A_2026_10_03.md`.
+## NEXT (exact) - IconGrid in `layout/src/widgets/icon_grid.rs` (model: `data_table.rs`, `thumbnail_strip.rs`)
+a. Skeleton + `pub mod icon_grid;` APPENDED after `pub mod token_input;` in widgets/mod.rs. Types (all repr C):
+   - `IconGridItem { label, name (a11y, empty = label), icon (glyph name), badge (glyph), image: OptionImageRef }`
+     `create(label, icon)`, `with_image`, `with_badge`, `with_name`; `impl HostOut` (unwritten = empty item).
+   - DATA callback `IconGridDataSourceCallbackType = extern "C" fn(RefAny, usize) -> IconGridItem` (impl_widget_callback
+     + impl_managed_callback Form 4 with `ctx_field: ctx, data: data: RefAny, args: [index: usize]` exactly like
+     `DataTableDataSource`).
+   - `IconGridDragKind { None, Pending, Marquee, Thumb }`, `IconGridDrag { start_x, start_y, x, y, start_top: f32,
+     index: usize, kind }` (Copy), `IconGridView { selection: ListSelection, drag: IconGridDrag, top_row: usize }`.
+   - `IconGridEventKind { Select, Scroll, Activate, ContextMenu, DragStart, Drag }`, `IconGridEvent { view, index:
+     OptionUsize, x, y: f32, kind, shift, ctrl }`; on_event triple.
+   - `IconGrid { view, data_source, on_event, accessibility_name, id (node id, default "icon-grid"), count: usize,
+     viewport_width, viewport_height, cell_width (96), cell_height (104), icon_size (48), theme }`.
+b. RED tests: geometry (columns = floor(body / cell), rows, page_rows, max_top, the scroll bar only when rows overflow),
+   hit_test (item / empty / track / thumb), press (plain / ctrl / shift; a press on a selected item -> Pending, the
+   release collapses), marquee (keys of the cells the rect crosses, ctrl adds), keys (arrows by 1 / by a row, Page,
+   Home / End, Shift extends, Ctrl+A, Enter -> Activate, Apps / Shift+F10 -> ContextMenu, Escape clears; the focused
+   row revealed by top_row), wheel rows (cell_grid::take_wheel), DOM (only the items in view are asked for and built,
+   item classes selected / focused, role List + Multiselectable, items ListItem + Selected, the image or the icon
+   glyph, draggable items, DragStart sets the MIME `application/x-azul-icon-grid` with the indices), follows the
+   app theme.
+c. GREEN: pure fns `geometry`, `hit_test`, `item_rect`, `press`, `drag_move`, `drag_end`, `grid_key`, `scroll_by`,
+   `marquee_keys`; build (grid div: relative, overflow hidden, viewport size, ONE Tab stop, handlers on the grid node
+   like DataTable's `table_callbacks`: VirtualKeyDown, LeftMouseDown, MouseMove, MouseUp, DoubleClick, RightMouseUp,
+   Scroll; items absolute at their cells with DragStart; the marquee rect; the scroll bar track + thumb - reuse
+   `data_table::ScrollBar` + make data_table's `thumb()` pub(crate) instead of a twin).
+d. Theme appends `// ==== icon_grid ====` (`icon_grid_look()`: grid fill, item hover / selected / focused ring,
+   label ink, icon ink, marquee wash + edge, track / thumb) in flat.rs / flora.rs.
+e. Manifest: `icon_grid::fixtures::sample()` in every_widget_dom, theme_contrast CHROME, and APPEND "icon_grid" to
+   the `wheel_ownership` expected list (it scrolls by whole rows like the data table).
+f. Report `scripts/WIDGETS9A_2026_10_03.md` (template: scripts/CHART7_2026_10_03.md): built, commits, api.json list
+   for all three widgets, least-sure-to-compile, test commands, engine gap, left.
 
 ## Engine gap seen (for the report)
 - `:focus-within` is parsed (PseudoStateType::FocusWithin) but never raised: `StyledNodeState::focus_within` is
   never set (no restyle on focus change, not in prop_cache's tiers, not in apply_runtime_states_before_layout).
   The token field therefore rings its ENTRY on focus (look.entry), not the whole field.
-3. IconGrid: `layout/src/widgets/icon_grid.rs`, same steps; manifest CHROME + wheel_ownership list.
-4. Report with the api.json list.
 
 ## Design decisions (unattended)
 - Pattern for all three: the newest widgets' (ThumbnailStrip / DataTable / Chart): a `XxxLook` of parts, each part =
@@ -53,24 +64,21 @@ Branch `wt/widgets9a` from `e537ddbe2`. Nothing compiled (house rule). Report: `
   ribbon's `styled_button`; that helper pins a `UiTheme`, the toolbar may follow - near twin, noted). Items:
   Button, Toggle, MenuButton (drop-down of choices), Separator, Spacer, Custom (an app Dom, e.g. a search field,
   with a declared width). Overflow: the app passes `available_width` (like DataTable's viewport); a pure `fit()`
-  estimates item widths (icon 20 px, label chars x font x 0.6, padding) and moves trailing items (never
+  estimates item widths (icon 20 px, label chars x 13 px x 0.6, padding) and moves trailing items (never
   `never_overflow` ones) into a "more" (`more_horiz`) button's menu. APG toolbar keys: one Tab stop (roving),
   Left / Right (wrap) / Home / End; Enter / Space are the Button's activation; Down opens a menu button. Custom
   items keep their own Tab stops (outside the roving group). Icon-only tools: name via Button `alt`, tooltip on
-  hover through button.rs's tooltip handlers (made `pub(crate)`).
-- TokenInput: chips = the `Chip` widget (removable), entry = the `TextInput` widget (its on_text_input /
-  on_virtual_key_down hooks), suggestions = an in-DOM list under the field (absolute), filtered at build from
-  `suggestions` by the typed text. App-owned state `TokenInputState { tokens, text, active }`, every event carries
-  the next state (DataTable's view pattern); the app stores it and rebuilds. Separators `,` `;` (and Enter / Tab)
-  commit; a paste with a separator commits every part; Backspace on an empty entry removes the last chip;
-  validation by an optional `on_validate` callback (accept with a normalised token / refuse with a reason).
-- IconGrid: DataTable's scroll window (whole rows, `top_row`, own scroll bar, the wheel moves rows), items from a
-  DATA callback (only the items in view are asked), selection = `ListSelection` over item indices, rubber band on
-  empty space (pointer capture), Explorer press rules (a press on a selected item keeps the selection until the
-  release, so the selection can be dragged), drag out through the engine's DnD (`DragStart` on an item: the grid
-  sets its own MIME with the indices and reports `DragStart` so the app adds its payload), double-click / Enter =
-  Activate, right click / Shift+F10 / Menu key = ContextMenu, async thumbnails = the item's `image` the data
-  callback answers once the app has it (the app rebuilds).
+  hover through button.rs's tooltip handlers (made `pub(crate)`). Menus open under the tool
+  (`open_menu_for_hit_node`, falling back to `open_menu` when the tool has no rect).
+- TokenInput: chips = the `Chip` widget (removable; label opens -> `Open`), entry = the `TextInput` widget (its
+  on_text_input / on_virtual_key_down hooks), suggestions = an in-DOM list floating under the field (absolute,
+  top 100%, z-index 10), filtered at build. App-owned state `TokenInputState { tokens, text, active }`, every event
+  carries the next state computed from the BUILT state (no state is stored between events: the app rebuilds after
+  each). Separators `,` `;` tab / newline (and Enter / Tab) commit; a paste with a separator commits every part;
+  Backspace on an empty entry removes the last chip; chips are out of the Tab order (NoKeyboardFocus), Left from
+  an empty entry walks them; validation by `on_validate` (accept, optionally normalised / refuse with a reason:
+  the refused text stays typed, `Refuse` event).
+- IconGrid: DataTable's scroll window (see NEXT).
 
 ## Open questions
-- none yet
+- none
