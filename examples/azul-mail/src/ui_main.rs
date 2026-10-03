@@ -1303,7 +1303,9 @@ fn reading_pane(s: &MailApp, app: &RefAny) -> Dom {
         match html {
             // A mail wider than the pane (its paper grows with it, `html.rs`) scrolls sideways
             // here. The zoom scales what the mail leaves to the paper (an `em` of the pane's
-            // font); its own px sizes are its author's - azul has no CSS `zoom` yet (report).
+            // font); its own px sizes are its author's - azul has no CSS `zoom` yet.
+            // TODO(LAYOUT7, wave 7): once CSS `zoom` lands, this box says `zoom: <s.zoom>%`
+            // instead of the `em` (the mail's px sizes scale too, as in Outlook).
             Some(sanitized) => {
                 let mut css = String::from("overflow-x: auto;");
                 if (s.zoom - 100.0).abs() > f32::EPSILON {
