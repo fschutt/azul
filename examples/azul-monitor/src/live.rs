@@ -26,16 +26,22 @@ use crate::model::{ProcSample, Snapshot, Source};
 /// A command line as one line: its words joined by spaces.
 #[must_use]
 pub fn join_command(words: &[OsString]) -> String {
-    let _ = words;
-    todo!("GREEN: join_command")
+    words
+        .iter()
+        .map(|w| w.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The machine's disk traffic `(read, written)` since the previous reading:
 /// the disks' counters when any counted something, else the processes'.
 #[must_use]
 pub fn disk_traffic(disks: (u64, u64), processes: (u64, u64)) -> (u64, u64) {
-    let _ = (disks, processes);
-    todo!("GREEN: disk_traffic")
+    if disks.0 > 0 || disks.1 > 0 {
+        disks
+    } else {
+        processes
+    }
 }
 
 /// What ending `name` (`pid`) came to: `sent` is whether the signal went
@@ -49,16 +55,37 @@ pub fn end_outcome(
     force: bool,
     sent: Option<bool>,
 ) -> Result<String, String> {
-    let _ = (name, pid, force, sent);
-    todo!("GREEN: end_outcome")
+    match sent {
+        Some(true) if force => Ok(format!("Killed {name} ({pid})")),
+        Some(true) => Ok(format!("Ended {name} ({pid})")),
+        Some(false) => Err(format!(
+            "{name} ({pid}) could not be ended: it belongs to another user (administrator rights \
+             are needed) or it has just quit."
+        )),
+        None => Err(format!("{name} ({pid}) cannot be ended on this system.")),
+    }
 }
 
 /// Whether an interface is the loopback (its traffic never leaves the
 /// machine, so it is not network traffic).
 #[must_use]
 pub fn is_loopback(interface: &str) -> bool {
-    let _ = interface;
-    todo!("GREEN: is_loopback")
+    let name = interface.trim().to_lowercase();
+    if name.contains("loopback") {
+        return true;
+    }
+    // `lo` (Linux), `lo0` (macOS, the BSDs).
+    name.strip_prefix("lo")
+        .is_some_and(|rest| rest.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// A sysinfo percentage as a percentage: NaN (a first reading) is none.
+fn percent(value: f32) -> f32 {
+    if value.is_nan() {
+        0.0
+    } else {
+        value.max(0.0)
+    }
 }
 
 /// This computer.
@@ -75,7 +102,27 @@ impl LiveMachine {
     /// This computer, before its first reading.
     #[must_use]
     pub fn new() -> Self {
-        todo!("GREEN: LiveMachine::new")
+        let mut system = System::new();
+        // `new` loads nothing: the CPU list first (the refreshes keep it).
+        system.refresh_cpu_list(CpuRefreshKind::everything());
+        Self {
+            system,
+            disks: Disks::new_with_refreshed_list_specifics(
+                DiskRefreshKind::nothing().with_io_usage(),
+            ),
+            networks: Networks::new_with_refreshed_list(),
+            users: Users::new_with_refreshed_list(),
+            readings: 0,
+        }
+    }
+
+    /// The name of the user `uid` stands for ("" = unknown).
+    fn user_name(&self, process: &sysinfo::Process) -> String {
+        process
+            .user_id()
+            .and_then(|uid| self.users.get_user_by_id(uid))
+            .map(|u| u.name().to_string())
+            .unwrap_or_default()
     }
 }
 
@@ -87,13 +134,118 @@ impl Default for LiveMachine {
 
 impl Source for LiveMachine {
     fn read(&mut self, elapsed_ms: u64) -> Snapshot {
-        let _ = elapsed_ms;
-        todo!("GREEN: LiveMachine::read")
+        // One refresh of each per reading: every "since the previous
+        // refresh" count is then "since the previous reading".
+        self.system
+            .refresh_cpu_specifics(CpuRefreshKind::nothing().with_cpu_usage());
+        if self.readings % 30 == 0 {
+            // The clock and the user list change rarely.
+            self.system.refresh_cpu_frequency();
+            if self.readings > 0 {
+                self.users.refresh();
+            }
+        }
+        self.system
+            .refresh_memory_specifics(MemoryRefreshKind::everything());
+        self.system.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            true,
+            ProcessRefreshKind::nothing()
+                .with_cpu()
+                .with_memory()
+                .with_disk_usage()
+                .with_user(UpdateKind::OnlyIfNotSet)
+                .with_cmd(UpdateKind::OnlyIfNotSet)
+                // Linux lists every thread as a task of its process: a
+                // process table lists processes.
+                .without_tasks(),
+        );
+        self.disks
+            .refresh_specifics(true, DiskRefreshKind::nothing().with_io_usage());
+        self.networks.refresh(true);
+        self.readings += 1;
+
+        let mut by_processes = (0_u64, 0_u64);
+        let processes: Vec<ProcSample> = self
+            .system
+            .processes()
+            .values()
+            .map(|p| {
+                let io = p.disk_usage();
+                by_processes.0 = by_processes.0.saturating_add(io.read_bytes);
+                by_processes.1 = by_processes.1.saturating_add(io.written_bytes);
+                ProcSample {
+                    pid: p.pid().as_u32(),
+                    parent: p.parent().map(Pid::as_u32),
+                    name: p.name().to_string_lossy().into_owned(),
+                    user: self.user_name(p),
+                    command: join_command(p.cmd()),
+                    status: p.status().to_string(),
+                    cpu: percent(p.cpu_usage()),
+                    memory: p.memory(),
+                    disk_read: io.read_bytes,
+                    disk_written: io.written_bytes,
+                }
+            })
+            .collect();
+        let by_disks = self.disks.list().iter().fold((0_u64, 0_u64), |acc, d| {
+            let io = d.usage();
+            (
+                acc.0.saturating_add(io.read_bytes),
+                acc.1.saturating_add(io.written_bytes),
+            )
+        });
+        let (disk_read, disk_written) = disk_traffic(by_disks, by_processes);
+        let (net_received, net_sent) = self
+            .networks
+            .iter()
+            .filter(|(name, _)| !is_loopback(name))
+            .fold((0_u64, 0_u64), |acc, (_, data)| {
+                (
+                    acc.0.saturating_add(data.received()),
+                    acc.1.saturating_add(data.transmitted()),
+                )
+            });
+        let cpus = self.system.cpus();
+        Snapshot {
+            elapsed_ms,
+            cpu_brand: cpus
+                .first()
+                .map(|c| c.brand().trim().to_string())
+                .unwrap_or_default(),
+            cpu_mhz: cpus.first().map_or(0, sysinfo::Cpu::frequency),
+            cpu: percent(self.system.global_cpu_usage()).min(100.0),
+            cores: cpus
+                .iter()
+                .map(|c| percent(c.cpu_usage()).min(100.0))
+                .collect(),
+            memory_used: self.system.used_memory(),
+            memory_total: self.system.total_memory(),
+            swap_used: self.system.used_swap(),
+            swap_total: self.system.total_swap(),
+            disk_read,
+            disk_written,
+            net_received,
+            net_sent,
+            uptime: System::uptime(),
+            processes,
+            notices: Vec::new(),
+        }
     }
 
     fn end(&mut self, pid: u32, force: bool) -> Result<String, String> {
-        let _ = (pid, force);
-        todo!("GREEN: LiveMachine::end")
+        let target = Pid::from_u32(pid);
+        // That one process again: a process that quit meanwhile is gone.
+        self.system
+            .refresh_processes(ProcessesToUpdate::Some(&[target]), true);
+        let Some(process) = self.system.process(target) else {
+            return Err(format!("No process {pid} is running."));
+        };
+        let name = process.name().to_string_lossy().into_owned();
+        let signal = if force { Signal::Kill } else { Signal::Term };
+        // A platform without SIGTERM (Windows) can only kill.
+        let sent = process.kill_with(signal).or_else(|| Some(process.kill()));
+        end_outcome(&name, pid, force, sent)
     }
 }
 
