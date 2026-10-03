@@ -8970,7 +8970,8 @@ impl LayoutWindow {
     /// alike. A value the APP wrote (`set_css_property`, an override with no
     /// transition behind it) outranks every state style, so a state change
     /// shows nothing to tween there; an imperative tween in flight
-    /// (`keeps_target`) is left to finish.
+    /// (`keeps_target`) is left to finish. A 0 ms declaration in the new
+    /// state means "at once": no tween, and one in flight ends.
     ///
     /// Only the root DOM's transitions are driven (`tick_animations`).
     /// Returns whether a transition was started.
@@ -9082,7 +9083,11 @@ impl LayoutWindow {
                 let Some((from, to)) = endpoints else {
                     continue;
                 };
-                if from == to {
+                // A 0 ms declaration is the state saying "at once" (a
+                // control's `:active` - a press shows immediately, its
+                // release fades): no tween, and one in flight ends here.
+                let instant = anim.duration.millis() == 0 && anim.delay.millis() == 0;
+                if from == to || instant {
                     if in_flight.is_some() {
                         settled.push((node, *ty));
                     }
