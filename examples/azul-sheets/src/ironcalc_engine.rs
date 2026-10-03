@@ -11,7 +11,9 @@
 //! fields, so it is built through serde; `save_to_xlsx` refuses to overwrite,
 //! so saving goes through `save_xlsx_to_writer`; the xlsx import does not
 //! evaluate, so a load evaluates once; `paste_csv_string` reads TAB-separated
-//! text, so `set_inputs` writes it with the same `csv` crate.
+//! text with a csv reader that drops a row of another length, so
+//! `set_inputs` writes a padded rectangle with the same `csv` crate
+//! (`model::tsv_of`).
 
 use std::io::Cursor;
 
@@ -235,25 +237,6 @@ pub(crate) fn value_from(value: IcCellValue, is_error: bool) -> CellValue {
     }
 }
 
-/// `rows` as tab-separated text in the form IronCalc's `paste_csv_string`
-/// reads (the `csv` crate quotes what holds a tab, a quote or a newline).
-pub(crate) fn tsv_of(rows: &[Vec<String>]) -> Result<String, EngineError> {
-    let mut writer = csv::WriterBuilder::new()
-        .delimiter(b'\t')
-        .terminator(csv::Terminator::Any(b'\n'))
-        .flexible(true)
-        .from_writer(Vec::new());
-    for row in rows {
-        writer
-            .write_record(row)
-            .map_err(|e| format!("Could not write the cells: {e}"))?;
-    }
-    let bytes = writer
-        .into_inner()
-        .map_err(|_| String::from("Could not write the cells."))?;
-    String::from_utf8(bytes).map_err(|e| e.to_string())
-}
-
 impl SheetEngine for IronCalcEngine {
     fn new_workbook(&mut self, name: &str) -> Result<(), EngineError> {
         self.model = empty_model(name)?;
@@ -337,7 +320,8 @@ impl SheetEngine for IronCalcEngine {
         if rows.is_empty() {
             return Ok(());
         }
-        let tsv = tsv_of(rows)?;
+        // Rectangular: IronCalc's paste drops a row of another length.
+        let tsv = crate::model::tsv_of(rows);
         self.paste_tsv(top_left, &tsv)
     }
 
@@ -664,7 +648,7 @@ mod tests {
             vec![String::from("=IF(A1=\"x\",1,2)"), String::new()],
         ];
         assert_eq!(
-            tsv_of(&rows).unwrap(),
+            crate::model::tsv_of(&rows),
             "a\t\"b\tc\"\n\"=IF(A1=\"\"x\"\",1,2)\"\t\n"
         );
     }

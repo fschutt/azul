@@ -191,15 +191,25 @@ pub fn autofit_px<'a>(texts: impl Iterator<Item = &'a str>, font_px: f64) -> f64
 }
 
 /// Rows of cell inputs as the engine's tab-separated paste text (the csv
-/// crate, the same that reads it on the engine side).
+/// crate, the same that reads it on the engine side) - the ONE encoder of
+/// the app (the ribbon's Paste and the engine adapter's `set_inputs`).
+///
+/// The block is padded to a rectangle with empty fields: IronCalc reads a
+/// paste with a csv reader that is not flexible and drops every record
+/// whose length differs from the first one (the Budget sample's one-cell
+/// title row cost it every row under it).
 #[must_use]
 pub fn tsv_of(rows: &[Vec<String>]) -> String {
+    let width = rows.iter().map(Vec::len).max().unwrap_or(0);
     let mut writer = csv::WriterBuilder::new()
         .delimiter(b'\t')
+        .terminator(csv::Terminator::Any(b'\n'))
         .has_headers(false)
         .from_writer(Vec::new());
     for row in rows {
-        if writer.write_record(row).is_err() {
+        let mut record: Vec<&str> = row.iter().map(String::as_str).collect();
+        record.resize(width, "");
+        if writer.write_record(&record).is_err() {
             return String::new();
         }
     }
