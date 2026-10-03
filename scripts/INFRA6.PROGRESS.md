@@ -8,7 +8,8 @@ Commit messages go through `<scratchpad>/infra6/msg.txt` (the scratchpad root is
 - 4e79da6bc ids RED, e3ee94a56 ids GREEN (azul_storage::ids::new_uuid / uuid_from_words / is_uuid; appkit re-exports)
 - 433a82a16 manifest RED (src/tests/manifest.rs), fb7253e27 manifest GREEN (src/manifest.rs, LocalDrive hooks,
   without_manifest, config DriveEntry::open, sigv4 uri_decode + sha256_hex_of)
-- (this commit) sigv4 helper tests
+- c9b579c04 sigv4 helper tests (+ this progress file)
+- LAST COMMIT: see `git log -1`; next step = migration RED (NEXT 1).
 
 ## IN PROGRESS
 - 2. migration (appkit)
