@@ -23,15 +23,46 @@ Report: scripts/MEDIA9_2026_10_03.md (date = the day it finishes).
 - A4 ab12de5a2 GREEN PlayerCore (player.rs + playback.rs: 20 tests pass standalone with rustc;
   harness /tmp/media9_tc/stubs/player_harness.rs, command in the commit message).
 
+- A4 090ca6ea4 RED / 8660cac78 GREEN AudioPlayer handle (thread, Mutex+Condvar commands); b23174f54
+  AudioFileInfo + AudioPlayerState moved to core/src/audio.rs (dll re-exports), wasm stubs of
+  AudioFileDecoder + AudioPlayer in dll/src/unified/audio.rs. Full rustc harness (29 tests: playback,
+  decode with real symphonia, PlayerCore, handle in real time) passes:
+  /tmp/media9_tc/stubs/full_harness.rs (rebuild stubs + symphonia: /tmp/media9_tools/build_symphonia.sh).
+  PHASE A (engine) DONE.
+
 ## IN PROGRESS
-- NEXT STEP: the AudioPlayer handle (append to dll/src/desktop/extra/audio/player.rs, before
-  `#[cfg(test)] pub(crate) mod player_tests`): ptr + run_destructor, a thread owning PlayerCore +
-  AudioSink (opened at the first source's rate x 2 channels, 48 kHz fallback with resampling),
-  commands through Arc<(Mutex<Shared>, Condvar)>; create, load_file(path)->u64,
-  load_bytes(bytes, ext)->u64, queue_file, queue_bytes, clear_queue, play, pause, toggle, stop,
-  seek(position_s), skip, set_volume, get_state, error_message, close. Sink opener injectable
-  (tests use AudioSink::open_as(config, MockDevice::Synthetic)). wasm stubs in unified/audio.rs
-  for AudioFileDecoder + AudioPlayer.
+- NEXT STEP: Phase B widget 1 = LevelMeter, new file layout/src/widgets/level_meter.rs (append
+  `pub mod level_meter;` after `pub mod waveform;` in layout/src/widgets/mod.rs). Move AzMeet's
+  meter in: `level_percent(samples) -> f32` (RMS -> dB, -60 dB floor -> 0..100, from
+  examples/azul-meet/src/lib.rs mic_level_percent), `LevelMeterThrottle` (meter_change: moves at
+  most every 100 ms and by >= 0.5 %), the widget (VirtualView like ProgressBar for the fast path:
+  `LevelMeter::update_level(info, node, percent)`), horizontal / vertical, green / yellow / red
+  zones, a11y role ProgressBar(meter) + value. Look struct LevelMeterLook + flat.rs / flora.rs
+  APPENDS (`// ==== level_meter ====`), manifest (every_widget_dom + theme_contrast group in
+  widgets/mod.rs). RED tests first. Then AzMeet uses it (examples/azul-meet/src/{lib.rs, ui.rs}).
+- then SeekBar, MediaControls, Waveform widget part (same pattern), then AzMusic, AzPlayer.
+
+## api.json so far (for the report)
+- audio.AudioFileDecoder (external azul_dll::unified::audio::AudioFileDecoder, Clone Default Drop,
+  struct_fields ptr c_void mutptr / error OptionString / run_destructor bool, repr C):
+  constructors open(path: String), create(bytes: U8Vec, extension: String); functions
+  backend_name() -> String (static), is_open, error_message -> OptionString, info -> AudioFileInfo,
+  next_frame (refmut) -> OptionAudioFrame, seek (refmut, position_s f64) -> bool, position_s -> f64,
+  waveform (refmut, buckets u32) -> F32Vec, close (refmut).
+- audio.AudioFileInfo (external azul_core::audio::AudioFileInfo, Clone Debug PartialEq Default,
+  repr C, fields in order: title artist album album_artist genre date lyrics codec container
+  cover_mime (String) cover (U8Vec) duration_s f64 sample_rate track_number track_total
+  disc_number u32 channels u16); option.OptionAudioFileInfo.
+- audio.AudioPlayerState (external azul_core::audio::AudioPlayerState, Copy Clone Debug PartialEq
+  Default, repr C: position_s duration_s f64, track failed_track u64, volume peak_left peak_right
+  f32, queued_tracks u32, playing finished has_output bool).
+- audio.AudioPlayer (external azul_dll::unified::audio::AudioPlayer, Clone Default Drop, fields ptr
+  / run_destructor): constructor create(); functions load_file(path String) -> u64,
+  load_bytes(bytes U8Vec, extension String) -> u64, queue_file, queue_bytes (same), clear_queue,
+  play, pause, toggle, stop, seek(position_s f64), skip, set_volume(volume f32) (all ref),
+  get_state -> AudioPlayerState, error_message -> OptionString, close (refmut).
+- audio.AudioSink new functions (all ref): try_play(frame AudioFrame) -> bool, queued_frames ->
+  u64, samples_played -> u64, pause -> bool, resume, clear -> bool, config -> AudioConfig.
 
 ## NEXT (in order)
 - A1 playback.rs pure pieces: Rechunker, LinearResampler, remix (channels), apply_gain,
