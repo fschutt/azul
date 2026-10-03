@@ -10,6 +10,7 @@ use crate::{
     api::VersionData,
     autofix::{
         function_diff::{generate_add_type_patches, AddTypeResult},
+        patch_format::PatchOperation,
         type_index::TypeIndex,
     },
 };
@@ -38,6 +39,14 @@ pub fn functions_patch_file_name(type_name: &str, method_spec: &str) -> String {
 /// The patch files `autofix add <type>.<spec>` writes for a type api.json
 /// does not have yet: the type with its transitive dependencies, its
 /// standard-trait impls (for `*`), and the requested functions.
+///
+/// Every name says what the file holds, so the adds of one round never
+/// overwrite each other: `add_<type>.type.<added type>.patch.json` (the same
+/// content whichever method of `<type>` is added),
+/// `add_<type>.impls.patch.json`, and [`functions_patch_file_name`] - one per
+/// method spec, as for a type api.json has. The numbered `add_<type>_<i>` /
+/// `add_<type>_functions` names of before were the same for every method:
+/// three adds of one new type kept the last add's files (wave 6).
 pub fn new_type_patch_files(
     type_name: &str,
     method_spec: &str,
@@ -48,19 +57,21 @@ pub fn new_type_patch_files(
     let (patches, result) =
         generate_add_type_patches(type_name, Some(method_spec), index, version_data, version)?;
     let lower = type_name.to_lowercase();
-    let mut files: Vec<PatchFile> = patches
-        .iter()
-        .enumerate()
-        .map(|(i, patch)| PatchFile {
-            name: format!("add_{}_{}.patch.json", lower, i),
-            json: patch
-                .to_json()
-                .unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e)),
-        })
-        .collect();
+    let mut files: Vec<PatchFile> = Vec::new();
+    for (i, patch) in patches.iter().enumerate() {
+        let what = match patch.operations.first() {
+            Some(PatchOperation::Add(a)) => format!("type.{}", a.type_name.to_lowercase()),
+            Some(PatchOperation::Modify(_)) => "impls".to_string(),
+            _ => format!("other.{i}"),
+        };
+        files.push(PatchFile {
+            name: format!("add_{lower}.{what}.patch.json"),
+            json: patch.to_json().map_err(|e| e.to_string())?,
+        });
+    }
     if let Some(functions) = &result.functions_patch {
         files.push(PatchFile {
-            name: format!("add_{}_functions.patch.json", lower),
+            name: functions_patch_file_name(type_name, method_spec),
             json: serde_json::to_string_pretty(functions).map_err(|e| e.to_string())?,
         });
     }
