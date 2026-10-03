@@ -3,6 +3,7 @@
 //! ```text
 //! photo/<uuid>/doc.json                         the layer tree, sizes, settings
 //! photo/<uuid>/layers/<layer id>/<tx>_<ty>.png  one PNG per non-empty tile
+//! photo/<uuid>/exports/<name>.png|jpg           the document's exports
 //! ```
 //!
 //! Written through `azul_storage::Drive` (a `LocalDrive` on the user's data
@@ -44,6 +45,24 @@ pub fn layers_prefix(uuid: &str) -> String {
 #[must_use]
 pub fn tile_key(uuid: &str, layer: LayerId, tx: u32, ty: u32) -> String {
     format!("{}{layer}/{tx}_{ty}.png", layers_prefix(uuid))
+}
+
+/// `photo/<uuid>/exports/<file>`: an export of document `uuid`, `file` as one
+/// key segment (separators become `_`).
+#[must_use]
+pub fn export_key(uuid: &str, file: &str) -> String {
+    let file: String = file
+        .chars()
+        .map(|c| if matches!(c, '/' | '\\' | ':' | '\0') { '_' } else { c })
+        .collect();
+    format!("{PREFIX}{uuid}/exports/{file}")
+}
+
+/// Write an export of document `uuid` into the data tree; its key.
+pub fn export(drive: &dyn Drive, uuid: &str, file: &str, bytes: &[u8]) -> Result<String, String> {
+    let key = export_key(uuid, file);
+    drive.put(&key, bytes).map_err(|e| e.to_string())?;
+    Ok(key)
 }
 
 /// `doc.json`.
@@ -396,6 +415,22 @@ mod tests {
         let mut names: Vec<String> = list(&drive).unwrap().into_iter().map(|e| e.name).collect();
         names.sort();
         assert_eq!(names, vec!["First", "Second"]);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn an_export_lands_in_the_documents_exports_folder_and_a_resave_keeps_it() {
+        let (drive, dir) = temp_drive("export");
+        let doc = sample_doc();
+        save(&drive, "u3", "A", &doc, &fake_encode).unwrap();
+        let key = export(&drive, "u3", "Harbour.png", b"PNGDATA").unwrap();
+        assert_eq!(key, "photo/u3/exports/Harbour.png", "into the data tree, beside the document");
+        assert_eq!(drive.get(&key).unwrap(), b"PNGDATA".to_vec());
+        save(&drive, "u3", "A", &doc, &fake_encode).unwrap();
+        assert!(drive.head(&key).is_ok(), "saving the document again keeps its exports");
+        let names: Vec<String> = list(&drive).unwrap().into_iter().map(|e| e.name).collect();
+        assert_eq!(names, vec!["A".to_string()], "an exports folder is not a document");
+        assert_eq!(export_key("u3", "a/b:c.png"), "photo/u3/exports/a_b_c.png", "one key segment");
         let _ = std::fs::remove_dir_all(dir);
     }
 

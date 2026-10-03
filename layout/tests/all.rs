@@ -792,3 +792,7 @@ mod a_virtual_views_child_dom_state_goes_with_its_host;
 mod a_transformed_box_is_hit_where_it_is_painted;
 #[path = "a_rebuild_transitions_only_what_its_window_sees_change.rs"]
 mod a_rebuild_transitions_only_what_its_window_sees_change;
+#[path = "a_text_rasterises_into_a_raw_image.rs"]
+mod a_text_rasterises_into_a_raw_image;
+#[path = "an_image_patched_in_place_survives_a_cached_relayout.rs"]
+mod an_image_patched_in_place_survives_a_cached_relayout;

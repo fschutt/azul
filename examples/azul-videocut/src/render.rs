@@ -93,13 +93,14 @@ impl FrameSource for Generated {
 }
 
 /// `width` x `height` scaled down (never up) to fit `max_width` x
-/// `max_height`, at least 1 x 1.
+/// `max_height`, the aspect kept, at least 1 x 1 (a frame buffer is never
+/// empty): azul's one fit rule (`RawImage::fit_within`, the rule
+/// `RawImage::thumbnail` uses) - VideoCut's own f32 copy is gone
+/// (DEDUP_OFFICE D15).
 #[must_use]
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
 pub fn fit_within(width: u32, height: u32, max_width: u32, max_height: u32) -> (u32, u32) {
-    let (w, h) = (width.max(1) as f32, height.max(1) as f32);
-    let k = (max_width.max(1) as f32 / w).min(max_height.max(1) as f32 / h).min(1.0);
-    (((w * k).round() as u32).max(1), ((h * k).round() as u32).max(1))
+    let size = azul::image::RawImage::fit_within(width, height, max_width, max_height);
+    (size.width.max(1), size.height.max(1))
 }
 
 /// Frame `frame` of `pattern` at `width` x `height`.
@@ -157,6 +158,34 @@ pub fn generate(pattern: &Pattern, frame: Frame, width: u32, height: u32) -> Can
             }
             c
         }
+    }
+}
+
+/// `c` scaled down to fit `max_width` x `max_height`, the aspect kept, by
+/// azul's thumbnail scaler (`RawImage::thumbnail`); a picture that fits
+/// already is kept as it is.
+#[must_use]
+pub fn fit_to(c: &Canvas, max_width: u32, max_height: u32) -> Canvas {
+    use azul::image::{RawImage, RawImageData};
+
+    let (w, h) = fit_within(c.width, c.height, max_width, max_height);
+    if (w, h) == (c.width, c.height) || c.width == 0 || c.height == 0 {
+        return c.clone();
+    }
+    let source = RawImage::create_rgba8(c.width, c.height, c.rgba.clone(), true);
+    match source.thumbnail(max_width, max_height).into_option() {
+        Some(scaled) => {
+            let (sw, sh) = (scaled.width as u32, scaled.height as u32);
+            match scaled.pixels {
+                RawImageData::U8(bytes) => Canvas {
+                    width: sw,
+                    height: sh,
+                    rgba: bytes.as_ref().to_vec(),
+                },
+                _ => scale_to(c, w, h),
+            }
+        }
+        None => scale_to(c, w, h),
     }
 }
 

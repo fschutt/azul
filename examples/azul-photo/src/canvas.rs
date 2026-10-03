@@ -13,7 +13,7 @@ use azul::{
 };
 
 use crate::{
-    codec,
+    codec, ids,
     commands::{self, Command},
     raster::IRect,
     say,
@@ -21,10 +21,6 @@ use crate::{
     AppScreen, PhotoApp,
 };
 
-/// The canvas image node's DOM id.
-pub const CANVAS_ID: &str = "photo-canvas";
-/// The status bar segment that shows the cursor position.
-pub const CURSOR_MARKER: &str = "photo-cursor";
 
 /// The canvas node: one image whose pixels the render callback provides.
 pub fn canvas_dom(app: &RefAny, tool: Tool) -> Dom {
@@ -39,12 +35,13 @@ pub fn canvas_dom(app: &RefAny, tool: Tool) -> Dom {
         RenderImageCallback::create(render_canvas).to_core(),
         app.clone(),
     ))
-    .with_id(CANVAS_ID)
+    .with_id(ids::CANVAS)
     .with_css(format!(
         "flex-grow: 1; align-self: stretch; min-width: 0px; min-height: 0px; cursor: {cursor};"
     ))
     .with_callback(EventFilter::Hover(HoverEventFilter::MouseDown), app.clone(), on_down)
-    .with_callback(EventFilter::Hover(HoverEventFilter::MouseOver), app.clone(), on_move)
+    // Movement is `MouseMove` (W3C `mouseover` fires once, on entry).
+    .with_callback(EventFilter::Hover(HoverEventFilter::MouseMove), app.clone(), on_move)
     .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), app.clone(), on_up)
     .with_callback(EventFilter::Hover(HoverEventFilter::MouseLeave), app.clone(), on_leave)
     .with_callback(EventFilter::Hover(HoverEventFilter::TouchStart), app.clone(), on_down)
@@ -59,7 +56,7 @@ pub fn canvas_dom(app: &RefAny, tool: Tool) -> Dom {
 #[must_use]
 pub fn canvas_node(info: &CallbackInfo) -> Option<(DomId, NodeId)> {
     let dom = DomId { inner: 0 };
-    let raw = info.get_node_id_by_id_attribute(dom, CANVAS_ID).into_raw();
+    let raw = info.get_node_id_by_id_attribute(dom, ids::CANVAS).into_raw();
     (raw != 0).then(|| (dom, NodeId::create(raw - 1)))
 }
 
@@ -114,7 +111,7 @@ pub fn cursor_label(app: &PhotoApp) -> String {
 
 fn update_cursor_label(app: &PhotoApp, info: &mut CallbackInfo) {
     let label = cursor_label(app);
-    if let Some(node) = info.get_node_id_by_marker(CURSOR_MARKER).into_option() {
+    if let Some(node) = info.get_node_id_by_marker(ids::CURSOR).into_option() {
         let _ = StatusBar::update_segment_label(*info, node, label.as_str());
     }
 }
@@ -391,12 +388,36 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     };
     let m = mods(&info);
     let app_ref = data.clone();
+    // The kit's keys first (Mod+, the settings, F1 the shortcuts, Escape
+    // closes them); the settings page takes no tool keys.
+    let Some(kit_ref) = data.downcast_ref::<PhotoApp>().map(|a| a.kit.clone()) else {
+        return Update::DoNothing;
+    };
+    if let Some(update) = azul_appkit::ui::handle_key(&kit_ref, &mut info) {
+        return update;
+    }
+    if azul_appkit::ui::settings_open(&kit_ref) {
+        return Update::DoNothing;
+    }
     let Some(mut guard) = data.downcast_mut::<PhotoApp>() else {
         return Update::DoNothing;
     };
     let app = &mut *guard;
     if app.screen != AppScreen::Editor && !m.cmd {
         return Update::DoNothing;
+    }
+    // While a text is being set (its field focused), Enter places it and
+    // Escape drops it.
+    if app.s.text.is_some() && !m.cmd {
+        let command = match key {
+            VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter => Some(Command::TextCommit),
+            VirtualKeyCode::Escape => Some(Command::TextCancel),
+            _ => None,
+        };
+        if let Some(command) = command {
+            info.prevent_default();
+            return commands::run(app, &app_ref, &mut info, command);
+        }
     }
     // Plain keys belong to a text field being typed into (a size, an
     // opacity), not to the tools.

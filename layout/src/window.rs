@@ -9030,7 +9030,28 @@ impl LayoutWindow {
                 // geometry, only the ImageRef changes. The backend's DL diff
                 // sees the identity change and damages exactly those bounds.
                 if let Some(lr) = self.layout_results.get_mut(&dom_id) {
+                    // The solver's structural-identity cache holds a clone of
+                    // this list, so `make_mut` copies and the cache keeps the
+                    // PRE-PATCH list: the next relayout over the same tree (a
+                    // hover change, a RefreshDom without structural change)
+                    // would serve the stale image back, and the node's inputs
+                    // did not change, so no callback renders it again (MEDIA6:
+                    // AzPaint's stroke vanished until a resize). Hand the
+                    // patched list to the cache when it was serving this one -
+                    // as the CSS transition patch path does. ROOT only: the
+                    // cache is the root DOM's.
+                    let cache_serves_this = dom_id == DomId::ROOT_ID
+                        && self
+                            .layout_cache
+                            .cached_display_list
+                            .as_ref()
+                            .is_some_and(|cached| Arc::ptr_eq(&cached.5, &lr.display_list));
                     Arc::make_mut(&mut lr.display_list).patch_node_image(node_id, image);
+                    if cache_serves_this {
+                        if let Some(cached) = self.layout_cache.cached_display_list.as_mut() {
+                            cached.5 = lr.display_list.clone();
+                        }
+                    }
                 }
                 // THE frame gate of a content update: a tile nobody can see
                 // (scrolled out, below the window, the window minimized)

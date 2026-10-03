@@ -247,6 +247,30 @@ pub trait RasterEngine {
     fn flatten_rgba(&mut self) -> (u32, u32, Vec<u8>);
     /// Start over with `doc` (open, new): a fresh History.
     fn replace_document(&mut self, doc: Document, label: &str);
+    /// The active layer, when it takes pixel edits.
+    fn pixel_target(&self) -> Result<LayerId, EngineError>;
+    /// Start a LIVE edit (a move drag, a text being typed): what
+    /// [`Self::apply_live`] does shows at once and becomes ONE History state
+    /// `label` at [`Self::end_live`]. A live edit already open is ended first.
+    fn begin_live(&mut self, label: &str);
+    /// Take back what the live edit did so far; it stays open.
+    fn live_reset(&mut self);
+    /// Run `op` as part of the live edit (no History state of its own; a
+    /// plain [`Self::apply`] without one).
+    fn apply_live(&mut self, op: Op) -> Result<(), EngineError>;
+    /// Close the live edit: one History state when it changed anything.
+    fn end_live(&mut self);
+    /// Close the live edit and drop what it did.
+    fn cancel_live(&mut self);
+    fn is_live(&self) -> bool;
+}
+
+/// A live edit in progress: its History label, the document and the active
+/// layer from before it.
+struct Live {
+    label: String,
+    before: Document,
+    active: Option<LayerId>,
 }
 
 /// The History panel keeps this many steps.
@@ -267,6 +291,8 @@ pub struct TileEngine {
     /// Composited by the engine itself (an export, a merged sample) but not
     /// handed to the canvas yet.
     pending: IRect,
+    /// The live edit in progress.
+    live: Option<Live>,
 }
 
 /// The topmost layer of the document.
@@ -420,6 +446,7 @@ impl TileEngine {
             stroke: None,
             stroke_before: None,
             pending: IRect::default(),
+            live: None,
         }
     }
 
@@ -844,6 +871,9 @@ impl RasterEngine for TileEngine {
         if self.stroke.is_some() {
             self.end_stroke();
         }
+        if self.live.is_some() {
+            self.end_live();
+        }
         let label = op.label();
         let key = op.coalesce_key();
         let before = self.doc.clone();
@@ -858,6 +888,9 @@ impl RasterEngine for TileEngine {
     fn begin_stroke(&mut self, settings: BrushSettings, at: StrokePoint) -> Result<(), EngineError> {
         if self.stroke.is_some() {
             self.end_stroke();
+        }
+        if self.live.is_some() {
+            self.end_live();
         }
         let id = self.raster_target()?;
         let base = self
@@ -926,6 +959,9 @@ impl RasterEngine for TileEngine {
         if self.stroke.is_some() {
             self.end_stroke();
         }
+        if self.live.is_some() {
+            self.end_live();
+        }
         let mut doc = self.doc.clone();
         if !self.history.undo(&mut doc) {
             return false;
@@ -935,6 +971,9 @@ impl RasterEngine for TileEngine {
     }
 
     fn redo(&mut self) -> bool {
+        if self.live.is_some() {
+            self.end_live();
+        }
         let mut doc = self.doc.clone();
         if !self.history.redo(&mut doc) {
             return false;
@@ -946,6 +985,9 @@ impl RasterEngine for TileEngine {
     fn jump_to(&mut self, index: usize) -> bool {
         if self.stroke.is_some() {
             self.end_stroke();
+        }
+        if self.live.is_some() {
+            self.end_live();
         }
         let mut doc = self.doc.clone();
         if !self.history.jump(index, &mut doc) {
@@ -967,5 +1009,60 @@ impl RasterEngine for TileEngine {
 
     fn replace_document(&mut self, doc: Document, label: &str) {
         *self = Self::with_label(doc, label);
+    }
+
+    fn pixel_target(&self) -> Result<LayerId, EngineError> {
+        self.raster_target()
+    }
+
+    fn begin_live(&mut self, label: &str) {
+        if self.stroke.is_some() {
+            self.end_stroke();
+        }
+        if self.live.is_some() {
+            self.end_live();
+        }
+        self.live = Some(Live {
+            label: label.to_string(),
+            before: self.doc.clone(),
+            active: self.active,
+        });
+    }
+
+    fn live_reset(&mut self) {
+        let Some((before, active)) = self.live.as_ref().map(|l| (l.before.clone(), l.active)) else {
+            return;
+        };
+        self.restore(before);
+        self.active = active;
+    }
+
+    fn apply_live(&mut self, op: Op) -> Result<(), EngineError> {
+        if self.live.is_none() {
+            return self.apply(op);
+        }
+        self.run(op).map(|_| ())
+    }
+
+    fn end_live(&mut self) {
+        let Some(live) = self.live.take() else {
+            return;
+        };
+        let changed = !matches!(changed_between(&live.before, &self.doc), Some(r) if r.is_empty());
+        if changed {
+            self.history.checkpoint(&live.label, live.before);
+        }
+    }
+
+    fn cancel_live(&mut self) {
+        let Some(live) = self.live.take() else {
+            return;
+        };
+        self.restore(live.before);
+        self.active = live.active;
+    }
+
+    fn is_live(&self) -> bool {
+        self.live.is_some()
     }
 }

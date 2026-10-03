@@ -48,9 +48,12 @@ pub enum Job {
     Load { drive: Arc<dyn Drive>, uuid: String },
     /// The saved documents, for the start screen.
     List { drive: Arc<dyn Drive> },
-    /// Encode the flattened image and write it.
+    /// Encode the flattened image and write it into the data tree
+    /// (`photo/<uuid>/exports/<file>`).
     Export {
-        path: PathBuf,
+        drive: Arc<dyn Drive>,
+        uuid: String,
+        file: String,
         format: ExportFormat,
         quality: u8,
         width: u32,
@@ -75,8 +78,9 @@ pub enum Outcome {
         result: Result<(String, Document), String>,
     },
     Listed(Result<Vec<DocEntry>, String>),
+    /// The export's key in the data tree and its size.
     Exported {
-        path: PathBuf,
+        key: String,
         result: Result<u64, String>,
     },
 }
@@ -114,7 +118,9 @@ pub fn run(job: Job) -> Outcome {
         },
         Job::List { drive } => Outcome::Listed(storage::list(drive.as_ref())),
         Job::Export {
-            path,
+            drive,
+            uuid,
+            file,
             format,
             quality,
             width,
@@ -125,15 +131,9 @@ pub fn run(job: Job) -> Outcome {
                 ExportFormat::Png => codec::encode_png(width, height, &rgba),
                 ExportFormat::Jpeg => codec::encode_jpeg(width, height, &rgba, quality),
             };
-            let result = bytes.and_then(|b| {
-                if let Some(dir) = path.parent() {
-                    let _ = std::fs::create_dir_all(dir);
-                }
-                std::fs::write(&path, &b)
-                    .map(|()| b.len() as u64)
-                    .map_err(|e| format!("{}: {e}", path.display()))
-            });
-            Outcome::Exported { path, result }
+            let key = storage::export_key(&uuid, &file);
+            let result = bytes.and_then(|b| storage::export(drive.as_ref(), &uuid, &file, &b).map(|_| b.len() as u64));
+            Outcome::Exported { key, result }
         }
     }
 }

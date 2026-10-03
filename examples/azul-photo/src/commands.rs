@@ -8,12 +8,21 @@
 
 use std::path::PathBuf;
 
+use azul_appkit::{
+    args::{ModePref, Theme},
+    ui as kit,
+};
+
 use azul::{
     css::DarkLightMode,
-    dialog::{FileDialog, FileOpenResult, SaveTargetResult},
+    dialog::{FileDialog, FileOpenResult},
+    image::{RawImageData, TextRasterStyle},
     option::{OptionDarkLightMode, OptionFileTypeList},
     prelude::*,
-    widgets::{CheckBoxState, ColorInputState, NumberInputState, SegmentedState, SliderState},
+    widgets::{
+        CheckBoxState, ColorInputState, DialogState, NumberInputState, OnTextInputReturn, SegmentedState,
+        CloseGuardEvent, CloseGuardEventKind, SliderState, StandardDialogEvent, TextInputState, TextInputValid,
+    },
 };
 
 use crate::{
@@ -25,9 +34,26 @@ use crate::{
         Placement, SelectMode,
     },
     sample_document, say,
-    state::{Effects, Tool},
+    state::{Effects, TextSpec, Tool, TEXT_FAMILIES},
     AppScreen, PhotoApp, Sheet,
 };
+
+/// The Text tool's rasteriser: azul's text raster (`CallbackInfo::text_image`
+/// - shaped by the text engine, rasterised by the CPU glyph path, with the
+/// fonts the window already found) as straight RGBA8 rows.
+#[must_use]
+pub fn azul_text(info: &CallbackInfo, spec: &TextSpec) -> Option<(u32, u32, Vec<u8>)> {
+    let [r, g, b, a] = spec.color;
+    let style = TextRasterStyle::create(spec.family.as_str(), spec.size, ColorU { r, g, b, a })
+        .with_bold(spec.bold)
+        .with_italic(spec.italic);
+    let image = info.text_image(spec.text.as_str(), style).into_option()?;
+    let (width, height) = (image.width as u32, image.height as u32);
+    match image.pixels {
+        RawImageData::U8(bytes) => Some((width, height, bytes.as_ref().to_vec())),
+        _ => None,
+    }
+}
 
 /// What a button, menu item, row or shortcut does.
 #[derive(Clone, Debug, PartialEq)]
@@ -98,6 +124,19 @@ pub enum Command {
     // Sheets
     Sheet(Sheet),
     CloseSheet,
+    // The Text tool
+    TextCommit,
+    TextCancel,
+    /// azul-appkit's settings page (Appearance, Data, Shortcuts, About).
+    Settings,
+}
+
+/// `f` on the kit (its settings, its switches).
+fn with_kit(app: &PhotoApp, f: impl FnOnce(&mut kit::Kit)) {
+    let mut handle = app.kit.clone();
+    if let Some(mut k) = handle.downcast_mut::<kit::Kit>() {
+        f(&mut k);
+    }
 }
 
 /// A button's payload: the app and its command.
@@ -113,6 +152,45 @@ pub fn cmd(app: &RefAny, command: Command) -> RefAny {
         app: app.clone(),
         command,
     })
+}
+
+/// A sheet's dialog was closed (its close button, Escape, the backdrop).
+pub extern "C" fn on_sheet_close(mut data: RefAny, _info: CallbackInfo, _state: DialogState) -> Update {
+    if let Some(mut a) = data.downcast_mut::<PhotoApp>() {
+        a.sheet = None;
+    }
+    Update::RefreshDom
+}
+
+/// The close guard: a close of the window while the document has unsaved
+/// changes was held - ask; then Save (and close once written), Don't Save
+/// (the guard closes the window) or Cancel.
+pub extern "C" fn on_close_guard(mut data: RefAny, mut info: CallbackInfo, event: CloseGuardEvent) -> Update {
+    let handle = data.clone();
+    let Some(mut guard) = data.downcast_mut::<PhotoApp>() else {
+        return Update::DoNothing;
+    };
+    let a = &mut *guard;
+    a.closing = false;
+    match event.kind {
+        CloseGuardEventKind::Ask => {
+            a.closing = true;
+            say("AZPHOTO_CLOSE_ASKED");
+        }
+        CloseGuardEventKind::Save => {
+            let _ = a.s.commit_text();
+            a.close_after_save = true;
+            return run(a, &handle, &mut info, Command::Save);
+        }
+        CloseGuardEventKind::Discard => a.s.modified = false,
+        CloseGuardEventKind::Cancel => {}
+    }
+    Update::RefreshDom
+}
+
+/// The About dialog's OK (or Cancel) closes it.
+pub extern "C" fn on_about_event(data: RefAny, info: CallbackInfo, _event: StandardDialogEvent) -> Update {
+    on_sheet_close(data, info, DialogState::default())
 }
 
 /// A button, menu item or row was used.
@@ -217,8 +295,13 @@ pub fn run(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo, comman
             if app.sheet.take().is_some() {
                 return Update::RefreshDom;
             }
-            return Update::DoNothing;
+            if app.s.text.is_none() {
+                return Update::DoNothing;
+            }
+            app.s.cancel_text()
         }
+        Command::TextCommit => app.s.commit_text(),
+        Command::TextCancel => app.s.cancel_text(),
         Command::HistoryJump(i) => app.s.jump(i),
         Command::RotateCanvas(cw) => {
             let e = app.s.apply(Op::RotateCanvas90 { clockwise: cw });
@@ -379,17 +462,35 @@ pub fn run(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo, comman
         Command::Fit => app.s.fit(),
         Command::ActualPixels => app.s.actual_pixels(),
         Command::Mode(dark) => {
+            // Remembered in photo/settings.json, like the settings page's choice.
+            let mode = if dark { ModePref::Dark } else { ModePref::Light };
+            with_kit(app, |k| {
+                k.settings.mode = mode;
+                k.args.mode = None;
+            });
             info.set_mode(OptionDarkLightMode::Some(if dark {
                 DarkLightMode::Dark
             } else {
                 DarkLightMode::Light
             }));
+            kit::save_settings(&app.kit, info);
             return Update::DoNothing;
         }
         Command::Theme(name) => {
-            app.theme = name.to_string();
-            info.set_theme(name);
+            let theme = Theme::parse(name).unwrap_or_default();
+            with_kit(app, |k| {
+                k.settings.theme = theme;
+                k.args.theme = None;
+            });
+            app.theme = theme.name().to_string();
+            info.set_theme(theme.name());
+            kit::save_settings(&app.kit, info);
             return Update::DoNothing;
+        }
+        Command::Settings => {
+            app.sheet = None;
+            kit::open_settings(&app.kit, None);
+            return Update::RefreshDom;
         }
         Command::Tool(t) => app.s.set_tool(t),
         Command::BrushSize(larger) => app.s.step_brush_size(larger),
@@ -426,7 +527,7 @@ pub fn run(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo, comman
                 }
                 _ => {}
             }
-            if sheet != Sheet::NewImage && sheet != Sheet::About && sheet != Sheet::Settings {
+            if sheet != Sheet::NewImage && sheet != Sheet::About {
                 app.screen = AppScreen::Editor;
             }
             app.sheet = Some(sheet);
@@ -481,49 +582,23 @@ pub fn file_name(name: &str, extension: &str) -> String {
     format!("{}.{extension}", if base.is_empty() { "Untitled" } else { base })
 }
 
-/// Export the flattened image: straight into the export folder, or through
-/// the save dialog.
+/// Export the flattened image into the data tree, beside the document
+/// (`photo/<uuid>/exports/<name>.png|jpg`, through the Drive on a job).
 fn export(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo) {
-    let name = file_name(&app.s.name, app.export_format.extension());
-    match app.export_dir.clone() {
-        Some(dir) => start_export(app, app_ref, info, dir.join(name)),
-        None => {
-            let _ = FileDialog::save_file("Export", name, app_ref.clone(), on_export_target);
-        }
-    }
-}
-
-fn start_export(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo, path: PathBuf) {
+    let file = file_name(&app.s.name, app.export_format.extension());
     let (width, height, rgba) = app.s.engine.flatten_rgba();
     app.busy += 1;
-    app.status(format!("Exporting {}...", path.display()));
+    app.status(format!("Exporting {file}..."));
     jobs::spawn(info, app_ref, Job::Export {
-        path,
+        drive: app.drive.clone(),
+        uuid: app.s.uuid.clone(),
+        file,
         format: app.export_format,
         quality: app.jpeg_quality,
         width,
         height,
         rgba,
     });
-}
-
-extern "C" fn on_export_target(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
-    let Some(picked) = SaveTargetResult::downcast(result).into_option() else {
-        return Update::DoNothing;
-    };
-    let Some(target) = picked.target.into_option() else {
-        return Update::DoNothing;
-    };
-    let Some(path) = target.as_path().into_option() else {
-        return Update::DoNothing;
-    };
-    let path = PathBuf::from(path.as_string().as_str());
-    let app_ref = data.clone();
-    let Some(mut guard) = data.downcast_mut::<PhotoApp>() else {
-        return Update::DoNothing;
-    };
-    start_export(&mut guard, &app_ref, &mut info, path);
-    Update::RefreshDom
 }
 
 fn picked_path(result: RefAny) -> Option<PathBuf> {
@@ -594,6 +669,12 @@ pub enum Field {
     /// Parameter `n` of the active adjustment layer.
     Adjust(u8),
     ZoomPercent,
+    TextFamily,
+    TextSize,
+    TextBold,
+    TextItalic,
+    /// The Text tool's field (its text comes through `on_text`).
+    Text,
 }
 
 /// A value widget's payload: the app and the field.
@@ -653,6 +734,26 @@ pub extern "C" fn on_color(data: RefAny, mut info: CallbackInfo, state: ColorInp
 
 pub extern "C" fn on_segment(data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
     dispatch(data, &mut info, Value::Index(state.selected_index))
+}
+
+/// The Text tool's field: the text being set follows every keystroke on
+/// the canvas (the field keeps its own text - no DOM rebuild).
+pub extern "C" fn on_text(mut data: RefAny, mut info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+    let answer = |update| OnTextInputReturn {
+        update,
+        valid: TextInputValid::Yes,
+    };
+    let Some(app_ref) = data.downcast_ref::<FieldRef>().map(|r| r.app.clone()) else {
+        return answer(Update::DoNothing);
+    };
+    let mut target = app_ref.clone();
+    let Some(mut guard) = target.downcast_mut::<PhotoApp>() else {
+        return answer(Update::DoNothing);
+    };
+    let text = state.get_text().as_str().to_string();
+    let mut e = guard.s.set_text(&text, &|spec: &TextSpec| azul_text(&info, spec));
+    e.dom = false;
+    answer(canvas::push_effects(&mut guard, &mut info, e))
 }
 
 /// The parameters of an adjustment as (label, value, min, max).
@@ -763,6 +864,8 @@ fn set_field(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo, f: F
     };
     let o = &mut app.s.opts;
     let mut rebuild = false;
+    // The text being set follows its font, size, style and colour.
+    let mut restyle = false;
     let mut e = Effects::default();
     match f {
         Field::BrushSize => app.s.set_brush_size(num),
@@ -803,6 +906,7 @@ fn set_field(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo, f: F
             if let Value::Color(c) = value {
                 app.s.fg = c;
                 rebuild = true;
+                restyle = true;
             }
         }
         Field::BgColor => {
@@ -845,6 +949,26 @@ fn set_field(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo, f: F
             e = app.s.zoom_to(num / 100.0, None);
             e.dom = false;
         }
+        Field::TextFamily => {
+            o.text_family = index.min(TEXT_FAMILIES.len() - 1);
+            restyle = true;
+        }
+        Field::TextSize => {
+            o.text_size = num.clamp(4.0, 1000.0);
+            restyle = true;
+        }
+        Field::TextBold => {
+            o.text_bold = flag;
+            restyle = true;
+        }
+        Field::TextItalic => {
+            o.text_italic = flag;
+            restyle = true;
+        }
+        Field::Text => {}
+    }
+    if restyle {
+        e = e.merge(app.s.restyle_text(&|spec: &TextSpec| azul_text(&*info, spec)));
     }
     if rebuild {
         e.dom = true;

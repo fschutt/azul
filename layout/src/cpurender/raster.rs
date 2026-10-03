@@ -4028,7 +4028,8 @@ fn render_text_prerendered_lcd(
     true
 }
 
-fn render_text(
+/// One glyph run into `pixmap` (also `text_raster`'s rasteriser).
+pub(super) fn render_text(
     glyphs: &[GlyphInstance],
     font_hash: FontHash,
     font_size_px: f32,

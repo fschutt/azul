@@ -11,16 +11,12 @@
 //! `S3Drive` replaces it with no other change. Every call blocks, so the app
 //! makes them on an azul `Thread`, never in a callback.
 
-use std::path::PathBuf;
-
 use azul_storage::{Drive, ListRequest};
 
 use crate::model::Project;
 
 /// The app's folder at the root of the user's data.
 pub const APP_FOLDER: &str = "videocut";
-/// The environment variable naming the data root.
-pub const DATA_VAR: &str = "AZVIDEOCUT_DATA";
 
 /// `name` as one key segment: no separators.
 fn segment(name: &str) -> String {
@@ -60,16 +56,6 @@ pub fn project_id_of(key: &str) -> Option<&str> {
     let rest = key.strip_prefix(APP_FOLDER)?.strip_prefix('/')?;
     let (id, file) = rest.split_once('/')?;
     (file == "project.json" && !id.is_empty()).then_some(id)
-}
-
-/// The data root: `$AZVIDEOCUT_DATA`, else `<data dir>/azul`, else
-/// `./azul-data`.
-#[must_use]
-pub fn data_root(env: Option<String>, data_dir: Option<PathBuf>) -> PathBuf {
-    if let Some(v) = env.map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) {
-        return PathBuf::from(v);
-    }
-    data_dir.map_or_else(|| PathBuf::from("azul-data"), |d| d.join("azul"))
 }
 
 /// Writes `project.json`.
