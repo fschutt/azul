@@ -104,7 +104,7 @@ fn a_page_past_the_end_has_no_svg_no_text_and_a_zero_size() {
     assert!(pdf.page_to_svg(2).is_none());
     assert!(pdf.page_to_svg(usize::MAX).is_none());
     assert_eq!(pdf.page_size(2), PdfPageSize::default());
-    assert!(pdf.page_text(2).as_ref().is_empty());
+    assert!(pdf.page_text(2).as_slice().is_empty());
 }
 
 #[test]
@@ -112,7 +112,7 @@ fn the_text_of_a_page_is_extracted_for_search() {
     let pdf = ParsedPdf::from_bytes(&two_pages());
     let text: Vec<String> = pdf
         .page_text(0)
-        .as_ref()
+        .as_slice()
         .iter()
         .map(|s| s.as_str().to_string())
         .collect();
@@ -120,7 +120,7 @@ fn the_text_of_a_page_is_extracted_for_search() {
         text.join(" ").contains("Hello page one"),
         "page 1's text runs: {text:?}"
     );
-    assert!(pdf.page_text(1).as_ref().is_empty(), "page 2 has no text");
+    assert!(pdf.page_text(1).as_slice().is_empty(), "page 2 has no text");
 }
 
 #[test]
