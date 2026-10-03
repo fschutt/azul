@@ -17,3 +17,12 @@ NOTHING when a frame changed nothing a11y-visible. Brief: scripts/waves/wave8/PL
 
 ## Open questions
 - (none yet)
+
+## Measurement (2026-10-03, prebuilt AzWidgets of 0de2a2529, headless 900x1300, /Users/fschutt/Development/azul-work/a11yp8/)
+- `a11y_update_tree` = 2880 / 2906 / 2956 / 3041 / 3179 / 3194 us per call (AZ_PROFILE=cpu, 3472-node page, 4 DOMs).
+- Unprofiled: a knob tick (incremental_relayout) 19.9 - 21.7 ms, a no-op relayout 11.1 - 11.6 ms -> the a11y
+  rebuild is ~15% of a tick and ~27% of a no-op relayout.
+- It runs after EVERY layout pass (window.rs layout_and_generate_display_list_impl tail, `update_a11y_tree`); the
+  lint printed right after it shows in every tick. Its span is missing from the tick tables only because spans
+  closing after a relayout's last per-DOM flush never reach a [CPU] table (`shell_incremental_relayout`,
+  `register_scroll_nodes` are missing the same way; a get_profile_report right after a tick drained nothing).
