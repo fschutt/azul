@@ -490,18 +490,25 @@ fn report(
 }
 
 /// The window is asked to close: held while the document is dirty (and
-/// someone listens), and the app asked.
+/// someone listens), and the app asked. "Dirty" is the app's answer NOW
+/// when it gave a dirty check, else the flag the DOM was built with.
 extern "C" fn on_close_requested(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let (on_event, hold) = {
+    let (on_event, dirty_check, dirty) = {
         let Some(g) = data.downcast_ref::<GuardRef>() else {
             return Update::DoNothing;
         };
-        (
-            g.on_event.clone(),
-            g.dirty && !g.confirmed && g.on_event.is_some(),
-        )
+        if g.confirmed || g.on_event.is_none() {
+            return Update::DoNothing;
+        }
+        (g.on_event.clone(), g.dirty_check.clone(), g.dirty)
     };
-    if !hold {
+    let dirty = match dirty_check.as_ref() {
+        Some(CloseGuardDirtyCheck { refany, callback }) => {
+            callback.invoke(refany.clone(), info) == CloseGuardDocumentState::Unsaved
+        }
+        None => dirty,
+    };
+    if !dirty {
         return Update::DoNothing;
     }
     let update = report(&on_event, info, CloseGuardEventKind::Ask);
