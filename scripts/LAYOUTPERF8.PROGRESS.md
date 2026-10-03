@@ -48,6 +48,8 @@ with counts, fix, expected numbers. Report scripts/LAYOUTPERF8B_<date>.md.
   inline content after a block (the knob-frame cost test is RED again)
 - cea6b0840 GREEN: old_layout_index_of - the trailing inline run's children are matched with their old
   layout nodes (they were rebuilt fresh every reconcile)
+- 137b1b2a4 RED a_virtual_view_leaves_its_hosts_font_chains_in_place (registered in all.rs)
+- a669a62a5 GREEN: child-DOM pass stashes/restores the host's font chains + signature (merge, host wins)
 
 ## 8B FINDINGS
 - The coordinator's "VirtualView passes 23-86 ms" are MICROseconds (the [CPU] table is in µs): each VV
@@ -58,6 +60,14 @@ with counts, fix, expected numbers. Report scripts/LAYOUTPERF8B_<date>.md.
   (size_cache_miss_sizekey_w 266 / _both 252, ifc_reflow_width_dd_big 272).
 - the knob chain itself: 11 misses (n27, n32, n62, n65, n66).
 
+- VirtualView passes per tick: layout_and_generate_display_list_impl clears EVERY layout result and
+  calls virtual_view_manager.reset_all_invocation_flags() on every relayout -> every view callback is
+  re-invoked and its child DOM laid out cold every tick (3 x 0.14-0.48 ms here). DOCUMENTED, not fixed
+  (VV lifecycle design: needs an identity latch for the host's VirtualViewNode; plan in the report).
+- font_chain_resolve 2.2 ms per relayout: the root re-resolved its fonts every pass because each VV
+  child's pass overwrote the single chain cache + signature slot -> fixed (a669a62a5).
+- Unprofiled (no AZ_PROFILE) tick on the wave-8 build: 39-43 ms; no-op relayout 12.4-12.7 ms; the CPU
+  profiler itself adds ~15 ms per tick. DOM lints (AZ_SUPPRESS=all) change nothing measurable.
+
 ## 8B NEXT
-- VirtualView passes: why laid out on a knob tick (cheap, 0.5-1 ms total) - look, document or fix
 - report scripts/LAYOUTPERF8B_2026_10_03.md
