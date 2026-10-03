@@ -14,14 +14,19 @@ Branch: wt/chart7 (base 2e55eef06)
 - 94ca634f2 pointer tests (hit / tooltip / selection / keys over the built state)
 - 59d043baf layout/tests/a_chart_paints_its_series_through_the_svg_path.rs (cpurender pixel counts), all.rs append
 - review pass of build / legend / table / events done (no open compile doubts beyond the report's list)
+- b5b194787 examples/azul-dashboard/src/chart.rs (ChartSource trait, Charts state, line_points, bar_totals,
+  charts_dom, on_point_select / on_bar_select, unit tests)
+- 8acd38111 doc/guide/en/dashboard-tutorial.md
 
 ## IN PROGRESS
 - item 1: layout/src/widgets/chart.rs, written in pieces (types -> math -> geometry -> build -> callbacks)
 
 ## NEXT
-- item 5: examples/azul-dashboard/src/chart.rs (the dashboard's chart half, against the GENERATED azul crate
-  API names - read dll/ or examples/azul-drive for how the generated crate is imported)
-- then doc/guide/en/dashboard_tutorial.md, then the report scripts/CHART7_2026_10_03.md (api.json list there)
+- write the report scripts/CHART7_2026_10_03.md: built, commit list (git log 2e55eef06..HEAD), the api.json
+  list (Chart.*, ChartKind, ChartPoint, ChartSeries, ChartColor, ChartSelection, ChartOnSelect triple, the Vecs /
+  Options), the exact lib.rs lines for azul-dashboard (`mod chart;` + Charts in the app state + impl ChartSource +
+  charts_dom call), least-sure-to-compile spots, test commands, PAINT7 note (SVG masks re-rasterised per display
+  list, no cache), what is left. Commit it, update this file to DONE.
 
 ## Design (decided, read before continuing)
 - DRAWING: the engine's SVG path - a plot div carries `SvgNodeData::ViewBox{0,0,pw,ph}` (1 unit = 1 px), every
@@ -51,6 +56,9 @@ Branch: wt/chart7 (base 2e55eef06)
   stroke widths need the pixel size at build time.
 
 ## Decisions
+- the tutorial is doc/guide/en/dashboard-tutorial.md (hyphenated like the other guide slugs).
+- the dashboard's chart module owns its state (`chart::Charts`) in its own RefAny; the app reaches it through
+  the `ChartSource` trait (4 one-line methods) - the module never names DATATABLE7's types.
 - examples/azul-dashboard is not in the base (DATATABLE7 creates it on its own branch): the chart module goes to
   examples/azul-dashboard/src/chart.rs anyway; the lib.rs lines are named in the report.
 
