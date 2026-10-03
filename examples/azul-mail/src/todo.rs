@@ -31,7 +31,28 @@ pub struct TodoTasks {
 /// store that cannot be read is empty (and says why on stderr).
 #[must_use]
 pub fn load(root: &Path) -> TodoTasks {
-    todo!("{root:?}")
+    let loaded = match task_store::load_all(&LocalDrive::new(root)) {
+        Ok(loaded) => loaded,
+        Err(e) => {
+            eprintln!("[azmail] the tasks in {} could not be read: {e}", root.display());
+            return TodoTasks {
+                tasks: Vec::new(),
+                new_task_list: DEFAULT_LIST.to_string(),
+            };
+        }
+    };
+    for skipped in &loaded.skipped {
+        eprintln!("[azmail] left out {}: {}", skipped.key, skipped.reason);
+    }
+    let settings = loaded.settings.clone().unwrap_or_default();
+    let new_task_list =
+        default_list(&loaded.lists, &settings).unwrap_or_else(|| DEFAULT_LIST.to_string());
+    let mut tasks = loaded.tasks;
+    sort(&mut tasks);
+    TodoTasks {
+        tasks,
+        new_task_list,
+    }
 }
 
 /// A new task titled `title` (trimmed) at the end of `list`, with the id `id`; `None` for an
@@ -44,24 +65,43 @@ pub fn new_task(
     id: String,
     now: NaiveDateTime,
 ) -> Option<Task> {
-    todo!("{title} {list} {} {id} {now}", tasks.len())
+    let title = title.trim();
+    (!title.is_empty()).then(|| {
+        let mut task = Task::new(id, list.to_string(), title.to_string(), now);
+        task.order = next_order(tasks, list);
+        task
+    })
 }
 
 /// Ticks a task off, or opens a done one again. A repeating task hands back its next
 /// occurrence under `next_id` (to save and show too), as AzTasks does.
 pub fn toggle_done(task: &mut Task, next_id: String, now: NaiveDateTime) -> Option<Task> {
-    todo!("{} {next_id} {now}", task.id)
+    if task.is_done() {
+        task.reopen(now);
+        None
+    } else {
+        task.complete(next_id, now)
+    }
 }
 
 /// Open tasks first, then done ones, each by title.
 pub fn sort(tasks: &mut [Task]) {
-    todo!("{}", tasks.len())
+    tasks.sort_by(|a, b| {
+        (a.is_done(), a.title.to_lowercase(), &a.id).cmp(&(
+            b.is_done(),
+            b.title.to_lowercase(),
+            &b.id,
+        ))
+    });
 }
 
 /// The file job that writes `task` to its file in the store.
 #[must_use]
 pub fn put_job(task: &Task) -> FileJob {
-    todo!("{}", task.id)
+    FileJob::Put {
+        key: task.key(),
+        bytes: task_to_json(task).into_bytes(),
+    }
 }
 
 #[cfg(test)]
