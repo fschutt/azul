@@ -2438,6 +2438,26 @@ pub fn get_background_contents(
         .collect()
 }
 
+/// The `background-repeat` values declared on `node_id` (CSS Backgrounds 3
+/// s3.4), one per background layer in layer order - a shorter list repeats
+/// to cover every layer. Empty when none is declared: every layer then
+/// repeats in both directions (`repeat`, the initial value).
+#[must_use]
+pub fn get_background_repeats(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Vec<azul_css::props::style::StyleBackgroundRepeat> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_background_repeat(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .map(|v| v.iter().copied().collect())
+        .unwrap_or_default()
+}
+
 /// [`get_background_contents`] before its `system:` colours are resolved:
 /// the node's own layers, or - for an `<html>` whose own paint nothing - its
 /// `<body>`'s ([`body_background_propagated_to`]).
