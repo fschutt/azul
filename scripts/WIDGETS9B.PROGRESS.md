@@ -48,9 +48,11 @@ worktree guard - edit files with the Edit tool; `rustfmt --edition 2021 <file>` 
 - ReferencePicker tests + manifest: 11402b2af. ALL FOUR WIDGETS BUILT.
 - House rule acknowledged (coordinator): never send personal data to outside services (this task calls none).
 
+- 70d451827 the report scripts/WIDGETS9B_2026_10_03.md. TASK COMPLETE.
+
 ## NEXT (exact)
-6. Write and commit scripts/WIDGETS9B_2026_10_03.md (what was built, commits, api.json list, least-sure spots,
-   test commands, left). OLD: 5. ReferencePicker DOM tests (`mod dom_tests` at the end of reference_picker.rs) + fixtures::sample()
+- Nothing left for this task. If resumed: only follow-ups from the parent's compile / test run (see the report's
+  "Least sure to compile"). OLD: 5. ReferencePicker DOM tests (`mod dom_tests` at the end of reference_picker.rs) + fixtures::sample()
    (customers, query "acme", create label "Create customer", named "Customer"): options = matching records +
    create row; detail lines; status "No matches" for "zzz"; root class REFERENCE_PICKER_CLASS; field text =
    query / picked label; click an option (rv::fire Click on the option node) -> Pick with id; click the
