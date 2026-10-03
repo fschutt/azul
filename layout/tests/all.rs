@@ -866,3 +866,5 @@ mod focusing_a_search_field_by_its_id_focuses_its_text;
 mod painted;
 #[path = "the_root_background_covers_the_whole_canvas.rs"]
 mod the_root_background_covers_the_whole_canvas;
+#[path = "an_inline_box_paints_its_border_padding_and_margin.rs"]
+mod an_inline_box_paints_its_border_padding_and_margin;

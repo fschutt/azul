@@ -65,6 +65,31 @@ impl Painted {
     }
 }
 
+impl Painted {
+    /// The bounding box `(x0, y0, x1, y1)` (exclusive ends) of every pixel
+    /// that is `color` (each channel within `tolerance`), or `None`.
+    pub fn bounds_of(
+        &self,
+        color: (u8, u8, u8),
+        tolerance: u8,
+    ) -> Option<(usize, usize, usize, usize)> {
+        let mut found: Option<(usize, usize, usize, usize)> = None;
+        for y in 0..self.height {
+            for x in 0..self.width {
+                if self.is(x, y, color, tolerance) {
+                    found = Some(match found {
+                        None => (x, y, x + 1, y + 1),
+                        Some((x0, y0, x1, y1)) => {
+                            (x0.min(x), y0.min(y), x1.max(x + 1), y1.max(y + 1))
+                        }
+                    });
+                }
+            }
+        }
+        found
+    }
+}
+
 /// Whether `a` is `b`, each channel within `tolerance`.
 pub fn close(a: (u8, u8, u8), b: (u8, u8, u8), tolerance: u8) -> bool {
     a.0.abs_diff(b.0) <= tolerance
