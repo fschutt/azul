@@ -12,6 +12,18 @@
 //! The settings are read once at start (before the window exists); every write runs on an azul
 //! Thread through azul-storage's `LocalDrive` (an `S3Drive` later), never in a callback.
 
+use std::path::{Path, PathBuf};
+
+use azul::{
+    file::FilePath,
+    prelude::*,
+    task::{Thread, ThreadId, ThreadReceiveMsg, ThreadReceiver, ThreadSender, ThreadWriteBackMsg},
+};
+use azul_appkit::{
+    files::{run_jobs, FileJob, FileOutcome},
+    settings::AppSettings,
+};
+use azul_storage::{Drive, LocalDrive};
 use serde::Serialize;
 
 use crate::chat::ChatMessage;
@@ -126,6 +138,108 @@ impl MeetingRecord {
         self.people.push(name.to_string());
         true
     }
+}
+
+// ==== Reading at start, writing on a Thread ====
+
+/// The data root: `--data-dir`, `$AZLIN_DATA`, else `<data dir>/Azlin` (azul-appkit's rule).
+#[must_use]
+pub fn data_root(flag: Option<&Path>) -> PathBuf {
+    let os_dir = FilePath::get_data_dir()
+        .into_option()
+        .map(|dir| PathBuf::from(dir.inner.as_str()))
+        .filter(|p| !p.as_os_str().is_empty());
+    azul_appkit::data::data_root(
+        flag,
+        std::env::var(azul_appkit::data::DATA_VAR).ok().as_deref(),
+        os_dir,
+    )
+}
+
+/// The settings saved last time (the defaults without a file), read once before the window
+/// opens - no callback waits on it.
+#[must_use]
+pub fn load_settings(root: &Path) -> AppSettings {
+    let key = settings_key();
+    match LocalDrive::new(root.to_path_buf()).get(&key) {
+        Ok(bytes) => {
+            let (settings, problem) = AppSettings::parse(&String::from_utf8_lossy(&bytes));
+            if let Some(problem) = problem {
+                eprintln!("[azmeet] {key}: {problem}");
+            }
+            settings
+        }
+        Err(_) => AppSettings::default(),
+    }
+}
+
+struct SaveInit {
+    root: PathBuf,
+    files: Option<Vec<(String, Vec<u8>)>>,
+}
+
+/// What a save hands back to the UI thread.
+struct Saved {
+    outcomes: Vec<FileOutcome>,
+}
+
+/// Runs on the worker thread: the files into the data tree, then the outcomes back.
+extern "C" fn save_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: ThreadReceiver) {
+    let Some((root, files)) = init.downcast_mut::<SaveInit>().and_then(|mut i| {
+        let files = i.files.take()?;
+        Some((i.root.clone(), files))
+    }) else {
+        return;
+    };
+    let drive = LocalDrive::new(root);
+    let jobs = files
+        .into_iter()
+        .map(|(key, bytes)| FileJob::Put { key, bytes })
+        .collect();
+    let outcomes = run_jobs(&drive, jobs);
+    let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::create(
+        on_saved,
+        RefAny::new(Saved { outcomes }),
+    )));
+}
+
+/// On the UI thread: `AZMEET_SAVED <key>` per file written (for scripts), errors on stderr.
+extern "C" fn on_saved(_data: RefAny, mut msg: RefAny, _info: CallbackInfo) -> Update {
+    let Some(saved) = msg.downcast_ref::<Saved>() else {
+        return Update::DoNothing;
+    };
+    for outcome in &saved.outcomes {
+        match (outcome, outcome.error()) {
+            (FileOutcome::Put { key, .. }, None) => println!("AZMEET_SAVED {key}"),
+            (_, Some(e)) => eprintln!("[azmeet] not saved: {e}"),
+            _ => {}
+        }
+    }
+    Update::DoNothing
+}
+
+/// Writes `files` (key, bytes) into the data tree at `root` on an azul Thread.
+pub fn save(info: &mut CallbackInfo, root: &Path, files: Vec<(String, Vec<u8>)>) {
+    if files.is_empty() {
+        return;
+    }
+    info.add_thread(
+        ThreadId::unique(),
+        Thread::create(
+            RefAny::new(SaveInit {
+                root: root.to_path_buf(),
+                files: Some(files),
+            }),
+            RefAny::new(()),
+            save_thread,
+        ),
+    );
+}
+
+/// The settings file's (key, bytes), for [`save`].
+#[must_use]
+pub fn settings_file(settings: &AppSettings) -> (String, Vec<u8>) {
+    (settings_key(), settings.to_json().into_bytes())
 }
 
 #[cfg(test)]
