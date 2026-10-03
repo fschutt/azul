@@ -25,7 +25,9 @@ POWER: battery warning from the coordinator - commit after every small unit, no 
 - 1f5b490f1 / 2cd4e4c30 RED/GREEN html.rs escape_into -> push_text / push_attribute on Xml::encode_text /
   encode_attribute (needs the 2 api.json fns HYGIENE proposed); third decoder: already gone (engine parser);
   compose.rs escaper: already gone (RichTextDoc serializer). DEL now stays (legal XML) - test restated.
-- NEXT NOW: step 7 (StatusBarZoom for the reading pane), then LOOK item 5 (dark paper frame / 600px table)
+- 710335921 / 45cd36ca3 RED/GREEN status bar zoom (StatusBarZoom 50..200, -/+ by 10, slider; plain paper
+  font/line scale, HTML paper em wrapper when != 100; settings "zoom"); 00edadf34 E2E zoom_in + restart check
+- NEXT NOW: LOOK item 5 (dark paper frame / 600px table wider than the paper) - read ReadingPane body css
 
 ## NEXT (exact)
 1. ui_main View tab: drop the Look group (theme/mode buttons) -> File > Options opens the kit settings page
