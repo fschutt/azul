@@ -67,9 +67,16 @@ Never compile; never touch layout/src/solver3/page_breaks.rs (nor display_list.r
    GREEN 531e3a19e (fc.rs layout_cell_for_height block branch: content height = the final layout's
    overflow_content_size only; the `measured` (min-content measurement used_size) term dropped).
    Expected: mailgun billing 26 -> ~0.
-6. NEXT: group D (03_outlook_reply: <p> 17 tall vs Chrome 16, y drifts +5..+14). Probe its markup
-   (target/refci/mail-wave8-base/exploration_03_outlook_reply/chrome.html azr-15/17), then E (04_receipt
-   rows 31 vs 34, <hr> 1 vs 2), F (leemunroe a x +4).
+6. DONE (no engine fix, DECIDED) group D: ROOT CAUSE = the generic `sans-serif` on macOS. Chrome maps it
+   to Helvetica (Blink's Mac default), azul to Helvetica Neue: rust-fontconfig 5.0.0 (crates.io)
+   `FcFallbackConfig::os_defaults` MacOS lists ["Helvetica Neue", "Helvetica", "Lucida Grande"]. Calibri
+   is not installed, so "Calibri",sans-serif at 11pt = Helvetica 16px lines in Chrome, Helvetica Neue
+   17px in azul (probe target/mailref8/d1.json: widths 125.52 vs 126.83 identify the faces). Not changed:
+   it is the external crate's per-OS table and a global look change for every app's `sans-serif`; the
+   fix is one line there (Helvetica first on macOS) or `FcFontCache::set_fallback_config` at startup -
+   listed for the user in the report. Also seen: a family that is missing with NO generic falls back to
+   sans-serif in azul, to the standard font (Times) in Chrome.
+7. NEXT: group E (04_receipt rows 31 vs 34, <hr> 1 vs 2), then F (leemunroe a x +4).
 - Group A expected effect (after the parent's build): cerberus x3 ~390 boxes y -14 -> 0, azr-1/azr-2
   heights fixed (paper = content). Left in A: an IFC's height is its items' bounds, not its line boxes
   (strut descent below an inline-block: t1 wrap 46 vs Chrome 60, t3 30 vs 34) - text3 cache.rs
