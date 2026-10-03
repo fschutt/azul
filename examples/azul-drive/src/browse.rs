@@ -432,6 +432,13 @@ pub fn crumbs_of(place: &Place, drive_name: &str) -> Vec<(String, Place)> {
     trail
 }
 
+/// `n` things as Explorer counts them: "1 item", "3 items", "0 items".
+#[must_use]
+pub fn counted(n: usize, one: &str, many: &str) -> String {
+    let _ = one; // RED
+    format!("{n} {many}")
+}
+
 /// A `file://` URL of a local path, percent-encoded, for the OS to open.
 #[must_use]
 pub fn file_url(path: &Path) -> String {
@@ -797,6 +804,14 @@ mod tests {
                 ("inbox".to_string(), Place::folder("s3-1", "mail/inbox/")),
             ]
         );
+    }
+
+    #[test]
+    fn one_thing_is_counted_in_the_singular_and_every_other_number_in_the_plural() {
+        assert_eq!(counted(1, "drive", "drives"), "1 drive");
+        assert_eq!(counted(2, "drive", "drives"), "2 drives");
+        assert_eq!(counted(0, "item", "items"), "0 items");
+        assert_eq!(counted(1, "item selected", "items selected"), "1 item selected");
     }
 
     #[cfg(not(windows))]
