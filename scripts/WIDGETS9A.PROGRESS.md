@@ -18,8 +18,10 @@ Commit messages via `printf ... > /tmp/w9a_msg.txt && git commit -F /tmp/w9a_msg
 - IconGrid: a DONE (20a1edf3d skeleton), b DONE (2bb488537 RED), c PARTLY: db91378c9 geometry / hit_test / item_rect
   / marquee_keys / scroll_by GREEN (+ data_table `thumb()` pub(crate)), ff81da335 press / drag_move / drag_end /
   grid_key GREEN, b23d7f92c build + handlers + look_for GREEN, 1e0cc4a13 looks (d), 75c5ce86f manifest (e: every_widget_dom,
-  CHROME, wheel_ownership). NEXT: f - the report `scripts/WIDGETS9A_2026_10_03.md` (template CHART7's), then a
-  read-through of the three files for compile errors.
+  CHROME, wheel_ownership), 38c480772 IconGridDrag field order. Step f DONE: the report
+  `scripts/WIDGETS9A_2026_10_03.md` is committed (parts 1-4). NEXT (optional polish): a read-through of
+  icon_grid.rs / token_input.rs for compile errors; anything found -> fix commit + update the report's
+  "Least sure" list.
 
 ## NEXT (exact) - IconGrid in `layout/src/widgets/icon_grid.rs` (model: `data_table.rs`, `thumbnail_strip.rs`)
 a. Skeleton + `pub mod icon_grid;` APPENDED after `pub mod token_input;` in widgets/mod.rs. Types (all repr C):
