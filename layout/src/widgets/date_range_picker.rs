@@ -683,14 +683,18 @@ fn day_face(
     today: DatePickerState,
     faces: &crate::widgets::date_picker::CellFaces,
 ) -> azul_css::dynamic_selector::CssPropertyWithConditionsVec {
-    use crate::widgets::date_picker::{ringed, washed};
+    // The faces are merged parts (both themes' blocks when the picker
+    // follows the app theme): a state part goes ON its base with
+    // `stack_parts`, never by appending (a themed base declaration would
+    // outrank a shared one appended after it).
+    use crate::widgets::themes::theme_blocks::stack_parts;
     let face = match shown {
         Some(r) if date == r.start || date == r.end => faces.selected.clone(),
-        Some(r) if r.contains(date) => washed(&faces.other, faces),
+        Some(r) if r.contains(date) => stack_parts(&faces.other, &faces.in_range),
         _ => faces.other.clone(),
     };
     if date == today {
-        ringed(&face, faces)
+        stack_parts(&face, &faces.today)
     } else {
         face
     }
