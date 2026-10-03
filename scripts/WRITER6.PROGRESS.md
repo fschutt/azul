@@ -30,11 +30,10 @@ Branch `wt/writer6` from `25d78e309`. Brief: scripts/waves/wave6/WRITER6.md.
 
 - 08f6e5586 AzWriter Cow fix, 9e5086d05 scripts/azwriter_e2e.py, 78bd32e87 AzNotes `__aznotes_` ids.
 
+- ef9a62f7a AzNotes on azul-appkit (args/data root/settings page/About/shortcuts; E2E --data-dir).
+
 ## IN PROGRESS
-- NEXT: AzNotes on azul-appkit: kit (args, data root via create_kit -> INFRA6 migration of `AzNotes/`),
-  settings page = kit::settings_page with the app's sections (fixes N3), About = AboutDialog, shortcuts
-  table = appkit Shortcut list. Files: examples/azul-notes/src/{lib.rs,args.rs,ui.rs}.
-- THEN: N1 layout tree investigation for the report (no headless runs while power is unstable), report.
+- NEXT: the report scripts/WRITER6_2026_10_03.md (api.json list, least-sure spots, test commands, left).
 - Scratch helpers (api.json lookup script) live in the session scratchpad; it was wiped by the restart.
 - USER asked "don't we already have pagination?": yes - paginate.rs does NOT re-implement it. It calls the
   engine's Pdf::compute_pagination (PaginationSnapshot::break_path) and only maps each break path to the
@@ -56,6 +55,12 @@ AzNotes (scripts/aznotes_e2e.py PASSES against the prebuilt binary):
 - N1 a check item renders TWICE: a phantom line "* * call the bakery" (two list markers) above the real
   check line; the DOM is right (4 blocks, the check `li` = list-style none, position relative, the box an
   abspos island after the runs). Fresh load (restart) shows the same -> layout, not the edit glue.
+  ROOT (layout tree dump, prebuilt): the check `li` (dom 268) is a Block FC whose children are its ::marker
+  (dom 268 again, Inline - generated although list-style-type is none), an ANONYMOUS InlineWrapper with the
+  text, and the abspos island (dom 270) as an in-flow "Inline" child. The out-of-flow island made the tree
+  builder wrap the inline content in an anonymous block (CSS 2.2 9.2.1.1: only IN-FLOW block children do),
+  and the marker / text paint on a line of their own above the item. Owner: MAILENG6 (solver3 layout_tree);
+  RED suggestion in the report.
 - N2 the checkbox island's colour `system:accent` resolves to #53590200 (alpha 0) in the HTML dump (the
   icon still draws blue - check which colour the display list takes).
 - N3 the settings screen: "Back to notes" floats top-left over an empty strip, a stray grey bar at the top
