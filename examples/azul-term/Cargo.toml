@@ -1,0 +1,40 @@
+[package]
+name = "AzTerm"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzTerm - a terminal emulator on the public azul API: tabs of shells on
+    a PTY (alacritty_terminal: the VT state machine and the PTY - forkpty
+    on Unix, ConPTY on Windows), each drawn by azul's TerminalView (a
+    VirtualView host scrolled in whole lines, so a scrollback of 100,000
+    lines costs what a screen does), xterm keys, bracketed paste, pointer
+    reports, the 16 / 256 / true colours of the app theme's palette.
+    Profiles and settings are files in the user's data folder, written
+    through azul-storage's Drive from a Thread (azul-appkit's file jobs).
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+# The Azlin app skeleton: the common switches, the data root, the settings page, About, file jobs.
+azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+# The seed of the ids that leave the process (azul_storage::ids::random_seed).
+azul-storage = { path = "../azul-storage" }
+# The VT state machine (grid, scrollback, modes, selection) AND the PTY (tty: forkpty-equivalent on
+# Unix, ConPTY on Windows, TIOCSWINSZ on resize) with its reader thread (event_loop). Zed's
+# embedded terminal runs on it too. See scripts/TERM9_2026_10_03.md for why not vt100 / termwiz /
+# vte alone / portable-pty.
+alacritty_terminal = "0.26"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lib]
+name = "azterm"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "AzTerm"
+path = "src/main.rs"
