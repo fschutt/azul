@@ -4987,6 +4987,15 @@ fn establishes_new_bfc<T: ParsedFontTrait>(
     if cold.and_then(|c| c.anonymous_type) == Some(AnonymousBoxType::TableWrapper) {
         return true;
     }
+    // CSS 2.2 s9.4.1: a table cell establishes a BFC - an ANONYMOUS cell
+    // too (s17.2.1: the one a `display: table` box's `<p>` sits in). With
+    // no DOM node it answered "no", its first child's top margin and its
+    // last child's bottom margin escaped the cell, and no box outside a
+    // cell takes them: `display: table; padding: 12px` around `<p>Hi</p>`
+    // was 44px tall, Chrome 76 (MAIL6).
+    if matches!(node.formatting_context, FormattingContext::TableCell) {
+        return true;
+    }
     let Some(dom_id) = node.dom_node_id else {
         return false;
     };
