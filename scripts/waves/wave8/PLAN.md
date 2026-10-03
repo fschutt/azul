@@ -137,3 +137,13 @@ the icon adjustments. MAILREF8 owns solver3 sizing / tables - keep your solver3 
    buttons, chips, avatars - run the prebuilt AzWidgets and a few apps headless before / after reasoning) and adjust
    their CSS (line-height: 0 / display: block / vertical-align / explicit heights - whatever Chrome-correct CSS gives
    the same look) so they keep their size. List every widget touched and why.
+
+## WAYLAND8 - added scope (user, 2026-10-03: "reduce memory ... dropping any duplicate buffer ... and what x11 does")
+KWin 6.7 (Xaver Hugl, https://zamundaaa.github.io/wayland/2026/05/06/making-wl-shm-fast.html) imports a client's
+memfd wl_shm buffer through udmabuf as a dmabuf - zero copies - IF the buffer's offset / size are page-aligned and the
+stride matches the driver (typically a multiple of 256 bytes); otherwise it copies (a blocking CPU copy + a GPU copy).
+Ours: memfd, two slots in one pool at idx * stride * height (not page-aligned), stride = width * 4 (not 256-aligned).
+Do: (1) 256-byte stride + page-aligned slot offsets (or a pool per slot); (2) drop the spare slot when idle, re-create
+it on demand - an idle window holds ONE buffer; (3) note the ARGB8888-only swizzle copy; (4) X11: the CPU path uses
+plain XPutImage (socket copy + server copy) - report an MIT-SHM (XShmPutImage) plan with bytes per frame before /
+after, implement if time allows (the X11 files are WAYLAND8's for this).
