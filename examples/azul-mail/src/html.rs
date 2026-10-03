@@ -1102,7 +1102,20 @@ mod tests {
         );
         // `&#0;` is U+FFFD, as a browser reads it.
         assert_eq!(inner("&#150; &#0; x"), "\u{2013} \u{fffd} x");
-        assert_eq!(inner("a\u{1}b\u{7f}c"), "abc");
+        // What XML 1.0 cannot carry is left out (a C0 control); DEL is XML and stays, as in
+        // the browser's tree - the one encoder decides (HYGIENE F5).
+        assert_eq!(inner("a\u{1}b\u{7f}c"), "ab\u{7f}c");
+    }
+
+    /// The markup is written by azul's one encoder (`Xml::encode_text` /
+    /// `Xml::encode_attribute`, HYGIENE F5) - no escaper of AzMail's own: in an attribute both
+    /// quotes are references, in text neither is.
+    #[test]
+    fn markup_is_written_by_azuls_one_encoder() {
+        assert_eq!(
+            inner("<a href=\"https://x.example/?q='a'&r=&quot;b&quot;\">'x' \"y\"</a>"),
+            "<a href=\"https://x.example/?q=&apos;a&apos;&amp;r=&quot;b&quot;\">'x' \"y\"</a>"
+        );
     }
 
     #[test]
