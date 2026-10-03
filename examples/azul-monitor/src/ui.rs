@@ -57,17 +57,25 @@ fn line(text: impl Into<AzString>, css: &str) -> Dom {
 /// The points of a history for a chart: x in seconds before the newest
 /// reading (negative, the newest at 0), `seconds_per_reading` apart.
 #[must_use]
+#[allow(clippy::cast_precision_loss)] // at most a few hundred readings
 pub fn chart_points(values: &[f64], seconds_per_reading: f64) -> Vec<ChartPoint> {
-    let _ = (values, seconds_per_reading);
-    todo!("GREEN: chart_points")
+    let newest = values.len().saturating_sub(1);
+    values
+        .iter()
+        .enumerate()
+        .map(|(i, v)| ChartPoint::create(-((newest - i) as f64) * seconds_per_reading, *v))
+        .collect()
 }
 
 /// The top of a rate chart's y axis: a little over the largest reading,
 /// never under 1 KB/s (an idle disk would show noise as cliffs).
 #[must_use]
 pub fn rate_axis_top(histories: &[&History]) -> f64 {
-    let _ = histories;
-    todo!("GREEN: rate_axis_top")
+    let peak = histories
+        .iter()
+        .filter_map(|h| h.max())
+        .fold(0.0_f64, f64::max);
+    (peak * 1.2).max(1024.0)
 }
 
 /// A chart of `series` (name, history) over the last minute.

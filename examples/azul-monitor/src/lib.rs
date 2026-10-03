@@ -157,30 +157,55 @@ pub const SPEED_KEY: &str = "update_ms";
 /// else the default (one reading a second).
 #[must_use]
 pub fn speed_from_setting(value: Option<&str>) -> u64 {
-    let _ = value;
-    todo!("GREEN: speed_from_setting")
+    value
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|ms| SPEEDS.iter().any(|(_, s)| s == ms))
+        .unwrap_or(DEFAULT_INTERVAL_MS)
 }
 
 /// The place of `interval_ms` among [`SPEEDS`] (the default's when it is
 /// none of them).
 #[must_use]
 pub fn speed_index(interval_ms: u64) -> usize {
-    let _ = interval_ms;
-    todo!("GREEN: speed_index")
+    let of = |ms: u64| SPEEDS.iter().position(|(_, s)| *s == ms);
+    of(interval_ms)
+        .or_else(|| of(DEFAULT_INTERVAL_MS))
+        .unwrap_or(0)
 }
 
 /// The status bar's word on the update speed: "Updated every 1 s", "Paused".
 #[must_use]
 pub fn speed_text(interval_ms: u64) -> String {
-    let _ = interval_ms;
-    todo!("GREEN: speed_text")
+    if interval_ms == 0 {
+        return "Paused".to_string();
+    }
+    if interval_ms % 1000 == 0 {
+        format!("Updated every {} s", interval_ms / 1000)
+    } else {
+        format!(
+            "Updated every {}.{} s",
+            interval_ms / 1000,
+            (interval_ms % 1000) / 100
+        )
+    }
 }
 
 /// What the sort is, for the scripts: "CPU desc, Name asc"; "PID" for none.
 #[must_use]
 pub fn sort_text(keys: &[SortKey]) -> String {
-    let _ = keys;
-    todo!("GREEN: sort_text")
+    if keys.is_empty() {
+        return "PID".to_string();
+    }
+    keys.iter()
+        .map(|k| {
+            format!(
+                "{} {}",
+                k.column.title(),
+                if k.descending { "desc" } else { "asc" }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 // ==== State ====
