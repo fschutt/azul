@@ -303,7 +303,9 @@ impl ClockApp {
             notice: String::new(),
             toast: None,
             os_rings,
-            can_notify: cap.available,
+            // The headless backend is "unavailable" (it shows nothing) but
+            // RECORDS every post for `assert_notification`: post there too.
+            can_notify: cap.available || cap.backend.as_str().starts_with("headless"),
             quitting: false,
             fast_tick: None,
             zone: zone_name(),
