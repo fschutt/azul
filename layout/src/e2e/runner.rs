@@ -1242,6 +1242,23 @@ impl Runner {
                                 })
                             })
                             .unwrap_or(false),
+                        // Mirrors the dll shell: a focus with a Paste
+                        // callback (a terminal) asks for the paste chord.
+                        focus_hears_paste: lw
+                            .focus_manager
+                            .get_focused_node()
+                            .and_then(|f| {
+                                let node = f.node.into_crate_internal()?;
+                                let lr = lw.layout_results.get(&f.dom)?;
+                                Some(crate::solver3::getters::node_has_callback_for(
+                                    &lr.styled_dom,
+                                    node,
+                                    azul_core::dom::EventFilter::Focus(
+                                        azul_core::events::FocusEventFilter::Paste,
+                                    ),
+                                ))
+                            })
+                            .unwrap_or(false),
                     },
                 };
                 azul_core::events::default_input_interpreter(&info)

@@ -8319,3 +8319,49 @@ pub(crate) fn date_range_picker_skin(
         summary,
     }
 }
+
+// ==== terminal_view ====
+//
+// Flora's terminal is "Flora ink": the code panel's warm ink ground in BOTH
+// modes (a terminal is a dark room in a light window too) - `#211F1B` under
+// `#E4E1D6` by day, the neutral dark room `#141414` under `#E2E2E2` at
+// night, the code panel's dim `#928D80` / `#858585` as bright black. The
+// ANSI colours come from flora's accent families, lifted to read on the ink:
+// clay for red, leaf for green, slate for blue, plum for magenta, an ochre
+// and a sea-green between them. The cursor is the paper ink, the selection a
+// translucent wash of it.
+
+/// Flora's terminal palette (`TerminalPalette::flora_ink`).
+#[must_use]
+pub(crate) const fn terminal_palette() -> crate::widgets::terminal_view::TerminalPalette {
+    use azul_css::props::basic::color::ColorU as U;
+    use crate::widgets::chart::ChartColor as C;
+    const fn pair(light: u32, dark: u32) -> C {
+        C::create(
+            U::rgb((light >> 16) as u8, (light >> 8) as u8, light as u8),
+            U::rgb((dark >> 16) as u8, (dark >> 8) as u8, dark as u8),
+        )
+    }
+    crate::widgets::terminal_view::TerminalPalette {
+        black: pair(0x3A_362F, 0x2A_2A2A),
+        red: pair(0xC4_7B6E, 0xC8_7E72),
+        green: pair(0x8F_B08C, 0x8C_B08F),
+        yellow: pair(0xD2_B06A, 0xD0_B26E),
+        blue: pair(0x7F_9CB8, 0x82_9FBA),
+        magenta: pair(0xA8_93BD, 0xAA_96BE),
+        cyan: pair(0x7F_AFA8, 0x80_B0AA),
+        white: pair(0xCF_CABC, 0xCF_CFCF),
+        bright_black: pair(0x92_8D80, 0x85_8585),
+        bright_red: pair(0xDB_9488, 0xDD_978B),
+        bright_green: pair(0xA9_C9A5, 0xA8_C9AB),
+        bright_yellow: pair(0xE6_C985, 0xE4_CA88),
+        bright_blue: pair(0x9D_B6CF, 0x9F_B8D0),
+        bright_magenta: pair(0xC0_AED3, 0xC2_B0D4),
+        bright_cyan: pair(0x9C_C8C1, 0x9D_C9C3),
+        bright_white: pair(0xF1_EEE6, 0xF2_F2F2),
+        foreground: pair(0xE4_E1D6, 0xE2_E2E2),
+        background: pair(0x21_1F1B, 0x14_1414),
+        cursor: pair(0xE4_E1D6, 0xE2_E2E2),
+        selection: C::create(U::rgba(0xE4, 0xE1, 0xD6, 0x48), U::rgba(0xE2, 0xE2, 0xE2, 0x40)),
+    }
+}

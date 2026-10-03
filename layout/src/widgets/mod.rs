@@ -561,6 +561,15 @@ pub mod date_range_picker;
 /// lines, a debounced query for the app's (async) search, a "create" row -
 /// built on the combobox; see `reference_picker.rs`.
 pub mod reference_picker;
+/// Terminal view widget.
+///
+/// The surface of a terminal emulator: a grid of styled cells (16 / 256 /
+/// true colours, attributes), a cursor, a selection and a scrollback of any
+/// length - the app's VT engine answers a data callback with the rows in
+/// view, the view is a `VirtualView` host scrolled in whole lines, and keys,
+/// typed text, pastes and the pointer come back as bytes for the program
+/// (xterm encodings). See `terminal_view.rs`.
+pub mod terminal_view;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
@@ -1933,6 +1942,12 @@ mod label_convention {
             "reference_picker",
             super::reference_picker::fixtures::sample().dom(),
         ));
+        // The terminal view: a prompt, a listing, a selection, a cursor
+        // (rendered by its VirtualView; the manifest sees the host).
+        all.push((
+            "terminal_view",
+            super::terminal_view::fixtures::sample().dom(),
+        ));
         all
     }
 
@@ -2320,6 +2335,9 @@ mod wheel_ownership {
                 "data_table".to_string(),
                 // So does the icon grid.
                 "icon_grid".to_string(),
+                // The terminal view scrolls its scrollback by whole lines
+                // (or reports the wheel to the program in it).
+                "terminal_view".to_string(),
             ],
             "a widget started listening for the wheel: a closed control must leave the gesture to \
              the page under it",
@@ -2899,6 +2917,9 @@ mod theme_contrast {
         "toolbar (overflow)",
         // The icon grid: a file manager's / photo library's surface.
         "icon_grid",
+        // The terminal view: a developer window's surface (its rows are
+        // drawn in the terminal palette inside its VirtualView).
+        "terminal_view",
     ];
 
     /// A widget added to the manifest must land in a group, or it is simply

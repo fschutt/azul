@@ -7749,6 +7749,22 @@ pub fn is_node_contenteditable_inherited(styled_dom: &StyledDom, node_id: NodeId
     false
 }
 
+/// Whether `node_id` ITSELF has a callback for `filter` - the focus that
+/// listens for paste (`Focus(Paste)`: a terminal) and so gets the paste
+/// chord as the engine's paste (`InputInterpreterState::focus_hears_paste`).
+#[must_use]
+pub fn node_has_callback_for(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    filter: azul_core::dom::EventFilter,
+) -> bool {
+    styled_dom.node_data.as_container()[node_id]
+        .get_callbacks()
+        .as_ref()
+        .iter()
+        .any(|c| c.event == filter)
+}
+
 /// Whether `host` or anything INSIDE it holds focus.
 ///
 /// The companion to [`is_focus_within_or_above`], and the other half of the

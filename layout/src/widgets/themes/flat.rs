@@ -6759,3 +6759,46 @@ pub(crate) fn date_range_picker_skin(
         summary,
     }
 }
+
+// ==== terminal_view ====
+//
+// Flat's terminal is a sheet of the page white by day with One Half Light's
+// ANSI colours (made for a white ground), and the desktop's night console
+// at night with Windows Terminal's Campbell colours. The cursor is the
+// accent blue by day, white at night; the selection a translucent wash of
+// the accent (by day) or of white (at night) over the text.
+
+/// Flat's terminal palette (`TerminalPalette::flat`).
+#[must_use]
+pub(crate) const fn terminal_palette() -> crate::widgets::terminal_view::TerminalPalette {
+    use azul_css::props::basic::color::ColorU as U;
+    use crate::widgets::chart::ChartColor as C;
+    const fn pair(light: u32, dark: u32) -> C {
+        C::create(
+            U::rgb((light >> 16) as u8, (light >> 8) as u8, light as u8),
+            U::rgb((dark >> 16) as u8, (dark >> 8) as u8, dark as u8),
+        )
+    }
+    crate::widgets::terminal_view::TerminalPalette {
+        black: pair(0x38_3A42, 0x0C_0C0C),
+        red: pair(0xE4_5649, 0xC5_0F1F),
+        green: pair(0x50_A14F, 0x13_A10E),
+        yellow: pair(0xC1_8401, 0xC1_9C00),
+        blue: pair(0x01_84BC, 0x00_37DA),
+        magenta: pair(0xA6_26A4, 0x88_1798),
+        cyan: pair(0x09_97B3, 0x3A_96DD),
+        white: pair(0xA0_A1A7, 0xCC_CCCC),
+        bright_black: pair(0x69_6C77, 0x76_7676),
+        bright_red: pair(0xDF_6C75, 0xE7_4856),
+        bright_green: pair(0x3E_953A, 0x16_C60C),
+        bright_yellow: pair(0xB0_7C00, 0xF9_F1A5),
+        bright_blue: pair(0x40_78F2, 0x3B_78FF),
+        bright_magenta: pair(0xC5_77DD, 0xB4_009E),
+        bright_cyan: pair(0x56_B5C1, 0x61_D6D6),
+        bright_white: pair(0x38_3A42, 0xF2_F2F2),
+        foreground: pair(0x38_3A42, 0xCC_CCCC),
+        background: pair(0xFA_FAFA, 0x0C_0C0C),
+        cursor: pair(0x52_6FFF, 0xFF_FFFF),
+        selection: C::create(U::rgba(0x26, 0x6F, 0xD0, 0x50), U::rgba(0xFF, 0xFF, 0xFF, 0x40)),
+    }
+}
