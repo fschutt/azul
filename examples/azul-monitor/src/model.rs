@@ -422,8 +422,7 @@ impl Summary {
     /// user (as far as the readings tell).
     #[must_use]
     pub fn belongs_to_another_user(&self, row: &ProcRow) -> bool {
-        let _ = row;
-        todo!("GREEN: Summary::belongs_to_another_user")
+        !self.user.is_empty() && !row.user.is_empty() && row.user != self.user
     }
 }
 

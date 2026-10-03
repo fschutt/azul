@@ -395,7 +395,7 @@ impl Source for SampleMachine {
             net_received: counted(net_in_rate, elapsed_ms),
             net_sent: counted(net_out_rate, elapsed_ms),
             uptime: UPTIME + self.clock_ms / 1000,
-            user: String::new(),
+            user: "user".to_string(),
             processes,
             notices: Vec::new(),
         }

@@ -39,53 +39,108 @@ pub fn format_bytes(bytes: u64) -> String {
 
 /// A rate in bytes per second ("4.1 MB/s").
 #[must_use]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // rounded, clamped at 0
 pub fn format_rate(per_second: f64) -> String {
-    let _ = per_second;
-    todo!("GREEN: format_rate")
+    let bytes = if per_second.is_finite() && per_second > 0.0 {
+        per_second.round() as u64
+    } else {
+        0
+    };
+    format!("{}/s", format_bytes(bytes))
 }
 
 /// The table's columns (none editable; the filter row is off).
 #[must_use]
 pub fn columns() -> Vec<DataTableColumn> {
-    todo!("GREEN: columns")
+    COLUMNS
+        .iter()
+        .map(|c| {
+            let (kind, align) = if c.is_number() {
+                (DataTableSortKind::Number, CellGridHorizontalAlign::Right)
+            } else {
+                (DataTableSortKind::Text, CellGridHorizontalAlign::Left)
+            };
+            DataTableColumn::create(c.title(), c.width(), kind)
+                .with_align(align)
+                .with_filterable(false)
+        })
+        .collect()
 }
 
 /// What the table shows of `row` in `column`: the text and the number a
 /// number column sorts by.
 #[must_use]
+#[allow(clippy::cast_precision_loss)] // memory far below 2^52
 pub fn cell_of(row: &ProcRow, column: Column) -> DataTableCell {
-    let _ = (row, column);
-    todo!("GREEN: cell_of")
+    match column {
+        Column::Name => DataTableCell::create_text(row.name.clone()),
+        Column::User => DataTableCell::create_text(row.user.clone()),
+        Column::Status => DataTableCell::create_text(row.status.clone()),
+        Column::Pid => DataTableCell::create(row.pid.to_string(), f64::from(row.pid)),
+        Column::Cpu => {
+            DataTableCell::create(format_percent(f64::from(row.cpu)), f64::from(row.cpu))
+        }
+        Column::Memory => DataTableCell::create(format_bytes(row.memory), row.memory as f64),
+        Column::Disk => DataTableCell::create(format_rate(row.disk_rate), row.disk_rate),
+    }
 }
 
 /// The model's sort keys the view's header asks for.
 #[must_use]
 pub fn keys_of(view: &DataTableView) -> Vec<SortKey> {
-    let _ = view;
-    todo!("GREEN: keys_of")
+    view.sort
+        .as_slice()
+        .iter()
+        .filter_map(|k| {
+            let column = Column::at(usize::try_from(k.column).ok()?)?;
+            let descending = matches!(k.direction, DataTableSortDirection::Descending);
+            Some(SortKey::new(column, descending))
+        })
+        .collect()
 }
 
 /// `view` showing every row in the app's order (the model's): the widget
 /// computes no order of its own; the sort keys stay for the header's arrows.
 #[must_use]
-pub fn in_app_order(view: DataTableView) -> DataTableView {
-    let _ = view;
-    todo!("GREEN: in_app_order")
+pub fn in_app_order(mut view: DataTableView) -> DataTableView {
+    view.order = U32Vec::create();
+    view.ordered = false;
+    view.order_serial = view.query_serial;
+    view
 }
 
 /// A fresh view whose header shows `keys` (the model's sort).
 #[must_use]
 pub fn view_for(keys: &[SortKey]) -> DataTableView {
-    let _ = keys;
-    todo!("GREEN: view_for")
+    let mut view = DataTableView::create();
+    let header: Vec<DataTableSortKey> = keys
+        .iter()
+        .map(|k| {
+            let direction = if k.descending {
+                DataTableSortDirection::Descending
+            } else {
+                DataTableSortDirection::Ascending
+            };
+            DataTableSortKey::create(u32::try_from(k.column.index()).unwrap_or(0), direction)
+        })
+        .collect();
+    view.set_sort(header);
+    in_app_order(view)
 }
 
 /// Puts the view's selection on the selected process' row (`selected`:
 /// its position among the `shown` rows; `None`: nothing selected), and
 /// keeps the first row shown within the rows.
 pub fn follow_selection(view: &mut DataTableView, selected: Option<usize>, shown: usize) {
-    let _ = (view, selected, shown);
-    todo!("GREEN: follow_selection")
+    let mut selection = ListSelection::create();
+    if let Some(position) = selected.filter(|p| *p < shown) {
+        selection.click(position as u64);
+    }
+    view.selection = selection;
+    let last = u32::try_from(shown.saturating_sub(1)).unwrap_or(u32::MAX);
+    if view.top > last {
+        view.top = last;
+    }
 }
 
 /// The data callback: cell `at` of the model's shown rows.

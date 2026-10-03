@@ -206,6 +206,13 @@ impl Source for LiveMachine {
                     acc.1.saturating_add(data.transmitted()),
                 )
             });
+        // The monitor runs as the user of its own process.
+        let me = std::process::id();
+        let user = processes
+            .iter()
+            .find(|p| p.pid == me)
+            .map(|p| p.user.clone())
+            .unwrap_or_default();
         let cpus = self.system.cpus();
         Snapshot {
             elapsed_ms,
@@ -228,7 +235,7 @@ impl Source for LiveMachine {
             net_received,
             net_sent,
             uptime: System::uptime(),
-            user: String::new(),
+            user,
             processes,
             notices: Vec::new(),
         }
