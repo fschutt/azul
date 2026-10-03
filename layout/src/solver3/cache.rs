@@ -2574,6 +2574,67 @@ pub fn reconcile_recursive(
     Ok(new_node_idx)
 }
 
+/// Whether a box whose `height` is auto hands its OWN containing block's
+/// height on to its children - their percentage heights resolve against it -
+/// or an indefinite height, against which a percentage height computes to
+/// `auto` (CSS 2.2 10.5).
+///
+/// Indefinite, as in Chrome's standards mode, for a box whose height really
+/// is decided by its content: an in-flow `display: block` (`list-item`,
+/// `flow-root`) box of a DOM node, in horizontal writing, that is not the
+/// root and sits in a block container. Mail templates' `body { height: 100% }`
+/// (AzMail maps it onto the paper `div`) then makes the paper as tall as the
+/// mail, not one window tall with the mail running on below its background
+/// (MAILENG6 item 2).
+///
+/// Every other auto-height box keeps forwarding, because its height is
+/// decided by its surroundings or azul relies on it:
+/// - the root: the window (azul's root carries no `height: 100%` of its own,
+///   and an app's `body > div { height: 100% }` fills the window through it);
+/// - a flex or grid item (CSS Flexbox 9.8: a stretched item's size is
+///   definite; a split pane's pane, `PANE_BASE`), and an anonymous box (Chrome
+///   skips those for percentages too);
+/// - an absolutely positioned box (inset-sized, `top: 0; bottom: 0`, the map
+///   widget), a float, a table box (CSS 2.2 17.5.3), an inline-block, and a
+///   box in vertical writing (its `height` is the inline size).
+fn forwards_containing_block_height(tree: &LayoutTree, node_index: usize) -> bool {
+    let id = LayoutNodeId::new(node_index);
+    let (Some(node), Some(warm)) = (tree.get(id), tree.warm(id)) else {
+        return true;
+    };
+    let Some(parent) = node.parent else {
+        return true;
+    };
+    if node.dom_node_id.is_none() {
+        return true;
+    }
+    let style = &warm.computed_style;
+    let content_sized_block = matches!(
+        style.display,
+        LayoutDisplay::Block | LayoutDisplay::ListItem | LayoutDisplay::FlowRoot
+    ) && matches!(
+        style.position,
+        LayoutPosition::Static | LayoutPosition::Relative | LayoutPosition::Sticky
+    ) && style.float == azul_css::props::layout::LayoutFloat::None
+        && style.writing_mode == LayoutWritingMode::HorizontalTb;
+    let parent = LayoutNodeId::new(parent);
+    let in_a_block_container = tree.get(parent).is_some_and(|p| {
+        !matches!(
+            p.formatting_context,
+            FormattingContext::Flex | FormattingContext::Grid
+        )
+    }) && tree.warm(parent).is_some_and(|w| {
+        !matches!(
+            w.computed_style.display,
+            LayoutDisplay::Flex
+                | LayoutDisplay::InlineFlex
+                | LayoutDisplay::Grid
+                | LayoutDisplay::InlineGrid
+        )
+    });
+    !(content_sized_block && in_a_block_container)
+}
+
 /// Result of `prepare_layout_context`: contains the layout constraints and
 /// intermediate values needed for `calculate_layout_for_subtree`.
 struct PreparedLayoutContext<'a> {
@@ -2664,8 +2725,14 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
 
         LogicalSize {
             width: available_width,
-            // Use containing block height!
-            height: containing_block_size.height,
+            // The containing block's height where this box's own height is
+            // decided by its surroundings, an indefinite one where its
+            // content decides it (`forwards_containing_block_height`).
+            height: if forwards_containing_block_height(tree, node_index) {
+                containing_block_size.height
+            } else {
+                f32::INFINITY
+            },
         }
     } else {
         // Height is explicit - use inner size (after padding/border)
@@ -3791,7 +3858,15 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
         )
     });
 
-    if should_use_content_height(&css_height) {
+    // CSS 2.2 10.5: a percentage height against a containing block whose
+    // height is not definite (it depends on content) computes to `auto` -
+    // the box is as tall as its content, exactly like an auto height. Sizing
+    // (`calculate_used_size_for_node`) could only give it a pre-layout
+    // estimate (`intrinsic.max_content_height`, 0 where the intrinsic pass
+    // short-circuits); the laid-out content decides here.
+    let percentage_height_is_auto = !cb.height.is_definite() && is_percentage_height(&css_height);
+
+    if should_use_content_height(&css_height) || percentage_height_is_auto {
         let skip_expansion = scrolls_vertically
             && containing_block_size.height.is_finite()
             && containing_block_size.height > 0.0;
@@ -4083,6 +4158,17 @@ fn position_flex_child_descendants(
     }
 
     Ok(())
+}
+
+/// Whether `css_height` is a percentage (`height: 50%`): it resolves against
+/// the containing block's height, and computes to `auto` where that height
+/// is not definite (CSS 2.2 10.5).
+fn is_percentage_height(css_height: &MultiValue<LayoutHeight>) -> bool {
+    matches!(
+        css_height,
+        MultiValue::Exact(LayoutHeight::Px(px))
+            if px.metric == azul_css::props::basic::SizeMetric::Percent
+    )
 }
 
 /// Checks if the given CSS height value should use content-based sizing

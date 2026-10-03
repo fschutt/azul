@@ -1347,9 +1347,12 @@ fn layout_bfc<T: ParsedFontTrait>(
             // For auto-height containers, the pre-layout `used_size.height` is a
             // placeholder (calculate_used_size_for_node returns 0 for block-level
             // auto-height; apply_content_based_height resolves it after children lay
-            // out). In that window, `constraints.available_size.height` holds the
-            // containing block's height — the value children should use as their own
-            // containing block for percentage-height / indefinite-height semantics.
+            // out). In that window, `constraints.available_size.height` holds what
+            // `cache::prepare_layout_context` decided the children's percentage
+            // heights resolve against: the containing block's height where this box's
+            // height is decided by its surroundings, or an indefinite one (INFINITY)
+            // where its content decides it (`cache::forwards_containing_block_height`,
+            // CSS 2.2 10.5).
             let inner = node.box_props.inner_size(used_size, writing_mode);
             let height_is_auto = tree
                 .warm(LayoutNodeId::new(node_index))
