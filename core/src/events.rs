@@ -5289,8 +5289,13 @@ fn handle_key_down(
                 KeyboardShortcut::Cut => SystemChange::CutToClipboard { target },
                 KeyboardShortcut::Paste => SystemChange::PasteFromClipboard,
                 KeyboardShortcut::SelectAll => SystemChange::SelectAllText,
-                KeyboardShortcut::Undo => SystemChange::UndoTextEdit { target },
-                KeyboardShortcut::Redo => SystemChange::RedoTextEdit { target },
+                // Undo / Redo reach the callbacks: an editor that keeps its
+                // own history (the rich-text editor, a document app) takes
+                // them with `prevent_default`; otherwise the engine's text
+                // undo runs after the callbacks as the key's DEFAULT action
+                // (`DefaultAction::UndoTextEdit` / `RedoTextEdit`, decided in
+                // layout's `default_actions`) - the browser keydown model.
+                KeyboardShortcut::Undo | KeyboardShortcut::Redo => return None,
             };
             return Some(InternalEventAction::AddAndSkip(change));
         }
