@@ -212,6 +212,18 @@ pub mod parsed {
     /// shaping/decode/PDF needed.
     #[must_use]
     pub fn read_wght_axis(bytes: &[u8], index: usize) -> Option<(f32, f32, f32)> {
+        read_variation_axis(bytes, index, tag::WGHT)
+    }
+
+    /// The variation axis `axis_tag` (`tag::WGHT`, `tag::OPSZ`, ...) of the
+    /// face `index` in `bytes`: `(min, default, max)` in user units. `None`
+    /// when the face is not variable along that axis.
+    #[must_use]
+    pub fn read_variation_axis(
+        bytes: &[u8],
+        index: usize,
+        axis_tag: u32,
+    ) -> Option<(f32, f32, f32)> {
         let font_file = ReadScope::new(bytes).read::<FontData<'_>>().ok()?;
         let provider = font_file.table_provider(index).ok()?;
         let fvar_data = provider.read_table_data(tag::FVAR).ok()?;
@@ -220,7 +232,7 @@ pub mod parsed {
             .ok()?;
         // Bind before returning so the (borrowing) axes() iterator is dropped at
         // the end of this statement, not after `provider`/`fvar` at block end.
-        let axis = fvar.axes().find(|a| a.axis_tag == tag::WGHT);
+        let axis = fvar.axes().find(|a| a.axis_tag == axis_tag);
         axis.map(|a| {
             (
                 f32::from(a.min_value),
@@ -237,6 +249,21 @@ pub mod parsed {
     /// not a bakeable variable font.
     #[must_use]
     pub fn bake_weight_instance(bytes: &[u8], index: usize, wght: f32) -> Option<Vec<u8>> {
+        bake_instance(bytes, index, &[(tag::WGHT, wght)])
+    }
+
+    /// Bake a self-contained STATIC instance of a variable font with each
+    /// axis of `coordinates` (`(axis tag, user value)`, e.g. `wght` 700 and
+    /// `opsz` 17) set, every other axis at its default. Fresh TTF bytes that
+    /// parse and embed exactly like any static font, or `None` if the font is
+    /// not a bakeable variable font. THE bake: weights
+    /// ([`bake_weight_instance`]) and optical sizes go through it.
+    #[must_use]
+    pub fn bake_instance(
+        bytes: &[u8],
+        index: usize,
+        coordinates: &[(u32, f32)],
+    ) -> Option<Vec<u8>> {
         use allsorts::tables::Fixed;
         let font_file = ReadScope::new(bytes).read::<FontData<'_>>().ok()?;
         let provider = font_file.table_provider(index).ok()?;
@@ -247,11 +274,10 @@ pub mod parsed {
         let user: Vec<Fixed> = fvar
             .axes()
             .map(|a| {
-                if a.axis_tag == tag::WGHT {
-                    Fixed::from(wght)
-                } else {
-                    a.default_value
-                }
+                coordinates
+                    .iter()
+                    .find(|(axis_tag, _)| *axis_tag == a.axis_tag)
+                    .map_or(a.default_value, |(_, value)| Fixed::from(*value))
             })
             .collect();
         allsorts::variations::instance(&provider, &user)
