@@ -2736,12 +2736,27 @@ impl LayoutWindow {
             }
         }
 
+        // A RELAYOUT of the same DOM (an animation frame, a restyle, a
+        // resize) keeps every VirtualView whose host node is unchanged: its
+        // child result stays, its callback does not run again, and its own
+        // lifecycle decides (`check_reinvoke`: the box grew, an edge scroll;
+        // a box of another size re-renders it). Every relayout used to clear
+        // all child results and re-invoke every view - user code and a cold
+        // child layout per view per animation frame. A new generation (the
+        // app re-rendered from its model) re-renders every view, as before.
+        let (kept_views, kept_doms) = if new_generation {
+            (BTreeSet::new(), BTreeSet::new())
+        } else {
+            self.unchanged_virtual_views(&root_dom)
+        };
+
         // Stash every child dom's arena before the clear, so re-materialization
         // can reconcile against it (see `previous_child_arenas`). Rebuilt fresh
-        // each pass so a vanished host cannot leak a stale stash.
+        // each pass so a vanished host cannot leak a stale stash. A kept
+        // view's child stays live, where the reconcile finds it anyway.
         self.previous_child_arenas.clear();
         for (dom_id, result) in &self.layout_results {
-            if *dom_id == DomId::ROOT_ID {
+            if *dom_id == DomId::ROOT_ID || kept_doms.contains(dom_id) {
                 continue;
             }
             self.previous_child_arenas.insert(
@@ -2753,14 +2768,18 @@ impl LayoutWindow {
             );
         }
 
-        // Clear previous results for a full relayout
-        self.layout_results.clear();
+        // Clear previous results for a full relayout - all but the kept
+        // views' children.
+        self.layout_results
+            .retain(|dom_id, _| kept_doms.contains(dom_id));
 
-        // CRITICAL: Reset VirtualView invocation flags so check_reinvoke() returns
-        // InitialRender for every tracked VirtualView. Without this, the VirtualViewManager
-        // still has was_invoked=true from the previous frame, so it skips
-        // re-invocation — but the child DOM was just destroyed by clear().
-        self.virtual_view_manager.reset_all_invocation_flags();
+        // CRITICAL: Reset the invocation flags of every view that was not
+        // kept, so check_reinvoke() returns InitialRender for it. Without
+        // this, the VirtualViewManager still has was_invoked=true from the
+        // previous frame, so it skips re-invocation — but the child DOM was
+        // just destroyed by the clear. The kept ones are CARRIED: their first
+        // check of this pass verifies the child still fits the box.
+        self.virtual_view_manager.carry_over_views(&kept_views);
 
         if let Some(msgs) = debug_messages.as_mut() {
             msgs.push(LayoutDebugMessage::info(format!(
@@ -2778,6 +2797,25 @@ impl LayoutWindow {
             system_callbacks,
             debug_messages,
         );
+        // A kept view this pass never reached (its host laid out no box for
+        // it any more - hidden by a restyle) keeps nothing: its child result
+        // goes, as the clear above took it before views were kept, and the
+        // view renders afresh when its box comes back.
+        // The views inside such a child go with it.
+        let mut unreached = self.virtual_view_manager.take_all_carried();
+        while let Some((host, node)) = unreached.pop() {
+            let _ = self.virtual_view_manager.force_reinvoke(host, node);
+            if let Some(nested) = self.virtual_view_manager.get_nested_dom_id(host, node) {
+                if self.layout_results.remove(&nested).is_some() {
+                    unreached.extend(
+                        self.virtual_view_manager
+                            .all_view_keys()
+                            .into_iter()
+                            .filter(|(inner_host, _)| *inner_host == nested),
+                    );
+                }
+            }
+        }
         // Mirror AFTER the build: the marker describes THIS pass's DL build
         // (patched splice vs full emission), not the previous one.
         self.frame_report.last_dl_build_patched = self.layout_cache.last_build_was_patched;
@@ -9524,6 +9562,62 @@ impl LayoutWindow {
         None
     }
 
+    /// The VirtualViews a relayout of `root_dom` may keep as they are: every
+    /// view whose host node still carries exactly the `VirtualViewNode` - the
+    /// callback and its dataset instance - it was last invoked for, in a host
+    /// DOM that is itself kept (the root, or the child of a kept view), and
+    /// whose child result exists. Returns the view keys and the child DOMs
+    /// they own.
+    ///
+    /// Identity, not equality of content: a host rebuilt by the app hands in
+    /// new nodes (another dataset instance), and its views render again.
+    fn unchanged_virtual_views(
+        &self,
+        root_dom: &StyledDom,
+    ) -> (BTreeSet<(DomId, NodeId)>, BTreeSet<DomId>) {
+        let mut views: BTreeSet<(DomId, NodeId)> = BTreeSet::new();
+        let mut doms: BTreeSet<DomId> = BTreeSet::new();
+        let keys = self.virtual_view_manager.all_view_keys();
+        // From the root down: a view inside a view is kept only once the
+        // view holding it is.
+        loop {
+            let mut grew = false;
+            for &(host, node) in &keys {
+                if views.contains(&(host, node))
+                    || (host != DomId::ROOT_ID && !doms.contains(&host))
+                {
+                    continue;
+                }
+                let host_dom = if host == DomId::ROOT_ID {
+                    Some(root_dom)
+                } else {
+                    self.layout_results.get(&host).map(|r| &r.styled_dom)
+                };
+                let Some(host_dom) = host_dom else {
+                    continue;
+                };
+                let Some(nested) = self.virtual_view_manager.get_nested_dom_id(host, node) else {
+                    continue;
+                };
+                let node_data = host_dom.node_data.as_container();
+                let current = node_data
+                    .get(node)
+                    .and_then(|nd| nd.get_virtual_view_node_ref());
+                let unchanged = current.is_some()
+                    && current == self.virtual_view_manager.invoked_node(host, node);
+                if unchanged && self.layout_results.contains_key(&nested) {
+                    views.insert((host, node));
+                    doms.insert(nested);
+                    grew = true;
+                }
+            }
+            if !grew {
+                break;
+            }
+        }
+        (views, doms)
+    }
+
     /// Invoke a `VirtualView` callback and perform layout on the returned DOM.
     ///
     /// This is the entry point that looks up the necessary `VirtualViewNode` data before
@@ -9711,16 +9805,36 @@ impl LayoutWindow {
 
         // Check with the VirtualViewManager to see if re-invocation is necessary.
         // It handles all 5 conditional rules.
-        let Some(reason) = self.virtual_view_manager.check_reinvoke(
+        //
+        // A view CARRIED over this relayout (its host node unchanged, the
+        // funnel kept its child result) is trusted with "nothing to do" only
+        // while its child was laid out for the box it has now: a box of
+        // another size renders it again, as every relayout did before views
+        // were kept (a growth also reads as `BoundsExpanded` below).
+        let carried = self
+            .virtual_view_manager
+            .take_carried(parent_dom_id, node_id);
+        let reason = match self.virtual_view_manager.check_reinvoke(
             parent_dom_id,
             node_id,
             &self.scroll_manager,
             bounds,
-        ) else {
-            // No re-invocation needed, but we still need the child_dom_id for the display list.
-            return self
-                .virtual_view_manager
-                .get_nested_dom_id(parent_dom_id, node_id);
+        ) {
+            Some(reason) => reason,
+            None => {
+                // No re-invocation needed, but we still need the child_dom_id
+                // for the display list.
+                let nested = self
+                    .virtual_view_manager
+                    .get_nested_dom_id(parent_dom_id, node_id);
+                let fits = nested
+                    .and_then(|child| self.layout_results.get(&child))
+                    .is_some_and(|child| size_eq(child.viewport.size, bounds.size));
+                if !carried || fits {
+                    return nested;
+                }
+                VirtualViewCallbackReason::InitialRender
+            }
         };
 
         if let Some(msgs) = debug_messages {
@@ -9797,6 +9911,10 @@ impl LayoutWindow {
         // Mark the VirtualView as invoked to prevent duplicate InitialRender calls
         self.virtual_view_manager
             .mark_invoked(parent_dom_id, node_id, reason);
+        // ...and for WHICH host node: a relayout of a host that still carries
+        // exactly this node (callback and dataset) keeps the view.
+        self.virtual_view_manager
+            .record_invoked_node(parent_dom_id, node_id, virtual_view_node);
 
         // A CONTENT-SIZED view reported a size the solver has not seen: the
         // box was sized from the previous report (or the 300x150 default on
