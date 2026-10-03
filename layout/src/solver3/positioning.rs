@@ -74,8 +74,9 @@ pub(crate) fn resolve_position_offsets(
 ) -> PositionOffsets {
     use azul_css::props::basic::pixel::{PhysicalSize, PropertyContext, ResolutionContext};
 
+    // CSS `zoom` scales an absolute offset (LAYOUT7).
     use crate::solver3::getters::{
-        get_element_font_size, get_parent_font_size, get_root_font_size,
+        get_element_font_size, get_parent_font_size, get_root_font_size, zoomed_length,
     };
 
     let Some(id) = dom_id else {
@@ -106,31 +107,43 @@ pub(crate) fn resolve_position_offsets(
     // height (top/bottom) Resolve offsets using compact-cache-aware getters
     // top/bottom use Height context (% refers to containing block height)
     offsets.top = match get_css_top(styled_dom, id, node_state) {
-        MultiValue::Exact(pv) => {
-            Some(pv.resolve_with_context(&resolution_context, PropertyContext::Height))
-        }
+        MultiValue::Exact(pv) => Some(zoomed_length(
+            styled_dom,
+            id,
+            pv.metric,
+            pv.resolve_with_context(&resolution_context, PropertyContext::Height),
+        )),
         _ => None,
     };
 
     offsets.bottom = match get_css_bottom(styled_dom, id, node_state) {
-        MultiValue::Exact(pv) => {
-            Some(pv.resolve_with_context(&resolution_context, PropertyContext::Height))
-        }
+        MultiValue::Exact(pv) => Some(zoomed_length(
+            styled_dom,
+            id,
+            pv.metric,
+            pv.resolve_with_context(&resolution_context, PropertyContext::Height),
+        )),
         _ => None,
     };
 
     // left/right use Width context (% refers to containing block width)
     offsets.left = match get_css_left(styled_dom, id, node_state) {
-        MultiValue::Exact(pv) => {
-            Some(pv.resolve_with_context(&resolution_context, PropertyContext::Width))
-        }
+        MultiValue::Exact(pv) => Some(zoomed_length(
+            styled_dom,
+            id,
+            pv.metric,
+            pv.resolve_with_context(&resolution_context, PropertyContext::Width),
+        )),
         _ => None,
     };
 
     offsets.right = match get_css_right(styled_dom, id, node_state) {
-        MultiValue::Exact(pv) => {
-            Some(pv.resolve_with_context(&resolution_context, PropertyContext::Width))
-        }
+        MultiValue::Exact(pv) => Some(zoomed_length(
+            styled_dom,
+            id,
+            pv.metric,
+            pv.resolve_with_context(&resolution_context, PropertyContext::Width),
+        )),
         _ => None,
     };
 
