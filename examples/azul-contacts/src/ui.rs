@@ -1245,7 +1245,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     };
     let root = column("flex-grow: 1; min-height: 0px;", vec![content]);
     Dom::create_body()
-        .with_css("display: flex; flex-direction: column;")
+        .with_css("display: flex; flex-direction: column; margin: 0px;")
         .with_child(ShellThemeScope::create(root).with_accent(ShellThemeAccent::Blue).dom())
         .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app, on_key)
 }
