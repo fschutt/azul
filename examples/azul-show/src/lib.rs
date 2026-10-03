@@ -23,6 +23,7 @@ mod backstage;
 pub mod commands;
 pub mod editor;
 pub mod find;
+mod find_ui;
 pub mod ids;
 pub mod model;
 pub mod render;
@@ -142,6 +143,11 @@ fn editor_window(app: &RefAny, st: &AppState, w: f32, h: f32) -> Dom {
     if let Some(nav) = navigation {
         shell = shell.with_navigation(nav);
     }
+    // The Find / Replace pane takes the side pane while it is open.
+    let side = match &st.find {
+        Some(f) => Some(find_ui::pane(app, f)),
+        None => side,
+    };
     if let Some(side) = side {
         shell = shell.with_side_pane(side);
     }
@@ -464,6 +470,8 @@ fn editor_shortcut(
         K::X if primary && slide_keys => Command::Cut,
         K::V if primary && slide_keys => Command::Paste,
         K::A if primary && slide_keys => Command::SelectAll,
+        K::F if primary => Command::Find(false),
+        K::H if primary => Command::Find(true),
         K::B if primary => Command::Bold,
         K::I if primary => Command::Italic,
         K::U if primary => Command::Underline,

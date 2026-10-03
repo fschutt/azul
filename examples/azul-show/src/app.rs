@@ -204,6 +204,8 @@ pub struct AppState {
     pub focus_text: Option<u64>,
     /// The build / transition player's timer is running.
     pub playing_timer: bool,
+    /// The Find / Replace pane, while it is open.
+    pub find: Option<crate::find::FindState>,
     /// The window is asking "save changes?" (the close guard).
     pub asking_close: bool,
     /// The window closes once the save in flight is written.
@@ -238,6 +240,7 @@ impl AppState {
             args,
             focus_text: None,
             playing_timer: false,
+            find: None,
             asking_close: false,
             close_after_save: false,
         }
@@ -312,6 +315,8 @@ pub enum Command {
     Duplicate,
     Delete,
     SelectAll,
+    /// The Find / Replace pane (`true`: with the replace field).
+    Find(bool),
     /// Leaves the text being edited (Escape).
     StopEditing,
     // ---- slides ----

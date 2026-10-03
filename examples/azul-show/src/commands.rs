@@ -494,6 +494,14 @@ pub fn apply(app: &RefAny, s: &mut AppState, cmd: Command, info: &mut CallbackIn
             s.ribbon_tab = *i;
             return Update::RefreshDom;
         }
+        C::Find(replace) => {
+            // The pane keeps what was searched for; Mod+H adds the replace
+            // field to an open Find.
+            let f = s.find.get_or_insert_with(crate::find::FindState::default);
+            f.show_replace = f.show_replace || *replace;
+            f.status.clear();
+            return Update::RefreshDom;
+        }
         C::ShowNext | C::ShowPrev | C::ShowBlank(_) | C::ShowGoto(_) => {
             return show_move(s, app, info, &cmd);
         }

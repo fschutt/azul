@@ -16,6 +16,20 @@ pub struct Place {
     pub element: Option<u64>,
 }
 
+/// The Find / Replace pane's state while it is open.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FindState {
+    pub text: String,
+    pub replace: String,
+    pub how: TextMatch,
+    /// The replace field and buttons show (Mod+H).
+    pub show_replace: bool,
+    /// The result line ("Slide 3", "No matches").
+    pub status: String,
+    /// The place found last (Find next goes on from it, Replace rewrites it).
+    pub last: Option<Place>,
+}
+
 /// The next place after `after` (in reading order, wrapping; from the start
 /// when `None`) whose text holds `needle`; the previous one when
 /// `backwards`. `after` itself comes last.

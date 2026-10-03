@@ -312,11 +312,17 @@ fn home_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
         ))
         .with_group(group(
             "Editing",
-            vec![column(vec![
-                small(app, "select_all", "Select All", Command::SelectAll),
-                small(app, "undo", "Undo", Command::Undo),
-                small(app, "redo", "Redo", Command::Redo),
-            ])],
+            vec![
+                column(vec![
+                    small(app, "search", "Find", Command::Find(false)),
+                    small(app, "find_replace", "Replace", Command::Find(true)),
+                    small(app, "select_all", "Select All", Command::SelectAll),
+                ]),
+                column(vec![
+                    small(app, "undo", "Undo", Command::Undo),
+                    small(app, "redo", "Redo", Command::Redo),
+                ]),
+            ],
         ))
 }
 
