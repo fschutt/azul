@@ -463,7 +463,7 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         Action::CloseWindow => info.close_window(),
         Action::ShowTransfers => {
             s.popups_opened += 1;
-            s.popup = Some(Popup::Transfers);
+            s.popup = Some(Popup::Transfers { auto: false });
         }
     }
 }
@@ -619,8 +619,25 @@ pub(crate) extern "C" fn on_resized(mut data: RefAny, info: CallbackInfo) -> Upd
     Update::DoNothing
 }
 
-/// Milliseconds since 1970 (type-ahead's clock).
-fn now_ms() -> u64 {
+/// A transfer that runs this long shows Explorer's progress dialog (once).
+pub(crate) const PROGRESS_DIALOG_AFTER_MS: u64 = 2_000;
+
+/// A progress message arrived: a transfer that has run [`PROGRESS_DIALOG_AFTER_MS`] shows the
+/// progress dialog (azul's ProgressDialog over the queue), unless another dialog is open or it
+/// was shown for this transfer already. It closes by itself when the queue is done.
+pub(crate) fn show_progress_when_long(s: &mut DriveState) {
+    if s.popup.is_some() {
+        return;
+    }
+    if let Some(id) = s.queue.wants_progress_dialog(now_ms(), PROGRESS_DIALOG_AFTER_MS) {
+        s.queue.mark_dialog_shown(id);
+        s.popups_opened += 1;
+        s.popup = Some(Popup::Transfers { auto: true });
+    }
+}
+
+/// Milliseconds since 1970 (type-ahead's clock, the transfers' start times).
+pub(crate) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
@@ -1328,6 +1345,10 @@ pub(crate) fn transfer_ran(
         s.queue.clear_finished();
     }
     pump_queue(info, app, s);
+    // The progress dialog that opened by itself closes by itself once nothing runs or waits.
+    if matches!(s.popup, Some(Popup::Transfers { auto: true })) && s.queue.is_idle() {
+        s.popup = None;
+    }
 }
 
 /// Move to / Copy to: Quick access's pins, the drives, "Choose location".

@@ -338,8 +338,9 @@ pub(crate) enum Popup {
         text: String,
         error: String,
     },
-    /// The transfer queue, with Cancel.
-    Transfers,
+    /// The transfer queue, with Cancel: the running transfer as azul's ProgressDialog over the
+    /// others. `auto`: it opened by itself (a long transfer) and closes when the queue is done.
+    Transfers { auto: bool },
 }
 
 /// The navigation tree: which nodes are open, whose children are listed
@@ -1147,6 +1148,7 @@ pub(crate) extern "C" fn on_job_done(
         }
         Outcome::Progress { id, progress } => {
             s.queue.progress(id, &progress);
+            actions::show_progress_when_long(s);
         }
         Outcome::Ran { id, report } => actions::transfer_ran(&mut info, &handle, s, id, report),
         Outcome::Deleted { drive_id, result } => {

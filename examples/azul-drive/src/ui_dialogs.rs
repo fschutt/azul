@@ -15,7 +15,7 @@ use azul::{
     vec::{BackstageNavItemVec, StringVec},
     widgets::{
         AboutDialog, Backstage, BackstageNavItem, ButtonType, CheckBoxState, DialogState,
-        DropDown, MessageBox, MessageBoxKind, OnTextInputReturn, StandardDialogEvent,
+        DropDown, MessageBox, MessageBoxKind, OnTextInputReturn, ProgressDialog, StandardDialogEvent,
         StandardDialogEventKind, TabHeader, TabHeaderState, TextInputState, TextInputValid,
     },
 };
@@ -340,7 +340,7 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
             ]));
             (format!("{verb} the selected items to"), body)
         }
-        Popup::Transfers => transfers_dialog(s, app),
+        Popup::Transfers { .. } => transfers_dialog(s, app),
     }
 }
 
@@ -611,7 +611,35 @@ fn transfers_dialog(s: &DriveState, app: &RefAny) -> (String, Dom) {
     if s.queue.jobs().is_empty() {
         body.add_child(line("No transfers."));
     }
-    for job in s.queue.jobs() {
+    // The running transfer: azul's standard progress dialog (the bar, the files, the current
+    // name, Cancel).
+    if let Some(job) = s.queue.running() {
+        let p = &job.progress;
+        let mut text = format!("{} of {} item(s)", p.files_done, p.files_total);
+        if p.bytes_total > 0 {
+            text.push_str(&format!(
+                " - {} of {}",
+                browse::format_size(Some(p.bytes_done)),
+                browse::format_size(Some(p.bytes_total))
+            ));
+        }
+        body.add_child(
+            ProgressDialog::create(job.label.as_str(), p.percent())
+                .with_text(text)
+                .with_detail(p.current.as_str())
+                .with_indeterminate(p.files_total == 0 && p.bytes_total == 0)
+                .with_cancel("Cancel", true)
+                .with_on_event(
+                    RefAny::new(CancelRef {
+                        app: app.clone(),
+                        id: job.id,
+                    }),
+                    on_progress_event as StandardDialogOnEventCallbackType,
+                )
+                .dom(),
+        );
+    }
+    for job in s.queue.jobs().iter().filter(|j| j.state != JobState::Running) {
         let state = match &job.state {
             JobState::Waiting => String::from("waiting"),
             JobState::Running => format!("{:.0}%", job.progress.percent()),
@@ -659,6 +687,18 @@ extern "C" fn on_cancel_transfer(mut data: RefAny, mut info: CallbackInfo) -> Up
     with_state(&mut app, &mut info, |info, app, s| {
         actions::cancel_transfer(info, app, s, id)
     })
+}
+
+/// The progress dialog's Cancel: cancels the running transfer.
+extern "C" fn on_progress_event(
+    data: RefAny,
+    info: CallbackInfo,
+    event: StandardDialogEvent,
+) -> Update {
+    if event.kind != StandardDialogEventKind::Cancel {
+        return Update::DoNothing;
+    }
+    on_cancel_transfer(data, info)
 }
 
 extern "C" fn on_clear_finished(mut data: RefAny, mut info: CallbackInfo) -> Update {
