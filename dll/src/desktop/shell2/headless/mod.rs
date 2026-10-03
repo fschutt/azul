@@ -397,6 +397,15 @@ pub struct CpuBackend {
     /// `wl_shm` slot, a white-filled macOS view framebuffer), and the frame
     /// must be repainted in FULL - see `frame_may_reuse_previous_pixels`.
     pub native_target_holds_previous_frame: bool,
+    /// Pixels of row padding the armed `native_target` carries past the
+    /// frame's width: the target is `frame width + this` pixels wide because
+    /// an `AzulPixmap`'s width IS its row pitch. A Wayland `wl_shm` slot pads
+    /// every row to 256 bytes (the pitch a compositor's GPU samples in place,
+    /// `linux/wayland/shm.rs`); the frame is drawn into columns
+    /// `0..frame width` and the padding is never presented. The Wayland shell
+    /// sets it at every arming; it stays 0 on every shell whose buffer rows
+    /// are tight. Only read while a target is armed.
+    pub native_target_row_padding_px: u32,
     /// Scroll offsets from the previous frame (scroll_id → (x,y)). Used to detect
     /// scroll-offset changes and damage the affected frame's viewport so its
     /// content re-renders at the new offset (#13 — the display list is unchanged
@@ -494,6 +503,7 @@ impl CpuBackend {
             rendered_native: false,
             native_target_pool_order: false,
             native_target_holds_previous_frame: false,
+            native_target_row_padding_px: 0,
             #[cfg(feature = "cpurender")]
             previous_scroll_offsets: azul_layout::cpurender::ScrollOffsetMap::new(),
             #[cfg(feature = "cpurender")]
@@ -5060,6 +5070,150 @@ mod tests {
         assert!(
             saw_incremental,
             "every step took the full-repaint path — the external-base incremental law was never \
+             exercised"
+        );
+    }
+
+    /// WAYLAND8: a native target whose rows are PADDED - a Wayland `wl_shm`
+    /// slot whose pitch is rounded up to 256 bytes so the compositor's GPU can
+    /// sample it in place - is a pixmap `frame width + padding` pixels wide
+    /// (`AzulPixmap`'s width is its pitch). `render_frame` must draw into it
+    /// instead of refusing it as a size mismatch, and the first `frame width`
+    /// pixels of every row must equal the owned render, on the full first
+    /// frame and on every incremental frame after it.
+    #[test]
+    fn a_row_padded_native_target_holds_the_owned_frame_in_every_row() {
+        #[derive(Debug, Clone)]
+        struct PadState {
+            variant: usize,
+        }
+
+        extern "C" fn layout_pad(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+            use azul_css::{
+                dynamic_selector::CssPropertyWithConditions as P,
+                props::{
+                    basic::color::ColorU,
+                    layout::dimensions::{LayoutHeight, LayoutWidth},
+                    property::CssProperty,
+                    style::background::{StyleBackgroundContent, StyleBackgroundContentVec},
+                },
+            };
+
+            let v = data
+                .downcast_ref::<PadState>()
+                .map(|s| s.variant)
+                .unwrap_or(0);
+            let bg: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(ColorU {
+                r: 30,
+                g: 120,
+                b: 200,
+                a: 255,
+            })]
+            .into();
+            let (w, h) = match v % 3 {
+                0 => (160.0, 80.0),
+                1 => (60.0, 30.0),
+                _ => (210.0, 110.0),
+            };
+            let div = Dom::create_div()
+                .with_css_props(
+                    vec![
+                        P::simple(CssProperty::width(LayoutWidth::px(w))),
+                        P::simple(CssProperty::height(LayoutHeight::px(h))),
+                        P::simple(CssProperty::background_content(bg)),
+                    ]
+                    .into(),
+                )
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "padded rows",
+                ));
+            Dom::create_body().with_child(div)
+        }
+
+        // Any padding works; 13 px is deliberately not a "nice" number.
+        const PAD: u32 = 13;
+
+        let state = Arc::new(RefCell::new(RefAny::new(PadState { variant: 0 })));
+        let mut nat = make_window_with(&state, layout_pad);
+        let mut own = make_window_with(&state, layout_pad);
+        nat.regenerate_layout().expect("nat initial");
+        own.regenerate_layout().expect("own initial");
+
+        // The "slot": frame 1 copied row by row into a buffer whose rows are
+        // PAD pixels longer than the frame's.
+        let seed = nat
+            .cpu_backend
+            .last_frame
+            .as_ref()
+            .expect("frame 1")
+            .clone_pixmap();
+        let (pw, ph) = (seed.width(), seed.height());
+        let pitch = pw + PAD;
+        let (row, prow) = (pw as usize * 4, pitch as usize * 4);
+        let mut slot = vec![0u8; prow * ph as usize];
+        for y in 0..ph as usize {
+            slot[y * prow..y * prow + row].copy_from_slice(&seed.data()[y * row..(y + 1) * row]);
+        }
+        drop(seed);
+
+        let mut saw_incremental = false;
+        for step in 1..6usize {
+            if let Ok(mut b) = state.try_borrow_mut() {
+                if let Some(mut s) = b.downcast_mut::<PadState>() {
+                    s.variant = step;
+                }
+            }
+            nat.cpu_backend.native_target_holds_previous_frame = step > 1;
+            nat.cpu_backend.native_target_row_padding_px = PAD;
+            nat.cpu_backend.native_target = unsafe {
+                azul_layout::cpurender::AzulPixmap::from_external(slot.as_mut_ptr(), pitch, ph)
+            };
+            nat.regenerate_layout().expect("native padded");
+            assert!(
+                nat.cpu_backend.rendered_native,
+                "step {step}: the padded target was refused (owned-path fallback)"
+            );
+            assert!(
+                nat.cpu_backend.native_target.is_none(),
+                "step {step}: target not consumed"
+            );
+            let native_damage = nat.cpu_backend.last_frame_damage.clone();
+            if matches!(native_damage, FrameDamage::Rects(_)) {
+                saw_incremental = true;
+            }
+
+            own.regenerate_layout().expect("owned");
+            let reference = own
+                .cpu_backend
+                .last_frame
+                .as_ref()
+                .expect("owned frame")
+                .clone_pixmap();
+            assert_eq!((reference.width(), reference.height()), (pw, ph));
+            let b = reference.data();
+            let mut diffs = 0usize;
+            let mut first: Option<(usize, usize)> = None;
+            for y in 0..ph as usize {
+                for x in 0..pw as usize {
+                    let s = y * prow + x * 4;
+                    let r = y * row + x * 4;
+                    if slot[s..s + 3] != b[r..r + 3] {
+                        diffs += 1;
+                        if first.is_none() {
+                            first = Some((x, y));
+                        }
+                    }
+                }
+            }
+            assert_eq!(
+                diffs, 0,
+                "step {step}: the padded slot diverges from the owned render at {diffs} px, \
+                 first {first:?} - native damage {native_damage:?}"
+            );
+        }
+        assert!(
+            saw_incremental,
+            "every step took the full-repaint path - the padded incremental law was never \
              exercised"
         );
     }
