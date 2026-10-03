@@ -18,6 +18,7 @@ pub mod sample;
 pub mod position;
 pub mod settings;
 mod ui_library;
+mod ui_reader;
 pub mod xmltree;
 
 pub fn start() {}
