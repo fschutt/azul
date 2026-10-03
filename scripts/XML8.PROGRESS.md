@@ -99,6 +99,9 @@ Files (all `azul_core::xml::html`, re-exported from xml_html.rs so every path st
 - `60f112c71` RED: layout/tests/real_mail_html_parses_like_a_browser.rs - all 18 corpus mails exact (FOSTER_PARENTED
   exclusion + elements_only + the weaker test removed). Outlines regenerated: identical to the committed ones.
 
+- `04911ec8c` wip: core/src/xml_html_rules.rs (the data tables; not declared as a module yet).
+- `367e64518` wip: core/src/xml_html_tokenizer.rs (the state machine; not declared yet).
+
 ## IN PROGRESS
 
 - (nothing half-edited)
@@ -107,7 +110,9 @@ Files (all `azul_core::xml::html`, re-exported from xml_html.rs so every path st
 
 1. (done: Chrome probe, see DONE.)
 2. (done: RED.)
-3. GREEN (next: write core/src/xml_html_rules.rs, the data tables, not yet wired): xml_html_rules.rs, xml_html_tokenizer.rs, xml_html_tree.rs, wire in xml_html.rs.
+3. GREEN (rules + tokenizer written; NEXT: core/src/xml_html_tree.rs = TreeBuilder (arena for HTML, stream
+   for XML), then wire in xml_html.rs: `#[path] mod rules/tokenizer/tree`, re-exports, remove the old
+   tokenizer / builder code from xml_html.rs, driver `parse_html_into` sets the text mode): xml_html_rules.rs, xml_html_tokenizer.rs, xml_html_tree.rs, wire in xml_html.rs.
 4. Type-check harness; Python mirror vs Chrome (rows + corpus); fix.
 5. Corpus test: the two foster-parented Postmark mails join the exact-tree test.
 6. Report.
