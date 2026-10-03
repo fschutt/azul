@@ -2130,11 +2130,88 @@ pub(crate) fn resolve(mut grid: CellGrid) -> CellGridResolved {
 /// drawn across: 1 for a cell of its own, n > 1 for a text that spills over
 /// the n - 1 empty cells after it (Excel), 0 for a cell drawn under such a
 /// spill.
+///
+/// Only a left-aligned (or General) text that does not wrap spills; it runs
+/// on while the next cell is empty, unselected and has no fill or border of
+/// its own, never across the freeze line. Its width is estimated the way an
+/// auto-fit is ([`SPILL_EM`] of the font size per character, plus the
+/// cell's padding): the grid is built before its text is measured.
 pub(crate) fn spill_spans(resolved: &CellGridResolved, ri: usize) -> Vec<u32> {
-    resolved
-        .cells
-        .get(ri)
-        .map_or_else(Vec::new, |row| alloc::vec![1; row.len()])
+    let Some(row) = resolved.cells.get(ri) else {
+        return Vec::new();
+    };
+    let grid = &resolved.grid;
+    let geo = &resolved.geo;
+    let zoom = if grid.zoom.is_finite() && grid.zoom > 0.0 {
+        grid.zoom
+    } else {
+        1.0
+    };
+    let row_index = geo.rows.get(ri).map_or(0, |b| b.index);
+    let mut spans = alloc::vec![1u32; row.len()];
+    let mut ci = 0;
+    while ci < row.len() {
+        let (content, style) = &row[ci];
+        let spills = content.kind == CellGridCellKind::Text
+            && !style.wrap
+            && matches!(
+                style.align,
+                CellGridHorizontalAlign::General | CellGridHorizontalAlign::Left
+            );
+        if !spills {
+            ci += 1;
+            continue;
+        }
+        let font = if style.font_size > 0.0 && style.font_size.is_finite() {
+            style.font_size
+        } else {
+            grid.font_size
+        };
+        #[allow(clippy::cast_precision_loss)]
+        let chars = content.text.as_str().chars().count() as f32;
+        let needed = chars * font * zoom * SPILL_EM + 2.0 * CELL_PADDING_PX;
+        let mut reach = geo.columns.get(ci).map_or(0.0, |b| b.size);
+        let mut end = ci + 1;
+        while reach < needed && end < row.len() {
+            if geo.frozen_columns > 0 && end == geo.frozen_columns {
+                break; // never across the freeze line
+            }
+            let (next, next_style) = &row[end];
+            let at = CellGridCellRef::create(row_index, geo.columns[end].index);
+            if !next.text.as_str().is_empty() || grid.view.is_selected(at) || has_own_look(next_style) {
+                break;
+            }
+            reach += geo.columns[end].size;
+            end += 1;
+        }
+        if end > ci + 1 {
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                spans[ci] = (end - ci) as u32;
+            }
+            for covered in &mut spans[ci + 1..end] {
+                *covered = 0;
+            }
+        }
+        ci = end;
+    }
+    spans
+}
+
+/// The px per character of font size a spilled text is reckoned at (an
+/// average glyph; the auto-fit of a column uses the same).
+pub(crate) const SPILL_EM: f32 = 0.6;
+/// A cell's left + right padding is twice this (`CELL_GRID_CELL_BASE`).
+pub(crate) const CELL_PADDING_PX: f32 = 3.0;
+
+/// Whether a cell draws something of its own besides text (a fill, a border):
+/// a spilled text stops before it.
+fn has_own_look(style: &CellGridCellStyle) -> bool {
+    style.fill.as_ref().is_some()
+        || style.border_top.as_ref().is_some()
+        || style.border_right.as_ref().is_some()
+        || style.border_bottom.as_ref().is_some()
+        || style.border_left.as_ref().is_some()
 }
 
 /// The range a fill drag from `source` to `target` covers: the source
@@ -2339,6 +2416,11 @@ pub(crate) fn build(resolved: CellGridResolved, look: &CellGridLook) -> Dom {
     let part = |base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]| {
         super::themes::decl::on_base(base, skin)
     };
+    // Asked before the cells are taken apart: which texts spill over which
+    // empty cells, row by row.
+    let spans: Vec<Vec<u32>> = (0..resolved.cells.len())
+        .map(|ri| spill_spans(&resolved, ri))
+        .collect();
     let CellGridResolved { grid, geo, cells } = resolved;
     let zoom = if grid.zoom.is_finite() && grid.zoom > 0.0 {
         grid.zoom
@@ -2455,15 +2537,26 @@ pub(crate) fn build(resolved: CellGridResolved, look: &CellGridLook) -> Dom {
                     .with_child(crate::widgets::widget_p_with_text(label)),
             );
         }
+        let row_spans = spans.get(ri).map_or(&[][..], Vec::as_slice);
         for (ci, (c, (content, style))) in geo.columns.iter().zip(row_cells).enumerate() {
             if ci == geo.frozen_columns && any_frozen_columns {
                 row_children.push(freeze_v(r.size));
             }
+            // A text spilling over the empty cells after it is one cell as
+            // wide as all of them; the cells under it are not built.
+            let span = row_spans.get(ci).copied().unwrap_or(1) as usize;
+            if span == 0 {
+                continue;
+            }
+            let width: f32 = geo.columns[ci..(ci + span).min(geo.columns.len())]
+                .iter()
+                .map(|b| b.size)
+                .sum();
             let at = CellGridCellRef::create(r.index, c.index);
             let selected = view.is_selected(at);
             let shaded = selected && at != view.active;
             let mut p = part(CELL_GRID_CELL_BASE, &[]);
-            p.push(px_width(c.size));
+            p.push(px_width(width));
             p.extend(cell_style_props(
                 &style,
                 content.kind,
