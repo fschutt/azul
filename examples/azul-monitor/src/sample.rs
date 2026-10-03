@@ -395,6 +395,7 @@ impl Source for SampleMachine {
             net_received: counted(net_in_rate, elapsed_ms),
             net_sent: counted(net_out_rate, elapsed_ms),
             uptime: UPTIME + self.clock_ms / 1000,
+            user: String::new(),
             processes,
             notices: Vec::new(),
         }
@@ -435,6 +436,8 @@ mod tests {
         assert_eq!(s.uptime, UPTIME);
         assert!(!s.cpu_brand.is_empty());
         assert!(s.cpu_mhz > 0);
+        // The monitor runs as `user`: root's processes are someone else's.
+        assert_eq!(s.user, "user");
     }
 
     #[test]

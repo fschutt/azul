@@ -228,6 +228,7 @@ impl Source for LiveMachine {
             net_received,
             net_sent,
             uptime: System::uptime(),
+            user: String::new(),
             processes,
             notices: Vec::new(),
         }

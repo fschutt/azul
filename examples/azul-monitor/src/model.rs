@@ -78,6 +78,9 @@ pub struct Snapshot {
     pub net_sent: u64,
     /// Seconds since the machine started.
     pub uptime: u64,
+    /// The user this monitor runs as ("" = unknown): ending another
+    /// user's process needs administrator rights.
+    pub user: String,
     /// The processes.
     pub processes: Vec<ProcSample>,
     /// What the sampler did on the window's behalf since the previous
@@ -410,6 +413,18 @@ pub struct Summary {
     pub net_out_rate: f64,
     pub uptime: u64,
     pub processes: usize,
+    /// The user this monitor runs as ("" = unknown).
+    pub user: String,
+}
+
+impl Summary {
+    /// Whether ending `row` needs administrator rights: it runs as another
+    /// user (as far as the readings tell).
+    #[must_use]
+    pub fn belongs_to_another_user(&self, row: &ProcRow) -> bool {
+        let _ = row;
+        todo!("GREEN: Summary::belongs_to_another_user")
+    }
 }
 
 /// Everything the window shows of the readings so far.
@@ -521,6 +536,7 @@ impl Model {
             net_out_rate,
             uptime: s.uptime,
             processes: self.rows.len(),
+            user: s.user,
         };
         if !s.notices.is_empty() {
             self.notices = s.notices;
@@ -1084,6 +1100,30 @@ mod tests {
         // A reading without notices keeps the last ones (the status bar says it until the next).
         m.apply(reading(1000, vec![]));
         assert_eq!(m.notices, vec!["Ended b (2)".to_string()]);
+    }
+
+    #[test]
+    fn another_users_process_needs_administrator_rights() {
+        let mut m = Model::new();
+        let mut r = reading(
+            1000,
+            vec![
+                proc(1, "systemd", "root", 0.0, 1),
+                proc(2, "cargo", "felix", 0.0, 1),
+            ],
+        );
+        r.user = "felix".to_string();
+        m.apply(r);
+        assert_eq!(m.summary.user, "felix");
+        let root = m.shown_row(m.position_of(1).unwrap()).unwrap();
+        let mine = m.shown_row(m.position_of(2).unwrap()).unwrap();
+        assert!(m.summary.belongs_to_another_user(root));
+        assert!(!m.summary.belongs_to_another_user(mine));
+        // Unknown users cannot be told apart: no warning.
+        let nobody = ProcRow::default();
+        assert!(!m.summary.belongs_to_another_user(&nobody));
+        m.summary.user.clear();
+        assert!(!m.summary.belongs_to_another_user(root));
     }
 
     #[test]
