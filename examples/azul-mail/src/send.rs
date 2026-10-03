@@ -107,6 +107,11 @@ pub struct DkimSettings {
     /// A PEM file with the RSA private key (PKCS#1 or PKCS#8). `None`: the key comes from the
     /// OS keyring ([`dkim_keyring_key`]) through [`SendSettings::dkim_key`].
     pub key_file: Option<PathBuf>,
+    /// The public half (base64 SubjectPublicKeyInfo, `crate::dkim`): what the DNS record
+    /// publishes, kept so the Sending page can show the record without the private key.
+    /// Empty for a key AzMail did not make.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub public_key: String,
 }
 
 /// How AzMail sends for one account. `Default` is direct delivery with opportunistic TLS, no
@@ -131,6 +136,10 @@ pub struct SendSettings {
     /// The DKIM private key (PEM) read from the OS keyring by the caller. Never saved.
     #[serde(skip)]
     pub dkim_key: Option<Secret>,
+    /// Where the port-25 probe knocks (`host:port`); empty: [`PORT25_PROBE_HOSTS`]. Only a
+    /// test points it somewhere else.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub port25_probe: Vec<String>,
 }
 
 /// What became of a mail.
@@ -275,6 +284,50 @@ pub struct DomainPolicy {
     /// When it was learned or set; RFC 3339, UTC.
     #[serde(default)]
     pub updated: String,
+    /// What the refusal a learned entry comes from was about.
+    #[serde(default)]
+    pub cause: RefusalCause,
+}
+
+/// What a receiver's refusal of direct delivery was about: what the later relay fallback (or
+/// the user) has to fix.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RefusalCause {
+    /// The answer does not say.
+    #[default]
+    Unknown,
+    /// The sending address is on a list of home / dynamic addresses (Spamhaus PBL, a
+    /// provider's own list): only a relay helps.
+    HomeAddress,
+    /// The sending address has no (matching) reverse DNS name, PTR: a relay, or a PTR from the
+    /// Internet provider.
+    NoReverseDns,
+    /// SPF / DKIM / DMARC did not pass: the DNS records (`crate::dkim`) need fixing.
+    NotAuthenticated,
+}
+
+/// Whether this connection reaches mail exchangers on port 25: the last probe's answer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Port25Check {
+    pub open: bool,
+    /// When it was checked, seconds since 1970.
+    pub checked: i64,
+    /// What the probe saw, for people.
+    #[serde(default)]
+    pub detail: String,
+}
+
+/// What a port-25 probe found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Port25Probe {
+    /// A mail exchanger answered on port 25.
+    Open,
+    /// Every probed exchanger was found in DNS and none could be connected to: the connection
+    /// blocks outgoing port 25.
+    Blocked(String),
+    /// Nothing can be said (DNS did not answer: offline).
+    Unknown(String),
 }
 
 /// The per-receiver-domain policy list (`send_policy.json` in the account's folder).
@@ -284,6 +337,9 @@ pub struct PolicyList {
     pub version: u64,
     /// By domain, lower case.
     pub domains: BTreeMap<String, DomainPolicy>,
+    /// Whether this connection reaches port 25 at all (the last probe), for every domain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port25: Option<Port25Check>,
 }
 
 impl Default for PolicyList {
@@ -299,6 +355,7 @@ impl Default for PolicyList {
                     source: PolicySource::Default,
                     reason: relay.to_string(),
                     updated: String::new(),
+                    cause: RefusalCause::Unknown,
                 },
             );
         }
@@ -310,6 +367,7 @@ impl Default for PolicyList {
                     source: PolicySource::Default,
                     reason: String::new(),
                     updated: String::new(),
+                    cause: RefusalCause::Unknown,
                 },
             );
         }
@@ -317,6 +375,7 @@ impl Default for PolicyList {
             format: POLICY_FORMAT.to_string(),
             version: 1,
             domains,
+            port25: None,
         }
     }
 }
@@ -390,9 +449,50 @@ impl PolicyList {
                 source: PolicySource::Learned,
                 reason: reply.to_string(),
                 updated: message::rfc3339_utc(now),
+                cause: RefusalCause::Unknown,
             },
         );
         true
+    }
+
+    /// The entry that holds mail to `domain` back from direct delivery, if one does. A
+    /// DKIM-`signed` mail is held back only by what was learned or set, not by a shipped
+    /// default (those were about unsigned mail from home).
+    pub fn holds_back(&self, domain: &str, signed: bool) -> Option<&DomainPolicy> {
+        let _ = signed;
+        self.entry_for(domain)
+            .filter(|entry| entry.route == DomainRoute::Relay)
+    }
+
+    /// Whether the last probe found port 25 blocked less than [`PORT25_RECHECK_SECS`] ago.
+    pub fn port25_blocked(&self, now: i64) -> bool {
+        let _ = now;
+        false
+    }
+}
+
+/// How long a port-25 probe's "blocked" stands before direct delivery is tried again (a laptop
+/// moves to another network).
+pub const PORT25_RECHECK_SECS: i64 = 3600;
+/// Where the port-25 probe knocks: big providers' exchangers, which always listen.
+pub const PORT25_PROBE_HOSTS: &[&str] = &[
+    "gmail-smtp-in.l.google.com:25",
+    "outlook-com.olc.protection.outlook.com:25",
+];
+/// What a recipient waits for while the connection blocks port 25.
+pub const PORT25_BLOCKED: &str = "this Internet connection blocks outgoing mail on port 25 \
+     (many home providers do): the mail waits in the Outbox until it can go through a relay";
+
+/// What a refusal of direct delivery was about, from the receiver's answer.
+pub fn refusal_cause(reply: &Reply) -> RefusalCause {
+    let _ = reply;
+    RefusalCause::Unknown
+}
+
+impl RefusalCause {
+    /// The cause in words, for `domain`'s refusal.
+    pub fn explain(self, domain: &str) -> String {
+        format!("{domain} refused the mail")
     }
 }
 
@@ -589,6 +689,9 @@ pub(crate) trait Transport {
         recipients: &[String],
         message: &[u8],
     ) -> Vec<RecipientOutcome>;
+
+    /// Whether this connection reaches mail exchangers on port 25 at all.
+    fn probe_port_25(&mut self) -> Port25Probe;
 }
 
 /// The real transport: micromail.
@@ -621,6 +724,10 @@ impl Transport for Micromail<'_> {
                     .collect()
             }
         }
+    }
+
+    fn probe_port_25(&mut self) -> Port25Probe {
+        Port25Probe::Unknown(String::from("not probed"))
     }
 }
 
@@ -1123,10 +1230,14 @@ mod tests {
         }
     }
 
-    /// A transport that answers every recipient with what `answer` says and records the calls.
+    /// A transport that answers every recipient with what `answer` says and records the calls,
+    /// the messages and the port-25 probes (answered with `probe`).
     struct Fake {
         answer: Box<dyn FnMut(&str) -> RecipientStatus>,
         calls: Vec<(Option<(String, u16)>, Vec<String>)>,
+        messages: Vec<Vec<u8>>,
+        probe: Port25Probe,
+        probes: usize,
     }
 
     impl Fake {
@@ -1134,6 +1245,9 @@ mod tests {
             Fake {
                 answer: Box::new(answer),
                 calls: Vec::new(),
+                messages: Vec::new(),
+                probe: Port25Probe::Unknown(String::from("this test does not probe")),
+                probes: 0,
             }
         }
     }
@@ -1144,10 +1258,11 @@ mod tests {
             relay: Option<(&str, u16)>,
             _from: &str,
             recipients: &[String],
-            _message: &[u8],
+            message: &[u8],
         ) -> Vec<RecipientOutcome> {
             self.calls
                 .push((relay.map(|(h, p)| (h.to_string(), p)), recipients.to_vec()));
+            self.messages.push(message.to_vec());
             recipients
                 .iter()
                 .map(|r| RecipientOutcome {
@@ -1155,6 +1270,11 @@ mod tests {
                     status: (self.answer)(r),
                 })
                 .collect()
+        }
+
+        fn probe_port_25(&mut self) -> Port25Probe {
+            self.probes += 1;
+            self.probe.clone()
         }
     }
 
@@ -1420,6 +1540,7 @@ mod tests {
                 source: PolicySource::User,
                 reason: String::new(),
                 updated: String::new(),
+                cause: RefusalCause::Unknown,
             },
         );
         assert!(!list.learn("mine.example", &reply(554, "5.7.1 no"), OCT_1));
@@ -1834,6 +1955,350 @@ mod tests {
         assert_eq!(backoff_secs(3), 1200);
         assert_eq!(backoff_secs(7), 4 * 3600);
         assert_eq!(backoff_secs(40), 4 * 3600);
+    }
+
+    // ---- client-side DKIM and direct delivery ----
+
+    /// Settings that sign as example.org, with the test key in memory (as the keyring hands it
+    /// over) or without it (`None`: not read yet).
+    fn signing(key: Option<&str>) -> SendSettings {
+        SendSettings {
+            dkim: Some(DkimSettings {
+                domain: "example.org".to_string(),
+                selector: "azmail202610".to_string(),
+                key_file: None,
+                public_key: String::new(),
+            }),
+            dkim_key: key.map(|k| Secret::new(k.to_string())),
+            ..SendSettings::default()
+        }
+    }
+
+    /// The bytes of the first mail in Sent.
+    fn sent_bytes(root: &Path) -> Vec<u8> {
+        let index = sent_index(root);
+        std::fs::read(root.join(ACCOUNT).join(&index[0].path)).unwrap()
+    }
+
+    fn unreachable(_: &str) -> RecipientStatus {
+        RecipientStatus::Deferred {
+            reply: None,
+            reason: "could not connect to mx.example.net port 25".to_string(),
+        }
+    }
+
+    #[test]
+    fn a_signed_mail_is_tried_directly_where_only_a_shipped_default_asks_for_a_relay() {
+        let dir = TempDir::new("send");
+        let mut mail = mail();
+        mail.to = vec!["someone@gmail.com".to_string()];
+        let mut fake = take_all();
+        let status = send_mail_with(
+            &dir.folder(),
+            ACCOUNT,
+            &signing(Some(TEST_KEY)),
+            &mail,
+            OCT_1,
+            &mut fake,
+        );
+        assert!(matches!(status, SendStatus::Sent { .. }), "{status:?}");
+        assert_eq!(
+            fake.calls,
+            vec![(None, vec!["someone@gmail.com".to_string()])]
+        );
+        // What went out is signed, and the Sent copy is what went out.
+        let wire = String::from_utf8_lossy(&fake.messages[0]).into_owned();
+        assert!(wire.starts_with("DKIM-Signature: v=1; a=rsa-sha256;"), "{wire}");
+        assert!(wire.contains("s=azmail202610; d=example.org;"), "{wire}");
+        assert_eq!(sent_bytes(&dir.0), fake.messages[0]);
+        // The shipped defaults hold back unsigned mail only.
+        let defaults = PolicyList::default();
+        assert!(defaults.holds_back("gmail.com", false).is_some());
+        assert!(defaults.holds_back("gmail.com", true).is_none());
+        assert!(defaults.holds_back("example.org", false).is_none());
+        // A domain that refused before still waits for a relay, signed or not.
+        let account_dir = account::account_dir(&dir.folder(), ACCOUNT);
+        let mut policy = PolicyList::load(&account_dir);
+        assert!(policy.learn(
+            "gmail.com",
+            &reply(
+                550,
+                "5.7.25 [203.0.113.7] The IP address sending this message does not have a PTR \
+                 record setup"
+            ),
+            OCT_1
+        ));
+        policy.save(&account_dir).unwrap();
+        let mut again = take_all();
+        let status = send_mail_with(
+            &dir.folder(),
+            ACCOUNT,
+            &signing(Some(TEST_KEY)),
+            &mail,
+            OCT_1 + 60,
+            &mut again,
+        );
+        let SendStatus::Queued { reason } = status.clone() else {
+            panic!("{status:?}");
+        };
+        assert!(reason.contains("PTR"), "{reason}");
+        assert!(again.calls.is_empty(), "{:?}", again.calls);
+    }
+
+    #[test]
+    fn the_outbox_keeps_the_mail_unsigned_until_the_key_is_there_and_then_signs_it() {
+        let dir = TempDir::new("send");
+        let mut fake = take_all();
+        // DKIM is on, but the key has not come from the keyring yet.
+        let status = send_mail_with(
+            &dir.folder(),
+            ACCOUNT,
+            &signing(None),
+            &mail(),
+            OCT_1,
+            &mut fake,
+        );
+        let SendStatus::Queued { reason } = status.clone() else {
+            panic!("{status:?}");
+        };
+        assert!(reason.contains("AzMail/ada@example.org/dkim"), "{reason}");
+        assert!(fake.calls.is_empty(), "nothing goes out unsigned");
+        let entries = outbox_entries(&dir.folder(), ACCOUNT);
+        assert_eq!(entries[0].attempts, 0, "waiting for the key is no attempt");
+        assert_eq!(entries[0].next_attempt, OCT_1, "due as soon as the key is there");
+        let eml = std::fs::read(
+            dir.0
+                .join(ACCOUNT)
+                .join(OUTBOX_DIR)
+                .join(format!("{}.eml", entries[0].id)),
+        )
+        .unwrap();
+        assert!(eml.starts_with(b"Date: "), "the outbox keeps the unsigned message");
+        // The next Send / Receive has the key: signed, sent, filed as it went out.
+        let results = retry_outbox_with(
+            &dir.folder(),
+            ACCOUNT,
+            &signing(Some(TEST_KEY)),
+            false,
+            OCT_1,
+            &mut fake,
+        );
+        assert!(
+            matches!(results[0].1, SendStatus::Sent { .. }),
+            "{results:?}"
+        );
+        assert!(fake.messages[0].starts_with(b"DKIM-Signature: "));
+        assert_eq!(sent_bytes(&dir.0), fake.messages[0]);
+        // An account that does not sign sends the message as it is.
+        let plain_dir = TempDir::new("send");
+        let mut plain = take_all();
+        send_mail_with(
+            &plain_dir.folder(),
+            ACCOUNT,
+            &SendSettings::default(),
+            &mail(),
+            OCT_1,
+            &mut plain,
+        );
+        assert!(plain.messages[0].starts_with(b"Date: "));
+    }
+
+    #[test]
+    fn a_refusal_of_direct_mail_is_recorded_with_what_it_was_about() {
+        let cases = [
+            (
+                550,
+                "5.7.1 Service unavailable, Client host [203.0.113.7] blocked using Spamhaus. \
+                 To request removal from this list see https://www.spamhaus.org/query/ip/203.0.113.7",
+                RefusalCause::HomeAddress,
+            ),
+            (
+                553,
+                "5.7.1 [BL21] Connections not accepted from IP addresses on Spamhaus PBL",
+                RefusalCause::HomeAddress,
+            ),
+            (
+                554,
+                "5.7.1 Dynamic IP addresses may not send mail directly",
+                RefusalCause::HomeAddress,
+            ),
+            (
+                550,
+                "5.7.25 [203.0.113.7] The IP address sending this message does not have a PTR \
+                 record setup",
+                RefusalCause::NoReverseDns,
+            ),
+            (
+                554,
+                "5.7.1 Client host rejected: cannot find your reverse hostname, [203.0.113.7]",
+                RefusalCause::NoReverseDns,
+            ),
+            (
+                550,
+                "5.7.26 This mail has been blocked because the sender is unauthenticated",
+                RefusalCause::NotAuthenticated,
+            ),
+            (550, "5.7.1 SPF check failed", RefusalCause::NotAuthenticated),
+            (554, "5.7.1 rejected", RefusalCause::Unknown),
+        ];
+        for (code, text, cause) in cases {
+            assert_eq!(refusal_cause(&reply(code, text)), cause, "{text}");
+        }
+        // Direct delivery refused for the home address: failed, recorded with its cause and
+        // explained in words.
+        let dir = TempDir::new("send");
+        let mut fake = Fake::new(|_| RecipientStatus::Rejected {
+            reply: Reply {
+                code: 550,
+                enhanced: Some("5.7.1".to_string()),
+                text: "5.7.1 Client host [203.0.113.7] blocked using Spamhaus PBL".to_string(),
+            },
+            server: "mx.example.net".to_string(),
+        });
+        let status = send_mail_with(
+            &dir.folder(),
+            ACCOUNT,
+            &signing(Some(TEST_KEY)),
+            &mail(),
+            OCT_1,
+            &mut fake,
+        );
+        let SendStatus::Failed { reason } = status.clone() else {
+            panic!("{status:?}");
+        };
+        assert!(reason.contains("home"), "{reason}");
+        assert!(reason.contains("Spamhaus"), "{reason}");
+        let policy = PolicyList::load(&account::account_dir(&dir.folder(), ACCOUNT));
+        let entry = policy.entry_for("example.net").unwrap();
+        assert_eq!(entry.cause, RefusalCause::HomeAddress);
+        assert_eq!(entry.source, PolicySource::Learned);
+        assert!(entry.reason.contains("relay"), "{}", entry.reason);
+        assert!(entry.reason.contains("Spamhaus"), "{}", entry.reason);
+        let json = std::fs::read_to_string(dir.0.join(ACCOUNT).join(POLICY_FILE)).unwrap();
+        assert!(json.contains("\"cause\": \"home_address\""), "{json}");
+    }
+
+    #[test]
+    fn when_no_exchanger_answers_the_port_25_probe_decides_and_the_connection_is_remembered() {
+        let dir = TempDir::new("send");
+        let mut fake = Fake::new(unreachable);
+        fake.probe = Port25Probe::Blocked(String::from(
+            "gmail-smtp-in.l.google.com:25: timed out",
+        ));
+        let status = send_mail_with(
+            &dir.folder(),
+            ACCOUNT,
+            &signing(Some(TEST_KEY)),
+            &mail(),
+            OCT_1,
+            &mut fake,
+        );
+        let SendStatus::Queued { reason } = status.clone() else {
+            panic!("{status:?}");
+        };
+        assert!(reason.contains("port 25"), "{reason}");
+        assert_eq!(fake.probes, 1);
+        let account_dir = account::account_dir(&dir.folder(), ACCOUNT);
+        let policy = PolicyList::load(&account_dir);
+        let check = policy.port25.clone().expect("the probe is recorded");
+        assert!(!check.open);
+        assert_eq!(check.checked, OCT_1);
+        assert!(check.detail.contains("timed out"), "{}", check.detail);
+        assert!(policy.port25_blocked(OCT_1 + 60));
+        assert!(!policy.port25_blocked(OCT_1 + PORT25_RECHECK_SECS));
+        // Within the hour another mail waits without knocking anywhere.
+        let mut second = take_all();
+        let status = send_mail_with(
+            &dir.folder(),
+            ACCOUNT,
+            &signing(Some(TEST_KEY)),
+            &mail(),
+            OCT_1 + 60,
+            &mut second,
+        );
+        let SendStatus::Queued { reason } = status.clone() else {
+            panic!("{status:?}");
+        };
+        assert!(reason.contains("port 25"), "{reason}");
+        assert!(second.calls.is_empty());
+        assert_eq!(second.probes, 0);
+        // An hour later (another network?): probed again; open, so both mails go out.
+        let mut later = take_all();
+        later.probe = Port25Probe::Open;
+        let results = retry_outbox_with(
+            &dir.folder(),
+            ACCOUNT,
+            &signing(Some(TEST_KEY)),
+            true,
+            OCT_1 + PORT25_RECHECK_SECS,
+            &mut later,
+        );
+        assert_eq!(later.probes, 1);
+        assert_eq!(results.len(), 2);
+        assert!(
+            results
+                .iter()
+                .all(|(_, s)| matches!(s, SendStatus::Sent { .. })),
+            "{results:?}"
+        );
+        assert!(PolicyList::load(&account_dir).port25.unwrap().open);
+    }
+
+    #[test]
+    fn one_unreachable_exchanger_on_an_open_connection_is_only_a_temporary_failure() {
+        let dir = TempDir::new("send");
+        let mut fake = Fake::new(unreachable);
+        fake.probe = Port25Probe::Open;
+        let status = send_mail_with(
+            &dir.folder(),
+            ACCOUNT,
+            &SendSettings::default(),
+            &mail(),
+            OCT_1,
+            &mut fake,
+        );
+        let SendStatus::Queued { reason } = status.clone() else {
+            panic!("{status:?}");
+        };
+        assert!(reason.contains("could not connect to mx.example.net"), "{reason}");
+        assert!(!reason.contains("blocks"), "{reason}");
+        assert_eq!(fake.probes, 1);
+        let policy = PolicyList::load(&account::account_dir(&dir.folder(), ACCOUNT));
+        assert!(policy.port25.as_ref().is_some_and(|c| c.open));
+        assert_eq!(policy.route_for("example.net"), DomainRoute::Direct);
+        assert_eq!(
+            outbox_entries(&dir.folder(), ACCOUNT)[0].next_attempt,
+            OCT_1 + 300,
+            "an ordinary backoff"
+        );
+        // Offline (the probe's DNS does not answer either): nothing is recorded.
+        let offline_dir = TempDir::new("send");
+        let mut offline = Fake::new(unreachable);
+        offline.probe = Port25Probe::Unknown(String::from("no DNS"));
+        send_mail_with(
+            &offline_dir.folder(),
+            ACCOUNT,
+            &SendSettings::default(),
+            &mail(),
+            OCT_1,
+            &mut offline,
+        );
+        assert!(PolicyList::load(&account::account_dir(&offline_dir.folder(), ACCOUNT))
+            .port25
+            .is_none());
+        // A server that answers at all shows port 25 is open.
+        let open_dir = TempDir::new("send");
+        send_mail_with(
+            &open_dir.folder(),
+            ACCOUNT,
+            &SendSettings::default(),
+            &mail(),
+            OCT_1,
+            &mut take_all(),
+        );
+        assert!(PolicyList::load(&account::account_dir(&open_dir.folder(), ACCOUNT))
+            .port25
+            .is_some_and(|c| c.open));
     }
 
     // ---- the real client against a sink on this computer ----
