@@ -51,8 +51,17 @@ agents - keep files under `m6/` (a `msg.txt` at the root got overwritten).
   tests whose old expectations relied on the forwarded window height (commit per file).
   NOTE: the brief says "do not spawn subagents" - I missed it and used two read-only Explore agents
   (app-site audit, test audit); no more; disclosed in the report.
-- Report skeleton committed (`76c30267a`, `b98904ab7`): still to fill = "Item 2 in detail" (with
-  the test audit), "Commits", "What is left". Pins moved by item 3: `f81c9d36a` (2 text3 pins).
+- Report skeleton committed (`76c30267a`, `b98904ab7`), item 2 section `a9315f212` (test audit:
+  NO test affected). Still to fill: "Commits", "What is left". Pins moved by item 3: `f81c9d36a`.
+- NEW (coordinator, from SMALL6): an overflowing line overflows LEFT (start cut off) - AzCalculator.
+  Cause: text3/cache.rs `position_one_line` ~12432 applies negative `remaining_space` for
+  Right/Center. CSS Text 3 7.1: overflow -> start-aligned (LTR: offset 0; RTL: offset = remaining,
+  overflow left). knuth_plass.rs ~701 does 0 always (wrong in RTL); cache.rs
+  `calculate_alignment_offset` (~12747) is an UNUSED twin. Plan: ONE helper
+  `line_alignment_offset(physical_align, remaining, base_direction)` used by both, delete the twin.
+  RED test written (uncommitted until Chrome confirms): layout/tests/
+  an_overflowing_line_overflows_past_its_end_edge.rs. Chrome probe m6/chrome_overflow.py (waits
+  for the run_capped lock).
 
 ## (older notes, items 3/7 plan)
 - item 3 + 7 (Chrome's rounded font metrics + the Times/Helvetica/Courier ascent hack).
