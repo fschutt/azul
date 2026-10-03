@@ -27,22 +27,16 @@ Scratch helpers (not committed): /tmp/pimdrive7/rep.py (exact replacements from 
   (Monday) and AzTasks (setting) - needs WIDGETS7's api.json entries
 - 1573ae018 aztasks_e2e.py on azlin_e2e (App.has / box / drag added there); stage planned_and_board
 
+- 1573ae018 E2E run on the prebuilt: PASS (planned/board stage BLOCKED on the old build, as designed)
+- 50775f491 / 41b2ce569 RED / GREEN tag suggestions (views::tag_suggestions, chips under the tag field)
+- affe9544d AzCalendar Month days = azul_pim::dates::month_grid (month_grid_start gone)
+
 ## IN PROGRESS
-- 3. AzTasks planned / board + tags. Plan (azul-apps/planning/core/todo.md 2.3 / 2.4):
-  3.1 RED azul-pim: dates::month_grid(day, week_start) (42 days); Task.started (JSON "started",
-      set_started, spawn_next resets it)
-  3.2 GREEN azul-pim
-  3.3 RED AzTasks views: planned_month(tasks, days) per-day open tasks; board(tasks, list) -> 3 columns
-      (To do / Doing = started / Done); vtodo STATUS:IN-PROCESS <-> started
-  3.4 GREEN; 3.5 UI + E2E DONE.
-  NEXT: run scripts/aztasks_e2e.py against the prebuilt (capped, --seconds 300) to check the migration
-  (expect PASS with "BLOCKED planned month / board"), then 3.6 tags (detail.rs fn tags: suggestion chips
-  of views::tags not on the task, click adds; ids TAG_SUGGESTION_CLASS), then 3.7.
-  3.6 tags: no TokenInput widget (-> WIDGETS7 spec in report); chips + field + suggestion chips
-  3.7 AzCalendar Month days from azul_pim::dates::month_grid (one generator)
+- 4. AzCalendar start through the Drive: read lib.rs start / CalState::new, store.rs, settings.rs, event.rs
+  load, calendars.rs load, sample.rs; move the start reads (events / calendars / settings) and --sample's
+  writes onto the azul-storage Drive (LocalDrive on the data dir), RED tests first.
 
 ## NEXT
-- 4. AzCalendar start through the Drive.
 - 5. AzContacts LOOK + fixes.
 - 6. AzDrive Details on a widget; AzMeet chat on rejoin; azdrive / azmeet E2E onto azlin_e2e.py.
 - 7. LOOK at all five apps.
