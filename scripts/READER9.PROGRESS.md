@@ -18,10 +18,16 @@ AzReader, lib azreader). Never compile; rustfmt --edition 2021 <file> as the par
 - 90c2c22eb RED / 0c560ea11 GREEN src/content.rs (read_chapter -> Chapter{xml, images,
   anchors, text}, fit_image, image_src "azreader:<book>/<path>", BASE_SHEET)
 
-## IN PROGRESS
-- (nothing half-done; every file above is committed)
+## STATE (2026-10-03, end of the session)
+- THE TASK IS DONE IN SOURCE: every step 1-8 below is committed, the report is
+  scripts/READER9_2026_10_03.md (aeb143859). adf353db2 scripts/azreader_e2e.py.
+- If resumed: (a) re-check the "Least sure to compile" list of the report against the
+  generated crate (target/codegen/azul.rs, read-only) - one fix found so far: 493be4174
+  `Dom::with_marker` takes `OptionString`; (b) optional work from the report's "Left" list
+  (follow links in books, exact anchors, render only the blocks around a page), each RED first;
+  update the report's commit list when adding commits.
 
-## NEXT (exact)
+## NEXT (history of the exact steps, all done)
 1-2. DONE: fbd7a91d4 RED (src/paginate.rs test a_page_of_text_never_ends_inside_a_line +
    reading_policy + page_map) / d4d6798fc GREEN (dll: Pdf::compute_pagination_with_policy,
    engine::styled_dom_pagination_with_policy replaces styled_dom_pagination; wasm stub).
