@@ -135,6 +135,13 @@ fn theme_card(app: &RefAny, st: &AppState, index: usize, name: &str) -> Dom {
     let media = HashMap::new();
     let scale = 0.1;
     let picture = render::slide_dom(&deck, &deck.slides[0], &RenderOptions::still(scale, &media));
+    // The theme's accents under its title slide (as PowerPoint's New shows
+    // them): the grounds of the paper variants alone look alike.
+    let colors = &deck.theme.colors;
+    let mut accents = Dom::create_div().with_css("display: flex; flex-direction: row; height: 6px;");
+    for c in [colors.accent, colors.accent2, colors.accent3, colors.title] {
+        accents.add_child(Dom::create_div().with_css(format!("flex-grow: 1; background: {};", render::css_color(c))));
+    }
     let ring = if st.new_theme == index {
         "border: 3px solid #d24726;"
     } else {
@@ -145,6 +152,7 @@ fn theme_card(app: &RefAny, st: &AppState, index: usize, name: &str) -> Dom {
             "display: flex; flex-direction: column; align-items: stretch; margin: 0px 16px 16px 0px; {ring}"
         ))
         .with_child(picture)
+        .with_child(accents)
         .with_child(button(app, name, Command::NewTheme(index)))
 }
 
