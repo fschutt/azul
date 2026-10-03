@@ -26,6 +26,7 @@
 //! `--size`). On stdout, for scripts: see `state.rs` and `jobs.rs`, plus `AZTASKS_REMINDER
 //! <task>` and `AZTASKS_NOTIFICATION <kind> <task>`.
 
+pub mod appearance;
 pub mod args;
 pub mod backstage;
 pub mod chrome;
