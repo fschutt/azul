@@ -19,8 +19,8 @@ pub const MAX_ZOOM: f32 = 19.0;
 /// The pins as the pins file keeps them.
 #[must_use]
 pub fn pins_to_json(pins: &[(f64, f64)]) -> String {
-    let _ = pins;
-    todo!()
+    let pairs: Vec<[f64; 2]> = pins.iter().map(|(lat, lon)| [*lat, *lon]).collect();
+    serde_json::to_string(&pairs).unwrap_or_else(|_| "[]".to_string())
 }
 
 /// The pins of a pins file; a broken file is an error, never a panic.
@@ -28,22 +28,44 @@ pub fn pins_to_json(pins: &[(f64, f64)]) -> String {
 /// # Errors
 /// What is wrong with the file.
 pub fn pins_from_json(text: &str) -> Result<Vec<(f64, f64)>, String> {
-    let _ = text;
-    todo!()
+    let pairs: Vec<[f64; 2]> =
+        serde_json::from_str(text).map_err(|e| format!("not a pins file: {e}"))?;
+    pairs
+        .into_iter()
+        .map(|[lat, lon]| {
+            if lat.is_finite() && lon.is_finite() && lat.abs() <= 90.0 && lon.abs() <= 180.0 {
+                Ok((lat, lon))
+            } else {
+                Err(format!("{lat}, {lon} is not a place on the map"))
+            }
+        })
+        .collect()
 }
 
 /// The viewport as settings.json keeps it: `lat,lon,zoom`.
 #[must_use]
 pub fn view_value(lat: f64, lon: f64, zoom: f32) -> String {
-    let _ = (lat, lon, zoom);
-    todo!()
+    format!("{lat},{lon},{zoom}")
 }
 
 /// A kept viewport read back, clamped into the map (`None`: unreadable).
 #[must_use]
 pub fn parse_view(text: &str) -> Option<(f64, f64, f32)> {
-    let _ = text;
-    todo!()
+    let mut parts = text.split(',').map(str::trim);
+    let lat: f64 = parts.next()?.parse().ok()?;
+    let lon: f64 = parts.next()?.parse().ok()?;
+    let zoom: f32 = parts.next()?.parse().ok()?;
+    if parts.next().is_some() || !(lat.is_finite() && lon.is_finite() && zoom.is_finite()) {
+        return None;
+    }
+    // A longitude on the map stays as written (no float round trip); one
+    // past it wraps around.
+    let lon = if (-180.0..=180.0).contains(&lon) {
+        lon
+    } else {
+        (lon + 540.0).rem_euclid(360.0) - 180.0
+    };
+    Some((lat.clamp(-85.0, 85.0), lon, zoom.clamp(MIN_ZOOM, MAX_ZOOM)))
 }
 
 /// `AZMAPS_VIEW <lat> <lon> <zoom>`, four decimals and one, for scripts.
