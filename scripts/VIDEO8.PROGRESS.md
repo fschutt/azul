@@ -49,8 +49,15 @@ capture's CVPixelBuffer).
 - 871a949a0 docs(azmeet): wire format docs
   => OPUS DONE end to end (needs api.json AudioEncoder / AudioDecoder / OptionAudioFrame).
 
+- 8761edffa / 3c9824774 core rgba_to_nv12 RED / GREEN (RgbToYuv, the inverse of YuvCoefficients;
+  test expectations replayed in /tmp/video8/tc/nv12_sim.py)
+- 677a86b47 test(video): a GPU whose Vulkan driver encodes H.264 gets an open encoder (RED)
+- ec5d22154 feat(video): encode_vulkan.rs + EncodeEngine (Vt | Vulkan) + encode_engine honest
+- e5d869f5e docs
+  => JPEG FALLBACK OFF APPLE DONE (Linux / Windows with a Vulkan Video encode GPU; not runnable here).
+
 ## IN PROGRESS
-- nothing half-done.
+- echo cancellation (next).
 
 ## NEXT (exact)
 1. (DONE) Opus through AudioToolbox on Apple: new file dll/src/desktop/extra/audio/opus_codec.rs (or
@@ -61,7 +68,7 @@ capture's CVPixelBuffer).
    honest closed handle off Apple; RED test: a 440 Hz tone encodes to < 200 bytes a packet and
    decodes back correlated (> 0.9). Then AzMeet audio.rs codec byte 2 (CODEC_OPUS) with PCM
    fallback when the encoder is closed or the peer's caps lack it.
-2. Vulkan Video H.264 encoder on Linux / Windows: dll/src/desktop/extra/video_codec/encode_vulkan.rs
+2. (DONE) Vulkan Video H.264 encoder on Linux / Windows: dll/src/desktop/extra/video_codec/encode_vulkan.rs
    mirroring decode_vulkan.rs (gpu-video `create_bytes_encoder_h264`, NV12 input via the core
    YCbCr table for RGBA/BGRA, RateControl::VariableBitrate; set_bitrate = re-create the encoder);
    EncoderInner gets an engine enum; encode_engine() honest.
