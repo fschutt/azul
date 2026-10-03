@@ -49,59 +49,133 @@ impl PlayQueue {
     /// A queue of `items` playing `items[start]` (in order, not shuffled).
     #[must_use]
     pub fn new(items: Vec<String>, start: usize) -> Self {
-        let _ = (items, start);
-        Self::default()
+        let order: Vec<usize> = (0..items.len()).collect();
+        let pos = (!items.is_empty()).then(|| start.min(items.len() - 1));
+        Self {
+            items,
+            order,
+            pos,
+            shuffle: false,
+            repeat: Repeat::Off,
+            seed: 0,
+        }
     }
 
     /// The track playing (or to play).
     #[must_use]
     pub fn current(&self) -> Option<&str> {
-        None
+        let i = *self.order.get(self.pos?)?;
+        self.items.get(i).map(String::as_str)
     }
 
     /// The tracks in play order from the current one on (for the queue panel).
     #[must_use]
     pub fn up_next(&self) -> Vec<&str> {
-        Vec::new()
+        let Some(p) = self.pos else {
+            return Vec::new();
+        };
+        self.order[p.min(self.order.len())..]
+            .iter()
+            .map(|i| self.items[*i].as_str())
+            .collect()
     }
 
     /// Shuffle on (the current track stays current, the rest in a random order from `seed`) or
     /// off (back to the queued order, the current track still current).
     pub fn set_shuffle(&mut self, on: bool, seed: u64) {
-        let _ = (on, seed);
+        let current = self.pos.and_then(|p| self.order.get(p).copied());
+        let n = self.items.len();
+        if on {
+            let mut rest: Vec<usize> = (0..n).filter(|i| Some(*i) != current).collect();
+            // Fisher-Yates on a xorshift64 stream: the same seed, the same order.
+            let mut state = seed | 1;
+            for i in (1..rest.len()).rev() {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                let j = (state % (i as u64 + 1)) as usize;
+                rest.swap(i, j);
+            }
+            self.order = current.into_iter().chain(rest).collect();
+            self.pos = current.map(|_| 0);
+            self.seed = state;
+        } else {
+            self.order = (0..n).collect();
+            self.pos = current;
+        }
+        self.shuffle = on;
     }
 
     /// The track that plays after the current one: the same one on repeat-one, the first one
     /// after the last on repeat-all, none after the last otherwise.
     #[must_use]
     pub fn upcoming(&self) -> Option<&str> {
-        None
+        let next = self.next_pos(true)?;
+        self.items.get(self.order[next]).map(String::as_str)
+    }
+
+    /// Where the queue goes after the current track (`hold`: repeat-one holds it).
+    fn next_pos(&self, hold: bool) -> Option<usize> {
+        let p = self.pos?;
+        if hold && self.repeat == Repeat::One {
+            Some(p)
+        } else if p + 1 < self.order.len() {
+            Some(p + 1)
+        } else if self.repeat != Repeat::Off && !self.order.is_empty() {
+            Some(0)
+        } else {
+            None
+        }
     }
 
     /// Moves on to [`upcoming`](Self::upcoming); `None` (and nothing current) at the end.
     pub fn advance(&mut self) -> Option<String> {
-        None
+        self.pos = self.next_pos(true);
+        self.current().map(str::to_string)
     }
 
     /// Skips to the next track (the user's "next": repeat-one does not hold it).
     pub fn skip(&mut self) -> Option<String> {
-        None
+        self.pos = self.next_pos(false);
+        self.current().map(str::to_string)
     }
 
     /// The user's "previous" at `position_s` into the current track.
     pub fn previous(&mut self, position_s: f64) -> Previous {
-        let _ = position_s;
-        Previous::Restart
+        if position_s > RESTART_AFTER_S {
+            return Previous::Restart;
+        }
+        match self.pos {
+            Some(p) if p > 0 => self.pos = Some(p - 1),
+            Some(_) if self.repeat == Repeat::All && self.order.len() > 1 => {
+                self.pos = Some(self.order.len() - 1);
+            }
+            _ => return Previous::Restart,
+        }
+        self.current()
+            .map_or(Previous::Restart, |id| Previous::Track(id.to_string()))
     }
 
     /// Plays `id` right after the current track.
     pub fn play_next(&mut self, id: String) {
-        let _ = id;
+        self.items.push(id);
+        let index = self.items.len() - 1;
+        match self.pos {
+            Some(p) => self.order.insert(p + 1, index),
+            None => {
+                self.order.push(index);
+                self.pos = Some(self.order.len() - 1);
+            }
+        }
     }
 
     /// Plays `id` after everything queued.
     pub fn enqueue(&mut self, id: String) {
-        let _ = id;
+        self.items.push(id);
+        self.order.push(self.items.len() - 1);
+        if self.pos.is_none() {
+            self.pos = Some(self.order.len() - 1);
+        }
     }
 
     /// Nothing queued.
