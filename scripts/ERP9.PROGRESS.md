@@ -24,13 +24,16 @@ Branch `wt/erp9` from `e537ddbe2`. Brief: scripts/waves/wave9/PLAN.md "ERP9"; pl
   (AzContacts has its own RFC 4180 reader: named as a twin in the report).
 
 ## DONE
-- (nothing yet)
+- 37698ac99 progress file
+- 610a848fd RED crate registered (root Cargo.toml, workspace_test_members.txt, rust.yml) + money tests
+- (next) GREEN money; a0dd7f091 RED model; b0e49325d GREEN model; 08005b988 RED depreciation;
+  14da0b040 GREEN depreciation
 
 ## IN PROGRESS
-- skeleton
+- store.rs (keys, load from FileOutcome::GotAll files, the Book of records)
 
 ## NEXT
-- crate skeleton + registration; RED tests: money, depreciation, record round trip, CSV mapping, views
+- store RED/GREEN; csv_io RED/GREEN; reports; views (interpreter) RED/GREEN; sample; ids; UI; E2E; report
 
 ## Open questions
 - none yet
