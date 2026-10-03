@@ -22,19 +22,22 @@ screenshots + hierarchy dumps under target/sheetshow6-shots/.
 - c66fec68c AzSheets HOME = Excel 2010 icon rows (~960 px; needs api.json RibbonButton.alt / set_alt / with_alt).
 - f2388e8ef RED / bb1fbb5fd GREEN: AzShow File > Open reads every page (ops::list_all + deck_id_of).
 
+- AzSheets on appkit: d265c5ccb (id mint, dep), 30a45f3d4 (args over AppArgs; --data-dir replaces AZSHEETS_DATA),
+  8c473405c (facts ABOUT / SHORTCUTS, AppState { drive, kit, asking_close, close_after_save }), 3236a60c2 (every
+  Post / Job through the shared drive; exports -> sheets/exports/<name>.<ext>), 484743331 (start / startup on the
+  kit), 480913b53 (Options = kit::settings_page, About = AboutDialog, VIEW > Look removed), 797557784 (Mod+, / F1).
+
 ## IN PROGRESS
 - (power warning 2026-10-03: battery ~16 %; NO headless app runs until told otherwise. The AzShow look run was
   killed before it produced anything; AzShow is NOT looked at yet.)
 
 ## NEXT (exact)
 1-3. (done)
-4. AzSheets on appkit, in small commits: S-A1 Cargo dep azul-appkit (feature azul) + SPEC / ABOUT / SHORTCUTS
-   consts + storage::new_id = Uuid::from_seed(random_seed()) (drop the uuid crate); S-A2 args.rs over AppArgs (bare
-   file = open .xlsx; --data-dir replaces AZSHEETS_DATA); S-A3 start() via create_kit / app_config /
-   window_options, AppState { kit, drive: Arc<dyn Drive> }; S-A4 every Post / Job carries the shared drive;
-   S-A5 Options pane = kit::settings_page + About = AboutDialog; S-A6 kit::handle_key first in on_window_key;
-   S-A7 close guard; S-A8 `__azsheets_` id / class consts. Then the same for AzShow (+ exports PDF / PNG into
-   exports/ through the drive instead of FileDialog::save_bytes).
+4. AzSheets: S-A7 close guard (layout(): wrap the shell in CloseGuard::create(content, title).with_dirty(doc.dirty)
+   .with_asking(asking_close).with_on_event(app, on_close_guard); Ask -> asking_close = true; Save -> save with
+   close_after_save = true, apply_reply's Pending::Saved closes the window (info.close_window()); Discard -> dirty
+   false; Cancel -> asking_close false); S-A8 `__azsheets_` id / class consts (an `ids` module, AzString consts).
+   Then the same for AzShow (+ exports PDF / PNG into show/exports/ through the drive instead of FileDialog).
 5. When power allows: LOOK at AzShow (target/sheetshow6-tools/show_steps1.py, fixed ready check) and re-look at Sheets.
 
 ## Broken (seen, 2026-10-03, prebuilt aa59b2d84, headless 1280x800)
