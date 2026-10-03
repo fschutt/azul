@@ -2990,6 +2990,12 @@ pub struct CommonWindowState {
     /// A close the window manager asked for runs the protocol at once and
     /// never sets this.
     close_unconfirmed: bool,
+    /// A scripted E2E run owns this window's animation clock
+    /// (`debug_server::scripted_run_owns_the_clock`, read when the window
+    /// opens): the wall-clock CSS animation driver is never armed, and
+    /// animations move only with the scenario's `tick_animations`, as in the
+    /// in-process runner.
+    pub scripted_animation_clock: bool,
 }
 
 impl CommonWindowState {
@@ -3328,6 +3334,7 @@ impl CommonWindowState {
             desktop_theme,
             renderer_clear_color: None,
             close_unconfirmed: false,
+            scripted_animation_clock: super::debug_server::scripted_run_owns_the_clock(),
         }
     }
 
@@ -4422,6 +4429,12 @@ pub trait PlatformWindow {
     /// sat on its start value and a switch froze after its first toggle.
     fn arm_css_animation_timer_if_needed(&mut self) {
         use azul_core::task::CSS_ANIMATION_TIMER_ID;
+        // A scripted E2E run owns the animation clock: its animations move
+        // only with the scenario's `tick_animations`, never on the wall clock
+        // between two ops (`CommonWindowState::scripted_animation_clock`).
+        if self.get_common_mut().scripted_animation_clock {
+            return;
+        }
         // Which animations can be seen NOW: the pass that just ran may have
         // scrolled one back into view (its next tick must step it) or
         // minimized the window. A culled animation arms nothing.
@@ -4451,6 +4464,12 @@ pub trait PlatformWindow {
     /// this frame).
     fn advance_css_animations_now(&mut self) -> ProcessEventResult {
         use azul_core::task::CSS_ANIMATION_TIMER_ID;
+        // Never armed under a scripted run (see
+        // `arm_css_animation_timer_if_needed`); a driver that was, steps
+        // nothing - the scenario owns the clock.
+        if self.get_common_mut().scripted_animation_clock {
+            return ProcessEventResult::DoNothing;
+        }
         let window_can_show = self.window_can_show();
         let (had_work, dt) = {
             let Some(lw) = self.get_layout_window_mut() else {
@@ -13322,8 +13341,15 @@ pub trait PlatformWindow {
     /// (`process_timers_and_threads`; the desktop loops also through the
     /// app-event collector).
     fn serve_debug_request_wake(&mut self) {
+        // Per window: EVERY window re-arms once per announced request - the
+        // one that takes it off the shared queue and the one it is forwarded
+        // to by `window_id` (a dialog the app opened). The process-wide flag
+        // was taken by whichever loop looked first.
         #[cfg(feature = "debug-server")]
-        if azul_layout::e2e::take_debug_request_wake() {
+        if self
+            .get_layout_window()
+            .is_some_and(azul_layout::e2e::take_debug_request_wake_for)
+        {
             self.rearm_debug_poll();
         }
     }

@@ -913,6 +913,10 @@ pub struct LayoutCallbackInfoRefData<'a> {
     /// the same `no_std` reason as `monitors`. What
     /// `LayoutCallbackInfo::get_global_hotkey_status` answers from.
     pub global_hotkeys: crate::global_hotkey::GlobalHotkeyInfoVec,
+    /// The id of the window this `layout()` builds (`FullWindowState::window_id`,
+    /// the app's name for the window): what `LayoutCallbackInfo::get_window_id`
+    /// answers.
+    pub window_id: &'a AzString,
 }
 
 /// What triggered the current `layout()` invocation.
@@ -1460,6 +1464,18 @@ impl LayoutCallbackInfo {
     #[must_use]
     pub const fn relayout_reason(&self) -> RelayoutReason {
         self.relayout_reason
+    }
+
+    /// The id of the window this `layout()` builds: its
+    /// `FullWindowState::window_id`, the name the app gave it in its
+    /// `WindowCreateOptions` (empty when it gave none).
+    ///
+    /// One layout callback can serve several windows of one kind - two event
+    /// editors, each opened with its own id (`"editor-<event id>"`) - and
+    /// tells them apart here, where it decides which document to build.
+    #[must_use]
+    pub fn get_window_id(&self) -> AzString {
+        unsafe { (*self.ref_data).window_id.clone() }
     }
 
     /// Is the window's LOGICAL viewport wider than `width_px`?

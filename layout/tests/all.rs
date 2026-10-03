@@ -786,3 +786,9 @@ mod an_atomic_inline_inside_a_span_keeps_its_box;
 mod a_percentage_height_in_an_auto_height_block_is_auto;
 #[path = "an_overflowing_line_overflows_past_its_end_edge.rs"]
 mod an_overflowing_line_overflows_past_its_end_edge;
+#[path = "a_virtual_views_child_dom_state_goes_with_its_host.rs"]
+mod a_virtual_views_child_dom_state_goes_with_its_host;
+#[path = "a_transformed_box_is_hit_where_it_is_painted.rs"]
+mod a_transformed_box_is_hit_where_it_is_painted;
+#[path = "a_rebuild_transitions_only_what_its_window_sees_change.rs"]
+mod a_rebuild_transitions_only_what_its_window_sees_change;

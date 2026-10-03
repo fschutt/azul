@@ -63,6 +63,7 @@ mod autotest_generated {
         fn ref_data(&self) -> LayoutCallbackInfoRefData<'_> {
             static EN_US: std::sync::OnceLock<AzString> = std::sync::OnceLock::new();
             let locale = EN_US.get_or_init(|| AzString::from("en-US"));
+            static NO_WINDOW_ID: std::sync::OnceLock<AzString> = std::sync::OnceLock::new();
             LayoutCallbackInfoRefData {
                 locale,
                 accessed_locale: core::cell::Cell::new(false),
@@ -76,6 +77,7 @@ mod autotest_generated {
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
                 safe_area: azul_css::system::SafeAreaInsets::default(),
                 global_hotkeys: crate::global_hotkey::GlobalHotkeyInfoVec::from_const_slice(&[]),
+                window_id: NO_WINDOW_ID.get_or_init(|| AzString::from("")),
             }
         }
     }
@@ -1374,6 +1376,7 @@ mod size_query_tests {
         fn ref_data(&self) -> LayoutCallbackInfoRefData<'_> {
             static EN_US: std::sync::OnceLock<AzString> = std::sync::OnceLock::new();
             let locale = EN_US.get_or_init(|| AzString::from("en-US"));
+            static NO_WINDOW_ID: std::sync::OnceLock<AzString> = std::sync::OnceLock::new();
             LayoutCallbackInfoRefData {
                 locale,
                 accessed_locale: core::cell::Cell::new(false),
@@ -1387,6 +1390,7 @@ mod size_query_tests {
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
                 safe_area: azul_css::system::SafeAreaInsets::default(),
                 global_hotkeys: crate::global_hotkey::GlobalHotkeyInfoVec::from_const_slice(&[]),
+                window_id: NO_WINDOW_ID.get_or_init(|| AzString::from("")),
             }
         }
     }
@@ -1557,6 +1561,7 @@ mod system_style_dependency_tests {
         fn ref_data(&self) -> LayoutCallbackInfoRefData<'_> {
             static EN_US: std::sync::OnceLock<AzString> = std::sync::OnceLock::new();
             let locale = EN_US.get_or_init(|| AzString::from("en-US"));
+            static NO_WINDOW_ID: std::sync::OnceLock<AzString> = std::sync::OnceLock::new();
             LayoutCallbackInfoRefData {
                 locale,
                 accessed_locale: core::cell::Cell::new(false),
@@ -1570,6 +1575,7 @@ mod system_style_dependency_tests {
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
                 safe_area: azul_css::system::SafeAreaInsets::default(),
                 global_hotkeys: crate::global_hotkey::GlobalHotkeyInfoVec::from_const_slice(&[]),
+                window_id: NO_WINDOW_ID.get_or_init(|| AzString::from("")),
             }
         }
     }
@@ -1777,6 +1783,7 @@ mod global_hotkey_recorder_tests {
         fn ref_data(&self) -> LayoutCallbackInfoRefData<'_> {
             static EN_US: std::sync::OnceLock<AzString> = std::sync::OnceLock::new();
             let locale = EN_US.get_or_init(|| AzString::from("en-US"));
+            static NO_WINDOW_ID: std::sync::OnceLock<AzString> = std::sync::OnceLock::new();
             LayoutCallbackInfoRefData {
                 locale,
                 accessed_locale: core::cell::Cell::new(false),
@@ -1790,6 +1797,7 @@ mod global_hotkey_recorder_tests {
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
                 safe_area: azul_css::system::SafeAreaInsets::default(),
                 global_hotkeys: self.hotkeys.clone(),
+                window_id: NO_WINDOW_ID.get_or_init(|| AzString::from("")),
             }
         }
     }
@@ -2063,6 +2071,7 @@ mod app_theme_tests {
         fn ref_data(&self) -> LayoutCallbackInfoRefData<'_> {
             static EN_US: std::sync::OnceLock<AzString> = std::sync::OnceLock::new();
             let locale = EN_US.get_or_init(|| AzString::from("en-US"));
+            static NO_WINDOW_ID: std::sync::OnceLock<AzString> = std::sync::OnceLock::new();
             LayoutCallbackInfoRefData {
                 locale,
                 accessed_locale: core::cell::Cell::new(false),
@@ -2076,6 +2085,7 @@ mod app_theme_tests {
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
                 safe_area: azul_css::system::SafeAreaInsets::default(),
                 global_hotkeys: crate::global_hotkey::GlobalHotkeyInfoVec::from_const_slice(&[]),
+                window_id: NO_WINDOW_ID.get_or_init(|| AzString::from("")),
             }
         }
     }
@@ -2175,5 +2185,17 @@ mod app_theme_tests {
             RelayoutReason::ModeChange,
             "ModeChange is the light / dark mode; the app theme is a DOM rebuild of its own"
         );
+    }
+
+    /// CAL3: one layout callback serving several editor windows needs to know
+    /// which window it builds - `LayoutCallbackInfo` had no window id.
+    #[test]
+    fn a_layout_callback_knows_which_window_it_builds() {
+        let id = AzString::from("azcalendar-editor-2");
+        let rd = Rd::new();
+        let mut rd = rd.ref_data();
+        rd.window_id = &id;
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
+        assert_eq!(info.get_window_id().as_str(), "azcalendar-editor-2");
     }
 }

@@ -52,6 +52,13 @@ pub fn is_debug_enabled() -> bool {
     false
 }
 
+/// Always `false` in the lean build: no scripted run can own the animation
+/// clock when the E2E engine is compiled out.
+#[inline(always)]
+pub fn scripted_run_owns_the_clock() -> bool {
+    false
+}
+
 /// Whether the `log_*!` macros should fire in the lean build. Unlike the full
 /// server (which gates on `is_debug_enabled()` to feed its queue), the lean
 /// build forwards messages to the `log` facade, so this follows `AZ_LOG` and is

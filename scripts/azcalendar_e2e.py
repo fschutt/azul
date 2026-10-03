@@ -362,7 +362,10 @@ def stage_editor(app, ctx):
     ed.type_into("#editor-title", EDITOR_TITLE)
     ed.click(text="Weekly")
     ed.wait_for("#editor-repeat-variant")
-    ed.click(selector="#editor-save")
+    # Save & Close closes the editor window: no frames are asked of it after
+    # the click (`click` waits two frames on the window it clicked, and a
+    # closed window answers "No window has the id"). The main window waits.
+    ed.must({"op": "click", "selector": "#editor-save"})
     w.until(
         "AZCAL_EDITOR closed",
         lambda: "closed" in app.printed("AZCAL_EDITOR")[opened:],

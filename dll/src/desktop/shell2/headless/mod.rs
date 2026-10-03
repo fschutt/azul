@@ -1591,6 +1591,12 @@ pub struct HeadlessWindow {
     /// [`HeadlessWindow::inject_accessibility_action`], drained by
     /// [`HeadlessWindow::process_accessibility_actions`].
     pub accessibility_adapter: A11yActionQueue,
+    /// Publish every painted frame's damage-driven framebuffer onto the
+    /// `LayoutWindow` (`debug_server::e2e_set_presented_frame`), for the E2E
+    /// `assert_damage_sound` `pixel_identity` check. On when a script can ask
+    /// - the debug server or `AZ_E2E` was on when the window opened - since
+    /// it copies every frame.
+    pub publish_presented_frame: bool,
 }
 
 impl HeadlessWindow {
@@ -1678,6 +1684,7 @@ impl HeadlessWindow {
             wake_condvar,
             wake_mutex,
             accessibility_adapter: A11yActionQueue::new(),
+            publish_presented_frame: debug_server::is_debug_enabled(),
         })
     }
 
@@ -2294,7 +2301,29 @@ impl HeadlessWindow {
     /// Spawns a window for every pending create request and pumps the open child windows
     /// (one turn of each), dropping the closed ones.
     pub fn pump_children(&mut self) {
-        while let Some(pending_create) = self.pending_window_creates.pop() {
+        while let Some(mut pending_create) = self.pending_window_creates.pop() {
+            // Every menu window is `azul-menu` (`desktop::menu::show_menu`):
+            // one opened while another is open (a submenu, a second
+            // drop-down) gets an id of its own - the first free of
+            // `azul-menu-2`, `-3`, ... - or the debug server, which routes by
+            // id, could only reach the first.
+            if pending_create.window_state.flags.window_type
+                == azul_core::window::WindowType::Menu
+            {
+                let base = pending_create.window_state.window_id.as_str().to_string();
+                let taken = |id: &str| {
+                    self.children
+                        .iter()
+                        .any(|c| c.common.current_window_state().window_id.as_str() == id)
+                };
+                if taken(&base) {
+                    let free = (2usize..)
+                        .map(|n| format!("{base}-{n}"))
+                        .find(|id| !taken(id))
+                        .unwrap_or(base);
+                    pending_create.window_state.window_id = free.into();
+                }
+            }
             log_debug!(
                 LogCategory::Window,
                 "[Headless] Spawning sub-HeadlessWindow (type: {:?})",
@@ -2405,6 +2434,21 @@ impl HeadlessWindow {
         lw.threads.clear();
     }
 
+    /// [`Self::shutdown_threads`] for this window and every child window it
+    /// pumps: the threads a callback of a dialog started are joined too.
+    fn shutdown_all_threads(&mut self) {
+        for child in &mut self.children {
+            child.shutdown_all_threads();
+        }
+        self.shutdown_threads();
+        // The font registry's scout / builder threads (one registry for the
+        // app, shared by every window) are told to stop too; the registry
+        // hands out no handles to join, so this is a signal, not a join.
+        if let Some(registry) = self.font_registry.as_ref() {
+            registry.shutdown();
+        }
+    }
+
     // === Layout ===
 
     /// Regenerate layout and rebuild CPU hit-tester.
@@ -2513,15 +2557,36 @@ impl HeadlessWindow {
         use azul_core::events::ProcessEventResult as R;
 
         // Mirror the desktop event-arm routing: a regenerate-tier result marks
-        // the DOM rebuild; an incremental-relayout result means the chokepoint
-        // ALREADY re-ran layout on the existing StyledDom, so the frame takes
-        // the relayout-only path (raise-time guard: never downgrade a pending
-        // rebuild).
+        // the DOM rebuild; an incremental-relayout result re-runs layout on the
+        // existing StyledDom HERE, as X11's `handle_event` / macOS's input arm
+        // do, and the frame then takes the relayout-only path, which PAINTS:
+        // every relayout-only request means "the layout already ran"
+        // (`process_timers_and_threads`, `adopt_system_style` and this arm
+        // all lay out before they raise it). Headless used to raise the flag
+        // here and lay out in the frame, so a request raised after a layout
+        // laid the window out twice - and the second build, with nothing left
+        // to patch, replaced the patched display list (e2e/dl-text-patch).
         if tier >= R::ShouldRegenerateDomCurrentWindow {
             self.common
                 .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
         } else if tier == R::ShouldIncrementalRelayout {
-            self.common.request_relayout_only();
+            let mut debug_messages = None;
+            match self.incremental_relayout_dispatching(
+                event::IncrementalRelayout::Restyle,
+                &mut debug_messages,
+            ) {
+                Ok(()) => self.common.request_relayout_only(),
+                Err(e) => {
+                    log_warn!(
+                        LogCategory::Layout,
+                        "[Headless] incremental relayout failed: {} - falling back to a full \
+                         regeneration",
+                        e
+                    );
+                    self.common
+                        .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                }
+            }
         }
 
         let relayout_only = self.common.take_relayout_only();
@@ -2537,22 +2602,54 @@ impl HeadlessWindow {
         let resize_relayout = self.common.take_resize_relayout();
         let regen_requested = self.common.take_regeneration();
         let content_repaint = core::mem::take(&mut self.common.content_repaint_pending);
+        // A display list marked dirty (a css-id image registered, a caret
+        // blink): rebuilt from the layout as it stands by `repaint_only`, as
+        // macOS's `build_atomic_txn` consumes the flag. Headless had no
+        // consumer at all, so such a change re-laid-out the unchanged tree,
+        // kept the cached list and painted nothing
+        // (e2e/op-image-cache-id-repaints).
+        let display_list_dirty = self.common.display_list_dirty;
 
         let (res, what) = if relayout_only {
-            (self.relayout_only(), "relayout")
+            // The layout ran where the request was raised (see the top of
+            // this fn) and built the display list - patched where it could:
+            // paint it. Rebuilding the list for the dirty flag would replace
+            // that patch with a full build (macOS clears the flag here too).
+            self.common.display_list_dirty = false;
+            (self.paint_laid_out(), "relayout")
         } else if regen_requested {
-            (self.regenerate_layout().map(|_| ()), "regeneration")
+            let result = self.regenerate_layout();
+            // An unchanged DOM reuses its layout and its display list - the
+            // dirty list still owes its rebuild (macOS: "layout unchanged but
+            // display_list_dirty").
+            if display_list_dirty
+                && matches!(
+                    result,
+                    Ok(crate::desktop::shell2::common::layout::LayoutRegenerateResult::LayoutUnchanged)
+                )
+            {
+                (self.repaint_only(), "regeneration + display-list rebuild")
+            } else {
+                // A changed DOM built its list fresh: the flag is spent (as
+                // macOS clears it after this branch).
+                self.common.display_list_dirty = false;
+                (result.map(|_| ()), "regeneration")
+            }
         } else if resize_relayout {
             (
                 self.relayout_existing_dom(event::IncrementalRelayout::Resize),
                 "resize",
             )
-        } else if content_repaint && !resize_relayout && tier <= R::ShouldReRenderCurrentWindow {
+        } else if (content_repaint || display_list_dirty)
+            && !resize_relayout
+            && tier <= R::ShouldUpdateDisplayListCurrentWindow
+        {
             // A content change patched the display list in place (a video
-            // frame on a visible tile) and nothing else asked for more: paint
-            // the frame from the layout as it stands, the way the desktop
-            // frame paths do - no layout pass, no display-list rebuild. The
-            // display-list diff damages exactly the patched items.
+            // frame on a visible tile), or marked it for a rebuild, and nothing
+            // else asked for more: paint the frame from the layout as it
+            // stands, the way the desktop frame paths do - no layout pass;
+            // `repaint_only` rebuilds a dirty list first. The display-list
+            // diff damages exactly the changed items.
             (self.repaint_only(), "content repaint")
         } else {
             // Pure repaint (request_repaint, a paint-only change): render from
@@ -2634,6 +2731,20 @@ impl HeadlessWindow {
     /// patched in place), exactly what a desktop frame path does for it: no
     /// layout pass. A display list marked dirty in the same pass (a caret
     /// blink) is regenerated from the existing layout first.
+    /// Paint the layout a relayout-only request says already ran (its raiser
+    /// laid the existing StyledDom out and rebuilt the shared hit tester):
+    /// the backend's own hit tester, then the CPU frame - the finalize tail of
+    /// [`Self::relayout_existing_dom`] without its layout pass.
+    fn paint_laid_out(&mut self) -> Result<(), String> {
+        if let Some(lw) = self.common.layout_window.as_ref() {
+            self.cpu_backend
+                .hit_tester
+                .rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
+        }
+        self.paint_cpu_frame();
+        Ok(())
+    }
+
     fn repaint_only(&mut self) -> Result<(), String> {
         if core::mem::take(&mut self.common.display_list_dirty) {
             if let Some(lw) = self.common.layout_window.as_mut() {
@@ -2693,6 +2804,18 @@ impl HeadlessWindow {
             let present = self.cpu_backend.last_present_damage.clone();
             if let Some(lw) = self.common.layout_window.as_mut() {
                 lw.record_frame(paint, present);
+            }
+            // And the damage-driven framebuffer itself, for the E2E
+            // `assert_damage_sound` `pixel_identity` check - as the in-process
+            // runner publishes it, so a scenario green there is answerable here.
+            #[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
+            if self.publish_presented_frame {
+                if let (Some(lw), Some(frame)) = (
+                    self.common.layout_window.as_ref(),
+                    self.cpu_backend.last_frame.as_ref(),
+                ) {
+                    debug_server::e2e_set_presented_frame(lw, frame);
+                }
             }
         }
     }
@@ -3243,7 +3366,9 @@ impl HeadlessWindow {
         // A request the debug server queues wakes this loop too: Phase 2
         // (`process_timers_and_threads`) re-arms the debug poll at the busy
         // rate, so the poll's idle period is a safety net, not a latency.
-        #[cfg(feature = "debug-server")]
+        // So does an exit request (`common::process_exit`, the AZ_E2E verdict
+        // printer), which a script-only build (`e2e-scripting`) makes too.
+        #[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
         {
             let condvar = self.wake_condvar.clone();
             let mutex = self.wake_mutex.clone();
@@ -3255,7 +3380,16 @@ impl HeadlessWindow {
             }));
         }
 
+        // This loop ends the process when a worker asks (the AZ_E2E verdict
+        // printer): on THIS thread, with the windows' threads joined - see
+        // `common::process_exit`.
+        let exit_request = &crate::desktop::shell2::common::process_exit::EXIT_REQUEST;
+        exit_request.loop_takes_requests();
+
         while self.is_open() {
+            if exit_request.requested().is_some() {
+                break;
+            }
             self.pump_once(true);
 
             // ── Phase 3 + 4: spawn and pump the child windows ─────
@@ -3356,6 +3490,14 @@ impl HeadlessWindow {
             start.elapsed().as_secs_f64()
         );
 
+        // A worker asked to end the process with a code (the AZ_E2E verdict):
+        // whatever the termination behaviour, the process ends here, on the
+        // UI thread, after every window's threads are joined.
+        if let Some(code) = exit_request.requested() {
+            self.shutdown_all_threads();
+            crate::desktop::shell2::run::exit_from_ui_thread(code);
+        }
+
         // Handle termination behaviour (same as every platform run())
         match self.config.termination_behavior {
             AppTerminationBehavior::EndProcess => {
@@ -3372,8 +3514,10 @@ impl HeadlessWindow {
                 // single frame, with all of them still in flight. Dropping the
                 // registry here runs those destructors while the process is
                 // still alive.
-                self.shutdown_threads();
-                std::process::exit(0);
+                self.shutdown_all_threads();
+                // Through the run module's exit: the debug server's thread
+                // stops first and an instrumented build's profile is written.
+                crate::desktop::shell2::run::exit_from_ui_thread(0);
             }
             AppTerminationBehavior::ReturnToMain => { /* return normally */ }
             AppTerminationBehavior::RunForever => { /* all windows closed */ }
@@ -3487,13 +3631,28 @@ impl PlatformWindow for HeadlessWindow {
         self.pending_window_creates.push(options);
     }
 
+    /// A menu is what the X11 / Wayland fallback makes it: a window of its
+    /// own with the menu DOM (`desktop::menu::show_menu`), spawned and pumped
+    /// as a child of this window ([`HeadlessWindow::pump_children`]), so the
+    /// debug server reaches it by `window_id` (`azul-menu`; see
+    /// `list_windows`) and a script can read and click its items. A headless
+    /// window sits at the origin of no screen: the parent position is (0, 0).
     fn show_menu_from_callback(
         &mut self,
-        _menu: &azul_core::menu::Menu,
-        _position: LogicalPosition,
-        _anchor: Option<azul_core::geom::LogicalRect>,
+        menu: &azul_core::menu::Menu,
+        position: LogicalPosition,
+        anchor: Option<azul_core::geom::LogicalRect>,
     ) {
-        // TODO: could create a sub-HeadlessWindow with the menu content
+        let options = crate::desktop::menu::show_menu(
+            menu.clone(),
+            self.common.system_style.clone(),
+            LogicalPosition { x: 0.0, y: 0.0 },
+            anchor,
+            Some(position),
+            None,
+        );
+        self.pending_window_creates.push(options);
+        self.wake();
     }
 
     fn show_tooltip_from_callback(&mut self, _text: &str, _position: LogicalPosition) {
@@ -11902,6 +12061,10 @@ mod tests {
     // Idle-CPU laws: animation culling, frame requests, idle timers
     // (`tests/idle_cpu.rs`).
     mod idle_cpu;
+
+    // The AZ_E2E / AZ_DEBUG host: what a script can see and drive through
+    // this backend (`tests/e2e_host.rs`, HEADLESS6).
+    mod e2e_host;
 
     // --- Video tiles: a new frame is an image CONTENT update ---------------
     //

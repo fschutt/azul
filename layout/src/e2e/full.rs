@@ -435,6 +435,8 @@ pub enum ResponseData {
     DomTree(DomTreeResponse),
     /// Every live DOM and its addressable id, see `DebugEvent::ListDoms`
     DomList(DomListResponse),
+    /// Every window the debug server reaches, see `DebugEvent::ListWindows`
+    WindowList(WindowListResponse),
     /// Node hierarchy
     NodeHierarchy(NodeHierarchyResponse),
     /// Layout tree
@@ -1440,6 +1442,47 @@ pub struct DomListEntry {
 pub struct DomListResponse {
     pub dom_count: usize,
     pub doms: Vec<DomListEntry>,
+}
+
+/// One window the debug server reaches, as reported by `list_windows`.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct WindowListEntry {
+    /// Pass this as the envelope's `window_id` to address this window.
+    pub window_id: String,
+    /// The window a request naming no `window_id` goes to (the app's first).
+    pub is_default: bool,
+    /// The window that answered this request.
+    pub is_this: bool,
+}
+
+/// Response for `list_windows`.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct WindowListResponse {
+    pub window_count: usize,
+    pub windows: Vec<WindowListEntry>,
+}
+
+/// The `list_windows` answer from the registered debug windows
+/// (`(slot, window id)` in registration order, [`registered_debug_windows`])
+/// and the id of the window answering.
+#[cfg(feature = "std")]
+#[must_use]
+pub fn window_list(windows: &[(u64, String)], this_window: &str) -> WindowListResponse {
+    let windows: Vec<WindowListEntry> = windows
+        .iter()
+        .enumerate()
+        .map(|(i, (_, id))| WindowListEntry {
+            window_id: id.clone(),
+            is_default: i == 0,
+            is_this: id == this_window,
+        })
+        .collect();
+    WindowListResponse {
+        window_count: windows.len(),
+        windows,
+    }
 }
 
 /// A `(dom, node)` pair in JSON.
@@ -2750,6 +2793,16 @@ pub enum DebugEvent {
     /// `dom_id` to reach the others — this op is how you learn the ids
     /// instead of guessing pixel coordinates.
     ListDoms,
+    /// List every window the debug server reaches, with the id to address
+    /// it by.
+    ///
+    /// `{ "op": "list_windows" }`
+    ///
+    /// An app's first window answers a request that names no window; every
+    /// other one - a dialog, a second editor, a menu the app opened
+    /// (`azul-menu`, `azul-menu-2` while a submenu is open) - takes the
+    /// envelope's `window_id`. This op is how a script learns those ids.
+    ListWindows,
     /// Get the raw node hierarchy (for debugging DOM structure issues).
     /// Address a child DOM (a VirtualView / transient-window document) with
     /// the envelope's `dom_id`, like every other node-addressing op.
@@ -2862,6 +2915,23 @@ pub enum DebugEvent {
 
     // Testing
     WaitFrame,
+    /// `{ "op": "wait_settled", "timeout_ms": 3000 }` - answer once nothing in
+    /// the window moves on its own clock any more: no layout animation (the
+    /// slide a rebuild gives a moved node), CSS transition, keyframe track,
+    /// exiting node, scroll easing or fading scrollbar
+    /// ([`window_still_moving`]). The op to put before a screenshot that must
+    /// show the window at rest - one taken right after a rebuild catches the
+    /// slides mid-way and shows "two layouts at once". An error names what
+    /// still moved at the deadline (default 3000 ms).
+    ///
+    /// Waits over the debug server (`AZ_DEBUG`), where the window's own clock
+    /// runs. In a scripted run (`AZ_E2E`, the in-process runner) it answers at
+    /// once - the engine clock moves only when the scenario moves it (`wait`,
+    /// `tick_animations`) - with an error if something is in flight.
+    WaitSettled {
+        #[serde(default)]
+        timeout_ms: Option<u64>,
+    },
     /// `{ "op": "wait", "ms": 250 }` — advance the INJECTABLE clock by `ms`
     /// and yield one turn of the shell's loop. Costs no wall time and is exact
     /// on any runner at any load, which is what lets a corpus this size run in
@@ -2991,6 +3061,10 @@ pub enum DebugEvent {
     PrintResponse,
 
     // Screenshots
+    /// `{ "op": "take_screenshot" }` - a CPU render of the window as it is
+    /// NOW, animations mid-flight included. For the window at rest, put
+    /// `wait_settled` before it: right after a rebuild, moved nodes are still
+    /// sliding and a still of them shows "two layouts at once".
     TakeScreenshot,
     /// `render_shadow` omitted follows AZ_SCREENSHOT_SHADOW.
     TakeNativeScreenshot {
@@ -4168,6 +4242,10 @@ pub struct E2eSession {
     /// scenario whose step is itself `run_e2e_tests`: with a single slot per
     /// window, a nested run would silently overwrite the outer one's progress.
     running: bool,
+    /// `wait_settled` requests over the debug server, each with its deadline:
+    /// answered by the debug timer once the window has settled
+    /// ([`serve_settle_waiters`]).
+    settle_waiters: Vec<(DebugRequest, std::time::Instant)>,
 }
 
 #[cfg(feature = "std")]
@@ -4176,6 +4254,7 @@ impl core::fmt::Debug for E2eSession {
         f.debug_struct("E2eSession")
             .field("pending", &self.pending.is_some())
             .field("running", &self.running)
+            .field("settle_waiters", &self.settle_waiters.len())
             .finish()
     }
 }
@@ -4188,6 +4267,7 @@ impl E2eSession {
         Self {
             pending: None,
             running: false,
+            settle_waiters: Vec::new(),
         }
     }
 
@@ -4276,6 +4356,10 @@ pub struct E2eScratch {
     /// The AzBuilder project folder open in this window (the `project_*`
     /// ops, layout/src/e2e/project.rs).
     project: super::project::ProjectSession,
+    /// The last debug-request announcement this window re-armed its poll for
+    /// ([`take_debug_request_wake_for`]).
+    #[cfg(feature = "std")]
+    debug_wake: DebugWakeSeen,
 }
 
 /// Lock this window's E2E scratch. A poisoned lock is recovered rather than
@@ -4760,6 +4844,20 @@ pub fn get_debug_server() -> Option<Arc<DebugServerHandle>> {
 #[cfg(feature = "std")]
 pub fn is_debug_enabled() -> bool {
     DEBUG_ENABLED.load(Ordering::SeqCst) || E2E_ACTIVE.load(Ordering::SeqCst)
+}
+
+/// Does a SCRIPTED run (`AZ_E2E` / `AZ_E2E_TEST`: `queue_e2e_tests`) own the
+/// engine's animation clock? Then nothing animates on the wall clock: a CSS
+/// transition, a layout animation or a keyframe track moves only when the
+/// scenario moves it (`tick_animations`), exactly as in the in-process runner,
+/// whose clock is frozen. A live driver stepping on the wall clock between
+/// two ops added one frame per turn of the loop, and a scenario's exact
+/// mid-transition measurement depended on how fast the host answered
+/// (e2e/css-animation-multi: 197.333 / 117.336 instead of 200 / 120).
+/// The debug server alone (`AZ_DEBUG`) leaves the clock live.
+#[cfg(feature = "std")]
+pub fn scripted_run_owns_the_clock() -> bool {
+    E2E_ACTIVE.load(Ordering::SeqCst)
 }
 
 /// Whether the `log_*!` macros should fire. In the full (debug-server) build
@@ -11540,16 +11638,16 @@ fn eval_assert_composition(
 
 // ---- assert_damage_sound ---------------------------------------------------
 
-/// The damage-driven framebuffer of the last rendered frame, published by the
-/// headless runner (`crate::e2e::runner`). `(width, height, RGBA)`.
+/// Publish the damage-driven framebuffer of the frame just rendered onto the
+/// window that rendered it. `(width, height, RGBA)`.
 ///
 /// This is the INCREMENTAL side of the plan's pixel-identity check; the full
 /// repaint side is `render_current()` (`CallbackInfo::take_screenshot`, which
-/// re-renders from scratch with a fresh glyph cache). A host that does not
-/// publish it — the DLL, whose frames live on the GPU — makes
-/// `"pixel_identity": true` FAIL rather than silently skip.
-/// Publish the damage-driven framebuffer of the frame just rendered onto the
-/// window that rendered it.
+/// re-renders from scratch with a fresh glyph cache). Published by the
+/// in-process runner (`crate::e2e::runner`) and by the dll's headless backend
+/// (the `AZ_E2E` / `AZ_DEBUG` host). A host that does not publish it - a
+/// window whose frames live on the GPU - makes `"pixel_identity": true` FAIL
+/// rather than silently skip.
 #[cfg(all(feature = "std", feature = "cpurender"))]
 pub fn e2e_set_presented_frame(
     layout_window: &azul_layout::window::LayoutWindow,
@@ -11560,6 +11658,21 @@ pub fn e2e_set_presented_frame(
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .presented_frame = Some((pixmap.width(), pixmap.height(), pixmap.data().to_vec()));
+}
+
+/// The framebuffer [`e2e_set_presented_frame`] last published on this window
+/// `(width, height, RGBA)`, or `None` when its host publishes none.
+#[cfg(all(feature = "std", feature = "cpurender"))]
+#[must_use]
+pub fn e2e_presented_frame(
+    layout_window: &azul_layout::window::LayoutWindow,
+) -> Option<(u32, u32, Vec<u8>)> {
+    layout_window
+        .e2e_scratch
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .presented_frame
+        .clone()
 }
 
 /// `assert_damage_sound` — E2E_PLAN §(c), damage soundness in BOTH directions.
@@ -11823,8 +11936,8 @@ fn eval_assert_damage_sound(
             let Some((pw, ph, data)) = presented else {
                 return AssertionResult::fail(
                     "assert_damage_sound: 'pixel_identity' was requested but this host does not \
-                     publish the damage-driven framebuffer (only the headless runner does). \
-                     Refusing to skip the check silently.",
+                     publish the damage-driven framebuffer (the in-process runner and the \
+                     headless backend do). Refusing to skip the check silently.",
                 );
             };
             if pw != after.width() || ph != after.height() {
@@ -12743,6 +12856,17 @@ pub extern "C" fn debug_timer_callback(
             request.window_id.as_deref(),
         );
 
+        // `wait_settled` is answered later, by `serve_settle_waiters` below
+        // on this or a later tick, once the window's own clock has let it
+        // come to rest.
+        if let DebugEvent::WaitSettled { timeout_ms } = &request.event {
+            let ms = timeout_ms.unwrap_or(WAIT_SETTLED_DEFAULT_MS);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(ms);
+            session.settle_waiters.push((request, deadline));
+            processed_count += 1;
+            continue;
+        }
+
         // Pass the app_data and component_map to process_debug_event
         let result = process_debug_event(
             &request,
@@ -12755,9 +12879,15 @@ pub extern "C" fn debug_timer_callback(
         processed_count += 1;
     }
 
-    // Busy or quiet: a served request, or a scenario still suspended
-    // between ticks, keeps the poll at its busy rate.
-    let worked = processed_count > 0 || needs_update || session.pending.is_some();
+    serve_settle_waiters(&mut session, &timer_info.callback_info);
+
+    // Busy or quiet: a served request, a scenario still suspended between
+    // ticks, or a `wait_settled` still waiting keeps the poll at its busy
+    // rate.
+    let worked = processed_count > 0
+        || needs_update
+        || session.pending.is_some()
+        || !session.settle_waiters.is_empty();
 
     // Hand the session back to the timer's `RefAny` so the next tick resumes
     // exactly where this one left off.
@@ -15775,6 +15905,22 @@ pub fn process_debug_event(
             send_ok(request, None, None);
         }
 
+        // The debug timer queues this op itself and answers it once the
+        // window has settled (`debug_timer_callback`); reaching here means a
+        // scripted run, whose clock moves only with the scenario.
+        DebugEvent::WaitSettled { .. } => {
+            match window_still_moving(callback_info.get_layout_window()) {
+                None => send_ok(request, None, None),
+                Some(what) => send_err(
+                    request,
+                    format!(
+                        "wait_settled: still moving ({what}) - in a scripted run the engine \
+                         clock moves only with `wait` / `tick_animations`"
+                    ),
+                ),
+            }
+        }
+
         DebugEvent::Wait { ms } => {
             std::thread::sleep(std::time::Duration::from_millis(*ms));
             send_ok(request, None, None);
@@ -16359,6 +16505,16 @@ pub fn process_debug_event(
                 doms,
             };
             send_ok(request, None, Some(ResponseData::DomList(response)));
+        }
+
+        DebugEvent::ListWindows => {
+            let this_window = callback_info
+                .get_current_window_state()
+                .window_id
+                .as_str()
+                .to_string();
+            let response = window_list(&registered_debug_windows(), &this_window);
+            send_ok(request, None, Some(ResponseData::WindowList(response)));
         }
 
         DebugEvent::GetDomTree => {
@@ -21044,6 +21200,7 @@ pub fn add_debug_request_waker(waker: Arc<dyn Fn() + Send + Sync>) {
 #[cfg(feature = "std")]
 pub fn announce_debug_request() {
     DEBUG_REQUEST_WAKE.store(true, core::sync::atomic::Ordering::Release);
+    DEBUG_REQUEST_WAKE_GENERATION.fetch_add(1, core::sync::atomic::Ordering::AcqRel);
     let wakers: Vec<Arc<dyn Fn() + Send + Sync>> = DEBUG_REQUEST_WAKERS
         .lock()
         .map(|w| w.clone())
@@ -21059,6 +21216,149 @@ pub fn announce_debug_request() {
 #[must_use]
 pub fn take_debug_request_wake() -> bool {
     DEBUG_REQUEST_WAKE.swap(false, core::sync::atomic::Ordering::AcqRel)
+}
+
+/// What still moves in this window on its own clock, or `None` once it has
+/// settled - what `wait_settled` waits for.
+///
+/// A screenshot taken a few milliseconds after a DOM rebuild shows the
+/// window MID-ANIMATION: a rebuild that moves nodes slides them from where
+/// they were (the layout animations), a changed property under `animation`
+/// tweens (the CSS transitions), a scrolled box eases and its bar fades. The
+/// frame is not stale - the display list is current - it is in motion, and
+/// read as a still it shows "two layouts at once" (SMALL6, 2026-10-03:
+/// AzShells' S4 after a picker click carried 26 sliding nodes for ~300 ms).
+#[cfg(feature = "std")]
+#[must_use]
+pub fn window_still_moving(layout_window: &azul_layout::window::LayoutWindow) -> Option<String> {
+    let lw = layout_window;
+    let mut moving: Vec<String> = Vec::new();
+    let mut count = |n: usize, what: &str| {
+        if n > 0 {
+            moving.push(format!("{n} {what}"));
+        }
+    };
+    count(lw.animations.len(), "layout animation(s)");
+    count(lw.css_transitions.len(), "CSS transition(s)");
+    count(lw.live_tracks.len(), "keyframe track(s)");
+    count(
+        lw.zombies.iter().filter(|z| !z.tracks.is_empty()).count(),
+        "exiting node(s)",
+    );
+    if lw.scroll_manager.has_active_animations() {
+        moving.push(String::from("a scroll easing"));
+    }
+    if lw.gpu_state_manager.scrollbar_fade_active {
+        moving.push(String::from("a scrollbar fading"));
+    }
+    (!moving.is_empty()).then(|| moving.join(", "))
+}
+
+/// One `wait_settled` waiter's verdict at `now`: `None` keeps waiting,
+/// `Some(Ok(()))` answers "settled", `Some(Err(..))` gives up at the
+/// deadline, naming what still moves.
+#[cfg(feature = "std")]
+#[must_use]
+pub fn settle_verdict(
+    moving: Option<&str>,
+    now: std::time::Instant,
+    deadline: std::time::Instant,
+) -> Option<Result<(), String>> {
+    match moving {
+        None => Some(Ok(())),
+        Some(_) if now < deadline => None,
+        Some(what) => Some(Err(format!(
+            "wait_settled: the window was still moving at the deadline: {what}"
+        ))),
+    }
+}
+
+/// Answer the `wait_settled` requests of this window that are due: settled,
+/// or at their deadline (see [`settle_verdict`]). Called by the debug timer
+/// on every tick while any waits.
+#[cfg(feature = "std")]
+#[cfg(feature = "e2e-server")]
+fn serve_settle_waiters(session: &mut E2eSession, callback_info: &azul_layout::callbacks::CallbackInfo) {
+    if session.settle_waiters.is_empty() {
+        return;
+    }
+    let moving = window_still_moving(callback_info.get_layout_window());
+    let now = std::time::Instant::now();
+    session.settle_waiters.retain(|(request, deadline)| {
+        match settle_verdict(moving.as_deref(), now, *deadline) {
+            None => true,
+            Some(Ok(())) => {
+                send_ok(request, None, None);
+                false
+            }
+            Some(Err(why)) => {
+                send_err(request, why);
+                false
+            }
+        }
+    });
+}
+
+/// How long `wait_settled` waits when the request names no `timeout_ms`.
+#[cfg(feature = "std")]
+pub const WAIT_SETTLED_DEFAULT_MS: u64 = 3000;
+
+/// Counts [`announce_debug_request`]s, so that EVERY window sees each one
+/// ([`take_debug_request_wake_for`]) - the flag above is taken by whichever
+/// loop looks first.
+#[cfg(feature = "std")]
+static DEBUG_REQUEST_WAKE_GENERATION: core::sync::atomic::AtomicU64 =
+    core::sync::atomic::AtomicU64::new(0);
+
+/// How many debug requests were announced so far in this process.
+#[cfg(feature = "std")]
+#[must_use]
+pub fn debug_request_wake_generation() -> u64 {
+    DEBUG_REQUEST_WAKE_GENERATION.load(core::sync::atomic::Ordering::Acquire)
+}
+
+/// One window's view of the debug-request announcements: which one it last
+/// re-armed its debug poll for.
+///
+/// Every window must re-arm for every announcement, not only the window
+/// that takes the request off the shared queue: a request naming another
+/// window (`window_id`, a dialog the app opened) is FORWARDED to that
+/// window's timer, and a timer still at the idle rate served it up to
+/// [`DEBUG_POLL_IDLE_MS`] later - each op against a second window waited
+/// for its safety-net poll.
+#[cfg(feature = "std")]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct DebugWakeSeen {
+    seen: u64,
+}
+
+#[cfg(feature = "std")]
+impl DebugWakeSeen {
+    /// Is `generation` an announcement this window has not re-armed for
+    /// yet? Remembers it.
+    pub fn take_at(&mut self, generation: u64) -> bool {
+        if generation == self.seen {
+            return false;
+        }
+        self.seen = generation;
+        true
+    }
+}
+
+/// Has a debug request been announced since THIS window last looked? The
+/// per-window twin of [`take_debug_request_wake`]: each window's loop turn
+/// (`PlatformWindow::serve_debug_request_wake` in the dll) re-arms its debug
+/// poll at the busy rate once per announcement.
+#[cfg(feature = "std")]
+#[must_use]
+pub fn take_debug_request_wake_for(layout_window: &azul_layout::window::LayoutWindow) -> bool {
+    let generation = debug_request_wake_generation();
+    layout_window
+        .e2e_scratch
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .debug_wake
+        .take_at(generation)
 }
 
 #[cfg(all(test, feature = "std"))]
@@ -21097,6 +21397,58 @@ mod debug_request_wake_tests {
     #[test]
     fn an_idle_debug_server_polls_at_most_every_two_seconds() {
         assert!(DEBUG_POLL_IDLE_MS >= 2000, "{DEBUG_POLL_IDLE_MS} ms");
+    }
+
+    /// HEADLESS6 (CAL3 / MAIL2): the window a request is forwarded to must
+    /// hear about it too. The one wake flag was taken by whichever window's
+    /// loop looked first, so a dialog's timer stayed at the idle rate and
+    /// served each forwarded op up to two seconds late.
+    #[test]
+    fn every_window_rearms_its_debug_poll_once_per_announced_request() {
+        let (mut main, mut dialog) = (DebugWakeSeen::default(), DebugWakeSeen::default());
+        assert!(!main.take_at(0), "nothing announced yet");
+        assert!(main.take_at(1), "the window that takes the request re-arms");
+        assert!(dialog.take_at(1), "and so does the window it is forwarded to");
+        assert!(!main.take_at(1) && !dialog.take_at(1), "once per announcement");
+        assert!(dialog.take_at(3), "a later announcement re-arms again");
+    }
+
+    /// SMALL6: a screenshot right after a rebuild caught 26 nodes mid-slide
+    /// and read as "two layouts at once". `wait_settled` waits until nothing
+    /// moves on the window's own clock; this is its test of "moving".
+    #[test]
+    fn a_window_with_a_fading_scrollbar_is_still_moving() {
+        let mut lw =
+            azul_layout::window::LayoutWindow::new(rust_fontconfig::FcFontCache::default())
+                .expect("a layout window");
+        assert_eq!(window_still_moving(&lw), None, "a new window has settled");
+        lw.gpu_state_manager.scrollbar_fade_active = true;
+        let moving = window_still_moving(&lw).expect("a fading bar is motion");
+        assert!(moving.contains("scrollbar"), "{moving}");
+    }
+
+    #[test]
+    fn a_settle_waiter_answers_when_settled_and_gives_up_at_its_deadline() {
+        let start = std::time::Instant::now();
+        let deadline = start + std::time::Duration::from_millis(100);
+        assert_eq!(settle_verdict(None, start, deadline), Some(Ok(())));
+        assert_eq!(
+            settle_verdict(Some("1 layout animation"), start, deadline),
+            None,
+            "still moving before the deadline: keep waiting"
+        );
+        let late = settle_verdict(Some("1 layout animation"), deadline, deadline);
+        let Some(Err(why)) = late else {
+            panic!("at the deadline the waiter gives up, got {late:?}");
+        };
+        assert!(why.contains("1 layout animation"), "{why}");
+    }
+
+    #[test]
+    fn an_announced_request_moves_the_wake_generation() {
+        let before = debug_request_wake_generation();
+        announce_debug_request();
+        assert!(debug_request_wake_generation() > before);
     }
 }
 
@@ -22179,5 +22531,29 @@ mod debug_routing_tests {
         assert_eq!(got, vec![1, 3]);
         assert!(take_forwarded_debug_requests(a).is_empty(), "taken once");
         assert_eq!(take_forwarded_debug_requests(b).len(), 1);
+    }
+
+    /// HEADLESS6: a script learns the ids of the windows it can address -
+    /// a dialog, a menu the app opened (`azul-menu`) - from `list_windows`.
+    #[test]
+    fn list_windows_names_every_window_and_the_default_one() {
+        let list = window_list(&windows(), "azmail-compose-1");
+        assert_eq!(list.window_count, 3);
+        let ids: Vec<&str> = list.windows.iter().map(|w| w.window_id.as_str()).collect();
+        assert_eq!(ids, vec!["azmail-main", "azmail-compose-1", "azmail-compose-2"]);
+        let default: Vec<&str> = list
+            .windows
+            .iter()
+            .filter(|w| w.is_default)
+            .map(|w| w.window_id.as_str())
+            .collect();
+        assert_eq!(default, vec!["azmail-main"], "a request naming no window goes there");
+        let this: Vec<&str> = list
+            .windows
+            .iter()
+            .filter(|w| w.is_this)
+            .map(|w| w.window_id.as_str())
+            .collect();
+        assert_eq!(this, vec!["azmail-compose-1"]);
     }
 }

@@ -13435,6 +13435,17 @@ impl LayoutWindow {
         styled_dom: &mut StyledDom,
         now: Instant,
     ) -> PendingReconciliation {
+        // The new tree answers for THIS window before anything below reads its
+        // cascade: the transition capture compares it property by property
+        // with the old tree, which was laid out with the window's context.
+        // Read without one, it answered the light UA table and dropped every
+        // `prefers-color-scheme` / `@theme` block, so in a dark window every
+        // mode-dependent value "changed" on every rebuild and `animation:
+        // all` walked it toward its light value. The layout funnel's own
+        // install later finds the same context and returns at once.
+        let context = self.dynamic_selector_context(&self.current_window_state);
+        styled_dom.set_dynamic_selector_context(context);
+
         // Clone the old tree out first: it releases the `layout_results` borrow
         // before the `&mut self` work below, and the old arena is about to be
         // discarded anyway.
@@ -24904,6 +24915,20 @@ impl LayoutWindow {
                 }
                 None => *currently_dragging_thumb = None,
             }
+        }
+
+        // The child DOMs of the VirtualViews this rebuild unmounted go with
+        // their hosts: every manager drops what it held for them - this same
+        // driver, with every node of the child unmounted - and the state keyed
+        // by the DOM itself (its GPU value cache, its texture table) goes too.
+        // Only the thread owners heard about these DOMs before, so a page whose
+        // DOM shared nothing with the old one (a ProgressBar's child DOM under
+        // the e2e `mount`) kept the child's GPU cache forever.
+        let gone = crate::managers::NodeIdMap::default();
+        for child in dropped_child_doms {
+            self.remap_node_ids(child, &gone);
+            self.gpu_state_manager.caches.remove(&child);
+            self.gl_texture_cache.solved_textures.remove(&child);
         }
     }
 }

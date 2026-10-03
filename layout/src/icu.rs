@@ -3260,6 +3260,7 @@ mod layout_callback_locale_tests {
         style.language = azul_css::system::SystemLanguage::new("en-US", false);
         // The window's active locale: the app chose German.
         let active = AzString::from("de-DE");
+        let no_window_id = AzString::from("");
         let ref_data = LayoutCallbackInfoRefData {
             locale: &active,
             accessed_locale: core::cell::Cell::new(false),
@@ -3273,6 +3274,7 @@ mod layout_callback_locale_tests {
             monitors: azul_core::window::MonitorVec::from_const_slice(&[]),
             safe_area: azul_css::system::SafeAreaInsets::default(),
             global_hotkeys: azul_core::global_hotkey::GlobalHotkeyInfoVec::from_const_slice(&[]),
+            window_id: &no_window_id,
         };
         let info = LayoutCallbackInfo::new(
             &ref_data,
