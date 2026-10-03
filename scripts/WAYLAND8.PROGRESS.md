@@ -52,16 +52,32 @@ if clear, with tests that run without a compositor. Report: scripts/WAYLAND8_202
 - step 4 commits: RED shm.rs + tests (`test(wayland8): RED ...`), GREEN pool_layout page-aligned,
   GREEN create_shm_file sealed memfd (safe fn). `mod shm;` registered in wayland/mod.rs.
 
-## IN PROGRESS
-- step 4b: CpuFallbackState::new (wayland/mod.rs ~8940) uses shm::create_shm_file + shm::pool_layout
+- step 4b DONE: CpuFallbackState::new uses shm::create_shm_file + shm::pool_layout (+ udmabuf/pitch256 trace,
+  legacy copy dst_stride = cpu_state.stride). tooltip.rs uses the helper (CString import dropped).
 
-## NEXT
-- tooltip.rs allocate_shm_buffer -> shm helper; screencopy.rs memfd() -> shm helper (dedupe)
-- fix the legacy present copy's `dst_stride = width*4` (mod.rs ~7975) to use cpu_state.stride (latent)
-- trace line at pool creation: udmabuf-importable yes/no (seals read back)
-- report scripts/WAYLAND8_2026_10_03.md
-- step 3: write findings into the report
-- step 4: implement a client-side win (RED test first) if there is one
+## COORDINATOR ASKS (2026-10-03, mid-task) - in force
+1. stride padded to a multiple of 256 bytes, every slot page-aligned; EVERYTHING that indexes rows uses the
+   padded stride (renderer draws into the slot! AzulPixmap::from_external is tight -> needs a row pitch:
+   layout/src/cpurender/pixmap.rs AzulPixmap + every `row * width * 4` site, or render into a pitch-aware view).
+2. drop the spare slot when idle (~1 s without frames: destroy its wl_buffer, punch the memory out
+   (fallocate PUNCH_HOLE / madvise REMOVE) or one memfd per slot) and re-create it on demand when the next frame
+   finds the remaining slot still held -> an idle window holds ONE buffer. Test-first (pure state machine).
+3. note the ARGB8888-only swizzle path's extra pass in the report.
+4. X11 in the report: CPU path = plain XPutImage (pixels through the socket + server copy) -> MIT-SHM plan
+   (XShmPutImage, shared segment, fallback when the extension is missing / remote display), bytes per frame
+   before/after. Implementing MIT-SHM optional (X11 files are mine for this).
+
+## IN PROGRESS
+- screencopy.rs memfd() -> shm::create_shm_file (dedupe, last twin)
+
+## NEXT (exact order)
+- a) screencopy dedupe commit
+- b) report skeleton scripts/WAYLAND8_2026_10_03.md (research + per-frame analysis) - commit
+- c) ask 1: design the pitch. Read layout/src/cpurender/pixmap.rs AzulPixmap; decide: add `stride` to
+     AzulPixmap (from_external_with_stride) vs. one-memfd-per-slot only. RED test of pool_layout pitch 256.
+- d) ask 2: spare-slot release state machine (pure fn + tests in shm.rs), wire into CpuFallbackState
+- e) ask 4: read dll/src/desktop/shell2/linux/x11 CPU present; report section; maybe MIT-SHM
+- f) finish report, commit
 
 ## Decisions
 - (none yet)
