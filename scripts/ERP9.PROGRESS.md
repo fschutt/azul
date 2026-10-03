@@ -46,6 +46,25 @@ Crate: examples/azul-erp (package + bin AzERP, lib azerp). NEVER compile; parse-
   export_schedule, run_preview, post_run, load (notice "N file(s) could not be read"), seed_sample (only when
   no assets), start_import (page "/assets/import"), set_mapping, commit_import).
 - D8 (coordinator rule 2026-10-03): nothing personal leaves the machine; AzERP talks to no outside service.
+- 228358a0a app.rs GREEN (+ csv_io::export_journal). 4a + 4b DONE.
+
+## NEXT = 4c the UI (azul), file by file, commit each:
+- src/ids.rs: `names!` macro like examples/azul-dashboard/src/ids.rs, prefix `__azerp_` (TABLE, TOOLS, TAB_ROW,
+  FORM, FORM_SAVE, FORM_CANCEL, FIELD_<name> made at run time? NO - ids for fields: one const per form field
+  name is too many; use `field_id(name)` = AzString::from(format!("__azerp_field-{name}")) - ONE helper).
+- src/ui/mod.rs: `Erp { kit: RefAny, state: State, table: DataTableView, window: (f32,f32), in_flight:
+  Vec<Write> }`; layout(): ShellThemeScope::create(column).with_accent(..).body() + RecordsShell::create(tabs,
+  page).with_form(form pane when state.form is a `form` view).office_shell().with_title_row(kit::title_row)
+  .with_status_bar(..); form_modal views in a Modal; on_key -> kit::handle_key; pump(): queue.take() ->
+  FileJob::Put/Delete -> kit::spawn_file_jobs(info, root, jobs, app, TAG_WRITE, on_written).
+- src/ui/table.rs: DataTable over `rows::grid` (source RefAny = Grid), Activate -> open row path.
+- src/ui/form.rs: one input per FieldSpec (TextInput / TextArea / DropDown for Select & Reference / DatePicker
+  for Date), callbacks set_value.
+- src/ui/detail.rs + panels.rs: header + TabHeader; Overview, DepreciationSchedulePanel (DataTable + Chart line
+  of closing values), EmbeddedTable, Reports (Chart bars by category + forecast), Import (mapping DropDowns),
+  Run wizard (year, preview, post).
+- lib.rs: SPEC / ABOUT / SHORTCUTS / start() / on_window_created (GetAll of erp/ on a Thread -> load ->
+  seed_sample when --sample).
 
 ## NEXT (exact) - step 4 is next
 4a. src/sample.rs: `pub fn book(today, new_id: &mut dyn FnMut() -> String) -> Book` (4 categories, 3 locations,
