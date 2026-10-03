@@ -169,6 +169,16 @@ def body(args, logs, out):
         if settings.get("theme") != "flora" or settings.get("mode") != "dark":
             raise Failure("settings.json does not hold flora / dark: %s" % settings)
         app.screenshot(os.path.join(out, "settings-flora-dark.png"))
+        # About: the standard AboutDialog, from the settings' About section.
+        app.click(text="About")
+        app.until("the About section", lambda: app.has_id("appkit-about-open"))
+        app.click(selector="#appkit-about-open")
+        app.expect_line("AZCALCULATOR_ABOUT", "open", "the About box opens")
+        app.screenshot(os.path.join(out, "about-flora-dark.png"))
+        app.key("escape")
+        app.expect_line("AZCALCULATOR_ABOUT", "closed", "Escape closes the About box first")
+        if not app.has_id("appkit-settings"):
+            raise Failure("Escape on the About box closed the settings page too")
         app.key("escape")
         app.until("the settings page to close", lambda: not app.has_id("appkit-settings"))
         app.screenshot(os.path.join(out, "standard-flora-dark.png"))
