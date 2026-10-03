@@ -512,6 +512,9 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("tick_ms",                   None),
     ("wait",                      None),
     ("wait_frame",                None),
+    // Waits for the window to come to rest (no slide, transition, easing or
+    // fade in flight) - harness control; it forges nothing.
+    ("wait_settled",              None),
     ("reset_frame_counters",      None),
     ("snapshot_frame",            None),
     ("snapshot_resources",        None),

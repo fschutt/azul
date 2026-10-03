@@ -2915,6 +2915,23 @@ pub enum DebugEvent {
 
     // Testing
     WaitFrame,
+    /// `{ "op": "wait_settled", "timeout_ms": 3000 }` - answer once nothing in
+    /// the window moves on its own clock any more: no layout animation (the
+    /// slide a rebuild gives a moved node), CSS transition, keyframe track,
+    /// exiting node, scroll easing or fading scrollbar
+    /// ([`window_still_moving`]). The op to put before a screenshot that must
+    /// show the window at rest - one taken right after a rebuild catches the
+    /// slides mid-way and shows "two layouts at once". An error names what
+    /// still moved at the deadline (default 3000 ms).
+    ///
+    /// Waits over the debug server (`AZ_DEBUG`), where the window's own clock
+    /// runs. In a scripted run (`AZ_E2E`, the in-process runner) it answers at
+    /// once - the engine clock moves only when the scenario moves it (`wait`,
+    /// `tick_animations`) - with an error if something is in flight.
+    WaitSettled {
+        #[serde(default)]
+        timeout_ms: Option<u64>,
+    },
     /// `{ "op": "wait", "ms": 250 }` — advance the INJECTABLE clock by `ms`
     /// and yield one turn of the shell's loop. Costs no wall time and is exact
     /// on any runner at any load, which is what lets a corpus this size run in
@@ -4221,6 +4238,10 @@ pub struct E2eSession {
     /// scenario whose step is itself `run_e2e_tests`: with a single slot per
     /// window, a nested run would silently overwrite the outer one's progress.
     running: bool,
+    /// `wait_settled` requests over the debug server, each with its deadline:
+    /// answered by the debug timer once the window has settled
+    /// ([`serve_settle_waiters`]).
+    settle_waiters: Vec<(DebugRequest, std::time::Instant)>,
 }
 
 #[cfg(feature = "std")]
@@ -4229,6 +4250,7 @@ impl core::fmt::Debug for E2eSession {
         f.debug_struct("E2eSession")
             .field("pending", &self.pending.is_some())
             .field("running", &self.running)
+            .field("settle_waiters", &self.settle_waiters.len())
             .finish()
     }
 }
@@ -4241,6 +4263,7 @@ impl E2eSession {
         Self {
             pending: None,
             running: false,
+            settle_waiters: Vec::new(),
         }
     }
 
@@ -12815,6 +12838,17 @@ pub extern "C" fn debug_timer_callback(
             request.window_id.as_deref(),
         );
 
+        // `wait_settled` is answered later, by `serve_settle_waiters` below
+        // on this or a later tick, once the window's own clock has let it
+        // come to rest.
+        if let DebugEvent::WaitSettled { timeout_ms } = &request.event {
+            let ms = timeout_ms.unwrap_or(WAIT_SETTLED_DEFAULT_MS);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(ms);
+            session.settle_waiters.push((request, deadline));
+            processed_count += 1;
+            continue;
+        }
+
         // Pass the app_data and component_map to process_debug_event
         let result = process_debug_event(
             &request,
@@ -12827,9 +12861,15 @@ pub extern "C" fn debug_timer_callback(
         processed_count += 1;
     }
 
-    // Busy or quiet: a served request, or a scenario still suspended
-    // between ticks, keeps the poll at its busy rate.
-    let worked = processed_count > 0 || needs_update || session.pending.is_some();
+    serve_settle_waiters(&mut session, &timer_info.callback_info);
+
+    // Busy or quiet: a served request, a scenario still suspended between
+    // ticks, or a `wait_settled` still waiting keeps the poll at its busy
+    // rate.
+    let worked = processed_count > 0
+        || needs_update
+        || session.pending.is_some()
+        || !session.settle_waiters.is_empty();
 
     // Hand the session back to the timer's `RefAny` so the next tick resumes
     // exactly where this one left off.
@@ -15845,6 +15885,22 @@ pub fn process_debug_event(
             // that the frame had landed.
             request_repaint(callback_info);
             send_ok(request, None, None);
+        }
+
+        // The debug timer queues this op itself and answers it once the
+        // window has settled (`debug_timer_callback`); reaching here means a
+        // scripted run, whose clock moves only with the scenario.
+        DebugEvent::WaitSettled { .. } => {
+            match window_still_moving(callback_info.get_layout_window()) {
+                None => send_ok(request, None, None),
+                Some(what) => send_err(
+                    request,
+                    format!(
+                        "wait_settled: still moving ({what}) - in a scripted run the engine \
+                         clock moves only with `wait` / `tick_animations`"
+                    ),
+                ),
+            }
         }
 
         DebugEvent::Wait { ms } => {
@@ -21198,6 +21254,36 @@ pub fn settle_verdict(
         ))),
     }
 }
+
+/// Answer the `wait_settled` requests of this window that are due: settled,
+/// or at their deadline (see [`settle_verdict`]). Called by the debug timer
+/// on every tick while any waits.
+#[cfg(feature = "std")]
+#[cfg(feature = "e2e-server")]
+fn serve_settle_waiters(session: &mut E2eSession, callback_info: &azul_layout::callbacks::CallbackInfo) {
+    if session.settle_waiters.is_empty() {
+        return;
+    }
+    let moving = window_still_moving(callback_info.get_layout_window());
+    let now = std::time::Instant::now();
+    session.settle_waiters.retain(|(request, deadline)| {
+        match settle_verdict(moving.as_deref(), now, *deadline) {
+            None => true,
+            Some(Ok(())) => {
+                send_ok(request, None, None);
+                false
+            }
+            Some(Err(why)) => {
+                send_err(request, why);
+                false
+            }
+        }
+    });
+}
+
+/// How long `wait_settled` waits when the request names no `timeout_ms`.
+#[cfg(feature = "std")]
+pub const WAIT_SETTLED_DEFAULT_MS: u64 = 3000;
 
 /// Counts [`announce_debug_request`]s, so that EVERY window sees each one
 /// ([`take_debug_request_wake_for`]) - the flag above is taken by whichever
