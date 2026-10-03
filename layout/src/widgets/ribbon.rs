@@ -2739,6 +2739,11 @@ pub struct RibbonGallery {
     pub selected: usize,
     /// Optional callback fired when a cell is clicked (receives cell index).
     pub on_select: OptionRibbonGalleryOnSelect,
+    /// How many cells the in-ribbon strip shows (0: every cell). Office's
+    /// galleries show one row of a few cells - the row holding the selected
+    /// one - and "More" opens all of them; a gallery of every cell inline
+    /// pushed the groups after it off a 1280 px window (AzShow's Layout).
+    pub visible: usize,
 }
 
 /// One gallery cell: an arbitrary preview [`Dom`] over a name label.
@@ -3154,7 +3159,21 @@ impl RibbonGallery {
             cells,
             selected: 0,
             on_select: None.into(),
+            visible: 0,
         }
+    }
+
+    /// Shows `visible` cells in the ribbon (0: every cell); see
+    /// [`Self::visible`].
+    pub const fn set_visible(&mut self, visible: usize) {
+        self.visible = visible;
+    }
+
+    /// Builder method: [`Self::set_visible`].
+    #[must_use]
+    pub const fn with_visible(mut self, visible: usize) -> Self {
+        self.set_visible(visible);
+        self
     }
 
     /// Builder method: sets the selected cell index and returns `self`.
@@ -3986,6 +4005,7 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior, theme
         cells,
         selected,
         on_select,
+        visible: _,
     } = gallery;
     let has_callback = on_select.is_some();
     let cells = cells.into_library_owned_vec();
@@ -5625,6 +5645,36 @@ mod tests {
             assert!(matches!(b.root.get_node_type(), NodeType::Button));
             assert_eq!(icon_name_of(&b.children.as_ref()[0]), Some(expected_icon));
         }
+    }
+
+    /// AzShow's HOME put all seven layouts inline (863 px) and pushed Font,
+    /// Paragraph and Editing off a 1280 px window. A gallery shows one row
+    /// of `visible` cells - the row holding the selected cell - and "More"
+    /// every cell; a click still reports the cell's own index.
+    #[test]
+    fn a_gallery_shows_the_row_of_the_selected_cell_and_more_shows_every_cell() {
+        let wrapper = render_item(RibbonItem::Gallery(gallery(7).with_selected(4).with_visible(3)));
+        let frame = &wrapper.children.as_ref()[0];
+        let strip = &frame.children.as_ref()[0];
+        let labels: Vec<String> = strip
+            .children
+            .as_ref()
+            .iter()
+            .map(|c| text_of(&c.children.as_ref()[1]).unwrap_or_default().to_string())
+            .collect();
+        assert_eq!(labels, vec!["Style 3", "Style 4", "Style 5"], "the row of cell 4");
+        let panel = &wrapper.children.as_ref()[1];
+        assert_eq!(panel.children.as_ref().len(), 7, "More shows every cell");
+
+        // The last row is filled from the end, not left short.
+        let last = render_item(RibbonItem::Gallery(gallery(7).with_selected(6).with_visible(3)));
+        let strip = &last.children.as_ref()[0].children.as_ref()[0];
+        assert_eq!(text_of(&strip.children.as_ref()[0].children.as_ref()[1]), Some("Style 4"));
+        assert_eq!(strip.children.as_ref().len(), 3);
+
+        // 0 (the default) shows every cell.
+        let all = render_item(RibbonItem::Gallery(gallery(5)));
+        assert_eq!(all.children.as_ref()[0].children.as_ref()[0].children.as_ref().len(), 5);
     }
 
     #[test]
