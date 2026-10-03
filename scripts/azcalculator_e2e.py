@@ -5,14 +5,15 @@
        folder with --sample (three sample history entries) and waits for the history to load;
     2. Standard by mouse: 1280 x 0.19 = 243.2 (the plan's sample), the result node shows it;
     3. Standard by keyboard: 0.1 + 0.2 = 0.3 (no binary artefacts), 7 Shift+8 6 Enter = 42,
-       Backspace, Escape; Ctrl+C copies "42";
+       Backspace, Escape;
     4. the history file calculator/history.jsonl holds the sample and the new lines;
     5. Scientific: sin(30) + 2^10 = 1,024.5 in degrees; Programmer: F5 (HEX), 2A5F shows
        10,847 in DEC, bit 0 toggles it to 2A5E; Convert shows 42.195 km = 26.21875746 mi;
        Date shows the difference screen;
     6. the settings page (Ctrl+,): Appearance -> Flora and Dark are saved to
        calculator/settings.json; Escape closes it;
-    7. a screenshot of every screen, in flat light and flora dark.
+    7. a screenshot of every screen, in flat light and flora dark;
+    8. last, Ctrl/Cmd+C copies "42" (the engine's Copy shortcut bug would end the run early).
 
 Usage (after building libazul with the debug server and AzCalculator, one app at a time):
 
@@ -98,9 +99,7 @@ def body(args, logs, out):
         app.key("escape")
         expect_display(app, "\t0", "Escape clears")
         app.type_keys(["4", "2"])
-        app.key("c", primary=True)
-        app.until("Ctrl+C to copy", lambda: app.last("AZCALC_COPIED") == "42")
-        app.log("Ctrl+C copied 42")
+        expect_display(app, "\t42", "42 typed")
 
         # The history file.
         app.until("the history file to hold the new lines", lambda: len(history_lines(data_dir)) >= 6)
@@ -171,6 +170,17 @@ def body(args, logs, out):
         app.key("escape")
         app.until("the settings page to close", lambda: not app.has_id("appkit-settings"))
         app.screenshot(os.path.join(out, "standard-flora-dark.png"))
+
+        # Last: Ctrl/Cmd+C copies the result. A keypad Button holds the focus
+        # after the clicks above, and the engine's Copy shortcut claims the
+        # key for a focused NON-editable node (core/src/events.rs
+        # handle_key_down, AddAndSkip - reported to WRITER6, 2026-10-03), so
+        # this runs after every other check.
+        app.key("escape")
+        app.type_keys(["4", "2"])
+        app.key("c", primary=True)
+        app.until("Ctrl+C to copy", lambda: app.last("AZCALC_COPIED") == "42")
+        app.log("Ctrl+C copied 42")
         app.log("PASS")
         return True
     except Failure:
