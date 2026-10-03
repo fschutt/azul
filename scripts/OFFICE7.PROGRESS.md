@@ -20,6 +20,13 @@ Branch `wt/office7` from `2e55eef06` (the wave-6 integration; every app compiles
 
 ## IN PROGRESS
 - 5. AzMail mail files on the Drive (one Drive, per-account scope).
+  - DONE: 165b8506b RED (store tests), 1dd27a351 store.rs: `DriveFolder` (of / outside / locate / child /
+    path / is_data_tree) + `MailStore` (put/get/delete/size_of/keys/subfolders/move_prefix/folders) replace
+    `LocalFolder`; `write_atomic` still there for account.rs / send.rs.
+  - NEXT (crate does not build until done): the AzMail folder `root` becomes a `DriveFolder` (MailApp.root,
+    jobs); account.rs (`account_dir`/`mail_root` -> DriveFolder, save/load_all through MailStore);
+    send.rs (settings, policy, outbox, file_message through MailStore); sync.rs (MailStore rename);
+    compose.rs, sample.rs, ui_compose.rs, ui_account.rs, ui_main.rs, lib.rs; then delete `write_atomic`.
 
 ## NEXT
 - 6. AzShow: rail drop indicator, tables in place, presenter monitor; text boxes on RichTextDoc (delete ir.rs).
@@ -31,6 +38,8 @@ Branch `wt/office7` from `2e55eef06` (the wave-6 integration; every app compiles
 - Item 1 is a refactor (no behaviour change): no RED commit.
 - Item 3: the import is read on appkit's file thread (Drive pattern, `without_manifest` at the file's
   folder); the docx / Markdown parse runs on the UI thread when the answer arrives (as an Open does).
+- Item 5: AzMail's durable (fsync) flag dropped (LocalDrive writes whole files; a torn index/state reads as
+  none and resyncs). `azul_storage::ops::list_all` used; appkit `files::list_all` is its twin (report).
 - Item 4: no app workaround for the two engine bugs (no `align-items: center` on the title row).
 
 ## LOOK tools (not committed)
