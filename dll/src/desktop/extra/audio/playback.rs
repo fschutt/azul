@@ -31,35 +31,46 @@ pub(crate) struct Rechunker {
 impl Rechunker {
     /// Chunks of `frames` frames of `channels` interleaved samples (both at least 1).
     pub(crate) fn new(channels: u16, frames: usize) -> Self {
-        let _ = (channels, frames);
         Self {
-            channels: 1,
-            frames: 1,
+            channels: usize::from(channels.max(1)),
+            frames: frames.max(1),
             pending: Vec::new(),
         }
     }
 
     /// Appends a packet (interleaved; a trailing partial frame is dropped).
     pub(crate) fn push(&mut self, samples: &[f32]) {
-        let _ = samples;
+        let whole = samples.len() - samples.len() % self.channels;
+        self.pending.extend_from_slice(&samples[..whole]);
     }
 
     /// The next whole chunk, if one is complete.
     pub(crate) fn pop(&mut self) -> Option<Vec<f32>> {
-        None
+        let n = self.frames * self.channels;
+        if self.pending.len() < n {
+            return None;
+        }
+        let rest = self.pending.split_off(n);
+        Some(core::mem::replace(&mut self.pending, rest))
     }
 
     /// Whatever is left (a partial chunk), at the end of the stream.
     pub(crate) fn flush(&mut self) -> Option<Vec<f32>> {
-        None
+        if self.pending.is_empty() {
+            None
+        } else {
+            Some(core::mem::take(&mut self.pending))
+        }
     }
 
     /// Drops what is pending (a seek).
-    pub(crate) fn clear(&mut self) {}
+    pub(crate) fn clear(&mut self) {
+        self.pending.clear();
+    }
 
     /// Frames waiting for the next chunk.
     pub(crate) fn pending_frames(&self) -> usize {
-        0
+        self.pending.len() / self.channels
     }
 }
 
@@ -82,11 +93,10 @@ pub(crate) struct LinearResampler {
 impl LinearResampler {
     /// A resampler from `from` Hz to `to` Hz for `channels` interleaved channels.
     pub(crate) fn new(from: u32, to: u32, channels: u16) -> Self {
-        let _ = (from, to, channels);
         Self {
-            from: 1,
-            to: 1,
-            channels: 1,
+            from: from.max(1),
+            to: to.max(1),
+            channels: usize::from(channels.max(1)),
             t: 0.0,
             prev: Vec::new(),
         }
@@ -94,7 +104,7 @@ impl LinearResampler {
 
     /// The rates are the same: [`process`](Self::process) hands its input back.
     pub(crate) fn is_identity(&self) -> bool {
-        false
+        self.from == self.to
     }
 
     /// The output rate.
@@ -103,34 +113,114 @@ impl LinearResampler {
     }
 
     /// The next packet (interleaved, at the input rate) at the output rate.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
     pub(crate) fn process(&mut self, input: &[f32]) -> Vec<f32> {
-        let _ = input;
-        Vec::new()
+        if self.is_identity() {
+            return input.to_vec();
+        }
+        let ch = self.channels;
+        let n = input.len() / ch;
+        if n == 0 {
+            return Vec::new();
+        }
+        let step = f64::from(self.from) / f64::from(self.to);
+        let mut out = Vec::with_capacity(((n as f64 / step) as usize + 1) * ch);
+        let last = (n - 1) as f64;
+        // Before the first packet there is no previous frame: the stream starts at its first.
+        let mut t = if self.prev.len() == ch {
+            self.t
+        } else {
+            self.t.max(0.0)
+        };
+        while t < last {
+            // `t` may sit a rounding error below -1.0 after the carry: that is the previous
+            // packet's last frame all the same.
+            let i = t.floor().max(-1.0);
+            let frac = ((t - i) as f32).clamp(0.0, 1.0);
+            let i = i as isize;
+            for c in 0..ch {
+                let a = if i < 0 {
+                    self.prev[c]
+                } else {
+                    input[i as usize * ch + c]
+                };
+                let b = input[(i + 1) as usize * ch + c];
+                out.push((b - a).mul_add(frac, a));
+            }
+            t += step;
+        }
+        self.t = t - n as f64;
+        self.prev.clear();
+        self.prev.extend_from_slice(&input[(n - 1) * ch..n * ch]);
+        out
     }
 
     /// Forgets the carried frame (a seek: the next packet does not continue the last one).
-    pub(crate) fn reset(&mut self) {}
+    pub(crate) fn reset(&mut self) {
+        self.t = 0.0;
+        self.prev.clear();
+    }
 }
 
 /// `samples` (interleaved, `from` channels) as `to` channels: one channel goes to every output
 /// channel, many go to one as their average, otherwise the first `to` channels are kept (missing
 /// ones are silent).
+#[allow(clippy::cast_precision_loss)]
 pub(crate) fn remix(samples: &[f32], from: u16, to: u16) -> Vec<f32> {
-    let _ = (samples, from, to);
-    Vec::new()
+    let (from, to) = (usize::from(from.max(1)), usize::from(to.max(1)));
+    let frames = samples.len() / from;
+    if from == to {
+        return samples[..frames * from].to_vec();
+    }
+    let mut out = Vec::with_capacity(frames * to);
+    for frame in samples.chunks_exact(from) {
+        if from == 1 {
+            out.extend(core::iter::repeat(frame[0]).take(to));
+        } else if to == 1 {
+            out.push(frame.iter().sum::<f32>() / from as f32);
+        } else {
+            out.extend((0..to).map(|c| frame.get(c).copied().unwrap_or(0.0)));
+        }
+    }
+    out
 }
 
 /// Scales `samples` (interleaved, `channels`) by a gain that moves linearly from `from` (the
 /// first frame) to `to` (the last), so a volume change does not click. Clamps to `-1.0..=1.0`.
+#[allow(clippy::cast_precision_loss)]
 pub(crate) fn apply_gain(samples: &mut [f32], channels: u16, from: f32, to: f32) {
-    let _ = (samples, channels, from, to);
+    let ch = usize::from(channels.max(1));
+    let frames = samples.len() / ch;
+    if frames == 0 {
+        return;
+    }
+    let span = frames.saturating_sub(1).max(1) as f32;
+    for (i, frame) in samples.chunks_exact_mut(ch).enumerate() {
+        let gain = if frames == 1 {
+            to
+        } else {
+            (to - from).mul_add(i as f32 / span, from)
+        };
+        for s in frame {
+            *s = (*s * gain).clamp(-1.0, 1.0);
+        }
+    }
 }
 
 /// The peak magnitude (`0.0..=1.0`) of the first two channels of `samples` (interleaved,
 /// `channels`); mono reports its one channel twice.
 pub(crate) fn chunk_peaks(samples: &[f32], channels: u16) -> (f32, f32) {
-    let _ = (samples, channels);
-    (0.0, 0.0)
+    let ch = usize::from(channels.max(1));
+    let (mut left, mut right) = (0.0f32, 0.0f32);
+    for frame in samples.chunks_exact(ch) {
+        left = left.max(frame[0].abs());
+        right = right.max(frame.get(1).unwrap_or(&frame[0]).abs());
+    }
+    (left.min(1.0), right.min(1.0))
 }
 
 /// The peaks of the chunks handed to an output, by the output frame each chunk starts at, so a
@@ -146,18 +236,31 @@ const LEVEL_HISTORY_MAX: usize = 64;
 impl LevelHistory {
     /// The chunk starting at output frame `start` peaked at `peaks`.
     pub(crate) fn push(&mut self, start: u64, peaks: (f32, f32)) {
-        let _ = (start, peaks);
+        self.chunks.push_back((start, peaks.0, peaks.1));
+        while self.chunks.len() > LEVEL_HISTORY_MAX {
+            self.chunks.pop_front();
+        }
     }
 
     /// The peaks of the chunk playing at output frame `played` (silence before the first and
     /// once `played` is past `written`, the frames ever written); older chunks are dropped.
     pub(crate) fn at(&mut self, played: u64, written: u64) -> (f32, f32) {
-        let _ = (played, written);
-        (0.0, 0.0)
+        if played >= written {
+            return (0.0, 0.0);
+        }
+        while self.chunks.len() >= 2 && self.chunks[1].0 <= played {
+            self.chunks.pop_front();
+        }
+        match self.chunks.front() {
+            Some(&(start, left, right)) if start <= played => (left, right),
+            _ => (0.0, 0.0),
+        }
     }
 
     /// Forgets every chunk (a seek drops what was queued).
-    pub(crate) fn clear(&mut self) {}
+    pub(crate) fn clear(&mut self) {
+        self.chunks.clear();
+    }
 }
 
 /// One stretch of output: from output frame `start` on, track `track` plays from media time
@@ -181,22 +284,34 @@ pub(crate) struct TrackClock {
 impl TrackClock {
     /// From output frame `start` on, `track` plays from `media_s` at `rate`.
     pub(crate) fn begin(&mut self, start: u64, track: u64, media_s: f64, rate: u32) {
-        let _ = (start, track, media_s, rate);
+        self.segments.push_back(Segment {
+            start,
+            media_s,
+            track,
+            rate: rate.max(1),
+        });
     }
 
     /// Forgets every segment (a load or a seek starts over).
-    pub(crate) fn clear(&mut self) {}
+    pub(crate) fn clear(&mut self) {
+        self.segments.clear();
+    }
 
     /// The track heard at output frame `played` and the media time in it (`None` before any
     /// segment). Segments wholly before the one playing are dropped.
+    #[allow(clippy::cast_precision_loss)]
     pub(crate) fn at(&mut self, played: u64) -> Option<(u64, f64)> {
-        let _ = played;
-        None
+        while self.segments.len() >= 2 && self.segments[1].start <= played {
+            self.segments.pop_front();
+        }
+        let s = self.segments.front()?;
+        let into = played.saturating_sub(s.start);
+        Some((s.track, s.media_s + into as f64 / f64::from(s.rate)))
     }
 
     /// The segment that starts last (the track being decoded).
     pub(crate) fn last(&self) -> Option<Segment> {
-        None
+        self.segments.back().copied()
     }
 }
 
@@ -215,9 +330,8 @@ pub(crate) struct RealTimeClock {
 impl RealTimeClock {
     /// A stopped clock at `rate` frames a second.
     pub(crate) fn new(rate: u32) -> Self {
-        let _ = rate;
         Self {
-            rate: 1,
+            rate: rate.max(1),
             base_frames: 0,
             base_s: None,
             paused: false,
@@ -225,30 +339,47 @@ impl RealTimeClock {
     }
 
     /// Frames played by `now_s`, of the `taken` frames given so far.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     pub(crate) fn played(&self, taken: u64, now_s: f64) -> u64 {
-        let _ = (taken, now_s);
-        0
+        let played = match (self.paused, self.base_s) {
+            (false, Some(at)) => {
+                let ran = ((now_s - at).max(0.0) * f64::from(self.rate)).round();
+                self.base_frames.saturating_add(ran as u64)
+            }
+            _ => self.base_frames,
+        };
+        played.min(taken)
     }
 
     /// More frames arrive at `now_s` (`taken_before` were given until now): a clock that ran
     /// dry (played everything) or never ran starts again from here.
     pub(crate) fn on_take(&mut self, taken_before: u64, now_s: f64) {
-        let _ = (taken_before, now_s);
+        if self.paused {
+            return;
+        }
+        if self.base_s.is_none() || self.played(taken_before, now_s) >= taken_before {
+            self.base_frames = taken_before;
+            self.base_s = Some(now_s);
+        }
     }
 
     /// Holds the position at `now_s`.
     pub(crate) fn pause(&mut self, taken: u64, now_s: f64) {
-        let _ = (taken, now_s);
+        self.base_frames = self.played(taken, now_s);
+        self.base_s = None;
+        self.paused = true;
     }
 
     /// Runs on from `now_s`.
     pub(crate) fn resume(&mut self, now_s: f64) {
-        let _ = now_s;
+        self.paused = false;
+        self.base_s = Some(now_s);
     }
 
     /// What was queued is gone: `taken` (what remains given) is all played.
     pub(crate) fn clear(&mut self, taken: u64) {
-        let _ = taken;
+        self.base_frames = taken;
+        self.base_s = None;
     }
 }
 
