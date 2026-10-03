@@ -33,7 +33,8 @@ pub(crate) enum X11Lib {
     X11,
     /// libXi: XInput2 (touch, pen, smooth scroll, per-device keyboards).
     Xi,
-    /// libXext: XShape, for windows shaped by their alpha.
+    /// libXext: XShape, for windows shaped by their alpha, and MIT-SHM, the
+    /// CPU present's shared-memory upload.
     Xext,
     /// libXrender: ARGB visual detection.
     Xrender,
