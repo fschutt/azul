@@ -37,6 +37,7 @@ pub mod ids;
 pub mod ironcalc_engine;
 pub mod model;
 pub mod ops;
+pub mod refs;
 pub mod sample;
 pub mod storage;
 pub mod worker;
