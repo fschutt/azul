@@ -46,3 +46,6 @@ pub const COMPOSE_BODY: AzString = AzString::from_const_str("__azmail_compose_bo
 
 /// The class of the paper a mail's HTML part is read on (`html.rs`).
 pub const PAPER: AzString = AzString::from_const_str("__azmail_paper");
+/// The mail's own `<body>` inside the paper (`html.rs`): the mail's `body` rules and attributes
+/// land here, and its 12 px padding is the margin around the mail.
+pub const MAIL_BODY: AzString = AzString::from_const_str("__azmail_mail_body");

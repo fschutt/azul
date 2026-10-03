@@ -100,6 +100,9 @@ const PAPER_LIGHT: &str = "background-color: #ffffff; color: #1a1a1a; padding: 1
 /// The paper in the dark mode, for a mail with dark rules (inside a `prefers-color-scheme:
 /// dark` rule).
 const PAPER_DARK: &str = "background-color: #1e1e1e; color: #e8e8e8;";
+/// The paper's box: at least the pane wide, wider when the mail is (a browser's canvas grows
+/// with its content the same way).
+const PAPER_BOX: &str = "display: inline-block; min-width: 100%; box-sizing: border-box;";
 /// A link on white paper: a blue readable on white (the UA's dark-mode link colour is not).
 /// Before the mail's own rules, which win over it.
 const PAPER_LINK: &str = "color: #0b57d0;";
@@ -897,9 +900,10 @@ fn push_attribute(out: &mut String, s: &str) {
 mod tests {
     use super::*;
 
-    /// Every result's body is the mail on its PAPER (the sheet it is read on).
-    const PAPER: &str = "<body><div class=\"__azmail_paper\">";
-    const TAIL: &str = "</div></body></html>";
+    /// Every result's body is the mail's body on its PAPER (the sheet it is read on).
+    const PAPER: &str =
+        "<body><div class=\"__azmail_paper\"><div class=\"__azmail_mail_body\">";
+    const TAIL: &str = "</div></div></body></html>";
 
     /// The sanitized body, without the wrapper every result has.
     fn inner(html: &str) -> String {
@@ -932,7 +936,9 @@ mod tests {
         assert!(!s.has_dark_rules);
         let css = style_sheet(&s);
         assert!(
-            css.contains(".__azmail_paper { background-color: #ffffff; color: #1a1a1a;"),
+            css.contains(&format!(
+                ".__azmail_paper {{ {PAPER_BOX} background-color: #ffffff; color: #1a1a1a; }}"
+            )),
             "{css}"
         );
         assert!(
@@ -960,7 +966,9 @@ mod tests {
         assert!(s.has_dark_rules);
         let css = style_sheet(&s);
         assert!(
-            css.contains(".__azmail_paper { background-color: #ffffff; color: #1a1a1a;"),
+            css.contains(&format!(
+                ".__azmail_paper {{ {PAPER_BOX} background-color: #ffffff; color: #1a1a1a; }}"
+            )),
             "the light mode's paper: {css}"
         );
         assert!(
@@ -1024,8 +1032,8 @@ mod tests {
             assert!(!css.contains(gone), "{gone} is gone: {css}");
         }
         assert!(
-            css.contains(".__azmail_paper { margin: 0; background-color: #f4f4f4; }"),
-            "the mail's body is the paper: {css}"
+            css.contains(".__azmail_mail_body { margin: 0; background-color: #f4f4f4; }"),
+            "the mail's body is the mail-body element: {css}"
         );
         assert!(
             css.contains(&format!(".__azmail_paper .{}b {{ color: red; }}", s.class_prefix)),
@@ -1170,9 +1178,11 @@ mod tests {
             "<span style=\"color: #ff0000; font-family: Arial\">red</span><div style=\"text-align: \
              center\">c</div>"
         );
-        assert_eq!(
-            inner("<body style=\"margin:0\"><h1>T</h1></body>"),
-            "<div style=\"margin: 0\"><h1>T</h1></div>"
+        assert!(
+            sanitize("<body style=\"margin:0\"><h1>T</h1></body>")
+                .xhtml
+                .contains("<div class=\"__azmail_mail_body\" style=\"margin: 0\"><h1>T</h1></div>"),
+            "the body's style is on the mail-body element"
         );
         assert_eq!(inner("<o:p>x</o:p><custom-tag>y</custom-tag>"), "xy");
     }
@@ -1197,10 +1207,14 @@ mod tests {
              align=\"right\" width=\"50%\" height=\"40\" nowrap=\"\">x</td></tr></tbody></table>"
         );
         assert_eq!(inner("<p align=center>c</p>"), "<p align=\"center\">c</p>");
-        assert_eq!(
-            inner("<body bgcolor=\"#f4f4f4\" text=\"#333333\"><p>b</p></body>"),
-            "<div style=\"background-color: #f4f4f4; color: #333333\"><p>b</p></div>"
+        let body = sanitize("<body bgcolor=\"#f4f4f4\" text=\"#333333\"><p>b</p></body>");
+        assert!(
+            style_sheet(&body)
+                .contains(".__azmail_mail_body { background-color: #f4f4f4; color: #333333; }"),
+            "{}",
+            body.xhtml
         );
+        assert_eq!(inner("<body bgcolor=\"#f4f4f4\" text=\"#333333\"><p>b</p></body>"), "<p>b</p>");
         assert_eq!(
             inner("<font face=\"Arial, Helvetica\" size=\"2\" color=red>a</font><font size=+2>b</font>"),
             "<span style=\"font-family: Arial, Helvetica; font-size: 13px; color: red\">a</span>\
@@ -1402,6 +1416,83 @@ mod tests {
         assert_ne!(sanitize(a).class_prefix, sanitize(b).class_prefix);
         assert_eq!(sanitize(a).class_prefix, sanitize_with(a, true).class_prefix);
         assert_eq!(sanitize(a).class_prefix, sanitize(a).class_prefix);
+    }
+
+    /// The paper is as wide as the reading pane, or as the mail when the mail is wider (a
+    /// newsletter's 600 px table in a narrow pane): an inline-block at least the pane wide, as
+    /// a browser's canvas grows with its content - the table no longer runs out of its paper.
+    /// The 12 px margin around the mail is the mail body's padding, inside the paper, so a
+    /// short mail's paper is exactly the pane wide. (Measured on the engine with the debug
+    /// server's `mount`: 624 px paper for the 600 px table in a 500 px pane, 500 px for a short
+    /// mail, long lines wrapping at 476 px - Chrome's numbers.)
+    #[test]
+    fn a_mail_wider_than_the_pane_widens_its_paper() {
+        let s = sanitize("<table width=600><tr><td>x</td></tr></table>");
+        let css = style_sheet(&s);
+        assert!(
+            css.contains(
+                ".__azmail_paper { display: inline-block; min-width: 100%; box-sizing: \
+                 border-box; background-color: #ffffff; color: #1a1a1a; }"
+            ),
+            "{css}"
+        );
+        assert!(css.contains(".__azmail_mail_body { padding: 12px; }"), "{css}");
+        assert!(
+            s.xhtml.contains(
+                "<body><div class=\"__azmail_paper\"><div class=\"__azmail_mail_body\"><table \
+                 width=\"600\">"
+            ),
+            "{}",
+            s.xhtml
+        );
+    }
+
+    /// The mail's `<body>` is the mail-body element: its classes, `dir` and `style` are there,
+    /// and its `body` rules apply to it. What its `bgcolor` / `text` say comes BEFORE the
+    /// mail's own rules, which win over it - as an author rule wins over a presentational hint
+    /// in a browser, so a newsletter's dark-mode `body { background: #000 }` is the background
+    /// in the dark mode (the "black frame around a white table" was the hint winning inside a
+    /// paper the rule had painted).
+    #[test]
+    fn the_mails_body_is_the_mail_body_element_and_its_rules_win_over_its_attributes() {
+        let s = sanitize(
+            "<style>@media (prefers-color-scheme: dark) { body { background: #000 } } body \
+             { color: #222 } html { color: #333 }</style><body bgcolor=#f6f7f2 class=body \
+             style=\"margin: 0\" dir=ltr><p>x</p></body>",
+        );
+        let p = s.class_prefix.as_str();
+        assert!(
+            s.xhtml.contains(&format!(
+                "<div class=\"__azmail_mail_body {p}body\" dir=\"ltr\" style=\"margin: \
+                 0\"><p>x</p></div>"
+            )),
+            "{}",
+            s.xhtml
+        );
+        let css = style_sheet(&s);
+        let hint = css.find(".__azmail_mail_body { background-color: #f6f7f2; }");
+        let rule = css.find(".__azmail_mail_body { color: #222; }");
+        let dark = css.find(
+            "@media (prefers-color-scheme: dark) { .__azmail_mail_body { background: #000; } }",
+        );
+        assert!(
+            matches!((hint, rule, dark), (Some(h), Some(r), Some(d)) if h < r && h < d),
+            "the hint before the mail's rules: {css}"
+        );
+        assert!(css.contains(".__azmail_paper { color: #333; }"), "html is the paper: {css}");
+    }
+
+    /// A colour attribute is one value: a `;` or a brace in it cannot add a declaration (or,
+    /// in the sheet, a rule) - `bgcolor="red; position: fixed"` put `position: fixed` on the
+    /// mail.
+    #[test]
+    fn a_colour_attribute_cannot_smuggle_in_a_declaration() {
+        let s = sanitize(
+            "<body bgcolor=\"red; position: fixed\" text=\"#000 } .__azmail_paper { display: \
+             none\"><font color=\"red;position:fixed\" face=\"a;position:fixed\">x</font></body>",
+        );
+        assert!(!s.xhtml.contains("position"), "{}", s.xhtml);
+        assert!(!s.xhtml.contains("display: none"), "{}", s.xhtml);
     }
 
     #[test]
