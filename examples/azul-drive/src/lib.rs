@@ -1463,7 +1463,7 @@ pub fn start() {
     let settings_drive = settings_dir.map(LocalDrive::new);
     let inline_dialogs = std::env::var(DIALOGS_VAR).is_ok_and(|v| v.trim() == "inline");
 
-    if args.sample {
+    if args.kit.sample {
         match args::write_sample(&home) {
             Ok(n) => eprintln!("[azdrive] {n} sample files in {}", home.display()),
             Err(e) => eprintln!("[azdrive] the sample files could not be written: {e}"),
@@ -1578,15 +1578,17 @@ pub fn start() {
     refresh_disks(&mut state);
 
     let mut config = AppConfig::create();
-    if let Some(theme) = args.theme.as_deref() {
-        config.set_theme(AzString::from(theme));
+    if let Some(theme) = args.kit.theme {
+        config.set_theme(AzString::from(theme.name()));
     }
-    if let Some(dark) = args.dark {
-        config.set_mode(OptionDarkLightMode::Some(if dark {
-            DarkLightMode::Dark
-        } else {
-            DarkLightMode::Light
-        }));
+    match args.kit.mode {
+        Some(azul_appkit::ModePref::Dark) => {
+            config.set_mode(OptionDarkLightMode::Some(DarkLightMode::Dark));
+        }
+        Some(azul_appkit::ModePref::Light) => {
+            config.set_mode(OptionDarkLightMode::Some(DarkLightMode::Light));
+        }
+        _ => {}
     }
     let app = App::create(RefAny::new(state), config);
     let mut window = WindowCreateOptions::create(layout);
