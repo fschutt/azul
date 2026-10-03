@@ -876,3 +876,5 @@ mod a_single_stop_gradient_is_a_solid_colour;
 mod a_border_defaults_to_a_medium_width_in_the_text_colour;
 #[path = "a_box_shadow_follows_its_box_outside_or_inside.rs"]
 mod a_box_shadow_follows_its_box_outside_or_inside;
+#[path = "a_background_is_painted_within_its_background_clip.rs"]
+mod a_background_is_painted_within_its_background_clip;
