@@ -25,9 +25,9 @@ THREADS8 closes the gaps left around it.
   dispatch_pending_lifecycle_events and invoke_expired_timers
 - b9f948d31 module docs
 
-## NEXT (exact)
-1. Write the report scripts/THREADS8_2026_10_03.md (what was built, commits, api.json: none, least-sure spots,
-   test commands, what is left) and commit it. Then update this file to "finished".
+## STATUS: FINISHED (report scripts/THREADS8_2026_10_03.md committed)
+Nothing left on this branch; the parent compiles and runs the test commands in the report.
+
 
 ## Decisions / open questions
 - The core mechanism exists; no rewrite. Gaps only.
