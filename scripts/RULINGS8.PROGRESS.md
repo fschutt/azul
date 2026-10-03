@@ -11,6 +11,8 @@ Brief: scripts/waves/wave8/PLAN.md section "RULINGS8".
 - cffdaeffa FOCUS RED: layout/src/e2e/focus_across_virtual_view_tests.rs (child module of runner.rs, appended at
   its end; needs run_e2e_test_keeping_runner which is private, so not in layout/tests/)
 - 6e64021b6 STRUT RED: layout/tests/a_line_holding_only_an_inline_block_is_as_tall_as_its_strut.rs (10 tests)
+- 60a535026 STRUT GREEN (a): text3 cache.rs perform_fragment_layout - no-text lines measured by their line box
+- 9fdf0e0d8 STRUT GREEN (b): solver3 getters.rs collect_font_stacks_from_styled_dom keys parents of inline boxes
 - 91928b72d FOCUS GREEN: managers::hover::focusable_under_pointer walks core::events::get_event_path (4th closure
   host_of); dll event.rs + runner.rs pass virtual_view_manager.host_of_nested_dom; hover.rs unit tests updated.
 
@@ -55,7 +57,8 @@ Brief: scripts/waves/wave8/PLAN.md section "RULINGS8".
      the Chrome numbers above (font-independent ones exact: line-height 20 -> 20, line-height 0 -> 10;
      normal: equal to a "x" text line in the same font, b.y 4 +-0.6; middle 24px -> p 24 b.y 0; bottom -> 0;
      -5px -> p 19 b.y 9 +-0.6; no-text-anywhere doc -> p 18 +-1). Commit.
-- 2. GREEN (a), commit; GREEN (b), commit; GREEN (c), commit.
+- 2. GREEN (a) DONE 60a535026; GREEN (b) DONE 9fdf0e0d8; NEXT GREEN (c): cache.rs calculate_line_metrics +
+     position_one_line vertical-align (one helper for shifted item extents).
 - 3. Ripple review: 33 layout/tests files use inline-blocks (table_markup::block(w) = 10px-high inline-blocks;
      table tests asserted 10px rows) - grep height / origin.y assertions on lines holding only inline-blocks
      and update them to Chrome's numbers (or note them for the parent).
