@@ -262,6 +262,14 @@ def first_session(app, data, out):
     app.until("the new note to open", lambda: note_id in app.printed("AZNOTES_OPEN", r"[0-9a-f-]+"))
     log("new note %s" % note_id)
     app.type_into("#__aznotes_note-title", "Shopping list")
+    # The title reads as a title: its field is a heading's height, taller than the tag field
+    # (the 11 px UI fields are 22 px; a 22 px title line is ~28 px plus the field's chrome).
+    title = app.value("get_node_layout", selector="#__aznotes_note-title").get("rect") or {}
+    tag = app.value("get_node_layout", selector="#__aznotes_tag-input").get("rect") or {}
+    if title.get("height", 0) < 28 or title.get("height", 0) <= tag.get("height", 0):
+        raise Failure("the title field is %s px tall (the tag field %s px): it does not read as a title"
+                      % (title.get("height"), tag.get("height")))
+    log("the title field is %.0f px tall" % title["height"])
 
     # The body, with Markdown shortcuts.
     app.must("focus_node", selector="#__aznotes_note-body")
