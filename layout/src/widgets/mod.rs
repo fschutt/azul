@@ -536,6 +536,12 @@ pub mod level_meter;
 /// keys seek; moved in place by a player (`SeekBar::update_position`);
 /// `media_time` is the one media clock format; see `seek_bar.rs`.
 pub mod seek_bar;
+/// Media controls widget.
+///
+/// A player's transport: previous, play / pause, next, the podcast skips,
+/// shuffle and repeat toggles, a volume slider - icon buttons named by what
+/// they do now, one `on_action` hook; see `media_controls.rs`.
+pub mod media_controls;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
