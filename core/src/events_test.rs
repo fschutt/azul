@@ -2398,6 +2398,7 @@ mod autotest_generated {
             (EventType::MediaControl, EventData::None),
             (EventType::PointerLockChange, EventData::None),
             (EventType::SystemAudioChange, EventData::None),
+            (EventType::TypingStyleChanged, EventData::None),
         ];
 
         // COVERAGE PROOF. Not "the list looks complete" - `all_event_types`
