@@ -247,8 +247,11 @@ unsafe fn create_segment(
         return None;
     }
     let undo_image = |image: *mut XImage| {
-        (*image).data = core::ptr::null_mut();
-        (xlib.XDestroyImage)(image);
+        // SAFETY: `image` is the live image made above; its data is ours.
+        unsafe {
+            (*image).data = core::ptr::null_mut();
+            (xlib.XDestroyImage)(image);
+        }
     };
     let shmid = libc::shmget(libc::IPC_PRIVATE, bytes, libc::IPC_CREAT | 0o600);
     if shmid == -1 {
