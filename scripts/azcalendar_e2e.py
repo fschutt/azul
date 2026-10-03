@@ -22,6 +22,9 @@ Stages (each runs even when one before it failed; `--only` / `--skip` pick them)
             event file with `"repeat": "FREQ=WEEKLY;BYDAY=<its weekday>"`, `AZCAL_EDITOR closed`.
             BLOCKED (not failed) when the debug server does not reach a window made at runtime -
             the headless backend does not run child windows yet (MAIL2's engine change).
+  close     Ctrl/Cmd+N, a title typed, the editor window's `close` op: the close is held and
+            `AZCAL_EDITOR asking`, the question shows; "Don't Save" closes it and writes no
+            event file. An unedited editor closes at once, without asking.
   repeat    the weekly events (the imported one, and the editor's when it was made) are on the
             next week too (Forward, #view-next), not on the week their exception names, and again
             the week after.
@@ -385,6 +388,42 @@ def stage_editor(app, ctx):
     return f"{EDITOR_TITLE!r} saved from the editor window, weekly on {weekday}"
 
 
+# ==== close ====
+
+def stage_close(app, ctx):
+    """An edited appointment is not lost to the window's close: the close is held and the window
+    asks "save changes?"; Don't Save closes it and writes nothing. An unedited one closes at
+    once."""
+    w = app.main
+    before = set(wi.event_files(app.data))
+    # Edited: held, asked, discarded.
+    opened = len(app.printed("AZCAL_EDITOR"))
+    w.key("n", primary=True)
+    w.until("AZCAL_EDITOR open", lambda: "open" in app.printed("AZCAL_EDITOR")[opened:])
+    ed = reach_editor(app)
+    ed.type_into("#editor-title", "Not to be kept")
+    ed.must({"op": "close"})
+    ed.frames(3)
+    w.until("AZCAL_EDITOR asking", lambda: "asking" in app.printed("AZCAL_EDITOR")[opened:])
+    if "closed" in app.printed("AZCAL_EDITOR")[opened:]:
+        raise Failure("the edited appointment's window closed without asking")
+    ed.until("the question", lambda: ed.shows("Don't Save"))
+    ed.click(text="Don't Save")
+    w.until("AZCAL_EDITOR closed", lambda: "closed" in app.printed("AZCAL_EDITOR")[opened:])
+    if set(wi.event_files(app.data)) != before:
+        raise Failure("Don't Save wrote an event file")
+    # Unedited: closes at once.
+    opened = len(app.printed("AZCAL_EDITOR"))
+    w.key("n", primary=True)
+    w.until("AZCAL_EDITOR open", lambda: "open" in app.printed("AZCAL_EDITOR")[opened:])
+    ed = reach_editor(app)
+    ed.must({"op": "close"})
+    w.until("AZCAL_EDITOR closed", lambda: "closed" in app.printed("AZCAL_EDITOR")[opened:])
+    if "asking" in app.printed("AZCAL_EDITOR")[opened:]:
+        raise Failure("an unedited appointment asked before it closed")
+    return "an edited appointment asks before it closes (Don't Save writes nothing); an unedited one closes"
+
+
 # ==== repeat ====
 
 def show_week_of(w, day):
@@ -535,6 +574,7 @@ STAGES = [
     ("views", stage_views),
     ("import", stage_import),
     ("editor", stage_editor),
+    ("close", stage_close),
     ("repeat", stage_repeat),
     ("contrast", stage_contrast),
 ]
