@@ -307,6 +307,73 @@ mod tests {
         assert_eq!(m.remap_node_ids(ROOT, &map, &[child]), vec![t]);
     }
 
+    // --- Timers: the same rule as threads (THREADS8) ---------------------
+    //
+    // The map's tile sweep is a 250 ms timer its `AfterMount` starts and
+    // nothing ever stops: a map that left the DOM woke the app four times a
+    // second for ever, holding its tile cache, and a remount added a second
+    // sweep. A timer one of a node's lifecycle callbacks started belongs to
+    // the node like its threads do.
+
+    #[test]
+    fn a_timer_whose_node_unmounted_is_stopped_once() {
+        use azul_core::task::TimerId;
+        let mut m = ThreadOwnerManager::default();
+        let t = TimerId { id: 41 };
+        m.bind_timer(t, node(ROOT, 3));
+        // Node 3 is gone, node 1 stayed.
+        let map = NodeIdMap::from_pairs([(NodeId::new(1), NodeId::new(1))]);
+        assert!(
+            m.remap_node_ids(ROOT, &map, &[]).is_empty(),
+            "no thread was orphaned"
+        );
+        assert_eq!(m.timer_owner(&t), None);
+        assert_eq!(m.take_timers_to_stop(), vec![t]);
+        assert!(m.take_timers_to_stop().is_empty(), "handed out once");
+        let _ = m.remap_node_ids(ROOT, &map, &[]);
+        assert!(
+            m.take_timers_to_stop().is_empty(),
+            "a second rebuild does not stop it again"
+        );
+    }
+
+    #[test]
+    fn a_timer_follows_its_node_when_the_node_moves() {
+        use azul_core::task::TimerId;
+        let mut m = ThreadOwnerManager::default();
+        let t = TimerId { id: 41 };
+        m.bind_timer(t, node(ROOT, 3));
+        let map = NodeIdMap::from_pairs([(NodeId::new(3), NodeId::new(5))]);
+        let _ = m.remap_node_ids(ROOT, &map, &[]);
+        assert_eq!(m.timer_owner(&t), Some(node(ROOT, 5)));
+        assert!(m.take_timers_to_stop().is_empty());
+    }
+
+    #[test]
+    fn a_timer_in_the_child_dom_of_an_unmounted_virtual_view_is_stopped() {
+        use azul_core::task::TimerId;
+        let mut m = ThreadOwnerManager::default();
+        let t = TimerId { id: 41 };
+        let child = DomId { inner: 7 };
+        m.bind_timer(t, node(child, 2));
+        let map = NodeIdMap::from_pairs([(NodeId::new(0), NodeId::new(0))]);
+        let _ = m.remap_node_ids(ROOT, &map, &[child]);
+        assert_eq!(m.take_timers_to_stop(), vec![t]);
+    }
+
+    #[test]
+    fn a_timer_that_was_removed_is_never_stopped_for_its_old_node() {
+        use azul_core::task::TimerId;
+        let mut m = ThreadOwnerManager::default();
+        let t = TimerId { id: 41 };
+        m.bind_timer(t, node(ROOT, 3));
+        // The timer ended (or the app removed it, or re-added the id from a
+        // click): its old node no longer speaks for it.
+        m.forget_timer(&t);
+        let _ = m.remap_node_ids(ROOT, &NodeIdMap::default(), &[]);
+        assert!(m.take_timers_to_stop().is_empty());
+    }
+
     #[cfg(feature = "std")]
     #[test]
     fn an_orphan_is_overdue_after_the_grace_period() {

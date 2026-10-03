@@ -12580,6 +12580,153 @@ mod tests {
             "no thread left, so the thread poll stops (an idle window polls nothing)"
         );
     }
+
+    // --- The timer a node started on mount stops when the node unmounts ----
+    //
+    // THREADS8: the map's tile sweep (`map_on_after_mount`) is a 250 ms timer
+    // that never ends itself. A map that left the DOM kept waking the app four
+    // times a second and kept its tile cache alive; a remount added a second
+    // sweep. Same rule as the node's workers (`managers::thread_owner`): a
+    // timer one of a node's lifecycle callbacks started belongs to the node.
+
+    /// The id the node's `AfterMount` starts its timer under.
+    const NODE_SWEEP_TIMER: usize = 0x7_3EE9;
+    /// A timer of the app's, started outside any node's lifecycle.
+    const APP_TIMER: usize = 0x7_A990;
+
+    #[derive(Debug, Clone)]
+    struct SweepHost {
+        show: bool,
+    }
+
+    extern "C" fn sweep_tick(
+        _data: RefAny,
+        _info: azul_layout::timer::TimerCallbackInfo,
+    ) -> azul_core::callbacks::TimerCallbackReturn {
+        azul_core::callbacks::TimerCallbackReturn {
+            should_update: azul_core::callbacks::Update::DoNothing,
+            should_terminate: azul_core::task::TerminateTimer::Continue,
+        }
+    }
+
+    fn sweep_timer(
+        get_system_time_fn: azul_core::task::GetSystemTimeCallback,
+    ) -> azul_layout::timer::Timer {
+        use azul_core::task::{Duration, SystemTimeDiff};
+        azul_layout::timer::Timer::create(
+            RefAny::new(()),
+            azul_layout::timer::TimerCallback::create(sweep_tick),
+            get_system_time_fn,
+        )
+        .with_interval(Duration::System(SystemTimeDiff::from_millis(250)))
+    }
+
+    /// The node's `AfterMount`: start its periodic sweep, like the map does.
+    extern "C" fn start_node_sweep(
+        _data: RefAny,
+        mut info: azul_layout::callbacks::CallbackInfo,
+    ) -> azul_core::callbacks::Update {
+        let timer = sweep_timer(info.get_system_time_fn());
+        info.add_timer(
+            azul_core::task::TimerId {
+                id: NODE_SWEEP_TIMER,
+            },
+            timer,
+        );
+        azul_core::callbacks::Update::DoNothing
+    }
+
+    extern "C" fn sweep_host_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_core::{
+            callbacks::{CoreCallback, CoreCallbackData},
+            dom::{ComponentEventFilter, EventFilter},
+        };
+        let show = data.downcast_ref::<SweepHost>().is_some_and(|h| h.show);
+        let body = Dom::create_body().with_child(Dom::create_div().with_css("height: 10px;"));
+        if !show {
+            return body;
+        }
+        body.with_child(
+            Dom::create_div().with_css("height: 20px;").with_callbacks(
+                vec![CoreCallbackData {
+                    event: EventFilter::Component(ComponentEventFilter::AfterMount),
+                    callback: CoreCallback {
+                        cb: start_node_sweep as usize,
+                        ctx: azul_core::refany::OptionRefAny::None,
+                    },
+                    refany: RefAny::new(()),
+                }]
+                .into(),
+            ),
+        )
+    }
+
+    fn has_timer(window: &HeadlessWindow, id: usize) -> bool {
+        window
+            .common
+            .layout_window
+            .as_ref()
+            .is_some_and(|lw| lw.timers.contains_key(&azul_core::task::TimerId { id }))
+    }
+
+    #[test]
+    fn the_timer_a_node_started_on_mount_stops_when_the_node_unmounts() {
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        let state = Arc::new(RefCell::new(RefAny::new(SweepHost { show: true })));
+        let mut window = make_window_sized(&state, sweep_host_layout, 200.0, 100.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+
+        assert!(
+            has_timer(&window, NODE_SWEEP_TIMER),
+            "AfterMount starts the node's timer"
+        );
+        let sweep_id = azul_core::task::TimerId {
+            id: NODE_SWEEP_TIMER,
+        };
+        assert!(
+            window
+                .common
+                .layout_window
+                .as_ref()
+                .and_then(|lw| lw.thread_owners.timer_owner(&sweep_id))
+                .is_some(),
+            "a timer the node's own AfterMount started belongs to that node"
+        );
+        // The app's own timer, started outside the node's lifecycle.
+        let get_time =
+            azul_layout::callbacks::ExternalSystemCallbacks::rust_internal().get_system_time_fn;
+        window.start_timer(APP_TIMER, sweep_timer(get_time));
+
+        // The next DOM drops the node.
+        {
+            let mut g = state.borrow_mut();
+            let r: &mut RefAny = &mut g;
+            if let Some(mut host) = r.downcast_mut::<SweepHost>() {
+                host.show = false;
+            };
+        }
+        window.regenerate_layout().expect("the node unmounts");
+
+        assert!(
+            !has_timer(&window, NODE_SWEEP_TIMER),
+            "the timer of the unmounted node is stopped with it"
+        );
+        assert!(
+            has_timer(&window, APP_TIMER),
+            "the app's timer is not the node's to stop"
+        );
+        assert_eq!(
+            window
+                .common
+                .layout_window
+                .as_mut()
+                .map(|lw| lw.thread_owners.take_timers_to_stop()),
+            Some(Vec::new()),
+            "the shell has stopped the unmounted node's timer (nothing left to stop)"
+        );
+    }
 }
 
 #[cfg(test)]
