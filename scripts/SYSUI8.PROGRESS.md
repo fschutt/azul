@@ -46,16 +46,16 @@ system:ui (markup) 136.98 (the colon bug -> Helvetica), system-ui 128.30, 'Syste
 'Helvetica Neue' 138.36, Helvetica 136.98, BlinkMacSystemFont / -apple-system 136.98 (Helvetica).
 The widgets' const `System("system:ui")` is not parsed, so production widgets draw SF Display.
 
-## NEXT (exact)
-1. Baseline LOOK on the prebuilt (old-engine) apps with scripts/sysui8_look.py (committed):
-   `AZUL_ROOT=/Users/fschutt/Development/azul scripts/waves/tools/run_capped.sh --cap-mb 1500
-   --seconds 1200 --log /tmp/sysui8_look.log -- python3 scripts/sysui8_look.py record
-   <worktree>/target/sysui8/look/before` (screenshots + text-node boxes per app, in target/, not
-   committed). After the parent's build: same with `.../after`, then `python3 scripts/sysui8_look.py
-   compare .../before .../after` lists text that newly overflows / wraps -> fix that widget's CSS.
-   (Cannot be done in this worktree: no compiling; the prebuilt binaries are the OLD engine.)
-2. Write scripts/SYSUI8_2026_10_03.md (what was built, commits, api.json: none, least-sure spots,
-   test commands, left) and commit it.
+## STATE: report written and committed (scripts/SYSUI8_2026_10_03.md, 8857ff307).
+Baseline LOOK recorded in target/sysui8/look/before (old engine; most apps start sample-less).
+
+## NEXT (exact, for a resumed run)
+1. Only after the parent's build: run `scripts/sysui8_look.py record <dir>/after` (capped, see the
+   report section 7) and `compare` against target/sysui8/look/before; fix the widget CSS of every
+   text it lists as newly overflowing / wrapping (layout/src/widgets/<widget>.rs + both themes),
+   RED test first, then update the report's section 8.
+2. Optional: give scripts/refci/azul_debug.py `AzulHeadless` an `args` parameter so the look can
+   start apps with `--sample` / `--screen <name>` (the baseline has text for 8 apps only).
 
 ## Expected width change (SF, "Hello world agenda", new/old)
 11px x1.14, 12px x1.13, 13px x1.12, 14px x1.10, 16px x1.09, 20px x1.05, 24px x1.03, 28px+ x1.02-1.03.
