@@ -874,3 +874,5 @@ mod an_inline_block_sits_on_its_last_lines_baseline;
 mod a_single_stop_gradient_is_a_solid_colour;
 #[path = "a_border_defaults_to_a_medium_width_in_the_text_colour.rs"]
 mod a_border_defaults_to_a_medium_width_in_the_text_colour;
+#[path = "a_box_shadow_follows_its_box_outside_or_inside.rs"]
+mod a_box_shadow_follows_its_box_outside_or_inside;
