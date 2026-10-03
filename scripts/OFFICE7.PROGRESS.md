@@ -25,7 +25,12 @@ Branch `wt/office7` from `2e55eef06` (the wave-6 integration; every app compiles
   attachments via `read_outside`, bec3cdff3 CSS-zoom TODO(LAYOUT7), 7ca925758 move_prefix fix.
 
 ## IN PROGRESS
-- 6. AzShow: rail drop indicator, tables in place, presenter monitor; text boxes on RichTextDoc (delete ir.rs).
+- 6. AzShow:
+  - DONE presenter monitor: ea1ab7b60 (RED `PresenterMonitor` resolve/parse), a1a67ea16 (GREEN: SLIDE SHOW >
+    Monitors DropDown, settings `presenter_monitor`, `window_state.monitor_id` in start_show).
+  - NEXT: rail drop indicator (ThumbnailStrip widget = WIDGETS7's file; minimal edit planned: DragOver marks
+    the hovered item's side with a runtime `-azul-box-shadow-*` / border via `info.set_css_property`, DragLeave
+    clears) ; tables edited in place ; text boxes on RichTextEditor + delete ir.rs (biggest; see notes below).
 
 ## NEXT
 - 7. AzSheets: Replace in the grid's edit, pickers, Format Cells = one undo step.
