@@ -524,11 +524,9 @@ pub fn apply_settings(
 pub fn style_declarations(style: &str, css_key_map: &CssKeyMap) -> Vec<CssPropertyWithConditions> {
     let mut parsed = Vec::new();
     for decl in style.split(';') {
-        let mut kv = decl.split(':');
-        let Some(key) = kv.next() else {
-            continue;
-        };
-        let Some(value) = kv.next() else {
+        // The key ends at the FIRST colon; the value keeps every later one
+        // (`font-family: system:ui`, `url(https://...)`).
+        let Some((key, value)) = decl.split_once(':') else {
             continue;
         };
         // Called for its side effect (writes the parsed declarations into
