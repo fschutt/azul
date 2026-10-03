@@ -112,7 +112,9 @@ Brief: scripts/waves/wave8/PLAN.md section "RULINGS8".
      pane sender / footer) - with the flex baseline they keep the button's height (label baseline). No image
      icon sits alone in a block container (icons are in flex rows). Widgets use no vertical-align.
      DECISION: no widget CSS changed (nothing relied on the old behaviour once baselines are right).
-- 4d. NEXT: write the report scripts/RULINGS8_2026_10_03.md and commit; then done. (was: scan more apps one at a time (scan.py <App> target/rulings8/<app>.json; analyze.py) - lines of
+- 4d. DONE: report scripts/RULINGS8_2026_10_03.md (b4e45f9bd, b202372dd).
+
+## STATUS: FINISHED (2026-10-03). Nothing left in progress; open items are in the report's section 10. (was: scan more apps one at a time (scan.py <App> target/rulings8/<app>.json; analyze.py) - lines of
      only atomics WITHOUT text inside (icons, swatches, images) are what grows (by the strut descent, and to
      the strut ascent if shorter); boxes with text sit on their label baseline now (unchanged height).
 - 5. Report scripts/RULINGS8_2026_10_03.md.
