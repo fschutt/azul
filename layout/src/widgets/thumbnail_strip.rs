@@ -1287,6 +1287,61 @@ mod thumbnail_strip_tests {
         );
     }
 
+    /// The drop indicator a change sets on a node: `(node, Some(offset_y))`
+    /// for a line (an inset shadow in the right slot), `(node, None)` for a
+    /// cleared one.
+    fn indicators(changes: &[CallbackChange]) -> Vec<(NodeId, Option<isize>)> {
+        use azul_css::props::basic::pixel::PixelValue;
+        let mut out = Vec::new();
+        for change in changes {
+            if let CallbackChange::OverrideNodeCssProperties { node_id, properties, .. } = change {
+                for p in properties.as_ref() {
+                    if let CssProperty::BoxShadowRight(value) = p {
+                        out.push((
+                            *node_id,
+                            value.get_property().map(|s| {
+                                let px: PixelValue = s.offset_y.inner;
+                                px.number.get() as isize
+                            }),
+                        ));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn a_drag_over_an_item_draws_a_line_where_the_drop_lands_and_leaving_clears_it() {
+        let log = log();
+        let styled = StyledDom::create_from_dom(strip(&log).with_theme(UiTheme::Flat).dom());
+        let kids = children(&styled);
+        let items = &kids[1..];
+        rv::fire(&styled, id(items[0]), EventFilter::Hover(HoverEventFilter::DragStart)).expect("a drag source");
+        // Slide 1 over slide 3: the drop lands after slide 3, the line is at its
+        // bottom (an inset shadow moved up).
+        let (_, changes) = rv::fire(&styled, id(items[2]), EventFilter::Hover(HoverEventFilter::DragOver))
+            .expect("a drop target");
+        let lines = indicators(&changes);
+        assert_eq!(lines.len(), 1, "one line: {lines:?}");
+        assert_eq!(lines[0].0, items[2]);
+        assert!(lines[0].1.is_some_and(|y| y < 0), "at the bottom: {lines:?}");
+        // Leaving the item takes it away.
+        let (_, changes) = rv::fire(&styled, id(items[2]), EventFilter::Hover(HoverEventFilter::DragLeave))
+            .expect("a drag-leave handler");
+        assert_eq!(indicators(&changes), vec![(items[2], None)]);
+        // Slide 4 over slide 2: the drop lands before it, the line is at its top.
+        rv::fire(&styled, id(items[3]), EventFilter::Hover(HoverEventFilter::DragStart));
+        let (_, changes) = rv::fire(&styled, id(items[1]), EventFilter::Hover(HoverEventFilter::DragOver))
+            .expect("a drop target");
+        let lines = indicators(&changes);
+        assert!(lines.len() == 1 && lines[0].1.is_some_and(|y| y > 0), "at the top: {lines:?}");
+        // The drop clears it too.
+        let (_, changes) = rv::fire(&styled, id(items[1]), EventFilter::Hover(HoverEventFilter::Drop))
+            .expect("a drop target");
+        assert_eq!(indicators(&changes), vec![(items[1], None)]);
+    }
+
     #[test]
     fn a_drop_after_the_dragged_item_lands_after_and_before_it_lands_before() {
         assert_eq!(drop_target(0, 2), 3);
