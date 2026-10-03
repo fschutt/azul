@@ -868,3 +868,5 @@ mod painted;
 mod the_root_background_covers_the_whole_canvas;
 #[path = "an_inline_box_paints_its_border_padding_and_margin.rs"]
 mod an_inline_box_paints_its_border_padding_and_margin;
+#[path = "an_inline_block_sits_on_its_last_lines_baseline.rs"]
+mod an_inline_block_sits_on_its_last_lines_baseline;
