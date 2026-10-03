@@ -254,26 +254,69 @@ fn an_end_tag_closes_only_within_its_scope() {
     );
 }
 
-/// The simplified adoption agency: `</b>` with a block open inside the `<b>` closes the
-/// `<b>` when that block closes (a browser clones the `<b>` instead; see each row).
+/// The HTML Standard's adoption agency algorithm (13.2.6.4.7, "in body", an end tag of a
+/// formatting element): `</b>` with a block open inside the `<b>` ends the `<b>` where it
+/// stands, moves the block out of it and clones the `<b>` into the block - Outlook's
+/// `<font><div>a</font>b</div>` keeps "b" out of the font, as every browser does.
 #[test]
-fn a_misnested_formatting_element_closes_with_its_block() {
+fn a_misnested_formatting_element_is_adopted_as_a_browser_adopts_it() {
     check(
         &[
-            // Chrome: `b{"x"} p{b{"y"} "z"} "w"`
-            ("<b>x<p>y</b>z</p>w", "b{\"x\" p{\"yz\"}} \"w\""),
-            // Chrome: `font div{font{"a"} "b"} "c"`
+            ("<b>x<p>y</b>z</p>w", "b{\"x\"} p{b{\"y\"} \"z\"} \"w\""),
+            ("<b><i>x</b>y</i>", "b{i{\"x\"}} i{\"y\"}"),
+            ("<a>1<p>2</a>3</p>", "a{\"1\"} p{a{\"2\"} \"3\"}"),
+            ("<a>1<button>2</a>3</button>", "a{\"1\"} button{a{\"2\"} \"3\"}"),
+            ("<a>1<b>2</a>3</b>", "a{\"1\" b{\"2\"}} b{\"3\"}"),
             (
-                "<font face=Arial><div>a</font>b</div>c",
-                "font{div{\"ab\"}} \"c\"",
+                "<a>1<div>2<div>3</a>4</div>5</div>",
+                "a{\"1\"} div{a{\"2\"} div{a{\"3\"} \"4\"} \"5\"}",
             ),
-            // Chrome: `font{p{"a"}} p{font{"b"} "c"}`
             (
-                "<font face=Arial><p>a<p>b</font>c",
-                "font{p{\"a\"} p{\"bc\"}}",
+                "<p><b><i>a<div>b</b>c</div>",
+                "p{b{i{\"a\"}}} div{b{i{\"b\"}} i{\"c\"}}",
+            ),
+            (
+                "<div><b>1<div>2<div>3</b>4</div></div></div>",
+                "div{b{\"1\"} div{b{\"2\"} div{b{\"3\"} \"4\"}}}",
+            ),
+            // the inner loop gives up after three elements that are not formatting ones
+            (
+                "<b><em><foo><foo><foo><foo><foo><aside></b></em>",
+                "b{em{foo{foo{foo{foo{foo}}}}}} aside{b}",
+            ),
+            (
+                "<b>1<i>2<p>3</b>4</i>5</p>",
+                "b{\"1\" i{\"2\"}} i p{i{b{\"3\"} \"4\"} \"5\"}",
+            ),
+            (
+                "<em>a<strong>b</em>c</strong>d",
+                "em{\"a\" strong{\"b\"}} strong{\"c\"} \"d\"",
+            ),
+            (
+                "<u>a<s>b<p>c</u>d</s>e",
+                "u{\"a\" s{\"b\"}} s p{s{u{\"c\"} \"d\"} \"e\"}",
             ),
         ],
         false,
+        body_of,
+    );
+    // the clone keeps the original's attributes
+    check(
+        &[
+            (
+                "<font face=Arial><div>a</font>b</div>c",
+                "font[face=Arial] div{font[face=Arial]{\"a\"} \"b\"} \"c\"",
+            ),
+            (
+                "<font face=Arial><p>a<p>b</font>c",
+                "font[face=Arial]{p{\"a\"}} p{font[face=Arial]{\"b\"} \"c\"}",
+            ),
+            (
+                "<a href=1>a<div>b<a href=2>c</a></div>",
+                "a[href=1]{\"a\"} div{a[href=1]{\"b\"} a[href=2]{\"c\"}}",
+            ),
+        ],
+        true,
         body_of,
     );
 }
@@ -364,8 +407,10 @@ fn svg_elements_close_themselves() {
     );
 }
 
-/// The implied `<head>` / `<body>`: a stylesheet before the body goes into the head, content
-/// into the body, a second `<body>` / `<html>` and `</body>` / `</html>` change nothing.
+/// The implied `<head>` / `<body>` (13.2.6.4.1 - 13.2.6.4.6): every document has both; the
+/// head's elements before the body go into the head (also after `</head>`), content into the
+/// body, white space before the document is nothing, a second `<body>` / `<html>` only adds the
+/// attributes the first one lacks, and `</body>` / `</html>` change nothing.
 #[test]
 fn a_document_gets_its_head_and_body_where_a_browser_puts_them() {
     check(
@@ -376,16 +421,51 @@ fn a_document_gets_its_head_and_body_where_a_browser_puts_them() {
             ),
             (
                 "<html><head><title>t</title><div>body?</div></head><body class=b>x</body></html>",
-                "html{head{title{\"t\"}} body{div{\"body?\"} \"x\"}}",
+                "html{head{title{\"t\"}} body[class=b]{div{\"body?\"} \"x\"}}",
             ),
             (
                 "<html><body>a</body></html>b<p>c",
-                "html{body{\"ab\" p{\"c\"}}}",
+                "html{head body{\"ab\" p{\"c\"}}}",
             ),
             (
-                "<body class=a>x<body class=b>y",
-                "html{body[class=a]{\"xy\"}}",
+                "<body class=a>x<body class=b id=c>y",
+                "html{head body[class=a id=c]{\"xy\"}}",
             ),
+            ("x", "html{head body{\"x\"}}"),
+            ("  \n x", "html{head body{\"x\"}}"),
+            ("<p>x<html lang=en>", "html[lang=en]{head body{p{\"x\"}}}"),
+            (
+                "<html><head><style>a{}</style> x</head>",
+                "html{head{style{\"a{}\"}} body{\"x\"}}",
+            ),
+            (
+                "<html><head></head><style>p{}</style><body>x",
+                "html{head{style{\"p{}\"}} body{\"x\"}}",
+            ),
+            (
+                "<head></head><meta charset=utf-8><p>x",
+                "html{head{meta[charset=utf-8]} body{p{\"x\"}}}",
+            ),
+            // `<noscript>` with scripting off: in the head, what does not belong there ends it
+            (
+                "<head><noscript><style>a{}</style></noscript></head><p>x",
+                "html{head{noscript{style{\"a{}\"}}} body{p{\"x\"}}}",
+            ),
+            (
+                "<head><noscript><p>x</p></noscript>",
+                "html{head{noscript} body{p{\"x\"}}}",
+            ),
+            (
+                "<noscript><b>x</b></noscript>y",
+                "html{head{noscript} body{b{\"x\"} \"y\"}}",
+            ),
+            (
+                "<noframes><b>x</b></noframes>y",
+                "html{head{noframes{\"<b>x</b>\"}} body{\"y\"}}",
+            ),
+            ("<title>a<b>&amp;</title>", "html{head{title{\"a<b>&\"}} body}"),
+            ("<style>a</style b>c", "html{head{style{\"a\"}} body{\"c\"}}"),
+            ("<div>a</body>b</html>c", "html{head body{div{\"abc\"}}}"),
             (
                 "<html><head><style>a > b { color: red } p:before { content: \"</p>\" }</style><script>if (a < b && c) { x = \"<b>\"; }</script></head><body>y</body></html>",
                 "html{head{style{\"a > b { color: red } p:before { content: \\\"</p>\\\" }\"} script{\"if (a < b && c) { x = \\\"<b>\\\"; }\"}} body{\"y\"}}",
