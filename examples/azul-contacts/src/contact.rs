@@ -91,6 +91,9 @@ const MONTHS: [&str; 12] = [
     "November", "December",
 ];
 
+/// The year a birthday without one is shown in: a leap year.
+const LEAP_YEAR: i32 = 2000;
+
 impl Birthday {
     /// `1987-03-14`, `19870314`, `--0314`, `--03-14`, `1987-03-14T00:00:00Z`;
     /// the day-first `14.03.1987` / `14.03.` the edit form takes too.
@@ -160,15 +163,30 @@ impl Birthday {
     /// and month alone. `None` for a day that is no date.
     #[must_use]
     pub fn picked(year: i32, month: u32, day: u32, year_known: bool) -> Option<Birthday> {
-        let _ = (year, month, day, year_known);
-        todo!()
+        if !(1..=12).contains(&month) || day == 0 {
+            return None;
+        }
+        if year_known && !(1..=9999).contains(&year) {
+            return None;
+        }
+        // Without a year, any day a month ever has (29 February too).
+        let max = if year_known {
+            azul_pim::dates::days_in_month(year, month)
+        } else {
+            azul_pim::dates::days_in_month(LEAP_YEAR, month)
+        };
+        (day <= max).then_some(Birthday {
+            year: year_known.then_some(year),
+            month,
+            day,
+        })
     }
 
     /// The year the date picker shows the birthday in: its own, else 2000 (a leap year, so a
     /// 29 February without a year is a day of the grid).
     #[must_use]
     pub fn picker_year(&self) -> i32 {
-        todo!()
+        self.year.unwrap_or(LEAP_YEAR)
     }
 
     /// The edit form's text: `14.03.1987` or `14.03.`.
