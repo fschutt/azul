@@ -1108,8 +1108,11 @@ impl CpuBackend {
         // guarantees the buffer already holds the PREVIOUS frame (cross-slot
         // catch-up) and outlives this call; dimensions are re-checked here so
         // a configure race falls back to the owned path instead of clipping.
+        // A padded target (`native_target_row_padding_px`) is that many pixels
+        // wider than the frame - its width is the slot's row pitch.
+        let target_w = pixel_w.saturating_add(self.native_target_row_padding_px);
         let native = match self.native_target.take() {
-            Some(ext) if ext.width() == pixel_w && ext.height() == pixel_h => Some(ext),
+            Some(ext) if ext.width() == target_w && ext.height() == pixel_h => Some(ext),
             Some(ext) => {
                 log_error!(
                     LogCategory::Rendering,
