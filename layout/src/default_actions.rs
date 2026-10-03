@@ -165,6 +165,28 @@ pub fn determine_keyboard_default_action_with_env(
         }
     }
 
+    // Undo / redo of ANY editing host (rich or plain text): Ctrl/Cmd+Z,
+    // Ctrl/Cmd+Shift+Z and Ctrl/Cmd+Y. The engine's text undo is the key's
+    // default action - an editor with its own history vetoes it with
+    // `prevent_default` in its key handler (the browser keydown model).
+    if keyboard_state.primary_down() && !alt_down {
+        if let (Some(focus), Some(e)) = (focused_node.as_ref(), editing) {
+            if e.is_contenteditable {
+                let action = match current_key {
+                    VirtualKeyCode::Z if shift_down => {
+                        Some(DefaultAction::RedoTextEdit { target: *focus })
+                    }
+                    VirtualKeyCode::Z => Some(DefaultAction::UndoTextEdit { target: *focus }),
+                    VirtualKeyCode::Y => Some(DefaultAction::RedoTextEdit { target: *focus }),
+                    _ => None,
+                };
+                if let Some(action) = action {
+                    return DefaultActionResult::new(action);
+                }
+            }
+        }
+    }
+
     // Determine action based on key
     let action = match current_key {
         // Tab navigation
