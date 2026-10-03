@@ -51,3 +51,5 @@ pub mod reports;
 pub mod views;
 /// The `--sample` register.
 pub mod sample;
+/// The app's state without a window: navigation, forms, what changes write.
+pub mod app;
