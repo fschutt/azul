@@ -15,9 +15,9 @@
 //!   waits on the disk (or, later, the network);
 //! - the `--shot` screenshot ([`on_window_created`]).
 //!
-//! TODO(DIALOGS): the About section is where azul's About dialog (the
-//! DIALOGS task, 2026-10-01) plugs in: a Help > About entry opening that
-//! dialog from [`crate::about::about_rows`].
+//! - the About box: azul's standard `AboutDialog` in a `Modal`, opened from
+//!   the settings page's About section (its rows are
+//!   [`crate::about::about_rows`]); Escape closes it first.
 
 use std::path::{Path, PathBuf};
 
@@ -40,7 +40,10 @@ use azul::{
     },
     time::{Duration, SystemTimeDiff},
     vec::StringVec,
-    widgets::{Button, Segmented, SegmentedState, Titlebar},
+    widgets::{
+        AboutDialog, Button, Modal, ModalState, Segmented, SegmentedState, StandardDialogEvent,
+        Titlebar,
+    },
     window::{WindowCreateOptions, WindowDecorations},
 };
 use azul_storage::LocalDrive;
@@ -83,6 +86,8 @@ pub struct Kit {
     pub notice: String,
     /// Cmd (macOS) or Ctrl.
     pub mac: bool,
+    /// The About box (azul's standard `AboutDialog`) is open.
+    pub about_open: bool,
 }
 
 impl Kit {
@@ -184,6 +189,7 @@ pub fn create_kit(
         app_categories: app_categories.iter().map(|c| (*c).to_string()).collect(),
         notice,
         mac: cfg!(target_os = "macos"),
+        about_open: false,
     })
 }
 
@@ -459,6 +465,11 @@ pub fn handle_key(kit_ref: &RefAny, info: &mut CallbackInfo) -> Option<Update> {
             info.prevent_default();
             Some(Update::RefreshDom)
         }
+        VirtualKeyCode::Escape if about_open(kit_ref) => {
+            set_about_open(kit_ref, false);
+            info.prevent_default();
+            Some(Update::RefreshDom)
+        }
         VirtualKeyCode::Escape if settings_open(kit_ref) => {
             close_settings(kit_ref);
             info.prevent_default();
@@ -579,8 +590,7 @@ fn shortcuts_section(k: &Kit) -> Dom {
     column(children).with_id("appkit-shortcuts")
 }
 
-fn about_section(k: &Kit) -> Dom {
-    // TODO(DIALOGS): open azul's About dialog from these rows once it exists.
+fn about_section(k: &Kit, kit_ref: &RefAny) -> Dom {
     let mut children = vec![
         Dom::create_div()
             .with_id("appkit-about-name")
@@ -591,7 +601,77 @@ fn about_section(k: &Kit) -> Dom {
     for (label, value) in about_rows(&k.about, &k.data_root) {
         children.push(row(&label, Dom::create_div().with_child(text(value))));
     }
+    children.push(
+        Dom::create_div()
+            .with_css("display: flex; flex-direction: row; padding-top: 8px;")
+            .with_child(
+                Button::create(format!("About {}\u{2026}", k.about.name))
+                    .with_icon("info")
+                    .with_on_click(kit_ref.clone(), on_about_open as ButtonOnClickCallbackType)
+                    .dom()
+                    .with_id("appkit-about-open"),
+            ),
+    );
     column(children)
+}
+
+// ==== The About box: azul's standard AboutDialog in a Modal ====
+
+/// Whether the About box is open.
+#[must_use]
+pub fn about_open(kit_ref: &RefAny) -> bool {
+    let mut kit = kit_ref.clone();
+    kit.downcast_ref::<Kit>().is_some_and(|k| k.about_open)
+}
+
+/// Opens or closes the About box (stdout `<APP>_ABOUT open|closed`, for
+/// scripts).
+pub fn set_about_open(kit_ref: &RefAny, open: bool) {
+    let mut kit = kit_ref.clone();
+    if let Some(mut k) = kit.downcast_mut::<Kit>() {
+        k.about_open = open;
+        println!(
+            "{}_ABOUT {}",
+            k.spec.binary.to_uppercase(),
+            if open { "open" } else { "closed" }
+        );
+    };
+}
+
+/// The About box: the app's facts in azul's `AboutDialog` (the name, the
+/// version, the summary, the rows of the About section as credits), in a
+/// `Modal` that is open while the kit says so. Part of the settings page.
+fn about_modal(k: &Kit, kit_ref: &RefAny) -> Dom {
+    let mut dialog = AboutDialog::create(k.about.name, k.about.version)
+        .with_icon("info")
+        .with_description(k.about.summary)
+        .with_copyright(format!("{} - {}", k.about.name, k.about.license))
+        .with_on_event(kit_ref.clone(), on_about_event);
+    for (label, value) in about_rows(&k.about, &k.data_root) {
+        dialog = dialog.with_credit(label, value);
+    }
+    Modal::create(dialog.dom())
+        .with_title(format!("About {}", k.about.name))
+        .with_open(k.about_open)
+        .with_on_close(kit_ref.clone(), on_about_close)
+        .dom()
+        .with_id("appkit-about")
+}
+
+extern "C" fn on_about_open(kit: RefAny, _info: CallbackInfo) -> Update {
+    set_about_open(&kit, true);
+    Update::RefreshDom
+}
+
+/// The About box's Close (its one button).
+extern "C" fn on_about_event(kit: RefAny, _info: CallbackInfo, _event: StandardDialogEvent) -> Update {
+    set_about_open(&kit, false);
+    Update::RefreshDom
+}
+
+extern "C" fn on_about_close(kit: RefAny, _info: CallbackInfo, _state: ModalState) -> Update {
+    set_about_open(&kit, false);
+    Update::RefreshDom
 }
 
 /// The settings page: a header (Back, "Settings") over the
@@ -621,7 +701,7 @@ pub fn settings_page(kit_ref: &RefAny, app_sections: Vec<AppSection>) -> Dom {
     ));
     sections.push((
         app_count + 3,
-        ShellSettingsSection::create(format!("About {}", k.about.name), about_section(&k)),
+        ShellSettingsSection::create(format!("About {}", k.about.name), about_section(&k, kit_ref)),
     ));
 
     let mut layout = ShellSettingsLayout::create(StringVec::from_vec(
@@ -669,12 +749,16 @@ pub fn settings_page(kit_ref: &RefAny, app_sections: Vec<AppSection>) -> Dom {
                 .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
                 .with_child(layout.dom()),
         )
+        .with_child(about_modal(&k, kit_ref))
 }
 
 // ==== The settings page's callbacks (data: the kit) ====
 
-extern "C" fn on_theme(mut kit: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
-    let theme = Theme::ALL[state.selected_index.min(Theme::ALL.len() - 1)];
+/// The user chose the app theme: in effect at once (every window), kept in
+/// settings.json, and winning over a `--theme` switch from now on. The one
+/// path the settings page and an app's own theme control take.
+pub fn choose_theme(kit_ref: &RefAny, info: &mut CallbackInfo, theme: Theme) {
+    let mut kit = kit_ref.clone();
     let save = match kit.downcast_mut::<Kit>() {
         Some(mut k) => {
             k.settings.theme = theme;
@@ -685,13 +769,13 @@ extern "C" fn on_theme(mut kit: RefAny, mut info: CallbackInfo, state: Segmented
     };
     if save {
         info.set_theme(theme.name());
-        save_settings(&kit, &mut info);
+        save_settings(kit_ref, info);
     }
-    Update::RefreshDom
 }
 
-extern "C" fn on_mode(mut kit: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
-    let mode = ModePref::ALL[state.selected_index.min(ModePref::ALL.len() - 1)];
+/// The user chose light, dark or the system's mode: [`choose_theme`]'s twin.
+pub fn choose_mode(kit_ref: &RefAny, info: &mut CallbackInfo, mode: ModePref) {
+    let mut kit = kit_ref.clone();
     let save = match kit.downcast_mut::<Kit>() {
         Some(mut k) => {
             k.settings.mode = mode;
@@ -702,8 +786,19 @@ extern "C" fn on_mode(mut kit: RefAny, mut info: CallbackInfo, state: SegmentedS
     };
     if save {
         info.set_mode(mode_option(mode));
-        save_settings(&kit, &mut info);
+        save_settings(kit_ref, info);
     }
+}
+
+extern "C" fn on_theme(kit: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    let theme = Theme::ALL[state.selected_index.min(Theme::ALL.len() - 1)];
+    choose_theme(&kit, &mut info, theme);
+    Update::RefreshDom
+}
+
+extern "C" fn on_mode(kit: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    let mode = ModePref::ALL[state.selected_index.min(ModePref::ALL.len() - 1)];
+    choose_mode(&kit, &mut info, mode);
     Update::RefreshDom
 }
 

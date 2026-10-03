@@ -159,14 +159,7 @@ fn entry(id: u64) -> Option<usize> {
 
 /// Keep what a widget reported and rebuild.
 fn keep(data: &mut RefAny, put: impl FnOnce(&mut MailDemo)) -> Update {
-    match data.downcast_mut::<Showcase>() {
-        Some(mut s) => {
-            put(&mut s.mail);
-            s.interactions += 1;
-            Update::RefreshDom
-        }
-        None => Update::DoNothing,
-    }
+    crate::keep(data, |s| put(&mut s.mail))
 }
 
 fn note(text: &str) -> Dom {

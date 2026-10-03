@@ -44,7 +44,7 @@ use azul::{
     vec::{ShellSettingVec, StringPairVec, StringVec, WizardComponentVec, WizardOptionVec},
     widgets::{
         AboutDialog, MessageBox, MessageBoxKind, Modal, ModalState, StandardDialogEvent,
-        StandardDialogEventKind, Titlebar, WizardComponent, WizardComponentsPage,
+        StandardDialogEventKind, WizardComponent, WizardComponentsPage,
         WizardDestinationPage, WizardEvent, WizardEventKind, WizardFinishPage, WizardLayout,
         WizardLayoutSize, WizardLayoutStyle, WizardLicensePage, WizardOption, WizardOptionsPage,
         WizardPageEvent, WizardPageEventKind, WizardProgressPage, WizardSummaryPage,
@@ -53,7 +53,42 @@ use azul::{
     window::WindowDecorations,
 };
 
-use crate::model::{Args, Copier, Frame, Screen, Step, COMPONENTS, LICENSE, MB, STEPS};
+use azul_appkit::{
+    about::AboutInfo,
+    args::{AppArgs, AppSpec, ModePref, Theme},
+    settings::AppSettings,
+    shortcuts::Shortcut,
+    ui as kit,
+};
+
+use crate::model::{Copier, Frame, Screen, Step, COMPONENTS, LICENSE, MB, SCREENS, STEPS};
+
+/// What azul-appkit's switches know about AzSetup (`--screen` names a
+/// wizard step, the settings or the About box).
+pub const SPEC: AppSpec = AppSpec {
+    name: "AzSetup",
+    binary: "AzSetup",
+    summary: "a fake installer for AzOffice (installs nothing)",
+    screens: &SCREENS,
+    files_help: "",
+};
+
+/// The About facts (the About box, F1).
+pub const ABOUT: AboutInfo = AboutInfo {
+    name: "AzSetup",
+    version: env!("CARGO_PKG_VERSION"),
+    summary: "A demonstration of azul's install wizard pages, settings dialog and standard \
+              dialogs. It installs nothing.",
+    license: "MIT",
+    app_folder: "setup",
+};
+
+/// The keys AzSetup answers.
+pub const SHORTCUTS: [Shortcut; 3] = [
+    Shortcut::new("Setup", "F1", "About AzSetup"),
+    Shortcut::new("Setup", "Escape", "Close the About box, or ask to exit Setup"),
+    Shortcut::new("Setup", "Tab", "Move between the page's controls and the buttons"),
+];
 
 // ==== State ====
 
@@ -74,6 +109,18 @@ struct Setup {
     confirm_cancel: bool,
     about_open: bool,
     settings: ShellSettingsDialog,
+    /// azul-appkit's kit: the switches, the data root, settings.json.
+    kit: RefAny,
+}
+
+impl Setup {
+    /// Opens / closes the About box and the exit question (stdout
+    /// `AZSETUP_BOXES about=<bool> question=<bool>`, for scripts).
+    fn set_boxes(&mut self, about: bool, question: bool) {
+        self.about_open = about;
+        self.confirm_cancel = question;
+        println!("AZSETUP_BOXES about={about} question={question}");
+    }
 }
 
 fn s(text: &str) -> AzString {
@@ -144,8 +191,129 @@ fn finish_page() -> WizardFinishPage {
     ]))
 }
 
+/// The key a setting's applied value is kept under in settings.json.
+fn setting_key(id: &str) -> String {
+    format!("setting.{id}")
+}
+
+/// A setting's value as settings.json keeps it (`None`: not kept - a
+/// shortcut, which the demo does not remember).
+fn stored(value: &ShellSettingValue) -> Option<String> {
+    match value {
+        ShellSettingValue::Toggle(b) => Some(b.to_string()),
+        ShellSettingValue::Choice(c) | ShellSettingValue::Radio(c) => Some(c.selected.to_string()),
+        ShellSettingValue::Number(n) | ShellSettingValue::Slider(n) => Some(n.value.to_string()),
+        ShellSettingValue::Text(t) | ShellSettingValue::Path(t) => Some(t.as_str().to_string()),
+        ShellSettingValue::Color(c) => Some(c.to_hex().as_str().to_string()),
+        ShellSettingValue::Shortcut(_) => None,
+    }
+}
+
+/// `text` from settings.json read back as a value of `like`'s kind, inside
+/// its range (`None`: unreadable, the default stays).
+fn restored(like: &ShellSettingValue, text: &str) -> Option<ShellSettingValue> {
+    let choice = |c: &ShellSettingChoice| {
+        text.trim()
+            .parse::<usize>()
+            .ok()
+            .filter(|i| *i < c.options.as_ref().len())
+            .map(|i| ShellSettingChoice::create(c.options.clone(), i))
+    };
+    let number = |n: &ShellSettingNumber| {
+        text.trim()
+            .parse::<f32>()
+            .ok()
+            .filter(|v| v.is_finite() && *v >= n.min && *v <= n.max)
+            .map(|v| {
+                let mut m = n.clone();
+                m.value = v;
+                m
+            })
+    };
+    match like {
+        ShellSettingValue::Toggle(_) => text.trim().parse::<bool>().ok().map(ShellSettingValue::Toggle),
+        ShellSettingValue::Choice(c) => choice(c).map(ShellSettingValue::Choice),
+        ShellSettingValue::Radio(c) => choice(c).map(ShellSettingValue::Radio),
+        ShellSettingValue::Number(n) => number(n).map(ShellSettingValue::Number),
+        ShellSettingValue::Slider(n) => number(n).map(ShellSettingValue::Slider),
+        ShellSettingValue::Text(_) => Some(ShellSettingValue::Text(s(text))),
+        ShellSettingValue::Path(_) => Some(ShellSettingValue::Path(s(text))),
+        ShellSettingValue::Color(_) => ColorU::parse_hex(s(text)).into_option().map(ShellSettingValue::Color),
+        ShellSettingValue::Shortcut(_) => None,
+    }
+}
+
+/// The values settings.json remembers, laid over the table's defaults: the
+/// appearance from the kit's theme and mode, every other setting from its
+/// `setting.<id>` key.
+fn with_remembered(
+    mut settings: Vec<ShellSetting>,
+    theme: Theme,
+    mode: ModePref,
+    saved: &AppSettings,
+) -> Vec<ShellSetting> {
+    for setting in &mut settings {
+        let id = setting.id.as_str().to_string();
+        let value = match id.as_str() {
+            "appearance.theme" => restored(&setting.value, if theme == Theme::Flora { "1" } else { "0" }),
+            "appearance.mode" => restored(
+                &setting.value,
+                match mode {
+                    ModePref::Light => "0",
+                    ModePref::Dark => "1",
+                    ModePref::System => "2",
+                },
+            ),
+            _ => saved
+                .get(&setting_key(&id))
+                .and_then(|text| restored(&setting.value, text)),
+        };
+        if let Some(v) = value {
+            setting.value = v.clone();
+            setting.applied = v;
+        }
+    }
+    settings
+}
+
+/// Keeps the values in effect in settings.json (one write, on a Thread):
+/// the appearance as the kit's theme and mode (the next start opens in
+/// them), every other setting under `setting.<id>`.
+fn remember(st: &Setup, info: &mut CallbackInfo) {
+    {
+        let mut kit_ref = st.kit.clone();
+        let Some(mut k) = kit_ref.downcast_mut::<kit::Kit>() else {
+            return;
+        };
+        for setting in st.settings.settings.as_ref() {
+            let id = setting.id.as_str();
+            match id {
+                "appearance.theme" => {
+                    k.settings.theme =
+                        if setting.applied.as_index() == 1 { Theme::Flora } else { Theme::Flat };
+                    k.args.theme = None;
+                }
+                "appearance.mode" => {
+                    k.settings.mode = match setting.applied.as_index() {
+                        0 => ModePref::Light,
+                        1 => ModePref::Dark,
+                        _ => ModePref::System,
+                    };
+                    k.args.mode = None;
+                }
+                _ => {
+                    if let Some(text) = stored(&setting.applied) {
+                        k.settings.set(&setting_key(id), &text);
+                    }
+                }
+            }
+        }
+    }
+    kit::save_settings(&st.kit, info);
+}
+
 /// The settings window's table: every kind of setting.
-fn settings_dialog(theme: &str) -> ShellSettingsDialog {
+fn settings_dialog(theme: Theme, mode: ModePref, saved: &AppSettings) -> ShellSettingsDialog {
     let shortcut = |ctrl: bool, shift: bool, key: VirtualKeyCode| {
         ShellSettingValue::Shortcut(ShellSettingShortcut::create(GlobalHotkey::create(
             HotkeyModifiers {
@@ -248,7 +416,7 @@ fn settings_dialog(theme: &str) -> ShellSettingsDialog {
             s("Theme"),
             ShellSettingValue::Choice(ShellSettingChoice::create(
                 strs(&["Flat", "Flora"]),
-                usize::from(theme == "flora"),
+                0,
             )),
         )
         .with_default(ShellSettingValue::Choice(ShellSettingChoice::create(
@@ -302,7 +470,7 @@ fn settings_dialog(theme: &str) -> ShellSettingsDialog {
     ];
     ShellSettingsDialog::create(strs(&["General", "Editing", "Appearance", "Advanced"]))
         .with_category_icons(strs(&["tune", "edit", "palette", "build"]))
-        .with_settings(ShellSettingVec::from_vec(settings))
+        .with_settings(ShellSettingVec::from_vec(with_remembered(settings, theme, mode, saved)))
         .with_apply_mode(ShellSettingsApplyMode::platform())
 }
 
@@ -468,10 +636,10 @@ fn modals(s_: &Setup, app: &RefAny) -> Vec<Dom> {
 }
 
 /// The window's root: the theme scope over the utility shell (the title row
-/// above the content), the modals, F1.
-fn window_root(content: Dom, title: &str, app: &RefAny, extra: Vec<Dom>) -> Dom {
+/// above the content), the modals; the wizard's keys (`wizard`).
+fn window_root(content: Dom, title: &str, app: &RefAny, extra: Vec<Dom>, wizard: bool) -> Dom {
     let shell = UtilityShell::create(content)
-        .with_title_row(Titlebar::create(s(title)).without_border_bottom().dom())
+        .with_title_row(kit::title_row(title))
         .with_label(s(title))
         .dom();
     let mut column = Dom::create_div()
@@ -480,18 +648,20 @@ fn window_root(content: Dom, title: &str, app: &RefAny, extra: Vec<Dom>) -> Dom 
     for m in extra {
         column.add_child(m);
     }
-    Dom::create_body()
-        .with_css("display: flex; flex-direction: column;")
-        .with_child(
-            ShellThemeScope::create(column)
-                .with_accent(ShellThemeAccent::Blue)
-                .dom(),
-        )
-        .with_callback(
+    // The scope as the window's body: no UA margin, the full window height
+    // (the wizard's buttons stay in the window).
+    let body = ShellThemeScope::create(column)
+        .with_accent(ShellThemeAccent::Blue)
+        .body();
+    if wizard {
+        body.with_callback(
             EventFilter::Window(WindowEventFilter::VirtualKeyDown),
             app.clone(),
             on_key,
         )
+    } else {
+        body
+    }
 }
 
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
@@ -506,6 +676,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         "AzOffice Setup",
         &app,
         modals(&guard, &app),
+        true,
     )
 }
 
@@ -520,7 +691,7 @@ extern "C" fn settings_layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom
         .clone()
         .with_on_event(app.clone(), on_settings)
         .dom();
-    window_root(dialog, "AzOffice Settings", &app, Vec::new())
+    window_root(dialog, "AzOffice Settings", &app, Vec::new(), false)
 }
 
 // ==== Callbacks ====
@@ -577,7 +748,10 @@ extern "C" fn on_wizard(mut data: RefAny, mut info: CallbackInfo, event: WizardE
             info.close_window();
             return Update::DoNothing;
         }
-        WizardEventKind::Cancel => st.confirm_cancel = true,
+        WizardEventKind::Cancel => {
+            let about = st.about_open;
+            st.set_boxes(about, true);
+        }
         WizardEventKind::Step => {
             // The rail goes back to a step already passed, never forward.
             if event.step < st.step.index() && st.step.can_go_back() {
@@ -645,7 +819,8 @@ extern "C" fn on_confirm(
             Update::DoNothing
         }
         _ => {
-            st.confirm_cancel = false;
+            let about = st.about_open;
+            st.set_boxes(about, false);
             Update::RefreshDom
         }
     }
@@ -659,7 +834,8 @@ extern "C" fn on_about(
     let Some(mut st) = data.downcast_mut::<Setup>() else {
         return Update::DoNothing;
     };
-    st.about_open = false;
+    let question = st.confirm_cancel;
+    st.set_boxes(false, question);
     Update::RefreshDom
 }
 
@@ -667,13 +843,13 @@ extern "C" fn on_modal_close(mut data: RefAny, _info: CallbackInfo, _state: Moda
     let Some(mut st) = data.downcast_mut::<Setup>() else {
         return Update::DoNothing;
     };
-    st.confirm_cancel = false;
-    st.about_open = false;
+    st.set_boxes(false, false);
     Update::RefreshDom
 }
 
-/// F1 opens the About box.
-extern "C" fn on_key(mut data: RefAny, info: CallbackInfo) -> Update {
+/// The wizard's keys: F1 opens the About box; Escape closes it (or the
+/// exit question), else asks to exit Setup - an installer's Cancel.
+extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let key = info
         .get_current_keyboard_state()
         .current_virtual_keycode
@@ -681,11 +857,17 @@ extern "C" fn on_key(mut data: RefAny, info: CallbackInfo) -> Update {
     let Some(mut st) = data.downcast_mut::<Setup>() else {
         return Update::DoNothing;
     };
-    if key == Some(VirtualKeyCode::F1) && !st.about_open {
-        st.about_open = true;
-        return Update::RefreshDom;
+    match key {
+        Some(VirtualKeyCode::F1) if !st.about_open => {
+            let question = st.confirm_cancel;
+            st.set_boxes(true, question);
+        }
+        Some(VirtualKeyCode::Escape) if st.about_open || st.confirm_cancel => st.set_boxes(false, false),
+        Some(VirtualKeyCode::Escape) if st.step != Step::Finish => st.set_boxes(false, true),
+        _ => return Update::DoNothing,
     }
-    Update::DoNothing
+    info.prevent_default();
+    Update::RefreshDom
 }
 
 /// The settings window's requests: the dialog keeps its rule; the
@@ -738,6 +920,12 @@ extern "C" fn on_settings(
             _ => info.set_mode(OptionDarkLightMode::None),
         }
     }
+    let instant = matches!(st.settings.apply_mode, ShellSettingsApplyMode::Instant);
+    if matches!(kind, ShellSettingsEventKind::Apply | ShellSettingsEventKind::Ok)
+        || (instant && matches!(kind, ShellSettingsEventKind::Changed))
+    {
+        remember(&st, &mut info);
+    }
     if matches!(
         kind,
         ShellSettingsEventKind::Ok | ShellSettingsEventKind::Cancel
@@ -750,19 +938,24 @@ extern "C" fn on_settings(
 
 // ==== Entry ====
 
-/// The wizard's window: the classic wizard's size plus the title row.
-fn setup_window() -> WindowCreateOptions {
-    let mut window = WindowCreateOptions::create(layout);
-    window.window_state.size.dimensions = LogicalSize::create(
-        WizardLayoutSize::Classic.width(),
-        WizardLayoutSize::Classic.height() + 34.0,
+/// The wizard's window: the classic wizard's size plus the title row
+/// (azul-appkit's window: `NoTitle`, `--size`, a minimum size, `--shot`).
+fn setup_window(kit_ref: &RefAny) -> WindowCreateOptions {
+    let mut window = kit::window_options(
+        kit_ref,
+        layout,
+        (
+            WizardLayoutSize::Classic.width(),
+            WizardLayoutSize::Classic.height() + 34.0,
+        ),
+        (WizardLayoutSize::Compact.width(), WizardLayoutSize::Compact.height() + 34.0),
+        on_window_created,
     );
     window.window_state.title = s("AzOffice Setup");
-    window.window_state.flags.decorations = WindowDecorations::NoTitle;
     window
 }
 
-/// The settings window.
+/// The settings window, opened by Finish ("Open the AzOffice settings").
 fn settings_window() -> WindowCreateOptions {
     let mut window = WindowCreateOptions::create(settings_layout);
     window.window_state.size.dimensions = LogicalSize::create(920.0, 640.0);
@@ -771,20 +964,58 @@ fn settings_window() -> WindowCreateOptions {
     window
 }
 
+/// The settings window as the first window (`--screen settings`).
+fn first_settings_window(kit_ref: &RefAny) -> WindowCreateOptions {
+    let mut window =
+        kit::window_options(kit_ref, settings_layout, (920.0, 640.0), (640.0, 480.0), on_window_created);
+    window.window_state.title = s("AzOffice Settings");
+    window
+}
+
+/// The first window exists: azul-appkit's `--shot` timer.
+extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(kit_ref) = data.downcast_ref::<Setup>().map(|st| st.kit.clone()) else {
+        return Update::DoNothing;
+    };
+    kit::on_window_created(&kit_ref, &mut info);
+    Update::DoNothing
+}
+
 pub fn start() {
-    let args = match Args::parse(std::env::args().skip(1)) {
+    // AzSetup's own switches first (--frame, --step), then azul-appkit's.
+    let (own, rest) = match model::split_switches(std::env::args().skip(1)) {
+        Ok(split) => split,
+        Err(why) => {
+            eprintln!("{why}");
+            std::process::exit(2);
+        }
+    };
+    let args = match AppArgs::parse(&SPEC, rest) {
         Ok(a) => a,
         Err(why) => {
             eprintln!("{why}");
             std::process::exit(2);
         }
     };
+    let (screen, mut step) = model::open_on(args.screen_or_default(&SPEC));
+    if let Some(n) = own.step {
+        step = Step::at(n);
+    }
+    let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[], args);
+    let (theme, mode, saved) = {
+        let mut k = kit_ref.clone();
+        k.downcast_ref::<kit::Kit>().map_or(
+            (Theme::Flat, ModePref::System, AppSettings::default()),
+            |k| {
+                let (theme, mode) = k.effective();
+                (theme, mode, k.settings.clone())
+            },
+        )
+    };
     let path = default_folder();
-    let theme = args.theme.clone().unwrap_or_else(|| "flat".to_string());
-    let step = Step::at(args.step);
     let state = Setup {
         step,
-        frame: args.frame,
+        frame: own.frame,
         accepted: step > Step::License,
         available: None,
         components: components_page(),
@@ -793,28 +1024,60 @@ pub fn start() {
         copier: Copier::default(),
         show_log: false,
         confirm_cancel: false,
-        about_open: args.screen == Screen::About,
-        settings: settings_dialog(&theme),
+        about_open: screen == Screen::About,
+        settings: settings_dialog(theme, mode, &saved),
         path,
+        kit: kit_ref.clone(),
     };
     announce(state.step);
-    let mut config = AppConfig::create();
-    if let Some(t) = &args.theme {
-        config = config.with_theme(s(t));
-    }
-    if let Some(m) = &args.mode {
-        config = config.with_mode(OptionDarkLightMode::Some(if m == "dark" {
-            DarkLightMode::Dark
-        } else {
-            DarkLightMode::Light
-        }));
-    }
+    let config = kit::app_config(&kit_ref);
     let app = App::create(RefAny::new(state), config);
-    let window = if args.screen == Screen::Settings {
+    let window = if screen == Screen::Settings {
         println!("AZSETUP_SCREEN settings");
-        settings_window()
+        first_settings_window(&kit_ref)
     } else {
-        setup_window()
+        setup_window(&kit_ref)
     };
     app.run(window);
+}
+
+#[cfg(test)]
+mod remembered_settings_tests {
+    use super::*;
+
+    #[test]
+    fn every_kind_of_setting_but_a_shortcut_survives_the_trip_through_settings_json() {
+        let values = [
+            ShellSettingValue::Toggle(false),
+            ShellSettingValue::Choice(ShellSettingChoice::create(strs(&["A", "B", "C"]), 2)),
+            ShellSettingValue::Radio(ShellSettingChoice::create(strs(&["Light", "Dark"]), 1)),
+            ShellSettingValue::Number(ShellSettingNumber::create(42.0, 1.0, 120.0)),
+            ShellSettingValue::Slider(ShellSettingNumber::create(150.0, 50.0, 200.0)),
+            ShellSettingValue::Text(s("Ada Lovelace")),
+            ShellSettingValue::Path(s("/home/ada/Documents")),
+            ShellSettingValue::Color(ColorU::rgba(12, 34, 56, 255)),
+        ];
+        for v in values {
+            let text = stored(&v).expect("kept");
+            let back = restored(&v, &text).expect("read back");
+            assert_eq!(back.display_text().as_str(), v.display_text().as_str(), "{text}");
+        }
+        let shortcut = settings_dialog(Theme::Flat, ModePref::System, &AppSettings::default())
+            .value_of(s("editing.palette"))
+            .into_option()
+            .expect("the palette shortcut");
+        assert!(stored(&shortcut).is_none(), "a shortcut is not kept");
+    }
+
+    #[test]
+    fn a_value_out_of_range_or_unreadable_keeps_the_default() {
+        let number = ShellSettingValue::Number(ShellSettingNumber::create(10.0, 1.0, 120.0));
+        assert!(restored(&number, "500").is_none(), "past the maximum");
+        assert!(restored(&number, "ten").is_none());
+        let choice = ShellSettingValue::Choice(ShellSettingChoice::create(strs(&["A", "B"]), 0));
+        assert!(restored(&choice, "7").is_none(), "no such option");
+        assert!(restored(&ShellSettingValue::Toggle(true), "maybe").is_none());
+        assert!(restored(&ShellSettingValue::Color(ColorU::rgba(0, 0, 0, 255)), "#zz").is_none());
+        assert_eq!(setting_key("general.reopen"), "setting.general.reopen");
+    }
 }

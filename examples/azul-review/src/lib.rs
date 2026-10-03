@@ -1,8 +1,32 @@
+//! AzReview - ink-first code review: the files of a folder as paper pages,
+//! annotated with a pen (or the mouse), with voice clips.
+//!
+//! The window is the document shell: the files in the navigation pane, the
+//! toolbar, the page rail and the sheets in the document, the status bar
+//! under it; the app theme and the dark mode from `ShellThemeScope` (the
+//! pages stay paper). azul-appkit gives the switches (`AzReview [FOLDER]`,
+//! `--theme`, `--mode`, `--size`, `--shot`, `--data-dir`), the settings page
+//! (Mod+,) and About. Every session is an archive in the data tree,
+//! `review/<file>.azreview.zip`, written on a Thread (one writer).
+//!
+//! stdout, for scripts (`scripts/azreview_e2e.py`): `AZREVIEW_FILE <path>`
+//! when a file is opened, `AZREVIEW_STROKES <n>` when a stroke is kept,
+//! `AZREVIEW_SAVED <key>` / `AZREVIEW_SAVE_ERROR <why>` per write.
+
 use std::path::PathBuf;
 
-use azul::{prelude::*, task::TerminateTimer, time::SystemTimeDiff};
+use azul::{dom::VirtualKeyCode, prelude::*, task::TerminateTimer, time::SystemTimeDiff};
+use azul_appkit::{
+    about::AboutInfo,
+    args::{AppArgs, AppSpec},
+    data::app_key,
+    files::{FileJob, FileOutcome},
+    shortcuts::Shortcut,
+    ui as kit,
+};
 
 pub mod code;
+pub mod ids;
 pub mod ink;
 pub mod model;
 pub mod session;
@@ -10,10 +34,34 @@ pub mod ui;
 
 use model::{Finding, Semantic, Stroke, Tool, VoiceClip};
 
-pub(crate) fn scratch_dir() -> PathBuf {
-    std::env::var("AZ_REVIEW_DIR")
-        .map_or_else(|_| std::env::temp_dir().join("azreview"), PathBuf::from)
-}
+/// What azul-appkit's switches know about AzReview.
+pub const SPEC: AppSpec = AppSpec {
+    name: "AzReview",
+    binary: "AzReview",
+    summary: "ink-first code review",
+    screens: &["review"],
+    files_help: "the folder to review (default: the current folder)",
+};
+
+/// The About facts.
+pub const ABOUT: AboutInfo = AboutInfo {
+    name: "AzReview",
+    version: env!("CARGO_PKG_VERSION"),
+    summary: "Ink-first code review: the files of a folder as pages, marked with a pen, with \
+              voice clips. Sessions are kept in your data folder.",
+    license: "MIT",
+    app_folder: "review",
+};
+
+/// The keys AzReview answers (the kit adds Mod+, / F1 / Escape).
+pub const SHORTCUTS: [Shortcut; 3] = [
+    Shortcut::new("Review", "Mod+S", "Save the session now"),
+    Shortcut::new("Review", "1 to 9", "Pick the ink's meaning"),
+    Shortcut::new("Review", "Right click", "The previous nib"),
+];
+
+/// The write-back tag of a session write.
+const TAG_SAVE: u64 = 1;
 
 pub struct AppState {
     pub files: Vec<code::SourceFile>,
@@ -33,6 +81,12 @@ pub struct AppState {
     pub root: PathBuf,
     pub status: String,
     pub last_pad_keys: u32,
+    /// azul-appkit's kit and the data root the session archives go to.
+    pub kit: RefAny,
+    pub data_root: PathBuf,
+    /// A session write is in flight; another one waits for it (one writer).
+    pub saving: bool,
+    pub save_pending: bool,
 }
 
 impl AppState {
@@ -92,16 +146,34 @@ fn derive_findings(
 }
 
 pub fn run() {
-    let root = std::env::args().nth(1).map_or_else(
-        || std::env::current_dir().unwrap_or_default(),
-        PathBuf::from,
-    );
+    let args = match AppArgs::from_env(&SPEC) {
+        Ok(a) => a,
+        Err(why) => {
+            eprintln!("{why}");
+            std::process::exit(2);
+        }
+    };
+    let root = args
+        .files
+        .first()
+        .cloned()
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[], args);
+    let data_root = {
+        let mut k = kit_ref.clone();
+        k.downcast_ref::<kit::Kit>()
+            .map(|k| k.data_root.clone())
+            .unwrap_or_default()
+    };
     let files = code::load_tree(&root, 400);
     let status = if files.is_empty() {
         format!("no reviewable files under {}", root.display())
     } else {
-        format!("{} files — pick one to start", files.len())
+        format!("{} files \u{2014} pick one to start", files.len())
     };
+    if let Some(first) = files.first() {
+        println!("AZREVIEW_FILE {}", first.display);
+    }
     let state = AppState {
         current: if files.is_empty() { None } else { Some(0) },
         files,
@@ -120,13 +192,146 @@ pub fn run() {
         root,
         status,
         last_pad_keys: 0,
+        kit: kit_ref.clone(),
+        data_root,
+        saving: false,
+        save_pending: false,
     };
-    let data = RefAny::new(state);
-    let app = App::create(data, AppConfig::create());
-    let mut window = WindowCreateOptions::create(ui::layout);
-    window.window_state.title = "AzReview".into();
-    window.window_state.flags.decorations = azul::window::WindowDecorations::NoTitle;
+    let app = App::create(RefAny::new(state), kit::app_config(&kit_ref));
+    let window =
+        kit::window_options(&kit_ref, ui::layout, (1280.0, 820.0), (800.0, 520.0), on_window_created);
     app.run(window);
+}
+
+/// The kit's handle, out of the app's state.
+fn kit_of(data: &mut RefAny) -> Option<RefAny> {
+    data.downcast_ref::<AppState>().map(|s| s.kit.clone())
+}
+
+/// The window exists: azul-appkit's `--shot` timer.
+extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    if let Some(kit_ref) = kit_of(&mut data) {
+        kit::on_window_created(&kit_ref, &mut info);
+    }
+    Update::DoNothing
+}
+
+// ==== The session archive: written into the data tree on a Thread ====
+
+/// Writes the session as it is now (`review/<file>.azreview.zip`), on a
+/// Thread; a write asked for while one is in flight runs after it.
+pub(crate) fn save_session(data: &RefAny, info: &mut CallbackInfo) {
+    let mut handle = data.clone();
+    let job = {
+        let Some(mut s) = handle.downcast_mut::<AppState>() else {
+            return;
+        };
+        if s.saving {
+            s.save_pending = true;
+            return;
+        }
+        s.saving = true;
+        s.save_pending = false;
+        let (name, bytes) = session::archive(&s);
+        (
+            s.data_root.clone(),
+            FileJob::Put {
+                key: app_key(ABOUT.app_folder, &name),
+                bytes,
+            },
+        )
+    };
+    kit::spawn_file_jobs(info, &job.0, vec![job.1], data.clone(), TAG_SAVE, on_saved);
+}
+
+extern "C" fn on_saved(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(reply) = kit::take_reply(&mut msg) else {
+        return Update::DoNothing;
+    };
+    let again = {
+        let Some(mut s) = app.downcast_mut::<AppState>() else {
+            return Update::DoNothing;
+        };
+        s.saving = false;
+        for outcome in &reply.outcomes {
+            match (outcome.error(), outcome) {
+                (None, FileOutcome::Put { key, .. }) => {
+                    println!("AZREVIEW_SAVED {key}");
+                    s.status = format!("saved to {key}");
+                }
+                (None, _) => {}
+                (Some(why), _) => {
+                    println!("AZREVIEW_SAVE_ERROR {why}");
+                    s.status = format!("save FAILED: {why}");
+                }
+            }
+        }
+        s.save_pending
+    };
+    if again {
+        save_session(&app, &mut info);
+    }
+    Update::RefreshDom
+}
+
+/// The keys 1 to 9, in the order of [`Semantic::ALL`].
+const DIGITS: [VirtualKeyCode; 9] = [
+    VirtualKeyCode::Key1,
+    VirtualKeyCode::Key2,
+    VirtualKeyCode::Key3,
+    VirtualKeyCode::Key4,
+    VirtualKeyCode::Key5,
+    VirtualKeyCode::Key6,
+    VirtualKeyCode::Key7,
+    VirtualKeyCode::Key8,
+    VirtualKeyCode::Key9,
+];
+
+/// The kit's keys first (Mod+, settings, F1 shortcuts, Escape closes them);
+/// then Mod+S saves and 1 to 9 pick the ink's meaning.
+pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(kit_ref) = kit_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    if let Some(update) = kit::handle_key(&kit_ref, &mut info) {
+        return update;
+    }
+    if kit::settings_open(&kit_ref) {
+        return Update::DoNothing;
+    }
+    let Some(key) = info.get_current_keyboard_state().current_virtual_keycode.into_option() else {
+        return Update::DoNothing;
+    };
+    if matches!(key, VirtualKeyCode::S) && info.get_key_modifiers().primary_down() {
+        info.prevent_default();
+        save_session(&data, &mut info);
+        return Update::RefreshDom;
+    }
+    let Some(index) = DIGITS.iter().position(|d| *d == key) else {
+        return Update::DoNothing;
+    };
+    let Some(&sem) = Semantic::ALL.get(index) else {
+        return Update::DoNothing;
+    };
+    if let Some(mut s) = data.downcast_mut::<AppState>() {
+        s.active = sem;
+        s.status = format!("{} - {}", s.tool.label(), sem.label());
+    }
+    Update::RefreshDom
+}
+
+/// The toolbar's Save button.
+pub extern "C" fn on_save_button(data: RefAny, mut info: CallbackInfo) -> Update {
+    save_session(&data, &mut info);
+    Update::RefreshDom
+}
+
+/// The toolbar's gear: azul-appkit's settings page.
+pub extern "C" fn on_settings_open(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(kit_ref) = kit_of(&mut data) {
+        kit::open_settings(&kit_ref, None);
+    }
+    Update::RefreshDom
 }
 
 pub extern "C" fn on_ink_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -247,13 +452,14 @@ pub extern "C" fn on_ink_up(mut data: RefAny, mut info: CallbackInfo) -> Update 
         } else {
             s.strokes.push(done);
             s.rederive();
-            session::save(&s);
+            println!("AZREVIEW_STROKES {}", s.strokes.len());
             (false, s.idle_timer)
         }
     };
     if is_click {
         return on_cycle_tool(data, info);
     }
+    save_session(&data, &mut info);
     arm_idle_timer(&mut info, data, timer_id);
     Update::RefreshDom
 }
@@ -275,21 +481,23 @@ fn arm_idle_timer(info: &mut CallbackInfo, data: RefAny, id: TimerId) {
 
 pub extern "C" fn on_annotation_idle(
     mut data: RefAny,
-    _: TimerCallbackInfo,
+    mut info: TimerCallbackInfo,
 ) -> TimerCallbackReturn {
-    let Some(mut s) = data.downcast_mut::<AppState>() else {
-        return TimerCallbackReturn {
-            should_update: Update::DoNothing,
-            should_terminate: TerminateTimer::Terminate,
+    {
+        let Some(mut s) = data.downcast_mut::<AppState>() else {
+            return TimerCallbackReturn {
+                should_update: Update::DoNothing,
+                should_terminate: TerminateTimer::Terminate,
+            };
         };
-    };
-    s.epoch += 1;
-    if let Some(clip) = s.recording.take() {
-        s.clips.push(clip);
-        s.level_samples = 0;
+        s.epoch += 1;
+        if let Some(clip) = s.recording.take() {
+            s.clips.push(clip);
+            s.level_samples = 0;
+        }
+        s.status = format!("annotation {} sealed", s.epoch);
     }
-    s.status = format!("annotation {} sealed", s.epoch);
-    session::save(&s);
+    save_session(&data, &mut info.callback_info);
     TimerCallbackReturn {
         should_update: Update::RefreshDom,
         should_terminate: TerminateTimer::Terminate,
@@ -348,21 +556,19 @@ pub extern "C" fn on_menu_semantic(mut data: RefAny, mut info: CallbackInfo) -> 
     Update::RefreshDom
 }
 
-pub extern "C" fn on_menu_save(mut data: RefAny, _: CallbackInfo) -> Update {
-    let Some(mut s) = data.downcast_mut::<AppState>() else {
-        return Update::DoNothing;
-    };
-    s.status = if session::save(&s) {
-        format!("saved to {}", scratch_dir().display())
-    } else {
-        "save FAILED".to_string()
-    };
+pub extern "C" fn on_menu_save(data: RefAny, mut info: CallbackInfo) -> Update {
+    save_session(&data, &mut info);
     Update::RefreshDom
 }
 
 pub extern "C" fn on_menu_reveal(mut data: RefAny, _: CallbackInfo) -> Update {
-    let dir = scratch_dir();
-    let _ = std::fs::create_dir_all(&dir);
+    // The sessions' folder in the data tree (it exists after the first save).
+    let Some(dir) = data
+        .downcast_ref::<AppState>()
+        .map(|s| s.data_root.join(ABOUT.app_folder))
+    else {
+        return Update::DoNothing;
+    };
     #[cfg(target_os = "macos")]
     let _ = std::process::Command::new("open").arg(&dir).spawn();
     #[cfg(target_os = "linux")]
@@ -394,13 +600,18 @@ pub extern "C" fn on_pick_file(mut data: RefAny, mut info: CallbackInfo) -> Upda
     let Some(index) = ui::index_of(&mut info) else {
         return Update::DoNothing;
     };
+    let switch = data
+        .downcast_ref::<AppState>()
+        .is_some_and(|s| index < s.files.len() && s.current != Some(index));
+    if !switch {
+        return Update::DoNothing;
+    }
+    // The file being left is kept first (its archive is built now).
+    save_session(&data, &mut info);
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
-    if index >= s.files.len() {
-        return Update::DoNothing;
-    }
-    session::save(&s);
+    println!("AZREVIEW_FILE {}", s.files[index].display);
     s.current = Some(index);
     s.strokes.clear();
     s.live = None;
@@ -409,22 +620,33 @@ pub extern "C" fn on_pick_file(mut data: RefAny, mut info: CallbackInfo) -> Upda
     Update::RefreshDom
 }
 
-pub extern "C" fn on_toggle_record(mut data: RefAny, _: CallbackInfo) -> Update {
+pub extern "C" fn on_toggle_record(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let stopped = {
+        let Some(mut s) = data.downcast_mut::<AppState>() else {
+            return Update::DoNothing;
+        };
+        match s.recording.take() {
+            Some(clip) => {
+                s.status = format!("recording stopped - {} samples kept", clip.samples.len());
+                s.clips.push(clip);
+                s.level_samples = 0;
+                true
+            }
+            None => false,
+        }
+    };
+    if stopped {
+        save_session(&data, &mut info);
+        return Update::RefreshDom;
+    }
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
-    if let Some(clip) = s.recording.take() {
-        s.status = format!("recording stopped - {} samples kept", clip.samples.len());
-        s.clips.push(clip);
-        s.level_samples = 0;
-        session::save(&s);
-    } else {
-        s.recording = Some(VoiceClip {
-            sample_rate: 48_000,
-            ..VoiceClip::default()
-        });
-        s.status = "recording - strokes drawn now carry this audio".to_string();
-    }
+    s.recording = Some(VoiceClip {
+        sample_rate: 48_000,
+        ..VoiceClip::default()
+    });
+    s.status = "recording - strokes drawn now carry this audio".to_string();
     Update::RefreshDom
 }
 

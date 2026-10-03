@@ -736,6 +736,37 @@ impl RustGenerator {
         builder.line(&format!("impl {}String {{", prefix));
         builder.indent();
 
+        // from_const_str() - the const constructor azul's own AzString has
+        // (css/src/corety.rs): an app names each CSS class / id ONCE as a
+        // `const` (wave-6 prefix ruling). The bytes are 'static, so the vec
+        // is never freed (NoDestructor) and nothing enters libazul.
+        builder.line("/// A string over `'static` bytes, usable in a `const`:");
+        builder.line("/// `const ROW: AzString = AzString::from_const_str(\"__azapp_row\");`.");
+        builder.line("/// The bytes are borrowed, never copied or freed.");
+        builder.line("#[inline]");
+        builder.line("#[must_use]");
+        builder.line("pub const fn from_const_str(s: &'static str) -> Self {");
+        builder.indent();
+        builder.line("Self {");
+        builder.indent();
+        // allow-api-name: the String's own layout (a U8Vec), as `as_str`
+        // below reads it; a const fn cannot call `copyFromBytes`.
+        builder.line(&format!("vec: {}U8Vec {{", prefix));
+        builder.indent();
+        builder.line("ptr: s.as_ptr(),");
+        builder.line("len: s.len(),");
+        builder.line("cap: s.len(),");
+        // allow-api-name: 'static bytes are never freed.
+        builder.line(&format!("destructor: {}U8VecDestructor::NoDestructor,", prefix));
+        builder.line("flags: 0,");
+        builder.dedent();
+        builder.line("},");
+        builder.dedent();
+        builder.line("}");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+
         // as_str() - returns &str by reinterpreting the bytes
         builder.line("/// Returns the string as a `&str` slice.");
         builder.line("///");

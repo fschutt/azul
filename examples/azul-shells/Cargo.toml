@@ -18,6 +18,8 @@ publish = false
 
 [dependencies]
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+# The shared app skeleton: switches, data root, settings.json, About, shortcuts.
+azul-appkit = { path = "../azul-appkit", features = ["azul"] }
 
 [lib]
 name = "azshells"

@@ -1,10 +1,8 @@
 //! What an app's About section says (build ledger F6).
 //!
 //! The facts, as label / value rows, so the settings page's About section
-//! and (later) azul's About dialog show the same thing.
-//! TODO(DIALOGS): when azul's About dialog pattern lands (the DIALOGS task,
-//! 2026-10-01), the kit opens it from these rows instead of (or beside) the
-//! About section of the settings page.
+//! and the About box (azul's `AboutDialog`, `ui::about_modal`) show the same
+//! thing.
 
 use std::path::Path;
 

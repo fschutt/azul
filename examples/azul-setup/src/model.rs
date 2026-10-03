@@ -272,104 +272,94 @@ pub enum Frame {
     Side,
 }
 
-/// The command line.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Args {
-    pub screen: Screen,
-    pub frame: Frame,
-    /// `flat` or `flora`, or none (the default theme).
-    pub theme: Option<String>,
-    /// `light` or `dark`, or none (the system's).
-    pub mode: Option<String>,
-    /// The step to open on (`--step 3`).
-    pub step: usize,
+/// The names `--screen` takes (azul-appkit's switch): the wizard's steps by
+/// name, then the settings window and the About box. The first is the
+/// default.
+pub const SCREENS: [&str; 10] = [
+    "welcome",
+    "license",
+    "destination",
+    "components",
+    "options",
+    "ready",
+    "installing",
+    "finish",
+    "settings",
+    "about",
+];
+
+/// The window and the wizard step a `--screen` name opens on (an unknown
+/// name: the wizard's first step).
+#[must_use]
+pub fn open_on(screen: &str) -> (Screen, Step) {
+    match screen {
+        "settings" => (Screen::Settings, Step::Welcome),
+        "about" => (Screen::About, Step::Welcome),
+        name => {
+            let index = SCREENS.iter().position(|s| *s == name).unwrap_or(0);
+            (Screen::Setup, Step::at(index))
+        }
+    }
 }
 
-pub const HELP: &str = "\
-AzSetup - a fake installer for AzOffice (installs nothing)
+/// AzSetup's own switches, besides azul-appkit's: `--frame` and `--step`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SetupSwitches {
+    pub frame: Frame,
+    /// `--step N` (0 = welcome), the number form of `--screen <step>`.
+    pub step: Option<usize>,
+}
 
-USAGE:
-    AzSetup [OPTIONS]
-
-OPTIONS:
-    --screen <NAME>    setup | settings | about
-    --frame <NAME>     installer | rail | side
-    --theme <NAME>     flat | flora
-    --mode <NAME>      light | dark
-    --step <N>         open the wizard on step N (0 = welcome)
-    -h, --help         print this help
-";
-
-impl Args {
-    /// Parses `argv` (without the program name).
-    ///
-    /// # Errors
-    /// The reason, for an unknown option or a bad value.
-    pub fn parse<I, S>(argv: I) -> Result<Self, String>
-    where
-        I: IntoIterator<Item = S>,
-        S: Into<String>,
-    {
-        let argv: Vec<String> = argv.into_iter().map(Into::into).collect();
-        let mut args = Self::default();
-        let mut i = 0;
-        while i < argv.len() {
-            let (name, inline) = match argv[i].split_once('=') {
-                Some((n, v)) if n.starts_with("--") => (n.to_string(), Some(v.to_string())),
-                _ => (argv[i].clone(), None),
-            };
-            let mut value = || -> Result<String, String> {
-                if let Some(v) = inline.clone() {
-                    return Ok(v);
-                }
-                i += 1;
-                argv.get(i)
-                    .cloned()
-                    .ok_or_else(|| format!("{name} needs a value"))
-            };
-            match name.as_str() {
-                "--screen" => {
-                    args.screen = match value()?.as_str() {
-                        "setup" => Screen::Setup,
-                        "settings" => Screen::Settings,
-                        "about" => Screen::About,
-                        other => return Err(format!("unknown screen {other:?}")),
-                    }
-                }
-                "--frame" => {
-                    args.frame = match value()?.as_str() {
-                        "installer" => Frame::Installer,
-                        "rail" => Frame::Rail,
-                        "side" => Frame::Side,
-                        other => return Err(format!("unknown frame {other:?}")),
-                    }
-                }
-                "--theme" => {
-                    let t = value()?;
-                    if t != "flat" && t != "flora" {
-                        return Err(format!("unknown theme {t:?}"));
-                    }
-                    args.theme = Some(t);
-                }
-                "--mode" => {
-                    let m = value()?;
-                    if m != "light" && m != "dark" {
-                        return Err(format!("unknown mode {m:?}"));
-                    }
-                    args.mode = Some(m);
-                }
-                "--step" => {
-                    args.step = value()?
-                        .parse()
-                        .map_err(|_| "--step needs a number".to_string())?;
-                }
-                "-h" | "--help" => return Err(HELP.to_string()),
-                other => return Err(format!("unknown option {other:?}\n\n{HELP}")),
+/// Takes AzSetup's own switches out of `argv` (without the program name)
+/// and leaves the rest, in order, for azul-appkit's parser.
+///
+/// # Errors
+/// The reason, for a bad `--frame` or `--step` value.
+pub fn split_switches<I, S>(argv: I) -> Result<(SetupSwitches, Vec<String>), String>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+{
+    let argv: Vec<String> = argv.into_iter().map(Into::into).collect();
+    let mut own = SetupSwitches::default();
+    let mut rest = Vec::with_capacity(argv.len());
+    let mut i = 0;
+    while i < argv.len() {
+        let (name, inline) = match argv[i].split_once('=') {
+            Some((n, v)) if n.starts_with("--") => (n.to_string(), Some(v.to_string())),
+            _ => (argv[i].clone(), None),
+        };
+        let mut value = || -> Result<String, String> {
+            if let Some(v) = inline.clone() {
+                return Ok(v);
             }
             i += 1;
+            argv.get(i)
+                .cloned()
+                .ok_or_else(|| format!("{name} needs a value"))
+        };
+        match name.as_str() {
+            "--frame" => {
+                own.frame = match value()?.as_str() {
+                    "installer" => Frame::Installer,
+                    "rail" => Frame::Rail,
+                    "side" => Frame::Side,
+                    other => return Err(format!("--frame: expected installer|rail|side, got {other:?}")),
+                }
+            }
+            "--step" => {
+                let v = value()?;
+                own.step = Some(
+                    v.trim()
+                        .parse()
+                        .map_err(|_| format!("--step: expected a number, got {v:?}"))?,
+                );
+            }
+            _ => rest.push(argv[i].clone()),
         }
-        Ok(args)
+        i += 1;
     }
+    Ok((own, rest))
 }
 
 // ---------------------------------------------------------------------------
@@ -456,30 +446,41 @@ mod model_tests {
     }
 
     #[test]
-    fn the_command_line_picks_the_screen_the_frame_the_theme_and_the_mode() {
-        let a = Args::parse([
-            "--screen",
-            "settings",
-            "--theme=flora",
-            "--mode",
-            "dark",
+    fn the_apps_own_switches_are_taken_out_and_the_rest_left_to_the_kit() {
+        let (own, rest) = split_switches([
             "--frame",
             "side",
-            "--step",
-            "3",
+            "--theme=flora",
+            "--step=3",
+            "--screen",
+            "settings",
         ])
         .expect("valid");
-        assert_eq!(a.screen, Screen::Settings);
-        assert_eq!(a.frame, Frame::Side);
-        assert_eq!(a.theme.as_deref(), Some("flora"));
-        assert_eq!(a.mode.as_deref(), Some("dark"));
-        assert_eq!(a.step, 3);
         assert_eq!(
-            Args::parse(Vec::<String>::new()).expect("empty"),
-            Args::default()
+            own,
+            SetupSwitches {
+                frame: Frame::Side,
+                step: Some(3)
+            }
         );
-        assert!(Args::parse(["--theme", "neon"]).is_err());
-        assert!(Args::parse(["--bogus"]).is_err());
+        assert_eq!(rest, vec!["--theme=flora", "--screen", "settings"]);
+        let (own, rest) = split_switches(Vec::<String>::new()).expect("empty");
+        assert_eq!(own, SetupSwitches::default());
+        assert!(rest.is_empty());
+        assert!(split_switches(["--frame", "boxy"]).is_err());
+        assert!(split_switches(["--step"]).is_err());
+        assert!(split_switches(["--step", "three"]).is_err());
+    }
+
+    #[test]
+    fn a_screen_names_a_step_of_the_wizard_the_settings_or_the_about_box() {
+        assert_eq!(SCREENS[0], "welcome", "the default screen is the first step");
+        for (i, step) in STEPS.iter().enumerate() {
+            assert_eq!(open_on(SCREENS[i]), (Screen::Setup, *step), "{}", SCREENS[i]);
+        }
+        assert_eq!(open_on("settings"), (Screen::Settings, Step::Welcome));
+        assert_eq!(open_on("about"), (Screen::About, Step::Welcome));
+        assert_eq!(open_on("nowhere"), (Screen::Setup, Step::Welcome));
     }
 
     #[test]

@@ -3136,3 +3136,32 @@ fn every_rust_binding_vec_has_from_vec() {
     assert!(checked > 50, "found only {checked} Vec conversions - the pattern broke");
     assert!(offenders.is_empty(), "Vecs without from_vec: {offenders:?}");
 }
+
+/// The Rust bindings' `String` has the `const fn from_const_str` that azul's
+/// own `AzString` has (`css/src/corety.rs`): the apps define every CSS class /
+/// id name ONCE as `const X: AzString = AzString::from_const_str("__azmail_x")`
+/// (user ruling 2026-10-02), and a link-dynamic app is written against the
+/// bindings, which had only the runtime `From<&str>` copy. The string is
+/// `'static`, so the vec it wraps must never be freed (`NoDestructor`).
+#[test]
+fn the_rust_bindings_string_has_a_const_constructor_for_static_names() {
+    let outputs = shipped_outputs();
+    let mut defining = 0;
+    let mut offenders = Vec::new();
+    for (path, text) in outputs.get("rust").map(|v| v.as_slice()).unwrap_or(&[]) {
+        if !text.contains("pub struct AzString {") {
+            continue;
+        }
+        defining += 1;
+        let Some(at) = text.find("pub const fn from_const_str(s: &'static str) -> Self {") else {
+            offenders.push(format!("{path}: no `pub const fn from_const_str(s: &'static str)`"));
+            continue;
+        };
+        let body: String = text[at..].lines().take(14).collect::<Vec<_>>().join("\n");
+        if !body.contains("NoDestructor") {
+            offenders.push(format!("{path}: from_const_str does not wrap a NoDestructor vec:\n{body}"));
+        }
+    }
+    assert!(defining > 0, "no Rust binding defines `pub struct AzString {{` - the pattern broke");
+    assert!(offenders.is_empty(), "{}", offenders.join("\n"));
+}

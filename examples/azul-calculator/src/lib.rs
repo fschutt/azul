@@ -16,6 +16,8 @@ pub mod calc;
 pub mod datecalc;
 pub mod expr;
 pub mod history;
+/// The DOM ids and classes (`__azcalc_` prefix), each defined once.
+pub mod ids;
 pub mod num;
 pub mod programmer;
 pub mod units;

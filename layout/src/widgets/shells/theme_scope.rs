@@ -23,8 +23,17 @@ use alloc::vec::Vec;
 use azul_core::dom::{Dom, IdOrClass, IdOrClassVec};
 use azul_css::{
     css::{rule_priority, Css, CssCustomProperty, CssDeclaration, CssPath, CssPathSelector, CssRuleBlock},
-    dynamic_selector::{DynamicSelector, ModeCondition},
-    props::basic::color::ColorU,
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, DynamicSelector, ModeCondition,
+    },
+    props::{
+        basic::{color::ColorU, pixel::PixelValue},
+        layout::{
+            LayoutDisplay, LayoutFlexDirection, LayoutHeight, LayoutMarginBottom, LayoutMarginLeft,
+            LayoutMarginRight, LayoutMarginTop,
+        },
+        property::CssProperty,
+    },
     AzString,
 };
 
@@ -247,7 +256,36 @@ impl ShellThemeScope {
         let look = look_for(self.theme);
         build(self, &look)
     }
+
+    /// The scope as the window's `<body>`: the root an app's `layout()`
+    /// returns. The body fills the window - no UA margin, the full height -
+    /// and the scope grows in it, so the shells' panes take the window.
+    #[must_use]
+    pub fn body(self) -> Dom {
+        Dom::create_body()
+            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(WINDOW_BODY_BASE))
+            .with_child(self.dom())
+    }
 }
+
+/// The window's body around the scope: no UA margin (`body { margin: 8px }`),
+/// the window's full height (the body's own height is its content's), a
+/// column the scope's root grows in. Structure, the same in every theme.
+static WINDOW_BODY_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_margin_top(LayoutMarginTop::const_px(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_margin_right(LayoutMarginRight::const_px(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_margin_bottom(LayoutMarginBottom::const_px(
+        0,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::Px(
+        PixelValue::const_percent(100),
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+        LayoutFlexDirection::Column,
+    )),
+];
 
 impl From<ShellThemeScope> for Dom {
     fn from(s: ShellThemeScope) -> Self {
@@ -338,6 +376,42 @@ mod theme_scope_tests {
         };
         assert_eq!(first, "#44684f");
         assert_eq!(dom.children.as_ref().len(), 1, "the content, as it is");
+    }
+
+    #[test]
+    fn the_scope_as_the_windows_body_drops_the_ua_margin_and_takes_the_full_height() {
+        use azul_core::dom::NodeType;
+        use azul_css::props::{
+            basic::pixel::PixelValue,
+            layout::{
+                LayoutDisplay, LayoutFlexDirection, LayoutHeight, LayoutMarginBottom,
+                LayoutMarginLeft, LayoutMarginRight, LayoutMarginTop,
+            },
+            property::{CssProperty, CssPropertyType},
+        };
+        let body = ShellThemeScope::create(slot()).with_theme(UiTheme::Flat).body();
+        assert!(matches!(body.root.get_node_type(), NodeType::Body));
+        for wanted in [
+            CssProperty::const_margin_top(LayoutMarginTop::const_px(0)),
+            CssProperty::const_margin_right(LayoutMarginRight::const_px(0)),
+            CssProperty::const_margin_bottom(LayoutMarginBottom::const_px(0)),
+            CssProperty::const_margin_left(LayoutMarginLeft::const_px(0)),
+            CssProperty::const_height(LayoutHeight::Px(PixelValue::const_percent(100))),
+            CssProperty::const_display(LayoutDisplay::Flex),
+            CssProperty::const_flex_direction(LayoutFlexDirection::Column),
+        ] {
+            let ty: CssPropertyType = wanted.get_type();
+            for dark in [false, true] {
+                assert_eq!(
+                    tc::resolve(&body, ty, dark, None).as_ref(),
+                    Some(&wanted),
+                    "the body's {ty:?} (dark {dark})"
+                );
+            }
+        }
+        let kids = body.children.as_ref();
+        assert_eq!(kids.len(), 1, "the scope, alone");
+        assert!(tc::has_class(&kids[0], THEME_SCOPE_CLASS));
     }
 
     #[test]

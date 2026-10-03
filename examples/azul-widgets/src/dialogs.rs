@@ -142,14 +142,7 @@ impl DialogsDemo {
 
 /// Keep what a widget reported and rebuild.
 fn keep(data: &mut RefAny, put: impl FnOnce(&mut DialogsDemo)) -> Update {
-    match data.downcast_mut::<Showcase>() {
-        Some(mut s) => {
-            put(&mut s.dialogs);
-            s.interactions += 1;
-            Update::RefreshDom
-        }
-        None => Update::DoNothing,
-    }
+    crate::keep(data, |s| put(&mut s.dialogs))
 }
 
 fn boxed(content: Dom) -> Dom {

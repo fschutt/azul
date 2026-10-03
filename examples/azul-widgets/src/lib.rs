@@ -20,6 +20,7 @@ use azul::{
 
 mod forms;
 mod hotkeys;
+mod blocks;
 mod dialogs;
 mod mail;
 mod notifications;
@@ -70,10 +71,6 @@ struct Showcase {
     /// itself is the ENGINE's (`CallbackInfo::set_mode`, app-wide); this is
     /// only the controlled segment's selection.
     mode_index: usize,
-    /// The widget theme every themed widget on the page is built in (the
-    /// toolbar's Flat / Flora toggle). A switch rebuilds the DOM in the other
-    /// theme: unlike light / dark, a theme may change a widget's DOM.
-    widget_theme: UiTheme,
     /// The "Every input type" form and the "Raw HTML inputs" form (see
     /// `forms.rs`).
     form: forms::FormDemo,
@@ -83,6 +80,10 @@ struct Showcase {
     /// The "Dialogs" section's values: the wizard, settings and standard
     /// dialogs (see `dialogs.rs`).
     dialogs: dialogs::DialogsDemo,
+    /// The "Building blocks" section's values: the rich text editor, list
+    /// selection, the close guard, the zoom range, toggled / disabled
+    /// buttons, the week start (see `blocks.rs`).
+    blocks: blocks::BlocksDemo,
 }
 
 const CHOICES: &[&str] = &["Red", "Green", "Blue"];
@@ -522,16 +523,16 @@ const TOOLBAR_CAPTION_CSS: &str =
     "font-size: 12px; font-weight: bold; color: system:secondary-text; margin-right: 8px;";
 
 /// The bar under the titlebar: the app's MODE (System / Light / Dark - the
-/// engine's `CallbackInfo::set_mode`, for every window) and the WIDGET THEME
-/// every themed widget on the page is built in (Flat / Flora - the demo's
-/// own state, handed to each widget's `with_theme`).
+/// engine's `CallbackInfo::set_mode`, for every window) and the app THEME
+/// (Flat / Flora - `CallbackInfo::set_theme`; every themed widget on the
+/// page is built in it).
 ///
 /// `shown` is the light / dark the window shows, read in `layout()` with
 /// `LayoutCallbackInfo::get_mode` so "System (dark)" can say which. Reading
 /// it is what makes a mode switch - or a desktop flip while on System -
 /// re-run this `layout()`; an app whose `layout()` never reads it is only
 /// re-styled, its DOM kept.
-fn toolbar(data: &RefAny, mode_index: usize, widget_theme: UiTheme, shown: DarkLightMode) -> Dom {
+fn toolbar(data: &RefAny, mode_index: usize, theme: UiTheme, shown: DarkLightMode) -> Dom {
     let shown = match shown {
         DarkLightMode::Dark => "dark",
         DarkLightMode::Light => "light",
@@ -540,7 +541,7 @@ fn toolbar(data: &RefAny, mode_index: usize, widget_theme: UiTheme, shown: DarkL
         1 | 2 => format!("pinned {shown}"),
         _ => format!("System ({shown})"),
     };
-    let theme_index = match widget_theme {
+    let theme_index = match theme {
         UiTheme::Flat => 0,
         UiTheme::Flora => 1,
     };
@@ -564,7 +565,7 @@ fn toolbar(data: &RefAny, mode_index: usize, widget_theme: UiTheme, shown: DarkL
                     Segmented::create(strs(&["System", "Light", "Dark"]))
                         .with_selected_index(mode_index)
                         .with_on_change(data.clone(), on_mode)
-                        .with_theme(widget_theme)
+                        .with_theme(theme)
                         .dom()
                         .with_accessibility_name("Mode"),
                 )
@@ -574,13 +575,13 @@ fn toolbar(data: &RefAny, mode_index: usize, widget_theme: UiTheme, shown: DarkL
                 ),
         ))
         .with_child(group(
-            "Widget theme",
+            "Theme",
             Segmented::create(strs(&["Flat", "Flora"]))
                 .with_selected_index(theme_index)
-                .with_on_change(data.clone(), on_widget_theme)
-                .with_theme(widget_theme)
+                .with_on_change(data.clone(), on_theme)
+                .with_theme(theme)
                 .dom()
-                .with_accessibility_name("Widget theme"),
+                .with_accessibility_name("Theme"),
         ))
 }
 
@@ -609,21 +610,13 @@ extern "C" fn on_mode(
     }
 }
 
-/// The widget-theme segment: every themed widget is rebuilt in the other
-/// theme (a theme may change a widget's DOM, so this is a rebuild, never a
-/// restyle).
-extern "C" fn on_widget_theme(mut data: RefAny, _: CallbackInfo, state: SegmentedState) -> Update {
-    match data.downcast_mut::<Showcase>() {
-        Some(mut s) => {
-            s.widget_theme = if state.selected_index == 1 {
-                UiTheme::Flora
-            } else {
-                UiTheme::Flat
-            };
-            Update::RefreshDom
-        }
-        None => Update::DoNothing,
-    }
+/// The theme segment: the APP theme (`CallbackInfo::set_theme`, every
+/// window rebuilt in it - a theme may change a widget's DOM, so this is a
+/// rebuild, never a restyle). The page reads it back in `layout()`, so the
+/// debug server's `set_theme` and this segment are one switch.
+extern "C" fn on_theme(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    info.set_theme(if state.selected_index == 1 { "flora" } else { "flat" });
+    bump(&mut data)
 }
 
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
@@ -631,9 +624,14 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         Some(s) => (*s).clone(),
         None => return Dom::create_body(),
     };
-    // THE widget theme of this pass: every widget below that has a theme
+    // THE theme of this pass: the app theme (the toolbar's Flat / Flora, or
+    // the debug server's `set_theme`); every widget below that has a theme
     // (`with_theme`) is built in it.
-    let theme = s.widget_theme;
+    let theme = if info.get_theme().as_str() == "flora" {
+        UiTheme::Flora
+    } else {
+        UiTheme::Flat
+    };
 
     let inputs = section(
         "Inputs",
@@ -1085,6 +1083,8 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let mail = mail::mail_section(&data, &s.mail, theme);
     // The wizard, settings and standard dialogs.
     let dialogs = dialogs::dialogs_section(&data, &s.dialogs, theme);
+    // The building blocks the apps share (rich text, selection, close guard, ...).
+    let blocks = blocks::blocks_section(&data, &s.blocks, theme);
 
     let heading = Dom::create_h1_with_text("Azul Widget Showcase").with_css(
         "font-size: 26px; font-weight: bold; color: system:text; margin-top: 0px; \
@@ -1101,33 +1101,10 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         "font-size: 13px; color: system:secondary-text; margin-top: 0px; margin-bottom: 20px;",
     );
 
-    // The bar this window draws under `WindowDecorations::NoTitle`, matched to
-    // the one AppKit draws: 28px, the height of a titlebar WITHOUT a toolbar,
-    // whose midline the traffic lights sit on (38 is the height with a compact
-    // toolbar, and put the title 5px below the lights). No fill of its own;
-    // the system separator, inside the 28px. The title is the system's bold
-    // title face, centred on the WINDOW: the padding is the same on both
-    // sides, the left one keeping it clear of the traffic lights (x 8 to 60),
-    // and the label is taken out of the row so it cannot push the title over.
-    let titlebar = Dom::create_div()
-        .with_css(
-            "height: 28px; box-sizing: border-box; flex-grow: 0; flex-shrink: 0; \
-             display: flex; flex-direction: row; align-items: center; \
-             position: relative; padding-left: 78px; padding-right: 78px; \
-             border-bottom: 0.5px solid system:separator; cursor: grab; \
-             user-select: none; -azul-app-region: drag;",
-        )
-        .with_child(
-            Dom::create_span_with_text("Azul Widget Showcase").with_css(
-                "font-family: system:title:bold; font-size: 13px; color: system:text; \
-                 flex-grow: 1; flex-basis: 0px; min-width: 0px; text-align: center; \
-                 white-space: nowrap; overflow: hidden;",
-            ),
-        )
-        .with_child(Dom::create_span_with_text("custom titlebar").with_css(
-            "position: absolute; top: 0px; right: 12px; line-height: 28px; \
-             font-size: 11px; color: system:tertiary-text; -azul-app-region: no-drag;",
-        ));
+    // The window is `NoTitle`: azul's own Titlebar draws the title row
+    // (drag region, double-click, the traffic lights' room), as in every
+    // azul app - the showcase shows the widget, not a hand-made copy of it.
+    let titlebar = Titlebar::create("Azul Widget Showcase").dom();
 
     Dom::create_body()
         .with_menu_bar(menu_bar(&data))
@@ -1161,19 +1138,28 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 .with_child(datetime)
                 .with_child(mail)
                 .with_child(dialogs)
+                .with_child(blocks)
                 .with_child(every_input)
                 .with_child(raw_inputs),
         )
 }
 
-fn bump(data: &mut RefAny) -> Update {
+/// THE way a section keeps what a widget reported: `put` writes it into the
+/// showcase, the interaction counter goes up, the page is rebuilt. Every
+/// section's callbacks go through it (no per-section copy).
+pub(crate) fn keep(data: &mut RefAny, put: impl FnOnce(&mut Showcase)) -> Update {
     match data.downcast_mut::<Showcase>() {
         Some(mut s) => {
+            put(&mut *s);
             s.interactions += 1;
             Update::RefreshDom
         }
         None => Update::DoNothing,
     }
+}
+
+fn bump(data: &mut RefAny) -> Update {
+    keep(data, |_| {})
 }
 
 extern "C" fn on_button(mut data: RefAny, _: CallbackInfo) -> Update {
@@ -1437,10 +1423,10 @@ pub fn start() {
         hotkey: hotkeys::HotkeyDemo::default(),
         // Follow the desktop's light / dark (the toolbar's "System").
         mode_index: 0,
-        widget_theme: UiTheme::Flat,
         form: forms::FormDemo::create(),
         mail: mail::MailDemo::create(),
         dialogs: dialogs::DialogsDemo::create(),
+        blocks: blocks::BlocksDemo::create(),
     });
     // `None` follows the desktop - the default, spelled out: an app that
     // starts pinned passes `OptionDarkLightMode::Some(DarkLightMode::Dark)`.
