@@ -26,6 +26,17 @@ pub const MAX_HOUR_PX: f32 = 240.0;
 pub const MIN_BLOCK_PX: f32 = 18.0;
 /// How far a press moves before it is a drag, in logical px.
 pub const DRAG_THRESHOLD_PX: f32 = 4.0;
+/// One line of an event block (12 px text), and the block's padding above and below.
+pub const BLOCK_LINE_PX: f32 = 15.0;
+pub const BLOCK_PADDING_PX: f32 = 6.0;
+
+/// How many lines of text an event block `height_px` tall shows whole: at least one (a block
+/// too short for two says "title, time" on one line, as Outlook's does).
+#[must_use]
+pub fn block_lines(height_px: f32) -> usize {
+    let _ = height_px;
+    todo!()
+}
 /// The hour at the top of the view when it opens on a week that is not today's.
 pub const MORNING_HOUR: u32 = 8;
 /// Wheel pixels that double (or halve) the hour height: one notch (60 px) is a quarter of that.
@@ -396,6 +407,23 @@ pub fn picked_date(year: i32, month: u32, day: u32) -> Option<NaiveDate> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// LOOK 2026-10-03: a 15-minute event's title and time were squeezed into 6 px each.
+    #[test]
+    fn a_block_shows_only_the_lines_that_fit_and_one_at_least() {
+        // 15 minutes at the default zoom: drawn 18 px tall - one line, "title, time".
+        let quarter = y_of_minute(15.0, DEFAULT_HOUR_PX).max(MIN_BLOCK_PX);
+        assert_eq!(block_lines(quarter), 1);
+        assert_eq!(block_lines(0.0), 1);
+        assert_eq!(block_lines(f32::NAN), 1);
+        // Half an hour at 72 px an hour: 36 px - title and time.
+        assert_eq!(block_lines(36.0), 2);
+        assert_eq!(block_lines(35.9), 1);
+        // An hour at the default zoom: 48 px - title, time and the location.
+        assert_eq!(block_lines(48.0), 2);
+        assert_eq!(block_lines(51.0), 3);
+        assert_eq!(block_lines(240.0), 15);
+    }
 
     fn day(y: i32, m: u32, d: u32) -> NaiveDate {
         NaiveDate::from_ymd_opt(y, m, d).unwrap()
