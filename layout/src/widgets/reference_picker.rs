@@ -419,8 +419,10 @@ impl ReferencePicker {
 /// ignoring case; an empty (or blank) query matches everything.
 #[must_use]
 pub(crate) fn matches(item: &ReferencePickerItem, query: &str) -> bool {
-    let _ = (item, query);
-    false
+    let query = query.trim().to_lowercase();
+    query.is_empty()
+        || item.label.as_str().to_lowercase().contains(&query)
+        || item.detail.as_str().to_lowercase().contains(&query)
 }
 
 /// The records listed for `query`: their indices in `items` (at most
@@ -432,8 +434,17 @@ pub(crate) fn shown_rows(
     filter: ReferencePickerFilter,
     max_rows: usize,
 ) -> (Vec<usize>, usize) {
-    let _ = (items, query, filter, max_rows);
-    (Vec::new(), 0)
+    let found: Vec<usize> = items
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| filter == ReferencePickerFilter::App || matches(item, query))
+        .map(|(i, _)| i)
+        .collect();
+    if max_rows == 0 || found.len() <= max_rows {
+        return (found, 0);
+    }
+    let more = found.len() - max_rows;
+    (found[..max_rows].to_vec(), more)
 }
 
 /// The "create" row's text for `query`, or `None` when there is no such
@@ -445,8 +456,19 @@ pub(crate) fn create_row(
     query: &str,
     items: &[ReferencePickerItem],
 ) -> Option<String> {
-    let _ = (create_label, query, items);
-    None
+    let label = create_label?;
+    let query = query.trim();
+    if query.is_empty() {
+        return None;
+    }
+    let lower = query.to_lowercase();
+    if items
+        .iter()
+        .any(|i| i.label.as_str().trim().to_lowercase() == lower)
+    {
+        return None;
+    }
+    Some(format!("{label} \u{201c}{query}\u{201d}"))
 }
 
 /// The list's status line: "Searching..." while the app searches, "No
@@ -454,8 +476,15 @@ pub(crate) fn create_row(
 /// were left out; `None` otherwise.
 #[must_use]
 pub(crate) fn status_line(loading: bool, listed: usize, more: usize) -> Option<String> {
-    let _ = (loading, listed, more);
-    None
+    if loading {
+        Some(String::from("Searching..."))
+    } else if listed == 0 {
+        Some(String::from("No matches"))
+    } else if more > 0 {
+        Some(format!("{more} more - type to narrow"))
+    } else {
+        None
+    }
 }
 
 /// The field's text: the query while one is typed, else the picked record's
@@ -466,8 +495,13 @@ pub(crate) fn field_text(
     selected: Option<u64>,
     items: &[ReferencePickerItem],
 ) -> String {
-    let _ = (query, selected, items);
-    String::new()
+    if !query.is_empty() {
+        return String::from(query);
+    }
+    selected
+        .and_then(|id| items.iter().find(|i| i.id == id))
+        .map(|i| String::from(i.label.as_str()))
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
