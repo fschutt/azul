@@ -4,9 +4,17 @@ Branch `wt/writer6` from `25d78e309`. Brief: scripts/waves/wave6/WRITER6.md.
 
 ## DONE (commits)
 - 8ffc4f4fd LOOK findings (AzNotes E2E passes on the prebuilt; screenshots in target/writer6-look/, not committed)
+- 69c7c28d9 RED core (undo keys reach callbacks), cabe8e0b2 RED layout (+ DefaultAction stubs),
+  2ba518aeb GREEN core, 5eb307591 GREEN default_actions, b059a2a37 GREEN dll arm.
+  NOT done (for HEADLESS6): layout/src/e2e/runner.rs has no UndoTextEdit arm (never had one; the body
+  lives in dll event.rs `undo_text_edit_on`). macOS Edit-menu `undo:` still applies UndoTextEdit directly.
 
 ## IN PROGRESS
-- Undo/Redo ownership. DESIGN (decided): the browser keydown model. core `handle_key_down` stops
+- NEXT: the RichTextEditor's VirtualKeyDown takes Ctrl/Cmd+Z / Shift+Z / Y: runs its history and calls
+  prevent_default (layout/src/widgets/rich_text_editor.rs key handler). RED test in
+  layout/tests/a_rich_text_editor_keeps_one_model_and_one_history.rs style.
+
+## DONE design notes - Undo/Redo ownership. DESIGN (decided): the browser keydown model. core `handle_key_down` stops
   claiming primary+Z / Shift+Z / Y for the PRIMARY seat (no AddAndSkip: the KeyDown passes to callbacks);
   the engine's text undo becomes the key's DEFAULT ACTION (`DefaultAction::UndoTextEdit { target }` /
   `RedoTextEdit { target }`, appended to core's DefaultAction) decided in layout/src/default_actions.rs
