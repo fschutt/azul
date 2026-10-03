@@ -382,8 +382,33 @@ pub fn check_published(selector: &str, domain: &str, public_key: &str) -> Publis
 
 /// The report as the Sending page shows it: one line for DKIM, DMARC and SPF each.
 pub fn report_lines(report: &DnsReport) -> Vec<String> {
-    let _ = report;
-    Vec::new()
+    let dkim = match &report.dkim {
+        Published::Matches => String::from("DKIM record: published, with this key."),
+        Published::Different(key) if key.is_empty() => String::from(
+            "DKIM record: the key at this name is revoked (p= is empty): publish the record above.",
+        ),
+        Published::Different(key) => format!(
+            "DKIM record: another key is published at this name (p={key}): publish the record \
+             above instead."
+        ),
+        Published::Missing => String::from(
+            "DKIM record: not found yet (a new record can take up to an hour to show).",
+        ),
+        Published::Unknown(why) => format!("DKIM record: DNS could not be asked ({why})."),
+    };
+    let dmarc = match &report.dmarc {
+        Some(record) => format!("DMARC: {record}"),
+        None => String::from("DMARC: no record yet (see the note below)."),
+    };
+    let spf = match &report.spf {
+        Some(record) if record.to_ascii_lowercase().contains("-all") => format!(
+            "SPF: {record} - it ends in -all, so receivers that check SPF alone refuse mail \
+             from this computer; ~all is safer."
+        ),
+        Some(record) => format!("SPF: {record}"),
+        None => String::from("SPF: no record (see the note below)."),
+    };
+    vec![dkim, dmarc, spf]
 }
 
 /// The DKIM, DMARC and SPF records of `domain` (blocking: call it from an azul `Thread`).
