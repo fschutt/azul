@@ -2024,7 +2024,10 @@ fn zoom_dom(zoom: StatusBarZoom, style: &StatusBarStyle, theme: UiTheme) -> Dom 
             LayoutMarginLeft::const_px(margin),
         ))]),
     );
-    let mut slider = Slider::create(percent, min, max);
+    // The bar's own slider: the bar names it (a screen reader said "slider"
+    // and nothing else).
+    let mut slider =
+        Slider::create(percent, min, max).with_accessibility_name(AzString::from_const_str("Zoom"));
     slider.track_style =
         OptionCssPropertyWithConditionsVec::Some(style.resolved_slider_track_style());
     slider.thumb_style = OptionCssPropertyWithConditionsVec::Some(thumb_style);
