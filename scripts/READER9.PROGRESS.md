@@ -22,19 +22,15 @@ AzReader, lib azreader). Never compile; rustfmt --edition 2021 <file> as the par
 - (nothing half-done; every file above is committed)
 
 ## NEXT (exact)
-1. ENGINE RED: test in examples/azul-reader/src/paginate.rs (new file) - "a page of text never
-   ends inside a line": Dom of N paragraphs, font-size 10px, line-height 20px, width 300;
-   page height 105 -> every break y of `Pdf::create().compute_pagination_with_policy(styled,
-   300.0, 105.0, FontCacheSnapshot::empty(), ImageCacheSnapshot::empty(), reading_policy())`
-   is a multiple of 20 (does not build until the API exists = RED).
-2. ENGINE GREEN: dll/src/desktop/extra/pdf/mod.rs - add `Pdf::compute_pagination_with_policy`
-   (same as compute_pagination, page_config = FakePageConfig { break_policy: policy,
-   ..FakePageConfig::new() }), `engine::styled_dom_pagination` gets a `page_config` param
-   (compute_pagination passes FakePageConfig::new()); wasm stub in dll/src/unified/pdf.rs.
-   api.json entry listed in the report (Pdf.compute_pagination_with_policy, args styled_dom
-   StyledDom, page_width_px f32, page_height_px f32, font_cache FontCacheSnapshot, image_cache
-   ImageCacheSnapshot, policy BreakPolicy -> PaginationSnapshot).
-3. src/paginate.rs: reading column Dom (root css from settings: width, font-family, font-size,
+1-2. DONE: fbd7a91d4 RED (src/paginate.rs test a_page_of_text_never_ends_inside_a_line +
+   reading_policy + page_map) / d4d6798fc GREEN (dll: Pdf::compute_pagination_with_policy,
+   engine::styled_dom_pagination_with_policy replaces styled_dom_pagination; wasm stub).
+   api.json entry for the report: Pdf.compute_pagination_with_policy(self ref, styled_dom
+   StyledDom, page_width_px f32, page_height_px f32, font_cache FontCacheSnapshot,
+   image_cache ImageCacheSnapshot, policy BreakPolicy) -> PaginationSnapshot, fn_body
+   `object.compute_pagination_with_policy(styled_dom, page_width_px, page_height_px,
+   &font_cache, &image_cache, policy)`.
+3. src/paginate.rs (append below page_map): reading column Dom (root css from settings: width, font-family, font-size,
    line-height, text-align) + chapter Dom (Dom::create_from_parsed_xml(chapter.xml)), the
    chapter thread (read_chapter + decode pictures with RawImage::decode_image_bytes_any,
    thumbnail to <= 2x page, then pagination) -> write-back {book, chapter, generation, Chapter,
