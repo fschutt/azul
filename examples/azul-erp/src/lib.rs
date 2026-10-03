@@ -53,3 +53,5 @@ pub mod views;
 pub mod sample;
 /// The app's state without a window: navigation, forms, what changes write.
 pub mod app;
+/// The DOM ids and classes (`__azerp_` prefix), each defined once.
+pub mod ids;
