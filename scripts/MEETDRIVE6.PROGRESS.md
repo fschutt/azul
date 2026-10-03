@@ -65,21 +65,9 @@ scratchpad/msg.txt).
 - LOOK (paused: battery warning - no long headless runs until told otherwise)
 
 ## NEXT
-- (Quick access row is Explorer's root item - not a bug.)
-- AzMeet: About section =
-  AboutDialog (ui.rs settings `_ =>` arm); shortcuts as an appkit Shortcut table checked by a
-  test; E2E: AZLIN_DATA per app, check meet/<room>/chat.jsonl + meet/settings.json
-- then the report scripts/MEETDRIVE6_2026_10_03.md
-(older NEXT below)
-- when power allows: run scripts/azdrive_e2e.py (prebuilt AzDrive) through run_capped, look at
-  every screenshot (target/md6/drive-shots), then AzMeet (run the WHOLE meet E2E under ONE
-  run_capped with `--capped ""`: the runner holds a machine-wide lock, nested runners deadlock)
-- meanwhile (no runs needed): code work that does not depend on seeing:
-  1. AzDrive `ids` module: `__azdrive_` prefixed const AzString ids/classes (from_const_str is
-     NOT in the generated azul crate - check `AzString` ctor options first; fallback: `const &str`
-     names defined once + `AzString::from(ids::X)`), update azdrive_e2e.py + browse.py
-  2. AzMeet `ids` module `__azmeet_`, initials via azul_pim, settings through a Drive on a Thread
-  3. both apps on azul-appkit (args via AppArgs + app-only switches split off first)
+- DONE. Report scripts/MEETDRIVE6_2026_10_03.md committed. (6d144e4c6 About = AboutDialog;
+  0601dacbd RED / 979fd8a9a keys table + Keyboard page; 6cca7d4f6 / f133ff49f AzMeet E2E files
+  check - PASSES against the prebuilt.)
 
 ## Seen broken (LOOK so far)
 - AzDrive This PC (flat light, 01-this-pc.png): renders. Broken:
