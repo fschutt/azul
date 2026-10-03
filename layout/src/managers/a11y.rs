@@ -426,7 +426,7 @@ impl A11yRetainedTree {
 /// One frame's inputs to the accessibility tree: everything a node's
 /// content, its place and the focus are built from.
 #[cfg(feature = "a11y")]
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct A11yTreeInputs<'a> {
     pub layout_results: &'a BTreeMap<DomId, DomLayoutResult>,
     pub scroll_manager: &'a crate::managers::scroll_state::ScrollManager,
@@ -513,7 +513,7 @@ impl Default for A11yManager {
 impl A11yManager {
     /// Creates a new `A11yManager` with an empty tree containing only a root window node.
     #[must_use]
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         let root_id = A11yNodeId(0);
         Self {
             root_id,
@@ -524,73 +524,201 @@ impl A11yManager {
                 root: None,
                 children: BTreeMap::new(),
             },
-            pending_post: None,
             last_rejection: None,
             scroll_dirty: false,
             last_scroll_rebuild: None,
+            retained: A11yRetainedTree::default(),
+            last_pass: A11yPassStats::default(),
         }
+    }
+
+    /// Bring the published tree up to date with this frame: the ONE pass
+    /// every layout runs (`LayoutWindow::update_a11y_tree`).
+    ///
+    /// Walks the exposed nodes and compares each one's inputs with the
+    /// retained tree's: a node whose inputs are unchanged is not built at all,
+    /// a changed one is built and compared with what was published. Then it
+    /// publishes ONLY what differs - a patch (`tree: None`) of the new and
+    /// changed nodes (a node that left goes with its parent's new child list)
+    /// - and NOTHING when nothing a screen reader can see changed. The first
+    /// pass, and the first after [`Self::resend_full_tree`] or a refused
+    /// update, publishes the whole tree.
+    ///
+    /// Before this the tree was rebuilt and published whole after every
+    /// layout: every frame of a layout-property tween re-sent all of
+    /// `AzWidgets`' ~3500 nodes (~3 ms per frame), and every platform adapter
+    /// re-diffed them.
+    pub fn refresh(&mut self, inputs: &A11yTreeInputs<'_>) -> A11yPassStats {
+        let full = !self.tree_initialized || self.retained.nodes.is_empty();
+        let rebuild = Self::rebuild_retained(&mut self.retained, self.root_id, inputs);
+        let mut stats = A11yPassStats {
+            nodes: self.retained.nodes.len(),
+            built: rebuild.built,
+            removed: rebuild.removed,
+            full,
+            ..A11yPassStats::default()
+        };
+        let update = if full {
+            Some(self.retained.full_update(self.root_id))
+        } else if rebuild.changed.is_empty() && !rebuild.focus_changed {
+            None
+        } else {
+            Some(TreeUpdate {
+                nodes: rebuild
+                    .changed
+                    .iter()
+                    .filter_map(|id| self.retained.nodes.get(id).map(|r| (*id, r.node())))
+                    .collect(),
+                tree: None,
+                focus: self.retained.focus.unwrap_or(self.root_id),
+                tree_id: accesskit::TreeId::ROOT,
+            })
+        };
+        if let Some(update) = update {
+            stats.sent = update.nodes.len();
+            stats.published = true;
+            if self.publish(update).is_err() {
+                // What the adapter holds and what we retained may differ
+                // now: the next pass sends the whole tree again.
+                self.resend_full_tree();
+                stats.published = false;
+            }
+        }
+        self.last_pass = stats;
+        stats
+    }
+
+    /// Forget the retained tree: the next [`Self::refresh`] builds every node
+    /// and publishes the WHOLE tree. For a platform adapter created after the
+    /// first tree (it holds nothing yet) and after a refused update (what it
+    /// holds is no longer known).
+    pub fn resend_full_tree(&mut self) {
+        self.retained = A11yRetainedTree::default();
+    }
+
+    /// The complete tree as published so far (every node, the focus) - what a
+    /// platform adapter holds once it took every parked update.
+    #[must_use]
+    pub fn full_tree(&self) -> TreeUpdate {
+        self.retained.full_update(self.root_id)
+    }
+
+    /// One node of the tree as published so far.
+    #[must_use]
+    pub fn published_node(&self, id: A11yNodeId) -> Option<Node> {
+        self.retained.nodes.get(&id).map(RetainedA11yNode::node)
+    }
+
+    /// A node and focus published outside [`Self::refresh`] (the text-edit
+    /// increment, `LayoutWindow::update_a11y_tree_incremental`): the retained
+    /// tree records them as the adapter now holds them, and the next pass
+    /// builds the node again (its inputs are unknown) and sends it if the
+    /// full build differs.
+    pub fn note_published_node(&mut self, id: A11yNodeId, node: Node, focus: A11yNodeId) {
+        if let Some(r) = self.retained.nodes.get_mut(&id) {
+            r.inputs = 0;
+            r.content = node;
+            r.children = None;
+        }
+        self.retained.focus = Some(focus);
     }
 
     /// THE ONE WAY an update reaches `last_tree_update`.
     ///
-    /// Folds `update` into whatever is still parked (a full update
-    /// supersedes; an incremental one merges node-by-node so the slot always
-    /// holds ONE coherent update — replacing a parked full tree with a later
-    /// incremental used to drop the full tree on the floor), then replays
-    /// the consumer's merge rules against the tree the adapter actually
-    /// holds. Refused updates leave the slot exactly as it was and are
-    /// recorded in `last_rejection`; the caller decides (incremental →
+    /// Replays the consumer's merge rules against the tree the adapter will
+    /// hold once whatever is parked is handed over (`delivered`, advanced by
+    /// every accepted update) - a patch in place, at the cost of the patch
+    /// ([`A11yTreeMirror::apply_patch_in_place`]); a full tree must be
+    /// complete on its own. Then folds `update` into whatever is still parked
+    /// (see [`Self::fold`]), so the slot always holds ONE coherent update.
+    /// Refused updates leave the slot and the mirror exactly as they were and
+    /// are recorded in `last_rejection`; the caller decides (incremental →
     /// rebuild the full tree; full → keep the last good state).
+    ///
+    /// # Errors
+    ///
+    /// The invariant the consumer would have panicked on.
     pub fn publish(&mut self, update: TreeUpdate) -> Result<(), A11yUpdateError> {
-        let prev = self.last_tree_update.take();
-        let merged = Self::merge_pending(prev.clone(), update);
-        match self.delivered.apply(&merged) {
-            Ok(post) => {
-                if merged.tree.is_some() {
-                    self.tree_initialized = true;
+        let removed = if update.tree.is_some() {
+            // Complete on its own: a parked update it supersedes may have
+            // carried nodes this one only lists.
+            match A11yTreeMirror::default().apply(&update) {
+                Ok(post) => {
+                    self.delivered = post;
+                    BTreeSet::new()
                 }
-                self.pending_post = Some(post);
-                self.last_tree_update = Some(merged);
-                Ok(())
+                Err(e) => {
+                    self.last_rejection = Some(e);
+                    return Err(e);
+                }
             }
-            Err(e) => {
-                self.last_tree_update = prev;
-                self.last_rejection = Some(e);
-                Err(e)
+        } else {
+            match self.delivered.apply_patch_in_place(&update) {
+                Ok(removed) => removed,
+                Err(e) => {
+                    self.last_rejection = Some(e);
+                    return Err(e);
+                }
             }
+        };
+        if update.tree.is_some() {
+            self.tree_initialized = true;
         }
+        self.last_tree_update = Some(match self.last_tree_update.take() {
+            None => update,
+            Some(parked) => Self::fold(parked, update, &removed),
+        });
+        Ok(())
     }
 
-    /// Fold `new` into a still-parked update (see [`Self::publish`]).
-    fn merge_pending(prev: Option<TreeUpdate>, new: TreeUpdate) -> TreeUpdate {
-        match prev {
-            None => new,
-            Some(_) if new.tree.is_some() => new,
-            Some(mut parked) => {
-                for (id, node) in new.nodes {
-                    if let Some(slot) = parked.nodes.iter_mut().find(|(i, _)| *i == id) {
-                        slot.1 = node;
-                    } else {
-                        parked.nodes.push((id, node));
-                    }
+    /// Fold `new` into a still-parked update (see [`Self::publish`]): a full
+    /// tree supersedes; a patch replaces or adds its nodes, and every parked
+    /// node it cut loose (`removed`) leaves the fold - a removed node may not
+    /// appear in an update (the consumer would keep it, unreachable, or
+    /// refuse it as an orphan), and a full tree with an unreachable node in
+    /// it is refused the same way.
+    fn fold(mut parked: TreeUpdate, new: TreeUpdate, removed: &BTreeSet<A11yNodeId>) -> TreeUpdate {
+        if new.tree.is_some() {
+            return new;
+        }
+        if !removed.is_empty() {
+            parked.nodes.retain(|(id, _)| !removed.contains(id));
+        }
+        // A frame's patch is a node or two: a scan beats indexing a parked
+        // full tree; a big patch indexes it once.
+        if new.nodes.len() <= 8 {
+            for (id, node) in new.nodes {
+                if let Some(slot) = parked.nodes.iter_mut().find(|(i, _)| *i == id) {
+                    slot.1 = node;
+                } else {
+                    parked.nodes.push((id, node));
                 }
-                parked.focus = new.focus;
-                parked
+            }
+        } else {
+            let mut index: HashMap<A11yNodeId, usize> = parked
+                .nodes
+                .iter()
+                .enumerate()
+                .map(|(i, (id, _))| (*id, i))
+                .collect();
+            for (id, node) in new.nodes {
+                if let Some(&i) = index.get(&id) {
+                    parked.nodes[i].1 = node;
+                } else {
+                    index.insert(id, parked.nodes.len());
+                    parked.nodes.push((id, node));
+                }
             }
         }
+        parked.focus = new.focus;
+        parked
     }
 
-    /// Hand the parked update to a platform adapter and advance
-    /// `delivered` to the tree the adapter will hold afterwards. Every shell
-    /// drains the slot through this — a raw `last_tree_update.take()` would
-    /// leave the mirror behind and the next incremental update would be
-    /// validated against the wrong tree.
+    /// Hand the parked update to a platform adapter. Every shell drains the
+    /// slot through this. (`delivered` already describes the tree the
+    /// adapter holds afterwards: [`Self::publish`] advanced it.)
     pub fn take_pending(&mut self) -> Option<TreeUpdate> {
-        let update = self.last_tree_update.take()?;
-        if let Some(post) = self.pending_post.take() {
-            self.delivered = post;
-        }
-        Some(update)
+        self.last_tree_update.take()
     }
 
     /// A scroll offset changed: bounds and `scroll_x/y` in the delivered tree
