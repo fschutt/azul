@@ -24,7 +24,7 @@
 
 - 80517503c, 25ab9880d dashboard fixes (start_query takes CallbackInfo by value, as the bindings do)
 - a4520f9a5 scripts/azdashboard_e2e.py; 709e679b8 cleanup
-- (this commit) the report scripts/DATATABLE7_2026_10_03.md
+- 80715a711 the report scripts/DATATABLE7_2026_10_03.md; 2824494ad E2E wait fix
 
 ## IN PROGRESS / NEXT
 - DONE. Only if resumed with time left: a last read-through of data_table.rs for compile slips
