@@ -25,13 +25,16 @@ Screenshots: target/small6-shots/ (not committed). Look driver: target/small6/lo
 - AzShells: e9b384a0e body(); fc86b135a appkit choose_theme/choose_mode (INFRA6's crate, refactor);
   2e0536f2c on appkit + ids.rs (__azshells_); 3a5fde5f2 E2E on azlin_e2e.
 
+- AzWidgets: 1c44c30e8 one crate::keep (DEDUP); 5a4e91e15 Building blocks section (blocks.rs); 0eba1189e
+  Flat/Flora = the app theme (get_theme/set_theme); 84ddb8ad2 e2e/building_blocks.json; e22863a7a Titlebar.
+
 ## NEXT (exact)
-- AzWidgets (examples/azul-widgets/src/lib.rs, 1459 lines + section files): add a section file `newer.rs`
-  ("New building blocks"): RichTextEditor (+ RichTextDoc), ListSelection demo (a list with click / Ctrl /
-  Shift), CloseGuard (dirty toggle + ask), StatusBarZoom::create(percent, min, max), Button with_disabled /
-  with_toggled, DatePicker with_week_start; body fill (`margin: 0` already there); then the theme toggle
-  follows the app theme (set_theme) - decide; LOOK briefly (it has a <video>: short run only).
-- then AzMaps, AzReview (shells + themes + appkit + Drive), AzBuilder (minimal).
+- AzMaps (examples/azul-maps/src/lib.rs, 634 lines, hand-rolled header): on BrowserShell (S5) - address bar
+  slot = search/coords + zoom/pan Toolbar buttons, tree = pins list (TreeView), content = the MapWidget,
+  details = selected pin (DetailsPane), status bar = centre/zoom; ShellThemeScope::body(); appkit (args,
+  settings: last viewport; pins saved as maps/pins.json through kit::spawn_file_jobs); ids `__azmaps_`;
+  E2E scripts/azmaps_e2e.py (pan / zoom buttons -> AZMAPS_VIEW lines; pin list; restart remembers).
+- then AzReview (DocumentShell), AzBuilder (minimal).
 - AzShells: body(), appkit, prefixes, About, E2E.
 - AzWidgets: the new widgets; app theme; LOOK (short, it has a <video>).
 - AzMaps, AzReview: onto shells + themes + appkit + Drive; AzBuilder: checklist minimal.
