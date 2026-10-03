@@ -267,11 +267,11 @@ pub mod map_themes;
 /// Renders a window's `Menu` as a horizontal bar; items open dropdowns via the
 /// unified `WindowPosition::RelativeToParentWindow` popup path.
 pub mod menubar;
-/// Message list widget.
+/// Summary list widget (was `MessageList`).
 ///
-/// A mail window's middle pane: a search row, the sort header and the
-/// virtualised, grouped message rows; see `message_list.rs`.
-pub mod message_list;
+/// A mail window's middle pane, a notes app's note list: a search row, the
+/// sort header and the virtualised, grouped rows; see `summary_list.rs`.
+pub mod summary_list;
 /// Microphone-capture widget (P7) — same "dumb widget" architecture as the
 /// capture widgets, audio instead of video (no GL): a background thread feeds
 /// each `AudioFrame` to the user's `on_frame` hook.
@@ -1489,11 +1489,11 @@ mod label_convention {
                 .dom(),
             ),
             (
-                "message_list",
-                super::message_list::MessageList::create(
-                    super::message_list::MessageRowVec::from_vec(vec![
-                        super::message_list::MessageRow::create_group(AzString::from("Today")),
-                        super::message_list::MessageRow::create(
+                "summary_list",
+                super::summary_list::SummaryList::create(
+                    super::summary_list::SummaryRowVec::from_vec(vec![
+                        super::summary_list::SummaryRow::create_group(AzString::from("Today")),
+                        super::summary_list::SummaryRow::create(
                             1,
                             AzString::from("Google Mail-Team"),
                             AzString::from("Welcome"),
@@ -1501,7 +1501,7 @@ mod label_convention {
                         .with_date(AzString::from("21:12"))
                         .with_unread(true)
                         .with_selected(true),
-                        super::message_list::MessageRow::create(
+                        super::summary_list::SummaryRow::create(
                             2,
                             AzString::from("Alice"),
                             AzString::from("Invoice"),
@@ -2737,7 +2737,7 @@ mod theme_contrast {
         "tabs (header)",
         "titlebar",
         "tree_view",
-        "message_list",
+        "summary_list",
         // The app shells (`shells::fixtures::every_shell`): window chrome.
         "office_shell",
         "navigation_pane",

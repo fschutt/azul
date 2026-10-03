@@ -24,7 +24,9 @@ Usage:
   python3 scripts/waves/wave7/widgets7_rename_summary_list.py --api       # api.json (keys,
                                                                           # externals, fn bodies)
   python3 scripts/waves/wave7/widgets7_rename_summary_list.py --layout    # done by WIDGETS7
-Each run is idempotent; it prints the files it changed.
+Each run is idempotent; it prints the files it changed. After --api, regenerate the codegen
+module table (its rows are sorted and binary-searched, so never sed it):
+  python3 css/tools/gen_codegen_lowering.py      # css/src/codegen/lower_types.rs
 """
 import os
 import sys
@@ -56,7 +58,6 @@ APPS = [
 ]
 LAYOUT = [
     "layout/src",
-    "css/src/codegen/lower_types.rs",
     "examples/azul-widgets/src",
 ]
 

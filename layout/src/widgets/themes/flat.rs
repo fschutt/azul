@@ -5388,7 +5388,7 @@ fn flat_sheet() -> Vec<CssPropertyWithConditions> {
     v
 }
 
-// ==== message_list ====
+// ==== summary_list ====
 //
 // The flat message list is Outlook 2010's on Windows 7: a white list under
 // a search strip and a sort band on the window surface, the rows a hairline
@@ -5399,9 +5399,9 @@ fn flat_sheet() -> Vec<CssPropertyWithConditions> {
 // header is a band of the strip colour. At night the desktop's surfaces and
 // inks and the tree's dark selection.
 
-/// Flat's message-list look.
+/// Flat's summary-list look.
 #[must_use]
-pub(crate) fn message_list_look() -> crate::widgets::message_list::MessageListLook {
+pub(crate) fn summary_list_look() -> crate::widgets::summary_list::SummaryListLook {
     use super::decl;
 
     let mut toolbar = decl::padding(6, 8, 6, 8).to_vec();
@@ -5441,7 +5441,7 @@ pub(crate) fn message_list_look() -> crate::widgets::message_list::MessageListLo
     let mut attachment = vec![decl::font_size(14)];
     attachment.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
 
-    crate::widgets::message_list::MessageListLook {
+    crate::widgets::summary_list::SummaryListLook {
         list: flat_sheet(),
         toolbar,
         search: decl::margin(0, 6, 0, 0).to_vec(),
@@ -5466,8 +5466,8 @@ pub(crate) fn message_list_look() -> crate::widgets::message_list::MessageListLo
 
 /// The flat message list.
 #[must_use]
-pub fn message_list(l: crate::widgets::message_list::MessageList) -> Dom {
-    crate::widgets::message_list::build(l, &message_list_look())
+pub fn summary_list(l: crate::widgets::summary_list::SummaryList) -> Dom {
+    crate::widgets::summary_list::build(l, &summary_list_look())
 }
 
 // ==== reading_pane ====

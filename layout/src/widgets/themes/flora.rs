@@ -6985,7 +6985,7 @@ fn flora_label() -> Vec<CssPropertyWithConditions> {
     v
 }
 
-// ==== message_list ====
+// ==== summary_list ====
 //
 // A flora message list is a leaf under a toolbar strip and a sort band: the
 // rows a --fl-sep hairline apart, the sender in --fl-ink (bold when unread),
@@ -6995,9 +6995,9 @@ fn flora_label() -> Vec<CssPropertyWithConditions> {
 // inside; a group header is `.fl-label` on the strip. At night every ink
 // and wash takes its night value.
 
-/// Flora's message-list look.
+/// Flora's summary-list look.
 #[must_use]
-pub(crate) fn message_list_look() -> crate::widgets::message_list::MessageListLook {
+pub(crate) fn summary_list_look() -> crate::widgets::summary_list::SummaryListLook {
     use super::decl;
 
     let mut toolbar = decl::padding(6, 8, 6, 8).to_vec();
@@ -7035,7 +7035,7 @@ pub(crate) fn message_list_look() -> crate::widgets::message_list::MessageListLo
     let mut attachment = vec![decl::font_size(14)];
     attachment.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
 
-    crate::widgets::message_list::MessageListLook {
+    crate::widgets::summary_list::SummaryListLook {
         list: flora_leaf(),
         toolbar,
         search: decl::margin(0, 6, 0, 0).to_vec(),
@@ -7060,8 +7060,8 @@ pub(crate) fn message_list_look() -> crate::widgets::message_list::MessageListLo
 
 /// The flora message list.
 #[must_use]
-pub fn message_list(l: crate::widgets::message_list::MessageList) -> Dom {
-    crate::widgets::message_list::build(l, &message_list_look())
+pub fn summary_list(l: crate::widgets::summary_list::SummaryList) -> Dom {
+    crate::widgets::summary_list::build(l, &summary_list_look())
 }
 
 // ==== reading_pane ====

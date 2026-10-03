@@ -1343,7 +1343,7 @@ extern "C" fn on_list_view_column_click(mut refany: RefAny, info: CallbackInfo) 
 // itself, which stays the page's (`widgets::wheel_ownership`): the box
 // listens for `ScrollEnd`, reads its offset and size, and the app maps them
 // to rows (`ListView::visible_row_range`). Shared by every virtualised
-// list (the `ListView`'s lazy-load hook, the mail `MessageList`).
+// list (the `ListView`'s lazy-load hook, the mail `SummaryList`).
 
 /// The hook a virtualised list's scroll box registers: `cb` runs with
 /// `refany` when a scroll gesture over the box SETTLES.
