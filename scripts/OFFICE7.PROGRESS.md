@@ -38,6 +38,10 @@ Branch `wt/office7` from `2e55eef06` (the wave-6 integration; every app compiles
 - Report `scripts/OFFICE7_2026_10_03.md`.
 
 ## Decisions
+- WIDGETS7 heads-up (coordinator): MessageList -> SummaryList is applied by the parent AFTER merging this
+  branch; keep using the MessageList names here (I do not touch them).
+- AzShow text on the shared RTE: RTE got `line_height` + proportional indents (d02ac85f5 RED, fa1601fe3 GREEN;
+  minimal edit of WIDGETS7's rich_text_editor.rs, api.json field + 2 methods in the report).
 - Item 1 is a refactor (no behaviour change): no RED commit.
 - Item 3: the import is read on appkit's file thread (Drive pattern, `without_manifest` at the file's
   folder); the docx / Markdown parse runs on the UI thread when the answer arrives (as an Open does).
