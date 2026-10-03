@@ -62,10 +62,10 @@ Commit messages are written to scripts/.paint7_msg.txt (untracked, never staged)
     IN PLACE (scroll / opacity / transform; blur stays a layer - note in report).
 
 ## NEXT
-- 4d: AzDrive Options -> Escape -> set_theme flora + set_mode dark -> wait_settled -> shot (probe in
-  /tmp/paint7/probe.py); 5: AzShow slide sorter / tab switch settled shots; AzCalendar backstage nav
-  item before the gap. Then the report. (run prebuilt AzTasks/AzCalendar with wait_settled),
-  7 (overflow:hidden span clip)
+- items 1-7 done. Verified on prebuilt binaries with wait_settled: AzShow sorter / VIEW tab settled
+  right (SHEETSHOW6's shots were mid-slide); AzDrive clean when settled between steps, broken (stale
+  anim values) when the theme switch lands mid-exit -> fixed 53f1b748b.
+- write scripts/PAINT7_2026_10_03.md (report) and commit.
 
 ## Decisions / open questions
 - D1 paint_in_flow_child's absolute/fixed scroll-chain detour is now unreachable (abs boxes are
