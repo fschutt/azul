@@ -428,8 +428,89 @@ pub fn apply_patches_from_directory(api_data: &mut ApiData, dir_path: &Path) -> 
 /// later patch of the round (a replace-mode map). A later removal of the
 /// entry or its whole class is not a drop.
 pub fn dropped_entries(patches: &[(String, ApiPatch)], api_data: &ApiData) -> Vec<(String, String)> {
-    let _ = (patches, api_data);
-    Vec::new()
+    let mut out = Vec::new();
+    for (i, (filename, patch)) in patches.iter().enumerate() {
+        for (version, version_patch) in &patch.versions {
+            for module_patch in version_patch.modules.values() {
+                for (class, cp) in &module_patch.classes {
+                    if cp.is_removal() {
+                        continue;
+                    }
+                    let written = [(&cp.functions, false), (&cp.constructors, true)];
+                    for (map, constructor) in written {
+                        for name in map.iter().flat_map(|entries| entries.keys()) {
+                            let entry = EntryRef {
+                                version: version.as_str(),
+                                class: class.as_str(),
+                                name: name.as_str(),
+                                constructor,
+                            };
+                            if !entry.removed_after(patches, i) && !entry.is_in(api_data) {
+                                out.push((filename.clone(), format!("{class}.{name}")));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// A function (constructor) of a class, as a patch names it.
+struct EntryRef<'a> {
+    version: &'a str,
+    class: &'a str,
+    name: &'a str,
+    constructor: bool,
+}
+
+impl EntryRef<'_> {
+    /// Whether a patch after the `after`-th removes the entry or its class.
+    fn removed_after(&self, patches: &[(String, ApiPatch)], after: usize) -> bool {
+        patches.iter().skip(after + 1).any(|(_, patch)| {
+            let Some(version) = patch.versions.get(self.version) else {
+                return false;
+            };
+            version
+                .modules
+                .values()
+                .filter_map(|m| m.classes.get(self.class))
+                .any(|later| {
+                    let list = if self.constructor {
+                        &later.remove_constructors
+                    } else {
+                        &later.remove_functions
+                    };
+                    later.is_removal()
+                        || list
+                            .iter()
+                            .flatten()
+                            .any(|n| n.as_str() == self.name || n.as_str() == "*")
+                })
+        })
+    }
+
+    /// Whether api.json has the entry, in any module (a later patch may
+    /// have moved the class).
+    fn is_in(&self, api_data: &ApiData) -> bool {
+        let Some(version) = api_data.0.get(self.version) else {
+            return false;
+        };
+        version
+            .api
+            .values()
+            .filter_map(|m| m.classes.get(self.class))
+            .any(|c| {
+                let map = if self.constructor {
+                    &c.constructors
+                } else {
+                    &c.functions
+                };
+                map.as_ref()
+                    .is_some_and(|entries| entries.contains_key(self.name))
+            })
+    }
 }
 
 /// Explain what patches in a directory will do without applying them
