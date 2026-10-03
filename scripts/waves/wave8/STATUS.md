@@ -14,8 +14,9 @@ progress file"). Worktrees: /Users/fschutt/Development/azul/.claude/worktrees/ag
 | XML8 | acfe4639b5484119d | wt/xml8 | DONE (23 commits; report scripts/XML8_2026_10_03.md; spec tokenizer + rule-table tree builder (xml_html_rules.rs / _tokenizer.rs / _tree.rs); Python port = Chrome on all 20 corpus mails; probe + port kept in ~/Development/azul-work/evidence/xml8; mail corpus now 20 mails (2 AzMail samples); no api.json) |
 | VIDEO8 | a6e731cce5b11a63a | wt/video8 | DONE (report scripts/VIDEO8_2026_10_03.md; listed correctness items were already fixed (MEET2); built: bitrate adaptation, Opus via AudioToolbox, Vulkan H.264 encode (untested), echo canceller; zero-copy designed only; api.json REQUIRED: VideoEncoder.set_bitrate, AudioEncoder, AudioDecoder, OptionAudioFrame, EchoCanceller) |
 | RULINGS8 | addd801aa5b76e026 | wt/rulings8 | DONE (report scripts/RULINGS8_2026_10_03.md; focus walks get_event_path across the VirtualView host; inline-block lines: strut, strut font, vertical-align middle, flex/grid baselines, empty inline = 0 height - 5 causes; widget CSS unchanged (none needed); 4 tests need MAILREF8 merged too; no api.json) |
-| LAYOUTPERF8 | a8bde8e3457166c14 | wt/layoutperf8 | running (worktree .claude/worktrees/agent-a8bde8e3457166c14; base e290321da) |
+| LAYOUTPERF8 | a8bde8e3457166c14 | wt/layoutperf8 | MERGED, DONE (report scripts/LAYOUTPERF8_2026_10_03.md; clone_node_from_old dropped every node\'s cached flex measurements -> a one-box slide re-laid out 12181 flex items + 2853 text runs; kept now (dropped only under a restyled node / id change; vw/vh clear all); anonymous text wrappers keep their layout; expected 157-309 -> ~20-35 ms/frame) |
 
 2026-10-03 integration: 9 of 10 merged (THREADS8, ANIM8, XML8, ABI8, WAYLAND8, VIDEO8, MAILREF8, RULINGS8, WPT8 - only
 append conflicts); api.json converged 113ea54f1 (XML8's `Content` enum renamed ContentModel - autofix had proposed
 replacing the CSS Content type with it; ANIM8 closure lifetime fixed). NOT BUILT - waiting for LAYOUTPERF8.
+2026-10-03: ALL TEN MERGED; autofix 0 / 0; dylib + 24 crates building (-j 4, on power).
