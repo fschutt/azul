@@ -21063,6 +21063,7 @@ pub fn add_debug_request_waker(waker: Arc<dyn Fn() + Send + Sync>) {
 #[cfg(feature = "std")]
 pub fn announce_debug_request() {
     DEBUG_REQUEST_WAKE.store(true, core::sync::atomic::Ordering::Release);
+    DEBUG_REQUEST_WAKE_GENERATION.fetch_add(1, core::sync::atomic::Ordering::AcqRel);
     let wakers: Vec<Arc<dyn Fn() + Send + Sync>> = DEBUG_REQUEST_WAKERS
         .lock()
         .map(|w| w.clone())
@@ -21091,7 +21092,7 @@ static DEBUG_REQUEST_WAKE_GENERATION: core::sync::atomic::AtomicU64 =
 #[cfg(feature = "std")]
 #[must_use]
 pub fn debug_request_wake_generation() -> u64 {
-    0
+    DEBUG_REQUEST_WAKE_GENERATION.load(core::sync::atomic::Ordering::Acquire)
 }
 
 /// One window's view of the debug-request announcements: which one it last
@@ -21114,8 +21115,11 @@ impl DebugWakeSeen {
     /// Is `generation` an announcement this window has not re-armed for
     /// yet? Remembers it.
     pub fn take_at(&mut self, generation: u64) -> bool {
-        let _ = generation;
-        false
+        if generation == self.seen {
+            return false;
+        }
+        self.seen = generation;
+        true
     }
 }
 

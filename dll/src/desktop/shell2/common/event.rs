@@ -13217,8 +13217,15 @@ pub trait PlatformWindow {
     /// (`process_timers_and_threads`; the desktop loops also through the
     /// app-event collector).
     fn serve_debug_request_wake(&mut self) {
+        // Per window: EVERY window re-arms once per announced request - the
+        // one that takes it off the shared queue and the one it is forwarded
+        // to by `window_id` (a dialog the app opened). The process-wide flag
+        // was taken by whichever loop looked first.
         #[cfg(feature = "debug-server")]
-        if azul_layout::e2e::take_debug_request_wake() {
+        if self
+            .get_layout_window()
+            .is_some_and(azul_layout::e2e::take_debug_request_wake_for)
+        {
             self.rearm_debug_poll();
         }
     }
