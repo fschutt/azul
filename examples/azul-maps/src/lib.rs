@@ -1,3 +1,5 @@
+pub mod model;
+
 use azul::{
     window::WindowDecorations,
     dom::GeolocationProbeConfig,
