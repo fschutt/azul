@@ -48,7 +48,10 @@ use azul_core::{
     callbacks::Update,
     dom::{Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass::Class, IdOrClassVec, OptionDom},
     events::FocusEventFilter,
-    menu::{Menu, MenuItem, MenuItemIcon, MenuItemState, MenuItemVec, MenuPopupPosition, StringMenuItem},
+    menu::{
+        Menu, MenuItem, MenuItemIcon, MenuItemState, MenuItemVec, MenuPopupPosition, OptionMenuItemIcon,
+        StringMenuItem,
+    },
     refany::RefAny,
     window::VirtualKeyCode,
 };
@@ -695,35 +698,587 @@ pub(crate) struct ToolbarLook {
 /// pinned theme's own look, or both looks merged part by part (the DOM is
 /// built once).
 pub(crate) fn look_for(theme: OptionUiTheme) -> ToolbarLook {
-    let _ = theme;
-    ToolbarLook::default()
+    use crate::widgets::themes::{flat, flora, theme_blocks::follow_props};
+    match theme.into_option() {
+        Some(UiTheme::Flat) => flat::toolbar_look(),
+        Some(UiTheme::Flora) => flora::toolbar_look(),
+        None => {
+            let (a, b) = (flat::toolbar_look(), flora::toolbar_look());
+            let both = |x: &[CssPropertyWithConditions], y: &[CssPropertyWithConditions]| {
+                follow_props(x, y).into_library_owned_vec()
+            };
+            ToolbarLook {
+                bar: both(&a.bar, &b.bar),
+                item: both(&a.item, &b.item),
+                item_pressed: both(&a.item_pressed, &b.item_pressed),
+                label: both(&a.label, &b.label),
+                icon: both(&a.icon, &b.icon),
+                arrow: both(&a.arrow, &b.arrow),
+                separator: both(&a.separator, &b.separator),
+                marker: match UiTheme::current() {
+                    UiTheme::Flat => a.marker,
+                    UiTheme::Flora => b.marker,
+                },
+            }
+        }
+    }
 }
 
-/// The toolbar's DOM in `look`.
+// ---- the base: the bar's structure, in every theme ----
+//
+// The metrics the overflow estimate counts (the item's border, padding,
+// gap, height and font size, the separator's width) are structure: they
+// live here, so a skin cannot make an item wider than [`item_width`] says.
+
+/// The gap between a tool's parts.
+fn column_gap(px: isize) -> CssPropertyWithConditions {
+    use azul_css::props::{basic::pixel::PixelValue, layout::LayoutColumnGap, property::LayoutColumnGapValue};
+    CssPropertyWithConditions::simple(CssProperty::ColumnGap(LayoutColumnGapValue::Exact(LayoutColumnGap {
+        inner: PixelValue::const_px(px),
+    })))
+}
+
+/// The bar: one row of items, centred on it, never wrapping - what an
+/// estimate got wrong is clipped, not wrapped onto a second row.
+pub(crate) static TOOLBAR_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_wrap(LayoutFlexWrap::NoWrap)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+];
+
+/// A tool: its parts in a row a gap apart, centred, a 1 px border (the
+/// skin colours it: transparent at rest), 3 x 5 px of padding, a fixed
+/// height, never shrinking, the space after it.
+pub(crate) fn toolbar_item_base() -> Vec<CssPropertyWithConditions> {
+    let mut v = alloc::vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+        CssPropertyWithConditions::simple(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+            inner: FloatValue::const_new(0),
+        })),
+        CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+        CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(
+            TOOLBAR_ITEM_HEIGHT_PX,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Default)),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(1))),
+        CssPropertyWithConditions::simple(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(
+            1,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(
+            LayoutBorderBottomWidth::const_px(1),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(1))),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
+            inner: BorderStyle::Solid,
+        })),
+        CssPropertyWithConditions::simple(CssProperty::const_border_right_style(StyleBorderRightStyle {
+            inner: BorderStyle::Solid,
+        })),
+        CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(StyleBorderBottomStyle {
+            inner: BorderStyle::Solid,
+        })),
+        CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle {
+            inner: BorderStyle::Solid,
+        })),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(3))),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(5))),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(3))),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(5))),
+        CssPropertyWithConditions::simple(CssProperty::const_margin_right(LayoutMarginRight::const_px(2))),
+    ];
+    v.push(column_gap(4));
+    v
+}
+
+/// A tool's label: the estimate's font size, on one line.
+pub(crate) fn toolbar_label_base() -> Vec<CssPropertyWithConditions> {
+    alloc::vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
+        crate::widgets::themes::decl::nowrap(),
+    ]
+}
+
+/// A tool's icon: an 18 px glyph that keeps its width.
+pub(crate) static TOOLBAR_ICON_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(18))),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+];
+
+/// A menu button's arrow: a 16 px glyph that keeps its width.
+pub(crate) static TOOLBAR_ARROW_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(16))),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+];
+
+/// A separator: a 1 x 20 px rule, 4 px either side.
+pub(crate) static TOOLBAR_SEPARATOR_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(20))),
+    CssPropertyWithConditions::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(4))),
+    CssPropertyWithConditions::simple(CssProperty::const_margin_right(LayoutMarginRight::const_px(4))),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+];
+
+/// A spacer: the free width.
+pub(crate) static TOOLBAR_SPACER_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
+];
+
+/// The box around an app control: centred on the bar, keeping its width,
+/// the space after it.
+pub(crate) static TOOLBAR_CUSTOM_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_margin_right(LayoutMarginRight::const_px(2))),
+];
+
+/// A part's declarations: its base (the structure), then the look's skin.
+fn part(base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]) -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(crate::widgets::themes::decl::on_base(base, skin))
+}
+
+/// What every tool of one toolbar shares: the app's hook, the items (their
+/// embedded controls taken out) and the ones in the "more" menu.
+struct ToolbarShared {
+    on_event: OptionToolbarOnEvent,
+    items: Vec<ToolbarItem>,
+    overflow: Vec<usize>,
+}
+
+/// A tool's payload: its index (or [`MORE_INDEX`]) and the shared part.
+struct ItemData {
+    index: usize,
+    shared: RefAny,
+}
+
+/// The index the "more" button's payload carries.
+const MORE_INDEX: usize = usize::MAX;
+
+/// The toolbar's DOM in `look`: [tool | separator | spacer | control].. and
+/// the "more" button when items overflow.
 pub(crate) fn build(toolbar: Toolbar, look: &ToolbarLook) -> Dom {
-    let _ = look;
+    let Toolbar {
+        items,
+        accessibility_name,
+        on_event,
+        available_width,
+        theme,
+    } = toolbar;
+    let mut items = items.into_library_owned_vec();
+    let fitted = fit(&items, available_width);
+    // The embedded controls go into the DOM; the shared items keep the rest.
+    let mut contents: Vec<Option<Dom>> = items
+        .iter_mut()
+        .map(|item| core::mem::replace(&mut item.content, OptionDom::None).into_option())
+        .collect();
+    let shared = RefAny::new(ToolbarShared {
+        on_event,
+        items: items.clone(),
+        overflow: fitted.overflow.clone(),
+    });
+
+    let mut children: Vec<Dom> = Vec::with_capacity(fitted.shown.len() + 1);
+    let mut position = 0usize;
+    for &index in &fitted.shown {
+        let item = &items[index];
+        match item.kind {
+            ToolbarItemKind::Separator => children.push(
+                Dom::create_div()
+                    .with_class(AzString::from_const_str(SEPARATOR_CLASS))
+                    .with_css_props(part(TOOLBAR_SEPARATOR_BASE, &look.separator))
+                    .with_accessibility_info(AccessibilityInfo {
+                        role: AccessibilityRole::Separator,
+                        ..Default::default()
+                    }),
+            ),
+            ToolbarItemKind::Spacer => children.push(
+                Dom::create_div()
+                    .with_class(AzString::from_const_str(SPACER_CLASS))
+                    .with_css_props(part(TOOLBAR_SPACER_BASE, &[])),
+            ),
+            ToolbarItemKind::Custom => {
+                let mut style = TOOLBAR_CUSTOM_BASE.to_vec();
+                if item.width > 0.0 {
+                    style.push(crate::widgets::themes::decl::px_width(item.width));
+                }
+                let content = contents[index].take().unwrap_or_else(Dom::create_div);
+                children.push(
+                    Dom::create_div()
+                        .with_class(AzString::from_const_str(CUSTOM_CLASS))
+                        .with_css_props(CssPropertyWithConditionsVec::from_vec(style))
+                        .with_child(content),
+                );
+            }
+            ToolbarItemKind::Button | ToolbarItemKind::Toggle | ToolbarItemKind::MenuButton => {
+                children.push(tool(item, index, position, &shared, look, theme));
+                position += 1;
+            }
+        }
+    }
+    if !fitted.overflow.is_empty() {
+        let more = ToolbarItem::create_button(
+            AzString::from_const_str("more"),
+            AzString::from_const_str(TOOLBAR_MORE_LABEL),
+            AzString::from_const_str("more_horiz"),
+        );
+        let mut dom = tool(&more, MORE_INDEX, position, &shared, look, theme);
+        dom.add_class(AzString::from_const_str(MORE_CLASS));
+        children.push(dom);
+    }
+
+    let mut classes = alloc::vec![Class(AzString::from_const_str(TOOLBAR_CLASS))];
+    if let Some(marker) = look.marker {
+        classes.push(Class(AzString::from_const_str(marker)));
+    }
     Dom::create_div()
-        .with_class(AzString::from_const_str(TOOLBAR_CLASS))
+        .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+        .with_css_props(part(TOOLBAR_BASE, &look.bar))
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::Toolbar,
-            accessibility_name: Some(toolbar.accessibility_name).into(),
+            accessibility_name: Some(accessibility_name).into(),
             ..Default::default()
         })
+        .with_children(DomVec::from_vec(children))
+}
+
+/// One tool: the `Button` widget in the toolbar's look (a quiet key; a
+/// toggle that is on pushed in), the item's index as its payload, its
+/// place in the roving Tab order (`position` among the tools), the arrow
+/// keys, a menu role for a menu button and the "more" button, the name as a
+/// tooltip for an icon-only tool.
+fn tool(
+    item: &ToolbarItem,
+    index: usize,
+    position: usize,
+    shared: &RefAny,
+    look: &ToolbarLook,
+    theme: OptionUiTheme,
+) -> Dom {
+    use azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec as Style;
+
+    use crate::widgets::button::{DisabledReason, OptionButtonOnClick};
+
+    let shows_label = item.shows_label();
+    let disabled = item.is_disabled();
+    let pressed = item.kind == ToolbarItemKind::Toggle && item.pressed;
+    let opens_menu = item.kind == ToolbarItemKind::MenuButton || index == MORE_INDEX;
+
+    let mut container = part(&toolbar_item_base(), &look.item);
+    if pressed {
+        container = crate::widgets::themes::theme_blocks::stack_parts(
+            &container,
+            &CssPropertyWithConditionsVec::from_vec(look.item_pressed.clone()),
+        );
+    }
+    let mut b = Button::create(if shows_label {
+        item.label.clone()
+    } else {
+        AzString::from_const_str("")
+    });
+    b.icon = item.icon.clone();
+    if !shows_label {
+        // An icon-only tool is named by its label.
+        b.alt = item.label.clone();
+    }
+    if item.kind == ToolbarItemKind::MenuButton {
+        b.trailing_icon = AzString::from_const_str("arrow_drop_down");
+    }
+    b.container_style = Style::Some(container);
+    b.icon_style = Style::Some(part(TOOLBAR_ICON_BASE, &look.icon));
+    b.label_style = Style::Some(part(&toolbar_label_base(), &look.label));
+    b.trailing_icon_style = Style::Some(part(TOOLBAR_ARROW_BASE, &look.arrow));
+    if item.kind == ToolbarItemKind::Toggle {
+        b.set_toggled(item.pressed);
+    }
+    b.disabled_reason = item.disabled_reason.clone();
+    let data = RefAny::new(ItemData {
+        index,
+        shared: shared.clone(),
+    });
+    b.on_click = OptionButtonOnClick::Some(ButtonOnClick::create(
+        data.clone(),
+        on_item_click as ButtonOnClickCallbackType,
+    ));
+    if let Some(t) = theme.into_option() {
+        b.set_theme(t);
+    }
+
+    let mut dom = b.dom();
+    dom.add_class(AzString::from_const_str(ITEM_CLASS));
+    if pressed {
+        dom.add_class(AzString::from_const_str(ITEM_PRESSED_CLASS));
+    }
+    dom.set_tab_index(roving::item_tab_index(position, 0));
+    dom.add_callback(
+        EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+        data,
+        on_item_key as usize,
+    );
+
+    let mut info = dom.root.get_accessibility_info().cloned().unwrap_or_default();
+    if opens_menu {
+        info.role = AccessibilityRole::ButtonMenu;
+        let mut states = info.states.clone().into_library_owned_vec();
+        states.push(AccessibilityState::Collapsed);
+        info.states = AccessibilityStateVec::from_vec(states);
+    }
+    if !disabled && !item.tooltip.as_str().is_empty() {
+        info.description = Some(item.tooltip.clone()).into();
+    }
+    dom.root.set_accessibility_info(info);
+
+    // The pointer over an icon-only tool (or one with a description) shows
+    // it; a disabled tool shows its reason (the Button's own tooltip).
+    if !disabled && (!shows_label || !item.tooltip.as_str().is_empty()) {
+        let tip = if item.tooltip.as_str().is_empty() {
+            item.label.clone()
+        } else {
+            item.tooltip.clone()
+        };
+        dom.add_callback(
+            EventFilter::Hover(HoverEventFilter::MouseEnter),
+            RefAny::new(DisabledReason(tip.clone())),
+            crate::widgets::button::show_disabled_reason as usize,
+        );
+        dom.add_callback(
+            EventFilter::Hover(HoverEventFilter::MouseLeave),
+            RefAny::new(DisabledReason(tip)),
+            crate::widgets::button::hide_disabled_reason as usize,
+        );
+    }
+    dom
 }
 
 /// The menu of a menu button's choices (item `index`): one entry per choice,
 /// reporting `Choose`.
 pub(crate) fn choice_menu_items(item: &ToolbarItem, index: usize, shared: &RefAny) -> Vec<MenuItem> {
-    let _ = (item, index, shared);
-    Vec::new()
+    item.choices
+        .as_ref()
+        .iter()
+        .enumerate()
+        .map(|(choice, label)| {
+            MenuItem::String(StringMenuItem::create(label.clone()).with_callback(
+                RefAny::new(MenuPick {
+                    index,
+                    choice,
+                    kind: ToolbarEventKind::Choose,
+                    shared: shared.clone(),
+                }),
+                on_menu_pick as usize,
+            ))
+        })
+        .collect()
 }
 
 /// The "more" menu: the `overflow` items of `items` as entries (a button an
 /// entry, a toggle a check entry, a menu button a submenu of its choices, a
 /// separator a separator, a disabled item a disabled entry).
 pub(crate) fn overflow_menu_items(items: &[ToolbarItem], overflow: &[usize], shared: &RefAny) -> Vec<MenuItem> {
-    let _ = (items, overflow, shared);
-    Vec::new()
+    let pick = |index: usize, kind: ToolbarEventKind| {
+        RefAny::new(MenuPick {
+            index,
+            choice: 0,
+            kind,
+            shared: shared.clone(),
+        })
+    };
+    let mut out = Vec::with_capacity(overflow.len());
+    for &index in overflow {
+        let Some(item) = items.get(index) else {
+            continue;
+        };
+        match item.kind {
+            ToolbarItemKind::Separator => {
+                out.push(MenuItem::Separator);
+                continue;
+            }
+            ToolbarItemKind::Spacer => continue,
+            ToolbarItemKind::Button | ToolbarItemKind::Toggle | ToolbarItemKind::MenuButton | ToolbarItemKind::Custom => {}
+        }
+        let mut entry = StringMenuItem::create(item.label.clone());
+        if item.kind == ToolbarItemKind::Toggle {
+            entry.icon = OptionMenuItemIcon::Some(MenuItemIcon::Checkbox(item.pressed));
+        }
+        if item.is_disabled() {
+            entry.menu_item_state = MenuItemState::Disabled;
+        } else {
+            entry = match item.kind {
+                ToolbarItemKind::MenuButton => {
+                    entry.with_children(MenuItemVec::from_vec(choice_menu_items(item, index, shared)))
+                }
+                ToolbarItemKind::Toggle => entry.with_callback(pick(index, ToolbarEventKind::Toggle), on_menu_pick as usize),
+                _ => entry.with_callback(pick(index, ToolbarEventKind::Activate), on_menu_pick as usize),
+            };
+        }
+        out.push(MenuItem::String(entry));
+    }
+    out
+}
+
+// ==== The callbacks ====
+
+/// The tool's index and the toolbar's shared part.
+fn item_of(data: &mut RefAny) -> Option<(usize, RefAny)> {
+    let d = data.downcast_ref::<ItemData>()?;
+    Some((d.index, d.shared.clone()))
+}
+
+/// Hands `event` to the app.
+fn emit(shared: &mut RefAny, info: CallbackInfo, event: ToolbarEvent) -> Update {
+    let hook = match shared.downcast_ref::<ToolbarShared>() {
+        Some(s) => s.on_event.clone(),
+        None => return Update::DoNothing,
+    };
+    match hook.as_ref() {
+        Some(ToolbarOnEvent { refany, callback }) => callback.invoke(refany.clone(), info, event),
+        None => Update::DoNothing,
+    }
+}
+
+/// What pressing `item` (at `index`) reports: a button activates, a toggle
+/// flips; a menu button opens its menu instead (no event).
+fn press_event(item: &ToolbarItem, index: usize) -> Option<ToolbarEvent> {
+    match item.kind {
+        ToolbarItemKind::Button | ToolbarItemKind::Custom => {
+            Some(ToolbarEvent::create(ToolbarEventKind::Activate, index, item.id.clone()))
+        }
+        ToolbarItemKind::Toggle => {
+            let mut event = ToolbarEvent::create(ToolbarEventKind::Toggle, index, item.id.clone());
+            event.pressed = !item.pressed;
+            Some(event)
+        }
+        ToolbarItemKind::MenuButton | ToolbarItemKind::Separator | ToolbarItemKind::Spacer => None,
+    }
+}
+
+/// Opens the menu of the tool at `index` under it - a menu button's
+/// choices, or the "more" menu ([`MORE_INDEX`]). `false` when the tool has
+/// no menu (or an empty one).
+fn open_menu(info: &mut CallbackInfo, index: usize, shared: &RefAny) -> bool {
+    let mut handle = shared.clone();
+    let entries = {
+        let Some(s) = handle.downcast_ref::<ToolbarShared>() else {
+            return false;
+        };
+        if index == MORE_INDEX {
+            overflow_menu_items(&s.items, &s.overflow, shared)
+        } else {
+            match s.items.get(index) {
+                Some(item) if item.kind == ToolbarItemKind::MenuButton => choice_menu_items(item, index, shared),
+                _ => return false,
+            }
+        }
+    };
+    if entries.is_empty() {
+        return false;
+    }
+    let menu = Menu::create(MenuItemVec::from_vec(entries)).with_position(MenuPopupPosition::BottomOfHitRect);
+    // Under the tool; without its rect (a headless test, a tool not laid
+    // out yet) the menu places itself by its own position.
+    if !info.open_menu_for_hit_node(menu.clone()) {
+        info.open_menu(menu);
+    }
+    true
+}
+
+/// A click (or Enter / Space) on a tool.
+extern "C" fn on_item_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((index, mut shared)) = item_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    if open_menu(&mut info, index, &shared) {
+        return Update::DoNothing;
+    }
+    let event = shared
+        .downcast_ref::<ToolbarShared>()
+        .and_then(|s| s.items.get(index).and_then(|item| press_event(item, index)));
+    match event {
+        Some(event) => emit(&mut shared, info, event),
+        None => Update::DoNothing,
+    }
+}
+
+/// A key on the focused tool (module docs, KEYBOARD).
+extern "C" fn on_item_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let ks = info.get_current_keyboard_state();
+    let Some(key) = roving::plain_key(&ks) else {
+        return Update::DoNothing;
+    };
+    let Some((index, shared)) = item_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let step = match key {
+        VirtualKeyCode::Left => Step::Previous,
+        VirtualKeyCode::Right => Step::Next,
+        VirtualKeyCode::Home => Step::First,
+        VirtualKeyCode::End => Step::Last,
+        VirtualKeyCode::Down => {
+            if open_menu(&mut info, index, &shared) {
+                info.prevent_default();
+            }
+            return Update::DoNothing;
+        }
+        _ => return Update::DoNothing,
+    };
+    info.prevent_default();
+    let focused = info.get_hit_node();
+    let Some(bar) = info.get_parent(focused) else {
+        return Update::DoNothing;
+    };
+    let tools = roving::items_of(&info, bar, ITEM_CLASS);
+    let Some(current) = tools.iter().position(|n| *n == focused) else {
+        return Update::DoNothing;
+    };
+    if let Some(next) = roving::step_target(current, tools.len(), step, true) {
+        if next != current {
+            roving::move_stop(&mut info, &tools, next);
+        }
+    }
+    Update::DoNothing
+}
+
+/// A pick in a menu: a choice, or an item of the "more" menu.
+extern "C" fn on_menu_pick(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((index, choice, kind, mut shared)) = data
+        .downcast_ref::<MenuPick>()
+        .map(|p| (p.index, p.choice, p.kind, p.shared.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    let item = shared
+        .downcast_ref::<ToolbarShared>()
+        .and_then(|s| s.items.get(index).cloned());
+    let Some(item) = item else {
+        return Update::DoNothing;
+    };
+    let mut event = ToolbarEvent::create(kind, index, item.id.clone());
+    event.choice = choice;
+    if kind == ToolbarEventKind::Toggle {
+        event.pressed = !item.pressed;
+    }
+    emit(&mut shared, info, event)
 }
 
 /// What a menu entry carries: the item, the choice and what picking it
