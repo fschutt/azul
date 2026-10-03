@@ -28,6 +28,9 @@ Stages (each runs even when one before it failed; `--only` / `--skip` pick them)
   repeat    the weekly events (the imported one, and the editor's when it was made) are on the
             next week too (Forward, #view-next), not on the week their exception names, and again
             the week after.
+  occurrence  Enter on the editor's weekly event a week on: the editor opens on that day with
+            "This occurrence" (#editor-scope); Save writes a one-off event on that day and the
+            series skips it (`except`).
   contrast  under flat and flora, light and dark: for the Week, Month and List views and the
             backstage, every piece of text the display list paints (button labels among them) is
             read against the rectangles painted under it; under 2:1 is a finding (the threshold of
@@ -467,6 +470,45 @@ def stage_repeat(app, ctx):
     return "on the next week: " + ", ".join(checked)
 
 
+# ==== occurrence ====
+
+def stage_occurrence(app, ctx):
+    """One occurrence of the editor's weekly event, edited alone: Enter on its block a week on
+    opens the editor on that day with "This occurrence" chosen (#editor-scope); a new title
+    and Save write a new event file on that day without a repeat, and the series' file skips
+    the day (`except`)."""
+    if "editor_event" not in ctx:
+        raise Blocked("the editor stage made no weekly event to take an occurrence of")
+    w = app.main
+    eid, date = ctx["editor_event"]
+    day = date + datetime.timedelta(days=7)
+    show_week_of(w, day)
+    block = f"#event-{eid}-{ymd(day)}"
+    w.wait_for(block)
+    opened = len(app.printed("AZCAL_EDITOR"))
+    before = set(wi.event_files(app.data))
+    w.must({"op": "focus_node", "selector": block})
+    w.frames(1)
+    w.key("return")
+    w.until("AZCAL_EDITOR open", lambda: "open" in app.printed("AZCAL_EDITOR")[opened:])
+    ed = reach_editor(app)
+    ed.wait_for("#editor-scope")
+    ed.type_into("#editor-title", " (moved)")
+    ed.click(selector="#editor-save")
+    w.until("AZCAL_EDITOR closed", lambda: "closed" in app.printed("AZCAL_EDITOR")[opened:])
+    new = w.until(
+        "the occurrence's own event file",
+        lambda: [n for n in wi.event_files(app.data) if n not in before] or None,
+    )
+    one = wi.read_event(app.data, new[0])
+    if one.get("date") != day.isoformat() or one.get("repeat"):
+        raise Failure(f"{new[0]}: not a one-off event on {day}: {one}")
+    series = wi.read_event(app.data, f"{eid}.json")
+    if day.isoformat() not in (series.get("except") or []):
+        raise Failure(f"the series does not skip {day}: {series}")
+    return f"the occurrence of {day} became {new[0]}; the series skips that day"
+
+
 # ==== contrast ====
 
 def color(text):
@@ -580,6 +622,7 @@ STAGES = [
     ("editor", stage_editor),
     ("close", stage_close),
     ("repeat", stage_repeat),
+    ("occurrence", stage_occurrence),
     ("contrast", stage_contrast),
 ]
 
