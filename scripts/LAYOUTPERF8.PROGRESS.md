@@ -69,5 +69,9 @@ with counts, fix, expected numbers. Report scripts/LAYOUTPERF8B_<date>.md.
 - Unprofiled (no AZ_PROFILE) tick on the wave-8 build: 39-43 ms; no-op relayout 12.4-12.7 ms; the CPU
   profiler itself adds ~15 ms per tick. DOM lints (AZ_SUPPRESS=all) change nothing measurable.
 
-## 8B NEXT
-- report scripts/LAYOUTPERF8B_2026_10_03.md
+- 015909cc2 report scripts/LAYOUTPERF8B_2026_10_03.md
+
+## 8B STATUS: DONE
+Nothing left on wt/layoutperf8b. Parent: build, run the report's test commands, re-measure the tick.
+Open levers (report "Left"): css-dirty DL splicing, a css-only reconcile skip, a11y_update_tree per relayout,
+css_transition_tick, VirtualView re-invocation per relayout (identity latch), bugs B/C.
