@@ -34,7 +34,7 @@ use alloc::{collections::BTreeMap, vec::Vec};
 use azul_core::{
     dom::{DomId, DomNodeId},
     events::{ComponentEventFilter, EventFilter},
-    task::ThreadId,
+    task::{ThreadId, TimerId},
 };
 
 use super::NodeIdMap;
@@ -84,11 +84,33 @@ impl Orphaned {
     }
 }
 
-/// The owners of node-bound threads, and the orphans waiting to finish.
+/// The owners of node-bound threads, and the orphans waiting to finish; the
+/// owners of node-bound timers, and the timers of unmounted nodes waiting for
+/// the shell to stop them.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ThreadOwnerManager {
     owners: BTreeMap<ThreadId, DomNodeId>,
     orphans: BTreeMap<ThreadId, Orphaned>,
+    timer_owners: BTreeMap<TimerId, DomNodeId>,
+    /// Timers whose node unmounted. The window drops them from its timer map
+    /// at the unmount (they never fire again); the shell takes this list
+    /// ([`Self::take_timers_to_stop`]) to stop their OS timers as well.
+    timers_to_stop: Vec<TimerId>,
+}
+
+/// Where `owner` is after a rebuild of `dom`: the node it became, or `None`
+/// when it unmounted - also when it lived in one of `dropped_doms`, the child
+/// DOMs of `VirtualView`s that unmounted. A node of another DOM stays put.
+fn follow(
+    owner: DomNodeId,
+    dom: DomId,
+    map: &NodeIdMap,
+    dropped_doms: &[DomId],
+) -> Option<DomNodeId> {
+    if dropped_doms.contains(&owner.dom) {
+        return None;
+    }
+    map.resolve_dom_node_id(dom, owner)
 }
 
 impl ThreadOwnerManager {
@@ -121,11 +143,37 @@ impl ThreadOwnerManager {
         self.orphans.remove(thread_id);
     }
 
+    /// `timer_id` belongs to `owner` from now on: one of `owner`'s lifecycle
+    /// callbacks started it, and it stops when `owner` unmounts.
+    pub fn bind_timer(&mut self, timer_id: TimerId, owner: DomNodeId) {
+        self.timer_owners.insert(timer_id, owner);
+    }
+
+    /// The node `timer_id` belongs to (`None`: the app's, or stopped).
+    #[must_use]
+    pub fn timer_owner(&self, timer_id: &TimerId) -> Option<DomNodeId> {
+        self.timer_owners.get(timer_id).copied()
+    }
+
+    /// The timer left the window (`RemoveTimer`, or its id was started anew):
+    /// its old node no longer speaks for it.
+    pub fn forget_timer(&mut self, timer_id: &TimerId) {
+        self.timer_owners.remove(timer_id);
+    }
+
+    /// The timers whose node unmounted since the last call: the shell stops
+    /// each (`PlatformWindow::stop_timer`). Handed out once.
+    #[must_use]
+    pub fn take_timers_to_stop(&mut self) -> Vec<TimerId> {
+        core::mem::take(&mut self.timers_to_stop)
+    }
+
     /// Follow a rebuild of `dom`: owners move with their nodes; a thread
     /// whose node unmounted, or whose node lived in one of `dropped_doms` (the
     /// child DOMs of `VirtualView`s that unmounted), becomes an orphan.
     /// Returns the threads orphaned by THIS rebuild - the caller tells each to
-    /// stop.
+    /// stop. A TIMER of such a node joins [`Self::take_timers_to_stop`] (the
+    /// caller drops it from the window's timers too).
     pub fn remap_node_ids(
         &mut self,
         dom: DomId,
@@ -135,11 +183,7 @@ impl ThreadOwnerManager {
         let mut orphaned = Vec::new();
         let owners = core::mem::take(&mut self.owners);
         for (thread_id, owner) in owners {
-            if dropped_doms.contains(&owner.dom) {
-                orphaned.push(thread_id);
-                continue;
-            }
-            match map.resolve_dom_node_id(dom, owner) {
+            match follow(owner, dom, map, dropped_doms) {
                 Some(moved) => {
                     self.owners.insert(thread_id, moved);
                 }
@@ -149,7 +193,23 @@ impl ThreadOwnerManager {
         for thread_id in &orphaned {
             self.orphans.insert(*thread_id, Orphaned::now());
         }
+        let timer_owners = core::mem::take(&mut self.timer_owners);
+        for (timer_id, owner) in timer_owners {
+            match follow(owner, dom, map, dropped_doms) {
+                Some(moved) => {
+                    self.timer_owners.insert(timer_id, moved);
+                }
+                None => self.timers_to_stop.push(timer_id),
+            }
+        }
         orphaned
+    }
+
+    /// The timers of unmounted nodes the shell has not taken yet - for the
+    /// window to drop from its own timer map at the unmount (idempotent).
+    #[must_use]
+    pub fn timers_to_stop(&self) -> &[TimerId] {
+        &self.timers_to_stop
     }
 }
 
