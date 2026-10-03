@@ -706,22 +706,644 @@ pub(crate) struct TokenInputLook {
     pub marker: Option<&'static str>,
 }
 
-/// The look a token input with the theme option `theme` is built with.
+/// The look a token input with the theme option `theme` is built with: the
+/// pinned theme's own look, or both looks merged part by part (the DOM is
+/// built once).
 pub(crate) fn look_for(theme: OptionUiTheme) -> TokenInputLook {
-    let _ = theme;
-    TokenInputLook::default()
+    use crate::widgets::themes::{flat, flora, theme_blocks::follow_props};
+    match theme.into_option() {
+        Some(UiTheme::Flat) => flat::token_input_look(),
+        Some(UiTheme::Flora) => flora::token_input_look(),
+        None => {
+            let (a, b) = (flat::token_input_look(), flora::token_input_look());
+            let both = |x: &[CssPropertyWithConditions], y: &[CssPropertyWithConditions]| {
+                follow_props(x, y).into_library_owned_vec()
+            };
+            TokenInputLook {
+                root: both(&a.root, &b.root),
+                field: both(&a.field, &b.field),
+                entry: both(&a.entry, &b.entry),
+                list: both(&a.list, &b.list),
+                option: both(&a.option, &b.option),
+                option_active: both(&a.option_active, &b.option_active),
+                marker: match UiTheme::current() {
+                    UiTheme::Flat => a.marker,
+                    UiTheme::Flora => b.marker,
+                },
+            }
+        }
+    }
 }
 
-/// The token input's DOM in `look`.
+// ---- the base: the widget's structure, in every theme ----
+
+/// A row or column gap, px.
+fn gap(px: isize, column: bool) -> CssPropertyWithConditions {
+    use azul_css::props::{
+        layout::{LayoutColumnGap, LayoutRowGap},
+        property::{LayoutColumnGapValue, LayoutRowGapValue},
+    };
+    let inner = PixelValue::const_px(px);
+    CssPropertyWithConditions::simple(if column {
+        CssProperty::ColumnGap(LayoutColumnGapValue::Exact(LayoutColumnGap { inner }))
+    } else {
+        CssProperty::RowGap(LayoutRowGapValue::Exact(LayoutRowGap { inner }))
+    })
+}
+
+/// The widget: the field over the (floating) list, the list's positioning
+/// context.
+pub(crate) static TOKEN_INPUT_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
+    CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
+];
+
+/// The field: the chips and the entry in rows that wrap, centred on each
+/// line, a gap apart; a text cursor over it.
+pub(crate) fn token_field_base() -> Vec<CssPropertyWithConditions> {
+    alloc::vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_wrap(LayoutFlexWrap::Wrap)),
+        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+        CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+        CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Text)),
+        CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
+        gap(4, true),
+        gap(2, false),
+    ]
+}
+
+/// What the entry (a `TextInput`) gets on top of its own container style:
+/// no border and no face of its own (the field is the box), the rest of
+/// the line to grow into, never narrower than a short address.
+pub(crate) fn token_entry_overrides() -> Vec<CssPropertyWithConditions> {
+    use azul_css::props::{
+        basic::color::ColorU,
+        style::{LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, LayoutBorderTopWidth},
+    };
+    alloc::vec![
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(0))),
+        CssPropertyWithConditions::simple(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(0))),
+        CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(0))),
+        CssPropertyWithConditions::simple(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(0))),
+        CssPropertyWithConditions::simple(crate::widgets::themes::decl::fill(ColorU::TRANSPARENT)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+            inner: FloatValue::const_new(1),
+        })),
+        CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(80))),
+    ]
+}
+
+/// The list: floating under the field, as wide as it, over what follows.
+pub(crate) static TOKEN_LIST_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
+    CssPropertyWithConditions::simple(CssProperty::const_top(LayoutTop {
+        inner: PixelValue::const_percent(100),
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_left(LayoutLeft {
+        inner: PixelValue::const_px(0),
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_width(azul_css::props::layout::LayoutWidth::Px(
+        PixelValue::const_percent(100),
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    CssPropertyWithConditions::simple(CssProperty::const_z_index(LayoutZIndex::Integer(10))),
+];
+
+/// A suggestion: one line under the pointer.
+pub(crate) static TOKEN_OPTION_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Default)),
+];
+
+/// A part's declarations: its base (the structure), then the look's skin.
+fn part(base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]) -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(crate::widgets::themes::decl::on_base(base, skin))
+}
+
+/// What every handler of one token input shares: the app's hooks, the
+/// state the DOM was built from and the suggestions shown (in order).
+struct TokenShared {
+    on_event: OptionTokenInputOnEvent,
+    on_validate: OptionTokenInputOnValidate,
+    state: TokenInputState,
+    shown: Vec<AzString>,
+    allow_duplicates: bool,
+}
+
+/// A chip's (or a suggestion's) payload: its index (among the tokens, or
+/// among the suggestions shown) and the shared part.
+struct TokenData {
+    index: usize,
+    shared: RefAny,
+}
+
+/// The token input's DOM in `look`: root [field [chip.., entry], list?].
 pub(crate) fn build(input: TokenInput, look: &TokenInputLook) -> Dom {
-    let _ = look;
+    let TokenInput {
+        state,
+        suggestions,
+        placeholder,
+        accessibility_name,
+        on_event,
+        on_validate,
+        max_suggestions,
+        theme,
+        allow_duplicates,
+    } = input;
+    let theme = theme.into_option();
+    let shown_indices = matching_suggestions(
+        suggestions.as_ref(),
+        state.text.as_str(),
+        state.tokens.as_ref(),
+        max_suggestions,
+    );
+    let shown: Vec<AzString> = shown_indices
+        .iter()
+        .filter_map(|i| suggestions.as_ref().get(*i).cloned())
+        .collect();
+    let active = state.active.into_option().filter(|a| *a < shown.len());
+    let shared = RefAny::new(TokenShared {
+        on_event,
+        on_validate,
+        state: state.clone(),
+        shown: shown.clone(),
+        allow_duplicates,
+    });
+
+    // The field: a chip per token, then the entry.
+    let mut in_field: Vec<Dom> = Vec::with_capacity(state.tokens.len() + 1);
+    for (index, token) in state.tokens.as_ref().iter().enumerate() {
+        let data = RefAny::new(TokenData {
+            index,
+            shared: shared.clone(),
+        });
+        let mut chip = Chip::create(token.clone())
+            .with_removable(true)
+            .with_on_remove(data.clone(), on_chip_remove as ChipOnRemoveCallbackType)
+            .with_on_click(data.clone(), on_chip_click as ChipOnClickCallbackType);
+        if let Some(t) = theme {
+            chip = chip.with_theme(t);
+        }
+        let mut chip = chip.dom();
+        chip.add_class(AzString::from_const_str(CHIP_CLASS));
+        // One Tab stop for the field: the chip's label and "x" are reached
+        // by the arrows from the entry, not by Tab.
+        let parts: &mut [Dom] = chip.children.as_mut();
+        if let Some(label) = parts.first_mut() {
+            label.root.set_tab_index(TabIndex::NoKeyboardFocus);
+        }
+        if let Some(x) = parts.get_mut(1) {
+            x.root.set_tab_index(TabIndex::NoKeyboardFocus);
+            x.root.add_callback(
+                EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+                data,
+                on_chip_key as usize,
+            );
+        }
+        in_field.push(chip);
+    }
+
+    let mut entry = TextInput::create()
+        .with_text(state.text.clone())
+        .with_accessibility_name(accessibility_name.clone())
+        .with_on_text_input(shared.clone(), on_entry_text as TextInputOnTextInputCallbackType)
+        .with_on_virtual_key_down(shared.clone(), on_entry_key as TextInputOnVirtualKeyDownCallbackType);
+    if !placeholder.as_str().is_empty() {
+        entry = entry.with_placeholder(placeholder);
+    }
+    let mut entry_style = entry.resolved_container_style().into_library_owned_vec();
+    entry_style.extend(token_entry_overrides());
+    entry_style.extend(look.entry.iter().cloned());
+    entry = entry.with_container_style(CssPropertyWithConditionsVec::from_vec(entry_style));
+    if let Some(t) = theme {
+        entry = entry.with_theme(t);
+    }
+    let mut entry = entry.dom();
+    entry.add_class(AzString::from_const_str(ENTRY_CLASS));
+    in_field.push(entry);
+
+    let field = Dom::create_div()
+        .with_class(AzString::from_const_str(FIELD_CLASS))
+        .with_css_props(part(&token_field_base(), &look.field))
+        .with_children(DomVec::from_vec(in_field));
+
+    let mut children = alloc::vec![field];
+    if !shown.is_empty() {
+        let options: Vec<Dom> = shown
+            .iter()
+            .enumerate()
+            .map(|(position, text)| {
+                let is_active = active == Some(position);
+                let mut style = part(TOKEN_OPTION_BASE, &look.option);
+                let mut classes = alloc::vec![Class(AzString::from_const_str(OPTION_CLASS))];
+                if is_active {
+                    style = crate::widgets::themes::theme_blocks::stack_parts(
+                        &style,
+                        &CssPropertyWithConditionsVec::from_vec(look.option_active.clone()),
+                    );
+                    classes.push(Class(AzString::from_const_str(OPTION_ACTIVE_CLASS)));
+                }
+                Dom::create_div()
+                    .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+                    .with_css_props(style)
+                    .with_accessibility_info(AccessibilityInfo {
+                        role: AccessibilityRole::ListItem,
+                        accessibility_name: Some(text.clone()).into(),
+                        states: if is_active {
+                            AccessibilityStateVec::from_vec(alloc::vec![AccessibilityState::Selected])
+                        } else {
+                            AccessibilityStateVec::from_const_slice(&[])
+                        },
+                        ..Default::default()
+                    })
+                    .with_callback(
+                        EventFilter::Hover(HoverEventFilter::Click),
+                        RefAny::new(TokenData {
+                            index: position,
+                            shared: shared.clone(),
+                        }),
+                        on_option_click as usize,
+                    )
+                    .with_child(crate::widgets::widget_p_with_text(text.clone()))
+            })
+            .collect();
+        children.push(
+            Dom::create_div()
+                .with_class(AzString::from_const_str(LIST_CLASS))
+                .with_css_props(part(TOKEN_LIST_BASE, &look.list))
+                .with_accessibility_info(AccessibilityInfo {
+                    role: AccessibilityRole::List,
+                    accessibility_name: Some(AzString::from_const_str("Suggestions")).into(),
+                    ..Default::default()
+                })
+                .with_children(DomVec::from_vec(options)),
+        );
+    }
+
+    let mut classes = alloc::vec![Class(AzString::from_const_str(TOKEN_INPUT_CLASS))];
+    if let Some(marker) = look.marker {
+        classes.push(Class(AzString::from_const_str(marker)));
+    }
     Dom::create_div()
-        .with_class(AzString::from_const_str(TOKEN_INPUT_CLASS))
+        .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+        .with_css_props(part(TOKEN_INPUT_BASE, &look.root))
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::Grouping,
-            accessibility_name: Some(input.accessibility_name).into(),
+            accessibility_name: Some(accessibility_name).into(),
             ..Default::default()
         })
+        .with_children(DomVec::from_vec(children))
+}
+
+// ==== The callbacks ====
+
+/// The payload's index and the shared part.
+fn token_of(data: &mut RefAny) -> Option<(usize, RefAny)> {
+    let d = data.downcast_ref::<TokenData>()?;
+    Some((d.index, d.shared.clone()))
+}
+
+/// Hands `event` to the app.
+fn emit(shared: &mut RefAny, info: CallbackInfo, event: TokenInputEvent) -> Update {
+    let hook = match shared.downcast_ref::<TokenShared>() {
+        Some(s) => s.on_event.clone(),
+        None => return Update::DoNothing,
+    };
+    match hook.as_ref() {
+        Some(TokenInputOnEvent { refany, callback }) => callback.invoke(refany.clone(), info, event),
+        None => Update::DoNothing,
+    }
+}
+
+/// The app's verdict on `token` (no validator: taken as typed).
+fn validate(shared: &mut RefAny, info: CallbackInfo, token: &str) -> TokenInputVerdict {
+    let hook = shared.downcast_ref::<TokenShared>().map(|s| s.on_validate.clone());
+    match hook.as_ref().and_then(|h| h.as_ref()) {
+        Some(TokenInputOnValidate { refany, callback }) => {
+            callback.invoke(refany.clone(), info, AzString::from(token))
+        }
+        None => TokenInputVerdict::create_accepted(AzString::from_const_str("")),
+    }
+}
+
+/// Validates and adds `parts` to the built state, `rest` staying typed:
+/// `Add` (or `Text` when nothing new was added), or `Refuse` for the first
+/// refused part - which then stays typed, before `rest`, to be fixed.
+fn commit(shared: &mut RefAny, info: CallbackInfo, parts: Vec<String>, rest: String) -> Option<TokenInputEvent> {
+    let (state, allow) = {
+        let s = shared.downcast_ref::<TokenShared>()?;
+        (s.state.clone(), s.allow_duplicates)
+    };
+    let mut accepted: Vec<String> = Vec::with_capacity(parts.len());
+    let mut refused: Option<(String, AzString)> = None;
+    for part in parts {
+        let part = String::from(part.trim());
+        if part.is_empty() {
+            continue;
+        }
+        let verdict = validate(shared, info, &part);
+        if verdict.accepted {
+            let normalised = verdict.token.as_str().trim();
+            accepted.push(if normalised.is_empty() {
+                part
+            } else {
+                String::from(normalised)
+            });
+        } else if refused.is_none() {
+            refused = Some((part, verdict.message));
+        }
+    }
+    let first = state.tokens.len();
+    let (mut next, added) = add_tokens(&state, &accepted, allow);
+    if let Some((token, message)) = refused {
+        next.text = AzString::from(if rest.is_empty() {
+            token.clone()
+        } else {
+            alloc::format!("{token}, {rest}")
+        });
+        let mut event = TokenInputEvent::create(TokenInputEventKind::Refuse, next);
+        event.token = AzString::from(token);
+        event.message = message;
+        return Some(event);
+    }
+    next.text = AzString::from(rest);
+    if added == 0 {
+        return Some(TokenInputEvent::create(TokenInputEventKind::Text, next));
+    }
+    let last = next.tokens.as_ref().last().cloned().unwrap_or_default();
+    let mut event = TokenInputEvent::create(TokenInputEventKind::Add, next);
+    event.index = first;
+    event.token = last;
+    Some(event)
+}
+
+/// The `Remove` of token `index` from the built state.
+fn remove_event(shared: &mut RefAny, index: usize) -> Option<TokenInputEvent> {
+    let state = shared.downcast_ref::<TokenShared>()?.state.clone();
+    let token = state.tokens.as_ref().get(index)?.clone();
+    let mut event = TokenInputEvent::create(TokenInputEventKind::Remove, remove_token(&state, index));
+    event.index = index;
+    event.token = token;
+    Some(event)
+}
+
+/// The entry of the field `field` (its child with [`ENTRY_CLASS`]).
+fn entry_in(info: &CallbackInfo, field: DomNodeId) -> Option<DomNodeId> {
+    roving::items_of(info, field, ENTRY_CLASS).first().copied()
+}
+
+/// Text typed into the entry: a separator in it commits what is before it
+/// (a pasted list: all of it); otherwise the app hears the new text.
+extern "C" fn on_entry_text(mut data: RefAny, mut info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+    let keep = |update: Update| OnTextInputReturn {
+        update,
+        valid: TextInputValid::Yes,
+    };
+    let text = state.get_text();
+    if !text.contains(TOKEN_INPUT_SEPARATORS) {
+        let next = match data.downcast_ref::<TokenShared>() {
+            Some(s) => {
+                let mut next = s.state.clone();
+                next.text = AzString::from(text.as_str());
+                next.active = OptionUsize::None;
+                next
+            }
+            None => return keep(Update::DoNothing),
+        };
+        let update = emit(&mut data, info, TokenInputEvent::create(TokenInputEventKind::Text, next));
+        return keep(update);
+    }
+    let pasted = info
+        .get_text_changeset()
+        .is_some_and(|c| c.inserted_text.as_str().chars().count() > 1);
+    let (mut parts, mut rest) = split_tokens(&text);
+    if pasted && !rest.trim().is_empty() {
+        parts.push(String::from(rest.trim()));
+        rest = String::new();
+    }
+    let container = info.get_hit_node();
+    let Some(event) = commit(&mut data, info, parts, rest) else {
+        return keep(Update::DoNothing);
+    };
+    TextInput::set_text_in(&mut info, container, event.state.text.clone());
+    let update = emit(&mut data, info, event);
+    // The separator never reaches the line: the line is what is left typed.
+    OnTextInputReturn {
+        update,
+        valid: TextInputValid::No,
+    }
+}
+
+/// A key in the entry (module docs, KEYBOARD).
+extern "C" fn on_entry_key(mut data: RefAny, mut info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+    let pass = OnTextInputReturn {
+        update: Update::DoNothing,
+        valid: TextInputValid::Yes,
+    };
+    let ks = info.get_current_keyboard_state();
+    let Some(key) = ks.current_virtual_keycode.into_option() else {
+        return pass;
+    };
+    let modified = ks.shift_down() || ks.ctrl_down() || ks.alt_down() || ks.super_down();
+    let text = state.get_text();
+    let Some((tokens, shown, active)) = data
+        .downcast_ref::<TokenShared>()
+        .map(|s| (s.state.tokens.len(), s.shown.len(), s.state.active.into_option()))
+    else {
+        return pass;
+    };
+    let container = info.get_hit_node();
+    let taken = |update: Update| OnTextInputReturn {
+        update,
+        valid: TextInputValid::No,
+    };
+    let event = match entry_key(key, text.trim().is_empty(), tokens, shown, active, modified) {
+        EntryKey::Pass => return pass,
+        EntryKey::CommitText => {
+            let (mut parts, rest) = split_tokens(&text);
+            parts.push(rest);
+            commit(&mut data, info, parts, String::new())
+        }
+        EntryKey::CommitSuggestion(position) => {
+            let pick = data
+                .downcast_ref::<TokenShared>()
+                .and_then(|s| s.shown.get(position).map(|t| String::from(t.as_str())));
+            match pick {
+                Some(pick) => commit(&mut data, info, alloc::vec![pick], String::new()),
+                None => None,
+            }
+        }
+        EntryKey::RemoveLast => remove_event(&mut data, tokens.saturating_sub(1)),
+        EntryKey::Navigate(to) => data.downcast_ref::<TokenShared>().map(|s| {
+            let mut next = s.state.clone();
+            next.text = AzString::from(text.as_str());
+            next.active = to.into();
+            TokenInputEvent::create(TokenInputEventKind::Navigate, next)
+        }),
+        EntryKey::Dismiss => {
+            // The list goes until the next build (the next character).
+            let list = info
+                .get_parent(container)
+                .and_then(|field| info.get_parent(field))
+                .and_then(|root| roving::items_of(&info, root, LIST_CLASS).first().copied());
+            if let Some(list) = list {
+                info.set_css_property(list, CssProperty::const_display(LayoutDisplay::None));
+            }
+            return taken(Update::DoNothing);
+        }
+        EntryKey::ToChips => {
+            let last_x = info.get_parent(container).and_then(|field| {
+                roving::items_of(&info, field, CHIP_CLASS)
+                    .last()
+                    .copied()
+                    .and_then(|chip| info.get_last_child(chip))
+            });
+            if let Some(x) = last_x {
+                info.set_focus(FocusTarget::Id(x));
+            }
+            return taken(Update::DoNothing);
+        }
+    };
+    let Some(event) = event else {
+        return taken(Update::DoNothing);
+    };
+    if event.state.text.as_str() != text.as_str() {
+        TextInput::set_text_in(&mut info, container, event.state.text.clone());
+    }
+    taken(emit(&mut data, info, event))
+}
+
+/// A chip's "x": remove the token; the entry keeps the focus.
+extern "C" fn on_chip_remove(mut data: RefAny, mut info: CallbackInfo, _state: ChipState) -> Update {
+    let Some((index, mut shared)) = token_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let x = info.get_hit_node();
+    let entry = info
+        .get_parent(x)
+        .and_then(|chip| info.get_parent(chip))
+        .and_then(|field| entry_in(&info, field));
+    if let Some(entry) = entry {
+        info.set_focus(FocusTarget::Id(entry));
+    }
+    match remove_event(&mut shared, index) {
+        Some(event) => emit(&mut shared, info, event),
+        None => Update::DoNothing,
+    }
+}
+
+/// A click on a chip's label: open the token.
+extern "C" fn on_chip_click(mut data: RefAny, info: CallbackInfo, _state: ChipState) -> Update {
+    let Some((index, mut shared)) = token_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let state = match shared.downcast_ref::<TokenShared>() {
+        Some(s) => s.state.clone(),
+        None => return Update::DoNothing,
+    };
+    let Some(token) = state.tokens.as_ref().get(index).cloned() else {
+        return Update::DoNothing;
+    };
+    let mut event = TokenInputEvent::create(TokenInputEventKind::Open, state);
+    event.index = index;
+    event.token = token;
+    emit(&mut shared, info, event)
+}
+
+/// A key on a chip's "x": Left / Right walk the chips (Right past the last
+/// is the entry), Delete / Backspace remove the chip.
+extern "C" fn on_chip_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    use VirtualKeyCode as K;
+    let ks = info.get_current_keyboard_state();
+    let Some(key) = roving::plain_key(&ks) else {
+        return Update::DoNothing;
+    };
+    if !matches!(key, K::Left | K::Right | K::Back | K::Delete) {
+        return Update::DoNothing;
+    }
+    let Some((index, mut shared)) = token_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    info.prevent_default();
+    let x = info.get_hit_node();
+    let Some(field) = info.get_parent(x).and_then(|chip| info.get_parent(chip)) else {
+        return Update::DoNothing;
+    };
+    let chips = roving::items_of(&info, field, CHIP_CLASS);
+    let Some(position) = info
+        .get_parent(x)
+        .and_then(|chip| chips.iter().position(|c| *c == chip))
+    else {
+        return Update::DoNothing;
+    };
+    let x_of = |info: &CallbackInfo, chip: DomNodeId| info.get_last_child(chip);
+    match key {
+        K::Left => {
+            if position > 0 {
+                if let Some(target) = x_of(&info, chips[position - 1]) {
+                    info.set_focus(FocusTarget::Id(target));
+                }
+            }
+            Update::DoNothing
+        }
+        K::Right => {
+            let target = if position + 1 < chips.len() {
+                x_of(&info, chips[position + 1])
+            } else {
+                entry_in(&info, field)
+            };
+            if let Some(target) = target {
+                info.set_focus(FocusTarget::Id(target));
+            }
+            Update::DoNothing
+        }
+        _ => {
+            if let Some(entry) = entry_in(&info, field) {
+                info.set_focus(FocusTarget::Id(entry));
+            }
+            match remove_event(&mut shared, index) {
+                Some(event) => emit(&mut shared, info, event),
+                None => Update::DoNothing,
+            }
+        }
+    }
+}
+
+/// A click on a suggestion: it becomes a token, the entry empties and keeps
+/// the focus.
+extern "C" fn on_option_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((position, mut shared)) = token_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let pick = shared
+        .downcast_ref::<TokenShared>()
+        .and_then(|s| s.shown.get(position).map(|t| String::from(t.as_str())));
+    let Some(pick) = pick else {
+        return Update::DoNothing;
+    };
+    let option = info.get_hit_node();
+    let entry = info
+        .get_parent(option)
+        .and_then(|list| info.get_parent(list))
+        .and_then(|root| info.get_first_child(root))
+        .and_then(|field| entry_in(&info, field));
+    if let Some(entry) = entry {
+        info.set_focus(FocusTarget::Id(entry));
+        TextInput::set_text_in(&mut info, entry, AzString::from_const_str(""));
+    }
+    match commit(&mut shared, info, alloc::vec![pick], String::new()) {
+        Some(event) => emit(&mut shared, info, event),
+        None => Update::DoNothing,
+    }
 }
 
 #[cfg(test)]
