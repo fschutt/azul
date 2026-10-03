@@ -20,14 +20,14 @@ fn s(text: &str) -> AzString {
     AzString::from(text)
 }
 
-fn button(app: &RefAny, id: &str, label: &str, cmd: Command) -> Dom {
+fn button(app: &RefAny, id: AzString, label: &str, cmd: Command) -> Dom {
     Button::create(s(label))
         .with_on_click(command(app, cmd), on_command as ButtonOnClickCallbackType)
         .dom()
         .with_id(id)
 }
 
-fn primary(app: &RefAny, id: &str, label: &str, cmd: Command) -> Dom {
+fn primary(app: &RefAny, id: AzString, label: &str, cmd: Command) -> Dom {
     Button::create(s(label))
         .with_button_type(ButtonType::Primary)
         .with_on_click(command(app, cmd), on_command as ButtonOnClickCallbackType)
@@ -126,7 +126,7 @@ fn open_page(app: &RefAny, st: &AppState) -> Dom {
                 .with_css("margin-bottom: 6px;")
                 .with_child(button(
                     app,
-                    &format!("{}{i}", ids::OPEN_ROW),
+                    s(&format!("{}{i}", ids::OPEN_ROW)),
                     &label,
                     Command::OpenDocument(i),
                 )),
