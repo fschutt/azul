@@ -13,7 +13,8 @@ NOTHING when a frame changed nothing a11y-visible. Brief: scripts/waves/wave8/PL
 - 3937fde8f A11yIdHasher / A11yIdMap (one-multiply hasher for id-keyed per-frame maps); 19c42122d, df0cb32f8, ba15bae74 tidy
 - af61005d9 dll feed: CompleteTree map, O(patch) merge_into, A11yTreeFeed::missed + 2 tests
 - 01fba56ff adapters call missed() on a busy lock / caught panic; macOS init_accessibility -> resend_full_tree
-- 562e3f9e3 unit tests (retained_tree_tests in a11y.rs)
+- 562e3f9e3 unit tests (retained_tree_tests in a11y.rs); 1eb875879 doc links
+- 6d7e41bba RED + 937db639f GREEN: telemetry FramePump no longer discards the AZ_PROFILE=cpu spans (drain_probe_events_for)
 
 ## IN PROGRESS
 - final review of the new code for compile errors; then the report
@@ -34,6 +35,8 @@ NOTHING when a frame changed nothing a11y-visible. Brief: scripts/waves/wave8/PL
 - Unprofiled: a knob tick (incremental_relayout) 19.9 - 21.7 ms, a no-op relayout 11.1 - 11.6 ms -> the a11y
   rebuild is ~15% of a tick and ~27% of a no-op relayout.
 - It runs after EVERY layout pass (window.rs layout_and_generate_display_list_impl tail, `update_a11y_tree`); the
-  lint printed right after it shows in every tick. Its span is missing from the tick tables only because spans
-  closing after a relayout's last per-DOM flush never reach a [CPU] table (`shell_incremental_relayout`,
-  `register_scroll_nodes` are missing the same way; a get_profile_report right after a tick drained nothing).
+  lint printed right after it shows in every tick. Its span is missing from the tick tables because the telemetry
+  FramePump around every present / regenerate_layout drained and DISCARDED the probe buffer (telemetry off) - every
+  span after a relayout's last per-DOM flush vanished (`shell_incremental_relayout`, `register_scroll_nodes`,
+  `cpu_hit_tester_rebuild` too). Fixed in 937db639f. The 4 visible a11y spans were the dll's refill after
+  regenerate_layout (a second full rebuild per regenerate: ~6 ms per DOM rebuild, ~3 ms per tick).
