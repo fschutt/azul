@@ -17,6 +17,8 @@
 //! cycle); `AZSHELLS_PANE <i>` when F6 moved the focus to pane i;
 //! `AZSHELLS_RUN <i>` when the palette ran command i.
 
+pub mod ids;
+
 use azul::{
     callbacks::{
         ButtonOnClickCallbackType, MobileShellOnTabCallbackType,
@@ -24,9 +26,7 @@ use azul::{
         ShellCommandPaletteOnRunCallbackType, ShellNavigationPaneOnEventCallbackType,
         ShellOnPaneFocusCallbackType,
     },
-    css::DarkLightMode,
     dom::VirtualKeyCode,
-    option::OptionDarkLightMode,
     prelude::*,
     shells::{
         BrowserShell, CallShell, CanvasShell, DeveloperShell, DocumentShell, MediaShell,
@@ -38,13 +38,49 @@ use azul::{
     },
     str::String as AzString,
     vec::{DomVec, StringVec},
-    window::WindowDecorations,
     widgets::{
         AddressBar, Button, DetailsPane, Ribbon, RibbonAppButton, RibbonButton, RibbonGroup,
-        RibbonItem, RibbonTab, Segmented, SegmentedState, StatusBar, StatusBarSegment, Titlebar,
+        RibbonItem, RibbonTab, Segmented, SegmentedState, StatusBar, StatusBarSegment,
         TreeView, TreeViewNode,
     },
 };
+use azul_appkit::{
+    about::AboutInfo,
+    args::{AppArgs, AppSpec, ModePref, Theme},
+    shortcuts::Shortcut,
+    ui as kit,
+};
+
+/// What azul-appkit's switches know about AzShells (`--screen S4` opens a
+/// shell, `--screen settings` the settings layout).
+pub const SPEC: AppSpec = AppSpec {
+    name: "AzShells",
+    binary: "AzShells",
+    summary: "the eleven app shells of azul, with placeholder content",
+    screens: &["S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11", "Settings"],
+    files_help: "",
+};
+
+/// The About facts.
+pub const ABOUT: AboutInfo = AboutInfo {
+    name: "AzShells",
+    version: env!("CARGO_PKG_VERSION"),
+    summary: "A gallery of azul's eleven app shells (S1 to S11) and the settings layout, \
+              with placeholder content and the real chrome.",
+    license: "MIT",
+    app_folder: "shells",
+};
+
+/// The keys AzShells answers (the kit adds Mod+, / F1 / Escape).
+pub const SHORTCUTS: [Shortcut; 4] = [
+    Shortcut::new("Shells", "Mod+K", "Open or close the command palette"),
+    Shortcut::new("Shells", "F6", "Move the focus to the next pane"),
+    Shortcut::new("Shells", "Shift+F6", "Move the focus to the previous pane"),
+    Shortcut::new("Shells", "Escape", "Close the command palette"),
+];
+
+/// The settings key of the shell shown last (opened again at the next start).
+const SHELL_KEY: &str = "shell";
 
 // ==== The shell table ====
 
@@ -139,7 +175,7 @@ pub const SHELLS: [ShellInfo; 12] = [
     ShellInfo {
         pick: "Settings",
         name: "Settings layout",
-        slots: &["shell-area"],
+        slots: &[ids::AREA_NAME],
         panes: &[],
     },
 ];
@@ -171,6 +207,8 @@ struct Shells {
     module: usize,
     tab: usize,
     group_open: [bool; 2],
+    /// azul-appkit's kit: switches, data root, settings.json, the settings page.
+    kit: RefAny,
 }
 
 fn strs(items: &[&str]) -> StringVec {
@@ -446,7 +484,7 @@ fn shell_dom(s: &Shells, app: &RefAny) -> Dom {
 fn picker_row(s: &Shells, app: &RefAny) -> Dom {
     let picks: Vec<&str> = SHELLS.iter().map(|i| i.pick).collect();
     Dom::create_div()
-        .with_id("picker")
+        .with_id(ids::PICKER)
         .with_css("display: flex; flex-direction: row; align-items: center; padding: 4px 8px; flex-shrink: 0;")
         .with_child(
             Segmented::create(strs(&picks))
@@ -460,12 +498,16 @@ fn picker_row(s: &Shells, app: &RefAny) -> Dom {
         .with_child(Button::create(AzString::from("Light")).with_on_click(app.clone(), on_light as ButtonOnClickCallbackType).dom())
         .with_child(Button::create(AzString::from("Dark")).with_on_click(app.clone(), on_dark as ButtonOnClickCallbackType).dom())
         .with_child(Button::create(AzString::from("Palette")).with_on_click(app.clone(), on_palette_toggle as ButtonOnClickCallbackType).dom())
+        .with_child(
+            Button::create(AzString::from(""))
+                .with_icon(AzString::from("settings"))
+                .with_on_click(app.clone(), on_settings_open as ButtonOnClickCallbackType)
+                .dom()
+                .with_id(ids::SETTINGS_BUTTON)
+                .with_accessibility_name(AzString::from("Settings")),
+        )
 }
 
-/// The window's title row, drawn by azul (the window is `NoTitle`).
-fn title_row() -> Dom {
-    Titlebar::create(AzString::from("AzShells")).without_border_bottom().dom()
-}
 
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // Reading the mode makes a light / dark switch rebuild the window.
@@ -475,14 +517,19 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         return Dom::create_body();
     };
     let s = &*guard;
-    let area = Dom::create_div()
-        .with_id("shell-area")
-        .with_css("position: relative; display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
-        .with_child(shell_dom(s, &app))
-        .with_child(palette(s, &app));
+    let area = if kit::settings_open(&s.kit) {
+        // azul-appkit's settings page: Appearance, Data, Shortcuts, About.
+        kit::settings_page(&s.kit, Vec::new())
+    } else {
+        Dom::create_div()
+            .with_id(ids::AREA)
+            .with_css("position: relative; display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
+            .with_child(shell_dom(s, &app))
+            .with_child(palette(s, &app))
+    };
     let column = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
-        .with_child(title_row())
+        .with_child(kit::title_row(SPEC.name))
         .with_child(picker_row(s, &app))
         .with_child(area);
     // The scope as the window's body: no UA margin, the full window height
@@ -499,12 +546,30 @@ extern "C" fn on_noop(_data: RefAny, _info: CallbackInfo) -> Update {
     Update::DoNothing
 }
 
-extern "C" fn on_pick(mut data: RefAny, _info: CallbackInfo, state: SegmentedState) -> Update {
-    let Some(mut s) = data.downcast_mut::<Shells>() else {
-        return Update::DoNothing;
+extern "C" fn on_pick(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    let (kit_ref, pick) = {
+        let Some(mut s) = data.downcast_mut::<Shells>() else {
+            return Update::DoNothing;
+        };
+        s.pick = state.selected_index.min(SHELLS.len() - 1);
+        announce(s.pick);
+        (s.kit.clone(), SHELLS[s.pick].pick)
     };
-    s.pick = state.selected_index.min(SHELLS.len() - 1);
-    announce(s.pick);
+    // The next start opens on the shell shown last.
+    kit::set_value(&kit_ref, &mut info, SHELL_KEY, pick);
+    Update::RefreshDom
+}
+
+/// The kit's handle, out of the app's state.
+fn kit_of(data: &mut RefAny) -> Option<RefAny> {
+    data.downcast_ref::<Shells>().map(|s| s.kit.clone())
+}
+
+/// The gear: azul-appkit's settings page (Appearance, Data, Shortcuts, About).
+extern "C" fn on_settings_open(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(kit_ref) = kit_of(&mut data) {
+        kit::open_settings(&kit_ref, None);
+    }
     Update::RefreshDom
 }
 
@@ -513,24 +578,35 @@ extern "C" fn on_pane(_data: RefAny, _info: CallbackInfo, index: usize) -> Updat
     Update::DoNothing
 }
 
-extern "C" fn on_flat(_data: RefAny, mut info: CallbackInfo) -> Update {
-    info.set_theme(AzString::from("flat"));
+/// The picker's theme and mode buttons: the kit's one path (in effect at
+/// once, kept in settings.json).
+fn choose(mut data: RefAny, info: &mut CallbackInfo, theme: Option<Theme>, mode: Option<ModePref>) -> Update {
+    let Some(kit_ref) = kit_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    if let Some(t) = theme {
+        kit::choose_theme(&kit_ref, info, t);
+    }
+    if let Some(m) = mode {
+        kit::choose_mode(&kit_ref, info, m);
+    }
     Update::DoNothing
 }
 
-extern "C" fn on_flora(_data: RefAny, mut info: CallbackInfo) -> Update {
-    info.set_theme(AzString::from("flora"));
-    Update::DoNothing
+extern "C" fn on_flat(data: RefAny, mut info: CallbackInfo) -> Update {
+    choose(data, &mut info, Some(Theme::Flat), None)
 }
 
-extern "C" fn on_light(_data: RefAny, mut info: CallbackInfo) -> Update {
-    info.set_mode(OptionDarkLightMode::Some(DarkLightMode::Light));
-    Update::DoNothing
+extern "C" fn on_flora(data: RefAny, mut info: CallbackInfo) -> Update {
+    choose(data, &mut info, Some(Theme::Flora), None)
 }
 
-extern "C" fn on_dark(_data: RefAny, mut info: CallbackInfo) -> Update {
-    info.set_mode(OptionDarkLightMode::Some(DarkLightMode::Dark));
-    Update::DoNothing
+extern "C" fn on_light(data: RefAny, mut info: CallbackInfo) -> Update {
+    choose(data, &mut info, None, Some(ModePref::Light))
+}
+
+extern "C" fn on_dark(data: RefAny, mut info: CallbackInfo) -> Update {
+    choose(data, &mut info, None, Some(ModePref::Dark))
 }
 
 extern "C" fn on_palette_toggle(mut data: RefAny, _info: CallbackInfo) -> Update {
@@ -541,8 +617,17 @@ extern "C" fn on_palette_toggle(mut data: RefAny, _info: CallbackInfo) -> Update
     Update::RefreshDom
 }
 
-/// Ctrl/Cmd+K opens (or closes) the command palette; Escape closes it.
-extern "C" fn on_key(mut data: RefAny, info: CallbackInfo) -> Update {
+/// The kit's keys first (Mod+, settings, F1 shortcuts, Escape closes them);
+/// then Ctrl/Cmd+K opens (or closes) the command palette, Escape closes it.
+extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    if let Some(kit_ref) = kit_of(&mut data) {
+        if let Some(update) = kit::handle_key(&kit_ref, &mut info) {
+            return update;
+        }
+        if kit::settings_open(&kit_ref) {
+            return Update::DoNothing;
+        }
+    }
     let keyboard = info.get_current_keyboard_state();
     let key = keyboard.current_virtual_keycode.into_option();
     let modifiers = info.get_key_modifiers();
@@ -616,22 +701,52 @@ extern "C" fn on_tab(mut data: RefAny, _info: CallbackInfo, index: usize) -> Upd
 
 // ==== Entry ====
 
+/// The first window exists: azul-appkit's `--shot` timer.
+extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    if let Some(kit_ref) = kit_of(&mut data) {
+        kit::on_window_created(&kit_ref, &mut info);
+    }
+    Update::DoNothing
+}
+
+/// The pick to open on: `--screen`, else the shell shown last, else S1.
+#[must_use]
+pub fn first_pick(screen: Option<&str>, remembered: Option<&str>) -> usize {
+    screen
+        .or(remembered)
+        .and_then(|name| SHELLS.iter().position(|i| i.pick.eq_ignore_ascii_case(name.trim())))
+        .unwrap_or(0)
+}
+
 pub fn start() {
+    let args = match AppArgs::from_env(&SPEC) {
+        Ok(a) => a,
+        Err(why) => {
+            eprintln!("{why}");
+            std::process::exit(2);
+        }
+    };
+    let screen = args.screen.clone();
+    let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[], args);
+    let remembered = {
+        let mut k = kit_ref.clone();
+        k.downcast_ref::<kit::Kit>()
+            .and_then(|k| k.settings.get(SHELL_KEY).map(str::to_string))
+    };
+    let pick = first_pick(screen.as_deref(), remembered.as_deref());
     let state = Shells {
-        pick: 0,
+        pick,
         palette_open: false,
         query: String::new(),
         nav_collapsed: false,
         module: 0,
         tab: 0,
         group_open: [true, true],
+        kit: kit_ref.clone(),
     };
-    announce(0);
-    let app = App::create(RefAny::new(state), AppConfig::create());
-    let mut window = WindowCreateOptions::create(layout);
-    window.window_state.size.dimensions = LogicalSize::create(1100.0, 720.0);
-    window.window_state.title = AzString::from("AzShells");
-    window.window_state.flags.decorations = WindowDecorations::NoTitle;
+    announce(pick);
+    let app = App::create(RefAny::new(state), kit::app_config(&kit_ref));
+    let window = kit::window_options(&kit_ref, layout, (1100.0, 720.0), (720.0, 480.0), on_window_created);
     app.run(window);
 }
 
@@ -674,6 +789,22 @@ mod shell_table_tests {
             s4.panes,
             &["shell-navigation", "shell-list", "shell-reading", "shell-right-bar"]
         );
+    }
+
+    #[test]
+    fn the_first_pick_is_the_switch_else_the_shell_shown_last_else_s1() {
+        assert_eq!(first_pick(Some("s4"), Some("S9")), 3, "--screen wins, any case");
+        assert_eq!(first_pick(None, Some("S9")), 8, "then the shell shown last");
+        assert_eq!(first_pick(None, Some("Settings")), 11);
+        assert_eq!(first_pick(None, None), 0);
+        assert_eq!(first_pick(None, Some("S99")), 0, "an unknown name: S1");
+    }
+
+    #[test]
+    fn the_app_ids_carry_the_prefix_and_settings_shows_the_area() {
+        assert!(ids::AREA_NAME.starts_with("__azshells_"));
+        assert!(ids::PICKER_NAME.starts_with("__azshells_"));
+        assert_eq!(SHELLS[11].slots, &[ids::AREA_NAME]);
     }
 
     #[test]
