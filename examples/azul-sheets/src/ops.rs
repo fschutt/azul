@@ -381,6 +381,13 @@ pub fn replace_all(
     Ok(changed.len())
 }
 
+/// Merge & Center: `area` becomes one cell holding its top-left cell's input
+/// (the other inputs are cleared, one undo step), centred.
+pub fn merge_and_center(engine: &mut dyn SheetEngine, area: CellArea) -> Result<(), EngineError> {
+    let _ = (engine, area);
+    Ok(())
+}
+
 /// The sheet's used range as CSV (RFC 4180 quoting, `\n` lines), the
 /// displayed values.
 #[must_use]
@@ -589,6 +596,21 @@ mod tests {
 
     /// The standard FindReplaceDialog asks for match case, whole word and
     /// Find previous; the side panel's Find knew only "next, any case".
+    #[test]
+    fn merge_and_center_keeps_the_top_left_input_centred_over_the_area() {
+        let mut e = engine_with(&[&["Budget", "x"], &["1", "2"]]);
+        let area = CellArea::spanning(0, 1, 1, 2, 2);
+        merge_and_center(&mut e, area).unwrap();
+        assert_eq!(e.merges(0), vec![area]);
+        assert_eq!(e.cell_input(at(1, 1)), "Budget");
+        for (r, c) in [(1, 2), (2, 1), (2, 2)] {
+            assert_eq!(e.cell_input(at(r, c)), "", "the other cells are cleared");
+        }
+        assert_eq!(e.cell_style(at(1, 1)).h_align, crate::engine::HAlign::Center);
+        e.unmerge(area).unwrap();
+        assert!(e.merges(0).is_empty());
+    }
+
     #[test]
     fn find_honours_case_whole_words_and_the_direction() {
         let e = engine_with(&[&["Rent", "rental"], &["rent", "x"], &["", "RENT"]]);

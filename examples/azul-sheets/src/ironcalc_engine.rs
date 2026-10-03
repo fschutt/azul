@@ -507,6 +507,21 @@ impl SheetEngine for IronCalcEngine {
     fn delete_defined_name(&mut self, name: &str, scope: Option<u32>) -> Result<(), EngineError> {
         self.model.delete_defined_name(name, scope)
     }
+
+    fn merges(&self, sheet: u32) -> Vec<CellArea> {
+        let _ = sheet;
+        Vec::new()
+    }
+
+    fn merge(&mut self, area: CellArea) -> Result<(), EngineError> {
+        let _ = area;
+        Ok(())
+    }
+
+    fn unmerge(&mut self, area: CellArea) -> Result<(), EngineError> {
+        let _ = area;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -753,6 +768,32 @@ mod tests {
             back.column_width(0, 2)
         );
         assert_eq!(back.frozen(0), (1, 0));
+    }
+
+    /// IronCalc keeps a sheet's merges (`<mergeCells>`) but its UserModel
+    /// cannot change them: the engine keeps them by the sheet's stable id
+    /// and writes them into the saved file.
+    #[test]
+    fn merges_are_saved_into_the_xlsx_and_follow_their_sheet() {
+        let mut e = IronCalcEngine::new_empty();
+        e.add_sheet().unwrap();
+        e.merge(CellArea::spanning(1, 2, 2, 3, 3)).unwrap(); // Sheet2!B2:C3
+        e.merge(CellArea::spanning(0, 1, 1, 1, 4)).unwrap(); // Sheet1!A1:D1
+        e.merge(CellArea::spanning(0, 1, 2, 1, 2)).unwrap(); // one cell: no merge
+        assert_eq!(e.merges(0), vec![CellArea::spanning(0, 1, 1, 1, 4)]);
+        e.move_sheet(1, 0).unwrap();
+        assert_eq!(e.merges(0), vec![CellArea::spanning(0, 2, 2, 3, 3)], "the merge moved with its sheet");
+
+        let bytes = e.save_xlsx().unwrap();
+        let mut back = IronCalcEngine::new_empty();
+        back.load_xlsx(&bytes, "copy").unwrap();
+        assert_eq!(back.merges(0), vec![CellArea::spanning(0, 2, 2, 3, 3)]);
+        assert_eq!(back.merges(1), vec![CellArea::spanning(1, 1, 1, 1, 4)]);
+
+        back.merge(CellArea::spanning(1, 1, 3, 2, 5)).unwrap(); // overlaps A1:D1: replaces it
+        assert_eq!(back.merges(1), vec![CellArea::spanning(1, 1, 3, 2, 5)]);
+        back.unmerge(CellArea::cell(CellAddr::new(1, 2, 4))).unwrap();
+        assert!(back.merges(1).is_empty());
     }
 
     #[test]

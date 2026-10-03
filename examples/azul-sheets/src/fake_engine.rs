@@ -938,6 +938,21 @@ impl SheetEngine for FakeEngine {
             .retain(|n| !(n.scope == scope && n.name.eq_ignore_ascii_case(name)));
         Ok(())
     }
+
+    fn merges(&self, sheet: u32) -> Vec<CellArea> {
+        let _ = sheet;
+        Vec::new()
+    }
+
+    fn merge(&mut self, area: CellArea) -> Result<(), EngineError> {
+        let _ = area;
+        Ok(())
+    }
+
+    fn unmerge(&mut self, area: CellArea) -> Result<(), EngineError> {
+        let _ = area;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

@@ -349,6 +349,28 @@ pub trait SheetEngine: Send {
         formula: &str,
     ) -> Result<(), EngineError>;
     fn delete_defined_name(&mut self, name: &str, scope: Option<u32>) -> Result<(), EngineError>;
+
+    // ---- merged cells ----
+
+    /// The merged areas of `sheet`, top to bottom, left to right.
+    fn merges(&self, sheet: u32) -> Vec<CellArea>;
+    /// Merges `area` (one cell is no merge); a merge it overlaps is
+    /// replaced. The workbook keeps it and writes it into the `.xlsx`.
+    fn merge(&mut self, area: CellArea) -> Result<(), EngineError>;
+    /// Removes every merge of `area`'s sheet that overlaps `area`.
+    fn unmerge(&mut self, area: CellArea) -> Result<(), EngineError>;
+}
+
+impl CellArea {
+    /// Whether the two areas share a cell (on the same sheet).
+    #[must_use]
+    pub const fn overlaps(&self, other: &CellArea) -> bool {
+        self.sheet == other.sheet
+            && self.row <= other.last_row()
+            && other.row <= self.last_row()
+            && self.column <= other.last_column()
+            && other.column <= self.last_column()
+    }
 }
 
 #[cfg(test)]
