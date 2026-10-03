@@ -474,3 +474,611 @@ pub extern "C" fn on_escape(mut data: RefAny, mut info: CallbackInfo) -> Update 
         }
     })
 }
+
+// ==== The edit form ====
+
+/// A text field of the edit form.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EditField {
+    Title,
+    Username,
+    Password,
+    Totp,
+    Website,
+    CardHolder,
+    CardBrand,
+    CardNumber,
+    CardExpiry,
+    CardCode,
+    Tag,
+    FieldName(usize),
+    FieldValue(usize),
+}
+
+struct EditRef {
+    app: RefAny,
+    field: EditField,
+}
+
+struct IndexRef {
+    app: RefAny,
+    index: usize,
+}
+
+fn edit_input(
+    app: &RefAny,
+    field: EditField,
+    value: &str,
+    placeholder: &str,
+    password: bool,
+    id: AzString,
+) -> Dom {
+    let input = if password {
+        TextInput::create_password()
+    } else {
+        TextInput::create()
+    };
+    let mut input = input
+        .with_text(value)
+        .with_placeholder(placeholder)
+        .with_accessibility_name(placeholder)
+        .with_on_text_input(
+            RefAny::new(EditRef {
+                app: app.clone(),
+                field,
+            }),
+            on_edit_text as TextInputOnTextInputCallbackType,
+        );
+    if field == EditField::Tag {
+        input = input.with_on_virtual_key_down(
+            RefAny::new(EditRef {
+                app: app.clone(),
+                field,
+            }),
+            on_tag_key as TextInputOnVirtualKeyDownCallbackType,
+        );
+    }
+    input.dom().with_id(id)
+}
+
+/// The kinds a new item can be, in the order of the switch.
+const KIND_LABELS: [&str; 5] = ["Login", "Card", "Secure note", "Identity", "SSH key"];
+
+fn edit_view(form: &Form, app: &RefAny) -> Dom {
+    let d = &form.draft;
+    let mut rows = vec![block(
+        "font-size: 16px; font-weight: 600; padding-bottom: 8px;",
+        text(if form.original.is_some() {
+            format!("Edit {}", d.kind.singular())
+        } else {
+            format!("New {}", d.kind.singular())
+        }),
+    )];
+    if form.original.is_none() {
+        rows.push(form_row(
+            "Kind",
+            Segmented::create(strs(&KIND_LABELS))
+                .with_selected_index(d.kind.index())
+                .with_on_change(app.clone(), on_kind as SegmentedOnChangeCallbackType)
+                .dom(),
+        ));
+    }
+    rows.push(form_row(
+        "Title",
+        edit_input(
+            app,
+            EditField::Title,
+            &d.title,
+            "Title",
+            false,
+            ids::EDIT_TITLE,
+        ),
+    ));
+    if matches!(d.kind, Kind::Login | Kind::Identity | Kind::SshKey) || !d.username.is_empty() {
+        rows.push(form_row(
+            "User name",
+            edit_input(
+                app,
+                EditField::Username,
+                &d.username,
+                "User name or email",
+                false,
+                ids::EDIT_USERNAME,
+            ),
+        ));
+    }
+    if d.kind == Kind::Login || !d.password.is_empty() {
+        rows.push(form_row(
+            "Password",
+            row(
+                "gap: 4px;",
+                vec![
+                    block(
+                        "flex-grow: 1; min-width: 0px;",
+                        edit_input(
+                            app,
+                            EditField::Password,
+                            &d.password,
+                            "Password",
+                            !form.reveal,
+                            ids::EDIT_PASSWORD,
+                        ),
+                    ),
+                    Button::create(if form.reveal { "Hide" } else { "Show" })
+                        .with_on_click(app.clone(), on_form_reveal as ButtonOnClickCallbackType)
+                        .dom(),
+                    icon_button(
+                        "Generate",
+                        "casino",
+                        ids::EDIT_GENERATE,
+                        app,
+                        on_form_generate,
+                    ),
+                ],
+            ),
+        ));
+        rows.push(form_row(
+            "",
+            strength_bar(&d.password, ids::EDIT_PASSWORD_STRENGTH),
+        ));
+    }
+    if d.kind == Kind::Login || !d.totp.is_empty() {
+        rows.push(form_row(
+            "One-time code",
+            edit_input(
+                app,
+                EditField::Totp,
+                &d.totp,
+                "otpauth://totp/... or the base32 secret",
+                false,
+                ids::EDIT_TOTP,
+            ),
+        ));
+        if !form.totp_problem.is_empty() {
+            rows.push(form_row(
+                "",
+                problem(&form.totp_problem, ids::EDIT_TOTP_PROBLEM),
+            ));
+        }
+    }
+    if d.kind == Kind::Login || !d.urls.is_empty() {
+        let website = d.urls.first().map(String::as_str).unwrap_or_default();
+        rows.push(form_row(
+            "Website",
+            edit_input(
+                app,
+                EditField::Website,
+                website,
+                "https://",
+                false,
+                ids::EDIT_WEBSITE,
+            ),
+        ));
+    }
+    if d.kind == Kind::Card {
+        let c = &d.card;
+        rows.push(form_row(
+            "Holder",
+            edit_input(
+                app,
+                EditField::CardHolder,
+                &c.holder,
+                "Name on the card",
+                false,
+                ids::EDIT_CARD_HOLDER,
+            ),
+        ));
+        rows.push(form_row(
+            "Brand",
+            edit_input(
+                app,
+                EditField::CardBrand,
+                &c.brand,
+                "Visa, Mastercard, ...",
+                false,
+                ids::EDIT_CARD_BRAND,
+            ),
+        ));
+        rows.push(form_row(
+            "Number",
+            edit_input(
+                app,
+                EditField::CardNumber,
+                &c.number,
+                "Card number",
+                false,
+                ids::EDIT_CARD_NUMBER,
+            ),
+        ));
+        rows.push(form_row(
+            "Expires",
+            edit_input(
+                app,
+                EditField::CardExpiry,
+                &c.expiry,
+                "MM/YYYY",
+                false,
+                ids::EDIT_CARD_EXPIRY,
+            ),
+        ));
+        rows.push(form_row(
+            "Security code",
+            edit_input(
+                app,
+                EditField::CardCode,
+                &c.code,
+                "CVC",
+                true,
+                ids::EDIT_CARD_CODE,
+            ),
+        ));
+    }
+    for (n, f) in d.fields.iter().enumerate() {
+        rows.push(form_row(
+            "Field",
+            row(
+                "gap: 4px;",
+                vec![
+                    block(
+                        "width: 120px; flex-shrink: 0;",
+                        edit_input(
+                            app,
+                            EditField::FieldName(n),
+                            &f.name,
+                            "Name",
+                            false,
+                            ids::edit_field_name(n),
+                        ),
+                    ),
+                    block(
+                        "flex-grow: 1; min-width: 0px;",
+                        edit_input(
+                            app,
+                            EditField::FieldValue(n),
+                            &f.value,
+                            "Value",
+                            f.hidden,
+                            ids::edit_field_value(n),
+                        ),
+                    ),
+                    Switch::create(f.hidden)
+                        .with_accessibility_name("Hidden")
+                        .with_on_toggle(
+                            RefAny::new(IndexRef {
+                                app: app.clone(),
+                                index: n,
+                            }),
+                            on_field_hidden as SwitchOnToggleCallbackType,
+                        )
+                        .dom(),
+                    Button::create("")
+                        .with_icon("remove_circle_outline")
+                        .with_on_click(
+                            RefAny::new(IndexRef {
+                                app: app.clone(),
+                                index: n,
+                            }),
+                            on_field_remove as ButtonOnClickCallbackType,
+                        )
+                        .dom()
+                        .with_id(ids::edit_field_remove(n)),
+                ],
+            ),
+        ));
+    }
+    rows.push(form_row(
+        "",
+        icon_button("Add a field", "add", ids::EDIT_ADD_FIELD, app, on_field_add),
+    ));
+    let mut chips: Vec<Dom> = d
+        .tags
+        .iter()
+        .enumerate()
+        .map(|(n, t)| {
+            Chip::create(t.as_str())
+                .with_removable(true)
+                .with_on_remove(
+                    RefAny::new(IndexRef {
+                        app: app.clone(),
+                        index: n,
+                    }),
+                    on_tag_remove as ChipOnRemoveCallbackType,
+                )
+                .dom()
+                .with_id(ids::edit_tag_chip(n))
+        })
+        .collect();
+    // TODO(WIDGETS9A): TokenInput - the chips and the field as one control.
+    chips.push(block(
+        "flex-grow: 1; min-width: 120px;",
+        edit_input(
+            app,
+            EditField::Tag,
+            &form.tag,
+            "Add a tag (Enter)",
+            false,
+            ids::EDIT_TAG,
+        ),
+    ));
+    rows.push(form_row("Tags", row("gap: 4px; flex-wrap: wrap;", chips)));
+    rows.push(form_row(
+        "Notes",
+        TextArea::create()
+            .with_text(d.notes.as_str())
+            .with_placeholder("Notes")
+            .with_accessibility_name("Notes")
+            .with_on_text_input(app.clone(), on_notes as TextAreaOnTextInputCallbackType)
+            .dom()
+            .with_id(ids::EDIT_NOTES),
+    ));
+    rows.push(form_row(
+        "Favourite",
+        Switch::create(d.favorite)
+            .with_accessibility_name("Favourite")
+            .with_on_toggle(app.clone(), on_form_favorite as SwitchOnToggleCallbackType)
+            .dom()
+            .with_id(ids::EDIT_FAVORITE),
+    ));
+    if form.confirm_discard {
+        rows.push(row(
+            "gap: 8px; padding-top: 12px;",
+            vec![
+                block("font-size: 13px;", text("Discard your changes?")),
+                primary("Discard", ids::EDIT_DISCARD, app, on_form_discard),
+                button("Keep editing", ids::EDIT_KEEP, app, on_form_keep),
+            ],
+        ));
+    } else {
+        rows.push(row(
+            "gap: 8px; padding: 12px 0px 0px 110px;",
+            vec![
+                primary("Save", ids::EDIT_SAVE, app, on_edit_save),
+                button("Cancel", ids::EDIT_CANCEL, app, on_form_cancel),
+            ],
+        ));
+    }
+    column(PANE, rows).with_id(ids::EDIT)
+}
+
+/// Runs `f` on the edit form (when one is open); the window is rebuilt.
+fn with_form(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    f: impl FnOnce(&mut Form, &generator::Options),
+) -> Update {
+    with_app(data, info, |s, _info, _| {
+        if let Some(session) = s.session.as_mut() {
+            let options = session.generator.clone();
+            if let Reading::Edit(form) = &mut session.reading {
+                f(form, &options);
+            }
+        }
+    })
+}
+
+fn set_text(form: &mut Form, field: EditField, value: String) {
+    let d = &mut form.draft;
+    match field {
+        EditField::Title => d.title = value,
+        EditField::Username => d.username = value,
+        EditField::Password => d.password = value,
+        EditField::Totp => form.set_totp(&value),
+        EditField::Website => match d.urls.first_mut() {
+            Some(first) => *first = value,
+            None if !value.trim().is_empty() => d.urls.push(value),
+            None => {}
+        },
+        EditField::CardHolder => d.card.holder = value,
+        EditField::CardBrand => d.card.brand = value,
+        EditField::CardNumber => d.card.number = value,
+        EditField::CardExpiry => d.card.expiry = value,
+        EditField::CardCode => d.card.code = value,
+        EditField::Tag => {
+            form.tag = value;
+            if form.tag.contains(',') {
+                form.commit_tag();
+            }
+        }
+        EditField::FieldName(n) => {
+            if let Some(f) = d.fields.get_mut(n) {
+                f.name = value;
+            }
+        }
+        EditField::FieldValue(n) => {
+            if let Some(f) = d.fields.get_mut(n) {
+                f.value = value;
+            }
+        }
+    }
+}
+
+/// A field of the form was typed in. The draft takes the text; the window is rebuilt only for
+/// what shows it elsewhere (the strength bar, the one-time field's problem, a committed tag).
+extern "C" fn on_edit_text(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
+    let Some((mut app, field)) = data
+        .downcast_ref::<EditRef>()
+        .map(|r| (r.app.clone(), r.field))
+    else {
+        return keep();
+    };
+    let value = Zeroizing::new(state.get_text().as_str().to_string());
+    let rebuild = matches!(field, EditField::Password | EditField::Totp)
+        || (field == EditField::Tag && value.contains(','));
+    let update = with_form(&mut app, &mut info, |form, _| {
+        set_text(form, field, value.to_string())
+    });
+    OnTextInputReturn {
+        update: if rebuild { update } else { Update::DoNothing },
+        valid: TextInputValid::Yes,
+    }
+}
+
+/// Enter in the tag field adds the tag.
+extern "C" fn on_tag_key(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    _state: TextInputState,
+) -> OnTextInputReturn {
+    let enter = matches!(
+        info.get_current_keyboard_state()
+            .current_virtual_keycode
+            .into_option(),
+        Some(VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter)
+    );
+    if !enter {
+        return keep();
+    }
+    let Some(mut app) = data.downcast_ref::<EditRef>().map(|r| r.app.clone()) else {
+        return keep();
+    };
+    OnTextInputReturn {
+        update: with_form(&mut app, &mut info, |form, _| form.commit_tag()),
+        valid: TextInputValid::Yes,
+    }
+}
+
+extern "C" fn on_notes(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    state: TextAreaState,
+) -> OnTextInputReturn {
+    let notes = state.get_text().as_str().to_string();
+    let _ = with_form(&mut data, &mut info, |form, _| form.draft.notes = notes);
+    keep()
+}
+
+extern "C" fn on_kind(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    with_form(&mut data, &mut info, |form, _| {
+        if form.original.is_none() {
+            form.draft.kind = Kind::ALL[state.selected_index.min(Kind::ALL.len() - 1)];
+        }
+    })
+}
+
+extern "C" fn on_form_reveal(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_form(&mut data, &mut info, |form, _| form.reveal = !form.reveal)
+}
+
+/// "Generate": a password by the generator's settings goes into the field (shown).
+extern "C" fn on_form_generate(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_form(&mut data, &mut info, |form, options| {
+        let mut options = options.clone();
+        if options.mode == Mode::Passphrase && form.draft.kind == Kind::Card {
+            options.mode = Mode::Pin;
+        }
+        if let Ok(password) = generator::generate(&options) {
+            form.draft.password = password;
+            form.reveal = true;
+        }
+    })
+}
+
+extern "C" fn on_form_favorite(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    state: SwitchState,
+) -> Update {
+    with_form(&mut data, &mut info, |form, _| {
+        form.draft.favorite = state.checked
+    })
+}
+
+extern "C" fn on_field_add(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_form(&mut data, &mut info, |form, _| {
+        form.draft.fields.push(Field::default())
+    })
+}
+
+extern "C" fn on_field_remove(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, index)) = data
+        .downcast_ref::<IndexRef>()
+        .map(|r| (r.app.clone(), r.index))
+    else {
+        return Update::DoNothing;
+    };
+    with_form(&mut app, &mut info, |form, _| {
+        if index < form.draft.fields.len() {
+            form.draft.fields.remove(index);
+        }
+    })
+}
+
+extern "C" fn on_field_hidden(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    state: SwitchState,
+) -> Update {
+    let Some((mut app, index)) = data
+        .downcast_ref::<IndexRef>()
+        .map(|r| (r.app.clone(), r.index))
+    else {
+        return Update::DoNothing;
+    };
+    with_form(&mut app, &mut info, |form, _| {
+        if let Some(f) = form.draft.fields.get_mut(index) {
+            f.hidden = state.checked;
+        }
+    })
+}
+
+extern "C" fn on_tag_remove(mut data: RefAny, mut info: CallbackInfo, _state: ChipState) -> Update {
+    let Some((mut app, index)) = data
+        .downcast_ref::<IndexRef>()
+        .map(|r| (r.app.clone(), r.index))
+    else {
+        return Update::DoNothing;
+    };
+    with_form(&mut app, &mut info, |form, _| {
+        if index < form.draft.tags.len() {
+            form.draft.tags.remove(index);
+        }
+    })
+}
+
+/// "Save" (or Mod+S): the draft goes into the vault and the vault is saved.
+pub extern "C" fn on_edit_save(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, info, app| {
+        let Some(session) = s.session.as_mut() else {
+            return;
+        };
+        if !matches!(session.reading, Reading::Edit(_)) {
+            return;
+        }
+        match session.save_form(now()) {
+            Ok(_) => {
+                if let Some(item) = session.selected_item() {
+                    println!("AZKEYS_ITEM_SAVED {}", item.title);
+                }
+                s.notice.clear();
+                jobs::save(s, info, app);
+            }
+            Err(problem) => s.notice = problem,
+        }
+    })
+}
+
+extern "C" fn on_form_cancel(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| {
+        if let Some(session) = s.session.as_mut() {
+            if leave_form(session) {
+                session.reading = Reading::Item;
+            }
+        }
+    })
+}
+
+extern "C" fn on_form_discard(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| {
+        if let Some(session) = s.session.as_mut() {
+            session.reading = Reading::Item;
+        }
+    })
+}
+
+extern "C" fn on_form_keep(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_form(&mut data, &mut info, |form, _| form.confirm_discard = false)
+}
