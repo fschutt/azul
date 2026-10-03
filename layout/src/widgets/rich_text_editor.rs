@@ -835,8 +835,15 @@ fn host_dom(editor: &RichTextEditor, data: Option<&RefAny>, range: Option<(usize
         .with_class(AzString::from_const_str(RICH_TEXT_HOST_CLASS))
         .with_accessibility_name(editor.accessibility_name.clone())
         .with_css(&format!(
-            "display: block; flex-grow: 1; padding: 10px 14px 40px 14px; font-size: {}px; \
-             cursor: text;",
+            "display: block; flex-grow: 1; padding: {}; font-size: {}px; cursor: text;",
+            // A page's host fills its sheet's text area: the sheet is the
+            // margin (and the paginator measures the host as the page's
+            // text width).
+            if range.is_some() {
+                "0px"
+            } else {
+                "10px 14px 40px 14px"
+            },
             ctx.font_px
         ));
     if data.is_some() {
