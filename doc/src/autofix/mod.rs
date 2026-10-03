@@ -1313,10 +1313,10 @@ fn generate_addition_patch(addition: &diff::TypeAddition) -> String {
     patch.add_operation(PatchOperation::Add(AddOperation {
         type_name: addition.type_name.clone(),
         external: addition.full_path.clone(),
-        // A type under `widgets::` belongs to the widgets module; without
-        // this the apply side guessed from the name and put AccordionVariant
-        // in `dom` (2026-10-01). Everything else keeps the name-based choice.
-        module: module_map::widget_module_for(&addition.type_name, &addition.full_path),
+        // The module the scan's move check keeps a new type in, the same
+        // rule `autofix add` uses (the apply side guessed from the name and
+        // put AccordionVariant in `dom`, 2026-10-01)
+        module: Some(module_map::new_type_module(&addition.type_name, &addition.full_path).0),
         kind,
         derives,
         repr_c: Some(true), // All API types should have repr(C)
@@ -5451,13 +5451,21 @@ mod addition_patch_module_tests {
         assert_eq!(op["module"], "widgets", "{json}");
     }
 
-    /// A non-widget type keeps the name-based placement (no module in the patch).
+    /// A non-widget type carries the module the scan's move check keeps it
+    /// in, the one `autofix add` picks too (new_type_module): a name no
+    /// keyword knows goes where it lives, not to `misc`.
     #[test]
-    fn a_scanned_core_type_leaves_the_module_to_the_name_heuristic() {
-        let json = generate_addition_patch(&addition("TextFormat", "azul_core::dom::TextFormat"));
+    fn a_scanned_core_type_carries_the_module_the_scan_keeps() {
+        let path = "azul_core::dom::TextFormat";
+        let json = generate_addition_patch(&addition("TextFormat", path));
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         let op = &v["operations"][0];
-        assert!(op.get("module").map_or(true, |m| m.is_null()), "{json}");
+        let expected = super::module_map::new_type_module("TextFormat", path).0;
+        assert_eq!(op["module"], expected.as_str(), "{json}");
+
+        let json = generate_addition_patch(&addition("Quux", "azul_layout::cpurender::quux::Quux"));
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["operations"][0]["module"], "image", "{json}");
     }
 }
 

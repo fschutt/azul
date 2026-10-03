@@ -678,6 +678,11 @@ const DIFFICULT_TYPE_MODULES: &[(&str, &str)] = &[
     // "event" is a dom keyword, so the transport events sorted into dom next to the DOM events.
     ("Wt", "webtransport"),
     ("Iroh", "iroh"),
+    // The CPU rasterizer's text style (`RawImage::from_text` / `draw_text`,
+    // `CallbackInfo::text_image`): "Style" filed it under css; it belongs
+    // beside `RawImage` in image (MEDIA6). Spelled in full - "Text" alone
+    // would capture every text type.
+    ("TextRasterStyle", "image"),
 ];
 
 /// Module for a known-difficult type name, if it is one.
@@ -877,13 +882,42 @@ pub fn widget_module_for(type_name: &str, full_path: &str) -> Option<String> {
     Some(module.to_string())
 }
 
+/// Whether the name alone settles the module: `Option*`, the `*Vec` family,
+/// `*Error`, `Result*` (the scan never lets a path or a table move these).
+fn is_structural(type_name: &str) -> bool {
+    let lower = type_name.to_lowercase();
+    lower.starts_with("option")
+        || is_vec_family(type_name)
+        || lower.ends_with("error")
+        || lower.starts_with("result")
+}
+
 /// THE module of a type api.json does not have yet, `(module, is_guess)`,
 /// for every path that adds one (`autofix add`, its dependency types, the
-/// scan's additions, an Add patch without a module).
+/// scan's additions, an Add patch without a module): the placement the
+/// scan's move check ([`get_correct_module_with_path`]) keeps, decided in
+/// its order - a structural name, the exceptions table, the widget rule, a
+/// confident keyword, then the module of the source path, else the
+/// keyword's guess (`misc`). The add used a rule of its own (widget rule,
+/// else keywords), so the next scan moved a keyword-less name out of
+/// `misc` and a widget's `*Error` out of `widgets`.
 pub fn new_type_module(type_name: &str, full_path: &str) -> (String, bool) {
-    match widget_module_for(type_name, full_path) {
+    let (by_name, is_guess) = determine_module(type_name);
+    if is_structural(type_name) && !is_guess {
+        return (by_name, false);
+    }
+    if let Some(forced) = difficult_type_module(type_name) {
+        return (forced.to_string(), false);
+    }
+    if let Some(module) = widget_module_for(type_name, full_path) {
+        return (module, false);
+    }
+    if !is_guess {
+        return (by_name, false);
+    }
+    match module_from_external_path(full_path) {
         Some(module) => (module, false),
-        None => determine_module(type_name),
+        None => (by_name, true),
     }
 }
 
@@ -909,13 +943,7 @@ pub fn get_correct_module_with_path(
     // (a widget's slice with its widget, below). Counting it here answered
     // with the name's keyword before the widget rule was asked, so
     // `CellGridRangeVecSlice` was "correct" in css (DEDUP_WIDGETS_API F17).
-    let lower_name = type_name.to_lowercase();
-    let is_structural = lower_name.starts_with("option")
-        || is_vec_family(type_name)
-        || lower_name.ends_with("error")
-        || lower_name.starts_with("result");
-
-    if is_structural && !is_warning {
+    if is_structural(type_name) && !is_warning {
         if name_module != current_module {
             return Some(name_module);
         } else {
@@ -1116,6 +1144,10 @@ fn module_from_external_path(path: &str) -> Option<String> {
     }
     // Same for the image-decode result struct (`ImageDecodeResult`).
     if path.starts_with("azul_layout::image::") {
+        return Some("image".to_string());
+    }
+    // The CPU rasterizer draws into a `RawImage` (text to pixels too).
+    if path.starts_with("azul_layout::cpurender::") {
         return Some("image".to_string());
     }
     if path.starts_with("azul_layout::fmt::") {

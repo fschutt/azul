@@ -896,7 +896,8 @@ impl AutofixPatch {
                         ..Default::default()
                     };
                     let module_name = a.module.clone().unwrap_or_else(|| {
-                        let (module, warn) = determine_module(&a.type_name);
+                        let (module, warn) =
+                            crate::autofix::module_map::new_type_module(&a.type_name, &a.external);
                         if warn {
                             eprintln!(
                                 "Warning: Could not determine module for '{}', using 'misc'",

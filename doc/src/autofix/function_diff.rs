@@ -1609,7 +1609,6 @@ fn function_data_for_call(method: &MethodDef, class_name: &str, call: String) ->
 }
 
 // type addition with transitive dependencies
-use super::{diff::TypeAddition, module_map::determine_module};
 
 /// Result of adding a type with its dependencies
 #[derive(Debug)]
@@ -1806,7 +1805,7 @@ fn get_callback_typedef_info(
 ///
 /// This function:
 /// 1. Finds the type in the workspace index
-/// 2. Determines the correct module using determine_module()
+/// 2. Determines the module with module_map::new_type_module (the one the scan keeps)
 /// 3. Collects all types referenced by the type's fields, methods, etc.
 /// 4. Recursively adds those types if they're not in api.json
 /// 5. Returns patches for all types that need to be added
@@ -1877,11 +1876,9 @@ pub fn generate_add_type_patches(
             }
         };
 
-        // Determine module (path-aware for widget types; see widget_module_for)
-        let (module_name, is_misc) = match crate::autofix::module_map::widget_module_for(&current_type, &type_def.full_path) {
-            Some(m) => (m, false),
-            None => determine_module(&current_type),
-        };
+        // The module the scan keeps a new type in (see new_type_module)
+        let (module_name, is_misc) =
+            crate::autofix::module_map::new_type_module(&current_type, &type_def.full_path);
         if is_misc {
             eprintln!(
                 "[WARN] Type '{}' mapped to 'misc' module - consider adding a keyword mapping",
@@ -2091,8 +2088,11 @@ pub fn generate_add_type_patches(
                         {
                             // Need to add this type too
                             if let Some(ref_type_def) = index.resolve(&ref_type, None) {
-                                let module = crate::autofix::module_map::widget_module_for(&ref_type, &ref_type_def.full_path)
-                                    .unwrap_or_else(|| determine_module(&ref_type).0);
+                                let module = crate::autofix::module_map::new_type_module(
+                                    &ref_type,
+                                    &ref_type_def.full_path,
+                                )
+                                .0;
                                 let ref_derives = get_derives_from_kind(ref_type_def);
                                 // Generate a simple add patch for the referenced type
                                 let mut ref_patch =
@@ -2160,8 +2160,11 @@ pub fn generate_add_type_patches(
                             && !type_exists_in_api(&ref_type, version_data)
                         {
                             if let Some(ref_type_def) = index.resolve(&ref_type, None) {
-                                let module = crate::autofix::module_map::widget_module_for(&ref_type, &ref_type_def.full_path)
-                                    .unwrap_or_else(|| determine_module(&ref_type).0);
+                                let module = crate::autofix::module_map::new_type_module(
+                                    &ref_type,
+                                    &ref_type_def.full_path,
+                                )
+                                .0;
                                 let ref_derives = get_derives_from_kind(ref_type_def);
                                 let mut ref_patch =
                                     AutofixPatch::new(format!("Add type {}", ref_type));
