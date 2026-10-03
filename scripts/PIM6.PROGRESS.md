@@ -13,8 +13,16 @@ Screenshots: target/pim6-shots (not committed).
   (parse_rrule, parse_basic_date), apply(Part), whole(); date_picker.rs `weekday` and
   `days_in_month` made pub(crate) (reused, not copied).
 
+- 78f4e7c60 GREEN part 2 (editor create / on_change / dom / build / handlers / fixtures)
+- 5e93d320b GREEN part 3 (flat + flora looks appended)
+- f0f9898cd manifest entry + INPUTS group
+=> RecurrenceEditor DONE (uncompiled). api.json list: see the report draft below.
+
 ## IN PROGRESS
-- RecurrenceEditor GREEN part 2 - NEXT exact steps, in layout/src/widgets/recurrence_editor.rs:
+- AzCalendar adopts the RecurrenceEditor (editor_ui.rs repeat rows; editor.rs form keeps a
+  `Rule`), then DatePicker week start at editor_ui.rs date_picker().
+
+## (old notes, done) RecurrenceEditor GREEN part 2 steps, in layout/src/widgets/recurrence_editor.rs:
   1. replace the 4 remaining `todo!()`: `RecurrenceEditor::create` (week_start Monday default,
      completion_option false), `set_on_change`, `dom()` (match theme: flat/flora::recurrence_editor,
      None -> theme_blocks::follow_app_theme), `build()`.
