@@ -21,32 +21,25 @@ Branch `wt/writer6` from `25d78e309`. Brief: scripts/waves/wave6/WRITER6.md.
 - 880dc5984 AzNotes close via prevent_window_close (B29/A16; INFRA6 says all backends honour it now)
 - 064112be6 RED + b5b620b5b GREEN AzNotes search/tags on azul_pim (B16/B27/E5)
 
-## IN PROGRESS
-- NEXT: AzNotes prefixes (`__aznotes_` ids/classes module, E2E script selectors follow), then AzWriter
-  adoption (RTE 8a-e) + shell/appkit/drive/close/prefixes + scripts/azwriter_e2e.py, then AzNotes appkit.
+## IN PROGRESS - AzWriter rewrite (plan under Decisions)
+- DONE: 1c8ae86c9 model.rs + ids.rs, 7155c5172 docx.rs, f05dd0197 storage.rs (all new files, not yet
+  wired: lib.rs still the old app until the switch commit).
+- NEXT: paginate.rs (page starts from Pdf::compute_pagination over the read-only content at A4 content
+  width, a Thread worker per generation), then ribbon.rs, pages.rs (canvas + VirtualView + status bar),
+  backstage.rs, lib.rs (the switch: AppState/run/layout on DocumentShell, appkit kit, CloseGuard),
+  Cargo.toml (azul-appkit, azul-storage; pulldown-cmark dropped), delete ir/palette/fonts/args/document/
+  editor_ui/ribbon_ui/backstage_ui, scripts/azwriter_e2e.py + workspace_test_members / rust.yml.
+- THEN: AzNotes prefixes (`__aznotes_`, E2E selectors follow), AzNotes appkit, report.
+- Scratch helpers (api.json lookup script) live in the session scratchpad; it was wiped by the restart.
 
-## DONE design notes - Undo/Redo ownership. DESIGN (decided): the browser keydown model. core `handle_key_down` stops
+## Undo/Redo ownership - DESIGN (done): the browser keydown model. core `handle_key_down` stops
   claiming primary+Z / Shift+Z / Y for the PRIMARY seat (no AddAndSkip: the KeyDown passes to callbacks);
   the engine's text undo becomes the key's DEFAULT ACTION (`DefaultAction::UndoTextEdit { target }` /
   `RedoTextEdit { target }`, appended to core's DefaultAction) decided in layout/src/default_actions.rs
   for an editable focus, run by the dll (event.rs DefaultAction match -> apply_system_change(UndoTextEdit))
-  and the e2e runner (runner.rs DefaultAction match) after the callbacks, VETOED by prevent_default -
-  exactly like Ctrl+B ToggleTextFormat. An app that owns its history (the RichTextEditor) handles Ctrl+Z in
-  its VirtualKeyDown and calls prevent_default. Non-primary seats keep SeatShortcut. macOS Edit-menu
-  `undo:` path (macos/mod.rs edit_command) still applies UndoTextEdit directly - follow-up in the report.
-- NEXT STEP: RED tests: core/src/events_test.rs (near line 3790: primary+Z on an editable focus yields no
-  UndoTextEdit system change and the KeyDown reaches the user events) + layout/tests/<new>.rs
-  (determine_keyboard_default_action_with_editing for primary+Z / Shift+Z / Y in a contenteditable host
-  = UndoTextEdit / RedoTextEdit; prevented -> no action), pattern of
-  layout/tests/a_format_toggle_at_a_caret_styles_what_is_typed_next.rs.
-
-## NEXT
-1. (done) LOOK.
-2. Undo/Redo shortcut ownership (see IN PROGRESS).
-3. Engine formats into the editor (DocumentTextEdit.runs, get_typing_formats) - RED in layout, then rich_text_editor.rs.
-4. AzWriter on RichTextEditor + RichTextDoc (RTE section 8 a-e).
-5. AzNotes polish (close via CloseRequested, azul_pim search/tags, prefixes, appkit).
-6. Report.
+  after the callbacks, VETOED by prevent_default - like Ctrl+B ToggleTextFormat. The RichTextEditor
+  handles Ctrl+Z in its VirtualKeyDown and calls prevent_default. Non-primary seats keep SeatShortcut.
+  macOS Edit-menu `undo:` path (macos/mod.rs edit_command) still applies UndoTextEdit directly (report).
 
 ## Seen broken (LOOK, prebuilt aa59b2d84, screenshots in target/writer6-look/{notes,notes2,writer})
 AzNotes (scripts/aznotes_e2e.py PASSES against the prebuilt binary):
