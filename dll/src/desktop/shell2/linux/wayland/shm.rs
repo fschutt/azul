@@ -36,7 +36,7 @@
 //! wide (`AzulPixmap`'s width is its pitch); the padding columns are drawn
 //! into by full repaints and never shown (the `wl_buffer` is `width` wide).
 
-use std::ffi::CString;
+use std::{ffi::CString, time::Duration};
 
 /// Bytes per pixel of every format we allocate (`ARGB8888` / `ABGR8888` /
 /// `XRGB8888`).
@@ -225,6 +225,59 @@ pub(crate) fn create_shm_file(name: &str, size: usize) -> Result<libc::c_int, &'
         );
     }
     Ok(fd)
+}
+
+/// How long a window must have presented nothing before its spare buffer is
+/// given back (user, 2026-10-03: "an idle window holds ONE buffer").
+pub(crate) const SPARE_IDLE_RELEASE: Duration = Duration::from_secs(1);
+
+/// Which buffer of a two-buffer pool the next frame draws into.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SlotPlan {
+    /// Draw into this live buffer the compositor does not hold.
+    Use(usize),
+    /// Re-create this released buffer (its `wl_buffer` is gone, its pages
+    /// were punched out), then draw into it.
+    Recreate(usize),
+    /// Both buffers are held by the compositor: skip, retry on a release.
+    Wait,
+}
+
+/// The ownership law of a two-buffer pool. `busy[i]`: the compositor holds
+/// buffer `i` (no `wl_buffer.release` yet) - writing into it is a protocol
+/// violation. `released[i]`: buffer `i` was given back while idle. The buffer
+/// that already holds the newest frame (`active`) is preferred, then the
+/// other live one; a released buffer is only re-created when no live buffer
+/// is free.
+pub(crate) fn plan_slot(active: usize, busy: [bool; 2], released: [bool; 2]) -> SlotPlan {
+    let _ = (active, busy, released);
+    SlotPlan::Wait
+}
+
+/// What an idle window does with its spare buffer before it sleeps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IdleSpare {
+    /// Give buffer `n` back now: destroy its `wl_buffer`, punch its pages out.
+    Release(usize),
+    /// Not yet: wake up after this long and ask again.
+    WakeIn(Duration),
+    /// Nothing to do: the spare is already released, or the compositor still
+    /// holds it (its `wl_buffer.release` will wake the loop).
+    Nothing,
+}
+
+/// The spare-buffer rule for a window that has presented nothing for
+/// `idle_for`. Only the buffer that does NOT hold the newest frame (`1 -
+/// active`) is ever given back, and only while the compositor does not hold
+/// it.
+pub(crate) fn idle_spare(
+    active: usize,
+    busy: [bool; 2],
+    released: [bool; 2],
+    idle_for: Duration,
+) -> IdleSpare {
+    let _ = (active, busy, released, idle_for);
+    IdleSpare::Nothing
 }
 
 #[cfg(test)]
@@ -442,5 +495,115 @@ mod tests {
     fn an_empty_or_oversized_shm_file_is_refused() {
         assert!(create_shm_file("azul-shm-test-0", 0).is_err());
         assert!(create_shm_file("azul-shm-test-big", i32::MAX as usize + 1).is_err());
+    }
+
+    const NONE_RELEASED: [bool; 2] = [false, false];
+
+    #[test]
+    fn a_frame_draws_into_the_buffer_holding_the_newest_frame_while_it_is_free() {
+        assert_eq!(
+            plan_slot(0, [false, false], NONE_RELEASED),
+            SlotPlan::Use(0)
+        );
+        assert_eq!(
+            plan_slot(1, [false, false], NONE_RELEASED),
+            SlotPlan::Use(1)
+        );
+        // Also when the spare was given back: one buffer is all it needs.
+        assert_eq!(
+            plan_slot(0, [false, false], [false, true]),
+            SlotPlan::Use(0)
+        );
+    }
+
+    #[test]
+    fn a_frame_moves_to_the_other_live_buffer_when_the_compositor_holds_the_newest() {
+        assert_eq!(plan_slot(0, [true, false], NONE_RELEASED), SlotPlan::Use(1));
+        assert_eq!(plan_slot(1, [false, true], NONE_RELEASED), SlotPlan::Use(0));
+    }
+
+    #[test]
+    fn a_frame_that_finds_the_kept_buffer_held_re_creates_the_released_spare() {
+        assert_eq!(
+            plan_slot(0, [true, false], [false, true]),
+            SlotPlan::Recreate(1)
+        );
+        assert_eq!(
+            plan_slot(1, [false, true], [true, false]),
+            SlotPlan::Recreate(0)
+        );
+    }
+
+    #[test]
+    fn a_frame_waits_when_both_buffers_are_held() {
+        assert_eq!(plan_slot(0, [true, true], NONE_RELEASED), SlotPlan::Wait);
+        assert_eq!(plan_slot(1, [true, true], NONE_RELEASED), SlotPlan::Wait);
+    }
+
+    #[test]
+    fn an_idle_window_gives_its_spare_buffer_back_after_one_second() {
+        let idle = SPARE_IDLE_RELEASE;
+        assert_eq!(
+            idle_spare(0, [false, false], NONE_RELEASED, idle),
+            IdleSpare::Release(1)
+        );
+        // The newest frame on screen (held) does not stop the spare's release.
+        assert_eq!(
+            idle_spare(1, [false, true], NONE_RELEASED, idle * 5),
+            IdleSpare::Release(0)
+        );
+    }
+
+    #[test]
+    fn before_one_second_the_window_asks_to_be_woken_when_the_spare_becomes_releasable() {
+        assert_eq!(
+            idle_spare(0, [false, false], NONE_RELEASED, Duration::from_millis(300)),
+            IdleSpare::WakeIn(Duration::from_millis(700))
+        );
+    }
+
+    #[test]
+    fn a_spare_the_compositor_holds_or_already_gave_back_is_left_alone() {
+        let idle = SPARE_IDLE_RELEASE * 2;
+        assert_eq!(
+            idle_spare(0, [false, true], NONE_RELEASED, idle),
+            IdleSpare::Nothing
+        );
+        assert_eq!(
+            idle_spare(0, [false, false], [false, true], idle),
+            IdleSpare::Nothing
+        );
+    }
+
+    #[test]
+    fn the_buffer_holding_the_newest_frame_is_never_given_back() {
+        for active in 0..2 {
+            for bits in 0..4u8 {
+                let busy = [bits & 1 != 0, bits & 2 != 0];
+                let got = idle_spare(active, busy, NONE_RELEASED, SPARE_IDLE_RELEASE * 10);
+                assert_ne!(
+                    got,
+                    IdleSpare::Release(active),
+                    "active {active}, busy {busy:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_window_law_and_the_slot_plan_agree_when_nothing_is_released() {
+        // `next_writable_slot` (the window / popup law) is this plan without
+        // released buffers.
+        for active in 0..2 {
+            for bits in 0..4u8 {
+                let busy = [bits & 1 != 0, bits & 2 != 0];
+                let expected = match plan_slot(active, busy, NONE_RELEASED) {
+                    SlotPlan::Use(s) => Some(s),
+                    SlotPlan::Wait => None,
+                    SlotPlan::Recreate(_) => panic!("nothing was released"),
+                };
+                assert_eq!(super::super::next_writable_slot(active, busy), expected);
+            }
+        }
     }
 }
