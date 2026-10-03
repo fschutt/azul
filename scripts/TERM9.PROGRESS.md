@@ -10,6 +10,7 @@ if /tmp was wiped).
 - 814855418 widget data types + builder (layout/src/widgets/terminal_view.rs, registered in widgets/mod.rs)
 - aa7d17d51 RED pure-logic tests (encoding_tests, palette_tests, view_tests)
 - 3577bdf53 GREEN pure logic + theme palettes (flat.rs / flora.rs APPENDED) + data_table::thumb pub(crate)
+- 09d398619 manifest; 685641fd0 + 272d4eb5e engine: a focus that listens for paste gets the paste chord
 - 980e5fd76 widget build + handlers (VirtualView host, render_terminal, merge, key/text/paste/focus/mouse/wheel),
   fixtures::sample, build_tests
 
@@ -20,7 +21,7 @@ if /tmp was wiped).
 1. (done 09d398619) Manifest.
    `all.push(("terminal_view", super::terminal_view::fixtures::sample().dom()));` and check the theme_contrast
    groups (~line 2775 in mod.rs) to see whether a new widget must be listed there.
-2. Engine (paste): core/src/events.rs `handle_key_down` returns None for Cmd/Ctrl+V on a non-editable focus without
+2. (done 685641fd0 RED, 272d4eb5e GREEN) Engine paste: focus_hears_paste. Was: handle_key_down returned None for Cmd/Ctrl+V on a non-editable focus without
    a selection, and CallbackInfo cannot READ the clipboard -> a terminal never gets a Paste event. Fix: a new
    `InputInterpreterState` field `focus_hears_paste` (the focused node has a FocusEventFilter::Paste callback), set in
    dll/src/desktop/shell2/common/event.rs (~11995) and layout/src/e2e/runner.rs (~1207), carried through the ctx
