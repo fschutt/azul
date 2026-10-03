@@ -20,6 +20,8 @@ Report: `scripts/KEYS9_<date>.md` (when done). Never compile (house rules); rust
 - 161a2ebae jobs.rs (vault thread spawn/on_done/handle, save/lock/finish_lock, copy_secret/set_clipboard,
   start_timer/on_tick, keyring + biometric (enable/disable/unlock_with_device, on_keyring_result,
   on_biometric_result), on_window_created, on_close_requested, on_activity). NOT yet in lib.rs (needs ui.rs).
+- 3127cacbd ui.rs part 1 (layout, unlock, create); 1aa0372bb ui.rs part 2 (vault PimShell, nav, list, toolbar,
+  status, on_key, settings sections, read_import_file/on_import_read, close guard)
 - 9cbc73f1a registered: root Cargo.toml member, workspace_test_members.txt, rust.yml step (NEXT item 7 done)
 
 ## NEXT (exact) - items 1, 2, 3, 4 (app.rs), 5 (jobs.rs) and 7 are DONE (+ session.rs); continue at 6
@@ -43,7 +45,19 @@ Report: `scripts/KEYS9_<date>.md` (when done). Never compile (house rules); rust
    auto-lock -> `vault.wipe()`), keyring ops (one in flight, like AzDrive lib.rs `KeyringOp`), biometric
    (`request_biometric_auth`, WindowEventFilter::BiometricResult / KeyringResult), CloseRequested (hold while
    saving), activity touch on window MouseDown / VirtualKeyDown.
-6. ui.rs (NEXT): must define `pub fn read_import_file(s: &mut KeysApp, info: &mut CallbackInfo, app: &RefAny,
+6a. NEXT: `examples/azul-keys/src/ui_item.rs` - ui.rs calls: `reading_pane(s: &KeysApp, session: &Session, app: &RefAny)
+   -> Dom`, `regenerate(session: &mut Session)`, extern "C" `on_edit`, `on_edit_save`, `on_escape`, `on_delete`
+   (all `(RefAny, CallbackInfo) -> Update`). Content: item view (fields with copy / reveal buttons via
+   jobs::copy_secret, TOTP code + ProgressBar `TODO(WIDGETS9B): Gauge`, tags Chips, history, Edit / Delete with
+   confirm), edit form (kind Segmented for a new item, title, username, password + strength + Generate, totp,
+   website, tags input + chips, card fields, custom fields add/remove, notes TextArea, Save / Cancel, discard
+   confirm), generator panel (Segmented mode, Slider length/words, CheckBoxes, output, strength, Refresh / Copy /
+   Use password (into the open form)), import preview (path TextInput, Choose... FileDialog::open_file ->
+   ui::read_import_file, summary, skipped list, Import -> import::merge + jobs::save), audit view (summary
+   cards as buttons -> Filter, rows, Export report -> Work::Put store::audit_key(date)).
+6b. then lib.rs: `pub mod jobs; pub mod ui; pub mod ui_item;` + start() (see below); remove the "Mod+F Search"
+   shortcut from app.rs SHORTCUTS (not implemented; array 13 -> 12).
+6. ui.rs (DONE): must define `pub fn read_import_file(s: &mut KeysApp, info: &mut CallbackInfo, app: &RefAny,
    path: &Path)` (jobs.rs calls it) and `pub extern "C" fn layout(RefAny, LayoutCallbackInfo) -> Dom`; body callbacks:
    VirtualKeyDown (kit::handle_key first), MouseDown -> jobs::on_activity, KeyringResult -> jobs::on_keyring_result,
    BiometricResult -> jobs::on_biometric_result, CloseRequested -> jobs::on_close_requested. Then lib.rs:
