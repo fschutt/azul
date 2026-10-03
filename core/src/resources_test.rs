@@ -2734,12 +2734,21 @@ mod rgba_to_nv12_tests {
 
     #[test]
     fn a_picture_comes_back_through_the_decode_table_within_a_few_levels() {
-        // Smooth colour ramps (4:2:0 halves the chroma: a ramp keeps neighbours close).
+        // Colour ramps that step once per 2x2 block: 4:2:0 keeps one chroma
+        // pair per block, so what comes back differs only by the rounding of
+        // the two tables (a colour that changes inside a block loses that
+        // change to the block's average - 4:2:0 itself, not this function).
         let (w, h) = (16usize, 8usize);
         let mut rgba = Vec::with_capacity(w * h * 4);
         for y in 0..h {
             for x in 0..w {
-                rgba.extend_from_slice(&[(x * 12) as u8, (y * 24) as u8, 200 - (x * 6) as u8, 255]);
+                let (bx, by) = (x / 2, y / 2);
+                rgba.extend_from_slice(&[
+                    (bx * 24) as u8,
+                    (by * 48) as u8,
+                    200 - (bx * 12) as u8,
+                    255,
+                ]);
             }
         }
         for format in FORMATS {
@@ -2751,9 +2760,8 @@ mod rgba_to_nv12_tests {
                 .map(|(a, b)| (i32::from(*a) - i32::from(*b)).abs())
                 .max()
                 .unwrap_or(0);
-            // Video range quantizes to 219 / 224 levels, and the chroma is the
-            // block's average: a ramp of 12 levels a pixel moves 6 levels in a block.
-            assert!(worst <= 8, "{format:?}: off by {worst} levels");
+            // Video range quantizes to 219 / 224 levels: a level or two.
+            assert!(worst <= 2, "{format:?}: off by {worst} levels");
         }
     }
 

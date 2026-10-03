@@ -1822,9 +1822,111 @@ pub fn rgba_to_nv12(
     src: RawImageFormat,
     dst: RawImageFormat,
 ) -> Option<Vec<u8>> {
-    // RED stub.
-    let _ = (bytes, width, height, src, dst);
-    None
+    // Where R and B sit in a pixel (G is always byte 1).
+    let (r_at, b_at) = match src {
+        RawImageFormat::RGBA8 => (0, 2),
+        RawImageFormat::BGRA8 => (2, 0),
+        _ => return None,
+    };
+    let k = RgbToYuv::of(dst)?;
+    let layout = Nv12Layout::new(width, height);
+    let pixels = width.checked_mul(height)?;
+    if bytes.len() < pixels.checked_mul(4)? {
+        return None;
+    }
+    let mut out = vec![0u8; layout.checked_total_len()?];
+    let (y_plane, uv_plane) = out.split_at_mut(layout.y_len());
+    let rgb = |px: &[u8]| (i32::from(px[r_at]), i32::from(px[1]), i32::from(px[b_at]));
+    for (y, px) in y_plane.iter_mut().zip(bytes.chunks_exact(4)) {
+        let (r, g, b) = rgb(px);
+        *y = k.luma(r, g, b);
+    }
+    for (block, pair) in uv_plane.chunks_exact_mut(2).enumerate() {
+        let (bx, by) = (block % layout.chroma_width, block / layout.chroma_width);
+        let (mut r, mut g, mut b, mut n) = (0, 0, 0, 0);
+        for yy in (by * 2)..(by * 2 + 2).min(height) {
+            for xx in (bx * 2)..(bx * 2 + 2).min(width) {
+                let at = (yy * width + xx) * 4;
+                let (pr, pg, pb) = rgb(&bytes[at..at + 4]);
+                r += pr;
+                g += pg;
+                b += pb;
+                n += 1;
+            }
+        }
+        let (cb, cr) = k.chroma(r, g, b, n);
+        pair[0] = cb;
+        pair[1] = cr;
+    }
+    Some(out)
+}
+
+/// Fixed-point (16.16) RGB -> YCbCr coefficients of one NV12 format: the
+/// inverse of [`YuvCoefficients`] (same matrices, same ranges). Each chroma
+/// row sums to zero, so a grey stays at 128.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+struct RgbToYuv {
+    y: [i32; 3],
+    y_off: i32,
+    cb: [i32; 3],
+    cr: [i32; 3],
+}
+
+impl RgbToYuv {
+    /// The coefficients of `format`, `None` for a format that is not NV12.
+    const fn of(format: RawImageFormat) -> Option<Self> {
+        // (Kr, Kb) = (0.299, 0.114) for Rec.601, (0.2126, 0.0722) for
+        // Rec.709; video range scales luma by 219/255 and chroma by 224/255.
+        // Values are round(coefficient * 65536), the middle chroma weight
+        // made to close each row to zero.
+        let (y, y_off, cb, cr) = match format {
+            RawImageFormat::NV12Rec601Video => (
+                [16829, 33039, 6416],
+                16,
+                [-9714, -19070, 28784],
+                [28784, -24103, -4681],
+            ),
+            RawImageFormat::NV12Rec601Full => (
+                [19595, 38470, 7471],
+                0,
+                [-11058, -21710, 32768],
+                [32768, -27439, -5329],
+            ),
+            RawImageFormat::NV12Rec709Video => (
+                [11966, 40254, 4064],
+                16,
+                [-6596, -22188, 28784],
+                [28784, -26145, -2639],
+            ),
+            RawImageFormat::NV12Rec709Full => (
+                [13933, 46871, 4732],
+                0,
+                [-7509, -25259, 32768],
+                [32768, -29763, -3005],
+            ),
+            _ => return None,
+        };
+        Some(Self { y, y_off, cb, cr })
+    }
+
+    /// The Y sample of one straight RGB pixel (0..=255 each).
+    fn luma(&self, r: i32, g: i32, b: i32) -> u8 {
+        let y = (self.y_off << 16) + self.y[0] * r + self.y[1] * g + self.y[2] * b + 32768;
+        clamp_u8(y >> 16)
+    }
+
+    /// The Cb, Cr pair of `n` pixels (1, 2 or 4) whose R, G, B sum to `r`,
+    /// `g`, `b`: their average's chroma.
+    fn chroma(&self, r: i32, g: i32, b: i32, n: i32) -> (u8, u8) {
+        // Scaled to four pixels' sum, so one shift by 18 averages and
+        // rounds (n is 1, 2 or 4: a 2x2 block, clipped at an odd edge).
+        let scale = 4 / n.clamp(1, 4);
+        let at = |w: [i32; 3]| {
+            let sum = (w[0] * r + w[1] * g + w[2] * b) * scale;
+            clamp_u8((sum + (128 << 18) + (1 << 17)) >> 18)
+        };
+        (at(self.cb), at(self.cr))
+    }
 }
 
 // NOTE: starts at 1 (0 = DUMMY)
