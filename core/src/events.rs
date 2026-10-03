@@ -1391,16 +1391,25 @@ pub fn get_event_path(
         return path;
     };
     let mut dom = target.dom;
+    let mut hops = 0;
     let mut seen: BTreeSet<(DomId, NodeId)> = BTreeSet::new();
     while seen.insert((dom, node)) {
         path.push(dom_node_at(dom, node));
-        match parent_of(dom, node) {
-            Some(parent) => node = parent,
-            // RED stub: the walk ends at the target dom's root.
-            None => break,
+        if let Some(parent) = parent_of(dom, node) {
+            node = parent;
+            continue;
         }
+        // Past the dom's root: a child dom goes on at the node hosting it.
+        if hops == MAX_EVENT_PATH_DOM_HOPS {
+            break;
+        }
+        let Some((host_dom, host_node)) = host_of(dom) else {
+            break;
+        };
+        hops += 1;
+        dom = host_dom;
+        node = host_node;
     }
-    let _ = host_of;
     path.reverse();
     path
 }
