@@ -11,7 +11,7 @@ use std::{
 use crate::{meet_rooms, week};
 
 /// The settings file's name in the data folder.
-const FILE_NAME: &str = "settings.txt";
+pub const FILE_NAME: &str = "settings.txt";
 /// The week's zoom: the height of an hour, in px.
 const HOUR_PX_KEY: &str = "week_hour_px=";
 

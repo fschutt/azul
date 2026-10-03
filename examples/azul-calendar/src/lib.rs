@@ -100,6 +100,7 @@ use azul::{
     vec::{StyledTextRunVec, U8Vec},
     window::WindowDecorations,
 };
+use azul_pim::write_queue::{Write, WriteQueue};
 use chrono::{Datelike, NaiveDate, NaiveTime, Timelike};
 
 use crate::{
@@ -260,6 +261,18 @@ pub(crate) struct CalState {
     pub(crate) editor_opened: Option<EditorForm>,
     /// The editor window shows that question (its close guard is asking).
     pub(crate) editor_asking: bool,
+    // ---- durable writes (`store.rs`): queued here, written on a file thread ----
+    /// Writes into the calendar's data folder (events, calendars, settings, exports).
+    pub(crate) data_writes: WriteQueue,
+    /// Writes into the task store's folder (the To-Do bar's tasks).
+    pub(crate) task_writes: WriteQueue,
+    /// The batch of each queue on its way (to tell which writes failed).
+    pub(crate) data_batch: Vec<Write>,
+    pub(crate) task_batch: Vec<Write>,
+    /// The settings file's text as last written (a setting replaces its line in it).
+    pub(crate) settings_text: String,
+    /// The main window was asked to close while writes waited: it closes once they landed.
+    pub(crate) closing: bool,
     // ---- FILE > Open & Export ----
     pub(crate) import_path: String,
     /// The calendar an import goes into: its index in `calendars`.
@@ -350,41 +363,61 @@ impl CalState {
         println!("AZCAL_VIEW {} {first} {last}", self.view.name());
     }
 
-    /// Saves one setting line in the settings file (the others are kept).
-    pub(crate) fn save_setting(&self, line: &str) {
-        if let Err(e) = settings::write_line(&settings::path(&self.data_dir), line) {
-            eprintln!(
-                "[azcalendar] could not save a setting ({}): {e}",
-                line.trim()
-            );
-        }
+    /// Saves one setting line in the settings file (the others are kept): the file's text is
+    /// queued for the file thread (`store.rs`).
+    pub(crate) fn save_setting(&mut self, line: &str) {
+        self.settings_text = settings::with_line(&self.settings_text, line);
+        self.data_writes.put(
+            settings::FILE_NAME.to_string(),
+            self.settings_text.clone().into_bytes(),
+        );
     }
 
-    /// Writes `event` to its file and puts it into the calendar (in place of the event with its
-    /// id). `Err` says why the file could not be written.
+    /// Puts `event` into the calendar (in place of the event with its id) and queues its file
+    /// for the file thread (`store.rs`; `AZCAL_SAVED` says when it landed). Returns where the
+    /// file goes.
     pub(crate) fn store_event(&mut self, event: Event) -> Result<PathBuf, String> {
-        match event::save(&self.data_dir, &event) {
-            Ok(path) => {
-                println!("AZCAL_SAVED {}", path.display());
-                if let Some(m) = &event.meeting {
-                    println!("AZCAL_LINK {}", m.link);
-                }
-                eprintln!(
-                    "[azcalendar] saved \"{}\" to {}",
-                    event.title,
-                    path.display()
-                );
-                match self.event_index(&event.id) {
-                    Some(i) => self.events[i] = event,
-                    None => self.events.push(event),
-                }
-                Ok(path)
-            }
-            Err(e) => Err(format!(
-                "Could not write {}: {e}",
-                event::event_path(&self.data_dir, &event.id).display()
-            )),
+        let key = event::object_key(&event.id);
+        self.data_writes
+            .put(key.clone(), event::to_json(&event).into_bytes());
+        if let Some(m) = &event.meeting {
+            println!("AZCAL_LINK {}", m.link);
         }
+        eprintln!("[azcalendar] \"{}\" goes to {key}", event.title);
+        match self.event_index(&event.id) {
+            Some(i) => self.events[i] = event,
+            None => self.events.push(event),
+        }
+        Ok(self.data_dir.join(key))
+    }
+
+    /// Queues the removal of the event `id`'s file.
+    pub(crate) fn remove_event_file(&mut self, id: &str) {
+        self.data_writes.delete(event::object_key(id));
+    }
+
+    /// Queues `calendar`'s file.
+    pub(crate) fn store_calendar(&mut self, calendar: &Calendar) {
+        self.data_writes.put(
+            calendars::object_key(&calendar.id),
+            calendars::to_json(calendar).into_bytes(),
+        );
+    }
+
+    /// Queues the removal of the calendar `id`'s file.
+    pub(crate) fn remove_calendar_file(&mut self, id: &str) {
+        self.data_writes.delete(calendars::object_key(id));
+    }
+
+    /// Queues `task`'s file in the task store.
+    pub(crate) fn store_task(&mut self, task: &Task) {
+        self.task_writes
+            .put(task.key(), azul_pim::task::task_to_json(task).into_bytes());
+    }
+
+    /// No write waits and none is on its way.
+    pub(crate) fn writes_idle(&self) -> bool {
+        self.data_writes.is_idle() && self.task_writes.is_idle()
     }
 
     /// The open editor's form differs from the form it opened with: closing its window asks
@@ -1202,6 +1235,12 @@ pub fn start() {
         editor_at_start,
         editor_opened: None,
         editor_asking: false,
+        data_writes: WriteQueue::new(),
+        task_writes: WriteQueue::new(),
+        data_batch: Vec::new(),
+        task_batch: Vec::new(),
+        settings_text: text.to_string(),
+        closing: false,
         import_path: String::new(),
         import_calendar: 0,
         export_path: String::new(),
