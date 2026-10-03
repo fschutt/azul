@@ -5370,13 +5370,6 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         ctx.system_style.as_ref(),
         PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
     );
-    // The used line-height as a length, for the readers that need one
-    // (`vertical-align: <percentage>`, `initial-letter`); `normal` stands in
-    // as 1.2em there, as it always did.
-    let line_height_px = match root_style.line_height {
-        text3::cache::LineHeight::Px(px) => px,
-        text3::cache::LineHeight::Normal => font_size * 1.2,
-    };
     // CSS 2.2 §10.8.1: the strut has the ascent and descent of the block
     // container's FIRST AVAILABLE FONT. A synthetic 0.8em / 0.2em split
     // stood in for it, and the strut is part of EVERY line box (text3's
@@ -5385,24 +5378,35 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     // sat at different heights around the same baseline, and every line box
     // came out taller than its line-height by |(A - D) / 2 - 0.3em| -
     // `line-height: 19px` on 11pt text pitched its lines 19.55px apart. The
-    // descent is taken exactly as `text3::cache::get_item_vertical_metrics`
-    // takes a glyph's, so both boxes coincide for the same font. Until the
-    // face is loaded the approximation stays.
-    let (strut_ascent, strut_descent) = ctx
+    // ascent and descent are the face's ROUNDED pixel metrics, exactly as a
+    // glyph's (`LayoutFontMetrics::line_metrics_px`, Chrome's rounding), so
+    // both boxes coincide for the same font. Until the face is loaded the
+    // approximation stays.
+    let strut_font = ctx
         .font_manager
         .first_available_font_metrics(&root_style.font_stack)
-        .filter(|m| m.units_per_em > 0)
-        .map_or((font_size * 0.8, font_size * 0.2), |m| {
-            let scale = root_style.font_size_px / f32::from(m.units_per_em);
-            // Half the font's line gap on each side: the strut's
-            // `line-height: normal` is then A + D + gap, the normal line height
-            // of text in that font, so a blank line (`<div><br></div>`, every
-            // blank line Gmail writes) is as tall as a line of text, as in a
-            // browser. A definite line-height is unaffected: its half-leading
-            // places the strut at (L + A - D) / 2 whatever the gap.
-            let half_gap = m.line_gap.max(0.0) / 2.0 * scale;
-            (m.ascent * scale + half_gap, (-m.descent * scale).max(0.0) + half_gap)
-        });
+        .and_then(|m| m.line_metrics_px(root_style.font_size_px));
+    let (strut_ascent, strut_descent) =
+        strut_font.map_or((font_size * 0.8, font_size * 0.2), |(a, d, _)| (a, d));
+    // The root's `line-height: normal` IS that face's A + D + line gap: the
+    // strut of a line holding nothing else (`<div><br></div>`, every blank
+    // line Gmail writes) is as tall as a line of text in that font, as in a
+    // browser, and its leading is shared like a glyph's
+    // (`text3::cache::split_leading`). Without a loaded face `normal` stays
+    // (the strut's 1em).
+    let root_line_height = match (root_style.line_height, strut_font) {
+        (text3::cache::LineHeight::Normal, Some((a, d, gap))) => {
+            text3::cache::LineHeight::Px(a + d + gap)
+        }
+        (line_height, _) => line_height,
+    };
+    // The used line-height as a length, for the readers that need one
+    // (`vertical-align: <percentage>`, `initial-letter`); `normal` without a
+    // loaded face stands in as 1.2em there, as it always did.
+    let line_height_px = match root_line_height {
+        text3::cache::LineHeight::Px(px) => px,
+        text3::cache::LineHeight::Normal => font_size * 1.2,
+    };
 
     let hyphenation = if dom_declared & DOM_HAS_HYPHENS != 0 {
         styled_dom
@@ -5987,11 +5991,13 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         },
         // +spec:line-height:79f3aa - line-height resolved: `normal` uses the font's real
         // metrics (ascent - descent + line_gap), <number>/<percentage> × font-size.
-        // When line-height is NOT declared the computed value is `normal`; it stays
-        // LineHeight::Normal so text3 resolves it against the run's actual font
-        // metrics (CoreText/Chrome parity) instead of a synthetic 1.2 ratio. The
-        // value is the root style's, the one its runs carry (see `root_style`).
-        line_height: root_style.line_height,
+        // When line-height is NOT declared the computed value is `normal`: the
+        // ROOT's (the strut's) is its first available face's rounded A + D +
+        // gap (`root_line_height` above); each run still resolves its own
+        // `normal` against its own glyphs' faces (CoreText/Chrome parity)
+        // instead of a synthetic 1.2 ratio. The value is the root style's,
+        // the one its runs carry (see `root_style`).
+        line_height: root_line_height,
         // The strut's ascent and descent: the container's first available font's
         // (see `strut_ascent` above).
         // TODO(superplan): x-height and cap-height are still approximated as
