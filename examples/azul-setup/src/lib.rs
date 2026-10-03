@@ -44,7 +44,7 @@ use azul::{
     vec::{ShellSettingVec, StringPairVec, StringVec, WizardComponentVec, WizardOptionVec},
     widgets::{
         AboutDialog, MessageBox, MessageBoxKind, Modal, ModalState, StandardDialogEvent,
-        StandardDialogEventKind, Titlebar, WizardComponent, WizardComponentsPage,
+        StandardDialogEventKind, WizardComponent, WizardComponentsPage,
         WizardDestinationPage, WizardEvent, WizardEventKind, WizardFinishPage, WizardLayout,
         WizardLayoutSize, WizardLayoutStyle, WizardLicensePage, WizardOption, WizardOptionsPage,
         WizardPageEvent, WizardPageEventKind, WizardProgressPage, WizardSummaryPage,
@@ -53,7 +53,41 @@ use azul::{
     window::WindowDecorations,
 };
 
-use crate::model::{Args, Copier, Frame, Screen, Step, COMPONENTS, LICENSE, MB, STEPS};
+use azul_appkit::{
+    about::AboutInfo,
+    args::{AppArgs, AppSpec, ModePref, Theme},
+    shortcuts::Shortcut,
+    ui as kit,
+};
+
+use crate::model::{Copier, Frame, Screen, Step, COMPONENTS, LICENSE, MB, SCREENS, STEPS};
+
+/// What azul-appkit's switches know about AzSetup (`--screen` names a
+/// wizard step, the settings or the About box).
+pub const SPEC: AppSpec = AppSpec {
+    name: "AzSetup",
+    binary: "AzSetup",
+    summary: "a fake installer for AzOffice (installs nothing)",
+    screens: &SCREENS,
+    files_help: "",
+};
+
+/// The About facts (the About box, F1).
+pub const ABOUT: AboutInfo = AboutInfo {
+    name: "AzSetup",
+    version: env!("CARGO_PKG_VERSION"),
+    summary: "A demonstration of azul's install wizard pages, settings dialog and standard \
+              dialogs. It installs nothing.",
+    license: "MIT",
+    app_folder: "setup",
+};
+
+/// The keys AzSetup answers.
+pub const SHORTCUTS: [Shortcut; 3] = [
+    Shortcut::new("Setup", "F1", "About AzSetup"),
+    Shortcut::new("Setup", "Escape", "Close the About box, or ask to exit Setup"),
+    Shortcut::new("Setup", "Tab", "Move between the page's controls and the buttons"),
+];
 
 // ==== State ====
 
@@ -74,6 +108,8 @@ struct Setup {
     confirm_cancel: bool,
     about_open: bool,
     settings: ShellSettingsDialog,
+    /// azul-appkit's kit: the switches, the data root, settings.json.
+    kit: RefAny,
 }
 
 fn s(text: &str) -> AzString {
@@ -471,7 +507,7 @@ fn modals(s_: &Setup, app: &RefAny) -> Vec<Dom> {
 /// above the content), the modals, F1.
 fn window_root(content: Dom, title: &str, app: &RefAny, extra: Vec<Dom>) -> Dom {
     let shell = UtilityShell::create(content)
-        .with_title_row(Titlebar::create(s(title)).without_border_bottom().dom())
+        .with_title_row(kit::title_row(title))
         .with_label(s(title))
         .dom();
     let mut column = Dom::create_div()
@@ -748,19 +784,24 @@ extern "C" fn on_settings(
 
 // ==== Entry ====
 
-/// The wizard's window: the classic wizard's size plus the title row.
-fn setup_window() -> WindowCreateOptions {
-    let mut window = WindowCreateOptions::create(layout);
-    window.window_state.size.dimensions = LogicalSize::create(
-        WizardLayoutSize::Classic.width(),
-        WizardLayoutSize::Classic.height() + 34.0,
+/// The wizard's window: the classic wizard's size plus the title row
+/// (azul-appkit's window: `NoTitle`, `--size`, a minimum size, `--shot`).
+fn setup_window(kit_ref: &RefAny) -> WindowCreateOptions {
+    let mut window = kit::window_options(
+        kit_ref,
+        layout,
+        (
+            WizardLayoutSize::Classic.width(),
+            WizardLayoutSize::Classic.height() + 34.0,
+        ),
+        (WizardLayoutSize::Compact.width(), WizardLayoutSize::Compact.height() + 34.0),
+        on_window_created,
     );
     window.window_state.title = s("AzOffice Setup");
-    window.window_state.flags.decorations = WindowDecorations::NoTitle;
     window
 }
 
-/// The settings window.
+/// The settings window, opened by Finish ("Open the AzOffice settings").
 fn settings_window() -> WindowCreateOptions {
     let mut window = WindowCreateOptions::create(settings_layout);
     window.window_state.size.dimensions = LogicalSize::create(920.0, 640.0);
@@ -769,20 +810,53 @@ fn settings_window() -> WindowCreateOptions {
     window
 }
 
+/// The settings window as the first window (`--screen settings`).
+fn first_settings_window(kit_ref: &RefAny) -> WindowCreateOptions {
+    let mut window =
+        kit::window_options(kit_ref, settings_layout, (920.0, 640.0), (640.0, 480.0), on_window_created);
+    window.window_state.title = s("AzOffice Settings");
+    window
+}
+
+/// The first window exists: azul-appkit's `--shot` timer.
+extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(kit_ref) = data.downcast_ref::<Setup>().map(|st| st.kit.clone()) else {
+        return Update::DoNothing;
+    };
+    kit::on_window_created(&kit_ref, &mut info);
+    Update::DoNothing
+}
+
 pub fn start() {
-    let args = match Args::parse(std::env::args().skip(1)) {
+    // AzSetup's own switches first (--frame, --step), then azul-appkit's.
+    let (own, rest) = match model::split_switches(std::env::args().skip(1)) {
+        Ok(split) => split,
+        Err(why) => {
+            eprintln!("{why}");
+            std::process::exit(2);
+        }
+    };
+    let args = match AppArgs::parse(&SPEC, rest) {
         Ok(a) => a,
         Err(why) => {
             eprintln!("{why}");
             std::process::exit(2);
         }
     };
+    let (screen, mut step) = model::open_on(args.screen_or_default(&SPEC));
+    if let Some(n) = own.step {
+        step = Step::at(n);
+    }
+    let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[], args);
+    let theme = {
+        let mut k = kit_ref.clone();
+        k.downcast_ref::<kit::Kit>()
+            .map_or(Theme::Flat, |k| k.effective().0)
+    };
     let path = default_folder();
-    let theme = args.theme.clone().unwrap_or_else(|| "flat".to_string());
-    let step = Step::at(args.step);
     let state = Setup {
         step,
-        frame: args.frame,
+        frame: own.frame,
         accepted: step > Step::License,
         available: None,
         components: components_page(),
@@ -791,28 +865,19 @@ pub fn start() {
         copier: Copier::default(),
         show_log: false,
         confirm_cancel: false,
-        about_open: args.screen == Screen::About,
-        settings: settings_dialog(&theme),
+        about_open: screen == Screen::About,
+        settings: settings_dialog(theme.name()),
         path,
+        kit: kit_ref.clone(),
     };
     announce(state.step);
-    let mut config = AppConfig::create();
-    if let Some(t) = &args.theme {
-        config = config.with_theme(s(t));
-    }
-    if let Some(m) = &args.mode {
-        config = config.with_mode(OptionDarkLightMode::Some(if m == "dark" {
-            DarkLightMode::Dark
-        } else {
-            DarkLightMode::Light
-        }));
-    }
+    let config = kit::app_config(&kit_ref);
     let app = App::create(RefAny::new(state), config);
-    let window = if args.screen == Screen::Settings {
+    let window = if screen == Screen::Settings {
         println!("AZSETUP_SCREEN settings");
-        settings_window()
+        first_settings_window(&kit_ref)
     } else {
-        setup_window()
+        setup_window(&kit_ref)
     };
     app.run(window);
 }
