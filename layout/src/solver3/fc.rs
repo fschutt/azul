@@ -9257,6 +9257,85 @@ fn first_line_baseline(index: usize, tree: &LayoutTree, depth: usize) -> Option<
     None
 }
 
+/// The baseline an inline-block takes from its content, measured from the
+/// top of the border box of `index` - CSS 2.2 10.8.1, "the baseline of its
+/// last line box in the normal flow" - searched the way Chrome searches it:
+/// - a box holding lines answers with its last line's baseline;
+/// - otherwise its in-flow children are asked from the LAST one up, each
+///   offset by where it sits; out-of-flow boxes (absolute, fixed, floats)
+///   have no line box in the normal flow;
+/// - a TABLE answers nothing (Blink's `LayoutTable::InlineBlockBaseline` is
+///   -1; LayoutNG skips tables for the inline-block baseline): the search
+///   goes on above it;
+/// - a child whose `overflow` is not `visible` answers with its bottom margin
+///   edge, not its own lines (10.8.1's overflow rule, applied by Blink to
+///   every block on the way down);
+/// - a flex or grid child answers with its FIRST baseline (LayoutNG: "some
+///   fragments use their first baseline"), `first_line_baseline`.
+///
+/// `None`: no line box at all - the caller's baseline is then the inline-
+/// block's bottom margin edge. Mail templates (Cerberus) open with a clipped
+/// preheader and go on in tables, so AzMail's inline-block paper sits on the
+/// preheader's bottom edge, one strut ascent below the line's top.
+fn inline_block_baseline(index: usize, tree: &LayoutTree, depth: usize) -> Option<f32> {
+    const MAX_DEPTH: usize = 64;
+    let node = tree.get(LayoutNodeId::new(index))?;
+    let bp = node.box_props.unpack();
+    let content_top = bp.padding.top + bp.border.top;
+    if let Some(cached_layout) = tree
+        .warm(LayoutNodeId::new(index))
+        .and_then(|w| w.inline_layout_result.as_ref())
+    {
+        // (d6h) Materialized: sentinel-safe.
+        return cached_layout
+            .materialized()
+            .last_line_baseline()
+            .map(|baseline| content_top + baseline);
+    }
+    if depth >= MAX_DEPTH {
+        return None;
+    }
+    for &child in tree.children(index).iter().rev() {
+        let Some(child_node) = tree.get(LayoutNodeId::new(child)) else {
+            continue;
+        };
+        let child_warm = tree.warm(LayoutNodeId::new(child));
+        let out_of_flow = child_warm.is_some_and(|w| {
+            matches!(
+                w.computed_style.position,
+                LayoutPosition::Absolute | LayoutPosition::Fixed
+            ) || w.computed_style.float != LayoutFloat::None
+        });
+        if out_of_flow || matches!(child_node.formatting_context, FormattingContext::Table) {
+            continue;
+        }
+        let child_top = child_warm
+            .and_then(|w| w.relative_position)
+            .map_or(0.0, |p| p.y);
+        let clips = child_warm.is_some_and(|w| {
+            w.computed_style.overflow_x != LayoutOverflow::Visible
+                || w.computed_style.overflow_y != LayoutOverflow::Visible
+        });
+        if clips {
+            let height = child_node.used_size.map_or(0.0, |s| s.height);
+            let margin_bottom = child_node.box_props.unpack().margin.bottom;
+            return Some(content_top + child_top + height + margin_bottom);
+        }
+        let baseline = if matches!(
+            child_node.formatting_context,
+            FormattingContext::Flex | FormattingContext::Grid
+        ) {
+            first_line_baseline(child, tree, depth + 1)
+        } else {
+            inline_block_baseline(child, tree, depth + 1)
+        };
+        if let Some(baseline) = baseline {
+            return Some(content_top + child_top + baseline);
+        }
+    }
+    None
+}
+
 /// A table cell's `vertical-align` (CSS 2.2 17.5.3), `baseline` when unset
 /// or for an anonymous cell.
 fn cell_vertical_align(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> StyleVerticalAlign {
@@ -10518,11 +10597,26 @@ fn measure_atomic_inline<T: ParsedFontTrait>(
         (overflow_x, overflow_y),
         (LayoutOverflow::Visible, LayoutOverflow::Visible)
     );
-    let baseline_from_top = layout_result.output.baseline;
+    // An inline-table's baseline is its first row's and an inline-flex /
+    // -grid box's its first item's (their own layouts report them); an
+    // inline-block's is its last line box (`inline_block_baseline`, from the
+    // border box's top - `layout_bfc` reports none, `layout_ifc` only the raw
+    // ascent of its last item).
+    let content_box_top = box_props.padding.top + box_props.border.top;
+    let baseline_from_top = match tree
+        .get(LayoutNodeId::new(child_index))
+        .map(|n| n.formatting_context)
+    {
+        Some(FormattingContext::Table | FormattingContext::Flex | FormattingContext::Grid) => {
+            layout_result.output.baseline
+        }
+        _ => inline_block_baseline(child_index, tree, 0)
+            .map(|from_border_box_top| from_border_box_top - content_box_top),
+    };
     let baseline_offset = atomic_inline_baseline_offset(
         baseline_from_top,
         final_height,
-        box_props.padding.top + box_props.border.top,
+        content_box_top,
         box_props.margin.bottom,
         overflow_is_visible,
     );

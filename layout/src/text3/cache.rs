@@ -5850,6 +5850,60 @@ impl UnifiedLayout {
             .find_map(|item| get_baseline_for_item(&item.item))
     }
 
+    /// The baseline of this layout's LAST line box, in the layout's own space
+    /// (from the top of the content box that holds the lines): what an
+    /// inline-block holding these lines sits on (CSS 2.2 10.8.1, "the
+    /// baseline of its last line box"). `None` without a line that has a
+    /// baseline (only breaks, tabs or glyph-less clusters).
+    ///
+    /// It is the baseline of a baseline-aligned item of that line - an item
+    /// shifted by `vertical-align` (sub, super, a length) only when the line
+    /// has no other - placed where `position_one_line` put it: its top plus
+    /// its ascent (`get_item_vertical_metrics_approx` is exact for a cluster
+    /// with glyphs; an atomic inline's ascent is its height above its
+    /// `baseline_offset`). Not [`Self::last_baseline`], which is the raw
+    /// font ascent of the last item with no line position (the flex bridge
+    /// reads that one as an item's first baseline).
+    #[must_use]
+    pub fn last_line_baseline(&self) -> Option<f32> {
+        let ascent = |item: &ShapedItem| -> Option<f32> {
+            match item {
+                ShapedItem::Cluster(c) if !c.glyphs.is_empty() => {
+                    Some(get_item_vertical_metrics_approx(item).0)
+                }
+                ShapedItem::Object {
+                    bounds,
+                    baseline_offset,
+                    ..
+                }
+                | ShapedItem::CombinedBlock {
+                    bounds,
+                    baseline_offset,
+                    ..
+                } => Some((bounds.height - *baseline_offset).max(0.0)),
+                _ => None,
+            }
+        };
+        let last_line = self
+            .items
+            .iter()
+            .filter(|p| ascent(&p.item).is_some())
+            .map(|p| p.line_index)
+            .max()?;
+        let on_last_line = || self.items.iter().filter(move |p| p.line_index == last_line);
+        let on_baseline = |p: &&PositionedItem| {
+            matches!(
+                get_item_vertical_align(&p.item),
+                None | Some(VerticalAlign::Baseline)
+            )
+        };
+        let item = on_last_line()
+            .filter(|p| ascent(&p.item).is_some())
+            .find(on_baseline)
+            .or_else(|| on_last_line().find(|p| ascent(&p.item).is_some()))?;
+        Some(item.position.y + ascent(&item.item)?)
+    }
+
     /// The closest logical cursor position to a point in this layout's OWN
     /// coordinate space — [`ScrolledContentPoint`], i.e. content-box-local
     /// with the hosting box's own scroll offset added back.
@@ -17965,6 +18019,36 @@ mod autotest_generated {
             12.8,
         );
         assert_eq!(l.last_baseline(), Some(5.0), "the object, not the tab");
+    }
+
+    #[test]
+    fn the_last_line_baseline_is_the_last_lines_item_top_plus_its_ascent() {
+        // Two lines: the baseline is the SECOND line's, where the line put it.
+        let text = layout_of(vec![
+            pos(cl("a", 8.0), 0.0, 0.0, 0),
+            pos(cl("b", 8.0), 0.0, 20.0, 1),
+            pos(brk(), 8.0, 20.0, 1),
+        ]);
+        // cl's ascent is 13 (see get_item_vertical_metrics_approx_for_every_variant).
+        approx(text.last_line_baseline().expect("a line with glyphs"), 33.0);
+        // An atomic inline: its height above its baseline offset (20 - 5).
+        let object = layout_of(vec![
+            pos(cl("a", 8.0), 0.0, 0.0, 0),
+            pos(obj(10.0, 20.0, 5.0), 0.0, 18.0, 1),
+        ]);
+        approx(
+            object.last_line_baseline().expect("the object's line"),
+            33.0,
+        );
+        // Breaks and tabs alone are no line with a baseline.
+        assert_eq!(
+            layout_of(vec![
+                pos(brk(), 0.0, 0.0, 0),
+                pos(tab(8.0, 16.0), 0.0, 0.0, 0)
+            ])
+            .last_line_baseline(),
+            None
+        );
     }
 
     #[test]
