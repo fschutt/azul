@@ -64,10 +64,7 @@ use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
         basic::StyleFontSize,
-        layout::{
-            LayoutAlignItems, LayoutBoxSizing, LayoutDisplay, LayoutFlexDirection, LayoutOverflow,
-            LayoutPosition,
-        },
+        layout::{LayoutAlignItems, LayoutBoxSizing, LayoutFlexDirection, LayoutPosition},
         property::CssProperty,
         style::StyleCursor,
     },
@@ -1049,22 +1046,508 @@ pub(crate) struct IconGridLook {
     pub marker: Option<&'static str>,
 }
 
-/// The look a grid with the theme option `theme` is built with.
+/// The look a grid with the theme option `theme` is built with: the pinned
+/// theme's own look, or both looks merged part by part (the DOM is built
+/// once - the data callback is asked once per item in view).
 pub(crate) fn look_for(theme: OptionUiTheme) -> IconGridLook {
-    let _ = theme;
-    IconGridLook::default()
+    use crate::widgets::themes::{flat, flora, theme_blocks::follow_props};
+    match theme.into_option() {
+        Some(UiTheme::Flat) => flat::icon_grid_look(),
+        Some(UiTheme::Flora) => flora::icon_grid_look(),
+        None => {
+            let (a, b) = (flat::icon_grid_look(), flora::icon_grid_look());
+            let both = |x: &[CssPropertyWithConditions], y: &[CssPropertyWithConditions]| {
+                follow_props(x, y).into_library_owned_vec()
+            };
+            IconGridLook {
+                grid: both(&a.grid, &b.grid),
+                item: both(&a.item, &b.item),
+                item_selected: both(&a.item_selected, &b.item_selected),
+                item_focused: both(&a.item_focused, &b.item_focused),
+                icon: both(&a.icon, &b.icon),
+                label: both(&a.label, &b.label),
+                badge: both(&a.badge, &b.badge),
+                marquee: both(&a.marquee, &b.marquee),
+                track: both(&a.track, &b.track),
+                thumb: both(&a.thumb, &b.thumb),
+                marker: match UiTheme::current() {
+                    UiTheme::Flat => a.marker,
+                    UiTheme::Flora => b.marker,
+                },
+            }
+        }
+    }
 }
 
-/// The grid's DOM in `look`.
+// ---- the base: the grid's structure, in every theme ----
+
+/// A box at (`x`, `y`), `w` x `h` px, absolutely placed in the grid.
+fn placed(x: f32, y: f32, w: f32, h: f32) -> [CssPropertyWithConditions; 5] {
+    use crate::widgets::themes::decl;
+    [
+        decl::position(LayoutPosition::Absolute),
+        decl::px_left(x),
+        decl::px_top(y),
+        decl::px_width(w),
+        decl::px_height(h),
+    ]
+}
+
+/// The grid: the viewport's size, the positioning context of its cells,
+/// clipping them.
+fn grid_base(width: f32, height: f32) -> Vec<CssPropertyWithConditions> {
+    use crate::widgets::themes::decl;
+    alloc::vec![
+        decl::position(LayoutPosition::Relative),
+        decl::overflow_x_hidden(),
+        decl::overflow_y_hidden(),
+        decl::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+        decl::simple(CssProperty::const_cursor(StyleCursor::Default)),
+        decl::px_width(width),
+        decl::px_height(height),
+        decl::no_shrink(),
+    ]
+}
+
+/// An item: its cell, the thumbnail over the label, centred, a 1 px border
+/// (the skin colours it: transparent at rest) and clipped.
+fn item_base(x: f32, y: f32, w: f32, h: f32) -> Vec<CssPropertyWithConditions> {
+    use crate::widgets::themes::decl;
+    let mut v = placed(x, y, w, h).to_vec();
+    v.extend([
+        decl::display_flex(),
+        decl::flex_direction(LayoutFlexDirection::Column),
+        decl::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+        decl::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+        decl::overflow_x_hidden(),
+        decl::overflow_y_hidden(),
+    ]);
+    v.extend(decl::border(1));
+    v
+}
+
+/// The thumbnail's box: `size` px square, the glyph or the picture centred
+/// in it, the badge's positioning context.
+fn thumb_base(size: f32) -> Vec<CssPropertyWithConditions> {
+    use crate::widgets::themes::decl;
+    alloc::vec![
+        decl::position(LayoutPosition::Relative),
+        decl::display_flex(),
+        decl::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+        decl::simple(CssProperty::const_justify_content(
+            azul_css::props::layout::LayoutJustifyContent::Center
+        )),
+        decl::no_shrink(),
+        decl::px_width(size),
+        decl::px_height(size),
+    ]
+}
+
+/// The label: the cell's width, centred, on one line, clipped.
+fn label_base() -> Vec<CssPropertyWithConditions> {
+    use crate::widgets::themes::decl;
+    alloc::vec![
+        decl::simple(CssProperty::const_width(azul_css::props::layout::LayoutWidth::Px(
+            azul_css::props::basic::pixel::PixelValue::const_percent(100)
+        ))),
+        decl::simple(CssProperty::const_text_align(azul_css::props::style::StyleTextAlign::Center)),
+        decl::nowrap(),
+        decl::overflow_x_hidden(),
+    ]
+}
+
+/// A part's declarations: its base (the structure), then the look's skin.
+fn part(base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]) -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(crate::widgets::themes::decl::on_base(base, skin))
+}
+
+/// `extra` stacked onto `base` (`theme_blocks::stack_parts`).
+fn stacked(base: CssPropertyWithConditionsVec, extra: &[CssPropertyWithConditions]) -> CssPropertyWithConditionsVec {
+    crate::widgets::themes::theme_blocks::stack_parts(&base, &CssPropertyWithConditionsVec::from_vec(extra.to_vec()))
+}
+
+/// What every handler of one grid shares: the grid as built (its view kept
+/// current between rebuilds) and its geometry.
+pub(crate) struct GridShared {
+    pub grid: IconGrid,
+    pub geo: Geometry,
+}
+
+/// An item's payload: its index and the shared part.
+struct ItemData {
+    index: usize,
+    shared: RefAny,
+}
+
+/// The grid's DOM in `look`: [item..] for the items in view, the rubber
+/// band while one is drawn, the scroll bar when the rows overflow.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
 pub(crate) fn build(grid: IconGrid, look: &IconGridLook) -> Dom {
-    let _ = look;
+    use crate::widgets::themes::decl;
+
+    let geo = geometry(&grid);
+    let view = grid.view.clone();
+    let focus = view.selection.focus.into_option();
+    let icon_px = grid.icon_size.max(1.0);
+    let shared = RefAny::new(GridShared {
+        grid: grid.clone(),
+        geo: geo.clone(),
+    });
+
+    let mut children: Vec<Dom> = Vec::with_capacity(geo.end.saturating_sub(geo.first) + 2);
+    for index in geo.first..geo.end {
+        let Some((x, y, w, h)) = item_rect(&geo, index) else {
+            continue;
+        };
+        let item = item_at(&grid.data_source, index);
+        let key = index as u64;
+        let is_selected = view.selection.contains(key);
+        let is_focused = focus == Some(key);
+
+        let picture = match item.image.into_option() {
+            Some(image) => Dom::create_image(image).with_css_props(CssPropertyWithConditionsVec::from_vec(
+                decl::fill_box().to_vec(),
+            )),
+            None => Dom::create_icon(item.icon.clone()).with_css_props(part(
+                &[decl::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+                    icon_px.round() as isize,
+                )))],
+                &look.icon,
+            )),
+        };
+        let mut in_thumb = alloc::vec![picture];
+        if !item.badge.as_str().is_empty() {
+            in_thumb.push(
+                Dom::create_icon(item.badge.clone())
+                    .with_class(AzString::from_const_str(BADGE_CLASS))
+                    .with_css_props(part(
+                        &[
+                            decl::position(LayoutPosition::Absolute),
+                            decl::px_left((icon_px - 16.0).max(0.0)),
+                            decl::px_bottom(0.0),
+                        ],
+                        &look.badge,
+                    )),
+            );
+        }
+        let thumb = Dom::create_div()
+            .with_class(AzString::from_const_str(THUMB_CLASS))
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(thumb_base(icon_px)))
+            .with_children(DomVec::from_vec(in_thumb));
+        let label = crate::widgets::widget_p_with_text(item.label.clone())
+            .with_class(AzString::from_const_str(LABEL_CLASS))
+            .with_css_props(part(&label_base(), &look.label));
+
+        let mut style = part(&item_base(x, y, w, h), &look.item);
+        let mut classes = alloc::vec![Class(AzString::from_const_str(ITEM_CLASS))];
+        if is_selected {
+            style = stacked(style, &look.item_selected);
+            classes.push(Class(AzString::from_const_str(ITEM_SELECTED_CLASS)));
+        }
+        if is_focused {
+            style = stacked(style, &look.item_focused);
+            classes.push(Class(AzString::from_const_str(ITEM_FOCUSED_CLASS)));
+        }
+        let name = if item.name.as_str().is_empty() {
+            item.label.clone()
+        } else {
+            item.name.clone()
+        };
+        children.push(
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+                .with_css_props(style)
+                .with_attribute(AttributeType::Draggable(true))
+                .with_accessibility_info(AccessibilityInfo {
+                    role: AccessibilityRole::ListItem,
+                    accessibility_name: Some(name).into(),
+                    states: if is_selected {
+                        AccessibilityStateVec::from_vec(alloc::vec![AccessibilityState::Selected])
+                    } else {
+                        AccessibilityStateVec::from_const_slice(&[])
+                    },
+                    ..Default::default()
+                })
+                .with_callback(
+                    EventFilter::Hover(HoverEventFilter::DragStart),
+                    RefAny::new(ItemData {
+                        index,
+                        shared: shared.clone(),
+                    }),
+                    on_item_drag_start as usize,
+                )
+                .with_children(DomVec::from_vec(alloc::vec![thumb, label])),
+        );
+    }
+
+    // The rubber band, while one is drawn.
+    let drag = &view.drag;
+    if drag.kind == IconGridDragKind::Marquee {
+        let (left, top) = (drag.start_x.min(drag.x).max(0.0), drag.start_y.min(drag.y).max(0.0));
+        let (right, bottom) = (drag.start_x.max(drag.x), drag.start_y.max(drag.y));
+        children.push(
+            Dom::create_div()
+                .with_class(AzString::from_const_str(MARQUEE_CLASS))
+                .with_css_props(part(
+                    &placed(left, top, (right - left).max(0.0), (bottom - top).max(0.0)),
+                    &look.marquee,
+                )),
+        );
+    }
+
+    // The scroll bar.
+    if let Some(bar) = geo.vbar {
+        let (tx, ty, tw, th) = bar.track;
+        let thumb = Dom::create_div()
+            .with_class(AzString::from_const_str(SCROLL_THUMB_CLASS))
+            .with_css_props(part(&placed(0.0, bar.thumb_start, tw, bar.thumb_len), &look.thumb));
+        children.push(
+            Dom::create_div()
+                .with_class(AzString::from_const_str(TRACK_CLASS))
+                .with_css_props(part(&placed(tx, ty, tw, th), &look.track))
+                .with_child(thumb),
+        );
+    }
+
+    let mut classes = alloc::vec![Class(AzString::from_const_str(GRID_CLASS))];
+    if let Some(marker) = look.marker {
+        classes.push(Class(AzString::from_const_str(marker)));
+    }
+    let selected = view.selection.len();
     Dom::create_div()
-        .with_class(AzString::from_const_str(GRID_CLASS))
+        .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+        .with_id(grid.id.clone())
+        .with_css_props(part(&grid_base(grid.viewport_width, grid.viewport_height), &look.grid))
+        .with_tab_index(TabIndex::Auto)
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::List,
-            accessibility_name: Some(grid.accessibility_name).into(),
+            accessibility_name: Some(grid.accessibility_name.clone()).into(),
+            accessibility_value: Some(AzString::from(alloc::format!("{selected} of {} selected", grid.count))).into(),
+            states: AccessibilityStateVec::from_vec(alloc::vec![AccessibilityState::Multiselectable]),
             ..Default::default()
         })
+        .with_callbacks(grid_callbacks(&shared).into())
+        .with_children(DomVec::from_vec(children))
+}
+
+// ==== The callbacks: one set on the grid node, the grid hit-tests itself ====
+
+/// The grid node's handlers.
+fn grid_callbacks(shared: &RefAny) -> Vec<CoreCallbackData> {
+    let on = |event: EventFilter, cb: usize| CoreCallbackData::create(event, shared.clone(), cb);
+    alloc::vec![
+        on(EventFilter::Focus(FocusEventFilter::VirtualKeyDown), on_grid_key as usize),
+        on(EventFilter::Hover(HoverEventFilter::LeftMouseDown), on_grid_mouse_down as usize),
+        on(EventFilter::Hover(HoverEventFilter::MouseMove), on_grid_mouse_move as usize),
+        on(EventFilter::Hover(HoverEventFilter::MouseUp), on_grid_mouse_up as usize),
+        on(EventFilter::Hover(HoverEventFilter::DoubleClick), on_grid_double_click as usize),
+        on(EventFilter::Hover(HoverEventFilter::RightMouseUp), on_grid_right_up as usize),
+        on(EventFilter::Hover(HoverEventFilter::Scroll), on_grid_wheel as usize),
+    ]
+}
+
+/// A copy of the grid and its geometry from a handler's payload.
+fn shared_of(data: &mut RefAny) -> Option<(IconGrid, Geometry)> {
+    let s = data.downcast_ref::<GridShared>()?;
+    Some((s.grid.clone(), s.geo.clone()))
+}
+
+/// Records `view` as the grid's view in the payload (and its geometry), so
+/// the next event before the rebuild starts from it.
+fn store_view(data: &mut RefAny, view: &IconGridView) {
+    if let Some(mut s) = data.downcast_mut::<GridShared>() {
+        s.grid.view = view.clone();
+        let geo = geometry(&s.grid);
+        s.geo = geo;
+    }
+}
+
+/// Stores the event's view, then hands the event to the app.
+fn deliver(data: &mut RefAny, g: &IconGrid, info: CallbackInfo, event: IconGridEvent) -> Update {
+    store_view(data, &event.view);
+    match g.on_event.as_ref() {
+        Some(IconGridOnEvent { refany, callback }) => callback.invoke(refany.clone(), info, event),
+        None => Update::DoNothing,
+    }
+}
+
+/// The keys (see the module's KEYBOARD).
+extern "C" fn on_grid_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((g, geo)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let ks = info.get_current_keyboard_state();
+    let Some(key) = ks.current_virtual_keycode.into_option() else {
+        return Update::DoNothing;
+    };
+    if ks.alt_down() {
+        return Update::DoNothing;
+    }
+    let Some(event) = grid_key(&g, &geo, key, ks.shift_down(), ks.primary_down()) else {
+        return Update::DoNothing;
+    };
+    // The key is the grid's: no spatial navigation, no scrolling.
+    info.prevent_default();
+    deliver(&mut data, &g, info, event)
+}
+
+/// A press: select, start a rubber band, page or grab the thumb.
+extern "C" fn on_grid_mouse_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((g, geo)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let Some((x, y)) = crate::widgets::cell_grid::cursor_in(&info) else {
+        return Update::DoNothing;
+    };
+    let ks = info.get_current_keyboard_state();
+    let window_y = info.get_cursor_position().map_or(y, |p| p.y);
+    let hit = hit_test(&geo, x, y);
+    let Some(event) = press(&g, &geo, hit, x, y, window_y, ks.shift_down(), ks.primary_down()) else {
+        return Update::DoNothing;
+    };
+    if matches!(event.view.drag.kind, IconGridDragKind::Marquee | IconGridDragKind::Thumb) {
+        let node = info.get_hit_node();
+        info.capture_pointer(node);
+    }
+    deliver(&mut data, &g, info, event)
+}
+
+/// A move while the rubber band or the thumb is held.
+extern "C" fn on_grid_mouse_move(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((g, geo)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    if !matches!(g.view.drag.kind, IconGridDragKind::Marquee | IconGridDragKind::Thumb) {
+        return Update::DoNothing;
+    }
+    let Some((x, y)) = crate::widgets::cell_grid::cursor_in(&info) else {
+        return Update::DoNothing;
+    };
+    let window_y = info.get_cursor_position().map_or(y, |p| p.y);
+    let Some(event) = drag_move(&g, &geo, x, y, window_y) else {
+        return Update::DoNothing;
+    };
+    deliver(&mut data, &g, info, event)
+}
+
+/// The release ends a drag (a pending press selects its item).
+extern "C" fn on_grid_mouse_up(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((g, _)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let Some(event) = drag_end(&g) else {
+        return Update::DoNothing;
+    };
+    deliver(&mut data, &g, info, event)
+}
+
+/// A double-click on an item activates it.
+extern "C" fn on_grid_double_click(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((g, geo)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let Some((x, y)) = crate::widgets::cell_grid::cursor_in(&info) else {
+        return Update::DoNothing;
+    };
+    let Hit::Item(index) = hit_test(&geo, x, y) else {
+        return Update::DoNothing;
+    };
+    let mut next = g.view.clone();
+    next.drag = IconGridDrag::default();
+    let mut event = IconGridEvent::create(IconGridEventKind::Activate, next);
+    event.index = OptionUsize::Some(index);
+    deliver(&mut data, &g, info, event)
+}
+
+/// A right click: the item under the pointer joins the selection if it is
+/// not in it (empty space clears it), then the app shows its menu.
+extern "C" fn on_grid_right_up(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((g, geo)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let Some((x, y)) = crate::widgets::cell_grid::cursor_in(&info) else {
+        return Update::DoNothing;
+    };
+    let mut next = g.view.clone();
+    next.drag = IconGridDrag::default();
+    let index = match hit_test(&geo, x, y) {
+        Hit::Item(index) => {
+            if !next.selection.contains(index as u64) {
+                next.selection.click(index as u64);
+            }
+            Some(index)
+        }
+        Hit::Empty => {
+            next.selection.clear();
+            None
+        }
+        Hit::Track(_) | Hit::Thumb | Hit::Nothing => return Update::DoNothing,
+    };
+    let mut event = IconGridEvent::create(IconGridEventKind::ContextMenu, next);
+    event.index = index.into();
+    event.x = x;
+    event.y = y;
+    deliver(&mut data, &g, info, event)
+}
+
+/// The wheel scrolls by whole rows. The grid IS the scroll surface, so the
+/// page under it does not scroll as well.
+extern "C" fn on_grid_wheel(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((g, geo)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let hit = info.get_hit_node();
+    let Some(node_id) = hit.node.into_crate_internal() else {
+        return Update::DoNothing;
+    };
+    let Some(delta) = info.get_scroll_delta(hit.dom, node_id) else {
+        return Update::DoNothing;
+    };
+    // THE WHEEL HAS ONE CONSUMER (see the cell grid).
+    info.prevent_default();
+    info.stop_propagation();
+    let (rows, _) = crate::widgets::cell_grid::take_wheel(delta.x, delta.y, geo.cell_height, geo.cell_width);
+    if rows == 0 {
+        return Update::DoNothing;
+    }
+    let next = scroll_by(&g, &geo, rows);
+    if next.top_row == geo.top {
+        return Update::DoNothing;
+    }
+    deliver(&mut data, &g, info, IconGridEvent::create(IconGridEventKind::Scroll, next))
+}
+
+/// A drag leaves an item: the selection goes (or the item alone, when it
+/// is not selected) - its indices on the drag, the app told.
+extern "C" fn on_item_drag_start(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((index, mut shared)) = data
+        .downcast_ref::<ItemData>()
+        .map(|d| (d.index, d.shared.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    let Some((g, _)) = shared_of(&mut shared) else {
+        return Update::DoNothing;
+    };
+    let mut next = g.view.clone();
+    next.drag = IconGridDrag::default();
+    if !next.selection.contains(index as u64) {
+        next.selection.click(index as u64);
+    }
+    let indices: Vec<String> = next
+        .selection
+        .keys
+        .as_slice()
+        .iter()
+        .map(|k| alloc::format!("{k}"))
+        .collect();
+    info.set_drag_data(
+        AzString::from_const_str(ICON_GRID_DRAG_MIME),
+        indices.join(",").into_bytes(),
+    );
+    let mut event = IconGridEvent::create(IconGridEventKind::DragStart, next);
+    event.index = OptionUsize::Some(index);
+    deliver(&mut shared, &g, info, event)
 }
 
 #[cfg(test)]
