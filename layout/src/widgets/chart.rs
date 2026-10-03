@@ -1445,8 +1445,604 @@ mod math_tests {
     }
 }
 
-// CHART7-NEXT: the geometry, the build, the pointer and the keys.
+// ==== the geometry (the plot's user space: one unit per px) ====
 
+/// The least a plot is, in px, however small the chart.
+const MIN_PLOT_PX: f32 = 20.0;
+/// Air around a pie inside its frame.
+const PIE_PAD: f32 = 8.0;
+/// An arc is drawn in steps of at most 3 degrees.
+const ARC_STEP: f32 = core::f32::consts::PI / 60.0;
+/// The corners of a scatter dot.
+const DOT_CORNERS: usize = 12;
+
+/// A size the app gave, or `default` for one that is not a positive number.
+fn finite_size(v: f32, default: f32) -> f32 {
+    if v.is_finite() && v > 0.0 {
+        v
+    } else {
+        default
+    }
+}
+
+/// The category a point's `x` names on an axis of `bands` categories.
+#[must_use]
+pub(crate) fn category_of(x: f64, bands: usize) -> Option<usize> {
+    let c = x.round();
+    if c >= 0.0 && c < bands as f64 {
+        Some(c as usize)
+    } else {
+        None
+    }
+}
+
+/// How many categories the chart's x axis has: the names, or for a bar
+/// chart or a pie without names the longest series; 0 for a number axis.
+fn band_count(chart: &Chart) -> usize {
+    let named = chart.categories.len();
+    if named > 0 {
+        return named;
+    }
+    if chart.kind.is_bar() || chart.kind.is_round() {
+        return chart
+            .series
+            .as_slice()
+            .iter()
+            .map(|s| s.points.len())
+            .max()
+            .unwrap_or(0);
+    }
+    0
+}
+
+/// The finite y extent of the data as `chart.kind` draws it: a stacked
+/// chart's stacks, every other chart's values.
+fn y_extent(chart: &Chart, bands: usize) -> Option<(f64, f64)> {
+    let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+    if chart.kind == ChartKind::StackedBar {
+        let mut pos = alloc::vec![0.0f64; bands];
+        let mut neg = alloc::vec![0.0f64; bands];
+        for s in chart.series.as_slice() {
+            for p in s.points.as_slice() {
+                let Some(cat) = category_of(p.x, bands) else {
+                    continue;
+                };
+                if !p.y.is_finite() {
+                    continue;
+                }
+                if p.y >= 0.0 {
+                    pos[cat] += p.y;
+                } else {
+                    neg[cat] += p.y;
+                }
+            }
+        }
+        for c in 0..bands {
+            lo = lo.min(neg[c]);
+            hi = hi.max(pos[c]);
+        }
+    } else {
+        for s in chart.series.as_slice() {
+            for p in s.points.as_slice() {
+                if p.y.is_finite() {
+                    lo = lo.min(p.y);
+                    hi = hi.max(p.y);
+                }
+            }
+        }
+    }
+    (lo <= hi).then_some((lo, hi))
+}
+
+/// The finite x extent of the data.
+fn x_extent(chart: &Chart) -> Option<(f64, f64)> {
+    let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+    for s in chart.series.as_slice() {
+        for p in s.points.as_slice() {
+            if p.x.is_finite() {
+                lo = lo.min(p.x);
+                hi = hi.max(p.x);
+            }
+        }
+    }
+    (lo <= hi).then_some((lo, hi))
+}
+
+/// The chart laid out: where the plot sits in the frame (the box of the
+/// axes and the plot, under the title), its domains and its ticks.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ChartGeometry {
+    /// The plot's domains and size.
+    pub(crate) frame: PlotFrame,
+    /// The plot's left edge in the frame.
+    pub(crate) plot_left: f32,
+    /// The plot's top edge in the frame.
+    pub(crate) plot_top: f32,
+    /// The frame's width.
+    pub(crate) frame_width: f32,
+    /// The frame's height.
+    pub(crate) frame_height: f32,
+    /// The y axis' ticks (none for a pie).
+    pub(crate) y_ticks: Option<NiceTicks>,
+    /// The x axis' ticks on a number axis (none on a category axis).
+    pub(crate) x_ticks: Option<NiceTicks>,
+    /// The title row is shown.
+    pub(crate) title: bool,
+    /// The legend row is shown.
+    pub(crate) legend: bool,
+}
+
+/// Lays `chart` out (module docs: the title row, the frame, the legend row).
+#[must_use]
+pub(crate) fn chart_geometry(chart: &Chart) -> ChartGeometry {
+    let width = finite_size(chart.width, DEFAULT_WIDTH);
+    let height = finite_size(chart.height, DEFAULT_HEIGHT);
+    let title = !chart.title.as_str().is_empty();
+    let count = chart.series.len();
+    let legend = chart.show_legend && (count >= 2 || (chart.kind.is_round() && count >= 1));
+    let title_h = if title { TITLE_HEIGHT } else { 0.0 };
+    let legend_h = if legend { LEGEND_HEIGHT } else { 0.0 };
+    let frame_height = (height - title_h - legend_h).max(MIN_PLOT_PX * 2.0);
+    let bands = band_count(chart);
+
+    if chart.kind.is_round() {
+        let d = (width.min(frame_height) - 2.0 * PIE_PAD).max(MIN_PLOT_PX);
+        return ChartGeometry {
+            frame: PlotFrame {
+                x_min: 0.0,
+                x_max: 1.0,
+                y_min: 0.0,
+                y_max: 1.0,
+                width: d,
+                height: d,
+                bands,
+            },
+            plot_left: (width - d) / 2.0,
+            plot_top: (frame_height - d) / 2.0,
+            frame_width: width,
+            frame_height,
+            y_ticks: None,
+            x_ticks: None,
+            title,
+            legend,
+        };
+    }
+
+    let y_title_h = if chart.y_title.as_str().is_empty() {
+        0.0
+    } else {
+        AXIS_TITLE_HEIGHT
+    };
+    let x_title_h = if chart.x_title.as_str().is_empty() {
+        0.0
+    } else {
+        AXIS_TITLE_HEIGHT
+    };
+    let plot_left = Y_GUTTER;
+    let plot_top = PLOT_PAD_TOP + y_title_h;
+    let plot_w = (width - plot_left - PLOT_PAD_RIGHT).max(MIN_PLOT_PX);
+    let plot_h = (frame_height - plot_top - X_GUTTER - x_title_h).max(MIN_PLOT_PX);
+
+    let (mut lo, mut hi) = y_extent(chart, bands).unwrap_or((0.0, 1.0));
+    if chart.kind.is_bar() {
+        lo = lo.min(0.0);
+        hi = hi.max(0.0);
+    }
+    if let Some(v) = chart.y_min.into_option().filter(|v| v.is_finite()) {
+        lo = v;
+    }
+    if let Some(v) = chart.y_max.into_option().filter(|v| v.is_finite()) {
+        hi = v;
+    }
+    let y_ticks = nice_ticks(lo, hi, ((plot_h / MIN_Y_TICK_PX).floor() as usize).max(2));
+
+    let (x_min, x_max, x_ticks) = if bands > 0 {
+        (-0.5, bands as f64 - 0.5, None)
+    } else {
+        let (lo, hi) = x_extent(chart).unwrap_or((0.0, 1.0));
+        let (lo, hi) = if hi > lo {
+            (lo, hi)
+        } else {
+            (lo - 0.5, hi + 0.5)
+        };
+        let target = ((plot_w / MIN_X_TICK_PX).floor() as usize).max(2);
+        (lo, hi, Some(nice_ticks(lo, hi, target)))
+    };
+
+    ChartGeometry {
+        frame: PlotFrame {
+            x_min,
+            x_max,
+            y_min: y_ticks.min,
+            y_max: y_ticks.max,
+            width: plot_w,
+            height: plot_h,
+            bands,
+        },
+        plot_left,
+        plot_top,
+        frame_width: width,
+        frame_height,
+        y_ticks: Some(y_ticks),
+        x_ticks,
+        title,
+        legend,
+    }
+}
+
+/// A point of the plot's user space.
+const fn pt(x: f32, y: f32) -> SvgPoint {
+    SvgPoint { x, y }
+}
+
+/// A ring through `points`: open (a line) or closed back to its start (a
+/// shape). Fewer than two points draw nothing.
+fn ring(points: &[SvgPoint], closed: bool) -> SvgPath {
+    let n = points.len();
+    let mut items = Vec::with_capacity(n + 1);
+    for w in points.windows(2) {
+        items.push(SvgPathElement::Line(SvgLine::new(w[0], w[1])));
+    }
+    if closed && n > 2 {
+        items.push(SvgPathElement::Line(SvgLine::new(points[n - 1], points[0])));
+    }
+    SvgPath::create(SvgPathElementVec::from_vec(items))
+}
+
+/// The shape of `rings`, leaving out the empty ones.
+fn shape_of(rings: Vec<SvgPath>) -> SvgMultiPolygon {
+    let rings: Vec<SvgPath> = rings
+        .into_iter()
+        .filter(|r| !r.items.as_slice().is_empty())
+        .collect();
+    SvgMultiPolygon::create(SvgPathVec::from_vec(rings))
+}
+
+/// The kept points of a series in px.
+fn kept_px(points: &[ChartPoint], kept: &[usize], frame: &PlotFrame) -> Vec<SvgPoint> {
+    kept.iter()
+        .filter_map(|&i| points.get(i))
+        .map(|p| pt(frame.px_x(p.x), frame.px_y(p.y)))
+        .collect()
+}
+
+/// A series' line through its kept points (indices into `points`): one
+/// open ring, stroked.
+#[must_use]
+pub(crate) fn line_shape(
+    points: &[ChartPoint],
+    kept: &[usize],
+    frame: &PlotFrame,
+) -> SvgMultiPolygon {
+    shape_of(alloc::vec![ring(&kept_px(points, kept, frame), false)])
+}
+
+/// The area under a series' line, closed along the baseline at `base` px:
+/// one closed ring, filled with a wash of the series colour.
+#[must_use]
+pub(crate) fn area_shape(
+    points: &[ChartPoint],
+    kept: &[usize],
+    frame: &PlotFrame,
+    base: f32,
+) -> SvgMultiPolygon {
+    let mut pts = kept_px(points, kept, frame);
+    if pts.len() < 2 {
+        return shape_of(Vec::new());
+    }
+    let (first, last) = (pts[0], pts[pts.len() - 1]);
+    pts.push(pt(last.x, base));
+    pts.push(pt(first.x, base));
+    shape_of(alloc::vec![ring(&pts, true)])
+}
+
+/// A scatter's dots at its kept points, `radius` px each: closed rings,
+/// filled.
+#[must_use]
+pub(crate) fn dots_shape(
+    points: &[ChartPoint],
+    kept: &[usize],
+    frame: &PlotFrame,
+    radius: f32,
+) -> SvgMultiPolygon {
+    let rings = kept_px(points, kept, frame)
+        .into_iter()
+        .map(|c| {
+            let corners: Vec<SvgPoint> = (0..DOT_CORNERS)
+                .map(|k| {
+                    let a = core::f32::consts::TAU * k as f32 / DOT_CORNERS as f32;
+                    pt(c.x + radius * a.cos(), c.y + radius * a.sin())
+                })
+                .collect();
+            ring(&corners, true)
+        })
+        .collect();
+    shape_of(rings)
+}
+
+/// Which end of a bar is its data end, drawn rounded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BarEnd {
+    /// Neither (a segment inside a stack).
+    None,
+    /// The top: a positive bar.
+    Top,
+    /// The bottom: a negative bar.
+    Bottom,
+}
+
+/// One bar (or stacked segment) in px, and the point it shows.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct BarRect {
+    /// The left edge.
+    pub(crate) x0: f32,
+    /// The right edge.
+    pub(crate) x1: f32,
+    /// The top edge (the smaller y).
+    pub(crate) top: f32,
+    /// The bottom edge.
+    pub(crate) bottom: f32,
+    /// The rounded end.
+    pub(crate) rounded: BarEnd,
+    /// The series it belongs to.
+    pub(crate) series: usize,
+    /// The point's index in its series.
+    pub(crate) index: usize,
+}
+
+impl BarRect {
+    /// Whether `(x, y)` px is on the bar.
+    #[must_use]
+    pub(crate) fn contains(&self, x: f32, y: f32) -> bool {
+        x >= self.x0 && x <= self.x1 && y >= self.top && y <= self.bottom
+    }
+}
+
+/// The bars of a bar chart, per series: grouped side by side in each
+/// category (at most [`MAX_BAR_PX`] thick, [`SURFACE_GAP_PX`] apart), or
+/// stacked (positive values up, negative down, a gap between segments).
+/// The data end is rounded; a bar always grows from the zero line.
+#[must_use]
+pub(crate) fn bar_rects(
+    kind: ChartKind,
+    series: &[ChartSeries],
+    frame: &PlotFrame,
+) -> Vec<Vec<BarRect>> {
+    let bands = frame.bands.max(1);
+    let band = frame.band();
+    let (y_lo, y_hi) = (frame.y_min.min(frame.y_max), frame.y_min.max(frame.y_max));
+    let base = frame.px_y(0.0f64.clamp(y_lo, y_hi));
+    let mut out: Vec<Vec<BarRect>> = series.iter().map(|_| Vec::new()).collect();
+
+    if kind == ChartKind::StackedBar {
+        let bar_w = (band * 0.8).min(MAX_BAR_PX).max(1.0);
+        let mut pos = alloc::vec![0.0f64; bands];
+        let mut neg = alloc::vec![0.0f64; bands];
+        let mut last_pos: Vec<Option<(usize, usize)>> = alloc::vec![None; bands];
+        let mut last_neg: Vec<Option<(usize, usize)>> = alloc::vec![None; bands];
+        let mut segments: Vec<(usize, usize, usize, bool)> = Vec::new();
+        for (s, ser) in series.iter().enumerate() {
+            for (i, p) in ser.points.as_slice().iter().enumerate() {
+                let Some(cat) = category_of(p.x, bands) else {
+                    continue;
+                };
+                if !p.y.is_finite() || p.y == 0.0 {
+                    continue;
+                }
+                let positive = p.y > 0.0;
+                let (from, to) = if positive {
+                    let f = pos[cat];
+                    pos[cat] += p.y;
+                    (f, pos[cat])
+                } else {
+                    let f = neg[cat];
+                    neg[cat] += p.y;
+                    (f, neg[cat])
+                };
+                let x0 = cat as f32 * band + (band - bar_w) / 2.0;
+                let (ya, yb) = (frame.px_y(from), frame.px_y(to));
+                out[s].push(BarRect {
+                    x0,
+                    x1: x0 + bar_w,
+                    top: ya.min(yb),
+                    bottom: ya.max(yb),
+                    rounded: BarEnd::None,
+                    series: s,
+                    index: i,
+                });
+                let slot = (s, out[s].len() - 1);
+                if positive {
+                    last_pos[cat] = Some(slot);
+                } else {
+                    last_neg[cat] = Some(slot);
+                }
+                segments.push((s, slot.1, cat, positive));
+            }
+        }
+        for (s, k, cat, positive) in segments {
+            let last = if positive {
+                last_pos[cat]
+            } else {
+                last_neg[cat]
+            };
+            let r = &mut out[s][k];
+            if last == Some((s, k)) {
+                r.rounded = if positive {
+                    BarEnd::Top
+                } else {
+                    BarEnd::Bottom
+                };
+            } else if positive {
+                r.top = (r.top + SURFACE_GAP_PX).min(r.bottom);
+            } else {
+                r.bottom = (r.bottom - SURFACE_GAP_PX).max(r.top);
+            }
+        }
+        return out;
+    }
+
+    let n = series.len().max(1) as f32;
+    let bar_w = ((band * 0.8 - (n - 1.0) * SURFACE_GAP_PX) / n)
+        .min(MAX_BAR_PX)
+        .max(1.0);
+    let group_w = n * bar_w + (n - 1.0) * SURFACE_GAP_PX;
+    for (s, ser) in series.iter().enumerate() {
+        for (i, p) in ser.points.as_slice().iter().enumerate() {
+            let Some(cat) = category_of(p.x, bands) else {
+                continue;
+            };
+            if !p.y.is_finite() {
+                continue;
+            }
+            let x0 =
+                cat as f32 * band + (band - group_w) / 2.0 + s as f32 * (bar_w + SURFACE_GAP_PX);
+            let end = frame.px_y(p.y);
+            let (top, bottom, rounded) = if p.y >= 0.0 {
+                (end.min(base), base, BarEnd::Top)
+            } else {
+                (base, end.max(base), BarEnd::Bottom)
+            };
+            out[s].push(BarRect {
+                x0,
+                x1: x0 + bar_w,
+                top,
+                bottom,
+                rounded,
+                series: s,
+                index: i,
+            });
+        }
+    }
+    out
+}
+
+/// One bar's outline: a rectangle, its data end rounded with a radius of
+/// [`BAR_RADIUS_PX`] (less on a thin or short bar).
+#[must_use]
+pub(crate) fn bar_ring(r: &BarRect) -> SvgPath {
+    let (x0, x1, t, b) = (r.x0, r.x1, r.top, r.bottom);
+    let rad = BAR_RADIUS_PX.min((x1 - x0) / 2.0).min(b - t).max(0.0);
+    let line = |a: SvgPoint, z: SvgPoint| SvgPathElement::Line(SvgLine::new(a, z));
+    let quad = |a: SvgPoint, c: SvgPoint, z: SvgPoint| {
+        SvgPathElement::QuadraticCurve(SvgQuadraticCurve {
+            start: a,
+            ctrl: c,
+            end: z,
+        })
+    };
+    let items = match r.rounded {
+        BarEnd::Top if rad > 0.0 => alloc::vec![
+            line(pt(x0, b), pt(x0, t + rad)),
+            quad(pt(x0, t + rad), pt(x0, t), pt(x0 + rad, t)),
+            line(pt(x0 + rad, t), pt(x1 - rad, t)),
+            quad(pt(x1 - rad, t), pt(x1, t), pt(x1, t + rad)),
+            line(pt(x1, t + rad), pt(x1, b)),
+            line(pt(x1, b), pt(x0, b)),
+        ],
+        BarEnd::Bottom if rad > 0.0 => alloc::vec![
+            line(pt(x0, t), pt(x1, t)),
+            line(pt(x1, t), pt(x1, b - rad)),
+            quad(pt(x1, b - rad), pt(x1, b), pt(x1 - rad, b)),
+            line(pt(x1 - rad, b), pt(x0 + rad, b)),
+            quad(pt(x0 + rad, b), pt(x0, b), pt(x0, b - rad)),
+            line(pt(x0, b - rad), pt(x0, t)),
+        ],
+        _ => alloc::vec![
+            line(pt(x0, t), pt(x1, t)),
+            line(pt(x1, t), pt(x1, b)),
+            line(pt(x1, b), pt(x0, b)),
+            line(pt(x0, b), pt(x0, t)),
+        ],
+    };
+    SvgPath::create(SvgPathElementVec::from_vec(items))
+}
+
+/// One series' bars as one shape.
+#[must_use]
+pub(crate) fn bars_shape(rects: &[BarRect]) -> SvgMultiPolygon {
+    shape_of(
+        rects
+            .iter()
+            .filter(|r| r.bottom > r.top && r.x1 > r.x0)
+            .map(bar_ring)
+            .collect(),
+    )
+}
+
+/// One slice of a pie: its angles (radians, clockwise from twelve
+/// o'clock), its value and the category it shows.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct PieSlice {
+    /// Where it starts.
+    pub(crate) start: f32,
+    /// Where it ends.
+    pub(crate) end: f32,
+    /// Its value (the sum of the folded categories for "Other").
+    pub(crate) value: f64,
+    /// The category it shows (the first folded one for "Other").
+    pub(crate) index: usize,
+    /// The slice of every category past the palette ("Other").
+    pub(crate) other: bool,
+}
+
+/// A pie's slices over `values` (one per category), in proportion, from
+/// twelve o'clock clockwise. A value that is not a positive number takes
+/// no room; past [`PALETTE_LEN`] categories the rest fold into one "Other"
+/// slice, so no two slices share a colour.
+#[must_use]
+pub(crate) fn pie_slices(values: &[f64]) -> Vec<PieSlice> {
+    let usable = |v: f64| if v.is_finite() && v > 0.0 { v } else { 0.0 };
+    let fold = values.len() > PALETTE_LEN;
+    let shown = if fold { PALETTE_LEN - 1 } else { values.len() };
+    let mut parts: Vec<(usize, f64, bool)> =
+        (0..shown).map(|i| (i, usable(values[i]), false)).collect();
+    if fold {
+        let rest: f64 = values[shown..].iter().map(|v| usable(*v)).sum();
+        parts.push((shown, rest, true));
+    }
+    let total: f64 = parts.iter().map(|p| p.1).sum();
+    let mut angle = 0.0f64;
+    parts
+        .into_iter()
+        .map(|(index, value, other)| {
+            let start = angle;
+            if total > 0.0 {
+                angle += value / total * core::f64::consts::TAU;
+            }
+            PieSlice {
+                start: start as f32,
+                end: angle as f32,
+                value,
+                index,
+                other,
+            }
+        })
+        .collect()
+}
+
+/// A wedge of a disc around `(cx, cy)` from angle `a0` to `a1` (radians,
+/// clockwise from twelve o'clock): to the centre for a pie, along an inner
+/// arc of radius `r_in` for a donut.
+#[must_use]
+pub(crate) fn wedge_ring(cx: f32, cy: f32, r_out: f32, r_in: f32, a0: f32, a1: f32) -> SvgPath {
+    let at = |r: f32, a: f32| pt(r.mul_add(a.sin(), cx), r.mul_add(-a.cos(), cy));
+    let steps = (((a1 - a0).abs() / ARC_STEP).ceil() as usize).max(1);
+    let angle = |k: usize| (a1 - a0).mul_add(k as f32 / steps as f32, a0);
+    let mut pts = Vec::with_capacity(steps * 2 + 3);
+    for k in 0..=steps {
+        pts.push(at(r_out, angle(k)));
+    }
+    if r_in > 0.0 {
+        for k in (0..=steps).rev() {
+            pts.push(at(r_in, angle(k)));
+        }
+    } else {
+        pts.push(pt(cx, cy));
+    }
+    ring(&pts, true)
+}
+
+// CHART7-NEXT: the geometry, the build, the pointer and the keys.
 #[cfg(test)]
 mod geometry_tests {
     use super::*;
