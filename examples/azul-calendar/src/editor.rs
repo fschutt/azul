@@ -54,17 +54,8 @@ pub enum Ends {
 }
 
 impl Ends {
-    /// The choices of the "Ends" list, in its order.
+    /// The ends, in the order a rule's end is tried in.
     pub const CHOICES: [Ends; 3] = [Ends::Never, Ends::After, Ends::On];
-
-    #[must_use]
-    pub const fn label(self) -> &'static str {
-        match self {
-            Ends::Never => "Never",
-            Ends::After => "After a number of times",
-            Ends::On => "On a date",
-        }
-    }
 }
 
 /// The reminder choices: minutes before the start, and what the list says.
@@ -497,73 +488,6 @@ pub fn repeat_choices(date: NaiveDate, custom: Option<&Rule>) -> Vec<(Repeat, St
     choices
 }
 
-/// The repeat row's segments: "Does not repeat", "Daily", "Weekly", "Monthly", "Yearly", and
-/// "Custom" when the event has a rule of its own.
-#[must_use]
-pub fn repeat_segments(has_custom: bool) -> Vec<&'static str> {
-    let mut segments = vec!["Does not repeat", "Daily", "Weekly", "Monthly", "Yearly"];
-    if has_custom {
-        segments.push("Custom");
-    }
-    segments
-}
-
-/// The segment `repeat` is shown on (weekly and every weekday share "Weekly", the two monthly
-/// choices "Monthly").
-#[must_use]
-pub fn repeat_segment(repeat: Repeat) -> usize {
-    match repeat {
-        Repeat::Never => 0,
-        Repeat::Daily => 1,
-        Repeat::Weekly | Repeat::Weekdays => 2,
-        Repeat::MonthlyDay | Repeat::MonthlyWeekday => 3,
-        Repeat::Yearly => 4,
-        Repeat::Custom => 5,
-    }
-}
-
-/// The repeat a click on segment `index` picks; within "Weekly" and "Monthly" the choice
-/// stays the one it was.
-#[must_use]
-pub fn repeat_of_segment(index: usize, current: Repeat) -> Repeat {
-    match index {
-        0 => Repeat::Never,
-        1 => Repeat::Daily,
-        2 if current == Repeat::Weekdays => Repeat::Weekdays,
-        2 => Repeat::Weekly,
-        3 if current == Repeat::MonthlyWeekday => Repeat::MonthlyWeekday,
-        3 => Repeat::MonthlyDay,
-        4 => Repeat::Yearly,
-        _ => Repeat::Custom,
-    }
-}
-
-/// The second row of a weekly or monthly repeat: its two choices, as `(choice, label)`;
-/// empty for every other repeat.
-#[must_use]
-pub fn repeat_variants(repeat: Repeat, date: NaiveDate) -> Vec<(Repeat, String)> {
-    let pair = match repeat {
-        Repeat::Weekly | Repeat::Weekdays => [Repeat::Weekly, Repeat::Weekdays],
-        Repeat::MonthlyDay | Repeat::MonthlyWeekday => [Repeat::MonthlyDay, Repeat::MonthlyWeekday],
-        _ => return Vec::new(),
-    };
-    pair.into_iter()
-        .map(|r| (r, repeat_label(r, date, None)))
-        .collect()
-}
-
-/// The unit of "Every N ...": "days", "weeks", "months", "years".
-#[must_use]
-pub fn interval_unit(repeat: Repeat) -> &'static str {
-    match repeat {
-        Repeat::Daily => "days",
-        Repeat::Weekly | Repeat::Weekdays => "weeks",
-        Repeat::MonthlyDay | Repeat::MonthlyWeekday => "months",
-        Repeat::Yearly => "years",
-        Repeat::Never | Repeat::Custom => "",
-    }
-}
-
 /// The reminder list's index of `minutes` (an imported reminder that is no choice: the nearest
 /// earlier one).
 #[must_use]
@@ -587,13 +511,6 @@ pub fn parse_attendees(text: &str) -> Result<Vec<String>, String> {
     // A separator inside a quoted name ("Lovelace, Ada" <ada@example.org>) is part of the name.
     azul_pim::mail_address::address_list(text)
         .map_err(|entry| format!("{entry:?} is not an e-mail address."))
-}
-
-/// A number typed into "Every N" or "After N times": at least 1, at most 999; `None` for no
-/// number.
-#[must_use]
-pub fn parse_count(text: &str) -> Option<u32> {
-    text.trim().parse::<u32>().ok().map(|n| n.clamp(1, 999))
 }
 
 #[cfg(test)]
@@ -850,38 +767,6 @@ mod tests {
         assert_eq!(m.window_title(), "Untitled - Meeting");
     }
 
-    #[test]
-    fn the_repeat_row_is_five_segments_and_a_second_row_for_weekly_and_monthly() {
-        assert_eq!(
-            repeat_segments(false),
-            vec!["Does not repeat", "Daily", "Weekly", "Monthly", "Yearly"]
-        );
-        assert_eq!(repeat_segments(true).last(), Some(&"Custom"));
-        for repeat in Repeat::CHOICES {
-            let index = repeat_segment(repeat);
-            assert_eq!(repeat_of_segment(index, repeat), repeat, "{repeat:?}");
-        }
-        assert_eq!(repeat_segment(Repeat::Weekdays), 2);
-        assert_eq!(repeat_of_segment(2, Repeat::Never), Repeat::Weekly);
-        assert_eq!(repeat_of_segment(3, Repeat::Daily), Repeat::MonthlyDay);
-        assert_eq!(repeat_of_segment(5, Repeat::Weekly), Repeat::Custom);
-        let date = d(2026, 9, 30);
-        let weekly: Vec<String> = repeat_variants(Repeat::Weekdays, date)
-            .into_iter()
-            .map(|(_, l)| l)
-            .collect();
-        assert_eq!(
-            weekly,
-            vec!["Weekly on Wednesday", "Every weekday (Monday to Friday)"]
-        );
-        let monthly: Vec<Repeat> = repeat_variants(Repeat::MonthlyDay, date)
-            .into_iter()
-            .map(|(r, _)| r)
-            .collect();
-        assert_eq!(monthly, vec![Repeat::MonthlyDay, Repeat::MonthlyWeekday]);
-        assert!(repeat_variants(Repeat::Daily, date).is_empty());
-    }
-
     /// The recurrence editor hands the form a rule: one of the form's choices shows as that
     /// choice (any interval and end), any other - Monday and Wednesday every week - is kept as
     /// the form's own rule; the rule the editor shows is the form's.
@@ -906,13 +791,5 @@ mod tests {
         f.set_rule(None);
         assert_eq!((f.repeat, f.custom.as_ref()), (Repeat::Never, None));
         assert_eq!(rule_text(&f), None);
-    }
-
-    #[test]
-    fn counts_are_held_to_one_to_999() {
-        assert_eq!(parse_count(" 3 "), Some(3));
-        assert_eq!(parse_count("0"), Some(1));
-        assert_eq!(parse_count("5000"), Some(999));
-        assert_eq!(parse_count("two"), None);
     }
 }
