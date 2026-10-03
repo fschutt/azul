@@ -18,9 +18,22 @@ Screenshots: target/pim6-shots (not committed).
 - f0f9898cd manifest entry + INPUTS group
 => RecurrenceEditor DONE (uncompiled). api.json list: see the report draft below.
 
+- d756e78d6 / bbec68f35 RED/GREEN EditorForm::shown_rule / set_rule
+- ef4d3fad4 editor_ui: RecurrenceEditor (#editor-repeat) + Replace for custom rules; editor
+  date pickers Monday-first
+- e1117d8f0 dead repeat-segment helpers removed; 94d0b1060 E2E editor stage on the widget
+- c7a77c997 / f59a9c0c1 RED/GREEN EditorForm::changed_since
+- 892b04b90 CalState editor_opened / editor_asking / editor_dirty
+- dbcf9488d close check: CloseRequested veto from live state + CloseGuard (dirty=false) question
+- 323812c18 E2E `close` stage
+
 ## IN PROGRESS
-- AzCalendar adopts the RecurrenceEditor (editor_ui.rs repeat rows; editor.rs form keeps a
-  `Rule`), then DatePicker week start at editor_ui.rs date_picker().
+- AzCalendar "edit this occurrence": NEXT = RED test in editor.rs / event.rs for detaching one
+  occurrence (the series gets an EXDATE for the day, a new event (new id, no repeat, the
+  occurrence's day, the form's edits) is saved), then GREEN, then the ribbon button "Edit This
+  Occurrence" vs "Edit Series" in editor_ui (open_event with occurrence: the form opens on the
+  occurrence's day; Save asks? -> decision: the editor opened from an occurrence of a series has
+  a Segmented "This occurrence | The series" at the top; Save follows it).
 
 ## (old notes, done) RecurrenceEditor GREEN part 2 steps, in layout/src/widgets/recurrence_editor.rs:
   1. replace the 4 remaining `todo!()`: `RecurrenceEditor::create` (week_start Monday default,
