@@ -29,9 +29,8 @@ use alloc::{
 use super::{
     is_html_space,
     rules::{
-        self, Content, EndAction, Mode, Scope, Step, TableEnd, TableStart, BREAKOUT,
-        FORMATTING, FOSTER_TARGET, HEAD, HEADING, IMPLIED_END, INTEGRATION_POINT, MARKER,
-        SPECIAL, VOID,
+        self, Content, EndAction, Mode, Scope, Step, TableEnd, TableStart, BREAKOUT, FORMATTING,
+        FOSTER_TARGET, HEAD, HEADING, IMPLIED_END, INTEGRATION_POINT, MARKER, SPECIAL, VOID,
     },
     tokenizer::{Doctype, TextMode},
     TreeSink, MAX_XML_NESTING_DEPTH,
@@ -301,7 +300,7 @@ struct OpenElement {
     /// HTML: the insertion mode inside it (13.2.4.1: the nearest element of
     /// [`rules::MODES`] at or below it).
     mode: Mode,
-    /// HTML: an SVG / MathML element (13.2.6.5).
+    /// HTML: an SVG / `MathML` element (13.2.6.5).
     foreign: bool,
 }
 
@@ -400,11 +399,11 @@ impl TreeBuilder {
 
     /// How many elements are open.
     #[must_use]
-    pub fn open_elements(&self) -> usize {
+    pub const fn open_elements(&self) -> usize {
         self.stack.len()
     }
 
-    /// Whether the adjusted current node is an SVG / MathML element (HTML): a CDATA
+    /// Whether the adjusted current node is an SVG / `MathML` element (HTML): a CDATA
     /// section is one there ([`super::HtmlTokenizer::set_cdata_allowed`]).
     #[must_use]
     pub fn in_foreign_content(&self) -> bool {
@@ -420,20 +419,17 @@ impl TreeBuilder {
             return TextMode::Data;
         }
         let key = lower(name);
-        match rules::element(&key) {
-            Some(e) => match e.content {
-                Content::Markup => TextMode::Data,
-                Content::RcData => TextMode::RcData(e.name),
-                Content::RawText => TextMode::RawText(e.name),
-                Content::PlainText => TextMode::PlainText,
-            },
-            None => TextMode::Data,
-        }
+        rules::element(&key).map_or(TextMode::Data, |e| match e.content {
+            Content::Markup => TextMode::Data,
+            Content::RcData => TextMode::RcData(e.name),
+            Content::RawText => TextMode::RawText(e.name),
+            Content::PlainText => TextMode::PlainText,
+        })
     }
 
     // ---- the stack ----
 
-    fn html(&self) -> bool {
+    const fn html(&self) -> bool {
         self.rules.html()
     }
 
@@ -446,7 +442,7 @@ impl TreeBuilder {
         self.stack.last().map_or(Mode::Body, |e| e.mode)
     }
 
-    /// HTML: start tags and text are processed as SVG / MathML (13.2.6, the tree
+    /// HTML: start tags and text are processed as SVG / `MathML` (13.2.6, the tree
     /// construction dispatcher): the current node is foreign and no integration point.
     fn foreign_for_start(&self) -> bool {
         self.stack
@@ -743,9 +739,8 @@ impl TreeBuilder {
         }
         let foreign = step == Step::InsertForeign;
         // Past the depth limit, an element's content goes to its parent (as in Blink).
-        let push = !void
-            && !(foreign && tag.self_closing)
-            && self.stack.len() < MAX_XML_NESTING_DEPTH;
+        let push =
+            !(void || (foreign && tag.self_closing)) && self.stack.len() < MAX_XML_NESTING_DEPTH;
         let remembered = (step == Step::InsertFormatting && push).then(|| attributes.clone());
         let node = self.insert_element(sink, &tag.name, &tag.key, attributes, push, foreign);
         match step {
@@ -837,14 +832,10 @@ impl TreeBuilder {
                 before: None,
             };
         }
-        let last = |name: &str| {
-            self.stack
-                .iter()
-                .rposition(|e| e.key == name && !e.foreign)
-        };
+        let last = |name: &str| self.stack.iter().rposition(|e| e.key == name && !e.foreign);
         let last_table = last("table");
         if let Some(template) = last("template") {
-            if last_table.map_or(true, |t| template > t) {
+            if last_table.is_none_or(|t| template > t) {
                 return Place {
                     parent: self.stack[template].node,
                     before: None,
@@ -858,16 +849,16 @@ impl TreeBuilder {
             };
         };
         let table_node = self.stack[table].node;
-        match self.tree.parent(table_node) {
-            Some(parent) => Place {
-                parent,
-                before: Some(table_node),
-            },
-            None => Place {
+        self.tree.parent(table_node).map_or_else(
+            || Place {
                 parent: self.stack[table.saturating_sub(1)].node,
                 before: None,
             },
-        }
+            |parent| Place {
+                parent,
+                before: Some(table_node),
+            },
+        )
     }
 
     /// HTML: text where it goes (13.2.6.1 "insert a character").
@@ -878,7 +869,12 @@ impl TreeBuilder {
 
     /// HTML: an element of the document (`html`, `head`, `body`, an implied `tbody` ...),
     /// opened.
-    fn insert_named(&mut self, sink: &mut dyn TreeSink, key: &str, attributes: Vec<(String, String)>) -> usize {
+    fn insert_named(
+        &mut self,
+        sink: &mut dyn TreeSink,
+        key: &str,
+        attributes: Vec<(String, String)>,
+    ) -> usize {
         self.insert_element(sink, key, key, attributes, true, false)
     }
 
@@ -966,7 +962,7 @@ impl TreeBuilder {
             .map(|(i, _)| start + i)
             .collect();
         if equal.len() >= 3 {
-            let _ = self.active.remove(equal[0]);
+            drop(self.active.remove(equal[0]));
         }
         self.active.push(Formatting::Element {
             node,
@@ -988,17 +984,18 @@ impl TreeBuilder {
         };
         let _ = self.adoption_agency(sink, "a");
         if let Some(i) = self.active_index(node) {
-            let _ = self.active.remove(i);
+            drop(self.active.remove(i));
         }
         if let Some(i) = self.stack.iter().position(|e| e.node == node) {
             self.remove_entry(i);
         }
     }
 
-    /// 13.2.6.4.7 "the adoption agency algorithm" for the end tag `subject`: a formatting
-    /// element with a block open inside it ends where it stands, the block moves out of
-    /// it, and a clone of it takes the block's content. `false`: "act as described in the
-    /// any other end tag entry".
+    /// 13.2.6.4.7 "the adoption agency algorithm" for the end tag `subject`.
+    ///
+    /// A formatting element with a block open inside it ends where it stands, the block
+    /// moves out of it, and a clone of it takes the block's content. `false`: "act as
+    /// described in the any other end tag entry".
     fn adoption_agency(&mut self, sink: &mut dyn TreeSink, subject: &str) -> bool {
         // 2. The current node is a `subject` the list does not know: it simply closes.
         if let Some(current) = self.stack.last() {
@@ -1011,7 +1008,7 @@ impl TreeBuilder {
         for _ in 0..8 {
             // 4.3 The formatting element: the last `subject` after the last marker.
             let start = self.last_marker_end();
-            let Some((fe_list, fe_node)) =
+            let Some((entry, formatting)) =
                 self.active[start..]
                     .iter()
                     .enumerate()
@@ -1026,124 +1023,74 @@ impl TreeBuilder {
                 return false;
             };
             // 4.4 Not open: it leaves the list.
-            let Some(fe_stack) = self.stack.iter().rposition(|e| e.node == fe_node) else {
-                let _ = self.active.remove(fe_list);
+            let Some(formatting_at) = self.stack.iter().rposition(|e| e.node == formatting) else {
+                drop(self.active.remove(entry));
                 return true;
             };
             // 4.5 Open but not in scope: the end tag is ignored.
-            if !self.node_in_scope(fe_stack, Scope::Default) {
+            if !self.node_in_scope(formatting_at, Scope::Default) {
                 return true;
             }
             // 4.7 The furthest block: the first special element above it.
-            let Some(fb_stack) =
-                (fe_stack + 1..self.stack.len()).find(|&i| rules::is(&self.stack[i].key, SPECIAL))
+            let Some(block_at) = (formatting_at + 1..self.stack.len())
+                .find(|&i| rules::is(&self.stack[i].key, SPECIAL))
             else {
                 // 4.8 None: close it (and what is open inside it).
-                while self.stack.len() > fe_stack {
+                while self.stack.len() > formatting_at {
                     self.pop_one(sink);
                 }
-                let _ = self.active.remove(fe_list);
+                drop(self.active.remove(entry));
                 return true;
             };
-            // 4.9 - 4.12
-            let common_ancestor = fe_stack.saturating_sub(1);
-            let mut fe_list = fe_list;
-            let mut bookmark = fe_list;
-            let furthest_block = self.stack[fb_stack].node;
-            let mut last_node = furthest_block;
-            let mut node_index = fb_stack;
-            // 4.13 The inner loop: the elements between the formatting element and the
-            // furthest block are cloned (formatting ones) or left behind (the others).
-            let mut inner = 0;
-            loop {
-                inner += 1;
-                node_index -= 1;
-                if node_index <= fe_stack {
-                    break;
-                }
-                let node = self.stack[node_index].node;
-                let mut list_index = self.active_index(node);
-                if inner > 3 {
-                    if let Some(li) = list_index.take() {
-                        let _ = self.active.remove(li);
-                        if li < bookmark {
-                            bookmark -= 1;
-                        }
-                        if li < fe_list {
-                            fe_list -= 1;
-                        }
-                    }
-                }
-                let Some(li) = list_index else {
-                    self.remove_entry(node_index);
-                    continue;
-                };
-                let (key, attributes) = match &self.active[li] {
-                    Formatting::Element {
-                        key, attributes, ..
-                    } => (key.clone(), attributes.clone()),
-                    Formatting::Marker => break,
-                };
-                let clone = self.tree.create(NodeData::Element {
-                    name: key.clone(),
-                    attributes: attributes.clone(),
-                });
-                self.active[li] = Formatting::Element {
-                    node: clone,
-                    key,
-                    attributes,
-                };
-                self.stack[node_index].node = clone;
-                if last_node == furthest_block {
-                    bookmark = li + 1;
-                }
-                self.tree.append(clone, last_node);
-                last_node = clone;
-            }
+            let furthest_block = self.stack[block_at].node;
+            // 4.13 The inner loop.
+            let (last_node, bookmark, entry) = self.adopt_between(formatting_at, block_at, entry);
             // 4.14 The last node goes where the common ancestor takes it.
-            let place = self.appropriate_place(Some(common_ancestor));
+            let place = self.appropriate_place(Some(formatting_at.saturating_sub(1)));
             self.tree.insert(place, last_node);
             // 4.15 - 4.17 A clone of the formatting element takes the furthest block's
             // content and goes into it.
-            let (key, attributes) = match &self.active[fe_list] {
+            let (key, attributes) = match &self.active[entry] {
                 Formatting::Element {
                     key, attributes, ..
                 } => (key.clone(), attributes.clone()),
                 Formatting::Marker => return true,
             };
-            let new_element = self.tree.create(NodeData::Element {
+            let clone = self.tree.create(NodeData::Element {
                 name: key.clone(),
                 attributes: attributes.clone(),
             });
-            self.tree.move_children(furthest_block, new_element);
-            self.tree.append(furthest_block, new_element);
-            // 4.18 The clone replaces the formatting element in the list (at the bookmark)
-            let _ = self.active.remove(fe_list);
-            if fe_list < bookmark {
-                bookmark -= 1;
-            }
-            let bookmark = bookmark.min(self.active.len());
+            self.tree.move_children(furthest_block, clone);
+            self.tree.append(furthest_block, clone);
+            // 4.18 The clone replaces the formatting element in the list (at the
+            // bookmark) ...
+            drop(self.active.remove(entry));
+            let bookmark = if entry < bookmark {
+                bookmark - 1
+            } else {
+                bookmark
+            };
             self.active.insert(
-                bookmark,
+                bookmark.min(self.active.len()),
                 Formatting::Element {
-                    node: new_element,
+                    node: clone,
                     key: key.clone(),
                     attributes,
                 },
             );
             // 4.19 ... and on the stack, right above the furthest block.
-            self.stack.remove(fe_stack);
-            let fb_now = self
+            self.remove_entry(formatting_at);
+            let block_now = self
                 .stack
                 .iter()
                 .position(|e| e.node == furthest_block)
                 .unwrap_or(self.stack.len() - 1);
-            let mode = self.stack[fb_now].mode;
+            let mode = self.stack[block_now].mode;
             self.stack.insert(
-                fb_now + 1,
+                block_now + 1,
                 OpenElement {
                     key,
-                    node: new_element,
+                    node: clone,
                     pending_close: false,
                     mode,
                     foreign: false,
@@ -1151,6 +1098,71 @@ impl TreeBuilder {
             );
         }
         true
+    }
+
+    /// The adoption agency's inner loop (4.11 - 4.13): the elements between the formatting
+    /// element (open at `formatting_at`, list entry `entry`) and the furthest block (open
+    /// at `block_at`) are cloned around the block (the formatting ones) or left behind (the
+    /// others). The last node, the bookmark, and the formatting element's list entry (it
+    /// moves when an entry before it goes).
+    fn adopt_between(
+        &mut self,
+        formatting_at: usize,
+        block_at: usize,
+        entry: usize,
+    ) -> (usize, usize, usize) {
+        let mut entry = entry;
+        let mut bookmark = entry;
+        let furthest_block = self.stack[block_at].node;
+        let mut last_node = furthest_block;
+        let mut node_index = block_at;
+        let mut inner = 0;
+        loop {
+            inner += 1;
+            node_index -= 1;
+            if node_index <= formatting_at {
+                break;
+            }
+            let node = self.stack[node_index].node;
+            let mut list_index = self.active_index(node);
+            if inner > 3 {
+                if let Some(li) = list_index.take() {
+                    drop(self.active.remove(li));
+                    if li < bookmark {
+                        bookmark -= 1;
+                    }
+                    if li < entry {
+                        entry -= 1;
+                    }
+                }
+            }
+            let Some(li) = list_index else {
+                self.remove_entry(node_index);
+                continue;
+            };
+            let (key, attributes) = match &self.active[li] {
+                Formatting::Element {
+                    key, attributes, ..
+                } => (key.clone(), attributes.clone()),
+                Formatting::Marker => break,
+            };
+            let clone = self.tree.create(NodeData::Element {
+                name: key.clone(),
+                attributes: attributes.clone(),
+            });
+            self.active[li] = Formatting::Element {
+                node: clone,
+                key,
+                attributes,
+            };
+            self.stack[node_index].node = clone;
+            if last_node == furthest_block {
+                bookmark = li + 1;
+            }
+            self.tree.append(clone, last_node);
+            last_node = clone;
+        }
+        (last_node, bookmark, entry)
     }
 
     // ---- HTML: start tags ----
@@ -1418,13 +1430,11 @@ impl TreeBuilder {
     /// If one of `names` is open in table scope: close it (and what is open in it) and
     /// reprocess the token (`true`); else ignore the token.
     fn close_and_reprocess(&mut self, sink: &mut dyn TreeSink, names: &[&str]) -> bool {
-        match self.in_scope_any(names, Scope::Table) {
-            Some(i) => {
-                self.pop_to(sink, i);
-                true
-            }
-            None => false,
-        }
+        let Some(i) = self.in_scope_any(names, Scope::Table) else {
+            return false;
+        };
+        self.pop_to(sink, i);
+        true
     }
 
     /// 13.2.6.4.7 "in body", a start tag; `true`: reprocess.
@@ -1582,15 +1592,15 @@ impl TreeBuilder {
                         .then(|| rules::table_end(Mode::Table, key))
                         .flatten()
                 });
-                match action {
-                    Some(action) => self.table_end(sink, action, key),
-                    None => {
-                        self.foster = true;
-                        let again = self.in_body_end(sink, key);
-                        self.foster = false;
-                        again
-                    }
+                if let Some(action) = action {
+                    return self.table_end(sink, action, key);
                 }
+                // 13.2.6.4.9 "in table", anything else: the body's rules with foster
+                // parenting.
+                self.foster = true;
+                let again = self.in_body_end(sink, key);
+                self.foster = false;
+                again
             }
         }
     }
@@ -1862,7 +1872,7 @@ impl TreeBuilder {
         }
     }
 
-    /// A CDATA section: HTML reads one only in SVG / MathML, as text; XML keeps its text
+    /// A CDATA section: HTML reads one only in SVG / `MathML`, as text; XML keeps its text
     /// inside a `<style>`, else drops it.
     pub fn cdata(&mut self, sink: &mut dyn TreeSink, text: &str) {
         self.skip_newline = false;

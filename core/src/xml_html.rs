@@ -18,7 +18,7 @@
 //!   [`TreeRules::Html`] what a browser builds: the implied `<html>` / `<head>` / `<body>`,
 //!   implied end tags, the table modes (implied `<tbody>` / `<tr>` / `<colgroup>`, foster
 //!   parenting of what is misplaced in a table), the adoption agency for misnested formatting
-//!   elements, the formatting elements reopened in the next block, SVG / MathML content and
+//!   elements, the formatting elements reopened in the next block, SVG / `MathML` content and
 //!   where HTML breaks out of it, quirks mode. Under [`TreeRules::Xml`] / `XmlFolded` (the
 //!   strict loaders: the tree loader `azul_layout::xml::parse_xml_string`, the document
 //!   loader `azul_layout::xml::parse_xml_to_fast_dom`) the XML conveniences of the same rule
@@ -201,9 +201,10 @@ pub fn decode_character_references(s: &str, mode: CharRefMode) -> Cow<'_, str> {
     Cow::Owned(out)
 }
 
-/// `s` as the text content of an HTML / XML element: `&`, `<` and `>` as
-/// references (quotes are plain text between tags), the characters XML 1.0
-/// cannot carry left out (see [`encode_attribute`]). The inverse of
+/// `s` as the text content of an HTML / XML element.
+///
+/// `&`, `<` and `>` as references (quotes are plain text between tags), the
+/// characters XML 1.0 cannot carry left out (see [`encode_attribute`]). The inverse of
 /// [`decode_character_references`] in every [`CharRefMode`] - THE encoder
 /// for every writer of markup (clipboard HTML, the e2e builder, toasts,
 /// the web renderer).
@@ -214,8 +215,10 @@ pub fn encode_text(s: &str) -> String {
     out
 }
 
-/// `s` as an attribute value: [`encode_text`] plus both quotes (`&quot;`,
-/// `&apos;`), so it is safe between `"..."` and `'...'` alike. Left out, as
+/// `s` as an attribute value.
+///
+/// [`encode_text`] plus both quotes (`&quot;`, `&apos;`), so it is safe
+/// between `"..."` and `'...'` alike. Left out, as
 /// in text: the C0 controls other than tab, line feed and carriage return,
 /// and U+FFFE / U+FFFF - XML 1.0 has no way to write them, not even as a
 /// reference, and a strict reader rejects the document that has them.
@@ -383,7 +386,9 @@ impl TreeSink for XmlTreeSink {
 }
 
 /// Feed `html` through the lenient tokenizer and the HTML tree construction
-/// into `sink`. The tree construction drives the tokenizer, as in the standard: after
+/// into `sink`.
+///
+/// The tree construction drives the tokenizer, as in the standard: after
 /// a start tag it says how the element's content is read (raw text for an HTML
 /// `<style>`, markup for an SVG one), and whether a CDATA section is one.
 pub fn parse_html_into(html: &str, sink: &mut dyn TreeSink) {

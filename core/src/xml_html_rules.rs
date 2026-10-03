@@ -21,40 +21,40 @@
 
 /// No content and no end tag (13.1.2 "void elements", and the legacy ones the parser
 /// inserts and pops at once: `basefont bgsound frame keygen param`).
-pub(crate) const VOID: u32 = 1 << 0;
+pub(super) const VOID: u32 = 1 << 0;
 /// The formatting elements (13.2.4.3): reopened in the next block, adopted when misnested.
-pub(crate) const FORMATTING: u32 = 1 << 1;
+pub(super) const FORMATTING: u32 = 1 << 1;
 /// The "special" category (13.2.4.2): a block an end tag does not reach past.
-pub(crate) const SPECIAL: u32 = 1 << 2;
+pub(super) const SPECIAL: u32 = 1 << 2;
 /// `h1` - `h6`.
-pub(crate) const HEADING: u32 = 1 << 3;
+pub(super) const HEADING: u32 = 1 << 3;
 /// The head's content (13.2.6.4.4 "in head"): before the body it goes into the head, in
 /// the body it is inserted where it stands.
-pub(crate) const HEAD: u32 = 1 << 4;
+pub(super) const HEAD: u32 = 1 << 4;
 /// Puts a marker on the list of active formatting elements (13.2.4.3): what was opened
 /// outside is not reopened inside.
-pub(crate) const MARKER: u32 = 1 << 5;
-/// A boundary of "has an element in scope" (13.2.4.2), the default scope (the MathML and
+pub(super) const MARKER: u32 = 1 << 5;
+/// A boundary of "has an element in scope" (13.2.4.2), the default scope (the `MathML` and
 /// SVG text integration points other than `foreignObject` are left out: the strict loaders'
 /// scope).
-pub(crate) const SCOPE: u32 = 1 << 6;
+pub(super) const SCOPE: u32 = 1 << 6;
 /// A boundary of "has an element in table scope".
-pub(crate) const TABLE_SCOPE: u32 = 1 << 7;
+pub(super) const TABLE_SCOPE: u32 = 1 << 7;
 /// Closed by "generate implied end tags" (13.2.6.3).
-pub(crate) const IMPLIED_END: u32 = 1 << 8;
+pub(super) const IMPLIED_END: u32 = 1 << 8;
 /// Content misplaced in it is foster-parented (13.2.6.1): `table tbody tfoot thead tr`.
-pub(crate) const FOSTER_TARGET: u32 = 1 << 9;
-/// Ends SVG / MathML content (13.2.6.5, the start tags that break out of foreign content;
+pub(super) const FOSTER_TARGET: u32 = 1 << 9;
+/// Ends SVG / `MathML` content (13.2.6.5, the start tags that break out of foreign content;
 /// `font` only with `color`, `face` or `size`).
-pub(crate) const BREAKOUT: u32 = 1 << 10;
-/// An HTML / MathML text integration point when it is an SVG / MathML element (13.2.6):
+pub(super) const BREAKOUT: u32 = 1 << 10;
+/// An HTML / `MathML` text integration point when it is an SVG / `MathML` element (13.2.6):
 /// its start tags and text are HTML again.
-pub(crate) const INTEGRATION_POINT: u32 = 1 << 11;
+pub(super) const INTEGRATION_POINT: u32 = 1 << 11;
 
 /// How an element's content is tokenized (13.2.6.2, the generic raw text and RCDATA element
 /// parsing algorithms; 13.2.6.4.7 "plaintext").
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Content {
+pub(super) enum Content {
     /// Markup.
     Markup,
     /// Text with its character references decoded, up to the element's end tag.
@@ -66,10 +66,10 @@ pub(crate) enum Content {
 }
 
 /// One element: its name, its categories, its content.
-pub(crate) struct Element {
-    pub(crate) name: &'static str,
-    pub(crate) flags: u32,
-    pub(crate) content: Content,
+pub(super) struct Element {
+    pub(super) name: &'static str,
+    pub(super) flags: u32,
+    pub(super) content: Content,
 }
 
 const fn el(name: &'static str, flags: u32) -> Element {
@@ -99,7 +99,7 @@ const SFT: u32 = SPECIAL | FOSTER_TARGET;
 
 /// Every element a rule names, sorted by name (byte order: binary-searched; a test keeps
 /// it sorted). An element not listed has no category and markup content.
-pub(crate) static ELEMENTS: &[Element] = &[
+pub(super) static ELEMENTS: &[Element] = &[
     el("a", FORMATTING),
     el("address", S),
     el("annotation-xml", S),
@@ -221,7 +221,7 @@ pub(crate) static ELEMENTS: &[Element] = &[
 ];
 
 /// The row of `name` (lower-case), if a rule names it.
-pub(crate) fn element(name: &str) -> Option<&'static Element> {
+pub(super) fn element(name: &str) -> Option<&'static Element> {
     ELEMENTS
         .binary_search_by(|e| e.name.cmp(name))
         .ok()
@@ -230,24 +230,24 @@ pub(crate) fn element(name: &str) -> Option<&'static Element> {
 
 /// The categories of `name` (lower-case): an OR of the flags above, 0 for an element no
 /// rule names.
-pub(crate) fn flags(name: &str) -> u32 {
+pub(super) fn flags(name: &str) -> u32 {
     element(name).map_or(0, |e| e.flags)
 }
 
 /// Whether `name` (lower-case) has every flag of `flag`.
-pub(crate) fn is(name: &str, flag: u32) -> bool {
+pub(super) fn is(name: &str, flag: u32) -> bool {
     flags(name) & flag == flag
 }
 
 /// How the content of `name` (lower-case) is tokenized.
-pub(crate) fn content(name: &str) -> Content {
+pub(super) fn content(name: &str) -> Content {
     element(name).map_or(Content::Markup, |e| e.content)
 }
 
 /// The start tags a browser reads as another element (13.2.6.4.7: "A start tag whose tag
 /// name is "image": change the token's tag name to "img" and reprocess it"). HTML content
 /// only - an SVG `<image>` stays one.
-pub(crate) static ALIASES: &[(&str, &str)] = &[("image", "img")];
+pub(super) static ALIASES: &[(&str, &str)] = &[("image", "img")];
 
 /// The HTML void elements (the HTML Standard's, and the legacy ones its
 /// parser treats so): no content, no end tag.
@@ -263,7 +263,7 @@ pub fn is_void_element(tag: &str) -> bool {
 /// The insertion modes of the body (13.2.4.1, 13.2.6.4.7 - 13.2.6.4.15). Before the body
 /// (initial ... after head) the tree construction keeps a phase of its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Mode {
+pub(super) enum Mode {
     /// 13.2.6.4.7 "in body" (also inside a `template` or a `select`: not modelled).
     Body,
     /// 13.2.6.4.9 "in table".
@@ -282,7 +282,7 @@ pub(crate) enum Mode {
 
 /// 13.2.4.1 "reset the insertion mode appropriately": the open HTML element nearest to the
 /// current node that is listed here decides the mode.
-pub(crate) static MODES: &[(&str, Mode)] = &[
+pub(super) static MODES: &[(&str, Mode)] = &[
     ("body", Mode::Body),
     ("caption", Mode::Caption),
     ("colgroup", Mode::ColumnGroup),
@@ -298,7 +298,7 @@ pub(crate) static MODES: &[(&str, Mode)] = &[
 ];
 
 /// The mode an open `name` (lower-case, an HTML element) puts the body in.
-pub(crate) fn mode_of(name: &str) -> Option<Mode> {
+pub(super) fn mode_of(name: &str) -> Option<Mode> {
     MODES.iter().find(|(n, _)| *n == name).map(|(_, m)| *m)
 }
 
@@ -309,7 +309,7 @@ pub(crate) fn mode_of(name: &str) -> Option<Mode> {
 /// The scope an element is searched in (13.2.4.2 "has an element in scope"): the search
 /// from the current node stops at a boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Scope {
+pub(super) enum Scope {
     /// [`SCOPE`].
     Default,
     /// "in list item scope": the default one, `ol` and `ul`.
@@ -322,7 +322,7 @@ pub(crate) enum Scope {
 
 impl Scope {
     /// Whether an open `name` (lower-case) ends a search in this scope.
-    pub(crate) fn is_boundary(self, name: &str) -> bool {
+    pub(super) fn is_boundary(self, name: &str) -> bool {
         match self {
             Self::Default => is(name, SCOPE),
             Self::ListItem => is(name, SCOPE) || name == "ol" || name == "ul",
@@ -339,7 +339,7 @@ impl Scope {
 /// One step of a start tag's rule. The steps marked HTML do nothing in the strict loaders
 /// (`TreeRules::Xml` / `XmlFolded`), which keep the other steps as XML conveniences.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Step {
+pub(super) enum Step {
     /// "If the stack of open elements has a p element in button scope, then close a p
     /// element."
     CloseP,
@@ -394,7 +394,7 @@ pub(crate) enum Step {
     /// Insert; (HTML) "If the next token is a U+000A LINE FEED (LF) character token, then
     /// ignore that token" (`pre listing textarea`).
     InsertSkippingNewline,
-    /// Insert a foreign element (`math`, `svg`): its content is SVG / MathML; acknowledged
+    /// Insert a foreign element (`math`, `svg`): its content is SVG / `MathML`; acknowledged
     /// self-closing.
     InsertForeign,
 }
@@ -417,7 +417,7 @@ const TABLE_PARTS: &[&str] = &[
 /// order the standard lists them. A start tag no row names: [`DEFAULT_START`]. `html`,
 /// `body` and `frameset` are the document's (the tree construction handles them before
 /// these rows in HTML; XML inserts them).
-pub(crate) static START_TAGS: &[(&[&str], &[Step])] = &[
+pub(super) static START_TAGS: &[(&[&str], &[Step])] = &[
     // "base, basefont, bgsound, link, meta, noframes, script, style, template, title":
     // process using the rules for "in head" - inserted where they stand.
     (
@@ -555,10 +555,10 @@ pub(crate) static START_TAGS: &[(&[&str], &[Step])] = &[
 
 /// "Any other start tag": "Reconstruct the active formatting elements, if any. Insert an
 /// HTML element for the token."
-pub(crate) static DEFAULT_START: &[Step] = &[Reconstruct, Insert];
+pub(super) static DEFAULT_START: &[Step] = &[Reconstruct, Insert];
 
 /// The steps of the start tag `name` (lower-case).
-pub(crate) fn start_steps(name: &str) -> &'static [Step] {
+pub(super) fn start_steps(name: &str) -> &'static [Step] {
     START_TAGS
         .iter()
         .find(|(names, _)| names.contains(&name))
@@ -566,7 +566,9 @@ pub(crate) fn start_steps(name: &str) -> &'static [Step] {
 }
 
 /// Whether a `start` tag ends an open `open` element it would go into
-/// directly: the tree construction's implied end tags for a direct parent
+/// directly.
+///
+/// The tree construction's implied end tags for a direct parent
 /// (`<p>` ends where a `<div>` starts, an `<li>` at the next `<li>`, a cell at
 /// the next cell or row). What a document editor asks before it nests
 /// `start` inside `open`: a loader would make them siblings. Names are
@@ -590,7 +592,7 @@ pub fn start_tag_closes(open: &str, start: &str) -> bool {
 /// open in the row's scope (a formatting element with a block open inside it once that
 /// block closes).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum EndAction {
+pub(super) enum EndAction {
     /// "If the stack of open elements does not have an element in scope that is an HTML
     /// element with the same tag name as that of the token, then this is a parse error;
     /// ignore the token. Otherwise: generate implied end tags ... pop elements until an
@@ -624,7 +626,7 @@ pub(crate) enum EndAction {
 
 /// 13.2.6.4.7 "in body", the end tags: `(names, the scope XML looks in, the HTML action)`.
 /// An end tag no row names: [`DEFAULT_END`].
-pub(crate) static END_TAGS: &[(&[&str], Scope, EndAction)] = &[
+pub(super) static END_TAGS: &[(&[&str], Scope, EndAction)] = &[
     (&["body", "html", "head"], Scope::Default, EndAction::Ignore),
     // "address, article, aside, blockquote, button, center, details, dialog, dir, div, dl,
     // fieldset, figcaption, figure, footer, header, hgroup, listing, main, menu, nav, ol,
@@ -698,10 +700,10 @@ pub(crate) static END_TAGS: &[(&[&str], Scope, EndAction)] = &[
 ];
 
 /// "Any other end tag", in the default scope (XML).
-pub(crate) const DEFAULT_END: (Scope, EndAction) = (Scope::Default, EndAction::AnyOther);
+pub(super) const DEFAULT_END: (Scope, EndAction) = (Scope::Default, EndAction::AnyOther);
 
 /// The rule of the end tag `name` (lower-case).
-pub(crate) fn end_rule(name: &str) -> (Scope, EndAction) {
+pub(super) fn end_rule(name: &str) -> (Scope, EndAction) {
     END_TAGS
         .iter()
         .find(|(names, _, _)| names.contains(&name))
@@ -714,7 +716,7 @@ pub(crate) fn end_rule(name: &str) -> (Scope, EndAction) {
 
 /// "Clear the stack back to a ... context": pop until the current node is one of these.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Context {
+pub(super) enum Context {
     /// "a table context": `table`, `template`, `html`.
     Table,
     /// "a table body context": `tbody`, `tfoot`, `thead`, `template`, `html`.
@@ -725,7 +727,7 @@ pub(crate) enum Context {
 
 impl Context {
     /// Whether an open `name` ends the clearing.
-    pub(crate) fn holds(self, name: &str) -> bool {
+    pub(super) fn holds(self, name: &str) -> bool {
         matches!(name, "template" | "html")
             || match self {
                 Self::Table => name == "table",
@@ -737,7 +739,7 @@ impl Context {
 
 /// What a start tag does in a table mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TableStart {
+pub(super) enum TableStart {
     /// Clear the stack back to the context, insert (a marker too: `caption`, `td`, `th`).
     Insert(Context, bool),
     /// Clear the stack back to the context, insert the implied element (`<col>` its
@@ -762,7 +764,7 @@ pub(crate) enum TableStart {
 /// names: in table body and in row the rows of "in table" next; then "in table": foster
 /// parenting and the body's rules; "in cell" / "in caption": the body's rules; "in column
 /// group": the colgroup ends and the token is reprocessed.
-pub(crate) static TABLE_START_TAGS: &[(Mode, &[&str], TableStart)] = &[
+pub(super) static TABLE_START_TAGS: &[(Mode, &[&str], TableStart)] = &[
     // 13.2.6.4.9 "in table"
     (
         Mode::Table,
@@ -848,7 +850,7 @@ pub(crate) static TABLE_START_TAGS: &[(Mode, &[&str], TableStart)] = &[
 
 /// What an end tag does in a table mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TableEnd {
+pub(super) enum TableEnd {
     /// The element of the token's name: if it is open in table scope, pop until it has
     /// been popped; else ignore the token.
     Close,
@@ -864,7 +866,7 @@ pub(crate) enum TableEnd {
 
 /// The table modes' end tags: `(mode, names, action)`; a tag no row of its mode names goes
 /// on as a start tag does ([`TABLE_START_TAGS`]).
-pub(crate) static TABLE_END_TAGS: &[(Mode, &[&str], TableEnd)] = &[
+pub(super) static TABLE_END_TAGS: &[(Mode, &[&str], TableEnd)] = &[
     // 13.2.6.4.9 "in table"
     (Mode::Table, &["table"], TableEnd::Close),
     (
@@ -938,7 +940,7 @@ pub(crate) static TABLE_END_TAGS: &[(Mode, &[&str], TableEnd)] = &[
 ];
 
 /// The row of `name` (lower-case) in `mode`'s start tags.
-pub(crate) fn table_start(mode: Mode, name: &str) -> Option<TableStart> {
+pub(super) fn table_start(mode: Mode, name: &str) -> Option<TableStart> {
     TABLE_START_TAGS
         .iter()
         .find(|(m, names, _)| *m == mode && names.contains(&name))
@@ -946,7 +948,7 @@ pub(crate) fn table_start(mode: Mode, name: &str) -> Option<TableStart> {
 }
 
 /// The row of `name` (lower-case) in `mode`'s end tags.
-pub(crate) fn table_end(mode: Mode, name: &str) -> Option<TableEnd> {
+pub(super) fn table_end(mode: Mode, name: &str) -> Option<TableEnd> {
     TABLE_END_TAGS
         .iter()
         .find(|(m, names, _)| *m == mode && names.contains(&name))
@@ -959,7 +961,7 @@ pub(crate) fn table_end(mode: Mode, name: &str) -> Option<TableEnd> {
 
 /// "The public identifier starts with" one of these (ASCII case-insensitively): quirks
 /// mode.
-pub(crate) static QUIRKS_PUBLIC_ID_PREFIXES: &[&str] = &[
+pub(super) static QUIRKS_PUBLIC_ID_PREFIXES: &[&str] = &[
     "+//silmaril//dtd html pro v0r11 19970101//",
     "-//as//dtd html 3.0 aswedit + extensions//",
     "-//advasoft ltd//dtd html 3.0 aswedit + extensions//",
@@ -1018,19 +1020,19 @@ pub(crate) static QUIRKS_PUBLIC_ID_PREFIXES: &[&str] = &[
 ];
 
 /// "The public identifier is set to" one of these (case-insensitively): quirks mode.
-pub(crate) static QUIRKS_PUBLIC_IDS: &[&str] = &[
+pub(super) static QUIRKS_PUBLIC_IDS: &[&str] = &[
     "-//w3o//dtd w3 html strict 3.0//en//",
     "-/w3c/dtd html 4.0 transitional/en",
     "html",
 ];
 
 /// "The system identifier is set to" this: quirks mode.
-pub(crate) static QUIRKS_SYSTEM_IDS: &[&str] =
+pub(super) static QUIRKS_SYSTEM_IDS: &[&str] =
     &["http://www.ibm.com/data/dtd/v11/ibmxhtml1-transitional.dtd"];
 
 /// "The system identifier is missing and the public identifier starts with" one of these:
 /// quirks mode (with a system identifier: limited quirks, which changes no tree).
-pub(crate) static QUIRKS_PUBLIC_ID_PREFIXES_WITHOUT_SYSTEM_ID: &[&str] = &[
+pub(super) static QUIRKS_PUBLIC_ID_PREFIXES_WITHOUT_SYSTEM_ID: &[&str] = &[
     "-//w3c//dtd html 4.01 frameset//",
     "-//w3c//dtd html 4.01 transitional//",
 ];
@@ -1042,7 +1044,7 @@ fn starts_with_ignoring_case(s: &str, prefix: &str) -> bool {
 
 /// Whether a document with this doctype is in quirks mode (13.2.6.4.1, "A DOCTYPE token").
 /// `name` is lower-case.
-pub(crate) fn doctype_is_quirky(
+pub(super) fn doctype_is_quirky(
     name: &str,
     public_id: Option<&str>,
     system_id: Option<&str>,

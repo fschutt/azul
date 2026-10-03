@@ -17,8 +17,9 @@ use alloc::{
 
 use super::{clean_text, is_html_space, CharRefMode};
 
-/// How the tokenizer reads what follows a start tag: the TREE CONSTRUCTION decides it
-/// (13.2.6.2, the generic raw text and RCDATA element parsing algorithms - an SVG
+/// How the tokenizer reads what follows a start tag.
+///
+/// The TREE CONSTRUCTION decides it (13.2.6.2, the generic raw text and RCDATA element parsing algorithms - an SVG
 /// `<style>` is markup, an HTML one is not) and hands it to
 /// [`HtmlTokenizer::set_text_mode`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,10 +67,10 @@ pub enum HtmlToken<'a> {
     /// dropped.
     Text(Cow<'a, str>),
     /// `<!-- .. -->`: the text between the markers; also a bogus comment (`<!x>`,
-    /// `<?x>`, `</ x>`, Word's `<![if ...]>`, a CDATA section outside SVG / MathML): its
+    /// `<?x>`, `</ x>`, Word's `<![if ...]>`, a CDATA section outside SVG / `MathML`): its
     /// text up to the `>`.
     Comment(&'a str),
-    /// `<![CDATA[ .. ]]>` in SVG / MathML ([`HtmlTokenizer::set_cdata_allowed`]): its
+    /// `<![CDATA[ .. ]]>` in SVG / `MathML` ([`HtmlTokenizer::set_cdata_allowed`]): its
     /// text.
     Cdata(&'a str),
     /// `<!DOCTYPE ...>`.
@@ -232,10 +233,10 @@ fn doctype_identifier(s: &str) -> Result<(String, &str), String> {
         return Err(String::new());
     };
     let body = &s[1..];
-    match body.find(char::from(quote)) {
-        Some(end) => Ok((body[..end].to_string(), &body[end + 1..])),
-        None => Err(body.to_string()),
-    }
+    body.find(char::from(quote)).map_or_else(
+        || Err(body.to_string()),
+        |end| Ok((body[..end].to_string(), &body[end + 1..])),
+    )
 }
 
 /// `text` (between `<!DOCTYPE` and `>`) as a [`Doctype`]; `eof`: the input ended in it.
@@ -305,7 +306,7 @@ fn parse_doctype(text: &str, eof: bool) -> Doctype {
 /// The tree construction drives it, as in the standard: after a start tag it sets the
 /// [`TextMode`] the element's content is read in ([`Self::set_text_mode`]; on its own the
 /// tokenizer reads every element's content as markup), and allows CDATA sections inside
-/// SVG / MathML ([`Self::set_cdata_allowed`]). A tag cut off by the end of the input is
+/// SVG / `MathML` ([`Self::set_cdata_allowed`]). A tag cut off by the end of the input is
 /// dropped, as a browser drops it.
 #[derive(Debug, Clone)]
 pub struct HtmlTokenizer<'a> {
@@ -334,7 +335,7 @@ impl<'a> HtmlTokenizer<'a> {
 
     /// How the content after the start tag just read is tokenized (the tree construction
     /// says: [`super::TreeBuilder::text_mode_for`]).
-    pub fn set_text_mode(&mut self, mode: TextMode) {
+    pub const fn set_text_mode(&mut self, mode: TextMode) {
         self.state = match mode {
             TextMode::Data => State::Data,
             TextMode::RcData(name) => State::RcData(name),
@@ -344,8 +345,8 @@ impl<'a> HtmlTokenizer<'a> {
     }
 
     /// Whether `<![CDATA[` starts a CDATA section (the adjusted current node is an SVG /
-    /// MathML element: [`super::TreeBuilder::in_foreign_content`]) or a bogus comment.
-    pub fn set_cdata_allowed(&mut self, allowed: bool) {
+    /// `MathML` element: [`super::TreeBuilder::in_foreign_content`]) or a bogus comment.
+    pub const fn set_cdata_allowed(&mut self, allowed: bool) {
         self.cdata_allowed = allowed;
     }
 
@@ -730,7 +731,7 @@ impl<'a> HtmlTokenizer<'a> {
     /// 13.2.5.42: after `<!`.
     fn markup_declaration_open(&mut self) -> Next<'a> {
         let src = self.src;
-        let rest = src[self.pos..].as_bytes();
+        let rest = &src.as_bytes()[self.pos..];
         if rest.starts_with(b"--") {
             self.pos += 2;
             self.state = State::Comment;
@@ -786,7 +787,7 @@ impl<'a> HtmlTokenizer<'a> {
         Next::Token(HtmlToken::Doctype(parse_doctype(text, end.is_none())))
     }
 
-    /// 13.2.5.69: after `<![CDATA[` in SVG / MathML, up to `]]>`.
+    /// 13.2.5.69: after `<![CDATA[` in SVG / `MathML`, up to `]]>`.
     fn cdata_section(&mut self) -> Next<'a> {
         let src = self.src;
         let body = &src[self.pos..];
