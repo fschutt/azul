@@ -214,6 +214,7 @@ pub(crate) fn lower_css_property(p: &crate::props::property::CssProperty) -> Exp
         P::ListStyleType(v) => prop_value(v, "ListStyleType", "StyleListStyleTypeValue", "StyleListStyleType", Some("list_style_type")),
         P::ListStylePosition(v) => prop_value(v, "ListStylePosition", "StyleListStylePositionValue", "StyleListStylePosition", Some("list_style_position")),
         P::StringSet(v) => prop_value(v, "StringSet", "StringSetValue", "StringSet", Some("string_set")),
+        P::Zoom(v) => prop_value(v, "Zoom", "StyleZoomValue", "StyleZoom", None),
     }
 }
 
@@ -2791,6 +2792,8 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("StyleWordSpacing", "css"),
     ("StyleWordSpacingParseErrorOwned", "css"),
     ("StyleWordSpacingValue", "css"),
+    ("StyleZoom", "css"),
+    ("StyleZoomValue", "css"),
     ("StyledDom", "dom"),
     ("StyledNode", "dom"),
     ("StyledNodeState", "dom"),
@@ -3257,6 +3260,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("ZombieAnimCallback", "dom"),
     ("ZombieAnimInfo", "image"),
     ("ZombieFrame", "widgets"),
+    ("ZoomParseErrorOwned", "css"),
 ];
 
 /// Every C-like (unit-only) enum the lowering can produce, sorted.
@@ -3549,6 +3553,7 @@ pub(crate) static CSS_PROPERTY_ALIASES: &[(&str, &str, &str)] = &[
     ("ListStyleType", "StyleListStyleTypeValue", "list_style_type"),
     ("ListStylePosition", "StyleListStylePositionValue", "list_style_position"),
     ("StringSet", "StringSetValue", "string_set"),
+    ("Zoom", "StyleZoomValue", ""),
 ];
 
 /// The `CssPropertyValue` alias of a `CssProperty` variant (`Width` ->
@@ -3763,6 +3768,7 @@ pub(crate) static CSS_PROPERTY_VARIANTS: &[&str] = &[
     "ListStyleType",
     "ListStylePosition",
     "StringSet",
+    "Zoom",
 ];
 
 /// The C tag of a variant of a tagged union the printers build by hand:
@@ -6796,6 +6802,17 @@ impl Lower for crate::props::style::effects::StyleOpacity {
     fn lower(&self) -> Expr {
         Expr::strukt(
             "StyleOpacity",
+            vec![
+                ("inner", self.inner.lower()),
+            ],
+        )
+    }
+}
+
+impl Lower for crate::props::style::effects::StyleZoom {
+    fn lower(&self) -> Expr {
+        Expr::strukt(
+            "StyleZoom",
             vec![
                 ("inner", self.inner.lower()),
             ],

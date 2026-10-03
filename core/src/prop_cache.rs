@@ -107,7 +107,8 @@ use azul_css::{
             StyleTextOrientationValue, StyleTextOverflowValue, StyleTextTransformValue,
             StyleTransformOriginValue, StyleTransformVecValue, StyleUnicodeBidiValue,
             StyleUserSelectValue, StyleVerticalAlignValue, StyleVisibilityValue,
-            StyleWhiteSpaceValue, StyleWordBreakValue, StyleWordSpacingValue, WidowsValue,
+            StyleWhiteSpaceValue, StyleWordBreakValue, StyleWordSpacingValue, StyleZoomValue,
+            WidowsValue,
         },
         style::{StyleCursor, StyleTextColor, StyleTransformOrigin},
     },
@@ -4113,6 +4114,7 @@ impl CssPropertyCache {
         as_border_bottom_right_radius
     );
     impl_get_prop!(get_opacity, StyleOpacityValue, Opacity, as_opacity);
+    impl_get_prop!(get_zoom, StyleZoomValue, Zoom, as_zoom);
     impl_get_prop!(
         get_transform,
         StyleTransformVecValue,

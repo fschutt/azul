@@ -110,7 +110,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 32] = [
     (CombinedCssPropertyType::BorderWidth, "stroke-width"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 197] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 198] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -364,6 +364,7 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 197] = [
     (CssPropertyType::ListStyleType, "list-style-type"),
     (CssPropertyType::ListStylePosition, "list-style-position"),
     (CssPropertyType::StringSet, "string-set"),
+    (CssPropertyType::Zoom, "zoom"),
     // CSS 2.1 table properties (value parsers already exist; these key-map
     // entries make them reachable from stylesheet text via parser2).
     (CssPropertyType::TableLayout, "table-layout"),
@@ -551,6 +552,7 @@ pub type CounterIncrementValue = CssPropertyValue<CounterIncrement>;
 pub type StyleListStyleTypeValue = CssPropertyValue<StyleListStyleType>;
 pub type StyleListStylePositionValue = CssPropertyValue<StyleListStylePosition>;
 pub type StringSetValue = CssPropertyValue<StringSet>;
+pub type StyleZoomValue = CssPropertyValue<StyleZoom>;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CssKeyMap {
@@ -870,6 +872,7 @@ pub enum CssProperty {
     ListStyleType(StyleListStyleTypeValue),
     ListStylePosition(StyleListStylePositionValue),
     StringSet(StringSetValue),
+    Zoom(StyleZoomValue),
 }
 
 impl_option!(
@@ -1134,6 +1137,7 @@ pub enum CssPropertyType {
     ListStyleType,
     ListStylePosition,
     StringSet,
+    Zoom,
 }
 
 impl CssPropertyType {
@@ -1334,6 +1338,7 @@ impl CssPropertyType {
         Self::ListStyleType,
         Self::ListStylePosition,
         Self::StringSet,
+        Self::Zoom,
     ];
 
     /// Returns an iterator over all CSS property types.
@@ -1577,6 +1582,7 @@ impl CssPropertyType {
             Self::ListStyleType => "list-style-type",
             Self::ListStylePosition => "list-style-position",
             Self::StringSet => "string-set",
+            Self::Zoom => "zoom",
         }
     }
 
@@ -2102,6 +2108,7 @@ pub enum CssParsingError<'a> {
     ListStyleType(StyleListStyleTypeParseError<'a>),
     ListStylePosition(StyleListStylePositionParseError<'a>),
     StringSet,
+    Zoom(ZoomParseError<'a>),
 }
 
 /// Owned version of `CssParsingError`.
@@ -2281,6 +2288,7 @@ pub enum CssParsingErrorOwned {
     ListStyleType(StyleListStyleTypeParseErrorOwned),
     ListStylePosition(StyleListStylePositionParseErrorOwned),
     StringSet,
+    Zoom(ZoomParseErrorOwned),
 }
 
 // -- PARSING ERROR IMPLEMENTATIONS --
@@ -2427,6 +2435,7 @@ impl_display! { CssParsingError<'a>, {
     ListStyleType(e) => format!("Invalid list-style-type: {}", e),
     ListStylePosition(e) => format!("Invalid list-style-position: {}", e),
     StringSet => "Failed to parse string-set property",
+    Zoom(e) => format!("Invalid zoom: {}", e),
 }}
 
 // From impls for CssParsingError
@@ -3065,6 +3074,7 @@ impl CssParsingError<'_> {
                 CssParsingErrorOwned::ListStylePosition(e.to_contained())
             }
             CssParsingError::StringSet => CssParsingErrorOwned::StringSet,
+            CssParsingError::Zoom(e) => CssParsingErrorOwned::Zoom(e.to_contained()),
             CssParsingError::FontWeight(e) => CssParsingErrorOwned::FontWeight(e.to_contained()),
             CssParsingError::FontStyle(e) => CssParsingErrorOwned::FontStyle(e.to_contained()),
         }
@@ -3232,6 +3242,7 @@ impl CssParsingErrorOwned {
             Self::ListStyleType(e) => CssParsingError::ListStyleType(e.to_shared()),
             Self::ListStylePosition(e) => CssParsingError::ListStylePosition(e.to_shared()),
             Self::StringSet => CssParsingError::StringSet,
+            Self::Zoom(e) => CssParsingError::Zoom(e.to_shared()),
             Self::FontWeight(e) => CssParsingError::FontWeight(e.to_shared()),
             Self::FontStyle(e) => CssParsingError::FontStyle(e.to_shared()),
             Self::VerticalAlign(e) => CssParsingError::VerticalAlign(e.to_shared()),
@@ -3730,6 +3741,11 @@ pub fn parse_css_property(
             CssPropertyType::StringSet => CssProperty::StringSet(
                 parse_string_set(value)
                     .map_err(|()| CssParsingError::StringSet)?
+                    .into(),
+            ),
+            CssPropertyType::Zoom => CssProperty::Zoom(
+                parse_style_zoom(value)
+                    .map_err(CssParsingError::Zoom)?
                     .into(),
             ),
             CssPropertyType::TableLayout => CssProperty::TableLayout(
@@ -4835,6 +4851,7 @@ impl_from_css_prop!(CounterIncrement, CssProperty::CounterIncrement);
 impl_from_css_prop!(StyleListStyleType, CssProperty::ListStyleType);
 impl_from_css_prop!(StyleListStylePosition, CssProperty::ListStylePosition);
 impl_from_css_prop!(StringSet, CssProperty::StringSet);
+impl_from_css_prop!(StyleZoom, CssProperty::Zoom);
 impl_from_css_prop!(LayoutTableLayout, CssProperty::TableLayout);
 impl_from_css_prop!(StyleBorderCollapse, CssProperty::BorderCollapse);
 impl_from_css_prop!(LayoutBorderSpacing, CssProperty::BorderSpacing);
@@ -5040,6 +5057,7 @@ impl CssProperty {
             Self::ListStyleType(v) => v.get_css_value_fmt(),
             Self::ListStylePosition(v) => v.get_css_value_fmt(),
             Self::StringSet(v) => v.get_css_value_fmt(),
+            Self::Zoom(v) => v.get_css_value_fmt(),
             Self::TableLayout(v) => v.get_css_value_fmt(),
             Self::BorderCollapse(v) => v.get_css_value_fmt(),
             Self::BorderSpacing(v) => v.get_css_value_fmt(),
@@ -5289,6 +5307,11 @@ impl CssProperty {
                 let start = start.get_property().copied().unwrap_or_default();
                 let end = end.get_property().copied().unwrap_or_default();
                 Self::Opacity(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            }
+            (Self::Zoom(start), Self::Zoom(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                Self::Zoom(CssPropertyValue::Exact(start.interpolate(&end, t)))
             }
             (Self::TransformOrigin(start), Self::TransformOrigin(end)) => {
                 let start = start.get_property().copied().unwrap_or_default();
@@ -5571,6 +5594,7 @@ impl CssProperty {
             Self::ListStyleType(_) => CssPropertyType::ListStyleType,
             Self::ListStylePosition(_) => CssPropertyType::ListStylePosition,
             Self::StringSet(_) => CssPropertyType::StringSet,
+            Self::Zoom(_) => CssPropertyType::Zoom,
             Self::TableLayout(_) => CssPropertyType::TableLayout,
             Self::BorderCollapse(_) => CssPropertyType::BorderCollapse,
             Self::BorderSpacing(_) => CssPropertyType::BorderSpacing,
@@ -6067,6 +6091,10 @@ impl CssProperty {
     #[must_use]
     pub const fn string_set(input: StringSet) -> Self {
         Self::StringSet(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn zoom(input: StyleZoom) -> Self {
+        Self::Zoom(CssPropertyValue::Exact(input))
     }
     #[must_use]
     pub const fn table_layout(input: LayoutTableLayout) -> Self {
@@ -7340,6 +7368,13 @@ impl CssProperty {
         }
     }
     #[must_use]
+    pub const fn as_zoom(&self) -> Option<&StyleZoomValue> {
+        match self {
+            Self::Zoom(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
     pub const fn as_table_layout(&self) -> Option<&LayoutTableLayoutValue> {
         match self {
             Self::TableLayout(f) => Some(f),
@@ -7472,6 +7507,7 @@ impl CssProperty {
             TextJustify, TextOrientation, TextOverflow, TextShadow, TextTransform, Top, Transform,
             TransformOrigin, UnicodeBidi, UserSelect, VerticalAlign, Visibility, WhiteSpace,
             Widows, Width, WordBreak, WordSpacing, WritingMode, ZIndex,
+            Zoom,
         };
         match self {
             CaretColor(c) => c.is_initial(),
@@ -7657,6 +7693,7 @@ impl CssProperty {
             ListStyleType(c) => c.is_initial(),
             ListStylePosition(c) => c.is_initial(),
             StringSet(c) => c.is_initial(),
+            Zoom(c) => c.is_initial(),
             TableLayout(c) => c.is_initial(),
             BorderCollapse(c) => c.is_initial(),
             BorderSpacing(c) => c.is_initial(),
@@ -8084,6 +8121,10 @@ impl CssProperty {
     #[must_use]
     pub const fn const_string_set(input: StringSet) -> Self {
         Self::StringSet(StringSetValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_zoom(input: StyleZoom) -> Self {
+        Self::Zoom(StyleZoomValue::Exact(input))
     }
     #[must_use]
     pub const fn const_table_layout(input: LayoutTableLayout) -> Self {
@@ -8856,6 +8897,10 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::StringSet(p) => format!(
             "CssProperty::StringSet({})",
             print_css_property_value(p, tabs, "StringSet")
+        ),
+        CssProperty::Zoom(p) => format!(
+            "CssProperty::Zoom({})",
+            print_css_property_value(p, tabs, "StyleZoom")
         ),
         CssProperty::TableLayout(p) => format!(
             "CssProperty::TableLayout({})",

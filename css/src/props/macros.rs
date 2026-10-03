@@ -576,6 +576,7 @@ macro_rules! css_property_from_type {
                 CssProperty::ListStylePosition(CssPropertyValue::$content_type)
             }
             CssPropertyType::StringSet => CssProperty::StringSet(CssPropertyValue::$content_type),
+            CssPropertyType::Zoom => CssProperty::Zoom(CssPropertyValue::$content_type),
             CssPropertyType::TableLayout => {
                 CssProperty::TableLayout(CssPropertyValue::$content_type)
             }

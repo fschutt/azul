@@ -469,6 +469,7 @@ impl FormatAsRustCode for StyleLineHeight {
     }
 }
 impl_percentage_value_fmt!(StyleOpacity);
+impl_percentage_value_fmt!(StyleZoom);
 
 macro_rules! impl_pixel_value_fmt {
     ($struct_name:ident) => {
