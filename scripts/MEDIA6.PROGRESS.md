@@ -16,20 +16,24 @@ Branch `wt/media6` from `25d78e309`. Brief: `scripts/waves/wave6/MEDIA6.md`.
 - AzPhoto exports into the data tree: `64a35523b` RED, `88589a482` GREEN.
 - AzPhoto on appkit: `c958a70d5` args, `4fa9ff60f` start/kit/ABOUT/SHORTCUTS, `0234096e4` settings page +
   Dialog sheets + AboutDialog, `6571f82fd` CloseGuard, `f111607bd` __azphoto_ ids + E2E (move, text).
+- AzVideoCut: `59a7eaf68` RED / `3a6a1aa30` GREEN fit_within + fit_to on RawImage::fit_within /
+  thumbnail (needs api.json `RawImage.fit_within` -> PhysicalSizeU32, report); `0c6d624e4`
+  ProgressDialog + AboutDialog; `a5999b54d` args on appkit; `fa2145ef1` start on the kit, settings
+  page, ABOUT/SHORTCUTS, store::data_root gone, E2E --data-dir; `d1687bc41` __azvideocut_ markers.
+- AzPaint: `6449be8a0` RED E2E scripts/azpaint_e2e.py (live raster, undo/redo, exports in tree).
 
 ## IN PROGRESS
 - (between units)
 
 ## NEXT (in order)
-3. AzVideoCut: fit_within -> core image_scale::fit_within exported (RawImage::fit_size? or
-   thumbnail); ProgressDialog for export; AboutDialog; appkit (args/data root/settings);
-   `__azvideocut_` prefixes; E2E data root.
-4. AzPaint: stroke not shown (poke_canvas `NodeId{inner: raw}` off by one); body margin;
-   appkit; `__azpaint_` prefixes; UndoHistory; exports into the data tree; E2E script.
-5. AzPhoto leftovers: P1 private Palette (D16) - not done yet.
+4. AzPaint GREEN: stroke not shown (poke_canvas `NodeId{inner: raw}` vs Photo/VideoCut raw-1 -
+   verify via DomNodeId encoding); body margin/height; appkit (args, data root, settings, kit
+   keys); `__azpaint_` markers as consts (not Uuid::short); UndoHistory for strokes (Mod+Z /
+   Mod+Shift+Z); exports PNG/SVG into paint/exports/ via Drive (AZPAINT_EXPORTED key bytes);
+   AZPAINT_RASTER / AZPAINT_STROKES lines for the E2E.
+5. AzPhoto leftovers: P1 private Palette (D16); P3 History undo/redo row cut off.
 6. Report scripts/MEDIA6_2026_10_03.md (api.json list: TextRasterStyle + RawImage.from_text /
-   draw_text; RawImage.fit_size if added).
-POWER: Mac on battery (coordinator 14:xx) - no long headless runs, commit every unit.
+   draw_text, RawImage.fit_within; appkit features on Photo/VideoCut).
 
 ## Seen broken (LOOK)
 Screenshots: `target/media6/{photo,vc,paint}/*.png` (not committed). LOOK harness:
