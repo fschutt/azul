@@ -8483,7 +8483,15 @@ impl LayoutWindow {
                 // css-id images resolve at display-list build time
                 // (`background-image: url(...)`), so a registration change
                 // must rebuild the DL — the old handler returned `DoNothing`
-                // and the registration took effect "sometime later".
+                // and the registration took effect "sometime later". Rebuilt
+                // HERE, like the clip-mask and node-style arms: the tier
+                // means "rebuilt, send it" (the dll marks the list dirty and
+                // a GPU backend resends a dirty list as it is - X11 sent the
+                // stale one). Any dom may use the id: every one is rebuilt.
+                let doms: Vec<DomId> = self.layout_results.keys().copied().collect();
+                for dom_id in doms {
+                    self.regenerate_display_list_for_dom(dom_id);
+                }
                 ContentChangeResult {
                     tier: ContentDirtyTier::RebuildDisplayList,
                 }
