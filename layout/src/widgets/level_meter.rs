@@ -198,12 +198,15 @@ impl LevelMeter {
     /// three segments resize and the accessibility value follows, without a rebuild. False when
     /// `node` is not a meter's root.
     pub fn update_level(info: &mut CallbackInfo, node: DomNodeId, level: f32) -> bool {
-        let vertical = match info.get_dataset(node) {
-            Some(mut data) => match data.downcast_ref::<LevelMeterData>() {
-                Some(d) => d.vertical,
-                None => return false,
-            },
-            None => return false,
+        let Some(mut data) = info.get_dataset(node) else {
+            return false;
+        };
+        let vertical = {
+            let Some(d) = data.downcast_ref::<LevelMeterData>() else {
+                return false;
+            };
+            let vertical = d.vertical;
+            vertical
         };
         let Some(track) = info.get_first_child(node) else {
             return false;

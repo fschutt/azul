@@ -8081,3 +8081,47 @@ pub(crate) fn level_meter_look() -> crate::widgets::level_meter::LevelMeterLook 
 pub fn level_meter(m: crate::widgets::level_meter::LevelMeter) -> Dom {
     crate::widgets::level_meter::build(m, &level_meter_look())
 }
+
+// ==== seek_bar ====
+//
+// The flora seek bar: the times in the UI face at 12 px in flora's soft ink,
+// flora's track with its 4 px corners, the loaded part in the border stone,
+// the played part in the accent stone (its glow at night), chapter ticks cut
+// in the surface, a round thumb in the accent; the trough wears flora's focus
+// halo.
+
+/// Flora's seek-bar look.
+#[must_use]
+pub(crate) fn seek_bar_look() -> crate::widgets::seek_bar::SeekBarLook {
+    use super::decl;
+    let mut time = vec![
+        decl::font_size(12),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    time.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    let mut track = decl::themed_fill(LIGHT_TRACK, DARK_TRACK).to_vec();
+    track.extend(decl::radius(4));
+    track.extend(decl::margin(0, 8, 0, 8));
+    track.extend(decl::focus_halo(LIGHT_GLOW, DARK_GLOW));
+    let mut buffered = decl::themed_fill(LIGHT_BD, DARK_BD).to_vec();
+    buffered.extend(decl::radius(4));
+    let mut played = decl::themed_fill(LIGHT_ACC, DARK_GLOW).to_vec();
+    played.extend(decl::radius(4));
+    let mut thumb = decl::themed_fill(LIGHT_ACC, DARK_GLOW).to_vec();
+    thumb.extend(decl::radius(6));
+    crate::widgets::seek_bar::SeekBarLook {
+        time,
+        track,
+        buffered,
+        played,
+        tick: decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec(),
+        thumb,
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
+}
+
+/// The flora seek bar.
+#[must_use]
+pub fn seek_bar(b: crate::widgets::seek_bar::SeekBar) -> Dom {
+    crate::widgets::seek_bar::build(b, &seek_bar_look())
+}

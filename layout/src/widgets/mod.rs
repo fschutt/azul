@@ -1869,6 +1869,16 @@ mod label_convention {
         // The chart: three series of bars over four categories, a legend and
         // the table view.
         all.push(("chart", super::chart::fixtures::sample().dom()));
+        // The seek bar: a minute into a nine-minute track, loaded to five,
+        // three chapters.
+        all.push((
+            "seek_bar",
+            super::seek_bar::SeekBar::create(72.0, 562.0)
+                .with_buffered(300.0)
+                .with_chapters(azul_css::F32Vec::from_vec(alloc::vec![0.0, 120.0, 400.0]))
+                .with_accessibility_name("Playback position")
+                .dom(),
+        ));
         // The level meter: well into the amber, named.
         all.push((
             "level_meter",
@@ -2770,6 +2780,8 @@ mod theme_contrast {
         "date_repeat_picker",
         // A meter: a value shown like the progress bar.
         "level_meter",
+        // A seek bar: a slider over time.
+        "seek_bar",
     ];
     /// Navigation and application chrome.
     const CHROME: &[&str] = &[
