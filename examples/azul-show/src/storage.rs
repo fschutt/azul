@@ -23,6 +23,17 @@ pub fn deck_key(id: &str) -> String {
     format!("{APP_FOLDER}/{id}/deck.json")
 }
 
+/// The deck id of a `show/<id>/deck.json` key; `None` for any other key (a
+/// picture under `media/`, a stray file).
+#[must_use]
+pub fn deck_id_of(key: &str) -> Option<&str> {
+    let id = key
+        .strip_prefix(APP_FOLDER)?
+        .strip_prefix('/')?
+        .strip_suffix("/deck.json")?;
+    (!id.is_empty() && !id.contains('/')).then_some(id)
+}
+
 /// `show/<id>/<media>`, `media` being an element's `media/<name>` key.
 #[must_use]
 pub fn media_key(id: &str, media: &str) -> String {
@@ -124,30 +135,27 @@ pub fn run_job(drive: &dyn Drive, job: Job) -> Outcome {
             Ok((Box::new(deck), media))
         })()),
         Job::List => Outcome::Listed((|| -> Result<Vec<DeckSummary>, String> {
-            let page = drive
-                .list(&ListRequest::folder(&format!("{APP_FOLDER}/")))
-                .map_err(why)?;
+            // Every page of the listing (a bucket answers a thousand keys a
+            // page); a deck is a `show/<id>/deck.json`, its date comes with
+            // the listing (no extra round trip per deck).
+            let prefix = format!("{APP_FOLDER}/");
+            let objects = azul_storage::ops::list_all(drive, &prefix).map_err(why)?;
             let mut decks = Vec::new();
-            for folder in page.folders {
-                let id = folder
-                    .trim_end_matches('/')
-                    .rsplit('/')
-                    .next()
-                    .unwrap_or_default()
-                    .to_string();
-                let key = deck_key(&id);
-                let Ok(bytes) = drive.get(&key) else {
+            for object in objects {
+                let Some(id) = deck_id_of(&object.key) else {
+                    continue;
+                };
+                let Ok(bytes) = drive.get(&object.key) else {
                     continue;
                 };
                 let Ok(deck) = Deck::from_json(&String::from_utf8_lossy(&bytes)) else {
                     continue;
                 };
-                let modified = drive.head(&key).ok().and_then(|o| o.modified);
                 decks.push(DeckSummary {
-                    id,
+                    id: id.to_string(),
                     title: deck.title.clone(),
                     slides: deck.slides.len(),
-                    modified,
+                    modified: object.modified,
                 });
             }
             decks.sort_by(|a, b| b.modified.cmp(&a.modified).then_with(|| a.title.cmp(&b.title)));
