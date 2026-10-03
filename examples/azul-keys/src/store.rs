@@ -68,8 +68,19 @@ impl VaultFile {
 /// (one sentence each).
 #[must_use]
 pub fn read_listing(files: Vec<(String, Vec<u8>)>) -> (Vec<VaultFile>, Vec<String>) {
-    let _ = files;
-    todo!("GREEN")
+    let mut vaults = Vec::new();
+    let mut problems = Vec::new();
+    for (key, bytes) in files {
+        if !key.ends_with(SUFFIX) {
+            continue;
+        }
+        match Envelope::parse(&bytes) {
+            Ok(envelope) => vaults.push(VaultFile { key, envelope }),
+            Err(e) => problems.push(format!("{key}: {e}")),
+        }
+    }
+    vaults.sort_by_cached_key(|v| (azul_pim::search::fold(v.name()), v.key.clone()));
+    (vaults, problems)
 }
 
 /// Something to do with the vault files. Holds secrets: never printed.
@@ -173,10 +184,172 @@ impl Failure {
     }
 }
 
+impl Failure {
+    /// The same failure, of another piece of work.
+    fn with_what(mut self, what: &'static str) -> Failure {
+        self.what = what;
+        self
+    }
+}
+
+/// The vault file at `key`, parsed (not opened).
+fn read_envelope(drive: &dyn Drive, key: &str) -> Result<Envelope, Failure> {
+    let bytes = drive.get(key).map_err(|e| match e {
+        DriveError::NotFound { .. } => Failure {
+            what: "read",
+            wrong_password: false,
+            wrong_key: false,
+            message: "the vault file is gone (moved or deleted)".to_string(),
+        },
+        other => Failure::io("read", &other),
+    })?;
+    Envelope::parse(&bytes).map_err(|e| Failure::of("read", &e))
+}
+
+/// The vault of a file whose vault key is known; its id and name are the file's.
+fn open(key: String, envelope: Envelope, vault_key: SecretKey) -> Done {
+    let json = match envelope.open_data(&vault_key) {
+        Ok(json) => json,
+        Err(e) => return Done::Failed(Failure::of("unlock", &e)),
+    };
+    match Vault::from_json(&json) {
+        Ok(mut vault) => {
+            vault.id = envelope.id.clone();
+            vault.name = envelope.name.clone();
+            Done::Unlocked(Opened {
+                key,
+                envelope,
+                vault_key,
+                vault,
+            })
+        }
+        Err(message) => Done::Failed(Failure {
+            what: "unlock",
+            wrong_password: false,
+            wrong_key: false,
+            message,
+        }),
+    }
+}
+
 /// Does `work` on `drive`.
 pub fn run(drive: &dyn Drive, work: Work) -> Done {
-    let _ = (drive, work);
-    todo!("GREEN")
+    match work {
+        Work::List => {
+            let keys = match azul_appkit::files::list_all(drive, VAULTS) {
+                Ok(keys) => keys,
+                // No folder yet: no vault yet.
+                Err(DriveError::NotFound { .. }) => Vec::new(),
+                Err(e) => return Done::Failed(Failure::io("list", &e)),
+            };
+            let mut files = Vec::new();
+            let mut problems = Vec::new();
+            for key in keys.into_iter().filter(|k| k.ends_with(SUFFIX)) {
+                match drive.get(&key) {
+                    Ok(bytes) => files.push((key, bytes)),
+                    Err(DriveError::NotFound { .. }) => {}
+                    Err(e) => problems.push(format!("{key}: {e}")),
+                }
+            }
+            let (vaults, mut unreadable) = read_listing(files);
+            problems.append(&mut unreadable);
+            Done::Listed { vaults, problems }
+        }
+        Work::Create {
+            vault,
+            password,
+            kdf,
+        } => {
+            let created = (|| {
+                let kdf = match kdf {
+                    Some(kdf) => kdf,
+                    None => KdfParams::fresh()?,
+                };
+                let json = vault.to_json();
+                Envelope::create(&vault.id, &vault.name, &password, kdf, &json)
+            })();
+            let (envelope, vault_key) = match created {
+                Ok(pair) => pair,
+                Err(e) => return Done::Failed(Failure::of("create", &e)),
+            };
+            let key = file_key(&vault.id);
+            if let Err(e) = drive.put(&key, &envelope.to_bytes()) {
+                return Done::Failed(Failure::io("create", &e));
+            }
+            Done::Created(Opened {
+                key,
+                envelope,
+                vault_key,
+                vault,
+            })
+        }
+        Work::Unlock { key, password } => {
+            let envelope = match read_envelope(drive, &key) {
+                Ok(envelope) => envelope,
+                Err(f) => return Done::Failed(f.with_what("unlock")),
+            };
+            match envelope.unwrap_key(&password) {
+                Ok(vault_key) => open(key, envelope, vault_key),
+                Err(e) => Done::Failed(Failure::of("unlock", &e)),
+            }
+        }
+        Work::UnlockWithKey { key, vault_key } => match read_envelope(drive, &key) {
+            Ok(envelope) => open(key, envelope, vault_key),
+            Err(f) => Done::Failed(f.with_what("unlock")),
+        },
+        Work::Save {
+            key,
+            envelope,
+            vault_key,
+            name,
+            json,
+        } => {
+            let next = match envelope.reseal(&vault_key, &name, &json) {
+                Ok(next) => next,
+                Err(e) => return Done::Failed(Failure::of("save", &e)),
+            };
+            // The file as it was, kept once: a save that goes wrong leaves the last good one.
+            let _ = drive.copy(&key, &backup_key(&envelope.id));
+            match drive.put(&key, &next.to_bytes()) {
+                Ok(()) => Done::Saved {
+                    key,
+                    envelope: next,
+                },
+                Err(e) => Done::Failed(Failure::io("save", &e)),
+            }
+        }
+        Work::ChangePassword {
+            key,
+            envelope,
+            vault_key,
+            password,
+            kdf,
+        } => {
+            let next = (|| {
+                let kdf = match kdf {
+                    Some(kdf) => kdf,
+                    None => KdfParams::fresh()?,
+                };
+                envelope.rewrap(&vault_key, &password, kdf)
+            })();
+            let next = match next {
+                Ok(next) => next,
+                Err(e) => return Done::Failed(Failure::of("change the password", &e)),
+            };
+            let _ = drive.copy(&key, &backup_key(&envelope.id));
+            match drive.put(&key, &next.to_bytes()) {
+                Ok(()) => Done::PasswordChanged {
+                    key,
+                    envelope: next,
+                },
+                Err(e) => Done::Failed(Failure::io("change the password", &e)),
+            }
+        }
+        Work::Put { key, bytes } => match drive.put(&key, &bytes) {
+            Ok(()) => Done::Put { key },
+            Err(e) => Done::Failed(Failure::io("write", &e)),
+        },
+    }
 }
 
 #[cfg(test)]
