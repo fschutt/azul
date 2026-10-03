@@ -906,3 +906,5 @@ mod a_background_is_painted_within_its_background_clip;
 mod a_one_box_slide_does_not_re_lay_out_the_page;
 #[path = "a_virtual_view_leaves_its_hosts_font_chains_in_place.rs"]
 mod a_virtual_view_leaves_its_hosts_font_chains_in_place;
+#[path = "system_ui_is_the_system_font_at_its_optical_size.rs"]
+mod system_ui_is_the_system_font_at_its_optical_size;
