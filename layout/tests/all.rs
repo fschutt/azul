@@ -866,3 +866,5 @@ mod focusing_a_search_field_by_its_id_focuses_its_text;
 mod an_inline_blocks_baseline_is_its_last_line_box;
 #[path = "a_percentage_height_inline_block_in_an_auto_height_body_is_as_tall_as_its_content.rs"]
 mod a_percentage_height_inline_block_in_an_auto_height_body_is_as_tall_as_its_content;
+#[path = "a_cells_row_is_as_tall_as_its_content_at_the_column_width.rs"]
+mod a_cells_row_is_as_tall_as_its_content_at_the_column_width;
