@@ -24,7 +24,7 @@ Branch `wt/office7` from `2e55eef06` (the wave-6 integration; every app compiles
   `DriveFolder::of(root_path, data_root)`), 92631d148 UI + azmail-send + `write_atomic` deleted, fdcc5397a
   attachments via `read_outside`, bec3cdff3 CSS-zoom TODO(LAYOUT7), 7ca925758 move_prefix fix.
 
-## IN PROGRESS
+## DONE (6)
 - 6. AzShow:
   - DONE presenter monitor: ea1ab7b60 (RED `PresenterMonitor` resolve/parse), a1a67ea16 (GREEN: SLIDE SHOW >
     Monitors DropDown, settings `presenter_monitor`, `window_state.monitor_id` in start_show).
@@ -33,13 +33,17 @@ Branch `wt/office7` from `2e55eef06` (the wave-6 integration; every app compiles
   - DONE tables in place: a672dfb04 (RED editor test `a_table_is_edited_in_place_cell_by_cell` + text::cell_id),
     dc308942f (GREEN: Editor::activate tables, set_cell, add_table_row; views::editable_cell / on_cell_text /
     on_cell_key / next_cell; render.rs editable td; AppState.focus_text is now a DOM id String).
-  - NEXT (exact): (a) add `#[cfg(test)] mod tests` at the END of examples/azul-show/src/views.rs with
-    `the_next_cell_goes_row_by_row` for `views::next_cell` (pure fn); commit.
-    (b) rail drop indicator in layout/src/widgets/thumbnail_strip.rs (WIDGETS7's file, minimal edit): RED test
-    first; in `on_item_drag_over` mark the hovered item (info.get_hit_node()) with an accent line on the side a
-    drop lands (`drop_target(from, on) > on` -> after) via `info.set_css_property`, clear on DragLeave / Drop
-    (add DragLeave callback in `build`); StripShared.drag_from holds `from`.
-  - THEN: 7. AzSheets; 8. LOOK; report.
+  - DONE 641f93ddf next_cell test; drop line: 74623b6f8 (RED strip test), 3cb72aa9b (GREEN thumbnail_strip.rs:
+    DragOver line via info.override_css_property, DragLeave / DragEnd / Drop clear).
+  - Item 6 DONE.
+
+## NEXT (exact)
+- 7. AzSheets: (a) Format Cells OK = ONE undo step (format_dialog.rs / engine; SHEETSHOW6: one style command
+  per property); (b) Replace inside the grid's own edit; (c) colour / font / border pickers beyond presets;
+  (d) merges shifting with inserted rows: document why not (IronCalc UserModel cannot change merge_cells).
+- 8. LOOK (writer, notes, mail, sheets, show, review) with /tmp/office7_look.py (recreate from the transcript
+  if /tmp was wiped).
+- Report scripts/OFFICE7_2026_10_03.md.
 
 ## NEXT
 - 7. AzSheets: Replace in the grid's edit, pickers, Format Cells = one undo step.
