@@ -25,6 +25,18 @@ ANIMFRAME8 (knob on transform; one tick decision; expected ~0.5-1.5 ms/tick), A1
 bug that hid spans fixed), SYSUI8 (SF at its optical size; after the build run scripts/sysui8_look.py record + compare
 and fix the widget CSS it flags - macOS UI text gets 10-14 % wider at 11-14 px). Merge these three first.
 
+## Final state at the pause (2026-10-03 late evening)
+Every wave-8 follow-up and wave-9 agent FINISHED (report committed on its branch) except MAIL9 (PAUSED: direct delivery
++ client DKIM done; submission route started; remote-content pre-pass not started - resume it from
+scripts/MAIL9.PROGRESS.md on wt/mail9). Monday = integration: merge order ANIMFRAME8, A11YPATCH8, SYSUI8, then
+WIDGETS9A, WIDGETS9B (ComboBox structs change - api.json in the same step), then TERM9 (engine paste change), PDF9,
+CLOCK9 (Notification.deliver_at), READER9 (Pdf::compute_pagination_with_policy), MEDIA9 (audio-decode feature,
+symphonia), CODE9, KEYS9, MONITOR9, NEWS9 (touches azul-mail listing.rs), ERP9, then MAIL9 when done. Each report lists
+its api.json entries; new crates needing cargo-vet exemptions: sysinfo + ntapi (MONITOR9), argon2 + blake2 (KEYS9),
+alacritty_terminal + deps (TERM9), syntect (CODE9), symphonia ~16 crates (MEDIA9), lettre (MAIL9, when added).
+After the build: scripts/sysui8_look.py record + compare (SYSUI8), the probes (animframe8_tick_probe_gen.py,
+pdf_chrome_probe.py), every new app's E2E script, the mail corpus.
+
 ## How to resume
 1. Check: `uptime`, `pmset -g batt`, `df -h /` (>= 20 GB free: `python3 scripts/waves/tools/clean_stale_deps.py`), network.
 2. For each task, see where it is: `git log --oneline -3 wt/<task>` and whether `scripts/<TASK>_*.md` (the report) exists
