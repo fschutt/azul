@@ -154,7 +154,7 @@ fn menu_bar(data: &RefAny) -> Menu {
 
 fn sidebar(s: &AppState, data: &RefAny) -> Dom {
     let mut col = Dom::create_div().with_css(COLUMN);
-    col.add_child(Dom::create_div_with_text("Name").with_css(
+    col.add_child(Dom::create_span_with_text("Name").with_css(
         "font-size: 11px; padding: 7px 10px; color: system:secondary-text; flex-shrink: 0; \
          border-bottom: 1px solid system:separator;",
     ));
@@ -239,7 +239,7 @@ fn finder_row(
             .as_str(),
         ),
     );
-    row.add_child(Dom::create_div_with_text(label));
+    row.add_child(Dom::create_span_with_text(label));
     match index {
         Some(i) => row
             .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: i })))
@@ -280,7 +280,7 @@ fn toolbar(s: &AppState, data: &RefAny) -> Dom {
         );
         swatch.add_child(Dom::create_icon(sem.icon()).with_css("font-size: 15px;"));
         swatch.add_child(
-            Dom::create_div_with_text(format!("{}", i + 1).as_str())
+            Dom::create_span_with_text(format!("{}", i + 1).as_str())
                 .with_css("font-size: 10px; opacity: 0.75;"),
         );
         bar.add_child(
@@ -300,7 +300,7 @@ fn toolbar(s: &AppState, data: &RefAny) -> Dom {
          dashed system:separator;",
     );
     nib.add_child(Dom::create_icon(s.tool.icon()).with_css("font-size: 15px;"));
-    nib.add_child(Dom::create_div_with_text(s.tool.label()));
+    nib.add_child(Dom::create_span_with_text(s.tool.label()));
     bar.add_child(nib);
 
     // The meter, then record, save and the settings at the end of the row.
@@ -341,7 +341,7 @@ fn meter(s: &AppState) -> Dom {
     let mut wrap = Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center; gap: 6px;");
     wrap.add_child(
-        Dom::create_div_with_text(format!("{packets} pkt").as_str())
+        Dom::create_span_with_text(format!("{packets} pkt").as_str())
             .with_css("font-size: 11px; color: system:secondary-text; font-family: monospace;"),
     );
     let mut holder = Dom::create_div().with_css("width: 160px;");
@@ -370,7 +370,7 @@ fn page_rail(s: &AppState, data: &RefAny) -> Dom {
              solid system:separator; flex-shrink: 0;"
         };
         rail.add_child(
-            Dom::create_div_with_text(format!("{}", page + 1).as_str())
+            Dom::create_span_with_text(format!("{}", page + 1).as_str())
                 .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: page })))
                 .with_css(css)
                 .with_callback(
@@ -400,8 +400,8 @@ fn sheet(s: &AppState, data: &RefAny) -> Dom {
     );
     if s.file().is_none() {
         area.add_child(
-            Dom::create_div_with_text("Open a file to begin")
-                .with_css("color: system:secondary-text; padding: 40px;"),
+            Dom::create_p_with_text("Open a file to begin")
+                .with_css("margin: 0px; color: system:secondary-text; padding: 40px;"),
         );
         return area;
     }
@@ -531,7 +531,7 @@ fn code_row(number: usize, line: &str) -> Dom {
     let mut row = Dom::create_div()
         .with_css(format!("display: flex; flex-direction: row; height: {LINE_H}px;").as_str());
     row.add_child(
-        Dom::create_div_with_text(format!("{number}").as_str()).with_css(
+        Dom::create_span_with_text(format!("{number}").as_str()).with_css(
             format!(
                 "width: {}px; flex-shrink: 0; text-align: right; padding-right: 10px; \
                  font-family: monospace; font-size: 11px; color: #b0aaa0;",
@@ -540,7 +540,7 @@ fn code_row(number: usize, line: &str) -> Dom {
             .as_str(),
         ),
     );
-    row.add_child(Dom::create_div_with_text(line).with_css(
+    row.add_child(Dom::create_span_with_text(line).with_css(
         "font-family: monospace; font-size: 11px; color: #1f1f1f; white-space: pre;",
     ));
     row
