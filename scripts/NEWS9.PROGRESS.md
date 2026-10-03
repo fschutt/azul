@@ -38,8 +38,19 @@ On resume: read this file, `git -C <worktree> status`, `git log --oneline -12`, 
   Page, Failed}, FeedLink, Candidate, request, interpret, fetch, normalize_input, find_feeds) +
   reader::feed_links. Type-check clean (harness6 = harness2 with a feed_links stub + fetch).
 
-## NEXT (in this order; RED commit with tests + stubs, then GREEN commit, each)
-7. reader view (next step), in src/reader.rs: `ImagePolicy { Always, OnClick, Never }`,
+- 82c74431d RED / 6db53f1d1 GREEN reader view: reader::{Article, article, reader_css,
+  reading_minutes, images_of, Cleaner, element, text_node} (azul-dependent: NOT type-checked;
+  re-read against target/codegen/dll_api_external.rs when resuming if in doubt).
+
+## NEXT (in this order)
+8. (next step) src/sample.rs: `sample_library(now) -> Library` - deterministic (LCG like
+   azul-contacts sample.rs), ~42 feeds in 6 folders (Tech, Science, Local, Cooking, Culture,
+   Podcasts), example.org / example.net addresses, ~900 items over 60 days, 2 broken feeds
+   (meta.error "HTTP 404" / "the feed could not be read: ..."), 1 feed without pictures, some read
+   / starred / later marks; the articles' HTML has headings, quotes, code, a table, an image
+   placeholder. Tests: counts, determinism, unread / starred counts, every id unique per feed.
+   Then src/jobs.rs + src/ui.rs (see 8 below), E2E (9), report (10).
+(done) 7. reader view, in src/reader.rs: `ImagePolicy { Always, OnClick, Never }`,
    `Article { xml: Xml (html > head > style READER_CSS, body > div.__aznews_article > cleaned
    tree), images: Vec<String> (Xml::scan_external_resources of the cleaned tree, kind Image,
    web only), blocked: usize, words: usize }`, `article(html, base, policy, strip_tracking) ->
