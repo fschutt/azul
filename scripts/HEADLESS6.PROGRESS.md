@@ -30,6 +30,8 @@ Branch `wt/headless6` from base 25d78e309. Brief: scripts/waves/wave6/HEADLESS6.
   taken by the first window -> a forwarded request's window stayed at the 2 s idle poll.
   0adb73655 RED / ea1d8434c GREEN: DebugWakeSeen per window (E2eScratch) + generation counter.
   Live verification (AzCalendar editor via AZ_DEBUG + window_id) still to do when power allows.
+- coordinator (INFRA6 note): runner close protocol. 021331d4c RED / b150ef6ba GREEN
+  (runner.rs close_unconfirmed + confirm_app_close + run_frame extracted; tests mod close_protocol_tests).
 
 ## IN PROGRESS
 - item 3: headless menus. Next: read show_menu_from_callback in headless/mod.rs and how other backends
