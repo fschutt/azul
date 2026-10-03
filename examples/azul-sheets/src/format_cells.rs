@@ -189,6 +189,23 @@ impl FormatDraft {
         }
     }
 
+    /// Any font colour (the Font tab's picker, beyond its presets): a
+    /// `#rrggbb[aa]` in any case becomes `#RRGGBB`; `None` is automatic. Text
+    /// that is no colour changes nothing.
+    pub fn set_font_color(&mut self, hex: Option<&str>) {
+        let _ = hex;
+    }
+
+    /// Any fill (the Fill tab's picker); `None` is no fill.
+    pub fn set_fill(&mut self, hex: Option<&str>) {
+        let _ = hex;
+    }
+
+    /// Any colour for the borders OK draws (the Border tab's picker).
+    pub fn set_border_color(&mut self, hex: &str) {
+        let _ = hex;
+    }
+
     /// What OK applies: one patch per property that changed, the border
     /// preset if one was picked.
     #[must_use]
@@ -291,6 +308,30 @@ mod tests {
             d.step_decimals(true);
         }
         assert_eq!(d.decimals, MAX_DECIMALS);
+    }
+
+    #[test]
+    fn any_colour_is_a_font_colour_a_fill_or_a_border_colour() {
+        let mut d = FormatDraft::open(CellStyle::default());
+        d.set_font_color(Some("#12ab34ff"));
+        assert_eq!(d.style.font_color.as_deref(), Some("#12AB34"), "#RRGGBB, opaque");
+        d.set_fill(Some("00ff00"));
+        assert_eq!(d.style.fill.as_deref(), Some("#00FF00"));
+        d.set_border_color("#336699");
+        d.border = Some(BorderPreset::All);
+        let patches = d.patches();
+        assert!(patches.contains(&StylePatch::FontColor(Some(String::from("#12AB34")))), "{patches:?}");
+        assert!(patches.contains(&StylePatch::Fill(Some(String::from("#00FF00")))));
+        assert!(patches.contains(&StylePatch::Borders {
+            preset: BorderPreset::All,
+            color: String::from("#336699"),
+        }));
+        d.set_font_color(Some("not a colour"));
+        assert_eq!(d.style.font_color.as_deref(), Some("#12AB34"), "no colour, no change");
+        d.set_fill(None);
+        assert_eq!(d.style.fill, None, "no fill");
+        d.set_font_color(None);
+        assert_eq!(d.style.font_color, None, "automatic");
     }
 
     #[test]
