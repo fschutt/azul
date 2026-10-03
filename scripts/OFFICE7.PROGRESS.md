@@ -51,7 +51,9 @@ Branch `wt/office7` from `2e55eef06` (the wave-6 integration; every app compiles
   Engine/widget findings for others: 4809ad3ed RED rail thumbnails misaligned by a badge (WIDGETS7); AzSheets
   dark mode: filled header row white ink (CellGrid auto_ink loses to the dark ink? unverified, report);
   widget a11y warnings (TreeView toggles, RTE host / check islands, Button, dialog window) -> report.
-- NEXT: the report scripts/OFFICE7_2026_10_03.md (write in pieces, commit each).
+- Report DONE: scripts/OFFICE7_2026_10_03.md (1e8f9a817, 61eb1e745, 0ff1b9906, 1bacb6346 + this commit).
+  Late fix b4b6acf78 (AzShow read-only text hosts are `<host id>-view`).
+- NEXT: nothing left in the brief; the parent merges, runs autofix (report sec. 4), builds, tests.
 
 ## Decisions
 - WIDGETS7 heads-up (coordinator): MessageList -> SummaryList is applied by the parent AFTER merging this
