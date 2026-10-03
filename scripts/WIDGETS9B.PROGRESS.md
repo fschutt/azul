@@ -43,8 +43,15 @@ worktree guard - edit files with the Edit tool; `rustfmt --edition 2021 <file>` 
   ComboBoxStateWrapper.open_on_type (bool, last), ComboBox.status (OptionString, before theme); methods
   set_/with_item_details, set_/with_status, set_/with_open_on_type.
 
+- ReferencePicker: 7afa753c2 RED list tests, 1e249c4c6 GREEN, 68a2ddf6e DOM + handlers (debounce timer).
+
 ## NEXT (exact)
-5. (c) layout/src/widgets/reference_picker.rs on ComboBox: types ReferencePickerItem { label, detail, id: u64 },
+5. ReferencePicker DOM tests (`mod dom_tests` at the end of reference_picker.rs) + fixtures::sample()
+   (customers, query "acme", create label "Create customer", named "Customer"): options = matching records +
+   create row; detail lines; status "No matches" for "zzz"; root class REFERENCE_PICKER_CLASS; field text =
+   query / picked label; click an option (rv::fire Click on the option node) -> Pick with id; click the
+   create row -> Create with the query; manifest INPUTS "reference_picker". Then the report.
+   (OLD design notes:) layout/src/widgets/reference_picker.rs on ComboBox: types ReferencePickerItem { label, detail, id: u64 },
    ReferencePickerFilter { Local, App }, ReferencePickerEventKind { Query, Pick, Create },
    ReferencePickerEvent { text, id, kind }, callback triple ReferencePickerOnEvent; ReferencePicker { items,
    query, placeholder, create_label: OptionString, on_event, accessibility_name, selected: OptionU64,
