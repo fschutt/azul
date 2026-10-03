@@ -910,3 +910,5 @@ mod a_virtual_view_leaves_its_hosts_font_chains_in_place;
 mod a_transform_tween_moves_no_box_and_rebuilds_no_list;
 #[path = "a_face_fade_frame_is_patched_in_place.rs"]
 mod a_face_fade_frame_is_patched_in_place;
+#[path = "a_layout_tween_frame_reuses_the_tree_and_patches_the_list.rs"]
+mod a_layout_tween_frame_reuses_the_tree_and_patches_the_list;
