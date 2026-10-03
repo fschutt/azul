@@ -93,6 +93,23 @@ scratchpad/msg.txt).
   - "1 drives" (status bar and details pane): plural for one
   - a11y warning every frame: nodes 250 and 259 have a callback but no accessible name
 
+- LOOK run 2 (2026-10-03 ~06:00, prebuilt aa59b2d84, scripts/azdrive_e2e.py): steps 1-4 pass,
+  step 5 FAILS at Ctrl+A:
+  - ENGINE (owner WRITER6: core/src/events.rs shortcut block, handle_key_down ~5262): with ANY
+    node focused (here `main#shell-content`, the OfficeShell pane a click focuses) the
+    primary-modifier shortcuts Copy / Cut / Paste / SelectAll are `AddAndSkip`: the app's
+    window-level VirtualKeyDown never sees Cmd+A / C / X / V. WRITER6 fixed Undo/Redo only
+    (return None -> default action). Same fix needed for the other four when
+    `!focus_is_editable` (or as vetoable default actions). Unfocused: Cmd+A works (probe ka.py).
+  - FIXED (4aaa20534 RED / 92c40b64f): disabled ribbon labels smeared in LIGHT mode = LCD text
+    inside an opacity layer (transparent clear) blended against black + stamped opaque.
+    Not seen in dark mode. Remaining (report): the opacity layer composite
+    (blit_pixmap_clipped) treats premultiplied layer content as straight alpha - AA edges in a
+    faded group come out slightly dark (much milder after the fix).
+  - 03-tiles.png after cycling all layouts showed overlapping icons + smeared text; a fresh
+    `--layout tiles` start is clean (dl2.png) -> captured mid layout-change animation (opacity
+    + moving items), not a layout bug.
+
 ## Decisions
 - AzMeet keeps android/ios link-static targets: use azul-appkit WITHOUT its `azul` feature
   there (plain args/data/settings/about/shortcuts), so no link-dynamic leaks into mobile builds.
