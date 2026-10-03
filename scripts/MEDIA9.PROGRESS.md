@@ -79,6 +79,10 @@ Report: scripts/MEDIA9_2026_10_03.md (date = the day it finishes).
 - C AzMusic (examples/azul-music). D AzPlayer (examples/azul-player). E2E scripts. Report.
 
 ## Decisions
+- HOUSE RULE (coordinator, 2026-10-03): never send the user's email or any personal data to an
+  outside service (User-Agent, URL, payload). For crates.io use the User-Agent
+  `azul-build-agent (https://github.com/fschutt/azul)`. (One earlier crates.io API call this run
+  used the UA "media9-agent (felix)"; no more such calls are planned.)
 - symphonia 0.5 (MPL-2.0, pure Rust: MP3 / AAC / ALAC / FLAC / Vorbis / WAV / PCM, containers
   MP4 / Ogg / MKV / WAV) in dll behind a new feature `audio-decode` (added to build-dll). Opus
   inside Ogg / MKV / MP4 is demuxed by symphonia and decoded by our AudioDecoder (AudioToolbox)
