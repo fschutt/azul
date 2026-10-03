@@ -226,39 +226,11 @@ pub fn filter_rows(
 }
 
 /// The next cell after `from` (row by row, wrapping once, `from` itself
-/// last) whose displayed value or input contains `needle`, ignoring case.
+/// last) whose displayed value or input contains `needle`, ignoring case:
+/// [`find_match`] with the default options.
 #[must_use]
 pub fn find_next(engine: &dyn SheetEngine, from: CellAddr, needle: &str) -> Option<CellAddr> {
-    if needle.is_empty() {
-        return None;
-    }
-    let (max_row, max_column) = engine.extent(from.sheet);
-    if max_row < 1 || max_column < 1 {
-        return None;
-    }
-    let needle = needle.to_lowercase();
-    let columns = i64::from(max_column);
-    let total = i64::from(max_row) * columns;
-    let inside =
-        from.row >= 1 && from.row <= max_row && from.column >= 1 && from.column <= max_column;
-    let start = if inside {
-        i64::from(from.row - 1) * columns + i64::from(from.column - 1)
-    } else {
-        -1
-    };
-    for step in 1..=total {
-        let i = (start + step).rem_euclid(total);
-        let at = CellAddr::new(
-            from.sheet,
-            (i / columns) as i32 + 1,
-            (i % columns) as i32 + 1,
-        );
-        let shown = engine.cell_formatted(at).to_lowercase();
-        if shown.contains(&needle) || engine.cell_input(at).to_lowercase().contains(&needle) {
-            return Some(at);
-        }
-    }
-    None
+    find_match(engine, from, needle, FindOptions::default())
 }
 
 /// How Find / Replace match (the standard FindReplaceDialog's options).
@@ -276,16 +248,92 @@ pub struct FindOptions {
 /// `from` itself last - whose displayed value or input holds `needle`.
 #[must_use]
 pub fn find_match(engine: &dyn SheetEngine, from: CellAddr, needle: &str, opts: FindOptions) -> Option<CellAddr> {
-    let _ = (engine, from, needle, opts);
+    if needle.is_empty() {
+        return None;
+    }
+    let (max_row, max_column) = engine.extent(from.sheet);
+    if max_row < 1 || max_column < 1 {
+        return None;
+    }
+    let columns = i64::from(max_column);
+    let total = i64::from(max_row) * columns;
+    let inside =
+        from.row >= 1 && from.row <= max_row && from.column >= 1 && from.column <= max_column;
+    let start = match (inside, opts.backwards) {
+        (true, _) => i64::from(from.row - 1) * columns + i64::from(from.column - 1),
+        (false, false) => -1,
+        (false, true) => total,
+    };
+    for step in 1..=total {
+        let i = if opts.backwards { start - step } else { start + step }.rem_euclid(total);
+        #[allow(clippy::cast_possible_truncation)]
+        let at = CellAddr::new(from.sheet, (i / columns) as i32 + 1, (i % columns) as i32 + 1);
+        if holds(&engine.cell_formatted(at), needle, opts) || holds(&engine.cell_input(at), needle, opts) {
+            return Some(at);
+        }
+    }
     None
+}
+
+/// Whether two characters are the same under `match_case`.
+fn same_char(a: char, b: char, match_case: bool) -> bool {
+    a == b || (!match_case && a.to_lowercase().eq(b.to_lowercase()))
+}
+
+/// A character that is part of a word (a whole-word match stops at others).
+fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+/// The byte ranges of the matches of `needle` in `text`, left to right, not
+/// overlapping. Compared character by character, so a case change that
+/// alters a character's byte length cannot shift a range.
+fn matches_in(text: &str, needle: &str, opts: FindOptions) -> Vec<(usize, usize)> {
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let pattern: Vec<char> = needle.chars().collect();
+    let mut out = Vec::new();
+    if pattern.is_empty() || pattern.len() > chars.len() {
+        return out;
+    }
+    let mut i = 0;
+    while i + pattern.len() <= chars.len() {
+        let end = i + pattern.len();
+        let hit = (0..pattern.len()).all(|j| same_char(chars[i + j].1, pattern[j], opts.match_case));
+        let whole = !opts.whole_word
+            || ((i == 0 || !is_word_char(chars[i - 1].1))
+                && (end == chars.len() || !is_word_char(chars[end].1)));
+        if hit && whole {
+            out.push((chars[i].0, chars.get(end).map_or(text.len(), |c| c.0)));
+            i = end;
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
+/// Whether `text` holds `needle` under `opts`.
+fn holds(text: &str, needle: &str, opts: FindOptions) -> bool {
+    !matches_in(text, needle, opts).is_empty()
 }
 
 /// `text` with every match of `needle` replaced by `replacement`; `None`
 /// when nothing matches.
 #[must_use]
 pub fn replace_text(text: &str, needle: &str, replacement: &str, opts: FindOptions) -> Option<String> {
-    let _ = (text, needle, replacement, opts);
-    None
+    let found = matches_in(text, needle, opts);
+    if found.is_empty() {
+        return None;
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut last = 0;
+    for (a, b) in found {
+        out.push_str(&text[last..a]);
+        out.push_str(replacement);
+        last = b;
+    }
+    out.push_str(&text[last..]);
+    Some(out)
 }
 
 /// Replace All on `sheet`: every cell whose INPUT holds `needle` gets it
@@ -298,8 +346,39 @@ pub fn replace_all(
     replacement: &str,
     opts: FindOptions,
 ) -> Result<usize, EngineError> {
-    let _ = (engine, sheet, needle, replacement, opts);
-    Ok(0)
+    let (max_row, max_column) = engine.extent(sheet);
+    let mut changed: std::collections::HashMap<(i32, i32), String> = std::collections::HashMap::new();
+    for row in 1..=max_row {
+        for column in 1..=max_column {
+            let input = engine.cell_input(CellAddr::new(sheet, row, column));
+            if let Some(new) = replace_text(&input, needle, replacement, opts) {
+                changed.insert((row, column), new);
+            }
+        }
+    }
+    if changed.is_empty() {
+        return Ok(0);
+    }
+    // One paste of the changed cells' bounding block = one undo step; the
+    // cells in it without a match are written back as they were.
+    let r0 = changed.keys().map(|k| k.0).min().unwrap_or(1);
+    let r1 = changed.keys().map(|k| k.0).max().unwrap_or(1);
+    let c0 = changed.keys().map(|k| k.1).min().unwrap_or(1);
+    let c1 = changed.keys().map(|k| k.1).max().unwrap_or(1);
+    let rows: Vec<Vec<String>> = (r0..=r1)
+        .map(|row| {
+            (c0..=c1)
+                .map(|column| {
+                    changed
+                        .get(&(row, column))
+                        .cloned()
+                        .unwrap_or_else(|| engine.cell_input(CellAddr::new(sheet, row, column)))
+                })
+                .collect()
+        })
+        .collect();
+    engine.set_inputs(CellAddr::new(sheet, r0, c0), &rows)?;
+    Ok(changed.len())
 }
 
 /// The sheet's used range as CSV (RFC 4180 quoting, `\n` lines), the
