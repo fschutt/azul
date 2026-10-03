@@ -499,6 +499,14 @@ pub mod rich_text_editor;
 /// times / on a date (and "from completion" for a to-do), producing an
 /// RFC 5545 RRULE; see `date_repeat_picker.rs`.
 pub mod date_repeat_picker;
+/// Chart widget.
+///
+/// Line, area, bar (grouped / stacked), scatter, pie and donut charts over
+/// series of numbers: nice 1-2-5 axes, gridlines, a legend, a tooltip under
+/// the pointer, a click that reports the point, a text summary and a table
+/// view for screen readers; a long line decimated per pixel column. Drawn
+/// with the engine's SVG path; see `chart.rs`.
+pub mod chart;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
