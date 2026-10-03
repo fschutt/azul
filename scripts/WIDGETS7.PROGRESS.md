@@ -16,13 +16,17 @@ Look run (one at a time, capped): run_capped.sh --cap-mb 1500 --seconds 90 --log
   admitted theme/mode-only declarations). cd26cf886 RED (core prop_cache_test + text_input
   placeholder_ink_tests), 1a78b80f4 GREEN (prop_cache.rs closure; flat.rs FIELD_PLACEHOLDER_DARK doc)
 
+- item 3: the garbled first-row TextInput / DropDown caret NOT reproduced on the wave-6 build (flat + flora,
+  light + dark, started on the page and navigated FILE > Calendars, typed into the field, opened the
+  drop-down: all rows clean). Found instead: flat backstage page WHITE in dark mode (white ink on white).
+  26a6a4711 RED (the_flat_backstage_page_is_dark_in_the_dark_mode), 3192837e3 GREEN (page_bg pair).
+  For PAINT7: the headless screenshot drops the selected nav label "Calendars" in DARK mode (flat and
+  flora) though the display list has it (#ffffff / #f4f2ea text at 24,225 over the item) - cpurender.
+
 ## IN PROGRESS
-- item 3: AzCalendar backstage Calendars: first row TextInput garbled + DropDown caret inside text field.
-  Seen so far (prebuilt, system mode = dark, no --sample): row looked fine; light + --sample fine too.
-  Next: try --theme flora, dark, and after a click / focus; read PIM6's description again.
+- item 4: DatePicker wider than its pane
 
 ## NEXT
-3. (above)
 4. DatePicker wider than its pane (navigator / To-Do bar)
 5. ToDoBar with_week_start
 6. flora-dark zoom slider; check box colour transparent in the HTML dump
