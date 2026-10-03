@@ -9,7 +9,7 @@ progress file"). Worktrees: /Users/fschutt/Development/azul/.claude/worktrees/ag
 | LAYOUT7 | aece3b97049bb1c3a | wt/layout7 | .claude/worktrees/agent-aece3b97049bb1c3a | running |
 | PAINT7 | a3f339e65a9f1d3c3 | wt/paint7 | .claude/worktrees/agent-a3f339e65a9f1d3c3 | running |
 | EVENTS7 | a083d3b843e66855a | wt/events7 | .claude/worktrees/agent-a083d3b843e66855a | running |
-| WIDGETS7 | a82f849dedcbbbe5d | wt/widgets7 | .claude/worktrees/agent-a82f849dedcbbbe5d | running |
+| WIDGETS7 | a82f849dedcbbbe5d | wt/widgets7 | .claude/worktrees/agent-a82f849dedcbbbe5d | DONE (report scripts/WIDGETS7_2026_10_03.md; INTEGRATION: api.json CloseGuard.dirty_check + ToDoBar.week_start; run scripts/waves/wave7/widgets7_rename_summary_list.py --api, then gen_codegen_lowering.py, then --apps AFTER merging OFFICE7; edits in core prop_cache.rs (placeholder cascade), css colour printers) |
 | OFFICE7 | ae791904cdd96da77 | wt/office7 | .claude/worktrees/agent-ae791904cdd96da77 | running |
 | PIMDRIVE7 | a5305b6b2e2aa001f | wt/pimdrive7 | .claude/worktrees/agent-a5305b6b2e2aa001f | running |
 | DATATABLE7 | a5fe1fc603353c662 | wt/datatable7 | .claude/worktrees/agent-a5fe1fc603353c662 | running |
