@@ -455,6 +455,38 @@ impl LayoutCacheMap {
     }
 }
 
+/// What [`LayoutCache::overrides_only_hint`] claims about a DOM: when the
+/// latch was armed it had this many nodes, this cascade epoch (every restyle
+/// and every override write through `restyle_user_property` moves it) and
+/// these interaction states (hover, focus, active, ... - the one input of the
+/// reconcile's fingerprints that changes without either). A pass handed a DOM
+/// with another stamp was changed since, and reconciles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OverridesOnlyStamp {
+    /// `node_data.len()` of the DOM.
+    pub node_count: usize,
+    /// `CssPropertyCache::cascade_epoch` of the DOM.
+    pub cascade_epoch: u64,
+    /// A hash of every node's `StyledNodeState`, in node order.
+    pub states_hash: u64,
+}
+
+impl OverridesOnlyStamp {
+    /// The stamp of `styled_dom` as it is now (one pass over its states).
+    #[must_use]
+    pub fn of(styled_dom: &StyledDom) -> Self {
+        let mut h = DefaultHasher::new();
+        for node in styled_dom.styled_nodes.as_container().internal {
+            node.styled_node_state.hash(&mut h);
+        }
+        Self {
+            node_count: styled_dom.node_data.as_ref().len(),
+            cascade_epoch: styled_dom.get_css_property_cache().cascade_epoch,
+            states_hash: h.finish(),
+        }
+    }
+}
+
 /// The persistent cache that holds the layout state between frames.
 // Independent per-pass state FLAGS, not a state machine to enum-ify: each
 // bool is set by a different stage and read by a different consumer.
@@ -469,10 +501,20 @@ pub struct LayoutCache {
     /// Skips reconcile + `cache_map` remap wholesale — see the Step-1 branch
     /// in `layout_document` for the contract and the dom-id sanity guard.
     pub resize_only_hint: bool,
-    /// Census: did the LAST `layout_document` take the resize-only
-    /// reconcile-skip branch? The external observable that distinguishes
-    /// "skipped the walk" from "walked and found everything clean" (both
-    /// produce identical pixels and identical reuse censuses).
+    /// One-shot latch: since the last pass only user OVERRIDES moved - the
+    /// frame of a layout-property tween (`LayoutWindow::tick_animations`
+    /// arms it) - so the next `layout_document` may take the retained tree
+    /// as it is: the reconcile reads node data and interaction states, and an
+    /// override is neither, so it would rebuild exactly the retained tree
+    /// (4.4 ms of every AzWidgets knob frame, for nothing). Taken at the next
+    /// pass's entry and honoured only while the stamp still describes the
+    /// DOM handed in (`OverridesOnlyStamp::of`); the css dirt of the pass
+    /// names what to lay out again.
+    pub overrides_only_hint: Option<OverridesOnlyStamp>,
+    /// Census: did the LAST `layout_document` take a reconcile-skip branch
+    /// (resize-only or overrides-only)? The external observable that
+    /// distinguishes "skipped the walk" from "walked and found everything
+    /// clean" (both produce identical pixels and identical reuse censuses).
     pub last_reconcile_was_skipped: bool,
     /// The last reconcile RAN and preserved the tree's structure exactly —
     /// zero fresh nodes, zero drops, indices stable. Content changes (a text

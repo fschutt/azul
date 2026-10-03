@@ -2401,6 +2401,7 @@ impl LayoutWindow {
             layout_cache: Solver3LayoutCache {
                 tree: None,
                 resize_only_hint: false,
+                overrides_only_hint: None,
                 last_reconcile_was_skipped: false,
                 last_reconcile_structure_preserved: false,
                 last_build_was_patched: false,
@@ -2691,6 +2692,13 @@ impl LayoutWindow {
         // of which scheduler decided it should.
         self.sync_frame_report();
         self.frame_report.layout_passes = self.frame_report.layout_passes.saturating_add(1);
+
+        // A DOM the app just built is never an override-only frame of the
+        // one the tick looked at, however alike their stamps
+        // (`LayoutCache::overrides_only_hint`).
+        if new_generation {
+            self.layout_cache.overrides_only_hint = None;
+        }
 
         // A frame transition re-invokes every view, BEFORE this pass scans for
         // them, so a view that renders from the frame is right in the same
@@ -5569,6 +5577,7 @@ impl LayoutWindow {
         let mut scratch_cache = Solver3LayoutCache {
             tree: None,
             resize_only_hint: false,
+            overrides_only_hint: None,
             last_reconcile_was_skipped: false,
             last_reconcile_structure_preserved: false,
             last_build_was_patched: false,
@@ -8417,6 +8426,12 @@ impl LayoutWindow {
     ) -> crate::overlay::ContentChangeResult {
         use crate::overlay::{AppliedChange, ContentChange, ContentChangeResult, ContentDirtyTier};
 
+        // A content change is not an override-only frame: whatever latch an
+        // animation tick armed for the next pass no longer describes the DOM
+        // (`LayoutCache::overrides_only_hint`; its stamp would catch most of
+        // these too, this makes it all of them).
+        self.layout_cache.overrides_only_hint = None;
+
         // Pagination dirty tracking (editor architecture, AZUL-STILL-TODO B6):
         // any content change that can move layout must min-in its document Y
         // so a paged embedder's lazy re-break sees non-text edits too. The
@@ -9439,6 +9454,7 @@ impl LayoutWindow {
         self.layout_cache = Solver3LayoutCache {
             tree: None,
             resize_only_hint: false,
+            overrides_only_hint: None,
             last_reconcile_was_skipped: false,
             last_reconcile_structure_preserved: false,
             last_build_was_patched: false,
@@ -14933,6 +14949,12 @@ impl LayoutWindow {
             // `restyle_fonts`: one of them can move a resolved font size.
             let mut needs_restyle = false;
             let mut restyle_fonts = false;
+            // Whether this frame's relayout may take the retained layout tree
+            // (`LayoutCache::overrides_only_hint`): every layout-scope tween
+            // moves only sizes and offsets, and no paint-scope tween needs a
+            // re-emitted node the patch cannot vouch for.
+            let mut tree_shape_kept = true;
+            let mut paint_restyled = false;
             if let Some(result) = self.layout_results.get_mut(&DomId::ROOT_ID) {
                 for (tr, rect) in self.css_transitions.iter_mut().zip(rects) {
                     if tr.delay_s > 0.0 {
@@ -15065,8 +15087,11 @@ impl LayoutWindow {
                         restyle_fonts |=
                             tr.prop_type.can_trigger_relayout() || tr.prop_type.is_inheritable();
                         dirty.push((tr.node, tr.scope));
-                        if tr.scope != azul_css::props::property::RelayoutScope::None {
+                        if tr.scope == azul_css::props::property::RelayoutScope::None {
+                            paint_restyled = true;
+                        } else {
                             needs_relayout = true;
+                            tree_shape_kept &= tween_keeps_layout_tree_shape(tr.prop_type);
                         }
                     }
                 }
@@ -15095,6 +15120,7 @@ impl LayoutWindow {
                             // the lean channel left behind.
                             dirty.push((*node, azul_css::props::property::RelayoutScope::None));
                             needs_restyle = true;
+                            paint_restyled = true;
                             restyle_fonts |=
                                 *slot == crate::solver3::display_list::PaintColorSlot::Text;
                         }
@@ -15133,6 +15159,20 @@ impl LayoutWindow {
             self.css_transitions.retain(|tr| tr.t < 1.0);
             if needs_relayout {
                 self.transition_relayout = true;
+                // The relayout this frame owes changes no node: only the
+                // overrides just written moved. Let it take the retained tree
+                // (no reconcile of the unchanged DOM) - when every tween keeps
+                // the tree's shape and nothing else staged a diff for the pass
+                // (`pending_css_dirty` still empty: a rebuild's diff or another
+                // restyle may need the reconcile). The stamp is taken AFTER the
+                // frame's own cascade refresh; any later change of the DOM's
+                // nodes, epoch or interaction states voids it.
+                if tree_shape_kept && !paint_restyled && self.pending_css_dirty.is_none() {
+                    self.layout_cache.overrides_only_hint = self
+                        .layout_results
+                        .get(&DomId::ROOT_ID)
+                        .map(|r| solver3::cache::OverridesOnlyStamp::of(&r.styled_dom));
+                }
             }
             let dirty_empty = dirty.is_empty();
             if !dirty_empty {
@@ -29278,6 +29318,47 @@ fn transition_patch_color(
         }
         _ => None,
     }
+}
+
+/// Whether a LAYOUT-scope tween leaves the layout TREE as it is - the boxes,
+/// their formatting contexts, the anonymous wrappers - and moves only sizes
+/// and offsets: what lets its frames take the retained tree
+/// (`LayoutCache::overrides_only_hint`). `display`, `position`, `float`,
+/// `overflow` and the like decide which boxes exist and what kind they are,
+/// which the reconcile re-derives from the cascade; they are not on the list.
+fn tween_keeps_layout_tree_shape(ty: azul_css::props::property::CssPropertyType) -> bool {
+    use azul_css::props::property::CssPropertyType as T;
+    matches!(
+        ty,
+        T::Width
+            | T::Height
+            | T::MinWidth
+            | T::MinHeight
+            | T::MaxWidth
+            | T::MaxHeight
+            | T::PaddingTop
+            | T::PaddingRight
+            | T::PaddingBottom
+            | T::PaddingLeft
+            | T::MarginTop
+            | T::MarginRight
+            | T::MarginBottom
+            | T::MarginLeft
+            | T::Top
+            | T::Right
+            | T::Bottom
+            | T::Left
+            | T::FlexGrow
+            | T::FlexShrink
+            | T::FlexBasis
+            | T::RowGap
+            | T::ColumnGap
+            | T::Gap
+            | T::BorderTopWidth
+            | T::BorderRightWidth
+            | T::BorderBottomWidth
+            | T::BorderLeftWidth
+    )
 }
 
 /// Keep `node`'s compact-cache entry for a BORDER colour in step with a

@@ -6003,6 +6003,7 @@ pub fn render_component_preview(
     let mut layout_cache = LayoutCache {
         tree: None,
         resize_only_hint: false,
+        overrides_only_hint: None,
         last_reconcile_was_skipped: false,
         last_reconcile_structure_preserved: false,
         last_build_was_patched: false,
