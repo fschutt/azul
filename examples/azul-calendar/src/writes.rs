@@ -103,6 +103,25 @@ pub(crate) fn export(
     );
 }
 
+/// Reads the .ics file at `path` on a file thread (a drive on its folder); its answer hands
+/// the text to `chrome::import`. Called from the main window only.
+pub(crate) fn read_import(s: &mut CalState, info: &mut CallbackInfo, app: &RefAny, path: PathBuf) {
+    let folder = path.parent().map(PathBuf::from).unwrap_or_default();
+    let key = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    s.import_pending = Some(path);
+    kit::spawn_file_jobs(
+        info,
+        &folder,
+        vec![FileJob::Get { key }],
+        app.clone(),
+        store::TAG_IMPORT,
+        on_writes_done,
+    );
+}
+
 /// The main window's write timer.
 pub(crate) extern "C" fn on_write_tick(
     mut data: RefAny,
@@ -129,6 +148,36 @@ extern "C" fn on_writes_done(mut app: RefAny, mut msg: RefAny, mut info: Callbac
     let s = &mut *guard;
     let mut refresh = false;
     match reply.tag {
+        store::TAG_IMPORT => {
+            let Some(path) = s.import_pending.take() else {
+                return Update::DoNothing;
+            };
+            let read = reply.outcomes.into_iter().find_map(|o| match o {
+                FileOutcome::Got { result, .. } => Some(result),
+                _ => None,
+            });
+            match read {
+                Some(Ok(Some(bytes))) => {
+                    crate::chrome::import(s, &path, &String::from_utf8_lossy(&bytes));
+                }
+                Some(Ok(None)) => crate::chrome::report(
+                    s,
+                    true,
+                    format!("Could not read {}: there is no such file.", path.display()),
+                ),
+                Some(Err(e)) => crate::chrome::report(
+                    s,
+                    true,
+                    format!("Could not read {}: {e}", path.display()),
+                ),
+                None => crate::chrome::report(
+                    s,
+                    true,
+                    format!("Could not read {}.", path.display()),
+                ),
+            }
+            refresh = true;
+        }
         store::TAG_EXPORT => {
             let Some((count, path)) = s.export_pending.take() else {
                 return Update::DoNothing;

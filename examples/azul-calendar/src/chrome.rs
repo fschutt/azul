@@ -1261,31 +1261,28 @@ pub(crate) fn report(s: &mut CalState, failed: bool, message: String) {
 /// Import: reads the file, and writes each of its events as an event file of the calendar
 /// chosen (or of a new calendar named after the file). An event whose iCalendar UID is one the
 /// calendar has already is updated, not added. The view moves to the first one.
-extern "C" fn on_import_run(mut data: RefAny, _info: CallbackInfo) -> Update {
+extern "C" fn on_import_run(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app = data.clone();
     with_state(&mut data, |s| {
-        import(s);
+        let typed = s.import_path.trim().to_string();
+        if typed.is_empty() {
+            report(
+                s,
+                true,
+                String::from("Give the file to import, or Browse for it."),
+            );
+            return Update::RefreshDom;
+        }
+        // The file is read on a file thread; `import` goes on once it is here.
+        report(s, false, format!("Reading {typed}..."));
+        crate::writes::read_import(s, &mut info, &app, PathBuf::from(typed));
         Update::RefreshDom
     })
 }
 
-fn import(s: &mut CalState) {
-    let typed = s.import_path.trim().to_string();
-    if typed.is_empty() {
-        report(
-            s,
-            true,
-            String::from("Give the file to import, or Browse for it."),
-        );
-        return;
-    }
-    let path = PathBuf::from(&typed);
-    let text = match std::fs::read(&path) {
-        Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
-        Err(e) => {
-            report(s, true, format!("Could not read {typed}: {e}"));
-            return;
-        }
-    };
+/// Imports the .ics `text` read from `path` (`writes::read_import` hands it over).
+pub(crate) fn import(s: &mut CalState, path: &std::path::Path, text: &str) {
+    let typed = path.display().to_string();
     let parsed = match ics::parse(&text, &chrono::Local) {
         Ok(parsed) => parsed,
         Err(e) => {

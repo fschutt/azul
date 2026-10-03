@@ -18,6 +18,8 @@ pub const TAG_DATA: u64 = 1;
 pub const TAG_TASKS: u64 = 2;
 /// The reply tag of an export file's write.
 pub const TAG_EXPORT: u64 = 3;
+/// The reply tag of an import file's read.
+pub const TAG_IMPORT: u64 = 4;
 
 /// The folder an export goes to, in the data folder (the data tree is what a sync sees).
 pub const EXPORTS_DIR: &str = "exports";

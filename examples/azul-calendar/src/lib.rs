@@ -281,6 +281,8 @@ pub(crate) struct CalState {
     pub(crate) on_landing: Vec<(String, String)>,
     /// The export on its way: how many events, and its file.
     pub(crate) export_pending: Option<(usize, PathBuf)>,
+    /// The import file being read.
+    pub(crate) import_pending: Option<PathBuf>,
     // ---- FILE > Open & Export ----
     pub(crate) import_path: String,
     /// The calendar an import goes into: its index in `calendars`.
@@ -1310,6 +1312,7 @@ pub fn start() {
         close_despite_failures: false,
         on_landing: Vec::new(),
         export_pending: None,
+        import_pending: None,
         import_path: String::new(),
         import_calendar: 0,
         export_path: String::new(),
