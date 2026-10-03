@@ -1672,6 +1672,11 @@ pub(crate) fn key_action(
             K::V => return KeyAction::Paste,
             _ => {}
         }
+        // Off macOS Ctrl+Shift+letter is the window's (new tab, close
+        // tab, find), as in every Linux terminal; A..Z are 10..=35.
+        if !mac && (10..=35).contains(&(key as u32)) {
+            return KeyAction::Nothing;
+        }
     }
     let shift_only = m.shift && !m.ctrl && !m.alt && !m.meta;
     if shift_only && key == K::Insert {
