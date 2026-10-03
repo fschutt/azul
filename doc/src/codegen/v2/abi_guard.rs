@@ -720,4 +720,68 @@ mod tests {
         assert!(c.contains("abort();"));
         assert!(rust.contains("::std::process::abort();"));
     }
+
+    /// The Rust binding checks the ABI when the program LOADS, before `main`,
+    /// as azul.h does with its constructor: the platform loader calls a
+    /// function from its initializer section (`__mod_init_func` on Apple,
+    /// `.init_array` on Linux / Android / the BSDs, `.CRT$XCU` on Windows).
+    /// A stale app then aborts before its first line runs, whatever that line
+    /// is - even a method on a value built from a struct literal, which no
+    /// wrapper check sees. The per-wrapper checks stay as the fallback on a
+    /// platform without such a section.
+    #[test]
+    fn the_rust_binding_checks_the_abi_when_the_program_loads() {
+        let ir = ir();
+        for (what, config) in [
+            ("dll_api_external.rs", CodegenConfig::dll_dynamic()),
+            ("azul.rs", CodegenConfig::rust_public_api(ir)),
+        ] {
+            let text = CodeGenerator::generate(ir, &config).expect(what);
+            let lines: Vec<&str> = text.lines().map(str::trim).collect();
+            let at = lines
+                .iter()
+                .position(|l| {
+                    *l == "static AZ_ABI_CHECK_AT_LOAD: extern \"C\" fn() = az_abi_check_at_load;"
+                })
+                .unwrap_or_else(|| panic!("{what}: no load-time ABI check static"));
+            // Its attributes: the lines above it, up to its doc comment.
+            let attrs: Vec<&str> = lines[..at]
+                .iter()
+                .rev()
+                .take_while(|l| l.starts_with("#["))
+                .copied()
+                .collect();
+            assert!(attrs.contains(&"#[used]"), "{what}: {attrs:?}");
+            for section in ["__DATA,__mod_init_func", ".init_array", ".CRT$XCU"] {
+                assert!(
+                    attrs
+                        .iter()
+                        .any(|a| a.contains(&format!("link_section = \"{section}\""))),
+                    "{what}: the check is not in the {section} initializer section: {attrs:?}"
+                );
+            }
+            // The function the loader calls runs the one check.
+            let f = lines
+                .iter()
+                .position(|l| *l == "extern \"C\" fn az_abi_check_at_load() {")
+                .unwrap_or_else(|| panic!("{what}: no az_abi_check_at_load"));
+            assert_eq!(lines[f + 1], RUST_CHECK_CALL, "{what}");
+            // The check every wrapper calls names the static, so a linker that
+            // pulls the binding's code in pulls the initializer entry in too.
+            let slow = lines
+                .iter()
+                .position(|l| *l == "fn az_abi_check_slow() {")
+                .unwrap_or_else(|| panic!("{what}: no az_abi_check_slow"));
+            assert!(
+                lines[slow..]
+                    .iter()
+                    .take_while(|l| **l != "}")
+                    .any(|l| l.contains("AZ_ABI_CHECK_AT_LOAD")),
+                "{what}: az_abi_check_slow must keep AZ_ABI_CHECK_AT_LOAD linked"
+            );
+        }
+        // libazul itself (and link-static) has nothing to check against.
+        let dll = CodeGenerator::generate(ir, &CodegenConfig::dll_internal()).unwrap();
+        assert!(!dll.contains("AZ_ABI_CHECK_AT_LOAD"));
+    }
 }
