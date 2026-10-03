@@ -16,7 +16,7 @@ use crate::{
     buffer::{Edit, LineEnding, Pos, TextBuffer},
     highlight::{syntax_for, Highlighter, TokenKind},
     search::{self, Found},
-    workspace::{file_name, TabDoc, Tabs, Workspace},
+    workspace::{file_name, Root, TabDoc, Tabs, Workspace},
 };
 
 /// The text of an open file: the CodeView's data (its own `RefAny`, apart
@@ -283,6 +283,8 @@ pub struct AppState {
     pub data_root: PathBuf,
     /// `--sample`: open the sample workspace (written on first use).
     pub sample: bool,
+    /// A folder named on the command line, opened when the window exists.
+    pub workspace_to_open: Option<Root>,
     pub workspace: Option<Workspace>,
     pub tabs: Tabs<Doc>,
     pub side: Side,
@@ -307,6 +309,7 @@ impl AppState {
             kit,
             data_root,
             sample,
+            workspace_to_open: None,
             workspace: None,
             tabs: Tabs::default(),
             side: Side::Explorer,
