@@ -1,0 +1,37 @@
+[package]
+name = "AzReader"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzReader - an e-reader on the public azul API. EPUB books (the zip,
+    the OPF package, the XHTML chapters and their CSS) are read through
+    azul's own XML / HTML5-like parser into a DOM and laid out by azul's
+    paged layout: reflowable pages at the reader's font size, margins and
+    paper (white, sepia, night, or following the mode), one or two pages
+    side by side. A library of covers, a table of contents, bookmarks and
+    the reading position, kept as files in the user's data folder
+    (reader/books/<uuid>/...) through azul-storage's Drive from an azul
+    Thread. Plain text and HTML files open too.
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+# The skeleton the Azlin apps share: args, data root, settings, About, file jobs on a Thread.
+azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+# The seed of the ids that name the books' folders (azul_storage::ids).
+azul-storage = { path = "../azul-storage" }
+# info.json / state.json (already in the tree through azul-appkit and azul-storage).
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lib]
+name = "azreader"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "AzReader"
+path = "src/main.rs"

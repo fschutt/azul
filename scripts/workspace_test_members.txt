@@ -49,6 +49,7 @@ tested: AzDashboard          # dll_tests (the generated orders, their texts and 
 tested: AzTerm               # dll_tests (VT state -> the view's screen, sessions and recordings, tabs, the data callback)
 tested: AzPdf                # dll_tests (zoom, the page strip, size labels, render widths, the page cache, search, recent documents)
 tested: AzClock              # dll_tests (alarm occurrences incl. DST, the timer state machine, laps, zones, the OS schedule, tones)
+tested: AzReader             # dll_tests (EPUB container / package / TOC, the content policy, pages and positions, the library files)
 
 # ── members with genuinely no tests. The script verifies the claim by grepping
 #    for #[test]; if any of these grows one, it fails until it is moved up and
