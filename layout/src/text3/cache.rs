@@ -10996,6 +10996,44 @@ pub fn get_item_vertical_metrics(
     }
 }
 
+/// How far `vertical-align` moves a box's baseline DOWN from its line's
+/// baseline (negative = raised), for the alignments CSS 2.1 s10.8.1 measures
+/// from the parent's baseline; `None` for the line-relative `top` / `bottom`
+/// (aligned once the line box is known) and for `sub` / `super`, which
+/// `position_one_line` derives from the line's own ascent. `ascent` and
+/// `descent` are the box's own ([`get_item_vertical_metrics`]).
+///
+/// The ONE rule the line box (`calculate_line_metrics`) and the placement
+/// (`position_one_line`) share, so a box always sits inside the line box it
+/// was counted in. `middle` RAISES the box's midpoint to "the baseline of the
+/// parent box plus half the x-height of the parent": the shift used to add the
+/// half x-height, moving it down (a 24px `middle` icon in 16px text sat 16px
+/// low, below its own line).
+fn baseline_shift(
+    align: VerticalAlign,
+    ascent: f32,
+    descent: f32,
+    constraints: &UnifiedConstraints,
+) -> Option<f32> {
+    match align {
+        VerticalAlign::Baseline => Some(0.0),
+        // midpoint (baseline + shift - ascent + (ascent + descent) / 2) at
+        // baseline - x-height / 2
+        VerticalAlign::Middle => Some((ascent - descent) / 2.0 - constraints.strut_x_height / 2.0),
+        // top (baseline + shift - ascent) at the parent's content-area top,
+        // baseline - strut ascent (s10.6.1)
+        VerticalAlign::TextTop => Some(ascent - constraints.strut_ascent),
+        // bottom (baseline + shift + descent) at the content-area bottom,
+        // baseline + strut descent
+        VerticalAlign::TextBottom => Some(constraints.strut_descent - descent),
+        // <length> / <percentage>: raise (positive) or lower (negative)
+        VerticalAlign::Offset(offset) => Some(-offset),
+        VerticalAlign::Top | VerticalAlign::Bottom | VerticalAlign::Sub | VerticalAlign::Super => {
+            None
+        }
+    }
+}
+
 // +spec:block-formatting-context:861155 - vertical-align affects vertical positioning inside line
 // box for inline-level elements
 /// Calculates the maximum ascent and descent for an entire line of items.
@@ -11016,14 +11054,20 @@ fn calculate_line_metrics(
     items: &[ShapedItem],
     default_vertical_align: VerticalAlign,
     constraints: &UnifiedConstraints,
+    (strut_above, strut_below): (f32, f32),
 ) -> (f32, f32) {
     // +spec:font-metrics:95152b - baseline alignment: items with different font sizes aligned by
     // matching alphabetic baselines Pass 1: Compute ascent/descent from baseline-aligned items
-    // only (i.e., items that are NOT vertical-align: top or bottom).
+    // only (i.e., items that are NOT vertical-align: top or bottom) - the STRUT included (CSS 2.1
+    // s10.8: the line box holds it like any other baseline-aligned box, and the top / bottom pass
+    // below aligns against the line box it makes: a 24px `vertical-align: bottom` box in an 18px
+    // strut line makes a 24px line, not 24 + the strut's descent). Each box counts where its
+    // `vertical-align` PUTS it ([`baseline_shift`]): a `middle` icon taller than the strut
+    // reaches below the baseline, and the line box must hold it there.
     let (mut max_asc, mut max_desc) =
         items
             .iter()
-            .fold((0.0f32, 0.0f32), |(max_asc, max_desc), item| {
+            .fold((strut_above, strut_below), |(max_asc, max_desc), item| {
                 let effective_align =
                     get_item_vertical_align(item).unwrap_or(default_vertical_align);
                 match effective_align {
@@ -11033,7 +11077,13 @@ fn calculate_line_metrics(
                     }
                     _ => {
                         let (item_asc, item_desc) = get_item_vertical_metrics(item, constraints);
-                        (max_asc.max(item_asc), max_desc.max(item_desc))
+                        let shift =
+                            baseline_shift(effective_align, item_asc, item_desc, constraints)
+                                .unwrap_or(0.0);
+                        (
+                            max_asc.max(item_asc - shift),
+                            max_desc.max(item_desc + shift),
+                        )
                     }
                 }
             });
@@ -11402,6 +11452,12 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     });
     let mut flow_line_index = 0usize;
     let mut flow_after_forced_break = false;
+    // The top of the highest and the bottom of the lowest line box that holds
+    // only atomic inlines (no text cluster; an inline-block, an image), any
+    // column, horizontal modes: such a line box holds the strut too, see
+    // below.
+    let mut atomic_line_box_top = f32::MAX;
+    let mut atomic_line_box_bottom = f32::MIN;
     'column_loop: while current_column < column_count {
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
@@ -11726,6 +11782,18 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             {
                 line_box_extent = line_box_extent.max(line_top_y);
             }
+            // A line of only atomic inlines (a box with a height, no text
+            // cluster) is measured by its whole line box, strut included.
+            if line_pos_items
+                .iter()
+                .any(|item| item.item.bounds().height > 0.0)
+                && !line_pos_items
+                    .iter()
+                    .any(|item| matches!(item.item, ShapedItem::Cluster(_)))
+            {
+                atomic_line_box_top = atomic_line_box_top.min(line_top_y - band_height);
+                atomic_line_box_bottom = atomic_line_box_bottom.max(line_top_y);
+            }
             line_index += 1;
             positioned_items.extend(line_pos_items);
         }
@@ -11824,6 +11892,22 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 calculated_bounds.height = calculated_bounds.height.max(line_box_extent);
             }
         }
+    }
+
+    // CSS 2.1 s10.8: every line box holds a STRUT, a zero-width inline box
+    // with the block's font and line-height - a line of only atomic inlines
+    // too. A 10px inline-block in a 16px Arial block makes an 18px line in
+    // Chrome, and that is what the IFC measures (user ruling 2026-10-03:
+    // Chrome is the reference). Its items alone measured 10: the box. An icon
+    // that wants its box's height alone says so in CSS, as on the web
+    // (`line-height: 0`, `display: block`, a flex container). This is the
+    // look pass the line-box note above defers: where it says a line of only
+    // atomic inlines keeps its items' height, this block supersedes it.
+    if horizontal && atomic_line_box_bottom > atomic_line_box_top {
+        let top = calculated_bounds.y.min(atomic_line_box_top);
+        let bottom = (calculated_bounds.y + calculated_bounds.height).max(atomic_line_box_bottom);
+        calculated_bounds.y = top;
+        calculated_bounds.height = bottom - top;
     }
 
     // Record the unclipped content bounds. `overflow_items` stays empty by
@@ -12440,9 +12524,6 @@ pub fn position_one_line<T: ParsedFontTrait>(
     // regardless of segment. Per CSS 2.2 §10.8, top/bottom aligned items are handled in a
     // second pass to minimize line box height; baseline-aligned items determine the initial
     // height.
-    let (content_ascent, content_descent) =
-        calculate_line_metrics(line_items, constraints.vertical_align, constraints);
-
     // +spec:box-model:e99f7d - strut: each line box starts with zero-width inline box with block
     // container's font/line-height +spec:line-height:29c478 - strut: zero-width inline box with
     // block container's font/line-height inline box with the block container's font and
@@ -12451,14 +12532,15 @@ pub fn position_one_line<T: ParsedFontTrait>(
     // L/2, strut_below = D + L/2. +spec:height-calculation:8e91b2 - specified line-height used
     // in line box height calculation
     // The leading is shared exactly as a glyph's (`split_leading`), so the
-    // strut and the text of the same face coincide.
-    let (strut_above, strut_below) = split_leading(
+    // strut and the text of the same face coincide. The strut is part of the
+    // baseline-aligned pass (`calculate_line_metrics`), before top / bottom.
+    let strut = split_leading(
         constraints.resolved_line_height(),
         constraints.strut_ascent,
         constraints.strut_descent,
     );
-    let line_ascent = content_ascent.max(strut_above);
-    let line_descent = content_descent.max(strut_below);
+    let (line_ascent, line_descent) =
+        calculate_line_metrics(line_items, constraints.vertical_align, constraints, strut);
     let line_box_height = line_ascent + line_descent;
 
     // The baseline for the entire line is determined by its tallest item.
@@ -12771,13 +12853,6 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 // line-relative vertical-align (top/center/bottom) and aligned subtree positioning
                 // top: align top of aligned subtree with top of line box
                 VerticalAlign::Top => line_top_y + item_ascent,
-                // +spec:font-metrics:70000d - align vertical midpoint of box with baseline + half
-                // x-height of parent
-                VerticalAlign::Middle => {
-                    let half_x_height = constraints.strut_x_height / 2.0;
-                    line_baseline_y + half_x_height - f32::midpoint(item_ascent, item_descent)
-                        + item_ascent
-                }
                 // bottom: align bottom of aligned subtree with bottom of line box
                 VerticalAlign::Bottom => line_top_y + line_box_height - item_descent,
                 // +spec:font-metrics:aa21f7 - sub: lower baseline to proper subscript position
@@ -12786,23 +12861,21 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 // top/bottom align to line box edges super: raise baseline to
                 // proper superscript position (~0.4em)
                 VerticalAlign::Super => line_baseline_y - line_ascent * SUPERSCRIPT_OFFSET_RATIO,
-                // text-top: align top of box with top of parent's content area (§10.6.1)
-                // Parent's content area top = baseline - strut_ascent
-                VerticalAlign::TextTop => {
-                    (line_baseline_y - constraints.strut_ascent) + item_ascent
+                // +spec:font-metrics:70000d - middle: the box's midpoint at the parent's
+                // baseline raised by half its x-height; text-top / text-bottom: against the
+                // parent's content area (s10.6.1); <length> / <percentage>: raise or lower;
+                // +spec:display-property:8bf37e +spec:font-metrics:96bbd3 - baseline: the
+                // box's alphabetic baseline on the parent's. ONE rule with the line box
+                // (`baseline_shift`, also read by `calculate_line_metrics`).
+                VerticalAlign::Middle
+                | VerticalAlign::TextTop
+                | VerticalAlign::TextBottom
+                | VerticalAlign::Offset(_)
+                | VerticalAlign::Baseline => {
+                    line_baseline_y
+                        + baseline_shift(effective_align, item_ascent, item_descent, constraints)
+                            .unwrap_or(0.0)
                 }
-                // text-bottom: align bottom of box with bottom of parent's content area (§10.6.1)
-                // Parent's content area bottom = baseline + strut_descent
-                VerticalAlign::TextBottom => {
-                    (line_baseline_y + constraints.strut_descent) - item_descent
-                }
-                // <length>/<percentage>: raise (positive) or lower (negative); 0 = baseline
-                VerticalAlign::Offset(offset) => line_baseline_y - offset,
-                // +spec:display-property:8bf37e - dominant-baseline defaults to alphabetic;
-                // baseline alignment matches parent baseline: align baseline of box
-                // with baseline of parent box +spec:font-metrics:96bbd3 - baseline:
-                // align alphabetic baseline of box with parent's alphabetic baseline
-                VerticalAlign::Baseline => line_baseline_y,
             };
 
             // Calculate item measure (needed for both positioning and pen advance)

@@ -872,6 +872,7 @@ fn layout_flex_grid<T: ParsedFontTrait>(
     // Cache border values before the mutable borrow in layout_taffy_subtree
     let border_left = bp.border.left;
     let border_top = bp.border.top;
+    let padding_top = bp.padding.top;
 
     let taffy_output =
         taffy_bridge::layout_taffy_subtree(ctx, tree, text_cache, node_index, taffy_inputs);
@@ -916,6 +917,17 @@ fn layout_flex_grid<T: ParsedFontTrait>(
             }
         }
     }
+
+    // A flex / grid container's first baseline is its first item's (CSS
+    // Flexbox 8.5, Grid 10.6): the first line box laid out in it, at any
+    // depth (`first_line_baseline`, the table cells' walk). The atomic-inline
+    // path reads it for an inline-flex / -grid box; this layout reported
+    // none, so every inline-flex button sat on its line by its bottom edge -
+    // a 32px button beside text made a 36px line (Chrome 32), and alone on a
+    // line it hung the strut's descent below itself. Content-box relative,
+    // like every `LayoutOutput::baseline`.
+    output.baseline = first_line_baseline(node_index, tree, 0)
+        .map(|from_border_top| from_border_top - border_top - padding_top);
 
     Ok(BfcLayoutResult::from_output(output))
 }
@@ -10584,9 +10596,28 @@ fn measure_atomic_inline<T: ParsedFontTrait>(
         node.used_size = Some(final_size);
     }
 
-    // CSS 2.2 s 10.8.1, via `atomic_inline_baseline_offset`.
-    let overflow_x = get_overflow_x(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
-    let overflow_y = get_overflow_y(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+    // CSS 2.2 s 10.8.1, via `atomic_inline_baseline_offset`. Its `overflow`
+    // rule (a clipping box sits on its bottom margin edge) is the
+    // inline-block's alone: a flex or grid box keeps its first item's
+    // baseline whatever its overflow (Chrome: an `overflow: hidden`
+    // inline-flex button sits on its label's baseline), so its overflow is
+    // read as `visible` here.
+    let baseline_ignores_overflow = tree.get(LayoutNodeId::new(child_index)).is_some_and(|n| {
+        matches!(
+            n.formatting_context,
+            FormattingContext::Flex | FormattingContext::Grid
+        )
+    });
+    let overflow_x = if baseline_ignores_overflow {
+        LayoutOverflow::Visible
+    } else {
+        get_overflow_x(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default()
+    };
+    let overflow_y = if baseline_ignores_overflow {
+        LayoutOverflow::Visible
+    } else {
+        get_overflow_y(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default()
+    };
     let overflow_is_visible = matches!(
         (overflow_x, overflow_y),
         (LayoutOverflow::Visible, LayoutOverflow::Visible)
@@ -11533,6 +11564,26 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
             resolved_line_height + padding_top + padding_bottom + border_top + border_bottom;
         let total_width =
             margin_left + padding_left + border_left + border_right + padding_right + margin_right;
+
+        // CSS 2.1 s9.4.2: an inline element with no content and no non-zero
+        // margins, padding or borders makes nothing on its line - a line
+        // holding only such elements is a phantom line box, zero tall
+        // (`<div><a name="top"></a></div>`, a mail's anchor: Chrome 0). The
+        // box below sits on the baseline at full line-height, so it made
+        // that line 19.2px - and, with the strut in every line of boxes
+        // (text3 `perform_fragment_layout`), 23.2.
+        let is_phantom = [
+            total_width,
+            padding_top,
+            padding_bottom,
+            border_top,
+            border_bottom,
+        ]
+        .iter()
+        .all(|v| v.abs() < f32::EPSILON);
+        if is_phantom {
+            return Ok(());
+        }
 
         content.push(InlineContent::Shape(InlineShape {
             shape_def: ShapeDefinition::Rectangle {

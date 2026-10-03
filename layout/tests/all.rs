@@ -882,3 +882,7 @@ mod inline_blocks_in_a_right_to_left_line_run_from_the_right;
 mod an_hr_is_a_two_pixel_inset_rule_as_wide_as_its_block;
 #[path = "sans_serif_is_helvetica_on_macos_as_in_chrome.rs"]
 mod sans_serif_is_helvetica_on_macos_as_in_chrome;
+#[path = "a_line_holding_only_an_inline_block_is_as_tall_as_its_strut.rs"]
+mod a_line_holding_only_an_inline_block_is_as_tall_as_its_strut;
+#[path = "an_atomic_inline_sits_on_the_baseline_of_its_content.rs"]
+mod an_atomic_inline_sits_on_the_baseline_of_its_content;

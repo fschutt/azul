@@ -1420,10 +1420,11 @@ impl Runner {
                 .any(|e| e.event_type == azul_core::events::EventType::MouseDown)
         {
             // ONE rule, shared with the dll (9g-ii-e-ii): the nearest focusable
-            // ancestor of the FRONT-MOST hit, in that hit's own DOM. This used
-            // to walk every hit DOM and let the last focusable win, so a
-            // focusable host node under a VirtualView page took a click meant
-            // for the page.
+            // ancestor of the FRONT-MOST hit, along its event path - its own
+            // DOM, then on through the node hosting a VirtualView page (user
+            // ruling 2026-10-03). This used to walk every hit DOM and let the
+            // last focusable win, so a focusable node merely UNDER a
+            // VirtualView page took a click meant for the page.
             // The hit test of the seat that PRESSED (9b-ii-c): a second
             // cursor's press focuses what is under the second cursor, not
             // what the primary happens to hover.
@@ -1446,6 +1447,7 @@ impl Runner {
             };
             let clicked_focusable_node = hit_for_focus.as_ref().and_then(|hit_test| {
                 let results = &self.layout_window.layout_results;
+                let virtual_views = &self.layout_window.virtual_view_manager;
                 crate::managers::hover::focusable_under_pointer(
                     hit_test,
                     |dom_id, nid| {
@@ -1466,6 +1468,9 @@ impl Runner {
                                 .and_then(|h| h.parent_id())
                         })
                     },
+                    // Past a `VirtualView` page's root the walk goes on at
+                    // its host (user ruling 2026-10-03).
+                    |dom_id| virtual_views.host_of_nested_dom(dom_id),
                 )
             });
 
@@ -7638,3 +7643,10 @@ mod close_protocol_tests {
         assert!(closing, "nobody vetoed: the close stands");
     }
 }
+
+// ==== RULINGS8: a press focuses the nearest focusable ancestor ====
+// ...continuing past a `VirtualView` page's root at its host (user ruling
+// 2026-10-03). A child of this module for `run_e2e_test_keeping_runner`.
+#[cfg(test)]
+#[path = "focus_across_virtual_view_tests.rs"]
+mod focus_across_virtual_view_tests;

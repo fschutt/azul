@@ -4482,9 +4482,37 @@ pub fn collect_font_stacks_from_styled_dom(
         let is_text = nt_disc == 177
             || matches!(node_data.internal[i].node_type, NodeType::Text(_))
             || node_data.internal[i].get_placeholder().is_some();
-        if !is_text {
+        // The STRUT needs a font too (CSS 2.1 s10.8.1): every line box of a
+        // block container starts with a strut of the container's OWN first
+        // available font, and an inline box with no glyphs holds one of its
+        // own font. So the font of the PARENT of every inline-level box is
+        // keyed as well: a block whose lines hold only boxes (an icon row of
+        // inline-blocks or images) used no text in its font, its face was
+        // never loaded, and its strut took a 0.8em / 0.2em guess with
+        // `line-height: normal` as 1em - a 10px inline-block made a 16px line
+        // where Chrome makes 18 (RULINGS8, 2026-10-03).
+        let i = if is_text {
+            i
+        } else if matches!(
+            get_display_property(styled_dom, Some(NodeId::new(i))).unwrap_or(LayoutDisplay::Inline),
+            LayoutDisplay::Inline
+                | LayoutDisplay::InlineBlock
+                | LayoutDisplay::InlineFlex
+                | LayoutDisplay::InlineGrid
+                | LayoutDisplay::InlineTable
+        ) {
+            match styled_dom
+                .node_hierarchy
+                .as_container()
+                .get(NodeId::new(i))
+                .and_then(|h| h.parent_id())
+            {
+                Some(parent) => parent.index(),
+                None => continue,
+            }
+        } else {
             continue;
-        }
+        };
         let fh = compact.tier2b_text[i].font_family_hash;
         // Key on the weight and style THIS text node resolves to - the very
         // reads `get_style_properties` makes when its runs are shaped (O(1)
