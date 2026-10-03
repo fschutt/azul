@@ -12807,10 +12807,26 @@ pub trait PlatformWindow {
                                     }
                                 }
 
-                                DefaultAction::CloseModal { .. }
-                                | DefaultAction::SelectAllText
-                                | DefaultAction::UndoTextEdit { .. }
-                                | DefaultAction::RedoTextEdit { .. } => {
+                                DefaultAction::UndoTextEdit { target } => {
+                                    // Ctrl/Cmd+Z after the callbacks: the host's
+                                    // text undo, unless an editor with its own
+                                    // history vetoed it. A second seat's key is
+                                    // its `SeatShortcut` (applied before the
+                                    // callbacks), so only the primary's here.
+                                    if key_seat == azul_core::window::PRIMARY_POINTER_SEAT {
+                                        let change = SystemChange::UndoTextEdit { target: *target };
+                                        result = result.max(self.apply_system_change(&change));
+                                    }
+                                }
+
+                                DefaultAction::RedoTextEdit { target } => {
+                                    if key_seat == azul_core::window::PRIMARY_POINTER_SEAT {
+                                        let change = SystemChange::RedoTextEdit { target: *target };
+                                        result = result.max(self.apply_system_change(&change));
+                                    }
+                                }
+
+                                DefaultAction::CloseModal { .. } | DefaultAction::SelectAllText => {
                                     // Placeholder for future implementation
                                 }
                             }
