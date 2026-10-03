@@ -80,8 +80,8 @@ pub fn entries_from(files: &[(String, Vec<u8>)]) -> Vec<DocEntry> {
         .iter()
         .filter_map(|(key, bytes)| {
             let id = id_of_key(key)?;
-            let markdown = String::from_utf8_lossy(bytes);
-            let doc = azul::widgets::RichTextDoc::create_from_markdown(markdown.as_ref());
+            let markdown = String::from_utf8_lossy(bytes).into_owned();
+            let doc = azul::widgets::RichTextDoc::create_from_markdown(markdown);
             Some(DocEntry {
                 id: id.to_string(),
                 title: crate::model::title_of(&doc),

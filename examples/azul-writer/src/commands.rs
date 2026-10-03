@@ -132,7 +132,7 @@ pub fn import_bytes(name: &str, bytes: &[u8]) -> Result<azul::widgets::RichTextD
         crate::docx::from_docx_bytes(bytes)
     } else {
         Ok(azul::widgets::RichTextDoc::create_from_markdown(
-            String::from_utf8_lossy(bytes).as_ref(),
+            String::from_utf8_lossy(bytes).into_owned(),
         ))
     }
 }
