@@ -96,6 +96,7 @@ mod args;
 mod audio;
 mod chat;
 mod ids;
+mod keys;
 mod pace;
 mod rooms;
 mod routes;
