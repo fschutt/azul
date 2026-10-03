@@ -65,26 +65,17 @@ capture's CVPixelBuffer).
   => ECHO CANCELLATION DONE (needs api.json EchoCanceller). Python models in /tmp/video8/tc
   (aec_proto*.py, fft_check.py) - not committed.
 
-## IN PROGRESS
-- deciding on zero copy steps 2-3 (last item), then the report.
+- zero copy steps 2-3: DESIGNED, not built (decision: touches core image model + renderer +
+  cpurender + capture workers, only verifiable on a GPU window with a camera; the per-frame cost
+  left is one tile-sized NV12 copy). Design in the report, section 5.
+- 1e4e628f3, b759898d4, a1efd02fe report scripts/VIDEO8_2026_10_03.md
 
-## NEXT (exact)
-1. (DONE) Opus through AudioToolbox on Apple: new file dll/src/desktop/extra/audio/opus_codec.rs (or
-   video_codec-style `audio_codec` module): dlopen AudioToolbox (`AudioConverterNew`,
-   `AudioConverterFillComplexBuffer`, `AudioConverterDispose`), kAudioFormatOpus ('opus') 48 kHz
-   mono 20 ms (960 frames); C-ABI handles `AudioEncoder` / `AudioDecoder` (ptr + run_destructor,
-   `create`, `is_open`, `encode(AudioFrame) -> OptionU8Vec`, `decode(U8Vec) -> OptionAudioFrame`),
-   honest closed handle off Apple; RED test: a 440 Hz tone encodes to < 200 bytes a packet and
-   decodes back correlated (> 0.9). Then AzMeet audio.rs codec byte 2 (CODEC_OPUS) with PCM
-   fallback when the encoder is closed or the peer's caps lack it.
-2. (DONE) Vulkan Video H.264 encoder on Linux / Windows: dll/src/desktop/extra/video_codec/encode_vulkan.rs
-   mirroring decode_vulkan.rs (gpu-video `create_bytes_encoder_h264`, NV12 input via the core
-   YCbCr table for RGBA/BGRA, RateControl::VariableBitrate; set_bitrate = re-create the encoder);
-   EncoderInner gets an engine enum; encode_engine() honest.
-3. (DONE) Echo cancellation: pure-Rust partitioned-block frequency-domain adaptive filter (needs an FFT:
-   search the tree first), synthetic-signal ERLE tests; AzMeet feeds the played far end.
-4. Zero copy steps 2-3 (last).
-5. Report scripts/VIDEO8_2026_10_03.md.
+## IN PROGRESS
+- nothing. TASK COMPLETE.
+
+## NEXT
+- parent: api.json entries (report "api.json" 1-6), compile, run the test commands in the report,
+  then AzMeet (E2E: stdout `AZMEET_AUDIO opus`, `AZMEET_RATE ...`).
 
 ## api.json (so far) - full text goes into the report
 - `audio.AudioEncoder` (external azul_dll::unified::audio::AudioEncoder; custom_impls Clone Default
