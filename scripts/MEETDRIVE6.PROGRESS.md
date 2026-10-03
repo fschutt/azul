@@ -26,6 +26,16 @@ scratchpad/msg.txt).
    NOTE for report: write_sample(home) uses LocalDrive::new -> after INFRA6 it would keep a
    manifest in the user's HOME: switch to LocalDrive::without_manifest (INFRA6 API) - TODO
 3. DONE appkit
+- 686bd7cad without_manifest for home/upload/download (INFRA6 API)
+- 6b1dc4734 MessageBox for ConfirmDelete/Forget; 737343e87 RED / 1d0125531 GREEN queue
+  wants_progress_dialog; a848a5d4e ProgressDialog in the transfers popup (auto after 2 s)
+- 8f37795b9 dead browse helpers (N6), now_secs -> azul_storage::time (D23)
+- 19b08611c RED / ca83a0073 GREEN browse::counted ("1 drive")
+- ALREADY DONE before wave 6: ListSelection (model::Selection wraps it), format_bytes, ribbon
+  with_items, no ctrl||meta in AzDrive/AzMeet
+- DEFERRED (widget, report): ShellNavigationPane flat/flora nav_root width 230px fixed, inside
+  BrowserShell's ratio-sized tree pane (~280) -> an empty column + floating "<" chevron
+4.-7. mostly DONE; left: E2E client dedup (D29), LOOK items needing a run
 4. MessageBox for ConfirmDelete / ConfirmForget (D12), ProgressDialog for transfers
 5. ListSelection instead of model::Selection (D20)
 6. dedup: format_size -> DiskSpace::format_bytes (D24), now_secs -> azul_storage::time (D23),
