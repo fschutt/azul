@@ -11,7 +11,7 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{Datelike, Days, NaiveDate, TimeZone, Weekday};
+use chrono::{NaiveDate, TimeZone};
 use serde::{Deserialize, Serialize};
 
 use crate::{folders::Role, store::IndexEntry};
@@ -28,80 +28,8 @@ pub fn flags_key(folder: &str) -> String {
     format!("{}/{folder}/{FLAGS_FILE}", crate::store::MAIL_PREFIX)
 }
 
-/// Outlook's date groups of a list arranged by date.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DateGroup {
-    Today,
-    Yesterday,
-    /// An earlier day of this week (weeks start on Monday).
-    Weekday(Weekday),
-    LastWeek,
-    TwoWeeksAgo,
-    ThreeWeeksAgo,
-    /// Before that, but in the previous calendar month.
-    LastMonth,
-    Older,
-}
-
-impl DateGroup {
-    /// The group header ("Today", "Monday", "Last Week").
-    pub fn label(self) -> String {
-        String::from(match self {
-            DateGroup::Today => "Today",
-            DateGroup::Yesterday => "Yesterday",
-            DateGroup::Weekday(day) => weekday_name(day),
-            DateGroup::LastWeek => "Last Week",
-            DateGroup::TwoWeeksAgo => "Two Weeks Ago",
-            DateGroup::ThreeWeeksAgo => "Three Weeks Ago",
-            DateGroup::LastMonth => "Last Month",
-            DateGroup::Older => "Older",
-        })
-    }
-}
-
-// The English name of a day ("Monday"): the PIM apps' one (DEDUP_EDITORS B5).
-use azul_pim::dates::weekday_name;
-
-/// Whether the server set `flag` (`\Seen`, `\Flagged`) on the message, in any case.
-fn has_flag(entry: &IndexEntry, flag: &str) -> bool {
-    entry.flags.iter().any(|f| f.eq_ignore_ascii_case(flag))
-}
-
-/// The group of a message received on `day` when it is `today` (a day after today - a sender's
-/// clock running ahead - is Today).
-pub fn date_group(day: NaiveDate, today: NaiveDate) -> DateGroup {
-    if day >= today {
-        return DateGroup::Today;
-    }
-    if Some(day) == today.pred_opt() {
-        return DateGroup::Yesterday;
-    }
-    let back = |n: u64| today.checked_sub_days(Days::new(n)).unwrap_or(NaiveDate::MIN);
-    // This week began on Monday.
-    let monday = back(u64::from(today.weekday().num_days_from_monday()));
-    if day >= monday {
-        return DateGroup::Weekday(day.weekday());
-    }
-    let weeks_before = |n: u64| monday.checked_sub_days(Days::new(7 * n)).unwrap_or(NaiveDate::MIN);
-    if day >= weeks_before(1) {
-        return DateGroup::LastWeek;
-    }
-    if day >= weeks_before(2) {
-        return DateGroup::TwoWeeksAgo;
-    }
-    if day >= weeks_before(3) {
-        return DateGroup::ThreeWeeksAgo;
-    }
-    let (year, month) = if today.month() == 1 {
-        (today.year() - 1, 12)
-    } else {
-        (today.year(), today.month() - 1)
-    };
-    if day.year() == year && day.month() == month {
-        return DateGroup::LastMonth;
-    }
-    DateGroup::Older
-}
+// Outlook's date groups: azul-pim's one, which AzNews' article list uses too.
+pub use azul_pim::dates::{date_group, DateGroup};
 
 /// The calendar day of an RFC 3339 date in `tz`; `None` when it is not a date.
 pub fn local_day<Tz: TimeZone>(rfc3339: &str, tz: &Tz) -> Option<NaiveDate> {
@@ -388,6 +316,8 @@ pub fn favorites(folders: &[FolderInfo]) -> Vec<FolderNode> {
 
 #[cfg(test)]
 mod tests {
+    use chrono::Weekday;
+
     use super::*;
 
     fn day(y: i32, m: u32, d: u32) -> NaiveDate {

@@ -9,7 +9,7 @@
 //! Names are English, as every app's labels are today; the localized names come later through
 //! azul's ICU formatter (B7).
 
-use chrono::{Datelike, Duration, NaiveDate, Weekday};
+use chrono::{Datelike, Days, Duration, NaiveDate, Weekday};
 
 /// Every weekday, Monday first (ISO 8601).
 pub const WEEKDAYS: [Weekday; 7] = [
@@ -237,12 +237,118 @@ pub fn month_grid(day: NaiveDate, week_start: Weekday) -> Vec<NaiveDate> {
     (0..42).map(|i| start + Duration::days(i)).collect()
 }
 
+/// Outlook's date groups of a list arranged by date: AzMail's message list and AzNews' article
+/// list (moved here from AzMail's `listing.rs` when AzNews needed the same groups).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DateGroup {
+    Today,
+    Yesterday,
+    /// An earlier day of this week (weeks start on Monday).
+    Weekday(Weekday),
+    LastWeek,
+    TwoWeeksAgo,
+    ThreeWeeksAgo,
+    /// Before that, but in the previous calendar month.
+    LastMonth,
+    Older,
+}
+
+impl DateGroup {
+    /// The group header ("Today", "Monday", "Last Week").
+    #[must_use]
+    pub fn label(self) -> String {
+        String::from(match self {
+            DateGroup::Today => "Today",
+            DateGroup::Yesterday => "Yesterday",
+            DateGroup::Weekday(day) => weekday_name(day),
+            DateGroup::LastWeek => "Last Week",
+            DateGroup::TwoWeeksAgo => "Two Weeks Ago",
+            DateGroup::ThreeWeeksAgo => "Three Weeks Ago",
+            DateGroup::LastMonth => "Last Month",
+            DateGroup::Older => "Older",
+        })
+    }
+}
+
+/// The group of something dated `day` when it is `today` (a day after today - a sender's clock
+/// running ahead - is Today).
+#[must_use]
+pub fn date_group(day: NaiveDate, today: NaiveDate) -> DateGroup {
+    if day >= today {
+        return DateGroup::Today;
+    }
+    if Some(day) == today.pred_opt() {
+        return DateGroup::Yesterday;
+    }
+    let back = |n: u64| today.checked_sub_days(Days::new(n)).unwrap_or(NaiveDate::MIN);
+    // This week began on Monday.
+    let monday = back(u64::from(today.weekday().num_days_from_monday()));
+    if day >= monday {
+        return DateGroup::Weekday(day.weekday());
+    }
+    let weeks_before = |n: u64| monday.checked_sub_days(Days::new(7 * n)).unwrap_or(NaiveDate::MIN);
+    if day >= weeks_before(1) {
+        return DateGroup::LastWeek;
+    }
+    if day >= weeks_before(2) {
+        return DateGroup::TwoWeeksAgo;
+    }
+    if day >= weeks_before(3) {
+        return DateGroup::ThreeWeeksAgo;
+    }
+    let (year, month) = if today.month() == 1 {
+        (today.year() - 1, 12)
+    } else {
+        (today.year(), today.month() - 1)
+    };
+    if day.year() == year && day.month() == month {
+        return DateGroup::LastMonth;
+    }
+    DateGroup::Older
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn day(y: i32, m: u32, d: u32) -> NaiveDate {
         NaiveDate::from_ymd_opt(y, m, d).unwrap()
+    }
+
+    #[test]
+    fn the_date_groups_follow_outlook_from_today_back() {
+        // Thursday, 1 October 2026; this week started on Monday 28 September.
+        let t = day(2026, 10, 1);
+        assert_eq!(date_group(t, t), DateGroup::Today);
+        assert_eq!(date_group(day(2026, 10, 2), t), DateGroup::Today, "a clock ahead");
+        assert_eq!(date_group(day(2026, 9, 30), t), DateGroup::Yesterday);
+        assert_eq!(date_group(day(2026, 9, 29), t), DateGroup::Weekday(Weekday::Tue));
+        assert_eq!(date_group(day(2026, 9, 28), t), DateGroup::Weekday(Weekday::Mon));
+        assert_eq!(date_group(day(2026, 9, 27), t), DateGroup::LastWeek);
+        assert_eq!(date_group(day(2026, 9, 21), t), DateGroup::LastWeek);
+        assert_eq!(date_group(day(2026, 9, 20), t), DateGroup::TwoWeeksAgo);
+        assert_eq!(date_group(day(2026, 9, 14), t), DateGroup::TwoWeeksAgo);
+        assert_eq!(date_group(day(2026, 9, 13), t), DateGroup::ThreeWeeksAgo);
+        assert_eq!(date_group(day(2026, 9, 7), t), DateGroup::ThreeWeeksAgo);
+        assert_eq!(date_group(day(2026, 9, 6), t), DateGroup::LastMonth);
+        assert_eq!(date_group(day(2026, 9, 1), t), DateGroup::LastMonth);
+        assert_eq!(date_group(day(2026, 8, 31), t), DateGroup::Older);
+        assert_eq!(date_group(day(1999, 1, 1), t), DateGroup::Older);
+    }
+
+    #[test]
+    fn on_a_monday_yesterday_is_last_week_s_sunday_and_no_weekday_group_exists() {
+        let monday = day(2026, 9, 28);
+        assert_eq!(date_group(day(2026, 9, 27), monday), DateGroup::Yesterday);
+        assert_eq!(date_group(day(2026, 9, 26), monday), DateGroup::LastWeek);
+    }
+
+    #[test]
+    fn the_group_labels_are_outlooks() {
+        assert_eq!(DateGroup::Today.label(), "Today");
+        assert_eq!(DateGroup::Weekday(Weekday::Wed).label(), "Wednesday");
+        assert_eq!(DateGroup::LastWeek.label(), "Last Week");
+        assert_eq!(DateGroup::Older.label(), "Older");
     }
 
     #[test]
