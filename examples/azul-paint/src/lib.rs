@@ -14,6 +14,7 @@ use azul::{
     vec::{F32VecRef, StringVec, U8VecRef},
     widgets::Titlebar,
 };
+use azul_appkit::history::UndoHistory;
 
 /// Every DOM id and marker AzPaint sets, defined ONCE with the app's prefix
 /// (`__azpaint_`, like the widgets' `__azul_`).
@@ -100,7 +101,9 @@ struct PenHud {
 
 struct PaintState {
     strokes: Vec<Stroke>,
-    undone: Vec<Stroke>,
+    /// The strokes before each edit (a stroke, a Clear): azul-appkit's undo
+    /// stack, shared by every Azlin app.
+    history: UndoHistory<Vec<Stroke>>,
     current: Option<Stroke>,
     color: ColorU,
     hud: Option<PenHud>,
@@ -116,7 +119,7 @@ impl PaintState {
     fn new() -> Self {
         Self {
             strokes: Vec::new(),
-            undone: Vec::new(),
+            history: UndoHistory::new("New"),
             current: None,
             color: ColorU {
                 r: 30,
@@ -150,12 +153,7 @@ impl PaintState {
     }
 
     fn begin_stroke(&mut self, p: StrokePoint, is_eraser: bool) {
-        if let Some(active) = self.current.take() {
-            if !active.points.is_empty() {
-                self.strokes.push(active);
-            }
-        }
-        self.undone.clear();
+        self.commit_current();
         self.current = Some(Stroke {
             points: vec![p],
             color: self.color,
@@ -172,33 +170,46 @@ impl PaintState {
     }
 
     fn end_stroke(&mut self) {
-        if let Some(active) = self.current.take() {
-            if !active.points.is_empty() {
-                self.strokes.push(active);
-            }
-        }
+        self.commit_current();
         self.rev += 1;
     }
 
-    fn undo(&mut self) {
-        if let Some(s) = self.strokes.pop() {
-            self.undone.push(s);
-            self.rev += 1;
+    /// The stroke being drawn joins the strokes: one History step.
+    fn commit_current(&mut self) {
+        if let Some(active) = self.current.take() {
+            if !active.points.is_empty() {
+                let label = if active.is_eraser { "Erase" } else { "Stroke" };
+                self.history.checkpoint(label, self.strokes.clone());
+                self.strokes.push(active);
+            }
         }
     }
 
-    fn redo(&mut self) {
-        if let Some(s) = self.undone.pop() {
-            self.strokes.push(s);
+    /// Back one step; whether there was one.
+    fn undo(&mut self) -> bool {
+        self.commit_current();
+        let undone = self.history.undo(&mut self.strokes);
+        if undone {
             self.rev += 1;
         }
+        undone
     }
 
+    /// Forward one step; whether there was one.
+    fn redo(&mut self) -> bool {
+        let redone = self.history.redo(&mut self.strokes);
+        if redone {
+            self.rev += 1;
+        }
+        redone
+    }
+
+    /// Clear the canvas: one History step (nothing for an empty canvas).
     fn clear_all(&mut self) {
-        if !self.strokes.is_empty() {
-            self.undone.append(&mut self.strokes);
-        }
         self.current = None;
+        if !self.strokes.is_empty() {
+            self.history.checkpoint("Clear", std::mem::take(&mut self.strokes));
+        }
         self.rev += 1;
     }
 }
@@ -944,20 +955,18 @@ const CANVAS: &str = "flex-grow: 1; position: relative; overflow: hidden;";
 const ROOT: &str = "display: flex; flex-direction: column; height: 100%; margin: 0px;";
 
 extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-    let (n_strokes, n_undone, metaballs, hud, device_line, last_pressure) = data
+    let (n_strokes, metaballs, hud, device_line, last_pressure) = data
         .downcast_ref::<PaintState>()
         .map(|s| {
             (
                 s.strokes.len(),
-                s.undone.len(),
                 s.metaball_mode,
                 s.hud,
                 s.device_line.clone(),
                 s.last_pressure,
             )
         })
-        .unwrap_or((0, 0, true, None, None, 0.0));
-    let _ = n_undone;
+        .unwrap_or((0, true, None, None, 0.0));
 
     let mode_label = if metaballs { "Metaballs" } else { "Brush" };
     let title = match device_line {
@@ -1093,8 +1102,8 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
             action_with_accel("Export SVG…", on_export_svg, &[K::LWin, K::LShift, K::S]),
         ])),
         MenuItem::string(StringMenuItem::create("Edit").with_children(vec![
-            action("Undo", on_undo),
-            action("Redo", on_redo),
+            action_with_accel("Undo", on_undo, &[K::LWin, K::Z]),
+            action_with_accel("Redo", on_redo, &[K::LWin, K::LShift, K::Z]),
             action("Clear", on_clear),
         ])),
         MenuItem::string(StringMenuItem::create("View").with_children(vec![action(
@@ -1379,27 +1388,37 @@ extern "C" fn on_pointer_gone(mut data: RefAny, _info: CallbackInfo) -> Update {
     }
 }
 
+/// Edit > Undo (Mod+Z, the item's accelerator).
 extern "C" fn on_undo(mut data: RefAny, _info: CallbackInfo) -> Update {
-    match data.downcast_mut::<PaintState>() {
-        Some(mut s) => s.undo(),
-        None => return Update::DoNothing,
+    let Some(mut s) = data.downcast_mut::<PaintState>() else {
+        return Update::DoNothing;
+    };
+    if !s.undo() {
+        return Update::DoNothing;
     }
+    say_strokes(&s);
     Update::RefreshDom
 }
 
+/// Edit > Redo (Mod+Shift+Z).
 extern "C" fn on_redo(mut data: RefAny, _info: CallbackInfo) -> Update {
-    match data.downcast_mut::<PaintState>() {
-        Some(mut s) => s.redo(),
-        None => return Update::DoNothing,
+    let Some(mut s) = data.downcast_mut::<PaintState>() else {
+        return Update::DoNothing;
+    };
+    if !s.redo() {
+        return Update::DoNothing;
     }
+    say_strokes(&s);
     Update::RefreshDom
 }
 
+/// Edit > Clear: one undoable step.
 extern "C" fn on_clear(mut data: RefAny, _info: CallbackInfo) -> Update {
-    match data.downcast_mut::<PaintState>() {
-        Some(mut s) => s.clear_all(),
-        None => return Update::DoNothing,
-    }
+    let Some(mut s) = data.downcast_mut::<PaintState>() else {
+        return Update::DoNothing;
+    };
+    s.clear_all();
+    say_strokes(&s);
     Update::RefreshDom
 }
 
