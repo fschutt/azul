@@ -4345,13 +4345,30 @@ fn layout_ifc<T: ParsedFontTrait>(
     // property (text-align, text-align-last, text-indent, direction, line-height,
     // white-space, columns) — which is NOT covered by the per-run content hash — would
     // otherwise silently reuse a stale, differently-aligned/indented cached layout.
-    let text3_constraints = translate_to_text3_constraints(
+    let mut text3_constraints = translate_to_text3_constraints(
         ctx,
         constraints,
         ctx.styled_dom,
         ifc_root_dom_id,
         ifc_root_is_anonymous,
     );
+    // CSS 2.1 s16.1 / CSS Text 3 s8.1: `text-indent` indents the FIRST
+    // formatted line of the block container. An anonymous block (which
+    // borrows the container's style) holds that line only when it is the
+    // container's first in-flow box: the text after a nested block
+    // (`<div>first<div>..</div>after</div>`) is not indented (Chrome);
+    // it was (TEXT7's finding). `each-line` keeps its own rule.
+    if ifc_root_is_anonymous
+        && !text3_constraints.text_indent_each_line
+        && tree
+            .get(LayoutNodeId::new(node_index))
+            .and_then(|n| n.parent)
+            .is_some_and(|parent| {
+                first_in_flow_child(tree, ctx.styled_dom, parent) != Some(node_index)
+            })
+    {
+        text3_constraints.text_indent = 0.0;
+    }
 
     let current_content_hash = {
         let _p = crate::probe::Probe::span("ifc_content_hash");
