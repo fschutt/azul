@@ -35,12 +35,21 @@
   - dd86e0d78 GREEN refusal in generate_add_type_patches
   - 3e7b3ac3c refactor preflight uses CRATE_DIRS
 
+- item 4 (AUTOFIX6 list):
+  - a84cf4796 RED function_diff::tests::{a_borrowed_return_added_by_name_is_cloned,
+    an_option_argument_crosses_as_its_ffi_option, a_slice_argument_crosses_as_its_vec_slice,
+    an_accessor_never_hits_an_argument_whose_name_ends_with_another}
+  - 442116648 GREEN templates + slice_arg_type; 981555c7f GREEN option_arg_ffi_type
+    (+ written_type source_ty; wildcard test now includes set_link); 9defb80c5 GREEN clone
+  - 5230fcf9c RED patch::tests::a_patch_that_only_removes_is_not_empty_and_creates_no_class
+  - e8004ed34 GREEN has_removals / removes_only / is_empty / is_path_only
+  - 68499bb14 RED pending::tests::an_add_after_a_pending_removal_of_the_whole_class_replaces_its_entries
+  - d868a9bfa GREEN prepare_add (+ main.rs both add arms)
+
 ## IN PROGRESS
-- item 4 (AUTOFIX6 list)
+- item 5
 
 ## NEXT
-- item 4: &T return by name (.clone()), Option<T> args, &[T] -> XxxVecSlice, suffix splice
-  -> templates, ClassPatch::is_empty with remove_* lists, whole-class removal + add in one round
 - item 5: css/src/macros.rs $crate:: in impl_option!/impl_result!/impl_widget_callback! RefAny;
   module_map VecSlice rule (already one rule: is_vec_family - verify + list the scan's moves)
 - report scripts/TOOLS7_2026_10_03.md
