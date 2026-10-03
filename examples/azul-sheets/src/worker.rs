@@ -131,6 +131,22 @@ pub enum Command {
     Find {
         from: CellAddr,
         needle: String,
+        opts: ops::FindOptions,
+    },
+    /// Replace: the match in `at` (if it holds one) is replaced, then the
+    /// next match is `Reply::found`.
+    Replace {
+        at: CellAddr,
+        needle: String,
+        replacement: String,
+        opts: ops::FindOptions,
+    },
+    /// Replace All on `sheet` as one undo step: `Reply::count` cells changed.
+    ReplaceAll {
+        sheet: u32,
+        needle: String,
+        replacement: String,
+        opts: ops::FindOptions,
     },
     /// AutoSum: `Reply::area` = the run of numbers above `at` (else to its
     /// left) the `=SUM(..)` should add up; nothing is written.
@@ -449,8 +465,30 @@ fn run(
             extras.count = Some(ops::filter_rows(engine, *area, *column, keep.as_deref())?);
             Ok(())
         }
-        Command::Find { from, needle } => {
-            extras.found = ops::find_next(engine, *from, needle);
+        Command::Find { from, needle, opts } => {
+            extras.found = ops::find_match(engine, *from, needle, *opts);
+            Ok(())
+        }
+        Command::Replace {
+            at,
+            needle,
+            replacement,
+            opts,
+        } => {
+            let input = engine.cell_input(*at);
+            if let Some(new) = ops::replace_text(&input, needle, replacement, *opts) {
+                engine.set_cell_input(*at, &new)?;
+            }
+            extras.found = ops::find_match(engine, *at, needle, *opts);
+            Ok(())
+        }
+        Command::ReplaceAll {
+            sheet,
+            needle,
+            replacement,
+            opts,
+        } => {
+            extras.count = Some(ops::replace_all(engine, *sheet, needle, replacement, *opts)?);
             Ok(())
         }
         Command::SumRange { at } => {
@@ -688,6 +726,7 @@ mod tests {
                 Command::Find {
                     from: at(1, 1),
                     needle: "NEED".into(),
+                    opts: ops::FindOptions::default(),
                 },
                 ViewRequest::default(),
                 tx,
