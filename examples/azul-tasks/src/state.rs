@@ -136,6 +136,12 @@ pub struct Tasks {
     pub folded_groups: BTreeSet<String>,
     /// A list's "Completed (n)" section is unfolded.
     pub completed_open: bool,
+    /// Scheduled shows the planned month (else the list of days), and the month it shows (any
+    /// day of it).
+    pub planned_month: bool,
+    pub month: NaiveDate,
+    /// A list shows its board (To do / Doing / Done) instead of the list.
+    pub board: bool,
     pub ribbon_tab: usize,
     pub page: Option<Page>,
     pub settings_category: usize,
@@ -238,6 +244,9 @@ impl Tasks {
             nav_collapsed: false,
             folded_groups: BTreeSet::new(),
             completed_open: false,
+            planned_month: false,
+            month: clock.date(),
+            board: false,
             ribbon_tab: 0,
             page: None,
             settings_category: 0,
@@ -467,6 +476,19 @@ impl Tasks {
             .select_in(shown, ListSelection::key_of(id), shift, ctrl);
         if !shift {
             println!("AZTASKS_SELECTED {id}");
+        }
+    }
+
+    /// The tasks a drop lands: the dragged one, or the whole selection when it is part of it;
+    /// the drag is over.
+    pub fn take_dropped(&mut self) -> Vec<String> {
+        let Some(dragged) = self.drag.take() else {
+            return Vec::new();
+        };
+        if self.is_selected(&dragged) {
+            self.selected_ids()
+        } else {
+            vec![dragged]
         }
     }
 

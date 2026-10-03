@@ -96,6 +96,18 @@ names! {
     SETTINGS_IO_MESSAGE = "settings-io-message";
     SHORTCUTS = "shortcuts";
     ABOUT = "about";
+    // ---- the planned month and the board ----
+    /// The list header's "List | Month" / "List | Board" switch.
+    LAYOUT_SWITCH = "layout-switch";
+    PLANNED_MONTH = "planned-month";
+    MONTH_PREV = "month-prev";
+    MONTH_NEXT = "month-next";
+    MONTH_TODAY = "month-today";
+    /// The class of a task in a day of the planned month.
+    PLANNED_TASK_CLASS = "planned-task";
+    BOARD = "board";
+    /// The class of a task's card on the board.
+    BOARD_CARD_CLASS = "board-card";
 }
 
 /// The stem of a task row's id: `task-<task id>`.
@@ -130,6 +142,24 @@ pub fn task_check(id: &str) -> AzString {
 #[must_use]
 pub fn section(key: &str) -> AzString {
     named(&format!("section-{key}"))
+}
+
+/// The planned month's cell of `day` (`month-day-2026-10-01`).
+#[must_use]
+pub fn month_day(day: &str) -> AzString {
+    named(&format!("month-day-{day}"))
+}
+
+/// The board's column by its key (`column-todo`, `column-doing`, `column-done`).
+#[must_use]
+pub fn board_column(key: &str) -> AzString {
+    named(&format!("column-{key}"))
+}
+
+/// The board's card of the task `id`.
+#[must_use]
+pub fn board_card(id: &str) -> AzString {
+    named(&format!("card-{id}"))
 }
 
 /// The task's step at `n` (0 = the first), and the due date's quick choice at `n`.

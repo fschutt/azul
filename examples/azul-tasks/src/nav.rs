@@ -221,25 +221,11 @@ fn nav_event(info: &mut CallbackInfo, app: &RefAny, s: &mut Tasks, event: &Shell
     }
 }
 
-/// The tasks a drop carries: the dragged one, with the rest of the selection when it is
-/// part of it.
-fn dropped_tasks(s: &Tasks) -> Vec<String> {
-    let Some(dragged) = s.drag.clone() else {
-        return Vec::new();
-    };
-    if s.is_selected(&dragged) {
-        s.selected_ids()
-    } else {
-        vec![dragged]
-    }
-}
-
 /// A drag dropped on node `index` of group `group`: on a list it moves the tasks there; on
 /// Today it makes them due today, on Upcoming tomorrow, on Flagged flags them, on Completed
 /// completes them; on a tag it tags them. Returns attachment folders to move.
 fn node_dropped(s: &mut Tasks, group: usize, index: usize, now: chrono::NaiveDateTime) -> Vec<(String, String)> {
-    let ids = dropped_tasks(s);
-    s.drag = None;
+    let ids = s.take_dropped();
     if ids.is_empty() {
         return Vec::new();
     }
