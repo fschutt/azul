@@ -673,6 +673,9 @@ pub struct CellGrid {
     pub column_widths: CellGridSizeVec,
     /// Rows whose height differs from `default_row_height`.
     pub row_heights: CellGridSizeVec,
+    /// Merged ranges: each is drawn as one cell (its top-left cell's content
+    /// and look) over the cells it covers, and a click in it selects it.
+    pub merges: CellGridRangeVec,
     /// Where the cells' content comes from; none = an empty grid.
     pub data_source: OptionCellGridDataSource,
     /// Where the cells' looks come from; none = every cell plain.
@@ -746,6 +749,7 @@ impl CellGrid {
             accessibility_name: AzString::from_const_str("Grid"),
             column_widths: CellGridSizeVec::from_const_slice(&[]),
             row_heights: CellGridSizeVec::from_const_slice(&[]),
+            merges: CellGridRangeVec::from_const_slice(&[]),
             data_source: None.into(),
             style_source: None.into(),
             on_event: None.into(),
@@ -852,6 +856,24 @@ impl CellGrid {
     pub fn with_row_heights(mut self, heights: CellGridSizeVec) -> Self {
         self.set_row_heights(heights);
         self
+    }
+
+    /// Sets the merged ranges (see [`Self::merges`]).
+    pub fn set_merges(&mut self, merges: CellGridRangeVec) {
+        self.merges = merges;
+    }
+
+    /// [`Self::set_merges`] for the builder chain.
+    #[must_use]
+    pub fn with_merges(mut self, merges: CellGridRangeVec) -> Self {
+        self.set_merges(merges);
+        self
+    }
+
+    /// The merged range holding `cell`, if any.
+    #[must_use]
+    pub fn merge_of(&self, cell: CellGridCellRef) -> Option<CellGridRange> {
+        self.merges.as_ref().iter().copied().find(|m| m.contains(cell))
     }
 
     /// Sets where the cells' content comes from.
@@ -1916,6 +1938,8 @@ pub(crate) const FILL_PREVIEW_CLASS_NAME: &str = "__azul-native-cell-grid-fill-p
 pub(crate) const EDITOR_CLASS_NAME: &str = "__azul-native-cell-grid-editor";
 /// The editor's caret.
 pub(crate) const CARET_CLASS_NAME: &str = "__azul-native-cell-grid-caret";
+/// A merged range, drawn over the cells it covers.
+pub(crate) const MERGE_CLASS_NAME: &str = "__azul-native-cell-grid-merge";
 
 static GRID_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(GRID_CLASS_NAME))];
 static ROW_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(ROW_CLASS_NAME))];
@@ -1930,6 +1954,7 @@ static FILL_PREVIEW_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str(FILL_PREVIEW_CLASS_NAME))];
 static EDITOR_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(EDITOR_CLASS_NAME))];
 static CARET_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(CARET_CLASS_NAME))];
+static MERGE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(MERGE_CLASS_NAME))];
 
 /// What a theme decides about a grid: the SKIN of each part, laid over the
 /// part's base (the structure, the same in every theme) by [`build`].
@@ -4188,6 +4213,41 @@ mod cell_grid_tests {
             Some("A7"),
             "an empty cell is named too"
         );
+    }
+
+    /// Merge & Center: a merged range is ONE cell on screen - its top-left
+    /// cell's content over the cells it covers - named by its top-left
+    /// place, and a click anywhere in it selects all of it.
+    #[test]
+    fn a_merged_range_is_drawn_as_one_cell_and_a_click_in_it_selects_it() {
+        let merge = CellGridRange::spanning(at(1, 1), at(2, 2)); // B2:C3
+        let g = small().with_merges(CellGridRangeVec::from_vec(vec![merge]));
+        assert_eq!(g.merge_of(at(2, 2)), Some(merge));
+        assert_eq!(g.merge_of(at(0, 0)), None);
+        let dom = g.clone().with_theme(UiTheme::Flat).dom();
+        let merged: Vec<&Dom> = dom
+            .children
+            .as_ref()
+            .iter()
+            .filter(|c| {
+                c.root
+                    .get_ids_and_classes()
+                    .as_ref()
+                    .iter()
+                    .any(|x| matches!(x, Class(n) if n.as_str() == MERGE_CLASS_NAME))
+            })
+            .collect();
+        assert_eq!(merged.len(), 1, "one cell over B2:C3");
+        let info = merged[0].root.get_accessibility_info().expect("a cell role");
+        assert_eq!(info.accessibility_name.as_ref().map(|n| n.as_str()), Some("B2"));
+        let mut seen = Vec::new();
+        texts(merged[0], &mut seen);
+        assert_eq!(seen, vec![String::from("11")], "B2's content");
+
+        let geo = geometry(&g);
+        let e = press(&g, &geo, Hit::Cell(at(2, 2)), false, false, (0.0, 0.0)).expect("a click on C3");
+        assert_eq!(e.view.ranges.as_ref(), &[merge], "the whole merge");
+        assert_eq!(e.view.active, at(1, 1), "its top-left cell is the active one");
     }
 
     /// A1 holds a title wider than its column, B1 and C1 are empty, D1 has
