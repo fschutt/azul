@@ -143,21 +143,11 @@ fn extract_metadata_from_string(xml: &str) -> TestMetadata {
             }
         }
     }
-    for tag in ["assert", "flags"] {
-        let needle = format!("name=\"{}\"", tag);
-        if let Some(pos) = xml.find(&needle) {
-            let region = &xml[pos.saturating_sub(100)..xml.len().min(pos + 200)];
-            if let Some(c_start) = region.find("content=\"") {
-                let after = &region[c_start + 9..];
-                if let Some(c_end) = after.find('"') {
-                    match tag {
-                        "assert" => m.assert_content = after[..c_end].to_string(),
-                        "flags" => m.flags = after[..c_end].to_string(),
-                        _ => {}
-                    }
-                }
-            }
-        }
+    if let Some(assert) = meta_content(xml, "assert") {
+        m.assert_content = assert.to_string();
+    }
+    if let Some(flags) = meta_content(xml, "flags") {
+        m.flags = flags.to_string();
     }
     m
 }
@@ -348,7 +338,8 @@ impl ReftestPipeline {
 
         // Diff
         let diff_pixels = compare_images(chrome_img, azul_img).map_err(|e| format!("{}", e))?;
-        let passed = diff_pixels <= PASS_THRESHOLD_PIXELS;
+        let page = std::fs::read_to_string(test_file).unwrap_or_default();
+        let passed = diff_pixels <= pass_threshold_for(test_file, &page);
 
         if let Some(ref ct) = chrome_timing {
             println!("  Chrome: {}", ct);
@@ -496,11 +487,56 @@ pub fn render_xhtml_to_webp(
     ))
 }
 
+/// The budget of a `wpt-*` page (a vendored web-platform-test, REFCI): its
+/// subject is a 100x100 square (10000 px) and its text one sentence, whose
+/// antialiasing the two engines' rasterizers disagree on by a few thousand
+/// pixels at most - so a missing square fails and the sentence does not.
+pub const WPT_PAGE_PASS_THRESHOLD_PIXELS: usize = 2500;
+
 /// The pass budget of one page: how many pixels may differ between Chrome's
-/// render and azul's. STUB (RED): every page gets the global 0.5 %.
+/// render and azul's. A `wpt-*` page gets [`WPT_PAGE_PASS_THRESHOLD_PIXELS`],
+/// or its own `<meta name="fuzzy">` allowance where that is larger; every
+/// other page the global [`PASS_THRESHOLD_PIXELS`] (0.5 % of the 1920x1080
+/// screenshot - which is more than a WPT page's whole subject, so a page that
+/// painted no square at all used to pass).
 #[must_use]
-pub fn pass_threshold_for(_test_file: &Path, _xml: &str) -> usize {
-    PASS_THRESHOLD_PIXELS
+pub fn pass_threshold_for(test_file: &Path, xml: &str) -> usize {
+    let is_wpt_page = test_file
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with("wpt-"));
+    if !is_wpt_page {
+        return PASS_THRESHOLD_PIXELS;
+    }
+    wpt_fuzzy_total_pixels(xml).map_or(WPT_PAGE_PASS_THRESHOLD_PIXELS, |own| {
+        own.max(WPT_PAGE_PASS_THRESHOLD_PIXELS)
+    })
+}
+
+/// The upper bound of the pixel count of the page's WPT fuzzy allowance -
+/// `<meta name="fuzzy" content="0-1;0-19000">`, also written
+/// `maxDifference=0-1;totalPixels=0-19000` and scoped to a reference as
+/// `ref.html:0-1;0-19000`.
+fn wpt_fuzzy_total_pixels(xml: &str) -> Option<usize> {
+    let content = meta_content(xml, "fuzzy")?;
+    let ranges = content.rsplit(':').next()?;
+    let total = ranges.split(';').nth(1)?.trim();
+    let total = total.strip_prefix("totalPixels=").unwrap_or(total);
+    total.rsplit('-').next()?.trim().parse().ok()
+}
+
+/// The `content` of the page's `<meta name="{name}" ...>`, whichever order
+/// the two attributes come in: read from that one tag (a region around the
+/// name could reach the `content` of the meta tag before it).
+fn meta_content<'a>(xml: &'a str, name: &str) -> Option<&'a str> {
+    let needle = format!("name=\"{name}\"");
+    let at = xml.find(&needle)?;
+    let tag_start = xml[..at].rfind('<')?;
+    let tag_end = at + xml[at..].find('>')?;
+    let tag = &xml[tag_start..tag_end];
+    let value_start = tag.find("content=\"")? + "content=\"".len();
+    let value_len = tag[value_start..].find('"')?;
+    Some(&tag[value_start..value_start + value_len])
 }
 
 #[cfg(test)]
@@ -536,7 +572,10 @@ mod tests {
         let page = "<html><head><meta name=\"fuzzy\" content=\"0-1;0-19000\"/></head>\
                     <body/></html>";
         assert_eq!(
-            pass_threshold_for(Path::new("doc/working/wpt-background-margin-root.xht"), page),
+            pass_threshold_for(
+                Path::new("doc/working/wpt-background-margin-root.xht"),
+                page
+            ),
             19_000
         );
         let named = "<html><head><meta content=\"maxDifference=0-3;totalPixels=0-12000\" \
@@ -550,7 +589,10 @@ mod tests {
     #[test]
     fn any_other_page_keeps_the_global_budget() {
         assert_eq!(
-            pass_threshold_for(Path::new("doc/working/block-margin-collapse.xht"), GREEN_SQUARE),
+            pass_threshold_for(
+                Path::new("doc/working/block-margin-collapse.xht"),
+                GREEN_SQUARE
+            ),
             PASS_THRESHOLD_PIXELS
         );
     }
