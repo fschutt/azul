@@ -1206,6 +1206,11 @@ impl TreeBuilder {
                         true
                     }
                 },
+                // 13.2.6.4.18 "in template": a template's content (also in the head) is
+                // read by the body's rules.
+                Phase::InHead | Phase::AfterHead if self.template_open() => {
+                    self.body_start(sink, tag)
+                }
                 Phase::InHead => self.in_head_start(sink, tag),
                 Phase::AfterHead => self.after_head_start(sink, tag),
                 Phase::InBody => self.body_start(sink, tag),
@@ -1216,14 +1221,14 @@ impl TreeBuilder {
         }
     }
 
-    /// The head's content (13.2.6.4.4), inserted where it stands.
+    /// The head's content (13.2.6.4.4), inserted where it stands by its row of
+    /// [`rules::START_TAGS`] (one insertion step: void, a template's marker ...).
     fn insert_head_content(&mut self, sink: &mut dyn TreeSink, tag: &mut Tag) {
-        let step = if rules::is(&tag.key, VOID) {
-            Step::InsertVoid
-        } else {
-            Step::Insert
-        };
-        self.insert_for(sink, step, tag);
+        for step in rules::start_steps(&tag.key) {
+            if !self.run_step(sink, *step, tag) {
+                return;
+            }
+        }
     }
 
     /// 13.2.6.4.4 "in head" and 13.2.6.4.5 "in head noscript"; `true`: reprocess.
@@ -1329,6 +1334,10 @@ impl TreeBuilder {
         let mode = self.mode();
         match mode {
             Mode::Body => self.in_body_start(sink, tag),
+            Mode::Template => match rules::template_start(&tag.key) {
+                Some(action) => self.table_start(sink, action, tag),
+                None => self.in_body_start(sink, tag),
+            },
             Mode::Cell | Mode::Caption => match rules::table_start(mode, &tag.key) {
                 Some(action) => self.table_start(sink, action, tag),
                 None => self.in_body_start(sink, tag),
@@ -1499,6 +1508,9 @@ impl TreeBuilder {
                 }
                 ends_head
             }
+            Phase::InHead | Phase::AfterHead if self.template_open() && key != "template" => {
+                self.body_end(sink, key)
+            }
             Phase::InHead => {
                 if self.current() == Some("noscript") {
                     return match key {
@@ -1570,7 +1582,7 @@ impl TreeBuilder {
         }
         let mode = self.mode();
         match mode {
-            Mode::Body => self.in_body_end(sink, key),
+            Mode::Body | Mode::Template => self.in_body_end(sink, key),
             Mode::Cell | Mode::Caption => match rules::table_end(mode, key) {
                 Some(action) => self.table_end(sink, action, key),
                 None => self.in_body_end(sink, key),
@@ -1747,6 +1759,10 @@ impl TreeBuilder {
                         }
                     }
                 }
+                Phase::InHead | Phase::AfterHead if self.template_open() => {
+                    self.body_text(sink, text);
+                    return;
+                }
                 Phase::InHead | Phase::AfterHead => {
                     // White space stays where it is; the rest is the body's.
                     let (space, rest) = split_space(text);
@@ -1778,7 +1794,7 @@ impl TreeBuilder {
             return;
         }
         match self.mode() {
-            Mode::Body | Mode::Cell | Mode::Caption => {
+            Mode::Body | Mode::Cell | Mode::Caption | Mode::Template => {
                 self.reconstruct(sink);
                 self.insert_text(text);
             }

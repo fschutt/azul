@@ -264,7 +264,7 @@ pub fn is_void_element(tag: &str) -> bool {
 /// (initial ... after head) the tree construction keeps a phase of its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Mode {
-    /// 13.2.6.4.7 "in body" (also inside a `template` or a `select`: not modelled).
+    /// 13.2.6.4.7 "in body" (also inside a `select`: "in select" is not modelled).
     Body,
     /// 13.2.6.4.9 "in table".
     Table,
@@ -278,6 +278,9 @@ pub(super) enum Mode {
     Caption,
     /// 13.2.6.4.12 "in column group".
     ColumnGroup,
+    /// 13.2.6.4.18 "in template": the body's rules, and table parts without a table
+    /// ([`TEMPLATE_CONTENT`]).
+    Template,
 }
 
 /// 13.2.4.1 "reset the insertion mode appropriately": the open HTML element nearest to the
@@ -290,7 +293,7 @@ pub(super) static MODES: &[(&str, Mode)] = &[
     ("table", Mode::Table),
     ("tbody", Mode::TableBody),
     ("td", Mode::Cell),
-    ("template", Mode::Body),
+    ("template", Mode::Template),
     ("tfoot", Mode::TableBody),
     ("th", Mode::Cell),
     ("thead", Mode::TableBody),
@@ -300,6 +303,27 @@ pub(super) static MODES: &[(&str, Mode)] = &[
 /// The mode an open `name` (lower-case, an HTML element) puts the body in.
 pub(super) fn mode_of(name: &str) -> Option<Mode> {
     MODES.iter().find(|(n, _)| *n == name).map(|(_, m)| *m)
+}
+
+/// 13.2.6.4.18 "in template": a table part's start tag right in a template is processed in
+/// the mode it would have in a table (so it needs no table, no implied `<tbody>` / `<tr>`);
+/// any other start tag by the body's rules.
+pub(super) static TEMPLATE_CONTENT: &[(&[&str], Mode)] = &[
+    (
+        &["caption", "colgroup", "tbody", "tfoot", "thead"],
+        Mode::Table,
+    ),
+    (&["col"], Mode::ColumnGroup),
+    (&["tr"], Mode::TableBody),
+    (&["td", "th"], Mode::Row),
+];
+
+/// The row of [`TABLE_START_TAGS`] a start tag `name` (lower-case) right in a template takes.
+pub(super) fn template_start(name: &str) -> Option<TableStart> {
+    TEMPLATE_CONTENT
+        .iter()
+        .find(|(names, _)| names.contains(&name))
+        .and_then(|(_, mode)| table_start(*mode, name))
 }
 
 // ============================================================================
@@ -424,10 +448,10 @@ pub(super) static START_TAGS: &[(&[&str], &[Step])] = &[
         &["base", "basefont", "bgsound", "link", "meta"],
         &[InsertVoid],
     ),
-    (
-        &["noframes", "script", "style", "template", "title"],
-        &[Insert],
-    ),
+    (&["noframes", "script", "style", "title"], &[Insert]),
+    // "template": also "insert a marker at the end of the list of active formatting
+    // elements"
+    (&["template"], &[InsertMarker]),
     // "address, article, aside, blockquote, center, details, dialog, dir, div, dl,
     // fieldset, figcaption, figure, footer, header, hgroup, main, menu, nav, ol, p, search,
     // section, summary, ul"
