@@ -82,8 +82,10 @@ screenshots + hierarchy dumps under target/sheetshow6-shots/.
 - 0df66bf70 RED / c5a877043 GREEN SelectionAdorner: multi-selection rotate about the box centre (turned_about).
 - 35a4ad5e8 doc, fd6fd038c New sheet named via Dom::with_accessibility_name, 13da5a9f3 one strs helper.
 
+- 9944f242f merge_of pub(crate); the report scripts/SHEETSHOW6_2026_10_03.md.
+
 ## IN PROGRESS
-- the report scripts/SHEETSHOW6_2026_10_03.md (coordinator: finish over new scope).
+- (none - task finished; what is left is listed in the report)
 
 ## NEXT (exact)
 1-3. (done)
