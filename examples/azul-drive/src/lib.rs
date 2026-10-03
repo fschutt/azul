@@ -50,6 +50,7 @@ mod actions;
 pub mod args;
 pub mod browse;
 pub mod fileops;
+mod ids;
 mod jobs;
 pub mod keys;
 pub mod model;
