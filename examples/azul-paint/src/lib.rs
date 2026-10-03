@@ -3,7 +3,7 @@ use azul::{
         CallbackType, DialogOnCloseCallbackType, RenderImageCallbackInfo, StandardDialogOnEventCallbackType,
     },
     css::PhysicalSizeU32,
-    dialog::{FileDialog, FileOpenResult, SaveTargetResult},
+    dialog::{FileDialog, FileOpenResult},
     dom::RenderImageCallback,
     error::{ResultRawImageDecodeImageError, ResultU8VecEncodeImageError, ResultU8VecFileError},
     file::FileReadBytesResult,
@@ -18,6 +18,7 @@ use azul::{
 use azul_appkit::{
     about::AboutInfo,
     args::{AppArgs, AppSpec},
+    files::{FileJob, FileOutcome},
     history::UndoHistory,
     shortcuts::Shortcut,
     ui as kit,
@@ -149,13 +150,14 @@ struct PaintState {
     device_line: Option<String>,
     metaball_mode: bool,
     background: Option<RawImage>,
-    export_path: Option<String>,
     rev: u64,
     last_pressure: f32,
     /// azul-appkit's kit: settings (theme and mode remembered), the
     /// settings page, the data root.
     kit: RefAny,
     about_open: bool,
+    /// Exports being written (data key, bytes), reported when written.
+    exports: Vec<(String, usize)>,
 }
 
 impl PaintState {
@@ -174,11 +176,11 @@ impl PaintState {
             device_line: None,
             metaball_mode: true,
             background: None,
-            export_path: None,
             rev: 1,
             last_pressure: 0.0,
             kit: RefAny::new(()),
             about_open: false,
+            exports: Vec::new(),
         }
     }
 
@@ -213,6 +215,15 @@ impl PaintState {
         self.rev += 1;
     }
 
+    /// The strokes on the canvas, with the one being drawn.
+    fn all_strokes(&self) -> Vec<Stroke> {
+        let mut all = self.strokes.clone();
+        if let Some(cur) = self.current.as_ref() {
+            all.push(cur.clone());
+        }
+        all
+    }
+
     fn toggle_metaballs(&mut self) {
         self.metaball_mode = !self.metaball_mode;
         self.rev += 1;
@@ -220,11 +231,6 @@ impl PaintState {
 
     fn set_background(&mut self, img: RawImage) {
         self.background = Some(img);
-        self.rev += 1;
-    }
-
-    fn request_export(&mut self, path: String) {
-        self.export_path = Some(path);
         self.rev += 1;
     }
 
@@ -408,10 +414,22 @@ fn render_brush_cpu(
     img
 }
 
-fn export_png(img: &RawImage, path: &str) {
-    let encoded = img.encode_png();
-    if let ResultU8VecEncodeImageError::Ok(ref bytes) = encoded {
-        let _ = std::fs::write(path, bytes.as_ref());
+/// The canvas on the CPU at `w` x `h`: metaballs (incrementally into `mb`)
+/// or brush strokes, over the background. The canvas's CPU path and the PNG
+/// export share it.
+fn cpu_raster(
+    mb: &mut MetaballField,
+    strokes: &[Stroke],
+    metaball_mode: bool,
+    w: u32,
+    h: u32,
+    background: Option<&RawImage>,
+) -> RawImage {
+    let bg = canvas_bg();
+    if metaball_mode {
+        metaball_image(mb, strokes, w, h, bg, background)
+    } else {
+        render_brush_cpu(strokes, w, h, bg, background)
     }
 }
 
@@ -883,18 +901,13 @@ fn render_canvas_inner(
     let mut cache = data.downcast_mut::<CanvasCache>()?;
     let cache = &mut *cache;
 
-    let (rev, strokes, metaball_mode, background, export_path) = {
+    let (rev, strokes, metaball_mode, background) = {
         let paint = cache.paint.downcast_ref::<PaintState>()?;
-        let mut all = paint.strokes.clone();
-        if let Some(cur) = paint.current.as_ref() {
-            all.push(cur.clone());
-        }
         (
             paint.rev,
-            all,
+            paint.all_strokes(),
             paint.metaball_mode,
             paint.background.clone(),
-            paint.export_path.clone(),
         )
     };
 
@@ -946,12 +959,6 @@ fn render_canvas_inner(
             cache.rendered_rev = rev;
             say(&format!("AZPAINT_RASTER {rev}"));
         }
-        if let Some(path) = export_path.as_ref() {
-            if let Some(tex) = cache.texture.as_ref() {
-                export_png(&tex.copy_to_raw_image(), path.as_str());
-            }
-            clear_export(cache);
-        }
         return cache
             .texture
             .as_ref()
@@ -962,45 +969,17 @@ fn render_canvas_inner(
         let s = img.get_size();
         (s.width as u32, s.height as u32)
     });
-    if cpu_canvas_needs_raster(
-        cache.rendered_rev,
-        rev,
-        cached,
-        (w, h),
-        export_path.is_some(),
-    ) {
-        let img = if metaball_mode {
-            metaball_image(&mut cache.mb, &strokes, w, h, bg, bg_ref)
-        } else {
-            render_brush_cpu(&strokes, w, h, bg, bg_ref)
-        };
-        if let Some(path) = export_path.as_ref() {
-            export_png(&img, path.as_str());
-        }
+    if cpu_canvas_needs_raster(cache.rendered_rev, rev, cached, (w, h)) {
+        let img = cpu_raster(&mut cache.mb, &strokes, metaball_mode, w, h, bg_ref);
         cache.cpu_image = ImageRef::create_rawimage(img).into_option();
         cache.rendered_rev = rev;
         say(&format!("AZPAINT_RASTER {rev}"));
     }
-    if export_path.is_some() {
-        clear_export(cache);
-    }
     cache.cpu_image.clone()
 }
 
-fn cpu_canvas_needs_raster(
-    rendered_rev: u64,
-    rev: u64,
-    cached: Option<(u32, u32)>,
-    target: (u32, u32),
-    exporting: bool,
-) -> bool {
-    rendered_rev != rev || cached != Some(target) || exporting
-}
-
-fn clear_export(cache: &mut CanvasCache) {
-    if let Some(mut paint) = cache.paint.downcast_mut::<PaintState>() {
-        paint.export_path = None;
-    }
+fn cpu_canvas_needs_raster(rendered_rev: u64, rev: u64, cached: Option<(u32, u32)>, target: (u32, u32)) -> bool {
+    rendered_rev != rev || cached != Some(target)
 }
 
 extern "C" fn merge_cache(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
@@ -1174,8 +1153,8 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let menu = Menu::create(vec![
         MenuItem::string(StringMenuItem::create("File").with_children(vec![
             action_with_accel("Import image…", on_import, &[K::LWin, K::O]),
-            action_with_accel("Export PNG…", on_export, &[K::LWin, K::S]),
-            action_with_accel("Export SVG…", on_export_svg, &[K::LWin, K::LShift, K::S]),
+            action_with_accel("Export PNG", on_export, &[K::LWin, K::S]),
+            action_with_accel("Export SVG", on_export_svg, &[K::LWin, K::LShift, K::S]),
         ])),
         MenuItem::string(StringMenuItem::create("Edit").with_children(vec![
             action_with_accel("Undo", on_undo, &[K::LWin, K::Z]),
@@ -1668,34 +1647,104 @@ extern "C" fn on_import_bytes(mut data: RefAny, _info: CallbackInfo, result: Ref
     Update::RefreshDom
 }
 
-extern "C" fn on_export(data: RefAny, _info: CallbackInfo) -> Update {
-    let _request = FileDialog::save_file("Export PNG", "canvas.png", data, on_export_target);
+/// The tag of the export file jobs.
+const TAG_EXPORT: u64 = 1;
+
+/// `paint/exports/<stem>-<unix seconds>-<n>.<ext>`: an export's key in the
+/// data tree (the counter keeps two exports of one second apart).
+fn export_key(stem: &str, ext: &str, n: usize) -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    azul_appkit::data::app_key(ABOUT.app_folder, &format!("exports/{stem}-{secs}-{n}.{ext}"))
+}
+
+/// Write `bytes` into the data tree under `key` on a Thread (the kit's file
+/// job through the Drive - no file write in the callback).
+fn write_export(data: &RefAny, info: &mut CallbackInfo, key: String, bytes: Vec<u8>) {
+    let mut handle = data.clone();
+    let Some(mut s) = handle.downcast_mut::<PaintState>() else {
+        return;
+    };
+    let Some(root) = s.kit.clone().downcast_ref::<kit::Kit>().map(|k| k.data_root.clone()) else {
+        return;
+    };
+    s.exports.push((key.clone(), bytes.len()));
+    drop(s);
+    kit::spawn_file_jobs(
+        info,
+        &root,
+        vec![FileJob::Put { key, bytes }],
+        data.clone(),
+        TAG_EXPORT,
+        on_files_done,
+    );
+}
+
+/// The canvas's size (logical px), for the PNG export.
+fn canvas_size(info: &mut CallbackInfo) -> (u32, u32) {
+    info.get_node_id_by_marker(ids::CANVAS)
+        .into_option()
+        .and_then(|node| info.get_node_size(node).into_option())
+        .map_or((1024, 720), |size| (size.width.max(1.0) as u32, size.height.max(1.0) as u32))
+}
+
+/// File > Export PNG (Mod+S): the canvas as it is, into
+/// `paint/exports/canvas-*.png` in the data folder.
+extern "C" fn on_export(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let (w, h) = canvas_size(&mut info);
+    let (png, n) = {
+        let Some(s) = data.downcast_ref::<PaintState>() else {
+            return Update::DoNothing;
+        };
+        let img = cpu_raster(
+            &mut MetaballField::default(),
+            &s.all_strokes(),
+            s.metaball_mode,
+            w,
+            h,
+            s.background.as_ref(),
+        );
+        (img.encode_png(), s.exports.len())
+    };
+    match png {
+        ResultU8VecEncodeImageError::Ok(bytes) => {
+            write_export(&data, &mut info, export_key("canvas", "png", n), bytes.as_ref().to_vec());
+        }
+        _ => eprintln!("[azpaint] the canvas could not be encoded as PNG"),
+    }
     Update::DoNothing
 }
 
-extern "C" fn on_export_target(mut data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
-    let Some(picked) = SaveTargetResult::downcast(result).into_option() else {
-        return Update::DoNothing;
-    };
-    let Some(target) = picked.target.into_option() else {
-        return Update::DoNothing;
-    };
-    let Some(path) = target.as_path().into_option() else {
-        return Update::DoNothing;
-    };
-    match data.downcast_mut::<PaintState>() {
-        Some(mut s) => s.request_export(path.as_string().as_str().to_string()),
+/// File > Export SVG (Mod+Shift+S): the strokes as vector shapes, into
+/// `paint/exports/strokes-*.svg`.
+extern "C" fn on_export_svg(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let (svg, n) = match data.downcast_ref::<PaintState>() {
+        Some(s) => (strokes_to_svg(&s.all_strokes(), s.metaball_mode), s.exports.len()),
         None => return Update::DoNothing,
-    }
-    Update::RefreshDom
+    };
+    write_export(&data, &mut info, export_key("strokes", "svg", n), svg.into_bytes());
+    Update::DoNothing
 }
 
-extern "C" fn on_export_svg(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let svg = match data.downcast_ref::<PaintState>() {
-        Some(s) => strokes_to_svg(&s.strokes, s.metaball_mode),
-        None => return Update::DoNothing,
+/// An export was written (or not): `AZPAINT_EXPORTED <key> <bytes>`.
+extern "C" fn on_files_done(mut data: RefAny, mut msg: RefAny, _info: CallbackInfo) -> Update {
+    let Some(reply) = kit::take_reply(&mut msg) else {
+        return Update::DoNothing;
     };
-    let _scheduled = FileDialog::save_bytes("strokes.svg", "image/svg+xml", svg.into_bytes());
+    let Some(mut s) = data.downcast_mut::<PaintState>() else {
+        return Update::DoNothing;
+    };
+    for outcome in reply.outcomes {
+        if let FileOutcome::Put { key, result } = outcome {
+            let size = s.exports.iter().find(|(k, _)| *k == key).map_or(0, |(_, n)| *n);
+            s.exports.retain(|(k, _)| *k != key);
+            match result {
+                Ok(()) => say(&format!("AZPAINT_EXPORTED {key} {size}")),
+                Err(e) => eprintln!("[azpaint] {key}: {e}"),
+            }
+        }
+    }
     Update::DoNothing
 }
 
@@ -1899,29 +1948,17 @@ mod tests {
 
     #[test]
     fn the_cpu_canvas_re_rasterises_when_its_box_changes() {
-        assert!(cpu_canvas_needs_raster(
-            3,
-            3,
-            Some((400, 300)),
-            (500, 300),
-            false
-        ));
-        assert!(
-            cpu_canvas_needs_raster(3, 3, None, (500, 300), false),
-            "no bitmap yet"
-        );
-        assert!(
-            cpu_canvas_needs_raster(2, 3, Some((500, 300)), (500, 300), false),
-            "strokes changed"
-        );
-        assert!(
-            cpu_canvas_needs_raster(3, 3, Some((500, 300)), (500, 300), true),
-            "export pending"
-        );
-        assert!(
-            !cpu_canvas_needs_raster(3, 3, Some((500, 300)), (500, 300), false),
-            "nothing changed"
-        );
+        assert!(cpu_canvas_needs_raster(3, 3, Some((400, 300)), (500, 300)));
+        assert!(cpu_canvas_needs_raster(3, 3, None, (500, 300)), "no bitmap yet");
+        assert!(cpu_canvas_needs_raster(2, 3, Some((500, 300)), (500, 300)), "strokes changed");
+        assert!(!cpu_canvas_needs_raster(3, 3, Some((500, 300)), (500, 300)), "nothing changed");
+    }
+
+    #[test]
+    fn an_export_key_lives_in_the_apps_exports_folder() {
+        let key = export_key("canvas", "png", 2);
+        assert!(key.starts_with("paint/exports/canvas-"), "{key}");
+        assert!(key.ends_with("-2.png"), "{key}");
     }
 
     #[test]
