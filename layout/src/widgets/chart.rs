@@ -2538,8 +2538,9 @@ fn placed(left: f32, top: f32, w: f32, h: f32) -> Vec<Decl> {
 }
 
 /// Over the whole plot, as the XML parser places an SVG shape: the box IS
-/// the plot's user space, whatever border (stroke) it carries.
-fn over_plot() -> Vec<Decl> {
+/// the plot's user space, whatever border (stroke) it carries. (The gauge's
+/// arcs sit over its dial the same way.)
+pub(crate) fn over_plot() -> Vec<CssPropertyWithConditions> {
     use azul_css::props::layout::{LayoutInsetBottom, LayoutPosition, LayoutRight};
 
     use crate::widgets::themes::decl;

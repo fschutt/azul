@@ -549,6 +549,450 @@ impl Gauge {
     }
 }
 
+// ==== the look ====
+
+/// What one widget theme decides about a gauge: its inks, the track, the
+/// band kinds' colours and the accent. Built by `themes::flat::gauge_skin`
+/// and `themes::flora::gauge_skin`.
+#[derive(Debug, Clone)]
+pub(crate) struct GaugeSkin {
+    /// The root: the face and the ink.
+    pub(crate) root: Vec<CssPropertyWithConditions>,
+    /// The value's text (its size follows the gauge's size).
+    pub(crate) value_text: Vec<CssPropertyWithConditions>,
+    /// The label's text.
+    pub(crate) label: Vec<CssPropertyWithConditions>,
+    /// The track: the whole range.
+    pub(crate) track: ChartColor,
+    /// [`GaugeBandKind::Ok`].
+    pub(crate) ok: ChartColor,
+    /// [`GaugeBandKind::Warn`].
+    pub(crate) warn: ChartColor,
+    /// [`GaugeBandKind::Bad`].
+    pub(crate) bad: ChartColor,
+    /// [`GaugeBandKind::Neutral`].
+    pub(crate) neutral: ChartColor,
+    /// The value outside every band.
+    pub(crate) accent: ChartColor,
+    /// The theme's marker class on the root, if it has one.
+    pub(crate) marker: Option<&'static str>,
+}
+
+impl GaugeSkin {
+    /// A band kind's colour.
+    #[must_use]
+    pub(crate) const fn kind_color(&self, kind: GaugeBandKind) -> ChartColor {
+        match kind {
+            GaugeBandKind::Ok => self.ok,
+            GaugeBandKind::Warn => self.warn,
+            GaugeBandKind::Bad => self.bad,
+            GaugeBandKind::Neutral => self.neutral,
+        }
+    }
+
+    /// A band's colour: its own, or its kind's.
+    #[must_use]
+    pub(crate) fn band_color(&self, band: &GaugeBand) -> ChartColor {
+        band.color
+            .into_option()
+            .unwrap_or_else(|| self.kind_color(band.kind))
+    }
+}
+
+/// The colour of the value's arc or bar in `skin`: the band the value is in,
+/// or the accent (the app's, else the theme's) outside every band.
+#[must_use]
+pub(crate) fn value_color(gauge: &Gauge, skin: &GaugeSkin) -> ChartColor {
+    match band_of(gauge.bands.as_slice(), gauge.value) {
+        Some(band) => skin.band_color(band),
+        None => gauge.accent.into_option().unwrap_or(skin.accent),
+    }
+}
+
+/// A solid fill in `color`, with its dark step.
+fn solid(color: ChartColor) -> Vec<CssPropertyWithConditions> {
+    crate::widgets::themes::decl::themed_fill(color.light, color.dark).to_vec()
+}
+
+/// A band's wash over the track: its colour at about a third (a little more
+/// at night, where a third sinks into the dark track).
+fn wash(color: ChartColor) -> Vec<CssPropertyWithConditions> {
+    use azul_css::props::basic::color::ColorU;
+    crate::widgets::themes::decl::themed_fill(
+        ColorU {
+            a: 90,
+            ..color.light
+        },
+        ColorU {
+            a: 120,
+            ..color.dark
+        },
+    )
+    .to_vec()
+}
+
+// ==== the DOM ====
+
+/// One class list.
+fn class_list(names: &[&'static str]) -> IdOrClassVec {
+    IdOrClassVec::from_vec(
+        names
+            .iter()
+            .map(|n| IdOrClass::Class(AzString::from_const_str(n)))
+            .collect(),
+    )
+}
+
+/// One arc of the dial: a node over the dial with the ring segment between
+/// two fractions of the range as its path.
+fn arc_node(
+    class: &'static str,
+    kind: GaugeKind,
+    ring: (f32, f32, f32, f32),
+    span: (f32, f32),
+    style: CssPropertyWithConditionsVec,
+) -> Dom {
+    use azul_core::{
+        dom::SvgNodeData,
+        svg::{SvgMultiPolygon, SvgPathVec},
+    };
+    let (cx, cy, r_out, r_in) = ring;
+    let path = crate::widgets::chart::wedge_ring(
+        cx,
+        cy,
+        r_out,
+        r_in,
+        angle_at(kind, span.0),
+        angle_at(kind, span.1),
+    );
+    Dom::create_div()
+        .with_ids_and_classes(class_list(&[class]))
+        .with_css_props(style)
+        .with_svg_data(SvgNodeData::Path(SvgMultiPolygon::create(
+            SvgPathVec::from_vec(alloc::vec![path]),
+        )))
+}
+
+/// A widget-owned text line with `class` and `style`.
+fn text_line(text: AzString, class: &'static str, style: CssPropertyWithConditionsVec) -> Dom {
+    crate::widgets::widget_p_with_text(text)
+        .with_ids_and_classes(class_list(&[class]))
+        .with_css_props(style)
+}
+
+/// `size` px scaled by `k`, rounded, held between `lo` and `hi`.
+fn scaled(size: f32, k: f32, lo: f32, hi: f32) -> isize {
+    (size * k).clamp(lo, hi).round() as isize
+}
+
+impl Gauge {
+    /// The name the gauge is announced by: the app's, else its label.
+    fn a11y_name(&self) -> Option<AzString> {
+        match self.accessibility_name.as_ref() {
+            Some(name) => Some(name.clone()),
+            None if !self.label.as_str().is_empty() => Some(self.label.clone()),
+            None => None,
+        }
+    }
+
+    /// The root's accessibility: a meter (role `Indicator`) over the range,
+    /// named, its value the summary.
+    fn a11y_info(&self) -> azul_core::a11y::AccessibilityInfo {
+        let name = self.a11y_name();
+        crate::widgets::warn_widget_needs_a_name("Gauge", name.is_some());
+        let mut info = azul_core::a11y::MeterAriaInfo::create(
+            name.unwrap_or_else(|| AzString::from_const_str("Gauge")),
+            self.value as f32,
+            self.min as f32,
+            self.max as f32,
+        )
+        .to_full_info();
+        info.accessibility_value = OptionString::Some(self.summary());
+        info
+    }
+
+    /// Renders the gauge: a dial or a ring (one SVG user space, an arc per
+    /// node) or a bar, in the theme's skin - pinned, or both skins merged to
+    /// follow the app theme.
+    #[must_use]
+    pub fn dom(self) -> Dom {
+        use crate::widgets::themes::{flat, flora, theme_blocks::skins_of};
+        let skins = skins_of(self.theme, flat::gauge_skin, flora::gauge_skin);
+        self.build(&skins)
+    }
+
+    /// The DOM in `skins` (`theme_blocks::skins_of`).
+    pub(crate) fn build(&self, skins: &[GaugeSkin]) -> Dom {
+        use crate::widgets::themes::theme_blocks::structure_skin;
+
+        let marker = structure_skin(skins, self.theme).and_then(|s| s.marker);
+        let body = if self.kind.is_radial() {
+            self.build_dial(skins)
+        } else {
+            self.build_bar(skins)
+        };
+        let mut classes: Vec<IdOrClass> =
+            alloc::vec![IdOrClass::Class(AzString::from_const_str(GAUGE_CLASS))];
+        if let Some(marker) = marker {
+            classes.push(IdOrClass::Class(AzString::from_const_str(marker)));
+        }
+        body.with_ids_and_classes(IdOrClassVec::from_vec(classes))
+            .with_accessibility_info(self.a11y_info())
+    }
+
+    /// The dial or the ring: the track, the bands, the value's arc and the
+    /// text in the middle, over one user space of `size` x `size`.
+    fn build_dial(&self, skins: &[GaugeSkin]) -> Dom {
+        use azul_core::dom::SvgNodeData;
+        use azul_css::props::layout::{
+            LayoutAlignItems, LayoutFlexDirection, LayoutJustifyContent, LayoutPosition,
+        };
+
+        use crate::widgets::{
+            chart::over_plot,
+            themes::{decl, theme_blocks::part_of},
+        };
+
+        let size = self.size.max(MIN_SIZE);
+        let r_out = size / 2.0 - 1.0;
+        let thickness = self.thickness.clamp(1.0, r_out);
+        let ring = (size / 2.0, size / 2.0, r_out, (r_out - thickness).max(0.0));
+        let kind = self.kind;
+        let on_dial = |paint: &dyn Fn(&GaugeSkin) -> Vec<CssPropertyWithConditions>| {
+            part_of(skins, |s| {
+                let mut v = over_plot();
+                v.extend(paint(s));
+                v
+            })
+        };
+
+        let mut parts: Vec<Dom> = Vec::new();
+        parts.push(arc_node(
+            GAUGE_TRACK_CLASS,
+            kind,
+            ring,
+            (0.0, 1.0),
+            on_dial(&|s| solid(s.track)),
+        ));
+        if self.show_bands {
+            for band in self.bands.as_slice() {
+                if let Some(span) = band_span(band, self.min, self.max) {
+                    parts.push(arc_node(
+                        GAUGE_BAND_CLASS,
+                        kind,
+                        ring,
+                        span,
+                        on_dial(&|s| wash(s.band_color(band))),
+                    ));
+                }
+            }
+        }
+        let f = fraction(self.value, self.min, self.max);
+        if f > 0.0 {
+            parts.push(arc_node(
+                GAUGE_VALUE_CLASS,
+                kind,
+                ring,
+                (0.0, f),
+                on_dial(&|s| solid(value_color(self, s))),
+            ));
+        }
+
+        // The middle: the value over the label, centred.
+        let value_px = scaled(size, 0.2, 11.0, 40.0);
+        let label_px = scaled(size, 0.1, 10.0, 14.0);
+        let mut middle_kids = alloc::vec![text_line(
+            self.shown_value(),
+            GAUGE_VALUE_TEXT_CLASS,
+            part_of(skins, |s| {
+                let mut v = alloc::vec![decl::font_size(value_px)];
+                v.extend(s.value_text.iter().cloned());
+                v
+            }),
+        )];
+        if !self.label.as_str().is_empty() {
+            middle_kids.push(text_line(
+                self.label.clone(),
+                GAUGE_LABEL_CLASS,
+                part_of(skins, |s| {
+                    let mut v = alloc::vec![decl::font_size(label_px)];
+                    v.extend(s.label.iter().cloned());
+                    v
+                }),
+            ));
+        }
+        let mut middle_style = over_plot();
+        middle_style.extend([
+            decl::display_flex(),
+            decl::flex_direction(LayoutFlexDirection::Column),
+            decl::simple(azul_css::props::property::CssProperty::const_align_items(
+                LayoutAlignItems::Center,
+            )),
+            decl::simple(
+                azul_css::props::property::CssProperty::const_justify_content(
+                    LayoutJustifyContent::Center,
+                ),
+            ),
+        ]);
+        parts.push(
+            Dom::create_div()
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(middle_style))
+                .with_children(middle_kids.into()),
+        );
+
+        let dial = Dom::create_div()
+            .with_ids_and_classes(class_list(&[GAUGE_DIAL_CLASS]))
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(alloc::vec![
+                decl::position(LayoutPosition::Relative),
+                decl::px_width(size),
+                decl::px_height(size),
+                decl::no_shrink(),
+            ]))
+            .with_svg_data(SvgNodeData::ViewBox {
+                min_x: 0.0,
+                min_y: 0.0,
+                width: size,
+                height: size,
+            })
+            .with_children(parts.into());
+
+        Dom::create_div()
+            .with_css_props(part_of(skins, |s| {
+                let mut v = alloc::vec![
+                    decl::display_flex(),
+                    decl::flex_direction(LayoutFlexDirection::Column),
+                    decl::simple(azul_css::props::property::CssProperty::const_align_items(
+                        LayoutAlignItems::Center,
+                    )),
+                    decl::px_width(size),
+                ];
+                v.extend(s.root.iter().cloned());
+                v
+            }))
+            .with_child(dial)
+    }
+
+    /// The bar: the label and the value over the track, the bands washed
+    /// over it, the value's fill from the start.
+    fn build_bar(&self, skins: &[GaugeSkin]) -> Dom {
+        use azul_css::props::{
+            basic::PixelValue,
+            layout::{
+                LayoutAlignItems, LayoutFlexDirection, LayoutJustifyContent, LayoutPosition,
+                LayoutRowGap,
+            },
+            property::{CssProperty, LayoutRowGapValue},
+        };
+
+        use crate::widgets::themes::{decl, theme_blocks::part_of};
+
+        let width = self.size.max(MIN_SIZE);
+        let height = self.thickness.clamp(1.0, 64.0);
+        let corner = (height / 2.0).round() as isize;
+        let placed = |left: f32, w: f32| {
+            alloc::vec![
+                decl::position(LayoutPosition::Absolute),
+                decl::px_left(left),
+                decl::px_top(0.0),
+                decl::px_width(w.max(0.0)),
+                decl::px_height(height),
+            ]
+        };
+
+        let mut bar_kids: Vec<Dom> = Vec::new();
+        if self.show_bands {
+            for band in self.bands.as_slice() {
+                if let Some((f0, f1)) = band_span(band, self.min, self.max) {
+                    bar_kids.push(
+                        Dom::create_div()
+                            .with_ids_and_classes(class_list(&[GAUGE_BAND_CLASS]))
+                            .with_css_props(part_of(skins, |s| {
+                                let mut v = placed(f0 * width, (f1 - f0) * width);
+                                v.extend(wash(s.band_color(band)));
+                                v
+                            })),
+                    );
+                }
+            }
+        }
+        let f = fraction(self.value, self.min, self.max);
+        if f > 0.0 {
+            bar_kids.push(
+                Dom::create_div()
+                    .with_ids_and_classes(class_list(&[GAUGE_VALUE_CLASS]))
+                    .with_css_props(part_of(skins, |s| {
+                        let mut v = placed(0.0, f * width);
+                        v.extend(decl::radius(corner));
+                        v.extend(solid(value_color(self, s)));
+                        v
+                    })),
+            );
+        }
+        let bar = Dom::create_div()
+            .with_ids_and_classes(class_list(&[GAUGE_BAR_CLASS, GAUGE_TRACK_CLASS]))
+            .with_css_props(part_of(skins, |s| {
+                let mut v = alloc::vec![
+                    decl::position(LayoutPosition::Relative),
+                    decl::px_width(width),
+                    decl::px_height(height),
+                    decl::overflow_x_hidden(),
+                    decl::overflow_y_hidden(),
+                ];
+                v.extend(decl::radius(corner));
+                v.extend(solid(s.track));
+                v
+            }))
+            .with_children(bar_kids.into());
+
+        let mut head_kids: Vec<Dom> = Vec::new();
+        if !self.label.as_str().is_empty() {
+            head_kids.push(text_line(
+                self.label.clone(),
+                GAUGE_LABEL_CLASS,
+                part_of(skins, |s| s.label.clone()),
+            ));
+        }
+        head_kids.push(text_line(
+            self.shown_value(),
+            GAUGE_VALUE_TEXT_CLASS,
+            part_of(skins, |s| s.value_text.clone()),
+        ));
+        let head = Dom::create_div()
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(alloc::vec![
+                decl::display_flex(),
+                decl::flex_direction(LayoutFlexDirection::Row),
+                decl::simple(CssProperty::const_justify_content(
+                    LayoutJustifyContent::SpaceBetween,
+                )),
+                decl::simple(CssProperty::const_align_items(LayoutAlignItems::End)),
+            ]))
+            .with_children(head_kids.into());
+
+        Dom::create_div()
+            .with_css_props(part_of(skins, |s| {
+                let mut v = alloc::vec![
+                    decl::display_flex(),
+                    decl::flex_direction(LayoutFlexDirection::Column),
+                    decl::simple(CssProperty::RowGap(LayoutRowGapValue::Exact(
+                        LayoutRowGap {
+                            inner: PixelValue::const_px(4),
+                        }
+                    ))),
+                    decl::px_width(width),
+                ];
+                v.extend(s.root.iter().cloned());
+                v
+            }))
+            .with_children(alloc::vec![head, bar].into())
+    }
+}
+
+impl From<Gauge> for Dom {
+    fn from(g: Gauge) -> Self {
+        g.dom()
+    }
+}
+
 #[cfg(test)]
 mod geometry_tests {
     use core::f32::consts::PI;
