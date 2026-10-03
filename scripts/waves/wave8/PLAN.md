@@ -116,3 +116,24 @@ VIDEO_PATH report); JPEG fallback off Apple; Opus, echo cancellation, bitrate ad
 and VIDEO_PATH* first. Order: the correctness items (output_format, CFEqual, the hard-wired tags, the IDR switch),
 then encode/decode off the UI thread, then cut_frame, then the larger items as far as you get. RED test per fix where
 the code is testable without a camera.
+
+## RULINGS8 - the two user rulings of 2026-10-03 (added after the start)
+Owns: the focus-on-click path (core/src/events.rs focus resolution, dll/src/desktop/shell2/common/event.rs where a
+press picks the focus target, layout/src/e2e/runner.rs's mirror), text3's line-box metrics for atomic inlines
+(layout/src/text3/*), and the widgets' theme CSS (layout/src/widgets/themes/flat.rs / flora.rs and widget files) for
+the icon adjustments. MAILREF8 owns solver3 sizing / tables - keep your solver3 edits to the minimum and say so.
+1. FOCUS (user: "yeah, as you decided, nearest focus parent"): a click on non-focusable content inside a VirtualView
+   focuses the NEAREST FOCUSABLE ANCESTOR, continuing across the VirtualView boundary into the host DOM (EVENTS7 made
+   events bubble through the host via `hover_callbacks_along_path`; the focus choice still stops at the child root -
+   the code says that is deliberate: remove that). Also check the plain (non-VirtualView) case already focuses the
+   nearest focusable ancestor. RED test first (headless: a focusable host, a VirtualView child with plain text, click
+   the text -> the host is focused).
+2. INLINE-BLOCK LINE HEIGHT (user: "Chrome is the reference, so yes, and then we just need to adjust the icons css or
+   whatever"): a line holding only an inline-block is as tall as CSS 2.1 s10.8 gives - the strut (the parent's font
+   and line-height) is part of the line box, so a 10px inline-block in a 16px / line-height: normal parent makes a
+   ~18-20px line, as Chrome does (LAYOUT7 found text3 deliberately measures the box instead). RED test with Chrome's
+   numbers (LAYOUT7's probe: lay the same snippet out in Chrome headless and in a prebuilt app). Then find every
+   widget that relied on the old behaviour (icon buttons, toolbar / ribbon icons, the titlebar, check boxes, radio
+   buttons, chips, avatars - run the prebuilt AzWidgets and a few apps headless before / after reasoning) and adjust
+   their CSS (line-height: 0 / display: block / vertical-align / explicit heights - whatever Chrome-correct CSS gives
+   the same look) so they keep their size. List every widget touched and why.
