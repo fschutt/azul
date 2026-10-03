@@ -3069,6 +3069,15 @@ extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, index: 
     })
 }
 
+/// Replace with the active cell in the grid's own edit: the replacement goes
+/// into the text being edited (committing the edit would overwrite a
+/// replacement made in the stored input). Whether it replaced; `false` with
+/// no edit in progress (the engine replaces) or no match in it.
+fn replace_in_edit(s: &mut AppState, needle: &str, replacement: &str, opts: ops::FindOptions) -> bool {
+    let _ = (s, needle, replacement, opts);
+    false
+}
+
 /// The Find / Replace dialog: its fields and options are kept in the state
 /// (no rebuild while typing - the field shows its own text), its buttons ask
 /// the engine.
@@ -3382,6 +3391,22 @@ mod tests {
                 hidden: false,
             })
             .collect()
+    }
+
+    #[test]
+    fn replace_with_a_cell_in_edit_replaces_in_the_edit() {
+        let mut s = AppState::new(PathBuf::from("/tmp/azsheets-test"));
+        let opts = ops::FindOptions::default();
+        s.view.edit_mode = CellGridEditMode::Edit;
+        s.view.edit_text = AzString::from("Total cost");
+        assert!(replace_in_edit(&mut s, "cost", "price", opts));
+        assert_eq!(s.view.edit_text.as_str(), "Total price", "the edit holds the replacement");
+        assert_eq!(s.view.edit_cursor, 11, "the caret after it");
+        assert_eq!(s.view.edit_mode, CellGridEditMode::Edit, "the edit stays open");
+        assert!(!replace_in_edit(&mut s, "nothing", "x", opts), "no match: the edit is unchanged");
+        assert_eq!(s.view.edit_text.as_str(), "Total price");
+        s.view.edit_mode = CellGridEditMode::None;
+        assert!(!replace_in_edit(&mut s, "Total", "Sum", opts), "no edit: the engine replaces");
     }
 
     #[test]
