@@ -61,8 +61,22 @@ pub struct ColumnSpec {
 /// The columns of a `table` / `table_embedded` view.
 #[must_use]
 pub fn columns(view: &View, labels: &Labels) -> Vec<ColumnSpec> {
-    let _ = (view, labels);
-    todo!("GREEN")
+    view.columns
+        .iter()
+        .map(|c| {
+            let kind = ColumnType::of(c.kind.as_deref());
+            ColumnSpec {
+                field: c.data_field.clone(),
+                title: c
+                    .header_key
+                    .as_deref()
+                    .map_or_else(|| super::humanize(&c.data_field), |k| labels.get(k)),
+                kind,
+                width: c.width.unwrap_or_else(|| kind.default_width()),
+                sortable: c.sortable.unwrap_or(true),
+            }
+        })
+        .collect()
 }
 
 /// What kind of input a form field is.
@@ -101,16 +115,62 @@ pub struct FieldSpec {
 /// The fields of a form, a wizard step or a report's parameters.
 #[must_use]
 pub fn fields(defs: &[FieldDef], labels: &Labels) -> Vec<FieldSpec> {
-    let _ = (defs, labels);
-    todo!("GREEN")
+    defs.iter()
+        .map(|d| FieldSpec {
+            name: d.name.clone(),
+            label: d
+                .label_key
+                .as_deref()
+                .map_or_else(|| super::humanize(&d.name), |k| labels.get(k)),
+            kind: field_kind(d, labels),
+            required: d.required,
+            min: d.min,
+            max: d.max,
+            default: d.default.clone(),
+            condition: d.condition.clone(),
+        })
+        .collect()
+}
+
+/// The input a JSON field `type` is.
+fn field_kind(d: &FieldDef, labels: &Labels) -> FieldKind {
+    match d.kind.as_str() {
+        "textarea" => FieldKind::TextArea,
+        "password" => FieldKind::Password,
+        "date" | "datetime" => FieldKind::Date,
+        "decimal" | "currency" | "money" => FieldKind::Decimal,
+        "integer" | "number" => FieldKind::Integer,
+        "switch" | "checkbox" => FieldKind::Switch,
+        "select" => FieldKind::Select(
+            d.options
+                .iter()
+                .map(|o| {
+                    let label = o
+                        .label
+                        .clone()
+                        .or_else(|| o.label_key.as_deref().map(|k| labels.get(k)))
+                        .unwrap_or_else(|| o.value.clone());
+                    (o.value.clone(), label)
+                })
+                .collect(),
+        ),
+        "select_async" | "select_product" | "multiselect_async" => {
+            FieldKind::Reference(d.options_source.clone().unwrap_or_default())
+        }
+        _ => FieldKind::Text,
+    }
 }
 
 /// A new record's text of `field`: its default (`today` is the day,
 /// `this_year` the year), else empty.
 #[must_use]
 pub fn default_text(field: &FieldSpec, today: NaiveDate) -> String {
-    let _ = (field, today.year(), model::format_date);
-    todo!("GREEN")
+    match field.default.as_deref() {
+        Some("today") => model::format_date(today),
+        Some("this_year") => today.year().to_string(),
+        Some(value) => value.to_string(),
+        None => String::new(),
+    }
 }
 
 /// What a button does.
@@ -138,8 +198,23 @@ pub struct ActionSpec {
 /// The buttons of a list of actions.
 #[must_use]
 pub fn actions(list: &[Action], labels: &Labels) -> Vec<ActionSpec> {
-    let _ = (list, labels);
-    todo!("GREEN")
+    list.iter()
+        .map(|a| ActionSpec {
+            label: a
+                .label_key
+                .as_deref()
+                .map_or_else(|| a.id.clone().unwrap_or_default(), |k| labels.get(k)),
+            kind: match a.kind.as_str() {
+                "submit" => ActionKind::Submit,
+                "cancel" => ActionKind::Cancel,
+                "link" => ActionKind::Link(a.path.clone().unwrap_or_default()),
+                _ => ActionKind::Named(a.id.clone().unwrap_or_else(|| a.kind.clone())),
+            },
+            icon: a.icon.clone().unwrap_or_default(),
+            primary: a.variant.as_deref() == Some("primary"),
+            condition: a.condition.clone(),
+        })
+        .collect()
 }
 
 /// A detail view's tab.
@@ -155,8 +230,14 @@ pub struct TabSpec {
 /// The tabs of a `detail` view.
 #[must_use]
 pub fn tabs(view: &View, labels: &Labels) -> Vec<TabSpec> {
-    let _ = (view, labels);
-    todo!("GREEN")
+    view.tabs
+        .iter()
+        .map(|t| TabSpec {
+            title: labels.get(&t.key),
+            component: t.component.clone(),
+            view: t.view.clone(),
+        })
+        .collect()
 }
 
 /// A wizard's step.
@@ -170,8 +251,17 @@ pub struct StepSpec {
 /// The steps of a `wizard` view.
 #[must_use]
 pub fn steps(view: &View, labels: &Labels) -> Vec<StepSpec> {
-    let _ = (view, labels);
-    todo!("GREEN")
+    view.steps
+        .iter()
+        .map(|s| StepSpec {
+            title: s
+                .title_key
+                .as_deref()
+                .map_or_else(|| super::humanize(&s.key), |k| labels.get(k)),
+            fields: fields(&s.fields, labels),
+            component: s.component.clone(),
+        })
+        .collect()
 }
 
 /// Whether a `condition` holds: comparisons `field == 'value'` /
@@ -180,8 +270,39 @@ pub fn steps(view: &View, labels: &Labels) -> Vec<StepSpec> {
 /// field or button shows).
 #[must_use]
 pub fn eval_condition(condition: &str, value_of: &dyn Fn(&str) -> String) -> bool {
-    let _ = (condition, value_of);
-    todo!("GREEN")
+    let condition = condition.trim();
+    if condition.is_empty() {
+        return true;
+    }
+    condition.split("||").any(|any| {
+        any.split("&&")
+            .all(|term| comparison(term, value_of).unwrap_or(true))
+    })
+}
+
+/// One `field == 'value'` / `field != 'value'`; `None` when it is not one.
+fn comparison(term: &str, value_of: &dyn Fn(&str) -> String) -> Option<bool> {
+    let (field, equals, value) = if let Some((l, r)) = term.split_once("!=") {
+        (l, false, r)
+    } else if let Some((l, r)) = term.split_once("==") {
+        (l, true, r)
+    } else {
+        return None;
+    };
+    let field = field.trim();
+    let value = value.trim();
+    let value = value
+        .strip_prefix('\'')
+        .and_then(|v| v.strip_suffix('\''))
+        .or_else(|| value.strip_prefix('"').and_then(|v| v.strip_suffix('"')))?;
+    let named = !field.is_empty()
+        && field
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '.');
+    if !named {
+        return None;
+    }
+    Some((value_of(field) == value) == equals)
 }
 
 /// Whether `field` shows with the form's `values`.
@@ -196,8 +317,58 @@ pub fn visible(field: &FieldSpec, values: &BTreeMap<String, String>) -> bool {
 /// sentence)`. Hidden fields are not checked.
 #[must_use]
 pub fn validate(fields: &[FieldSpec], values: &BTreeMap<String, String>) -> Vec<(String, String)> {
-    let _ = (fields, values, money::parse_amount);
-    todo!("GREEN")
+    let mut problems = Vec::new();
+    for f in fields {
+        if !visible(f, values) {
+            continue;
+        }
+        let text = values.get(&f.name).map_or("", |s| s.trim());
+        if text.is_empty() {
+            if f.required {
+                problems.push((f.name.clone(), format!("{} is required.", f.label)));
+            }
+            continue;
+        }
+        if let Some(problem) = check(f, text) {
+            problems.push((f.name.clone(), problem));
+        }
+    }
+    problems
+}
+
+/// What is wrong with a field's non-empty `text`.
+fn check(f: &FieldSpec, text: &str) -> Option<String> {
+    let label = &f.label;
+    // `unit`: minor units per unit of the bounds (an amount's are cents).
+    let bounds = |n: i64, unit: i64| -> Option<String> {
+        if let Some(min) = f.min {
+            if n < min.saturating_mul(unit) {
+                return Some(format!("{label} must be at least {min}."));
+            }
+        }
+        if let Some(max) = f.max {
+            if n > max.saturating_mul(unit) {
+                return Some(format!("{label} must be at most {max}."));
+            }
+        }
+        None
+    };
+    match &f.kind {
+        FieldKind::Integer => match text.parse::<i64>() {
+            Ok(n) => bounds(n, 1),
+            Err(_) => Some(format!("{label} must be a whole number.")),
+        },
+        FieldKind::Decimal => match money::parse_amount(text) {
+            Ok(cents) => bounds(cents, money::MINOR_PER_MAJOR),
+            Err(e) => Some(format!("{label}: {e}")),
+        },
+        FieldKind::Date => model::parse_date(text)
+            .is_none()
+            .then(|| format!("{label} must be a day (YYYY-MM-DD).")),
+        FieldKind::Select(options) => (!options.iter().any(|(value, _)| value == text))
+            .then(|| format!("{label} must be one of the choices.")),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
