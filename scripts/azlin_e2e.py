@@ -28,6 +28,10 @@ class Failure(Exception):
     pass
 
 
+# No modifier held (the end of a key tap).
+RELEASED = {"shift": False, "ctrl": False, "alt": False, "meta": False}
+
+
 def repo_roots():
     """This checkout, and the main checkout when this is a git worktree."""
     repo = os.path.abspath(os.path.join(HERE, ".."))
@@ -280,7 +284,10 @@ class App:
                 ctrl = True
         mods = {"shift": shift, "ctrl": ctrl, "alt": alt, "meta": meta}
         self.must("key_down", key=key, modifiers=mods)
-        self.must("key_up", key=key, modifiers=mods)
+        # A tap of the chord: the key and its modifiers come up together. An op's `modifiers`
+        # are the whole modifier state at its key (layout/src/e2e/full.rs), so a key_up with the
+        # chord's modifiers would leave them held - every later click a Cmd / Shift + click.
+        self.must("key_up", key=key, modifiers=RELEASED)
         self.frame(frames)
 
     def type_keys(self, keys):

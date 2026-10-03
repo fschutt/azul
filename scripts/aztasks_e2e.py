@@ -11,7 +11,8 @@
        `tasks/<list>/<id>.json` lands on disk (with its repeat and tag);
     4. it lands in Upcoming: Cmd+2 -> `#task-<id>` in `#section-day-<tomorrow>`; a second
        quick add "Pay the plumber today 11:59pm !high" lands in Today (Cmd+1);
-    5. completes the repeating task (its check box) -> `AZTASKS_COMPLETED`, `AZTASKS_SPAWNED
+    5. All (Cmd+5): a click on a task title selects it alone, the list and the details stay;
+       completes the repeating task (its check box) -> `AZTASKS_COMPLETED`, `AZTASKS_SPAWNED
        <new> <tomorrow + 7>`, both files on disk, the old one `completed`, the new one
        repeating;
     6. Settings (FILE) opens the backstage; Data: Export (`AZTASKS_EXPORTED <n> <key>`, the
@@ -216,7 +217,10 @@ class App:
     def key(self, key, shift=False, ctrl=False, alt=False, meta=False):
         mods = {"shift": shift, "ctrl": ctrl, "alt": alt, "meta": meta}
         self.must("key_down", key=key, modifiers=mods)
-        self.must("key_up", key=key, modifiers=mods)
+        # A tap: the key and its modifiers come up together (an op's modifiers are the whole
+        # modifier state; with the chord's, Cmd stayed held and the next click was a Cmd+click
+        # that added to the selection).
+        self.must("key_up", key=key, modifiers={"shift": False, "ctrl": False, "alt": False, "meta": False})
         self.frame(2)
 
     def cmd(self, key):
@@ -331,6 +335,27 @@ def run(args, logs, out, data_dir):
         app.frame(2)
         app.until("the task in Today", lambda: app.has(sel("task-%s") % plumber))
         wait_file(app, data_dir, plumber_list, plumber, lambda t: t.get("priority") == "high", "the high priority")
+
+        # All: a click on a task's title selects that task alone, the list stays and the details
+        # show it (PIM6 saw both panes go blank; not seen again on the wave-6 build).
+        app.cmd("5")
+        app.until("AZTASKS_VIEW all", lambda: app.printed("AZTASKS_VIEW", r"\S+")[-1] == "all")
+        app.frame(2)
+        for title, task_id in (("Pay the plumber", plumber), ("Water the ferns", ferns)):
+            # The row's title (the To-Do bar lists a task due today under the same text), scrolled
+            # into the list's view first (a click op at a row below it lands outside the list).
+            app.must("scroll_into_view", selector=sel("task-%s") % task_id, block="center", behavior="instant")
+            app.frame(2)
+            app.must("click", selector="%s .%stask-title" % (sel("task-%s") % task_id, NAMING["prefix"]))
+            app.frame(2)
+            app.until("AZTASKS_SELECTED %s" % task_id,
+                      lambda: app.printed("AZTASKS_SELECTED", r"\S+")[-1:] == [task_id])
+            app.until("the list and the details", lambda: app.has(sel("task-%s") % task_id)
+                      and app.has(sel("detail-title")))
+            if app.shows("tasks selected"):
+                raise Failure("a plain click on %r added to the selection" % title)
+        app.screenshot(os.path.join(out, "all-click.png"))
+        log("All: a click on a title selects it alone; the list and the details stay")
 
         # Completing the repeating task leaves next week's behind.
         app.cmd("2")

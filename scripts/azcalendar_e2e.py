@@ -106,7 +106,10 @@ class Window(wi.Debug):
                 ctrl = True
         mods = {"shift": shift, "ctrl": ctrl, "alt": alt, "meta": meta}
         self.must({"op": "key_down", "key": key, "modifiers": mods})
-        self.must({"op": "key_up", "key": key, "modifiers": mods})
+        # A tap: the key and its modifiers come up together (an op's modifiers are the whole
+        # modifier state; with the chord's they stayed held for every later click).
+        released = {"shift": False, "ctrl": False, "alt": False, "meta": False}
+        self.must({"op": "key_up", "key": key, "modifiers": released})
         self.frames(2)
 
     def click(self, selector=None, text=None):
