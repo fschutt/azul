@@ -13,14 +13,15 @@ Branch `wt/mail6` from `25d78e309`. Brief: scripts/waves/wave6/MAIL6.md. Report:
 - fixing the LOOK list (below), RED first.
 
 ## NEXT (exact, in order; last commit: see `git log -1`)
-1. RED E2E first: extend scripts/azmail_e2e.py with a `--sample` look phase (RED vs the prebuilt binary):
+1. (done 62cf7cd60)
    status bar bottom == window bottom (main + compose); after opening the newsletter the list and reading pane
    are wider than 0 (engine bug 2 - stays RED until MAILENG6); wizard page 2 fields are empty.
-2. App: body `height: 100%` (ui_main.rs layout_main ~line 115, ui_compose.rs layout_compose ~line 363;
+2. (done 13bbb49d1)
    the wizard is inside the backstage of layout_main).
 3. (done as RED cc7040ae5; fix later if time, else report)
+DONE since: 62cf7cd60 RED E2E sample phase; 13bbb49d1 body height 100%; 7b777cfcb compose close prevent_window_close + MessageBox modal (own handler, not CloseGuard: stale dirty snapshot - report it)
    decide owner (no wave-6 task owns text_input.rs -> fix RED first in layout/tests, or app: distinct keys).
-4. Compose close via the CloseGuard widget (ui_compose.rs on_compose_close_requested ~764 clears
+4. (done 7b777cfcb)
    flags.close_requested by hand - DEDUP_OFFICE A16).
 5. To-Do bar on azul_pim task_store (model: examples/azul-calendar/src/tasks.rs; writes on a Thread).
 6. __azmail_ prefix constants (ids.rs), appkit (args/data root/settings/About dialog/shortcuts),
