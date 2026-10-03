@@ -40,6 +40,51 @@ impl PrintAsCssValue for StyleOpacity {
 #[cfg(feature = "parser")]
 impl_percentage_value!(StyleOpacity);
 
+// -- Zoom --
+
+/// Represents a `zoom` attribute (CSS Viewport 1, as Chrome implements it):
+/// the factor the element's lengths - and, multiplied down the tree, the
+/// lengths of its whole subtree - are scaled by. `normal` (the initial value)
+/// is 1; a `<number>` or a `<percentage>`, never negative. Not inherited: the
+/// layout multiplies the zooms of a node and its ancestors (its EFFECTIVE
+/// zoom).
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StyleZoom {
+    pub inner: PercentageValue,
+}
+
+impl Default for StyleZoom {
+    fn default() -> Self {
+        Self {
+            inner: PercentageValue::const_new(100),
+        }
+    }
+}
+
+impl StyleZoom {
+    /// The scale factor, 1.0 for `normal`. A zero (or a non-finite) factor
+    /// is treated as 1, as in Chrome: a box is never scaled to nothing.
+    #[must_use]
+    pub fn factor(&self) -> f32 {
+        let factor = self.inner.normalized();
+        if factor.is_finite() && factor > 0.0 {
+            factor
+        } else {
+            1.0
+        }
+    }
+}
+
+impl PrintAsCssValue for StyleZoom {
+    fn print_as_css_value(&self) -> String {
+        format!("{}", self.inner.normalized())
+    }
+}
+
+#[cfg(feature = "parser")]
+impl_percentage_value!(StyleZoom);
+
 // -- Visibility --
 
 /// Represents a `visibility` attribute, controlling element visibility.
@@ -281,6 +326,72 @@ pub mod parsers {
         }
 
         Ok(StyleOpacity { inner: val })
+    }
+
+    // -- Zoom Parser --
+
+    #[derive(Clone, PartialEq, Eq)]
+    pub enum ZoomParseError<'a> {
+        ParsePercentage(PercentageParseError, &'a str),
+        Negative(&'a str),
+    }
+    impl_debug_as_display!(ZoomParseError<'a>);
+    impl_display! { ZoomParseError<'a>, {
+        ParsePercentage(e, s) => format!("Invalid zoom value \"{}\": {}", s, e),
+        Negative(s) => format!("Invalid zoom value \"{}\": must not be negative", s),
+    }}
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[repr(C, u8)]
+    pub enum ZoomParseErrorOwned {
+        ParsePercentage(PercentageParseErrorWithInput),
+        Negative(AzString),
+    }
+
+    impl ZoomParseError<'_> {
+        #[must_use]
+        pub fn to_contained(&self) -> ZoomParseErrorOwned {
+            match self {
+                Self::ParsePercentage(err, s) => {
+                    ZoomParseErrorOwned::ParsePercentage(PercentageParseErrorWithInput {
+                        error: err.clone(),
+                        input: (*s).to_string().into(),
+                    })
+                }
+                Self::Negative(s) => ZoomParseErrorOwned::Negative((*s).to_string().into()),
+            }
+        }
+    }
+
+    impl ZoomParseErrorOwned {
+        #[must_use]
+        pub fn to_shared(&self) -> ZoomParseError<'_> {
+            match self {
+                Self::ParsePercentage(e) => {
+                    ZoomParseError::ParsePercentage(e.error.clone(), e.input.as_str())
+                }
+                Self::Negative(s) => ZoomParseError::Negative(s.as_str()),
+            }
+        }
+    }
+
+    /// `zoom: normal | <number> | <percentage>` (CSS Viewport 1): `normal`
+    /// is 1, `1.5` and `150%` are the same factor.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a valid CSS `zoom` value.
+    pub fn parse_style_zoom(input: &str) -> Result<StyleZoom, ZoomParseError<'_>> {
+        let trimmed = input.trim();
+        if trimmed.eq_ignore_ascii_case("normal") {
+            return Ok(StyleZoom::default());
+        }
+        let val = parse_percentage_value(trimmed)
+            .map_err(|e| ZoomParseError::ParsePercentage(e, input))?;
+        if val.normalized() < 0.0 {
+            return Err(ZoomParseError::Negative(input));
+        }
+        Ok(StyleZoom { inner: val })
     }
 
     // -- Visibility Parser --
