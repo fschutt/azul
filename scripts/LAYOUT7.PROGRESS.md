@@ -63,7 +63,18 @@ headless Chrome and the prebuilt azul (AzPaint `mount`, capped runner), prints r
   skip a marker that has a host, a marker IFC collects only its marker; no marker box for none.
 
 ## IN PROGRESS
-- item 6 (CSS zoom): decide scope and implement (see DECISION above)
+- item 6 (CSS zoom). DESIGN (decided): zoom = a multiplier on the subtree's used lengths (Chrome's
+  model: effective zoom = product of `zoom` over the node and its ancestors; absolute lengths (px pt
+  in cm mm) and rem scale, em follows the zoomed font size, % / vw / vh do not). Steps, one commit each:
+  Z1 RED layout/tests/css_zoom_scales_the_lengths_of_its_subtree.rs; Z2 the property (css: StyleZoom
+  in css/src/props/style/effects.rs as {inner: PercentageValue}, property.rs ~25 spots copying
+  Opacity's, props/macros.rs css_property_from_type, codegen format.rs impl_percentage_value_fmt +
+  lower_types.rs lists, core prop_cache impl_get_prop get_zoom); Z3 core CssPropertyCache
+  `resolved_zooms: OnceLock<Vec<f32>>` (cleared with resolved_font_sizes_px) + getters
+  `get_effective_zoom` + `zoom_length` helper; Z4 get_element_font_size x zoom; Z5 BoxProps
+  (ResolutionParams.zoom, UnresolvedBoxProps::resolve); Z6 sizing (Px width/height arms, min/max
+  constraints, intrinsic overrides, image natural size); Z7 StyleProperties line-height / letter /
+  word spacing px; Z8 positioned offsets. Not in reach (PAINT7 display_list): radius, shadow, outline.
 
 ## NEXT
 - items 6..10 in brief order
