@@ -14531,6 +14531,36 @@ impl LayoutWindow {
         core::mem::take(&mut self.transition_patched)
     }
 
+    /// The work the frame after an animation tick owes - THE decision every
+    /// frame driver takes from here (the shells' CSS driver, the debug
+    /// server's `tick_animations`, the E2E runner), consuming the tick's
+    /// one-shot flags:
+    ///
+    /// - a LAYOUT-affecting transition value -> `ShouldIncrementalRelayout`;
+    /// - every value patched into the display list in place, or published as a GPU value under a
+    ///   key the list already binds (a `transform` tween, a FLIP slide, a keyframe track:
+    ///   [`Self::animation_tick_is_values_only`]) -> `ShouldReRenderCurrentWindow`, a repaint;
+    /// - anything else (a paint-scope value the list must be rebuilt for, a key that appeared or
+    ///   went) -> `ShouldUpdateDisplayListCurrentWindow`.
+    ///
+    /// The three drivers each had their own copy of this, and the copies
+    /// drifted: the debug server's and the runner's never asked about
+    /// values-only ticks, so every frame of a slide they drove rebuilt the
+    /// whole display list for a matrix the renderers read live anyway.
+    #[must_use]
+    pub fn take_animation_frame_work(&mut self) -> azul_core::events::ProcessEventResult {
+        use azul_core::events::ProcessEventResult;
+        let relayout = self.take_transition_relayout();
+        let patched = self.take_transition_patched();
+        if relayout {
+            ProcessEventResult::ShouldIncrementalRelayout
+        } else if patched || self.animation_tick_is_values_only() {
+            ProcessEventResult::ShouldReRenderCurrentWindow
+        } else {
+            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+        }
+    }
+
     /// [`Self::tick_animations`] with `dt` taken from the wall clock.
     ///
     /// The clock is read ONLY when something is actually animating.
@@ -14904,6 +14934,9 @@ impl LayoutWindow {
                 azul_css::props::basic::color::ColorU,
                 bool,
             )> = Vec::new();
+            // A `transform` tween stepped by publishing its matrix alone (the
+            // GPU property path below): a repaint, like a patched colour.
+            let mut gpu_values_moved = false;
             if let Some(result) = self.layout_results.get_mut(&DomId::ROOT_ID) {
                 for (tr, rect) in self.css_transitions.iter_mut().zip(rects) {
                     if tr.delay_s > 0.0 {
@@ -14953,6 +14986,32 @@ impl LayoutWindow {
                     } else {
                         shown.clone()
                     };
+
+                    // THE GPU PROPERTY PATH: a `transform` tween on a node whose
+                    // reference frame exists moves no box and changes no item -
+                    // only the frame's matrix, which both compositors read live
+                    // from the GPU value cache (as a FLIP slide's). So the
+                    // override goes in through the lean channel (the compact
+                    // cache holds no transform value, only its presence bit,
+                    // which a transform-to-transform tween cannot flip) and the
+                    // matrix is published under the key the node already has:
+                    // no restyle, no relayout, no display-list rebuild. The
+                    // AzWidgets switch knob slides this way.
+                    //
+                    // A node with no reference frame yet, or one whose target
+                    // is no transform at all, changes the key POPULATION - only
+                    // a display-list build can show that, so it falls through
+                    // to the rebuild path below (which syncs the GPU values).
+                    if tr.prop_type == azul_css::props::property::CssPropertyType::Transform {
+                        result.styled_dom.set_user_property_override_fast(
+                            &tr.node,
+                            core::slice::from_ref(&over),
+                        );
+                        if cache.refresh_transform_value_of(&result.styled_dom, tr.node, (w, h)) {
+                            gpu_values_moved = true;
+                            continue;
+                        }
+                    }
 
                     // THE PATCH FAST PATH: colour-carrying paint transitions
                     // rewrite their display-list items in place — no cascade
@@ -15051,7 +15110,10 @@ impl LayoutWindow {
             }
             // The rebuild-free frame is only sound when NOTHING ELSE needs
             // one: a mixed tick (patchable + unpatchable) rebuilds.
-            if !patch_jobs.is_empty() && dirty_empty && self.pending_css_dirty.is_none() {
+            if (!patch_jobs.is_empty() || gpu_values_moved)
+                && dirty_empty
+                && self.pending_css_dirty.is_none()
+            {
                 self.transition_patched = true;
             }
         }
