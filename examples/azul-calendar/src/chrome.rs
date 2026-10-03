@@ -1255,7 +1255,7 @@ extern "C" fn on_export_picked(mut data: RefAny, _info: CallbackInfo, result: Re
 }
 
 /// Says what an import or export did (or why it did not).
-fn report(s: &mut CalState, failed: bool, message: String) {
+pub(crate) fn report(s: &mut CalState, failed: bool, message: String) {
     if failed {
         eprintln!("[azcalendar] {message}");
     }

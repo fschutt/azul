@@ -71,6 +71,7 @@ mod chrome;
 mod editor_ui;
 mod timegrid;
 mod views_ui;
+mod writes;
 
 /// AzMeet's meeting links and room keys: AzMeet's own `rooms.rs`, compiled into AzCalendar too,
 /// so the two apps read links the same way.
@@ -273,6 +274,13 @@ pub(crate) struct CalState {
     pub(crate) settings_text: String,
     /// The main window was asked to close while writes waited: it closes once they landed.
     pub(crate) closing: bool,
+    /// Writes failed when the window was to close, and the user was told: the next close
+    /// passes.
+    pub(crate) close_despite_failures: bool,
+    /// Lines for stdout once the write of their key landed (`AZCAL_SAVED <path>`, ...).
+    pub(crate) on_landing: Vec<(String, String)>,
+    /// The export on its way: how many events, and its file.
+    pub(crate) export_pending: Option<(usize, PathBuf)>,
     // ---- FILE > Open & Export ----
     pub(crate) import_path: String,
     /// The calendar an import goes into: its index in `calendars`.
@@ -380,6 +388,8 @@ impl CalState {
         let key = event::object_key(&event.id);
         self.data_writes
             .put(key.clone(), event::to_json(&event).into_bytes());
+        let path = self.data_dir.join(&key);
+        self.announce_on_landing(&key, format!("AZCAL_SAVED {}", path.display()));
         if let Some(m) = &event.meeting {
             println!("AZCAL_LINK {}", m.link);
         }
@@ -388,7 +398,20 @@ impl CalState {
             Some(i) => self.events[i] = event,
             None => self.events.push(event),
         }
-        Ok(self.data_dir.join(key))
+        Ok(path)
+    }
+
+    /// Prints `line` on stdout once the write of `key` landed (a newer write of the key
+    /// replaces the waiting one, and its line goes along).
+    pub(crate) fn announce_on_landing(&mut self, key: &str, line: String) {
+        if !self.on_landing.iter().any(|(k, l)| k == key && *l == line) {
+            self.on_landing.push((key.to_string(), line));
+        }
+    }
+
+    /// The writes that did not land and wait for a retry.
+    pub(crate) fn write_failures(&self) -> usize {
+        self.data_writes.failures().len() + self.task_writes.failures().len()
     }
 
     /// Queues the removal of the event `id`'s file.
@@ -557,11 +580,47 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             app.clone(),
             on_window_key,
         )
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::CloseRequested),
+            app.clone(),
+            on_main_close_requested,
+        )
         .with_child(
             ShellThemeScope::create(root)
                 .with_accent(ShellThemeAccent::Blue)
                 .dom(),
         )
+}
+
+/// The main window is asked to close (its close button, Cmd+Q's close, the app's own): it
+/// waits for the writes on their way (`writes.rs` closes it once they landed), and says once
+/// what did not land.
+extern "C" fn on_main_close_requested(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app = data.clone();
+    let Some(mut guard) = data.downcast_mut::<CalState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    let failures = s.write_failures();
+    match store::main_close(!s.writes_idle(), failures, s.close_despite_failures) {
+        store::MainClose::Close => Update::DoNothing,
+        store::MainClose::Wait => {
+            eprintln!("[azcalendar] the window closes once the waiting writes landed");
+            s.closing = true;
+            info.prevent_window_close();
+            writes::pump(s, &mut info, &app);
+            Update::DoNothing
+        }
+        store::MainClose::Tell => {
+            s.close_despite_failures = true;
+            s.notice = format!(
+                "{failures} change(s) could not be written. Close the window again to quit \
+                 without them."
+            );
+            info.prevent_window_close();
+            Update::RefreshDom
+        }
+    }
 }
 
 /// The menu bar (the native one on macOS): Calendar, View, Settings.
@@ -964,6 +1023,9 @@ extern "C" fn on_sync_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> Tim
     let app = data.clone();
     if let Some(mut s) = data.downcast_mut::<CalState>() {
         sync_links(&mut s, &mut info.callback_info, &app);
+        // Writes that did not land go again, at the links' pace (not every write tick).
+        s.data_writes.retry();
+        s.task_writes.retry();
     }
     TimerCallbackReturn::continue_unchanged()
 }
@@ -992,8 +1054,17 @@ fn start_syncing(data: &mut RefAny, info: &mut CallbackInfo) {
                 SystemTimeDiff::from_millis(REMINDER_TICK_MS),
             )),
         );
+        // Every durable write: the main window starts the file threads (`writes.rs`).
+        let get_time = info.get_system_time_fn();
+        info.add_timer(
+            TimerId::unique(),
+            Timer::create(app.clone(), writes::on_write_tick, get_time).with_interval(
+                Duration::System(SystemTimeDiff::from_millis(writes::WRITE_TICK_MS)),
+            ),
+        );
     }
     sync_links(s, info, &app);
+    writes::pump(s, info, &app);
 }
 
 /// "Sync meeting links now": sends every pending link again, refused ones too.
@@ -1241,6 +1312,9 @@ pub fn start() {
         task_batch: Vec::new(),
         settings_text: text.to_string(),
         closing: false,
+        close_despite_failures: false,
+        on_landing: Vec::new(),
+        export_pending: None,
         import_path: String::new(),
         import_calendar: 0,
         export_path: String::new(),
