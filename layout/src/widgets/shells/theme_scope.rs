@@ -23,8 +23,17 @@ use alloc::vec::Vec;
 use azul_core::dom::{Dom, IdOrClass, IdOrClassVec};
 use azul_css::{
     css::{rule_priority, Css, CssCustomProperty, CssDeclaration, CssPath, CssPathSelector, CssRuleBlock},
-    dynamic_selector::{DynamicSelector, ModeCondition},
-    props::basic::color::ColorU,
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, DynamicSelector, ModeCondition,
+    },
+    props::{
+        basic::{color::ColorU, pixel::PixelValue},
+        layout::{
+            LayoutDisplay, LayoutFlexDirection, LayoutHeight, LayoutMarginBottom, LayoutMarginLeft,
+            LayoutMarginRight, LayoutMarginTop,
+        },
+        property::CssProperty,
+    },
     AzString,
 };
 
@@ -253,9 +262,30 @@ impl ShellThemeScope {
     /// and the scope grows in it, so the shells' panes take the window.
     #[must_use]
     pub fn body(self) -> Dom {
-        Dom::create_body().with_child(self.dom())
+        Dom::create_body()
+            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(WINDOW_BODY_BASE))
+            .with_child(self.dom())
     }
 }
+
+/// The window's body around the scope: no UA margin (`body { margin: 8px }`),
+/// the window's full height (the body's own height is its content's), a
+/// column the scope's root grows in. Structure, the same in every theme.
+static WINDOW_BODY_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_margin_top(LayoutMarginTop::const_px(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_margin_right(LayoutMarginRight::const_px(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_margin_bottom(LayoutMarginBottom::const_px(
+        0,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::Px(
+        PixelValue::const_percent(100),
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+        LayoutFlexDirection::Column,
+    )),
+];
 
 impl From<ShellThemeScope> for Dom {
     fn from(s: ShellThemeScope) -> Self {
