@@ -5,6 +5,7 @@
 
 pub mod app;
 pub mod bookcss;
+pub mod commands;
 pub mod content;
 pub mod epub;
 pub mod ids;
