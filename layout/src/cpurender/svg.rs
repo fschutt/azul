@@ -806,85 +806,24 @@ fn parse_svg_transform(s: &str) -> TransAffine {
     TransAffine::new()
 }
 
-/// Parse SVG color string (#RRGGBB, #RGB, named colors).
+/// Parse an SVG paint colour: any CSS colour - `#rgb`, `#rgba`, `#rrggbb`,
+/// `#rrggbbaa`, `rgb()`, `rgba()`, `hsl()`, `hsla()` and every CSS colour
+/// keyword (SVG paints ARE CSS colours). One colour parser: the CSS one
+/// ([`ColorU::parse_css`]); `currentColor` and paint servers (`url(#..)`)
+/// are the callers'. A PDF page's SVG (printpdf) writes every paint as
+/// `rgb(r, g, b)`: with the old `#hex` + 8 names table it drew nothing.
 #[cfg(all(feature = "std", feature = "xml"))]
 fn parse_svg_color(s: &str) -> Option<Rgba8> {
     let s = s.trim();
-    if let Some(hex) = s.strip_prefix('#') {
-        // The arms below index `hex` at fixed BYTE offsets, but `hex.len()` is a byte
-        // count: a multibyte char (e.g. "#€123", € = 3 bytes) makes the byte length hit
-        // the 6/3 arm while the slice boundary lands mid-character and panics. Valid hex
-        // is ASCII, so reject anything else up front.
-        if !hex.is_ascii() {
-            return None;
-        }
-        return match hex.len() {
-            6 => {
-                let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
-                let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
-                let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
-                Some(Rgba8 { r, g, b, a: 255 })
-            }
-            3 => {
-                let r = u8::from_str_radix(&hex[0..1], 16).ok()? * 17;
-                let g = u8::from_str_radix(&hex[1..2], 16).ok()? * 17;
-                let b = u8::from_str_radix(&hex[2..3], 16).ok()? * 17;
-                Some(Rgba8 { r, g, b, a: 255 })
-            }
-            _ => None,
-        };
+    if s.is_empty() {
+        return None;
     }
-    match s.to_lowercase().as_str() {
-        "black" => Some(Rgba8 {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 255,
-        }),
-        "white" => Some(Rgba8 {
-            r: 255,
-            g: 255,
-            b: 255,
-            a: 255,
-        }),
-        "red" => Some(Rgba8 {
-            r: 255,
-            g: 0,
-            b: 0,
-            a: 255,
-        }),
-        "green" => Some(Rgba8 {
-            r: 0,
-            g: 128,
-            b: 0,
-            a: 255,
-        }),
-        "blue" => Some(Rgba8 {
-            r: 0,
-            g: 0,
-            b: 255,
-            a: 255,
-        }),
-        "yellow" => Some(Rgba8 {
-            r: 255,
-            g: 255,
-            b: 0,
-            a: 255,
-        }),
-        "orange" => Some(Rgba8 {
-            r: 255,
-            g: 165,
-            b: 0,
-            a: 255,
-        }),
-        "gold" => Some(Rgba8 {
-            r: 255,
-            g: 215,
-            b: 0,
-            a: 255,
-        }),
-        _ => None,
-    }
+    ColorU::parse_css(s).map(|c| Rgba8 {
+        r: c.r,
+        g: c.g,
+        b: c.b,
+        a: c.a,
+    })
 }
 
 #[cfg(all(test, feature = "std", feature = "xml"))]
@@ -1017,10 +956,30 @@ mod autotest_generated {
 
     #[test]
     fn parse_svg_color_wrong_hex_lengths_are_none() {
-        // note: 8-digit #RRGGBBAA is valid CSS but unsupported here
-        for s in ["#f", "#ff", "#ffff", "#fffff", "#fffffff", "#ffffffff"] {
+        // 3, 4, 6 and 8 digits are CSS hex colours; every other length is not.
+        for s in ["#f", "#ff", "#fffff", "#fffffff", "#fffffffff"] {
             assert_eq!(parse_svg_color(s), None, "{s} must be rejected");
         }
+        assert_eq!(
+            parse_svg_color("#ff000080"),
+            Some(Rgba8 {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 128
+            }),
+            "#rrggbbaa carries its alpha"
+        );
+        assert_eq!(
+            parse_svg_color("#f008"),
+            Some(Rgba8 {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 136
+            }),
+            "#rgba carries its alpha"
+        );
     }
 
     #[test]
@@ -1066,30 +1025,50 @@ mod autotest_generated {
     }
 
     #[test]
-    fn parse_svg_color_unsupported_named_colors_are_none() {
-        // Only 8 names are in the table; every other CSS keyword silently falls
-        // back to None (the caller then paints nothing).
-        for s in [
-            "gray",
-            "grey",
-            "cyan",
-            "magenta",
-            "transparent",
-            "currentColor",
-        ] {
-            assert_eq!(parse_svg_color(s), None, "{s} is not in the named table");
-        }
+    fn parse_svg_color_every_css_keyword_is_a_paint() {
+        // SVG paints are CSS colours: the whole keyword table, not 8 names.
+        let grey = Some(Rgba8 {
+            r: 128,
+            g: 128,
+            b: 128,
+            a: 255,
+        });
+        assert_eq!(parse_svg_color("gray"), grey);
+        assert_eq!(parse_svg_color("grey"), grey);
+        assert_eq!(
+            parse_svg_color("cyan"),
+            Some(Rgba8 {
+                r: 0,
+                g: 255,
+                b: 255,
+                a: 255
+            })
+        );
+        assert_eq!(parse_svg_color("transparent").map(|c| c.a), Some(0));
+        // `currentColor` is the caller's (SvgPaintContext::resolve).
+        assert_eq!(parse_svg_color("currentColor"), None);
+    }
+
+    #[test]
+    fn parse_svg_color_functional_notations_are_paints() {
+        assert_eq!(parse_svg_color("rgb(255,0,0)"), Some(RED));
+        assert_eq!(
+            parse_svg_color("rgb(255, 0, 0)"),
+            Some(RED),
+            "printpdf's form"
+        );
+        assert_eq!(
+            parse_svg_color("rgba(255, 0, 0, 0.5)").map(|c| (c.r, c.a)),
+            Some((255, 128))
+        );
+        assert_eq!(parse_svg_color("hsl(0, 100%, 50%)"), Some(RED));
     }
 
     #[test]
     fn parse_svg_color_leading_trailing_junk_is_rejected() {
         assert_eq!(parse_svg_color("red;garbage"), None);
         assert_eq!(parse_svg_color("#ff0000;"), None);
-        assert_eq!(
-            parse_svg_color("rgb(255,0,0)"),
-            None,
-            "rgb() is unsupported"
-        );
+        assert_eq!(parse_svg_color("rgb(255,0)"), None, "a channel missing");
         assert_eq!(parse_svg_color("url(#grad)"), None, "paint servers -> None");
     }
 
