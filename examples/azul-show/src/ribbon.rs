@@ -47,6 +47,12 @@ fn toggle(app: &RefAny, icon: &str, label: &str, cmd: Command, on: bool) -> Ribb
     RibbonItem::SmallButton(button(app, icon, label, cmd).with_toggled(on))
 }
 
+/// An icon-only small button (PowerPoint's Font / Paragraph rows), named
+/// `name` for assistive technology (it was announced as "button").
+fn icon_button(app: &RefAny, icon: &str, name: &str, cmd: Command, on: bool) -> RibbonItem {
+    RibbonItem::SmallButton(button(app, icon, "", cmd).with_toggled(on).with_alt(s(name)))
+}
+
 fn column(items: Vec<RibbonItem>) -> RibbonItem {
     RibbonItem::Column(RibbonColumn::create().with_items(items))
 }
@@ -250,16 +256,16 @@ fn home_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
             "Font",
             vec![column(vec![
                 row(vec![
-                    toggle(app, "format_bold", "", Command::Bold, has(F::Bold)),
-                    toggle(app, "format_italic", "", Command::Italic, has(F::Italic)),
-                    toggle(app, "format_underlined", "", Command::Underline, has(F::Underline)),
-                    toggle(app, "strikethrough_s", "", Command::Strike, has(F::Strike)),
+                    icon_button(app, "format_bold", "Bold", Command::Bold, has(F::Bold)),
+                    icon_button(app, "format_italic", "Italic", Command::Italic, has(F::Italic)),
+                    icon_button(app, "format_underlined", "Underline", Command::Underline, has(F::Underline)),
+                    icon_button(app, "strikethrough_s", "Strikethrough", Command::Strike, has(F::Strike)),
                 ]),
                 row(vec![
-                    small(app, "text_increase", "", Command::Grow(1)),
-                    small(app, "text_decrease", "", Command::Grow(-1)),
-                    small(app, "format_color_text", "", Command::TextColor(Some(accent))),
-                    small(app, "format_color_reset", "", Command::TextColor(None)),
+                    icon_button(app, "text_increase", "Increase font size", Command::Grow(1), false),
+                    icon_button(app, "text_decrease", "Decrease font size", Command::Grow(-1), false),
+                    icon_button(app, "format_color_text", "Font color: accent", Command::TextColor(Some(accent)), false),
+                    icon_button(app, "format_color_reset", "Font color: automatic", Command::TextColor(None), false),
                 ]),
             ])],
         ))
@@ -267,21 +273,21 @@ fn home_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
             "Paragraph",
             vec![column(vec![
                 row(vec![
-                    toggle(
+                    icon_button(
                         app,
                         "format_list_bulleted",
-                        "",
+                        "Bullets",
                         Command::Bullets,
                         body.is_some_and(|b| !b.paragraphs.is_empty() && b.paragraphs.iter().all(|p| p.bullet)),
                     ),
-                    small(app, "format_indent_decrease", "", Command::Indent(-1)),
-                    small(app, "format_indent_increase", "", Command::Indent(1)),
+                    icon_button(app, "format_indent_decrease", "Decrease list level", Command::Indent(-1), false),
+                    icon_button(app, "format_indent_increase", "Increase list level", Command::Indent(1), false),
                 ]),
                 row(vec![
-                    toggle(app, "format_align_left", "", Command::Align(Align::Left), align == Align::Left),
-                    toggle(app, "format_align_center", "", Command::Align(Align::Center), align == Align::Center),
-                    toggle(app, "format_align_right", "", Command::Align(Align::Right), align == Align::Right),
-                    toggle(app, "format_align_justify", "", Command::Align(Align::Justify), align == Align::Justify),
+                    icon_button(app, "format_align_left", "Align left", Command::Align(Align::Left), align == Align::Left),
+                    icon_button(app, "format_align_center", "Center", Command::Align(Align::Center), align == Align::Center),
+                    icon_button(app, "format_align_right", "Align right", Command::Align(Align::Right), align == Align::Right),
+                    icon_button(app, "format_align_justify", "Justify", Command::Align(Align::Justify), align == Align::Justify),
                 ]),
             ])],
         ))
@@ -289,8 +295,8 @@ fn home_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
             "Drawing",
             vec![
                 column(vec![
-                    row(ShapeKind::ALL[..3].iter().map(|k| small(app, k.icon(), "", Command::Shape(*k))).collect()),
-                    row(ShapeKind::ALL[3..].iter().map(|k| small(app, k.icon(), "", Command::Shape(*k))).collect()),
+                    row(ShapeKind::ALL[..3].iter().map(|k| icon_button(app, k.icon(), k.label(), Command::Shape(*k), false)).collect()),
+                    row(ShapeKind::ALL[3..].iter().map(|k| icon_button(app, k.icon(), k.label(), Command::Shape(*k), false)).collect()),
                 ]),
                 column(vec![
                     small(app, "flip_to_front", "Bring to Front", Command::Arrange(ZOrder::BringToFront)),
@@ -579,7 +585,7 @@ fn format_tab(app: &RefAny, ed: &Editor) -> RibbonTab {
             vec![
                 row(fills
                     .iter()
-                    .map(|col| small(app, "square", "", Command::Fill(Some(*col))))
+                    .map(|col| icon_button(app, "square", "Fill with a theme colour", Command::Fill(Some(*col)), false))
                     .collect()),
                 column(vec![
                     small(app, "format_color_reset", "No Fill", Command::Fill(None)),
