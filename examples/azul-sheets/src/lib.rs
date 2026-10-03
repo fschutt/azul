@@ -80,6 +80,7 @@ use azul::{
     },
     window::WindowDecorations,
 };
+use azul_appkit::{ui as kit, AboutInfo, Shortcut};
 use azul_storage::{local::LocalDrive, Drive};
 
 pub use crate::args::Args;
@@ -104,6 +105,44 @@ pub const NAME_BOX_ID: &str = "name-box";
 const CHROME_HEIGHT: f32 = 236.0;
 /// The suggestions the formula bar offers at most.
 const SUGGESTIONS: usize = 6;
+
+// ==== The app's facts (azul-appkit) ====
+
+/// What the About box and the settings page say.
+pub const ABOUT: AboutInfo = AboutInfo {
+    name: "AzSheets",
+    version: env!("CARGO_PKG_VERSION"),
+    summary: "A spreadsheet: workbooks as .xlsx files, IronCalc as the engine on its own thread, \
+              the CellGrid widget as the sheet. Part of the Azlin apps, built with azul.",
+    license: "MIT",
+    app_folder: storage::DIR,
+};
+
+/// The keys AzSheets answers, as the settings page lists them (`Mod` = Cmd
+/// on macOS, Ctrl elsewhere). The window's and the grid's handlers are the
+/// ones that act; this table is what they do.
+pub const SHORTCUTS: [Shortcut; 20] = [
+    Shortcut::new("File", "Mod+S", "Save the workbook"),
+    Shortcut::new("File", "Mod+O", "Open a workbook"),
+    Shortcut::new("File", "Mod+N", "New blank workbook"),
+    Shortcut::new("Edit", "Mod+Z", "Undo"),
+    Shortcut::new("Edit", "Mod+Y / Mod+Shift+Z", "Redo"),
+    Shortcut::new("Edit", "Mod+C / Mod+X / Mod+V", "Copy / cut / paste the selection"),
+    Shortcut::new("Edit", "Delete", "Clear the selection's contents"),
+    Shortcut::new("Edit", "Mod+F", "Find"),
+    Shortcut::new("Format", "Mod+B / Mod+I / Mod+U", "Bold / italic / underline"),
+    Shortcut::new("Cells", "F2", "Edit the active cell"),
+    Shortcut::new("Cells", "Enter / Tab", "Commit and move down / right (Shift: back)"),
+    Shortcut::new("Cells", "Escape", "Cancel the edit (or leave the backstage)"),
+    Shortcut::new("Move", "Arrows", "Move the cell cursor"),
+    Shortcut::new("Move", "Mod+Arrows", "To the edge of the data"),
+    Shortcut::new("Move", "Shift+Arrows", "Extend the selection"),
+    Shortcut::new("Move", "Mod+Home / Mod+End", "To A1 / to the last cell with data"),
+    Shortcut::new("Move", "PageUp / PageDown", "A screen up / down"),
+    Shortcut::new("Select", "Mod+A", "Select the whole sheet"),
+    Shortcut::new("Select", "Shift+Space / Mod+Space", "Select the row / the column"),
+    Shortcut::new("Formulas", "F9", "Calculate now"),
+];
 
 // ==== The state ====
 
@@ -255,16 +294,25 @@ pub struct AppState {
     /// The internal clipboard of the ribbon's Copy / Cut: the range, cut?,
     /// its inputs.
     pub clipboard: Option<(CellArea, bool, Vec<Vec<String>>)>,
-    /// The data folder.
+    /// The data folder (for the user's eyes: files go through `drive`).
     pub data_root: PathBuf,
+    /// The ONE drive every file job of the app goes through - a `LocalDrive`
+    /// on `data_root` today, an `S3Drive` later with no other change
+    /// (DEDUP_OFFICE D21: a fresh drive per job was an S3 blocker).
+    pub drive: Arc<dyn Drive>,
+    /// azul-appkit's kit (settings, data root, shortcuts, About); `None` in
+    /// the unit tests.
+    pub kit: Option<RefAny>,
     /// The workbooks in the data folder (the backstage's Open list).
     pub workbooks: Vec<(String, Sidecar)>,
     /// The window size the last layout saw.
     pub window: (f32, f32),
     /// The command line, until the window's startup has acted on it.
     pub args: Option<Args>,
-    /// The Options page's category.
-    pub settings_category: usize,
+    /// The window is asking "save changes?" (the close guard).
+    pub asking_close: bool,
+    /// The window closes once the save in flight is written.
+    pub close_after_save: bool,
 }
 
 impl AppState {
@@ -296,11 +344,14 @@ impl AppState {
             find: String::new(),
             message: String::new(),
             clipboard: None,
+            drive: Arc::new(LocalDrive::new(data_root.clone())),
             data_root,
+            kit: None,
             workbooks: Vec::new(),
             window: (1280.0, 800.0),
             args: None,
-            settings_category: 0,
+            asking_close: false,
+            close_after_save: false,
         }
     }
 
