@@ -54,7 +54,8 @@ use azul::{
         BackstageOnNavSelectCallbackType, ButtonOnClickCallbackType,
         CellGridDataSourceCallbackType, CellGridOnEventCallbackType,
         CellGridStyleSourceCallbackType, RibbonOnTabClickCallbackType,
-        SliderOnValueChangeCallbackType, StandardDialogOnEventCallbackType,
+        CloseGuardOnEventCallbackType, SliderOnValueChangeCallbackType,
+        StandardDialogOnEventCallbackType,
         TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallbackType,
     },
     css::HoverEventFilter,
@@ -67,7 +68,8 @@ use azul::{
     str::String as AzString,
     vec::{BackstageNavItemVec, CellGridRangeVec, CellGridSizeVec},
     widgets::{
-        AboutDialog, Backstage, BackstageNavItem, Button, CellGrid, CellGridCell,
+        AboutDialog, Backstage, BackstageNavItem, Button, CellGrid, CellGridCell, CloseGuard,
+        CloseGuardEvent, CloseGuardEventKind,
         CellGridCellKind, CellGridCellRef, CellGridCellStyle, CellGridEditMode, CellGridEvent,
         CellGridEventKind, CellGridHorizontalAlign, CellGridRange, CellGridSize,
         CellGridVerticalAlign, CellGridView, OnTextInputReturn, Ribbon, RibbonAppButton,
@@ -766,6 +768,11 @@ fn apply_reply(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, reply: R
                 s.doc.dirty = false;
                 s.message = format!("Saved \"{}\".", s.doc.title);
                 println!("AZSHEETS_SAVED {text}");
+                if s.close_after_save {
+                    // "Save" in the close question: written, now the window goes.
+                    s.close_after_save = false;
+                    info.close_window();
+                }
             }
             Pending::Exported => {
                 s.message = format!("Exported to {text}");
@@ -773,7 +780,11 @@ fn apply_reply(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, reply: R
             }
             _ => {}
         },
-        Some(Err(e)) => s.message = e,
+        Some(Err(e)) => {
+            // A failed save keeps the window (and the work) open.
+            s.close_after_save = false;
+            s.message = e;
+        }
         None => {}
     }
     match &pending {
@@ -2026,10 +2037,18 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // The body fills the window exactly (no UA margin): the shell's rows
     // share its height, the grid takes what is left and clips, the status
     // bar stays on screen.
+    // "Save changes?" before the window closes with unsaved work: the close
+    // request is held while the workbook is dirty (the standard question
+    // over the window, the answer in on_close_guard).
+    let guarded = CloseGuard::create(shell.dom(), AzString::from(s.doc.title.as_str()))
+        .with_dirty(s.doc.dirty)
+        .with_asking(s.asking_close)
+        .with_on_event(app.clone(), on_close_guard as CloseGuardOnEventCallbackType)
+        .dom();
     Dom::create_body()
         .with_css("display: flex; flex-direction: column; margin: 0px; padding: 0px; height: 100%;")
         .with_child(
-            ShellThemeScope::create(shell.dom())
+            ShellThemeScope::create(guarded)
                 .with_accent(ShellThemeAccent::Leaf)
                 .dom(),
         )
@@ -2041,6 +2060,25 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
 }
 
 // ==== Callbacks ====
+
+/// The close guard's answers: ask, save then close, close without saving,
+/// or stay.
+extern "C" fn on_close_guard(mut data: RefAny, mut info: CallbackInfo, event: CloseGuardEvent) -> Update {
+    with_app(&mut data, &mut info, |info, app, s| match event.kind {
+        CloseGuardEventKind::Ask => s.asking_close = true,
+        CloseGuardEventKind::Save => {
+            s.asking_close = false;
+            s.close_after_save = true;
+            save(info, app, s);
+        }
+        CloseGuardEventKind::Discard => {
+            // The guard closes the window itself.
+            s.asking_close = false;
+            s.doc.dirty = false;
+        }
+        CloseGuardEventKind::Cancel => s.asking_close = false,
+    })
+}
 
 /// Runs `f` on the app state and rebuilds.
 fn with_app(
