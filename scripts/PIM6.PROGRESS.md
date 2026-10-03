@@ -27,13 +27,16 @@ Screenshots: target/pim6-shots (not committed).
 - dbcf9488d close check: CloseRequested veto from live state + CloseGuard (dirty=false) question
 - 323812c18 E2E `close` stage
 
+- 826b47cfe / 3f4cf974b RED/GREEN occurrence form (from_occurrence, set_whole_series,
+  occurrence_events); d89893089 open/save wiring; 06af15985 #editor-scope Segmented;
+  29af1554e E2E `occurrence` stage
+- 219816350 / fe972fc15 RED/GREEN editor::close_answer - Save closes without asking (INFRA6's
+  CloseRequested on the app's own close_window); E2E editor stage asserts no "asking"
+
 ## IN PROGRESS
-- AzCalendar "edit this occurrence": NEXT = RED test in editor.rs / event.rs for detaching one
-  occurrence (the series gets an EXDATE for the day, a new event (new id, no repeat, the
-  occurrence's day, the form's edits) is saved), then GREEN, then the ribbon button "Edit This
-  Occurrence" vs "Edit Series" in editor_ui (open_event with occurrence: the form opens on the
-  occurrence's day; Save asks? -> decision: the editor opened from an occurrence of a series has
-  a Segmented "This occurrence | The series" at the top; Save follows it).
+- AzCalendar storage onto the azul-storage Drive on a Thread (events, calendars, tasks,
+  settings, exports). NEXT: read examples/azul-appkit/src/files.rs + ui.rs spawn_file_jobs and
+  AzContacts' use; design a write queue in AzCalendar (CalState.pending writes -> one job thread).
 
 ## (old notes, done) RecurrenceEditor GREEN part 2 steps, in layout/src/widgets/recurrence_editor.rs:
   1. replace the 4 remaining `todo!()`: `RecurrenceEditor::create` (week_start Monday default,
