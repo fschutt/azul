@@ -20,13 +20,23 @@ On resume: read this file, `git -C <worktree> status`, `git log --oneline -12`, 
 - feed.rs + links.rs + xmltree.rs + dates.rs + state.rs TYPE-CHECK CLEAN (see "Type-check trick").
   opml.rs / reader.rs use azul (Xml::encode_attribute / encode_text / create_from_html): unchecked.
 
+- db112258c DateGroup + date_group moved azul-mail listing.rs -> azul-pim dates.rs (tests moved
+  too; mail re-exports; mail's own tests kept, `use chrono::Weekday` added to them).
+
 ## NEXT (in this order; RED commit with tests + stubs, then GREEN commit, each)
-3. azul-pim/src/dates.rs: move `DateGroup` + `date_group` from azul-mail/src/listing.rs (with its
-   tests); azul-mail listing.rs -> `pub use azul_pim::dates::{date_group, DateGroup};` (minimal
-   edit, say so in the report). AzNews list groups by it.
-4. src/library.rs: Library { subs, feeds: map id -> FeedData { meta, items, state } }, views
-   (All, Unread, Starred, Later, Folder, Feed, Broken), unread counts, search (azul_pim::search),
-   sections by DateGroup, merge(refresh result, now, keep_days) keeping starred, next / prev.
+4. src/library.rs (pure, type-checkable with harness2 + `--extern azul_pim=<rlib>`):
+   `FeedMeta` (serde, feed.json: format "aznews.feed" v1, url, title, site, icon, kind, etag,
+   last_modified, checked, updated, status, error), `FeedData { sub: Subscription, meta, items:
+   Vec<Item>, state: ReadState }`, `Library { feeds: Vec<FeedData> }` (subscription order),
+   `View { All, Unread, Starred, Later, Folder(String), Feed(id), Broken }`,
+   `ArticleRef { feed, item }`; fns: feed_index, folders, unread(feed) / unread_total /
+   unread_in_folder, starred_count, later_count, broken, article, list(view, query) (newest first,
+   search via azul_pim::search::Query over title + excerpt + author + feed title),
+   sections(refs, today, offset_secs) -> Vec<(DateGroup, Vec<ArticleRef>)>, is_read / set_read /
+   toggle_star / toggle_later, mark_all_read(refs) -> changed feeds, merge(feed, parsed: Feed,
+   now, keep_days) -> new count (keeps `seen`, keeps starred / later and items inside keep_days,
+   caps 500, prunes state, refreshes meta), subscribe / unsubscribe / subscriptions, next(list,
+   current, forward). Tests: read state across merge, unread counts, starred kept when dropped.
 5. src/store.rs: keys news/subscriptions.opml, news/feeds/<id>/{feed.json,items.json,state.json};
    load from FileOutcome::GotAll; FileJob builders.
 6. src/fetch.rs: conditional GET (If-None-Match / If-Modified-Since) through
