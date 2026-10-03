@@ -20,6 +20,7 @@ use azul::{
 
 mod forms;
 mod hotkeys;
+mod blocks;
 mod dialogs;
 mod mail;
 mod notifications;
@@ -83,6 +84,10 @@ struct Showcase {
     /// The "Dialogs" section's values: the wizard, settings and standard
     /// dialogs (see `dialogs.rs`).
     dialogs: dialogs::DialogsDemo,
+    /// The "Building blocks" section's values: the rich text editor, list
+    /// selection, the close guard, the zoom range, toggled / disabled
+    /// buttons, the week start (see `blocks.rs`).
+    blocks: blocks::BlocksDemo,
 }
 
 const CHOICES: &[&str] = &["Red", "Green", "Blue"];
@@ -1085,6 +1090,8 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let mail = mail::mail_section(&data, &s.mail, theme);
     // The wizard, settings and standard dialogs.
     let dialogs = dialogs::dialogs_section(&data, &s.dialogs, theme);
+    // The building blocks the apps share (rich text, selection, close guard, ...).
+    let blocks = blocks::blocks_section(&data, &s.blocks, theme);
 
     let heading = Dom::create_h1_with_text("Azul Widget Showcase").with_css(
         "font-size: 26px; font-weight: bold; color: system:text; margin-top: 0px; \
@@ -1161,6 +1168,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 .with_child(datetime)
                 .with_child(mail)
                 .with_child(dialogs)
+                .with_child(blocks)
                 .with_child(every_input)
                 .with_child(raw_inputs),
         )
@@ -1449,6 +1457,7 @@ pub fn start() {
         form: forms::FormDemo::create(),
         mail: mail::MailDemo::create(),
         dialogs: dialogs::DialogsDemo::create(),
+        blocks: blocks::BlocksDemo::create(),
     });
     // `None` follows the desktop - the default, spelled out: an app that
     // starts pinned passes `OptionDarkLightMode::Some(DarkLightMode::Dark)`.
