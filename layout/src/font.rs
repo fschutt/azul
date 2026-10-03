@@ -18,17 +18,58 @@ pub mod loading {
     use std::io::Error as IoError;
 
     use azul_css::{AzString, StringVec, U8Vec};
-    use rust_fontconfig::FcFontCache;
+    use rust_fontconfig::{FcFallbackConfig, FcFontCache, GenericFamily, OperatingSystem};
 
     #[cfg(not(miri))]
     #[must_use]
     pub fn build_font_cache() -> FcFontCache {
-        FcFontCache::build()
+        let cache = FcFontCache::build();
+        use_browser_generic_families(&cache);
+        cache
     }
 
     #[cfg(miri)]
     pub fn build_font_cache() -> FcFontCache {
         FcFontCache::default()
+    }
+
+    /// The generic families as Chrome resolves them, where rust-fontconfig's
+    /// per-OS tables say otherwise (user ruling 2026-10-03: Chrome is the
+    /// reference - azul changes, the widgets' CSS keeps their look).
+    ///
+    /// - macOS / iOS: `sans-serif` is Helvetica (Blink's default font
+    ///   settings); the crate lists Helvetica Neue first. Helvetica moves to
+    ///   the front, the rest keep their order behind it.
+    ///
+    /// Everything else stays: `serif` and `monospace` already resolve to
+    /// Chrome's faces on macOS (Times, Menlo - measured), `system-ui` is
+    /// another generic (the apps' UI text, SF), and on Linux the desktop's
+    /// fontconfig `<alias>` decides for both engines.
+    pub fn browser_generic_families(config: &mut FcFallbackConfig, os: OperatingSystem) {
+        if matches!(os, OperatingSystem::MacOS | OperatingSystem::IOS) {
+            let sans = config
+                .generic_families
+                .entry(GenericFamily::SansSerif)
+                .or_default();
+            sans.retain(|family| !family.eq_ignore_ascii_case("Helvetica"));
+            sans.insert(0, String::from("Helvetica"));
+        }
+    }
+
+    /// [`browser_generic_families`] for this platform, applied to `cache`
+    /// (its state is shared: every clone and a registry's snapshots see
+    /// it). A no-op where the cache already resolves that way, so building
+    /// a window over a shared cache does not drop its memoized chains
+    /// (`set_fallback_config` clears them). THE one call: `build_font_cache`,
+    /// every `FontManager` (so every `LayoutWindow`), and the dll's font
+    /// registry (`App::create`).
+    pub fn use_browser_generic_families(cache: &FcFontCache) {
+        let current = cache.fallback_config();
+        let mut config = current.clone();
+        browser_generic_families(&mut config, OperatingSystem::current());
+        if config != current {
+            let _ = cache.set_fallback_config(config);
+        }
     }
 
     #[derive(Debug)]
@@ -3897,6 +3938,58 @@ pub mod parsed {
             // Smoke: the system font scan must complete. An empty cache is legitimate
             // (a headless image may ship no fonts), so only the call itself is asserted.
             let _cache = crate::font::loading::build_font_cache();
+        }
+
+        #[test]
+        fn sans_serif_puts_helvetica_first_on_macos_and_nothing_else_moves() {
+            use rust_fontconfig::{FcFallbackConfig, GenericFamily, OperatingSystem};
+
+            use crate::font::loading::browser_generic_families;
+
+            let crate_table = FcFallbackConfig::os_defaults(OperatingSystem::MacOS);
+            let mut mac = crate_table.clone();
+            browser_generic_families(&mut mac, OperatingSystem::MacOS);
+            let sans = mac.generic_candidates(GenericFamily::SansSerif);
+            assert_eq!(
+                sans.first().map(String::as_str),
+                Some("Helvetica"),
+                "{sans:?}"
+            );
+            assert_eq!(
+                sans.iter()
+                    .filter(|f| f.eq_ignore_ascii_case("Helvetica"))
+                    .count(),
+                1,
+                "Helvetica once: {sans:?}"
+            );
+            let rest: Vec<&String> = crate_table
+                .generic_candidates(GenericFamily::SansSerif)
+                .iter()
+                .filter(|f| !f.eq_ignore_ascii_case("Helvetica"))
+                .collect();
+            assert_eq!(
+                sans[1..].iter().collect::<Vec<_>>(),
+                rest,
+                "the rest keep their order"
+            );
+            for generic in [
+                GenericFamily::SystemUi,
+                GenericFamily::Serif,
+                GenericFamily::Monospace,
+            ] {
+                assert_eq!(
+                    mac.generic_candidates(generic),
+                    crate_table.generic_candidates(generic),
+                    "{generic:?} does not move (system-ui is the apps' UI text)"
+                );
+            }
+
+            // Elsewhere the platform's own table stays as it is.
+            for os in [OperatingSystem::Windows, OperatingSystem::Linux] {
+                let mut config = FcFallbackConfig::os_defaults(os);
+                browser_generic_families(&mut config, os);
+                assert_eq!(config, FcFallbackConfig::os_defaults(os), "{os:?}");
+            }
         }
 
         #[cfg(feature = "cpurender")]
