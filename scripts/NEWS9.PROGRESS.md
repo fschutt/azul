@@ -76,26 +76,16 @@ On resume: read this file, `git -C <worktree> status`, `git log --oneline -12`, 
 - c47a09b57 ui.rs part 3 (all callbacks; no undefined / unused on_* names) + lib.rs
   `pub mod ui; start() -> ui::start()`. 02b0c10cd rustfmt. THE APP IS COMPLETE (uncompiled).
 
+## DONE (late)
+- 845407052 feed_server.py + test_feed_server.py (3 tests pass); 461eb0bfe scripts/aznews_e2e.py
+  (py_compile ok, not run: no binary); 2ce90372f TODO(WIDGETS9A) markers; the report
+  scripts/NEWS9_2026_10_03.md.
+
+## IN PROGRESS
+- (none) - TASK COMPLETE (uncompiled); the report lists what is left.
+
 ## NEXT
-D1 (next step). examples/azul-news/scripts/feed_server.py: a local HTTP server (python3
-   http.server, ThreadingHTTPServer, port arg) serving /feed.xml (RSS 2.0 with ETag + Last-Modified
-   and 304 on If-None-Match / If-Modified-Since; a POST /bump adds an item and changes the ETag),
-   /atom.xml, /feed.json, /broken.xml (malformed: bare &, unclosed tags), /missing (404),
-   /page.html (an HTML page with <link rel=alternate> to the three feeds), /img/red.png (a small
-   PNG), /subs.opml (an OPML listing the three feeds + a duplicate); logs each request with its
-   conditional headers to stdout so the E2E can assert a 304 was asked.
-D2. examples/azul-news/scripts/test_feed_server.py (plain python tests of the server: 200 with
-   ETag, 304 on If-None-Match, 404, bump changes the ETag) - CI runs it (rust.yml dll_tests).
-D3. scripts/aznews_e2e.py on scripts/azlin_e2e.py (like scripts/azcontacts_e2e.py): start the
-   server, run AzNews --data-dir <tmp> --size 1200x760 with the OPML as file argument ->
-   import preview (AZNEWS_IMPORT_PREVIEW 3) -> Import -> refresh -> AZNEWS_REFRESHED lines; files
-   news/subscriptions.opml + news/feeds/*/items.json exist; click an article row (AZNEWS_SELECTED),
-   reader shows text (get_node_layout on #__aznews_reader), Load pictures -> AZNEWS_PICTURE;
-   star (state.json contains it); refresh again -> server log shows If-None-Match and the app
-   prints `304`; Add feed with the page URL -> AZNEWS_FOUND 3; export -> AZNEWS_EXPORTED;
-   settings Flora / Dark; screenshots. Second run with --sample on another folder: AZNEWS_LOADED 42
-   891, AZNEWS_SAMPLE_WRITTEN 127 (1 + 42 * 3).
-D4. Report scripts/NEWS9_2026_10_03.md (or the finishing date) + final progress.
+- Parent: compile, fix the "least sure" spots of the report, run the test commands and the E2E.
 
 ## (done) B: ui.rs part 3. Old plan of part 2: navigation (pre-order views, TreeViewNode with_badge), the list
    (rows, day headers via DateGroup, Show more, mark-all confirm), the reading pane (Article via
