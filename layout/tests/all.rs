@@ -804,3 +804,5 @@ mod typing_stays_with_its_field_when_another_page_replaces_it;
 mod text_inside_an_opacity_group_keeps_its_colour;
 #[path = "a_text_indent_narrows_the_first_line.rs"]
 mod a_text_indent_narrows_the_first_line;
+#[path = "bolder_and_lighter_are_relative_to_the_parent_weight.rs"]
+mod bolder_and_lighter_are_relative_to_the_parent_weight;
