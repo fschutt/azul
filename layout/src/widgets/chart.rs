@@ -3164,6 +3164,485 @@ fn table_dom(chart: &Chart, look: &ChartLook) -> Dom {
         .with_child(Dom::create_tbody().with_children(body_rows.into()))
 }
 
+// ==== the pointer and the keys ====
+
+/// What the overlay's handlers know: the chart as it was drawn (its frame,
+/// its data and the shapes the pointer can hit) and the point under the
+/// pointer or the keyboard.
+#[derive(Debug)]
+pub(crate) struct ChartState {
+    /// What is drawn.
+    pub(crate) kind: ChartKind,
+    /// The plot's domains and size.
+    pub(crate) frame: PlotFrame,
+    /// The FULL data (the drawing is decimated, the pointer is not).
+    pub(crate) series: Vec<ChartSeries>,
+    /// Per series: its x never decreases (binary search on hover).
+    pub(crate) sorted: Vec<bool>,
+    /// The category names.
+    pub(crate) categories: Vec<AzString>,
+    /// The bars, per series (a bar chart).
+    pub(crate) bars: Vec<Vec<BarRect>>,
+    /// The slices (a pie).
+    pub(crate) slices: Vec<PieSlice>,
+    /// The pie's place.
+    pub(crate) pie: PieGeometry,
+    /// How many markers the overlay holds (one per series of a line, an
+    /// area or a scatter; none otherwise).
+    pub(crate) markers: usize,
+    /// The app's hook.
+    pub(crate) on_select: OptionChartOnSelect,
+    /// The point shown: `(series, index)` - for a pie `(0, category)`.
+    pub(crate) hovered: Option<(usize, usize)>,
+}
+
+/// The point of `points` nearest to `(x, y)` px in `frame`, and how far.
+fn nearest_in_px(points: &[ChartPoint], frame: &PlotFrame, x: f32, y: f32) -> Option<(usize, f32)> {
+    let mut best: Option<(usize, f32)> = None;
+    for (i, p) in points.iter().enumerate() {
+        if !(p.x.is_finite() && p.y.is_finite()) {
+            continue;
+        }
+        let d = (frame.px_x(p.x) - x).hypot(frame.px_y(p.y) - y);
+        if best.map_or(true, |b| d < b.1) {
+            best = Some((i, d));
+        }
+    }
+    best
+}
+
+impl ChartState {
+    /// The point under `(x, y)` px of the plot: on a line the nearest x of
+    /// the nearest series (a crosshair), on a scatter the nearest dot within
+    /// [`HOVER_REACH_PX`], on a bar chart the bar under the pointer or the
+    /// nearest one in its column, on a pie the slice.
+    #[must_use]
+    pub(crate) fn hit(&self, x: f32, y: f32) -> Option<(usize, usize)> {
+        match self.kind {
+            ChartKind::Line | ChartKind::Area => {
+                let target = self.frame.x_at(x);
+                let mut best: Option<(f32, usize, usize)> = None;
+                for (s, ser) in self.series.iter().enumerate() {
+                    let pts = ser.points.as_slice();
+                    let found = if self.sorted.get(s).copied().unwrap_or(false) {
+                        nearest_by_x(pts, target)
+                    } else {
+                        nearest_in_px(pts, &self.frame, x, y).map(|(i, _)| i)
+                    };
+                    let Some(i) = found else {
+                        continue;
+                    };
+                    let p = pts[i];
+                    if !(p.x.is_finite() && p.y.is_finite()) {
+                        continue;
+                    }
+                    let d = (self.frame.px_x(p.x) - x).hypot(self.frame.px_y(p.y) - y);
+                    if best.map_or(true, |b| d < b.0) {
+                        best = Some((d, s, i));
+                    }
+                }
+                best.map(|(_, s, i)| (s, i))
+            }
+            ChartKind::Scatter => {
+                let mut best: Option<(f32, usize, usize)> = None;
+                for (s, ser) in self.series.iter().enumerate() {
+                    if let Some((i, d)) = nearest_in_px(ser.points.as_slice(), &self.frame, x, y) {
+                        if d <= HOVER_REACH_PX && best.map_or(true, |b| d < b.0) {
+                            best = Some((d, s, i));
+                        }
+                    }
+                }
+                best.map(|(_, s, i)| (s, i))
+            }
+            ChartKind::Bar | ChartKind::StackedBar => {
+                let mut best: Option<(f32, usize, usize)> = None;
+                for r in self.bars.iter().flatten() {
+                    if x < r.x0 - 1.0 || x > r.x1 + 1.0 {
+                        continue;
+                    }
+                    let d = if y < r.top {
+                        r.top - y
+                    } else if y > r.bottom {
+                        y - r.bottom
+                    } else {
+                        0.0
+                    };
+                    if best.map_or(true, |b| d < b.0) {
+                        best = Some((d, r.series, r.index));
+                    }
+                }
+                best.map(|(_, s, i)| (s, i))
+            }
+            ChartKind::Pie | ChartKind::Donut => {
+                let (dx, dy) = (x - self.pie.cx, y - self.pie.cy);
+                let r = dx.hypot(dy);
+                if r > self.pie.r_out || r < self.pie.r_in {
+                    return None;
+                }
+                let mut a = dx.atan2(-dy);
+                if a < 0.0 {
+                    a += core::f32::consts::TAU;
+                }
+                self.slices
+                    .iter()
+                    .find(|s| a >= s.start && a < s.end)
+                    .map(|s| (0, s.index))
+            }
+        }
+    }
+
+    /// The slice that shows category `index` (folded ones: "Other").
+    fn slice_of(&self, index: usize) -> Option<&PieSlice> {
+        self.slices
+            .iter()
+            .find(|s| s.index == index || (s.other && index >= s.index))
+    }
+
+    /// Where point `index` of series `series` is drawn, in px of the plot:
+    /// a line's or a dot's point, a bar's data end, a slice's middle.
+    #[must_use]
+    pub(crate) fn point_px(&self, series: usize, index: usize) -> Option<(f32, f32)> {
+        match self.kind {
+            ChartKind::Pie | ChartKind::Donut => {
+                let sl = self.slice_of(index)?;
+                let a = (sl.start + sl.end) / 2.0;
+                let r = if self.pie.r_in > 0.0 {
+                    (self.pie.r_in + self.pie.r_out) / 2.0
+                } else {
+                    self.pie.r_out * 0.62
+                };
+                Some((
+                    r.mul_add(a.sin(), self.pie.cx),
+                    r.mul_add(-a.cos(), self.pie.cy),
+                ))
+            }
+            ChartKind::Bar | ChartKind::StackedBar => {
+                let r = self.bars.get(series)?.iter().find(|r| r.index == index)?;
+                let negative = self
+                    .series
+                    .get(series)
+                    .and_then(|s| s.points.as_slice().get(index))
+                    .is_some_and(|p| p.y < 0.0);
+                Some(((r.x0 + r.x1) / 2.0, if negative { r.bottom } else { r.top }))
+            }
+            _ => {
+                let p = self.series.get(series)?.points.as_slice().get(index)?;
+                if !(p.x.is_finite() && p.y.is_finite()) {
+                    return None;
+                }
+                Some((self.frame.px_x(p.x), self.frame.px_y(p.y)))
+            }
+        }
+    }
+
+    /// The tooltip's text for a point: "North, Mar: 1,234" - or, on a pie,
+    /// "Mar: 1,234 (25%)".
+    #[must_use]
+    pub(crate) fn tooltip_text(&self, series: usize, index: usize) -> String {
+        if self.kind.is_round() {
+            let Some(sl) = self.slice_of(index) else {
+                return String::new();
+            };
+            let total: f64 = self.slices.iter().map(|s| s.value).sum();
+            let name = if sl.other {
+                String::from("Other")
+            } else {
+                category_name(&self.categories, sl.index)
+            };
+            let share = if total > 0.0 {
+                sl.value / total * 100.0
+            } else {
+                0.0
+            };
+            return format!("{name}: {} ({share:.0}%)", format_value(sl.value));
+        }
+        let Some(s) = self.series.get(series) else {
+            return String::new();
+        };
+        let Some(p) = s.points.as_slice().get(index) else {
+            return String::new();
+        };
+        let at = if self.frame.bands > 0 {
+            category_of(p.x, self.frame.bands)
+                .map_or_else(|| format_value(p.x), |c| category_name(&self.categories, c))
+        } else {
+            format_value(p.x)
+        };
+        format!("{}, {at}: {}", s.name.as_str(), format_value(p.y))
+    }
+
+    /// What `on_select` reports for a point.
+    #[must_use]
+    pub(crate) fn selection(&self, series: usize, index: usize) -> Option<ChartSelection> {
+        if self.kind.is_round() {
+            let sl = self.slice_of(index)?;
+            return Some(ChartSelection::create(
+                0,
+                sl.index,
+                sl.index as f64,
+                sl.value,
+            ));
+        }
+        let p = self.series.get(series)?.points.as_slice().get(index)?;
+        Some(ChartSelection::create(series, index, p.x, p.y))
+    }
+
+    /// How many points series `series` offers the keys (a pie: its slices).
+    fn len_of(&self, series: usize) -> usize {
+        if self.kind.is_round() {
+            self.slices.len()
+        } else {
+            self.series.get(series).map_or(0, |s| s.points.len())
+        }
+    }
+
+    /// Where `key` moves the shown point: `None` for a key the chart leaves
+    /// alone, `Some(None)` to hide it (Escape). Left / Right walk the
+    /// points, Up / Down the series, Home / End jump to the ends; the first
+    /// key shows the first point.
+    #[must_use]
+    pub(crate) fn step(&self, key: VirtualKeyCode) -> Option<Option<(usize, usize)>> {
+        use VirtualKeyCode as K;
+        let count = if self.kind.is_round() {
+            usize::from(!self.slices.is_empty())
+        } else {
+            self.series.len()
+        };
+        if key == K::Escape {
+            return self.hovered.map(|_| None);
+        }
+        if count == 0 {
+            return None;
+        }
+        let (s, i) = self.hovered.unwrap_or((0, 0));
+        let fresh = self.hovered.is_none();
+        let next = match key {
+            K::Left | K::Right => {
+                let len = self.len_of(s);
+                if len == 0 {
+                    return None;
+                }
+                let i = if fresh {
+                    0
+                } else if key == K::Right {
+                    (i + 1).min(len - 1)
+                } else {
+                    i.saturating_sub(1)
+                };
+                (s, i)
+            }
+            K::Home => (s, 0),
+            K::End => (s, self.len_of(s).saturating_sub(1)),
+            K::Up | K::Down => {
+                let t = if fresh {
+                    0
+                } else if key == K::Down {
+                    (s + 1).min(count - 1)
+                } else {
+                    s.saturating_sub(1)
+                };
+                let len = self.len_of(t);
+                if len == 0 {
+                    return Some(self.hovered);
+                }
+                (t, i.min(len - 1))
+            }
+            _ => return None,
+        };
+        Some(Some(next))
+    }
+}
+
+/// Where the tooltip goes for a point at `(x, y)`: beside it, inside the
+/// plot's width, above it unless it is near the top. The tip's width is
+/// estimated from its text (it is not laid out yet).
+#[must_use]
+pub(crate) fn tooltip_place(x: f32, y: f32, text: &str, plot_width: f32) -> (f32, f32) {
+    let estimate = text.chars().count() as f32 * 6.5 + 16.0;
+    let left = if x + 12.0 + estimate <= plot_width {
+        x + 12.0
+    } else {
+        (x - 12.0 - estimate).max(0.0)
+    };
+    let top = if y >= 36.0 { y - 34.0 } else { y + 14.0 };
+    (left, top)
+}
+
+/// `opacity: 1` or `0`.
+fn opacity(shown: bool) -> CssProperty {
+    CssProperty::const_opacity(StyleOpacity::const_new(if shown { 100 } else { 0 }))
+}
+
+/// Shows the hovered point in `overlay` - the crosshair, its series'
+/// marker, the tooltip - or hides them all. Written to the live nodes:
+/// the DOM is not rebuilt.
+fn show(st: &ChartState, info: &mut CallbackInfo, overlay: DomNodeId) {
+    let Some(crosshair) = info.get_first_child(overlay) else {
+        return;
+    };
+    let mut markers = Vec::with_capacity(st.markers);
+    let mut cursor = info.get_next_sibling(crosshair);
+    for _ in 0..st.markers {
+        let Some(m) = cursor else {
+            break;
+        };
+        markers.push(m);
+        cursor = info.get_next_sibling(m);
+    }
+    let tooltip = info.get_last_child(overlay);
+
+    let shown = st
+        .hovered
+        .and_then(|(s, i)| st.point_px(s, i).map(|p| (s, i, p)));
+    let Some((s, i, (x, y))) = shown else {
+        info.set_css_property(crosshair, opacity(false));
+        for m in markers {
+            info.set_css_property(m, opacity(false));
+        }
+        if let Some(t) = tooltip {
+            info.set_css_property(t, opacity(false));
+        }
+        return;
+    };
+
+    let line = matches!(st.kind, ChartKind::Line | ChartKind::Area);
+    if line {
+        info.set_css_property(
+            crosshair,
+            CssProperty::const_left(LayoutLeft::px(x.round())),
+        );
+    }
+    info.set_css_property(crosshair, opacity(line));
+    let outer = MARKER_PX + 2.0 * RING_WIDTH as f32;
+    for (k, m) in markers.iter().enumerate() {
+        if k == s {
+            info.set_css_property(*m, CssProperty::const_left(LayoutLeft::px(x - outer / 2.0)));
+            info.set_css_property(*m, CssProperty::const_top(LayoutTop::px(y - outer / 2.0)));
+        }
+        info.set_css_property(*m, opacity(k == s));
+    }
+    if let Some(t) = tooltip {
+        let text = st.tooltip_text(s, i);
+        let (left, top) = tooltip_place(x, y, &text, st.frame.width);
+        if let Some(node) = info.get_first_child(t) {
+            info.change_node_text(node, AzString::from(text));
+        }
+        info.set_css_property(t, CssProperty::const_left(LayoutLeft::px(left)));
+        info.set_css_property(t, CssProperty::const_top(LayoutTop::px(top)));
+        info.set_css_property(t, opacity(true));
+    }
+}
+
+/// The pointer moved over the plot: show the point under it.
+pub extern "C" fn on_chart_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(mut st) = data.downcast_mut::<ChartState>() else {
+        return Update::DoNothing;
+    };
+    let Some(pos) = info.get_cursor_relative_to_node().into_option() else {
+        return Update::DoNothing;
+    };
+    let hit = st.hit(pos.x, pos.y);
+    if hit == st.hovered {
+        return Update::DoNothing;
+    }
+    st.hovered = hit;
+    let overlay = info.get_hit_node();
+    show(&st, &mut info, overlay);
+    Update::DoNothing
+}
+
+/// The pointer left the plot: hide the point - unless it only left one of
+/// the overlay's own parts (every leave bubbles here; the cursor decides,
+/// as the slider's leave does).
+pub extern "C" fn on_chart_pointer_leave(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let inside = match (
+        info.get_cursor_relative_to_node().into_option(),
+        info.get_hit_node_rect(),
+    ) {
+        (Some(p), Some(r)) => p.x >= 0.0 && p.y >= 0.0 && p.x < r.size.width && p.y < r.size.height,
+        _ => false,
+    };
+    if inside {
+        return Update::DoNothing;
+    }
+    let Some(mut st) = data.downcast_mut::<ChartState>() else {
+        return Update::DoNothing;
+    };
+    if st.hovered.is_none() {
+        return Update::DoNothing;
+    }
+    st.hovered = None;
+    let overlay = info.get_hit_node();
+    show(&st, &mut info, overlay);
+    Update::DoNothing
+}
+
+/// The plot lost the keyboard: hide the point.
+pub extern "C" fn on_chart_blur(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(mut st) = data.downcast_mut::<ChartState>() else {
+        return Update::DoNothing;
+    };
+    if st.hovered.is_none() {
+        return Update::DoNothing;
+    }
+    st.hovered = None;
+    let overlay = info.get_hit_node();
+    show(&st, &mut info, overlay);
+    Update::DoNothing
+}
+
+/// A key on the focused plot ([`ChartState::step`]); the keys the chart
+/// takes do not also scroll the page.
+pub extern "C" fn on_chart_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(key) = info
+        .get_current_keyboard_state()
+        .current_virtual_keycode
+        .into_option()
+    else {
+        return Update::DoNothing;
+    };
+    let Some(mut st) = data.downcast_mut::<ChartState>() else {
+        return Update::DoNothing;
+    };
+    let Some(next) = st.step(key) else {
+        return Update::DoNothing;
+    };
+    info.prevent_default();
+    if next != st.hovered {
+        st.hovered = next;
+        let overlay = info.get_hit_node();
+        show(&st, &mut info, overlay);
+    }
+    Update::DoNothing
+}
+
+/// An activation of the plot - a click, Enter / Space, an assistive
+/// technology's default action: report the shown point (or the one under
+/// the pointer) to the app's `on_select`.
+pub extern "C" fn on_chart_click(mut data: RefAny, info: CallbackInfo) -> Update {
+    let (hook, selection) = {
+        let Some(st) = data.downcast_ref::<ChartState>() else {
+            return Update::DoNothing;
+        };
+        let picked = st.hovered.or_else(|| {
+            info.get_cursor_relative_to_node()
+                .into_option()
+                .and_then(|p| st.hit(p.x, p.y))
+        });
+        let Some((s, i)) = picked else {
+            return Update::DoNothing;
+        };
+        let Some(selection) = st.selection(s, i) else {
+            return Update::DoNothing;
+        };
+        (st.on_select.clone(), selection)
+    };
+    match hook.into_option() {
+        Some(ChartOnSelect { refany, callback }) => callback.invoke(refany, info, selection),
+        None => Update::DoNothing,
+    }
+}
+
 // CHART7-NEXT: the geometry, the build, the pointer and the keys.
 #[cfg(test)]
 mod geometry_tests {
