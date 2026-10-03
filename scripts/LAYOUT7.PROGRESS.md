@@ -62,7 +62,7 @@ headless Chrome and the prebuilt azul (AzPaint `mount`, capped runner), prints r
   the IFC of the item's first line box (`marker_line_host` in fc.rs), layout_bfc / intrinsic sizing
   skip a marker that has a host, a marker IFC collects only its marker; no marker box for none.
 
-## IN PROGRESS
+## DONE (item 6)
 - item 6 (CSS zoom). DESIGN (decided): zoom = a multiplier on the subtree's used lengths (Chrome's
   model: effective zoom = product of `zoom` over the node and its ancestors; absolute lengths (px pt
   in cm mm) and rem scale, em follows the zoomed font size, % / vw / vh do not). Steps, one commit each:
@@ -76,11 +76,15 @@ headless Chrome and the prebuilt azul (AzPaint `mount`, capped runner), prints r
   constraints, intrinsic overrides, image natural size); Z7 StyleProperties line-height / letter /
   word spacing px; Z8 positioned offsets. Not in reach (PAINT7 display_list): radius, shadow, outline.
   DONE: Z1 541da3fe8, Z2 f2a1095d8 + 40b1ab2a3, Z3+Z4 35609cc69, Z5 aa4a3f9e1, Z6 3cf0f66c5.
-  NEXT: Z7 (getters get_style_properties line-height / letter / word spacing px -> zoomed_length),
-  Z8 (positioning.rs offsets via ResolutionContext at line ~93 -> zoomed_length).
+  Z7 42e291414, Z8 aa2ddf96f. ITEM 6 DONE. Left (PAINT7 / later): border-radius, box-shadow, outline,
+  text-decoration thickness, background size/position px, calc() px terms, gaps / flex-basis in taffy.
+  Note for OFFICE7: AzMail can now put `zoom: <n>` on the reading pane / paper.
+
+## IN PROGRESS
+- extra (11) TEXT7: text-indent in an anonymous block after a nested block (fc.rs) - probe + RED
 
 ## NEXT
-- items 6..10 in brief order
+- extra (12) vertical-align vw/vh; (13) strut for lines of only atomic inlines; then the report
 - extra (from TEXT7 via coordinator, RED first if room, else report): (11) text in an ANONYMOUS block
   after a nested block is text-indented although CSS 2.1 s16.1 indents only the first formatted line of
   the block container (fc.rs); (12) `vertical-align` in vw / vh has no viewport to resolve against.
