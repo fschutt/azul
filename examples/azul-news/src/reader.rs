@@ -5,7 +5,12 @@
 //!   `<code>`, a description for the list's two lines), its character references decoded by
 //!   the parser - the engine's one table of HTML's names.
 
-use azul::{dom::XmlNodeChild, xml::Xml};
+use azul::{
+    dom::{XmlNode, XmlNodeChild},
+    xml::Xml,
+};
+
+use crate::{fetch::FeedLink, links};
 
 /// Elements whose text is never shown.
 const HIDDEN: &[&str] = &["script", "style", "noscript", "template", "head", "title"];
@@ -154,8 +159,61 @@ pub fn text_to_html(text: &str) -> String {
 /// The feeds a web page names - `<link rel="alternate" type="application/rss+xml" (atom+xml,
 /// feed+json, json) href title>` - absolute against `base`, each once, in the page's order.
 #[must_use]
-pub fn feed_links(_html: &str, _base: &str) -> Vec<crate::fetch::FeedLink> {
-    Vec::new()
+pub fn feed_links(html: &str, base: &str) -> Vec<FeedLink> {
+    let document = Xml::create_from_html(html);
+    let mut out = Vec::new();
+    collect_feed_links(&document.root, base, &mut out, 0);
+    out
+}
+
+/// The `type`s of a feed link.
+const FEED_TYPES: &[&str] = &[
+    "application/rss+xml",
+    "application/atom+xml",
+    "application/feed+json",
+    "application/json",
+    "application/rdf+xml",
+];
+
+/// An attribute of a parsed element (any case), trimmed; `""` when it has none.
+fn attribute_of(element: &XmlNode, name: &str) -> String {
+    element
+        .attributes
+        .inner
+        .iter()
+        .find(|pair| pair.key.as_str().eq_ignore_ascii_case(name))
+        .map(|pair| pair.value.as_str().trim().to_string())
+        .unwrap_or_default()
+}
+
+fn collect_feed_links(nodes: &[XmlNodeChild], base: &str, out: &mut Vec<FeedLink>, depth: usize) {
+    if depth > MAX_DEPTH {
+        return;
+    }
+    for node in nodes {
+        let XmlNodeChild::Element(element) = node else {
+            continue;
+        };
+        if element.node_type.inner.as_str() == "link" {
+            let rel = attribute_of(element, "rel").to_ascii_lowercase();
+            let mime = attribute_of(element, "type").to_ascii_lowercase();
+            let href = attribute_of(element, "href");
+            if rel.split_whitespace().any(|r| r == "alternate")
+                && FEED_TYPES.contains(&mime.as_str())
+                && !href.is_empty()
+            {
+                let url = links::resolve(base, &href);
+                if !out.iter().any(|l| l.url == url) {
+                    out.push(FeedLink {
+                        url,
+                        title: collapse(&attribute_of(element, "title")),
+                        mime,
+                    });
+                }
+            }
+        }
+        collect_feed_links(&element.children, base, out, depth + 1);
+    }
 }
 
 #[cfg(test)]
@@ -164,17 +222,36 @@ mod tests {
 
     #[test]
     fn a_web_page_names_its_feeds_in_alternate_links() {
-        let html = String::from_utf8_lossy(include_bytes!("../tests/fixtures/html_page.html")).into_owned();
+        let html = String::from_utf8_lossy(include_bytes!("../tests/fixtures/html_page.html"))
+            .into_owned();
         let links = feed_links(&html, "https://example.org/");
-        let found: Vec<(&str, &str, &str)> =
-            links.iter().map(|l| (l.url.as_str(), l.title.as_str(), l.mime.as_str())).collect();
+        let found: Vec<(&str, &str, &str)> = links
+            .iter()
+            .map(|l| (l.url.as_str(), l.title.as_str(), l.mime.as_str()))
+            .collect();
         assert_eq!(
             found,
             vec![
-                ("https://example.org/feed/", "Example Weekly \u{bb} Feed", "application/rss+xml"),
-                ("https://example.org/comments/feed/", "Example Weekly \u{bb} Comments Feed", "application/rss+xml"),
-                ("https://example.org/feed/atom/", "Atom", "application/atom+xml"),
-                ("https://example.org/feed.json", "JSON", "application/feed+json"),
+                (
+                    "https://example.org/feed/",
+                    "Example Weekly \u{bb} Feed",
+                    "application/rss+xml"
+                ),
+                (
+                    "https://example.org/comments/feed/",
+                    "Example Weekly \u{bb} Comments Feed",
+                    "application/rss+xml"
+                ),
+                (
+                    "https://example.org/feed/atom/",
+                    "Atom",
+                    "application/atom+xml"
+                ),
+                (
+                    "https://example.org/feed.json",
+                    "JSON",
+                    "application/feed+json"
+                ),
             ],
             "the stylesheet, the language version and the icon are no feeds"
         );

@@ -12,14 +12,18 @@
 
 use azul_storage::{HttpCall, HttpReply, Method, Transport};
 
-use crate::feed::{self, Feed, FeedError};
+use crate::{
+    feed::{self, Feed, FeedError},
+    links, reader, xmltree,
+};
 
 /// The User-Agent AzNews' requests carry (the transport sets it): the app and its project, no
 /// personal data (house rule).
 pub const USER_AGENT: &str = "AzNews/0.1 (+https://github.com/fschutt/azul)";
 
 /// What AzNews accepts, feeds first.
-pub const ACCEPT: &str = "application/rss+xml, application/atom+xml, application/feed+json, application/json;q=0.9, \
+pub const ACCEPT: &str =
+    "application/rss+xml, application/atom+xml, application/feed+json, application/json;q=0.9, \
                           application/xml;q=0.8, text/xml;q=0.8, text/html;q=0.5, */*;q=0.3";
 
 /// How many feeds a web page may name that are fetched for the preview.
@@ -65,11 +69,21 @@ pub struct Candidate {
 
 /// The GET for a feed: what AzNews accepts and the validators of the last answer.
 #[must_use]
-pub fn request(url: &str, _etag: &str, _last_modified: &str) -> HttpCall {
+pub fn request(url: &str, etag: &str, last_modified: &str) -> HttpCall {
+    let mut headers = vec![("Accept".to_string(), ACCEPT.to_string())];
+    if !etag.trim().is_empty() {
+        headers.push(("If-None-Match".to_string(), etag.trim().to_string()));
+    }
+    if !last_modified.trim().is_empty() {
+        headers.push((
+            "If-Modified-Since".to_string(),
+            last_modified.trim().to_string(),
+        ));
+    }
     HttpCall {
         method: Method::Get,
         url: url.to_string(),
-        headers: Vec::new(),
+        headers,
         body: Vec::new(),
         content_type: String::new(),
     }
@@ -77,21 +91,47 @@ pub fn request(url: &str, _etag: &str, _last_modified: &str) -> HttpCall {
 
 /// An answer read: see [`Fetched`].
 #[must_use]
-pub fn interpret(_url: &str, _reply: &HttpReply) -> Fetched {
-    let _unused: Option<FeedError> = None;
-    let _parse = feed::parse;
-    Fetched::Failed {
-        status: 0,
-        error: "RED".to_string(),
+pub fn interpret(url: &str, reply: &HttpReply) -> Fetched {
+    if reply.status == 304 {
+        return Fetched::NotModified { status: 304 };
+    }
+    if !reply.is_success() {
+        return Fetched::Failed {
+            status: reply.status,
+            error: format!("the server answered HTTP {}", reply.status),
+        };
+    }
+    let content_type = reply.header("content-type").unwrap_or("");
+    match feed::parse(&reply.body, content_type, url) {
+        Ok(feed) => Fetched::Feed {
+            feed,
+            etag: reply.header("etag").unwrap_or("").trim().to_string(),
+            last_modified: reply
+                .header("last-modified")
+                .unwrap_or("")
+                .trim()
+                .to_string(),
+            status: reply.status,
+        },
+        Err(FeedError::NotAFeed { html: true }) => {
+            let text = xmltree::decode(&reply.body, content_type);
+            Fetched::Page {
+                links: reader::feed_links(&text, url),
+            }
+        }
+        Err(e) => Fetched::Failed {
+            status: reply.status,
+            error: e.to_string(),
+        },
     }
 }
 
 /// Asks for a feed - conditionally when the validators are known - and reads the answer.
 #[must_use]
-pub fn fetch(_transport: &dyn Transport, _url: &str, _etag: &str, _last_modified: &str) -> Fetched {
-    Fetched::Failed {
-        status: 0,
-        error: "RED".to_string(),
+pub fn fetch(transport: &dyn Transport, url: &str, etag: &str, last_modified: &str) -> Fetched {
+    match transport.send(&request(url, etag, last_modified)) {
+        Ok(reply) => interpret(url, &reply),
+        Err(error) => Fetched::Failed { status: 0, error },
     }
 }
 
@@ -100,8 +140,33 @@ pub fn fetch(_transport: &dyn Transport, _url: &str, _etag: &str, _last_modified
 ///
 /// # Errors
 /// A sentence for the user.
-pub fn normalize_input(_input: &str) -> Result<String, String> {
-    Err("RED".to_string())
+pub fn normalize_input(input: &str) -> Result<String, String> {
+    let t = input.trim();
+    if t.is_empty() {
+        return Err("Type the address of a website or of a feed.".to_string());
+    }
+    let lower = t.to_ascii_lowercase();
+    let candidate = if lower.starts_with("feed://") {
+        format!("https://{}", &t["feed://".len()..])
+    } else if lower.starts_with("feed:") {
+        t["feed:".len()..].to_string()
+    } else if lower.contains("://")
+        || lower.split_once(':').is_some_and(|(scheme, _)| {
+            !scheme.contains('.')
+                && !scheme.contains('/')
+                && scheme.chars().all(|c: char| c.is_ascii_alphabetic())
+        })
+    {
+        t.to_string()
+    } else {
+        format!("https://{t}")
+    };
+    if !links::is_web(&candidate) {
+        return Err(format!("\u{201c}{t}\u{201d} is not a web address."));
+    }
+    url::Url::parse(&candidate)
+        .map(|u| u.to_string())
+        .map_err(|_| format!("\u{201c}{t}\u{201d} is not a web address."))
 }
 
 /// The feeds for "Add feed": the address itself when it is a feed, else the feeds its page names
@@ -109,8 +174,56 @@ pub fn normalize_input(_input: &str) -> Result<String, String> {
 ///
 /// # Errors
 /// A sentence for the user (no answer, not found, no feed on the page).
-pub fn find_feeds(_transport: &dyn Transport, _input: &str) -> Result<Vec<Candidate>, String> {
-    Err("RED".to_string())
+pub fn find_feeds(transport: &dyn Transport, input: &str) -> Result<Vec<Candidate>, String> {
+    let url = normalize_input(input)?;
+    match fetch(transport, &url, "", "") {
+        Fetched::Feed {
+            feed,
+            etag,
+            last_modified,
+            ..
+        } => Ok(vec![Candidate {
+            url,
+            link_title: String::new(),
+            feed,
+            etag,
+            last_modified,
+        }]),
+        Fetched::Page { links } => {
+            if links.is_empty() {
+                return Err(format!("There is no feed on {url}."));
+            }
+            let mut out = Vec::new();
+            for link in links.into_iter().take(MAX_CANDIDATES) {
+                if let Fetched::Feed {
+                    feed,
+                    etag,
+                    last_modified,
+                    ..
+                } = fetch(transport, &link.url, "", "")
+                {
+                    out.push(Candidate {
+                        url: link.url,
+                        link_title: link.title,
+                        feed,
+                        etag,
+                        last_modified,
+                    });
+                }
+            }
+            if out.is_empty() {
+                Err(format!(
+                    "{url} names feeds, but none of them could be read."
+                ))
+            } else {
+                Ok(out)
+            }
+        }
+        Fetched::NotModified { .. } => {
+            Err("The server answered \u{201c}not modified\u{201d} to a first request.".to_string())
+        }
+        Fetched::Failed { error, .. } => Err(error),
+    }
 }
 
 #[cfg(test)]
@@ -132,7 +245,10 @@ mod tests {
                 url.to_string(),
                 Ok(HttpReply {
                     status,
-                    headers: headers.iter().map(|(k, v)| ((*k).to_string(), (*v).to_string())).collect(),
+                    headers: headers
+                        .iter()
+                        .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+                        .collect(),
                     body: body.to_vec(),
                 }),
             );
@@ -140,7 +256,8 @@ mod tests {
         }
 
         fn unreachable(mut self, url: &str) -> Self {
-            self.answers.insert(url.to_string(), Err("could not connect".to_string()));
+            self.answers
+                .insert(url.to_string(), Err("could not connect".to_string()));
             self
         }
 
@@ -165,7 +282,10 @@ mod tests {
     }
 
     fn header<'a>(call: &'a HttpCall, name: &str) -> Option<&'a str> {
-        call.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+        call.headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
     }
 
     const WORDPRESS: &[u8] = include_bytes!("../tests/fixtures/wordpress_rss2.xml");
@@ -175,11 +295,20 @@ mod tests {
         let web = FakeWeb::default().serve(
             "https://example.org/feed/",
             200,
-            &[("Content-Type", "application/rss+xml; charset=UTF-8"), ("ETag", "\"v1\""), ("Last-Modified", "Wed, 30 Sep 2026 08:42:00 GMT")],
+            &[
+                ("Content-Type", "application/rss+xml; charset=UTF-8"),
+                ("ETag", "\"v1\""),
+                ("Last-Modified", "Wed, 30 Sep 2026 08:42:00 GMT"),
+            ],
             WORDPRESS,
         );
         match fetch(&web, "https://example.org/feed/", "", "") {
-            Fetched::Feed { feed, etag, last_modified, status } => {
+            Fetched::Feed {
+                feed,
+                etag,
+                last_modified,
+                status,
+            } => {
                 assert_eq!(feed.items.len(), 3);
                 assert_eq!(etag, "\"v1\"");
                 assert_eq!(last_modified, "Wed, 30 Sep 2026 08:42:00 GMT");
@@ -198,12 +327,20 @@ mod tests {
     fn a_refresh_sends_the_validators_and_a_304_is_nothing_new() {
         let web = FakeWeb::default().serve("https://example.org/feed/", 304, &[], b"");
         assert_eq!(
-            fetch(&web, "https://example.org/feed/", "\"v1\"", "Wed, 30 Sep 2026 08:42:00 GMT"),
+            fetch(
+                &web,
+                "https://example.org/feed/",
+                "\"v1\"",
+                "Wed, 30 Sep 2026 08:42:00 GMT"
+            ),
             Fetched::NotModified { status: 304 }
         );
         let call = &web.asked()[0];
         assert_eq!(header(call, "If-None-Match"), Some("\"v1\""));
-        assert_eq!(header(call, "If-Modified-Since"), Some("Wed, 30 Sep 2026 08:42:00 GMT"));
+        assert_eq!(
+            header(call, "If-Modified-Since"),
+            Some("Wed, 30 Sep 2026 08:42:00 GMT")
+        );
     }
 
     #[test]
@@ -211,21 +348,41 @@ mod tests {
         let web = FakeWeb::default().unreachable("https://down.example.org/feed");
         assert_eq!(
             fetch(&web, "https://down.example.org/feed", "", ""),
-            Fetched::Failed { status: 0, error: "could not connect".to_string() }
+            Fetched::Failed {
+                status: 0,
+                error: "could not connect".to_string()
+            }
         );
         match fetch(&web, "https://example.org/missing", "", "") {
             Fetched::Failed { status: 404, error } => assert!(error.contains("404"), "{error}"),
             other => panic!("a 404, got {other:?}"),
         }
-        let garbage = FakeWeb::default().serve("https://example.org/x", 200, &[("Content-Type", "text/plain")], b"just words");
-        assert!(matches!(fetch(&garbage, "https://example.org/x", "", ""), Fetched::Failed { status: 200, .. }));
+        let garbage = FakeWeb::default().serve(
+            "https://example.org/x",
+            200,
+            &[("Content-Type", "text/plain")],
+            b"just words",
+        );
+        assert!(matches!(
+            fetch(&garbage, "https://example.org/x", "", ""),
+            Fetched::Failed { status: 200, .. }
+        ));
     }
 
     #[test]
     fn what_the_user_types_becomes_a_web_address() {
-        assert_eq!(normalize_input("  example.org  "), Ok("https://example.org/".to_string()));
-        assert_eq!(normalize_input("feed://example.org/rss"), Ok("https://example.org/rss".to_string()));
-        assert_eq!(normalize_input("http://example.org/rss.xml"), Ok("http://example.org/rss.xml".to_string()));
+        assert_eq!(
+            normalize_input("  example.org  "),
+            Ok("https://example.org/".to_string())
+        );
+        assert_eq!(
+            normalize_input("feed://example.org/rss"),
+            Ok("https://example.org/rss".to_string())
+        );
+        assert_eq!(
+            normalize_input("http://example.org/rss.xml"),
+            Ok("http://example.org/rss.xml".to_string())
+        );
         assert!(normalize_input("").is_err());
         assert!(normalize_input("file:///etc/passwd").is_err());
         assert!(normalize_input("javascript:alert(1)").is_err());
@@ -234,14 +391,41 @@ mod tests {
     #[test]
     fn a_web_page_is_searched_for_its_feeds_and_each_is_read_for_the_preview() {
         let web = FakeWeb::default()
-            .serve("https://example.org/", 200, &[("Content-Type", "text/html")], include_bytes!("../tests/fixtures/html_page.html"))
-            .serve("https://example.org/feed/", 200, &[("ETag", "\"w\"")], WORDPRESS)
-            .serve("https://example.org/feed/atom/", 200, &[], include_bytes!("../tests/fixtures/blogger_atom.xml"))
-            .serve("https://example.org/feed.json", 200, &[], include_bytes!("../tests/fixtures/json_feed_11.json"));
+            .serve(
+                "https://example.org/",
+                200,
+                &[("Content-Type", "text/html")],
+                include_bytes!("../tests/fixtures/html_page.html"),
+            )
+            .serve(
+                "https://example.org/feed/",
+                200,
+                &[("ETag", "\"w\"")],
+                WORDPRESS,
+            )
+            .serve(
+                "https://example.org/feed/atom/",
+                200,
+                &[],
+                include_bytes!("../tests/fixtures/blogger_atom.xml"),
+            )
+            .serve(
+                "https://example.org/feed.json",
+                200,
+                &[],
+                include_bytes!("../tests/fixtures/json_feed_11.json"),
+            );
         // The comments feed answers 404 (the fake's default): it is left out.
         let found = find_feeds(&web, "example.org").expect("feeds");
         let urls: Vec<&str> = found.iter().map(|c| c.url.as_str()).collect();
-        assert_eq!(urls, vec!["https://example.org/feed/", "https://example.org/feed/atom/", "https://example.org/feed.json"]);
+        assert_eq!(
+            urls,
+            vec![
+                "https://example.org/feed/",
+                "https://example.org/feed/atom/",
+                "https://example.org/feed.json"
+            ]
+        );
         assert_eq!(found[0].link_title, "Example Weekly \u{bb} Feed");
         assert_eq!(found[0].feed.title, "Example Weekly");
         assert_eq!(found[0].etag, "\"w\"");
@@ -251,7 +435,12 @@ mod tests {
     fn a_feed_address_is_its_own_candidate_and_a_page_without_feeds_says_so() {
         let web = FakeWeb::default()
             .serve("https://example.org/feed/", 200, &[], WORDPRESS)
-            .serve("https://plain.example.org/", 200, &[("Content-Type", "text/html")], b"<html><body>no feeds</body></html>");
+            .serve(
+                "https://plain.example.org/",
+                200,
+                &[("Content-Type", "text/html")],
+                b"<html><body>no feeds</body></html>",
+            );
         let found = find_feeds(&web, "https://example.org/feed/").expect("the feed");
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].link_title, "");
