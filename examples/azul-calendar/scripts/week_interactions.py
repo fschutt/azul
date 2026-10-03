@@ -60,6 +60,31 @@ REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 EVENT_FILE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$")
 DRAFT_TITLE = "(No title)"
 
+# AzCalendar's DOM ids carry the app's prefix `__azcal_` (src/ids.rs, the wave-6 prefix ruling):
+# `sel("draft-title")` is `#__azcal_draft-title`. A build from before the ruling used the bare
+# names; `detect_naming` notes which one is running (the shell's own `#shell-*` ids have no
+# app prefix).
+NAMING = {"prefix": "__azcal_"}
+
+
+def sel(stem):
+    """The selector of the app's id `stem` (`week-scroll` -> `#__azcal_week-scroll`)."""
+    return "#" + NAMING["prefix"] + stem
+
+
+def detect_naming(dbg):
+    """Waits for the calendar pane, and notes whether its names carry the prefix."""
+
+    def found():
+        if dbg.exists("#__azcal_calendar"):
+            return ("__azcal_",)
+        if dbg.exists("#calendar"):
+            return ("",)
+        return None
+
+    NAMING["prefix"] = dbg.until("the calendar pane", found)[0]
+    log("names: " + ("__azcal_ prefixed" if NAMING["prefix"] else "unprefixed (older build)"))
+
 
 class Failure(Exception):
     pass
@@ -190,13 +215,13 @@ class Week:
         self.refresh()
 
     def refresh(self):
-        self.scroll_node, self.scroll = self.dbg.rect("#week-scroll")
-        _, grid = self.dbg.rect("#week-grid")
+        self.scroll_node, self.scroll = self.dbg.rect(sel("week-scroll"))
+        _, grid = self.dbg.rect(sel("week-grid"))
         self.hour_px = grid["height"] / 24.0
         self.scroll_y = self.dbg.scroll_y(self.scroll_node)
 
     def column(self, day):
-        _, r = self.dbg.rect(f"#day-{day}")
+        _, r = self.dbg.rect(sel(f"day-{day}"))
         return r
 
     def max_scroll(self):
@@ -208,7 +233,7 @@ class Week:
         # changes the scroll box's height, so a range read before it went is too long.
         self.refresh()
         y = min(max(y, 0.0), self.max_scroll())
-        self.dbg.must({"op": "scroll_node_to", "selector": "#week-scroll", "x": 0, "y": y})
+        self.dbg.must({"op": "scroll_node_to", "selector": sel("week-scroll"), "x": 0, "y": y})
 
         def there():
             self.refresh()
@@ -263,22 +288,22 @@ def read_event(data, name):
 
 def popover_open(dbg):
     """The draft (#draft) is in the week, with its popover's title field (#draft-title)."""
-    return dbg.exists("#draft") and dbg.exists("#draft-title")
+    return dbg.exists(sel("draft")) and dbg.exists(sel("draft-title"))
 
 
 def popover_gone(dbg):
-    return not dbg.exists("#draft") and not dbg.exists("#draft-title")
+    return not dbg.exists(sel("draft")) and not dbg.exists(sel("draft-title"))
 
 
 def type_title(dbg, title):
     """Types `title` into the popover's title field (see the module docs for why this way)."""
-    focused = dbg.op({"op": "focus_node", "selector": "#draft-title"})
+    focused = dbg.op({"op": "focus_node", "selector": sel("draft-title")})
     if focused.get("status") != "error":
         typed = dbg.op({"op": "text_input", "text": title})
         if typed.get("status") != "error":
             return "focus_node + text_input"
     dbg.must(
-        {"op": "accessibility_action", "action": "set_value", "value": title, "selector": "#draft-title"}
+        {"op": "accessibility_action", "action": "set_value", "value": title, "selector": sel("draft-title")}
     )
     return "accessibility set_value"
 
@@ -289,7 +314,7 @@ def press(dbg, selector):
 
 
 def save_and_read(dbg, data, before, what):
-    press(dbg, "#draft-save")
+    press(dbg, sel("draft-save"))
     files = dbg.until(
         f"{what} to be saved (a new events/<uuid>.json)",
         lambda: [f for f in event_files(data) if f not in before] or None,
@@ -470,7 +495,7 @@ def stage_cancel(dbg, week, data, ctx):
     """Cancel closes the popover and drops the draft."""
     before = event_files(data)
     friday_draft(dbg, week)
-    press(dbg, "#draft-cancel")
+    press(dbg, sel("draft-cancel"))
     dbg.until("Cancel to close the popover and drop the draft", lambda: popover_gone(dbg))
     if event_files(data) != before:
         raise Failure("Cancel wrote an event")
@@ -487,7 +512,7 @@ def stage_existing(dbg, week, data, ctx):
     time.sleep(0.5)
     dbg.must({"op": "click", "x": x, "y": y})
     time.sleep(1.0)
-    if dbg.exists("#draft") or dbg.exists("#draft-title"):
+    if dbg.exists(sel("draft")) or dbg.exists(sel("draft-title")):
         raise Failure("a click on the Standup event opened a draft")
     if event_files(data) != before:
         raise Failure("a click on an event wrote an event")
@@ -508,8 +533,8 @@ STAGES = [
 def clean_up(dbg):
     """After a failed stage: drop a draft it left open, so the next stage starts clean."""
     try:
-        if dbg.exists("#draft-cancel"):
-            press(dbg, "#draft-cancel")
+        if dbg.exists(sel("draft-cancel")):
+            press(dbg, sel("draft-cancel"))
             dbg.until("a left-over draft to close", lambda: popover_gone(dbg))
     except (Failure, OSError, urllib.error.URLError, ValueError):
         pass
@@ -534,7 +559,8 @@ def run(opts, logs):
     failed = []
     try:
         dbg = Debug(opts.port, opts.timeout)
-        dbg.until("the week view", lambda: dbg.exists("#week-scroll"))
+        detect_naming(dbg)
+        dbg.until("the week view", lambda: dbg.exists(sel("week-scroll")))
         if event_files(data):
             raise Failure("the data folder is not empty at the start")
         week = Week(dbg)

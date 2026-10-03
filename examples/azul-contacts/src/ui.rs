@@ -65,6 +65,7 @@ use azul_appkit::{
 use crate::book::{self, Filter, SortBy, ALPHABET};
 use crate::contact::{Address, Birthday, Contact, Labeled};
 use crate::dupes::{self, MergePlan, Pair, Pick};
+use crate::ids;
 use crate::sample;
 use crate::store::{self, ImportRow, ImportStatus};
 use crate::vcard::Version;
@@ -348,26 +349,16 @@ fn row(css: &str, children: Vec<Dom>) -> Dom {
         .with_children(DomVec::from_vec(children))
 }
 
-fn button(label: &str, id: &str, app: &RefAny, cb: ButtonOnClickCallbackType) -> Dom {
+fn button(label: &str, id: AzString, app: &RefAny, cb: ButtonOnClickCallbackType) -> Dom {
     Button::create(label).with_on_click(app.clone(), cb).dom().with_id(id)
 }
 
-fn primary(label: &str, id: &str, app: &RefAny, cb: ButtonOnClickCallbackType) -> Dom {
+fn primary(label: &str, id: AzString, app: &RefAny, cb: ButtonOnClickCallbackType) -> Dom {
     Button::create(label)
         .with_button_type(ButtonType::Primary)
         .with_on_click(app.clone(), cb)
         .dom()
         .with_id(id)
-}
-
-/// The id of a letter section (`#` is `hash`).
-#[must_use]
-pub fn section_id(letter: char) -> String {
-    if letter == '#' {
-        "section-hash".to_string()
-    } else {
-        format!("section-{letter}")
-    }
 }
 
 // ==== Navigation ====
@@ -400,7 +391,7 @@ fn navigation(s: &ContactsApp, app: &RefAny) -> Dom {
         );
     }
     ShellNavigationPane::create()
-        .with_header(primary("New contact", "contacts-new", app, on_new))
+        .with_header(primary("New contact", ids::CONTACTS_NEW, app, on_new))
         .with_group(ShellNavigationGroup::create("Contacts", contacts).with_count(s.book.len()).with_open(s.nav_open[0]))
         .with_group(ShellNavigationGroup::create("Groups", groups).with_count(counts.len()).with_open(s.nav_open[1]))
         .with_label("Contacts and groups")
@@ -448,7 +439,7 @@ fn contact_row(s: &ContactsApp, app: &RefAny, c: &Contact) -> Dom {
         ),
         children,
     )
-    .with_class("contact-row")
+    .with_class(ids::CONTACT_ROW_CLASS)
     .with_accessibility_name(c.display_name())
     .with_callback(
         EventFilter::Hover(HoverEventFilter::MouseUp),
@@ -462,13 +453,13 @@ fn contact_row(s: &ContactsApp, app: &RefAny, c: &Contact) -> Dom {
 
 fn jump_bar(present: &[char]) -> Dom {
     let mut bar = Dom::create_div()
-        .with_id("contacts-jump")
+        .with_id(ids::CONTACTS_JUMP)
         .with_css("display: flex; flex-direction: column; width: 18px; flex-shrink: 0; font-size: 10px; padding-top: 4px;");
     for letter in ALPHABET {
         let has = present.contains(&letter);
         bar.add_child(
             Dom::create_div()
-                .with_id(format!("jump-{}", if letter == '#' { "hash".to_string() } else { letter.to_string() }))
+                .with_id(ids::jump(letter))
                 .with_css(format!(
                     "text-align: center; cursor: pointer; {}",
                     if has { "font-weight: 700;" } else { "opacity: 0.35;" }
@@ -494,17 +485,17 @@ fn list_pane(s: &ContactsApp, app: &RefAny) -> Dom {
         .with_accessibility_name("Search contacts")
         .with_on_text_input(app.clone(), on_search as TextInputOnTextInputCallbackType)
         .dom()
-        .with_id("contacts-search");
+        .with_id(ids::CONTACTS_SEARCH);
     let sort = Segmented::create(strs(&["First name", "Last name"]))
         .with_selected_index(usize::from(s.sort == SortBy::Last))
         .with_on_change(app.clone(), on_sort as SegmentedOnChangeCallbackType)
         .dom()
-        .with_id("contacts-sort");
+        .with_id(ids::CONTACTS_SORT);
     let heading = block(
         "padding: 6px 8px 2px 8px; font-size: 12px; font-weight: 600;",
         text(format!("{} \u{b7} {}", filter_title(s), indices.len())),
     )
-    .with_id("contacts-heading");
+    .with_id(ids::CONTACTS_HEADING);
     let body = if !s.loaded {
         block("padding: 16px; opacity: 0.7;", text("Reading your contacts\u{2026}"))
     } else if s.book.is_empty() {
@@ -525,7 +516,7 @@ fn list_pane(s: &ContactsApp, app: &RefAny) -> Dom {
             .dom()
     } else {
         let mut list = Dom::create_div()
-            .with_id("contacts-list")
+            .with_id(ids::CONTACTS_LIST)
             .with_css("display: flex; flex-direction: column; flex-grow: 1; overflow-y: auto; min-height: 0px;");
         for (letter, members) in &sections {
             list.add_child(
@@ -533,7 +524,7 @@ fn list_pane(s: &ContactsApp, app: &RefAny) -> Dom {
                     "padding: 4px 8px; font-size: 11px; font-weight: 700; opacity: 0.8;",
                     text(letter.to_string()),
                 )
-                .with_id(section_id(*letter)),
+                .with_id(ids::section(*letter)),
             );
             for &i in members {
                 list.add_child(contact_row(s, app, &s.book[i]));
@@ -569,13 +560,13 @@ fn lines(items: Vec<String>) -> Dom {
 
 fn card_view(s: &ContactsApp, app: &RefAny, c: &Contact) -> Dom {
     let mut actions = vec![
-        primary("Edit", "card-edit", app, on_edit),
+        primary("Edit", ids::CARD_EDIT, app, on_edit),
         Button::create(if c.favorite { "\u{2605} Favourite" } else { "\u{2606} Favourite" })
             .with_on_click(app.clone(), on_toggle_favorite as ButtonOnClickCallbackType)
             .dom()
-            .with_id("card-favorite"),
-        button("Copy vCard", "card-copy", app, on_copy_vcard),
-        button("Export", "card-export", app, on_export_selected),
+            .with_id(ids::CARD_FAVORITE),
+        button("Copy vCard", ids::CARD_COPY, app, on_copy_vcard),
+        button("Export", ids::CARD_EXPORT, app, on_export_selected),
     ];
     if !c.emails.is_empty() {
         // Until AzMail takes a hand-off: the address to the clipboard.
@@ -584,7 +575,7 @@ fn card_view(s: &ContactsApp, app: &RefAny, c: &Contact) -> Dom {
                 .with_icon("mail")
                 .with_on_click(app.clone(), on_copy_email as ButtonOnClickCallbackType)
                 .dom()
-                .with_id("card-mail"),
+                .with_id(ids::CARD_MAIL),
         );
     }
     actions.push(
@@ -592,7 +583,7 @@ fn card_view(s: &ContactsApp, app: &RefAny, c: &Contact) -> Dom {
             .with_button_type(ButtonType::Danger)
             .with_on_click(app.clone(), on_delete as ButtonOnClickCallbackType)
             .dom()
-            .with_id("card-delete"),
+            .with_id(ids::CARD_DELETE),
     );
     let mut children = vec![
         row(
@@ -602,7 +593,7 @@ fn card_view(s: &ContactsApp, app: &RefAny, c: &Contact) -> Dom {
                 column(
                     "padding-left: 12px;",
                     vec![
-                        block("font-size: 22px; font-weight: 600;", text(c.display_name())).with_id("card-name"),
+                        block("font-size: 22px; font-weight: 600;", text(c.display_name())).with_id(ids::CARD_NAME),
                         block("font-size: 13px; opacity: 0.75;", text(c.subtitle())),
                     ],
                 ),
@@ -621,8 +612,8 @@ fn card_view(s: &ContactsApp, app: &RefAny, c: &Contact) -> Dom {
                     .with_button_type(ButtonType::Danger)
                     .with_on_click(app.clone(), on_delete_confirmed as ButtonOnClickCallbackType)
                     .dom()
-                    .with_id("card-delete-confirm"),
-                button("Keep", "card-delete-cancel", app, on_delete_cancelled),
+                    .with_id(ids::CARD_DELETE_CONFIRM),
+                button("Keep", ids::CARD_DELETE_CANCEL, app, on_delete_cancelled),
             ],
         ));
     }
@@ -663,12 +654,12 @@ fn card_view(s: &ContactsApp, app: &RefAny, c: &Contact) -> Dom {
     if !c.notes.trim().is_empty() {
         fields.push(field_row("notes", lines(c.notes.lines().map(str::to_string).collect())));
     }
-    children.push(column("", fields).with_id("card-fields"));
+    children.push(column("", fields).with_id(ids::CARD_FIELDS));
     children.push(block(
         "padding-top: 12px; font-size: 11px; opacity: 0.6;",
         text(format!("File: {}", store::contact_key(&c.uid))),
     ));
-    column("padding: 0px 16px; overflow-y: auto; flex-grow: 1; min-height: 0px;", children).with_id("contact-card")
+    column("padding: 0px 16px; overflow-y: auto; flex-grow: 1; min-height: 0px;", children).with_id(ids::CONTACT_CARD)
 }
 
 // ==== The edit form ====
@@ -724,7 +715,7 @@ struct RowKindRef {
     index: usize,
 }
 
-fn input(app: &RefAny, field: FormField, value: &str, placeholder: &str, id: &str) -> Dom {
+fn input(app: &RefAny, field: FormField, value: &str, placeholder: &str, id: AzString) -> Dom {
     TextInput::create()
         .with_text(value)
         .with_placeholder(placeholder)
@@ -737,7 +728,7 @@ fn input(app: &RefAny, field: FormField, value: &str, placeholder: &str, id: &st
         .with_id(id)
 }
 
-fn label_drop(app: &RefAny, kind: RowKind, index: usize, labels: &[&str], current: &str, id: &str) -> Dom {
+fn label_drop(app: &RefAny, kind: RowKind, index: usize, labels: &[&str], current: &str, id: AzString) -> Dom {
     let mut choices: Vec<&str> = labels.to_vec();
     if !choices.contains(&current) && !current.is_empty() {
         choices.push(current);
@@ -754,7 +745,7 @@ fn label_drop(app: &RefAny, kind: RowKind, index: usize, labels: &[&str], curren
         .with_id(id)
 }
 
-fn remove_button(app: &RefAny, kind: RowKind, index: usize, id: &str) -> Dom {
+fn remove_button(app: &RefAny, kind: RowKind, index: usize, id: AzString) -> Dom {
     Button::create("")
         .with_icon("remove_circle_outline")
         .with_on_click(RefAny::new(RowKindRef { app: app.clone(), kind, index }), on_remove_row as ButtonOnClickCallbackType)
@@ -762,7 +753,7 @@ fn remove_button(app: &RefAny, kind: RowKind, index: usize, id: &str) -> Dom {
         .with_id(id)
 }
 
-fn add_button(app: &RefAny, kind: RowKind, label: &str, id: &str) -> Dom {
+fn add_button(app: &RefAny, kind: RowKind, label: &str, id: AzString) -> Dom {
     Button::create(label)
         .with_icon("add")
         .with_on_click(RefAny::new(RowKindRef { app: app.clone(), kind, index: 0 }), on_add_row as ButtonOnClickCallbackType)
@@ -792,7 +783,7 @@ fn birthday_picker(app: &RefAny, form: &Form) -> Dom {
     let Some(b) = Birthday::parse(&form.birthday_text) else {
         return row(
             "padding-top: 6px;",
-            vec![button("Add a birthday", "edit-birthday-add", app, on_birthday_add)],
+            vec![button("Add a birthday", ids::EDIT_BIRTHDAY_ADD, app, on_birthday_add)],
         );
     };
     let year = u32::try_from(b.picker_year()).unwrap_or(2000);
@@ -801,7 +792,7 @@ fn birthday_picker(app: &RefAny, form: &Form) -> Dom {
             .with_accessibility_name("Birthday")
             .with_on_change(app.clone(), on_birthday_picked as DatePickerOnChangeCallbackType)
             .dom()
-            .with_id("edit-birthday-picker"),
+            .with_id(ids::EDIT_BIRTHDAY_PICKER),
     ];
     let mut side = vec![row(
         "gap: 6px; align-items: center;",
@@ -810,7 +801,7 @@ fn birthday_picker(app: &RefAny, form: &Form) -> Dom {
                 .with_accessibility_name("Year unknown")
                 .with_on_toggle(app.clone(), on_birthday_no_year as CheckBoxOnToggleCallbackType)
                 .dom()
-                .with_id("edit-birthday-no-year"),
+                .with_id(ids::EDIT_BIRTHDAY_NO_YEAR),
             text("Year unknown"),
         ],
     )];
@@ -824,7 +815,7 @@ fn birthday_picker(app: &RefAny, form: &Form) -> Dom {
                     .with_accessibility_name("Birth year")
                     .with_on_value_change(app.clone(), on_birthday_year as NumberInputOnValueChangeCallbackType)
                     .dom()
-                    .with_id("edit-birthday-year"),
+                    .with_id(ids::EDIT_BIRTHDAY_YEAR),
             ],
         ));
     }
@@ -839,16 +830,16 @@ fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
         "padding: 10px 0px;",
         vec![
             block("font-size: 18px; font-weight: 600; flex-grow: 1;", text(if form.original.is_some() { "Edit contact" } else { "New contact" })),
-            button("Cancel", "edit-cancel", app, on_edit_cancel),
-            primary("Save", "edit-save", app, on_edit_save),
+            button("Cancel", ids::EDIT_CANCEL, app, on_edit_cancel),
+            primary("Save", ids::EDIT_SAVE, app, on_edit_save),
         ],
     ));
     let mut photo_row = vec![
         avatar(s, d, AvatarSize::Medium),
-        button("Change photo\u{2026}", "edit-photo", app, on_photo_choose),
+        button("Change photo\u{2026}", ids::EDIT_PHOTO, app, on_photo_choose),
     ];
     if !d.photo.trim().is_empty() {
-        photo_row.push(button("Remove photo", "edit-photo-remove", app, on_photo_remove));
+        photo_row.push(button("Remove photo", ids::EDIT_PHOTO_REMOVE, app, on_photo_remove));
         photo_row.push(block("font-size: 12px; opacity: 0.75;", text("A photo is set.")));
     }
     children.push(row("gap: 8px; padding-bottom: 6px;", photo_row));
@@ -861,15 +852,15 @@ fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
                     .with_button_type(ButtonType::Danger)
                     .with_on_click(app.clone(), on_edit_discard as ButtonOnClickCallbackType)
                     .dom()
-                    .with_id("edit-discard"),
-                button("Keep editing", "edit-keep", app, on_edit_keep),
+                    .with_id(ids::EDIT_DISCARD),
+                button("Keep editing", ids::EDIT_KEEP, app, on_edit_keep),
             ],
         ));
     }
     if !form.problems.is_empty() {
         children.push(
             column("padding: 6px 8px; border-left: 3px solid #c0392b;", form.problems.iter().map(|p| Dom::create_div().with_child(text(p.as_str()))).collect())
-                .with_id("edit-problems"),
+                .with_id(ids::EDIT_PROBLEMS),
         );
     }
     let pair = |a: Dom, b: Dom| row("gap: 6px; padding: 2px 0px;", vec![block("flex-grow: 1;", a), block("flex-grow: 1;", b)]);
@@ -877,16 +868,16 @@ fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
         "Name",
         vec![
             pair(
-                input(app, FormField::Given, &d.given, "First name", "edit-given"),
-                input(app, FormField::Family, &d.family, "Last name", "edit-family"),
+                input(app, FormField::Given, &d.given, "First name", ids::EDIT_GIVEN),
+                input(app, FormField::Family, &d.family, "Last name", ids::EDIT_FAMILY),
             ),
             pair(
-                input(app, FormField::Org, &d.org, "Company", "edit-org"),
-                input(app, FormField::Department, &d.department, "Department", "edit-department"),
+                input(app, FormField::Org, &d.org, "Company", ids::EDIT_ORG),
+                input(app, FormField::Department, &d.department, "Department", ids::EDIT_DEPARTMENT),
             ),
             pair(
-                input(app, FormField::Title, &d.title, "Job title", "edit-title"),
-                input(app, FormField::Nickname, &d.nickname, "Nickname", "edit-nickname"),
+                input(app, FormField::Title, &d.title, "Job title", ids::EDIT_TITLE),
+                input(app, FormField::Nickname, &d.nickname, "Nickname", ids::EDIT_NICKNAME),
             ),
         ],
     ));
@@ -898,14 +889,14 @@ fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
             row(
                 "gap: 6px; padding: 2px 0px;",
                 vec![
-                    label_drop(app, RowKind::Phone, i, &PHONE_LABELS, &p.label, &format!("edit-phone-label-{i}")),
-                    block("flex-grow: 1;", input(app, FormField::Phone(i), &p.value, "Phone", &format!("edit-phone-{i}"))),
-                    remove_button(app, RowKind::Phone, i, &format!("edit-phone-remove-{i}")),
+                    label_drop(app, RowKind::Phone, i, &PHONE_LABELS, &p.label, ids::edit_phone_label(i)),
+                    block("flex-grow: 1;", input(app, FormField::Phone(i), &p.value, "Phone", ids::edit_phone(i))),
+                    remove_button(app, RowKind::Phone, i, ids::edit_phone_remove(i)),
                 ],
             )
         })
         .collect();
-    phones.push(add_button(app, RowKind::Phone, "Add phone", "edit-add-phone"));
+    phones.push(add_button(app, RowKind::Phone, "Add phone", ids::EDIT_ADD_PHONE));
     children.push(form_section("Phone", phones));
     let mut emails: Vec<Dom> = d
         .emails
@@ -915,41 +906,41 @@ fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
             row(
                 "gap: 6px; padding: 2px 0px;",
                 vec![
-                    label_drop(app, RowKind::Email, i, &EMAIL_LABELS, &e.label, &format!("edit-email-label-{i}")),
-                    block("flex-grow: 1;", input(app, FormField::Email(i), &e.value, "Email", &format!("edit-email-{i}"))),
-                    remove_button(app, RowKind::Email, i, &format!("edit-email-remove-{i}")),
+                    label_drop(app, RowKind::Email, i, &EMAIL_LABELS, &e.label, ids::edit_email_label(i)),
+                    block("flex-grow: 1;", input(app, FormField::Email(i), &e.value, "Email", ids::edit_email(i))),
+                    remove_button(app, RowKind::Email, i, ids::edit_email_remove(i)),
                 ],
             )
         })
         .collect();
-    emails.push(add_button(app, RowKind::Email, "Add email", "edit-add-email"));
+    emails.push(add_button(app, RowKind::Email, "Add email", ids::EDIT_ADD_EMAIL));
     children.push(form_section("Email", emails));
     let mut addresses: Vec<Dom> = Vec::new();
     for (i, a) in d.addresses.iter().enumerate() {
         addresses.push(row(
             "gap: 6px; padding: 2px 0px;",
             vec![
-                label_drop(app, RowKind::Address, i, &ADDRESS_LABELS, &a.label, &format!("edit-address-label-{i}")),
-                block("flex-grow: 1;", input(app, FormField::Street(i), &a.street, "Street", &format!("edit-street-{i}"))),
-                remove_button(app, RowKind::Address, i, &format!("edit-address-remove-{i}")),
+                label_drop(app, RowKind::Address, i, &ADDRESS_LABELS, &a.label, ids::edit_address_label(i)),
+                block("flex-grow: 1;", input(app, FormField::Street(i), &a.street, "Street", ids::edit_street(i))),
+                remove_button(app, RowKind::Address, i, ids::edit_address_remove(i)),
             ],
         ));
         addresses.push(row(
             "gap: 6px; padding: 2px 0px 6px 0px;",
             vec![
-                block("width: 90px;", input(app, FormField::Postcode(i), &a.postcode, "Postcode", &format!("edit-postcode-{i}"))),
-                block("flex-grow: 1;", input(app, FormField::City(i), &a.locality, "City", &format!("edit-city-{i}"))),
-                block("flex-grow: 1;", input(app, FormField::Region(i), &a.region, "Region", &format!("edit-region-{i}"))),
-                block("flex-grow: 1;", input(app, FormField::Country(i), &a.country, "Country", &format!("edit-country-{i}"))),
+                block("width: 90px;", input(app, FormField::Postcode(i), &a.postcode, "Postcode", ids::edit_postcode(i))),
+                block("flex-grow: 1;", input(app, FormField::City(i), &a.locality, "City", ids::edit_city(i))),
+                block("flex-grow: 1;", input(app, FormField::Region(i), &a.region, "Region", ids::edit_region(i))),
+                block("flex-grow: 1;", input(app, FormField::Country(i), &a.country, "Country", ids::edit_country(i))),
             ],
         ));
     }
-    addresses.push(add_button(app, RowKind::Address, "Add address", "edit-add-address"));
+    addresses.push(add_button(app, RowKind::Address, "Add address", ids::EDIT_ADD_ADDRESS));
     children.push(form_section("Address", addresses));
     children.push(form_section(
         "Birthday",
         vec![
-            input(app, FormField::Birthday, &form.birthday_text, "DD.MM.YYYY, or DD.MM. without a year", "edit-birthday"),
+            input(app, FormField::Birthday, &form.birthday_text, "DD.MM.YYYY, or DD.MM. without a year", ids::EDIT_BIRTHDAY),
             birthday_picker(app, form),
         ],
     ));
@@ -973,8 +964,8 @@ fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
             row(
                 "gap: 6px;",
                 vec![
-                    block("flex-grow: 1;", input(app, FormField::NewGroup, &form.new_group, "Add to a group", "edit-new-group")),
-                    add_button(app, RowKind::Group, "Add", "edit-add-group"),
+                    block("flex-grow: 1;", input(app, FormField::NewGroup, &form.new_group, "Add to a group", ids::EDIT_NEW_GROUP)),
+                    add_button(app, RowKind::Group, "Add", ids::EDIT_ADD_GROUP),
                 ],
             ),
         ],
@@ -987,14 +978,14 @@ fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
             row(
                 "gap: 6px; padding: 2px 0px;",
                 vec![
-                    block("width: 140px;", input(app, FormField::CustomLabel(i), &f.label, "Field name", &format!("edit-field-label-{i}"))),
-                    block("flex-grow: 1;", input(app, FormField::CustomValue(i), &f.value, "Value", &format!("edit-field-{i}"))),
-                    remove_button(app, RowKind::Custom, i, &format!("edit-field-remove-{i}")),
+                    block("width: 140px;", input(app, FormField::CustomLabel(i), &f.label, "Field name", ids::edit_field_label(i))),
+                    block("flex-grow: 1;", input(app, FormField::CustomValue(i), &f.value, "Value", ids::edit_field(i))),
+                    remove_button(app, RowKind::Custom, i, ids::edit_field_remove(i)),
                 ],
             )
         })
         .collect();
-    custom.push(add_button(app, RowKind::Custom, "Add field", "edit-add-field"));
+    custom.push(add_button(app, RowKind::Custom, "Add field", ids::EDIT_ADD_FIELD));
     children.push(form_section("More fields", custom));
     children.push(form_section(
         "Notes",
@@ -1004,7 +995,7 @@ fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
             .with_accessibility_name("Notes")
             .with_on_text_input(app.clone(), on_notes as TextAreaOnTextInputCallbackType)
             .dom()
-            .with_id("edit-notes")],
+            .with_id(ids::EDIT_NOTES)],
     ));
     children.push(row(
         "padding: 8px 0px;",
@@ -1013,11 +1004,11 @@ fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
                 .with_accessibility_name("Favourite")
                 .with_on_toggle(app.clone(), on_form_favorite as SwitchOnToggleCallbackType)
                 .dom()
-                .with_id("edit-favorite"),
+                .with_id(ids::EDIT_FAVORITE),
             block("padding-left: 8px;", text("Favourite")),
         ],
     ));
-    column("padding: 0px 16px 16px 16px; overflow-y: auto; flex-grow: 1; min-height: 0px;", children).with_id("contact-edit")
+    column("padding: 0px 16px 16px 16px; overflow-y: auto; flex-grow: 1; min-height: 0px;", children).with_id(ids::CONTACT_EDIT)
 }
 
 // ==== Import ====
@@ -1063,8 +1054,13 @@ fn csv_mapping(app: &RefAny, csv: &CsvImport) -> Dom {
         rows.push(row(
             "gap: 8px; padding: 2px 0px; font-size: 13px;",
             vec![
-                block("width: 180px;", text(header.as_str())),
-                block("width: 200px; opacity: 0.7;", text(example)),
+                block("width: 140px; flex-shrink: 0;", text(header.as_str())),
+                // The first value of the column, cut short where the row has no room for it.
+                block(
+                    "flex-grow: 1; min-width: 0px; opacity: 0.7; white-space: nowrap; overflow: hidden; \
+                     text-overflow: ellipsis;",
+                    text(example),
+                ),
                 DropDown::create(strs(&labels))
                     .with_selected(field.index())
                     .with_accessibility_name(format!("Column {header}"))
@@ -1073,11 +1069,21 @@ fn csv_mapping(app: &RefAny, csv: &CsvImport) -> Dom {
                         on_import_column as DropDownOnChoiceChangeCallbackType,
                     )
                     .dom()
-                    .with_id(format!("import-column-{i}")),
+                    .with_id(ids::import_column(i))
+                    .with_css("flex-shrink: 0;"),
             ],
         ));
     }
-    column("", rows).with_id("import-columns")
+    column("", rows).with_id(ids::IMPORT_COLUMNS)
+}
+
+/// A column of the import preview: `grow` shares of the row (a zero basis, so the shares hold
+/// whatever the values say), a value too long for its share cut with an ellipsis.
+fn preview_cell(grow: u32, css: &str) -> String {
+    format!(
+        "flex-grow: {grow}; flex-basis: 0px; min-width: 0px; white-space: nowrap; overflow: hidden; \
+         text-overflow: ellipsis; {css}"
+    )
 }
 
 fn import_view(s: &ContactsApp, app: &RefAny, st: &ImportState) -> Dom {
@@ -1086,9 +1092,9 @@ fn import_view(s: &ContactsApp, app: &RefAny, st: &ImportState) -> Dom {
         row(
             "gap: 6px;",
             vec![
-                block("flex-grow: 1;", input(app, FormField::ImportPath, &st.path, "Path to a .vcf or .csv file", "import-path")),
-                button("Read", "import-read", app, on_import_read),
-                button("Choose file\u{2026}", "import-choose", app, on_import_choose),
+                block("flex-grow: 1;", input(app, FormField::ImportPath, &st.path, "Path to a .vcf or .csv file", ids::IMPORT_PATH)),
+                button("Read", ids::IMPORT_READ, app, on_import_read),
+                button("Choose file\u{2026}", ids::IMPORT_CHOOSE, app, on_import_choose),
             ],
         ),
     ];
@@ -1102,7 +1108,7 @@ fn import_view(s: &ContactsApp, app: &RefAny, st: &ImportState) -> Dom {
         children.push(csv_mapping(app, csv));
     }
     if !st.rows.is_empty() {
-        children.push(block("padding: 8px 0px; font-weight: 600;", text(store::import_summary(&st.rows))).with_id("import-summary"));
+        children.push(block("padding: 8px 0px; font-weight: 600;", text(store::import_summary(&st.rows))).with_id(ids::IMPORT_SUMMARY));
         let mut table = Vec::new();
         for (i, r) in st.rows.iter().enumerate() {
             let c = &r.contact;
@@ -1113,22 +1119,22 @@ fn import_view(s: &ContactsApp, app: &RefAny, st: &ImportState) -> Dom {
                         .with_accessibility_name(format!("Import {}", c.display_name()))
                         .with_on_toggle(RefAny::new(ImportRowRef { app: app.clone(), index: i }), on_import_toggle as CheckBoxOnToggleCallbackType)
                         .dom()
-                        .with_id(format!("import-row-{i}")),
-                    block("width: 180px;", text(c.display_name())),
-                    block("width: 200px; opacity: 0.8;", text(c.emails.first().map(|e| e.value.clone()).unwrap_or_else(|| "\u{2014}".into()))),
-                    block("width: 150px; opacity: 0.8;", text(c.phones.first().map(|p| p.value.clone()).unwrap_or_else(|| "\u{2014}".into()))),
-                    block("flex-grow: 1; opacity: 0.8;", text(status_text(&r.status, &s.book))),
+                        .with_id(ids::import_row(i)),
+                    block(&preview_cell(3, ""), text(c.display_name())),
+                    block(&preview_cell(3, "opacity: 0.8;"), text(c.emails.first().map(|e| e.value.clone()).unwrap_or_else(|| "\u{2014}".into()))),
+                    block(&preview_cell(2, "opacity: 0.8;"), text(c.phones.first().map(|p| p.value.clone()).unwrap_or_else(|| "\u{2014}".into()))),
+                    block(&preview_cell(3, "opacity: 0.8;"), text(status_text(&r.status, &s.book))),
                 ],
             ));
         }
-        children.push(column("", table).with_id("import-rows"));
+        children.push(column("", table).with_id(ids::IMPORT_ROWS));
         children.push(row(
             "gap: 6px; padding-top: 10px;",
             vec![
                 block("", text("Add to group")),
-                block("flex-grow: 1;", input(app, FormField::ImportGroup, &st.group, "Group (optional)", "import-group")),
-                button("Cancel", "import-cancel", app, on_import_cancel),
-                primary("Import", "import-run", app, on_import_run),
+                block("flex-grow: 1;", input(app, FormField::ImportGroup, &st.group, "Group (optional)", ids::IMPORT_GROUP)),
+                button("Cancel", ids::IMPORT_CANCEL, app, on_import_cancel),
+                primary("Import", ids::IMPORT_RUN, app, on_import_run),
             ],
         ));
     } else if !st.reading {
@@ -1139,9 +1145,9 @@ fn import_view(s: &ContactsApp, app: &RefAny, st: &ImportState) -> Dom {
                  its columns mapped to the contact's fields). Nothing is imported before you press Import.",
             ),
         ));
-        children.push(row("padding-top: 8px;", vec![button("Cancel", "import-cancel", app, on_import_cancel)]));
+        children.push(row("padding-top: 8px;", vec![button("Cancel", ids::IMPORT_CANCEL, app, on_import_cancel)]));
     }
-    column("padding: 0px 16px 16px 16px; overflow-y: auto; flex-grow: 1; min-height: 0px;", children).with_id("contact-import")
+    column("padding: 0px 16px 16px 16px; overflow-y: auto; flex-grow: 1; min-height: 0px;", children).with_id(ids::CONTACT_IMPORT)
 }
 
 // ==== Merge ====
@@ -1161,27 +1167,31 @@ struct MergeRef {
     field: MergeField,
 }
 
+/// A merge field's left or right value: the two share the row's room evenly whatever they say
+/// (a zero basis), so every field's Left / Right picker stands in one column.
+const MERGE_VALUE: &str = "flex-grow: 1; flex-basis: 0px; min-width: 0px; font-size: 13px;";
+
 fn merge_view(s: &ContactsApp, app: &RefAny, st: &MergeState) -> Dom {
     let Some(pair) = st.pairs.get(st.index) else {
         return ShellEmptyState::create("No possible duplicates")
             .with_icon("merge")
             .with_detail("No two contacts share a name, an email address or a phone number.")
             .dom()
-            .with_id("merge-empty");
+            .with_id(ids::MERGE_EMPTY);
     };
     let (a, b) = (&s.book[pair.a], &s.book[pair.b]);
-    let pick_row = |label: &str, field: MergeField, pick: Pick, left: String, right: String, id: &str| {
+    let pick_row = |label: &str, field: MergeField, pick: Pick, left: String, right: String, id: AzString| {
         row(
             "gap: 8px; padding: 4px 0px;",
             vec![
                 block("width: 90px; font-size: 12px; opacity: 0.7;", text(label)),
-                block("flex-grow: 1; font-size: 13px;", text(if left.is_empty() { "\u{2014}".to_string() } else { left })),
+                block(MERGE_VALUE, text(if left.is_empty() { "\u{2014}".to_string() } else { left })),
                 Segmented::create(strs(&["Left", "Right"]))
                     .with_selected_index(usize::from(pick == Pick::B))
                     .with_on_change(RefAny::new(MergeRef { app: app.clone(), field }), on_merge_pick as SegmentedOnChangeCallbackType)
                     .dom()
                     .with_id(id),
-                block("flex-grow: 1; font-size: 13px;", text(if right.is_empty() { "\u{2014}".to_string() } else { right })),
+                block(MERGE_VALUE, text(if right.is_empty() { "\u{2014}".to_string() } else { right })),
             ],
         )
     };
@@ -1201,9 +1211,9 @@ fn merge_view(s: &ContactsApp, app: &RefAny, st: &MergeState) -> Dom {
             "padding: 10px 0px; gap: 8px;",
             vec![
                 block("font-size: 18px; font-weight: 600; flex-grow: 1;", text(format!("Possible duplicates ({})", st.pairs.len()))),
-                button("\u{2039}", "merge-prev", app, on_merge_prev),
-                block("font-size: 13px;", text(format!("{} of {}", st.index + 1, st.pairs.len()))).with_id("merge-position"),
-                button("\u{203a}", "merge-next", app, on_merge_next),
+                button("\u{2039}", ids::MERGE_PREV, app, on_merge_prev),
+                block("font-size: 13px;", text(format!("{} of {}", st.index + 1, st.pairs.len()))).with_id(ids::MERGE_POSITION),
+                button("\u{203a}", ids::MERGE_NEXT, app, on_merge_next),
             ],
         ),
         block(
@@ -1216,12 +1226,12 @@ fn merge_view(s: &ContactsApp, app: &RefAny, st: &MergeState) -> Dom {
                 pair.reasons.join(", ")
             )),
         )
-        .with_id("merge-pair"),
-        pick_row("Name", MergeField::Name, st.plan.name, a.display_name(), b.display_name(), "merge-name"),
-        pick_row("Company", MergeField::Company, st.plan.company, company(a), company(b), "merge-company"),
-        pick_row("Birthday", MergeField::Birthday, st.plan.birthday, birthday(a), birthday(b), "merge-birthday"),
-        pick_row("Photo", MergeField::Photo, st.plan.photo, photo(a), photo(b), "merge-photo"),
-        pick_row("Notes", MergeField::Notes, st.plan.notes, a.notes.clone(), b.notes.clone(), "merge-notes"),
+        .with_id(ids::MERGE_PAIR),
+        pick_row("Name", MergeField::Name, st.plan.name, a.display_name(), b.display_name(), ids::MERGE_NAME),
+        pick_row("Company", MergeField::Company, st.plan.company, company(a), company(b), ids::MERGE_COMPANY),
+        pick_row("Birthday", MergeField::Birthday, st.plan.birthday, birthday(a), birthday(b), ids::MERGE_BIRTHDAY),
+        pick_row("Photo", MergeField::Photo, st.plan.photo, photo(a), photo(b), ids::MERGE_PHOTO),
+        pick_row("Notes", MergeField::Notes, st.plan.notes, a.notes.clone(), b.notes.clone(), ids::MERGE_NOTES),
         row(
             "padding: 4px 0px 4px 98px;",
             vec![
@@ -1229,7 +1239,7 @@ fn merge_view(s: &ContactsApp, app: &RefAny, st: &MergeState) -> Dom {
                     .with_accessibility_name("Keep both notes")
                     .with_on_toggle(app.clone(), on_merge_notes_both as SwitchOnToggleCallbackType)
                     .dom()
-                    .with_id("merge-notes-both"),
+                    .with_id(ids::MERGE_NOTES_BOTH),
                 block("padding-left: 8px; font-size: 13px;", text("Keep both notes")),
             ],
         ),
@@ -1245,12 +1255,12 @@ fn merge_view(s: &ContactsApp, app: &RefAny, st: &MergeState) -> Dom {
             "gap: 6px; padding-top: 12px;",
             vec![
                 block("flex-grow: 1;", Dom::create_div()),
-                button("Not a duplicate", "merge-ignore", app, on_merge_ignore),
-                primary("Merge contacts", "merge-run", app, on_merge_run),
+                button("Not a duplicate", ids::MERGE_IGNORE, app, on_merge_ignore),
+                primary("Merge contacts", ids::MERGE_RUN, app, on_merge_run),
             ],
         ),
     ];
-    column("padding: 0px 16px 16px 16px; overflow-y: auto; flex-grow: 1; min-height: 0px;", children).with_id("contact-merge")
+    column("padding: 0px 16px 16px 16px; overflow-y: auto; flex-grow: 1; min-height: 0px;", children).with_id(ids::CONTACT_MERGE)
 }
 
 // ==== The panes and the window ====
@@ -1273,18 +1283,18 @@ fn reading_pane(s: &ContactsApp, app: &RefAny) -> Dom {
 }
 
 fn toolbar(app: &RefAny) -> Dom {
-    let tool = |label: &str, icon: &str, id: &str, cb: ButtonOnClickCallbackType| {
+    let tool = |label: &str, icon: &str, id: AzString, cb: ButtonOnClickCallbackType| {
         Button::create(label).with_icon(icon).with_on_click(app.clone(), cb).dom().with_id(id)
     };
     row(
         "gap: 4px; padding: 4px 8px;",
         vec![
-            tool("New", "person_add", "toolbar-new", on_new),
-            tool("Import", "file_upload", "toolbar-import", on_import_open),
-            tool("Export", "file_download", "toolbar-export", on_export_view),
-            tool("Duplicates", "merge", "toolbar-duplicates", on_open_duplicates),
+            tool("New", "person_add", ids::TOOLBAR_NEW, on_new),
+            tool("Import", "file_upload", ids::TOOLBAR_IMPORT, on_import_open),
+            tool("Export", "file_download", ids::TOOLBAR_EXPORT, on_export_view),
+            tool("Duplicates", "merge", ids::TOOLBAR_DUPLICATES, on_open_duplicates),
             block("flex-grow: 1;", Dom::create_div()),
-            tool("Settings", "settings", "toolbar-settings", on_open_settings),
+            tool("Settings", "settings", ids::TOOLBAR_SETTINGS, on_open_settings),
         ],
     )
 }
@@ -1305,7 +1315,7 @@ fn status_bar(s: &ContactsApp, app: &RefAny) -> Dom {
     if !s.notice.is_empty() {
         segments.push(StatusBarSegment::create(s.notice.as_str()));
     }
-    StatusBar::create(segments).dom().with_id("contacts-status")
+    StatusBar::create(segments).dom().with_id(ids::CONTACTS_STATUS)
 }
 
 fn settings_sections(s: &ContactsApp, app: &RefAny) -> Vec<AppSection> {
@@ -1321,7 +1331,7 @@ fn settings_sections(s: &ContactsApp, app: &RefAny) -> Vec<AppSection> {
                         .with_selected_index(usize::from(s.sort == SortBy::Last))
                         .with_on_change(app.clone(), on_sort as SegmentedOnChangeCallbackType)
                         .dom()
-                        .with_id("set-sort"),
+                        .with_id(ids::SET_SORT),
                 ),
                 kit::row(
                     "Export as",
@@ -1329,7 +1339,7 @@ fn settings_sections(s: &ContactsApp, app: &RefAny) -> Vec<AppSection> {
                         .with_selected_index(usize::from(s.export_version == Version::V3))
                         .with_on_change(app.clone(), on_export_version as SegmentedOnChangeCallbackType)
                         .dom()
-                        .with_id("set-export-version"),
+                        .with_id(ids::SET_EXPORT_VERSION),
                 ),
                 kit::note(&format!(
                     "Every contact is one vCard file in {}. {} pair(s) marked as not duplicates.",
@@ -1758,7 +1768,7 @@ extern "C" fn on_jump(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let dom = info.get_hit_node().dom;
     let start = ALPHABET.iter().position(|l| *l == letter).unwrap_or(0);
     for candidate in ALPHABET[start..].iter().chain(ALPHABET[..start].iter().rev()) {
-        let node = info.get_node_id_by_id_attribute(dom, section_id(*candidate));
+        let node = info.get_node_id_by_id_attribute(dom, ids::section(*candidate));
         if node.into_raw() != 0 {
             info.scroll_node_into_view(DomNodeId { dom, node }, ScrollIntoViewOptions::start());
             println!("AZCONTACTS_JUMP {candidate}");
@@ -2629,9 +2639,4 @@ mod tests {
         assert!(!empty.changed());
     }
 
-    #[test]
-    fn the_section_ids_name_the_letters() {
-        assert_eq!(section_id('A'), "section-A");
-        assert_eq!(section_id('#'), "section-hash");
-    }
 }

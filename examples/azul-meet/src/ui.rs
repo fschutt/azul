@@ -608,12 +608,15 @@ fn devices(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
                 .with_child(text(
                     &view.link,
                     "font-size: 12px; flex-grow: 1; min-width: 0px; overflow: hidden; \
-                     white-space: nowrap;",
+                     white-space: nowrap; text-overflow: ellipsis;",
                 ))
                 .with_child(
+                    // The link gives way, the button keeps its one line.
                     Button::create(if view.copied { "Copied" } else { "Copy link" })
                         .with_on_click(data.clone(), actions.copy_link)
-                        .dom(),
+                        .dom()
+                        .with_id(ids::COPY_LINK)
+                        .with_css("flex-shrink: 0;"),
                 ),
         );
     }

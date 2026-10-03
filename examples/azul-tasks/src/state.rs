@@ -11,7 +11,7 @@ use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 
 use azul::widgets::ListSelection;
 use azul_storage::Drive;
-use chrono::{Local, NaiveDate, NaiveDateTime, TimeZone, Timelike};
+use chrono::{Datelike, Local, NaiveDate, NaiveDateTime, TimeZone, Timelike};
 
 use crate::{
     model::{self, Settings, Task, TaskList},
@@ -136,6 +136,12 @@ pub struct Tasks {
     pub folded_groups: BTreeSet<String>,
     /// A list's "Completed (n)" section is unfolded.
     pub completed_open: bool,
+    /// Scheduled shows the planned month (else the list of days), and the month it shows (any
+    /// day of it).
+    pub planned_month: bool,
+    pub month: NaiveDate,
+    /// A list shows its board (To do / Doing / Done) instead of the list.
+    pub board: bool,
     pub ribbon_tab: usize,
     pub page: Option<Page>,
     pub settings_category: usize,
@@ -160,6 +166,15 @@ pub struct Tasks {
     pub drag: Option<String>,
     /// The moment the window was last built for (a new day rebuilds).
     pub clock: NaiveDateTime,
+}
+
+/// A monthly or yearly repeat follows its task's due day of the month (the due date moved).
+pub fn reanchor(t: &mut Task) {
+    if let (Some(rule), Some(due)) = (t.repeat.as_mut(), t.due) {
+        if matches!(rule.unit, crate::recur::Unit::Month | crate::recur::Unit::Year) {
+            rule.month_day = Some(due.day());
+        }
+    }
 }
 
 /// The user's wall clock now, to the second.
@@ -229,6 +244,9 @@ impl Tasks {
             nav_collapsed: false,
             folded_groups: BTreeSet::new(),
             completed_open: false,
+            planned_month: false,
+            month: clock.date(),
+            board: false,
             ribbon_tab: 0,
             page: None,
             settings_category: 0,
@@ -461,6 +479,19 @@ impl Tasks {
         }
     }
 
+    /// The tasks a drop lands: the dragged one, or the whole selection when it is part of it;
+    /// the drag is over.
+    pub fn take_dropped(&mut self) -> Vec<String> {
+        let Some(dragged) = self.drag.take() else {
+            return Vec::new();
+        };
+        if self.is_selected(&dragged) {
+            self.selected_ids()
+        } else {
+            vec![dragged]
+        }
+    }
+
     /// Moves the selection one row up or down (`extend`: Shift held).
     pub fn step_selection(&mut self, down: bool, extend: bool) {
         self.commit_drafts();
@@ -629,6 +660,41 @@ impl Tasks {
         }
         self.banners.retain(|id| *id != self.tasks[i].id);
         spawned
+    }
+
+    /// A board's drop: task `i` to `column` at `now` - To do and Doing open it (again) and
+    /// mark it not started / started, Done completes it (a repeating task leaves its next
+    /// occurrence behind). Returns the index of a spawned next occurrence.
+    pub fn move_to_column(&mut self, i: usize, column: views::Column, now: NaiveDateTime) -> Option<usize> {
+        if i >= self.tasks.len() || views::Column::of(&self.tasks[i]) == column {
+            return None;
+        }
+        println!("AZTASKS_COLUMN {} {}", self.tasks[i].id, column.key());
+        if column == views::Column::Done {
+            return self.toggle_done(i, now);
+        }
+        if self.tasks[i].is_done() {
+            self.toggle_done(i, now);
+        }
+        self.tasks[i].set_started(column == views::Column::Doing, now);
+        self.save_task(i);
+        None
+    }
+
+    /// The planned month's drop: task `i` due on `day` (its time kept; a monthly or yearly
+    /// repeat takes the new day of the month; it reminds again).
+    pub fn reschedule(&mut self, i: usize, day: NaiveDate) {
+        let Some(t) = self.tasks.get_mut(i) else {
+            return;
+        };
+        if t.due == Some(day) {
+            return;
+        }
+        t.due = Some(day);
+        t.reminded = None;
+        reanchor(t);
+        println!("AZTASKS_DUE {} {}", t.id, model::format_date(day));
+        self.save_task(i);
     }
 
     /// Completes the selected tasks (or opens them again when all are completed).
@@ -958,6 +1024,52 @@ mod tests {
         s.view = View::Smart(Smart::Today);
         let (key, count) = s.export_tasks(at, &|d| d);
         assert_eq!((key.as_str(), count), ("aztasks/exports/Tasks.ics", 3));
+    }
+
+    /// A board's drop moves a task between To do, Doing and Done: the file keeps it.
+    #[test]
+    fn a_board_drop_starts_completes_and_reopens_a_task() {
+        let dir = TempDir::create();
+        let mut s = state_in(&dir);
+        let at = now();
+        s.lists = vec![TaskList::new("work".into(), "Work".into(), 1)];
+        s.tasks.push(Task::new("a".into(), "work".into(), "Report".into(), at));
+        let column = |s: &Tasks| views::Column::of(&s.tasks[0]);
+        s.move_to_column(0, views::Column::Doing, at);
+        assert_eq!(column(&s), views::Column::Doing);
+        assert_eq!(s.tasks[0].started, Some(at));
+        assert!(s.queue.take().is_some(), "the start is saved");
+        s.queue.finish(Vec::new());
+        s.move_to_column(0, views::Column::Done, at);
+        assert_eq!(column(&s), views::Column::Done);
+        s.move_to_column(0, views::Column::ToDo, at);
+        assert_eq!(column(&s), views::Column::ToDo, "opened again, not started");
+        assert_eq!(s.tasks[0].started, None);
+        s.move_to_column(0, views::Column::Doing, at);
+        s.move_to_column(0, views::Column::Done, at);
+        s.move_to_column(0, views::Column::Doing, at);
+        assert_eq!(column(&s), views::Column::Doing, "opened again, started");
+    }
+
+    /// The planned month's drop moves the due day, keeps the time, and reminds again.
+    #[test]
+    fn a_drop_on_a_day_moves_the_due_day_and_keeps_the_time() {
+        let dir = TempDir::create();
+        let mut s = state_in(&dir);
+        let at = now();
+        let mut t = Task::new("a".into(), "work".into(), "Rent".into(), at);
+        t.due = NaiveDate::from_ymd_opt(2026, 10, 2);
+        t.due_time = chrono::NaiveTime::from_hms_opt(9, 0, 0);
+        t.repeat = Some(crate::recur::Repeat::monthly().on_month_day(2));
+        t.reminded = Some(at);
+        s.tasks.push(t);
+        let day = NaiveDate::from_ymd_opt(2026, 10, 5).unwrap();
+        s.reschedule(0, day);
+        assert_eq!(s.tasks[0].due, Some(day));
+        assert_eq!(s.tasks[0].due_time, chrono::NaiveTime::from_hms_opt(9, 0, 0));
+        assert_eq!(s.tasks[0].reminded, None, "it reminds again");
+        assert_eq!(s.tasks[0].repeat.as_ref().and_then(|r| r.month_day), Some(5), "monthly on the 5th now");
+        assert!(s.queue.take().is_some(), "the new day is saved");
     }
 
     /// The imported to-dos join the default list after its tasks, and each is queued.

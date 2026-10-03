@@ -73,9 +73,10 @@
 //! higher `version` was written by a newer AzCalendar and is left alone, never guessed at; fields
 //! this version does not know are ignored.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use azul_pim::mail_address::is_email;
+use azul_storage::Drive;
 use chrono::{Duration, NaiveDate, NaiveTime, Timelike};
 use serde::{Deserialize, Serialize};
 
@@ -590,11 +591,6 @@ pub fn id_of_file_name(name: &str) -> Option<&str> {
     is_event_id(id).then_some(id)
 }
 
-/// Where the event with `id` is stored under `data_dir`.
-pub fn event_path(data_dir: &Path, id: &str) -> PathBuf {
-    data_dir.join(EVENTS_DIR).join(file_name(id))
-}
-
 /// The data folder: `setting` (`AZCAL_DATA`), else `AzCalendar` in the user's data folder, else
 /// `AzCalendar` in the current folder.
 pub fn data_dir(setting: Option<&str>, user_data: Option<PathBuf>) -> PathBuf {
@@ -604,62 +600,44 @@ pub fn data_dir(setting: Option<&str>, user_data: Option<PathBuf>) -> PathBuf {
     }
 }
 
-/// Writes `event` to its file, atomically (a temporary file next to it, then a rename), and
-/// returns the file's path.
-pub fn save(data_dir: &Path, event: &Event) -> std::io::Result<PathBuf> {
-    let path = event_path(data_dir, &event.id);
-    let dir = data_dir.join(EVENTS_DIR);
-    std::fs::create_dir_all(&dir)?;
-    // A dot name that `id_of_file_name` never reads as an event.
-    let temp = dir.join(format!(".{}.tmp", file_name(&event.id)));
-    std::fs::write(&temp, to_json(event))?;
-    if let Err(e) = std::fs::rename(&temp, &path) {
-        let _ = std::fs::remove_file(&temp);
-        return Err(e);
-    }
-    Ok(path)
-}
-
-/// Removes the event `id`'s file (a missing file is not an error: S3's delete).
-pub fn remove(data_dir: &Path, id: &str) -> std::io::Result<()> {
-    match std::fs::remove_file(event_path(data_dir, id)) {
-        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
-        _ => Ok(()),
-    }
-}
-
 /// A file in the events folder that is named like an event but was not read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Skipped {
-    pub path: PathBuf,
+    /// Its key in the data folder's drive (`events/<id>.json`).
+    pub key: String,
     pub reason: String,
 }
 
-/// Every event in the data folder, in order of date, start, end and title, and the event files
-/// that could not be read, with why. Files not named `<uuid>.json` are not events and are left
-/// out silently; a missing folder is an empty calendar.
-pub fn load_all(data_dir: &Path) -> (Vec<Event>, Vec<Skipped>) {
+/// Every event the drive keeps (`events/<id>.json`; the drive is the data folder's - a
+/// `LocalDrive` today, the user's bucket later), in order of date, start, end and title, and the
+/// event files that could not be read, with why. Keys not named `events/<uuid>.json` are not
+/// events and are left out silently; a drive without events is an empty calendar.
+pub fn load(drive: &dyn Drive) -> (Vec<Event>, Vec<Skipped>) {
     let mut events = Vec::new();
     let mut skipped = Vec::new();
-    let Ok(entries) = std::fs::read_dir(data_dir.join(EVENTS_DIR)) else {
+    let prefix = format!("{EVENTS_DIR}/");
+    let Ok(objects) = azul_storage::ops::list_all(drive, &prefix) else {
         return (events, skipped);
     };
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let Some(id) = name.to_str().and_then(id_of_file_name) else {
+    for object in &objects {
+        let Some(id) = object.key.strip_prefix(&prefix).and_then(id_of_file_name) else {
             continue;
         };
-        let path = entry.path();
-        let read = std::fs::read_to_string(&path)
+        let read = drive
+            .get(&object.key)
             .map_err(|e| e.to_string())
+            .and_then(|bytes| String::from_utf8(bytes).map_err(|e| e.to_string()))
             .and_then(|text| from_json(&text).map_err(|e| e.to_string()));
         match read {
             Ok(event) if event.id == id => events.push(event),
             Ok(event) => skipped.push(Skipped {
-                path,
+                key: object.key.clone(),
                 reason: format!("it holds the event {}, not {id}", event.id),
             }),
-            Err(reason) => skipped.push(Skipped { path, reason }),
+            Err(reason) => skipped.push(Skipped {
+                key: object.key.clone(),
+                reason,
+            }),
         }
     }
     events.sort_by(|a, b| {
@@ -1011,11 +989,6 @@ mod tests {
     fn an_event_file_is_named_by_its_id_under_events() {
         assert_eq!(file_name(ID), format!("{ID}.json"));
         assert_eq!(object_key(ID), format!("events/{ID}.json"));
-        let data = Path::new("/data/cal");
-        assert_eq!(
-            event_path(data, ID),
-            data.join("events").join(format!("{ID}.json"))
-        );
         assert_eq!(id_of_file_name(&format!("{ID}.json")), Some(ID));
         for other in [
             format!(".{ID}.json.tmp"),
@@ -1049,75 +1022,82 @@ mod tests {
         assert_eq!(data_dir(None, None), PathBuf::from("AzCalendar"));
     }
 
-    #[test]
-    fn a_saved_event_is_one_file_that_reads_back() {
-        let dir = TempDir::create();
-        let event = sync(Some(meeting()));
-        let path = save(&dir.0, &event).unwrap();
-        assert_eq!(path, event_path(&dir.0, ID));
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), to_json(&event));
-        let names: Vec<String> = std::fs::read_dir(dir.0.join("events"))
-            .unwrap()
-            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-            .collect();
-        assert_eq!(
-            names,
-            vec![format!("{ID}.json")],
-            "no temporary file is left"
-        );
-        let (events, skipped) = load_all(&dir.0);
-        assert_eq!(events, vec![event]);
-        assert!(skipped.is_empty(), "{skipped:?}");
+    /// The drive of a data folder on disk, for the storage tests.
+    fn local(dir: &TempDir) -> azul_storage::LocalDrive {
+        azul_storage::LocalDrive::new(&dir.0)
+    }
+
+    fn put(drive: &dyn Drive, event: &Event) {
+        drive.put(&object_key(&event.id), to_json(event).as_bytes()).unwrap();
     }
 
     #[test]
-    fn removing_an_event_removes_its_file_and_a_missing_one_is_no_error() {
+    fn a_put_event_is_one_file_that_reads_back_and_putting_again_replaces_it() {
         let dir = TempDir::create();
-        let path = save(&dir.0, &sync(None)).unwrap();
-        remove(&dir.0, ID).unwrap();
-        assert!(!path.exists());
-        remove(&dir.0, ID).unwrap();
-        assert!(load_all(&dir.0).0.is_empty());
-    }
-
-    #[test]
-    fn saving_again_replaces_the_file() {
-        let dir = TempDir::create();
-        save(&dir.0, &sync(None)).unwrap();
+        let drive = local(&dir);
+        put(&drive, &sync(None));
         let later = sync(Some(meeting()));
-        save(&dir.0, &later).unwrap();
-        assert_eq!(load_all(&dir.0).0, vec![later]);
+        put(&drive, &later);
+        assert!(dir.0.join("events").join(format!("{ID}.json")).is_file());
+        let (events, skipped) = load(&drive);
+        assert_eq!(events, vec![later]);
+        assert!(skipped.is_empty(), "{skipped:?}");
+        drive.delete(&object_key(ID)).unwrap();
+        assert!(load(&drive).0.is_empty());
     }
 
     #[test]
     fn events_are_read_in_order_and_other_files_are_left_out() {
         let dir = TempDir::create();
+        let drive = local(&dir);
         let d = day(2026, 9, 30);
         let late = Event::create(ID, "Late", d, at(15, 0), at(16, 0), None).unwrap();
         let early = Event::create(ID2, "Early", d, at(8, 0), at(9, 0), None).unwrap();
-        save(&dir.0, &late).unwrap();
-        save(&dir.0, &early).unwrap();
-        let events_dir = dir.0.join("events");
-        std::fs::write(events_dir.join("readme.txt"), "not an event").unwrap();
-        std::fs::write(events_dir.join(format!(".{ID}.json.tmp")), "{").unwrap();
-        let broken = events_dir.join("11111111-2222-4333-8444-555555555555.json");
-        std::fs::write(&broken, "{").unwrap();
+        put(&drive, &late);
+        put(&drive, &early);
+        drive.put("events/readme.txt", b"not an event").unwrap();
+        drive.put(&format!("events/.{ID}.json.tmp"), b"{").unwrap();
+        let broken = "events/11111111-2222-4333-8444-555555555555.json";
+        drive.put(broken, b"{").unwrap();
         // A file whose id is not its name was copied or renamed: it is not read as that event.
-        let misnamed = events_dir.join("22222222-2222-4333-8444-555555555555.json");
-        std::fs::write(&misnamed, to_json(&early)).unwrap();
+        let misnamed = "events/22222222-2222-4333-8444-555555555555.json";
+        drive.put(misnamed, to_json(&early).as_bytes()).unwrap();
 
-        let (events, skipped) = load_all(&dir.0);
+        let (events, skipped) = load(&drive);
         assert_eq!(events, vec![early, late]);
-        let mut paths: Vec<PathBuf> = skipped.iter().map(|s| s.path.clone()).collect();
-        paths.sort();
-        assert_eq!(paths, vec![broken, misnamed]);
+        let mut keys: Vec<&str> = skipped.iter().map(|s| s.key.as_str()).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, vec![broken, misnamed]);
         assert!(skipped.iter().all(|s| !s.reason.is_empty()));
+    }
+
+    /// The start reads the events through the data folder's drive: wherever it keeps them (here a
+    /// grant of `calendar/` in a bigger tree), not with `std::fs` on a folder.
+    #[test]
+    fn the_events_are_read_through_the_drive_wherever_it_keeps_them() {
+        use azul_storage::{LocalDrive, ScopedDrive};
+        let root = TempDir::create();
+        let tree = LocalDrive::new(&root.0);
+        let d = day(2026, 9, 30);
+        let late = Event::create(ID, "Late", d, at(15, 0), at(16, 0), None).unwrap();
+        let early = Event::create(ID2, "Early", d, at(8, 0), at(9, 0), None).unwrap();
+        tree.put(&format!("calendar/{}", object_key(ID)), to_json(&late).as_bytes()).unwrap();
+        tree.put(&format!("calendar/{}", object_key(ID2)), to_json(&early).as_bytes()).unwrap();
+        tree.put("calendar/events/11111111-2222-4333-8444-555555555555.json", b"{").unwrap();
+        tree.put("calendar/events/readme.txt", b"not an event").unwrap();
+        tree.put("calendar/events/old/22222222-2222-4333-8444-555555555555.json", b"{").unwrap();
+        let drive = ScopedDrive::new(LocalDrive::new(&root.0), "calendar/", false).unwrap();
+        let (events, skipped) = load(&drive);
+        assert_eq!(events, vec![early, late]);
+        assert_eq!(skipped.len(), 1, "the broken file: {skipped:?}");
+        let empty = ScopedDrive::new(LocalDrive::new(&root.0), "nothing-here/", false).unwrap();
+        assert_eq!(load(&empty), (Vec::new(), Vec::new()));
     }
 
     #[test]
     fn a_missing_data_folder_is_an_empty_calendar() {
         let dir = TempDir::create();
-        let (events, skipped) = load_all(&dir.0.join("nothing here"));
+        let (events, skipped) = load(&azul_storage::LocalDrive::new(&dir.0.join("nothing here")));
         assert!(events.is_empty());
         assert!(skipped.is_empty());
     }

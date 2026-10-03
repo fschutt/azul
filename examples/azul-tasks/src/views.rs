@@ -231,6 +231,19 @@ pub fn tags(tasks: &[Task]) -> Vec<(String, usize)> {
     seen.into_values().collect()
 }
 
+/// The tags to offer task `t`: the open tasks' tags it does not carry, the most used first
+/// (then by name), at most `max` - the tag field's suggestions.
+#[must_use]
+pub fn tag_suggestions(tasks: &[Task], t: &Task, max: usize) -> Vec<String> {
+    let mut all = tags(tasks);
+    all.retain(|(tag, _)| !t.has_tag(tag));
+    all.sort_by(|a, b| {
+        b.1.cmp(&a.1)
+            .then_with(|| a.0.to_lowercase().cmp(&b.0.to_lowercase()))
+    });
+    all.into_iter().take(max).map(|(tag, _)| tag).collect()
+}
+
 /// Whether every word of `query` is in the task's title, notes, tags or steps (any case,
 /// diacritics folded).
 #[must_use]
@@ -601,6 +614,88 @@ pub fn summary(tasks: &[Task], now: NaiveDateTime) -> (usize, usize) {
     (due_today, overdue)
 }
 
+// ==== The planned month and the board ====
+
+/// The open tasks due on each of `days` (a month grid's 42, `azul_pim::dates::month_grid`),
+/// each day's by time, priority and the manual order: the planned month's cells.
+#[must_use]
+pub fn planned_month(tasks: &[Task], days: &[NaiveDate]) -> Vec<Vec<usize>> {
+    let mut cells: Vec<Vec<usize>> = vec![Vec::new(); days.len()];
+    let (Some(&first), Some(&last)) = (days.first(), days.last()) else {
+        return cells;
+    };
+    for (i, t) in tasks.iter().enumerate() {
+        let Some(due) = t.due.filter(|d| !t.is_done() && *d >= first && *d <= last) else {
+            continue;
+        };
+        if let Some(n) = days.iter().position(|d| *d == due) {
+            cells[n].push(i);
+        }
+    }
+    for cell in &mut cells {
+        sort_day(cell, tasks);
+    }
+    cells
+}
+
+/// A board's column: where a task of a list stands (the plan's To do / Doing / Done).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Column {
+    ToDo,
+    Doing,
+    Done,
+}
+
+impl Column {
+    /// Left to right.
+    pub const ALL: [Column; 3] = [Column::ToDo, Column::Doing, Column::Done];
+
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Column::ToDo => "To do",
+            Column::Doing => "Doing",
+            Column::Done => "Done",
+        }
+    }
+
+    /// The name in ids and on stdout: `todo`, `doing`, `done`.
+    #[must_use]
+    pub fn key(self) -> &'static str {
+        match self {
+            Column::ToDo => "todo",
+            Column::Doing => "doing",
+            Column::Done => "done",
+        }
+    }
+
+    /// The column task `t` stands in: Done when completed, Doing when started, else To do.
+    #[must_use]
+    pub fn of(t: &Task) -> Column {
+        if t.is_done() {
+            Column::Done
+        } else if t.started.is_some() {
+            Column::Doing
+        } else {
+            Column::ToDo
+        }
+    }
+}
+
+/// The board of list `list`: its tasks in the columns of [`Column::ALL`] - To do and Doing in
+/// the list's manual order, Done the latest completed first.
+#[must_use]
+pub fn board(tasks: &[Task], list: &str) -> [Vec<usize>; 3] {
+    let (doing, todo): (Vec<usize>, Vec<usize>) = manual_order(tasks, list)
+        .into_iter()
+        .partition(|&i| tasks[i].started.is_some());
+    let mut done: Vec<usize> = (0..tasks.len())
+        .filter(|&i| tasks[i].list == list && tasks[i].is_done())
+        .collect();
+    done.sort_by(|&a, &b| tasks[b].completed.cmp(&tasks[a].completed));
+    [todo, doing, done]
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::NaiveTime;
@@ -892,5 +987,54 @@ mod tests {
         assert_eq!(due_label(&tasks[4], today).as_deref(), Some("Sun 4 Oct"));
         assert_eq!(due_label(&tasks[9], today), None);
         assert_eq!(next_order(&tasks, "work"), 6 + ORDER_STEP);
+    }
+
+    #[test]
+    fn tag_suggestions_are_the_other_tags_most_used_first() {
+        let mut tasks = sample();
+        tasks[0].add_tag("work");
+        tasks[1].add_tag("home");
+        tasks[2].add_tag("home");
+        tasks[3].add_tag("errand");
+        tasks[3].add_tag("Home");
+        let t = tasks[0].clone();
+        assert_eq!(tag_suggestions(&tasks, &t, 5), vec!["home", "errand"], "not its own work");
+        assert_eq!(tag_suggestions(&tasks, &t, 1), vec!["home"]);
+        let all = tasks[3].clone();
+        assert_eq!(tag_suggestions(&tasks, &all, 5), vec!["work"], "any case is its own");
+    }
+
+    #[test]
+    fn the_planned_month_puts_each_open_task_on_its_due_day() {
+        let tasks = sample();
+        let days = azul_pim::dates::month_grid(day(2026, 10, 1), chrono::Weekday::Mon);
+        let cells = planned_month(&tasks, &days);
+        assert_eq!(cells.len(), 42);
+        let on = |d: NaiveDate| -> Vec<String> {
+            let n = days.iter().position(|x| *x == d).unwrap();
+            cells[n].iter().map(|&i| tasks[i].id.clone()).collect()
+        };
+        assert_eq!(on(day(2026, 9, 28)), vec!["late"]);
+        assert_eq!(on(day(2026, 10, 1)), vec!["nine", "noon"], "a day's by time");
+        assert_eq!(on(day(2026, 10, 2)), vec!["tomorrow"]);
+        assert_eq!(on(day(2026, 10, 8)), vec!["week-out"]);
+        assert!(on(day(2026, 9, 30)).is_empty(), "a completed task is not planned");
+        let shown: usize = cells.iter().map(Vec::len).sum();
+        assert_eq!(shown, 6, "November's 12th and next year are outside the grid");
+    }
+
+    #[test]
+    fn the_board_puts_a_lists_tasks_in_to_do_doing_and_done() {
+        let mut tasks = sample();
+        let started = tasks.iter().position(|t| t.id == "week-out").unwrap();
+        tasks[started].set_started(true, now());
+        assert_eq!(Column::of(&tasks[started]), Column::Doing);
+        let [todo, doing, done] = board(&tasks, "work");
+        let names = |c: &[usize]| -> Vec<String> { c.iter().map(|&i| tasks[i].id.clone()).collect() };
+        assert_eq!(names(&todo), vec!["late", "tomorrow", "november", "undated"], "the manual order");
+        assert_eq!(names(&doing), vec!["week-out"]);
+        assert_eq!(names(&done), vec!["done"]);
+        assert!(board(&tasks, "nowhere").iter().all(Vec::is_empty));
+        assert_eq!(Column::ALL.map(Column::key), ["todo", "doing", "done"]);
     }
 }

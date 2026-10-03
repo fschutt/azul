@@ -13,7 +13,8 @@
 
 use azul::{
     callbacks::{
-        ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, CloseGuardOnEventCallbackType,
+        ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, CloseGuardDirtyCheckCallbackType,
+        CloseGuardOnEventCallbackType,
         DatePickerOnChangeCallbackType, DateRepeatPickerOnChangeCallbackType,
         SegmentedOnChangeCallbackType, TextAreaOnTextInputCallbackType,
         TimePickerOnChangeCallbackType,
@@ -24,7 +25,8 @@ use azul::{
     str::String as AzString,
     vec::StringVec,
     widgets::{
-        ButtonType, CheckBoxState, CloseGuard, CloseGuardEvent, CloseGuardEventKind, DatePicker,
+        ButtonType, CheckBoxState, CloseGuard, CloseGuardDocumentState, CloseGuardEvent,
+        CloseGuardEventKind, DatePicker,
         DatePickerState, DatePickerWeekStart,
         OnTextInputReturn, DateRepeatPicker, DateRepeatRule, Ribbon, RibbonButton, RibbonGroup,
         RibbonItem, RibbonTab, Segmented, SegmentedState, TextArea, TextAreaState,
@@ -36,7 +38,7 @@ use chrono::{Datelike, NaiveDate, NaiveTime, Timelike};
 
 use crate::{
     editor::{self, EditorForm, Repeat, REMINDERS},
-    event, timegrid, week, CalState, BODY, EDITOR_WINDOW_ID, ERROR, LABEL, PAGE, SECONDARY,
+    event, ids, timegrid, week, CalState, BODY, EDITOR_WINDOW_ID, ERROR, LABEL, PAGE, SECONDARY,
 };
 
 /// What the form's "Add AzMeet link" line says once it is ticked.
@@ -186,7 +188,7 @@ extern "C" fn editor_layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             )
             .with_ribbon(ribbon(s, form, &app))
             .with_pane(
-                ShellPane::create("editor-form", form_dom(s, form, &app))
+                ShellPane::create(ids::EDITOR_FORM, form_dom(s, form, &app))
                     .with_kind(ShellPaneKind::Main)
                     .with_label(form.window_title().as_str()),
             )
@@ -195,13 +197,12 @@ extern "C" fn editor_layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             .with_css(PAGE)
             .with_child(Dom::create_span_with_text("This appointment is closed.")),
     };
-    // "Save changes?" over the window: the close guard's question and answers. Its veto is
-    // `on_editor_close_requested`'s, made from the form as it is when the close comes - the
-    // guard's own reads the form as this DOM was built, and would stop the close a Save &
-    // Close makes right after its save (reported to INFRA6).
+    // "Save changes?" over the window: the close guard holds a close while the form differs
+    // from the one it opened with - asked when the close comes (`editor_dirty_check`), so the
+    // close a Save & Close makes right after its save passes (WIDGETS7's dirty check).
     let shell = match &s.editor {
         Some(form) => CloseGuard::create(shell, form.window_title())
-            .with_dirty(false)
+            .with_dirty_check(app.clone(), editor_dirty_check as CloseGuardDirtyCheckCallbackType)
             .with_asking(s.editor_asking)
             .with_on_event(app.clone(), on_editor_answer as CloseGuardOnEventCallbackType)
             .dom(),
@@ -282,7 +283,7 @@ fn row(label: &str, controls: Vec<Dom>) -> Dom {
 fn date_picker(
     date: NaiveDate,
     name: &str,
-    id: &str,
+    id: AzString,
     app: &RefAny,
     cb: DatePickerOnChangeCallbackType,
 ) -> Dom {
@@ -299,7 +300,7 @@ fn date_picker(
 fn time_picker(
     time: NaiveTime,
     name: &str,
-    id: &str,
+    id: AzString,
     app: &RefAny,
     cb: TimePickerOnChangeCallbackType,
 ) -> Dom {
@@ -315,7 +316,7 @@ fn time_picker(
 fn check(
     checked: bool,
     label: &str,
-    id: &str,
+    id: AzString,
     app: &RefAny,
     cb: CheckBoxOnToggleCallbackType,
 ) -> Dom {
@@ -340,7 +341,7 @@ fn picker_day(date: NaiveDate) -> DatePickerState {
     }
 }
 
-/// The repeat row's controls: the date repeat picker (`#editor-repeat`) on the form's rule, or -
+/// The repeat row's controls: the date repeat picker (`ids::EDITOR_REPEAT`) on the form's rule, or -
 /// for a rule of the event's own it cannot show - what the rule says and "Replace", which
 /// starts a rule the editor can show.
 fn repeat_rows(form: &EditorForm, app: &RefAny) -> Vec<Dom> {
@@ -349,7 +350,7 @@ fn repeat_rows(form: &EditorForm, app: &RefAny) -> Vec<Dom> {
         return vec![Dom::create_span_with_text(
             "This occurrence only - choose \"The whole series\" to change how it repeats.",
         )
-        .with_id("editor-repeat-occurrence")
+        .with_id(ids::EDITOR_REPEAT_OCCURRENCE)
         .with_css(SECONDARY)];
     }
     let text = form
@@ -363,24 +364,24 @@ fn repeat_rows(form: &EditorForm, app: &RefAny) -> Vec<Dom> {
             .with_accessibility_name("Repeat")
             .with_on_change(app.clone(), on_repeat_rule as DateRepeatPickerOnChangeCallbackType)
             .dom()
-            .with_id("editor-repeat")],
+            .with_id(ids::EDITOR_REPEAT)],
         None => vec![
             Dom::create_span_with_text(editor::repeat_label(
                 Repeat::Custom,
                 form.date,
                 form.custom.as_ref(),
             ))
-            .with_id("editor-repeat-custom")
+            .with_id(ids::EDITOR_REPEAT_CUSTOM)
             .with_css("margin-right: 8px;"),
             Button::create("Replace")
                 .with_on_click(app.clone(), on_repeat_replace)
                 .dom()
-                .with_id("editor-repeat-replace"),
+                .with_id(ids::EDITOR_REPEAT_REPLACE),
         ],
     }
 }
 
-/// The form (`#editor-form` holds it): every field of `editor.rs`'s form, the error line and
+/// The form (`ids::EDITOR_FORM` holds it): every field of `editor.rs`'s form, the error line and
 /// the buttons.
 fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
     let mut page = Dom::create_div().with_css(PAGE);
@@ -396,7 +397,7 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
                 .with_selected_index(usize::from(form.whole_series))
                 .with_on_change(app.clone(), on_scope as SegmentedOnChangeCallbackType)
                 .dom()
-                .with_id("editor-scope"),
+                .with_id(ids::EDITOR_SCOPE),
             ],
         ));
     }
@@ -406,7 +407,7 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
             &form.title,
             "Add a title",
             "Subject",
-            "editor-title",
+            ids::EDITOR_TITLE,
             app.clone(),
             on_title,
         )],
@@ -418,7 +419,7 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
                 &form.attendees,
                 "ana@example.com, bo@example.org",
                 "Attendees",
-                "editor-attendees",
+                ids::EDITOR_ATTENDEES,
                 app.clone(),
                 on_attendees,
             )],
@@ -431,7 +432,7 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
                 &form.location,
                 "Where?",
                 "Location",
-                "editor-location",
+                ids::EDITOR_LOCATION,
                 app.clone(),
                 on_location,
             )],
@@ -448,7 +449,7 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
     let mut start = vec![date_picker(
         form.date,
         "Start date",
-        "editor-start-date",
+        ids::EDITOR_START_DATE,
         app,
         on_start_date,
     )];
@@ -456,7 +457,7 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
         start.push(time_picker(
             form.start,
             "Start time",
-            "editor-start-time",
+            ids::EDITOR_START_TIME,
             app,
             on_start_time,
         ));
@@ -464,7 +465,7 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
     start.push(check(
         form.all_day,
         "All day",
-        "editor-all-day",
+        ids::EDITOR_ALL_DAY,
         app,
         on_all_day,
     ));
@@ -474,7 +475,7 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
         end.push(date_picker(
             form.last_day,
             "End date",
-            "editor-end-date",
+            ids::EDITOR_END_DATE,
             app,
             on_end_date,
         ));
@@ -482,7 +483,7 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
         end.push(time_picker(
             form.end,
             "End time",
-            "editor-end-time",
+            ids::EDITOR_END_TIME,
             app,
             on_end_time,
         ));
@@ -499,7 +500,7 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
             reminders,
             editor::reminder_index(form.reminder),
             "Reminder",
-            "editor-reminder",
+            ids::EDITOR_REMINDER,
             app.clone(),
             on_reminder,
         )],
@@ -516,7 +517,7 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
             calendars,
             calendar,
             "Calendar",
-            "editor-calendar",
+            ids::EDITOR_CALENDAR,
             app.clone(),
             on_calendar,
         )],
@@ -524,7 +525,7 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
     let mut meet = vec![check(
         form.add_meet,
         "Add AzMeet link",
-        "editor-meet",
+        ids::EDITOR_MEET,
         app,
         on_meet,
     )];
@@ -547,13 +548,13 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
             .with_accessibility_name("Notes")
             .with_on_text_input(app.clone(), on_notes as TextAreaOnTextInputCallbackType)
             .dom()
-            .with_id("editor-notes")
+            .with_id(ids::EDITOR_NOTES)
             .with_css("min-height: 120px;"),
     );
     if !form.error.is_empty() {
         page.add_child(
             Dom::create_span_with_text(form.error.as_str())
-                .with_id("editor-error")
+                .with_id(ids::EDITOR_ERROR)
                 .with_css(ERROR),
         );
     }
@@ -564,7 +565,7 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
             Button::with_type("Delete", ButtonType::Danger)
                 .with_on_click(app.clone(), on_delete)
                 .dom()
-                .with_id("editor-delete"),
+                .with_id(ids::EDITOR_DELETE),
         );
     }
     buttons.add_child(Dom::create_div().with_css("flex-grow: 1;"));
@@ -572,14 +573,14 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
         Button::create("Cancel")
             .with_on_click(app.clone(), on_cancel)
             .dom()
-            .with_id("editor-cancel")
+            .with_id(ids::EDITOR_CANCEL)
             .with_css("margin-right: 8px;"),
     );
     buttons.add_child(
         Button::with_type("Save & Close", ButtonType::Primary)
             .with_on_click(app.clone(), on_save)
             .dom()
-            .with_id("editor-save"),
+            .with_id(ids::EDITOR_SAVE),
     );
     page.with_child(buttons)
 }
@@ -900,17 +901,13 @@ fn save(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
 
 /// Cancel / Close: the window goes, nothing is saved.
 extern "C" fn on_cancel(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some(mut s) = data.downcast_mut::<CalState>() else {
+    // An edited appointment asks first (Outlook's "Do you want to save changes?"): the close
+    // guard holds the close and asks; a clean one closes (`on_editor_close_requested`).
+    if data.downcast_ref::<CalState>().map_or(true, |s| s.editor.is_none()) {
         return Update::DoNothing;
-    };
-    // An edited appointment asks first (Outlook's "Do you want to save changes?").
-    if s.editor_dirty() {
-        s.editor_asking = true;
-        return Update::RefreshDom;
     }
-    closed(&mut s);
     info.close_window();
-    Update::RefreshDomAllWindows
+    Update::DoNothing
 }
 
 /// Delete: the event's file goes (every occurrence of a repeating one).
@@ -975,23 +972,28 @@ extern "C" fn on_delete_occurrence(mut data: RefAny, mut info: CallbackInfo) -> 
 }
 
 /// The window is closed by its close button (or the system): the form goes unsaved.
-extern "C" fn on_editor_close_requested(mut data: RefAny, mut info: CallbackInfo) -> Update {
+extern "C" fn on_editor_close_requested(mut data: RefAny, _info: CallbackInfo) -> Update {
     let Some(mut s) = data.downcast_mut::<CalState>() else {
         return Update::DoNothing;
     };
-    if s.editor.is_none() {
+    // An edited appointment is not lost to the close button (B29): the close guard holds the
+    // close (its dirty check is `editor_dirty_check`) and asks "save changes?"
+    // (`on_editor_answer` hears it). A clean one closes, and its form goes with it.
+    if s.editor.is_none() || s.editor_dirty() {
         return Update::DoNothing;
-    }
-    // An edited appointment is not lost to the close button (B29): the close is held and the
-    // window asks "save changes?" (`on_editor_answer` hears the answer).
-    if s.editor_dirty() {
-        s.editor_asking = true;
-        println!("AZCAL_EDITOR asking");
-        info.prevent_window_close();
-        return Update::RefreshDom;
     }
     closed(&mut s);
     Update::RefreshDomAllWindows
+}
+
+/// The close guard asks this when a close request arrives: does the form hold edits NOW (it
+/// differs from the one the editor opened with)? A form just saved is gone, so a Save & Close
+/// passes.
+extern "C" fn editor_dirty_check(mut data: RefAny, _info: CallbackInfo) -> CloseGuardDocumentState {
+    match data.downcast_ref::<CalState>() {
+        Some(s) if s.editor_dirty() => CloseGuardDocumentState::Unsaved,
+        _ => CloseGuardDocumentState::Saved,
+    }
 }
 
 /// The answer to "save changes?": Save saves and closes (or shows why it cannot), Don't Save
@@ -1015,7 +1017,16 @@ extern "C" fn on_editor_answer(
             closed(&mut s);
             Update::RefreshDomAllWindows
         }
-        CloseGuardEventKind::Cancel | CloseGuardEventKind::Ask => {
+        // The guard held a close of an edited appointment: show the question.
+        CloseGuardEventKind::Ask => {
+            let Some(mut s) = data.downcast_mut::<CalState>() else {
+                return Update::DoNothing;
+            };
+            s.editor_asking = true;
+            println!("AZCAL_EDITOR asking");
+            Update::RefreshDom
+        }
+        CloseGuardEventKind::Cancel => {
             let Some(mut s) = data.downcast_mut::<CalState>() else {
                 return Update::DoNothing;
             };

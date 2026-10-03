@@ -41,21 +41,16 @@ Every key_down has its key_up (the E2E key_up rule).
 """
 
 import argparse
-import base64
 import glob
-import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
-import time
-import urllib.error
-import urllib.request
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.abspath(os.path.join(HERE, ".."))
+import azlin_e2e as e2e
+from azlin_e2e import Failure
+
 # The key of the platform's shortcut modifier (KeyModifiers::primary_down):
 # Cmd on macOS, Ctrl elsewhere.
 PRIMARY = "meta" if sys.platform == "darwin" else "ctrl"
@@ -84,150 +79,16 @@ def log(line):
     print("[azdrive-e2e] %s" % line, flush=True)
 
 
-class Failure(Exception):
-    pass
-
-
-def repo_roots():
-    roots = [REPO]
-    try:
-        common = subprocess.run(
-            ["git", "-C", REPO, "rev-parse", "--path-format=absolute", "--git-common-dir"],
-            check=True, capture_output=True, text=True,
-        ).stdout.strip()
-        main = os.path.dirname(common)
-        if main not in roots:
-            roots.append(main)
-    except (OSError, subprocess.CalledProcessError):
-        pass
-    return roots
-
-
-def find_binary(explicit):
-    exe = "AzDrive.exe" if os.name == "nt" else "AzDrive"
-    candidates = [explicit, os.environ.get("AZDRIVE_BIN")]
-    for root in repo_roots():
-        for parts in (("release",), ("debug",), ("consumer", "release"), ("consumer", "debug")):
-            candidates.append(os.path.join(root, "target", *parts, exe))
-    for candidate in candidates:
-        if candidate and os.path.isfile(candidate):
-            return os.path.abspath(candidate)
-    raise Failure("the AzDrive binary was not found (pass --bin); tried:\n  " +
-                  "\n  ".join(c for c in candidates if c))
-
-
-def strings(value):
-    if isinstance(value, str):
-        yield value
-    elif isinstance(value, list):
-        for v in value:
-            yield from strings(v)
-    elif isinstance(value, dict):
-        for v in value.values():
-            yield from strings(v)
-
-
-def dicts(value):
-    if isinstance(value, dict):
-        yield value
-        for v in value.values():
-            yield from dicts(v)
-    elif isinstance(value, list):
-        for v in value:
-            yield from dicts(v)
-
-
-def tail(path, lines=40):
-    try:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            return "".join(f.readlines()[-lines:])
-    except OSError:
-        return "(no output)"
-
-
-class App:
-    """AzDrive under its debug server."""
-
-    def __init__(self, argv, port, env, logs, deadline):
-        self.port = port
-        self.deadline = deadline
-        self.out_path = os.path.join(logs, "azdrive.out")
-        self.err_path = os.path.join(logs, "azdrive.err")
-        self.process = subprocess.Popen(
-            argv,
-            env=env,
-            stdin=subprocess.DEVNULL,
-            stdout=open(self.out_path, "wb"),
-            stderr=open(self.err_path, "wb"),
-        )
-
-    def stop(self):
-        if self.process.poll() is None:
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-
-    def op(self, op, **params):
-        """One op on the debug server; it answers once the app has processed it."""
-        body = {"op": op}
-        body.update(params)
-        request = urllib.request.Request(
-            "http://127.0.0.1:%d/" % self.port,
-            data=json.dumps(body).encode("utf-8"),
-            method="POST",
-        )
-        with urllib.request.urlopen(request, timeout=15) as response:
-            return json.loads(response.read().decode("utf-8") or "{}")
-
-    def must(self, op, **params):
-        answer = self.op(op, **params)
-        if isinstance(answer, dict) and answer.get("status") == "error":
-            raise Failure("%s %s failed: %s" % (op, json.dumps(params), json.dumps(answer)[:240]))
-        return answer
-
-    def value(self, op, **params):
-        answer = self.must(op, **params)
-        data = answer.get("data") if isinstance(answer, dict) else None
-        if isinstance(data, dict) and "value" in data:
-            return data["value"]
-        return data if data is not None else answer
+class Drive(e2e.App):
+    """AzDrive under its debug server: the shared driver (`scripts/azlin_e2e.py`) with AzDrive's
+    own reading of the window - two frames after an op, the texts of the text nodes, "has" as
+    laid out with a size - and its ribbon."""
 
     def frame(self, n=2):
-        for _ in range(n):
-            self.must("wait_frame")
-
-    def hierarchy(self):
-        return [d for d in dicts(self.op("get_node_hierarchy")) if "index" in d and "type" in d]
+        super().frame(n)
 
     def texts(self):
         return [n.get("text") for n in self.hierarchy() if n.get("text")]
-
-    def shows(self, text):
-        return any(text in t for t in self.texts())
-
-    def classes(self):
-        out = set()
-        for n in self.hierarchy():
-            for c in n.get("classes") or []:
-                out.add(c)
-        return out
-
-    def nodes_with_class(self, cls):
-        return [n["index"] for n in self.hierarchy() if cls in (n.get("classes") or [])]
-
-    def exact(self, text):
-        """The node holding the text node whose text is exactly `text` (the first one)."""
-        for n in self.hierarchy():
-            if n.get("text") == text:
-                return n.get("parent", n["index"])
-        return None
-
-    def click_exact(self, text, button="left", double=False):
-        node = self.until('the text "%s"' % text, lambda: self.exact(text))
-        self.must("double_click" if double else "click", node_id=node, button=button)
-        self.frame()
 
     def has(self, selector):
         answer = self.op("get_node_layout", selector=selector)
@@ -236,66 +97,6 @@ class App:
         value = (answer.get("data") or {}).get("value") or {}
         rect = value.get("rect") or {}
         return rect.get("width", 0) > 0 and rect.get("height", 0) > 0
-
-    def key(self, key, shift=False, ctrl=False, alt=False, primary=False):
-        meta = False
-        # `primary`: the platform's shortcut modifier, as the apps read it
-        # (KeyModifiers::primary_down) - Cmd on macOS, Ctrl elsewhere.
-        if primary:
-            if sys.platform == "darwin":
-                meta = True
-            else:
-                ctrl = True
-        mods = {"shift": shift, "ctrl": ctrl, "alt": alt, "meta": meta}
-        self.must("key_down", key=key, modifiers=mods)
-        self.must("key_up", key=key, modifiers=mods)
-        self.frame()
-
-    def printed(self, key, pattern=r".*"):
-        """Every `<KEY> <value>` line the app printed on stdout."""
-        try:
-            with open(self.out_path, "r", encoding="utf-8", errors="replace") as f:
-                text = f.read()
-        except OSError:
-            return []
-        return re.findall(r"^%s (%s)$" % (re.escape(key), pattern), text, re.M)
-
-    def count(self, key, pattern=r".*"):
-        return len(self.printed(key, pattern))
-
-    def until(self, what, check, interval=0.25):
-        last = None
-        while time.time() < self.deadline:
-            if self.process.poll() is not None:
-                raise Failure("AzDrive exited (%s) while waiting for %s" % (self.process.returncode, what))
-            try:
-                value = check()
-                if value:
-                    return value
-            except (OSError, ValueError, KeyError, urllib.error.URLError) as e:
-                last = e
-            time.sleep(interval)
-        raise Failure("timed out waiting for %s%s" % (what, " (last error: %s)" % last if last else ""))
-
-    def after(self, what, key, pattern, action):
-        """Runs `action`, then waits for a new `<KEY> <pattern>` line; returns the last value."""
-        before = self.count(key, pattern)
-        action()
-        self.until(what, lambda: self.count(key, pattern) > before)
-        return self.printed(key, pattern)[-1]
-
-    def settle(self, limit=3.0):
-        """Waits (at most `limit` seconds) until no animation, exit or transition runs: a
-        screenshot right after a change caught the details pane's rows mid-way in, overlapping
-        and faded."""
-        end = time.time() + limit
-        while time.time() < end:
-            value = self.value("get_animations")
-            if not isinstance(value, dict) or not (
-                    value.get("active") or value.get("zombies") or value.get("transitions")):
-                return
-            time.sleep(0.1)
-            self.frame(1)
 
     def ribbon(self, label):
         """Clicks the HOME tab's button whose label starts with `label`, then shows VIEW again
@@ -312,14 +113,9 @@ class App:
         self.click_exact("VIEW")
 
     def screenshot(self, path):
+        """Waits for the animations first (the details pane slides its rows in)."""
         self.settle()
-        value = self.value("take_screenshot")
-        data = value.get("data") if isinstance(value, dict) else None
-        if not isinstance(data, str) or "base64," not in data:
-            raise Failure("take_screenshot returned no PNG: %s" % json.dumps(value)[:200])
-        with open(path, "wb") as f:
-            f.write(base64.b64decode(data.split("base64,", 1)[1]))
-        log("screenshot %s (%d bytes)" % (path, os.path.getsize(path)))
+        super().screenshot(path)
 
 
 # Explorer's layout keys: Ctrl+Shift+<digit>. (The ribbon's Layout gallery shows a strip that
@@ -354,28 +150,24 @@ def item_names(app):
 
 
 def run(args, logs):
-    binary = find_binary(args.bin)
+    binary = e2e.find_binary("AzDrive", args.bin, "AZDRIVE_BIN")
     log("AzDrive: %s" % binary)
     log("logs and data: %s" % logs)
     out = args.out or os.path.join(logs, "shots")
     os.makedirs(out, exist_ok=True)
-    deadline = time.time() + args.timeout
 
     home = os.path.join(logs, "home")
     os.makedirs(home)
-    env = dict(os.environ)
-    env.update({
-        "AZ_BACKEND": "headless",
-        "AZ_DEBUG": str(args.debug_port),
+    env = {
         "AZDRIVE_HOME": home,
         "AZDRIVE_DOWNLOADS": os.path.join(logs, "downloads"),
         "AZDRIVE_SETTINGS": os.path.join(logs, "settings"),  # an older build's settings folder
         "AZLIN_DATA": os.path.join(logs, "data"),  # the data tree (azul-appkit's data root)
         "AZUL_DRIVES": os.path.join(logs, "config", "drives.json"),
         "AZDRIVE_DIALOGS": "inline",
-    })
-    app = App([binary, "--sample", "--screen", "this-pc", "--theme", "flat", "--mode", "light"],
-              args.debug_port, env, logs, deadline)
+    }
+    app = Drive("azdrive", binary, ["--sample", "--screen", "this-pc", "--theme", "flat", "--mode", "light"],
+                args.debug_port, logs, args.timeout, extra_env=env)
     docs = os.path.join(home, "Documents")
     try:
         # 1. This PC.
@@ -638,7 +430,7 @@ def run(args, logs):
         return True
     except Failure:
         for name, path in (("stdout", app.out_path), ("stderr", app.err_path)):
-            print("\n----- azdrive %s (tail) -----\n%s" % (name, tail(path)))
+            print("\n----- azdrive %s (tail) -----\n%s" % (name, e2e.tail(path)))
         raise
     finally:
         app.stop()

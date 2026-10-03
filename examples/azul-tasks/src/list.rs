@@ -26,6 +26,7 @@ use azul::{
 use chrono::NaiveDateTime;
 
 use crate::{
+    ids,
     model::{self, Priority, Reminder, Task},
     parse::PartKind,
     reminders,
@@ -88,7 +89,7 @@ struct RowRef {
     id: String,
 }
 
-fn row_ref(app: &RefAny, id: &str) -> RefAny {
+pub(crate) fn row_ref(app: &RefAny, id: &str) -> RefAny {
     RefAny::new(RowRef {
         app: app.clone(),
         id: id.to_string(),
@@ -114,7 +115,7 @@ fn with_row(
 
 /// The task list pane at `now`.
 pub fn pane(s: &Tasks, app: &RefAny, now: NaiveDateTime) -> Dom {
-    let mut pane = Dom::create_div().with_id("task-pane").with_css(PANE);
+    let mut pane = Dom::create_div().with_id(ids::TASK_PANE).with_css(PANE);
     if let Some(banner) = reminder_banner(s, app, now) {
         pane.add_child(banner);
     }
@@ -155,7 +156,7 @@ fn reminder_banner(s: &Tasks, app: &RefAny, _now: NaiveDateTime) -> Option<Dom> 
     }
     Some(
         Dom::create_div()
-            .with_id("reminder-banner")
+            .with_id(ids::REMINDER_BANNER)
             .with_css(BAR_ROW)
             .with_child(
                 InfoBar::create(reminders::banner_text(&titles))
@@ -170,13 +171,13 @@ fn reminder_banner(s: &Tasks, app: &RefAny, _now: NaiveDateTime) -> Option<Dom> 
                 Button::create("Snooze 10 min")
                     .with_on_click(app.clone(), on_banner_snooze as ButtonOnClickCallbackType)
                     .dom()
-                    .with_id("snooze"),
+                    .with_id(ids::SNOOZE),
             )
             .with_child(
                 Button::create("Dismiss")
                     .with_on_click(app.clone(), on_banner_dismiss as ButtonOnClickCallbackType)
                     .dom()
-                    .with_id("dismiss-reminder"),
+                    .with_id(ids::DISMISS_REMINDER),
             ),
     )
 }
@@ -187,7 +188,7 @@ fn undo_line(s: &Tasks, app: &RefAny) -> Option<Dom> {
         return None;
     }
     let mut row = Dom::create_div()
-        .with_id("notice")
+        .with_id(ids::NOTICE)
         .with_css(BAR_ROW)
         .with_child(Dom::create_span_with_text(s.notice.as_str()).with_css("font-size: 13px;"));
     if s.undo.is_some() {
@@ -195,7 +196,7 @@ fn undo_line(s: &Tasks, app: &RefAny) -> Option<Dom> {
             Button::with_type("Undo", ButtonType::Link)
                 .with_on_click(app.clone(), on_undo as ButtonOnClickCallbackType)
                 .dom()
-                .with_id("undo"),
+                .with_id(ids::UNDO),
         );
     }
     row.add_child(
@@ -240,7 +241,7 @@ fn header(s: &Tasks, app: &RefAny, now: NaiveDateTime) -> Dom {
     };
     let mut text = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1;")
-        .with_child(Dom::create_h2_with_text(title).with_id("view-title").with_css(HEADER_TITLE))
+        .with_child(Dom::create_h2_with_text(title).with_id(ids::VIEW_TITLE).with_css(HEADER_TITLE))
         .with_child(Dom::create_span_with_text(sub).with_css(HEADER_SUB));
     if let View::List(id) = &s.view {
         if let Some(i) = s.list_index(id) {
@@ -263,16 +264,20 @@ fn header(s: &Tasks, app: &RefAny, now: NaiveDateTime) -> Dom {
                 .with_icon("tune")
                 .with_on_click(app.clone(), on_list_settings as ButtonOnClickCallbackType)
                 .dom()
-                .with_id("list-settings"),
+                .with_id(ids::LIST_SETTINGS),
         ),
         View::Smart(Smart::Completed) => row.add_child(
             Button::create("Clear older than 30 days")
                 .with_icon("delete_sweep")
                 .with_on_click(app.clone(), on_clear_completed as ButtonOnClickCallbackType)
                 .dom()
-                .with_id("clear-completed"),
+                .with_id(ids::CLEAR_COMPLETED),
         ),
         _ => {}
+    }
+    // "List | Month" on Scheduled, "List | Board" on a list (`layouts.rs`).
+    if let Some(switch) = crate::layouts::switch(s, app) {
+        row.add_child(switch);
     }
     row
 }
@@ -293,7 +298,7 @@ fn quick_add(s: &Tasks, app: &RefAny) -> Dom {
                 .with_on_text_input(app.clone(), on_quick_text as TextInputOnTextInputCallbackType)
                 .with_on_virtual_key_down(app.clone(), on_quick_key as TextInputOnVirtualKeyDownCallbackType)
                 .dom()
-                .with_id("quick-add")
+                .with_id(ids::QUICK_ADD)
                 .with_css("flex-grow: 1;"),
         )
         .with_child(
@@ -301,7 +306,7 @@ fn quick_add(s: &Tasks, app: &RefAny) -> Dom {
                 .with_icon("add")
                 .with_on_click(app.clone(), on_quick_add_click as ButtonOnClickCallbackType)
                 .dom()
-                .with_id("quick-add-button"),
+                .with_id(ids::QUICK_ADD_BUTTON),
         )
 }
 
@@ -314,7 +319,7 @@ fn quick_chips(s: &Tasks, app: &RefAny, now: NaiveDateTime) -> Option<Dom> {
     if parsed.parts.is_empty() {
         return None;
     }
-    let mut row = Dom::create_div().with_id("quick-chips").with_css(CHIPS_ROW).with_child(
+    let mut row = Dom::create_div().with_id(ids::QUICK_CHIPS).with_css(CHIPS_ROW).with_child(
         Dom::create_span_with_text(format!("\u{201c}{}\u{201d}", parsed.title)).with_css("font-size: 12px;"),
     );
     for part in &parsed.parts {
@@ -345,12 +350,16 @@ fn body(s: &Tasks, app: &RefAny, now: NaiveDateTime) -> Dom {
     if !s.loaded {
         return ShellEmptyState::create("Reading your tasks...").with_icon("hourglass_empty").dom();
     }
+    // The planned month or the board, when the view shows one (`layouts.rs`).
+    if let Some(other) = crate::layouts::body(s, app, now) {
+        return other;
+    }
     let sections = s.sections(now);
     if sections.iter().all(|x| x.tasks.is_empty()) {
         return empty_state(s, app);
     }
     let mut scroll = Dom::create_div()
-        .with_id("task-list")
+        .with_id(ids::TASK_LIST)
         .with_css(SCROLL)
         .with_accessibility_name("Tasks");
     for section in &sections {
@@ -386,7 +395,7 @@ fn empty_state(s: &Tasks, app: &RefAny) -> Dom {
 /// One section: its header (a fold button for "Completed (n)") and its rows.
 fn section_dom(s: &Tasks, app: &RefAny, section: &Section, now: NaiveDateTime) -> Dom {
     let mut out = Dom::create_section()
-        .with_id(format!("section-{}", section.key))
+        .with_id(ids::section(&section.key))
         .with_css("display: flex; flex-direction: column;");
     let folded = section.kind == SectionKind::Completed && !s.completed_open;
     match section.kind {
@@ -396,7 +405,7 @@ fn section_dom(s: &Tasks, app: &RefAny, section: &Section, now: NaiveDateTime) -
                 Button::with_type(format!("{arrow} {}", section.title), ButtonType::Link)
                     .with_on_click(app.clone(), on_fold_completed as ButtonOnClickCallbackType)
                     .dom()
-                    .with_id("completed-toggle")
+                    .with_id(ids::COMPLETED_TOGGLE)
                     .with_css("align-self: flex-start; margin: 8px 0px 4px 0px;"),
             );
         }
@@ -426,7 +435,7 @@ fn row(s: &Tasks, app: &RefAny, t: &Task, now: NaiveDateTime, show_list: bool) -
         .with_accessibility_name(format!("Complete {}", t.title))
         .with_on_toggle(row_ref(app, &t.id), on_check as CheckBoxOnToggleCallbackType)
         .dom()
-        .with_id(format!("check-{}", t.id));
+        .with_id(ids::task_check(&t.id));
 
     let mut title_line = Dom::create_div().with_css(TITLE_LINE);
     if t.priority != Priority::None {
@@ -438,7 +447,7 @@ fn row(s: &Tasks, app: &RefAny, t: &Task, now: NaiveDateTime, show_list: bool) -
     }
     title_line.add_child(
         Dom::create_span_with_text(t.title.as_str())
-            .with_class("task-title")
+            .with_class(ids::TASK_TITLE_CLASS)
             .with_css(if t.is_done() { TITLE_DONE } else { TITLE }),
     );
     if t.flagged {
@@ -461,7 +470,7 @@ fn row(s: &Tasks, app: &RefAny, t: &Task, now: NaiveDateTime, show_list: bool) -
         } else {
             ChipKind::Default
         };
-        meta.add_child(Chip::with_kind(label, kind).dom().with_class("due-chip"));
+        meta.add_child(Chip::with_kind(label, kind).dom().with_class(ids::DUE_CHIP_CLASS));
         any_meta = true;
     }
     if let Some(rule) = &t.repeat {
@@ -512,8 +521,8 @@ fn row(s: &Tasks, app: &RefAny, t: &Task, now: NaiveDateTime, show_list: bool) -
     }
 
     let mut row = Dom::create_div()
-        .with_id(format!("task-{}", t.id))
-        .with_class("task-row")
+        .with_id(ids::task_row(&t.id))
+        .with_class(ids::TASK_ROW_CLASS)
         .with_css(if selected { ROW_SELECTED } else { ROW })
         .with_tab_index(TabIndex::Auto)
         .with_accessibility_name(t.title.as_str())
@@ -521,7 +530,7 @@ fn row(s: &Tasks, app: &RefAny, t: &Task, now: NaiveDateTime, show_list: bool) -
         .with_child(check)
         .with_child(text);
     if selected {
-        row.add_class("task-row-selected");
+        row.add_class(ids::TASK_ROW_SELECTED_CLASS);
     }
     row.add_callback(
         EventFilter::Hover(HoverEventFilter::MouseDown),
@@ -548,7 +557,7 @@ fn row(s: &Tasks, app: &RefAny, t: &Task, now: NaiveDateTime, show_list: bool) -
 
 // ==== Callbacks: rows ====
 
-extern "C" fn on_row_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub(crate) extern "C" fn on_row_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let mods = info.get_key_modifiers();
     with_row(&mut data, &mut info, |_info, _app, s, id| {
         s.select(id, mods.shift, mods.primary_down());
@@ -564,7 +573,7 @@ extern "C" fn on_check(mut data: RefAny, mut info: CallbackInfo, _state: CheckBo
     })
 }
 
-extern "C" fn on_row_drag_start(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub(crate) extern "C" fn on_row_drag_start(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((mut app, id)) = data
         .downcast_ref::<RowRef>()
         .map(|r| (r.app.clone(), r.id.clone()))

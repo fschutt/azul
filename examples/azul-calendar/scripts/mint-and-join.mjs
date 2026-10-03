@@ -249,6 +249,27 @@ async function exists(debugPort, selector) {
   return answer?.status !== 'error';
 }
 
+/** AzCalendar's DOM ids carry the app's prefix `__azcal_` (examples/azul-calendar/src/ids.rs):
+ * `cal('week-scroll')` is `#__azcal_week-scroll`. A build from before the prefix ruling used the
+ * bare names; `detectNaming` notes which one is running. */
+let calPrefix = '__azcal_';
+const cal = (stem) => `#${calPrefix}${stem}`;
+
+/** Waits for AzCalendar's calendar pane and notes whether its ids carry the prefix. */
+async function detectNaming(debugPort) {
+  await until("AzCalendar's calendar pane", async () => {
+    if (await exists(debugPort, '#__azcal_calendar')) {
+      calPrefix = '__azcal_';
+      return true;
+    }
+    if (await exists(debugPort, '#calendar')) {
+      calPrefix = '';
+      return true;
+    }
+    return false;
+  });
+}
+
 /** A node's laid-out rect (window coordinates, before any scrolling) and its id. */
 async function layoutOf(debugPort, selector) {
   const value = (await mustOp(debugPort, { op: 'get_node_layout', selector }))?.data?.value ?? {};
@@ -265,11 +286,11 @@ async function scrollY(debugPort, node) {
 
 /** Clicks the week's day `day` (0 = Monday) at `minute`, with 08:00 scrolled to the top. */
 async function clickTime(debugPort, day, minute) {
-  const hourPx = (await layoutOf(debugPort, '#week-grid')).rect.height / 24;
-  await mustOp(debugPort, { op: 'scroll_node_to', selector: '#week-scroll', x: 0, y: 8 * hourPx });
+  const hourPx = (await layoutOf(debugPort, cal('week-grid'))).rect.height / 24;
+  await mustOp(debugPort, { op: 'scroll_node_to', selector: cal('week-scroll'), x: 0, y: 8 * hourPx });
   await sleep(300);
-  const scroll = await layoutOf(debugPort, '#week-scroll');
-  const col = (await layoutOf(debugPort, `#day-${day}`)).rect;
+  const scroll = await layoutOf(debugPort, cal('week-scroll'));
+  const col = (await layoutOf(debugPort, cal(`day-${day}`))).rect;
   const y = col.y + (minute / 60) * hourPx - (await scrollY(debugPort, scroll.node));
   const top = scroll.rect.y;
   if (y < top + 2 || y > top + scroll.rect.height - 2) {
@@ -329,25 +350,26 @@ try {
     AZMEET_NAME: 'Cal',
     AZMEET_RELAY: 'off',
   });
-  await until("AzCalendar's week view", () => exists(debugCal, '#week-scroll'));
+  await detectNaming(debugCal);
+  await until("AzCalendar's week view", () => exists(debugCal, cal('week-scroll')));
   if (eventFiles().length !== 0) throw new Error('the data folder is not empty at the start');
 
   // New event next week (a meeting that is over cannot get a room): title, AzMeet link, save.
   const shownWeek = (await texts(debugCal)).find((t) => WEEK_TITLE.test(t));
-  await mustOp(debugCal, { op: 'click', selector: '#view-next' });
+  await mustOp(debugCal, { op: 'click', selector: cal('view-next') });
   await until('the next week', async () => {
     const title = (await texts(debugCal)).find((t) => WEEK_TITLE.test(t));
     return title && title !== shownWeek;
   });
   await clickTime(debugCal, 0, 9 * 60 + 5);
-  await until('the draft and its popover', () => exists(debugCal, '#draft-title'));
-  await mustOp(debugCal, { op: 'focus_node', selector: '#draft-title' });
+  await until('the draft and its popover', () => exists(debugCal, cal('draft-title')));
+  await mustOp(debugCal, { op: 'focus_node', selector: cal('draft-title') });
   await sleep(200);
   await mustOp(debugCal, { op: 'text_input', text: TITLE });
   await sleep(300);
-  await press(debugCal, '#draft-meet');
+  await press(debugCal, cal('draft-meet'));
   await until('the popover to say a link will be made', () => shows(debugCal, 'A new AzMeet link is made'));
-  await press(debugCal, '#draft-save');
+  await press(debugCal, cal('draft-save'));
 
   const link = await until('AzCalendar to save the event (AZCAL_LINK on stdout)', async () => {
     const minted = printed(cal.out, 'AZCAL_LINK');

@@ -5,7 +5,8 @@
 //! Written per task: `UID` (the task id), `DTSTAMP`, `SUMMARY`, `DESCRIPTION` (the notes),
 //! `DUE` (a date, or a floating local date-time with the due time), `RRULE` (a repeat RRULE
 //! can say - not one counting from the completion), `PRIORITY` (1 high, 5 medium, 9 low),
-//! `CATEGORIES` (the tags), `STATUS` and `COMPLETED`. Steps, the flag, reminders and files
+//! `CATEGORIES` (the tags), `STATUS` (`IN-PROCESS` for a started one) and `COMPLETED`. Steps,
+//! the flag, reminders and files
 //! stay in AzTasks.
 //!
 //! Read: every VTODO with a SUMMARY becomes a new task of the list it is imported into (a
@@ -90,6 +91,7 @@ pub fn write(
                 push(raw("STATUS", "COMPLETED"));
                 push(raw("COMPLETED", &utc_moment(to_utc(done))));
             }
+            None if t.started.is_some() => push(raw("STATUS", "IN-PROCESS")),
             None => push(raw("STATUS", "NEEDS-ACTION")),
         }
         push(raw("END", "VTODO"));
@@ -206,6 +208,9 @@ fn to_task(
         .map(|(d, time)| d.and_time(time.unwrap_or(NaiveTime::MIN)));
     if status_done || completed.is_some() {
         t.completed = Some(completed.unwrap_or(now));
+    } else if get("STATUS").is_some_and(|l| l.value.trim().eq_ignore_ascii_case("IN-PROCESS")) {
+        // Worked on: started when it arrives (the file does not say since when).
+        t.started = Some(now);
     }
     if let Some(l) = get("RRULE") {
         match t.due {
@@ -396,6 +401,20 @@ mod tests {
             text.split("\r\n").all(|l| l.len() <= 75),
             "every line is folded at 75 octets"
         );
+    }
+
+    #[test]
+    fn a_started_task_is_in_process_and_reads_back_started() {
+        let mut started = ferns();
+        started.repeat = None;
+        started.set_started(true, at(2026, 10, 2, 8, 0));
+        let text = write(&[&started], "Home", at(2026, 10, 3, 8, 0), &same);
+        assert!(text.contains("STATUS:IN-PROCESS\r\n"), "{text}");
+        assert!(!text.contains("STATUS:NEEDS-ACTION"), "{text}");
+        let back = read(&text, LIST, at(2026, 10, 3, 10, 0), &mut ids(), &same);
+        assert_eq!(back.tasks.len(), 1);
+        assert_eq!(back.tasks[0].started, Some(at(2026, 10, 3, 10, 0)), "started when imported");
+        assert!(!back.tasks[0].is_done());
     }
 
     #[test]

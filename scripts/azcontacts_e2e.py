@@ -18,6 +18,9 @@
     8. an Outlook CSV file: the preview maps its 5 columns (#import-column-<n>) and shows 2
        new people; Import writes 2 more files. Screenshots on the way.
 
+AzContacts' DOM ids carry its prefix `__azcontacts_` (examples/azul-contacts/src/ids.rs): the
+`#name`s above are `#__azcontacts_name` (`app.sel`); an older build's bare names are detected.
+
 Usage (after building libazul with the debug server and AzContacts, one app at a time):
 
     python3 scripts/azcontacts_e2e.py [--bin target/release/AzContacts]
@@ -66,6 +69,21 @@ def contact_files(data_dir):
         return []
 
 
+def sideways_scroll(app, stem):
+    """How far the scroll box with the app id `stem` can scroll sideways (0: its content fits)."""
+    node = app.value("get_node_layout", selector=app.sel(stem)).get("node_id")
+    states = app.value("get_scroll_states").get("scroll_states") or []
+    return next((float(s.get("max_scroll_x", 0)) for s in states if s.get("node_id") == node), 0.0)
+
+
+def search(app, text):
+    """Types `text` into the list's search field: a click puts the caret in it (the field's id names
+    the search row around it, which holds no text)."""
+    app.click(selector=app.sel("contacts-search"))
+    app.must("text_input", text=text)
+    app.frame(2)
+
+
 def body(args, logs, out):
     binary = e2e.find_binary("AzContacts", args.bin, "AZCONTACTS_BIN")
     data_dir = os.path.join(logs, "data")
@@ -87,18 +105,23 @@ def body(args, logs, out):
             raise Failure("expected 300 contact files, found %d" % len(files))
         app.log("300 sample contacts, one file each")
         app.until("the import preview", lambda: app.printed("AZCONTACTS_IMPORT_PREVIEW", r".+"))
+        app.detect_naming("__azcontacts_", "toolbar-new")
         preview = app.last("AZCONTACTS_IMPORT_PREVIEW")
         if not preview.startswith("3 ") or "2 new" not in preview or "1 possible duplicate" not in preview:
             raise Failure("the import preview should be 3 rows, 2 new, 1 duplicate: %r" % preview)
         app.frame(2)
         app.screenshot(os.path.join(out, "import-preview.png"))
-        app.click(selector="#import-run")
+        # The preview's columns share the pane: no sideways scroll (LOOK: fixed 180 + 200 + 150 px
+        # columns pushed the status column out of a 490 px pane).
+        if sideways_scroll(app, "contact-import") > 0.5:
+            raise Failure("the import preview scrolls sideways by %.0f px" % sideways_scroll(app, "contact-import"))
+        app.click(selector=app.sel("import-run"))
         app.expect_line("AZCONTACTS_IMPORTED", "2", "Import imports the two new cards")
         app.until("302 files", lambda: len(contact_files(data_dir)) == 302)
         app.screenshot(os.path.join(out, "list.png"))
 
         # 3: search and select.
-        app.text_input("#contacts-search", "krug")
+        search(app, "krug")
         app.expect_line("AZCONTACTS_VIEW", "1", "searching krug")
         app.click(text="Ben Krüger")
         app.until("Ben to be selected", lambda: (app.last("AZCONTACTS_SELECTED") or "").endswith("Ben Krüger"))
@@ -108,26 +131,34 @@ def body(args, logs, out):
         app.screenshot(os.path.join(out, "card.png"))
 
         # 4: a new contact, a bad email first.
-        app.click(selector="#toolbar-new")
-        app.until("the edit form", lambda: app.has_id("contact-edit"))
-        app.text_input("#edit-given", "Test")
-        app.text_input("#edit-family", "Person")
-        app.click(selector="#edit-add-email")
-        app.text_input("#edit-email-0", "not-an-email")
-        app.click(selector="#edit-save")
+        app.click(selector=app.sel("toolbar-new"))
+        app.until("the edit form", lambda: app.has_id(app.name("contact-edit")))
+        # Every section of the form is a column: its "Add ..." stands at the form's left edge,
+        # under its title (LOOK 2026-10-03: a section was laid out as a row, its button one form
+        # width to the right - a layout bug, noted for LAYOUT7).
+        left = app.box(app.sel("edit-birthday"))["x"]
+        for stem in ("edit-add-phone", "edit-add-email", "edit-add-address"):
+            x = app.box(app.sel(stem))["x"]
+            if abs(x - left) > 1.0:
+                raise Failure("#%s stands at x %.0f, not at the form's left %.0f" % (stem, x, left))
+        app.text_input(app.sel("edit-given"), "Test")
+        app.text_input(app.sel("edit-family"), "Person")
+        app.click(selector=app.sel("edit-add-email"))
+        app.text_input(app.sel("edit-email-0"), "not-an-email")
+        app.click(selector=app.sel("edit-save"))
         app.until("the form to refuse the email",
                   lambda: "not-an-email" in (app.last("AZCONTACTS_PROBLEMS") or ""))
         app.screenshot(os.path.join(out, "edit-problems.png"))
-        app.click(selector="#edit-email-remove-0")
-        app.click(selector="#edit-add-email")
-        app.text_input("#edit-email-0", "test.person@example.org")
+        app.click(selector=app.sel("edit-email-remove-0"))
+        app.click(selector=app.sel("edit-add-email"))
+        app.text_input(app.sel("edit-email-0"), "test.person@example.org")
         # The birthday on a calendar: "Add a birthday" starts 1 January, year unknown.
-        app.click(selector="#edit-birthday-add")
-        app.until("the birthday calendar", lambda: app.has_id("edit-birthday-picker"))
-        if not app.has_id("edit-birthday-no-year"):
+        app.click(selector=app.sel("edit-birthday-add"))
+        app.until("the birthday calendar", lambda: app.has_id(app.name("edit-birthday-picker")))
+        if not app.has_id(app.name("edit-birthday-no-year")):
             raise Failure("the birthday has no 'Year unknown' box")
         saved_before = len(app.printed("AZCONTACTS_SAVED"))
-        app.click(selector="#edit-save")
+        app.click(selector=app.sel("edit-save"))
         app.until("the new contact's file", lambda: len(app.printed("AZCONTACTS_SAVED")) > saved_before)
         uid = app.printed("AZCONTACTS_SAVED")[-1]
         path = os.path.join(data_dir, "contacts", uid + ".vcf")
@@ -140,21 +171,25 @@ def body(args, logs, out):
         app.log("saved %s" % path)
 
         # 5: duplicates and merge.
-        app.click(selector="#toolbar-duplicates")
+        app.click(selector=app.sel("toolbar-duplicates"))
         app.until("the duplicates", lambda: app.printed("AZCONTACTS_DUPLICATES", r"\d+"))
         pairs = int(app.printed("AZCONTACTS_DUPLICATES", r"\d+")[-1])
         if pairs < 3:
             raise Failure("the sample has 3 duplicate pairs, the finder saw %d" % pairs)
         app.screenshot(os.path.join(out, "merge.png"))
+        # The Left / Right pickers stand in one column, whatever each field's values say.
+        xs = [app.box(app.sel(stem))["x"] for stem in ("merge-name", "merge-company", "merge-birthday")]
+        if max(xs) - min(xs) > 1.0:
+            raise Failure("the merge pickers stand at x %s: not one column" % [round(x) for x in xs])
         before = len(contact_files(data_dir))
-        app.click(selector="#merge-run")
+        app.click(selector=app.sel("merge-run"))
         app.until("the merge", lambda: app.printed("AZCONTACTS_MERGED", r".+"))
         app.until("one file fewer", lambda: len(contact_files(data_dir)) == before - 1)
         app.log("merged; %d files" % (before - 1))
 
         # 6: the jump bar and the settings.
         app.click(text="All contacts (302)")
-        app.click(selector="#jump-K")
+        app.click(selector=app.sel("jump-K"))
         app.until("the jump", lambda: app.printed("AZCONTACTS_JUMP", r".+"))
         app.key("comma", primary=True)
         app.until("the settings page", lambda: app.has_id("appkit-settings"))
@@ -174,11 +209,11 @@ def body(args, logs, out):
         app.screenshot(os.path.join(out, "list-flora-dark.png"))
 
         # 7: delete the new contact.
-        app.text_input("#contacts-search", "test person")
+        search(app, "test person")
         app.expect_line("AZCONTACTS_VIEW", "1", "searching the new contact")
         app.click(text="Test Person")
-        app.click(selector="#card-delete")
-        app.click(selector="#card-delete-confirm")
+        app.click(selector=app.sel("card-delete"))
+        app.click(selector=app.sel("card-delete-confirm"))
         app.until("the file to go", lambda: not os.path.exists(path))
 
         # 8: a CSV file (Outlook's columns), mapped by its headers; Import writes its people.
@@ -187,22 +222,28 @@ def body(args, logs, out):
             f.write("First Name,Last Name,E-mail Address,Mobile Phone,Notes\r\n"
                     "Csv,Firstperson,csv.first@example.org,+49 170 0000 9101,\"From Outlook, quoted\"\r\n"
                     "Csv,Secondperson,csv.second@example.org,,\r\n")
-        app.click(selector="#toolbar-import")
-        app.until("the import screen", lambda: app.has_id("import-path"))
+        app.click(selector=app.sel("toolbar-import"))
+        app.until("the import screen", lambda: app.has_id(app.name("import-path")))
         previews = len(app.printed("AZCONTACTS_IMPORT_PREVIEW", r".+"))
-        app.text_input("#import-path", csv_path)
-        app.click(selector="#import-read")
+        app.text_input(app.sel("import-path"), csv_path)
+        app.click(selector=app.sel("import-read"))
         app.until("the CSV preview",
                   lambda: len(app.printed("AZCONTACTS_IMPORT_PREVIEW", r".+")) > previews)
         preview = app.last("AZCONTACTS_IMPORT_PREVIEW")
         if not preview.startswith("2 ") or "2 new" not in preview:
             raise Failure("the CSV preview should be 2 new rows: %r" % preview)
+        pane = app.box(app.sel("contact-import"))
         for n in range(5):
-            if not app.has_id("import-column-%d" % n):
+            if not app.has_id(app.name("import-column-%d" % n)):
                 raise Failure("the CSV column %d has no mapping control" % n)
+            # Each picker fits the pane, its choice on one line (LOOK: "Mobile phone" wrapped and
+            # the fixed-width columns pushed the pane into a sideways scroll).
+            b = app.box(app.sel("import-column-%d" % n))
+            if b["x"] + b["width"] > pane["x"] + pane["width"] + 0.5 or b["height"] > 34.0:
+                raise Failure("the CSV column %d's picker is cramped: %s in %s" % (n, b, pane))
         app.screenshot(os.path.join(out, "import-csv.png"))
         before = len(contact_files(data_dir))
-        app.click(selector="#import-run")
+        app.click(selector=app.sel("import-run"))
         app.until("the CSV people's files", lambda: len(contact_files(data_dir)) == before + 2)
         app.log("PASS")
         return True

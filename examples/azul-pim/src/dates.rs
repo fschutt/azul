@@ -227,6 +227,16 @@ pub fn join_and(items: &[String]) -> String {
     }
 }
 
+/// The days a month grid shows for `day`'s month: six whole weeks from the week (starting on
+/// `week_start`) that holds the 1st - 42 days, the month's days among the weeks around them.
+/// AzCalendar's Month view and AzTasks' planned month lay their cells out by it.
+#[must_use]
+pub fn month_grid(day: NaiveDate, week_start: Weekday) -> Vec<NaiveDate> {
+    let first = day.with_day(1).unwrap_or(day);
+    let start = start_of_week(first, week_start);
+    (0..42).map(|i| start + Duration::days(i)).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -362,5 +372,19 @@ mod tests {
         assert_eq!(s(&["a"]), "a");
         assert_eq!(s(&["a", "b"]), "a and b");
         assert_eq!(s(&["a", "b", "c"]), "a, b and c");
+    }
+
+    #[test]
+    fn the_month_grid_is_six_weeks_from_the_week_of_the_first() {
+        // October 2026 starts on a Thursday.
+        let grid = month_grid(day(2026, 10, 15), Weekday::Mon);
+        assert_eq!(grid.len(), 42);
+        assert_eq!(grid[0], day(2026, 9, 28), "the Monday before the 1st");
+        assert_eq!(grid[41], day(2026, 11, 8));
+        assert!(grid.windows(2).all(|w| w[1] == w[0] + Duration::days(1)), "one day after the other");
+        let sunday_first = month_grid(day(2026, 10, 1), Weekday::Sun);
+        assert_eq!(sunday_first[0], day(2026, 9, 27));
+        // February 2027 starts on a Monday: its grid starts on the 1st.
+        assert_eq!(month_grid(day(2027, 2, 28), Weekday::Mon)[0], day(2027, 2, 1));
     }
 }

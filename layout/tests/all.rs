@@ -856,3 +856,9 @@ mod text_after_a_nested_block_is_not_indented;
 mod a_vertical_align_in_viewport_units_resolves_against_the_viewport;
 #[path = "an_inline_date_picker_fits_its_pane.rs"]
 mod an_inline_date_picker_fits_its_pane;
+#[path = "a_long_list_of_avatar_rows_lays_out_in_linear_time.rs"]
+mod a_long_list_of_avatar_rows_lays_out_in_linear_time;
+#[path = "a_short_list_in_a_shell_pane_fills_its_pane_from_the_top.rs"]
+mod a_short_list_in_a_shell_pane_fills_its_pane_from_the_top;
+#[path = "focusing_a_search_field_by_its_id_focuses_its_text.rs"]
+mod focusing_a_search_field_by_its_id_focuses_its_text;

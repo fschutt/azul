@@ -8,12 +8,13 @@ use azul::{
     dom::{TabIndex, VirtualKeyCode},
     prelude::*,
     shells::ShellEmptyState,
+    str::String as AzString,
     widgets::{AlertKind, InfoBar},
 };
 use chrono::{Datelike, Duration, NaiveDate, NaiveTime};
 
 use crate::{
-    chrome, editor_ui, timegrid, views, views::ViewKind, week, CalState, CLIPPED_LINE,
+    chrome, editor_ui, ids, timegrid, views, views::ViewKind, week, CalState, CLIPPED_LINE,
     CLIPPED_TITLE, DAY_PAINT, LINE, NOTICE, NOW_LINE, OTHER_MONTH_PAINT, SECONDARY, SELECTED_RING,
     TODAY_PAINT,
 };
@@ -26,12 +27,6 @@ const MONTH_LINE_PX: f32 = 19.0;
 const MONTH_CHROME_PX: f32 = 270.0;
 /// The Schedule View's label column, in px.
 const SCHEDULE_LABEL_PX: u32 = 160;
-
-/// The DOM id of an event's box on a day: `event-<id>-<yyyymmdd>` (a repeating event has one
-/// box per date, each its own).
-pub(crate) fn occurrence_dom_id(id: &str, date: NaiveDate) -> String {
-    format!("event-{id}-{}", date.format("%Y%m%d"))
-}
 
 /// The occurrence of `id` on `date` is the selected one.
 pub(crate) fn is_selected(s: &CalState, id: &str, date: NaiveDate) -> bool {
@@ -74,9 +69,9 @@ pub(crate) fn interactive(dom: Dom, app: &RefAny, id: &str, date: NaiveDate, nam
         )
 }
 
-/// The calendar pane (`#calendar`).
+/// The calendar pane (`ids::CALENDAR`).
 pub(crate) fn calendar_pane(s: &CalState, app: &RefAny, window_height: f32) -> Dom {
-    let mut pane = Dom::create_div().with_id("calendar").with_css(
+    let mut pane = Dom::create_div().with_id(ids::CALENDAR).with_css(
         "display: flex; flex-direction: column; flex-grow: 1; min-width: 0; min-height: 0;",
     );
     if let Some(text) = crate::reminder_text(s) {
@@ -87,7 +82,7 @@ pub(crate) fn calendar_pane(s: &CalState, app: &RefAny, window_height: f32) -> D
                 .with_action("Dismiss")
                 .with_on_action(app.clone(), crate::on_dismiss_reminder)
                 .dom()
-                .with_id("reminder"),
+                .with_id(ids::REMINDER),
         );
     }
     if s.events.is_empty() {
@@ -101,13 +96,13 @@ pub(crate) fn calendar_pane(s: &CalState, app: &RefAny, window_height: f32) -> D
             .with_action("Import\u{2026}")
             .with_on_action(app.clone(), chrome::on_open_page)
             .dom()
-            .with_id("empty-calendar"),
+            .with_id(ids::EMPTY_CALENDAR),
         );
     }
     if !s.notice.is_empty() {
         pane.add_child(
             Dom::create_span_with_text(s.notice.as_str())
-                .with_id("notice")
+                .with_id(ids::NOTICE)
                 .with_css(NOTICE),
         );
     }
@@ -118,13 +113,13 @@ pub(crate) fn calendar_pane(s: &CalState, app: &RefAny, window_height: f32) -> D
         ViewKind::Schedule => schedule_view(s, app),
         ViewKind::Agenda => agenda_view(s, app),
     };
-    pane.with_child(view.with_id(format!("view-{}", s.view.name())))
+    pane.with_child(view.with_id(ids::view(s.view.name())))
 }
 
 /// Previous, Next, the view's title, Today.
 fn view_header(s: &CalState, app: &RefAny) -> Dom {
     let icon_button =
-        |icon: &str, name: &str, id: &str, cb: extern "C" fn(RefAny, CallbackInfo) -> Update| {
+        |icon: &str, name: &str, id: AzString, cb: extern "C" fn(RefAny, CallbackInfo) -> Update| {
             Button::create("")
                 .with_icon(icon)
                 .with_on_click(app.clone(), cb)
@@ -141,25 +136,25 @@ fn view_header(s: &CalState, app: &RefAny) -> Dom {
         .with_child(icon_button(
             "chevron_left",
             "Back",
-            "view-prev",
+            ids::VIEW_PREV,
             on_previous,
         ))
         .with_child(icon_button(
             "chevron_right",
             "Forward",
-            "view-next",
+            ids::VIEW_NEXT,
             on_next,
         ))
         .with_child(
             Dom::create_span_with_text(views::title(s.view, s.anchor))
-                .with_id("view-title")
+                .with_id(ids::VIEW_TITLE)
                 .with_css("font-size: 18px; margin-left: 8px; flex-grow: 1; min-width: 0;"),
         )
         .with_child(
             Button::create("Today")
                 .with_on_click(app.clone(), chrome::on_today)
                 .dom()
-                .with_id("view-today"),
+                .with_id(ids::VIEW_TODAY),
         )
 }
 
@@ -190,7 +185,7 @@ fn month_view(s: &CalState, app: &RefAny, window_height: f32) -> Dom {
         );
     }
     let mut grid = Dom::create_div()
-        .with_id("month-grid")
+        .with_id(ids::MONTH_GRID)
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0;");
     for week in days.chunks(7) {
         let mut row = Dom::create_div().with_css(format!(
@@ -249,7 +244,7 @@ fn month_cell(
         day,
     });
     let mut cell = Dom::create_div()
-        .with_id(format!("month-{}", day.format("%Y%m%d")))
+        .with_id(ids::month_day(day))
         .with_css(format!(
             "display: flex; flex-direction: column; flex-grow: 1; flex-basis: 0px; min-width: \
              0; min-height: 0; overflow: hidden; padding: 2px 4px; border-left: 1px solid \
@@ -284,7 +279,7 @@ fn month_cell(
         let selected = is_selected(s, &e.id, o.first);
         cell.add_child(interactive(
             Dom::create_div()
-                .with_id(occurrence_dom_id(&e.id, day))
+                .with_id(ids::occurrence(&e.id, day))
                 .with_css(format!(
                     "{} border-radius: 3px; padding: 0px 4px; margin-top: 1px; height: 17px; \
                      flex-shrink: 0; font-size: 12px; overflow: hidden; {}",
@@ -301,7 +296,7 @@ fn month_cell(
     if more > 0 {
         cell.add_child(
             Dom::create_span_with_text(views::more_label(more))
-                .with_id(format!("more-{}", day.format("%Y%m%d")))
+                .with_id(ids::month_more(day))
                 .with_css(
                     "font-size: 12px; color: system:accent; margin-top: 1px; cursor: pointer; \
                      flex-shrink: 0;",
@@ -347,7 +342,7 @@ fn schedule_view(s: &CalState, app: &RefAny) -> Dom {
         );
     }
     let mut table = Dom::create_div()
-        .with_id("schedule")
+        .with_id(ids::SCHEDULE)
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0; overflow-y: auto; padding: 0 8px 8px 0;")
         .with_child(
             Dom::create_div()
@@ -381,7 +376,7 @@ fn schedule_view(s: &CalState, app: &RefAny) -> Dom {
             let selected = is_selected(s, &e.id, o.first);
             track.add_child(interactive(
                 Dom::create_div()
-                    .with_id(occurrence_dom_id(&e.id, day))
+                    .with_id(ids::occurrence(&e.id, day))
                     .with_css(format!(
                         "position: absolute; left: {left:.3}%; width: {width:.3}%; top: \
                          {top}px; height: {height}px; box-sizing: border-box; border-radius: \
@@ -450,10 +445,10 @@ fn agenda_view(s: &CalState, app: &RefAny) -> Dom {
             .with_action_label("New Appointment")
             .with_on_action(app.clone(), editor_ui::on_new_appointment)
             .dom()
-            .with_id("agenda");
+            .with_id(ids::AGENDA);
     }
     let mut out = Dom::create_div()
-        .with_id("agenda")
+        .with_id(ids::AGENDA)
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0; overflow-y: auto; padding: 8px 16px;");
     for (day, items) in list {
         out.add_child(
@@ -482,7 +477,7 @@ fn agenda_view(s: &CalState, app: &RefAny) -> Dom {
             let selected = is_selected(s, &e.id, o.first);
             out.add_child(interactive(
                 Dom::create_div()
-                    .with_id(occurrence_dom_id(&e.id, day))
+                    .with_id(ids::occurrence(&e.id, day))
                     .with_css(format!(
                         "display: flex; flex-direction: row; align-items: center; padding: 6px \
                          4px; border-bottom: 1px solid {LINE}; {}",

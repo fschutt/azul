@@ -13,6 +13,7 @@ pub mod book;
 pub mod contact;
 pub mod csv;
 pub mod dupes;
+pub mod ids;
 pub mod photo;
 pub mod sample;
 pub mod store;

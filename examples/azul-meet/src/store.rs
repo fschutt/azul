@@ -18,6 +18,7 @@ use std::{
 };
 
 use azul::{
+    callbacks::WriteBackCallbackType,
     file::FilePath,
     prelude::*,
     task::{Thread, ThreadId, ThreadReceiveMsg, ThreadReceiver, ThreadSender, ThreadWriteBackMsg},
@@ -27,7 +28,7 @@ use azul_appkit::{
     settings::AppSettings,
 };
 use azul_storage::{Drive, LocalDrive};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::chat::ChatMessage;
 
@@ -157,6 +158,42 @@ pub fn chat_lines(messages: &[ChatMessage]) -> String {
         }
     }
     out
+}
+
+/// The messages of a `chat.jsonl` (see [`chat_lines`]), oldest first: this side's (`mine`) sent
+/// by `me`, the others' by nobody known now (`from` 0, they are only listed). A line that is no
+/// such object is skipped.
+#[must_use]
+pub fn parse_chat(text: &str, me: u64) -> Vec<ChatMessage> {
+    #[derive(Deserialize)]
+    struct Line {
+        name: String,
+        text: String,
+        #[serde(default)]
+        mine: bool,
+    }
+    text.lines()
+        .filter_map(|line| serde_json::from_str::<Line>(line.trim()).ok())
+        .map(|l| ChatMessage {
+            from: if l.mine { me } else { 0 },
+            mine: l.mine,
+            name: l.name,
+            text: l.text,
+        })
+        .collect()
+}
+
+/// The people an earlier `meeting.json` lists (none for a file that does not read).
+#[must_use]
+pub fn record_people(text: &str) -> Vec<String> {
+    #[derive(Deserialize)]
+    struct People {
+        #[serde(default)]
+        people: Vec<String>,
+    }
+    serde_json::from_str::<People>(text)
+        .map(|p| p.people)
+        .unwrap_or_default()
 }
 
 /// What `meeting.json` says about a meeting.
@@ -318,6 +355,63 @@ pub fn save(info: &mut CallbackInfo, root: &Path, files: Vec<(String, Vec<u8>)>)
     }
 }
 
+/// What a meeting's files held when this side came back to it, read on an azul Thread: the
+/// meeting (its folder name), its `chat.jsonl` and its `meeting.json` (`None`: not there).
+pub struct Earlier {
+    pub meeting: String,
+    pub chat: Option<String>,
+    pub record: Option<String>,
+}
+
+/// What the read thread needs: where, which meeting, whom to tell.
+struct ReadInit {
+    root: PathBuf,
+    meeting: String,
+    on_read: WriteBackCallbackType,
+}
+
+/// Runs on the worker thread: reads the meeting's two files from the data tree and hands them
+/// back as an [`Earlier`].
+extern "C" fn read_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: ThreadReceiver) {
+    let Some((root, meeting, on_read)) = init
+        .downcast_ref::<ReadInit>()
+        .map(|i| (i.root.clone(), i.meeting.clone(), i.on_read))
+    else {
+        return;
+    };
+    let drive = LocalDrive::new(root);
+    let read = |key: Option<String>| {
+        key.and_then(|k| drive.get(&k).ok())
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+    };
+    let earlier = Earlier {
+        chat: read(chat_key(&meeting)),
+        record: read(meeting_key(&meeting)),
+        meeting,
+    };
+    let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::create(
+        on_read,
+        RefAny::new(earlier),
+    )));
+}
+
+/// Reads meeting `meeting`'s files from the data tree at `root` on an azul Thread (never here);
+/// `on_read(reply_to, Earlier, info)` gets them on the UI thread.
+pub fn read_meeting(
+    info: &mut CallbackInfo,
+    root: &Path,
+    meeting: &str,
+    reply_to: RefAny,
+    on_read: WriteBackCallbackType,
+) {
+    let init = RefAny::new(ReadInit {
+        root: root.to_path_buf(),
+        meeting: meeting.to_string(),
+        on_read,
+    });
+    info.add_thread(ThreadId::unique(), Thread::create(init, reply_to, read_thread));
+}
+
 /// The settings file's (key, bytes), for [`save`].
 #[must_use]
 pub fn settings_file(settings: &AppSettings) -> (String, Vec<u8>) {
@@ -375,6 +469,32 @@ mod tests {
         assert_eq!(parsed[1]["text"], "line one\nline two", "a newline stays inside its line");
         assert!(lines.ends_with('\n'));
         assert_eq!(chat_lines(&[]), "");
+    }
+
+    #[test]
+    fn a_chat_file_reads_back_as_the_messages_it_holds() {
+        let messages = vec![
+            message("Ada", "Hello \"Ben\"", true),
+            message("Ben", "line one\nline two", false),
+        ];
+        let text = format!("{}not json\n\n{{\"name\": 3}}\n", chat_lines(&messages));
+        let back = parse_chat(&text, 7);
+        assert_eq!(back.len(), 2, "the broken lines are skipped: {back:?}");
+        assert_eq!((back[0].from, back[0].mine, back[0].name.as_str()), (7, true, "Ada"));
+        assert_eq!(back[0].text, "Hello \"Ben\"");
+        assert_eq!((back[1].from, back[1].mine, back[1].text.as_str()), (0, false, "line one\nline two"));
+    }
+
+    #[test]
+    fn an_earlier_record_says_who_was_there() {
+        let mut record = MeetingRecord {
+            meeting: String::from("abc"),
+            people: vec![String::from("Ada")],
+            ..MeetingRecord::default()
+        };
+        record.met("Ben");
+        assert_eq!(record_people(&record.to_json()), vec!["Ada", "Ben"]);
+        assert!(record_people("{").is_empty());
     }
 
     #[test]

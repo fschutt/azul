@@ -34,7 +34,8 @@
 //!   "attachments": [ { "name": "contract.pdf", "size": 48213 } ],
 //!   "order": 3072,
 //!   "created": "2026-09-01T10:00:00", "modified": "2026-09-30T18:12:40",
-//!   "completed": "2026-10-02T09:03:11"
+//!   "completed": "2026-10-02T09:03:11",
+//!   "started": "2026-10-01T08:00:00"
 //! }
 //! ```
 //!
@@ -201,6 +202,9 @@ pub struct Task {
     pub created: NaiveDateTime,
     pub modified: NaiveDateTime,
     pub completed: Option<NaiveDateTime>,
+    /// An open task someone works on: since when (a board's "Doing" column; iCalendar's
+    /// `STATUS:IN-PROCESS`). `None`: not started.
+    pub started: Option<NaiveDateTime>,
 }
 
 impl Task {
@@ -226,6 +230,7 @@ impl Task {
             created: now,
             modified: now,
             completed: None,
+            started: None,
         }
     }
 
@@ -299,6 +304,7 @@ impl Task {
         next.due = Some(next_due);
         next.repeat = Some(rule);
         next.completed = None;
+        next.started = None;
         next.reminded = None;
         next.reminder = self.reminder.map(|r| match r {
             Reminder::At(at) => Reminder::At(at + shift),
@@ -332,6 +338,17 @@ impl Task {
     /// Opens a completed task again at `now`.
     pub fn reopen(&mut self, now: NaiveDateTime) {
         self.completed = None;
+        self.modified = now;
+    }
+
+    /// Marks the task started (it keeps the first start) or not started, at `now`.
+    pub fn set_started(&mut self, started: bool, now: NaiveDateTime) {
+        match (started, self.started) {
+            (true, Some(_)) => return,
+            (true, None) => self.started = Some(now),
+            (false, None) => return,
+            (false, Some(_)) => self.started = None,
+        }
         self.modified = now;
     }
 }
@@ -765,6 +782,8 @@ struct TaskFile {
     modified: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     completed: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    started: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -956,6 +975,7 @@ pub fn task_to_json(t: &Task) -> String {
         created: format_stamp(t.created),
         modified: format_stamp(t.modified),
         completed: t.completed.map(format_stamp),
+        started: t.started.map(format_stamp),
     };
     serde_json::to_string_pretty(&file).unwrap_or_default()
 }
@@ -1040,6 +1060,11 @@ pub fn task_from_json(json: &str) -> Result<Task, FileError> {
             .completed
             .as_deref()
             .map(|c| parse_stamp("completed", c))
+            .transpose()?,
+        started: f
+            .started
+            .as_deref()
+            .map(|s| parse_stamp("started", s))
             .transpose()?,
     };
     for tag in &f.tags {
@@ -1308,6 +1333,31 @@ mod tests {
         assert!(json.contains("\"due\": \"2026-10-02\""), "{json}");
         assert!(json.contains("\"time\": \"09:00\""), "{json}");
         assert_eq!(task_from_json(&json), Ok(t));
+    }
+
+    #[test]
+    fn a_started_task_keeps_its_start_in_its_file() {
+        let mut t = full_task();
+        t.set_started(true, at(2026, 9, 30, 8, 0));
+        assert_eq!(t.started, Some(at(2026, 9, 30, 8, 0)));
+        t.set_started(true, at(2026, 10, 1, 9, 0));
+        assert_eq!(t.started, Some(at(2026, 9, 30, 8, 0)), "the first start stays");
+        let json = task_to_json(&t);
+        assert!(json.contains("\"started\": \"2026-09-30T08:00:00\""), "{json}");
+        assert_eq!(task_from_json(&json), Ok(t.clone()));
+        t.set_started(false, at(2026, 10, 1, 9, 0));
+        assert_eq!(t.started, None);
+        assert!(!task_to_json(&t).contains("started"), "not started is left out");
+    }
+
+    #[test]
+    fn the_next_occurrence_of_a_started_task_is_not_started() {
+        let mut t = full_task();
+        t.set_started(true, at(2026, 10, 1, 8, 0));
+        let next = t
+            .complete("n-started".into(), at(2026, 10, 2, 9, 30))
+            .expect("a repeating task");
+        assert_eq!(next.started, None);
     }
 
     #[test]

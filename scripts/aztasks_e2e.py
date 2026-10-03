@@ -11,7 +11,8 @@
        `tasks/<list>/<id>.json` lands on disk (with its repeat and tag);
     4. it lands in Upcoming: Cmd+2 -> `#task-<id>` in `#section-day-<tomorrow>`; a second
        quick add "Pay the plumber today 11:59pm !high" lands in Today (Cmd+1);
-    5. completes the repeating task (its check box) -> `AZTASKS_COMPLETED`, `AZTASKS_SPAWNED
+    5. All (Cmd+5): a click on a task title selects it alone, the list and the details stay;
+       completes the repeating task (its check box) -> `AZTASKS_COMPLETED`, `AZTASKS_SPAWNED
        <new> <tomorrow + 7>`, both files on disk, the old one `completed`, the new one
        repeating;
     6. Settings (FILE) opens the backstage; Data: Export (`AZTASKS_EXPORTED <n> <key>`, the
@@ -29,182 +30,37 @@ run it through scratchpad/run_capped.sh, one app at a time):
         [--timeout 180] [--out <dir>] [--keep]
 
 `AZTASKS_BIN` also names the binary. Screenshots and logs go to --out (default: a temporary
-folder printed at the end).
+folder printed at the end). The debug-server client is the Azlin apps' shared one
+(`scripts/azlin_e2e.py`).
 """
 
 import argparse
-import base64
 import datetime
 import json
 import os
-import re
 import shutil
-import subprocess
 import sys
 import tempfile
 import time
 import urllib.error
-import urllib.request
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.abspath(os.path.join(HERE, ".."))
-CMD = "meta" if sys.platform == "darwin" else "ctrl"
+import azlin_e2e as e2e
+from azlin_e2e import Failure
+
 
 
 def log(line):
     print("[aztasks-e2e] %s" % line, flush=True)
 
 
-class Failure(Exception):
-    pass
+# AzTasks' DOM ids carry the app's prefix `__aztasks_` (examples/azul-tasks/src/ids.rs, the
+# wave-6 prefix ruling): the `#name`s in the steps above are `#__aztasks_name` (`app.sel`);
+# an older build's bare names are detected (`app.detect_naming`).
+PREFIX = "__aztasks_"
 
 
-def find_binary(explicit):
-    candidates = [explicit, os.environ.get("AZTASKS_BIN")]
-    roots = [REPO]
-    try:
-        common = subprocess.run(
-            ["git", "-C", REPO, "rev-parse", "--path-format=absolute", "--git-common-dir"],
-            check=True, capture_output=True, text=True,
-        ).stdout.strip()
-        if common:
-            roots.append(os.path.dirname(common))
-    except (OSError, subprocess.CalledProcessError):
-        pass
-    for root in roots:
-        for sub in ("release", "debug"):
-            candidates.append(os.path.join(root, "target", sub, "AzTasks"))
-    for c in candidates:
-        if c and os.path.isfile(c) and os.access(c, os.X_OK):
-            return c
-    raise Failure("no AzTasks binary; pass --bin or set AZTASKS_BIN (tried %s)" % candidates)
-
-
-def strings(value):
-    if isinstance(value, str):
-        yield value
-    elif isinstance(value, list):
-        for v in value:
-            yield from strings(v)
-    elif isinstance(value, dict):
-        for v in value.values():
-            yield from strings(v)
-
-
-def tail(path, lines=40):
-    try:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            return "".join(f.readlines()[-lines:])
-    except OSError:
-        return "(no output)"
-
-
-class App:
-    """AzTasks under its debug server."""
-
-    def __init__(self, binary, port, args, env, logs, name, deadline):
-        self.port = port
-        self.deadline = deadline
-        self.out_path = os.path.join(logs, "%s.stdout" % name)
-        self.err_path = os.path.join(logs, "%s.stderr" % name)
-        self.process = subprocess.Popen(
-            [binary] + args, env=env, stdin=subprocess.DEVNULL,
-            stdout=open(self.out_path, "wb"), stderr=open(self.err_path, "wb"),
-        )
-
-    def stop(self):
-        if self.process.poll() is None:
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-
-    def op(self, op, **params):
-        body = {"op": op}
-        body.update(params)
-        request = urllib.request.Request(
-            "http://127.0.0.1:%d/" % self.port,
-            data=json.dumps(body).encode("utf-8"), method="POST",
-        )
-        with urllib.request.urlopen(request, timeout=15) as response:
-            return json.loads(response.read().decode("utf-8") or "{}")
-
-    def must(self, op, **params):
-        answer = self.op(op, **params)
-        if isinstance(answer, dict) and answer.get("status") == "error":
-            raise Failure("%s %s failed: %s" % (op, json.dumps(params), json.dumps(answer)[:300]))
-        return answer
-
-    def value(self, op, **params):
-        answer = self.must(op, **params)
-        data = answer.get("data") if isinstance(answer, dict) else None
-        if isinstance(data, dict) and "value" in data:
-            return data["value"]
-        return data if data is not None else answer
-
-    def frame(self, n=1):
-        for _ in range(n):
-            self.must("wait_frame")
-
-    def texts(self):
-        return list(strings(self.op("get_node_hierarchy")))
-
-    def shows(self, text):
-        return any(text in t for t in self.texts())
-
-    def has(self, selector):
-        """Whether `selector` names a laid-out node."""
-        try:
-            value = self.value("get_node_layout", selector=selector)
-        except (Failure, urllib.error.URLError, OSError, ValueError):
-            return False
-        return isinstance(value, dict) and value.get("node_id") is not None
-
-    def rect(self, selector):
-        value = self.value("get_node_layout", selector=selector)
-        return value.get("rect") or {}
-
-    def printed(self, key, pattern=r".+"):
-        try:
-            with open(self.out_path, "r", encoding="utf-8", errors="replace") as f:
-                text = f.read()
-        except OSError:
-            return []
-        return re.findall(r"^%s (%s)$" % (re.escape(key), pattern), text, re.M)
-
-    def until(self, what, check, interval=0.25):
-        last = None
-        while time.time() < self.deadline:
-            if self.process.poll() is not None:
-                raise Failure("AzTasks exited (%s) while waiting for %s" % (self.process.returncode, what))
-            try:
-                value = check()
-                if value:
-                    return value
-            except (OSError, ValueError, urllib.error.URLError, Failure) as e:
-                last = e
-            time.sleep(interval)
-        raise Failure("timed out waiting for %s%s" % (what, " (last error: %s)" % last if last else ""))
-
-    def key(self, key, shift=False, ctrl=False, alt=False, meta=False):
-        mods = {"shift": shift, "ctrl": ctrl, "alt": alt, "meta": meta}
-        self.must("key_down", key=key, modifiers=mods)
-        self.must("key_up", key=key, modifiers=mods)
-        self.frame(2)
-
-    def cmd(self, key):
-        self.key(key, ctrl=(CMD == "ctrl"), meta=(CMD == "meta"))
-
-    def screenshot(self, path):
-        value = self.value("take_screenshot")
-        data = value.get("data") if isinstance(value, dict) else None
-        if not isinstance(data, str) or "base64," not in data:
-            log("take_screenshot returned no PNG (%s)" % json.dumps(value)[:120])
-            return
-        with open(path, "wb") as f:
-            f.write(base64.b64decode(data.split("base64,", 1)[1]))
-        log("screenshot %s (%d bytes)" % (path, os.path.getsize(path)))
+def detect_naming(app):
+    app.detect_naming(PREFIX, "quick-add")
 
 
 def read_task(data_dir, list_id, task_id):
@@ -226,7 +82,7 @@ def wait_file(app, data_dir, list_id, task_id, check=lambda t: True, what="the t
 def quick_add(app, text):
     """Types `text` into the quick-add line and presses Enter; returns (id, list, due)."""
     before = len(app.printed("AZTASKS_ADDED", r"\S+ \S+ \S+"))
-    app.must("click", selector="#quick-add")
+    app.must("click", selector=app.sel("quick-add"))
     app.frame(1)
     app.must("text_input", text=text)
     app.frame(2)
@@ -238,31 +94,109 @@ def quick_add(app, text):
     return task_id, list_id, due
 
 
+def switch_layout(app, second):
+    """Clicks the list header's layout switch: its second half ("Month" / "Board") or its first
+    ("List")."""
+    box = app.box(app.sel("layout-switch"))
+    x = box["x"] + box["width"] * (0.75 if second else 0.25)
+    app.must("click", x=x, y=box["y"] + box["height"] / 2.0)
+    app.frame(2)
+
+
+def centre(box):
+    return box["x"] + box["width"] / 2.0, box["y"] + box["height"] / 2.0
+
+
+def drag_onto(app, source, target):
+    """Drags the node `source` onto the middle of the node `target` (both selectors)."""
+    (x0, y0), (x1, y1) = centre(app.box(source)), centre(app.box(target))
+    app.drag(x0, y0, x1, y1)
+
+
+def planned_and_board(app, data_dir, ferns, ferns_list, plumber, tomorrow, out):
+    """Scheduled as the planned month (a drag onto a day moves the due day), the list as its
+    board (a drag onto Doing starts a task). An older build has no layout switch: skipped."""
+    app.key("3", primary=True)
+    app.until("AZTASKS_VIEW scheduled", lambda: app.printed("AZTASKS_VIEW", r"\S+")[-1:] == ["scheduled"])
+    app.frame(2)
+    if not app.has(app.sel("layout-switch")):
+        log("BLOCKED planned month / board: no layout switch (a build before layouts.rs)")
+        return
+    switch_layout(app, True)
+    app.until("AZTASKS_LAYOUT scheduled month",
+              lambda: "scheduled month" in app.printed("AZTASKS_LAYOUT", r".+"))
+    day = app.sel("month-day-%s" % tomorrow.isoformat())
+    ferns_there = "%s .%splanned-task" % (day, app.prefix)
+    app.until("the ferns on tomorrow in the planned month", lambda: app.has(ferns_there))
+    app.screenshot(os.path.join(out, "planned-month.png"))
+    # Next month, and back to this one.
+    first = (tomorrow - datetime.timedelta(days=1)).replace(day=1)  # the month shown: today's
+    next_month = (first + datetime.timedelta(days=32)).strftime("%Y-%m")
+    seen = len(app.printed("AZTASKS_MONTH", r"\S+"))
+    app.must("click", selector=app.sel("month-next"))
+    app.frame(2)
+    app.until("AZTASKS_MONTH %s" % next_month, lambda: next_month in app.printed("AZTASKS_MONTH", r"\S+")[seen:])
+    app.must("click", selector=app.sel("month-today"))
+    app.frame(2)
+    app.until("this month again", lambda: app.has(ferns_there))
+    # A drag onto the day after: due then (the time and the repeat kept); and back.
+    later = tomorrow + datetime.timedelta(days=1)
+    for source, target, due in ((ferns_there, app.sel("month-day-%s" % later.isoformat()), later),
+                                ("%s .%splanned-task" % (app.sel("month-day-%s" % later.isoformat()), app.prefix),
+                                 day, tomorrow)):
+        drag_onto(app, source, target)
+        app.until("AZTASKS_DUE %s %s" % (ferns, due),
+                  lambda: "%s %s" % (ferns, due.isoformat()) in app.printed("AZTASKS_DUE", r".+"))
+        wait_file(app, data_dir, ferns_list, ferns, lambda t: t.get("due") == due.isoformat(), "the due day %s" % due)
+    switch_layout(app, False)
+    app.until("the list of days again", lambda: app.has(app.sel("task-list")))
+    log("planned month: the ferns on tomorrow; a drag moved them a day and back")
+
+    # The board of the ferns' list.
+    with open(os.path.join(data_dir, "tasks", ferns_list, "list.json"), "r", encoding="utf-8") as f:
+        name = json.load(f)["name"]
+    app.must("click", text=name)
+    app.frame(2)
+    app.until("AZTASKS_VIEW list:%s" % ferns_list,
+              lambda: app.printed("AZTASKS_VIEW", r"\S+")[-1:] == ["list:%s" % ferns_list])
+    switch_layout(app, True)
+    app.until("AZTASKS_LAYOUT ... board", lambda: "list:%s board" % ferns_list in app.printed("AZTASKS_LAYOUT", r".+"))
+    card = app.sel("card-%s" % plumber)
+    app.until("the plumber's card in To do", lambda: app.has("%s %s" % (app.sel("column-todo"), card)))
+    drag_onto(app, card, app.sel("column-doing"))
+    app.until("AZTASKS_COLUMN %s doing" % plumber,
+              lambda: "%s doing" % plumber in app.printed("AZTASKS_COLUMN", r".+"))
+    wait_file(app, data_dir, ferns_list, plumber, lambda t: "started" in t, "the start")
+    app.until("the plumber's card in Doing", lambda: app.has("%s %s" % (app.sel("column-doing"), card)))
+    app.screenshot(os.path.join(out, "board.png"))
+    switch_layout(app, False)
+    app.until("the list again", lambda: app.has(app.sel("task-list")))
+    log("board: the plumber's card dragged from To do to Doing is started")
+
+
 def run(args, logs, out, data_dir):
-    binary = find_binary(args.bin)
-    deadline = time.time() + args.timeout
-    env = dict(os.environ)
-    env.update({"AZ_BACKEND": "headless", "AZ_DEBUG": str(args.debug_port), "AZTASKS_TICK_MS": "500"})
+    binary = e2e.find_binary("AzTasks", args.bin, "AZTASKS_BIN")
+    env = {"AZTASKS_TICK_MS": "500"}
     today = datetime.date.today()
     tomorrow = today + datetime.timedelta(days=1)
 
     # ---- first run: the sample, a reminder, quick add, Upcoming / Today, completing a repeat
-    app = App(binary, args.debug_port,
-              ["--data", data_dir, "--sample", "--view", "today", "--size", "1280x800"],
-              env, logs, "first", deadline)
+    app = e2e.App("first", binary,
+                  ["--data", data_dir, "--sample", "--view", "today", "--size", "1280x800"],
+                  args.debug_port, logs, args.timeout, extra_env=env)
     try:
         loaded = app.until("AZTASKS_LOADED", lambda: app.printed("AZTASKS_LOADED", r"\d+ \d+ \d+"))
         lists, tasks, skipped = (int(x) for x in loaded[-1].split())
         log("loaded %d lists, %d tasks, %d skipped" % (lists, tasks, skipped))
         if lists < 6 or tasks < 20:
             raise Failure("the sample is missing: %s" % loaded[-1])
-        app.until("the window", lambda: app.has("#quick-add"))
+        detect_naming(app)
         app.screenshot(os.path.join(out, "today.png"))
 
         # The sample's due reminder.
         reminded = app.until("AZTASKS_REMINDER", lambda: app.printed("AZTASKS_REMINDER", r"\S+"))
         app.frame(2)
-        app.until("the reminder banner", lambda: app.has("#reminder-banner"))
+        app.until("the reminder banner", lambda: app.has(app.sel("reminder-banner")))
         if not app.shows("Call the dentist"):
             raise Failure("the banner does not name the reminding task")
         try:
@@ -274,9 +208,9 @@ def run(args, logs, out, data_dir):
         except (urllib.error.URLError, OSError, ValueError) as e:
             log("WARN assert_notification unavailable: %s" % e)
         app.screenshot(os.path.join(out, "reminder.png"))
-        app.must("click", selector="#dismiss-reminder")
+        app.must("click", selector=app.sel("dismiss-reminder"))
         app.frame(2)
-        app.until("the banner to close", lambda: not app.has("#reminder-banner"))
+        app.until("the banner to close", lambda: not app.has(app.sel("reminder-banner")))
         log("reminder %s shown and dismissed" % reminded[-1])
 
         # Quick add with a date phrase, a repeat and a tag.
@@ -288,11 +222,11 @@ def run(args, logs, out, data_dir):
             raise Failure("the file of the new task is wrong: %s" % json.dumps(task))
 
         # It lands in Upcoming, under tomorrow.
-        app.cmd("2")
+        app.key("2", primary=True)
         app.until("AZTASKS_VIEW upcoming", lambda: "upcoming" in app.printed("AZTASKS_VIEW", r"\S+"))
         app.frame(2)
-        app.until("the task in Upcoming", lambda: app.has("#task-%s" % ferns))
-        if not app.has("#section-day-%s" % tomorrow.isoformat()):
+        app.until("the task in Upcoming", lambda: app.has(app.sel("task-%s") % ferns))
+        if not app.has(app.sel("section-day-%s") % tomorrow.isoformat()):
             raise Failure("Upcoming has no section for tomorrow")
         app.screenshot(os.path.join(out, "upcoming.png"))
 
@@ -300,16 +234,39 @@ def run(args, logs, out, data_dir):
         plumber, plumber_list, due = quick_add(app, "Pay the plumber today 11:59pm !high")
         if due != today.isoformat():
             raise Failure("'today' parsed as %s" % due)
-        app.cmd("1")
+        app.key("1", primary=True)
         app.until("AZTASKS_VIEW today", lambda: app.printed("AZTASKS_VIEW", r"\S+")[-1] == "today")
         app.frame(2)
-        app.until("the task in Today", lambda: app.has("#task-%s" % plumber))
+        app.until("the task in Today", lambda: app.has(app.sel("task-%s") % plumber))
         wait_file(app, data_dir, plumber_list, plumber, lambda t: t.get("priority") == "high", "the high priority")
 
-        # Completing the repeating task leaves next week's behind.
-        app.cmd("2")
+        # All: a click on a task's title selects that task alone, the list stays and the details
+        # show it (PIM6 saw both panes go blank; not seen again on the wave-6 build).
+        app.key("5", primary=True)
+        app.until("AZTASKS_VIEW all", lambda: app.printed("AZTASKS_VIEW", r"\S+")[-1] == "all")
         app.frame(2)
-        app.must("click", selector="#check-%s" % ferns)
+        for title, task_id in (("Pay the plumber", plumber), ("Water the ferns", ferns)):
+            # The row's title (the To-Do bar lists a task due today under the same text), scrolled
+            # into the list's view first (a click op at a row below it lands outside the list).
+            app.must("scroll_into_view", selector=app.sel("task-%s") % task_id, block="center", behavior="instant")
+            app.frame(2)
+            app.must("click", selector="%s .%stask-title" % (app.sel("task-%s") % task_id, app.prefix))
+            app.frame(2)
+            app.until("AZTASKS_SELECTED %s" % task_id,
+                      lambda: app.printed("AZTASKS_SELECTED", r"\S+")[-1:] == [task_id])
+            app.until("the list and the details", lambda: app.has(app.sel("task-%s") % task_id)
+                      and app.has(app.sel("detail-title")))
+            if app.shows("tasks selected"):
+                raise Failure("a plain click on %r added to the selection" % title)
+        app.screenshot(os.path.join(out, "all-click.png"))
+        log("All: a click on a title selects it alone; the list and the details stay")
+
+        planned_and_board(app, data_dir, ferns, ferns_list, plumber, tomorrow, out)
+
+        # Completing the repeating task leaves next week's behind.
+        app.key("2", primary=True)
+        app.frame(2)
+        app.must("click", selector=app.sel("check-%s") % ferns)
         app.frame(2)
         app.until("AZTASKS_COMPLETED", lambda: ferns in app.printed("AZTASKS_COMPLETED", r"\S+"))
         spawned = app.until("AZTASKS_SPAWNED", lambda: app.printed("AZTASKS_SPAWNED", r"\S+ \S+"))
@@ -325,14 +282,14 @@ def run(args, logs, out, data_dir):
         # FILE opens the backstage (settings); Escape closes it.
         app.must("click", text="FILE")
         app.frame(2)
-        app.until("the backstage", lambda: app.has("#backstage"))
+        app.until("the backstage", lambda: app.has(app.sel("backstage")))
         app.screenshot(os.path.join(out, "settings.png"))
 
         # Settings > Data: export the tasks into the data tree, import an iCalendar to-do.
         app.must("click", text="Data")
         app.frame(2)
-        app.until("the import and export controls", lambda: app.has("#settings-export"))
-        app.must("click", selector="#settings-export")
+        app.until("the import and export controls", lambda: app.has(app.sel("settings-export")))
+        app.must("click", selector=app.sel("settings-export"))
         app.frame(2)
         exported = app.until("AZTASKS_EXPORTED", lambda: app.printed("AZTASKS_EXPORTED", r"\d+ \S+"))
         count, key = exported[-1].split(" ", 1)
@@ -355,11 +312,11 @@ def run(args, logs, out, data_dir):
                     "UID:e2e-1@example.org\r\nSUMMARY:Imported from iCal\r\n"
                     "DUE;VALUE=DATE:%s\r\nPRIORITY:1\r\nEND:VTODO\r\nEND:VCALENDAR\r\n"
                     % tomorrow.strftime("%Y%m%d"))
-        app.must("click", selector="#settings-import-path")
+        app.must("click", selector=app.sel("settings-import-path"))
         app.frame(1)
         app.must("text_input", text=ics)
         app.frame(2)
-        app.must("click", selector="#settings-import")
+        app.must("click", selector=app.sel("settings-import"))
         app.frame(2)
         imported = app.until("AZTASKS_IMPORTED", lambda: app.printed("AZTASKS_IMPORTED", r"\d+ .+"))
         if not imported[-1].startswith("1 "):
@@ -369,7 +326,7 @@ def run(args, logs, out, data_dir):
         # Settings > Appearance: Flora is kept for the next start (aztasks/settings.json).
         app.must("click", text="Appearance")
         app.frame(2)
-        app.until("the theme control", lambda: app.has("#settings-theme"))
+        app.until("the theme control", lambda: app.has(app.sel("settings-theme")))
         app.must("click", text="Flora")
         app.frame(2)
         appearance_file = os.path.join(data_dir, "aztasks", "settings.json")
@@ -383,7 +340,7 @@ def run(args, logs, out, data_dir):
 
         app.until("flora in aztasks/settings.json", kept_flora)
         app.key("Escape")
-        app.until("the backstage to close", lambda: not app.has("#backstage"))
+        app.until("the backstage to close", lambda: not app.has(app.sel("backstage")))
 
         # Flora, dark.
         app.must("set_theme", theme="flora")
@@ -398,14 +355,14 @@ def run(args, logs, out, data_dir):
         time.sleep(1.0)
     except Failure as e:
         log("FAIL (first run): %s" % e)
-        print("---- stdout ----\n%s---- stderr ----\n%s" % (tail(app.out_path), tail(app.err_path)))
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
         raise
     finally:
         app.stop()
 
     # ---- second run: the files are read back
-    app = App(binary, args.debug_port, ["--data", data_dir, "--view", "scheduled"], env, logs, "second",
-              time.time() + args.timeout)
+    app = e2e.App("second", binary, ["--data", data_dir, "--view", "scheduled"], args.debug_port, logs,
+                  args.timeout, extra_env=env)
     try:
         loaded = app.until("AZTASKS_LOADED", lambda: app.printed("AZTASKS_LOADED", r"\d+ \d+ \d+"))
         lists2, tasks2, skipped2 = (int(x) for x in loaded[-1].split())
@@ -418,17 +375,17 @@ def run(args, logs, out, data_dir):
             raise Failure("the restart read %d tasks from %d files (%d skipped)" % (tasks2, files, skipped2))
         if tasks2 != tasks + 4:
             raise Failure("expected the %d sample tasks + 4 (two added, one spawned, one imported), read %d" % (tasks, tasks2))
-        app.until("the window", lambda: app.has("#quick-add"))
-        app.until("the next occurrence in Scheduled", lambda: app.has("#task-%s" % new_id))
-        app.cmd("6")
+        detect_naming(app)
+        app.until("the next occurrence in Scheduled", lambda: app.has(app.sel("task-%s") % new_id))
+        app.key("6", primary=True)
         app.frame(2)
-        app.until("the completed task in Completed", lambda: app.has("#task-%s" % ferns))
+        app.until("the completed task in Completed", lambda: app.has(app.sel("task-%s") % ferns))
         app.screenshot(os.path.join(out, "restart-completed.png"))
         log("PASS")
         return True
     except Failure as e:
         log("FAIL (restart): %s" % e)
-        print("---- stdout ----\n%s---- stderr ----\n%s" % (tail(app.out_path), tail(app.err_path)))
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
         raise
     finally:
         app.stop()

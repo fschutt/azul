@@ -31,7 +31,9 @@ pub mod args;
 pub mod backstage;
 pub mod chrome;
 pub mod detail;
+pub mod ids;
 pub mod jobs;
+pub mod layouts;
 pub mod list;
 pub mod listedit;
 pub mod model;
@@ -206,7 +208,7 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
             let row = info
                 .get_node_id(node)
                 .into_option()
-                .is_some_and(|id| id.as_str().starts_with("task-"));
+                .is_some_and(|id| ids::is_task_row(id.as_str()));
             let typing = info
                 .get_node_attribute(node, "contenteditable")
                 .into_option()
