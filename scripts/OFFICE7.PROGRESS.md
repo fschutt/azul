@@ -38,8 +38,9 @@ Branch `wt/office7` from `2e55eef06` (the wave-6 integration; every app compiles
   - Item 6 DONE.
 
 ## NEXT (exact)
-- 7. AzSheets: (a) Format Cells OK = ONE undo step (format_dialog.rs / engine; SHEETSHOW6: one style command
-  per property); (b) Replace inside the grid's own edit; (c) colour / font / border pickers beyond presets;
+- 7. AzSheets: (a) DONE 3ecca29d3 RED / dd6ab7d69 GREEN (SheetEngine::update_styles; IronCalc: apply via its
+  paths, read area+ring styles, undo N, ONE on_paste_styles; worker Command::Styles replaces Command::Style);
+  (b) Replace inside the grid's own edit; (c) colour / font / border pickers beyond presets;
   (d) merges shifting with inserted rows: document why not (IronCalc UserModel cannot change merge_cells).
 - 8. LOOK (writer, notes, mail, sheets, show, review) with /tmp/office7_look.py (recreate from the transcript
   if /tmp was wiped).
