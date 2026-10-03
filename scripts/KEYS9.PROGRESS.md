@@ -13,9 +13,11 @@ Report: `scripts/KEYS9_<date>.md` (when done). Never compile (house rules); rust
 - a3fce79b1 RED generator.rs / words.rs (1024 words) / clipboard.rs / lock.rs / audit.rs
 - 7755d4af0 GREEN generator.rs; 580a990fa GREEN clipboard.rs + lock.rs; f50d18b3a GREEN audit.rs
 - a18b6e625 RED store.rs (file keys, Work/Done/Failure, run(), read_listing) + azul-pim test-util dev-dep
+- 46a58d5f7 GREEN store.rs; c91f0a2a0 sample.rs (+ tests, SAMPLE_PASSWORD "sample")
+- 9cbc73f1a registered: root Cargo.toml member, workspace_test_members.txt, rust.yml step (NEXT item 7 done)
 
-## NEXT (exact)
-1. GREEN `examples/azul-keys/src/store.rs`: fill `read_listing` (parse each `(key, bytes)` with
+## NEXT (exact) - items 1, 2 and 7 are DONE; continue at 3
+1. (done) GREEN `examples/azul-keys/src/store.rs`: fill `read_listing` (parse each `(key, bytes)` with
    `Envelope::parse`, problems "`<key>`: <VaultError>", sort by folded name) and `run` (List via
    `azul_appkit::files::list_all(drive, VAULTS)` + get each `.azkv`; Create: KdfParams::fresh() when None,
    `Envelope::create(&vault.id, &vault.name, ..)`, put `file_key`; Unlock: get -> parse -> unwrap_key ->
@@ -23,7 +25,7 @@ Report: `scripts/KEYS9_<date>.md` (when done). Never compile (house rules); rust
    `drive.copy(key, backup_key(id))` (ignore error) then `envelope.reseal` + put; ChangePassword: `rewrap` + put;
    Put). Failures via `Failure::of` / `Failure::io`; a missing file = message "the vault file is gone".
    Needs `azul-appkit` (already a dependency; plain module `files` has `list_all`).
-2. sample.rs: `sample_vault(now) -> Vault` (~40-128 fictional items: CodeHost (example) dev@example.org with
+2. (done) sample.rs: `sample_vault(now) -> Vault` (~40-128 fictional items: CodeHost (example) dev@example.org with
    TOTP secret GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ, Mail (Box example), Bank (card) 4242, identity Anna Berg,
    SSH keys, notes, some weak / reused / old passwords for the audit); `SAMPLE_PASSWORD = "sample"`; a test.
 3. ids.rs: `__azkeys_` const AzString names (macro like examples/azul-contacts/src/ids.rs).
@@ -42,7 +44,7 @@ Report: `scripts/KEYS9_<date>.md` (when done). Never compile (house rules); rust
    appkit spawn_outside_read -> import::import_file -> preview -> merge); audit screen), toolbar, status bar
    (lock / clipboard countdowns), settings sections (Security, Vault: change master password, device unlock),
    CloseGuard for an edited item. Avoid DOM rebuilds every second while a form is being edited.
-7. Register: root Cargo.toml members (append after examples/azul-dashboard), scripts/workspace_test_members.txt
+7. (done) Register: root Cargo.toml members (append after examples/azul-dashboard), scripts/workspace_test_members.txt
    (`tested: AzKeys`), .github/workflows/rust.yml step after "Run AzDashboard tests".
 8. scripts/azkeys_e2e.py (debug server, model on scripts/shells_e2e.py), report.
 
