@@ -5256,3 +5256,74 @@ mod caret_tests {
         assert_eq!(caret_byte(&at(0, CursorAffinity::Trailing), ""), 0);
     }
 }
+
+/// The prompt of an empty field is drawn in the placeholder ink, never in the
+/// value's: through the REAL cascade (the window's context, its app theme and
+/// mode), for a field that follows the app theme - every declaration inside an
+/// `@theme(<name>)` block (PIM6: AzCalendar's "Name" prompt in the full ink).
+#[cfg(test)]
+mod placeholder_ink_tests {
+    use azul_core::{
+        dom::{Dom, NodeId},
+        styled_dom::{StyledDom, StyledNodeState},
+    };
+    use azul_css::{dynamic_selector::DynamicSelectorContext, props::basic::color::ColorU};
+
+    use super::{TextInput, COLOR_9B9B9B};
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        UiTheme,
+    };
+
+    /// The value line's text colour (`body > field > p`), at rest and as the
+    /// prompt (`::placeholder`).
+    fn inks(theme: UiTheme, dark: bool) -> (Option<ColorU>, Option<ColorU>) {
+        let dom = under(theme, || {
+            TextInput::create()
+                .with_placeholder("Name".into())
+                .dom()
+        });
+        let mut ctx = DynamicSelectorContext::default();
+        if dark {
+            ctx.mode = azul_css::system::DarkLightMode::Dark;
+        }
+        let ctx = ctx.with_app_theme(theme.name());
+        let sd =
+            StyledDom::create_from_dom_with_context(Dom::create_body().with_child(dom), Some(ctx));
+        let label = NodeId::new(2);
+        let node_data = sd.node_data.as_container();
+        let node = node_data.get(label).expect("the value line");
+        let cache = sd.get_css_property_cache();
+        let colour = |state: &StyledNodeState| {
+            cache
+                .get_text_color(node, &label, state)
+                .and_then(|v| v.get_property().copied())
+                .map(|c| c.inner)
+        };
+        let prompt = StyledNodeState {
+            placeholder: true,
+            ..StyledNodeState::default()
+        };
+        (colour(&StyledNodeState::default()), colour(&prompt))
+    }
+
+    #[test]
+    fn an_app_themed_field_paints_its_placeholder_in_the_placeholder_ink() {
+        for theme in BOTH {
+            for dark in [false, true] {
+                let (value, prompt) = inks(theme, dark);
+                let what = format!("{} {}", theme.name(), if dark { "dark" } else { "light" });
+                assert!(prompt.is_some(), "{what}: the prompt has a colour");
+                assert_ne!(
+                    prompt, value,
+                    "{what}: the prompt is drawn in the value's ink"
+                );
+            }
+        }
+        assert_eq!(
+            inks(UiTheme::Flat, false).1,
+            Some(COLOR_9B9B9B),
+            "flat by day: the field's own prompt grey"
+        );
+    }
+}
