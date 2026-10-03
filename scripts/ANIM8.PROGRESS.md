@@ -5,7 +5,10 @@ button hover). Then the idle items (FLIP springs never settle; AzReview per-fram
 
 ## DONE
 - a8e1b4e9a progress file
-- (next commit) scripts/anim8_probe.py (debug-server probe: knob x / pixels / get_animations per frame) and
+- b57bb6bb7 RED core/src/diff_test.rs mod a_toggled_widget_keeps_its_identity (2 tests)
+- 1a2be0ff6 GREEN NodeData Hash (core/src/dom.rs ~1892): inline props hashed order-free (count + wrapping
+  sum of per-property hashes) - finding 2 fixed at its root
+- ca8e4f111 scripts/anim8_probe.py (debug-server probe: knob x / pixels / get_animations per frame) and
   scripts/anim8_switch_scenario_gen.py (writes an AZ_E2E scenario: click the switch, tick_animations 1/3/30,
   each checkpoint ends in a failing assert_response that PRINTS the response). Run:
   python3 scripts/anim8_switch_scenario_gen.py /tmp/anim8/switch.json
@@ -37,7 +40,9 @@ button hover). Then the idle items (FLIP springs never settle; AzReview per-fram
 4. live_tracks = 23..27 at rest in AzWidgets (spinners etc.) - idle item.
 
 ## NEXT (exact)
-- Decide the fix for finding 2 (read: compute_subtree_hashes diff.rs:597, pass A2 diff.rs ~826,
+- (finding 2 DONE, see above.) Next: finding 3 (per-tick relayout cost) - try AZ_PROFILE=cpu on the
+  scripted scenario to see which phase of incremental_relayout costs 120-290 ms; then hover fades.
+- OLD NOTE: Decide the fix for finding 2 (read: compute_subtree_hashes diff.rs:597, pass A2 diff.rs ~826,
   NodeData Hash dom.rs:1878, upsert dom.rs:3538). Candidate: upsert REPLACES the declaration IN PLACE
   when the property exists in an unconditional rule (so an imperative write leaves the node equal to a
   fresh build in the same state), appending only when absent. Possibly also make the inline-prop hash
