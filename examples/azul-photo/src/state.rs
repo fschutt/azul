@@ -1206,13 +1206,128 @@ mod tests {
         s.pointer_up(50.0, 50.0, NO);
     }
 
+    /// A stand-in for azul's text raster (`RawImage::from_text`): a blue
+    /// box 10 px per character, 20 px tall.
+    fn fake_text(spec: &TextSpec) -> Option<(u32, u32, Vec<u8>)> {
+        let n = spec.text.chars().count() as u32;
+        (n > 0).then(|| (10 * n, 20, [0, 0, 255, 255].repeat((10 * n * 20) as usize)))
+    }
+
+    fn layer_count(s: &PhotoState) -> usize {
+        layer::all_ids(&s.engine.document().layers).len()
+    }
+
     #[test]
-    fn the_text_tool_explains_why_it_is_off() {
+    fn the_text_tool_places_a_text_layer_where_clicked_in_one_history_step() {
         let mut s = editor();
         let e = s.set_tool(Tool::Text);
         assert!(e.dom);
-        assert_eq!(s.tool, Tool::Brush, "the tool did not change");
-        assert_eq!(s.status, TEXT_TOOL_NOTE);
+        assert_eq!(s.tool, Tool::Text, "the text tool is a tool now");
+        s.pointer_down(50.0, 40.0, 1.0, NO);
+        s.pointer_up(50.0, 40.0, NO);
+        assert_eq!(s.text.as_ref().map(|d| d.at), Some((50, 40)), "a text starts where clicked");
+        let e = s.set_text("Hi", &fake_text);
+        assert!(e.view.is_some(), "the preview is drawn while typing");
+        assert_eq!(layer_count(&s), 2, "the text shows as a layer");
+        assert_eq!(active_pixel(&s, 55, 45), [0, 0, 255, 255], "the glyphs at the click");
+        assert_eq!(s.buf.rgba(55, 45), [0, 0, 255, 255], "the view shows them");
+        assert_eq!(s.engine.history().0.len(), 1, "typing is not a History step");
+        let e = s.commit_text();
+        assert!(e.dom);
+        assert!(s.text.is_none());
+        assert_eq!(s.engine.history().0.last().map(String::as_str), Some("Text"));
+        assert_eq!(s.engine.history().0.len(), 2, "one step for the whole text");
+        assert_eq!(active_pixel(&s, 55, 45), [0, 0, 255, 255], "the text stays");
+        assert!(s.undo().dom);
+        assert_eq!(layer_count(&s), 1, "undo takes the text away");
+    }
+
+    #[test]
+    fn typing_replaces_the_preview_and_escape_drops_the_text() {
+        let mut s = editor();
+        s.set_tool(Tool::Text);
+        s.pointer_down(20.0, 20.0, 1.0, NO);
+        s.set_text("Hi", &fake_text);
+        s.set_text("Hello", &fake_text);
+        assert_eq!(layer_count(&s), 2, "one preview layer, replaced");
+        assert_eq!(active_pixel(&s, 65, 25), [0, 0, 255, 255], "five characters wide now");
+        s.cancel_text();
+        assert_eq!(layer_count(&s), 1);
+        assert_eq!(s.engine.history().0.len(), 1, "nothing recorded");
+        assert_eq!(s.buf.rgba(25, 25), [255, 255, 255, 255], "the view is clean again");
+    }
+
+    #[test]
+    fn choosing_another_tool_or_clicking_elsewhere_commits_the_text() {
+        let mut s = editor();
+        s.set_tool(Tool::Text);
+        s.pointer_down(20.0, 20.0, 1.0, NO);
+        s.set_text("A", &fake_text);
+        s.pointer_down(200.0, 100.0, 1.0, NO);
+        assert_eq!(s.engine.history().0.len(), 2, "the first text was committed");
+        assert_eq!(s.text.as_ref().map(|d| d.at), Some((200, 100)), "a new one starts");
+        s.set_text("B", &fake_text);
+        s.set_tool(Tool::Brush);
+        assert!(s.text.is_none());
+        assert_eq!(s.engine.history().0.len(), 3);
+        assert_eq!(layer_count(&s), 3);
+    }
+
+    #[test]
+    fn the_move_tool_shows_the_layer_at_the_pointer_while_dragging() {
+        let mut s = editor();
+        s.engine.apply(Op::NewLayer { name: "Square".into() }).unwrap();
+        s.engine
+            .apply(Op::DrawShape {
+                shape: Shape::Rect(IRect::new(10, 10, 20, 20)),
+                color: [255, 0, 0, 255],
+            })
+            .unwrap();
+        let _ = s.refresh();
+        let steps = s.engine.history().0.len();
+        s.set_tool(Tool::Move);
+        s.pointer_down(15.0, 15.0, 1.0, NO);
+        let e = s.pointer_move(55.0, 15.0, 1.0, NO);
+        assert!(e.view.is_some(), "the move is drawn while dragging");
+        assert_eq!(active_pixel(&s, 55, 15), [255, 0, 0, 255], "the square follows the pointer");
+        assert_eq!(active_pixel(&s, 15, 15)[3], 0, "and left its old place");
+        assert_eq!(s.buf.rgba(55, 15), [255, 0, 0, 255], "the view shows it there");
+        assert_eq!(s.engine.history().0.len(), steps, "dragging is not a History step yet");
+        // Off the canvas and back: nothing is lost at the edge on the way.
+        s.pointer_move(-385.0, 15.0, 1.0, NO);
+        s.pointer_move(25.0, 15.0, 1.0, NO);
+        assert_eq!(active_pixel(&s, 20, 15), [255, 0, 0, 255]);
+        s.pointer_up(25.0, 15.0, NO);
+        assert_eq!(s.engine.history().0.len(), steps + 1, "one Move step");
+        assert_eq!(s.engine.history().0.last().map(String::as_str), Some("Move"));
+        assert_eq!(active_pixel(&s, 29, 29), [255, 0, 0, 255], "moved by 10 px");
+        assert_eq!(active_pixel(&s, 12, 12)[3], 0);
+    }
+
+    #[test]
+    fn a_pixel_tool_is_unavailable_on_an_adjustment_or_a_locked_layer() {
+        let mut s = editor();
+        assert!(s.tool_available(Tool::Brush));
+        s.engine.apply(Op::NewAdjustment(crate::raster::Adjustment::Invert)).unwrap();
+        for t in [
+            Tool::Brush,
+            Tool::Pencil,
+            Tool::Eraser,
+            Tool::Bucket,
+            Tool::Gradient,
+            Tool::CloneStamp,
+            Tool::Shape,
+            Tool::Move,
+        ] {
+            assert!(!s.tool_available(t), "{t:?} needs a pixel layer");
+        }
+        for t in [Tool::Text, Tool::Hand, Tool::Zoom, Tool::MarqueeRect, Tool::Eyedropper, Tool::Crop] {
+            assert!(s.tool_available(t), "{t:?} works on any layer");
+        }
+        let bg = layer::all_ids(&s.engine.document().layers)[0];
+        s.engine.set_active_layer(bg);
+        s.engine.apply(Op::SetLocked(bg, true)).unwrap();
+        assert!(!s.tool_available(Tool::Brush), "a locked layer takes no paint");
     }
 
     #[test]
