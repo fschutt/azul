@@ -40,7 +40,8 @@ AzReader, lib azreader). Never compile; rustfmt --edition 2021 <file> as the par
    or every ~60 KB; TOC from headings).
 5. MODEL DONE abba9deaa src/library.rs (keys, Format of_name/sniff, BookInfo, BookState +
    toggle_bookmark, entries_from, Shelf, Sort, shown, title_from_file_name, now_secs).
-   LEFT -> src/jobs.rs (NEXT TO WRITE): azul Thread workers on a LocalDrive at the data root
+   DONE b35952861 src/jobs.rs (Job::{Scan, Import, Open, Delete} -> Done, spawn, take_done;
+   scan/import/open/delete on &dyn Drive tested on a temp folder). The plan it followed: azul Thread workers on a LocalDrive at the data root
    (azul_storage::LocalDrive::new(root), like azul_appkit::ui::file_thread) -
    a) ScanLibrary: GetAll prefix BOOKS suffix "info.json" + suffix "state.json" through
       azul_appkit::files::run_jobs, then decode each cover.png (RawImage::decode_image_bytes_any
@@ -54,7 +55,17 @@ AzReader, lib azreader). Never compile; rustfmt --edition 2021 <file> as the par
    d) Chapter{...} lives in paginate.rs (step 3);
    e) SaveState{id, BookState} -> Put state.json (via azul_appkit::ui::spawn_file_jobs is enough).
 6. DONE 96cda63f5 src/settings.rs.
-7. UI: src/ids.rs (const AzString `__azreader_*`), src/app.rs (AppState, Command), src/lib.rs
+7. UI (NEXT). Order: (a) src/ids.rs consts; (b) src/app.rs AppState {kit, data_root, screen
+   Library|Reader, library entries + covers + shelf/sort/query, open book {id, info, state,
+   Arc<Container>, Book, weights}, chapters cache {chapter -> ChapterReady} for the current
+   layout_key, page (index in the current chapter), generation, fonts, window size, pane
+   Toc|Bookmarks|None, notice, about_open} + Command enum + command(app, cmd) RefAny;
+   (c) src/commands.rs run(cmd) + the write-back handlers on_job_done / on_chapter_ready
+   (register images with info.add_image_to_cache(src, image); drop the previous chapter's with
+   remove_image_from_cache); state saves through azul_appkit::ui::spawn_file_jobs Put
+   state.json; (d) src/ui_library.rs; (e) src/ui_reader.rs (page_frame: clip window over
+   paginate::column_dom); (f) src/lib.rs start/layout/on_window_created/on_key/on_resize.
+   Was: src/ids.rs (const AzString `__azreader_*`), src/app.rs (AppState, Command), src/lib.rs
    start/layout/callbacks, library screen (DocumentShell, covers grid; TODO(WIDGETS9A) IconGrid),
    reader screen (DocumentShell: TOC + bookmarks pane, page view of clip windows, status bar
    with progress), keys (arrows / PageUp / PageDown / Space, Mod+D bookmark, Mod+T toc),
