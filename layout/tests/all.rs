@@ -810,3 +810,5 @@ mod a_block_inside_an_inline_splits_the_inline_around_it;
 mod a_border_box_min_width_bounds_the_border_box;
 #[path = "a_fit_content_width_shrinks_to_its_content.rs"]
 mod a_fit_content_width_shrinks_to_its_content;
+#[path = "an_anonymous_table_cell_keeps_its_blocks_margins.rs"]
+mod an_anonymous_table_cell_keeps_its_blocks_margins;
