@@ -6529,3 +6529,63 @@ pub(crate) fn toolbar_look() -> crate::widgets::toolbar::ToolbarLook {
         marker: None,
     }
 }
+
+// ==== token_input ====
+//
+// The flat token input is a flat text field holding the chips: the field's
+// paper in its hairline (the desktop's control background at night - the
+// entry inside it is the text input, which takes that background at night
+// too), the fields' ring blue under the pointer. The entry rings itself on
+// focus (an inset halo: the field cannot until the engine raises
+// `:focus-within`). The suggestions float on the page colour in a hairline
+// with a soft shadow; a suggestion washes to the row-hover blue under the
+// pointer, the highlighted one rests on the selection blue.
+
+/// The flat suggestions' shadow, by day and by night.
+const TOKEN_LIST_SHADOW_LIGHT: ColorU = ColorU::new(0, 0, 0, 40);
+const TOKEN_LIST_SHADOW_DARK: ColorU = ColorU::new(0, 0, 0, 120);
+
+/// Flat's token-input look.
+#[must_use]
+pub(crate) fn token_input_look() -> crate::widgets::token_input::TokenInputLook {
+    use super::decl;
+
+    let mut root = vec![CssPropertyWithConditions::simple(CssProperty::const_font_family(
+        SYSTEM_UI_FAMILY,
+    ))];
+    root.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    let mut field = vec![
+        CssPropertyWithConditions::simple(decl::fill(LIGHT_FLD)),
+        system_palette::DARK_CONTROL_BACKGROUND,
+    ];
+    field.extend(decl::border(1));
+    field.extend(decl::themed_border_color(LIGHT_BD, DARK_BD));
+    field.extend(decl::radius(3));
+    field.extend(decl::padding(2, 4, 2, 4));
+    field.extend(decl::hover_border_color(FIELD_RING, DARK_ACC));
+
+    let mut list = decl::themed_fill(LIGHT_PG, DARK_SUR).to_vec();
+    list.extend(decl::border(1));
+    list.extend(decl::themed_border_color(LIGHT_BD, DARK_BD));
+    list.extend(decl::radius(3));
+    list.extend(decl::padding(2, 0, 2, 0));
+    list.extend(decl::themed_shadow(2, 6, TOKEN_LIST_SHADOW_LIGHT, TOKEN_LIST_SHADOW_DARK));
+
+    let mut option = decl::padding(4, 8, 4, 8).to_vec();
+    option.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    option.extend(decl::hover_fill(LIGHT_ROW_HOVER, DARK_ROW_HOVER));
+
+    let mut option_active = decl::themed_fill(TILE_SELECTED_LIGHT, TILE_SELECTED_DARK).to_vec();
+    option_active.extend(decl::hover_fill(TILE_SELECTED_LIGHT, TILE_SELECTED_DARK));
+
+    crate::widgets::token_input::TokenInputLook {
+        root,
+        field,
+        entry: decl::focus_halo_inset(FIELD_RING, DARK_ACC).to_vec(),
+        list,
+        option,
+        option_active,
+        marker: None,
+    }
+}

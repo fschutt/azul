@@ -8090,3 +8090,54 @@ pub(crate) fn toolbar_look() -> crate::widgets::toolbar::ToolbarLook {
         marker: Some(super::style_kit::FLORA_CLASS),
     }
 }
+
+// ==== token_input ====
+//
+// A flora token input is a flora field holding the chips: field paper
+// (`--fl-fld`) in a `--fl-bd2` hairline with the house radius, the
+// surface at night (the entry inside it is the text input, which takes the
+// surface at night too), the hairline deepening to `--fl-bd3` under the
+// pointer. The entry rings itself on focus in the accent (its glow at
+// night): the field cannot until the engine raises `:focus-within`. The
+// suggestions are a floating leaf (`chrome_leaf`); a suggestion lifts to
+// the hover face under the pointer, the highlighted one rests on the
+// accent's soft wash (the accent at night), as a data table's selected row.
+
+/// Flora's token-input look.
+#[must_use]
+pub(crate) fn token_input_look() -> crate::widgets::token_input::TokenInputLook {
+    use super::decl;
+
+    let mut root = vec![CssPropertyWithConditions::simple(CssProperty::const_font_family(
+        SYSTEM_UI_FAMILY,
+    ))];
+    root.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    let mut field = decl::themed_fill(LIGHT_FLD, DARK_SUR).to_vec();
+    field.extend(decl::border(1));
+    field.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD));
+    field.extend(decl::radius(3));
+    field.extend(decl::padding(2, 4, 2, 4));
+    field.extend(decl::hover_border_color(LIGHT_BD3, DARK_BD3));
+
+    let mut list = decl::border(1).to_vec();
+    chrome_leaf(&mut list);
+    list.extend(decl::padding(2, 0, 2, 0));
+
+    let mut option = decl::padding(4, 8, 4, 8).to_vec();
+    option.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    option.extend(decl::hover_fill(LIGHT_HT, DARK_HT));
+
+    let mut option_active = decl::themed_fill(LIGHT_SOFT, DARK_ACC).to_vec();
+    option_active.extend(decl::hover_fill(LIGHT_SOFT, DARK_ACC));
+
+    crate::widgets::token_input::TokenInputLook {
+        root,
+        field,
+        entry: decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW).to_vec(),
+        list,
+        option,
+        option_active,
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
+}
