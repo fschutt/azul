@@ -30,13 +30,14 @@ Branch `wt/headless6` from base 25d78e309. Brief: scripts/waves/wave6/HEADLESS6.
   taken by the first window -> a forwarded request's window stayed at the 2 s idle poll.
   0adb73655 RED / ea1d8434c GREEN: DebugWakeSeen per window (E2eScratch) + generation counter.
   Live verification (AzCalendar editor via AZ_DEBUG + window_id) still to do when power allows.
+- item 3: f4e39d74c RED / d8b3643e8 GREEN headless menus = child window (desktop::menu::show_menu),
+  ids azul-menu, azul-menu-2...; 5e7689256 RED / 986c8a5ba GREEN `list_windows` op (+ gene2e OP_POLICY row).
+  NOT done: dismiss-on-outside-click for headless menus (close via item click or `close` op with window_id).
 - coordinator (INFRA6 note): runner close protocol. 021331d4c RED / b150ef6ba GREEN
   (runner.rs close_unconfirmed + confirm_app_close + run_frame extracted; tests mod close_protocol_tests).
 
 ## IN PROGRESS
-- item 3: headless menus. Next: read show_menu_from_callback in headless/mod.rs and how other backends
-  show a context menu (common/transient.rs? menu window via WindowCreateOptions + menu DOM?), decide
-  the design (a real menu window = child HeadlessWindow the debug server can address by window_id).
+- corpus C..G: code reading (no probe runs while on battery). Then the report.
 
 ## NEXT
 - items 3 (headless menus), 4 (window id on LayoutCallbackInfo), 5 (child-window routing).
