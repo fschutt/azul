@@ -16,7 +16,7 @@ use azul_appkit::{
 use azul::{
     css::DarkLightMode,
     dialog::{FileDialog, FileOpenResult},
-    image::{RawImage, RawImageData, TextRasterStyle},
+    image::{RawImageData, TextRasterStyle},
     option::{OptionDarkLightMode, OptionFileTypeList},
     prelude::*,
     widgets::{
@@ -38,16 +38,16 @@ use crate::{
     AppScreen, PhotoApp, Sheet,
 };
 
-/// The Text tool's rasteriser: azul's text raster (`RawImage::from_text`:
-/// shaped by the text engine, rasterised by the CPU glyph path) as straight
-/// RGBA8 rows.
+/// The Text tool's rasteriser: azul's text raster (`CallbackInfo::text_image`
+/// - shaped by the text engine, rasterised by the CPU glyph path, with the
+/// fonts the window already found) as straight RGBA8 rows.
 #[must_use]
-pub fn azul_text(spec: &TextSpec) -> Option<(u32, u32, Vec<u8>)> {
+pub fn azul_text(info: &CallbackInfo, spec: &TextSpec) -> Option<(u32, u32, Vec<u8>)> {
     let [r, g, b, a] = spec.color;
     let style = TextRasterStyle::create(spec.family.as_str(), spec.size, ColorU { r, g, b, a })
         .with_bold(spec.bold)
         .with_italic(spec.italic);
-    let image = RawImage::from_text(spec.text.as_str(), style).into_option()?;
+    let image = info.text_image(spec.text.as_str(), style).into_option()?;
     let (width, height) = (image.width as u32, image.height as u32);
     match image.pixels {
         RawImageData::U8(bytes) => Some((width, height, bytes.as_ref().to_vec())),
@@ -751,7 +751,7 @@ pub extern "C" fn on_text(mut data: RefAny, mut info: CallbackInfo, state: TextI
         return answer(Update::DoNothing);
     };
     let text = state.get_text().as_str().to_string();
-    let mut e = guard.s.set_text(&text, &azul_text);
+    let mut e = guard.s.set_text(&text, &|spec: &TextSpec| azul_text(&info, spec));
     e.dom = false;
     answer(canvas::push_effects(&mut guard, &mut info, e))
 }
@@ -968,7 +968,7 @@ fn set_field(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo, f: F
         Field::Text => {}
     }
     if restyle {
-        e = e.merge(app.s.restyle_text(&azul_text));
+        e = e.merge(app.s.restyle_text(&|spec: &TextSpec| azul_text(&*info, spec)));
     }
     if rebuild {
         e.dom = true;
