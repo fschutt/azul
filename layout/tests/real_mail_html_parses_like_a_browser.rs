@@ -2,7 +2,8 @@
 //!
 //! The mail corpus (`tests/mail_corpus/`, see SOURCES.tsv: Cerberus, Mailgun,
 //! Postmark, a Litmus-style template and the exploration's Gmail / Outlook /
-//! Apple Mail / Thunderbird / receipt / hostile / legacy samples) is HTML as
+//! Apple Mail / Thunderbird / receipt / hostile / legacy samples, AzMail's own
+//! sample newsletter and phishing mail) is HTML as
 //! mail clients send it: unquoted and bare attributes, `<BR>`, `<TABLE>`,
 //! `<p>` and `<li>` without end tags, Outlook's `<o:p>` and conditional
 //! comments. The XML loaders reject most of it (`InvalidQuote` on
@@ -51,6 +52,9 @@ const CORPUS: &[&str] = &[
     "postmark/invoice",
     "postmark/receipt",
     "postmark/welcome",
+    // AzMail's own sample mails (examples/azul-mail/scripts/sample_mail)
+    "azmail/newsletter",
+    "azmail/phishing",
 ];
 
 fn corpus_file(relative: &str) -> String {
