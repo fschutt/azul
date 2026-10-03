@@ -723,6 +723,43 @@ fn the_body_start_tags_close_and_adopt_what_a_browser_does() {
     );
 }
 
+/// 13.2.6.4.18 "in template": a `<template>`'s content stays in it (also in the head), and a
+/// table part in it needs no table (no implied `<tbody>` / `<tr>`).
+#[test]
+fn a_template_keeps_its_content_and_its_table_parts() {
+    check(
+        &[
+            (
+                "<template><td>x</td></template>",
+                "html{head{template{td{\"x\"}}} body}",
+            ),
+            (
+                "<template><div>x</div></template><p>y",
+                "html{head{template{div{\"x\"}}} body{p{\"y\"}}}",
+            ),
+            (
+                "<head></head><template><p>x</template>",
+                "html{head{template{p{\"x\"}}} body}",
+            ),
+            (
+                "<body><template><tr><td>a</td></tr></template>b",
+                "html{head body{template{tr{td{\"a\"}}} \"b\"}}",
+            ),
+            ("<template><col><col></template>", "html{head{template{col col}} body}"),
+            (
+                "<template>a<b>b</b></template>",
+                "html{head{template{\"a\" b{\"b\"}}} body}",
+            ),
+            (
+                "<template><caption>c</caption><tbody><tr><td>x</td></tr></tbody></template>",
+                "html{head{template{caption{\"c\"} tbody{tr{td{\"x\"}}}}} body}",
+            ),
+        ],
+        false,
+        document_of,
+    );
+}
+
 /// Foreign content (13.2.6.5): inside `<svg>` / `<math>` an HTML block (or a `<font>` with
 /// `color`, `face` or `size`) ends the SVG and goes after it; a MathML text element (`<mi>`)
 /// holds HTML.
