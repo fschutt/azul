@@ -26,56 +26,96 @@ pub struct ReadState {
     pub later: BTreeSet<String>,
 }
 
+/// Adds or removes `id`; whether the set changed.
+fn set(marks: &mut BTreeSet<String>, id: &str, on: bool) -> bool {
+    if on {
+        marks.insert(id.to_string())
+    } else {
+        marks.remove(id)
+    }
+}
+
+/// Flips `id`; its new state.
+fn toggle(marks: &mut BTreeSet<String>, id: &str) -> bool {
+    let on = !marks.contains(id);
+    set(marks, id, on);
+    on
+}
+
 impl ReadState {
     #[must_use]
-    pub fn is_read(&self, _id: &str) -> bool {
-        false
+    pub fn is_read(&self, id: &str) -> bool {
+        self.read.contains(id)
     }
 
     /// Marks the article read or unread; whether that changed anything.
-    pub fn set_read(&mut self, _id: &str, _read: bool) -> bool {
-        false
+    pub fn set_read(&mut self, id: &str, read: bool) -> bool {
+        set(&mut self.read, id, read)
     }
 
     #[must_use]
-    pub fn is_starred(&self, _id: &str) -> bool {
-        false
+    pub fn is_starred(&self, id: &str) -> bool {
+        self.starred.contains(id)
     }
 
     /// Stars or unstars the article; its new state.
-    pub fn toggle_starred(&mut self, _id: &str) -> bool {
-        false
+    pub fn toggle_starred(&mut self, id: &str) -> bool {
+        toggle(&mut self.starred, id)
     }
 
     #[must_use]
-    pub fn is_later(&self, _id: &str) -> bool {
-        false
+    pub fn is_later(&self, id: &str) -> bool {
+        self.later.contains(id)
     }
 
     /// Keeps the article for later, or not; its new state.
-    pub fn toggle_later(&mut self, _id: &str) -> bool {
-        false
+    pub fn toggle_later(&mut self, id: &str) -> bool {
+        toggle(&mut self.later, id)
     }
 
     /// Marks every article of `ids` read; how many were unread.
-    pub fn mark_all_read<'a>(&mut self, _ids: impl IntoIterator<Item = &'a str>) -> usize {
-        0
+    pub fn mark_all_read<'a>(&mut self, ids: impl IntoIterator<Item = &'a str>) -> usize {
+        ids.into_iter()
+            .filter(|id| self.read.insert((*id).to_string()))
+            .count()
     }
 
     /// Forgets the read marks of articles that are not in `present` (stars and "later" stay).
-    pub fn prune(&mut self, _present: &BTreeSet<&str>) {}
+    pub fn prune(&mut self, present: &BTreeSet<&str>) {
+        self.read.retain(|id| present.contains(id.as_str()));
+    }
 
     /// The file's text.
     #[must_use]
     pub fn to_json(&self) -> String {
-        String::new()
+        let file = ReadState {
+            format: STATE_FORMAT.to_string(),
+            version: STATE_VERSION,
+            read: self.read.clone(),
+            starred: self.starred.clone(),
+            later: self.later.clone(),
+        };
+        serde_json::to_string_pretty(&file).unwrap_or_default()
     }
 
     /// The marks of a state file, and a problem when it could not be read (then nothing is
-    /// marked).
+    /// marked) or is newer than this AzNews (then what it understands is kept).
     #[must_use]
-    pub fn from_json(_text: &str) -> (ReadState, Option<String>) {
-        (ReadState::default(), None)
+    pub fn from_json(text: &str) -> (ReadState, Option<String>) {
+        match serde_json::from_str::<ReadState>(text) {
+            Ok(state) if state.version > STATE_VERSION => {
+                let problem = format!(
+                    "the marks were written by a newer AzNews (version {}); some may be missing",
+                    state.version
+                );
+                (state, Some(problem))
+            }
+            Ok(state) => (state, None),
+            Err(e) => (
+                ReadState::default(),
+                Some(format!("the marks could not be read: {e}")),
+            ),
+        }
     }
 }
 
@@ -133,7 +173,9 @@ mod tests {
         let (s, problem) = ReadState::from_json("{ \"read\": [1, 2");
         assert_eq!(s.read.len(), 0);
         assert!(problem.is_some());
-        let (s, problem) = ReadState::from_json("{\"format\": \"aznews.state\", \"version\": 9, \"read\": [\"a\"]}");
+        let (s, problem) = ReadState::from_json(
+            "{\"format\": \"aznews.state\", \"version\": 9, \"read\": [\"a\"]}",
+        );
         assert!(problem.is_some(), "a newer version is reported");
         assert!(s.is_read("a"), "what it understands is still read");
     }

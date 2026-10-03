@@ -36,17 +36,118 @@ pub const FOLDER_SEPARATOR: &str = " / ";
 ///
 /// # Errors
 /// A sentence for the user when the file is no OPML.
-pub fn parse(_bytes: &[u8]) -> Result<Vec<Subscription>, String> {
-    let _unused: Option<(&Element, xmltree::Document)> = None;
-    Err("RED".to_string())
+pub fn parse(bytes: &[u8]) -> Result<Vec<Subscription>, String> {
+    let document = xmltree::parse(&xmltree::decode(bytes, ""));
+    let root = document
+        .root
+        .as_ref()
+        .filter(|r| r.local_name().eq_ignore_ascii_case("opml"))
+        .ok_or_else(|| "this is not an OPML file".to_string())?;
+    let body = root
+        .elements()
+        .find(|e| e.local_name().eq_ignore_ascii_case("body"))
+        .unwrap_or(root);
+    let mut out: Vec<Subscription> = Vec::new();
+    outlines(body, &mut Vec::new(), &mut out, 0);
+    Ok(out)
+}
+
+/// Folders nested deeper than this are not read.
+const MAX_DEPTH: usize = 32;
+
+/// The feeds among `parent`'s outlines (and in its folders), each address once.
+fn outlines(parent: &Element, path: &mut Vec<String>, out: &mut Vec<Subscription>, depth: usize) {
+    if depth > MAX_DEPTH {
+        return;
+    }
+    for outline in parent
+        .elements()
+        .filter(|e| e.local_name().eq_ignore_ascii_case("outline"))
+    {
+        let attr = |name: &str| outline.attr(name).map(str::trim).unwrap_or("").to_string();
+        let name = Some(attr("text"))
+            .filter(|t| !t.is_empty())
+            .unwrap_or_else(|| attr("title"));
+        let url = attr("xmlUrl");
+        if url.is_empty() {
+            // A folder (or an outline that is neither): its outlines, one level deeper.
+            let named = !name.is_empty();
+            if named {
+                path.push(name);
+            }
+            outlines(outline, path, out, depth + 1);
+            if named {
+                path.pop();
+            }
+            continue;
+        }
+        if !out.iter().any(|s| s.url == url) {
+            out.push(Subscription {
+                id: attr("azId"),
+                title: if name.is_empty() { url.clone() } else { name },
+                site: attr("htmlUrl"),
+                folder: path.join(FOLDER_SEPARATOR),
+                url,
+            });
+        }
+        // A feed outline with outlines inside (rare): read them in the same folder.
+        outlines(outline, path, out, depth + 1);
+    }
+}
+
+/// `text` as an attribute value, by azul's one encoder.
+fn attribute(text: &str) -> String {
+    Xml::encode_attribute(text).as_str().to_string()
+}
+
+/// One feed's outline.
+fn feed_outline(s: &Subscription, indent: &str) -> String {
+    let mut line = format!(
+        "{indent}<outline type=\"rss\" text=\"{t}\" title=\"{t}\" xmlUrl=\"{u}\"",
+        t = attribute(&s.title),
+        u = attribute(&s.url)
+    );
+    if !s.site.is_empty() {
+        line.push_str(&format!(" htmlUrl=\"{}\"", attribute(&s.site)));
+    }
+    if !s.id.is_empty() {
+        line.push_str(&format!(" azId=\"{}\"", attribute(&s.id)));
+    }
+    line.push_str("/>\n");
+    line
 }
 
 /// The subscriptions as an OPML 2.0 file named `title`: the feeds without a folder first, then
 /// each folder (in the order its first feed comes) with its feeds.
 #[must_use]
-pub fn write(_subscriptions: &[Subscription], _title: &str) -> String {
-    let _encoder: Option<Xml> = None;
-    String::new()
+pub fn write(subscriptions: &[Subscription], title: &str) -> String {
+    let mut out =
+        String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<opml version=\"2.0\">\n");
+    out.push_str(&format!(
+        "  <head>\n    <title>{}</title>\n  </head>\n  <body>\n",
+        Xml::encode_text(title).as_str()
+    ));
+    for s in subscriptions.iter().filter(|s| s.folder.is_empty()) {
+        out.push_str(&feed_outline(s, "    "));
+    }
+    let mut folders: Vec<&str> = Vec::new();
+    for s in subscriptions {
+        if !s.folder.is_empty() && !folders.contains(&s.folder.as_str()) {
+            folders.push(&s.folder);
+        }
+    }
+    for folder in folders {
+        out.push_str(&format!(
+            "    <outline text=\"{f}\" title=\"{f}\">\n",
+            f = attribute(folder)
+        ));
+        for s in subscriptions.iter().filter(|s| s.folder == folder) {
+            out.push_str(&feed_outline(s, "      "));
+        }
+        out.push_str("    </outline>\n");
+    }
+    out.push_str("  </body>\n</opml>\n");
+    out
 }
 
 #[cfg(test)]
@@ -67,23 +168,50 @@ mod tests {
     fn an_opml_file_round_trips_its_folders_and_feeds() {
         let subs = vec![
             sub("id-1", "Example Weekly", "https://example.org/feed/", ""),
-            sub("id-2", "Rust Blog", "https://blog.rust.example/feed.xml", "Tech"),
+            sub(
+                "id-2",
+                "Rust Blog",
+                "https://blog.rust.example/feed.xml",
+                "Tech",
+            ),
             sub("id-3", "LWN", "https://lwn.example.org/rss", "Tech"),
-            sub("id-4", "Bread & Butter", "https://bread.example.net/atom.xml", "Cooking"),
+            sub(
+                "id-4",
+                "Bread & Butter",
+                "https://bread.example.net/atom.xml",
+                "Cooking",
+            ),
         ];
         let text = write(&subs, "AzNews subscriptions");
-        assert!(text.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"), "{text}");
+        assert!(
+            text.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"),
+            "{text}"
+        );
         assert!(text.contains("<opml version=\"2.0\">"), "{text}");
-        assert!(text.contains("<title>AzNews subscriptions</title>"), "{text}");
+        assert!(
+            text.contains("<title>AzNews subscriptions</title>"),
+            "{text}"
+        );
         assert_eq!(parse(text.as_bytes()).expect("its own file"), subs);
     }
 
     #[test]
     fn titles_and_addresses_are_escaped() {
-        let subs = vec![sub("x", "Tom & \"Jerry\" <3", "https://example.org/?a=1&b=2", "Fun & games")];
+        let subs = vec![sub(
+            "x",
+            "Tom & \"Jerry\" <3",
+            "https://example.org/?a=1&b=2",
+            "Fun & games",
+        )];
         let text = write(&subs, "T & T");
-        assert!(text.contains("text=\"Tom &amp; &quot;Jerry&quot; &lt;3\""), "{text}");
-        assert!(text.contains("xmlUrl=\"https://example.org/?a=1&amp;b=2\""), "{text}");
+        assert!(
+            text.contains("text=\"Tom &amp; &quot;Jerry&quot; &lt;3\""),
+            "{text}"
+        );
+        assert!(
+            text.contains("xmlUrl=\"https://example.org/?a=1&amp;b=2\""),
+            "{text}"
+        );
         assert!(text.contains("<title>T &amp; T</title>"), "{text}");
         assert_eq!(parse(text.as_bytes()).expect("its own file"), subs);
     }
@@ -117,7 +245,14 @@ mod tests {
             </body>";
         let subs = parse(opml).expect("a lenient read");
         let titles: Vec<&str> = subs.iter().map(|s| s.title.as_str()).collect();
-        assert_eq!(titles, vec!["Local News & Weather", "No title given", "https://bare.example.org/feed"]);
+        assert_eq!(
+            titles,
+            vec![
+                "Local News & Weather",
+                "No title given",
+                "https://bare.example.org/feed"
+            ]
+        );
         assert_eq!(subs[1].url, "https://quiet.example.org/feed", "trimmed");
     }
 
@@ -125,6 +260,9 @@ mod tests {
     fn what_is_not_opml_is_refused() {
         assert!(parse(b"<rss version=\"2.0\"><channel/></rss>").is_err());
         assert!(parse(b"just text").is_err());
-        assert_eq!(parse(b"<opml version=\"2.0\"><head/><body/></opml>"), Ok(Vec::new()));
+        assert_eq!(
+            parse(b"<opml version=\"2.0\"><head/><body/></opml>"),
+            Ok(Vec::new())
+        );
     }
 }
