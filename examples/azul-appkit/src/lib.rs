@@ -2,6 +2,8 @@
 //!
 //! - [`args`]: the switches every app understands (`--screen`, `--size`,
 //!   `--theme`, `--mode`, `--shot`, `--sample`, `--data-dir`).
+//! - [`css`]: style sheets from outside the app (a book's, a mail's) read
+//!   rule by rule, for the app's own policy of what to keep.
 //! - [`data`]: the per-user data layout - one folder per app under the data
 //!   root, keyed as the user's S3 bucket will be.
 //! - [`settings`]: `<app>/settings.json` (app theme, mode, the app's values).

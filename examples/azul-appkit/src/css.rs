@@ -30,22 +30,86 @@ pub enum CssItem<'a> {
 /// `<!--` / `-->` an HTML `<style>` may wrap it in.
 #[must_use]
 pub fn strip_comments(css: &str) -> String {
-    unimplemented!("RED: strip_comments {css}")
+    let mut plain = String::with_capacity(css.len());
+    let mut rest = css;
+    while let Some(at) = rest.find("/*") {
+        plain.push_str(&rest[..at]);
+        let after = &rest[at + 2..];
+        rest = match after.find("*/") {
+            Some(end) => &after[end + 2..],
+            None => "",
+        };
+    }
+    plain.push_str(rest);
+    plain.replace("<!--", " ").replace("-->", " ")
 }
 
 /// The inside of the block that starts at `s` (its `{`) and what follows its matching `}`; an
 /// unclosed block runs to the end.
 #[must_use]
 pub fn block_body(s: &str) -> (&str, &str) {
-    unimplemented!("RED: block_body {s}")
+    let mut depth = 0_usize;
+    for (at, c) in s.char_indices() {
+        match c {
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return (&s[1..at], &s[at + 1..]);
+                }
+            }
+            _ => {}
+        }
+    }
+    (s.get(1..).unwrap_or(""), "")
 }
 
 /// The items of a sheet (comments already stripped - [`strip_comments`]), in order, each
 /// handed to `visit`. A statement at-rule ends at its `;`, a block at-rule at its block; text
 /// after the last block that opens none is dropped.
 pub fn for_each_item<'a>(css: &'a str, visit: &mut dyn FnMut(CssItem<'a>)) {
-    let _ = visit;
-    unimplemented!("RED: for_each_item {css}")
+    let mut rest = css.trim_start();
+    while !rest.is_empty() {
+        let brace = rest.find('{');
+        if let Some(at_rule) = rest.strip_prefix('@') {
+            let name_len = at_rule
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-'))
+                .unwrap_or(at_rule.len());
+            let name = at_rule[..name_len].to_ascii_lowercase();
+            match (rest.find(';'), brace) {
+                (Some(semi), None) => {
+                    visit(CssItem::AtStatement { name });
+                    rest = rest[semi + 1..].trim_start();
+                }
+                (Some(semi), Some(b)) if semi < b => {
+                    visit(CssItem::AtStatement { name });
+                    rest = rest[semi + 1..].trim_start();
+                }
+                (_, Some(b)) => {
+                    let condition = rest[1 + name_len..b].trim();
+                    let (body, after) = block_body(&rest[b..]);
+                    visit(CssItem::AtBlock {
+                        name,
+                        condition,
+                        body,
+                    });
+                    rest = after.trim_start();
+                }
+                (None, None) => break,
+            }
+            continue;
+        }
+        let Some(b) = brace else {
+            break;
+        };
+        let selectors = rest[..b].trim();
+        let (body, after) = block_body(&rest[b..]);
+        visit(CssItem::Rule {
+            selectors,
+            declarations: parse_declarations(body),
+        });
+        rest = after.trim_start();
+    }
 }
 
 /// The declarations of a block or a `style` attribute: `(property, value)` with the property
@@ -54,7 +118,39 @@ pub fn for_each_item<'a>(css: &'a str, visit: &mut dyn FnMut(CssItem<'a>)) {
 /// (`content: ";"`, `url(a;b)`) do not end a declaration.
 #[must_use]
 pub fn parse_declarations(block: &str) -> Vec<(String, String)> {
-    unimplemented!("RED: parse_declarations {block}")
+    // Split at the semicolons outside quotes and parentheses.
+    let mut parts: Vec<&str> = Vec::new();
+    let mut quote: Option<char> = None;
+    let mut parens = 0_usize;
+    let mut start = 0;
+    for (at, c) in block.char_indices() {
+        match (quote, c) {
+            (Some(q), _) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '(') => parens += 1,
+            (None, ')') => parens = parens.saturating_sub(1),
+            (None, ';') if parens == 0 => {
+                parts.push(&block[start..at]);
+                start = at + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&block[start..]);
+    parts
+        .into_iter()
+        .filter_map(|declaration| {
+            let (property, value) = declaration.split_once(':')?;
+            let property = property.trim().to_ascii_lowercase();
+            let mut value = value.trim().to_string();
+            if let Some(at) = value.to_ascii_lowercase().find("!important") {
+                value.truncate(at);
+                value = value.trim().to_string();
+            }
+            (!property.is_empty() && !value.is_empty()).then_some((property, value))
+        })
+        .collect()
 }
 
 /// Whether a value names nothing to fetch or run and cannot reach out of its declaration: no
@@ -62,7 +158,27 @@ pub fn parse_declarations(block: &str) -> Vec<(String, String)> {
 /// escapes, markup, comments, `;`, braces or control characters.
 #[must_use]
 pub fn safe_value(value: &str) -> bool {
-    unimplemented!("RED: safe_value {value}")
+    let lower = value.to_ascii_lowercase();
+    ![
+        "url(",
+        "url (",
+        "expression",
+        "javascript:",
+        "@import",
+        "\\",
+        "<",
+        ">",
+        "/*",
+        "behavior",
+        "-moz-binding",
+        "image-set",
+        ";",
+        "{",
+        "}",
+    ]
+    .iter()
+    .any(|bad| lower.contains(bad))
+        && !value.chars().any(char::is_control)
 }
 
 #[cfg(test)]
