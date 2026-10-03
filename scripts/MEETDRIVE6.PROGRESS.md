@@ -7,7 +7,25 @@ scratchpad/msg.txt).
 
 ## DONE
 - 7e7d5b8b4 progress file
-- (this commit) azdrive_e2e.py step 2 double-clicks the drive tile's icon, not its centre
+- d9cad7751 azdrive_e2e.py step 2 double-clicks the drive tile's icon, not its centre
+- 1f87aee56 AzDrive ids.rs (`__azdrive_` + snake_case, const AzString via from_const_str =
+  SMALL6's codegen 182655027); d97fdc43d ui_view, 14b234103 ui_panes, bef413cd9 ui_dialogs
+  switched; 1bf7dc449 azdrive_e2e.py C()/I() helpers (detects old/new naming); 8596e1fd4 browse.py
+
+## AzDrive plan (in order; each unit RED first where it is behaviour)
+1. DONE prefix
+2. `.azlin/` never listed (model/browse filter) + an "Azlin" built-in drive at the data root
+3. appkit: args (AppArgs + `--layout` split off), data root, settings file under
+   `<data root>/drive/settings.json` with theme + mode remembered, About via AboutDialog,
+   shortcuts table (appkit Shortcut list = the keys.rs table)
+4. MessageBox for ConfirmDelete / ConfirmForget (D12), ProgressDialog for transfers
+5. ListSelection instead of model::Selection (D20)
+6. dedup: format_size -> DiskSpace::format_bytes (D24), now_secs -> azul_storage::time (D23),
+   dead browse::{up, crumbs, upload_key} (N6), ribbon helpers -> with_items (D9)
+7. LOOK fixes: "1 drives", Quick access (0) row, nav pane column, disabled ribbon text
+## AzMeet plan
+1. ids `__azmeet_`; 2. initials via azul_pim; 3. settings + theme/mode via a Drive on a Thread in
+`<data root>/meet/`; 4. per-meeting folder `meet/<meeting>/chat.jsonl`; 5. E2E nested-runner fix
 
 ## IN PROGRESS
 - LOOK (paused: battery warning - no long headless runs until told otherwise)
