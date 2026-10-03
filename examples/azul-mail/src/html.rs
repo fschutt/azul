@@ -56,6 +56,10 @@ pub struct Sanitized {
     /// The web pictures kept as `<img src>` ([`sanitize_with`] with pictures on), each once,
     /// in order: what the app downloads and registers under its address.
     pub remote_images: Vec<String>,
+    /// The prefix this mail's own classes carry (`class="big"` becomes `class="<prefix>big"`,
+    /// and its sheet's `.big` the same): one per message, the same with pictures on or off,
+    /// never starting with the app's `__azmail_`.
+    pub class_prefix: String,
 }
 
 /// See the module documentation.
@@ -441,6 +445,7 @@ impl Sanitizer {
             blocked_images: self.blocked_images,
             has_dark_rules: self.has_dark_rules,
             remote_images: self.remote_images,
+            class_prefix: String::new(),
         }
     }
 }
@@ -812,7 +817,7 @@ mod tests {
     use super::*;
 
     /// Every result's body is the mail on its PAPER (the sheet it is read on).
-    const PAPER: &str = "<body><div class=\"azmail-paper\">";
+    const PAPER: &str = "<body><div class=\"__azmail_paper\">";
     const TAIL: &str = "</div></body></html>";
 
     /// The sanitized body, without the wrapper every result has.
@@ -846,14 +851,14 @@ mod tests {
         assert!(!s.has_dark_rules);
         let css = style_sheet(&s);
         assert!(
-            css.contains(".azmail-paper { background-color: #ffffff; color: #1a1a1a;"),
+            css.contains(".__azmail_paper { background-color: #ffffff; color: #1a1a1a;"),
             "{css}"
         );
         assert!(
             !css.contains("prefers-color-scheme"),
             "nothing follows the mode: {css}"
         );
-        assert!(css.contains(".azmail-paper a { color: #0b57d0; }"), "{css}");
+        assert!(css.contains(".__azmail_paper a { color: #0b57d0; }"), "{css}");
         assert_eq!(
             inner("<p>Hi</p>"),
             "<p>Hi</p>",
@@ -874,24 +879,25 @@ mod tests {
         assert!(s.has_dark_rules);
         let css = style_sheet(&s);
         assert!(
-            css.contains(".azmail-paper { background-color: #ffffff; color: #1a1a1a;"),
+            css.contains(".__azmail_paper { background-color: #ffffff; color: #1a1a1a;"),
             "the light mode's paper: {css}"
         );
         assert!(
             css.contains(
-                "@media (prefers-color-scheme: dark) { .azmail-paper { background-color: \
+                "@media (prefers-color-scheme: dark) { .__azmail_paper { background-color: \
                  #1e1e1e; color: #e8e8e8; } }"
             ),
             "the dark mode's paper: {css}"
         );
+        let x = format!("{}x", s.class_prefix);
         assert!(
-            css.contains(
-                "@media (prefers-color-scheme: dark) { .azmail-paper .x { color: #eeeeee; } }"
-            ),
+            css.contains(&format!(
+                "@media (prefers-color-scheme: dark) {{ .__azmail_paper .{x} {{ color: #eeeeee; }} }}"
+            )),
             "the mail's own dark rule: {css}"
         );
         assert!(
-            !css.contains(".azmail-paper a { color"),
+            !css.contains(".__azmail_paper a { color"),
             "links take the UA's colour of the mode the paper is in: {css}"
         );
     }
@@ -937,10 +943,13 @@ mod tests {
             assert!(!css.contains(gone), "{gone} is gone: {css}");
         }
         assert!(
-            css.contains(".azmail-paper { margin: 0; background-color: #f4f4f4; }"),
+            css.contains(".__azmail_paper { margin: 0; background-color: #f4f4f4; }"),
             "the mail's body is the paper: {css}"
         );
-        assert!(css.contains(".azmail-paper .b { color: red; }"), "{css}");
+        assert!(
+            css.contains(&format!(".__azmail_paper .{}b {{ color: red; }}", s.class_prefix)),
+            "{css}"
+        );
         assert_eq!(inner("<style>p { color: red }</style>ok"), "ok");
     }
 
@@ -1013,9 +1022,11 @@ mod tests {
 
     #[test]
     fn only_safe_attributes_stay() {
+        let html = "<div onclick=\"steal()\" class=big id=a title='t'>x</div>";
         assert_eq!(
-            inner("<div onclick=\"steal()\" class=big id=a title='t'>x</div>"),
-            "<div>x</div>"
+            inner(html),
+            format!("<div class=\"{}big\">x</div>", sanitize(html).class_prefix),
+            "the class stays behind the mail's prefix, the handler, id and title go"
         );
         assert_eq!(
             inner("<a href=\"https://example.org/?a=1&b=2\">l</a>"),
@@ -1230,6 +1241,73 @@ mod tests {
             "looserow",
             "a cell or a row outside any table is ignored, its content stays"
         );
+    }
+
+    /// A mail's own classes stay, behind a prefix of the message's own, and its sheet's class
+    /// selectors are renamed to match (user ruling 2026-10-02): the mail's CSS applies as its
+    /// author wrote it - where the classes went and their rules matched nothing - and can
+    /// never reach the app's `__azmail_` classes, not even one the mail names itself. A class
+    /// a selector could not name without an escape goes; attribute selectors stay as written.
+    #[test]
+    fn a_mails_classes_stay_behind_its_own_prefix_and_its_rules_follow_them() {
+        let s = sanitize(
+            "<style>.big { color: red } p.MsoNormal, .a .b:not(.c) { margin: 0 } \
+             a[href$=\".pdf\"] { color: blue } .__azmail_paper { color: #ff0000 }</style>\
+             <p class=\"MsoNormal big\">t</p><div class=\" a  __azmail_paper md:flex \">x</div>\
+             <font class=f color=red>y</font><span class=\"\">z</span>",
+        );
+        let p = s.class_prefix.as_str();
+        assert!(!p.is_empty(), "{}", s.xhtml);
+        assert!(!p.starts_with("__azmail_"), "{p}");
+        assert!(
+            s.xhtml.contains(&format!("<p class=\"{p}MsoNormal {p}big\">t</p>")),
+            "{}",
+            s.xhtml
+        );
+        assert!(
+            s.xhtml.contains(&format!("<div class=\"{p}a {p}__azmail_paper\">x</div>")),
+            "the mail's own `__azmail_paper` is renamed too, `md:flex` goes: {}",
+            s.xhtml
+        );
+        assert!(
+            s.xhtml.contains(&format!("<span class=\"{p}f\" style=\"color: red\">y</span>")),
+            "a renamed element keeps its classes: {}",
+            s.xhtml
+        );
+        assert!(s.xhtml.contains("<span>z</span>"), "no empty class: {}", s.xhtml);
+        let css = style_sheet(&s);
+        assert!(css.contains(&format!(".__azmail_paper .{p}big {{ color: red; }}")), "{css}");
+        assert!(
+            css.contains(&format!(
+                ".__azmail_paper p.{p}MsoNormal, .__azmail_paper .{p}a .{p}b:not(.{p}c) {{ \
+                 margin: 0; }}"
+            )),
+            "{css}"
+        );
+        assert!(
+            css.contains(".__azmail_paper a[href$=\".pdf\"] { color: blue; }"),
+            "a dot in an attribute selector is no class: {css}"
+        );
+        assert!(
+            css.contains(&format!(".__azmail_paper .{p}__azmail_paper {{ color: #ff0000; }}")),
+            "the mail's rule for the app's class names the mail's own: {css}"
+        );
+        assert!(
+            !css.contains(".__azmail_paper { color: #ff0000"),
+            "nothing of the mail reaches the paper's class: {css}"
+        );
+    }
+
+    /// The prefix is the message's: two mails differ, and the same mail keeps its prefix when
+    /// it is sanitized again with its pictures on (the sheet and the markup are rebuilt
+    /// together, so they always agree).
+    #[test]
+    fn every_mail_has_its_own_class_prefix() {
+        let a = "<p class=x>a</p>";
+        let b = "<p class=x>b</p>";
+        assert_ne!(sanitize(a).class_prefix, sanitize(b).class_prefix);
+        assert_eq!(sanitize(a).class_prefix, sanitize_with(a, true).class_prefix);
+        assert_eq!(sanitize(a).class_prefix, sanitize(a).class_prefix);
     }
 
     #[test]
