@@ -100,6 +100,82 @@ if clear, with tests that run without a compositor. Report: scripts/WAYLAND8_202
   fallocate PUNCH_HOLE|KEEP_SIZE), recreate_slot, release_idle_spare; create_slot_buffer (one constructor);
   next_writable_slot delegates to plan_slot; wait_for_events idle hook + poll timeout cap.
 
+## DONE (B, X11 MIT-SHM) - all committed
+- x11_host.rs (common, tested on every build): display_is_local, x11_upload/PutImageWhy, shm_segment_reusable,
+  ShmPending (RED + GREEN). defines.rs XShm types; dlopen.rs `XShm` from libXext; x11/shm.rs X11ShmUpload
+  (probe, create_segment with error trap + XSync + IPC_RMID, upload via copy_rgba_rects_into + XShmPutImage per
+  rect, last with send_event, XSync when pending, destroy); x11/mod.rs fields shm_upload/shm_probed, completion
+  dispatch at the top of handle_event, Drop detaches, present uses MIT-SHM first, XPutImage loop as fallback.
+
+## IN PROGRESS
+- report scripts/WAYLAND8_2026_10_03.md sections 2-10
+
+## NEXT
+- final self-review of the whole branch diff against 45c6bf98b (read every hunk once for compile risks)
+
+## Decisions
+- D1: the clear client win = memfd with MFD_ALLOW_SEALING + F_SEAL_SHRINK|F_SEAL_SEAL, every slot's offset and
+  size page-aligned (slot_bytes = align_up(stride*h, page), pool = 2*slot_bytes). Zero renderer impact.
+- D2: stride stays TIGHT (w*4): the renderer draws directly into the slot and AzulPixmap has no row pitch.
+  Widths with w*4 % 256 == 0 (w % 64 == 0: 1280/1920/2560/3840...) then get KWin's zero-copy path; others get a
+  udmabuf whose EGL import may refuse the pitch (driver rule) -> KWin's old copy, no regression. Padding the
+  pitch = plan item (needs a row-pitch in AzulPixmap) - not done here.
+- D3: ONE helper for the shm file (new wayland/shm.rs), used by the window pool, the tooltip and screencopy
+  (NO DUPLICATION rule) - the three copies are twins today.
+- D4: tests live in wayland/shm.rs (#[cfg(test)]): pure layout math + a real memfd seal check; Linux-only
+  module => they run on Linux CI without a compositor; the Mac build does not compile them.
+
+- step 4 commits: RED shm.rs + tests (`test(wayland8): RED ...`), GREEN pool_layout page-aligned,
+  GREEN create_shm_file sealed memfd (safe fn). `mod shm;` registered in wayland/mod.rs.
+
+- step 4b DONE: CpuFallbackState::new uses shm::create_shm_file + shm::pool_layout (+ udmabuf/pitch256 trace,
+  legacy copy dst_stride = cpu_state.stride). tooltip.rs uses the helper (CString import dropped).
+
+## COORDINATOR ASKS (2026-10-03, mid-task) - in force
+1. stride padded to a multiple of 256 bytes, every slot page-aligned; EVERYTHING that indexes rows uses the
+   padded stride (renderer draws into the slot! AzulPixmap::from_external is tight -> needs a row pitch:
+   layout/src/cpurender/pixmap.rs AzulPixmap + every `row * width * 4` site, or render into a pitch-aware view).
+2. drop the spare slot when idle (~1 s without frames: destroy its wl_buffer, punch the memory out
+   (fallocate PUNCH_HOLE / madvise REMOVE) or one memfd per slot) and re-create it on demand when the next frame
+   finds the remaining slot still held -> an idle window holds ONE buffer. Test-first (pure state machine).
+3. note the ARGB8888-only swizzle path's extra pass in the report.
+4. X11 in the report: CPU path = plain XPutImage (pixels through the socket + server copy) -> MIT-SHM plan
+   (XShmPutImage, shared segment, fallback when the extension is missing / remote display), bytes per frame
+   before/after. Implementing MIT-SHM optional (X11 files are mine for this).
+
+## USER DECISION (via coordinator, 2026-10-03) - IMPLEMENT BOTH
+(a) Wayland: 256-byte stride + page-aligned slots; idle spare-slot drop + on-demand re-creation; everything that
+    indexes rows uses the padded stride. (b) X11 MIT-SHM is NOT optional: XShmQueryExtension / XShmCreateImage /
+    XShmAttach / XShmPutImage per damaged rect, segment sized to the window, re-created on resize, wait for
+    XShmCompletionEvent before reusing (or double-buffer), fall back to XPutImage when the extension is missing,
+    the display is remote, or attach fails. libXext dlopen'd like the other X libs. RED tests first for:
+    stride/offset math, slot lifecycle state machine, the X11 fallback decision, the damage-rect copy.
+
+## DONE (since)
+- screencopy.rs memfd twin removed (uses shm::create_shm_file); report skeleton committed (section 1 filled).
+
+## DESIGN NOTES for the padded pitch (read before coding)
+- render_frame (dll/src/desktop/shell2/headless/mod.rs ~1101) refuses a native target whose dims != frame dims.
+  Plan: new CpuBackend field `native_target_row_padding_px: u32` (set at EVERY arming, 0 on macOS/Windows);
+  render_frame accepts `ext.width() == pixel_w + padding`. AzulPixmap's width IS its pitch, so a pixmap of
+  stride/4 px wide over the slot draws the frame in columns [0, pixel_w) and the padding is never presented.
+  Full renders `fill` the padding too (harmless). Wayland arming: from_external(ptr, stride/4, h).
+- Fix every linear copy that assumed tight rows: popup render_if_ready (copies pixmap linearly into the slot),
+  tooltip blit_pixmap (stride = width*4).
+
+## DONE (A1, padded pitch) - all committed
+- shm.rs RED/GREEN pitch = align_up(w*4, 256) (+ pitch_px / padding_px); headless/mod.rs: field
+  `native_target_row_padding_px` + RED test `a_row_padded_native_target_holds_the_owned_frame_in_every_row` +
+  GREEN render_frame accepts target_w = pixel_w + padding; Wayland arming uses pitch_px + padding;
+  `copy_rgba_rects_into` (headless/mod.rs, RED tests + GREEN) = the one pitched damage-rect upload, used by the
+  Wayland legacy present, the popup copy (was linear!), the tooltip blit (new `stride` field).
+
+## DONE (A2, idle spare) - all committed
+- shm.rs plan_slot / idle_spare (RED + GREEN, SPARE_IDLE_RELEASE = 1 s); mod.rs: ShmSlot.released,
+  CpuFallbackState.slot_bytes / last_attach, acquire_slot via plan_slot, release_slot (wl_buffer_destroy +
+  fallocate PUNCH_HOLE|KEEP_SIZE), recreate_slot, release_idle_spare; create_slot_buffer (one constructor);
+  next_writable_slot delegates to plan_slot; wait_for_events idle hook + poll timeout cap.
+
 ## IN PROGRESS
 - B X11 MIT-SHM: read x11/mod.rs CPU present (~6996 XPutImage loop), x11/dlopen.rs Xext (~583), defines.rs
 
