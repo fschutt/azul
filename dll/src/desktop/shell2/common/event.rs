@@ -4335,6 +4335,12 @@ pub trait PlatformWindow {
     /// sat on its start value and a switch froze after its first toggle.
     fn arm_css_animation_timer_if_needed(&mut self) {
         use azul_core::task::CSS_ANIMATION_TIMER_ID;
+        // A scripted E2E run owns the animation clock: its animations move
+        // only with the scenario's `tick_animations`, never on the wall clock
+        // between two ops (`CommonWindowState::scripted_animation_clock`).
+        if self.get_common_mut().scripted_animation_clock {
+            return;
+        }
         // Which animations can be seen NOW: the pass that just ran may have
         // scrolled one back into view (its next tick must step it) or
         // minimized the window. A culled animation arms nothing.
@@ -4364,6 +4370,12 @@ pub trait PlatformWindow {
     /// this frame).
     fn advance_css_animations_now(&mut self) -> ProcessEventResult {
         use azul_core::task::CSS_ANIMATION_TIMER_ID;
+        // Never armed under a scripted run (see
+        // `arm_css_animation_timer_if_needed`); a driver that was, steps
+        // nothing - the scenario owns the clock.
+        if self.get_common_mut().scripted_animation_clock {
+            return ProcessEventResult::DoNothing;
+        }
         let window_can_show = self.window_can_show();
         let (had_work, dt) = {
             let Some(lw) = self.get_layout_window_mut() else {
