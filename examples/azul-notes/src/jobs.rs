@@ -165,10 +165,10 @@ pub extern "C" fn on_close_requested(mut data: RefAny, mut info: CallbackInfo) -
         // same is clean now): the close goes ahead.
         return Update::DoNothing;
     }
-    let mut window = info.get_current_window_state();
-    window.flags.close_requested = false;
-    info.modify_window_state(window);
+    // The veto of the close (every backend honours it); the last save's
+    // answer closes the window.
     state.closing = true;
+    info.prevent_window_close();
     Update::RefreshDom
 }
 
