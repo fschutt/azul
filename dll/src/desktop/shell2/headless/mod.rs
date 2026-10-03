@@ -12066,6 +12066,10 @@ mod tests {
     // this backend (`tests/e2e_host.rs`, HEADLESS6).
     mod e2e_host;
 
+    // A native command runs as the keystroke it stands for
+    // (`tests/shortcut_keys.rs`, EVENTS7).
+    mod shortcut_keys;
+
     // --- Video tiles: a new frame is an image CONTENT update ---------------
     //
     // A camera / decoder frame reaches its tile as `ChangeNodeImage` (the

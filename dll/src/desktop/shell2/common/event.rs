@@ -4221,6 +4221,18 @@ pub trait PlatformWindow {
         self.set_previous_window_state(previous);
     }
 
+    /// The keystroke a native command stands for, pressed and released
+    /// through the ordinary key passes (EVENTS7).
+    fn press_shortcut_keys(
+        &mut self,
+        keys: &[azul_core::window::VirtualKeyCode],
+        site: &str,
+    ) -> ProcessEventResult {
+        // RED stub: presses nothing.
+        let _ = (keys, site);
+        ProcessEventResult::DoNothing
+    }
+
     // Resource Access
 
     /// Get mutable access to renderer resources
