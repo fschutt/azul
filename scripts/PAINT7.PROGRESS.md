@@ -62,10 +62,8 @@ Commit messages are written to scripts/.paint7_msg.txt (untracked, never staged)
     IN PLACE (scroll / opacity / transform; blur stays a layer - note in report).
 
 ## NEXT
-- items 1-7 done. Verified on prebuilt binaries with wait_settled: AzShow sorter / VIEW tab settled
-  right (SHEETSHOW6's shots were mid-slide); AzDrive clean when settled between steps, broken (stale
-  anim values) when the theme switch lands mid-exit -> fixed 53f1b748b.
-- write scripts/PAINT7_2026_10_03.md (report) and commit.
+- nothing: items 1-7 done, report scripts/PAINT7_2026_10_03.md committed (eb2a9d9da, 06b46625e,
+  b55ab2e5c). The parent compiles and runs section 6 of the report.
 
 ## Decisions / open questions
 - D1 paint_in_flow_child's absolute/fixed scroll-chain detour is now unreachable (abs boxes are
