@@ -5,9 +5,12 @@ Probe (not committed, worktree `target/layout7/probe.py <cases.json>`): lays a b
 headless Chrome and the prebuilt azul (AzPaint `mount`, capped runner), prints rects per id.
 
 ## DONE
-- (none yet)
+- item 1: RED 21853ac30 (layout/tests/an_absolutely_positioned_child_does_not_split_its_parents_line.rs);
+  GREEN 92877ff2e (mask, fresh tree), fbef5dcd7 (mask, reconciler), 87cc1c6ae (no marker box for none,
+  item's own type), 116feca4d (marker rides the first line: fc::marker_line_host / markers_on_first_line /
+  is_marker_on_a_line, layout_bfc filter), 3eea318ee (sizing + process_out_of_flow_children skip).
 
-## IN PROGRESS
+## NOTES item 1 (done)
 - item 1: abspos child treated as in-flow + ::marker with list-style-type none.
   Measured (Chrome / azul prebuilt, 16px Arial, line-height 20):
   - check item `li{list-style:none;position:relative}` text + abspos div: li 20 / 40
@@ -31,9 +34,11 @@ headless Chrome and the prebuilt azul (AzPaint `mount`, capped runner), prints r
   the IFC of the item's first line box (`marker_line_host` in fc.rs), layout_bfc / intrinsic sizing
   skip a marker that has a host, a marker IFC collects only its marker; no marker box for none.
 
+## IN PROGRESS
+- item 2: block inside an inline (`<a><img style=display:block></a>`) dropped - probe + RED next
+
 ## NEXT
-- item 1: RED test file layout/tests/an_absolutely_positioned_child_does_not_split_its_parents_line.rs
-- items 2..10 in brief order
+- items 3..10 in brief order
 
 ## Decisions / open questions
 - no-host marker (`<li><div h50/></li>`, Chrome 50 azul 70): kept as today (own line); note in report.
