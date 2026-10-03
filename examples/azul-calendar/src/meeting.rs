@@ -2,8 +2,9 @@
 //! AzMeet's), the links AzCalendar makes itself (so making one works offline), what it sends to
 //! register a room (`POST /rooms {room, starts_at, ends_at}`, the event's times in UTC), what the
 //! server's answer means, what to tell the user when registering fails and whether to try again,
-//! and which AzMeet program "Join meeting" opens. Link formats and the settings format are
-//! AzMeet's own (`meet_rooms`, AzMeet's `rooms.rs`), not repeated here.
+//! and which AzMeet program "Join meeting" opens. Link formats are
+//! AzMeet's own (`meet_rooms`, AzMeet's `rooms.rs`), not repeated here; the saved server is
+//! a line of AzCalendar's settings file (`settings::meeting_server`).
 
 use std::path::{Path, PathBuf};
 
@@ -37,20 +38,8 @@ pub const BUILT_IN_WORKER: &str = match option_env!("AZMEET_DEFAULT_WORKER") {
 /// order AzMeet itself uses (`meet_rooms::server_prefill`). There always is one: links are made
 /// here and registered with it once it answers.
 pub fn server_setting(saved: Option<&str>, env: Option<&str>, built_in: &str) -> String {
-    let saved = saved.and_then(meet_rooms::decode_settings);
+    let saved = saved.and_then(settings::meeting_server);
     meet_rooms::server_prefill(saved.as_deref(), env, built_in).0
-}
-
-/// The meeting server saved in the settings file at `path` (`settings::path`); `None` without a
-/// file, or with one that names none.
-pub fn read_saved_server(path: &Path) -> Option<String> {
-    meet_rooms::decode_settings(&settings::read_text(path)?)
-}
-
-/// Saves `server` in the settings file at `path` (AzMeet's `meeting_server=` line), keeping the
-/// file's other settings.
-pub fn save_server(path: &Path, server: &str) -> std::io::Result<()> {
-    settings::write_line(path, &meet_rooms::encode_settings(server))
 }
 
 /// The alphabet of room ids: lower-case Crockford base32, as the meeting server mints them and
@@ -252,7 +241,6 @@ mod tests {
     use chrono::FixedOffset;
 
     use super::*;
-    use crate::test_dir::TempDir;
 
     const ROOM: &str = "a2h859hyqkfaa11nhzxfh3gd7f";
     const SERVER: &str = "http://127.0.0.1:8787";
@@ -278,7 +266,7 @@ mod tests {
     /// with it once it answers, so no setting is needed to make one.
     #[test]
     fn the_meeting_server_is_the_saved_one_else_azmeets_setting_else_a_default() {
-        let saved = meet_rooms::encode_settings("https://saved.example.com");
+        let saved = settings::meeting_server_line("https://saved.example.com");
         assert_eq!(
             server_setting(
                 Some(&saved),
@@ -296,31 +284,6 @@ mod tests {
             "https://built.in"
         );
         assert_eq!(server_setting(None, None, ""), meet_rooms::LOCAL_WORKER);
-    }
-
-    #[test]
-    fn the_meeting_server_is_saved_and_read_back_and_a_broken_file_is_ignored() {
-        let dir = TempDir::create();
-        let path = settings::path(&dir.0);
-        assert_eq!(read_saved_server(&path), None, "no file yet");
-        save_server(&path, "https://meet.example.com").unwrap();
-        assert_eq!(
-            read_saved_server(&path).as_deref(),
-            Some("https://meet.example.com")
-        );
-        save_server(&path, "http://127.0.0.1:8787").unwrap();
-        assert_eq!(
-            read_saved_server(&path).as_deref(),
-            Some("http://127.0.0.1:8787")
-        );
-        std::fs::write(&path, "not a setting").unwrap();
-        assert_eq!(read_saved_server(&path), None);
-        // No temporary file is left next to it.
-        let names: Vec<_> = std::fs::read_dir(&dir.0)
-            .unwrap()
-            .map(|e| e.unwrap().file_name())
-            .collect();
-        assert_eq!(names.len(), 1, "{names:?}");
     }
 
     /// The link of a meeting made here: 26 characters of the room-id alphabet from 130 of the

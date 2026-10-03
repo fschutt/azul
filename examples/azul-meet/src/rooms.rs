@@ -220,12 +220,8 @@ pub fn relay_choice(setting: Option<&str>, worker_host: &str) -> Relay {
 /// The meeting server when none was saved, `AZMEET_WORKER` is not set and none is built in: the
 /// local mock (`cf-workers/meet/dev-server.mjs`).
 pub const LOCAL_WORKER: &str = "http://127.0.0.1:8787";
-/// A settings file longer than this is not read.
-pub const MAX_SETTINGS_BYTES: usize = 4096;
 /// The longest meeting server address taken.
 const MAX_SERVER_CHARS: usize = 2048;
-/// The settings file's line naming the meeting server.
-const SETTINGS_KEY: &str = "meeting_server=";
 
 /// Where the meeting server's address at start came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -281,25 +277,6 @@ pub fn server_prefill(
 /// does not answer gets the start screen, which says so next to the field.
 pub fn opens_demo(source: ServerSource, answers: bool) -> bool {
     source == ServerSource::BuiltIn && !answers
-}
-
-/// The settings file's text remembering `server`. AzMeet keeps its own settings in
-/// `meet/settings.json`; AzCalendar (which compiles this file in as `meet_rooms`) still stores its
-/// meeting server this way - keep these while it does.
-pub fn encode_settings(server: &str) -> String {
-    format!("{SETTINGS_KEY}{server}\n")
-}
-
-/// The meeting server a settings file's text remembers; `None` for a file that is too long, has no
-/// such line, or names no meeting server address. Other lines are ignored.
-pub fn decode_settings(text: &str) -> Option<String> {
-    if text.len() > MAX_SETTINGS_BYTES {
-        return None;
-    }
-    text.lines()
-        .filter_map(|line| line.trim().strip_prefix(SETTINGS_KEY))
-        .last()
-        .and_then(normalize_server)
 }
 
 #[cfg(test)]
@@ -623,26 +600,5 @@ mod tests {
         assert!(!opens_demo(ServerSource::BuiltIn, true));
         assert!(!opens_demo(ServerSource::Saved, false));
         assert!(!opens_demo(ServerSource::Environment, false));
-    }
-
-    #[test]
-    fn the_settings_file_keeps_the_meeting_server_and_refuses_what_it_cannot_trust() {
-        let text = encode_settings("https://meet.example.com");
-        assert_eq!(text, "meeting_server=https://meet.example.com\n");
-        assert_eq!(
-            decode_settings(&text),
-            Some(String::from("https://meet.example.com"))
-        );
-        assert_eq!(
-            decode_settings("# AzMeet\nother=1\n  meeting_server=http://a.b  \n"),
-            Some(String::from("http://a.b"))
-        );
-        assert_eq!(decode_settings(""), None);
-        assert_eq!(decode_settings("meeting_server=javascript:alert(1)"), None);
-        let padded = format!(
-            "meeting_server=https://a.b\n{}",
-            "x".repeat(MAX_SETTINGS_BYTES)
-        );
-        assert_eq!(decode_settings(&padded), None, "a file that is too long");
     }
 }

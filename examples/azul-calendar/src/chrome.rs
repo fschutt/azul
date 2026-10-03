@@ -1524,7 +1524,7 @@ extern "C" fn on_server_save(mut data: RefAny, mut info: CallbackInfo) -> Update
             );
             return Update::RefreshDom;
         };
-        s.save_setting(&meet_rooms::encode_settings(&server));
+        s.save_setting(&settings::meeting_server_line(&server));
         eprintln!("[azcalendar] meeting server: {server}");
         let moving: Vec<event::Event> = s
             .events

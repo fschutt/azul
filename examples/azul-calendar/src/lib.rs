@@ -1197,22 +1197,22 @@ pub fn start() {
         user_data_dir(),
     );
     let today = chrono::Local::now().date_naive();
+    // The data folder's drive: what the start reads and `--sample` writes through, the same
+    // drive the file threads write the changes through (`writes.rs`) - a `LocalDrive` on the
+    // data folder today, the user's bucket later.
+    let drive = azul_storage::LocalDrive::new(&data_dir);
     if args.sample {
-        match sample::write_sample(&data_dir, today) {
+        match sample::write(&drive, today) {
             Ok(0) => eprintln!("[azcalendar] --sample: the calendar has events, nothing added"),
             Ok(n) => eprintln!("[azcalendar] --sample: {n} sample events written"),
             Err(e) => eprintln!("[azcalendar] --sample: {e}"),
         }
     }
-    let (events, skipped) = event::load_all(&data_dir);
+    let (events, skipped) = event::load(&drive);
     for file in &skipped {
-        eprintln!(
-            "[azcalendar] left out {}: {}",
-            file.path.display(),
-            file.reason
-        );
+        eprintln!("[azcalendar] left out {}: {}", file.key, file.reason);
     }
-    let calendars = calendars::load_all(&data_dir);
+    let calendars = calendars::load(&drive);
     let now = chrono::Local::now().naive_local();
     match tasks::migrate_old_folder(&data_dir, &tasks_root, now) {
         Ok(0) => {}
@@ -1223,7 +1223,7 @@ pub fn start() {
         Err(e) => eprintln!("[azcalendar] the old To-Do bar's tasks could not be moved: {e}"),
     }
     let todo = tasks::load(&tasks_root);
-    let saved = settings::read_text(&settings::path(&data_dir));
+    let saved = settings::read(&drive);
     let text = saved.as_deref().unwrap_or_default();
     let server = meeting::server_setting(
         saved.as_deref(),

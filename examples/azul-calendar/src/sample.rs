@@ -3,8 +3,6 @@
 //! weekly), a reminder, a location, an all-day event of three days - so every view has
 //! something to show. Written only into a calendar that has no events yet.
 
-use std::path::Path;
-
 use azul_storage::{Drive, DriveError};
 use chrono::{Datelike, Duration, NaiveDate, NaiveTime, Weekday};
 
@@ -139,22 +137,14 @@ pub fn sample_events(today: NaiveDate, work: &str, mut ids: impl FnMut() -> Stri
 /// Puts the sample into the data folder's drive unless it holds events already; answers how many
 /// events were written.
 pub fn write(drive: &dyn Drive, today: NaiveDate) -> Result<usize, DriveError> {
-    let _ = (drive, today);
-    Ok(0)
-}
-
-/// Writes the sample into `data_dir` unless it holds events already; answers how many events
-/// were written.
-pub fn write_sample(data_dir: &Path, today: NaiveDate) -> std::io::Result<usize> {
-    let (existing, _) = event::load_all(data_dir);
-    if !existing.is_empty() {
+    if !event::load(drive).0.is_empty() {
         return Ok(0);
     }
     let work = work_calendar(&calendars::new_calendar_id());
-    calendars::save(data_dir, &work)?;
+    drive.put(&calendars::object_key(&work.id), calendars::to_json(&work).as_bytes())?;
     let events = sample_events(today, &work.id, event::new_event_id);
     for e in &events {
-        event::save(data_dir, e)?;
+        drive.put(&event::object_key(&e.id), event::to_json(e).as_bytes())?;
     }
     Ok(events.len())
 }
@@ -214,16 +204,5 @@ mod tests {
         assert!(root.0.join("calendar").join("events").is_dir(), "under the drive's folder");
         assert_eq!(write(&drive, today).unwrap(), 0);
         assert_eq!(event::load(&drive).0.len(), 7);
-    }
-
-    #[test]
-    fn the_sample_is_written_only_into_an_empty_calendar() {
-        let dir = TempDir::create();
-        let today = NaiveDate::from_ymd_opt(2026, 9, 30).unwrap();
-        assert_eq!(write_sample(&dir.0, today).unwrap(), 7);
-        assert_eq!(event::load_all(&dir.0).0.len(), 7);
-        assert_eq!(calendars::load_all(&dir.0).len(), 2);
-        assert_eq!(write_sample(&dir.0, today).unwrap(), 0);
-        assert_eq!(event::load_all(&dir.0).0.len(), 7);
     }
 }

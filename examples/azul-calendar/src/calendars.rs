@@ -11,10 +11,7 @@
 //! Which calendars are shown is how this device looks at them, not data: the settings file keeps
 //! the hidden ones (`hidden_calendars=`, `settings.rs`).
 
-use std::{
-    collections::BTreeSet,
-    path::{Path, PathBuf},
-};
+use std::collections::BTreeSet;
 
 use azul_storage::Drive;
 use serde::{Deserialize, Serialize};
@@ -214,12 +211,6 @@ pub fn object_key(id: &str) -> String {
     format!("{CALENDARS_DIR}/{}", file_name(id))
 }
 
-/// Where the calendar `id` is stored under `data_dir`.
-#[must_use]
-pub fn calendar_path(data_dir: &Path, id: &str) -> PathBuf {
-    data_dir.join(CALENDARS_DIR).join(file_name(id))
-}
-
 /// The calendar's file contents (pretty JSON, ending in a newline).
 #[must_use]
 pub fn to_json(calendar: &Calendar) -> String {
@@ -266,71 +257,40 @@ pub fn from_json(text: &str) -> Result<Calendar, String> {
     })
 }
 
-/// Writes `calendar` to its file, atomically, and returns the file's path.
-pub fn save(data_dir: &Path, calendar: &Calendar) -> std::io::Result<PathBuf> {
-    let dir = data_dir.join(CALENDARS_DIR);
-    std::fs::create_dir_all(&dir)?;
-    let path = calendar_path(data_dir, &calendar.id);
-    let temp = dir.join(format!(".{}.tmp", file_name(&calendar.id)));
-    std::fs::write(&temp, to_json(calendar))?;
-    if let Err(e) = std::fs::rename(&temp, &path) {
-        let _ = std::fs::remove_file(&temp);
-        return Err(e);
-    }
-    Ok(path)
-}
-
-/// Removes the calendar's file (a missing file is not an error). The default calendar cannot be
-/// removed: its file goes and it is "Calendar" in blue again.
-pub fn remove(data_dir: &Path, id: &str) -> std::io::Result<()> {
-    match std::fs::remove_file(calendar_path(data_dir, id)) {
-        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
-        _ => Ok(()),
-    }
-}
-
 /// Every calendar the drive keeps (`calendars/<id>.json`, `calendars/default.json`): the default
 /// one first (its file, or as it is before one), then the others by name. A file that does not
 /// read, or holds another calendar than its name says, is left out.
 #[must_use]
 pub fn load(drive: &dyn Drive) -> Vec<Calendar> {
-    let _ = drive;
-    vec![Calendar::default_calendar()]
-}
-
-/// Every calendar: the default one first (its file, or as it is before one), then the others by
-/// name. A file that does not read, or holds another calendar than its name says, is left out.
-#[must_use]
-pub fn load_all(data_dir: &Path) -> Vec<Calendar> {
     let mut default = Calendar::default_calendar();
     let mut others = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(data_dir.join(CALENDARS_DIR)) {
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let Some(name) = name.to_str() else {
-                continue;
-            };
-            let Some(id) = name.strip_suffix(".json") else {
-                continue;
-            };
-            let id = if name == DEFAULT_FILE { "" } else { id };
-            if !is_calendar_id(id) {
-                continue;
-            }
-            let Ok(calendar) = std::fs::read_to_string(entry.path())
-                .map_err(|e| e.to_string())
-                .and_then(|text| from_json(&text))
-            else {
-                continue;
-            };
-            if calendar.id != id {
-                continue;
-            }
-            if calendar.is_default() {
-                default = calendar;
-            } else {
-                others.push(calendar);
-            }
+    let prefix = format!("{CALENDARS_DIR}/");
+    for object in azul_storage::ops::list_all(drive, &prefix).unwrap_or_default() {
+        let Some(name) = object.key.strip_prefix(&prefix) else {
+            continue;
+        };
+        let Some(id) = name.strip_suffix(".json") else {
+            continue;
+        };
+        let id = if name == DEFAULT_FILE { "" } else { id };
+        if !is_calendar_id(id) {
+            continue;
+        }
+        let Ok(calendar) = drive
+            .get(&object.key)
+            .map_err(|e| e.to_string())
+            .and_then(|bytes| String::from_utf8(bytes).map_err(|e| e.to_string()))
+            .and_then(|text| from_json(&text))
+        else {
+            continue;
+        };
+        if calendar.id != id {
+            continue;
+        }
+        if calendar.is_default() {
+            default = calendar;
+        } else {
+            others.push(calendar);
         }
     }
     others.sort_by(|a, b| (a.name.to_lowercase(), &a.id).cmp(&(b.name.to_lowercase(), &b.id)));
@@ -338,6 +298,7 @@ pub fn load_all(data_dir: &Path) -> Vec<Calendar> {
     all.extend(others);
     all
 }
+
 
 /// A new calendar's id: a random version-4 UUID, as an event's.
 #[must_use]
@@ -435,18 +396,19 @@ mod tests {
     #[test]
     fn the_default_calendar_is_there_without_a_file_and_first() {
         let dir = TempDir::create();
-        assert_eq!(load_all(&dir.0), vec![Calendar::default_calendar()]);
-        save(&dir.0, &work()).unwrap();
+        let drive = azul_storage::LocalDrive::new(&dir.0);
+        let put = |c: &Calendar| drive.put(&object_key(&c.id), to_json(c).as_bytes()).unwrap();
+        assert_eq!(load(&drive), vec![Calendar::default_calendar()]);
+        put(&work());
         let mut renamed = Calendar::default_calendar();
         renamed.name = String::from("Home");
         renamed.colour = Colour::Teal;
-        save(&dir.0, &renamed).unwrap();
+        put(&renamed);
         assert!(dir.0.join("calendars").join("default.json").is_file());
-        assert_eq!(load_all(&dir.0), vec![renamed, work()]);
-        remove(&dir.0, "").unwrap();
-        remove(&dir.0, WORK).unwrap();
-        remove(&dir.0, WORK).unwrap();
-        assert_eq!(load_all(&dir.0), vec![Calendar::default_calendar()]);
+        assert_eq!(load(&drive), vec![renamed, work()]);
+        drive.delete(&object_key("")).unwrap();
+        drive.delete(&object_key(WORK)).unwrap();
+        assert_eq!(load(&drive), vec![Calendar::default_calendar()]);
     }
 
     /// The start reads the calendars through the data folder's drive, wherever it keeps them.
