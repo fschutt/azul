@@ -5,21 +5,29 @@
 //! 1. builds the message with micromail's MIME builder (RFC 5322: Date, From, To, Cc,
 //!    Subject, Message-ID, In-Reply-To, References; text, `multipart/alternative` with the HTML,
 //!    `multipart/mixed` with the attachments; RFC 2047 headers; quoted-printable or base64;
-//!    CRLF everywhere; Bcc only in the envelope) and signs it with DKIM when the settings name
-//!    a key;
-//! 2. writes it to `<AzMail folder>/<account>/outbox/<id>.eml`, with its delivery state in
-//!    `<id>.json` (every recipient: pending, sent or failed; attempts; the next attempt);
-//! 3. delivers it ([`SendRoute`]): `Direct` hands each recipient domain to its mail exchangers
+//!    CRLF everywhere; Bcc only in the envelope);
+//! 2. writes it, unsigned, to `<AzMail folder>/<account>/outbox/<id>.eml`, with its delivery
+//!    state in `<id>.json` (every recipient: pending, sent or failed; attempts; the next
+//!    attempt);
+//! 3. signs it with DKIM for each attempt when the account signs (client-side DKIM, the key
+//!    from the keyring - `crate::dkim` makes it and its DNS record); an account that signs but
+//!    whose key is not in memory yet waits, due again at once, never unsigned;
+//! 4. delivers it ([`SendRoute`]): `Direct` hands each recipient domain to its mail exchangers
 //!    (MX lookup, by preference, port 25, STARTTLS when offered) - except domains the policy
-//!    list ([`PolicyList`], `send_policy.json`) says take mail only from a trusted relay; `Smtp`
-//!    hands everything to one server (`host:port`, STARTTLS optional, no sign-in yet);
-//! 4. files the result: when every recipient is done and at least one took it, the `.eml`
-//!    moves into the account's Sent folder in MAIL1's layout
+//!    list ([`PolicyList`], `send_policy.json`) says take mail only from a trusted relay (a
+//!    signed mail passes the shipped defaults, not a learned refusal), and except while this
+//!    connection is known to block port 25 ([`Port25Check`]: when no exchanger of a domain can
+//!    even be connected to, a probe of big providers' exchangers tells which); `Smtp` hands
+//!    everything to one server (`host:port`, STARTTLS optional, no sign-in);
+//! 5. files the result: when every recipient is done and at least one took it, the message as
+//!    it went out (signed) moves into the account's Sent folder in MAIL1's layout
 //!    (`mail/sent/<yyyy>/<mm>/<uid>.eml`, a line in `mail/sent/index.jsonl`, `state.json`), so
 //!    it lists like a synced mail; a temporary failure (4xx, no connection) leaves it queued
 //!    with its reason and a later attempt ([`retry_outbox`]) sends to the recipients still
 //!    pending; a 5xx from a recipient's own server in direct mode puts that domain into the
-//!    policy list as "needs a relay" (unless the 5xx names the address itself, 5.1.x / 5.2.x).
+//!    policy list as "needs a relay" with its cause ([`RefusalCause`]: a home address list such
+//!    as Spamhaus PBL, no reverse DNS, SPF / DKIM / DMARC) - unless the 5xx names the address
+//!    itself, 5.1.x / 5.2.x. The relay fallback later reads where it is needed from there.
 //!
 //! The SMTP client, the MIME builder and DKIM are micromail's (the user's crate; the same
 //! client azul's crash mail uses), not AzMail's own.
