@@ -32,6 +32,8 @@ Brief: scripts/waves/wave8/PLAN.md section "RULINGS8".
     layout/tests/all.rs (append-only) conflicts.
   - Inline-block baseline tests in an_atomic_inline_sits_on_the_baseline_of_its_content.rs pass only with
     MAILREF8 merged (noted in the file).
+- 205ba036a RED + 3d9dfaefd GREEN: an empty inline element with no margin/padding/border is a phantom line
+  (fc.rs collect_inline_span_recursive empty branch; Chrome 0, azul was 19.2, would be 23.2 with the strut)
 - 91928b72d FOCUS GREEN: managers::hover::focusable_under_pointer walks core::events::get_event_path (4th closure
   host_of); dll event.rs + runner.rs pass virtual_view_manager.host_of_nested_dom; hover.rs unit tests updated.
 
@@ -103,9 +105,14 @@ Brief: scripts/waves/wave8/PLAN.md section "RULINGS8".
      (first_line_baseline is from the border-box top; atomic_inline_baseline_offset wants content-top).
 - 4c. Scanned (no atomic-only lines found): AzWidgets (only the dialog invoker: has text, label-baseline),
      AzMail (--sample), AzWriter, AzDrive, AzCalendar (--data), AzNotes, AzSheets, AzShow, AzPhoto.
-     NEXT: AzTasks (--data), AzContacts, AzPaint, AzDashboard, AzMeet, AzReview, AzBuilder, AzCalculator,
-     AzSetup, AzVideoCut, AzShells, AzMaps (no --data-dir: run without --sample). Then grep widgets for
-     image icons in block containers. (was: scan more apps one at a time (scan.py <App> target/rulings8/<app>.json; analyze.py) - lines of
+     DONE also AzTasks, AzContacts, AzPaint, AzDashboard, AzMeet, AzReview, AzBuilder, AzCalculator, AzSetup,
+     AzShells, AzMaps (AzVideoCut skipped: video). analyze.py fixed to treat FC "Inline" flex items as IFC
+     roots. RESULT: the only atomic-only lines in every app's first screen are wrappers around TEXT-labelled
+     inline-flex Buttons (dialog invoker, path-input browse, todo-bar task title, empty-state action, reading
+     pane sender / footer) - with the flex baseline they keep the button's height (label baseline). No image
+     icon sits alone in a block container (icons are in flex rows). Widgets use no vertical-align.
+     DECISION: no widget CSS changed (nothing relied on the old behaviour once baselines are right).
+- 4d. NEXT: write the report scripts/RULINGS8_2026_10_03.md and commit; then done. (was: scan more apps one at a time (scan.py <App> target/rulings8/<app>.json; analyze.py) - lines of
      only atomics WITHOUT text inside (icons, swatches, images) are what grows (by the strut descent, and to
      the strut ascent if shorter); boxes with text sit on their label baseline now (unchanged height).
 - 5. Report scripts/RULINGS8_2026_10_03.md.
