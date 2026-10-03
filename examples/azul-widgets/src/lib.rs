@@ -71,10 +71,6 @@ struct Showcase {
     /// itself is the ENGINE's (`CallbackInfo::set_mode`, app-wide); this is
     /// only the controlled segment's selection.
     mode_index: usize,
-    /// The widget theme every themed widget on the page is built in (the
-    /// toolbar's Flat / Flora toggle). A switch rebuilds the DOM in the other
-    /// theme: unlike light / dark, a theme may change a widget's DOM.
-    widget_theme: UiTheme,
     /// The "Every input type" form and the "Raw HTML inputs" form (see
     /// `forms.rs`).
     form: forms::FormDemo,
@@ -527,16 +523,16 @@ const TOOLBAR_CAPTION_CSS: &str =
     "font-size: 12px; font-weight: bold; color: system:secondary-text; margin-right: 8px;";
 
 /// The bar under the titlebar: the app's MODE (System / Light / Dark - the
-/// engine's `CallbackInfo::set_mode`, for every window) and the WIDGET THEME
-/// every themed widget on the page is built in (Flat / Flora - the demo's
-/// own state, handed to each widget's `with_theme`).
+/// engine's `CallbackInfo::set_mode`, for every window) and the app THEME
+/// (Flat / Flora - `CallbackInfo::set_theme`; every themed widget on the
+/// page is built in it).
 ///
 /// `shown` is the light / dark the window shows, read in `layout()` with
 /// `LayoutCallbackInfo::get_mode` so "System (dark)" can say which. Reading
 /// it is what makes a mode switch - or a desktop flip while on System -
 /// re-run this `layout()`; an app whose `layout()` never reads it is only
 /// re-styled, its DOM kept.
-fn toolbar(data: &RefAny, mode_index: usize, widget_theme: UiTheme, shown: DarkLightMode) -> Dom {
+fn toolbar(data: &RefAny, mode_index: usize, theme: UiTheme, shown: DarkLightMode) -> Dom {
     let shown = match shown {
         DarkLightMode::Dark => "dark",
         DarkLightMode::Light => "light",
@@ -545,7 +541,7 @@ fn toolbar(data: &RefAny, mode_index: usize, widget_theme: UiTheme, shown: DarkL
         1 | 2 => format!("pinned {shown}"),
         _ => format!("System ({shown})"),
     };
-    let theme_index = match widget_theme {
+    let theme_index = match theme {
         UiTheme::Flat => 0,
         UiTheme::Flora => 1,
     };
@@ -569,7 +565,7 @@ fn toolbar(data: &RefAny, mode_index: usize, widget_theme: UiTheme, shown: DarkL
                     Segmented::create(strs(&["System", "Light", "Dark"]))
                         .with_selected_index(mode_index)
                         .with_on_change(data.clone(), on_mode)
-                        .with_theme(widget_theme)
+                        .with_theme(theme)
                         .dom()
                         .with_accessibility_name("Mode"),
                 )
@@ -579,13 +575,13 @@ fn toolbar(data: &RefAny, mode_index: usize, widget_theme: UiTheme, shown: DarkL
                 ),
         ))
         .with_child(group(
-            "Widget theme",
+            "Theme",
             Segmented::create(strs(&["Flat", "Flora"]))
                 .with_selected_index(theme_index)
-                .with_on_change(data.clone(), on_widget_theme)
-                .with_theme(widget_theme)
+                .with_on_change(data.clone(), on_theme)
+                .with_theme(theme)
                 .dom()
-                .with_accessibility_name("Widget theme"),
+                .with_accessibility_name("Theme"),
         ))
 }
 
@@ -614,21 +610,13 @@ extern "C" fn on_mode(
     }
 }
 
-/// The widget-theme segment: every themed widget is rebuilt in the other
-/// theme (a theme may change a widget's DOM, so this is a rebuild, never a
-/// restyle).
-extern "C" fn on_widget_theme(mut data: RefAny, _: CallbackInfo, state: SegmentedState) -> Update {
-    match data.downcast_mut::<Showcase>() {
-        Some(mut s) => {
-            s.widget_theme = if state.selected_index == 1 {
-                UiTheme::Flora
-            } else {
-                UiTheme::Flat
-            };
-            Update::RefreshDom
-        }
-        None => Update::DoNothing,
-    }
+/// The theme segment: the APP theme (`CallbackInfo::set_theme`, every
+/// window rebuilt in it - a theme may change a widget's DOM, so this is a
+/// rebuild, never a restyle). The page reads it back in `layout()`, so the
+/// debug server's `set_theme` and this segment are one switch.
+extern "C" fn on_theme(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    info.set_theme(if state.selected_index == 1 { "flora" } else { "flat" });
+    bump(&mut data)
 }
 
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
@@ -636,9 +624,14 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         Some(s) => (*s).clone(),
         None => return Dom::create_body(),
     };
-    // THE widget theme of this pass: every widget below that has a theme
+    // THE theme of this pass: the app theme (the toolbar's Flat / Flora, or
+    // the debug server's `set_theme`); every widget below that has a theme
     // (`with_theme`) is built in it.
-    let theme = s.widget_theme;
+    let theme = if info.get_theme().as_str() == "flora" {
+        UiTheme::Flora
+    } else {
+        UiTheme::Flat
+    };
 
     let inputs = section(
         "Inputs",
@@ -1453,7 +1446,6 @@ pub fn start() {
         hotkey: hotkeys::HotkeyDemo::default(),
         // Follow the desktop's light / dark (the toolbar's "System").
         mode_index: 0,
-        widget_theme: UiTheme::Flat,
         form: forms::FormDemo::create(),
         mail: mail::MailDemo::create(),
         dialogs: dialogs::DialogsDemo::create(),
