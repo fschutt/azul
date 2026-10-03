@@ -16,8 +16,13 @@ planning: ../azul-apps/planning/core/system-monitor.md. House rules: scripts/wav
 
 - bf65398dc lib.rs written (RED for helpers speed_from_setting / speed_index / speed_text / sort_text: todo!())
 
+- 7d9ebb8ee ui.rs written (RED chart helpers); 62b793938 GREEN lib/ui helpers - NO todo!() left
+
 ## IN PROGRESS
-- examples/azul-monitor/src/ui.rs does NOT exist yet; lib.rs needs from it (exact signatures):
+- scripts/azmonitor_e2e.py (model: scripts/azdashboard_e2e.py + scripts/azlin_e2e.py helper)
+- then report scripts/MONITOR9_2026_10_03.md
+
+## (done) the ui.rs contract, kept for reference:
   `ui::tools(&Monitor, &RefAny) -> Dom` (TabHeader Processes/Performance, filter TextInput with
   `.with_text(model.filter())`, "End process" Button disabled without a selected_row),
   `ui::waiting(&Monitor) -> Dom` (ShellEmptyState, id ids::WAITING),
