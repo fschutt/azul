@@ -89,11 +89,25 @@ pub trait Random {
 pub struct OsRandom {
     buf: [u8; 256],
     pos: usize,
+    /// A refill failed: what was drawn since is not random ([`generate`] then fails).
+    failed: bool,
 }
 
 impl OsRandom {
     pub fn new() -> Result<OsRandom, VaultError> {
-        todo!("GREEN")
+        let mut rng = OsRandom {
+            buf: [0u8; 256],
+            pos: 0,
+            failed: false,
+        };
+        random_bytes(&mut rng.buf)?;
+        Ok(rng)
+    }
+
+    /// Whether a refill failed since this source was made.
+    #[must_use]
+    pub fn failed(&self) -> bool {
+        self.failed
     }
 }
 
@@ -105,54 +119,260 @@ impl Drop for OsRandom {
 
 impl Random for OsRandom {
     fn next_u32(&mut self) -> u32 {
-        todo!("GREEN")
+        if self.pos + 4 > self.buf.len() {
+            if random_bytes(&mut self.buf).is_err() {
+                self.failed = true;
+            }
+            self.pos = 0;
+        }
+        let at = self.pos;
+        self.pos += 4;
+        u32::from_le_bytes([
+            self.buf[at],
+            self.buf[at + 1],
+            self.buf[at + 2],
+            self.buf[at + 3],
+        ])
     }
 }
 
 /// A uniform number in `0..n` (rejection sampling: no modulo bias). `n` = 0 gives 0.
 pub fn below(rng: &mut impl Random, n: u32) -> u32 {
-    let _ = (rng, n);
-    todo!("GREEN")
+    if n <= 1 {
+        return 0;
+    }
+    // 2^32 mod n: the numbers under it would make the low residues likelier; they are drawn again.
+    let reject_under = n.wrapping_neg() % n;
+    loop {
+        let r = rng.next_u32();
+        if r >= reject_under {
+            return r % n;
+        }
+    }
 }
 
 /// Shuffles `items` uniformly (Fisher-Yates).
 pub fn shuffle<T>(rng: &mut impl Random, items: &mut [T]) {
-    let _ = (rng, items);
-    todo!("GREEN")
+    for i in (1..items.len()).rev() {
+        let j = below(rng, (i + 1) as u32) as usize;
+        items.swap(i, j);
+    }
 }
 
 /// The character sets a password draws from (each chosen set, without the similar characters
 /// when asked); lower case when none is chosen.
 #[must_use]
 pub fn pools(options: &Options) -> Vec<Vec<char>> {
-    let _ = options;
-    todo!("GREEN")
+    const UPPER: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const LOWER: &str = "abcdefghijklmnopqrstuvwxyz";
+    const DIGITS: &str = "0123456789";
+    let set = |chars: &str| -> Vec<char> {
+        chars
+            .chars()
+            .filter(|c| !(options.avoid_similar && SIMILAR.contains(*c)))
+            .collect()
+    };
+    let mut out: Vec<Vec<char>> = [
+        (options.upper, UPPER),
+        (options.lower, LOWER),
+        (options.digits, DIGITS),
+        (options.symbols, SYMBOLS),
+    ]
+    .into_iter()
+    .filter(|(chosen, _)| *chosen)
+    .map(|(_, chars)| set(chars))
+    .filter(|s| !s.is_empty())
+    .collect();
+    if out.is_empty() {
+        out.push(set(LOWER));
+    }
+    out
+}
+
+/// One character of `pool`.
+fn pick(rng: &mut impl Random, pool: &[char]) -> char {
+    pool[below(rng, pool.len() as u32) as usize]
+}
+
+/// A random decimal digit.
+fn digit(rng: &mut impl Random) -> char {
+    char::from(b'0' + below(rng, 10) as u8)
 }
 
 /// A secret by `options` from `rng`.
 pub fn generate_with(options: &Options, rng: &mut impl Random) -> String {
-    let _ = (options, rng);
-    todo!("GREEN")
+    match options.mode {
+        Mode::Password => {
+            let length = options.length.clamp(PASSWORD_LENGTH.0, PASSWORD_LENGTH.1);
+            let pools = pools(options);
+            let all: Vec<char> = pools.concat();
+            let mut chars: Vec<char> = Vec::with_capacity(length);
+            // One of each chosen set first (when they fit), the rest from all of them, shuffled.
+            if length >= pools.len() {
+                for pool in &pools {
+                    chars.push(pick(rng, pool));
+                }
+            }
+            while chars.len() < length {
+                chars.push(pick(rng, &all));
+            }
+            shuffle(rng, &mut chars);
+            chars.into_iter().collect()
+        }
+        Mode::Pin => {
+            let length = options.length.clamp(PIN_LENGTH.0, PIN_LENGTH.1);
+            (0..length).map(|_| digit(rng)).collect()
+        }
+        Mode::Passphrase => {
+            let count = options.words.clamp(PASSPHRASE_WORDS.0, PASSPHRASE_WORDS.1);
+            let words: Vec<String> = (0..count)
+                .map(|_| {
+                    let word = WORDS[below(rng, WORDS.len() as u32) as usize];
+                    if options.capitalize {
+                        let mut chars = word.chars();
+                        chars
+                            .next()
+                            .map(|c| c.to_ascii_uppercase().to_string() + chars.as_str())
+                            .unwrap_or_default()
+                    } else {
+                        word.to_string()
+                    }
+                })
+                .collect();
+            let mut phrase = words.join(&options.separator);
+            if options.add_digit {
+                phrase.push(digit(rng));
+            }
+            phrase
+        }
+    }
 }
 
 /// A secret by `options` from the OS random source.
 pub fn generate(options: &Options) -> Result<String, VaultError> {
     let mut rng = OsRandom::new()?;
-    Ok(generate_with(options, &mut rng))
+    let secret = generate_with(options, &mut rng);
+    if rng.failed() {
+        return Err(VaultError::Random);
+    }
+    Ok(secret)
 }
 
 /// The entropy in bits of a secret `options` generates.
 #[must_use]
 pub fn entropy(options: &Options) -> f64 {
-    let _ = options;
-    todo!("GREEN")
+    match options.mode {
+        Mode::Password => {
+            let length = options.length.clamp(PASSWORD_LENGTH.0, PASSWORD_LENGTH.1);
+            let pool: usize = pools(options).iter().map(Vec::len).sum();
+            length as f64 * (pool as f64).log2()
+        }
+        Mode::Pin => options.length.clamp(PIN_LENGTH.0, PIN_LENGTH.1) as f64 * 10f64.log2(),
+        Mode::Passphrase => {
+            let count = options.words.clamp(PASSPHRASE_WORDS.0, PASSPHRASE_WORDS.1);
+            let digit = if options.add_digit { 10f64.log2() } else { 0.0 };
+            count as f64 * (WORDS.len() as f64).log2() + digit
+        }
+    }
 }
 
-/// An estimate in bits of a password's strength against guessing.
+/// Passwords found first in every guessing list (lower case; a password that is one of them
+/// with digits or `!` after it counts as one).
+const COMMON: [&str; 44] = [
+    "password",
+    "passw0rd",
+    "p@ssw0rd",
+    "123456",
+    "1234567",
+    "12345678",
+    "123456789",
+    "1234567890",
+    "111111",
+    "000000",
+    "654321",
+    "qwerty",
+    "qwertz",
+    "azerty",
+    "asdfgh",
+    "abc123",
+    "letmein",
+    "welcome",
+    "monkey",
+    "dragon",
+    "football",
+    "baseball",
+    "iloveyou",
+    "admin",
+    "login",
+    "master",
+    "sunshine",
+    "princess",
+    "shadow",
+    "superman",
+    "trustno1",
+    "hunter",
+    "changeme",
+    "secret",
+    "starwars",
+    "whatever",
+    "computer",
+    "default",
+    "guest",
+    "root",
+    "test",
+    "pass",
+    "hello",
+    "freedom",
+];
+
+/// An estimate in bits of a password's strength against guessing: 8 bits for a password of
+/// the common list; else the length - repeats and runs (`aaa`, `abc`, `321`) counting little -
+/// times the bits of the character classes it uses.
 #[must_use]
 pub fn estimate(password: &str) -> f64 {
-    let _ = password;
-    todo!("GREEN")
+    if password.is_empty() {
+        return 0.0;
+    }
+    let lower = password.to_lowercase();
+    let stem = lower.trim_end_matches(|c: char| c.is_ascii_digit() || c == '!');
+    if COMMON.contains(&lower.as_str()) || COMMON.contains(&stem) {
+        return 8.0;
+    }
+    let (mut lowers, mut uppers, mut digits, mut symbols, mut others) =
+        (false, false, false, false, false);
+    let mut effective = 0.0;
+    let mut previous: Option<char> = None;
+    for c in password.chars() {
+        if c.is_ascii_lowercase() {
+            lowers = true;
+        } else if c.is_ascii_uppercase() {
+            uppers = true;
+        } else if c.is_ascii_digit() {
+            digits = true;
+        } else if c.is_ascii() {
+            symbols = true;
+        } else {
+            others = true;
+        }
+        effective += match previous {
+            Some(p) if p == c => 0.2,
+            Some(p) if u32::from(p).abs_diff(u32::from(c)) == 1 => 0.3,
+            _ => 1.0,
+        };
+        previous = Some(c);
+    }
+    let pool = [
+        (lowers, 26),
+        (uppers, 26),
+        (digits, 10),
+        (symbols, 33),
+        (others, 100),
+    ]
+    .iter()
+    .filter(|(present, _)| *present)
+    .map(|(_, n)| *n)
+    .sum::<u32>();
+    effective * f64::from(pool.max(2)).log2()
 }
 
 /// The strength's words.
@@ -170,8 +390,17 @@ impl Strength {
     /// strong, else very strong.
     #[must_use]
     pub fn of_bits(bits: f64) -> Strength {
-        let _ = bits;
-        todo!("GREEN")
+        if bits < 28.0 {
+            Strength::VeryWeak
+        } else if bits < 36.0 {
+            Strength::Weak
+        } else if bits < 60.0 {
+            Strength::Medium
+        } else if bits < 100.0 {
+            Strength::Strong
+        } else {
+            Strength::VeryStrong
+        }
     }
 
     #[must_use]
