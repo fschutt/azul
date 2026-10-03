@@ -4,17 +4,17 @@ Branch: wt/reader9 (base e537ddbe2). Brief: scripts/waves/wave9/PLAN.md "READER9
 planning: ../azul-apps/planning/mobile/e-reader.md.
 
 ## DONE
-- bb562b34f progress file
+- bb562b34f progress file; 6f58b087b decisions
+- 8c4052cd7 crate skeleton + registration (root Cargo.toml, workspace_test_members, rust.yml)
+- ced5220d2 / 330b24e1e xmltree.rs (parse_document: XML first, HTML fallback; helpers)
+- 79ad10812 RED / 3409a9418 GREEN epub.rs (container, package, spine, cover, TOC nav/NCX/titles)
+- 00e3a0196 RED / 909bba3bf GREEN position.rs (PageMap, Position, turn, progress)
 
 ## IN PROGRESS
-- Scaffold examples/azul-reader (Cargo.toml, main.rs, lib.rs, ids.rs) + registration.
+- css.rs (book stylesheet filter) RED.
 
 ## NEXT
-1. Scaffold + registration (root Cargo.toml, workspace_test_members.txt, rust.yml).
-2. RED: epub model tests (container.xml, OPF metadata/manifest/spine, nav + NCX TOC, href resolution).
-3. GREEN epub.rs.
-4. RED/GREEN: content policy (chapter XHTML -> reading Xml tree), css filter.
-5. RED/GREEN: positions (pages from breaks, page of fraction, book progress, bookmarks).
+4. RED/GREEN: css filter, then content policy (chapter XHTML -> reading Xml tree).
 6. RED (engine): Pdf::compute_pagination_with_policy - lines never torn; GREEN in dll.
 7. Library + storage (keys, info.json, state.json), settings.
 8. UI: library (BrowserShell-free: DocumentShell + covers grid), reader (DocumentShell, TOC / bookmarks pane, page view, status bar), settings section.
