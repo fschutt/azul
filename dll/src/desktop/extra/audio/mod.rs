@@ -87,6 +87,25 @@ impl AudioSinkInner {
             epoch: std::time::Instant::now(),
         }
     }
+
+    /// Seconds since the sink opened (the synthetic clock's time).
+    fn now_s(&self) -> f64 {
+        self.epoch.elapsed().as_secs_f64()
+    }
+
+    /// Sample frames taken and not heard yet: the device's word, or the
+    /// synthetic sink's real-time clock; a device that cannot tell has none.
+    fn queued(&self) -> u64 {
+        match &self.device {
+            Some(device) => device
+                .queued_frames()
+                .unwrap_or(0)
+                .min(self.samples_taken),
+            None => self
+                .samples_taken
+                .saturating_sub(self.clock.played(self.samples_taken, self.now_s())),
+        }
+    }
 }
 
 /// One open platform output stream (ALSA, cpal / WASAPI, AAudio,
@@ -303,8 +322,26 @@ impl AudioSink {
     /// the device's queue is full (offer the same frame again a moment later:
     /// a player paces itself with [`queued_frames`](Self::queued_frames)).
     pub fn try_play(&self, frame: AudioFrame) -> bool {
-        let _ = frame;
-        false
+        let Some(inner) = (unsafe { (self.ptr as *mut AudioSinkInner).as_mut() }) else {
+            return false;
+        };
+        let samples: &[f32] = frame.samples.as_ref();
+        let frames = (samples.len() / usize::from(inner.config.channels.max(1))) as u64;
+        let taken = match &inner.device {
+            Some(device) => device.play(samples),
+            // A headless run's synthetic sink: takes every frame and plays
+            // it in real time (nothing is heard).
+            None => {
+                let now = inner.now_s();
+                inner.clock.on_take(inner.samples_taken, now);
+                true
+            }
+        };
+        if taken {
+            inner.frames_played = inner.frames_played.wrapping_add(1);
+            inner.samples_taken = inner.samples_taken.saturating_add(frames);
+        }
+        taken
     }
 
     /// Sample frames (per channel) the output took and has not played yet:
@@ -313,7 +350,7 @@ impl AudioSink {
     /// nearly out). The headless synthetic sink plays in real time, so its
     /// queue empties as the wall clock runs.
     pub fn queued_frames(&self) -> u64 {
-        0
+        unsafe { (self.ptr as *const AudioSinkInner).as_ref() }.map_or(0, AudioSinkInner::queued)
     }
 
     /// Sample frames (per channel) the listener has heard so far: what the
@@ -321,46 +358,77 @@ impl AudioSink {
     /// the sample rate for seconds (an audio track is the master clock a
     /// video follows). `0` on a closed handle.
     pub fn samples_played(&self) -> u64 {
-        0
+        unsafe { (self.ptr as *const AudioSinkInner).as_ref() }
+            .map_or(0, |inner| inner.samples_taken.saturating_sub(inner.queued()))
     }
 
     /// Holds playback where it is, keeping what is queued (the position
     /// stops). False when the device cannot pause: stop feeding it instead,
     /// what is queued plays out.
     pub fn pause(&self) -> bool {
-        false
+        let Some(inner) = (unsafe { (self.ptr as *mut AudioSinkInner).as_mut() }) else {
+            return false;
+        };
+        match &inner.device {
+            Some(device) => device.set_paused(true),
+            None => {
+                let now = inner.now_s();
+                inner.clock.pause(inner.samples_taken, now);
+                true
+            }
+        }
     }
 
     /// Plays on after [`pause`](Self::pause).
-    pub fn resume(&self) {}
+    pub fn resume(&self) {
+        let Some(inner) = (unsafe { (self.ptr as *mut AudioSinkInner).as_mut() }) else {
+            return;
+        };
+        match &inner.device {
+            Some(device) => {
+                let _ = device.set_paused(false);
+            }
+            None => {
+                let now = inner.now_s();
+                inner.clock.resume(now);
+            }
+        }
+    }
 
     /// Drops what is queued and not heard yet (a seek: the old position must
     /// not play on); [`samples_played`](Self::samples_played) stays where the
     /// listener is. False when the device cannot drop its queue.
     pub fn clear(&self) -> bool {
-        false
+        let Some(inner) = (unsafe { (self.ptr as *mut AudioSinkInner).as_mut() }) else {
+            return false;
+        };
+        let queued = inner.queued();
+        let dropped = match &inner.device {
+            Some(device) => device.clear(),
+            None => true,
+        };
+        if dropped {
+            // The dropped frames were never heard: what remains taken is
+            // exactly what was played, so `samples_played` does not move.
+            inner.samples_taken = inner.samples_taken.saturating_sub(queued);
+            if inner.device.is_none() {
+                inner.clock.clear(inner.samples_taken);
+            }
+        }
+        dropped
     }
 
     /// The format the sink was opened for (`AudioConfig::default()` on a
     /// closed handle).
     pub fn config(&self) -> AudioConfig {
-        AudioConfig::default()
+        unsafe { (self.ptr as *const AudioSinkInner).as_ref() }
+            .map_or_else(AudioConfig::default, |inner| inner.config)
     }
 
     /// Hands `frame` (interleaved `f32` samples in the frame's format) to the
     /// output device. Does nothing on a closed handle.
     pub fn play(&self, frame: AudioFrame) {
-        if let Some(inner) = unsafe { (self.ptr as *mut AudioSinkInner).as_mut() } {
-            let taken = match &inner.device {
-                Some(device) => device.play(frame.samples.as_ref()),
-                // A headless run's synthetic sink: takes every frame, plays
-                // nothing.
-                None => true,
-            };
-            if taken {
-                inner.frames_played = inner.frames_played.wrapping_add(1);
-            }
-        }
+        let _ = self.try_play(frame);
     }
 
     /// Frames the output device took from [`play`](Self::play) so far. A
