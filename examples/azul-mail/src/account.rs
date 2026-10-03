@@ -286,19 +286,31 @@ pub fn test_secret(backend: Option<&str>, value: Option<&str>) -> Option<Secret>
 /// in the Azlin data root (`<data root>/mail`, the user's bucket later; the root is
 /// azul-appkit's: `--data-dir`, `AZLIN_DATA`, else `Azlin` in the user's data folder).
 pub fn data_root(setting: Option<&str>, azlin_root: &Path) -> PathBuf {
-    todo!("{setting:?} {azlin_root:?}")
+    match setting.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(dir) => PathBuf::from(dir),
+        None => azlin_root.join(crate::args::APP_FOLDER),
+    }
 }
 
 /// Where AzMail kept its folder before the Azlin data root: `AzMail` in the user's data folder.
 pub fn legacy_root(user_data: Option<&Path>) -> Option<PathBuf> {
-    todo!("{user_data:?}")
+    user_data
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(|p| p.join(APP_DIR))
 }
 
 /// Moves the folder of an older AzMail (`legacy`) to `root` once: only when `legacy` is a
 /// folder and nothing is at `root` yet (a second run, or mail already in the new place, moves
 /// nothing). Runs at start, before the window. `Ok(true)` when it moved.
 pub fn migrate_legacy_root(legacy: &Path, root: &Path) -> std::io::Result<bool> {
-    todo!("{legacy:?} {root:?}")
+    if !legacy.is_dir() || root.exists() {
+        return Ok(false);
+    }
+    if let Some(parent) = root.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::rename(legacy, root)?;
+    Ok(true)
 }
 
 /// The account's own folder: `<AzMail folder>/<account id>`.
