@@ -562,8 +562,10 @@ fn ink_layer(data: &RefAny, cache: RefAny, page: usize) -> Dom {
         data.clone(),
         crate::on_ink_down,
     )
+    // Movement: `MouseMove` (W3C `mouseover` fires once, on entry - with it
+    // a stroke kept only its first point).
     .with_callback(
-        EventFilter::Hover(HoverEventFilter::MouseOver),
+        EventFilter::Hover(HoverEventFilter::MouseMove),
         data.clone(),
         crate::on_ink_move,
     )
