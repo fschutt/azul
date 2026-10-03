@@ -39,6 +39,7 @@ pub mod parse;
 /// A to-do's repeat lives in the shared PIM crate (DEDUP_EDITORS B6).
 pub use azul_pim::repeat as recur;
 pub mod reminders;
+pub mod repeat_form;
 pub mod sample;
 pub mod state;
 pub mod store;
