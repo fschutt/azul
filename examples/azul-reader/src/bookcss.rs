@@ -88,7 +88,26 @@ const HYPHENS_ALIASES: &[&str] = &[
 /// `value` with every `<number>rem` written `<number>em`.
 #[must_use]
 pub fn rem_to_em(value: &str) -> String {
-    unimplemented!("RED: rem_to_em {value}")
+    // ASCII lower-casing keeps every byte where it was: the indices hold for `value`.
+    let lower = value.to_ascii_lowercase();
+    let bytes = lower.as_bytes();
+    let mut out = String::with_capacity(value.len());
+    let mut from = 0;
+    let mut written = 0;
+    while let Some(found) = lower[from..].find("rem") {
+        let at = from + found;
+        let after = at + 3;
+        let number_before = at > 0 && (bytes[at - 1].is_ascii_digit() || bytes[at - 1] == b'.');
+        let word_ends = after >= bytes.len() || !bytes[after].is_ascii_alphanumeric();
+        if number_before && word_ends {
+            out.push_str(&value[written..at]);
+            out.push_str("em");
+            written = after;
+        }
+        from = after;
+    }
+    out.push_str(&value[written..]);
+    out
 }
 
 /// Whether a length (one token) is relative to the text or its container: `em`, `ex`, `ch`,
@@ -96,19 +115,88 @@ pub fn rem_to_em(value: &str) -> String {
 /// keywords).
 #[must_use]
 pub fn is_relative(value: &str) -> bool {
-    unimplemented!("RED: is_relative {value}")
+    const KEYWORDS: &[&str] = &[
+        "auto",
+        "none",
+        "normal",
+        "inherit",
+        "initial",
+        "unset",
+        "xx-small",
+        "x-small",
+        "small",
+        "medium",
+        "large",
+        "x-large",
+        "xx-large",
+        "xxx-large",
+        "smaller",
+        "larger",
+        "fit-content",
+        "min-content",
+        "max-content",
+    ];
+    let v = value.trim().to_ascii_lowercase();
+    if KEYWORDS.contains(&v.as_str()) {
+        return true;
+    }
+    let number = |s: &str| s.trim().parse::<f32>().is_ok_and(f32::is_finite);
+    if let Ok(n) = v.parse::<f32>() {
+        return n == 0.0;
+    }
+    for unit in ["rem", "em", "ex", "ch", "%"] {
+        if let Some(n) = v.strip_suffix(unit) {
+            return number(n);
+        }
+    }
+    false
 }
 
 /// One declaration fitted to the reader: `None` when it goes.
 #[must_use]
 pub fn fit_declaration(property: &str, value: &str) -> Option<(String, String)> {
-    unimplemented!("RED: fit_declaration {property} {value}")
+    let property = property.trim().to_ascii_lowercase();
+    let value = value.trim();
+    if value.is_empty() || !css::safe_value(value) {
+        return None;
+    }
+    let property = if HYPHENS_ALIASES.contains(&property.as_str()) {
+        "hyphens".to_string()
+    } else {
+        property
+    };
+    if !KEPT.contains(&property.as_str()) {
+        return None;
+    }
+    let value = rem_to_em(value);
+    match property.as_str() {
+        "font-family" => {
+            let l = value.to_ascii_lowercase();
+            (l.contains("mono") || l.contains("courier") || l.contains("consol"))
+                .then(|| (property, "monospace".to_string()))
+        }
+        "font-size" | "width" | "min-width" | "max-width" | "height" | "min-height"
+        | "max-height" => is_relative(&value).then_some((property, value)),
+        "line-height" => {
+            let unitless = value
+                .trim()
+                .parse::<f32>()
+                .is_ok_and(|n| n.is_finite() && n > 0.0);
+            (unitless || is_relative(&value)).then_some((property, value))
+        }
+        _ => Some((property, value)),
+    }
 }
 
 /// A `style` attribute fitted to the reader (`""` when nothing stays).
 #[must_use]
 pub fn fit_inline(style: &str) -> String {
-    unimplemented!("RED: fit_inline {style}")
+    css::parse_declarations(style)
+        .iter()
+        .filter_map(|(p, v)| fit_declaration(p, v))
+        .map(|(p, v)| format!("{p}: {v}"))
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 /// A book's style sheet fitted to the reader: its rules with the declarations that stay;
@@ -116,10 +204,65 @@ pub fn fit_inline(style: &str) -> String {
 /// device dropped; every other at-rule dropped.
 #[must_use]
 pub fn fit_sheet(sheet: &str) -> String {
-    unimplemented!(
-        "RED: fit_sheet {sheet} {}",
-        KEPT.len() + HYPHENS_ALIASES.len()
-    )
+    let plain = css::strip_comments(sheet);
+    let mut out = String::new();
+    fit_items(&plain, &mut out, 0);
+    out
+}
+
+/// The rules of `sheet` (or of an `@media` block's inside, `depth` deep) fitted into `out`.
+fn fit_items(sheet: &str, out: &mut String, depth: usize) {
+    css::for_each_item(sheet, &mut |item| match item {
+        CssItem::Rule {
+            selectors,
+            declarations,
+        } => {
+            if !safe_selectors(selectors) {
+                return;
+            }
+            let kept: Vec<String> = declarations
+                .iter()
+                .filter_map(|(p, v)| fit_declaration(p, v))
+                .map(|(p, v)| format!("{p}: {v};"))
+                .collect();
+            if kept.is_empty() {
+                return;
+            }
+            out.push_str(selectors);
+            out.push_str(" { ");
+            out.push_str(&kept.join(" "));
+            out.push_str(" }\n");
+        }
+        CssItem::AtBlock {
+            name,
+            condition,
+            body,
+        } => {
+            if name == "media" && depth < 4 && screen_media(condition) {
+                fit_items(body, out, depth + 1);
+            }
+        }
+        CssItem::AtStatement { .. } => {}
+    });
+}
+
+/// Whether an `@media` condition is for a screen (not for print, speech or one vendor's
+/// device).
+fn screen_media(condition: &str) -> bool {
+    let c = condition.to_ascii_lowercase();
+    css::safe_value(condition)
+        && !["print", "amzn", "kindle", "speech", "aural"]
+            .iter()
+            .any(|other| c.contains(other))
+}
+
+/// Whether a selector list holds only what selectors need (no markup, braces, at-signs,
+/// escapes, URLs or control characters).
+fn safe_selectors(selectors: &str) -> bool {
+    !selectors.is_empty()
+        && !selectors.contains(['<', '\\', '{', '}', '@', ';'])
+        && !selectors.to_ascii_lowercase().contains("url(")
+        && !selectors.chars().any(char::is_control)
 }
 
 #[cfg(test)]
