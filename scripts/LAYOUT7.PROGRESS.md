@@ -9,6 +9,10 @@ headless Chrome and the prebuilt azul (AzPaint `mount`, capped runner), prints r
   GREEN 92877ff2e (mask, fresh tree), fbef5dcd7 (mask, reconciler), 87cc1c6ae (no marker box for none,
   item's own type), 116feca4d (marker rides the first line: fc::marker_line_host / markers_on_first_line /
   is_marker_on_a_line, layout_bfc filter), 3eea318ee (sizing + process_out_of_flow_children skip).
+- item 2: RED e861edfae (layout/tests/a_block_inside_an_inline_splits_the_inline_around_it.rs);
+  GREEN 3995cb27f (layout_tree::inline_holds_a_block / split_inlines_around_blocks, used by the fresh
+  tree, the reconciler, has_only_inline_children; fc.rs twin inline_children_hold_a_block deleted).
+  Not built: the split inline's fragment boxes (background/border/padding of the inline beside the block).
 
 ## NOTES item 1 (done)
 - item 1: abspos child treated as in-flow + ::marker with list-style-type none.
@@ -35,10 +39,10 @@ headless Chrome and the prebuilt azul (AzPaint `mount`, capped runner), prints r
   skip a marker that has a host, a marker IFC collects only its marker; no marker box for none.
 
 ## IN PROGRESS
-- item 2: block inside an inline (`<a><img style=display:block></a>`) dropped - probe + RED next
+- item 3: inline-block min-width:100% + border-box + padding = 524 in 500 (MAIL6) - probe + RED next
 
 ## NEXT
-- items 3..10 in brief order
+- items 4..10 in brief order
 
 ## Decisions / open questions
 - no-host marker (`<li><div h50/></li>`, Chrome 50 azul 70): kept as today (own line); note in report.
