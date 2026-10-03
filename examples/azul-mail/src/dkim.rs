@@ -25,12 +25,37 @@ use crate::account::Secret;
 /// flight any more).
 pub const SELECTOR_PREFIX: &str = "azmail";
 /// The bits of a generated key (RFC 8301: at least 1024, 2048 recommended; 4096 does not fit
-/// every DNS provider's TXT field).
+/// every DNS provider's TXT field). micromail's generator makes this size.
 pub const KEY_BITS: usize = 2048;
 /// DNS type TXT.
 const DNS_TYPE_TXT: u16 = 16;
 /// The longest character-string of a TXT record (RFC 1035 3.3).
 const TXT_STRING_MAX: usize = 255;
+/// Mail providers whose domains nobody but the provider can sign for, besides the ones the
+/// account wizard knows (`account::PROVIDERS`).
+const PROVIDER_DOMAINS: &[&str] = &[
+    "yahoo.com",
+    "ymail.com",
+    "rocketmail.com",
+    "aol.com",
+    "gmx.de",
+    "gmx.net",
+    "gmx.at",
+    "gmx.ch",
+    "gmx.com",
+    "web.de",
+    "t-online.de",
+    "freenet.de",
+    "proton.me",
+    "protonmail.com",
+    "pm.me",
+    "zoho.com",
+    "yandex.ru",
+    "yandex.com",
+    "mail.ru",
+    "mailbox.org",
+    "posteo.de",
+];
 
 /// A new key: the private half for the keyring, the public half for the DNS record.
 #[derive(Debug, Clone)]
@@ -44,67 +69,153 @@ pub struct KeyPair {
 /// A new RSA key. Takes a moment (a fraction of a second in a release build, seconds in a debug
 /// one): call it from an azul `Thread`, never from a callback.
 pub fn generate_key() -> Result<KeyPair, String> {
-    Err(String::from("not yet"))
+    let private_pem = Secret::new(
+        micromail::generate_rsa_key_pem().map_err(|e| format!("No key could be made: {e}"))?,
+    );
+    let public_key = public_key_of(private_pem.expose())?;
+    Ok(KeyPair {
+        private_pem,
+        public_key,
+    })
 }
 
 /// The public half of a private key (PEM, PKCS#1 or PKCS#8), as base64 SubjectPublicKeyInfo.
 pub fn public_key_of(private_pem: &str) -> Result<String, String> {
-    let _ = private_pem;
-    Err(String::from("not yet"))
+    use base64::Engine;
+    use rsa::{pkcs1::DecodeRsaPrivateKey, pkcs8::DecodePrivateKey, pkcs8::EncodePublicKey};
+
+    let pem = private_pem.trim();
+    let private = rsa::RsaPrivateKey::from_pkcs1_pem(pem)
+        .or_else(|_| rsa::RsaPrivateKey::from_pkcs8_pem(pem))
+        .map_err(|_| {
+            String::from("This is not an RSA private key in PEM form (PKCS#1 or PKCS#8).")
+        })?;
+    let der = private
+        .to_public_key()
+        .to_public_key_der()
+        .map_err(|e| format!("The public key could not be written: {e}"))?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(der.as_bytes()))
 }
 
 /// The selector for a key made at `now` (seconds since 1970): `azmail<yyyy><mm>`.
 pub fn default_selector(now: i64) -> String {
-    let _ = now;
-    String::new()
+    let (year, month) = crate::message::year_month(now);
+    format!("{SELECTOR_PREFIX}{year:04}{month:02}")
 }
 
 /// Whether `selector` can be a DNS label: 1 to 63 letters, digits and `-`, not starting or
 /// ending with `-` (dots would make it several labels, which DKIM allows but nobody needs).
 pub fn is_selector(selector: &str) -> bool {
-    let _ = selector;
-    false
+    (1..=63).contains(&selector.len())
+        && selector
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        && !selector.starts_with('-')
+        && !selector.ends_with('-')
+}
+
+/// A domain as DNS names it here: trimmed, lower case, no root dot.
+fn domain_name(domain: &str) -> String {
+    domain.trim().trim_end_matches('.').to_ascii_lowercase()
 }
 
 /// The name of the TXT record: `<selector>._domainkey.<domain>`.
 pub fn record_name(selector: &str, domain: &str) -> String {
-    let _ = (selector, domain);
-    String::new()
+    format!("{}._domainkey.{}", selector.trim(), domain_name(domain))
 }
 
 /// The TXT record's value as a DNS provider's web form wants it (one line; the provider splits
 /// it): `v=DKIM1; k=rsa; p=<public key>`.
 pub fn record_value(public_key: &str) -> String {
-    let _ = public_key;
-    String::new()
+    format!("v=DKIM1; k=rsa; p={}", public_key.trim())
 }
 
 /// The record as a line of a zone file: `<name>. 3600 IN TXT ( "..." "..." )`, the value split
 /// into strings of at most 255 characters (a 2048-bit key is longer than one).
 pub fn zone_line(selector: &str, domain: &str, public_key: &str) -> String {
-    let _ = (selector, domain, public_key);
-    String::new()
+    let mut strings = vec![String::from("v=DKIM1; k=rsa; ")];
+    let key = format!("p={}", public_key.trim());
+    // Base64 is ASCII: every byte index is a character boundary.
+    let mut rest = key.as_str();
+    while !rest.is_empty() {
+        let (head, tail) = rest.split_at(rest.len().min(TXT_STRING_MAX));
+        strings.push(head.to_string());
+        rest = tail;
+    }
+    let quoted: Vec<String> = strings.iter().map(|s| format!("\"{s}\"")).collect();
+    format!(
+        "{}. 3600 IN TXT ( {} )",
+        record_name(selector, domain),
+        quoted.join(" ")
+    )
 }
 
 /// Whether AzMail can sign for `domain` from this computer: not for a mail provider's domain
 /// (gmail.com, outlook.com, ...), whose DNS nobody but the provider can change.
 pub fn can_sign_for(domain: &str) -> Result<(), String> {
-    let _ = domain;
+    let domain = domain_name(domain);
+    if domain.is_empty() || !domain.contains('.') {
+        return Err(String::from(
+            "DKIM needs the domain of your address (example.org), one whose DNS you can edit.",
+        ));
+    }
+    let provider = crate::account::PROVIDERS
+        .iter()
+        .flat_map(|p| p.domains.iter())
+        .chain(PROVIDER_DOMAINS.iter())
+        .any(|d| *d == domain);
+    if provider {
+        return Err(format!(
+            "{domain} belongs to a mail provider: only the provider can publish DKIM keys for \
+             it. Send through the provider's own server instead, or use an address at a \
+             domain of your own."
+        ));
+    }
     Ok(())
 }
 
 /// The DMARC record to publish for `domain` while starting out: its name
 /// (`_dmarc.<domain>`) and value (`v=DMARC1; p=none; rua=mailto:<reports_to>`).
 pub fn dmarc_record(domain: &str, reports_to: &str) -> (String, String) {
-    let _ = (domain, reports_to);
-    (String::new(), String::new())
+    (
+        format!("_dmarc.{}", domain_name(domain)),
+        format!("v=DMARC1; p=none; rua=mailto:{}", reports_to.trim()),
+    )
 }
 
 /// What the Sending page says under the DKIM record: DMARC, SPF, reverse DNS and port 25, for
 /// `domain` and the sender `address`. One paragraph per entry.
 pub fn setup_notes(domain: &str, address: &str) -> Vec<String> {
-    let _ = (domain, address);
-    Vec::new()
+    let domain = domain_name(domain);
+    let (dmarc_name, dmarc_value) = dmarc_record(&domain, address);
+    vec![
+        format!(
+            "DMARC: publish a TXT record {dmarc_name} with \"{dmarc_value}\". DMARC passes on \
+             DKIM alone, because the signature names {domain}, the From address's own domain. \
+             Receivers send their reports to {}; once they look clean, p=quarantine asks them \
+             to file failing mail as spam.",
+            address.trim()
+        ),
+        format!(
+            "SPF lists the computers that may send for {domain}. A home connection's address \
+             belongs to your Internet provider and changes, so SPF cannot list it: keep the \
+             domain's SPF record ending in ~all, not -all (or publish \"v=spf1 ~all\" if it has \
+             none). DKIM carries the mail through DMARC; a hard -all makes receivers that check \
+             SPF alone refuse it."
+        ),
+        String::from(
+            "Reverse DNS (PTR): receivers look up the name of the address a mail comes from. A \
+             home connection has the provider's generic name, and some receivers refuse such \
+             addresses (Gmail: 5.7.25 without a PTR; Outlook and others: home address lists \
+             such as Spamhaus PBL, 5.7.1). AzMail remembers each domain that refuses and keeps \
+             that mail in the Outbox for a relay.",
+        ),
+        String::from(
+            "Direct delivery talks to each receiver's mail server on port 25. Many home Internet \
+             providers block outgoing port 25; when no mail server can be reached at all, \
+             AzMail checks the port and says so.",
+        ),
+    ]
 }
 
 // ==== Is it published? ====
@@ -132,33 +243,159 @@ pub struct DnsReport {
     pub spf: Option<String>,
 }
 
+fn be16(packet: &[u8], at: usize) -> Result<u16, String> {
+    match packet.get(at..at + 2) {
+        Some(b) => Ok(u16::from_be_bytes([b[0], b[1]])),
+        None => Err(String::from("the DNS answer is cut off")),
+    }
+}
+
+/// The position after the (possibly compressed) name at `pos`.
+fn skip_name(packet: &[u8], mut pos: usize) -> Result<usize, String> {
+    loop {
+        let len = *packet
+            .get(pos)
+            .ok_or_else(|| String::from("the DNS answer is cut off"))? as usize;
+        if len == 0 {
+            return Ok(pos + 1);
+        }
+        if len & 0xC0 == 0xC0 {
+            // A pointer ends the name.
+            return if pos + 1 < packet.len() {
+                Ok(pos + 2)
+            } else {
+                Err(String::from("the DNS answer is cut off"))
+            };
+        }
+        pos += 1 + len;
+    }
+}
+
 /// The TXT records in a DNS answer (each record's strings joined, as RFC 6376 3.6.2.2 reads
 /// them); none for a name that does not exist (NXDOMAIN); an error for a malformed or truncated
 /// answer or a server failure.
 pub fn txt_records(packet: &[u8]) -> Result<Vec<String>, String> {
-    let _ = packet;
-    Err(String::from("not yet"))
+    if packet.len() < 12 {
+        return Err(String::from("the DNS answer is too short"));
+    }
+    let flags = be16(packet, 2)?;
+    if flags & 0x0200 != 0 {
+        return Err(String::from(
+            "the DNS answer was truncated (too long for one UDP packet)",
+        ));
+    }
+    match flags & 0x000F {
+        0 => {}
+        3 => return Ok(Vec::new()),
+        code => return Err(format!("the DNS server answered with error {code}")),
+    }
+    let questions = be16(packet, 4)?;
+    let answers = be16(packet, 6)?;
+    let mut pos = 12;
+    for _ in 0..questions {
+        pos = skip_name(packet, pos)? + 4;
+    }
+    let mut records = Vec::new();
+    for _ in 0..answers {
+        pos = skip_name(packet, pos)?;
+        let kind = be16(packet, pos)?;
+        let length = be16(packet, pos + 8)? as usize;
+        pos += 10;
+        let end = pos + length;
+        let rdata = packet
+            .get(pos..end)
+            .ok_or_else(|| String::from("the DNS answer is cut off"))?;
+        if kind == DNS_TYPE_TXT {
+            let mut text = Vec::new();
+            let mut at = 0;
+            while at < rdata.len() {
+                let len = rdata[at] as usize;
+                let string = rdata
+                    .get(at + 1..at + 1 + len)
+                    .ok_or_else(|| String::from("a TXT record of the DNS answer is malformed"))?;
+                text.extend_from_slice(string);
+                at += 1 + len;
+            }
+            records.push(String::from_utf8_lossy(&text).into_owned());
+        }
+        pos = end;
+    }
+    Ok(records)
+}
+
+/// A DKIM key record's tags (`v`, `k`, `p`, ...), names trimmed.
+fn tags(record: &str) -> Vec<(String, String)> {
+    record
+        .split(';')
+        .filter_map(|tag| tag.split_once('='))
+        .map(|(name, value)| (name.trim().to_ascii_lowercase(), value.trim().to_string()))
+        .collect()
 }
 
 /// Which of `records` (the TXT records at the DKIM name) publishes `public_key`.
 pub fn match_record(records: &[String], public_key: &str) -> Published {
-    let _ = (records, public_key);
-    Published::Missing
+    let ours: String = public_key.chars().filter(|c| !c.is_whitespace()).collect();
+    let mut other = None;
+    for record in records {
+        let tags = tags(record);
+        let version = tags.iter().find(|(n, _)| n == "v").map(|(_, v)| v.as_str());
+        if version.is_some_and(|v| !v.eq_ignore_ascii_case("DKIM1")) {
+            continue;
+        }
+        let Some(key) = tags.iter().find(|(n, _)| n == "p").map(|(_, v)| v) else {
+            continue;
+        };
+        let key: String = key.chars().filter(|c| !c.is_whitespace()).collect();
+        if !ours.is_empty() && key == ours {
+            return Published::Matches;
+        }
+        if other.is_none() {
+            let shown = if key.len() > 32 {
+                format!("{}...", &key[..24])
+            } else {
+                key
+            };
+            other = Some(shown);
+        }
+    }
+    match other {
+        Some(key) => Published::Different(key),
+        None => Published::Missing,
+    }
+}
+
+/// The TXT records at `name`, asked of the public resolvers.
+fn lookup_txt(name: &str) -> Result<Vec<String>, String> {
+    let packet = microdns::lookup_dns_records(name, DNS_TYPE_TXT, None)
+        .map_err(|e| format!("DNS could not be asked for {name}: {e}"))?;
+    txt_records(&packet).map_err(|e| format!("{name}: {e}"))
 }
 
 /// Asks DNS for the DKIM record of `selector` / `domain` (blocking: call it from an azul
 /// `Thread`).
 pub fn check_published(selector: &str, domain: &str, public_key: &str) -> Published {
-    let _ = (selector, domain, public_key);
-    Published::Unknown(String::from("not yet"))
+    match lookup_txt(&record_name(selector, domain)) {
+        Ok(records) => match_record(&records, public_key),
+        Err(why) => Published::Unknown(why),
+    }
 }
 
 /// The DKIM, DMARC and SPF records of `domain` (blocking: call it from an azul `Thread`).
 pub fn dns_report(selector: &str, domain: &str, public_key: &str) -> DnsReport {
+    let first = |name: &str, prefix: &str| {
+        lookup_txt(name).ok().and_then(|records| {
+            records.into_iter().find(|r| {
+                r.trim_start()
+                    .get(..prefix.len())
+                    .is_some_and(|p| p.eq_ignore_ascii_case(prefix))
+            })
+        })
+    };
+    let domain = domain_name(domain);
     DnsReport {
-        dkim: check_published(selector, domain, public_key),
-        dmarc: None,
-        spf: None,
+        dkim: check_published(selector, &domain, public_key),
+        dmarc: first(&format!("_dmarc.{domain}"), "v=DMARC1"),
+        spf: first(&domain, "v=spf1"),
     }
 }
 
@@ -216,13 +453,15 @@ mod tests {
         // micromail signs with it.
         let config = micromail::DkimConfig::from_pem(pem, "azmail202610", "example.org")
             .expect("micromail reads the key");
-        let signed = micromail::sign_message(b"From: a@example.org\r\nSubject: x\r\n\r\nhi\r\n", &config)
-            .expect("it signs");
+        let signed =
+            micromail::sign_message(b"From: a@example.org\r\nSubject: x\r\n\r\nhi\r\n", &config)
+                .expect("it signs");
         assert!(signed.starts_with(b"DKIM-Signature: v=1; a=rsa-sha256;"));
         // The public half: a 2048-bit RSA SubjectPublicKeyInfo (the rsaEncryption OID and the
         // modulus length are always the same bytes, so the same base64 prefix).
         assert!(
-            pair.public_key.starts_with("MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA"),
+            pair.public_key
+                .starts_with("MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA"),
             "{}",
             pair.public_key
         );
@@ -256,7 +495,10 @@ mod tests {
         );
         let public = public_key_of(pem).expect("the public half");
         // A 1024-bit SubjectPublicKeyInfo.
-        assert!(public.starts_with("MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQ"), "{public}");
+        assert!(
+            public.starts_with("MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQ"),
+            "{public}"
+        );
         assert!(public_key_of("not a key").is_err());
     }
 
@@ -283,11 +525,7 @@ mod tests {
         );
         assert!(line.ends_with("\" )"), "{line}");
         // Every quoted string at most 255 characters, together the whole value.
-        let strings: Vec<&str> = line
-            .split('"')
-            .skip(1)
-            .step_by(2)
-            .collect();
+        let strings: Vec<&str> = line.split('"').skip(1).step_by(2).collect();
         assert!(strings.len() >= 2, "{line}");
         assert!(strings.iter().all(|s| s.len() <= 255), "{line}");
         assert_eq!(strings.concat(), record_value(&key));
@@ -311,7 +549,10 @@ mod tests {
         assert_eq!(value, "v=DMARC1; p=none; rua=mailto:ada@example.org");
         let notes = setup_notes("example.org", "ada@example.org").join("\n");
         assert!(notes.contains("_dmarc.example.org"), "{notes}");
-        assert!(notes.contains("v=DMARC1; p=none; rua=mailto:ada@example.org"), "{notes}");
+        assert!(
+            notes.contains("v=DMARC1; p=none; rua=mailto:ada@example.org"),
+            "{notes}"
+        );
         assert!(notes.contains("SPF"), "{notes}");
         assert!(notes.contains("~all"), "{notes}");
         assert!(notes.contains("PTR"), "{notes}");
@@ -333,7 +574,10 @@ mod tests {
         );
         assert_eq!(
             txt_records(&packet),
-            Ok(vec![String::from("v=DKIM1; k=rsa; p=MIIBkey"), String::from("other")])
+            Ok(vec![
+                String::from("v=DKIM1; k=rsa; p=MIIBkey"),
+                String::from("other")
+            ])
         );
         // NXDOMAIN: no record, not an error.
         assert_eq!(txt_records(&answer(name, 0x8183, &[])), Ok(Vec::new()));
@@ -363,7 +607,10 @@ mod tests {
             match_record(&[String::from("v=DKIM1; k=rsa; p=MIIBotherkey")], key),
             Published::Different(String::from("MIIBotherkey"))
         );
-        assert_eq!(match_record(&[String::from("v=spf1 ~all")], key), Published::Missing);
+        assert_eq!(
+            match_record(&[String::from("v=spf1 ~all")], key),
+            Published::Missing
+        );
         assert_eq!(match_record(&[], key), Published::Missing);
         // A revoked key (empty p=).
         assert_eq!(
