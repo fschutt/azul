@@ -9140,26 +9140,20 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
         )?;
 
         // The CONTENT box's height, like the text branch's: the sum below
-        // adds the padding and border. The layout just done at the column
-        // width reports its content extent (wrapped at the column, not at the
-        // measurement width); `used_size` is the measurement's BORDER box,
-        // which carries an explicit `height`, so it counts only after its own
-        // padding and border come off. Reading `used_size` whole counted them
-        // twice: every block-level cell's row came out 2 x (padding + border)
-        // too tall, its content pushed down by `vertical-align: middle`.
-        let cell_node = tree
-            .get(LayoutNodeId::new(cell_index))
-            .ok_or(LayoutError::InvalidTree)?;
-        let laid_out = tree
-            .warm(LayoutNodeId::new(cell_index))
+        // adds the padding and border. It is the extent of the layout just
+        // done at the column width (wrapped at the column, CSS 2.2 17.5.3),
+        // and only that: `used_size` still holds the min/max-content
+        // MEASUREMENT's box (a cell's own layout never overwrites it), laid
+        // out at another width - a nested `width: 80%` table at its
+        // min-content, one word per line - and taking the larger of the two
+        // made Mailgun's invoice row 89px too tall, its content centred in it
+        // (MAILREF8 group C). The cell's own `height` is read below
+        // (`cell_specified_border_box_height`), which is what the measured
+        // term once stood in for.
+        tree.warm(LayoutNodeId::new(cell_index))
             .and_then(|w| w.overflow_content_size)
-            .map_or(0.0, |s| s.height);
-        let measured = cell_node.used_size.unwrap_or_default().height
-            - padding.main_start(writing_mode)
-            - padding.main_end(writing_mode)
-            - border.main_start(writing_mode)
-            - border.main_end(writing_mode);
-        laid_out.max(measured).max(0.0)
+            .map_or(0.0, |s| s.height)
+            .max(0.0)
     };
 
     // Add padding and border to get the total height
