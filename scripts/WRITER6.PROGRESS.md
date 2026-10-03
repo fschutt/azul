@@ -9,10 +9,15 @@ Branch `wt/writer6` from `25d78e309`. Brief: scripts/waves/wave6/WRITER6.md.
   NOT done (for HEADLESS6): layout/src/e2e/runner.rs has no UndoTextEdit arm (never had one; the body
   lives in dll event.rs `undo_text_edit_on`). macOS Edit-menu `undo:` still applies UndoTextEdit directly.
 
+- 00a3ee873 RED (RTE: engine formats + undo keys, in a_rich_text_editor_keeps_one_model_and_one_history.rs),
+  da8e76e3b GREEN undo keys in the editor, 4cb54a4e6 doc.rs apply_reported_formats (+unit test),
+  55ce2dc21 GREEN sync_text takes formats from DocumentTextEdit.runs, toggle at caret from get_typing_formats.
+  DECISION: RichTypingStyle / state.typing stay (api.json; inline code has no engine format; pressed state).
+
 ## IN PROGRESS
-- NEXT: the RichTextEditor's VirtualKeyDown takes Ctrl/Cmd+Z / Shift+Z / Y: runs its history and calls
-  prevent_default (layout/src/widgets/rich_text_editor.rs key handler). RED test in
-  layout/tests/a_rich_text_editor_keeps_one_model_and_one_history.rs style.
+- NEXT: the pager entry for AzWriter (RTE 8b): RichTextEditor renders a RANGE of blocks (a page) with
+  `<host>-<index>` ids, and block mapping (path_in_host / block_of) falls back to the nearest ancestor's
+  `<host>-<index>` id when the blocks are not the host's direct children. Then AzWriter adoption.
 
 ## DONE design notes - Undo/Redo ownership. DESIGN (decided): the browser keydown model. core `handle_key_down` stops
   claiming primary+Z / Shift+Z / Y for the PRIMARY seat (no AddAndSkip: the KeyDown passes to callbacks);
