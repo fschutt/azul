@@ -231,6 +231,14 @@ pub fn tags(tasks: &[Task]) -> Vec<(String, usize)> {
     seen.into_values().collect()
 }
 
+/// The tags to offer task `t`: the open tasks' tags it does not carry, the most used first
+/// (then by name), at most `max` - the tag field's suggestions.
+#[must_use]
+pub fn tag_suggestions(tasks: &[Task], t: &Task, max: usize) -> Vec<String> {
+    let _ = (tasks, t, max);
+    Vec::new()
+}
+
 /// Whether every word of `query` is in the task's title, notes, tags or steps (any case,
 /// diacritics folded).
 #[must_use]
@@ -974,6 +982,21 @@ mod tests {
         assert_eq!(due_label(&tasks[4], today).as_deref(), Some("Sun 4 Oct"));
         assert_eq!(due_label(&tasks[9], today), None);
         assert_eq!(next_order(&tasks, "work"), 6 + ORDER_STEP);
+    }
+
+    #[test]
+    fn tag_suggestions_are_the_other_tags_most_used_first() {
+        let mut tasks = sample();
+        tasks[0].add_tag("work");
+        tasks[1].add_tag("home");
+        tasks[2].add_tag("home");
+        tasks[3].add_tag("errand");
+        tasks[3].add_tag("Home");
+        let t = tasks[0].clone();
+        assert_eq!(tag_suggestions(&tasks, &t, 5), vec!["home", "errand"], "not its own work");
+        assert_eq!(tag_suggestions(&tasks, &t, 1), vec!["home"]);
+        let all = tasks[3].clone();
+        assert_eq!(tag_suggestions(&tasks, &all, 5), vec!["work"], "any case is its own");
     }
 
     #[test]
