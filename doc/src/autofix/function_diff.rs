@@ -2890,5 +2890,100 @@ mod tests {
             Some("object.destroy_child(index)")
         );
     }
+
+    /// AUTOFIX6 "seen broken": `autofix add RichTextDoc.block` (by name) for
+    /// `fn block(&self, i) -> &RichBlock` wrote `object.block(i)` returning
+    /// `RichBlock` - a borrow where a value is due, which did not compile.
+    /// A borrowed return is cloned; an `Option<&T>` is `.cloned()`.
+    #[test]
+    fn a_borrowed_return_added_by_name_is_cloned() {
+        let source = r#"
+            impl T {
+                pub fn block(&self, index: usize) -> &RichBlock { todo!() }
+                pub fn block_mut(&mut self, index: usize) -> &mut RichBlock { todo!() }
+                pub fn find(&self, index: usize) -> Option<&RichBlock> { todo!() }
+            }
+        "#;
+        let f = added(source, "block");
+        assert_eq!(returns_of(&f), Some("RichBlock"));
+        assert_eq!(f.fn_body.as_deref(), Some("object.block(index).clone()"));
+        assert_eq!(added(source, "block_mut").fn_body.as_deref(), Some("object.block_mut(index).clone()"));
+        let f = added(source, "find");
+        assert_eq!(returns_of(&f), Some("OptionRichBlock"));
+        assert_eq!(f.fn_body.as_deref(), Some("object.find(index).cloned().into()"));
+    }
+
+    /// `Option<T>` arguments went out as written (`Option<i32>`, no api.json
+    /// type): an argument crosses as its FFI option and is converted back
+    /// in the body - `.into()` for an owned value, `.as_ref()` for a borrow,
+    /// and the string forms (`Option<&str>`, a std `Option<String>`).
+    #[test]
+    fn an_option_argument_crosses_as_its_ffi_option() {
+        let source = r#"
+            impl T {
+                pub fn span(&mut self, span: Option<i32>) {}
+                pub fn style(&mut self, style: Option<TextStyle>) {}
+                pub fn peek(&self, style: Option<&TextStyle>) {}
+                pub fn label(&mut self, label: Option<&str>) {}
+                pub fn title(&mut self, title: Option<String>) {}
+                pub fn name(&mut self, name: Option<AzString>) {}
+            }
+        "#;
+        let cases = [
+            ("span", "OptionI32", "object.span(span.into())"),
+            ("style", "OptionTextStyle", "object.style(style.into())"),
+            ("peek", "OptionTextStyle", "object.peek(style.as_ref())"),
+            ("label", "OptionString", "object.label(label.as_ref().map(|s| s.as_str()))"),
+            ("title", "OptionString", "object.title(title.map(|s| s.into_library_owned_string()))"),
+            ("name", "OptionString", "object.name(name.into())"),
+        ];
+        for (name, ty, body) in cases {
+            let f = added(source, name);
+            let args = arg_list(&f);
+            assert_eq!(args.last().map(|(_, t)| t.as_str()), Some(ty), "{name}: {args:?}");
+            assert_eq!(f.fn_body.as_deref(), Some(body), "{name}");
+        }
+    }
+
+    /// `&[T]` arguments mapped to `{T}VecRef`, which exists for u8 / f32 /
+    /// i32 only (the gl types); the house convention is the impl_vec! slice,
+    /// `{T}VecSlice`, read with `.as_slice()`.
+    #[test]
+    fn a_slice_argument_crosses_as_its_vec_slice() {
+        let source = r#"
+            impl T {
+                pub fn union(rects: &[LayoutRect]) -> LayoutRect { todo!() }
+                pub fn bytes(&mut self, data: &[u8]) {}
+                pub fn ids(&mut self, ids: &[u32]) {}
+            }
+        "#;
+        let cases = [
+            ("union", "LayoutRectVecSlice", "azul_layout::widgets::t::T::union(rects.as_slice())"),
+            ("bytes", "U8VecRef", "object.bytes(data.as_slice())"),
+            ("ids", "U32VecSlice", "object.ids(ids.as_slice())"),
+        ];
+        for (name, ty, body) in cases {
+            let f = added(source, name);
+            let args = arg_list(&f);
+            assert_eq!(args.last().map(|(_, t)| t.as_str()), Some(ty), "{name}: {args:?}");
+            assert_eq!(f.fn_body.as_deref(), Some(body), "{name}");
+        }
+    }
+
+    /// The `.as_str()` / `.as_slice()` accessors were spliced in with
+    /// `replace("text)")`, which also hit an argument whose name ENDS with
+    /// another's (`context)` for `text`). Every accessor matches whole
+    /// arguments.
+    #[test]
+    fn an_accessor_never_hits_an_argument_whose_name_ends_with_another() {
+        let source = r#"
+            impl T {
+                pub fn f(&self, text: &str, context: u32) {}
+                pub fn g(&self, data: &[u8], metadata: u32) {}
+            }
+        "#;
+        assert_eq!(added(source, "f").fn_body.as_deref(), Some("object.f(text.as_str(), context)"));
+        assert_eq!(added(source, "g").fn_body.as_deref(), Some("object.g(data.as_slice(), metadata)"));
+    }
 }
 
