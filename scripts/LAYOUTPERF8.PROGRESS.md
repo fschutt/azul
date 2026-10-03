@@ -46,13 +46,24 @@ back" fix in compute_non_flex_layout - so the clear is no longer needed for corr
   layout, carried_indices + ifc_membership remap, vw guard (mod.rs Step 1.2), paged_layout clears all,
   comments + dll ribbon test doc.
 
+- 04db13759 scripts/layoutperf8_e2e/ (text beside a block: FAIL on wave 7 -> expect PASS; margin: xfail)
+- d6ad6d687 a clone paired by POSITION drops its measurements (flag and memo must describe one node)
+- 22acb1c28 test a_page_laid_out_again_matches_a_fresh_window (cold oracle: knob frame, rebuild, knob frame)
+
+## DECISIONS
+- Bug B (css-dirty block margin not applied: clones carry stale box props; root re-solved from its old
+  slot) and bug C (css-dirty block size change does not grow auto-height ancestors / move what follows -
+  probe lp8_g: child 60 tall, parent stays 20, #after overlaps) are DOCUMENTED, NOT FIXED: they are the
+  css-dirty channel's block-layout semantics (relayout boundaries + rebuilding css-dirty nodes fresh), not
+  the per-frame cost; a fix needs a design pass + a build. Plan in the report.
+- The wasm-lift diagnostic deep clone `cache.tree = Some((*new_tree).clone())` (mod.rs ~1206) is left
+  (another session's diag scaffolding); listed as a follow-up lever.
+
 ## IN PROGRESS
-- deciding on LATENT BUG B (block margin change through css dirt does not move the box)
+- report scripts/LAYOUTPERF8_2026_10_03.md
 
 ## NEXT
-- copy e2e probes to scripts/layoutperf8_e2e/ (with passing-when-fixed asserts)
-- bug B: RED + fix, or document only
-- re-review GREEN for compile risks; report scripts/LAYOUTPERF8_2026_10_03.md
+- write + commit the report; final progress
 
 ## Decisions / open questions
 - Conservative: a clone under a restyled node (own or ancestor inline/class/state change) still clears
