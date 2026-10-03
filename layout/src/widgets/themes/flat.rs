@@ -4446,6 +4446,13 @@ pub fn color_input(c: crate::widgets::color_input::ColorInput) -> Dom {
 /// ring on every keyboard stop in every mode.
 #[must_use]
 pub fn date_picker(d: crate::widgets::date_picker::DatePicker) -> Dom {
+    crate::widgets::date_picker::build(d, &date_picker_look())
+}
+
+/// The flat date picker's look, part by part - what [`date_picker`] builds
+/// with, and what the date range picker draws its two calendars in.
+#[must_use]
+pub(crate) fn date_picker_look() -> crate::widgets::date_picker::DatePickerLook {
     use super::decl;
     use crate::widgets::date_picker::DatePickerLook;
 
@@ -4463,7 +4470,7 @@ pub fn date_picker(d: crate::widgets::date_picker::DatePicker) -> Dom {
         decl::shadow(0, 0, 1, DARK_ACC, true),
     )
     .to_vec();
-    crate::widgets::date_picker::build(d, &look)
+    look
 }
 
 // ==== combobox ====
@@ -6644,5 +6651,111 @@ pub(crate) fn icon_grid_look() -> crate::widgets::icon_grid::IconGridLook {
         track: decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec(),
         thumb,
         marker: None,
+    }
+}
+
+// ==== money_input ====
+//
+// The flat money input is the flat text field with the currency code in an
+// addon box beside it - Bootstrap's input-group text: the strip face in the
+// default border at the field's 4px radius, the code in the secondary ink;
+// the night strip, border and ink in the dark. The field itself is the
+// TextInput's own flat look.
+
+/// Flat's money-input skin.
+#[must_use]
+pub(crate) fn money_input_skin() -> crate::widgets::money_input::MoneyInputSkin {
+    use super::decl;
+
+    let root = vec![CssPropertyWithConditions::simple(
+        CssProperty::const_font_family(SYSTEM_UI_FAMILY),
+    )];
+    let mut addon = decl::padding(0, 8, 0, 8).to_vec();
+    addon.push(decl::font_size(13));
+    addon.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
+    addon.extend(decl::themed_border(decl::Edges::ALL, 1, LIGHT_BD, DARK_BD));
+    addon.extend(decl::radius(4));
+    addon.extend(decl::themed_ink(LIGHT_INTRO, DARK_INTRO));
+    crate::widgets::money_input::MoneyInputSkin {
+        root,
+        addon,
+        marker: None,
+    }
+}
+
+// ==== gauge ====
+//
+// The flat gauge is a track in the slider's groove colour with the bands
+// washed over it and the value's arc (or bar) in the Bootstrap semantic
+// colours - success green, a deepened warning amber (the yellow #ffc107
+// vanishes on white), danger red, secondary grey - and flat's accent outside
+// every band; each has its lighter dark-mode step. The value is semibold in
+// the ink, the label in the secondary ink.
+
+/// Flat's gauge skin.
+#[must_use]
+pub(crate) fn gauge_skin() -> crate::widgets::gauge::GaugeSkin {
+    use super::decl;
+    use crate::widgets::chart::ChartColor;
+
+    let mut root = vec![CssPropertyWithConditions::simple(
+        CssProperty::const_font_family(SYSTEM_UI_FAMILY),
+    )];
+    root.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    let mut value_text = vec![decl::semibold()];
+    value_text.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    let label = decl::themed_ink(LIGHT_INTRO, DARK_INTRO).to_vec();
+    crate::widgets::gauge::GaugeSkin {
+        root,
+        value_text,
+        label,
+        track: ChartColor::create(LIGHT_TRACK, DARK_TRACK),
+        ok: ChartColor::create(ColorU::rgb(0x19, 0x87, 0x54), ColorU::rgb(0x75, 0xB7, 0x98)),
+        warn: ChartColor::create(ColorU::rgb(0xE0, 0xA8, 0x00), ColorU::rgb(0xFF, 0xDA, 0x6A)),
+        bad: ChartColor::create(ColorU::rgb(0xDC, 0x35, 0x45), ColorU::rgb(0xEA, 0x86, 0x8F)),
+        neutral: ChartColor::create(ColorU::rgb(0x6C, 0x75, 0x7D), ColorU::rgb(0xAD, 0xB5, 0xBD)),
+        accent: ChartColor::create(LIGHT_ACC, DARK_ACC),
+        marker: None,
+    }
+}
+
+// ==== date_range_picker ====
+//
+// The flat date range picker's two calendars are the flat date picker's
+// (`date_picker_look`); around them: the presets as a column of quiet rows
+// behind a separator - the ink on nothing, the row hover face under the
+// pointer, flat's focus halo - and the summary line in the secondary ink.
+
+/// Flat's date-range-picker skin.
+#[must_use]
+pub(crate) fn date_range_picker_skin(
+) -> crate::widgets::date_range_picker::DateRangePickerSkin {
+    use super::decl;
+
+    let root = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+        decl::font_size(13),
+    ];
+    let right = decl::Edges {
+        top: false,
+        right: true,
+        bottom: false,
+        left: false,
+    };
+    let mut presets = decl::padding(0, 12, 0, 0).to_vec();
+    presets.extend(decl::themed_border(right, 1, LIGHT_SEP, DARK_SEP));
+    presets.push(decl::px_min_width(120.0));
+    let mut preset = decl::padding(4, 8, 4, 8).to_vec();
+    preset.extend(decl::radius(4));
+    preset.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    preset.extend(decl::hover_fill(LIGHT_ROW_HOVER, DARK_ROW_HOVER));
+    preset.extend(decl::focus_halo(FIELD_RING, DARK_ACC));
+    let mut summary = vec![decl::font_size(12)];
+    summary.extend(decl::themed_ink(LIGHT_INTRO, DARK_INTRO));
+    crate::widgets::date_range_picker::DateRangePickerSkin {
+        root,
+        presets,
+        preset,
+        summary,
     }
 }

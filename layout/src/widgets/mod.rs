@@ -537,6 +537,30 @@ pub mod token_input;
 /// later, Explorer's selection with a rubber band, drag out, activate,
 /// context menu, the keyboard; see `icon_grid.rs`.
 pub mod icon_grid;
+/// Money input widget.
+///
+/// An amount in a currency, typed the way the locale writes numbers
+/// (decimal point, grouping, the currency's side), held as integer minor
+/// units - never a float; a text field underneath. See `money_input.rs`.
+pub mod money_input;
+/// Gauge widget.
+///
+/// One value in a range as a dial, a ring or a bar, with ok / warning /
+/// critical bands colouring it; a meter for assistive technology, drawn
+/// with the engine's vector path. See `gauge.rs`.
+pub mod gauge;
+/// Date range picker widget.
+///
+/// A span of days picked on two months side by side - anchor, previewed
+/// span, pick - with presets (today, last 7 days, this month ...), on the
+/// date picker's calendars; see `date_range_picker.rs`.
+pub mod date_range_picker;
+/// Reference picker widget.
+///
+/// Type to find one record of a large list and pick it - ids, detail
+/// lines, a debounced query for the app's (async) search, a "create" row -
+/// built on the combobox; see `reference_picker.rs`.
+pub mod reference_picker;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
@@ -1884,6 +1908,31 @@ mod label_convention {
         // The icon grid: 40 files in a 400 x 300 viewport (the rows in view
         // only), two selected, the scroll bar.
         all.push(("icon_grid", super::icon_grid::fixtures::sample().dom()));
+        // The money input: 1.234,56 EUR in German (the code after the
+        // field), and an empty dollar field (the code before it).
+        all.push((
+            "money_input",
+            super::money_input::fixtures::sample().dom(),
+        ));
+        all.push((
+            "money_input (empty, en)",
+            super::money_input::fixtures::empty_dollars().dom(),
+        ));
+        // The gauge: a CPU dial at 73% (the warning band), and as a bar.
+        all.push(("gauge", super::gauge::fixtures::sample().dom()));
+        all.push(("gauge (linear)", super::gauge::fixtures::linear().dom()));
+        // The date range picker: 4 - 10 March 2026 picked, March and April
+        // shown, the default presets.
+        all.push((
+            "date_range_picker",
+            super::date_range_picker::fixtures::sample().dom(),
+        ));
+        // The reference picker: "acme" typed - two customers and the
+        // "create" row, on the combobox.
+        all.push((
+            "reference_picker",
+            super::reference_picker::fixtures::sample().dom(),
+        ));
         all
     }
 
@@ -2704,7 +2753,16 @@ mod theme_contrast {
     }
 
     /// Feedback and tags: the widgets with a semantic colour per kind.
-    const STATUS: &[&str] = &["alert", "badge", "chip", "toast", "spinner", "info_bar"];
+    const STATUS: &[&str] = &[
+        "alert",
+        "badge",
+        "chip",
+        "toast",
+        "spinner",
+        "info_bar",
+        "gauge",
+        "gauge (linear)",
+    ];
     /// Surfaces that hold the application's own content.
     const CONTAINERS: &[&str] = &[
         "accordion",
@@ -2780,6 +2838,10 @@ mod theme_contrast {
         "date_repeat_picker",
         // The token input: chips, the entry and its suggestions.
         "token_input",
+        "money_input",
+        "money_input (empty, en)",
+        "date_range_picker",
+        "reference_picker",
     ];
     /// Navigation and application chrome.
     const CHROME: &[&str] = &[

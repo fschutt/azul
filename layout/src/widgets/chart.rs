@@ -2193,12 +2193,7 @@ impl ChartLook {
         &self,
         f: impl Fn(&ChartSkin) -> Vec<CssPropertyWithConditions>,
     ) -> CssPropertyWithConditionsVec {
-        use crate::widgets::themes::theme_blocks::follow_props;
-        match self.skins.as_slice() {
-            [one] => CssPropertyWithConditionsVec::from_vec(f(one)),
-            [flat, flora] => follow_props(&f(flat), &f(flora)),
-            _ => CssPropertyWithConditionsVec::from_const_slice(&[]),
-        }
+        crate::widgets::themes::theme_blocks::part_of(&self.skins, f)
     }
 
     /// `base` (the part's structure, the same in every theme), then the
@@ -2543,8 +2538,9 @@ fn placed(left: f32, top: f32, w: f32, h: f32) -> Vec<Decl> {
 }
 
 /// Over the whole plot, as the XML parser places an SVG shape: the box IS
-/// the plot's user space, whatever border (stroke) it carries.
-fn over_plot() -> Vec<Decl> {
+/// the plot's user space, whatever border (stroke) it carries. (The gauge's
+/// arcs sit over its dial the same way.)
+pub(crate) fn over_plot() -> Vec<CssPropertyWithConditions> {
     use azul_css::props::layout::{LayoutInsetBottom, LayoutPosition, LayoutRight};
 
     use crate::widgets::themes::decl;

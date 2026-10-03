@@ -4905,6 +4905,13 @@ fn flora_day_geometry(selected: bool) -> Vec<CssPropertyWithConditions> {
 /// mode.
 #[must_use]
 pub fn date_picker(d: crate::widgets::date_picker::DatePicker) -> Dom {
+    crate::widgets::date_picker::build(d, &date_picker_look())
+}
+
+/// The flora date picker's look, part by part - what [`date_picker`] builds
+/// with, and what the date range picker draws its two calendars in.
+#[must_use]
+pub(crate) fn date_picker_look() -> crate::widgets::date_picker::DatePickerLook {
     use super::decl;
     use crate::widgets::date_picker::DatePickerLook;
 
@@ -4967,8 +4974,7 @@ pub fn date_picker(d: crate::widgets::date_picker::DatePicker) -> Dom {
     )
     .to_vec();
     look.marker = Some("__azul-theme-flora");
-
-    crate::widgets::date_picker::build(d, &look)
+    look
 }
 
 // ==== combobox ====
@@ -8195,5 +8201,121 @@ pub(crate) fn icon_grid_look() -> crate::widgets::icon_grid::IconGridLook {
         track: decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec(),
         thumb,
         marker: Some(super::style_kit::FLORA_CLASS),
+    }
+}
+
+// ==== money_input ====
+//
+// A flora money input is flora's field with the currency code on a raised
+// paper tab beside it: the raised face (--fl-rT -> --fl-rB) in the --fl-bd2
+// hairline at the house radius, the code semibold and tracked out in
+// --fl-soft1 like a pill's label; every surface, edge and ink has its night
+// value. The field itself is the TextInput's own flora look.
+
+/// Flora's money-input skin.
+#[must_use]
+pub(crate) fn money_input_skin() -> crate::widgets::money_input::MoneyInputSkin {
+    use super::decl;
+
+    let root = vec![CssPropertyWithConditions::simple(
+        CssProperty::const_font_family(SYSTEM_UI_FAMILY),
+    )];
+    let mut addon = decl::padding(0, 8, 0, 8).to_vec();
+    addon.push(decl::font_size(12));
+    addon.push(decl::semibold());
+    addon.push(decl::letter_spacing_em(0.06));
+    addon.extend(decl::themed_layers(
+        vec![decl::face(LIGHT_RT, LIGHT_RB)],
+        vec![decl::face(DARK_RT, DARK_RB)],
+    ));
+    addon.extend(decl::themed_border(decl::Edges::ALL, 1, LIGHT_BD2, DARK_BD2));
+    addon.extend(decl::radius(3));
+    addon.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    crate::widgets::money_input::MoneyInputSkin {
+        root,
+        addon,
+        marker: Some("__azul-theme-flora"),
+    }
+}
+
+// ==== gauge ====
+//
+// A flora gauge cuts its value from the semantic stones the badges and chips
+// wear - leaf for ok, amber for a warning, clay for critical, slate for a
+// plain range - each by day as the stone and at night as its glow, on the
+// groove of flora's track; outside every band the value is the accent stone
+// (its glow at night). The value is semibold in --fl-ink, the label in
+// --fl-intro.
+
+/// Flora's gauge skin.
+#[must_use]
+pub(crate) fn gauge_skin() -> crate::widgets::gauge::GaugeSkin {
+    use super::decl;
+    use crate::widgets::chart::ChartColor;
+
+    let stone = |s: FloraStone| ChartColor::create(s.stone, s.glow);
+    let mut root = vec![CssPropertyWithConditions::simple(
+        CssProperty::const_font_family(SYSTEM_UI_FAMILY),
+    )];
+    root.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    let mut value_text = vec![decl::semibold()];
+    value_text.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    let label = decl::themed_ink(LIGHT_INTRO, DARK_INTRO).to_vec();
+    crate::widgets::gauge::GaugeSkin {
+        root,
+        value_text,
+        label,
+        track: ChartColor::create(LIGHT_TRACK, DARK_TRACK),
+        ok: stone(STONE_LEAF),
+        warn: stone(STONE_AMBER),
+        bad: stone(STONE_CLAY),
+        neutral: stone(STONE_SLATE),
+        accent: ChartColor::create(LIGHT_ACC, DARK_GLOW),
+        marker: Some("__azul-theme-flora"),
+    }
+}
+
+// ==== date_range_picker ====
+//
+// A flora date range picker's two calendars are the flora date picker's
+// leaves (`date_picker_look`); beside them the presets stand as a column of
+// quiet rows behind a --fl-bd2 hairline - --fl-ink, lifting to the hover
+// face under the pointer, ringed in the accent on focus - and the summary
+// line is written in --fl-intro.
+
+/// Flora's date-range-picker skin.
+#[must_use]
+pub(crate) fn date_range_picker_skin(
+) -> crate::widgets::date_range_picker::DateRangePickerSkin {
+    use super::decl;
+
+    let root = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+        decl::font_size(13),
+    ];
+    let right = decl::Edges {
+        top: false,
+        right: true,
+        bottom: false,
+        left: false,
+    };
+    let mut presets = decl::padding(0, 12, 0, 0).to_vec();
+    presets.extend(decl::themed_border(right, 1, LIGHT_BD2, DARK_BD2));
+    presets.push(decl::px_min_width(120.0));
+    let mut preset = decl::padding(4, 8, 4, 8).to_vec();
+    preset.extend(decl::radius(3));
+    preset.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    preset.extend(decl::hover_layers(
+        vec![HOVER_FACE_LIGHT],
+        vec![HOVER_FACE_DARK],
+    ));
+    preset.extend(decl::focus_halo(LIGHT_ACC, DARK_GLOW));
+    let mut summary = vec![decl::font_size(12)];
+    summary.extend(decl::themed_ink(LIGHT_INTRO, DARK_INTRO));
+    crate::widgets::date_range_picker::DateRangePickerSkin {
+        root,
+        presets,
+        preset,
+        summary,
     }
 }
