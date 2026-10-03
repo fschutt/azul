@@ -34,9 +34,9 @@
 //! - the text (its character references decoded by the parser) and every attribute value are
 //!   written by azul's one encoder (`Xml::encode_text` / `Xml::encode_attribute`).
 //!
-//! The mail is read on PAPER, a `<div class="__azmail_paper">` ([`ids::PAPER`]): a mail that says nothing about
-//! the dark mode was designed on white, so its paper is white with dark text in either mode (and
-//! its links a blue readable on white). A mail with its own dark rules
+//! The mail is read on PAPER, a `<div class="__azmail_paper">` ([`ids::PAPER`]): a mail that
+//! says nothing about the dark mode was designed on white, so its paper is white with dark text
+//! in either mode (and its links a blue readable on white). A mail with its own dark rules
 //! ([`Sanitized::has_dark_rules`]) keeps them, and its paper follows the app's mode through a
 //! `prefers-color-scheme` rule of its own, so the mail's dark rules fire on a dark sheet.
 //!
