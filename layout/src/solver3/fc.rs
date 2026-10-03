@@ -993,6 +993,9 @@ fn resolve_explicit_dimension_width<T: ParsedFontTrait>(
                     get_element_font_size(ctx.styled_dom, id, node_state),
                     get_root_font_size(ctx.styled_dom, node_state),
                 );
+                // CSS `zoom` scales an absolute length (LAYOUT7).
+                let pixels =
+                    crate::solver3::getters::zoomed_length(ctx.styled_dom, id, px.metric, pixels);
                 let content_px = border_box_to_content(
                     ctx,
                     node,
@@ -1048,6 +1051,9 @@ fn resolve_explicit_dimension_height<T: ParsedFontTrait>(
                     get_element_font_size(ctx.styled_dom, id, node_state),
                     get_root_font_size(ctx.styled_dom, node_state),
                 );
+                // CSS `zoom` scales an absolute length (LAYOUT7).
+                let pixels =
+                    crate::solver3::getters::zoomed_length(ctx.styled_dom, id, px.metric, pixels);
                 // box-sizing:border-box + an ABSOLUTE length is a border-box
                 // value; the caller re-adds border+padding to reach the
                 // taffy border-box, so convert to content-box here to avoid
