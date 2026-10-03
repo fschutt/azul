@@ -33,6 +33,7 @@ pub mod chrome;
 pub mod detail;
 pub mod ids;
 pub mod jobs;
+pub mod layouts;
 pub mod list;
 pub mod listedit;
 pub mod model;

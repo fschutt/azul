@@ -89,7 +89,7 @@ struct RowRef {
     id: String,
 }
 
-fn row_ref(app: &RefAny, id: &str) -> RefAny {
+pub(crate) fn row_ref(app: &RefAny, id: &str) -> RefAny {
     RefAny::new(RowRef {
         app: app.clone(),
         id: id.to_string(),
@@ -275,6 +275,10 @@ fn header(s: &Tasks, app: &RefAny, now: NaiveDateTime) -> Dom {
         ),
         _ => {}
     }
+    // "List | Month" on Scheduled, "List | Board" on a list (`layouts.rs`).
+    if let Some(switch) = crate::layouts::switch(s, app) {
+        row.add_child(switch);
+    }
     row
 }
 
@@ -345,6 +349,10 @@ fn quick_chips(s: &Tasks, app: &RefAny, now: NaiveDateTime) -> Option<Dom> {
 fn body(s: &Tasks, app: &RefAny, now: NaiveDateTime) -> Dom {
     if !s.loaded {
         return ShellEmptyState::create("Reading your tasks...").with_icon("hourglass_empty").dom();
+    }
+    // The planned month or the board, when the view shows one (`layouts.rs`).
+    if let Some(other) = crate::layouts::body(s, app, now) {
+        return other;
     }
     let sections = s.sections(now);
     if sections.iter().all(|x| x.tasks.is_empty()) {
@@ -549,7 +557,7 @@ fn row(s: &Tasks, app: &RefAny, t: &Task, now: NaiveDateTime, show_list: bool) -
 
 // ==== Callbacks: rows ====
 
-extern "C" fn on_row_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub(crate) extern "C" fn on_row_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let mods = info.get_key_modifiers();
     with_row(&mut data, &mut info, |_info, _app, s, id| {
         s.select(id, mods.shift, mods.primary_down());
@@ -565,7 +573,7 @@ extern "C" fn on_check(mut data: RefAny, mut info: CallbackInfo, _state: CheckBo
     })
 }
 
-extern "C" fn on_row_drag_start(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub(crate) extern "C" fn on_row_drag_start(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((mut app, id)) = data
         .downcast_ref::<RowRef>()
         .map(|r| (r.app.clone(), r.id.clone()))
