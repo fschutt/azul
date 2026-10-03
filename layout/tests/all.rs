@@ -782,3 +782,5 @@ mod a_right_to_left_collapsed_border_stays_on_its_side;
 mod an_atomic_inline_inside_a_span_keeps_its_box;
 #[path = "a_percentage_height_in_an_auto_height_block_is_auto.rs"]
 mod a_percentage_height_in_an_auto_height_block_is_auto;
+#[path = "an_overflowing_line_overflows_past_its_end_edge.rs"]
+mod an_overflowing_line_overflows_past_its_end_edge;
