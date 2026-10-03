@@ -46,10 +46,12 @@ noted in the report). Never compile; the parent runs `cargo test -p azul-doc --b
 - item 3 RED + GREEN (MethodArg.source_ty + written_type_name in type_index.rs; source_arg_ffi_type string rules;
   passes_bare drift report in find_function_differences)
 
+- item 4 RED + GREEN: api_candidate_methods(.., carries); ffi_carries; wildcard_skip_reason; main.rs 2 call sites
+
 ## NEXT (exact)
-- item 4 (gap 5) RED: function_diff.rs test `the_wildcard_exports_only_methods_whose_signature_crosses_the_ffi`
-  calling `api_candidate_methods(type, refs, "*", None, &carries)` (new 5th param `carries: &dyn Fn(&str) -> bool`);
-  stub param in RED. GREEN: `wildcard_skip_reason`, `ffi_type_is_carried`, `pub fn ffi_carries(t, version_data,
-  index)`; update callers: function_diff.rs generate_add_type_patches (~line 1500), main.rs lines ~1077 and ~1131,
-  and the 4 existing test calls (pass `&|_: &str| true`).
-- then items 5, 6, 7, 8, 9 as in the plan above.
+- item 5 (gap 2) RED: function_diff.rs test `an_api_function_whose_rust_method_is_gone_is_found` calling
+  `gone_api_functions(&index, &api) -> Vec<GoneApiFunction>` (stub in RED); GREEN: `called_method(body, paths)`,
+  DERIVED_OR_BLANKET_METHODS, skip macro-made / Deref types / path mismatch (make diff.rs `paths_are_equivalent`
+  pub(crate)), fallback text check of the type's source file for `fn name`; `generate_remove_entries_patch`;
+  scan (mod.rs autofix_api) prints them and writes `{:04}_remove_fns_<Class>.patch.json` (skip removed classes).
+- then items 6, 7, 8, 9 as in the plan above.
