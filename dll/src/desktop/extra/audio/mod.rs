@@ -53,6 +53,9 @@ mod opus_apple;
 // target).
 pub mod echo;
 pub use echo::EchoCanceller;
+// The arithmetic of playing decoded audio (chunks, rates, channels, gain,
+// levels, which track is heard): pure, every target.
+pub(crate) mod playback;
 
 /// Internal playback state behind an open `AudioSink` handle.
 struct AudioSinkInner {
