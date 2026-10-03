@@ -1122,9 +1122,14 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     app.flora = theme.as_str() == "flora";
 
     let main = if app.loading {
-        ShellEmptyState::create("Opening the project...")
-            .with_icon("hourglass_empty")
-            .dom()
+        Dom::create_div()
+            .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
+            .with_child(Titlebar::create("AzVideoCut").without_border_bottom().dom())
+            .with_child(
+                ShellEmptyState::create("Opening the project...")
+                    .with_icon("hourglass_empty")
+                    .dom(),
+            )
     } else if app.project.is_none() {
         empty_state(&app_ref)
     } else {
@@ -1140,12 +1145,15 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     if app.about_open {
         column.add_child(about_dialog(&app_ref));
     }
+    // The body and the theme scope fill the window: the S3 shell's panes
+    // (min-height 0) collapsed to nothing in a body sized by its content.
     Dom::create_body()
-        .with_css("display: flex; flex-direction: column;")
+        .with_css("display: flex; flex-direction: column; margin: 0px; height: 100%;")
         .with_child(
             ShellThemeScope::create(column)
                 .with_accent(ShellThemeAccent::Slate)
-                .dom(),
+                .dom()
+                .with_css(ROOT_CSS),
         )
         .with_callback(
             EventFilter::Window(WindowEventFilter::VirtualKeyDown),
