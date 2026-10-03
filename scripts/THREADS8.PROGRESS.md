@@ -12,41 +12,25 @@ THREADS8 closes the gaps left around it.
 
 ## DONE
 - a2346a221 progress file
-- ff44c1340 RED video: the test-pattern and replay workers stop when told to terminate
-- 0e68e6d7e GREEN video: both poll capture_common::terminate_requested each frame
-- 339d58966 RED thread_owner.rs tests::a_window_that_closes (3 workers x 300 ms stop together < 600 ms;
-  3 stuck workers cost one ORPHAN_GRACE, not three)
-- a742a0149 GREEN part 1: `managers::thread_owner::stop_all(&mut BTreeMap<ThreadId, Thread>)` (tell all,
-  poll together via poll_orphan against one grace, clear). poll_orphan's message now covers both paths.
-- ce9e4735f GREEN part 2: `impl Drop for LayoutWindow` -> stop_all (window.rs after the struct)
-- 8aa774c5b headless shutdown_threads -> stop_all + reset thread_owners
+- ff44c1340 RED / 0e68e6d7e GREEN video: test-pattern + replay workers poll capture_common::terminate_requested
+- 339d58966 RED thread_owner.rs tests::a_window_that_closes (workers stop together; one grace, not N)
+- a742a0149 thread_owner::stop_all; ce9e4735f `impl Drop for LayoutWindow` -> stop_all;
+  8aa774c5b headless shutdown_threads -> stop_all
+- 5c7e4e4fa RED timers: thread_owner unit tests (4) + headless
+  `the_timer_a_node_started_on_mount_stops_when_the_node_unmounts`
+- 9e3b63583 manager: timer_owners + stop list, shared `follow` rule
+- bec416fdb window.rs remap_node_ids drops stopped timers from lw.timers
+- e98718289 event.rs dispatcher binds AddTimer of lifecycle callbacks (after apply); apply AddTimer/RemoveTimer forget
+- 688ad6f6f event.rs provided stop_timers_of_unmounted_nodes, called at the start of
+  dispatch_pending_lifecycle_events and invoke_expired_timers
+- b9f948d31 module docs
 
-## IN PROGRESS / NEXT (exact)
-1. DONE - layout/src/window.rs: right after the `pub struct LayoutWindow { .. }` closing brace (line ~2008), add
-   `impl Drop for LayoutWindow { fn drop(&mut self) { #[cfg(feature = "std")]
-   crate::managers::thread_owner::stop_all(&mut self.threads); } }` with a doc comment. (Checked: no
-   by-value destructure / field move of LayoutWindow anywhere in layout/, dll/, layout/tests - only `ref`
-   destructures, so Drop does not trip E0509.) Commit.
-2. DONE - dll/src/desktop/shell2/headless/mod.rs `fn shutdown_threads` (~line 2438): replace `lw.threads.clear()`
-   with `azul_layout::managers::thread_owner::stop_all(&mut lw.threads)` and update its doc. Commit.
-3. Gap 3 (decide): timers a node's lifecycle callback started never stop (map.rs map_on_after_mount adds a
-   250 ms sweep timer, TerminateTimer::Continue forever; a remount adds a second). Option: bind timers in the
-   same ThreadOwnerManager (owner on CallbackChange::AddTimer, set in event.rs dispatch_events_propagated next
-   to AddThread; remap orphans -> remove from lw.timers + a drain the dll turns into stop_timer). Risk: app
-   timers started in AfterMount (AzCalendar on_app_mounted -> start_syncing; its root has an id so it always
-   matches). DECIDED: do it (same rule, same manager). Plan:
-   a) thread_owner.rs: ThreadOwnerManager gains timer_owners: BTreeMap<TimerId, DomNodeId> + timers_to_stop:
-      Vec<TimerId>; bind_timer / timer_owner / forget_timer / take_timers_to_stop; remap_node_ids remaps timer
-      owners too and queues orphaned timers in timers_to_stop (return type unchanged: Vec<ThreadId>).
-   b) window.rs LayoutWindow::remap_node_ids: `timers: _` -> `timers`, remove the orphaned timers at once.
-   c) event.rs dispatch_events_propagated: collect (timer_id, hit_node) for AddTimer when binds_threads; bind
-      after the changes are applied. apply_user_change AddTimer/RemoveTimer -> forget_timer. A provided
-      fn stop_timers_of_unmounted_nodes() (drain -> self.stop_timer) at the start of
-      dispatch_pending_lifecycle_events and of invoke_expired_timers.
-   d) RED first: thread_owner.rs unit tests + a headless test next to the thread one (headless/mod.rs ~12390).
-4. Report scripts/THREADS8_2026_10_03.md.
+## NEXT (exact)
+1. Write the report scripts/THREADS8_2026_10_03.md (what was built, commits, api.json: none, least-sure spots,
+   test commands, what is left) and commit it. Then update this file to "finished".
 
 ## Decisions / open questions
 - The core mechanism exists; no rewrite. Gaps only.
-- Window teardown is fixed in `Drop for LayoutWindow` (one place, every shell's close path) rather than in
-  each shell's close code.
+- Window teardown is fixed in `Drop for LayoutWindow` (one place, every shell's close path).
+- Timers: same rule as threads (lifecycle-started timer belongs to the node). Bound through a list the
+  dispatcher collects (no new field on CallbackChange::AddTimer, so timer.rs / e2e runner patterns untouched).
