@@ -108,6 +108,10 @@ Files (all `azul_core::xml::html`, re-exported from xml_html.rs so every path st
   `sh scratchpad/xml8/lint.sh` = clippy-driver with CI's azul-core lint set; 0 warnings). MAILREF8 asked for the
   Postmark foster-parenting mail as a real-mail test: already in (60f112c71, corpus test exact for all 18).
 
+- Mirror check (scratchpad/xml8/mirror.py + compare.py, uncommitted twin): the mirror of the committed Rust
+  builds Chrome's tree for ALL 18 corpus mails (head + body, attributes) and for every probe row except the
+  comment-node rows (azul drops comments: annotated), `<frameset>` (not modelled) and `<template>` (next).
+
 ## IN PROGRESS
 
 - (nothing half-edited)
