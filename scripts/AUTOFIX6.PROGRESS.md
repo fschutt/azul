@@ -54,9 +54,9 @@ noted in the report). Never compile; the parent runs `cargo test -p azul-doc --b
 
 - item 7 RED + GREEN (pending.rs; patch folder sort; main.rs add wiring)
 
-## NEXT (exact)
-- item 8 RED: function_diff.rs test `a_remove_spec_names_a_function_or_a_whole_class` for
-  `parse_remove_spec(spec, version_data) -> Result<RemoveTarget, String>` (enum RemoveTarget { Class {module,
-  class}, Function {module, class, name} } with `patch(version)`, `file_name()`, `describe()`); stub in RED.
-  GREEN + main.rs: `autofix remove <spec>` and `autofix difficult remove <items>` both use it.
-- then item 9 (report scripts/AUTOFIX6_2026_10_03.md).
+- item 8 RED + GREEN + main.rs wiring (parse_remove_spec / RemoveTarget)
+- 08f23fae8 gone check looks the class up by its own path first
+- item 9: report scripts/AUTOFIX6_2026_10_03.md
+
+## NEXT
+- nothing: task complete (report committed). The parent compiles and runs the tests listed in the report.
