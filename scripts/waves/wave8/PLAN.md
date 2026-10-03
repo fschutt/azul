@@ -151,3 +151,17 @@ USER 2026-10-03: "tell the agent to implement the wayland fix and MIT-SHM" - bot
 optional): XShmQueryExtension / XShmCreateImage / XShmAttach / XShmPutImage per damaged rect, segment re-created on
 resize, XShmCompletionEvent before reuse (or two segments), fallback to XPutImage (no extension / remote display /
 attach failure); libXext dlopen'd like the other X libs.
+
+## LAYOUTPERF8 - a 16 px slide re-lays out the whole page (found by ANIM8, added 2026-10-03)
+ANIM8 (branch wt/anim8; report `git show wt/anim8:scripts/ANIM8_2026_10_03.md`, its profile + three leads; its
+probes scripts/anim8_*.py on that branch) measured: each frame of the AzWidgets switch knob's slide re-lays out almost
+the whole page - 118-290 ms per frame against 4-22 ms when nothing changed, 2,853 text re-flows for a 16 px move - so a
+150 ms slide shows one or two frames. Root-cause why the cached layout is not reused for the unchanged parts (lead 1
+in ANIM8's report): what invalidates (the restyle of one node marking ancestors / the whole tree dirty? an
+inline-style rewrite changing a hash? the transition's per-frame property write going through a full relayout path
+instead of the transform / paint-only channel?), and fix it so a frame that moves one small box re-lays out only that
+box (or nothing, for a transform-only change). RED test first: a layout test counting text re-flows / re-laid-out nodes
+for a one-node change in a large tree (e.g. AzWidgets-sized: hundreds of paragraphs) - the count must be small.
+Owns: the layout cache / dirty-marking / reconcile paths (layout/src/solver3 cache + layout_tree reconcile,
+layout/src/window.rs relayout decisions, text3's cache keys for re-flow). MAILREF8 (sans-serif + <hr>) and RULINGS8
+(text3 atomic-inline line metric) still run - keep edits local, say so in the report. Never page_breaks.rs.
