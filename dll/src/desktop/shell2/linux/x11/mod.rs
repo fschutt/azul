@@ -81,6 +81,7 @@ pub mod dlopen;
 pub mod events;
 pub mod gl;
 pub mod menu;
+mod shm;
 pub mod tooltip;
 
 use std::{
@@ -3031,6 +3032,12 @@ pub struct X11Window {
     /// Cached BGRA conversion buffer reused across CPU frames
     #[cfg(feature = "cpurender")]
     bgra_buffer: Vec<u8>,
+    /// MIT-SHM upload of the CPU present (`shm.rs`): `Some` while the window
+    /// uploads through a shared segment, `None` once it fell back to
+    /// `XPutImage` (or before the first CPU present probed it).
+    shm_upload: Option<shm::X11ShmUpload>,
+    /// The MIT-SHM probe ran (once per window; its fallback is sticky).
+    shm_probed: bool,
 
     /// Set when the OS asked us to repaint (Expose / MapNotify): the window
     /// content on screen may be stale or undefined, so the next CPU present
@@ -4364,6 +4371,8 @@ impl X11Window {
             cpu_backend: crate::desktop::shell2::headless::CpuBackend::new(),
             #[cfg(feature = "cpurender")]
             bgra_buffer: Vec::new(),
+            shm_upload: None,
+            shm_probed: false,
             os_present_requested: true, // first present must be full
             frame_ready_wake_fd,
             gpu_damage_rects: Vec::new(),
@@ -5189,6 +5198,14 @@ impl X11Window {
     }
 
     fn handle_event(&mut self, event: &mut XEvent) {
+        // MIT-SHM: the server finished reading the segment for this window's
+        // last XShmPutImage (`shm.rs`, the segment-reuse law).
+        if let Some(shm) = self.shm_upload.as_mut() {
+            if unsafe { event.type_ } == shm.completion_event_type() {
+                shm.on_completion();
+                return;
+            }
+        }
         if let Some(ime) = &self.ime_manager {
             let consumed = ime.filter_event(event);
             if let Some((preedit, caret)) = ime.drain_preedit() {
@@ -7067,6 +7084,55 @@ impl X11Window {
                                                     as c_uint
                                             };
 
+                                            // MIT-SHM first (shm.rs): the damaged rects
+                                            // go into a shared segment and the server
+                                            // reads them there - no pixel through the
+                                            // socket. Probed once per window; a remote
+                                            // display, a missing extension or a refused
+                                            // attach leaves the XPutImage loop below
+                                            // in charge for good.
+                                            if !self.shm_probed {
+                                                self.shm_probed = true;
+                                                match shm::X11ShmUpload::probe(self.display) {
+                                                    Ok(up) => self.shm_upload = Some(up),
+                                                    Err(why) => log_debug!(
+                                                        LogCategory::Rendering,
+                                                        "[X11] CPU present uploads with \
+                                                         XPutImage: {:?}",
+                                                        why
+                                                    ),
+                                                }
+                                            }
+                                            let mut uploaded = false;
+                                            if let Some(up) = self.shm_upload.as_mut() {
+                                                uploaded = up.upload(
+                                                    &self.xlib,
+                                                    self.display,
+                                                    self.window,
+                                                    *gc,
+                                                    visual as *mut c_void,
+                                                    depth,
+                                                    data,
+                                                    pw,
+                                                    ph,
+                                                    &rects,
+                                                );
+                                            }
+                                            if !uploaded {
+                                                if let Some(mut dead) = self.shm_upload.take() {
+                                                    dead.destroy(&self.xlib, self.display);
+                                                    log_debug!(
+                                                        LogCategory::Rendering,
+                                                        "[X11] CPU present uploads with \
+                                                         XPutImage: {:?}",
+                                                        crate::desktop::shell2::common::x11_host::PutImageWhy::AttachFailed
+                                                    );
+                                                }
+                                            }
+                                            // Uploaded through MIT-SHM: nothing is left
+                                            // for the XPutImage loop.
+                                            let rects = if uploaded { Vec::new() } else { rects };
+
                                             for (rx, ry, rw, rh) in rects {
                                                 // Pack + swizzle ONLY this rect's rows
                                                 // (RGBA → BGRA) into the reused buffer;
@@ -8705,6 +8771,10 @@ impl Drop for X11Window {
             unsafe {
                 (self.xlib.XFreeGC)(self.display, gc);
             }
+        }
+        // The MIT-SHM segment: detached while the display is still open.
+        if let Some(mut shm) = self.shm_upload.take() {
+            unsafe { shm.destroy(&self.xlib, self.display) };
         }
 
         self.render_mode = RenderMode::None;

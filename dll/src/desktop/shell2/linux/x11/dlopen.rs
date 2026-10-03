@@ -600,6 +600,34 @@ impl Xext {
     }
 }
 
+/// Dynamically loaded MIT-SHM (libXext) functions: the CPU present uploads
+/// damaged rects from a shared memory segment instead of through the socket.
+/// Optional - without them (or on a remote display) it uses `XPutImage`.
+pub struct XShm {
+    _lib: Library,
+    pub XShmQueryExtension: XShmQueryExtension,
+    pub XShmGetEventBase: XShmGetEventBase,
+    pub XShmCreateImage: XShmCreateImage,
+    pub XShmAttach: XShmAttach,
+    pub XShmDetach: XShmDetach,
+    pub XShmPutImage: XShmPutImage,
+}
+
+impl XShm {
+    pub fn new() -> Result<Rc<Self>, DlError> {
+        let lib = load_first_available::<Library>(candidates(X11Lib::Xext))?;
+        Ok(Rc::new(Self {
+            XShmQueryExtension: load_symbol!(lib, _, "XShmQueryExtension"),
+            XShmGetEventBase: load_symbol!(lib, _, "XShmGetEventBase"),
+            XShmCreateImage: load_symbol!(lib, _, "XShmCreateImage"),
+            XShmAttach: load_symbol!(lib, _, "XShmAttach"),
+            XShmDetach: load_symbol!(lib, _, "XShmDetach"),
+            XShmPutImage: load_symbol!(lib, _, "XShmPutImage"),
+            _lib: lib,
+        }))
+    }
+}
+
 /// Dynamically loaded XRender functions for ARGB visual detection
 /// See: https://stackoverflow.com/a/9215724 (inspired by datenwolf/FTB)
 pub struct Xrender {

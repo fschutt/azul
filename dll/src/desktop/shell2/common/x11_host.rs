@@ -33,7 +33,8 @@ pub(crate) enum X11Lib {
     X11,
     /// libXi: XInput2 (touch, pen, smooth scroll, per-device keyboards).
     Xi,
-    /// libXext: XShape, for windows shaped by their alpha.
+    /// libXext: XShape, for windows shaped by their alpha, and MIT-SHM, the
+    /// CPU present's shared-memory upload.
     Xext,
     /// libXrender: ARGB visual detection.
     Xrender,
@@ -226,6 +227,141 @@ pub(crate) fn linux_window_rules() -> bool {
     cfg!(target_os = "linux") || active()
 }
 
+// ============================================================================
+// MIT-SHM: how the CPU present gets its pixels to the X server
+// ============================================================================
+//
+// Plain `XPutImage` writes every damaged pixel INTO the protocol stream (the
+// socket), and the server then copies it again into the window. MIT-SHM
+// (`XShmPutImage`) lets the server read a SysV shared memory segment both
+// processes have attached - no pixel crosses the socket, one request per
+// damaged rect. It only works when the server can attach OUR segment: a local
+// server on the same machine and IPC namespace. The decisions below are pure
+// so their tests run in every build; `linux/x11` drives them.
+
+/// Why a CPU present uploads with plain `XPutImage` instead of MIT-SHM.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PutImageWhy {
+    /// `AZ_X11_SHM=0`.
+    Disabled,
+    /// `DISPLAY` names a server reached over the network (`host:0`,
+    /// `localhost:10.0` of `ssh -X`, `tcp/...`): it cannot see our memory.
+    RemoteDisplay,
+    /// libXext is missing, or the server has no MIT-SHM extension.
+    NoExtension,
+    /// The server refused to attach the segment (another IPC namespace, a
+    /// container, a sandbox) or the segment could not be made.
+    AttachFailed,
+}
+
+/// How a CPU present gets its pixels to the X server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum X11Upload {
+    /// `XShmPutImage` from a shared segment.
+    Shm,
+    /// `XPutImage` through the socket, and why.
+    PutImage(PutImageWhy),
+}
+
+/// Is `display` (Xlib's `[protocol/][host]:display[.screen]`, or a socket
+/// path) a server on THIS machine reached through a local socket?
+#[must_use]
+pub(crate) fn display_is_local(display: &str) -> bool {
+    // A socket path (`/tmp/.X11-unix/X0`, XQuartz's launchd socket).
+    if display.starts_with('/') {
+        return true;
+    }
+    // `host:display[.screen]` - the host is everything before the LAST ':'.
+    let Some(colon) = display.rfind(':') else {
+        return false;
+    };
+    let (mut host, number) = (&display[..colon], &display[colon + 1..]);
+    if !number.as_bytes().first().is_some_and(u8::is_ascii_digit) {
+        return false;
+    }
+    // DECnet `host::0`: the host ends in the other ':'.
+    if host.ends_with(':') {
+        return false;
+    }
+    // `protocol/host`: only the local transports are local, whatever host.
+    if let Some(slash) = host.find('/') {
+        let protocol = &host[..slash];
+        if protocol.eq_ignore_ascii_case("unix") || protocol.eq_ignore_ascii_case("local") {
+            return true;
+        }
+        if !protocol.is_empty() {
+            // tcp / inet / inet6: a network transport, even to localhost.
+            return false;
+        }
+        host = &host[slash + 1..];
+    }
+    // No host = the local socket; `unix` names it explicitly. Anything else
+    // (`localhost`, an address, a name) is TCP - `ssh -X` forwards through
+    // `localhost:10`, where our memory is on the wrong machine.
+    host.is_empty() || host.eq_ignore_ascii_case("unix")
+}
+
+/// The upload decision, in the order its inputs are learned: the switch, the
+/// display string, the extension query, the attach.
+#[must_use]
+pub(crate) fn x11_upload(
+    enabled: bool,
+    display_local: bool,
+    extension: bool,
+    attach_ok: bool,
+) -> X11Upload {
+    if !enabled {
+        X11Upload::PutImage(PutImageWhy::Disabled)
+    } else if !display_local {
+        X11Upload::PutImage(PutImageWhy::RemoteDisplay)
+    } else if !extension {
+        X11Upload::PutImage(PutImageWhy::NoExtension)
+    } else if !attach_ok {
+        X11Upload::PutImage(PutImageWhy::AttachFailed)
+    } else {
+        X11Upload::Shm
+    }
+}
+
+/// Can a segment made for `segment` (w, h) pixels carry a `want` (w, h) frame
+/// - it holds it, and is not more than twice the size it needs (a shrink
+/// gives the memory back)? A reusable segment survives a resize drag without
+/// a new `shmget` / attach per configure.
+#[must_use]
+pub(crate) fn shm_segment_reusable(segment: (u32, u32), want: (u32, u32)) -> bool {
+    let (sw, sh) = (u64::from(segment.0), u64::from(segment.1));
+    let (ww, wh) = (u64::from(want.0), u64::from(want.1));
+    ww > 0 && wh > 0 && ww <= sw && wh <= sh && sw * sh <= 2 * ww * wh
+}
+
+/// The segment-reuse law: `XShmPutImage` requests that READ the segment and
+/// whose `ShmCompletion` has not arrived yet. The client may only write into
+/// the segment when none is pending - or right after an `XSync`, which
+/// guarantees the server has processed every earlier request (their
+/// completions still arrive later and are counted off then).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct ShmPending {
+    pending: u32,
+}
+
+impl ShmPending {
+    /// An `XShmPutImage` with `send_event = True` was issued.
+    pub(crate) fn put(&mut self) {
+        self.pending = self.pending.saturating_add(1);
+    }
+
+    /// A `ShmCompletion` event arrived.
+    pub(crate) fn completed(&mut self) {
+        self.pending = self.pending.saturating_sub(1);
+    }
+
+    /// Must the client `XSync` before it writes into the segment?
+    #[must_use]
+    pub(crate) fn must_sync_before_write(self) -> bool {
+        self.pending > 0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{host_windowing, library_candidates, HostWindowing, LibHost, X11Lib};
@@ -392,5 +528,91 @@ mod tests {
     fn the_flag_is_off_until_the_run_loop_raises_it() {
         assert!(!super::active());
         assert_eq!(super::linux_window_rules(), cfg!(target_os = "linux"));
+    }
+}
+
+#[cfg(test)]
+mod mit_shm_tests {
+    use super::{
+        display_is_local, shm_segment_reusable, x11_upload, PutImageWhy, ShmPending, X11Upload,
+    };
+
+    #[test]
+    fn a_display_on_a_local_socket_is_local() {
+        for d in [
+            ":0",
+            ":1.0",
+            "unix:0",
+            "unix:0.1",
+            "unix/:0",
+            "local/:2",
+            "/tmp/.X11-unix/X0",
+            // XQuartz's launchd socket.
+            "/private/tmp/com.apple.launchd.AbCdEf/org.xquartz:0",
+        ] {
+            assert!(display_is_local(d), "{d:?} should be local");
+        }
+    }
+
+    #[test]
+    fn a_display_reached_over_the_network_is_not_local() {
+        for d in [
+            "localhost:10.0", // ssh -X
+            "127.0.0.1:0",
+            "remotehost:0",
+            "tcp/localhost:0",
+            "inet/remote:1",
+            "[::1]:0",
+            "host::0", // DECnet
+            "",
+            "garbage",
+        ] {
+            assert!(!display_is_local(d), "{d:?} should not be local");
+        }
+    }
+
+    #[test]
+    fn mit_shm_is_used_only_when_every_check_passes() {
+        assert_eq!(x11_upload(true, true, true, true), X11Upload::Shm);
+    }
+
+    #[test]
+    fn the_first_failed_check_names_the_put_image_fallback() {
+        use PutImageWhy::*;
+        assert_eq!(x11_upload(false, true, true, true), X11Upload::PutImage(Disabled));
+        assert_eq!(x11_upload(true, false, true, true), X11Upload::PutImage(RemoteDisplay));
+        assert_eq!(x11_upload(true, true, false, true), X11Upload::PutImage(NoExtension));
+        assert_eq!(x11_upload(true, true, true, false), X11Upload::PutImage(AttachFailed));
+        // Earlier reasons win: a remote display is not even queried.
+        assert_eq!(x11_upload(true, false, false, false), X11Upload::PutImage(RemoteDisplay));
+    }
+
+    #[test]
+    fn a_segment_carries_every_frame_it_holds_until_it_is_twice_too_big() {
+        assert!(shm_segment_reusable((800, 600), (800, 600)));
+        assert!(shm_segment_reusable((800, 600), (700, 600)), "a small shrink keeps it");
+        assert!(!shm_segment_reusable((800, 600), (801, 600)), "a grow needs a new one");
+        assert!(!shm_segment_reusable((800, 600), (800, 601)));
+        assert!(!shm_segment_reusable((1600, 1200), (400, 300)), "a big shrink frees memory");
+        assert!(!shm_segment_reusable((0, 0), (1, 1)));
+        assert!(!shm_segment_reusable((10, 10), (0, 10)), "nothing to carry");
+    }
+
+    #[test]
+    fn the_segment_may_be_written_only_when_no_put_still_reads_it() {
+        let mut p = ShmPending::default();
+        assert!(!p.must_sync_before_write(), "fresh segment");
+        p.put();
+        assert!(p.must_sync_before_write(), "one put in flight");
+        p.put();
+        p.completed();
+        assert!(p.must_sync_before_write(), "one of two still in flight");
+        p.completed();
+        assert!(!p.must_sync_before_write(), "all completed");
+        // A stray completion (an XSync already covered it) never underflows.
+        p.completed();
+        assert!(!p.must_sync_before_write());
+        p.put();
+        assert!(p.must_sync_before_write());
     }
 }

@@ -397,6 +397,15 @@ pub struct CpuBackend {
     /// `wl_shm` slot, a white-filled macOS view framebuffer), and the frame
     /// must be repainted in FULL - see `frame_may_reuse_previous_pixels`.
     pub native_target_holds_previous_frame: bool,
+    /// Pixels of row padding the armed `native_target` carries past the
+    /// frame's width: the target is `frame width + this` pixels wide because
+    /// an `AzulPixmap`'s width IS its row pitch. A Wayland `wl_shm` slot pads
+    /// every row to 256 bytes (the pitch a compositor's GPU samples in place,
+    /// `linux/wayland/shm.rs`); the frame is drawn into columns
+    /// `0..frame width` and the padding is never presented. The Wayland shell
+    /// sets it at every arming; it stays 0 on every shell whose buffer rows
+    /// are tight. Only read while a target is armed.
+    pub native_target_row_padding_px: u32,
     /// Scroll offsets from the previous frame (scroll_id → (x,y)). Used to detect
     /// scroll-offset changes and damage the affected frame's viewport so its
     /// content re-renders at the new offset (#13 — the display list is unchanged
@@ -449,6 +458,58 @@ pub(crate) fn swizzle_rb_in_rects(
     azul_layout::cpurender::swap_rb_in_rects(buf, stride_bytes, buf_height, rects);
 }
 
+/// Copy `rects` (x, y, w, h in buffer px) of the renderer's R,G,B,A frame
+/// (`src`, `src_pitch` bytes per row) into a platform buffer with its OWN row
+/// pitch (`dst`, `dst_pitch` bytes per row) at the same coordinates - the one
+/// damage-rect upload every CPU present shares (a Wayland `wl_shm` slot with
+/// 256-byte rows, an X11 MIT-SHM segment, a tooltip buffer). `swap_rb`
+/// converts to B,G,R,A on the way (ARGB8888 / the X visual's order). Rects are
+/// clipped to `width` x `height` and to both buffers; overlapping rects are
+/// harmless (a copy, not an in-place toggle). Returns the bytes written.
+pub(crate) fn copy_rgba_rects_into(
+    dst: &mut [u8],
+    dst_pitch: usize,
+    src: &[u8],
+    src_pitch: usize,
+    width: usize,
+    height: usize,
+    rects: &[(u32, u32, u32, u32)],
+    swap_rb: bool,
+) -> usize {
+    let mut written = 0usize;
+    // Rows that fit BOTH buffers (a configure race can leave either short).
+    let rows_dst = if dst_pitch == 0 { 0 } else { dst.len() / dst_pitch };
+    let rows_src = if src_pitch == 0 { 0 } else { src.len() / src_pitch };
+    let h = height.min(rows_dst).min(rows_src);
+    let w = width.min(dst_pitch / 4).min(src_pitch / 4);
+    for &(rx, ry, rw, rh) in rects {
+        let x0 = (rx as usize).min(w);
+        let y0 = (ry as usize).min(h);
+        let x1 = (rx as usize).saturating_add(rw as usize).min(w);
+        let y1 = (ry as usize).saturating_add(rh as usize).min(h);
+        if x1 <= x0 || y1 <= y0 {
+            continue;
+        }
+        let n = (x1 - x0) * 4;
+        for y in y0..y1 {
+            let s = &src[y * src_pitch + x0 * 4..y * src_pitch + x0 * 4 + n];
+            let d = &mut dst[y * dst_pitch + x0 * 4..y * dst_pitch + x0 * 4 + n];
+            if swap_rb {
+                for (sp, dp) in s.chunks_exact(4).zip(d.chunks_exact_mut(4)) {
+                    dp[0] = sp[2];
+                    dp[1] = sp[1];
+                    dp[2] = sp[0];
+                    dp[3] = sp[3];
+                }
+            } else {
+                d.copy_from_slice(s);
+            }
+            written += n;
+        }
+    }
+    written
+}
+
 pub fn native_backbuffer_enabled() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
@@ -494,6 +555,7 @@ impl CpuBackend {
             rendered_native: false,
             native_target_pool_order: false,
             native_target_holds_previous_frame: false,
+            native_target_row_padding_px: 0,
             #[cfg(feature = "cpurender")]
             previous_scroll_offsets: azul_layout::cpurender::ScrollOffsetMap::new(),
             #[cfg(feature = "cpurender")]
@@ -1098,8 +1160,11 @@ impl CpuBackend {
         // guarantees the buffer already holds the PREVIOUS frame (cross-slot
         // catch-up) and outlives this call; dimensions are re-checked here so
         // a configure race falls back to the owned path instead of clipping.
+        // A padded target (`native_target_row_padding_px`) is that many pixels
+        // wider than the frame - its width is the slot's row pitch.
+        let target_w = pixel_w.saturating_add(self.native_target_row_padding_px);
         let native = match self.native_target.take() {
-            Some(ext) if ext.width() == pixel_w && ext.height() == pixel_h => Some(ext),
+            Some(ext) if ext.width() == target_w && ext.height() == pixel_h => Some(ext),
             Some(ext) => {
                 log_error!(
                     LogCategory::Rendering,
@@ -5062,6 +5127,241 @@ mod tests {
         assert!(
             saw_incremental,
             "every step took the full-repaint path — the external-base incremental law was never \
+             exercised"
+        );
+    }
+
+    /// A frame of `w` x `h` RGBA pixels whose bytes encode their position
+    /// (R = x, G = y, B = x ^ y, A = 200) - any misplaced or unswapped byte
+    /// shows up as a wrong value.
+    fn coded_frame(w: usize, h: usize) -> Vec<u8> {
+        let mut v = vec![0u8; w * h * 4];
+        for y in 0..h {
+            for x in 0..w {
+                let o = (y * w + x) * 4;
+                v[o] = x as u8;
+                v[o + 1] = y as u8;
+                v[o + 2] = (x ^ y) as u8;
+                v[o + 3] = 200;
+            }
+        }
+        v
+    }
+
+    #[test]
+    fn a_damage_rect_lands_at_its_place_in_a_padded_buffer_and_nothing_else_is_touched() {
+        let (w, h) = (10usize, 6usize);
+        let src = coded_frame(w, h);
+        let pitch = 64; // 16 px rows for a 10 px frame
+        let mut dst = vec![0xEEu8; pitch * h];
+        let n = copy_rgba_rects_into(&mut dst, pitch, &src, w * 4, w, h, &[(2, 1, 3, 2)], false);
+        assert_eq!(n, 3 * 2 * 4);
+        for y in 0..h {
+            for x in 0..pitch / 4 {
+                let d = &dst[y * pitch + x * 4..y * pitch + x * 4 + 4];
+                if (2..5).contains(&x) && (1..3).contains(&y) {
+                    let s = &src[(y * w + x) * 4..(y * w + x) * 4 + 4];
+                    assert_eq!(d, s, "({x},{y}) not copied verbatim");
+                } else {
+                    assert_eq!(d, [0xEE; 4], "({x},{y}) outside the rect was written");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_swapped_copy_writes_b_g_r_a_and_overlapping_rects_do_not_toggle_it_back() {
+        let (w, h) = (8usize, 4usize);
+        let src = coded_frame(w, h);
+        let pitch = w * 4;
+        let mut dst = vec![0u8; pitch * h];
+        copy_rgba_rects_into(
+            &mut dst,
+            pitch,
+            &src,
+            w * 4,
+            w,
+            h,
+            &[(0, 0, 8, 4), (2, 1, 4, 2)],
+            true,
+        );
+        for y in 0..h {
+            for x in 0..w {
+                let o = (y * w + x) * 4;
+                assert_eq!(
+                    [dst[o], dst[o + 1], dst[o + 2], dst[o + 3]],
+                    [src[o + 2], src[o + 1], src[o], src[o + 3]],
+                    "({x},{y})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn rects_reaching_past_the_frame_or_either_buffer_are_clipped_not_a_panic() {
+        let (w, h) = (6usize, 5usize);
+        let src = coded_frame(w, h);
+        let pitch = 32;
+        let mut dst = vec![0u8; pitch * h];
+        // Past the right edge, past the bottom, fully outside, empty.
+        let n = copy_rgba_rects_into(
+            &mut dst,
+            pitch,
+            &src,
+            w * 4,
+            w,
+            h,
+            &[(4, 3, 50, 50), (99, 0, 3, 3), (0, 0, 0, 4)],
+            false,
+        );
+        assert_eq!(n, 2 * 2 * 4, "only the 2x2 corner inside the frame is copied");
+        // A destination shorter than the frame (a configure race) is clipped
+        // by its own size.
+        let mut short = vec![0u8; pitch * 2];
+        let n = copy_rgba_rects_into(&mut short, pitch, &src, w * 4, w, h, &[(0, 0, 6, 5)], false);
+        assert_eq!(n, 6 * 2 * 4);
+    }
+
+    /// WAYLAND8: a native target whose rows are PADDED - a Wayland `wl_shm`
+    /// slot whose pitch is rounded up to 256 bytes so the compositor's GPU can
+    /// sample it in place - is a pixmap `frame width + padding` pixels wide
+    /// (`AzulPixmap`'s width is its pitch). `render_frame` must draw into it
+    /// instead of refusing it as a size mismatch, and the first `frame width`
+    /// pixels of every row must equal the owned render, on the full first
+    /// frame and on every incremental frame after it.
+    #[test]
+    fn a_row_padded_native_target_holds_the_owned_frame_in_every_row() {
+        #[derive(Debug, Clone)]
+        struct PadState {
+            variant: usize,
+        }
+
+        extern "C" fn layout_pad(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+            use azul_css::{
+                dynamic_selector::CssPropertyWithConditions as P,
+                props::{
+                    basic::color::ColorU,
+                    layout::dimensions::{LayoutHeight, LayoutWidth},
+                    property::CssProperty,
+                    style::background::{StyleBackgroundContent, StyleBackgroundContentVec},
+                },
+            };
+
+            let v = data
+                .downcast_ref::<PadState>()
+                .map(|s| s.variant)
+                .unwrap_or(0);
+            let bg: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(ColorU {
+                r: 30,
+                g: 120,
+                b: 200,
+                a: 255,
+            })]
+            .into();
+            let (w, h) = match v % 3 {
+                0 => (160.0, 80.0),
+                1 => (60.0, 30.0),
+                _ => (210.0, 110.0),
+            };
+            let div = Dom::create_div()
+                .with_css_props(
+                    vec![
+                        P::simple(CssProperty::width(LayoutWidth::px(w))),
+                        P::simple(CssProperty::height(LayoutHeight::px(h))),
+                        P::simple(CssProperty::background_content(bg)),
+                    ]
+                    .into(),
+                )
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "padded rows",
+                ));
+            Dom::create_body().with_child(div)
+        }
+
+        // Any padding works; 13 px is deliberately not a "nice" number.
+        const PAD: u32 = 13;
+
+        let state = Arc::new(RefCell::new(RefAny::new(PadState { variant: 0 })));
+        let mut nat = make_window_with(&state, layout_pad);
+        let mut own = make_window_with(&state, layout_pad);
+        nat.regenerate_layout().expect("nat initial");
+        own.regenerate_layout().expect("own initial");
+
+        // The "slot": frame 1 copied row by row into a buffer whose rows are
+        // PAD pixels longer than the frame's.
+        let seed = nat
+            .cpu_backend
+            .last_frame
+            .as_ref()
+            .expect("frame 1")
+            .clone_pixmap();
+        let (pw, ph) = (seed.width(), seed.height());
+        let pitch = pw + PAD;
+        let (row, prow) = (pw as usize * 4, pitch as usize * 4);
+        let mut slot = vec![0u8; prow * ph as usize];
+        for y in 0..ph as usize {
+            slot[y * prow..y * prow + row].copy_from_slice(&seed.data()[y * row..(y + 1) * row]);
+        }
+        drop(seed);
+
+        let mut saw_incremental = false;
+        for step in 1..6usize {
+            if let Ok(mut b) = state.try_borrow_mut() {
+                if let Some(mut s) = b.downcast_mut::<PadState>() {
+                    s.variant = step;
+                }
+            }
+            nat.cpu_backend.native_target_holds_previous_frame = step > 1;
+            nat.cpu_backend.native_target_row_padding_px = PAD;
+            nat.cpu_backend.native_target = unsafe {
+                azul_layout::cpurender::AzulPixmap::from_external(slot.as_mut_ptr(), pitch, ph)
+            };
+            nat.regenerate_layout().expect("native padded");
+            assert!(
+                nat.cpu_backend.rendered_native,
+                "step {step}: the padded target was refused (owned-path fallback)"
+            );
+            assert!(
+                nat.cpu_backend.native_target.is_none(),
+                "step {step}: target not consumed"
+            );
+            let native_damage = nat.cpu_backend.last_frame_damage.clone();
+            if matches!(native_damage, FrameDamage::Rects(_)) {
+                saw_incremental = true;
+            }
+
+            own.regenerate_layout().expect("owned");
+            let reference = own
+                .cpu_backend
+                .last_frame
+                .as_ref()
+                .expect("owned frame")
+                .clone_pixmap();
+            assert_eq!((reference.width(), reference.height()), (pw, ph));
+            let b = reference.data();
+            let mut diffs = 0usize;
+            let mut first: Option<(usize, usize)> = None;
+            for y in 0..ph as usize {
+                for x in 0..pw as usize {
+                    let s = y * prow + x * 4;
+                    let r = y * row + x * 4;
+                    if slot[s..s + 3] != b[r..r + 3] {
+                        diffs += 1;
+                        if first.is_none() {
+                            first = Some((x, y));
+                        }
+                    }
+                }
+            }
+            assert_eq!(
+                diffs, 0,
+                "step {step}: the padded slot diverges from the owned render at {diffs} px, \
+                 first {first:?} - native damage {native_damage:?}"
+            );
+        }
+        assert!(
+            saw_incremental,
+            "every step took the full-repaint path - the padded incremental law was never \
              exercised"
         );
     }
