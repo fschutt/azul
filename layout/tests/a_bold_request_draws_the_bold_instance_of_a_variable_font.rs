@@ -34,6 +34,7 @@ fn chain_for(fc_cache: &FcFontCache, family: &str, weight: FcWeight) -> FontFall
             weight,
             style: FontStyle::Normal,
             unicode_ranges: Vec::new(),
+            optical_size: 0,
         }]],
         hash_to_index: HashMap::new(),
         font_refs: HashMap::new(),

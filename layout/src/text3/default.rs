@@ -83,6 +83,7 @@ impl PathLoader {
                 weight: rust_fontconfig::FcWeight::Normal,
                 style: crate::text3::cache::FontStyle::Normal,
                 unicode_ranges: Vec::new(),
+                optical_size: 0,
             })
         })?;
         let arc_owned = Arc::<[u8]>::from(font_bytes);

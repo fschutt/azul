@@ -668,6 +668,7 @@ mod extract_tests {
                     FontStyle::Normal
                 },
                 unicode_ranges: Vec::new(),
+                optical_size: 0,
             }]),
             font_size_px: size_px,
             ..StyleProperties::default()
@@ -812,6 +813,7 @@ mod extract_tests {
             weight: FcWeight::Normal,
             style: FontStyle::Oblique,
             unicode_ranges: Vec::new(),
+            optical_size: 0,
         }]);
         acc.push("slanted", &oblique);
         let content = acc.finish().expect("content");

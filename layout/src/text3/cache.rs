@@ -362,6 +362,11 @@ pub struct FontChainKey {
     pub weight: FcWeight,
     pub italic: bool,
     pub oblique: bool,
+    /// The optical size the chain's variable faces are drawn at: the used
+    /// font size in whole CSS px (`font-optical-sizing: auto`, as Chrome
+    /// and CoreText do it), 0 for "the face's default". See
+    /// [`FontSelector::optical_size`].
+    pub optical_size: u16,
 }
 
 /// Either a `FontChainKey` (resolved via fontconfig) or a direct `FontRef` hash.
@@ -444,12 +449,14 @@ impl FontChainKey {
         let is_oblique = font_stack
             .first()
             .is_some_and(|s| s.style == FontStyle::Oblique);
+        let optical_size = font_stack.first().map_or(0, |s| s.optical_size);
 
         Self {
             font_families,
             weight,
             italic: is_italic,
             oblique: is_oblique,
+            optical_size,
         }
     }
 }
@@ -487,8 +494,13 @@ pub(crate) fn resolve_chain_on_miss(
         None,
         &mut trace,
     );
-    // Same weight selection as the pre-pass, so a miss draws what a hit would.
-    crate::solver3::getters::select_variable_weight_instances(&mut chain, key.weight, fc_cache);
+    // Same instance selection as the pre-pass, so a miss draws what a hit would.
+    crate::solver3::getters::select_variable_instances(
+        &mut chain,
+        key.weight,
+        key.optical_size,
+        fc_cache,
+    );
     chain
 }
 
@@ -2683,6 +2695,15 @@ pub struct FontSelector {
     pub weight: FcWeight,
     pub style: FontStyle,
     pub unicode_ranges: Vec<UnicodeRange>,
+    /// The optical size to draw a variable face with an `opsz` axis at: the
+    /// used font size rounded to whole CSS px (CSS Fonts 4
+    /// `font-optical-sizing: auto`; Chrome and CoreText set `opsz` to the
+    /// font size). 0 = the face's default instance. Every selector of a
+    /// stack carries the same value; [`FontChainKey::from_selectors`] reads
+    /// the first. macOS draws its UI in ONE such face (`SFNS.ttf`, opsz
+    /// 17-96, default 28): 13px text is "SF Pro Text" (opsz 17), not the
+    /// default's wider-set "Display" design (SYSUI8).
+    pub optical_size: u16,
 }
 
 impl Default for FontSelector {
@@ -2692,7 +2713,21 @@ impl Default for FontSelector {
             weight: FcWeight::Normal,
             style: FontStyle::Normal,
             unicode_ranges: Vec::new(),
+            optical_size: 0,
         }
+    }
+}
+
+/// The optical size (`FontSelector::optical_size`) for text of
+/// `font_size_px`: the size in whole CSS px, 0 for a size that is not a
+/// positive finite number.
+#[must_use]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped to u16 first
+pub fn optical_size_for(font_size_px: f32) -> u16 {
+    if font_size_px.is_finite() && font_size_px > 0.0 {
+        font_size_px.round().clamp(1.0, f32::from(u16::MAX)) as u16
+    } else {
+        0
     }
 }
 

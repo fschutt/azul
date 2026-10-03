@@ -215,6 +215,11 @@ pub mod parsed {
         read_variation_axis(bytes, index, tag::WGHT)
     }
 
+    /// The `wght` (weight) axis tag, for [`bake_instance`].
+    pub const WGHT_AXIS: u32 = tag::WGHT;
+    /// The `opsz` (optical size) axis tag, for [`bake_instance`].
+    pub const OPSZ_AXIS: u32 = tag::OPSZ;
+
     /// The variation axis `axis_tag` (`tag::WGHT`, `tag::OPSZ`, ...) of the
     /// face `index` in `bytes`: `(min, default, max)` in user units. `None`
     /// when the face is not variable along that axis.
