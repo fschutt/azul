@@ -1,5 +1,18 @@
+//! AzBuilder: the window is the CANVAS of azul's builder, whose UI is the
+//! debug server's page (opened in the browser at start).
+//!
+//! The empty `<body>` is deliberate. The builder's first document is "what
+//! the window shows right now" (`layout/src/e2e/builder.rs`,
+//! `BuilderDocument::from_styled_dom`), and every edit rebuilds this window
+//! from the document: a shell, a theme scope or body styles here would be
+//! imported into every new design (a margin-less, full-height flex body the
+//! user never asked for). The white canvas in dark mode is the design's own
+//! page colour, not the app's chrome. Do not "fix" it with
+//! `ShellThemeScope::body()` like the other apps (wave-6 LOOK, 2026-10-03).
+
 use azul::prelude::*;
 
+/// The canvas: an empty body (see the module documentation).
 extern "C" fn layout(_: RefAny, _: LayoutCallbackInfo) -> Dom {
     Dom::create_body()
 }
