@@ -121,6 +121,10 @@ Files (all `azul_core::xml::html`, re-exported from xml_html.rs so every path st
   tests (inputs unaffected), builtin presentational / list-style tests (DOM path takes the body only; FastDomSink
   hides the head) - no expected change.
 
+- `3543dc4b0` strict-XML pin test, sorted-table guard, doctype->quirks test; `457d13017` depth test walks from body;
+  `c30f7da33` docs.
+- Report: scripts/XML8_2026_10_03.md.
+
 ## IN PROGRESS
 
 - (nothing half-edited)
@@ -129,9 +133,7 @@ Files (all `azul_core::xml::html`, re-exported from xml_html.rs so every path st
 
 1. (done: Chrome probe, see DONE.)
 2. (done: RED.)
-3. (done: GREEN written + type-checked + mirror-checked.) NEXT: tokenizer unit tests for the states (doctype
-   parsing -> quirks, end tag attributes, raw text end at EOF), strict-XML regression rows (the loaders' XML
-   conveniences unchanged), then the report. xml_html_rules.rs, xml_html_tokenizer.rs, xml_html_tree.rs, wire in xml_html.rs.
+3. (done.) DONE: report written. Nothing left in this task; open items are listed in the report's "What is left". xml_html_rules.rs, xml_html_tokenizer.rs, xml_html_tree.rs, wire in xml_html.rs.
 4. Type-check harness; Python mirror vs Chrome (rows + corpus); fix.
 5. Corpus test: the two foster-parented Postmark mails join the exact-tree test.
 6. Report.
