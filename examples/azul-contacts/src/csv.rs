@@ -67,8 +67,29 @@ impl Field {
     /// What the mapping control says.
     #[must_use]
     pub fn label(self) -> &'static str {
-        let _ = self;
-        todo!()
+        match self {
+            Field::Skip => "Do not import",
+            Field::Given => "First name",
+            Field::Family => "Last name",
+            Field::FullName => "Full name",
+            Field::Nickname => "Nickname",
+            Field::Email => "E-mail",
+            Field::MobilePhone => "Mobile phone",
+            Field::WorkPhone => "Work phone",
+            Field::HomePhone => "Home phone",
+            Field::Org => "Company",
+            Field::Department => "Department",
+            Field::Title => "Job title",
+            Field::Birthday => "Birthday",
+            Field::Street => "Street",
+            Field::City => "City",
+            Field::Region => "State / region",
+            Field::PostalCode => "Postal code",
+            Field::Country => "Country",
+            Field::Url => "Web page",
+            Field::Notes => "Notes",
+            Field::Groups => "Groups",
+        }
     }
 
     /// The position in [`Field::ALL`].
@@ -87,16 +108,148 @@ pub struct Table {
 
 /// Reads a CSV text; `Err` says why it is no table (no header, a quote left open).
 pub fn parse(text: &str) -> Result<Table, String> {
-    let _ = text;
-    todo!()
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let first = text.lines().next().unwrap_or_default();
+    if first.trim().is_empty() {
+        return Err(String::from("The file is empty: it has no header row."));
+    }
+    // The separator the header holds most of (a comma on a tie).
+    let sep = [',', ';', '\t']
+        .into_iter()
+        .fold((',', 0usize), |best, c| {
+            let n = first.matches(c).count();
+            if n > best.1 {
+                (c, n)
+            } else {
+                best
+            }
+        })
+        .0;
+    let mut records: Vec<Vec<String>> = Vec::new();
+    let mut record: Vec<String> = Vec::new();
+    let mut field = String::new();
+    let mut quoted = false;
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if quoted {
+            match c {
+                '"' if chars.peek() == Some(&'"') => {
+                    field.push('"');
+                    chars.next();
+                }
+                '"' => quoted = false,
+                // A CRLF inside a field is one line break.
+                '\r' if chars.peek() == Some(&'\n') => {}
+                _ => field.push(c),
+            }
+            continue;
+        }
+        match c {
+            '"' if field.is_empty() => quoted = true,
+            '\r' => {}
+            '\n' => {
+                record.push(std::mem::take(&mut field));
+                records.push(std::mem::take(&mut record));
+            }
+            c if c == sep => record.push(std::mem::take(&mut field)),
+            _ => field.push(c),
+        }
+    }
+    if quoted {
+        return Err(String::from(
+            "A quoted field is not closed: the file ends inside it.",
+        ));
+    }
+    if !field.is_empty() || !record.is_empty() {
+        record.push(field);
+        records.push(record);
+    }
+    let mut records = records.into_iter();
+    let headers: Vec<String> = records
+        .next()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|h| h.trim().to_string())
+        .collect();
+    let rows = records
+        // A blank line is no row.
+        .filter(|r| !(r.len() == 1 && r[0].trim().is_empty()))
+        .map(|mut r| {
+            r.resize(headers.len(), String::new());
+            r
+        })
+        .collect();
+    Ok(Table { headers, rows })
 }
 
 /// The field a column named `header` most likely holds (Outlook's and Google's names, any
 /// case); `Skip` for one nobody knows.
 #[must_use]
 pub fn guess(header: &str) -> Field {
-    let _ = header;
-    todo!()
+    let h = header.trim().to_lowercase();
+    let has = |w: &str| h.contains(w);
+    match h.as_str() {
+        "first name" | "given name" | "firstname" => return Field::Given,
+        "last name" | "family name" | "surname" | "lastname" => return Field::Family,
+        "name" | "full name" | "display name" => return Field::FullName,
+        "nickname" => return Field::Nickname,
+        "company" | "organization" | "organisation" => return Field::Org,
+        "job title" | "organization 1 - title" => return Field::Title,
+        "birthday" => return Field::Birthday,
+        "notes" | "note" => return Field::Notes,
+        "categories" | "group membership" | "groups" => return Field::Groups,
+        _ => {}
+    }
+    // Not the person's own: a value's type or label, the assistant's, the manager's, a fax.
+    if ["type", "assistant", "manager", "spouse", "children", "display", "fax", "label"]
+        .iter()
+        .any(|w| has(w))
+    {
+        return Field::Skip;
+    }
+    if has("e-mail") || has("email") {
+        Field::Email
+    } else if has("mobile") || has("cell") {
+        Field::MobilePhone
+    } else if has("phone") {
+        if has("business") || has("work") || has("company") {
+            Field::WorkPhone
+        } else if has("home") {
+            Field::HomePhone
+        } else {
+            Field::MobilePhone
+        }
+    } else if has("organization") && has("name") {
+        Field::Org
+    } else if has("department") {
+        Field::Department
+    } else if has("street") {
+        Field::Street
+    } else if has("city") {
+        Field::City
+    } else if has("country") {
+        Field::Country
+    } else if has("state") || has("region") {
+        Field::Region
+    } else if has("postal") || has("zip") || has("postcode") {
+        Field::PostalCode
+    } else if has("web page") || has("website") || has("url") {
+        Field::Url
+    } else {
+        Field::Skip
+    }
+}
+
+/// The label of a value from a column named `header`: `home` / `other`, else `work`.
+fn label_of(header: &str) -> &'static str {
+    let h = header.to_lowercase();
+    if h.contains("home") || h.contains("personal") {
+        "home"
+    } else if h.contains("other") {
+        "other"
+    } else {
+        "work"
+    }
 }
 
 /// The contacts of `table` with each column mapped by `mapping` (by position; a column
@@ -104,8 +257,98 @@ pub fn guess(header: &str) -> Field {
 /// is left out (an empty line of a spreadsheet).
 #[must_use]
 pub fn contacts(table: &Table, mapping: &[Field]) -> (Vec<Contact>, Vec<String>) {
-    let _ = (table, mapping);
-    todo!()
+    let mut out = Vec::new();
+    let mut problems = Vec::new();
+    for (n, row) in table.rows.iter().enumerate() {
+        let mut c = Contact::default();
+        // One address per label (a home and a business address are two).
+        let mut addresses: Vec<Address> = Vec::new();
+        for (i, value) in row.iter().enumerate() {
+            let v = value.trim();
+            let field = mapping.get(i).copied().unwrap_or(Field::Skip);
+            if v.is_empty() || field == Field::Skip {
+                continue;
+            }
+            let header = table.headers.get(i).map(String::as_str).unwrap_or_default();
+            let mut address = |f: &dyn Fn(&mut Address)| {
+                let label = label_of(header);
+                let at = match addresses.iter().position(|a| a.label == label) {
+                    Some(at) => at,
+                    None => {
+                        addresses.push(Address {
+                            label: label.to_string(),
+                            ..Address::default()
+                        });
+                        addresses.len() - 1
+                    }
+                };
+                f(&mut addresses[at]);
+            };
+            match field {
+                Field::Skip => {}
+                Field::Given => c.given = v.to_string(),
+                Field::Family => c.family = v.to_string(),
+                Field::FullName => {
+                    // Only where no first / last name column said it.
+                    if c.given.is_empty() && c.family.is_empty() {
+                        match v.rsplit_once(char::is_whitespace) {
+                            Some((given, family)) => {
+                                c.given = given.trim().to_string();
+                                c.family = family.trim().to_string();
+                            }
+                            None => c.given = v.to_string(),
+                        }
+                    }
+                }
+                Field::Nickname => c.nickname = v.to_string(),
+                Field::Email => c.emails.push(Labeled::new(label_of(header), v)),
+                Field::MobilePhone => c.phones.push(Labeled::new("mobile", v)),
+                Field::WorkPhone => c.phones.push(Labeled::new("work", v)),
+                Field::HomePhone => c.phones.push(Labeled::new("home", v)),
+                Field::Org => c.org = v.to_string(),
+                Field::Department => c.department = v.to_string(),
+                Field::Title => c.title = v.to_string(),
+                Field::Birthday => match Birthday::parse(v) {
+                    Some(b) => c.birthday = Some(b),
+                    None => problems.push(format!(
+                        "Row {}: the birthday {v:?} is no date; the contact is imported \
+                         without it.",
+                        n + 2
+                    )),
+                },
+                Field::Street => address(&|a| a.street = v.to_string()),
+                Field::City => address(&|a| a.locality = v.to_string()),
+                Field::Region => address(&|a| a.region = v.to_string()),
+                Field::PostalCode => address(&|a| a.postcode = v.to_string()),
+                Field::Country => address(&|a| a.country = v.to_string()),
+                Field::Url => c.urls.push(Labeled::new(label_of(header), v)),
+                Field::Notes => {
+                    if !c.notes.is_empty() {
+                        c.notes.push('\n');
+                    }
+                    c.notes.push_str(value.trim_end());
+                }
+                Field::Groups => {
+                    for g in v.split(":::").flat_map(|g| g.split(';')) {
+                        let g = g.trim();
+                        // Google's own groups ("* myContacts") are no groups of the user's.
+                        if !g.is_empty()
+                            && !g.starts_with('*')
+                            && !c.groups.iter().any(|x| x.eq_ignore_ascii_case(g))
+                        {
+                            c.groups.push(g.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        c.addresses = addresses.into_iter().filter(|a| !a.is_empty()).collect();
+        let named = !(c.given.is_empty() && c.family.is_empty() && c.org.is_empty());
+        if named || !c.emails.is_empty() || !c.phones.is_empty() {
+            out.push(c);
+        }
+    }
+    (out, problems)
 }
 
 #[cfg(test)]
