@@ -1807,6 +1807,26 @@ pub fn nv12_to_rgba(
     Some(out)
 }
 
+/// A whole tightly packed RGBA8 or BGRA8 image (`src`, alpha ignored) as
+/// tightly packed NV12 in `dst`'s matrix and range: what an H.264 encoder
+/// that takes only NV12 (Vulkan Video) is handed for a frame that is not
+/// NV12 already. Luma per pixel; each chroma pair from the average of its
+/// 2x2 block (fewer pixels at an odd last column / row). `None` when `src`
+/// is not RGBA8 / BGRA8, `dst` is not NV12, or `bytes` is shorter than the
+/// image. The inverse of [`nv12_to_rgba`] (same matrices, same ranges).
+#[must_use]
+pub fn rgba_to_nv12(
+    bytes: &[u8],
+    width: usize,
+    height: usize,
+    src: RawImageFormat,
+    dst: RawImageFormat,
+) -> Option<Vec<u8>> {
+    // RED stub.
+    let _ = (bytes, width, height, src, dst);
+    None
+}
+
 // NOTE: starts at 1 (0 = DUMMY)
 static IMAGE_KEY: AtomicU64 = AtomicU64::new(1);
 static FONT_KEY: AtomicU64 = AtomicU64::new(0);
