@@ -35,32 +35,81 @@ pub fn picker_day(date: NaiveDate) -> DatePickerState {
 /// setting (a picker starts on Monday or Sunday: a Saturday week starts its rows on Sunday).
 #[must_use]
 pub fn picker_week_start(week_start: Weekday) -> DatePickerWeekStart {
-    let _ = week_start;
-    todo!()
+    if week_start == Weekday::Mon {
+        DatePickerWeekStart::Monday
+    } else {
+        DatePickerWeekStart::Sunday
+    }
 }
 
 /// The rule the editor shows for a task due on `due` that repeats by `repeat` (`None`: it
 /// does not repeat).
 #[must_use]
 pub fn rule_of(repeat: Option<&Repeat>, due: NaiveDate) -> RecurrenceRule {
-    let _ = (repeat, due);
-    todo!()
+    let mut rule = RecurrenceRule::create(picker_day(due));
+    let Some(r) = repeat else {
+        return rule;
+    };
+    rule.frequency = match r.unit {
+        Unit::Day => RecurrenceFrequency::Daily,
+        Unit::Week => RecurrenceFrequency::Weekly,
+        Unit::Month => RecurrenceFrequency::Monthly,
+        Unit::Year => RecurrenceFrequency::Yearly,
+    };
+    rule.interval = r.every.clamp(1, 999);
+    // No days: the due date's weekday, as in the editor.
+    rule.weekdays = r
+        .weekdays
+        .iter()
+        .fold(0u8, |bits, day| bits | 1 << day.num_days_from_monday());
+    rule.from_completion = r.from_completion;
+    rule
 }
 
 /// The repeat the editor's `rule` makes for a task due on `due` that repeated by `before`
 /// (whose day of the month a month or year repeat keeps); `None` for "Never".
 #[must_use]
 pub fn repeat_of(rule: &RecurrenceRule, before: Option<&Repeat>, due: NaiveDate) -> Option<Repeat> {
-    let _ = (rule, before, due);
-    todo!()
+    let unit = match rule.frequency {
+        RecurrenceFrequency::Never => return None,
+        RecurrenceFrequency::Daily => Unit::Day,
+        RecurrenceFrequency::Weekly => Unit::Week,
+        RecurrenceFrequency::Monthly => Unit::Month,
+        RecurrenceFrequency::Yearly => Unit::Year,
+    };
+    let mut repeat = Repeat::new(rule.interval.clamp(1, 999), unit);
+    if unit == Unit::Week {
+        let days: Vec<Weekday> = (0..7)
+            .filter(|n| rule.weekdays & (1 << n) != 0)
+            .map(|n| WEEK[n])
+            .collect();
+        repeat = repeat.on_weekdays(&days);
+    }
+    // A month or year repeat keeps the day it had (the 31st stays the 31st in November).
+    repeat.month_day = before
+        .filter(|b| b.unit == unit && matches!(unit, Unit::Month | Unit::Year))
+        .and_then(|b| b.month_day);
+    Some(
+        repeat
+            .counting_from_completion(rule.from_completion)
+            .anchored(due),
+    )
 }
 
 /// Only the "every N" number changed: the detail is not rebuilt (the number field keeps its
 /// caret while the user types).
 #[must_use]
 pub fn only_the_number_changed(before: Option<&Repeat>, after: Option<&Repeat>) -> bool {
-    let _ = (before, after);
-    todo!()
+    match (before, after) {
+        (Some(b), Some(a)) => {
+            b.every != a.every
+                && Repeat {
+                    every: a.every,
+                    ..b.clone()
+                } == *a
+        }
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -91,13 +140,13 @@ mod tests {
     fn the_editor_shows_a_repeat_as_its_frequency_interval_days_and_completion() {
         let due = d(2026, 10, 14); // a Wednesday
         let none = rule_of(None, due);
-        assert_eq!(none.frequency, RecurrenceFrequency::Never);
+        assert!(matches!(none.frequency, RecurrenceFrequency::Never));
         assert_eq!((none.start.year, none.start.month, none.start.day), (2026, 10, 14));
         let r = Repeat::new(3, Unit::Week)
             .on_weekdays(&[Weekday::Mon, Weekday::Fri])
             .counting_from_completion(true);
         let rule = rule_of(Some(&r), due);
-        assert_eq!(rule.frequency, RecurrenceFrequency::Weekly);
+        assert!(matches!(rule.frequency, RecurrenceFrequency::Weekly));
         assert_eq!(rule.interval, 3);
         assert_eq!(rule.weekdays, 0b001_0001);
         assert!(rule.from_completion);
