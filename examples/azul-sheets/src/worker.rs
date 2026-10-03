@@ -17,7 +17,8 @@ use std::{
 
 use crate::{
     engine::{
-        CellAddr, CellArea, CellStyle, CellValue, DefinedName, EngineError, FillTo, SheetEngine,
+        CellAddr, CellArea, CellStyle, CellValue, CondLook, CondRule, ConditionalFormat, DefinedName, EngineError,
+        FillTo, SheetEngine,
         SheetInfo, StylePatch, LAST_COLUMN, LAST_ROW,
     },
     ops::{self, SelectionStats},
@@ -161,6 +162,16 @@ pub enum Command {
     Unmerge {
         area: CellArea,
     },
+    /// A conditional format over the area.
+    AddConditional {
+        area: CellArea,
+        rule: CondRule,
+        look: CondLook,
+    },
+    /// Removes the conditional formats overlapping the area.
+    ClearConditional {
+        area: CellArea,
+    },
     AddSheet,
     RenameSheet {
         sheet: u32,
@@ -264,6 +275,8 @@ pub struct Snapshot {
     pub frozen: (i32, i32),
     /// The merged areas of the sheet.
     pub merges: Vec<CellArea>,
+    /// The sheet's conditional formats.
+    pub conditional: Vec<ConditionalFormat>,
     pub grid_lines: bool,
     /// (max_row, max_column) of the sheet's data.
     pub extent: (i32, i32),
@@ -392,6 +405,7 @@ pub fn snapshot(engine: &dyn SheetEngine, view: &ViewRequest) -> Snapshot {
         styles,
         frozen: engine.frozen(sheet),
         merges: engine.merges(sheet),
+        conditional: engine.conditional_formats(sheet),
         grid_lines: engine.show_grid_lines(sheet),
         extent: engine.extent(sheet),
         stats: ops::selection_stats(engine, &view.selection),
@@ -508,6 +522,8 @@ fn run(
         }
         Command::MergeCenter { area } => ops::merge_and_center(engine, *area),
         Command::Unmerge { area } => engine.unmerge(*area),
+        Command::AddConditional { area, rule, look } => engine.add_conditional_format(*area, rule, *look),
+        Command::ClearConditional { area } => engine.clear_conditional_formats(*area),
         Command::AddSheet => engine.add_sheet(),
         Command::RenameSheet { sheet, name } => engine.rename_sheet(*sheet, name),
         Command::DeleteSheet { sheet } => engine.delete_sheet(*sheet),
