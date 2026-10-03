@@ -17,8 +17,16 @@ Cases (each with a fresh AzMail folder and its own sink):
                 send_policy.json ships gmail.com as "relay"
   starttls      (needs openssl) the sink offers STARTTLS with a self-signed certificate;
                 --tls required --ca <cert>: "sent" over TLS
-  dkim          (needs openssl) --dkim-domain/--dkim-key: a DKIM-Signature with d= and s=, and
-                bh= the SHA-256 of the relaxed body
+  dkim          (needs openssl) --dkim-domain/--dkim-key: a DKIM-Signature with d= and s=, bh=
+                the SHA-256 of the relaxed body, and the whole signature verified by this
+                script's own RFC 6376 verifier (relaxed canonicalization here, RSA-SHA256 by the
+                openssl command; dkimpy too when it is installed)
+  dkim-generated (needs openssl) --dkim-generate: AzMail makes the key (as the Sending page
+                does) and prints the DNS record; p= is the key file's SubjectPublicKeyInfo (by
+                openssl), the key file is 0600, and the mail verifies against that record
+  port25        direct delivery to a closed local port with the port-25 probe pointed at it:
+                queued, send_policy.json records port25.open = false; a retry within the hour
+                knocks nowhere; --ignore-policy sends it to a sink
 
 Usage (from the azul repository, after `cargo build --release -p AzMail --bin azmail-send`):
 
@@ -308,6 +316,91 @@ def relaxed_body_hash(body):
     return base64.b64encode(hashlib.sha256(canonical).digest()).decode()
 
 
+def relaxed_header(field):
+    """RFC 6376 3.4.2 relaxed header canonicalization of one raw field (folds included, no
+    final CRLF)."""
+    name, _, value = field.partition(b':')
+    value = re.sub(rb'\r\n(?=[ \t])', b'', value)
+    value = re.sub(rb'[ \t]+', b' ', value).strip(b' ')
+    return name.strip().lower() + b':' + value
+
+
+def dkim_tags(text):
+    tags = {}
+    for part in text.split(';'):
+        if '=' in part:
+            name, _, value = part.partition('=')
+            tags[name.strip()] = value.strip()
+    return tags
+
+
+def dkim_verify(raw, public_key_b64, work, domain='example.org'):
+    """An independent DKIM verifier (RFC 6376, written here, not micromail's): the signature
+    header's tags, the relaxed body hash, the relaxed canonicalization of the signed header
+    fields (picked bottom up) and of the DKIM-Signature with b= emptied, and the RSA-SHA256
+    signature checked by OpenSSL against the published key (`p=`, SubjectPublicKeyInfo).
+    Returns None when the mail verifies, else why. With dkimpy installed it must agree."""
+    header_end = raw.index(b'\r\n\r\n')
+    head, body = raw[:header_end], raw[header_end + 4:]
+    fields = re.split(rb'\r\n(?![ \t])', head)
+    names = [f.partition(b':')[0].strip().lower() for f in fields]
+    if b'dkim-signature' not in names:
+        return 'no DKIM-Signature'
+    sig_field = fields[names.index(b'dkim-signature')]
+    tags = dkim_tags(re.sub(r'\s+', ' ', sig_field.partition(b':')[2].decode()))
+    if tags.get('v') != '1' or tags.get('a') != 'rsa-sha256':
+        return f'unexpected v= / a=: {tags}'
+    if tags.get('d') != domain:
+        return f'd={tags.get("d")}, not {domain}'
+    if tags.get('c', 'simple/simple') != 'relaxed/relaxed':
+        return f'this checker reads relaxed/relaxed only, not c={tags.get("c")}'
+    bh = tags.get('bh', '').replace(' ', '')
+    if bh != relaxed_body_hash(body):
+        return f'bh={bh}, the body hashes to {relaxed_body_hash(body)}'
+    # The signed fields, each instance taken from the bottom up (RFC 6376 5.4.2).
+    used = set()
+    data = b''
+    for name in [n.strip().lower().encode() for n in tags.get('h', '').split(':') if n.strip()]:
+        for i in range(len(fields) - 1, -1, -1):
+            if names[i] == name and i not in used and fields[i] is not sig_field:
+                used.add(i)
+                data += relaxed_header(fields[i]) + b'\r\n'
+                break
+    unsigned = re.sub(rb'((?:^|;)\s*b\s*=)[^;]*', rb'\1', sig_field)
+    data += relaxed_header(unsigned)
+    signature = base64.b64decode(re.sub(r'\s+', '', tags.get('b', '')))
+    der = base64.b64decode(public_key_b64)
+    pem = '-----BEGIN PUBLIC KEY-----\n' + '\n'.join(
+        base64.b64encode(der).decode()[i:i + 64] for i in range(0, len(base64.b64encode(der)), 64)
+    ) + '\n-----END PUBLIC KEY-----\n'
+    paths = {k: os.path.join(work, f'verify.{k}') for k in ('pem', 'sig', 'data')}
+    with open(paths['pem'], 'w', encoding='ascii') as f:
+        f.write(pem)
+    with open(paths['sig'], 'wb') as f:
+        f.write(signature)
+    with open(paths['data'], 'wb') as f:
+        f.write(data)
+    proc = subprocess.run(['openssl', 'dgst', '-sha256', '-verify', paths['pem'], '-signature',
+                           paths['sig'], paths['data']], capture_output=True, text=True)
+    if proc.returncode != 0 or 'Verified OK' not in proc.stdout:
+        return f'OpenSSL does not verify the signature: {proc.stdout.strip()} {proc.stderr.strip()}'
+    try:
+        import dkim  # dkimpy, when installed: a second independent opinion
+    except ImportError:
+        return None
+    record = f'v=DKIM1; k=rsa; p={public_key_b64}'.encode()
+    if not dkim.verify(raw, dnsfunc=lambda name, timeout=5: record):
+        return 'OpenSSL verifies, dkimpy does not'
+    return None
+
+
+def spki_of(private_pem):
+    """The SubjectPublicKeyInfo (base64) of a private key file, by OpenSSL."""
+    der = subprocess.run(['openssl', 'pkey', '-in', private_pem, '-pubout', '-outform', 'DER'],
+                         check=True, capture_output=True).stdout
+    return base64.b64encode(der).decode()
+
+
 def case_dkim(run, work):
     data, sink = os.path.join(work, 'data'), Sink(os.path.join(work, 'sink'))
     key = os.path.join(work, 'dkim.pem')
@@ -328,11 +421,85 @@ def case_dkim(run, work):
         bh = re.search(r'bh=([^;]+);', signature).group(1).replace(' ', '')
         expected = relaxed_body_hash(raw[header_end + 4:])
         check(bh == expected, f'bh={bh}, the body hashes to {expected}')
+        problem = dkim_verify(raw, spki_of(key), work)
+        check(problem is None, f'the signature does not verify: {problem}')
         check(b'PRIVATE KEY' not in raw, 'the key is in the message')
         for root, _, files in os.walk(data):
             for name in files:
                 with open(os.path.join(root, name), 'rb') as f:
                     check(b'PRIVATE KEY' not in f.read(), f'the key is in {name}')
+    finally:
+        sink.stop()
+
+
+def case_dkim_generated(run, work):
+    """The client-side key: made by AzMail (as the Sending page makes it), its DNS record
+    printed; the mail signed with it verifies against exactly that record, and the record's
+    key is the key file's public half (by OpenSSL)."""
+    data, sink = os.path.join(work, 'data'), Sink(os.path.join(work, 'sink'))
+    key = os.path.join(work, 'generated.pem')
+    try:
+        code, lines, out = run.send(
+            data, *base_args(sink.port), '--to', 'ben@example.net', '--subject', 'own key',
+            '--text', 'signed with a key made on this computer', '--dkim-generate', key)
+        check(code == 0 and lines and lines[0].startswith('AZMAIL_SEND sent '), out)
+        name = re.search(r'^AZMAIL_DKIM_NAME (\S+)$', out, re.M)
+        value = re.search(r'^AZMAIL_DKIM_VALUE (.+)$', out, re.M)
+        check(name and value, out)
+        check(re.fullmatch(r'azmail\d{6}\._domainkey\.example\.org', name.group(1)),
+              name.group(1))
+        tags = dkim_tags(value.group(1))
+        check(tags.get('v') == 'DKIM1' and tags.get('k') == 'rsa', value.group(1))
+        published = tags.get('p', '')
+        check(published.startswith('MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA'),
+              'p= is not a 2048-bit SubjectPublicKeyInfo: ' + published[:60])
+        check(published == spki_of(key), 'the record does not publish the key file\'s key')
+        if os.name == 'posix':
+            check(os.stat(key).st_mode & 0o077 == 0, 'the key file is readable by others')
+        raw = sink.messages()[0][0]
+        selector = name.group(1).split('.')[0]
+        check(f's={selector};'.encode() in raw[:300], raw[:300])
+        problem = dkim_verify(raw, published, work)
+        check(problem is None, f'the signature does not verify against the record: {problem}')
+    finally:
+        sink.stop()
+
+
+def free_port():
+    """A port nothing listens on (bound, then closed)."""
+    import socket
+    with socket.socket() as s:
+        s.bind(('127.0.0.1', 0))
+        return s.getsockname()[1]
+
+
+def case_port25(run, work):
+    """No exchanger answers and the probe cannot connect either: the connection is recorded as
+    blocking port 25, the mail waits; within the hour a retry knocks nowhere; --ignore-policy
+    (and a server that answers) sends it."""
+    data, closed = os.path.join(work, 'data'), free_port()
+    probe = f'127.0.0.1:{closed}'
+    code, lines, out = run.send(
+        data, '--direct', '--direct-port', str(closed), '--tls', 'off', '--port25-probe', probe,
+        '--from', 'ada@example.org', '--to', 'ann@localhost', '--subject', 'blocked',
+        '--text', 'x')
+    check(code == 2 and lines and lines[0].startswith('AZMAIL_SEND queued '), out)
+    check('port 25' in lines[0], lines[0])
+    with open(os.path.join(account_dir(data), 'send_policy.json'), encoding='utf-8') as f:
+        policy = json.load(f)
+    check(policy.get('port25', {}).get('open') is False, policy)
+    sink = Sink(os.path.join(work, 'sink'))
+    try:
+        code, lines, out = run.send(
+            data, '--retry', '--force', '--direct', '--direct-port', str(sink.port), '--tls',
+            'off', '--port25-probe', probe)
+        check(code == 2 and lines and ' queued ' in lines[0], out)
+        check(sink.messages() == [], 'a connection found blocked is not tried within the hour')
+        code, lines, out = run.send(
+            data, '--retry', '--force', '--direct', '--direct-port', str(sink.port), '--tls',
+            'off', '--ignore-policy')
+        check(code == 0 and lines and ' sent ' in lines[0], out)
+        check(len(sink.messages()) == 1, 'the mail did not arrive')
     finally:
         sink.stop()
 
@@ -345,6 +512,8 @@ CASES = {
     'policy': (case_policy, None),
     'starttls': (case_starttls, 'openssl'),
     'dkim': (case_dkim, 'openssl'),
+    'dkim-generated': (case_dkim_generated, 'openssl'),
+    'port25': (case_port25, None),
 }
 
 
