@@ -32,11 +32,17 @@ Screenshots: target/small6-shots/ (not committed). Look driver: target/small6/lo
   of the lib.rs rewrite; 4d8a9006b part 2 (BrowserShell layout, callbacks, pins file + kept view, appkit);
   0bb82399f scripts/azmaps_e2e.py. (Resumed after the power loss from 05f87019f.)
 
+- AzReview: ecfc1143c / d42a39f6c archive_name (RED/GREEN); 6a21926ef sessions via appkit file jobs into
+  review/ (session::archive builds bytes; one writer), appkit switches/window, Mod+S, 1-9, stdout lines;
+  12f01aa07 DocumentShell + ShellThemeScope::body() + system colours + Buttons + settings page; 17944f4b0
+  scripts/azreview_e2e.py.
+
 ## NEXT (exact)
-- AzReview (examples/azul-review/src/*.rs): read it first; then ShellThemeScope::body() + DocumentShell, the
-  hard-coded light colours -> system colours / theme, appkit (args, settings page, About), sessions through
-  kit::spawn_file_jobs into review/ (not std::fs from callbacks), ids `__azreview_`, E2E onto azlin_e2e.
-- then AzBuilder (minimal: body() + a real window instead of the empty white body; appkit args/About).
+- AzBuilder (examples/azul-builder): read it; minimal - body() + a real window instead of the empty white
+  body (LOOK: dark mode white too); appkit args/About if it fits; ids prefix; no long runs.
+- then the finish: report the engine findings (Ctrl+C copy shortcut -> WRITER6; long text overflowing LEFT ->
+  MAILENG6; first screenshot after set_theme shows two layouts -> HEADLESS6) in the final message; a short
+  LOOK only when the coordinator says power is fine.
 - AzShells: body(), appkit, prefixes, About, E2E.
 - AzWidgets: the new widgets; app theme; LOOK (short, it has a <video>).
 - AzMaps, AzReview: onto shells + themes + appkit + Drive; AzBuilder: checklist minimal.
