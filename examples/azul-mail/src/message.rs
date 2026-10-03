@@ -310,6 +310,14 @@ Content-Type: text/html; charset=utf-8\r\n\
         assert_eq!(year_month(946_684_799), (1999, 12));
         assert_eq!(year_month(i64::MAX), (0, 0));
         assert_eq!(rfc3339_utc(i64::MAX), "");
+        // The formatter is azul-storage's, the one the apps' files are dated with (DEDUP_EDITORS
+        // B4): the same text for every date it can write; before 1970 there is none.
+        for secs in [0_u64, 1_790_757_720, 951_782_400, 253_402_300_799] {
+            assert_eq!(rfc3339_utc(secs as i64), azul_storage::time::iso8601(secs));
+        }
+        assert_eq!(rfc3339_utc(253_402_300_799), "9999-12-31T23:59:59Z");
+        assert_eq!(rfc3339_utc(253_402_300_800), "", "past the year 9999");
+        assert_eq!(rfc3339_utc(-1), "", "before 1970");
     }
 
     #[test]
