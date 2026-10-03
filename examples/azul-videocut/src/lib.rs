@@ -90,7 +90,7 @@ use crate::{
         Edge, Edit, Effects, Frame, MediaItem, MediaSource, Project, SourceMarks, TrackKind,
         Transition, TransitionKind,
     },
-    render::{compose, fit_within, scale_to, Canvas, FrameSource},
+    render::{compose, fit_to, fit_within, Canvas, FrameSource},
 };
 
 // ==== constants ====
@@ -376,8 +376,7 @@ fn thumbnails(project: &Project, drive: &Arc<dyn Drive>, files: &Arc<MediaFiles>
         .iter()
         .filter_map(|m| {
             let picture = library.picture(m, 0, THUMB_W * 2, THUMB_H * 2)?;
-            let (w, h) = fit_within(picture.width, picture.height, THUMB_W, THUMB_H);
-            Some((m.id, scale_to(&picture, w, h)))
+            Some((m.id, fit_to(&picture, THUMB_W, THUMB_H)))
         })
         .collect()
 }
@@ -460,14 +459,9 @@ fn run_job(job: Job, drive: &Arc<dyn Drive>, files: &Arc<MediaFiles>) -> Outcome
             fps,
         } => {
             let mut library = Library::new(files.clone(), drive.clone(), fps);
-            let picture = library.picture(&media, frame, width, height).map(|p| {
-                let (w, h) = fit_within(p.width, p.height, width, height);
-                if (w, h) == (p.width, p.height) {
-                    p
-                } else {
-                    scale_to(&p, w, h)
-                }
-            });
+            let picture = library
+                .picture(&media, frame, width, height)
+                .map(|p| fit_to(&p, width, height));
             Outcome::SourceRendered {
                 media: media.id,
                 frame,
