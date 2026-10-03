@@ -54,8 +54,10 @@ Branch `wt/headless6` from base 25d78e309. Brief: scripts/waves/wave6/HEADLESS6.
   Scratchpad was wiped: probes now in <scratchpad>/headless6/probe (client.py = debug-server client).
   In-process check: `target/release/azul-doc e2e <dir>` (prebuilt) -> D, E, F, G PASS in-process, so they
   are host-only. Solo runs (fresh process each, solo.sh) fail the same way -> not cross-scenario leaks.
-  Next: SMALL6's bug (coordinator, 2026-10-03): first `screenshot` after set_theme + set_mode shows
-  text of two layouts (old + new); next frame clean. RED first. Then D (live CSS driver steps on the
+  NOW: SMALL6's bug (coordinator): first take_screenshot after set_theme + set_mode shows two layouts.
+  Repro: probe_s4.py (AzShells, click S4, set_theme same + set_mode light, shots b vs c differ: pane
+  splits move frame to frame; status-bar text drawn above its band). set_theme SAME is a no-op
+  (lw.app_theme == app_theme -> DoNothing). Dumping DLs (dl_N.json) to find duplicated / stale text. Then D (live CSS driver steps on the
   wall clock under AZ_E2E: decide), then the report.
 
 ## NEXT
