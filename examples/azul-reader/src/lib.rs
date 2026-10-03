@@ -8,6 +8,7 @@ pub mod content;
 pub mod epub;
 pub mod paginate;
 pub mod position;
+pub mod settings;
 pub mod xmltree;
 
 pub fn start() {}
