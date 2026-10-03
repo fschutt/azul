@@ -87,39 +87,65 @@ pub struct Snapshot {
 
 /// `bytes` counted over `elapsed_ms`, per second (0 when no time passed).
 #[must_use]
+#[allow(clippy::cast_precision_loss)] // byte counts far below 2^52
 pub fn per_second(bytes: u64, elapsed_ms: u64) -> f64 {
-    let _ = (bytes, elapsed_ms);
-    todo!("GREEN: per_second")
+    if elapsed_ms == 0 {
+        return 0.0;
+    }
+    bytes as f64 * 1000.0 / elapsed_ms as f64
 }
 
 /// A process' CPU (percent of one core) as its share of a machine of
 /// `cores` cores, 0..100.
 #[must_use]
+#[allow(clippy::cast_precision_loss)] // a core count
 pub fn share_of_machine(cpu_one_core: f32, cores: usize) -> f32 {
-    let _ = (cpu_one_core, cores);
-    todo!("GREEN: share_of_machine")
+    let share = cpu_one_core / cores.max(1) as f32;
+    if share.is_nan() {
+        return 0.0;
+    }
+    share.clamp(0.0, 100.0)
 }
 
 /// `used` of `total` in percent (0 when there is no total).
 #[must_use]
+#[allow(clippy::cast_precision_loss)] // byte counts far below 2^52
 pub fn percent_of(used: u64, total: u64) -> f64 {
-    let _ = (used, total);
-    todo!("GREEN: percent_of")
+    if total == 0 {
+        return 0.0;
+    }
+    used as f64 * 100.0 / total as f64
 }
 
 /// A percentage as the table writes it: "3.2 %" (one decimal; "0 %" for
 /// nothing).
 #[must_use]
 pub fn format_percent(percent: f64) -> String {
-    let _ = percent;
-    todo!("GREEN: format_percent")
+    if !(percent > 0.0) {
+        // Nothing (or NaN, which a broken reading can carry).
+        return "0 %".to_string();
+    }
+    if percent >= 99.95 {
+        return "100 %".to_string();
+    }
+    format!("{percent:.1} %")
 }
 
 /// Seconds as an uptime: "2 d 04:13:05", "04:13:05".
 #[must_use]
 pub fn format_uptime(seconds: u64) -> String {
-    let _ = seconds;
-    todo!("GREEN: format_uptime")
+    let days = seconds / 86_400;
+    let clock = format!(
+        "{:02}:{:02}:{:02}",
+        (seconds % 86_400) / 3600,
+        (seconds % 3600) / 60,
+        seconds % 60
+    );
+    if days == 0 {
+        clock
+    } else {
+        format!("{days} d {clock}")
+    }
 }
 
 // ---- the process rows ----
@@ -216,22 +242,78 @@ impl ProcRow {
     /// The row of `sample` in a reading over `elapsed_ms` on `cores` cores.
     #[must_use]
     pub fn of(sample: &ProcSample, elapsed_ms: u64, cores: usize) -> Self {
-        let _ = (sample, elapsed_ms, cores);
-        todo!("GREEN: ProcRow::of")
+        Self {
+            pid: sample.pid,
+            parent: sample.parent,
+            name: sample.name.clone(),
+            user: sample.user.clone(),
+            command: sample.command.clone(),
+            status: sample.status.clone(),
+            cpu: share_of_machine(sample.cpu, cores),
+            memory: sample.memory,
+            disk_rate: per_second(
+                sample.disk_read.saturating_add(sample.disk_written),
+                elapsed_ms,
+            ),
+        }
     }
 
     /// The number a number column sorts by (NaN for a text column).
     #[must_use]
+    #[allow(clippy::cast_precision_loss)] // memory far below 2^52
     pub fn number(&self, column: Column) -> f64 {
-        let _ = column;
-        todo!("GREEN: ProcRow::number")
+        match column {
+            Column::Pid => f64::from(self.pid),
+            Column::Cpu => f64::from(self.cpu),
+            Column::Memory => self.memory as f64,
+            Column::Disk => self.disk_rate,
+            Column::Name | Column::User | Column::Status => f64::NAN,
+        }
     }
 
     /// The text a text column sorts by ("" for a number column).
     #[must_use]
     pub fn text(&self, column: Column) -> &str {
-        let _ = column;
-        todo!("GREEN: ProcRow::text")
+        match column {
+            Column::Name => &self.name,
+            Column::User => &self.user,
+            Column::Status => &self.status,
+            Column::Pid | Column::Cpu | Column::Memory | Column::Disk => "",
+        }
+    }
+}
+
+/// Two numbers, blanks (NaN) last whichever way the key runs.
+fn compare_numbers(a: f64, b: f64, descending: bool) -> Ordering {
+    match (a.is_nan(), b.is_nan()) {
+        (true, true) => Ordering::Equal,
+        (true, false) => Ordering::Greater,
+        (false, true) => Ordering::Less,
+        (false, false) => {
+            let o = a.partial_cmp(&b).unwrap_or(Ordering::Equal);
+            if descending {
+                o.reverse()
+            } else {
+                o
+            }
+        }
+    }
+}
+
+/// Two texts, case folded, blanks last whichever way the key runs.
+fn compare_texts(a: &str, b: &str, descending: bool) -> Ordering {
+    match (a.is_empty(), b.is_empty()) {
+        (true, true) => Ordering::Equal,
+        (true, false) => Ordering::Greater,
+        (false, true) => Ordering::Less,
+        (false, false) => {
+            let o = a.to_lowercase().cmp(&b.to_lowercase());
+            if descending {
+                o.reverse()
+            } else {
+                o
+            }
+        }
     }
 }
 
@@ -256,8 +338,17 @@ pub const DEFAULT_SORT: [SortKey; 1] = [SortKey::new(Column::Cpu, true)];
 /// then by PID: two readings of the same processes always sort the same.
 #[must_use]
 pub fn compare_rows(a: &ProcRow, b: &ProcRow, keys: &[SortKey]) -> Ordering {
-    let _ = (a, b, keys);
-    todo!("GREEN: compare_rows")
+    for key in keys {
+        let o = if key.column.is_number() {
+            compare_numbers(a.number(key.column), b.number(key.column), key.descending)
+        } else {
+            compare_texts(a.text(key.column), b.text(key.column), key.descending)
+        };
+        if o != Ordering::Equal {
+            return o;
+        }
+    }
+    a.pid.cmp(&b.pid)
 }
 
 /// Sorts `rows` by `keys` (see [`compare_rows`]).
@@ -269,8 +360,14 @@ pub fn sort_rows(rows: &mut [ProcRow], keys: &[SortKey]) {
 /// (case folded), or its PID starts with it. An empty query passes all.
 #[must_use]
 pub fn matches(row: &ProcRow, query: &str) -> bool {
-    let _ = (row, query);
-    todo!("GREEN: matches")
+    let query = query.trim();
+    if query.is_empty() {
+        return true;
+    }
+    let folded = query.to_lowercase();
+    row.name.to_lowercase().contains(&folded)
+        || row.user.to_lowercase().contains(&folded)
+        || row.pid.to_string().starts_with(query)
 }
 
 // ---- the model ----
@@ -343,21 +440,100 @@ impl Model {
     /// No readings yet, sorted by [`DEFAULT_SORT`], no filter.
     #[must_use]
     pub fn new() -> Self {
-        todo!("GREEN: Model::new")
+        Self {
+            cpu: History::new(CHART_READINGS),
+            cores: Vec::new(),
+            memory: History::new(CHART_READINGS),
+            disk_read: History::new(CHART_READINGS),
+            disk_write: History::new(CHART_READINGS),
+            net_in: History::new(CHART_READINGS),
+            net_out: History::new(CHART_READINGS),
+            summary: Summary::default(),
+            rows: Vec::new(),
+            shown: Vec::new(),
+            sort: DEFAULT_SORT.to_vec(),
+            filter: String::new(),
+            selected: None,
+            readings: 0,
+            notices: Vec::new(),
+        }
     }
 
     /// Takes a reading: the histories grow by one, the rows are the
     /// reading's processes in the sort order, the filter applies, and the
     /// selection stays on its process while it lives.
     pub fn apply(&mut self, snapshot: Snapshot) {
-        let _ = snapshot;
-        todo!("GREEN: Model::apply")
+        let s = snapshot;
+        let disk_read_rate = per_second(s.disk_read, s.elapsed_ms);
+        let disk_write_rate = per_second(s.disk_written, s.elapsed_ms);
+        let net_in_rate = per_second(s.net_received, s.elapsed_ms);
+        let net_out_rate = per_second(s.net_sent, s.elapsed_ms);
+        let memory_percent = percent_of(s.memory_used, s.memory_total);
+
+        self.cpu.push(f64::from(s.cpu));
+        while self.cores.len() < s.cores.len() {
+            self.cores.push(History::new(CHART_READINGS));
+        }
+        for (history, usage) in self.cores.iter_mut().zip(s.cores.iter()) {
+            history.push(f64::from(*usage));
+        }
+        self.memory.push(memory_percent);
+        self.disk_read.push(disk_read_rate);
+        self.disk_write.push(disk_write_rate);
+        self.net_in.push(net_in_rate);
+        self.net_out.push(net_out_rate);
+
+        let cores = s.cores.len();
+        self.rows = s
+            .processes
+            .iter()
+            .map(|p| ProcRow::of(p, s.elapsed_ms, cores))
+            .collect();
+        self.summary = Summary {
+            cpu_brand: s.cpu_brand,
+            cpu_mhz: s.cpu_mhz,
+            cpu: f64::from(s.cpu),
+            memory_used: s.memory_used,
+            memory_total: s.memory_total,
+            swap_used: s.swap_used,
+            swap_total: s.swap_total,
+            disk_read_rate,
+            disk_write_rate,
+            net_in_rate,
+            net_out_rate,
+            uptime: s.uptime,
+            processes: self.rows.len(),
+        };
+        if !s.notices.is_empty() {
+            self.notices = s.notices;
+        }
+        // The selection ends with its process.
+        if let Some(pid) = self.selected {
+            if !self.rows.iter().any(|r| r.pid == pid) {
+                self.selected = None;
+            }
+        }
+        self.readings += 1;
+        self.reorder();
+    }
+
+    /// The rows in the sort order, then the ones the filter shows.
+    fn reorder(&mut self) {
+        sort_rows(&mut self.rows, &self.sort);
+        let filter = self.filter.as_str();
+        self.shown = self
+            .rows
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| matches(r, filter))
+            .map(|(i, _)| i)
+            .collect();
     }
 
     /// Sorts by `keys` (empty = by PID).
     pub fn set_sort(&mut self, keys: Vec<SortKey>) {
-        let _ = keys;
-        todo!("GREEN: Model::set_sort")
+        self.sort = keys;
+        self.reorder();
     }
 
     /// The sort keys.
@@ -368,8 +544,8 @@ impl Model {
 
     /// Filters by `query` (see [`matches`]).
     pub fn set_filter(&mut self, query: &str) {
-        let _ = query;
-        todo!("GREEN: Model::set_filter")
+        query.clone_into(&mut self.filter);
+        self.reorder();
     }
 
     /// The filter as typed.
@@ -393,21 +569,20 @@ impl Model {
     /// The row at `position` among the rows shown.
     #[must_use]
     pub fn shown_row(&self, position: usize) -> Option<&ProcRow> {
-        let _ = position;
-        todo!("GREEN: Model::shown_row")
+        self.shown.get(position).and_then(|i| self.rows.get(*i))
     }
 
     /// Where process `pid` is among the rows shown.
     #[must_use]
     pub fn position_of(&self, pid: u32) -> Option<usize> {
-        let _ = pid;
-        todo!("GREEN: Model::position_of")
+        self.shown
+            .iter()
+            .position(|i| self.rows.get(*i).is_some_and(|r| r.pid == pid))
     }
 
     /// Selects the process shown at `position` (`None`: nothing).
     pub fn select_position(&mut self, position: Option<usize>) {
-        let _ = position;
-        todo!("GREEN: Model::select_position")
+        self.selected = position.and_then(|p| self.shown_row(p)).map(|r| r.pid);
     }
 
     /// The selected process' id.
@@ -419,7 +594,7 @@ impl Model {
     /// The selected process' row, if it is shown.
     #[must_use]
     pub fn selected_row(&self) -> Option<&ProcRow> {
-        todo!("GREEN: Model::selected_row")
+        self.selected_position().and_then(|p| self.shown_row(p))
     }
 
     /// The selected process' position among the rows shown.

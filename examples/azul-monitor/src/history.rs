@@ -20,26 +20,36 @@ impl History {
     /// An empty history of at most `capacity` readings (at least one).
     #[must_use]
     pub fn new(capacity: usize) -> Self {
-        let _ = capacity;
-        todo!("GREEN: History::new")
+        let capacity = capacity.max(1);
+        Self {
+            values: Vec::with_capacity(capacity),
+            start: 0,
+            capacity,
+        }
     }
 
     /// Adds the newest reading, dropping the oldest when full.
     pub fn push(&mut self, value: f64) {
-        let _ = value;
-        todo!("GREEN: History::push")
+        if self.values.len() < self.capacity {
+            self.values.push(value);
+        } else {
+            // Full: the oldest slot takes the newest reading, and the next
+            // slot is the oldest now.
+            self.values[self.start] = value;
+            self.start = (self.start + 1) % self.capacity;
+        }
     }
 
     /// How many readings it holds.
     #[must_use]
     pub fn len(&self) -> usize {
-        todo!("GREEN: History::len")
+        self.values.len()
     }
 
     /// Whether it holds none.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        todo!("GREEN: History::is_empty")
+        self.values.is_empty()
     }
 
     /// How many readings it keeps at most.
@@ -51,24 +61,36 @@ impl History {
     /// The newest reading.
     #[must_use]
     pub fn latest(&self) -> Option<f64> {
-        todo!("GREEN: History::latest")
+        if self.values.is_empty() {
+            return None;
+        }
+        // Not full: the last pushed is the last stored. Full: the one
+        // before the oldest.
+        let newest = if self.values.len() < self.capacity {
+            self.values.len() - 1
+        } else {
+            (self.start + self.capacity - 1) % self.capacity
+        };
+        self.values.get(newest).copied()
     }
 
     /// The readings, oldest first.
     #[must_use]
     pub fn to_vec(&self) -> Vec<f64> {
-        todo!("GREEN: History::to_vec")
+        let (newer, older) = self.values.split_at(self.start);
+        older.iter().chain(newer.iter()).copied().collect()
     }
 
     /// The largest reading (`None` when empty).
     #[must_use]
     pub fn max(&self) -> Option<f64> {
-        todo!("GREEN: History::max")
+        self.values.iter().copied().reduce(f64::max)
     }
 
     /// Forgets every reading (the capacity stays).
     pub fn clear(&mut self) {
-        todo!("GREEN: History::clear")
+        self.values.clear();
+        self.start = 0;
     }
 }
 
