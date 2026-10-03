@@ -583,6 +583,749 @@ pub(crate) fn range_text(range: &DateRange) -> String {
     }
 }
 
+/// The summary line under the months: the range shown, or what to do.
+#[must_use]
+pub(crate) fn summary_text(view: &DateRangePickerView, over: Option<DatePickerState>) -> String {
+    match (view.anchor.is_some(), shown_range(view, over)) {
+        (true, Some(r)) if r.start == r.end => {
+            format!("{} \u{2013} pick the last day", day_text(r.start))
+        }
+        (_, Some(r)) => range_text(&r),
+        (_, None) => String::from("Pick the first day"),
+    }
+}
+
+// ==== the look ====
+
+/// What a theme adds to the date picker's calendars for a range picker: the
+/// row, the presets column, one preset, the summary line. Built by
+/// `themes::flat::date_range_picker_skin` and `themes::flora::..`.
+#[derive(Debug, Clone)]
+pub(crate) struct DateRangePickerSkin {
+    /// The root row.
+    pub(crate) root: Vec<azul_css::dynamic_selector::CssPropertyWithConditions>,
+    /// The presets column.
+    pub(crate) presets: Vec<azul_css::dynamic_selector::CssPropertyWithConditions>,
+    /// One preset button (a Tab stop: it owes the focus ring).
+    pub(crate) preset: Vec<azul_css::dynamic_selector::CssPropertyWithConditions>,
+    /// The summary line.
+    pub(crate) summary: Vec<azul_css::dynamic_selector::CssPropertyWithConditions>,
+}
+
+/// The date picker's look for the range picker's calendars: the pinned
+/// theme's, or - unpinned - flat's and flora's merged part by part
+/// (`theme_blocks::part_of`), so the DOM is built once and follows the app
+/// theme. The marker is the structure theme's.
+pub(crate) fn calendar_look(theme: OptionUiTheme) -> crate::widgets::date_picker::DatePickerLook {
+    use crate::widgets::{
+        date_picker::DatePickerLook,
+        themes::{
+            flat, flora,
+            theme_blocks::{part_of, skins_of, structure_skin},
+        },
+    };
+    let looks = skins_of(theme, flat::date_picker_look, flora::date_picker_look);
+    macro_rules! merged {
+        ($part:ident) => {
+            part_of(&looks, |l: &DatePickerLook| l.$part.clone()).into_library_owned_vec()
+        };
+    }
+    DatePickerLook {
+        field: merged!(field),
+        field_value: merged!(field_value),
+        field_icon: merged!(field_icon),
+        panel: merged!(panel),
+        header: merged!(header),
+        nav: merged!(nav),
+        header_label: merged!(header_label),
+        row: merged!(row),
+        weekday: merged!(weekday),
+        grid: merged!(grid),
+        blank: merged!(blank),
+        day_selected: merged!(day_selected),
+        day_other: merged!(day_other),
+        day_today: merged!(day_today),
+        day_in_range: merged!(day_in_range),
+        marker: structure_skin(&looks, theme).and_then(|l| l.marker),
+    }
+}
+
+// ==== the DOM ====
+
+/// What every handler of one picker shares.
+pub(crate) struct RangeShared {
+    pub(crate) view: DateRangePickerView,
+    pub(crate) today: DatePickerState,
+    pub(crate) week_start: DatePickerWeekStart,
+    pub(crate) on_event: OptionDateRangePickerOnEvent,
+    /// The faces the day cells were built in (both themes' blocks when the
+    /// picker follows the app theme): what a repaint writes.
+    pub(crate) faces: crate::widgets::date_picker::CellFaces,
+}
+
+/// One day cell's payload: its date and the picker's shared state.
+struct RangeDayData {
+    date: DatePickerState,
+    shared: RefAny,
+}
+
+/// One preset button's payload.
+struct PresetData {
+    preset: DateRangePreset,
+    shared: RefAny,
+}
+
+/// The face a day wears: the picked face at the ends of `shown`, the wash
+/// between them, the plain face elsewhere; today's ring over whichever.
+fn day_face(
+    date: DatePickerState,
+    shown: Option<DateRange>,
+    today: DatePickerState,
+    faces: &crate::widgets::date_picker::CellFaces,
+) -> azul_css::dynamic_selector::CssPropertyWithConditionsVec {
+    use crate::widgets::date_picker::{ringed, washed};
+    let face = match shown {
+        Some(r) if date == r.start || date == r.end => faces.selected.clone(),
+        Some(r) if r.contains(date) => washed(&faces.other, faces),
+        _ => faces.other.clone(),
+    };
+    if date == today {
+        ringed(&face, faces)
+    } else {
+        face
+    }
+}
+
+/// `n` px wide, never shrinking: the spacer opposite a header's one arrow.
+fn spacer(px: f32) -> azul_core::dom::Dom {
+    use crate::widgets::themes::decl;
+    azul_core::dom::Dom::create_div().with_css_props(
+        azul_css::dynamic_selector::CssPropertyWithConditionsVec::from_vec(alloc::vec![
+            decl::px_width(px),
+            decl::no_shrink(),
+        ]),
+    )
+}
+
+/// A class list of one.
+fn one_class(name: &'static str) -> azul_core::dom::IdOrClassVec {
+    azul_core::dom::IdOrClassVec::from_vec(alloc::vec![azul_core::dom::IdOrClass::Class(
+        AzString::from_const_str(name)
+    )])
+}
+
+impl DateRangePicker {
+    /// Renders the picker: the presets, the two months, the summary line -
+    /// the calendars in the date picker's look, the rest in the theme's
+    /// range-picker skin (pinned, or both merged to follow the app theme).
+    #[must_use]
+    pub fn dom(self) -> azul_core::dom::Dom {
+        use crate::widgets::themes::{flat, flora, theme_blocks::skins_of};
+        let skins = skins_of(
+            self.theme,
+            flat::date_range_picker_skin,
+            flora::date_range_picker_skin,
+        );
+        let look = calendar_look(self.theme);
+        self.build(&skins, &look)
+    }
+
+    /// The DOM in `skins` and the calendar `look`.
+    pub(crate) fn build(
+        self,
+        skins: &[DateRangePickerSkin],
+        look: &crate::widgets::date_picker::DatePickerLook,
+    ) -> azul_core::dom::Dom {
+        use azul_core::{
+            a11y::{AccessibilityInfo, AccessibilityRole},
+            callbacks::{CoreCallback, CoreCallbackData},
+            dom::{Dom, EventFilter, HoverEventFilter, IdOrClass, IdOrClassVec, TabIndex},
+            events::FocusEventFilter,
+            refany::OptionRefAny,
+        };
+        use azul_css::{
+            dynamic_selector::CssPropertyWithConditionsVec,
+            props::layout::{LayoutAlignItems, LayoutFlexDirection},
+        };
+
+        use crate::widgets::{
+            date_picker::{
+                build_weekday_row_from, day_accessibility_name, day_grid, header_nav_button,
+                HEADER_CLASS, HEADER_LABEL_CLASS, NEXT_ARROW, PREV_ARROW,
+            },
+            themes::{decl, theme_blocks::part_of},
+        };
+
+        let faces = look.cell_faces(&[]);
+        let view = self.view;
+        let today = self.today;
+        let shown = shown_range(&view, None);
+        let shared = RefAny::new(RangeShared {
+            view,
+            today,
+            week_start: self.week_start,
+            on_event: self.on_event.clone(),
+            faces: faces.clone(),
+        });
+
+        // The one Tab stop of both grids: the anchor, the range's start, or
+        // the left month's 1st - where it shows.
+        let (ry, rm) = view.right_month();
+        let in_view = |d: &DatePickerState| {
+            (d.year, d.month) == (view.year, view.month) || (d.year, d.month) == (ry, rm)
+        };
+        let stop = view
+            .anchor
+            .into_option()
+            .or_else(|| shown.map(|r| r.start))
+            .filter(in_view)
+            .unwrap_or(DatePickerState {
+                year: view.year,
+                month: view.month,
+                day: 1,
+            });
+
+        let flex_row = |gap: isize| {
+            alloc::vec![
+                decl::display_flex(),
+                decl::flex_direction(LayoutFlexDirection::Row),
+                decl::simple(azul_css::props::property::CssProperty::const_align_items(
+                    LayoutAlignItems::Start
+                )),
+                decl::simple(azul_css::props::property::CssProperty::ColumnGap(
+                    azul_css::props::property::LayoutColumnGapValue::Exact(
+                        azul_css::props::layout::LayoutColumnGap {
+                            inner: azul_css::props::basic::PixelValue::const_px(gap),
+                        }
+                    )
+                )),
+            ]
+        };
+        let flex_column = |gap: isize| {
+            alloc::vec![
+                decl::display_flex(),
+                decl::flex_direction(LayoutFlexDirection::Column),
+                decl::simple(azul_css::props::property::CssProperty::RowGap(
+                    azul_css::props::property::LayoutRowGapValue::Exact(
+                        azul_css::props::layout::LayoutRowGap {
+                            inner: azul_css::props::basic::PixelValue::const_px(gap),
+                        }
+                    )
+                )),
+            ]
+        };
+
+        // ---- the two months ----
+        let mut months: Vec<Dom> = Vec::with_capacity(2);
+        for (k, (year, month)) in [(view.year, view.month), (ry, rm)].into_iter().enumerate() {
+            let label = crate::widgets::widget_p_with_text(AzString::from(format!(
+                "{} {}",
+                crate::widgets::date_picker::month_name(month),
+                year
+            )))
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(HEADER_LABEL_CLASS))
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(
+                look.header_label.clone(),
+            ));
+            let header_kids = if k == 0 {
+                alloc::vec![
+                    header_nav_button(
+                        PREV_ARROW,
+                        "Previous month",
+                        on_range_prev as usize,
+                        shared.clone(),
+                        look
+                    ),
+                    label,
+                    spacer(24.0),
+                ]
+            } else {
+                alloc::vec![
+                    spacer(24.0),
+                    label,
+                    header_nav_button(
+                        NEXT_ARROW,
+                        "Next month",
+                        on_range_next as usize,
+                        shared.clone(),
+                        look
+                    ),
+                ]
+            };
+            let header = Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(HEADER_CLASS))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(look.header.clone()))
+                .with_children(header_kids.into());
+
+            let grid = day_grid(year, month, self.week_start, look, &mut |day| {
+                let date = DatePickerState { year, month, day };
+                let name = if date == today {
+                    AzString::from(format!(
+                        "{}, today",
+                        day_accessibility_name(year, month, day).as_str()
+                    ))
+                } else {
+                    day_accessibility_name(year, month, day)
+                };
+                let data = RefAny::new(RangeDayData {
+                    date,
+                    shared: shared.clone(),
+                });
+                let callback = |event: EventFilter, cb: usize| CoreCallbackData {
+                    event,
+                    callback: CoreCallback {
+                        cb,
+                        ctx: OptionRefAny::None,
+                    },
+                    refany: data.clone(),
+                };
+                crate::widgets::widget_p_with_text(AzString::from(format!("{day}")))
+                    .with_ids_and_classes(one_class(DATE_RANGE_DAY_CLASS))
+                    .with_css_props(day_face(date, shown, today, &faces))
+                    .with_callbacks(
+                        alloc::vec![
+                            callback(
+                                EventFilter::Hover(HoverEventFilter::Click),
+                                on_range_day_click as usize
+                            ),
+                            callback(
+                                EventFilter::Hover(HoverEventFilter::MouseEnter),
+                                on_range_day_hover as usize
+                            ),
+                            callback(
+                                EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+                                on_range_day_key as usize
+                            ),
+                        ]
+                        .into(),
+                    )
+                    .with_accessibility_info(AccessibilityInfo {
+                        role: AccessibilityRole::PushButton,
+                        accessibility_name: OptionString::Some(name),
+                        ..Default::default()
+                    })
+                    .with_tab_index(if date == stop {
+                        TabIndex::Auto
+                    } else {
+                        TabIndex::NoKeyboardFocus
+                    })
+                    .with_key((DATE_RANGE_DAY_CLASS, year, month, day))
+            });
+
+            let mut month_classes: Vec<IdOrClass> = alloc::vec![IdOrClass::Class(
+                AzString::from_const_str(DATE_RANGE_MONTH_CLASS)
+            )];
+            if let Some(marker) = look.marker {
+                month_classes.push(IdOrClass::Class(AzString::from_const_str(marker)));
+            }
+            months.push(
+                Dom::create_div()
+                    .with_ids_and_classes(IdOrClassVec::from_vec(month_classes))
+                    .with_css_props(CssPropertyWithConditionsVec::from_vec(look.panel.clone()))
+                    .with_children(
+                        alloc::vec![header, build_weekday_row_from(self.week_start, look), grid,]
+                            .into(),
+                    ),
+            );
+        }
+        let months_row = Dom::create_div()
+            .with_ids_and_classes(one_class(DATE_RANGE_MONTHS_CLASS))
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(flex_row(12)))
+            .with_children(months.into());
+
+        // ---- the summary: the range in words, a live region ----
+        let summary = crate::widgets::widget_p_with_text(AzString::from(summary_text(&view, None)))
+            .with_ids_and_classes(one_class(DATE_RANGE_SUMMARY_CLASS))
+            .with_css_props(part_of(skins, |s| s.summary.clone()))
+            .with_accessibility_info(AccessibilityInfo {
+                role: AccessibilityRole::StaticText,
+                is_live_region: true,
+                ..Default::default()
+            });
+        let body = Dom::create_div()
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(flex_column(6)))
+            .with_children(alloc::vec![months_row, summary].into());
+
+        // ---- the presets ----
+        let mut row_kids: Vec<Dom> = Vec::with_capacity(2);
+        if !self.presets.as_slice().is_empty() {
+            let items: Vec<Dom> = self
+                .presets
+                .as_slice()
+                .iter()
+                .map(|preset| {
+                    let data = RefAny::new(PresetData {
+                        preset: *preset,
+                        shared: shared.clone(),
+                    });
+                    crate::widgets::widget_p_with_text(AzString::from_const_str(preset.label()))
+                        .with_ids_and_classes(one_class(DATE_RANGE_PRESET_CLASS))
+                        .with_css_props(part_of(skins, |s| {
+                            let mut v = alloc::vec![decl::simple(
+                                azul_css::props::property::CssProperty::const_cursor(
+                                    azul_css::props::style::StyleCursor::Pointer
+                                )
+                            )];
+                            v.extend(s.preset.iter().cloned());
+                            v
+                        }))
+                        .with_callbacks(
+                            alloc::vec![CoreCallbackData {
+                                event: EventFilter::Hover(HoverEventFilter::Click),
+                                callback: CoreCallback {
+                                    cb: on_range_preset as usize,
+                                    ctx: OptionRefAny::None,
+                                },
+                                refany: data,
+                            }]
+                            .into(),
+                        )
+                        .with_tab_index(TabIndex::Auto)
+                        .with_accessibility_info(AccessibilityInfo {
+                            role: AccessibilityRole::PushButton,
+                            accessibility_name: OptionString::Some(AzString::from_const_str(
+                                preset.label(),
+                            )),
+                            ..Default::default()
+                        })
+                })
+                .collect();
+            row_kids.push(
+                Dom::create_div()
+                    .with_ids_and_classes(one_class(DATE_RANGE_PRESETS_CLASS))
+                    .with_css_props(part_of(skins, |s| {
+                        let mut v = flex_column(2);
+                        v.extend(s.presets.iter().cloned());
+                        v
+                    }))
+                    .with_accessibility_info(AccessibilityInfo {
+                        role: AccessibilityRole::List,
+                        accessibility_name: OptionString::Some(AzString::from_const_str("Presets")),
+                        ..Default::default()
+                    })
+                    .with_children(items.into()),
+            );
+        }
+        row_kids.push(body);
+
+        let mut classes: Vec<IdOrClass> = alloc::vec![IdOrClass::Class(AzString::from_const_str(
+            DATE_RANGE_PICKER_CLASS
+        ))];
+        if let Some(marker) = look.marker {
+            classes.push(IdOrClass::Class(AzString::from_const_str(marker)));
+        }
+        let name = self.accessibility_name.clone();
+        crate::widgets::warn_widget_needs_a_name("DateRangePicker", name.is_some());
+        Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+            .with_css_props(part_of(skins, |s| {
+                let mut v = flex_row(16);
+                v.extend(s.root.iter().cloned());
+                v
+            }))
+            .with_accessibility_info(AccessibilityInfo {
+                role: AccessibilityRole::Grouping,
+                accessibility_name: name,
+                accessibility_value: OptionString::Some(AzString::from(summary_text(&view, None))),
+                ..Default::default()
+            })
+            .with_children(row_kids.into())
+    }
+}
+
+impl From<DateRangePicker> for azul_core::dom::Dom {
+    fn from(p: DateRangePicker) -> Self {
+        p.dom()
+    }
+}
+
+// ==== the handlers ====
+
+use azul_core::dom::DomNodeId;
+
+/// Every day cell of both months shown, in order, with its date: from any
+/// day cell up to the months row (day -> week row -> grid -> month -> row),
+/// then each month's grid (its last child) by position. `None` when `cell`
+/// is not in a range picker's grid.
+fn days_around(
+    info: &CallbackInfo,
+    cell: DomNodeId,
+    view: &DateRangePickerView,
+) -> Option<(DomNodeId, Vec<(DomNodeId, DatePickerState)>)> {
+    let row = info.get_parent(cell)?;
+    let grid = info.get_parent(row)?;
+    let month = info.get_parent(grid)?;
+    let months = info.get_parent(month)?;
+    let (ry, rm) = view.right_month();
+    let mut out = Vec::with_capacity(62);
+    let mut calendar = info.get_first_child(months);
+    for (year, month) in [(view.year, view.month), (ry, rm)] {
+        let Some(cal) = calendar else { break };
+        if let Some(grid) = info.get_last_child(cal) {
+            let mut day = 1;
+            let mut week = info.get_first_child(grid);
+            while let Some(w) = week {
+                let mut c = info.get_first_child(w);
+                while let Some(node) = c {
+                    if info.get_first_child(node).is_some() {
+                        out.push((node, DatePickerState { year, month, day }));
+                        day += 1;
+                    }
+                    c = info.get_next_sibling(node);
+                }
+                week = info.get_next_sibling(w);
+            }
+        }
+        calendar = info.get_next_sibling(cal);
+    }
+    Some((months, out))
+}
+
+/// Repaints both grids for `view` with the pointer (or focus) on `over`, and
+/// rewrites the summary line - in place, no rebuild.
+fn repaint(
+    info: &mut CallbackInfo,
+    cell: DomNodeId,
+    shared: &RangeShared,
+    over: Option<DatePickerState>,
+) {
+    let Some((months, days)) = days_around(info, cell, &shared.view) else {
+        return;
+    };
+    let shown = shown_range(&shared.view, over);
+    for (node, date) in days {
+        info.set_node_style(
+            node,
+            day_face(date, shown, shared.today, &shared.faces).into(),
+        );
+    }
+    if let Some(summary) = info.get_next_sibling(months) {
+        if let Some(text) = info.get_first_child(summary) {
+            info.change_node_text(text, AzString::from(summary_text(&shared.view, over)));
+        }
+    }
+}
+
+/// Reports `kind` with the stored (next) view to the app's hook.
+fn report(
+    shared: &mut RefAny,
+    info: CallbackInfo,
+    kind: DateRangePickerEventKind,
+    preset: DateRangePreset,
+) -> Update {
+    let (view, hook) = match shared.downcast_ref::<RangeShared>() {
+        Some(s) => (s.view, s.on_event.clone()),
+        None => return Update::DoNothing,
+    };
+    match hook.as_ref() {
+        Some(DateRangePickerOnEvent { callback, refany }) => callback.invoke(
+            refany.clone(),
+            info,
+            DateRangePickerEvent { view, kind, preset },
+        ),
+        None => Update::DoNothing,
+    }
+}
+
+/// The payload of a day cell: its date and the shared state.
+fn day_of(data: &mut RefAny) -> Option<(DatePickerState, RefAny)> {
+    let d = data.downcast_ref::<RangeDayData>()?;
+    Some((d.date, d.shared.clone()))
+}
+
+/// A click on a day: the first anchors, the second picks (module docs).
+extern "C" fn on_range_day_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let cell = info.get_hit_node();
+    let Some((date, mut shared)) = day_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let kind = {
+        let Some(mut s) = shared.downcast_mut::<RangeShared>() else {
+            return Update::DoNothing;
+        };
+        let (view, kind) = click_day(s.view, date);
+        s.view = view;
+        repaint(&mut info, cell, &s, Some(date));
+        kind
+    };
+    report(&mut shared, info, kind, DateRangePreset::default())
+}
+
+/// The pointer over a day while a range is being picked: the preview.
+extern "C" fn on_range_day_hover(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let cell = info.get_hit_node();
+    let Some((date, mut shared)) = day_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    if let Some(s) = shared.downcast_ref::<RangeShared>() {
+        if s.view.anchor.is_some() {
+            repaint(&mut info, cell, &s, Some(date));
+        }
+    }
+    Update::DoNothing
+}
+
+/// The keys on the focused day (module docs): the arrows across both
+/// months, Page Up / Down and an arrow past the months turn them, Escape
+/// drops the anchor. Enter / Space are the click.
+extern "C" fn on_range_day_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    use azul_core::window::VirtualKeyCode as K;
+
+    let Some(key) = crate::widgets::roving::plain_key(&info.get_current_keyboard_state()) else {
+        return Update::DoNothing;
+    };
+    let cell = info.get_hit_node();
+    let Some((date, mut shared)) = day_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let turn = |shared: &mut RefAny, info: &mut CallbackInfo, delta: i32| {
+        if let Some(mut s) = shared.downcast_mut::<RangeShared>() {
+            s.view = s.view.turned(delta);
+        }
+        info.prevent_default();
+    };
+    match key {
+        K::PageUp | K::PageDown => {
+            turn(
+                &mut shared,
+                &mut info,
+                if key == K::PageUp { -1 } else { 1 },
+            );
+            return report(
+                &mut shared,
+                info,
+                DateRangePickerEventKind::Navigated,
+                DateRangePreset::default(),
+            );
+        }
+        K::Escape => {
+            let had_anchor = {
+                let Some(mut s) = shared.downcast_mut::<RangeShared>() else {
+                    return Update::DoNothing;
+                };
+                let had = s.view.anchor.is_some();
+                if had {
+                    s.view.anchor = OptionDatePickerState::None;
+                    repaint(&mut info, cell, &s, None);
+                }
+                had
+            };
+            if !had_anchor {
+                return Update::DoNothing;
+            }
+            info.prevent_default();
+            return report(
+                &mut shared,
+                info,
+                DateRangePickerEventKind::Cancelled,
+                DateRangePreset::default(),
+            );
+        }
+        K::Left | K::Right | K::Up | K::Down | K::Home | K::End => {}
+        _ => return Update::DoNothing,
+    }
+
+    let view = match shared.downcast_ref::<RangeShared>() {
+        Some(s) => s.view,
+        None => return Update::DoNothing,
+    };
+    let Some((_, days)) = days_around(&info, cell, &view) else {
+        return Update::DoNothing;
+    };
+    let Some(current) = days.iter().position(|(_, d)| *d == date) else {
+        return Update::DoNothing;
+    };
+    // Home / End: the ends of the focused day's week row, found by its
+    // weekday column.
+    let column = {
+        let start = match shared.downcast_ref::<RangeShared>().map(|s| s.week_start) {
+            Some(DatePickerWeekStart::Monday) => 1,
+            _ => 0,
+        };
+        let wd = crate::widgets::date_picker::weekday(date.year, date.month, date.day);
+        ((wd + 7 - start) % 7) as usize
+    };
+    let target = match key {
+        K::Left => current.checked_sub(1),
+        K::Right => Some(current + 1),
+        K::Up => current.checked_sub(7),
+        K::Down => Some(current + 7),
+        K::Home => Some(current - column.min(current)),
+        K::End => Some(current + (6 - column)),
+        _ => None,
+    };
+    info.prevent_default();
+    match target.filter(|t| *t < days.len()) {
+        Some(t) => {
+            let nodes: Vec<DomNodeId> = days.iter().map(|(n, _)| *n).collect();
+            crate::widgets::roving::move_stop(&mut info, &nodes, t);
+            if let Some(s) = shared.downcast_ref::<RangeShared>() {
+                if s.view.anchor.is_some() {
+                    repaint(&mut info, cell, &s, Some(days[t].1));
+                }
+            }
+            Update::DoNothing
+        }
+        None if matches!(key, K::Left | K::Right | K::Up | K::Down) => {
+            // Past the two months: they turn (the app rebuilds).
+            let delta = if matches!(key, K::Left | K::Up) {
+                -1
+            } else {
+                1
+            };
+            turn(&mut shared, &mut info, delta);
+            report(
+                &mut shared,
+                info,
+                DateRangePickerEventKind::Navigated,
+                DateRangePreset::default(),
+            )
+        }
+        None => Update::DoNothing,
+    }
+}
+
+/// The header arrows: the months turn (the app rebuilds).
+fn header_turn(mut data: RefAny, info: CallbackInfo, delta: i32) -> Update {
+    if let Some(mut s) = data.downcast_mut::<RangeShared>() {
+        s.view = s.view.turned(delta);
+    } else {
+        return Update::DoNothing;
+    }
+    report(
+        &mut data,
+        info,
+        DateRangePickerEventKind::Navigated,
+        DateRangePreset::default(),
+    )
+}
+
+extern "C" fn on_range_prev(data: RefAny, info: CallbackInfo) -> Update {
+    header_turn(data, info, -1)
+}
+
+extern "C" fn on_range_next(data: RefAny, info: CallbackInfo) -> Update {
+    header_turn(data, info, 1)
+}
+
+/// A preset: its span is picked at once, the months turned so it shows.
+extern "C" fn on_range_preset(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((preset, mut shared)) = data
+        .downcast_ref::<PresetData>()
+        .map(|p| (p.preset, p.shared.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    {
+        let Some(mut s) = shared.downcast_mut::<RangeShared>() else {
+            return Update::DoNothing;
+        };
+        let range = preset.range(s.today, s.week_start);
+        s.view = DateRangePickerView::with_range(range);
+    }
+    report(&mut shared, info, DateRangePickerEventKind::Preset, preset)
+}
+
 #[cfg(test)]
 mod range_tests {
     use super::*;

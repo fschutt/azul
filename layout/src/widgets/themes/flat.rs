@@ -6539,3 +6539,44 @@ pub(crate) fn gauge_skin() -> crate::widgets::gauge::GaugeSkin {
         marker: None,
     }
 }
+
+// ==== date_range_picker ====
+//
+// The flat date range picker's two calendars are the flat date picker's
+// (`date_picker_look`); around them: the presets as a column of quiet rows
+// behind a separator - the ink on nothing, the row hover face under the
+// pointer, flat's focus halo - and the summary line in the secondary ink.
+
+/// Flat's date-range-picker skin.
+#[must_use]
+pub(crate) fn date_range_picker_skin(
+) -> crate::widgets::date_range_picker::DateRangePickerSkin {
+    use super::decl;
+
+    let root = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+        decl::font_size(13),
+    ];
+    let right = decl::Edges {
+        top: false,
+        right: true,
+        bottom: false,
+        left: false,
+    };
+    let mut presets = decl::padding(0, 12, 0, 0).to_vec();
+    presets.extend(decl::themed_border(right, 1, LIGHT_SEP, DARK_SEP));
+    presets.push(decl::px_min_width(120.0));
+    let mut preset = decl::padding(4, 8, 4, 8).to_vec();
+    preset.extend(decl::radius(4));
+    preset.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    preset.extend(decl::hover_fill(LIGHT_ROW_HOVER, DARK_ROW_HOVER));
+    preset.extend(decl::focus_halo(FIELD_RING, DARK_ACC));
+    let mut summary = vec![decl::font_size(12)];
+    summary.extend(decl::themed_ink(LIGHT_INTRO, DARK_INTRO));
+    crate::widgets::date_range_picker::DateRangePickerSkin {
+        root,
+        presets,
+        preset,
+        summary,
+    }
+}
