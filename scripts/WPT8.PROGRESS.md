@@ -55,12 +55,22 @@ Brief: scripts/waves/wave8/PLAN.md section "WPT8". Items in order:
   - `display: inline list-item` does not parse (needs LayoutDisplay::InlineListItem = api.json) - deferred.
 - item 4: b9121f729 RED + 19fd42e92 fix: single-stop gradients (css background.rs normalizers)
 
+- item 6 (border-width keywords -> really the border initial values; keywords already parsed):
+  5bdbd02cf RED, 2ecd332e0 fix: getters `get_border_info` = used values over `declared_border_info`
+  (`used_border_width`: none/hidden 0, declared, else medium; currentcolor via new
+  `get_used_text_color` (extracted from get_style_properties); compact "no colour" vs transparent
+  resolved through the cascade); layout_tree box props + taffy_bridge use the same rule; css
+  StyleBorderSide.color_given -> shorthand without colour resets to Initial.
+- item 7 (box-shadow): 00a7df789 RED, 26fe720a8 fix: `paint_box_decorations` (one painter for block
+  boxes and inline-blocks: outer shadows, bg layers, inset shadows on the padding box, border);
+  raster render_box_shadow casts inset shadows; exact ring hole on the pixel grid.
+
 ## IN PROGRESS
-- item 5: background-clip
+- item 8: reftest budget in doc/src/reftest/pipeline.rs (per-page budget for wpt-* pages)
 
 ## NEXT
-- 6 border-width keywords, 7 box-shadow, 8 reftest budget (doc/src/reftest/pipeline.rs), then back to
-  ::before/::after generated content if feasible, then the report scripts/WPT8_2026_10_03.md.
+- item 5 background-clip (needs a NEW css property: follow the zoom commit 40b1ab2a3 as template ->
+  api.json additions), then ::before/::after generated content if feasible, then the report.
 
 ## Decisions / open questions
 - Tests use the document loader (`parse_xml_to_styled_dom`), which keeps `<html>` attributes.
