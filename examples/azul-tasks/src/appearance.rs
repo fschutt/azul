@@ -26,22 +26,38 @@ pub fn settings_key() -> String {
 /// The theme and mode this run shows: the command line's, else the file's.
 #[must_use]
 pub fn effective(args: &Args, saved: &AppSettings) -> (Theme, ModePref) {
-    let _ = (args, saved);
-    todo!()
+    let theme = args
+        .theme
+        .as_deref()
+        .and_then(Theme::parse)
+        .unwrap_or(saved.theme);
+    let mode = match args.mode {
+        Some(Mode::Light) => ModePref::Light,
+        Some(Mode::Dark) => ModePref::Dark,
+        Some(Mode::System) => ModePref::System,
+        None => saved.mode,
+    };
+    (theme, mode)
 }
 
 /// The Mode control's segment of `mode`: System, Light, Dark.
 #[must_use]
 pub fn mode_index(mode: ModePref) -> usize {
-    let _ = mode;
-    todo!()
+    match mode {
+        ModePref::System => 0,
+        ModePref::Light => 1,
+        ModePref::Dark => 2,
+    }
 }
 
 /// The mode of the Mode control's segment `index` (System for one that is not there).
 #[must_use]
 pub fn mode_of_index(index: usize) -> ModePref {
-    let _ = index;
-    todo!()
+    match index {
+        1 => ModePref::Light,
+        2 => ModePref::Dark,
+        _ => ModePref::System,
+    }
 }
 
 #[cfg(test)]
