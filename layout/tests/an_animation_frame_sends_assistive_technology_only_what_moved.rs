@@ -403,7 +403,10 @@ fn an_animation_frame_builds_only_the_nodes_it_changed() {
     let mut lw = window(page(6));
     relayout(&mut lw);
     let idle = lw.a11y_manager.last_pass;
-    assert!(idle.nodes > 20, "harness: the page has a real tree, {idle:?}");
+    assert!(
+        idle.nodes > 20,
+        "harness: the page has a real tree, {idle:?}"
+    );
     assert_eq!(
         (idle.built, idle.sent, idle.published),
         (0, 0, false),
