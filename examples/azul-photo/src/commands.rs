@@ -11,9 +11,13 @@ use std::path::PathBuf;
 use azul::{
     css::DarkLightMode,
     dialog::{FileDialog, FileOpenResult, SaveTargetResult},
+    image::{RawImage, RawImageData, TextRasterStyle},
     option::{OptionDarkLightMode, OptionFileTypeList},
     prelude::*,
-    widgets::{CheckBoxState, ColorInputState, NumberInputState, SegmentedState, SliderState},
+    widgets::{
+        CheckBoxState, ColorInputState, NumberInputState, OnTextInputReturn, SegmentedState, SliderState,
+        TextInputState, TextInputValid,
+    },
 };
 
 use crate::{
@@ -25,9 +29,26 @@ use crate::{
         Placement, SelectMode,
     },
     sample_document, say,
-    state::{Effects, Tool},
+    state::{Effects, TextSpec, Tool, TEXT_FAMILIES},
     AppScreen, PhotoApp, Sheet,
 };
+
+/// The Text tool's rasteriser: azul's text raster (`RawImage::from_text`:
+/// shaped by the text engine, rasterised by the CPU glyph path) as straight
+/// RGBA8 rows.
+#[must_use]
+pub fn azul_text(spec: &TextSpec) -> Option<(u32, u32, Vec<u8>)> {
+    let [r, g, b, a] = spec.color;
+    let style = TextRasterStyle::create(spec.family.as_str(), spec.size, ColorU { r, g, b, a })
+        .with_bold(spec.bold)
+        .with_italic(spec.italic);
+    let image = RawImage::from_text(spec.text.as_str(), style).into_option()?;
+    let (width, height) = (image.width as u32, image.height as u32);
+    match image.pixels {
+        RawImageData::U8(bytes) => Some((width, height, bytes.as_ref().to_vec())),
+        _ => None,
+    }
+}
 
 /// What a button, menu item, row or shortcut does.
 #[derive(Clone, Debug, PartialEq)]
@@ -98,6 +119,9 @@ pub enum Command {
     // Sheets
     Sheet(Sheet),
     CloseSheet,
+    // The Text tool
+    TextCommit,
+    TextCancel,
 }
 
 /// A button's payload: the app and its command.
@@ -217,8 +241,13 @@ pub fn run(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo, comman
             if app.sheet.take().is_some() {
                 return Update::RefreshDom;
             }
-            return Update::DoNothing;
+            if app.s.text.is_none() {
+                return Update::DoNothing;
+            }
+            app.s.cancel_text()
         }
+        Command::TextCommit => app.s.commit_text(),
+        Command::TextCancel => app.s.cancel_text(),
         Command::HistoryJump(i) => app.s.jump(i),
         Command::RotateCanvas(cw) => {
             let e = app.s.apply(Op::RotateCanvas90 { clockwise: cw });
@@ -594,6 +623,10 @@ pub enum Field {
     /// Parameter `n` of the active adjustment layer.
     Adjust(u8),
     ZoomPercent,
+    TextFamily,
+    TextSize,
+    TextBold,
+    TextItalic,
 }
 
 /// A value widget's payload: the app and the field.
@@ -653,6 +686,26 @@ pub extern "C" fn on_color(data: RefAny, mut info: CallbackInfo, state: ColorInp
 
 pub extern "C" fn on_segment(data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
     dispatch(data, &mut info, Value::Index(state.selected_index))
+}
+
+/// The Text tool's field: the text being set follows every keystroke on
+/// the canvas (the field keeps its own text - no DOM rebuild).
+pub extern "C" fn on_text(mut data: RefAny, mut info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+    let answer = |update| OnTextInputReturn {
+        update,
+        valid: TextInputValid::Yes,
+    };
+    let Some(app_ref) = data.downcast_ref::<FieldRef>().map(|r| r.app.clone()) else {
+        return answer(Update::DoNothing);
+    };
+    let mut target = app_ref.clone();
+    let Some(mut guard) = target.downcast_mut::<PhotoApp>() else {
+        return answer(Update::DoNothing);
+    };
+    let text = state.get_text().as_str().to_string();
+    let mut e = guard.s.set_text(&text, &azul_text);
+    e.dom = false;
+    answer(canvas::push_effects(&mut guard, &mut info, e))
 }
 
 /// The parameters of an adjustment as (label, value, min, max).
@@ -763,6 +816,8 @@ fn set_field(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo, f: F
     };
     let o = &mut app.s.opts;
     let mut rebuild = false;
+    // The text being set follows its font, size, style and colour.
+    let mut restyle = false;
     let mut e = Effects::default();
     match f {
         Field::BrushSize => app.s.set_brush_size(num),
@@ -803,6 +858,7 @@ fn set_field(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo, f: F
             if let Value::Color(c) = value {
                 app.s.fg = c;
                 rebuild = true;
+                restyle = true;
             }
         }
         Field::BgColor => {
@@ -845,6 +901,25 @@ fn set_field(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo, f: F
             e = app.s.zoom_to(num / 100.0, None);
             e.dom = false;
         }
+        Field::TextFamily => {
+            o.text_family = index.min(TEXT_FAMILIES.len() - 1);
+            restyle = true;
+        }
+        Field::TextSize => {
+            o.text_size = num.clamp(4.0, 1000.0);
+            restyle = true;
+        }
+        Field::TextBold => {
+            o.text_bold = flag;
+            restyle = true;
+        }
+        Field::TextItalic => {
+            o.text_italic = flag;
+            restyle = true;
+        }
+    }
+    if restyle {
+        e = e.merge(app.s.restyle_text(&azul_text));
     }
     if rebuild {
         e.dom = true;
