@@ -77,13 +77,18 @@ screenshots + hierarchy dumps under target/sheetshow6-shots/.
   find.rs (find_next / replace_in / replace_all over slides, tables, groups, notes); 22c6264a1 the pane
   (find_ui.rs, FindReplaceDialog in the side pane, Command::Find, Mod+F / Mod+H, HOME > Editing).
 
+- AzShow pictures: e88ea92d1 RED / 7b8d7a254 GREEN render::fit_rect (contain / cover / stretch drawn);
+  67a3c8e7e RED / 9c60cd028 GREEN Editor::set_image_fit; 14a032538 FORMAT > Picture (Command::ImageFit).
+- 0df66bf70 RED / c5a877043 GREEN SelectionAdorner: multi-selection rotate about the box centre (turned_about).
+- 35a4ad5e8 doc, fd6fd038c New sheet named via Dom::with_accessibility_name, 13da5a9f3 one strs helper.
+
 ## IN PROGRESS
-- (none)
+- the report scripts/SHEETSHOW6_2026_10_03.md (coordinator: finish over new scope).
 
 ## NEXT (exact)
 1-3. (done)
 4. (done)
-5. NEXT: Show (picture contain / cover, drop indicator, multi-select
+5. LEFT (in the report): Show (drop indicator, multi-select
    rotate, tables in place, picture contain / cover, find / replace, presenter on a chosen monitor).
 6. Check both apps for `ctrl || meta` and duplicated helpers (checklist).
 
