@@ -5327,18 +5327,22 @@ impl CssProperty {
             // tweens (a switch track fading between its off and on colours).
             // Gradients, images, layers and unresolved system colours still
             // take the half-way jump below.
+            // Faces that pair up layer by layer (a solid colour is the
+            // one-layer case, flora's gradient faces the rest) tween every
+            // colour (`interpolate_background_layers`); others switch half way.
             (Self::BackgroundContent(start), Self::BackgroundContent(end)) => {
-                use crate::props::style::background::StyleBackgroundContent as B;
-                let solid = |v: &StyleBackgroundContentVecValue| match v
-                    .get_property()
-                    .map(StyleBackgroundContentVec::as_slice)
-                {
-                    Some([B::Color(c)]) => Some(*c),
-                    _ => None,
+                let layers = |v: &StyleBackgroundContentVecValue| {
+                    v.get_property().map(StyleBackgroundContentVec::as_slice)
                 };
-                match (solid(start), solid(end)) {
+                match (layers(start), layers(end)) {
                     (Some(a), Some(b)) => {
-                        Self::background_content(vec![B::Color(a.interpolate(&b, t))].into())
+                        match crate::props::style::background::interpolate_background_layers(
+                            a, b, t,
+                        ) {
+                            Some(mid) => Self::background_content(mid.into()),
+                            None if t > 0.5 => other.clone(),
+                            None => self.clone(),
+                        }
                     }
                     _ => {
                         if t > 0.5 {

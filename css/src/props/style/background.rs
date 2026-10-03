@@ -242,6 +242,73 @@ pub struct ResolvedLinearGradient {
     pub stops: Vec<(f32, ColorOrSystem)>,
 }
 
+/// Two background layer lists tweened at `t` - when they pair up one to one:
+/// a colour with a colour, a linear gradient with a linear gradient of the
+/// same direction, extend mode and stop positions (every stop colour
+/// concrete). `None` when they do not, and the caller keeps its half-way
+/// switch: two faces of different shapes have no colour in between.
+///
+/// What lets a gradient FACE fade (flora's buttons hover from one paper
+/// gradient to another); the solid colour is the one-layer case.
+#[must_use]
+pub fn interpolate_background_layers(
+    from: &[StyleBackgroundContent],
+    to: &[StyleBackgroundContent],
+    t: f32,
+) -> Option<Vec<StyleBackgroundContent>> {
+    if from.is_empty() || from.len() != to.len() {
+        return None;
+    }
+    from.iter()
+        .zip(to)
+        .map(|(a, b)| interpolate_background_layer(a, b, t))
+        .collect()
+}
+
+/// One layer of [`interpolate_background_layers`].
+fn interpolate_background_layer(
+    from: &StyleBackgroundContent,
+    to: &StyleBackgroundContent,
+    t: f32,
+) -> Option<StyleBackgroundContent> {
+    use StyleBackgroundContent as B;
+    match (from, to) {
+        (B::Color(a), B::Color(b)) => Some(B::Color(a.interpolate(b, t))),
+        (B::LinearGradient(a), B::LinearGradient(b))
+            if a.direction == b.direction
+                && a.extend_mode == b.extend_mode
+                && a.stops.as_ref().len() == b.stops.as_ref().len() =>
+        {
+            let stops = a
+                .stops
+                .as_ref()
+                .iter()
+                .zip(b.stops.as_ref())
+                .map(|(s, e)| {
+                    if s.offset != e.offset || s.offset_px != e.offset_px {
+                        return None;
+                    }
+                    let (ColorOrSystem::Color(c0), ColorOrSystem::Color(c1)) = (&s.color, &e.color)
+                    else {
+                        return None;
+                    };
+                    Some(NormalizedLinearColorStop {
+                        offset: s.offset,
+                        color: ColorOrSystem::Color(c0.interpolate(c1, t)),
+                        offset_px: s.offset_px,
+                    })
+                })
+                .collect::<Option<Vec<_>>>()?;
+            Some(B::LinearGradient(LinearGradient {
+                direction: a.direction,
+                extend_mode: a.extend_mode,
+                stops: NormalizedLinearColorStopVec::from_vec(stops),
+            }))
+        }
+        _ => None,
+    }
+}
+
 impl LinearGradient {
     /// This gradient laid into a `width` x `height` box (CSS Images 3,
     /// sections 3.1 and 3.4): the one place every renderer takes its
