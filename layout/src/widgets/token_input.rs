@@ -628,3 +628,369 @@ pub(crate) fn build(input: TokenInput, look: &TokenInputLook) -> Dom {
             ..Default::default()
         })
 }
+
+#[cfg(test)]
+mod token_input_tests {
+    use std::sync::{Arc, Mutex};
+
+    use azul_core::{
+        dom::{DomId, NodeId},
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+        window::VirtualKeyCode as K,
+    };
+
+    use super::*;
+    use crate::widgets::{
+        roving::test_support as rv,
+        themes::{theme_blocks::checks, theme_checks},
+    };
+
+    type Log = Arc<Mutex<Vec<String>>>;
+
+    extern "C" fn record(mut data: RefAny, _: CallbackInfo, e: TokenInputEvent) -> Update {
+        if let Some(log) = data.downcast_ref::<Log>() {
+            let tokens: Vec<String> = e.state.tokens.as_ref().iter().map(|t| t.as_str().to_string()).collect();
+            log.lock().expect("log").push(format!(
+                "{:?} {} {} | {} | {} | {:?}",
+                e.kind,
+                e.index,
+                e.token.as_str(),
+                tokens.join(","),
+                e.state.text.as_str(),
+                e.state.active.into_option(),
+            ));
+        }
+        Update::RefreshDom
+    }
+
+    fn log() -> Log {
+        Arc::new(Mutex::new(Vec::new()))
+    }
+
+    fn logged(log: &Log) -> Vec<String> {
+        log.lock().expect("log").clone()
+    }
+
+    fn s(text: &str) -> AzString {
+        AzString::from(text)
+    }
+
+    fn sv(items: &[&str]) -> StringVec {
+        StringVec::from_vec(items.iter().map(|t| AzString::from(*t)).collect())
+    }
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|t| String::from(*t)).collect()
+    }
+
+    /// Two recipients, "al" typed, five candidates (one of them a recipient
+    /// already).
+    fn field(log: &Log) -> TokenInput {
+        TokenInput::create(sv(&["alice@x.org", "bob@y.org"]), s("To"))
+            .with_text(s("al"))
+            .with_suggestions(sv(&[
+                "Alan <alan@z.org>",
+                "Malcolm <m@q.org>",
+                "alice@x.org",
+                "Albert <al@b.org>",
+                "Zed <z@z.org>",
+            ]))
+            .with_placeholder(s("Add people"))
+            .with_on_event(RefAny::new(log.clone()), record as TokenInputOnEventCallbackType)
+    }
+
+    fn id(n: NodeId) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+        }
+    }
+
+    /// The children of `parent`, in order.
+    fn kids(styled: &StyledDom, parent: NodeId) -> Vec<NodeId> {
+        let hierarchy = styled.node_hierarchy.as_ref();
+        let mut out = Vec::new();
+        let mut next = hierarchy[parent.index()].first_child_id(parent);
+        while let Some(n) = next {
+            out.push(n);
+            next = hierarchy[n.index()].next_sibling_id();
+        }
+        out
+    }
+
+    fn has_class_at(styled: &StyledDom, node: NodeId, class: &str) -> bool {
+        styled.node_data.as_ref()[node.index()]
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, Class(name) if name.as_str() == class))
+    }
+
+    fn texts(node: &Dom, out: &mut Vec<String>) {
+        if let azul_core::dom::NodeType::Text(t) = node.root.get_node_type() {
+            if !t.as_ref().as_str().is_empty() {
+                out.push(t.as_ref().as_str().to_string());
+            }
+        }
+        for c in node.children.as_ref() {
+            texts(c, out);
+        }
+    }
+
+    // ---- the rules ----
+
+    #[test]
+    fn typed_text_splits_at_the_separators_and_keeps_what_follows_the_last() {
+        assert_eq!(split_tokens("a, b; c"), (strings(&["a", "b"]), String::from("c")));
+        assert_eq!(
+            split_tokens("alice@x.org, bob@y.org,"),
+            (strings(&["alice@x.org", "bob@y.org"]), String::new())
+        );
+        assert_eq!(split_tokens(" , ,x"), (Vec::new(), String::from("x")), "empty tokens drop");
+        assert_eq!(split_tokens("no separator"), (Vec::new(), String::from("no separator")));
+        assert_eq!(split_tokens("a\tb\nc"), (strings(&["a", "b"]), String::from("c")));
+    }
+
+    #[test]
+    fn tokens_are_added_trimmed_once_each_and_the_text_is_cleared() {
+        let state = TokenInputState::create(sv(&["Rust"])).with_text(s("go")).with_active(1);
+        let (next, added) = add_tokens(&state, &strings(&[" Go ", "rust", "", "go", "Zig"]), false);
+        let tokens: Vec<&str> = next.tokens.as_ref().iter().map(|t| t.as_str()).collect();
+        assert_eq!(tokens, vec!["Rust", "Go", "Zig"], "trimmed, case-folded duplicates dropped");
+        assert_eq!(added, 2);
+        assert_eq!(next.text.as_str(), "");
+        assert_eq!(next.active.into_option(), None);
+        let (next, added) = add_tokens(&state, &strings(&["rust"]), true);
+        assert_eq!(next.tokens.len(), 2, "duplicates allowed");
+        assert_eq!(added, 1);
+        assert!(same_token(" Rust", "rust "));
+        assert!(!same_token("Rust", "Rusty"));
+    }
+
+    #[test]
+    fn a_token_is_removed_by_its_index() {
+        let state = TokenInputState::create(sv(&["a", "b", "c"]));
+        let next = remove_token(&state, 1);
+        let tokens: Vec<&str> = next.tokens.as_ref().iter().map(|t| t.as_str()).collect();
+        assert_eq!(tokens, vec!["a", "c"]);
+        assert_eq!(remove_token(&state, 9), state, "out of range: unchanged");
+    }
+
+    #[test]
+    fn the_suggestions_that_start_with_the_text_come_first_and_tokens_never_show() {
+        let candidates: Vec<AzString> = [
+            "Alan <alan@z.org>",
+            "Malcolm <m@q.org>",
+            "alice@x.org",
+            "Albert <al@b.org>",
+            "Zed <z@z.org>",
+        ]
+        .iter()
+        .map(|c| AzString::from(*c))
+        .collect();
+        let tokens = [AzString::from("ALICE@x.org")];
+        assert_eq!(matching_suggestions(&candidates, "al", &tokens, 8), vec![0, 3, 1]);
+        assert_eq!(matching_suggestions(&candidates, "AL", &tokens, 2), vec![0, 3], "capped");
+        assert!(matching_suggestions(&candidates, "", &tokens, 8).is_empty(), "nothing typed");
+        assert!(matching_suggestions(&candidates, "  ", &tokens, 8).is_empty(), "blanks typed");
+        assert!(matching_suggestions(&candidates, "qq", &tokens, 8).is_empty());
+    }
+
+    #[test]
+    fn the_highlight_wraps_around_the_shown_suggestions() {
+        assert_eq!(step_active(None, 3, true), Some(0));
+        assert_eq!(step_active(None, 3, false), Some(2));
+        assert_eq!(step_active(Some(2), 3, true), Some(0));
+        assert_eq!(step_active(Some(0), 3, false), Some(2));
+        assert_eq!(step_active(Some(1), 3, true), Some(2));
+        assert_eq!(step_active(Some(1), 0, true), None, "nothing shown");
+    }
+
+    #[test]
+    fn the_keys_in_the_entry_commit_remove_navigate_and_dismiss() {
+        use EntryKey as E;
+        // key, text empty, tokens, shown, active, modified
+        assert_eq!(entry_key(K::Return, false, 2, 3, Some(1), false), E::CommitSuggestion(1));
+        assert_eq!(entry_key(K::Return, false, 2, 3, None, false), E::CommitText);
+        assert_eq!(entry_key(K::NumpadEnter, false, 2, 0, None, false), E::CommitText);
+        assert_eq!(entry_key(K::Return, true, 2, 0, None, false), E::Pass, "nothing to commit");
+        assert_eq!(entry_key(K::Tab, false, 2, 0, None, false), E::CommitText);
+        assert_eq!(entry_key(K::Tab, true, 2, 0, None, false), E::Pass, "Tab leaves an empty entry");
+        assert_eq!(entry_key(K::Tab, false, 2, 0, None, true), E::Pass, "Shift+Tab leaves");
+        assert_eq!(entry_key(K::Back, true, 2, 0, None, false), E::RemoveLast);
+        assert_eq!(entry_key(K::Back, false, 2, 0, None, false), E::Pass, "Backspace edits the text");
+        assert_eq!(entry_key(K::Back, true, 0, 0, None, false), E::Pass, "no chip to remove");
+        assert_eq!(entry_key(K::Down, false, 2, 3, None, false), E::Navigate(Some(0)));
+        assert_eq!(entry_key(K::Up, false, 2, 3, None, false), E::Navigate(Some(2)));
+        assert_eq!(entry_key(K::Down, false, 2, 0, None, false), E::Pass, "no list");
+        assert_eq!(entry_key(K::Escape, false, 2, 3, Some(0), false), E::Dismiss);
+        assert_eq!(entry_key(K::Escape, false, 2, 0, None, false), E::Pass);
+        assert_eq!(entry_key(K::Left, true, 2, 0, None, false), E::ToChips);
+        assert_eq!(entry_key(K::Left, false, 2, 0, None, false), E::Pass, "Left moves the caret");
+        assert_eq!(entry_key(K::A, false, 2, 3, None, false), E::Pass);
+    }
+
+    // ---- the DOM ----
+
+    #[test]
+    fn the_field_holds_a_chip_per_token_and_the_entry_and_the_list_shows_the_matches() {
+        let log = log();
+        for theme in checks::BOTH {
+            let dom = field(&log).with_theme(theme).dom();
+            assert!(theme_checks::has_class(&dom, TOKEN_INPUT_CLASS), "{}", theme.name());
+            let info = dom.root.get_accessibility_info().cloned().unwrap_or_default();
+            assert_eq!(info.role, AccessibilityRole::Grouping);
+            assert_eq!(
+                info.accessibility_name.as_ref().map(|n| n.as_str().to_string()),
+                Some(String::from("To"))
+            );
+            let parts = dom.children.as_ref();
+            assert_eq!(parts.len(), 2, "{}: the field and the list", theme.name());
+            assert!(theme_checks::has_class(&parts[0], FIELD_CLASS));
+            let in_field = parts[0].children.as_ref();
+            assert_eq!(in_field.len(), 3, "two chips and the entry");
+            for (n, token) in ["alice@x.org", "bob@y.org"].iter().enumerate() {
+                assert!(theme_checks::has_class(&in_field[n], CHIP_CLASS));
+                let mut words = Vec::new();
+                texts(&in_field[n], &mut words);
+                assert!(words.iter().any(|w| w == token), "{words:?}");
+            }
+            assert!(theme_checks::has_class(&in_field[2], ENTRY_CLASS));
+            let list = &parts[1];
+            assert!(theme_checks::has_class(list, LIST_CLASS));
+            assert_eq!(
+                list.root.get_accessibility_info().map(|i| i.role),
+                Some(AccessibilityRole::List)
+            );
+            let options: Vec<Vec<String>> = list
+                .children
+                .as_ref()
+                .iter()
+                .map(|o| {
+                    let mut w = Vec::new();
+                    texts(o, &mut w);
+                    w
+                })
+                .collect();
+            assert_eq!(
+                options,
+                vec![
+                    vec![String::from("Alan <alan@z.org>")],
+                    vec![String::from("Albert <al@b.org>")],
+                    vec![String::from("Malcolm <m@q.org>")],
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn nothing_typed_shows_no_list() {
+        let log = log();
+        let dom = field(&log).with_text(s("")).with_theme(UiTheme::Flat).dom();
+        assert_eq!(dom.children.as_ref().len(), 1, "the field alone");
+        assert!(theme_checks::find(&dom, LIST_CLASS).is_none());
+    }
+
+    #[test]
+    fn the_highlighted_suggestion_is_marked_and_announced_selected() {
+        let log = log();
+        let mut input = field(&log).with_theme(UiTheme::Flat);
+        input.state.active = OptionUsize::Some(1);
+        let dom = input.dom();
+        let list = &dom.children.as_ref()[1];
+        let options = list.children.as_ref();
+        assert!(theme_checks::has_class(&options[1], OPTION_ACTIVE_CLASS));
+        assert!(!theme_checks::has_class(&options[0], OPTION_ACTIVE_CLASS));
+        let states = options[1]
+            .root
+            .get_accessibility_info()
+            .map(|i| i.states.as_ref().to_vec())
+            .unwrap_or_default();
+        assert!(states.contains(&AccessibilityState::Selected));
+        assert_ne!(options[0].root.get_style(), options[1].root.get_style(), "the highlight shows");
+    }
+
+    #[test]
+    fn the_entry_is_the_one_tab_stop_and_the_chips_are_reached_by_the_arrows() {
+        let log = log();
+        let styled = StyledDom::create_from_dom(field(&log).with_theme(UiTheme::Flat).dom());
+        let field_node = kids(&styled, NodeId::new(0))[0];
+        let parts = kids(&styled, field_node);
+        let entry = parts[2];
+        assert!(has_class_at(&styled, entry, ENTRY_CLASS));
+        assert_eq!(styled.node_data.as_ref()[entry.index()].get_tab_index(), Some(TabIndex::Auto));
+        let x0 = kids(&styled, parts[0])[1];
+        let x1 = kids(&styled, parts[1])[1];
+        for x in [x0, x1] {
+            assert_eq!(
+                styled.node_data.as_ref()[x.index()].get_tab_index(),
+                Some(TabIndex::NoKeyboardFocus),
+                "a chip's x is not a Tab stop of its own"
+            );
+        }
+        let focus = |from: NodeId, key: K| {
+            let (_, changes) = rv::press(&styled, id(from), key, &[]).expect("a key handler");
+            assert!(rv::prevented(&changes), "{key:?}");
+            rv::focus_request(&changes)
+        };
+        assert_eq!(focus(x0, K::Right), Some(id(x1)));
+        assert_eq!(focus(x1, K::Left), Some(id(x0)));
+        assert_eq!(focus(x1, K::Right), Some(id(entry)), "past the last chip: the entry");
+        assert_eq!(focus(x0, K::Left), None, "the first chip holds");
+    }
+
+    #[test]
+    fn a_chips_x_or_backspace_on_it_removes_it() {
+        let log = log();
+        let styled = StyledDom::create_from_dom(field(&log).with_theme(UiTheme::Flat).dom());
+        let field_node = kids(&styled, NodeId::new(0))[0];
+        let parts = kids(&styled, field_node);
+        let x0 = kids(&styled, parts[0])[1];
+        let x1 = kids(&styled, parts[1])[1];
+        rv::fire(&styled, id(x0), EventFilter::Hover(HoverEventFilter::Click)).expect("a click target");
+        rv::press(&styled, id(x1), K::Back, &[]).expect("a key handler");
+        assert_eq!(
+            logged(&log),
+            vec![
+                "Remove 0 alice@x.org | bob@y.org | al | None",
+                "Remove 1 bob@y.org | alice@x.org | al | None",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_click_on_a_suggestion_adds_it_and_clears_the_text() {
+        let log = log();
+        let styled = StyledDom::create_from_dom(field(&log).with_theme(UiTheme::Flat).dom());
+        let list = kids(&styled, NodeId::new(0))[1];
+        let options = kids(&styled, list);
+        assert_eq!(options.len(), 3);
+        rv::fire(&styled, id(options[1]), EventFilter::Hover(HoverEventFilter::Click)).expect("a click target");
+        assert_eq!(
+            logged(&log),
+            vec![String::from(
+                "Add 2 Albert <al@b.org> | alice@x.org,bob@y.org,Albert <al@b.org> |  | None"
+            )]
+        );
+    }
+
+    #[test]
+    fn a_token_input_without_a_theme_follows_the_app_theme_and_declares_its_structure_once() {
+        let log = log();
+        for text in ["al", ""] {
+            checks::assert_follows_the_app_theme(
+                "token_input",
+                || field(&log).with_text(s(text)).dom(),
+                |t: UiTheme| field(&log).with_text(s(text)).with_theme(t).dom(),
+            );
+            for theme in checks::BOTH {
+                let dom = checks::under(theme, || field(&log).with_text(s(text)).dom());
+                theme_checks::assert_structure_is_shared(&format!("token_input built for {}", theme.name()), &dom, &[]);
+                theme_checks::assert_theme_invariants(&format!("token_input ({})", theme.name()), &dom);
+            }
+        }
+    }
+}
