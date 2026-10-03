@@ -1066,8 +1066,8 @@ impl A11yManager {
 
             // Second pass: link each exposed node to its nearest exposed
             // ancestor (the DOM hierarchy, walked up), else the root.
-            for dom_idx in 0..node_data_slice.len() {
-                if !exposed[dom_idx] {
+            for (dom_idx, &is_exposed) in exposed.iter().enumerate() {
+                if !is_exposed {
                     continue;
                 }
                 let a11y_node_id = Self::encode_a11y_node_id(dom_id.inner, dom_idx);
