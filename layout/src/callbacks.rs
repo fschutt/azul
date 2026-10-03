@@ -5016,6 +5016,25 @@ impl CallbackInfo {
         )
     }
 
+    // Text into pixels
+
+    /// `text` set in `style` as a straight-alpha RGBA8 image as big as its
+    /// lines' boxes ([`crate::cpurender::text_image_with`]), with the fonts
+    /// THIS window already found: no second scan of the system fonts, as
+    /// `RawImage::from_text` makes on its first call on a thread (a photo
+    /// editor's text tool calls this from its key handler). `None`: no text,
+    /// no usable size, no font.
+    #[cfg(all(feature = "cpurender", feature = "std", feature = "text_layout", feature = "font_loading"))]
+    #[must_use]
+    pub fn text_image(
+        &self,
+        text: AzString,
+        style: crate::cpurender::TextRasterStyle,
+    ) -> azul_core::resources::OptionRawImage {
+        let fonts = &self.get_layout_window().font_manager.fc_cache;
+        crate::cpurender::text_image_with(fonts, text.as_str(), &style).into()
+    }
+
     // Screenshot API
 
     /// Take a CPU-rendered screenshot of the current window content
