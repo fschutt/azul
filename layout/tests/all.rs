@@ -806,3 +806,5 @@ mod text_inside_an_opacity_group_keeps_its_colour;
 mod a_positioned_box_paints_in_tree_order_with_stacking_contexts;
 #[path = "the_incremental_raster_paints_a_transformed_box_where_the_compositor_does.rs"]
 mod the_incremental_raster_paints_a_transformed_box_where_the_compositor_does;
+#[path = "a_box_painted_after_a_layer_shows_over_it_in_the_cpu_compositor.rs"]
+mod a_box_painted_after_a_layer_shows_over_it_in_the_cpu_compositor;
