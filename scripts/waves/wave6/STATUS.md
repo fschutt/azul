@@ -4,7 +4,7 @@ Base: 25d78e309 (launched 2026-10-03 ~02:30). Resume a stopped agent: SendMessag
 
 | Task | Agent id | Branch | Worktree | State |
 |---|---|---|---|---|
-| INFRA6 | a2920336ddc00cc70 | wt/infra6 | .claude/worktrees/agent-a2920336ddc00cc70 | running |
+| INFRA6 | a2920336ddc00cc70 | wt/infra6 | .claude/worktrees/agent-a2920336ddc00cc70 | DONE (report scripts/INFRA6_2026_10_03.md; api: remove FullWindowState.close_callback; Windows/Linux close paths compile first in CI; notes forwarded to MEETDRIVE6, SHEETSHOW6, PIM6, HEADLESS6, MAIL6, WRITER6) |
 | MAIL6 | a516d913c267d173a | wt/mail6 | .claude/worktrees/agent-a516d913c267d173a | running |
 | MEETDRIVE6 | ad47cdc4a01c95c37 | wt/meetdrive6 | .claude/worktrees/agent-ad47cdc4a01c95c37 | running |
 | SHEETSHOW6 | a763890131c8611a5 | wt/sheetshow6 | .claude/worktrees/agent-a763890131c8611a5 | running |
