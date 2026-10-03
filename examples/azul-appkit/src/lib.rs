@@ -23,6 +23,7 @@ pub mod args;
 pub mod data;
 pub mod files;
 pub mod history;
+pub mod migrate;
 pub mod settings;
 pub mod shortcuts;
 
