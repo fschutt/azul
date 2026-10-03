@@ -2,7 +2,7 @@
 
 Branch: wt/term9 (base e537ddbe2). Worktree: .claude/worktrees/agent-aeeb57dd4eb500ff0
 Crate sources read from /tmp/term9_src (alacritty_terminal-0.26.0, vte-0.15.0, downloaded with curl, not compiled;
-re-download with `curl -sSL -H "User-Agent: x" https://static.crates.io/crates/<name>/<name>-<ver>.crate | tar xz`
+re-download with `curl -sSL -H "User-Agent: azul-build-agent (https://github.com/fschutt/azul)" https://static.crates.io/crates/<name>/<name>-<ver>.crate | tar xz`
 if /tmp was wiped).
 
 ## DONE
