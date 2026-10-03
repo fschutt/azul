@@ -537,42 +537,46 @@ fn page_sheet(s: &AppState, data: &RefAny, file: &code::SourceFile, page: usize)
         strokes: page_strokes.into_iter().cloned().collect(),
         live: if has_live { s.live.clone() } else { None },
     });
-    sheet.add_child(
-        Dom::create_image(ImageRef::callback(
-            RenderImageCallback::create(render_ink).to_core(),
-            cache,
-        ))
-        .with_dataset(OptionRefAny::Some(RefAny::new(PageTag { page })))
-        .with_css(
-            format!(
-                "position: absolute; top: 0px; left: 0px; width: {}px; height: {}px;",
-                PAGE_W as isize,
-                page_h() as isize,
-            )
-            .as_str(),
-        )
-        .with_callback(
-            EventFilter::Hover(HoverEventFilter::MouseDown),
-            data.clone(),
-            crate::on_ink_down,
-        )
-        .with_callback(
-            EventFilter::Hover(HoverEventFilter::MouseOver),
-            data.clone(),
-            crate::on_ink_move,
-        )
-        .with_callback(
-            EventFilter::Hover(HoverEventFilter::MouseUp),
-            data.clone(),
-            crate::on_ink_up,
-        )
-        .with_callback(
-            EventFilter::Hover(HoverEventFilter::RightMouseUp),
-            data.clone(),
-            crate::on_cycle_tool_back,
-        ),
-    );
+    sheet.add_child(ink_layer(data, cache, page));
     sheet
+}
+
+/// The ink over page `page`: `cache` (an [`InkLayer`]) drawn by
+/// [`render_ink`], the pointer handlers of the app (`data`).
+fn ink_layer(data: &RefAny, cache: RefAny, page: usize) -> Dom {
+    Dom::create_image(ImageRef::callback(
+        RenderImageCallback::create(render_ink).to_core(),
+        cache,
+    ))
+    .with_dataset(OptionRefAny::Some(RefAny::new(PageTag { page })))
+    .with_css(
+        format!(
+            "position: absolute; top: 0px; left: 0px; width: {}px; height: {}px;",
+            PAGE_W as isize,
+            page_h() as isize,
+        )
+        .as_str(),
+    )
+    .with_callback(
+        EventFilter::Hover(HoverEventFilter::MouseDown),
+        data.clone(),
+        crate::on_ink_down,
+    )
+    .with_callback(
+        EventFilter::Hover(HoverEventFilter::MouseOver),
+        data.clone(),
+        crate::on_ink_move,
+    )
+    .with_callback(
+        EventFilter::Hover(HoverEventFilter::MouseUp),
+        data.clone(),
+        crate::on_ink_up,
+    )
+    .with_callback(
+        EventFilter::Hover(HoverEventFilter::RightMouseUp),
+        data.clone(),
+        crate::on_cycle_tool_back,
+    )
 }
 
 struct InkLayer {
@@ -619,4 +623,40 @@ fn status_bar(s: &AppState) -> Dom {
         StatusBarSegment::create(s.status.as_str()),
     ])
     .dom()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The events the ink layer hands to `handler`.
+    fn events_of(layer: &Dom, handler: azul::callbacks::CallbackType) -> Vec<EventFilter> {
+        layer
+            .root
+            .callbacks
+            .as_slice()
+            .iter()
+            .filter(|c| c.callback.cb == handler as usize)
+            .map(|c| c.event)
+            .collect()
+    }
+
+    /// W3C `mouseover` fires once, when the pointer ENTERS the page; the
+    /// points of a stroke between press and release come from `mousemove`.
+    #[test]
+    fn the_ink_layer_takes_the_points_of_a_stroke_from_every_pointer_move() {
+        let layer = ink_layer(&RefAny::new(0u8), RefAny::new(0u8), 0);
+        assert_eq!(
+            events_of(&layer, crate::on_ink_move),
+            vec![EventFilter::Hover(HoverEventFilter::MouseMove)]
+        );
+        assert_eq!(
+            events_of(&layer, crate::on_ink_down),
+            vec![EventFilter::Hover(HoverEventFilter::MouseDown)]
+        );
+        assert_eq!(
+            events_of(&layer, crate::on_ink_up),
+            vec![EventFilter::Hover(HoverEventFilter::MouseUp)]
+        );
+    }
 }

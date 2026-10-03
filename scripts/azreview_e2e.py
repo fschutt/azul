@@ -89,6 +89,11 @@ def body(args, logs, out):
             session = json.loads(z.read("session.json").decode("utf-8"))
         if session.get("file") != os.path.join("src", "lib.rs") or len(session.get("strokes", [])) != 1:
             raise Failure("the archive does not hold the stroke: %s" % {k: session.get(k) for k in ("file", "strokes")})
+        # Every move between press and release is a point of the stroke (twelve moves 18 px apart):
+        # movement is MouseMove, MouseOver fires only when the pointer enters the page.
+        points = len(session["strokes"][0].get("points", []))
+        if points < 12:
+            raise Failure("the stroke kept %d point(s) of the 13 drawn: the moves between press and release are lost" % points)
         app.log("archive %s: %d stroke(s)" % (ARCHIVE, len(session["strokes"])))
         app.screenshot(os.path.join(out, "2-stroke.png"))
 
