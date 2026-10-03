@@ -1662,6 +1662,29 @@ mod geometry_and_drag_tests {
         );
     }
 
+    /// The brief's "multi-selection rotate" (AzShow): the box around a
+    /// multi-selection has a rotate handle too, and turning it turns every
+    /// object about the box's centre - each one's centre orbits it, each
+    /// one's own rotation grows by the same angle (PowerPoint).
+    #[test]
+    fn a_multi_selection_turns_about_the_centre_of_its_box() {
+        let mut s = AdornerState::new(
+            vec![
+                item(100.0, 100.0, 100.0, 100.0, true),
+                item(300.0, 100.0, 100.0, 100.0, true),
+            ],
+            1000.0,
+            600.0,
+        );
+        // The box: 100..400 x 100..200, centre (250, 150); its handle above.
+        s.press(250.0, 100.0 - ROTATE_OFFSET_PX, false, false);
+        let step = s.drag_to(350.0, 150.0, false).expect("a turn");
+        assert_eq!(indices(&step), vec![0, 1]);
+        let f = frames(&step);
+        assert!(same(&f[0], &AdornerFrame::create(200.0, 0.0, 100.0, 100.0).with_rotation(90.0)), "{f:?}");
+        assert!(same(&f[1], &AdornerFrame::create(200.0, 200.0, 100.0, 100.0).with_rotation(90.0)), "{f:?}");
+    }
+
     #[test]
     fn a_move_snaps_to_the_canvas_centre_and_to_another_objects_edge_and_reports_the_guides() {
         let mut s = AdornerState::new(
