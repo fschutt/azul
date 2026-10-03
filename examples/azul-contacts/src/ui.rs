@@ -1054,8 +1054,13 @@ fn csv_mapping(app: &RefAny, csv: &CsvImport) -> Dom {
         rows.push(row(
             "gap: 8px; padding: 2px 0px; font-size: 13px;",
             vec![
-                block("width: 180px;", text(header.as_str())),
-                block("width: 200px; opacity: 0.7;", text(example)),
+                block("width: 140px; flex-shrink: 0;", text(header.as_str())),
+                // The first value of the column, cut short where the row has no room for it.
+                block(
+                    "flex-grow: 1; min-width: 0px; opacity: 0.7; white-space: nowrap; overflow: hidden; \
+                     text-overflow: ellipsis;",
+                    text(example),
+                ),
                 DropDown::create(strs(&labels))
                     .with_selected(field.index())
                     .with_accessibility_name(format!("Column {header}"))
@@ -1064,7 +1069,8 @@ fn csv_mapping(app: &RefAny, csv: &CsvImport) -> Dom {
                         on_import_column as DropDownOnChoiceChangeCallbackType,
                     )
                     .dom()
-                    .with_id(ids::import_column(i)),
+                    .with_id(ids::import_column(i))
+                    .with_css("flex-shrink: 0;"),
             ],
         ));
     }

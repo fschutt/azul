@@ -69,6 +69,13 @@ def contact_files(data_dir):
         return []
 
 
+def sideways_scroll(app, stem):
+    """How far the scroll box with the app id `stem` can scroll sideways (0: its content fits)."""
+    node = app.value("get_node_layout", selector=app.sel(stem)).get("node_id")
+    states = app.value("get_scroll_states").get("scroll_states") or []
+    return next((float(s.get("max_scroll_x", 0)) for s in states if s.get("node_id") == node), 0.0)
+
+
 def search(app, text):
     """Types `text` into the list's search field: a click puts the caret in it (the field's id names
     the search row around it, which holds no text)."""
@@ -104,6 +111,10 @@ def body(args, logs, out):
             raise Failure("the import preview should be 3 rows, 2 new, 1 duplicate: %r" % preview)
         app.frame(2)
         app.screenshot(os.path.join(out, "import-preview.png"))
+        # The preview's columns share the pane: no sideways scroll (LOOK: fixed 180 + 200 + 150 px
+        # columns pushed the status column out of a 490 px pane).
+        if sideways_scroll(app, "contact-import") > 0.5:
+            raise Failure("the import preview scrolls sideways by %.0f px" % sideways_scroll(app, "contact-import"))
         app.click(selector=app.sel("import-run"))
         app.expect_line("AZCONTACTS_IMPORTED", "2", "Import imports the two new cards")
         app.until("302 files", lambda: len(contact_files(data_dir)) == 302)
