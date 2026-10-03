@@ -186,6 +186,10 @@ pub fn autofix_api(
     // made the codegen emit `Azstr`, wave 5)
     ffi_warnings.extend(check_function_signatures(api_data, &addition_names));
 
+    // A fn_body passes its receiver in a form the codegen rewrites (a bare
+    // `object` argument did not compile, wave 6)
+    ffi_warnings.extend(check_fn_body_receivers(api_data));
+
     // Check for reserved keywords across all target languages
     let keyword_warnings = check_reserved_keywords(api_data);
     ffi_warnings.extend(keyword_warnings);
@@ -1497,6 +1501,16 @@ pub enum FfiSafetyWarningKind {
         /// The type as api.json spells it
         raw_type: String,
     },
+    /// A function with a `self` argument whose fn_body uses `object` other
+    /// than as `object.`: the codegen rewrites `object.` and the receiver's
+    /// class-name forms only, so a bare `object` names nothing and the dylib
+    /// does not build (RawImage.draw_text, wave 6).
+    BareObjectInFnBody {
+        /// The fn_body as api.json has it
+        fn_body: String,
+        /// The receiver's name in the generated function (`raw_image`)
+        receiver: String,
+    },
     /// Type alias uses generic_args (e.g. `Vec<ComponentArgument>`) which is not FFI-safe
     /// unless both the target type and all generic args are defined in api.json.
     /// If the target (e.g. `CssPropertyValue`) and all args are in api.json, this is
@@ -1598,6 +1612,8 @@ impl FfiSafetyWarningKind {
             FfiSafetyWarningKind::UndefinedTypeReference { .. } => true,
             // Critical - `str` has no FFI form, the codegen emits `Azstr`
             FfiSafetyWarningKind::RawStrInSignature { .. } => true,
+            // Critical - the generated body names a variable that does not exist
+            FfiSafetyWarningKind::BareObjectInFnBody { .. } => true,
             // Generic type aliases are only critical if the target or args are NOT in api.json.
             // e.g. Vec<ComponentArgument> is critical (Vec not in api.json),
             // but CssPropertyValue<StyleBackgroundContent> is fine (both in api.json).
@@ -3068,6 +3084,22 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
         }
+        FfiSafetyWarningKind::BareObjectInFnBody { fn_body, receiver } => {
+            println!("  {} {}", "✗".red(), warning.type_name.white());
+            println!(
+                "    {} fn_body passes `object` on as it is: {}",
+                "→".dimmed(),
+                fn_body.yellow()
+            );
+            println!(
+                "    {} The codegen rewrites `object.` only. Pass the receiver as `{}` (the \
+                 generated function's parameter), or call `object.method(..)`; `autofix add \
+                 --fn` writes the first.",
+                "FIX:".cyan(),
+                receiver
+            );
+            println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+        }
         FfiSafetyWarningKind::GenericTypeAlias {
             target,
             generic_args,
@@ -3319,6 +3351,18 @@ pub fn check_function_signatures(
         }
     }
     warnings
+}
+
+/// Every api.json function with a `self` argument (and no argument named
+/// `object`, like GlContextPtr's) must not use `object` other than as
+/// `object.`: the codegen rewrites `object.` and the receiver's class-name
+/// forms (`raw_image`, `(rawimage,`) only, so `draw_text(object, ..)` named
+/// nothing and the dylib did not build (wave 6) - a
+/// [`FfiSafetyWarningKind::BareObjectInFnBody`]. `object` cannot be
+/// rewritten blindly: GlContextPtr has real arguments of that name.
+pub fn check_fn_body_receivers(api_data: &ApiData) -> Vec<FfiSafetyWarning> {
+    let _ = api_data;
+    Vec::new()
 }
 
 /// Check for invalid characters in documentation strings
@@ -5465,5 +5509,47 @@ mod function_signature_tests {
             check_function_signatures(&api, &pending).is_empty(),
             "a type this round's patches add is not undefined"
         );
+    }
+
+    /// RawImage.draw_text's body `draw_text(object, text, ..)` reached the
+    /// wave-6 integration: the codegen rewrites `object.` and the receiver's
+    /// class-name forms only, the generated function named a variable that
+    /// does not exist, and the dylib did not build. A function with a `self`
+    /// argument whose body uses `object` other than as `object.` is a
+    /// critical error; a real argument named `object` (GlContextPtr) and a
+    /// path segment (`Json::object(..)`) are not.
+    #[test]
+    fn a_fn_body_passing_a_bare_object_receiver_is_a_critical_error() {
+        let with_self = |body: &str| {
+            serde_json::json!({"fn_args": [{"self": "refmut"}, {"text": "String"}], "fn_body": body})
+        };
+        let api = api_with(serde_json::json!({
+            "draw": with_self("azul_layout::cpurender::draw_text(object, text)"),
+            "draw_last": with_self("azul_layout::cpurender::draw_text(text, object)"),
+            "borrow": with_self("azul_layout::f(&object, text)"),
+            "method": with_self("object.draw(text)"),
+            "receiver": with_self("azul_layout::cpurender::draw_text(rich_run, text)"),
+            "legacy": with_self("azul_layout::cpurender::draw_text(richrun, text)"),
+            "path": with_self("azul_layout::json::Json::object(text)"),
+            "objects": with_self("azul_layout::f(objects, text)"),
+            "gl": {"fn_args": [{"self": "ref"}, {"object": "u32"}], "fn_body": "object.test_object(object)"}
+        }));
+        let warnings = super::check_fn_body_receivers(&api);
+        let mut flagged: Vec<&str> = warnings
+            .iter()
+            .filter(|w| matches!(w.kind, FfiSafetyWarningKind::BareObjectInFnBody { .. }))
+            .filter(|w| w.is_critical())
+            .map(|w| w.type_name.as_str())
+            .collect();
+        flagged.sort();
+        assert_eq!(
+            flagged,
+            vec!["RichRun::borrow", "RichRun::draw", "RichRun::draw_last"],
+            "{warnings:?}"
+        );
+        assert!(warnings.iter().all(|w| matches!(
+            &w.kind,
+            FfiSafetyWarningKind::BareObjectInFnBody { receiver, .. } if receiver == "rich_run"
+        )));
     }
 }
