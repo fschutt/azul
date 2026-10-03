@@ -277,6 +277,24 @@ where
         .unwrap_or_default()
 }
 
+/// A drive's own metadata (`Drive::metadata`: `Location`, `Created`, `Read-only`, an S3
+/// object's headers) as the rows the details pane and Properties show: a name in `shown` (the
+/// rows they wrote themselves) is left out, a `Created` time - seconds since 1970 - is written
+/// as a date in `zone`, like the modified time.
+#[must_use]
+pub fn metadata_rows<Tz: chrono::TimeZone>(
+    pairs: &[(String, String)],
+    shown: &[&str],
+    zone: &Tz,
+) -> Vec<(String, String)>
+where
+    Tz::Offset: std::fmt::Display,
+{
+    // RED: every pair as it is.
+    let _ = (shown, zone);
+    pairs.to_vec()
+}
+
 /// Where the window is: Quick access (the pinned folders), the "This PC"
 /// overview of the drives, or a folder of one drive (`prefix` `""` = its
 /// root).
@@ -706,6 +724,26 @@ mod tests {
         assert_eq!(format_size(Some(5 * 1024 * 1024)), "5.0 MB");
         assert_eq!(format_size(Some(3 * 1024 * 1024 * 1024)), "3.0 GB");
         assert_eq!(format_size(Some(324 * 1024 * 1024 * 1024)), "324 GB", "no decimal from ten up");
+    }
+
+    #[test]
+    fn a_drives_metadata_shows_once_with_its_creation_as_a_date() {
+        let pairs = vec![
+            (String::from("Location"), String::from("/home/ada/notes.txt")),
+            (String::from("Created"), String::from("1255369830")),
+            (String::from("Read-only"), String::from("No")),
+            (String::from("ETag"), String::from("\"abc\"")),
+        ];
+        assert_eq!(
+            metadata_rows(&pairs, &["Location", "ETag"], &Utc),
+            vec![
+                (String::from("Created"), String::from("2009-10-12 17:50")),
+                (String::from("Read-only"), String::from("No")),
+            ],
+            "the rows already shown are not repeated; the creation is a date"
+        );
+        let odd = vec![(String::from("Created"), String::from("yesterday"))];
+        assert_eq!(metadata_rows(&odd, &[], &Utc), odd, "a value that is no time stays as it is");
     }
 
     #[test]
