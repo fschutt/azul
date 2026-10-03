@@ -573,6 +573,12 @@ pub struct RecurrenceEditor {
     pub week_start: DatePickerWeekStart,
     /// Show "Repeat from the day it is completed" (a to-do's choice).
     pub completion_option: bool,
+    /// Show the "Ends" row (never / after N times / on a date). A repeat that cannot end (a
+    /// to-do's) leaves it out.
+    pub end_option: bool,
+    /// Offer a monthly rule on the start's nth weekday ("On the second Wednesday"); without
+    /// it a monthly rule repeats on the start's day, and the form says so.
+    pub month_weekday_option: bool,
 }
 
 /// What a theme decides about a recurrence editor: the SKIN of each part,
@@ -608,6 +614,8 @@ impl RecurrenceEditor {
             theme: OptionUiTheme::None,
             week_start: DatePickerWeekStart::Monday,
             completion_option: false,
+            end_option: true,
+            month_weekday_option: true,
         }
     }
 
@@ -657,6 +665,33 @@ impl RecurrenceEditor {
     #[must_use]
     pub const fn with_completion_option(mut self, shown: bool) -> Self {
         self.set_completion_option(shown);
+        self
+    }
+
+    /// Show the "Ends" row; a repeat that cannot end leaves it out.
+    pub const fn set_end_option(&mut self, shown: bool) {
+        let _ = shown;
+        todo!()
+    }
+
+    /// [`Self::set_end_option`] for the builder chain.
+    #[must_use]
+    pub const fn with_end_option(mut self, shown: bool) -> Self {
+        self.set_end_option(shown);
+        self
+    }
+
+    /// Offer a monthly rule on the start's nth weekday; without it, a monthly rule repeats on
+    /// the start's day.
+    pub const fn set_month_weekday_option(&mut self, shown: bool) {
+        let _ = shown;
+        todo!()
+    }
+
+    /// [`Self::set_month_weekday_option`] for the builder chain.
+    #[must_use]
+    pub const fn with_month_weekday_option(mut self, shown: bool) -> Self {
+        self.set_month_weekday_option(shown);
         self
     }
 
@@ -803,7 +838,10 @@ pub(crate) fn build(editor: RecurrenceEditor, look: &RecurrenceEditorLook) -> Do
         theme,
         week_start,
         completion_option,
+        end_option,
+        month_weekday_option,
     } = editor;
+    let _ = (end_option, month_weekday_option);
     let rule = state.inner;
     let theme = theme.into_option();
     let shared = RefAny::new(state);
@@ -1336,6 +1374,25 @@ mod recurrence_editor_tests {
             t.iter().any(|s| s == "Repeat from the day it is completed"),
             "{t:?}"
         );
+    }
+
+    /// A to-do's repeat (azul_pim's) has no end and no "second Wednesday": its editor leaves
+    /// those choices out instead of offering what cannot be kept.
+    #[test]
+    fn an_editor_can_leave_out_the_end_and_the_months_nth_weekday() {
+        let mut monthly = RecurrenceRule::create(WED_14_OCT);
+        monthly.frequency = RecurrenceFrequency::Monthly;
+        let full = RecurrenceEditor::create(monthly).with_theme(UiTheme::Flat);
+        assert!(full.end_option && full.month_weekday_option, "both are shown by default");
+        let dom = full
+            .with_end_option(false)
+            .with_month_weekday_option(false)
+            .dom();
+        let t = all_texts(&dom);
+        assert!(!t.iter().any(|s| s == "Ends"), "no end row: {t:?}");
+        assert!(!t.iter().any(|s| s.starts_with("On the ")), "no nth weekday: {t:?}");
+        assert!(t.iter().any(|s| s == "on day 14"), "the day it repeats on is said: {t:?}");
+        assert_eq!(rows(&dom), 2, "Monthly: frequency and every");
     }
 
     #[test]
