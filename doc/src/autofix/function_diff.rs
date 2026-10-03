@@ -434,10 +434,72 @@ fn generate_destructor_body(method: &MethodDef) -> String {
 /// - `Option<X>` -> `OptionX` (with `.into()` added to fn_body)
 /// - `Self` -> class_name
 ///
-/// Returns (converted_type, needs_into) where needs_into indicates if `.into()` should be appended
-fn convert_return_type_for_ffi(return_type: &str, class_name: &str) -> (String, bool) {
+/// - a borrowed `str` -> `String`, `Option<&str>` / `Option<String>` ->
+///   `OptionString` (see [`ReturnConversion`])
+///
+/// Returns (converted_type, conversion): how the fn_body turns the Rust
+/// call's value into the api.json type.
+fn convert_return_type_for_ffi(return_type: &str, class_name: &str) -> (String, ReturnConversion) {
     let trimmed = return_type.trim();
 
+    // A borrowed `str` (`&str`, extracted as `str` + a Ref kind) crosses as an
+    // owned `String`; an `Option` of a `str` or of a std `String` as
+    // `OptionString`, which converts from `Option<AzString>` only (`AzString`
+    // is extracted as `String` too; `AzString::from` is the identity there).
+    // Without this, `as_str -> str` and `link_str -> Optionstr` reached
+    // api.json and the codegen emitted `Azstr` / `AzOptionstr` (wave 5).
+    if trimmed == "str" || trimmed == "&str" {
+        return ("String".to_string(), ReturnConversion::OwnedStr);
+    }
+    if let Some(inner) = trimmed
+        .strip_prefix("Option<")
+        .and_then(|rest| rest.strip_suffix('>'))
+    {
+        let inner = inner.trim().trim_start_matches('&').trim();
+        if inner == "str" || inner == "String" {
+            return ("OptionString".to_string(), ReturnConversion::OptionOwnedStr);
+        }
+    }
+
+    let (converted, needs_into) = convert_return_type_for_ffi_inner(trimmed, class_name);
+    let conversion = if needs_into {
+        ReturnConversion::Into
+    } else {
+        ReturnConversion::None
+    };
+    (converted, conversion)
+}
+
+/// How a generated fn_body turns the Rust method's return value into the
+/// api.json return type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReturnConversion {
+    /// The value is the api.json type
+    None,
+    /// `<call>.into()` (`Result<X, Y>` -> `ResultXY`, `Option<X>` -> `OptionX`, `String`)
+    Into,
+    /// `azul_css::AzString::from(<call>)`: a borrowed `str` copied into a `String`
+    OwnedStr,
+    /// `<call>.map(|s| azul_css::AzString::from(s)).into()`: an `Option` of a
+    /// `str` or a std `String` as `OptionString`
+    OptionOwnedStr,
+}
+
+impl ReturnConversion {
+    fn wrap(self, call: String) -> String {
+        match self {
+            ReturnConversion::None => call,
+            ReturnConversion::Into => format!("{call}.into()"),
+            ReturnConversion::OwnedStr => format!("azul_css::AzString::from({call})"),
+            ReturnConversion::OptionOwnedStr => {
+                format!("{call}.map(|s| azul_css::AzString::from(s)).into()")
+            }
+        }
+    }
+}
+
+/// The Result / Option / Self / String rules of [`convert_return_type_for_ffi`].
+fn convert_return_type_for_ffi_inner(trimmed: &str, class_name: &str) -> (String, bool) {
     // Handle Result<X, Y> -> ResultXY
     if trimmed.starts_with("Result<") && trimmed.ends_with('>') {
         let inner = &trimmed[7..trimmed.len() - 1]; // Remove "Result<" and ">"
@@ -969,11 +1031,11 @@ fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData 
 
     // Build returns - convert Result<X, Y> to ResultXY, Option<X> to OptionX
     // Also track if we need to add .into() to the fn_body
-    let (returns, needs_into) = if method.is_constructor {
+    let (returns, conversion) = if method.is_constructor {
         // Constructors don't specify returns in api.json (implicit Self)
         // But if they return Result<Self, E>, we need to convert it
         if let Some(ref ret_ty) = method.return_type {
-            let (converted, needs_into) = convert_return_type_for_ffi(ret_ty, class_name);
+            let (converted, conversion) = convert_return_type_for_ffi(ret_ty, class_name);
             if converted != class_name && converted != "Self" {
                 // Constructor returns Result or Option - need explicit returns
                 (
@@ -981,25 +1043,25 @@ fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData 
                         r#type: converted,
                         doc: None,
                     }),
-                    needs_into,
+                    conversion,
                 )
             } else {
-                (None, false)
+                (None, ReturnConversion::None)
             }
         } else {
-            (None, false)
+            (None, ReturnConversion::None)
         }
     } else if let Some(ref ret_ty) = method.return_type {
-        let (converted, needs_into) = convert_return_type_for_ffi(ret_ty, class_name);
+        let (converted, conversion) = convert_return_type_for_ffi(ret_ty, class_name);
         (
             Some(ReturnTypeData {
                 r#type: converted,
                 doc: None,
             }),
-            needs_into,
+            conversion,
         )
     } else {
-        (None, false)
+        (None, ReturnConversion::None)
     };
 
     // Generate fn_body using the full external path
@@ -1033,10 +1095,9 @@ fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData 
         }
     }
 
-    // Add .into() if the return type was converted (Result/Option wrapper types)
-    if needs_into {
-        fn_body_str = format!("{}.into()", fn_body_str);
-    }
+    // Convert the return value to its api.json type (`.into()` for the
+    // Result / Option wrappers, an owned `String` for a borrowed `str`)
+    let fn_body_str = conversion.wrap(fn_body_str);
 
     let fn_body = Some(fn_body_str);
 
