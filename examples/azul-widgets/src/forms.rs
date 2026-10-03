@@ -920,14 +920,7 @@ fn keep_text(
 /// Every other control: keep the value and rebuild, which also brings the
 /// control's `value` attribute up to date.
 fn keep(data: &mut RefAny, put: impl FnOnce(&mut FormValues)) -> Update {
-    match data.downcast_mut::<Showcase>() {
-        Some(mut s) => {
-            put(&mut s.form.values);
-            s.interactions += 1;
-            Update::RefreshDom
-        }
-        None => Update::DoNothing,
-    }
+    crate::keep(data, |s| put(&mut s.form.values))
 }
 
 extern "C" fn on_full_name(

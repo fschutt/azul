@@ -1166,14 +1166,22 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         )
 }
 
-fn bump(data: &mut RefAny) -> Update {
+/// THE way a section keeps what a widget reported: `put` writes it into the
+/// showcase, the interaction counter goes up, the page is rebuilt. Every
+/// section's callbacks go through it (no per-section copy).
+pub(crate) fn keep(data: &mut RefAny, put: impl FnOnce(&mut Showcase)) -> Update {
     match data.downcast_mut::<Showcase>() {
         Some(mut s) => {
+            put(&mut *s);
             s.interactions += 1;
             Update::RefreshDom
         }
         None => Update::DoNothing,
     }
+}
+
+fn bump(data: &mut RefAny) -> Update {
+    keep(data, |_| {})
 }
 
 extern "C" fn on_button(mut data: RefAny, _: CallbackInfo) -> Update {
