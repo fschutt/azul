@@ -37,8 +37,13 @@ Report: scripts/MEDIA9_2026_10_03.md (date = the day it finishes).
 
 - B1b b652ce195 AzMeet uses LevelMeter + LevelMeterThrottle (mic_level_percent / meter_moved_ms gone).
 
+- B2 34b36c681 RED layout/src/widgets/seek_bar.rs (types, callback triple, 6 tests).
+
 ## IN PROGRESS
-- NEXT STEP: B2 SeekBar, new file layout/src/widgets/seek_bar.rs (append `pub mod seek_bar;` after
+- NEXT STEP: GREEN seek_bar.rs (media_time, seek_fraction, time_at, key_target, build + look,
+  pointer / key callbacks on the track with a SeekBarWrapper dataset {on_seek, inner, chapters?},
+  merge callback keeping `dragging`, update_position, flat/flora appends, manifest INPUTS).
+  Original B2 design notes: layout/src/widgets/seek_bar.rs (append `pub mod seek_bar;` after
   `pub mod level_meter;` in widgets/mod.rs). Design: `media_time(seconds) -> String` ("m:ss",
   "h:mm:ss" past an hour, "-" for unknown/NaN; the ONE media clock helper - timeline.rs tick_label
   has the same branches, note the twin); SeekBar { position_s f64, duration_s f64, buffered_s f64,
