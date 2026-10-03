@@ -42,8 +42,52 @@ On resume: read this file, `git -C <worktree> status`, `git log --oneline -12`, 
   reading_minutes, images_of, Cleaner, element, text_node} (azul-dependent: NOT type-checked;
   re-read against target/codegen/dll_api_external.rs when resuming if in doubt).
 
-## NEXT (in this order)
-8. (next step) src/sample.rs: `sample_library(now) -> Library` - deterministic (LCG like
+- 426d4f8eb RED / 0f148f2de GREEN src/sample.rs (sample_library(now): 42 feeds, 891 articles,
+  214 unread, 16 starred, 6 saved, BROKEN_404 = 20, BROKEN_INVALID = 33, NO_PICTURES = 2,
+  PICTURES = 30). Type-check clean (harness7 = harness5 + sample).
+
+## NEXT: the window (azul-dependent; model it on examples/azul-contacts/src/ui.rs line by line)
+A. src/jobs.rs - three azul Threads (pattern: azul-appkit/src/ui.rs file_thread + azul-mail
+   lib.rs run_sync/post for several WriteBack messages and TerminateThread):
+   - refresh: init {feeds: Vec<(id, url, etag, last_modified)>}; in the thread
+     `AzulTransport::new(fetch::USER_AGENT).with_timeout(30)`, per feed `fetch::fetch` -> send
+     WriteBack RefreshMsg {id, fetched, now}; a final Done message. UI: Library::merge (Feed) /
+     meta.checked + status (NotModified) / meta.error + status (Failed, Page -> "this is a web
+     page, not a feed"); then store::feed_jobs via kit::spawn_file_jobs.
+   - pictures: init {urls}; per url GET through the transport, RawImage::decode_image_bytes_any
+     (U8VecRef::from(bytes.as_slice())) -> ImageMsg {url, Option<RawImage>}; UI:
+     ImageRef::create_rawimage(raw).into_option() -> info.add_image_to_cache(url, image).
+   - find (Add feed): fetch::find_feeds -> FindMsg {Result<Vec<Candidate>, String>}.
+B. src/ui.rs: SPEC / ABOUT (app_folder "news") / SHORTCUTS (j / k next / previous, s star,
+   m read / unread, r refresh, Mod+N add feed, Mod+O import OPML, Mod+E export, Mod+F search,
+   F6) / APP_CATEGORIES ["Reading", "Refresh"]; NewsApp {kit, data_root, sample, library,
+   loaded, view, query, unread_only, selected: Option<ArticleRef>, reading: Reading {Article,
+   AddFeed(..), Import(..), FeedPage(index)}, nav_open, notice, refreshing, pictures:
+   BTreeSet<String> (in the image cache), images_for: Option<(feed id, item id)> (load pictures
+   clicked), settings (font_px 20, measure 680, sepia false, images OnClick, refresh_on_start
+   true, refresh_minutes 60, strip_tracking true, keep_days 30), list_limit 300}.
+   layout(): like contacts - settings page or PimShell::create(nav, list, reading)
+   .with_list_label("Articles").office_shell().with_title_row(kit::title_row("AzNews"))
+   .with_ribbon(toolbar).with_status_bar(status) in ShellThemeScope::create(root).body() with
+   the VirtualKeyDown callback. Reading pane: azul's ReadingPane (title, feed name, date,
+   fields Author / Reading time, InfoBar "N pictures not loaded" + on_load_images, body =
+   Dom::create_from_parsed_xml(reader::article(..).xml)) under a row of Buttons (Open original,
+   Star, Read later, Mark unread, Previous, Next). Navigation: ShellNavigationPane with
+   TreeViewNode groups (check how event.index counts nested nodes in
+   layout/src/widgets/shells/navigation_pane.rs before mapping). On start: kit::spawn_file_jobs
+   (store::load_jobs) -> store::load (new ids: azul_storage::ids::new_uuid) -> --sample on an
+   empty library writes sample_library(now) -> refresh on start (not for the sample).
+   Export OPML: FileJob::Put news/exports/subscriptions-<unix>.opml (exports go INTO the data
+   tree, house rule). Import OPML: FileDialog (contacts' on_import_choose / spawn_outside_read).
+   stdout lines for the E2E: AZNEWS_LOADED <feeds> <articles>, AZNEWS_VIEW <n>,
+   AZNEWS_SELECTED <feed id> <item id>, AZNEWS_REFRESHED <id> <new|304|error>,
+   AZNEWS_SUBSCRIBED <id> <url>, AZNEWS_IMPORT_PREVIEW <n>, AZNEWS_IMPORTED <n>,
+   AZNEWS_EXPORTED <key>, AZNEWS_PICTURE <url>, AZNEWS_SAVED <key>.
+C. main.rs already calls aznews::start(); lib.rs `pub fn start() { ui::start() }`.
+D. E2E + feed server + its test, then the report (see 9 / 10 below).
+
+## (older plan, kept for reference)
+8. (done) src/sample.rs: `sample_library(now) -> Library` - deterministic (LCG like
    azul-contacts sample.rs), ~42 feeds in 6 folders (Tech, Science, Local, Cooking, Culture,
    Podcasts), example.org / example.net addresses, ~900 items over 60 days, 2 broken feeds
    (meta.error "HTTP 404" / "the feed could not be read: ..."), 1 feed without pictures, some read
