@@ -12,7 +12,10 @@
 //! The settings are read once at start (before the window exists); every write runs on an azul
 //! Thread through azul-storage's `LocalDrive` (an `S3Drive` later), never in a callback.
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::{Mutex, MutexGuard, PoisonError},
+};
 
 use azul::{
     file::FilePath,
@@ -55,15 +58,36 @@ impl Prefs {
     /// What `settings` remember; an unknown quality is the first, an empty name none.
     #[must_use]
     pub fn read(settings: &AppSettings) -> Prefs {
-        // RED: nothing is read yet.
-        let _ = settings;
-        Prefs::default()
+        let text = |key: &str| {
+            settings
+                .get(key)
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(str::to_string)
+        };
+        let quality = settings
+            .get(QUALITY)
+            .and_then(|q| QUALITY_NAMES.iter().position(|n| n.eq_ignore_ascii_case(q.trim())))
+            .unwrap_or(0);
+        Prefs {
+            server: text(SERVER),
+            name: text(NAME),
+            quality,
+        }
     }
 
     /// Writes these into `settings` (a missing server or name is removed).
     pub fn write(&self, settings: &mut AppSettings) {
-        // RED: nothing is written yet.
-        let _ = settings;
+        for (key, value) in [(SERVER, &self.server), (NAME, &self.name)] {
+            match value {
+                Some(value) => settings.set(key, value),
+                None => {
+                    settings.values.remove(key);
+                }
+            }
+        }
+        let quality = QUALITY_NAMES[self.quality.min(QUALITY_NAMES.len() - 1)];
+        settings.set(QUALITY, quality);
     }
 }
 
@@ -203,9 +227,20 @@ pub fn load_settings(root: &Path) -> AppSettings {
     }
 }
 
-struct SaveInit {
-    root: PathBuf,
-    files: Option<Vec<(String, Vec<u8>)>>,
+/// The files waiting for the save thread, and whether one runs. ONE thread writes at a time, so
+/// an older save never lands over a newer one.
+struct Queue {
+    files: Vec<Pending>,
+    busy: bool,
+}
+
+static QUEUE: Mutex<Queue> = Mutex::new(Queue {
+    files: Vec::new(),
+    busy: false,
+});
+
+fn queue() -> MutexGuard<'static, Queue> {
+    QUEUE.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// What a save hands back to the UI thread.
@@ -213,24 +248,28 @@ struct Saved {
     outcomes: Vec<FileOutcome>,
 }
 
-/// Runs on the worker thread: the files into the data tree, then the outcomes back.
-extern "C" fn save_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: ThreadReceiver) {
-    let Some((root, files)) = init.downcast_mut::<SaveInit>().and_then(|mut i| {
-        let files = i.files.take()?;
-        Some((i.root.clone(), files))
-    }) else {
-        return;
-    };
-    let drive = LocalDrive::new(root);
-    let jobs = files
-        .into_iter()
-        .map(|(key, bytes)| FileJob::Put { key, bytes })
-        .collect();
-    let outcomes = run_jobs(&drive, jobs);
-    let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::create(
-        on_saved,
-        RefAny::new(Saved { outcomes }),
-    )));
+/// Runs on the worker thread: takes what waits, writes it into the data tree, hands the outcomes
+/// back, until nothing waits (then the next save starts a new thread).
+extern "C" fn save_thread(_init: RefAny, mut sender: ThreadSender, _receiver: ThreadReceiver) {
+    loop {
+        let files = {
+            let mut q = queue();
+            if q.files.is_empty() {
+                q.busy = false;
+                return;
+            }
+            std::mem::take(&mut q.files)
+        };
+        let mut outcomes = Vec::with_capacity(files.len());
+        for (root, key, bytes) in files {
+            let drive = LocalDrive::new(root);
+            outcomes.extend(run_jobs(&drive, vec![FileJob::Put { key, bytes }]));
+        }
+        let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::create(
+            on_saved,
+            RefAny::new(Saved { outcomes }),
+        )));
+    }
 }
 
 /// On the UI thread: `AZMEET_SAVED <key>` per file written (for scripts), errors on stderr.
@@ -254,28 +293,29 @@ type Pending = (PathBuf, String, Vec<u8>);
 /// Queues `files` under `root` behind what waits already; a file queued again replaces its older
 /// bytes (one write, the newer bytes, in the newer place).
 fn enqueue(queue: &mut Vec<Pending>, root: &Path, files: Vec<(String, Vec<u8>)>) {
-    // RED: no file replaces an older one yet.
     for (key, bytes) in files {
+        queue.retain(|(r, k, _)| !(r == root && *k == key));
         queue.push((root.to_path_buf(), key, bytes));
     }
 }
 
-/// Writes `files` (key, bytes) into the data tree at `root` on an azul Thread.
+/// Writes `files` (key, bytes) into the data tree at `root` on an azul Thread: queued, and a
+/// thread started when none runs.
 pub fn save(info: &mut CallbackInfo, root: &Path, files: Vec<(String, Vec<u8>)>) {
     if files.is_empty() {
         return;
     }
-    info.add_thread(
-        ThreadId::unique(),
-        Thread::create(
-            RefAny::new(SaveInit {
-                root: root.to_path_buf(),
-                files: Some(files),
-            }),
-            RefAny::new(()),
-            save_thread,
-        ),
-    );
+    let start = {
+        let mut q = queue();
+        enqueue(&mut q.files, root, files);
+        !std::mem::replace(&mut q.busy, true)
+    };
+    if start {
+        info.add_thread(
+            ThreadId::unique(),
+            Thread::create(RefAny::new(()), RefAny::new(()), save_thread),
+        );
+    }
 }
 
 /// The settings file's (key, bytes), for [`save`].
