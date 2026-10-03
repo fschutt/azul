@@ -791,7 +791,7 @@ struct ToolRef {
 
 /// The toolbar's buttons: `(id, icon, label, name, tool)`; a label shows as
 /// text when there is no icon.
-fn tools() -> Vec<(&'static str, &'static str, &'static str, &'static str, Tool)> {
+fn tools() -> Vec<(AzString, &'static str, &'static str, &'static str, Tool)> {
     let kind = |kind: RichBlockKind| Tool::Command(RichTextCommand::ToggleKind(kind));
     let format = |format: RichFormat| Tool::Command(RichTextCommand::ToggleFormat(format));
     vec![
@@ -842,6 +842,7 @@ fn toolbar(s: &AppState, app: &RefAny, look: &Look) -> Dom {
             look.line
         ));
     for (id, icon, label, name, tool) in tools() {
+        let divider = [ids::TOOL_H3, ids::TOOL_CODE, ids::TOOL_INDENT, ids::TOOL_CODEBLOCK].contains(&id);
         let pressed = match &tool {
             Tool::Command(RichTextCommand::ToggleKind(kind)) => s.editor.is_current_kind(kind.clone()),
             Tool::Command(RichTextCommand::ToggleFormat(format)) => {
@@ -870,7 +871,7 @@ fn toolbar(s: &AppState, app: &RefAny, look: &Look) -> Dom {
                 .with_accessibility_name(name)
                 .with_css("margin-right: 2px; margin-bottom: 2px;"),
         );
-        if [ids::TOOL_H3, ids::TOOL_CODE, ids::TOOL_INDENT, ids::TOOL_CODEBLOCK].contains(&id) {
+        if divider {
             row.add_child(Dom::create_div().with_css(format!(
                 "width: 1px; height: 20px; margin: 0px 6px; background: {};",
                 look.line
@@ -909,7 +910,7 @@ struct TagRef {
 }
 
 /// The header's buttons: `(id, icon, name, action)`.
-fn header_button(app: &RefAny, id: &str, icon: &str, name: &str, primary: bool, action: ButtonOnClickCallbackType) -> Dom {
+fn header_button(app: &RefAny, id: AzString, icon: &str, name: &str, primary: bool, action: ButtonOnClickCallbackType) -> Dom {
     let mut button = Button::create("").with_icon(icon).with_on_click(app.clone(), action);
     if primary {
         button = button.with_button_type(ButtonType::Primary);
@@ -1268,7 +1269,7 @@ fn export_markdown(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
 // ==== Sheets over the window ====
 
 /// A sheet: a panel centred over a backdrop, `id` on the panel.
-fn sheet(look: &Look, id: &str, title: &str, body: Dom, buttons: Dom) -> Dom {
+fn sheet(look: &Look, id: AzString, title: &str, body: Dom, buttons: Dom) -> Dom {
     Dom::create_div()
         .with_id(ids::SHEET_BACKDROP)
         .with_css(format!(
@@ -1296,7 +1297,7 @@ fn sheet(look: &Look, id: &str, title: &str, body: Dom, buttons: Dom) -> Dom {
 }
 
 /// A sheet's button.
-fn sheet_button(app: &RefAny, id: &str, label: &str, kind: ButtonType, action: ButtonOnClickCallbackType) -> Dom {
+fn sheet_button(app: &RefAny, id: AzString, label: &str, kind: ButtonType, action: ButtonOnClickCallbackType) -> Dom {
     Button::create(label)
         .with_button_type(kind)
         .with_on_click(app.clone(), action)
@@ -1764,7 +1765,7 @@ const AUTOSAVE_MS: [u64; 3] = [500, 2000, 5000];
 const VERSION_MINUTES: [u64; 4] = [0, 5, 15, 60];
 
 /// A segmented control for `setting`.
-fn choice(app: &RefAny, setting: Setting, labels: &[&str], selected: usize, id: &str) -> Dom {
+fn choice(app: &RefAny, setting: Setting, labels: &[&str], selected: usize, id: AzString) -> Dom {
     Segmented::create(strs(labels))
         .with_selected_index(selected)
         .with_on_change(
