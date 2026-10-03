@@ -3017,10 +3017,12 @@ pub(crate) fn exit_dumping_profile(code: i32) -> ! {
 /// How long the debug server's thread gets to see its shutdown signal (it
 /// polls every 10 ms) before the process exits without it - it may be blocked
 /// on a client that never reads.
+#[cfg(feature = "debug-server")]
 const DEBUG_SERVER_STOP_GRACE: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// How long a worker that asked a run loop to end the process waits for it
 /// before ending it itself (a loop that died, or one stuck in a callback).
+#[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
 const EXIT_REQUEST_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// End the process FROM THE UI THREAD with nothing else running: the caller
