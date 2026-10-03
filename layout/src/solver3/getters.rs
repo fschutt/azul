@@ -221,11 +221,7 @@ pub fn get_effective_zoom(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
 }
 
 /// A length of node `dom_id` resolved to `resolved` px, under its effective
-/// zoom: an absolute length (px, pt, in, cm, mm) is scaled by it, a rem by
-/// it relative to the root's (the root font size already carries the
-/// root's zoom); em, percentages and viewport units come back as they are -
-/// em follows the zoomed font size, a percentage the zoomed containing block.
-/// The ONE zoom rule of every length the solver resolves.
+/// zoom ([`scale_length_for_zoom`]).
 #[must_use]
 pub fn zoomed_length(
     styled_dom: &StyledDom,
@@ -233,20 +229,39 @@ pub fn zoomed_length(
     metric: azul_css::props::basic::SizeMetric,
     resolved: f32,
 ) -> f32 {
-    use azul_css::props::basic::SizeMetric;
     let zoom = get_effective_zoom(styled_dom, dom_id);
     if (zoom - 1.0).abs() <= f32::EPSILON {
         return resolved;
     }
+    scale_length_for_zoom(
+        metric,
+        resolved,
+        zoom,
+        get_effective_zoom(styled_dom, NodeId::new(0)),
+    )
+}
+
+/// THE zoom rule of every length the solver resolves: a length resolved to
+/// `resolved` px on a box of effective zoom `zoom` (the root's `root_zoom`).
+/// An absolute length (px, pt, in, cm, mm) scales by the zoom, a rem by it
+/// relative to the root's (the root font size already carries the root's
+/// zoom); em, percentages and viewport units come back as they are - em
+/// follows the zoomed font size, a percentage the zoomed containing block.
+#[must_use]
+pub fn scale_length_for_zoom(
+    metric: azul_css::props::basic::SizeMetric,
+    resolved: f32,
+    zoom: f32,
+    root_zoom: f32,
+) -> f32 {
+    use azul_css::props::basic::SizeMetric;
     match metric {
         SizeMetric::Px | SizeMetric::Pt | SizeMetric::In | SizeMetric::Cm | SizeMetric::Mm => {
             resolved * zoom
         }
-        SizeMetric::Rem => {
-            let root_zoom = get_effective_zoom(styled_dom, NodeId::new(0));
-            resolved * zoom / root_zoom
-        }
-        SizeMetric::Em
+        SizeMetric::Rem if root_zoom > 0.0 => resolved * zoom / root_zoom,
+        SizeMetric::Rem
+        | SizeMetric::Em
         | SizeMetric::Percent
         | SizeMetric::Vw
         | SizeMetric::Vh

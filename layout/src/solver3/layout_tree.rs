@@ -4659,6 +4659,9 @@ fn collect_box_props(
                     | azul_css::props::layout::wrapping::LayoutWritingMode::VerticalLr
             )
         ),
+        // CSS `zoom` scales the absolute box lengths (LAYOUT7).
+        zoom: crate::solver3::getters::get_effective_zoom(styled_dom, dom_id),
+        root_zoom: crate::solver3::getters::get_effective_zoom(styled_dom, NodeId::new(0)),
     };
 
     // Create initial resolution params (with viewport as containing block for now)
