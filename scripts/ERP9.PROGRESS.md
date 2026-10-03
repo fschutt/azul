@@ -58,6 +58,12 @@ Crate: examples/azul-erp (package + bin AzERP, lib azerp). NEVER compile; parse-
   (app_folder "erp"), SHORTCUTS, start() (AZERP_TODAY env for E2E, --screen -> path, args.files csv ->
   pending_import), on_window_created (kit::on_window_created + ui::spawn_load). Then E2E + report.
 
+- fea671e54 ui/panels.rs; db3e22a30 lib.rs start() + crate formatted (rustfmt parses the whole crate);
+  9a5d75b36 scripts/azerp_e2e.py. The app is COMPLETE as written (never compiled).
+- NEXT: a compile-review pass (read each UI file against api.json; fix), then the report
+  scripts/ERP9_2026_10_03.md (what was built, commits, api.json list = NONE (app-only, no new widget), least-sure
+  spots, test commands, left), commit.
+
 ## (old) 4c plan:
 - src/ids.rs: `names!` macro like examples/azul-dashboard/src/ids.rs, prefix `__azerp_` (TABLE, TOOLS, TAB_ROW,
   FORM, FORM_SAVE, FORM_CANCEL, FIELD_<name> made at run time? NO - ids for fields: one const per form field
