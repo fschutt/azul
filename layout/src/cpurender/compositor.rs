@@ -143,6 +143,8 @@ pub struct Layer {
     /// clip WRAPPING a nested layer; radii are ignored for layer clipping).
     /// `None` when nothing wraps the layer. Item-level clips inside one
     /// layer's own range are the rasterizer's clip stack, not this.
+    /// Resolved by `render_layers` from `wrapping_clips`, each clip moved by
+    /// the scroll frames IT sits in.
     pub static_clip: Option<LogicalRect>,
     /// Layer opacity (1.0 = fully opaque).
     pub opacity: f32,
@@ -178,8 +180,16 @@ pub struct Layer {
     pub inherited_scroll: Vec<LocalScrollId>,
     /// The summed current offset of `inherited_scroll`, resolved by
     /// `render_layers` and applied wherever the layer is placed in its parent
-    /// (the backdrop seed, the composite position, the static clip).
+    /// (the backdrop seed, the composite position).
     pub inherited_offset: (f32, f32),
+    /// The `PushClip`s open around this layer's push that were opened inside
+    /// its PARENT layer (one opened further out clips the parent, and with it
+    /// this layer), each with the frames painted in place it was opened in -
+    /// a subset of `inherited_scroll`. A clip opened before such a frame is
+    /// in the space around the frame and does not scroll with it; one opened
+    /// inside it does. Intersecting them as they stand in the list mixed the
+    /// two spaces: a clipped box down a scrolled frame lost its lines (PIM6).
+    pub wrapping_clips: Vec<(LogicalRect, Vec<LocalScrollId>)>,
 }
 
 /// Widest or tallest a compositor layer may be, in device pixels.
@@ -425,7 +435,12 @@ impl CompositorState {
         // inside them is windowed by their intersection at composite time —
         // the layer-boundary half of clip chaining (the rasterizer's clip
         // stack handles items inside one layer).
-        let mut clip_stack: Vec<LogicalRect> = Vec::new();
+        // Each with the number of frames painted in place open at its push
+        // (`in_place_frames`), and every layer with the clip-stack depth at
+        // its push: what wraps a layer is what was opened inside its parent
+        // (`Layer::wrapping_clips`).
+        let mut clip_stack: Vec<(LogicalRect, usize)> = Vec::new();
+        let mut clip_base_of: HashMap<LayerId, usize> = HashMap::new();
         // One entry per open `PushReferenceFrame`, recording whether it actually
         // promoted a layer, so `PopReferenceFrame` pops exactly what was pushed.
         let mut ref_frame_promoted: Vec<bool> = Vec::new();
@@ -549,8 +564,6 @@ impl CompositorState {
                     if created {
                         let new_id = self.alloc_layer_id();
                         let mut layer = Layer::new(new_id, bounds, pw, ph);
-                        layer.static_clip =
-                            clip_stack.iter().copied().reduce(intersect_logical_rects);
                         layer.scroll_id = Some(*scroll_id);
                         layer.display_list_range = (i + 1, end);
                         self.layers.insert(new_id, layer);
@@ -614,8 +627,6 @@ impl CompositorState {
                     if promote {
                         let new_id = self.alloc_layer_id();
                         let mut layer = Layer::new(new_id, b, pw, ph);
-                        layer.static_clip =
-                            clip_stack.iter().copied().reduce(intersect_logical_rects);
                         layer.opacity = effective;
                         layer.display_list_range = (i + 1, end);
                         self.layers.insert(new_id, layer);
@@ -650,8 +661,6 @@ impl CompositorState {
                         let b = *bounds.inner();
                         let new_id = self.alloc_layer_id();
                         let mut layer = Layer::new(new_id, b, pw, ph);
-                        layer.static_clip =
-                            clip_stack.iter().copied().reduce(intersect_logical_rects);
                         layer.filters.clone_from(filters);
                         layer.display_list_range = (i + 1, end);
                         self.layers.insert(new_id, layer);
@@ -714,8 +723,6 @@ impl CompositorState {
                         let (pw, ph) = (pw.max(1), ph.max(1));
                         let new_id = self.alloc_layer_id();
                         let mut layer = Layer::new(new_id, b, pw, ph);
-                        layer.static_clip =
-                            clip_stack.iter().copied().reduce(intersect_logical_rects);
                         layer.transform = TransAffine::new_custom(
                             f64::from(m[0][0]),
                             f64::from(m[0][1]),
@@ -766,8 +773,6 @@ impl CompositorState {
                     if pw > 0 && ph > 0 && !filters.is_empty() {
                         let new_id = self.alloc_layer_id();
                         let mut layer = Layer::new(new_id, b, pw, ph);
-                        layer.static_clip =
-                            clip_stack.iter().copied().reduce(intersect_logical_rects);
                         layer.filters.clone_from(filters);
                         layer.is_backdrop_filter = true;
                         // The layer's OWN content may be empty (e.g. an empty
@@ -802,7 +807,7 @@ impl CompositorState {
                 // concern, not a layer boundary, so it is handled in
                 // `render_single_item`, not here.
                 DisplayListItem::PushClip { bounds, .. } => {
-                    clip_stack.push(*bounds.inner());
+                    clip_stack.push((*bounds.inner(), in_place_frames.len()));
                 }
                 DisplayListItem::PopClip => {
                     clip_stack.pop();
@@ -811,19 +816,40 @@ impl CompositorState {
             }
             // A layer this item opened sits inside every frame painted in
             // place since its parent layer was entered: it moves with them.
+            // The clips opened inside the parent wrap it, each moving with
+            // the frames it was opened in.
             if layer_stack.len() > depth_before {
                 let inherited: Vec<LocalScrollId> = in_place_frames
                     .iter()
                     .filter(|(_, depth)| *depth == depth_before)
                     .map(|(id, _)| *id)
                     .collect();
-                if !inherited.is_empty() {
-                    if let Some(layer) = layer_stack
-                        .last()
-                        .copied()
-                        .and_then(|id| self.layers.get_mut(&id))
-                    {
+                let parent_base = layer_stack
+                    .len()
+                    .checked_sub(2)
+                    .and_then(|at| layer_stack.get(at))
+                    .and_then(|parent| clip_base_of.get(parent))
+                    .copied()
+                    .unwrap_or(0);
+                let wrapping: Vec<(LogicalRect, Vec<LocalScrollId>)> = clip_stack
+                    .get(parent_base..)
+                    .unwrap_or(&[])
+                    .iter()
+                    .map(|(rect, open)| {
+                        let frames = in_place_frames
+                            .iter()
+                            .take(*open)
+                            .filter(|(_, depth)| *depth == depth_before)
+                            .map(|(id, _)| *id)
+                            .collect();
+                        (*rect, frames)
+                    })
+                    .collect();
+                if let Some(id) = layer_stack.last().copied() {
+                    clip_base_of.insert(id, clip_stack.len());
+                    if let Some(layer) = self.layers.get_mut(&id) {
                         layer.inherited_scroll = inherited;
+                        layer.wrapping_clips = wrapping;
                     }
                 }
             }
@@ -1061,6 +1087,22 @@ impl CompositorState {
             let layer = self.layers.get_mut(layer_id).unwrap();
             layer.scroll_offset = soff;
             layer.inherited_offset = inherited;
+            // Each wrapping clip where it IS this frame: moved by the frames
+            // painted in place that it was opened in.
+            layer.static_clip = layer
+                .wrapping_clips
+                .iter()
+                .map(|(rect, frames)| {
+                    let (dx, dy) = frames
+                        .iter()
+                        .filter_map(|id| scroll_offsets.get(id))
+                        .fold((0.0_f32, 0.0_f32), |(x, y), (ox, oy)| (x + ox, y + oy));
+                    LogicalRect::new(
+                        LogicalPosition::new(rect.origin.x - dx, rect.origin.y - dy),
+                        rect.size,
+                    )
+                })
+                .reduce(intersect_logical_rects);
 
             // Clear the layer pixbuf: the clear colour (white; transparent
             // for a transparent window) for the root, the parent's backdrop
@@ -1195,12 +1237,9 @@ impl CompositorState {
                     && (pm.sy - 1.0).abs() < IDENTITY_EPSILON_F64;
                 if translation_only {
                     let dpi = f64::from(dpi_factor);
-                    // The wrapping clips were opened inside the same frames
-                    // painted in place as the layer, so they move with it.
-                    let (sx, sy) = (
-                        sc.origin.x - layer.inherited_offset.0,
-                        sc.origin.y - layer.inherited_offset.1,
-                    );
+                    // Already where it is: `render_layers` moved each
+                    // wrapping clip by the frames it was opened in.
+                    let (sx, sy) = (sc.origin.x, sc.origin.y);
                     let r = (
                         (f64::from(sx) * dpi + pm.tx).round() as i32,
                         (f64::from(sy) * dpi + pm.ty).round() as i32,
@@ -1443,6 +1482,7 @@ impl Layer {
             composite_dirty: true,
             inherited_scroll: Vec::new(),
             inherited_offset: (0.0, 0.0),
+            wrapping_clips: Vec::new(),
         }
     }
 }
