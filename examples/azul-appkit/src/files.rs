@@ -8,6 +8,8 @@
 //! a file, read a file, read every file of a folder with a suffix (all
 //! contacts), delete a file. Errors come back as sentences for the user.
 
+use std::path::{Path, PathBuf};
+
 use azul_storage::{Drive, DriveError, ListRequest};
 
 /// One thing to do in the data folder.
@@ -131,6 +133,24 @@ pub fn run_jobs(drive: &dyn Drive, jobs: Vec<FileJob>) -> Vec<FileOutcome> {
     jobs.into_iter().map(|job| run_job(drive, job)).collect()
 }
 
+/// A file the user picked OUTSIDE the data tree (a file to import): the
+/// folder to open a drive at and the job that reads the file there (its
+/// key is the file's name). `None` for a path without a file name or with
+/// a name that is not UTF-8. The drive keeps no manifest
+/// (`LocalDrive::without_manifest`), so the user's folder gets no `.azlin/`.
+#[must_use]
+pub fn outside_read(path: &Path) -> Option<(PathBuf, FileJob)> {
+    let _ = path;
+    None
+}
+
+/// Reads a file outside the data tree NOW (before the window opens: a file
+/// named on the command line), the same way: [`outside_read`] on a drive
+/// without a manifest. A missing file is an error here.
+pub fn read_outside(path: &Path) -> Result<Vec<u8>, String> {
+    Err(format!("{} could not be read", path.display()))
+}
+
 #[cfg(test)]
 pub(crate) mod test_dir {
     //! A fresh folder under the system's temporary folder, removed on drop.
@@ -174,6 +194,36 @@ mod tests {
             key: key.to_string(),
             bytes: text.as_bytes().to_vec(),
         }
+    }
+
+    #[test]
+    fn a_picked_file_outside_the_data_tree_is_read_by_name_and_its_folder_gets_no_manifest() {
+        let dir = TestDir::new("files-outside");
+        let file = dir.path().join("Report 2026.docx");
+        std::fs::write(&file, b"PK").expect("the fixture");
+        let (folder, job) = outside_read(&file).expect("a file name");
+        assert_eq!(folder, dir.path());
+        assert_eq!(
+            job,
+            FileJob::Get {
+                key: "Report 2026.docx".to_string()
+            }
+        );
+        let out = run_job(&LocalDrive::without_manifest(&folder), job);
+        assert_eq!(
+            out,
+            FileOutcome::Got {
+                key: "Report 2026.docx".to_string(),
+                result: Ok(Some(b"PK".to_vec()))
+            }
+        );
+        assert_eq!(read_outside(&file), Ok(b"PK".to_vec()));
+        assert!(read_outside(&dir.path().join("missing.md")).is_err());
+        assert!(
+            !dir.path().join(azul_storage::manifest::MANIFEST_DIR).exists(),
+            "reading a picked file left a manifest in the user's folder"
+        );
+        assert_eq!(outside_read(Path::new("/")), None);
     }
 
     #[test]
