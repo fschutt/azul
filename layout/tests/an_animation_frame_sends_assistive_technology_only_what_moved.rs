@@ -392,3 +392,34 @@ fn every_published_patch_leaves_the_screen_reader_holding_the_fresh_tree() {
         lw.a11y_manager.last_rejection
     );
 }
+
+/// What a frame costs the accessibility pass, not only what it sends: a
+/// frame that changes nothing builds no node at all (every node's inputs are
+/// unchanged, so the published one is reused), and a frame that moves the
+/// knob builds the knob alone. The full rebuild built all of them, every
+/// frame.
+#[test]
+fn an_animation_frame_builds_only_the_nodes_it_changed() {
+    let mut lw = window(page(6));
+    relayout(&mut lw);
+    let idle = lw.a11y_manager.last_pass;
+    assert!(idle.nodes > 20, "harness: the page has a real tree, {idle:?}");
+    assert_eq!(
+        (idle.built, idle.sent, idle.published),
+        (0, 0, false),
+        "a frame that changed nothing built or sent accessibility nodes: {idle:?}"
+    );
+
+    let knob = with_class(&lw, "knob");
+    restyle(
+        &mut lw,
+        knob,
+        CssProperty::const_margin_left(LayoutMarginLeft::const_px(8)),
+    );
+    let moved = lw.a11y_manager.last_pass;
+    assert_eq!(
+        (moved.built, moved.sent, moved.full),
+        (1, 1, false),
+        "a frame that moved the knob must build and send the knob alone: {moved:?}"
+    );
+}
