@@ -40,7 +40,7 @@ Branch `wt/office7` from `2e55eef06` (the wave-6 integration; every app compiles
 ## NEXT (exact)
 - 7. AzSheets: (a) DONE 3ecca29d3 RED / dd6ab7d69 GREEN (SheetEngine::update_styles; IronCalc: apply via its
   paths, read area+ring styles, undo N, ONE on_paste_styles; worker Command::Styles replaces Command::Style);
-  (b) Replace inside the grid's own edit; (c) colour / font / border pickers beyond presets;
+  (b) DONE 6e8adf1ba RED / ef0292aa6 GREEN (lib.rs replace_in_edit + the dialog's Replace arm); (c) colour / font / border pickers beyond presets;
   (d) merges shifting with inserted rows: document why not (IronCalc UserModel cannot change merge_cells).
 - 8. LOOK (writer, notes, mail, sheets, show, review) with /tmp/office7_look.py (recreate from the transcript
   if /tmp was wiped).
