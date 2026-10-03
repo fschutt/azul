@@ -15,12 +15,13 @@
 //! `set_inputs` writes a padded rectangle with the same `csv` crate
 //! (`model::tsv_of`).
 
-use std::io::Cursor;
+use std::{collections::BTreeMap, io::Cursor};
 
 use ironcalc::base::{
     cell::CellValue as IcCellValue,
     expressions::types::Area,
     types::{BorderItem, CellType, Color, HorizontalAlignment, Style, VerticalAlignment},
+    expressions::utils::{column_to_number, number_to_column},
     BorderArea, Model, UserModel,
 };
 
@@ -41,6 +42,12 @@ const LANGUAGE: &str = "en";
 /// The real engine.
 pub struct IronCalcEngine {
     model: UserModel<'static>,
+    /// The merged areas by worksheet `sheet_id` (stable across moves and
+    /// renames). IronCalc reads and writes a sheet's `<mergeCells>`, but its
+    /// UserModel cannot change them: the engine keeps them here and writes
+    /// them into the saved file. (Not undo steps; rows and columns inserted
+    /// or deleted do not move them.)
+    merges: BTreeMap<u32, Vec<CellArea>>,
 }
 
 impl Default for IronCalcEngine {
@@ -59,6 +66,7 @@ impl IronCalcEngine {
     pub fn new_empty() -> Self {
         Self {
             model: empty_model("Book1").expect("the built-in locale, time zone and language"),
+            merges: BTreeMap::new(),
         }
     }
 
@@ -68,11 +76,22 @@ impl IronCalcEngine {
             .map_err(|e| format!("Could not read the workbook: {e}"))?;
         let model = Model::from_workbook(workbook, LANGUAGE)
             .map_err(|e| format!("Could not open the workbook: {e}"))?;
+        let merges = merges_of(&model);
         let mut model = UserModel::from_model(model);
         // The import keeps the cached values; recalculate once so every
         // formula shows what IronCalc computes.
         model.evaluate();
-        Ok(Self { model })
+        Ok(Self { model, merges })
+    }
+
+    /// The stable id of the worksheet at `sheet`.
+    fn sheet_id(&self, sheet: u32) -> Option<u32> {
+        self.model
+            .get_model()
+            .workbook
+            .worksheets
+            .get(sheet as usize)
+            .map(|w| w.sheet_id)
     }
 
     /// The `#RRGGBB` of `color` (theme colours resolved), `None` for no colour.
@@ -87,6 +106,64 @@ fn empty_model(name: &str) -> Result<UserModel<'static>, EngineError> {
     let mut model = Model::new_empty("Book1", LOCALE, TIMEZONE, LANGUAGE)?;
     model.workbook.name = name.to_string();
     Ok(UserModel::from_model(model))
+}
+
+/// A sheet's merges as the file holds them (`A1:C3`), by sheet id.
+fn merges_of(model: &Model<'_>) -> BTreeMap<u32, Vec<CellArea>> {
+    model
+        .workbook
+        .worksheets
+        .iter()
+        .enumerate()
+        .map(|(i, ws)| {
+            let sheet = u32::try_from(i).unwrap_or(0);
+            let areas = ws
+                .merge_cells
+                .iter()
+                .filter_map(|r| area_of_ref(sheet, r))
+                .filter(|a| a.width * a.height > 1)
+                .collect();
+            (ws.sheet_id, areas)
+        })
+        .collect()
+}
+
+/// `A1:C3` (`$` allowed) as an area on `sheet`.
+fn area_of_ref(sheet: u32, text: &str) -> Option<CellArea> {
+    let cell = |t: &str| -> Option<(i32, i32)> {
+        let t = t.trim().replace('$', "").to_ascii_uppercase();
+        let split = t.find(|c: char| c.is_ascii_digit())?;
+        let (letters, digits) = t.split_at(split);
+        let column = column_to_number(letters).ok()?;
+        let row: i32 = digits.parse().ok()?;
+        (row >= 1).then_some((row, column))
+    };
+    let (a, b) = match text.split_once(':') {
+        Some((a, b)) => (cell(a)?, cell(b)?),
+        None => {
+            let c = cell(text)?;
+            (c, c)
+        }
+    };
+    Some(CellArea::spanning(sheet, a.0, a.1, b.0, b.1))
+}
+
+/// An area as the file writes a merge (`A1:C3`).
+fn ref_of_area(a: &CellArea) -> Option<String> {
+    Some(format!(
+        "{}{}:{}{}",
+        number_to_column(a.column)?,
+        a.row,
+        number_to_column(a.last_column())?,
+        a.last_row()
+    ))
+}
+
+/// The file of `model`.
+fn export(model: &Model<'_>) -> Result<Vec<u8>, EngineError> {
+    ironcalc::export::save_xlsx_to_writer(model, Cursor::new(Vec::new()))
+        .map(Cursor::into_inner)
+        .map_err(|e| format!("Could not write the workbook: {e}"))
 }
 
 /// `Some(s)` unless `s` is empty.
@@ -240,6 +317,7 @@ pub(crate) fn value_from(value: IcCellValue, is_error: bool) -> CellValue {
 impl SheetEngine for IronCalcEngine {
     fn new_workbook(&mut self, name: &str) -> Result<(), EngineError> {
         self.model = empty_model(name)?;
+        self.merges.clear();
         Ok(())
     }
 
@@ -249,9 +327,23 @@ impl SheetEngine for IronCalcEngine {
     }
 
     fn save_xlsx(&self) -> Result<Vec<u8>, EngineError> {
-        ironcalc::export::save_xlsx_to_writer(self.model.get_model(), Cursor::new(Vec::new()))
-            .map(Cursor::into_inner)
-            .map_err(|e| format!("Could not write the workbook: {e}"))
+        let live = self.model.get_model();
+        let unmerged = self.merges.values().all(Vec::is_empty)
+            && live.workbook.worksheets.iter().all(|w| w.merge_cells.is_empty());
+        if unmerged {
+            return export(live);
+        }
+        // The merges go into a copy of the model (the live one keeps its
+        // undo history).
+        let mut copy = Model::from_bytes(&self.model.to_bytes(), LANGUAGE)?;
+        for ws in &mut copy.workbook.worksheets {
+            ws.merge_cells = self
+                .merges
+                .get(&ws.sheet_id)
+                .map(|list| list.iter().filter_map(ref_of_area).collect())
+                .unwrap_or_default();
+        }
+        export(&copy)
     }
 
     fn workbook_name(&self) -> String {
@@ -509,17 +601,31 @@ impl SheetEngine for IronCalcEngine {
     }
 
     fn merges(&self, sheet: u32) -> Vec<CellArea> {
-        let _ = sheet;
-        Vec::new()
+        let mut out: Vec<CellArea> = self
+            .sheet_id(sheet)
+            .and_then(|id| self.merges.get(&id))
+            .map(|list| list.iter().map(|m| CellArea { sheet, ..*m }).collect())
+            .unwrap_or_default();
+        out.sort_by_key(|m| (m.row, m.column));
+        out
     }
 
     fn merge(&mut self, area: CellArea) -> Result<(), EngineError> {
-        let _ = area;
+        let id = self.sheet_id(area.sheet).ok_or_else(|| String::from("There is no such sheet."))?;
+        if area.width * area.height <= 1 {
+            return Ok(());
+        }
+        let list = self.merges.entry(id).or_default();
+        list.retain(|m| !CellArea { sheet: area.sheet, ..*m }.overlaps(&area));
+        list.push(area);
         Ok(())
     }
 
     fn unmerge(&mut self, area: CellArea) -> Result<(), EngineError> {
-        let _ = area;
+        let id = self.sheet_id(area.sheet).ok_or_else(|| String::from("There is no such sheet."))?;
+        if let Some(list) = self.merges.get_mut(&id) {
+            list.retain(|m| !CellArea { sheet: area.sheet, ..*m }.overlaps(&area));
+        }
         Ok(())
     }
 }
