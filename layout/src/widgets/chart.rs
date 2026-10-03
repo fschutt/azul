@@ -2193,12 +2193,7 @@ impl ChartLook {
         &self,
         f: impl Fn(&ChartSkin) -> Vec<CssPropertyWithConditions>,
     ) -> CssPropertyWithConditionsVec {
-        use crate::widgets::themes::theme_blocks::follow_props;
-        match self.skins.as_slice() {
-            [one] => CssPropertyWithConditionsVec::from_vec(f(one)),
-            [flat, flora] => follow_props(&f(flat), &f(flora)),
-            _ => CssPropertyWithConditionsVec::from_const_slice(&[]),
-        }
+        crate::widgets::themes::theme_blocks::part_of(&self.skins, f)
     }
 
     /// `base` (the part's structure, the same in every theme), then the

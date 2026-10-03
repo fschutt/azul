@@ -1474,3 +1474,59 @@ mod settle_tests {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Skin-built widgets: their skins, and one part merged from them
+// ---------------------------------------------------------------------------
+//
+// A widget whose look is a SKIN struct (`themes::flat::x_skin()` /
+// `themes::flora::x_skin()`) builds its DOM ONCE from parts: pinned, from its
+// theme's skin; unpinned, every part from both skins merged
+// ([`follow_props`]). These two are that rule, for any skin type (the chart,
+// the gauge, the money input, the date range picker, the reference picker).
+
+/// The skins a skin-built widget pinned to `theme` (or, `None`, following
+/// the app theme) is drawn with: one skin, or flat's and flora's in that
+/// order - what [`part_of`] merges.
+#[must_use]
+pub(crate) fn skins_of<S>(
+    theme: super::OptionUiTheme,
+    flat: fn() -> S,
+    flora: fn() -> S,
+) -> Vec<S> {
+    match theme.into_option() {
+        Some(UiTheme::Flat) => alloc::vec![flat()],
+        Some(UiTheme::Flora) => alloc::vec![flora()],
+        None => alloc::vec![flat(), flora()],
+    }
+}
+
+/// The skin whose STRUCTURE the DOM carries (its theme marker class, its
+/// metrics a builder reads as numbers): the pinned theme's, or the one of
+/// the theme the DOM is built for ([`UiTheme::current`]) - `skins` as
+/// [`skins_of`] made them.
+#[must_use]
+pub(crate) fn structure_skin<S>(skins: &[S], theme: super::OptionUiTheme) -> Option<&S> {
+    match (skins, theme.into_option()) {
+        ([one], _) => Some(one),
+        ([flat, flora], None) => Some(match UiTheme::current() {
+            UiTheme::Flat => flat,
+            UiTheme::Flora => flora,
+        }),
+        _ => skins.first(),
+    }
+}
+
+/// One part, built from every skin by `f`: the one skin's as it is, or
+/// flat's and flora's merged into their `@theme` blocks ([`follow_props`]).
+#[must_use]
+pub(crate) fn part_of<S>(
+    skins: &[S],
+    f: impl Fn(&S) -> Vec<CssPropertyWithConditions>,
+) -> CssPropertyWithConditionsVec {
+    match skins {
+        [one] => CssPropertyWithConditionsVec::from_vec(f(one)),
+        [flat, flora] => follow_props(&f(flat), &f(flora)),
+        _ => CssPropertyWithConditionsVec::from_const_slice(&[]),
+    }
+}
