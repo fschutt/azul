@@ -1392,19 +1392,30 @@ struct Playout {
     /// Cancels the echo of what plays from the microphone (at `MIC_RATE`): fed every turn the
     /// playout plays, used by `send_audio`. `None` when nothing plays on a device, or turned off
     /// (`AZMEET_ECHO_CANCEL=0`).
-    echo: Option<EchoCanceller>,
+    echo: Option<SharedEcho>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// The echo canceller, so the playout state can move to its thread. The generated handle is a raw
+/// pointer and therefore not `Send`; the library keeps the canceller's state behind a `Mutex`
+/// (`audio/echo.rs`, `EchoCanceller::stream`).
+struct SharedEcho(EchoCanceller);
+
+// SAFETY: the canceller's state lives behind a Mutex inside the library, and AzMeet reaches it
+// only while holding the `Playout` mutex - the handle is never used from two threads at once,
+// and it is dropped (closed) exactly once, with the `Playout`.
+unsafe impl Send for SharedEcho {}
+
 /// Starts the playout thread. It ends once the returned handle (kept in `MeetState`) is gone.
 fn start_playout(play: bool) -> Arc<Mutex<Playout>> {
     let cancel = std::env::var("AZMEET_ECHO_CANCEL").map_or(true, |v| v.trim() != "0");
     let echo = (play && cancel)
         .then(|| EchoCanceller::create(MIC_RATE, ECHO_TAIL_MS))
-        .filter(EchoCanceller::is_open);
+        .filter(EchoCanceller::is_open)
+        .map(SharedEcho);
     let shared = Arc::new(Mutex::new(Playout {
         peers: BTreeMap::new(),
         play,
@@ -1452,7 +1463,7 @@ fn playout_loop(shared: Weak<Mutex<Playout>>) {
                         out.push((*handle, jitter.sample_rate(), samples));
                     }
                 }
-                if let (Some(echo), false) = (playout.echo.as_ref(), mix.is_empty()) {
+                if let (Some(echo), false) = (playout.echo.as_ref().map(|e| &e.0), mix.is_empty()) {
                     let _ = echo.far_end(AudioFrame {
                         sample_rate: MIC_RATE,
                         channels: 1,
@@ -1609,7 +1620,7 @@ fn cancel_echo(
 ) -> Option<Vec<f32>> {
     let shared = s.playout.as_ref()?;
     let playout = lock(shared);
-    let echo = playout.echo.as_ref()?;
+    let echo = &playout.echo.as_ref()?.0;
     let cleaned = echo.process(AudioFrame {
         sample_rate,
         channels: 1,
