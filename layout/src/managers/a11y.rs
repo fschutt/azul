@@ -577,11 +577,11 @@ impl A11yManager {
     /// Walks the exposed nodes and compares each one's inputs with the
     /// retained tree's: a node whose inputs are unchanged is not built at all,
     /// a changed one is built and compared with what was published. Then it
-    /// publishes ONLY what differs - a patch (`tree: None`) of the new and
-    /// changed nodes (a node that left goes with its parent's new child list)
-    /// - and NOTHING when nothing a screen reader can see changed. The first
-    /// pass, and the first after [`Self::resend_full_tree`] or a refused
-    /// update, publishes the whole tree.
+    /// publishes ONLY what differs, a patch (`tree: None`) of the new and
+    /// changed nodes (a node that left goes with its parent's new child
+    /// list), and NOTHING when nothing a screen reader can see changed. The
+    /// first pass, and the first after [`Self::resend_full_tree`] or a
+    /// refused update, publishes the whole tree.
     ///
     /// Before this the tree was rebuilt and published whole after every
     /// layout: every frame of a layout-property tween re-sent all of
@@ -671,8 +671,8 @@ impl A11yManager {
     /// complete on its own. Then folds `update` into whatever is still parked
     /// (see [`Self::fold`]), so the slot always holds ONE coherent update.
     /// Refused updates leave the slot and the mirror exactly as they were and
-    /// are recorded in `last_rejection`; the caller decides (incremental →
-    /// rebuild the full tree; full → keep the last good state).
+    /// are recorded in `last_rejection`; the caller decides (incremental:
+    /// rebuild the full tree; full: keep the last good state).
     ///
     /// # Errors
     ///
