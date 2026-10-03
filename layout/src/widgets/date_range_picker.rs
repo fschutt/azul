@@ -89,21 +89,37 @@ impl DateRange {
     /// The span between `a` and `b`, either way round.
     #[must_use]
     pub fn create(a: DatePickerState, b: DatePickerState) -> Self {
-        Self { start: a, end: b }
+        if key(a) <= key(b) {
+            Self { start: a, end: b }
+        } else {
+            Self { start: b, end: a }
+        }
     }
 
     /// Whether `day` is in the span (both ends included).
     #[must_use]
     pub fn contains(&self, day: DatePickerState) -> bool {
-        let _ = day;
-        false
+        key(self.start) <= key(day) && key(day) <= key(self.end)
     }
 
     /// How many days the span has (1 for a single day).
     #[must_use]
     pub fn day_count(&self) -> u32 {
-        0
+        let days = day_number(self.end) - day_number(self.start) + 1;
+        u32::try_from(days.max(0)).unwrap_or(0)
     }
+}
+
+/// The day number of `d`: days since a fixed day, so two dates subtract to
+/// the days between them (the proleptic Gregorian calendar).
+pub(crate) fn day_number(d: DatePickerState) -> i64 {
+    // Days before the year (years 1..year), then the days of the year.
+    let y = i64::from(d.year.max(1)) - 1;
+    let before_year = y * 365 + y / 4 - y / 100 + y / 400;
+    let before_month: i64 = (1..d.month.clamp(1, 12))
+        .map(|m| i64::from(crate::widgets::date_picker::days_in_month(d.year, m)))
+        .sum();
+    before_year + before_month + i64::from(d.day)
 }
 
 impl_option!(
@@ -161,8 +177,67 @@ impl DateRangePreset {
     /// on `week_start`.
     #[must_use]
     pub fn range(self, today: DatePickerState, week_start: DatePickerWeekStart) -> DateRange {
-        let _ = week_start;
-        DateRange::create(today, today)
+        use crate::widgets::date_picker::{days_in_month, shifted_date, weekday};
+
+        let shift = |by: i32| {
+            let (year, month, day) = shifted_date(today.year, today.month, today.day, by);
+            DatePickerState { year, month, day }
+        };
+        let month_of = |year: u32, month: u32| {
+            DateRange::create(
+                DatePickerState {
+                    year,
+                    month,
+                    day: 1,
+                },
+                DatePickerState {
+                    year,
+                    month,
+                    day: days_in_month(year, month),
+                },
+            )
+        };
+        let year_of = |year: u32| {
+            DateRange::create(
+                DatePickerState {
+                    year,
+                    month: 1,
+                    day: 1,
+                },
+                DatePickerState {
+                    year,
+                    month: 12,
+                    day: 31,
+                },
+            )
+        };
+        // Days since the week started (0 on the week start itself).
+        let into_week = {
+            let first = match week_start {
+                DatePickerWeekStart::Sunday => 0,
+                DatePickerWeekStart::Monday => 1,
+            };
+            let wd = weekday(today.year, today.month, today.day);
+            ((wd + 7 - first) % 7) as i32
+        };
+        match self {
+            Self::Today => DateRange::create(today, today),
+            Self::Yesterday => DateRange::create(shift(-1), shift(-1)),
+            Self::Last7Days => DateRange::create(shift(-6), today),
+            Self::Last30Days => DateRange::create(shift(-29), today),
+            Self::ThisWeek => DateRange::create(shift(-into_week), shift(6 - into_week)),
+            Self::LastWeek => DateRange::create(shift(-into_week - 7), shift(-into_week - 1)),
+            Self::ThisMonth => month_of(today.year, today.month),
+            Self::LastMonth => {
+                if today.month <= 1 {
+                    month_of(today.year.saturating_sub(1).max(1), 12)
+                } else {
+                    month_of(today.year, today.month - 1)
+                }
+            }
+            Self::ThisYear => year_of(today.year),
+            Self::LastYear => year_of(today.year.saturating_sub(1).max(1)),
+        }
     }
 }
 
@@ -221,21 +296,37 @@ impl DateRangePickerView {
     /// month before its end).
     #[must_use]
     pub fn with_range(range: DateRange) -> Self {
-        let _ = range;
-        Self::create(2000, 1)
+        let start = Self::create(range.start.year, range.start.month);
+        let (ry, rm) = start.right_month();
+        let left = if (range.end.year, range.end.month) <= (ry, rm) {
+            start
+        } else {
+            Self::create(range.end.year, range.end.month).turned(-1)
+        };
+        Self {
+            range: OptionDateRange::Some(range),
+            ..left
+        }
     }
 
     /// The months turned by `delta` (negative: back).
     #[must_use]
     pub fn turned(self, delta: i32) -> Self {
-        let _ = delta;
-        self
+        let index =
+            i64::from(self.year) * 12 + i64::from(self.month.clamp(1, 12)) - 1 + i64::from(delta);
+        let index = index.max(12); // never before January of year 1
+        Self {
+            year: u32::try_from(index / 12).unwrap_or(1),
+            month: u32::try_from(index % 12).unwrap_or(0) + 1,
+            ..self
+        }
     }
 
     /// The month on the right: `(year, month)`.
     #[must_use]
     pub fn right_month(&self) -> (u32, u32) {
-        (self.year, self.month)
+        let next = self.turned(1);
+        (next.year, next.month)
     }
 }
 
@@ -442,8 +533,23 @@ pub(crate) fn click_day(
     view: DateRangePickerView,
     day: DatePickerState,
 ) -> (DateRangePickerView, DateRangePickerEventKind) {
-    let _ = day;
-    (view, DateRangePickerEventKind::Anchored)
+    match view.anchor.into_option() {
+        None => (
+            DateRangePickerView {
+                anchor: OptionDatePickerState::Some(day),
+                ..view
+            },
+            DateRangePickerEventKind::Anchored,
+        ),
+        Some(anchor) => (
+            DateRangePickerView {
+                range: OptionDateRange::Some(DateRange::create(anchor, day)),
+                anchor: OptionDatePickerState::None,
+                ..view
+            },
+            DateRangePickerEventKind::Picked,
+        ),
+    }
 }
 
 /// The span the grids show in `view` with the pointer (or the focus) on
@@ -454,16 +560,27 @@ pub(crate) fn shown_range(
     view: &DateRangePickerView,
     over: Option<DatePickerState>,
 ) -> Option<DateRange> {
-    let _ = (view, over);
-    None
+    match view.anchor.into_option() {
+        Some(anchor) => Some(DateRange::create(anchor, over.unwrap_or(anchor))),
+        None => view.range.into_option(),
+    }
+}
+
+/// One day in words: "4 Mar 2026".
+fn day_text(d: DatePickerState) -> String {
+    let name = crate::widgets::date_picker::month_name(d.month);
+    format!("{} {} {}", d.day, name.get(..3).unwrap_or(name), d.year)
 }
 
 /// The range in words: "4 Mar 2026 - 10 Mar 2026", one day alone as
 /// "4 Mar 2026".
 #[must_use]
 pub(crate) fn range_text(range: &DateRange) -> String {
-    let _ = range;
-    String::new()
+    if range.start == range.end {
+        day_text(range.start)
+    } else {
+        format!("{} \u{2013} {}", day_text(range.start), day_text(range.end))
+    }
 }
 
 #[cfg(test)]
