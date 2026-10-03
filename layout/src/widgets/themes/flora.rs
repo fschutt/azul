@@ -8141,3 +8141,59 @@ pub(crate) fn token_input_look() -> crate::widgets::token_input::TokenInputLook 
         marker: Some(super::style_kit::FLORA_CLASS),
     }
 }
+
+// ==== icon_grid ====
+//
+// A flora icon grid is laid on field paper (`--fl-fld`): glyphs in the
+// house icon ink, labels in the ink under them; an item lifts to the hover
+// face under the pointer, a selected one rests on the accent's soft wash in
+// an accent hairline (the accent and its glow at night, as a data table's
+// selected row), the focused one is outlined in the accent; the rubber band
+// is the selection adorner's marquee; the scroll bar is the data table's.
+// The grid rings itself inside in the accent when it has the focus.
+
+/// Flora's icon-grid look.
+#[must_use]
+pub(crate) fn icon_grid_look() -> crate::widgets::icon_grid::IconGridLook {
+    use super::decl;
+
+    let mut grid = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+        decl::font_size(12),
+    ];
+    grid.extend(decl::themed_fill(LIGHT_FLD, DARK_FLD));
+    grid.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    grid.extend(decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW));
+
+    let mut item = decl::padding(4, 2, 2, 2).to_vec();
+    item.extend(decl::radius(3));
+    item.push(CssPropertyWithConditions::simple(decl::fill(ColorU::TRANSPARENT)));
+    item.extend(decl::border_colors(ColorU::TRANSPARENT).map(CssPropertyWithConditions::simple));
+    item.extend(decl::hover_fill(LIGHT_HT, DARK_HT));
+
+    let mut item_selected = decl::themed_fill(LIGHT_SOFT, DARK_ACC).to_vec();
+    item_selected.extend(decl::themed_border_color(LIGHT_ACC, DARK_GLOW));
+    // The hover face again after the resting one, so it is not shadowed.
+    item_selected.extend(decl::hover_fill(LIGHT_SOFT, DARK_ACC));
+
+    let mut label = decl::margin(2, 0, 0, 0).to_vec();
+    label.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    let mut badge = vec![decl::font_size(16)];
+    badge.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    let mut thumb = decl::themed_fill(LIGHT_SOFT2, DARK_SOFT2).to_vec();
+    thumb.extend(decl::radius(4));
+
+    crate::widgets::icon_grid::IconGridLook {
+        grid,
+        item,
+        item_selected,
+        item_focused: decl::themed_border_color(LIGHT_ACC, DARK_GLOW),
+        icon: decl::themed_ink(LIGHT_ICON, DARK_ICON).to_vec(),
+        label,
+        badge,
+        marquee: selection_adorner_look().marquee,
+        track: decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec(),
+        thumb,
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
+}
