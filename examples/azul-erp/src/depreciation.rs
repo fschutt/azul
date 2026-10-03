@@ -84,8 +84,100 @@ pub fn schedule(asset: &Asset) -> Vec<ScheduleRow> {
 /// depreciate: the residual value is the cost).
 #[must_use]
 pub fn schedule_of(plan: &Plan) -> Vec<ScheduleRow> {
-    let _ = (plan, FULL_RATE_BP);
-    todo!("GREEN")
+    let depreciable = plan.cost - plan.residual;
+    if depreciable <= 0 {
+        return Vec::new();
+    }
+    // The months from the start to the disposal, both months counted.
+    let stop: Option<u32> = plan.end.map(|end| months_from(plan.start, end));
+    if stop == Some(0) {
+        return Vec::new();
+    }
+    let start_month = plan.start.month();
+    if plan.life_years == 0 {
+        // A low-value asset: written off in the year it was acquired.
+        return vec![ScheduleRow {
+            year: plan.start.year(),
+            first_month: start_month,
+            months: 12 - start_month + 1,
+            opening: plan.cost,
+            depreciation: depreciable,
+            accumulated: depreciable,
+            closing: plan.residual,
+        }];
+    }
+    let total = plan.life_years * 12;
+    let mut rows = Vec::with_capacity(plan.life_years as usize + 1);
+    let mut remaining = total;
+    let mut elapsed: u32 = 0;
+    let mut book = plan.cost;
+    let mut accumulated = 0_i64;
+    let mut year = plan.start.year();
+    let mut first_month = start_month;
+    while remaining > 0 {
+        let mut months = (12 - first_month + 1).min(remaining);
+        if let Some(stop) = stop {
+            if elapsed >= stop {
+                break;
+            }
+            months = months.min(stop - elapsed);
+        }
+        let left = book - plan.residual;
+        let depreciation = if months == remaining {
+            // The final period of the life takes what is left.
+            left
+        } else {
+            let straight = match plan.method {
+                Method::StraightLine => div_round(
+                    i128::from(depreciable) * i128::from(months),
+                    i128::from(total),
+                ),
+                Method::DecliningBalance => {
+                    div_round(i128::from(left) * i128::from(months), i128::from(remaining))
+                }
+            };
+            let amount = match plan.method {
+                Method::StraightLine => straight,
+                Method::DecliningBalance => {
+                    let declining = div_round(
+                        i128::from(book) * i128::from(plan.rate_bp) * i128::from(months),
+                        12 * i128::from(FULL_RATE_BP),
+                    );
+                    declining.max(straight)
+                }
+            };
+            amount.clamp(0, left.max(0))
+        };
+        let opening = book;
+        book -= depreciation;
+        accumulated += depreciation;
+        rows.push(ScheduleRow {
+            year,
+            first_month,
+            months,
+            opening,
+            depreciation,
+            accumulated,
+            closing: book,
+        });
+        elapsed += months;
+        remaining -= months;
+        if stop.is_some_and(|stop| elapsed >= stop) {
+            break;
+        }
+        year += 1;
+        first_month = 1;
+    }
+    rows
+}
+
+/// The months from `start`'s month to `end`'s month, both counted (0 when
+/// `end` is before `start`'s month).
+fn months_from(start: NaiveDate, end: NaiveDate) -> u32 {
+    let months = i64::from(end.year() - start.year()) * 12 + i64::from(end.month())
+        - i64::from(start.month())
+        + 1;
+    u32::try_from(months).unwrap_or(0)
 }
 
 /// The asset's book value at the end of `day`: its cost before it was
@@ -93,23 +185,50 @@ pub fn schedule_of(plan: &Plan) -> Vec<ScheduleRow> {
 /// its residual value after its life, 0 from the day it was disposed of.
 #[must_use]
 pub fn book_value_on(asset: &Asset, day: NaiveDate) -> i64 {
-    let _ = (asset, day);
-    todo!("GREEN")
+    if asset.disposed.is_some_and(|d| day >= d) {
+        return 0;
+    }
+    if day < asset.acquired {
+        return asset.cost;
+    }
+    let rows = schedule(asset);
+    let Some(last) = rows.last() else {
+        return asset.cost;
+    };
+    if day.year() > last.year {
+        return last.closing;
+    }
+    let Some(row) = rows.iter().find(|r| r.year == day.year()) else {
+        return asset.cost;
+    };
+    let elapsed =
+        (i64::from(day.month()) - i64::from(row.first_month) + 1).clamp(0, i64::from(row.months));
+    if elapsed >= i64::from(row.months) {
+        return row.closing;
+    }
+    row.opening
+        - div_round(
+            i128::from(row.depreciation) * i128::from(elapsed),
+            i128::from(row.months),
+        )
 }
 
 /// The asset's depreciation in `year` (0 outside its schedule).
 #[must_use]
 pub fn depreciation_in_year(asset: &Asset, year: i32) -> i64 {
-    let _ = (asset, year);
-    todo!("GREEN")
+    schedule(asset)
+        .iter()
+        .find(|r| r.year == year)
+        .map_or(0, |r| r.depreciation)
 }
 
 /// What the disposal brought beyond the book value then: a gain (positive)
 /// or a loss (negative); `None` for an asset not disposed of.
 #[must_use]
 pub fn disposal_result(asset: &Asset) -> Option<i64> {
-    let _ = asset;
-    todo!("GREEN")
+    asset.disposed?;
+    let book = schedule(asset).last().map_or(asset.cost, |r| r.closing);
+    Some(asset.disposal_amount - book)
 }
 
 #[cfg(test)]
