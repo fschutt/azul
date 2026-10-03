@@ -103,9 +103,10 @@ const THUMB_H: u32 = 54;
 /// Frames the playback job renders ahead of the playhead.
 const PLAY_AHEAD: usize = 6;
 /// The markers of the nodes updated in place.
-const PROGRAM_IMAGE: &str = "vc-program-image";
-const PROGRAM_TC: &str = "vc-program-tc";
-const SOURCE_IMAGE: &str = "vc-source-image";
+/// (Defined once, with the app's `__azvideocut_` prefix.)
+const PROGRAM_IMAGE: AzString = AzString::from_const_str("__azvideocut_program-image");
+const PROGRAM_TC: AzString = AzString::from_const_str("__azvideocut_program-tc");
+const SOURCE_IMAGE: AzString = AzString::from_const_str("__azvideocut_source-image");
 /// The export choices.
 const EXPORT_SIZES: [(u32, u32); 3] = [(1280, 720), (854, 480), (640, 360)];
 const EXPORT_BITRATES: [u32; 3] = [8000, 4000, 1500];
@@ -727,11 +728,11 @@ fn blank_image(width: u32, height: u32) -> ImageRef {
 
 /// Swaps the picture of the image node carrying `marker` in place: no
 /// layout, no DOM rebuild.
-fn show_in_place(info: &mut CallbackInfo, marker: &str, c: &Canvas) {
+fn show_in_place(info: &mut CallbackInfo, marker: AzString, c: &Canvas) {
     let Some(image) = image_of(c) else {
         return;
     };
-    let Some(node) = info.get_node_id_by_marker(AzString::from(marker)).into_option() else {
+    let Some(node) = info.get_node_id_by_marker(marker).into_option() else {
         return;
     };
     let index = node.node.into_raw();
@@ -1094,12 +1095,12 @@ fn row(children: Vec<Dom>) -> Dom {
 }
 
 /// A picture for an image node: the canvas, or an empty one.
-fn monitor_image(picture: Option<&Canvas>, marker: &str, size: (u32, u32)) -> Dom {
+fn monitor_image(picture: Option<&Canvas>, marker: AzString, size: (u32, u32)) -> Dom {
     let image = picture
         .and_then(image_of)
         .unwrap_or_else(|| blank_image(size.0, size.1));
     Dom::create_image(image)
-        .with_marker(OptionString::Some(AzString::from(marker)))
+        .with_marker(OptionString::Some(marker))
         .with_css(IMAGE_CSS)
 }
 
@@ -1391,7 +1392,7 @@ fn program_pane(app: &VideoCut, app_ref: &RefAny) -> Dom {
             row(vec![
                 Dom::create_p_with_text(app.timecode(app.playhead).as_str())
                     .with_css(TC_CSS)
-                    .with_marker(OptionString::Some(AzString::from(PROGRAM_TC))),
+                    .with_marker(OptionString::Some(PROGRAM_TC)),
                 text(
                     &format!(
                         "/ {}  In {}  Out {}",
