@@ -1344,7 +1344,7 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
         "INSERT",
         vec![
             group("Charts", vec![large(app, "insert_chart", "Chart", Action::Chart)]),
-            group("Functions", vec![large(app, "function", "Function", Action::InsertFunction)]),
+            group("Functions", vec![large(app, "functions", "Function", Action::InsertFunction)]),
         ],
     );
     let formulas = tab(
@@ -1353,7 +1353,7 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
             group(
                 "Function Library",
                 vec![
-                    large(app, "function", "Insert Function", Action::InsertFunction),
+                    large(app, "functions", "Insert Function", Action::InsertFunction),
                     large(app, "functions", "AutoSum", Action::AutoSum),
                 ],
             ),
@@ -1502,11 +1502,16 @@ fn formula_bar(s: &AppState, app: &RefAny) -> Dom {
     } else {
         s.view.edit_text.as_str().to_string()
     };
-    let name_box = field(app, Field::NameBox, &name, "Name box")
-        .with_accessibility_name(AzString::from("Name box"))
-        .dom()
-        .with_id(AzString::from(NAME_BOX_ID))
-        .with_css("width: 110px; flex-grow: 0; margin-right: 6px;");
+    // A fixed-width box around the field: the field's own (inline) style
+    // makes it grow, which beats a sheet on its root - it took half the bar.
+    let name_box = Dom::create_div()
+        .with_css("display: flex; flex-direction: row; width: 110px; flex-grow: 0; flex-shrink: 0; margin-right: 6px;")
+        .with_child(
+            field(app, Field::NameBox, &name, "Name box")
+                .with_accessibility_name(AzString::from("Name box"))
+                .dom()
+                .with_id(AzString::from(NAME_BOX_ID)),
+        );
     let fx = Button::create(AzString::from("fx"))
         .with_on_click(
             RefAny::new(ActionRef {
@@ -1985,8 +1990,11 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             .with_ribbon(ribbon(s, &app))
             .with_status_bar(status_bar(s, &app))
     };
+    // The body fills the window exactly (no UA margin): the shell's rows
+    // share its height, the grid takes what is left and clips, the status
+    // bar stays on screen.
     Dom::create_body()
-        .with_css("display: flex; flex-direction: column;")
+        .with_css("display: flex; flex-direction: column; margin: 0px; padding: 0px; height: 100%;")
         .with_child(
             ShellThemeScope::create(shell.dom())
                 .with_accent(ShellThemeAccent::Leaf)
