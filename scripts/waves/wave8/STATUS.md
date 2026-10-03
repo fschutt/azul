@@ -20,3 +20,4 @@ progress file"). Worktrees: /Users/fschutt/Development/azul/.claude/worktrees/ag
 append conflicts); api.json converged 113ea54f1 (XML8's `Content` enum renamed ContentModel - autofix had proposed
 replacing the CSS Content type with it; ANIM8 closure lifetime fixed). NOT BUILT - waiting for LAYOUTPERF8.
 2026-10-03: ALL TEN MERGED; autofix 0 / 0; dylib + 24 crates building (-j 4, on power).
+2026-10-03 evening: WAVE 8 COMPILES (dylib + 24 crates, 21 apps) after EchoCanceller -> audio (94c741e71) and the AzMeet Send newtype (5a4ce677b). MAIL CORPUS: 20 mails, 944 boxes, 0 MISMATCHED (wave-8 base: 531 of 923; first measure 874) - target/refci/mail-wave8/.
