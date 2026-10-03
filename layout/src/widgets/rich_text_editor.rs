@@ -385,6 +385,9 @@ pub struct RichTextEditor {
     pub font_size: f32,
     /// The space under a paragraph in px (a note's 6, a mail's 0).
     pub paragraph_spacing: f32,
+    /// A line's height as a factor of the font size (a slide's 1.15);
+    /// 0 is the editor's own 1.5.
+    pub line_height: f32,
     /// The widget theme the frame and toolbar are PINNED to, or `None` to
     /// follow the app theme.
     pub theme: crate::widgets::themes::OptionUiTheme,
@@ -408,6 +411,7 @@ impl RichTextEditor {
             on_link: OptionRichTextEditorOnLink::None,
             font_size: 14.0,
             paragraph_spacing: 6.0,
+            line_height: 0.0,
             toolbar: RichTextToolbar::create_none(),
             markdown_shortcuts: true,
             read_only: false,
@@ -516,6 +520,19 @@ impl RichTextEditor {
     #[must_use]
     pub fn with_paragraph_spacing(mut self, px: f32) -> Self {
         self.set_paragraph_spacing(px);
+        self
+    }
+
+    /// A line's height as a factor of the font size (PowerPoint's single
+    /// spacing is 1.15); 0 (the default) is the editor's own 1.5.
+    pub fn set_line_height(&mut self, factor: f32) {
+        self.line_height = factor;
+    }
+
+    /// [`Self::set_line_height`] for the builder chain.
+    #[must_use]
+    pub fn with_line_height(mut self, factor: f32) -> Self {
+        self.set_line_height(factor);
         self
     }
 

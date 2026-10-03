@@ -806,3 +806,5 @@ mod text_inside_an_opacity_group_keeps_its_colour;
 mod a_text_field_takes_the_font_size_its_app_gives_it;
 #[path = "a_stretched_flex_container_keeps_its_min_height.rs"]
 mod a_stretched_flex_container_keeps_its_min_height;
+#[path = "a_rich_text_editor_sets_its_line_height_and_scales_its_indents_with_its_text.rs"]
+mod a_rich_text_editor_sets_its_line_height_and_scales_its_indents_with_its_text;
