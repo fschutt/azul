@@ -953,6 +953,9 @@ fn run_compose_action(app: &mut RefAny, info: &mut CallbackInfo, id: u64, action
                         ComposeStatus::Problem(String::from("The account is gone."));
                     return Update::RefreshDom;
                 };
+                // The DKIM key, when Send / Receive read it from the keyring (or it was made in
+                // this run); without it a signing account's mail waits in the Outbox.
+                let dkim_key = s.dkim_keys.get(&account.id).cloned().flatten();
                 let c = &mut s.composes[at];
                 c.status = if send {
                     ComposeStatus::Sending
@@ -972,6 +975,7 @@ fn run_compose_action(app: &mut RefAny, info: &mut CallbackInfo, id: u64, action
                     attachments: c.attachments.clone(),
                     draft_uid: c.draft_uid,
                     send,
+                    dkim_key,
                 };
                 info.add_thread(
                     ThreadId::unique(),
@@ -1042,6 +1046,8 @@ struct OutgoingJob {
     draft_uid: Option<u32>,
     /// Send (else save a draft).
     send: bool,
+    /// The DKIM private key for an account that signs (from `MailApp::dkim_keys`).
+    dkim_key: Option<crate::account::Secret>,
 }
 
 /// What the thread did.
@@ -1116,7 +1122,8 @@ fn run_outgoing(job: &OutgoingJob) -> OutgoingDone {
         Ok(mail) => mail,
         Err(e) => return OutgoingDone::Problem(e.to_string()),
     };
-    let settings = send::SendSettings::load(&job.root, &job.account_id);
+    let mut settings = send::SendSettings::load(&job.root, &job.account_id);
+    settings.dkim_key = job.dkim_key.clone();
     let status = send::send_mail(&job.root, &job.account_id, &settings, &mail);
     if let (send::SendStatus::Sent { .. }, Some(uid)) = (&status, job.draft_uid) {
         // Sent: the draft it was is not a draft any more.
