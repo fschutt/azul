@@ -31,7 +31,8 @@
 //!   what they mean becomes style (`bgcolor`, `text`, `color`, `face`, `size`, `align`,
 //!   `hspace`, `vspace`, `border`);
 //! - nesting deeper than 200 keeps the text only;
-//! - the text (its character references decoded by the parser) is re-escaped.
+//! - the text (its character references decoded by the parser) and every attribute value are
+//!   written by azul's one encoder (`Xml::encode_text` / `Xml::encode_attribute`).
 //!
 //! The mail is read on PAPER, a `<div class="__azmail_paper">` ([`ids::PAPER`]): a mail that says nothing about
 //! the dark mode was designed on white, so its paper is white with dark text in either mode (and
@@ -275,7 +276,7 @@ impl Sanitizer {
     fn children(&mut self, nodes: &[XmlNodeChild]) {
         for node in nodes {
             match node {
-                XmlNodeChild::Text(text) => escape_into(&mut self.out, text.as_str(), false),
+                XmlNodeChild::Text(text) => push_text(&mut self.out, text.as_str()),
                 XmlNodeChild::Element(element) => self.element(element),
             }
         }
@@ -382,11 +383,11 @@ impl Sanitizer {
             // Loaded after all: an image the app fetches and caches under its src.
             self.blocked_images -= 1;
             self.out.push_str("<img src=\"");
-            escape_into(&mut self.out, src, true);
+            push_attribute(&mut self.out, src);
             self.out.push('"');
             if let Some(alt) = alt {
                 self.out.push_str(" alt=\"");
-                escape_into(&mut self.out, alt, true);
+                push_attribute(&mut self.out, alt);
                 self.out.push('"');
             }
             let pixels = |name: &str| {
@@ -430,7 +431,7 @@ impl Sanitizer {
             }
             if !styles.is_empty() {
                 self.out.push_str(" style=\"");
-                escape_into(&mut self.out, &styles.join("; "), true);
+                push_attribute(&mut self.out, &styles.join("; "));
                 self.out.push('"');
             }
             self.out.push_str("/>");
@@ -446,7 +447,7 @@ impl Sanitizer {
         self.out.push_str("<span style=\"");
         self.out.push_str(BLOCKED_IMAGE_STYLE);
         self.out.push_str("\">");
-        escape_into(&mut self.out, &label, false);
+        push_text(&mut self.out, &label);
         self.out.push_str("</span>");
     }
 
@@ -464,7 +465,7 @@ impl Sanitizer {
         }
         sheet.push_str(&self.styles);
         let mut xhtml = String::from("<html><head><style>");
-        escape_into(&mut xhtml, sheet.trim_end(), false);
+        push_text(&mut xhtml, sheet.trim_end());
         xhtml.push_str("</style></head><body><div class=\"");
         xhtml.push_str(paper);
         xhtml.push_str("\">");
@@ -587,7 +588,7 @@ fn push_attributes(
         out.push(' ');
         out.push_str(name);
         out.push_str("=\"");
-        escape_into(out, &value, true);
+        push_attribute(out, &value);
         out.push('"');
     }
     if !styles.is_empty() {
@@ -597,7 +598,7 @@ fn push_attributes(
             .collect::<Vec<_>>()
             .join("; ");
         out.push_str(" style=\"");
-        escape_into(out, &joined, true);
+        push_attribute(out, &joined);
         out.push('"');
     }
 }
@@ -880,21 +881,16 @@ fn safe_style_value(value: &str) -> bool {
         && !value.chars().any(char::is_control)
 }
 
-/// Appends `s` escaped for XML text (or, with `attribute`, a double-quoted attribute value),
-/// leaving out characters XML does not allow and control characters.
-fn escape_into(out: &mut String, s: &str, attribute: bool) {
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' if attribute => out.push_str("&quot;"),
-            '\t' | '\n' | '\r' => out.push(c),
-            '\u{fffe}' | '\u{ffff}' => {}
-            c if c.is_control() => {}
-            c => out.push(c),
-        }
-    }
+/// Appends `s` as XML text, written by azul's one encoder (`Xml::encode_text`: `& < >` as
+/// references, what XML 1.0 cannot carry left out).
+fn push_text(out: &mut String, s: &str) {
+    out.push_str(Xml::encode_text(s).as_str());
+}
+
+/// Appends `s` as a quoted attribute value, written by azul's one encoder
+/// (`Xml::encode_attribute`: [`push_text`]'s references and both quotes).
+fn push_attribute(out: &mut String, s: &str) {
+    out.push_str(Xml::encode_attribute(s).as_str());
 }
 
 #[cfg(test)]
