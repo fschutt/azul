@@ -26,17 +26,20 @@ page_breaks.rs. Not the a11y code (A11YPATCH8).
   dll raises content_repaint_pending for a repaint frame (headless paints instead of relayout_only);
   dll driver tests write the knob transform
 - c9d59e666 switch_animation.rs pins the margin-left tween with an explicit margin knob style
+- eb17a9528 progress
+- d332a93fb RED layout/tests/a_face_fade_frame_is_patched_in_place.rs (item 3)
+- 5c5668705 GREEN item 3: batched restyle (one recompute per frame), PaintColorSlot border patch +
+  patch_compact_border_color, text-colour fade refreshes inheritance on its last frame
+- a3772c8ba RED layout/tests/a_layout_tween_frame_reuses_the_tree_and_patches_the_list.rs (items 1+2)
+- f581d023a GREEN items 1+2: LayoutCache::overrides_only_hint + OverridesOnlyStamp, armed in tick_animations
+  (tween_keeps_layout_tree_shape allowlist), consumed in layout_document Step 1; css_dirty_reemit_set in the
+  patch arm; voided by apply_content_change and new generations
 
 ## IN PROGRESS
-- item 3 (css_transition_tick lightweight): batch the slow path into ONE compact rebuild per tick; border
-  colours patchable (patch_paint_colors gains border sides) so a flat Button face fade is fully patched.
+- item 4: VirtualView keep-alive on the relayout entry (host VirtualViewNode identity in the manager).
 
 ## NEXT
-- item 1: override-only latch (`LayoutCache::overrides_only_hint` + stamp) armed by tick_animations when all
-  relayout tweens keep the tree shape; consumed in layout_document Step 1 like resize_only.
-- item 2: the skipped-reconcile patch arm re-emits css-dirty nodes (+ subtrees) instead of falling back.
-- item 4: VirtualView keep-alive on the relayout entry (host VirtualViewNode identity in the manager).
-- report sections 3/4, measurement commands.
+- report sections 3/4, measurement commands, api.json (none), least-sure list.
 
 ## DECISIONS
 - Knob: transform in BOTH states (translateX(0px) when off) so the reference frame exists from the first
