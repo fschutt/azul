@@ -59,9 +59,11 @@ agents - keep files under `m6/` (a `msg.txt` at the root got overwritten).
   overflow left). knuth_plass.rs ~701 does 0 always (wrong in RTL); cache.rs
   `calculate_alignment_offset` (~12747) is an UNUSED twin. Plan: ONE helper
   `line_alignment_offset(physical_align, remaining, base_direction)` used by both, delete the twin.
-  RED test written (uncommitted until Chrome confirms): layout/tests/
-  an_overflowing_line_overflows_past_its_end_edge.rs. Chrome probe m6/chrome_overflow.py (waits
-  for the run_capped lock).
+  DONE: Chrome confirmed (every overflowing LTR line at x 0, RTL ends at the right edge, for every
+  text-align); RED `b14dc4c2a` + FIX `fee882744` (`line_alignment_offset`, `physical_text_align`,
+  twin `calculate_alignment_offset` deleted).
+- ALL ITEMS DONE. Report complete: scripts/MAILENG6_2026_10_03.md (`c52abe7ab`). Nothing in
+  progress; the parent compiles, runs the suites and the mail corpus.
 
 ## (older notes, items 3/7 plan)
 - item 3 + 7 (Chrome's rounded font metrics + the Times/Helvetica/Courier ascent hack).
