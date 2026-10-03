@@ -31,7 +31,10 @@ pub mod state;
 pub mod store;
 pub mod xmltree;
 
+/// The window (azul's PimShell: the feeds, the articles, the reader; Add feed, OPML, settings).
+pub mod ui;
+
 /// Starts AzNews (the switches are read from the command line).
 pub fn start() {
-    eprintln!("AzNews: the window comes with the ui module");
+    ui::start();
 }
