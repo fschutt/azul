@@ -174,8 +174,8 @@ impl GaugeBand {
     /// Whether `value` is in the band (both ends included).
     #[must_use]
     pub fn contains(&self, value: f64) -> bool {
-        let _ = value;
-        false
+        let (lo, hi) = ordered(self.from, self.to);
+        value >= lo && value <= hi
     }
 }
 
@@ -457,8 +457,21 @@ impl Gauge {
 /// (or an empty range) at 0.
 #[must_use]
 pub(crate) fn fraction(value: f64, min: f64, max: f64) -> f32 {
-    let _ = (value, min, max);
-    0.0
+    let (lo, hi) = ordered(min, max);
+    if !(lo.is_finite() && hi.is_finite()) || hi <= lo || value.is_nan() {
+        return 0.0;
+    }
+    ((value - lo) / (hi - lo)).clamp(0.0, 1.0) as f32
+}
+
+/// `(a, b)` smaller first; a NaN stays where the comparison leaves it (the
+/// callers reject it).
+fn ordered(a: f64, b: f64) -> (f64, f64) {
+    if a <= b {
+        (a, b)
+    } else {
+        (b, a)
+    }
 }
 
 /// The angles a kind draws its range over: `(start, sweep)` in radians,
@@ -467,23 +480,26 @@ pub(crate) fn fraction(value: f64, min: f64, max: f64) -> f32 {
 /// twelve and goes all the way round; a bar has none.
 #[must_use]
 pub(crate) fn sweep_of(kind: GaugeKind) -> (f32, f32) {
-    let _ = kind;
-    (0.0, 0.0)
+    use core::f32::consts::PI;
+    match kind {
+        GaugeKind::Arc => (-0.75 * PI, 1.5 * PI),
+        GaugeKind::Ring => (0.0, 2.0 * PI),
+        GaugeKind::Linear => (0.0, 0.0),
+    }
 }
 
 /// The angle of the point `fraction` along the range.
 #[must_use]
 pub(crate) fn angle_at(kind: GaugeKind, fraction: f32) -> f32 {
-    let _ = (kind, fraction);
-    0.0
+    let (start, sweep) = sweep_of(kind);
+    sweep.mul_add(fraction.clamp(0.0, 1.0), start)
 }
 
 /// The band `value` is in: the LAST listed band holding it, so a narrower
 /// band listed after a wide one wins.
 #[must_use]
 pub(crate) fn band_of(bands: &[GaugeBand], value: f64) -> Option<&GaugeBand> {
-    let _ = (bands, value);
-    None
+    bands.iter().rev().find(|b| b.contains(value))
 }
 
 /// The part of the range a band covers, as fractions `(from, to)` with
@@ -491,8 +507,19 @@ pub(crate) fn band_of(bands: &[GaugeBand], value: f64) -> Option<&GaugeBand> {
 /// width.
 #[must_use]
 pub(crate) fn band_span(band: &GaugeBand, min: f64, max: f64) -> Option<(f32, f32)> {
-    let _ = (band, min, max);
-    None
+    let (lo, hi) = ordered(min, max);
+    if !(lo.is_finite() && hi.is_finite()) || hi <= lo {
+        return None;
+    }
+    let (a, b) = ordered(band.from, band.to);
+    if a.is_nan() || b.is_nan() {
+        return None;
+    }
+    let (a, b) = (a.max(lo), b.min(hi));
+    if b <= a {
+        return None;
+    }
+    Some((fraction(a, lo, hi), fraction(b, lo, hi)))
 }
 
 impl Gauge {
@@ -500,14 +527,25 @@ impl Gauge {
     /// with its unit ("73%", "1,234.5 GB").
     #[must_use]
     pub fn shown_value(&self) -> AzString {
-        AzString::from_const_str("")
+        match self.value_text.as_ref() {
+            Some(text) => text.clone(),
+            None => AzString::from(format!(
+                "{}{}",
+                crate::widgets::chart::format_value(self.value),
+                self.unit.as_str()
+            )),
+        }
     }
 
     /// The gauge in words, for a screen reader: the shown value and the
     /// band's word ("73% (warning)").
     #[must_use]
     pub fn summary(&self) -> AzString {
-        AzString::from_const_str("")
+        let shown = self.shown_value();
+        match band_of(self.bands.as_slice(), self.value).and_then(|b| b.kind.word()) {
+            Some(word) => AzString::from(format!("{} ({word})", shown.as_str())),
+            None => shown,
+        }
     }
 }
 
