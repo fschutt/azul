@@ -61,10 +61,14 @@ Screenshots: target/pim6-shots (not committed).
 - 2f33a1679 AzTasks + AzContacts body = ShellThemeScope::body() (SMALL6 API on wt/small6:
   compiles only after integration). 545ade16c/5543fdba7 azul_pim::data_uri (additive).
 
+- AzContacts DONE: d81e79e1f base64 twin -> azul_pim::data_uri; f63b8e95b/ba744a5a4 photo.rs;
+  1ad14910b photo in Avatar (decoded cache, refresh_photos in with_app); 3a2dcb4a4/95851a1b2
+  Birthday::picked/picker_year; 61e83fb7d birthday DatePicker + year NumberInput + Year unknown;
+  7ecbbbda7/736ac6088 csv.rs; 6cf55e911 store::csv_preview; 6fb898ef7 CSV mapping UI;
+  a175f4cdc E2E (birthday, CSV).
+
 ## IN PROGRESS
-- AzContacts: NEXT = ui.rs base64 -> azul_pim::data_uri (remove twin + its test), then photo
-  preview (decoded ImageRef cache keyed by photo hash, filled in with_app), then birthday
-  DatePicker, then CSV import with column mapping. Then
+- `__az<app>_` prefix constants: decide scope (ids module per app); then
   `__az<app>_` prefixes (three apps + E2E scripts), report scripts/PIM6_2026_10_03.md.
 
 ## (old notes, done) RecurrenceEditor GREEN part 2 steps, in layout/src/widgets/recurrence_editor.rs:
