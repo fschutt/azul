@@ -323,10 +323,15 @@ pub fn element_dom(deck: &Deck, slide: &Slide, element: &Element, opts: &RenderO
         ElementKind::Image { media, fit } => {
             let inner = match opts.media.get(media.as_str()) {
                 Some(image) => {
-                    let fit_css = match fit {
-                        ImageFit::Stretch | ImageFit::Contain | ImageFit::Cover => "width: 100%; height: 100%;",
-                    };
-                    Dom::create_image(image.clone()).with_css(fit_css)
+                    // Placed by its fit inside the frame (Cover's overflow
+                    // is clipped by the frame).
+                    let size = image.get_size();
+                    let (x, y, iw, ih) = fit_rect(*fit, (w, h), (size.width, size.height));
+                    Dom::create_div()
+                        .with_css("position: relative; width: 100%; height: 100%; overflow: hidden;")
+                        .with_child(Dom::create_image(image.clone()).with_css(format!(
+                            "position: absolute; left: {x:.2}px; top: {y:.2}px; width: {iw:.2}px; height: {ih:.2}px;"
+                        )))
                 }
                 None => Dom::create_div()
                     .with_css(format!(
@@ -454,4 +459,41 @@ pub fn slide_dom(deck: &Deck, slide: &Slide, opts: &RenderOptions<'_>) -> Dom {
         root.add_child(element_dom(deck, slide, element, opts));
     }
     root
+}
+
+/// Where a picture of `image` size (px) lies in its `frame` box (px) for
+/// `fit`: (left, top, width, height) inside the box. Contain shows all of
+/// it centred (bands beside or above it), Cover fills the box centred (the
+/// overflow is clipped), Stretch fills the box.
+#[must_use]
+pub fn fit_rect(fit: ImageFit, frame: (f32, f32), image: (f32, f32)) -> (f32, f32, f32, f32) {
+    let (bw, bh) = frame;
+    let (iw, ih) = image;
+    if fit == ImageFit::Stretch || iw <= 0.0 || ih <= 0.0 || !iw.is_finite() || !ih.is_finite() {
+        return (0.0, 0.0, bw, bh);
+    }
+    let scale = if fit == ImageFit::Contain {
+        (bw / iw).min(bh / ih)
+    } else {
+        (bw / iw).max(bh / ih)
+    };
+    let (w, h) = (iw * scale, ih * scale);
+    ((bw - w) / 2.0, (bh - h) / 2.0, w, h)
+}
+
+#[cfg(test)]
+mod fit_tests {
+    use super::*;
+
+    #[test]
+    fn contain_shows_all_of_the_picture_and_cover_fills_the_box() {
+        // A 200 x 100 picture in a 100 x 100 box.
+        assert_eq!(fit_rect(ImageFit::Contain, (100.0, 100.0), (200.0, 100.0)), (0.0, 25.0, 100.0, 50.0));
+        assert_eq!(fit_rect(ImageFit::Cover, (100.0, 100.0), (200.0, 100.0)), (-50.0, 0.0, 200.0, 100.0));
+        assert_eq!(fit_rect(ImageFit::Stretch, (100.0, 100.0), (200.0, 100.0)), (0.0, 0.0, 100.0, 100.0));
+        // A tall picture: bands left and right.
+        assert_eq!(fit_rect(ImageFit::Contain, (200.0, 100.0), (50.0, 100.0)), (75.0, 0.0, 50.0, 100.0));
+        // No size known (0): stretch.
+        assert_eq!(fit_rect(ImageFit::Contain, (80.0, 60.0), (0.0, 0.0)), (0.0, 0.0, 80.0, 60.0));
+    }
 }

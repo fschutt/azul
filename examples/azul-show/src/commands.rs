@@ -5,10 +5,9 @@
 
 use azul::{
     callbacks::{CallbackInfo, RefAny, Update},
-    css::DarkLightMode,
     dialog::{FileDialog, FileOpenResult},
     dom::{Callback, Dom, DomId, DomNodeId, TextFormat},
-    option::{OptionDarkLightMode, OptionFileTypeList, OptionString},
+    option::{OptionFileTypeList, OptionString},
     pdf::Pdf,
     str::String as AzString,
     task::{TimerId, Timer},
@@ -45,10 +44,11 @@ pub fn run(app: &mut RefAny, cmd: Command, info: &mut CallbackInfo) -> Update {
 }
 
 /// A fresh deck id (the deck's folder under `show/`): random, so no launch
-/// reuses another's (`Uuid::v4` is a process-local marker sequence).
+/// reuses another's - the one id mint of the Azlin apps
+/// (`azul_storage::ids::new_uuid`, INFRA6).
 #[must_use]
 pub fn new_deck_id() -> String {
-    azul::uuid::Uuid::from_seed(azul_storage::ids::random_seed()).as_str().to_string()
+    azul_storage::ids::new_uuid()
 }
 
 /// Opens `deck` for editing on its first slide (or `--slide`).
@@ -89,10 +89,17 @@ pub fn sync_editing(s: &mut AppState, info: &mut CallbackInfo) -> bool {
     changed
 }
 
-/// Hands `job` to a storage thread.
+/// Hands `job` to a storage thread (on the app's one drive).
 pub fn spawn(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, job: Job) {
     s.busy += 1;
-    crate::spawn_storage(info, app, s.data_root.clone(), job);
+    crate::spawn_storage(info, app, std::sync::Arc::clone(&s.drive), job);
+}
+
+/// The file name of an export of `title` with `ext`: the title with what a
+/// file system refuses replaced (azul-storage's one sanitizer).
+fn export_name(title: &str, ext: &str) -> String {
+    azul_storage::key::safe_file_name(&format!("{}.{ext}", title.replace('/', "-")))
+        .unwrap_or_else(|| format!("presentation.{ext}"))
 }
 
 /// The DOM node with the id attribute `id` in the window's DOM.
@@ -322,8 +329,10 @@ pub fn show_move(s: &mut AppState, app: &RefAny, info: &mut CallbackInfo, cmd: &
 }
 
 /// File > Export: every shown slide as a page of a PDF (960 x 540 px pages
-/// for 16:9), through azul's PDF path, saved where the user says.
-pub fn export_pdf(s: &mut AppState, info: &mut CallbackInfo) -> Update {
+/// for 16:9), through azul's PDF path, written into `show/exports/` of the
+/// data tree on a storage thread (no save dialog: every durable write goes
+/// through the drive).
+pub fn export_pdf(s: &mut AppState, app: &RefAny, info: &mut CallbackInfo) -> Update {
     sync_editing(s, info);
     let Some(ed) = s.editor.as_ref() else {
         return Update::DoNothing;
@@ -345,30 +354,28 @@ pub fn export_pdf(s: &mut AppState, info: &mut CallbackInfo) -> Update {
         s.message = String::from("The PDF export produced no bytes");
         return Update::RefreshDom;
     }
-    let name = format!("{}.pdf", deck.title);
-    let len = bytes.len();
-    if FileDialog::save_bytes(AzString::from(name.clone()), AzString::from("application/pdf"), bytes) {
-        s.message = format!("Exported {name} ({len} bytes)");
-        println!("AZSHOW_EXPORTED pdf {len}");
-    }
+    let name = export_name(&deck.title, "pdf");
+    s.message = format!("Exporting {name}...");
+    spawn(info, app, s, Job::Export { name, bytes });
     Update::RefreshDom
 }
 
-/// File > Export: the current slide as a PNG (a screenshot of the canvas).
-pub fn export_image(s: &mut AppState, info: &mut CallbackInfo) -> Update {
-    let Some(node) = node_by_id(info, crate::views::SLIDE_ID) else {
+/// File > Export: the current slide as a PNG (a screenshot of the canvas),
+/// written into `show/exports/` like the PDF.
+pub fn export_image(s: &mut AppState, app: &RefAny, info: &mut CallbackInfo) -> Update {
+    let Some(node) = node_by_id(info, crate::ids::SLIDE.as_str()) else {
         s.message = String::from("Open the normal view to export the slide as a picture");
         return Update::RefreshDom;
     };
-    let current = s.editor.as_ref().map_or(0, |e| e.current);
+    let (current, title) = s
+        .editor
+        .as_ref()
+        .map_or((0, String::new()), |e| (e.current, e.deck.title.clone()));
     match info.take_screenshot_of_node(node).into_result() {
         Ok(png) => {
-            let len = png.as_ref().len();
-            let name = format!("slide-{}.png", current + 1);
-            if FileDialog::save_bytes(AzString::from(name.clone()), AzString::from("image/png"), png) {
-                s.message = format!("Exported {name}");
-                println!("AZSHOW_EXPORTED png {len}");
-            }
+            let name = export_name(&format!("{title} - slide {}", current + 1), "png");
+            s.message = format!("Exporting {name}...");
+            spawn(info, app, s, Job::Export { name, bytes: png.as_ref().to_vec() });
         }
         Err(e) => s.message = format!("The slide picture failed: {}", e.as_str()),
     }
@@ -487,21 +494,12 @@ pub fn apply(app: &RefAny, s: &mut AppState, cmd: Command, info: &mut CallbackIn
             s.ribbon_tab = *i;
             return Update::RefreshDom;
         }
-        C::AppTheme(name) => {
-            info.set_theme(AzString::from(name.as_str()));
-            return Update::RefreshDom;
-        }
-        C::Mode(dark) => {
-            s.mode_choice = *dark;
-            info.set_mode(match dark {
-                Some(true) => OptionDarkLightMode::Some(DarkLightMode::Dark),
-                Some(false) => OptionDarkLightMode::Some(DarkLightMode::Light),
-                None => OptionDarkLightMode::None,
-            });
-            return Update::RefreshDom;
-        }
-        C::SettingsCategory(i) => {
-            s.settings_category = *i;
+        C::Find(replace) => {
+            // The pane keeps what was searched for; Mod+H adds the replace
+            // field to an open Find.
+            let f = s.find.get_or_insert_with(crate::find::FindState::default);
+            f.show_replace = f.show_replace || *replace;
+            f.status.clear();
             return Update::RefreshDom;
         }
         C::ShowNext | C::ShowPrev | C::ShowBlank(_) | C::ShowGoto(_) => {
@@ -529,8 +527,8 @@ pub fn apply(app: &RefAny, s: &mut AppState, cmd: Command, info: &mut CallbackIn
             }
             return Update::RefreshDom;
         }
-        C::ExportPdf => return export_pdf(s, info),
-        C::ExportImages => return export_image(s, info),
+        C::ExportPdf => return export_pdf(s, app, info),
+        C::ExportImages => return export_image(s, app, info),
         C::CloseDeck => {
             s.editor = None;
             s.media.clear();
@@ -655,6 +653,7 @@ pub fn apply(app: &RefAny, s: &mut AppState, cmd: Command, info: &mut CallbackIn
             ed.insert_video("");
         }
         C::Arrange(how) => ed.arrange(how),
+        C::ImageFit(fit) => ed.set_image_fit(fit),
         C::Group => ed.group(),
         C::Ungroup => ed.ungroup(),
         C::Fill(c) => ed.set_fill(c),

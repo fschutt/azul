@@ -22,6 +22,9 @@ pub mod args;
 mod backstage;
 pub mod commands;
 pub mod editor;
+pub mod find;
+mod find_ui;
+pub mod ids;
 pub mod model;
 pub mod render;
 mod ribbon;
@@ -31,17 +34,18 @@ pub mod text;
 pub mod themes;
 pub mod views;
 
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use azul::{
-    app::{App, AppConfig},
-    callbacks::{CallbackInfo, LayoutCallbackInfo, RefAny, TimerCallbackInfo, TimerCallbackReturn, Update},
-    css::{DarkLightMode, EventFilter},
-    dom::{Callback, Dom, DomId, VirtualKeyCode},
+    app::App,
+    callbacks::{
+        CallbackInfo, CloseGuardOnEventCallbackType, LayoutCallbackInfo, RefAny, TimerCallbackInfo,
+        TimerCallbackReturn, Update,
+    },
+    css::EventFilter,
+    dom::{Dom, DomId, VirtualKeyCode},
     error::ResultRawImageDecodeImageError,
-    file::FilePath,
     image::{ImageRef, RawImage},
-    option::OptionDarkLightMode,
     shells::{DocumentShell, ShellEmptyState, ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
     svg::{CssPath, CssPathSelector},
@@ -51,9 +55,11 @@ use azul::{
     },
     time::{Duration, SystemTimeDiff},
     vec::U8VecRef,
-    widgets::{ThumbnailStripLayout, Titlebar},
-    window::{WindowCreateOptions, WindowDecorations, WindowEventFilter},
+    widgets::{CloseGuard, CloseGuardEvent, CloseGuardEventKind, ThumbnailStripLayout, Titlebar},
+    window::WindowEventFilter,
 };
+use azul_appkit::{ui as kit, AboutInfo, Shortcut};
+use azul_storage::Drive;
 
 pub use crate::args::{Args, StartScreen};
 use crate::{
@@ -83,13 +89,13 @@ fn title_row(st: &AppState, suffix: &str) -> Dom {
 
 /// The editor window: the S1 shell with the ribbon (or the backstage), the
 /// rail, the view's document, the format pane and the status bar.
-fn editor_window(app: &RefAny, st: &AppState, w: f32, h: f32, theme: &str) -> Dom {
+fn editor_window(app: &RefAny, st: &AppState, w: f32, h: f32) -> Dom {
     let title = title_row(st, "");
     if st.screen == Screen::Backstage {
         return DocumentShell::create(Dom::create_div())
             .office_shell()
             .with_title_row(title)
-            .with_backstage(backstage::backstage(app, st, theme, st.mode_choice))
+            .with_backstage(backstage::backstage(app, st))
             .dom();
     }
     let zoom = st.zoom_percent(w, h);
@@ -137,6 +143,11 @@ fn editor_window(app: &RefAny, st: &AppState, w: f32, h: f32, theme: &str) -> Do
     if let Some(nav) = navigation {
         shell = shell.with_navigation(nav);
     }
+    // The Find / Replace pane takes the side pane while it is open.
+    let side = match &st.find {
+        Some(f) => Some(find_ui::pane(app, f)),
+        None => side,
+    };
     if let Some(side) = side {
         shell = shell.with_side_pane(side);
     }
@@ -154,7 +165,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let app = data.clone();
     // Reading the mode and the theme makes a switch of either rebuild the window.
     let _mode = info.get_mode();
-    let theme = info.get_theme().as_str().to_string();
+    let _theme = info.get_theme();
     let (w, h) = (info.get_window_width(), info.get_window_height());
     let Some(guard) = data.downcast_ref::<AppState>() else {
         return Dom::create_body();
@@ -163,12 +174,51 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let content = if st.screen == Screen::Show {
         show::show_screen(&app, st, w, h)
     } else {
-        editor_window(&app, st, w, h, &theme)
+        editor_window(&app, st, w, h)
     };
-    Dom::create_body()
-        .with_css("display: flex; flex-direction: column; margin: 0px; padding: 0px; height: 100%;")
-        .with_child(ShellThemeScope::create(content).with_accent(accent_of(st)).dom())
+    // "Save changes?" before the window closes with an unsaved deck: the
+    // close request is held while the deck is dirty, the standard question
+    // shows, the answer comes to on_close_guard.
+    let (title, dirty) = st
+        .editor
+        .as_ref()
+        .map_or((String::from("Presentation"), false), |e| (e.deck.title.clone(), e.dirty));
+    let content = CloseGuard::create(content, s(&title))
+        .with_dirty(dirty)
+        .with_asking(st.asking_close)
+        .with_on_event(app.clone(), on_close_guard as CloseGuardOnEventCallbackType)
+        .dom();
+    // The scope as the window's body (SMALL6's engine fix): no UA margin,
+    // the full window height.
+    ShellThemeScope::create(content).with_accent(accent_of(st)).body()
         .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app, on_window_key)
+}
+
+/// The close guard's answers: ask, save then close, close without saving,
+/// or stay.
+extern "C" fn on_close_guard(mut data: RefAny, mut info: CallbackInfo, event: CloseGuardEvent) -> Update {
+    let handle = data.clone();
+    let Some(mut guard) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    let st = &mut *guard;
+    match event.kind {
+        CloseGuardEventKind::Ask => st.asking_close = true,
+        CloseGuardEventKind::Save => {
+            st.asking_close = false;
+            st.close_after_save = true;
+            return commands::apply(&handle, st, Command::Save, &mut info);
+        }
+        CloseGuardEventKind::Discard => {
+            // The guard closes the window itself.
+            st.asking_close = false;
+            if let Some(ed) = st.editor.as_mut() {
+                ed.dirty = false;
+            }
+        }
+        CloseGuardEventKind::Cancel => st.asking_close = false,
+    }
+    Update::RefreshDom
 }
 
 /// The presenter window's layout.
@@ -273,19 +323,19 @@ extern "C" fn focus_text_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> 
 
 struct JobInit {
     job: Option<Job>,
-    root: PathBuf,
+    drive: Arc<dyn Drive>,
 }
 
 struct JobDone {
     outcome: Option<Outcome>,
 }
 
-/// Runs `job` on a storage thread over the drive at `root`.
-pub fn spawn_storage(info: &mut CallbackInfo, app: &RefAny, root: PathBuf, job: Job) {
+/// Runs `job` on a storage thread over the app's one drive.
+pub fn spawn_storage(info: &mut CallbackInfo, app: &RefAny, drive: Arc<dyn Drive>, job: Job) {
     info.add_thread(
         ThreadId::unique(),
         Thread::create(
-            RefAny::new(JobInit { job: Some(job), root }),
+            RefAny::new(JobInit { job: Some(job), drive }),
             app.clone(),
             storage_thread,
         ),
@@ -293,14 +343,13 @@ pub fn spawn_storage(info: &mut CallbackInfo, app: &RefAny, root: PathBuf, job: 
 }
 
 extern "C" fn storage_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: ThreadReceiver) {
-    let Some((job, root)) = init.downcast_mut::<JobInit>().and_then(|mut i| {
+    let Some((job, drive)) = init.downcast_mut::<JobInit>().and_then(|mut i| {
         let job = i.job.take()?;
-        Some((job, i.root.clone()))
+        Some((job, Arc::clone(&i.drive)))
     }) else {
         return;
     };
-    let drive = storage::local_drive(root);
-    let outcome = storage::run_job(&drive, job);
+    let outcome = storage::run_job(&*drive, job);
     let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::create(
         on_storage_done,
         RefAny::new(JobDone { outcome: Some(outcome) }),
@@ -315,7 +364,7 @@ fn decode_image(bytes: &[u8]) -> Option<ImageRef> {
     }
 }
 
-extern "C" fn on_storage_done(mut app: RefAny, mut msg: RefAny, _info: CallbackInfo) -> Update {
+extern "C" fn on_storage_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
     let Some(outcome) = msg.downcast_mut::<JobDone>().and_then(|mut d| d.outcome.take()) else {
         return Update::DoNothing;
     };
@@ -331,8 +380,23 @@ extern "C" fn on_storage_done(mut app: RefAny, mut msg: RefAny, _info: CallbackI
             }
             st.message = format!("Saved show/{id}/deck.json");
             println!("AZSHOW_SAVED {id}");
+            if st.close_after_save {
+                // "Save" in the close question: written, now the window goes.
+                st.close_after_save = false;
+                info.close_window();
+            }
         }
-        Outcome::Saved(Err(e)) => st.message = format!("Not saved: {e}"),
+        Outcome::Saved(Err(e)) => {
+            // A failed save keeps the window (and the work) open.
+            st.close_after_save = false;
+            st.message = format!("Not saved: {e}");
+        }
+        Outcome::Exported(Ok(key)) => {
+            let shown = st.drive.local_path(&key).map_or_else(|| key.clone(), |p| p.display().to_string());
+            st.message = format!("Exported to {shown}");
+            println!("AZSHOW_EXPORTED {key}");
+        }
+        Outcome::Exported(Err(e)) => st.message = format!("Not exported: {e}"),
         Outcome::Loaded(Ok((deck, media))) => {
             st.media.clear();
             for (key, bytes) in media {
@@ -406,6 +470,8 @@ fn editor_shortcut(
         K::X if primary && slide_keys => Command::Cut,
         K::V if primary && slide_keys => Command::Paste,
         K::A if primary && slide_keys => Command::SelectAll,
+        K::F if primary => Command::Find(false),
+        K::H if primary => Command::Find(true),
         K::B if primary => Command::Bold,
         K::I if primary => Command::Italic,
         K::U if primary => Command::Underline,
@@ -455,33 +521,44 @@ extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update 
 
 // ==== Start ====
 
-struct ShotConfig {
-    path: PathBuf,
-}
+/// What the About box and the settings page say.
+pub const ABOUT: AboutInfo = AboutInfo {
+    name: "AzShow",
+    version: env!("CARGO_PKG_VERSION"),
+    summary: "Presentations: decks as show/<id>/deck.json files, the slide show full screen with a \
+              presenter window. Part of the Azlin apps, built with azul.",
+    license: "MIT",
+    app_folder: storage::APP_FOLDER,
+};
 
-extern "C" fn shot_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
-    let Some(path) = data.downcast_ref::<ShotConfig>().map(|c| c.path.clone()) else {
-        return TimerCallbackReturn {
-            should_update: Update::DoNothing,
-            should_terminate: TerminateTimer::Terminate,
-        };
-    };
-    match info.callback_info.take_screenshot(DomId { inner: 0 }).into_result() {
-        Ok(png) => match std::fs::write(&path, png.as_ref()) {
-            Ok(()) => {
-                eprintln!("[azshow] screenshot written: {}", path.display());
-                std::process::exit(0);
-            }
-            Err(e) => {
-                eprintln!("[azshow] screenshot FAILED: {e}");
-                std::process::exit(2);
-            }
-        },
-        Err(e) => {
-            eprintln!("[azshow] screenshot FAILED: {}", e.as_str());
-            std::process::exit(2);
-        }
-    }
+/// The keys AzShow answers, as the settings page lists them (`Mod` = Cmd
+/// on macOS, Ctrl elsewhere). The window's and the canvas's handlers act;
+/// this table is what they do.
+pub const SHORTCUTS: [Shortcut; 16] = [
+    Shortcut::new("File", "Mod+S", "Save the deck"),
+    Shortcut::new("Slides", "Mod+M", "New slide"),
+    Shortcut::new("Slides", "Mod+D", "Duplicate the selection"),
+    Shortcut::new("Edit", "Mod+Z / Mod+Y", "Undo / redo"),
+    Shortcut::new("Edit", "Mod+C / Mod+X / Mod+V", "Copy / cut / paste the selection"),
+    Shortcut::new("Edit", "Mod+A", "Select every object on the slide"),
+    Shortcut::new("Edit", "Mod+G / Mod+Shift+G", "Group / ungroup"),
+    Shortcut::new("Edit", "Mod+F", "Find and replace"),
+    Shortcut::new("Text", "Mod+B / Mod+I / Mod+U", "Bold / italic / underline"),
+    Shortcut::new("Canvas", "Arrows", "Nudge the selection (Mod: finely)"),
+    Shortcut::new("Canvas", "Tab / Shift+Tab", "The next / previous object"),
+    Shortcut::new("Canvas", "Enter / F2", "Edit the object's text; Escape leaves it"),
+    Shortcut::new("Show", "F5 / Shift+F5", "Start from the first / the current slide"),
+    Shortcut::new("Show", "Space / Right / Left", "Next / previous step"),
+    Shortcut::new("Show", "B / W", "A black / white screen"),
+    Shortcut::new("Show", "Escape", "End the show"),
+];
+
+/// The data root the kit resolved (`--data-dir`, `AZLIN_DATA`, the user's
+/// data folder).
+fn kit_data_root(kit_ref: &RefAny) -> PathBuf {
+    let mut k = kit_ref.clone();
+    k.downcast_ref::<kit::Kit>()
+        .map_or_else(|| PathBuf::from(azul_appkit::data::ROOT_DIR), |k| k.data_root.clone())
 }
 
 extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -490,6 +567,10 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
         return Update::DoNothing;
     };
     let st = &mut *guard;
+    // appkit's --shot.
+    if let Some(kit_ref) = st.kit.clone() {
+        kit::on_window_created(&kit_ref, &mut info);
+    }
     let mut update = Update::DoNothing;
     if let Some(id) = st.args.open.clone() {
         commands::spawn(&mut info, &handle, st, Job::Load { id });
@@ -499,24 +580,19 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
         StartScreen::Show if st.editor.is_some() => update = commands::start_show(st, &mut info, false),
         _ => {}
     }
-    if let Some(path) = st.args.shot.clone() {
-        let timer = Timer::create(RefAny::new(ShotConfig { path }), shot_tick, info.get_system_time_fn())
-            .with_delay(Duration::System(SystemTimeDiff::from_millis(st.args.shot_delay_ms)));
-        info.add_timer(TimerId::unique(), timer);
-    }
     println!("AZSHOW_READY");
     update
 }
 
-/// Starts AzShow with `args`.
+/// Starts AzShow on azul-appkit: the kit reads the settings file (the app
+/// theme and the mode the user picked last time), the data root and the
+/// switches; the window is the kit's (`NoTitle`, `--size`, a minimum).
 pub fn start(args: Args) {
-    let user_data = FilePath::get_data_dir()
-        .into_option()
-        .map(|p| PathBuf::from(p.inner.as_str()))
-        .filter(|p| !p.as_os_str().is_empty());
-    let root = storage::data_root(user_data);
+    let kit_ref = kit::create_kit(args::SPEC, ABOUT, &SHORTCUTS, &[], args.kit.clone());
+    let root = kit_data_root(&kit_ref);
     let mut st = AppState::new(args.clone(), root.clone());
-    if args.sample {
+    st.kit = Some(kit_ref.clone());
+    if args.sample() {
         let deck = model::sample_deck(&commands::new_deck_id(), themes::theme(1, 0, 0));
         commands::open_deck(&mut st, deck);
     }
@@ -533,32 +609,15 @@ pub fn start(args: Args) {
             st.screen = Screen::Backstage;
             st.page = BackstagePage::Open;
         }
-    }
-    if let Some(dark) = args.mode.as_deref().map(|m| m == "dark") {
-        st.mode_choice = Some(dark);
+        StartScreen::Options => {
+            st.screen = Screen::Backstage;
+            st.page = BackstagePage::Options;
+        }
     }
     eprintln!("[azshow] data root {}", root.display());
-
-    let mut config = AppConfig::create();
-    if let Some(theme) = args.theme.as_deref() {
-        config.set_theme(s(theme));
-    }
-    if let Some(dark) = st.mode_choice {
-        config.set_mode(OptionDarkLightMode::Some(if dark {
-            DarkLightMode::Dark
-        } else {
-            DarkLightMode::Light
-        }));
-    }
-    let app = App::create(RefAny::new(st), config);
-    let mut window = WindowCreateOptions::create(layout);
-    window.window_state.title = s("AzShow");
-    window.window_state.flags.decorations = WindowDecorations::NoTitle;
-    let (w, h) = args.size.unwrap_or((1280.0, 800.0));
-    window.window_state.size.dimensions.width = w;
-    window.window_state.size.dimensions.height = h;
-    window.create_callback = Some(Callback::create(on_window_created)).into();
-    app.run(window);
+    let config = kit::app_config(&kit_ref);
+    let window = kit::window_options(&kit_ref, layout, (1280.0, 800.0), (800.0, 520.0), on_window_created);
+    App::create(RefAny::new(st), config).run(window);
 }
 
 #[cfg(test)]

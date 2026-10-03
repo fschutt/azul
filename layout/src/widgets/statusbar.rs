@@ -2024,7 +2024,10 @@ fn zoom_dom(zoom: StatusBarZoom, style: &StatusBarStyle, theme: UiTheme) -> Dom 
             LayoutMarginLeft::const_px(margin),
         ))]),
     );
-    let mut slider = Slider::create(percent, min, max);
+    // The bar's own slider: the bar names it (a screen reader said "slider"
+    // and nothing else).
+    let mut slider =
+        Slider::create(percent, min, max).with_accessibility_name(AzString::from_const_str("Zoom"));
     slider.track_style =
         OptionCssPropertyWithConditionsVec::Some(style.resolved_slider_track_style());
     slider.thumb_style = OptionCssPropertyWithConditionsVec::Some(thumb_style);
@@ -2243,6 +2246,18 @@ mod tests {
             };
         }
         dom.children.as_ref().iter().find_map(slider_state)
+    }
+
+    /// Seen in the wave-6 look at AzSheets / AzShow: the zoom cluster's
+    /// slider was unnamed (an a11y-widget warning every frame; a screen
+    /// reader said "slider" and nothing else). It is the bar's own slider,
+    /// so the bar names it: "Zoom".
+    #[test]
+    fn the_zoom_slider_is_named_zoom() {
+        let dom = StatusBar::new(segs(0))
+            .with_zoom(StatusBarZoom::create(100.0, 10.0, 400.0))
+            .dom();
+        assert!(named(&dom, "Zoom"), "the zoom slider names itself");
     }
 
     /// AzShow and AzSheets zoom to 400 %, but the cluster's slider window was

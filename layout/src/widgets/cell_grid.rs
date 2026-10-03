@@ -183,6 +183,9 @@ pub enum CellGridDragKind {
     ResizeColumn,
     /// Dragging the bottom edge of row `index`'s header.
     ResizeRow,
+    /// Pointing at a range while a formula is typed (point mode): the
+    /// reference at the caret follows the pointer from `origin`.
+    Point,
 }
 
 /// A pointer drag in progress. The app keeps it in its [`CellGridView`]
@@ -670,6 +673,9 @@ pub struct CellGrid {
     pub column_widths: CellGridSizeVec,
     /// Rows whose height differs from `default_row_height`.
     pub row_heights: CellGridSizeVec,
+    /// Merged ranges: each is drawn as one cell (its top-left cell's content
+    /// and look) over the cells it covers, and a click in it selects it.
+    pub merges: CellGridRangeVec,
     /// Where the cells' content comes from; none = an empty grid.
     pub data_source: OptionCellGridDataSource,
     /// Where the cells' looks come from; none = every cell plain.
@@ -743,6 +749,7 @@ impl CellGrid {
             accessibility_name: AzString::from_const_str("Grid"),
             column_widths: CellGridSizeVec::from_const_slice(&[]),
             row_heights: CellGridSizeVec::from_const_slice(&[]),
+            merges: CellGridRangeVec::from_const_slice(&[]),
             data_source: None.into(),
             style_source: None.into(),
             on_event: None.into(),
@@ -849,6 +856,24 @@ impl CellGrid {
     pub fn with_row_heights(mut self, heights: CellGridSizeVec) -> Self {
         self.set_row_heights(heights);
         self
+    }
+
+    /// Sets the merged ranges (see [`Self::merges`]).
+    pub fn set_merges(&mut self, merges: CellGridRangeVec) {
+        self.merges = merges;
+    }
+
+    /// [`Self::set_merges`] for the builder chain.
+    #[must_use]
+    pub fn with_merges(mut self, merges: CellGridRangeVec) -> Self {
+        self.set_merges(merges);
+        self
+    }
+
+    /// The merged range holding `cell`, if any.
+    #[must_use]
+    pub(crate) fn merge_of(&self, cell: CellGridCellRef) -> Option<CellGridRange> {
+        self.merges.as_ref().iter().copied().find(|m| m.contains(cell))
     }
 
     /// Sets where the cells' content comes from.
@@ -1913,6 +1938,8 @@ pub(crate) const FILL_PREVIEW_CLASS_NAME: &str = "__azul-native-cell-grid-fill-p
 pub(crate) const EDITOR_CLASS_NAME: &str = "__azul-native-cell-grid-editor";
 /// The editor's caret.
 pub(crate) const CARET_CLASS_NAME: &str = "__azul-native-cell-grid-caret";
+/// A merged range, drawn over the cells it covers.
+pub(crate) const MERGE_CLASS_NAME: &str = "__azul-native-cell-grid-merge";
 
 static GRID_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(GRID_CLASS_NAME))];
 static ROW_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(ROW_CLASS_NAME))];
@@ -1927,6 +1954,7 @@ static FILL_PREVIEW_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str(FILL_PREVIEW_CLASS_NAME))];
 static EDITOR_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(EDITOR_CLASS_NAME))];
 static CARET_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(CARET_CLASS_NAME))];
+static MERGE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(MERGE_CLASS_NAME))];
 
 /// What a theme decides about a grid: the SKIN of each part, laid over the
 /// part's base (the structure, the same in every theme) by [`build`].
@@ -2124,6 +2152,99 @@ pub(crate) fn resolve(mut grid: CellGrid) -> CellGridResolved {
         })
         .collect();
     CellGridResolved { grid, geo, cells }
+}
+
+/// How many columns each cell of row `ri` (an index into `geo.rows`) is
+/// drawn across: 1 for a cell of its own, n > 1 for a text that spills over
+/// the n - 1 empty cells after it (Excel), 0 for a cell drawn under such a
+/// spill.
+///
+/// Only a left-aligned (or General) text that does not wrap spills; it runs
+/// on while the next cell is empty, unselected and has no fill or border of
+/// its own, never across the freeze line. Its width is estimated the way an
+/// auto-fit is ([`SPILL_EM`] of the font size per character, plus the
+/// cell's padding): the grid is built before its text is measured.
+pub(crate) fn spill_spans(resolved: &CellGridResolved, ri: usize) -> Vec<u32> {
+    let Some(row) = resolved.cells.get(ri) else {
+        return Vec::new();
+    };
+    let grid = &resolved.grid;
+    let geo = &resolved.geo;
+    let zoom = if grid.zoom.is_finite() && grid.zoom > 0.0 {
+        grid.zoom
+    } else {
+        1.0
+    };
+    let row_index = geo.rows.get(ri).map_or(0, |b| b.index);
+    let mut spans = alloc::vec![1u32; row.len()];
+    let mut ci = 0;
+    while ci < row.len() {
+        let (content, style) = &row[ci];
+        let spills = content.kind == CellGridCellKind::Text
+            && !style.wrap
+            && matches!(
+                style.align,
+                CellGridHorizontalAlign::General | CellGridHorizontalAlign::Left
+            )
+            && geo
+                .columns
+                .get(ci)
+                .is_some_and(|c| grid.merge_of(CellGridCellRef::create(row_index, c.index)).is_none());
+        if !spills {
+            ci += 1;
+            continue;
+        }
+        let font = if style.font_size > 0.0 && style.font_size.is_finite() {
+            style.font_size
+        } else {
+            grid.font_size
+        };
+        #[allow(clippy::cast_precision_loss)]
+        let chars = content.text.as_str().chars().count() as f32;
+        let needed = chars * font * zoom * SPILL_EM + 2.0 * CELL_PADDING_PX;
+        let mut reach = geo.columns.get(ci).map_or(0.0, |b| b.size);
+        let mut end = ci + 1;
+        while reach < needed && end < row.len() {
+            if geo.frozen_columns > 0 && end == geo.frozen_columns {
+                break; // never across the freeze line
+            }
+            let (next, next_style) = &row[end];
+            let at = CellGridCellRef::create(row_index, geo.columns[end].index);
+            if !next.text.as_str().is_empty()
+                || grid.view.is_selected(at)
+                || has_own_look(next_style)
+                || grid.merge_of(at).is_some()
+            {
+                break;
+            }
+            reach += geo.columns[end].size;
+            end += 1;
+        }
+        if end > ci + 1 {
+            spans[ci] = u32::try_from(end - ci).unwrap_or(u32::MAX);
+            for covered in &mut spans[ci + 1..end] {
+                *covered = 0;
+            }
+        }
+        ci = end;
+    }
+    spans
+}
+
+/// The px per character of font size a spilled text is reckoned at (an
+/// average glyph; the auto-fit of a column uses the same).
+pub(crate) const SPILL_EM: f32 = 0.6;
+/// A cell's left + right padding is twice this (`CELL_GRID_CELL_BASE`).
+pub(crate) const CELL_PADDING_PX: f32 = 3.0;
+
+/// Whether a cell draws something of its own besides text (a fill, a border):
+/// a spilled text stops before it.
+fn has_own_look(style: &CellGridCellStyle) -> bool {
+    style.fill.as_ref().is_some()
+        || style.border_top.as_ref().is_some()
+        || style.border_right.as_ref().is_some()
+        || style.border_bottom.as_ref().is_some()
+        || style.border_left.as_ref().is_some()
 }
 
 /// The range a fill drag from `source` to `target` covers: the source
@@ -2328,6 +2449,11 @@ pub(crate) fn build(resolved: CellGridResolved, look: &CellGridLook) -> Dom {
     let part = |base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]| {
         super::themes::decl::on_base(base, skin)
     };
+    // Asked before the cells are taken apart: which texts spill over which
+    // empty cells, row by row.
+    let spans: Vec<Vec<u32>> = (0..resolved.cells.len())
+        .map(|ri| spill_spans(&resolved, ri))
+        .collect();
     let CellGridResolved { grid, geo, cells } = resolved;
     let zoom = if grid.zoom.is_finite() && grid.zoom > 0.0 {
         grid.zoom
@@ -2444,15 +2570,26 @@ pub(crate) fn build(resolved: CellGridResolved, look: &CellGridLook) -> Dom {
                     .with_child(crate::widgets::widget_p_with_text(label)),
             );
         }
+        let row_spans = spans.get(ri).map_or(&[][..], Vec::as_slice);
         for (ci, (c, (content, style))) in geo.columns.iter().zip(row_cells).enumerate() {
             if ci == geo.frozen_columns && any_frozen_columns {
                 row_children.push(freeze_v(r.size));
             }
+            // A text spilling over the empty cells after it is one cell as
+            // wide as all of them; the cells under it are not built.
+            let span = row_spans.get(ci).copied().unwrap_or(1) as usize;
+            if span == 0 {
+                continue;
+            }
+            let width: f32 = geo.columns[ci..(ci + span).min(geo.columns.len())]
+                .iter()
+                .map(|b| b.size)
+                .sum();
             let at = CellGridCellRef::create(r.index, c.index);
             let selected = view.is_selected(at);
             let shaded = selected && at != view.active;
             let mut p = part(CELL_GRID_CELL_BASE, &[]);
-            p.push(px_width(c.size));
+            p.push(px_width(width));
             p.extend(cell_style_props(
                 &style,
                 content.kind,
@@ -2472,16 +2609,23 @@ pub(crate) fn build(resolved: CellGridResolved, look: &CellGridLook) -> Dom {
             } else {
                 content.text
             };
+            // Named by its place ("B2", what a screen reader says first),
+            // its text as its value.
+            let value = if text.as_str().is_empty() {
+                None
+            } else {
+                Some(text.clone())
+            };
             row_children.push(
                 Dom::create_div()
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(CELL_CLASS))
                     .with_css_props(CssPropertyWithConditionsVec::from_vec(p))
                     .with_accessibility_info(AccessibilityInfo {
-                        role: AccessibilityRole::GridCell,
                         row_index: azul_css::corety::OptionUsize::Some(r.index as usize + 1),
                         column_index: azul_css::corety::OptionUsize::Some(c.index as usize + 1),
                         states: AccessibilityStateVec::from_vec(states),
-                        ..Default::default()
+                        accessibility_value: value.into(),
+                        ..AccessibilityInfo::named(CellGrid::cell_label(at), AccessibilityRole::GridCell)
                     })
                     .with_child(cell_text(text, &style)),
             );
@@ -2505,6 +2649,50 @@ pub(crate) fn build(resolved: CellGridResolved, look: &CellGridLook) -> Dom {
     }
     if geo.frozen_rows == geo.rows.len() && any_frozen_rows {
         children.push(freeze_h());
+    }
+
+    // Merged ranges: one cell over the cells each covers - its top-left
+    // cell's content and look - under the selection's outline.
+    for merge in grid.merges.as_ref() {
+        let Some((x, y, w, h)) = range_rect(&geo, merge) else {
+            continue;
+        };
+        let first = merge.first;
+        let content = cell_content(&grid.data_source, first);
+        let style = cell_style(&grid.style_source, first);
+        let mut p = part(CELL_GRID_OVERLAY_BASE, &look.grid);
+        p.extend(CELL_GRID_CELL_BASE.iter().cloned());
+        p.extend(place(x, y, w, h));
+        p.extend(cell_style_props(
+            &style,
+            content.kind,
+            zoom,
+            look,
+            grid.show_grid_lines,
+            view.is_selected(first) && first != view.active,
+        ));
+        let text = if view.is_editing() && view.active == first {
+            AzString::from_const_str("")
+        } else {
+            content.text
+        };
+        let value = if text.as_str().is_empty() {
+            None
+        } else {
+            Some(text.clone())
+        };
+        children.push(
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(MERGE_CLASS))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(p))
+                .with_accessibility_info(AccessibilityInfo {
+                    row_index: azul_css::corety::OptionUsize::Some(first.row as usize + 1),
+                    column_index: azul_css::corety::OptionUsize::Some(first.column as usize + 1),
+                    accessibility_value: value.into(),
+                    ..AccessibilityInfo::named(CellGrid::cell_label(first), AccessibilityRole::GridCell)
+                })
+                .with_child(cell_text(text, &style)),
+        );
     }
 
     // The overlays: the current range's outline and its fill handle, the
@@ -2743,6 +2931,97 @@ fn commit_to(grid: &CellGrid, b: &Bounds<'_>, to: CellGridCellRef) -> CellGridEv
     e
 }
 
+/// A character after which a formula waits for a reference (point mode).
+fn waits_for_reference(c: char) -> bool {
+    matches!(
+        c,
+        '=' | '(' | ',' | ';' | ':' | '+' | '-' | '*' | '/' | '^' | '&' | '<' | '>' | ' '
+    )
+}
+
+/// Whether `word` is a cell reference (`$?A-ZZZ$?1..`) or a range of two.
+fn is_reference(word: &str) -> bool {
+    let mut parts = word.split(':');
+    let ok = |p: Option<&str>| p.is_some_and(|p| parse_a1(p).is_some());
+    match (parts.next(), parts.next(), parts.next()) {
+        (first, None, None) => ok(first),
+        (first, second, None) => ok(first) && ok(second),
+        _ => false,
+    }
+}
+
+/// Where a pointed reference goes in the formula `text` being edited with
+/// the caret at `caret` (characters): the start of the reference just
+/// before the caret (it is replaced), or the caret itself right after `=`,
+/// `(`, `,`, `:` or an operator. `None` when the formula waits for no
+/// reference - plain text, a caret after a value, inside a string.
+pub(crate) fn point_start(text: &str, caret: usize) -> Option<usize> {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.first() != Some(&'=') {
+        return None;
+    }
+    let caret = caret.min(chars.len());
+    if caret == 0 || chars[..caret].iter().filter(|c| **c == '"').count() % 2 == 1 {
+        return None;
+    }
+    if waits_for_reference(chars[caret - 1]) {
+        return Some(caret);
+    }
+    let mut start = caret;
+    while start > 1 && (chars[start - 1].is_ascii_alphanumeric() || matches!(chars[start - 1], '$' | ':')) {
+        start -= 1;
+    }
+    if !waits_for_reference(chars[start - 1]) {
+        return None;
+    }
+    let word: String = chars[start..caret].iter().collect();
+    is_reference(&word).then_some(start)
+}
+
+/// The cell pointed at last: the first cell of the reference just before
+/// the caret, if there is one.
+fn pointed_cell(view: &CellGridView) -> Option<CellGridCellRef> {
+    let text = view.edit_text.as_str();
+    let caret = view.edit_cursor as usize;
+    let start = point_start(text, caret)?;
+    let word: String = text.chars().skip(start).take(caret.saturating_sub(start)).collect();
+    word.split(':').next().and_then(parse_a1)
+}
+
+/// `view` with the range `origin`..`target` pointed at: its reference
+/// (`B3`, `A1:B3`) put at the caret in place of the one pointed before, the
+/// caret after it, a point drag from `origin`. `None` when the formula
+/// waits for no reference.
+pub(crate) fn point_at(view: &CellGridView, origin: CellGridCellRef, target: CellGridCellRef) -> Option<CellGridView> {
+    let text = view.edit_text.as_str();
+    let chars: Vec<char> = text.chars().collect();
+    let caret = (view.edit_cursor as usize).min(chars.len());
+    let start = point_start(text, caret)?;
+    let range = CellGridRange::spanning(origin, target);
+    let reference = if range.first == range.last {
+        alloc::string::String::from(CellGrid::cell_label(range.first).as_str())
+    } else {
+        alloc::format!(
+            "{}:{}",
+            CellGrid::cell_label(range.first).as_str(),
+            CellGrid::cell_label(range.last).as_str()
+        )
+    };
+    let mut out: alloc::string::String = chars[..start].iter().collect();
+    out.push_str(&reference);
+    out.extend(&chars[caret..]);
+    let mut next = view.clone();
+    next.edit_text = AzString::from(out);
+    next.edit_cursor = u32::try_from(start + reference.chars().count()).unwrap_or(u32::MAX);
+    next.drag = CellGridDrag {
+        origin,
+        target,
+        kind: CellGridDragKind::Point,
+        ..CellGridDrag::default()
+    };
+    Some(next)
+}
+
 /// The view editing `cell` in `mode`, the edit starting as `text`.
 fn start_edit(view: &CellGridView, cell: CellGridCellRef, mode: CellGridEditMode, text: &str) -> CellGridView {
     let mut next = if cell == view.active {
@@ -2776,8 +3055,22 @@ pub(crate) fn edit_key(
     };
     let enter_mode = view.edit_mode == CellGridEditMode::Enter;
     let moved = |dir: Dir| commit_to(grid, b, b.step(view.active, dir));
+    // Point mode (Enter mode, a formula waiting for a reference): an arrow
+    // points at the next cell - from the pointed one, else the edited one.
+    let pointing = enter_mode && point_start(view.edit_text.as_str(), caret).is_some();
+    let point = |dir: Dir| {
+        let from = pointed_cell(view).unwrap_or(view.active);
+        let to = b.step(from, dir);
+        let mut next = point_at(view, to, to).unwrap_or_else(|| view.clone());
+        next.drag = CellGridDrag::default();
+        CellGridEvent::create(CellGridEventKind::EditText, next)
+    };
     Some(match key {
         K::Escape => CellGridEvent::create(CellGridEventKind::EditCancel, without_edit(view)),
+        K::Up if pointing => point(Dir::Up),
+        K::Down if pointing => point(Dir::Down),
+        K::Left if pointing => point(Dir::Left),
+        K::Right if pointing => point(Dir::Right),
         K::Return | K::NumpadEnter => moved(if shift { Dir::Up } else { Dir::Down }),
         K::Tab => moved(if shift { Dir::Left } else { Dir::Right }),
         K::Up if enter_mode => moved(Dir::Up),
@@ -3110,9 +3403,27 @@ pub(crate) fn press(
                 if cell == view.active {
                     return None;
                 }
+                // Point mode: the formula waits for a reference - the
+                // click puts the cell's there instead of committing.
+                if let Some(next) = point_at(view, cell, cell) {
+                    return Some(CellGridEvent::create(CellGridEventKind::EditText, next));
+                }
                 return Some(commit_to(grid, &b, cell));
             }
             let mut next = select(view, cell, shift, ctrl);
+            // A click in a merged range selects all of it, its top-left
+            // cell the active one.
+            if let (false, Some(m)) = (shift, grid.merge_of(cell)) {
+                let mut ranges = if ctrl {
+                    view.ranges.as_ref().to_vec()
+                } else {
+                    Vec::new()
+                };
+                ranges.push(m);
+                next.ranges = CellGridRangeVec::from_vec(ranges);
+                next.active = m.first;
+                next.anchor = m.first;
+            }
             next.drag = CellGridDrag {
                 origin: if shift { view.anchor } else { cell },
                 target: cell,
@@ -3186,6 +3497,14 @@ pub(crate) fn drag_move(
             next.drag.target = cell;
             Some(CellGridEvent::create(CellGridEventKind::Drag, next))
         }
+        CellGridDragKind::Point => {
+            let cell = cell?;
+            if cell == drag.target {
+                return None;
+            }
+            let next = point_at(view, drag.origin, cell)?;
+            Some(CellGridEvent::create(CellGridEventKind::EditText, next))
+        }
         CellGridDragKind::ResizeColumn | CellGridDragKind::ResizeRow => {
             let at = if drag.kind == CellGridDragKind::ResizeColumn {
                 window_px.0
@@ -3233,7 +3552,9 @@ pub(crate) fn drag_end(grid: &CellGrid) -> Option<CellGridEvent> {
     next.drag = CellGridDrag::default();
     let event = match drag.kind {
         CellGridDragKind::None => return None,
-        CellGridDragKind::Select => CellGridEvent::create(CellGridEventKind::Drag, next),
+        CellGridDragKind::Select | CellGridDragKind::Point => {
+            CellGridEvent::create(CellGridEventKind::Drag, next)
+        }
         CellGridDragKind::Fill => {
             let source = view.current_range();
             let reach = fill_range(source, drag.target);
@@ -3773,6 +4094,87 @@ mod cell_grid_tests {
         assert_eq!(dragged.view.current_range(), CellGridRange::spanning(at(2, 1), at(3, 3)));
     }
 
+    /// Excel's point mode: while a formula waits for a reference (after
+    /// `=`, `(`, `,` or an operator), a click puts the clicked cell's
+    /// reference at the caret instead of committing; a second click
+    /// replaces it; a drag makes it a range. The edited cell stays.
+    #[test]
+    fn a_click_while_a_formula_waits_for_a_reference_points_at_the_cell() {
+        let mut view = CellGridView::create();
+        view.edit_mode = CellGridEditMode::Enter;
+        view.edit_text = AzString::from_const_str("=SUM(");
+        view.edit_cursor = 5;
+        let g = small().with_view(view);
+        let geo = geometry(&g);
+        let e = press(&g, &geo, Hit::Cell(at(2, 1)), false, false, (0.0, 0.0)).expect("a click");
+        assert_eq!(e.kind, CellGridEventKind::EditText, "pointing, not committing");
+        assert_eq!(e.view.edit_text.as_str(), "=SUM(B3");
+        assert_eq!(e.view.edit_cursor, 7);
+        assert_eq!(e.view.active, at(0, 0), "the edited cell stays");
+        assert!(e.view.is_editing());
+        assert_eq!(e.view.drag.kind, CellGridDragKind::Point, "a drag may follow");
+
+        // A second click replaces the pointed reference.
+        let mut pointed = e.view.clone();
+        pointed.drag = CellGridDrag::default();
+        let g2 = small().with_view(pointed);
+        let again = press(&g2, &geo, Hit::Cell(at(4, 0)), false, false, (0.0, 0.0)).expect("a click");
+        assert_eq!(again.view.edit_text.as_str(), "=SUM(A5");
+
+        // A drag makes it a range (written top-left first), the release ends it.
+        let g3 = small().with_view(e.view);
+        let dragged = drag_move(&g3, Some(at(0, 0)), (0.0, 0.0)).expect("the range follows");
+        assert_eq!(dragged.view.edit_text.as_str(), "=SUM(A1:B3");
+        assert_eq!(dragged.view.edit_cursor, 10);
+        let g4 = small().with_view(dragged.view);
+        let end = drag_end(&g4).expect("the release");
+        assert_eq!(end.view.drag.kind, CellGridDragKind::None);
+        assert_eq!(end.view.edit_text.as_str(), "=SUM(A1:B3");
+    }
+
+    /// In Enter mode the arrows point too: from the edited cell first, then
+    /// from the pointed one. After a value they commit, as before.
+    #[test]
+    fn the_arrows_point_while_a_formula_waits_for_a_reference() {
+        let mut view = CellGridView::create().with_active(at(1, 1));
+        view.edit_mode = CellGridEditMode::Enter;
+        view.edit_text = AzString::from_const_str("=");
+        view.edit_cursor = 1;
+        let g = small().with_view(view);
+        let geo = geometry(&g);
+        let b = bounds_of(&g, &geo);
+        let down = edit_key(&g, &b, VirtualKeyCode::Down, false).expect("Down points");
+        assert_eq!(down.kind, CellGridEventKind::EditText);
+        assert_eq!(down.view.edit_text.as_str(), "=B3", "the cell below the edited B2");
+        assert_eq!(down.view.active, at(1, 1));
+        let g2 = small().with_view(down.view);
+        let right = edit_key(&g2, &b, VirtualKeyCode::Right, false).expect("Right points");
+        assert_eq!(right.view.edit_text.as_str(), "=C3", "from the pointed cell");
+        assert_eq!(right.view.edit_cursor, 3);
+
+        let mut typed = CellGridView::create().with_active(at(1, 1));
+        typed.edit_mode = CellGridEditMode::Enter;
+        typed.edit_text = AzString::from_const_str("=1+2");
+        typed.edit_cursor = 4;
+        let g3 = small().with_view(typed);
+        let commit = edit_key(&g3, &b, VirtualKeyCode::Down, false).expect("Down commits");
+        assert_eq!(commit.kind, CellGridEventKind::EditCommit);
+    }
+
+    #[test]
+    fn a_click_after_a_value_or_in_plain_text_still_commits() {
+        for (text, cursor) in [("=1+2", 4u32), ("Total", 5), ("=SUM(A1", 4)] {
+            let mut view = CellGridView::create();
+            view.edit_mode = CellGridEditMode::Enter;
+            view.edit_text = AzString::from(text);
+            view.edit_cursor = cursor;
+            let g = small().with_view(view);
+            let geo = geometry(&g);
+            let e = press(&g, &geo, Hit::Cell(at(3, 3)), false, false, (0.0, 0.0)).expect("a click");
+            assert_eq!(e.kind, CellGridEventKind::EditCommit, "{text:?} at {cursor} commits");
+        }
+    }
+
     #[test]
     fn a_click_elsewhere_commits_the_edit_in_progress() {
         let g = small().with_view(typed(&CellGridView::create(), "7").view);
@@ -3851,6 +4253,110 @@ mod cell_grid_tests {
         assert_eq!(cell_info.role, azul_core::a11y::AccessibilityRole::GridCell);
         assert_eq!(cell_info.row_index.into_option(), Some(42), "its row in the WHOLE sheet");
         assert_eq!(cell_info.column_index.into_option(), Some(1));
+    }
+
+    /// Seen in the wave-6 look: every cell was an anonymous GridCell (one
+    /// a11y-shape warning per cell per frame). A cell is named by its place
+    /// ("B2", what Excel's screen reader says first) and carries its text as
+    /// its value.
+    #[test]
+    fn every_cell_is_named_by_its_place_and_carries_its_text_as_its_value() {
+        let dom = small().with_theme(UiTheme::Flat).dom();
+        // Child 0 is the header row; child 2 sheet row 2; its child 0 the
+        // row number, child 2 column B.
+        let cell = &dom.children.as_ref()[2].children.as_ref()[2];
+        let info = cell.root.get_accessibility_info().expect("a cell role");
+        assert_eq!(info.accessibility_name.as_ref().map(|n| n.as_str()), Some("B2"));
+        assert_eq!(info.accessibility_value.as_ref().map(|v| v.as_str()), Some("11"));
+        let empty = &dom.children.as_ref()[7].children.as_ref()[1];
+        let info = empty.root.get_accessibility_info().expect("a cell role");
+        assert_eq!(
+            info.accessibility_name.as_ref().map(|n| n.as_str()),
+            Some("A7"),
+            "an empty cell is named too"
+        );
+    }
+
+    /// Merge & Center: a merged range is ONE cell on screen - its top-left
+    /// cell's content over the cells it covers - named by its top-left
+    /// place, and a click anywhere in it selects all of it.
+    #[test]
+    fn a_merged_range_is_drawn_as_one_cell_and_a_click_in_it_selects_it() {
+        let merge = CellGridRange::spanning(at(1, 1), at(2, 2)); // B2:C3
+        let g = small().with_merges(CellGridRangeVec::from_vec(vec![merge]));
+        assert_eq!(g.merge_of(at(2, 2)), Some(merge));
+        assert_eq!(g.merge_of(at(0, 0)), None);
+        let dom = g.clone().with_theme(UiTheme::Flat).dom();
+        let merged: Vec<&Dom> = dom
+            .children
+            .as_ref()
+            .iter()
+            .filter(|c| {
+                c.root
+                    .get_ids_and_classes()
+                    .as_ref()
+                    .iter()
+                    .any(|x| matches!(x, Class(n) if n.as_str() == MERGE_CLASS_NAME))
+            })
+            .collect();
+        assert_eq!(merged.len(), 1, "one cell over B2:C3");
+        let info = merged[0].root.get_accessibility_info().expect("a cell role");
+        assert_eq!(info.accessibility_name.as_ref().map(|n| n.as_str()), Some("B2"));
+        let mut seen = Vec::new();
+        texts(merged[0], &mut seen);
+        assert_eq!(seen, vec![String::from("11")], "B2's content");
+
+        let geo = geometry(&g);
+        let e = press(&g, &geo, Hit::Cell(at(2, 2)), false, false, (0.0, 0.0)).expect("a click on C3");
+        assert_eq!(e.view.ranges.as_ref(), &[merge], "the whole merge");
+        assert_eq!(e.view.active, at(1, 1), "its top-left cell is the active one");
+    }
+
+    /// A1 holds a title wider than its column, B1 and C1 are empty, D1 has
+    /// text; A2 a long number; A3 a long note.
+    extern "C" fn long_title(_: RefAny, cell: CellGridCellRef) -> CellGridCell {
+        let text = |t: &'static str, kind| CellGridCell::create(AzString::from_const_str(t), kind);
+        match (cell.row, cell.column) {
+            (0, 0) => text("Household budget 2027", CellGridCellKind::Text),
+            (0, 3) => text("x", CellGridCellKind::Text),
+            (1, 0) => text("1234567890123", CellGridCellKind::Number),
+            (2, 0) => text("A very long note that runs on and on and on", CellGridCellKind::Text),
+            _ => CellGridCell::empty(),
+        }
+    }
+
+    fn titled() -> CellGrid {
+        CellGrid::create(100, 20)
+            .with_viewport(400.0, 200.0)
+            .with_data_source(RefAny::new(()), long_title as CellGridDataSourceCallbackType)
+    }
+
+    fn is_cell(node: &Dom) -> bool {
+        node.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, Class(s) if s.as_str() == CELL_CLASS_NAME))
+    }
+
+    /// Seen in the wave-6 look: the Budget sample's title was cut at A1's
+    /// edge. Excel lets a text run on over the empty cells after it.
+    #[test]
+    fn a_text_too_wide_for_its_cell_spills_over_the_empty_cells_after_it() {
+        let resolved = resolve(titled());
+        let spans = spill_spans(&resolved, 0);
+        assert_eq!(&spans[..4], &[3, 0, 0, 1], "A1 reaches over B1 and C1; D1 holds its own text");
+        assert_eq!(spill_spans(&resolved, 1)[0], 1, "a number never spills");
+        let long = spill_spans(&resolved, 2);
+        assert_eq!(long.iter().sum::<u32>() as usize, long.len(), "every column is drawn once");
+        assert_eq!(long[0] as usize, long.len(), "a long note runs to the edge of the window");
+
+        // Drawn: the first data row has two cells fewer, A1 covers three.
+        let in_view = geometry(&titled()).columns.len();
+        let dom = titled().with_theme(UiTheme::Flat).dom();
+        let first_row = &dom.children.as_ref()[1];
+        let cells = first_row.children.as_ref().iter().filter(|c| is_cell(c)).count();
+        assert_eq!(cells, in_view - 2);
     }
 
     #[test]

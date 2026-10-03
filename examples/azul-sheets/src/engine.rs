@@ -226,6 +226,82 @@ pub enum StylePatch {
     Borders { preset: BorderPreset, color: String },
 }
 
+/// A conditional-format rule: Excel's "Highlight Cells Rules" and the
+/// average rules - the basic set.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum CondRule {
+    GreaterThan(String),
+    LessThan(String),
+    Between(String, String),
+    EqualTo(String),
+    TextContains(String),
+    Duplicates,
+    AboveAverage,
+    BelowAverage,
+}
+
+impl CondRule {
+    /// What the rule says ("Cell value > 5").
+    #[must_use]
+    pub fn describe(&self) -> String {
+        match self {
+            Self::GreaterThan(v) => format!("Cell value > {v}"),
+            Self::LessThan(v) => format!("Cell value < {v}"),
+            Self::Between(a, b) => format!("Cell value between {a} and {b}"),
+            Self::EqualTo(v) => format!("Cell value = {v}"),
+            Self::TextContains(t) => format!("Text contains \"{t}\""),
+            Self::Duplicates => String::from("Duplicate values"),
+            Self::AboveAverage => String::from("Above average"),
+            Self::BelowAverage => String::from("Below average"),
+        }
+    }
+}
+
+/// How a matching cell looks: Excel's three presets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub enum CondLook {
+    /// Light red fill with dark red text.
+    #[default]
+    LightRed,
+    /// Yellow fill with dark yellow text.
+    Yellow,
+    /// Green fill with dark green text.
+    Green,
+}
+
+impl CondLook {
+    pub const ALL: [Self; 3] = [Self::LightRed, Self::Yellow, Self::Green];
+
+    /// The name the dialog shows.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::LightRed => "Light red fill, dark red text",
+            Self::Yellow => "Yellow fill, dark yellow text",
+            Self::Green => "Green fill, dark green text",
+        }
+    }
+
+    /// (`#RRGGBB` fill, `#RRGGBB` text).
+    #[must_use]
+    pub const fn colors(self) -> (&'static str, &'static str) {
+        match self {
+            Self::LightRed => ("#FFC7CE", "#9C0006"),
+            Self::Yellow => ("#FFEB9C", "#9C5700"),
+            Self::Green => ("#C6EFCE", "#006100"),
+        }
+    }
+}
+
+/// A conditional format of a sheet, as the rules list shows it.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ConditionalFormat {
+    /// Its place in the sheet's list (what deleting it names).
+    pub index: usize,
+    pub area: CellArea,
+    pub description: String,
+}
+
 /// A sheet tab.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SheetInfo {
@@ -349,6 +425,39 @@ pub trait SheetEngine: Send {
         formula: &str,
     ) -> Result<(), EngineError>;
     fn delete_defined_name(&mut self, name: &str, scope: Option<u32>) -> Result<(), EngineError>;
+
+    // ---- merged cells ----
+
+    /// The merged areas of `sheet`, top to bottom, left to right.
+    fn merges(&self, sheet: u32) -> Vec<CellArea>;
+    /// Merges `area` (one cell is no merge); a merge it overlaps is
+    /// replaced. The workbook keeps it and writes it into the `.xlsx`.
+    fn merge(&mut self, area: CellArea) -> Result<(), EngineError>;
+    /// Removes every merge of `area`'s sheet that overlaps `area`.
+    fn unmerge(&mut self, area: CellArea) -> Result<(), EngineError>;
+
+    // ---- conditional formats ----
+
+    /// The conditional formats of `sheet`, in the sheet's order. A cell's
+    /// [`Self::cell_style`] shows the ones that match it.
+    fn conditional_formats(&self, sheet: u32) -> Vec<ConditionalFormat>;
+    /// Adds `rule` over `area`, matching cells drawn in `look`.
+    fn add_conditional_format(&mut self, area: CellArea, rule: &CondRule, look: CondLook) -> Result<(), EngineError>;
+    /// Removes the conditional formats overlapping `area` (Excel's "Clear
+    /// Rules from Selected Cells").
+    fn clear_conditional_formats(&mut self, area: CellArea) -> Result<(), EngineError>;
+}
+
+impl CellArea {
+    /// Whether the two areas share a cell (on the same sheet).
+    #[must_use]
+    pub const fn overlaps(&self, other: &CellArea) -> bool {
+        self.sheet == other.sheet
+            && self.row <= other.last_row()
+            && other.row <= self.last_row()
+            && self.column <= other.last_column()
+            && other.column <= self.last_column()
+    }
 }
 
 #[cfg(test)]

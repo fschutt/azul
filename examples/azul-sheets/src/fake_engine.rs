@@ -10,7 +10,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::engine::{
-    BorderPreset, CellAddr, CellArea, CellStyle, CellValue, DefinedName, EngineError, FillTo,
+    BorderPreset, CellAddr, CellArea, CellStyle, CellValue, CondLook, CondRule, ConditionalFormat, DefinedName,
+    EngineError, FillTo,
     SheetEngine, SheetInfo, StylePatch, LAST_COLUMN, LAST_ROW,
 };
 
@@ -36,6 +37,12 @@ struct FakeSheet {
     hidden_rows: BTreeSet<i32>,
     frozen: (i32, i32),
     grid_lines: bool,
+    /// The merged areas (their `sheet` is not kept up to date: the sheet
+    /// they belong to is the one holding them).
+    merges: Vec<CellArea>,
+    /// The conditional formats, in order (kept, listed, cleared - the fake
+    /// does not evaluate them; IronCalc does).
+    conditional: Vec<(CellArea, CondRule, CondLook)>,
 }
 
 impl FakeSheet {
@@ -417,6 +424,19 @@ impl SheetEngine for FakeEngine {
                     sheet.hidden_rows.insert(r as i32);
                 }
             }
+            for m in s["merges"].as_array().cloned().unwrap_or_default() {
+                if let (Some(row), Some(column), Some(width), Some(height)) =
+                    (m[0].as_i64(), m[1].as_i64(), m[2].as_i64(), m[3].as_i64())
+                {
+                    sheet.merges.push(CellArea {
+                        sheet: 0,
+                        row: row as i32,
+                        column: column as i32,
+                        width: width as i32,
+                        height: height as i32,
+                    });
+                }
+            }
             book.sheets.push(sheet);
         }
         for n in json["names"].as_array().cloned().unwrap_or_default() {
@@ -451,6 +471,7 @@ impl SheetEngine for FakeEngine {
                     "widths": s.widths.iter().map(|(c, px)| serde_json::json!([c, px])).collect::<Vec<_>>(),
                     "heights": s.heights.iter().map(|(r, px)| serde_json::json!([r, px])).collect::<Vec<_>>(),
                     "hidden_rows": s.hidden_rows.iter().collect::<Vec<_>>(),
+                    "merges": s.merges.iter().map(|m| serde_json::json!([m.row, m.column, m.width, m.height])).collect::<Vec<_>>(),
                 })
             })
             .collect();
@@ -936,6 +957,74 @@ impl SheetEngine for FakeEngine {
         self.book
             .names
             .retain(|n| !(n.scope == scope && n.name.eq_ignore_ascii_case(name)));
+        Ok(())
+    }
+
+    fn merges(&self, sheet: u32) -> Vec<CellArea> {
+        let mut out: Vec<CellArea> = self
+            .book
+            .sheets
+            .get(sheet as usize)
+            .map(|s| s.merges.iter().map(|m| CellArea { sheet, ..*m }).collect())
+            .unwrap_or_default();
+        out.sort_by_key(|m| (m.row, m.column));
+        out
+    }
+
+    fn merge(&mut self, area: CellArea) -> Result<(), EngineError> {
+        self.check_sheet(area.sheet)?;
+        if area.width * area.height <= 1 {
+            return Ok(());
+        }
+        self.checkpoint();
+        let merges = &mut self.book.sheets[area.sheet as usize].merges;
+        merges.retain(|m| !CellArea { sheet: area.sheet, ..*m }.overlaps(&area));
+        merges.push(area);
+        Ok(())
+    }
+
+    fn unmerge(&mut self, area: CellArea) -> Result<(), EngineError> {
+        self.check_sheet(area.sheet)?;
+        self.checkpoint();
+        self.book.sheets[area.sheet as usize]
+            .merges
+            .retain(|m| !CellArea { sheet: area.sheet, ..*m }.overlaps(&area));
+        Ok(())
+    }
+
+    fn conditional_formats(&self, sheet: u32) -> Vec<ConditionalFormat> {
+        self.book
+            .sheets
+            .get(sheet as usize)
+            .map(|s| {
+                s.conditional
+                    .iter()
+                    .enumerate()
+                    .map(|(index, (area, rule, _))| ConditionalFormat {
+                        index,
+                        area: CellArea { sheet, ..*area },
+                        description: rule.describe(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn add_conditional_format(&mut self, area: CellArea, rule: &CondRule, look: CondLook) -> Result<(), EngineError> {
+        self.check_sheet(area.sheet)?;
+        self.checkpoint();
+        self.book.sheets[area.sheet as usize]
+            .conditional
+            .push((area, rule.clone(), look));
+        Ok(())
+    }
+
+    fn clear_conditional_formats(&mut self, area: CellArea) -> Result<(), EngineError> {
+        self.check_sheet(area.sheet)?;
+        self.checkpoint();
+        self.book.sheets[area.sheet as usize]
+            .conditional
+            .retain(|(a, _, _)| !CellArea { sheet: area.sheet, ..*a }.overlaps(&area));
         Ok(())
     }
 }

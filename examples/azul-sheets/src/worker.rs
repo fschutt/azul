@@ -17,7 +17,8 @@ use std::{
 
 use crate::{
     engine::{
-        CellAddr, CellArea, CellStyle, CellValue, DefinedName, EngineError, FillTo, SheetEngine,
+        CellAddr, CellArea, CellStyle, CellValue, CondLook, CondRule, ConditionalFormat, DefinedName, EngineError,
+        FillTo, SheetEngine,
         SheetInfo, StylePatch, LAST_COLUMN, LAST_ROW,
     },
     ops::{self, SelectionStats},
@@ -131,11 +132,45 @@ pub enum Command {
     Find {
         from: CellAddr,
         needle: String,
+        opts: ops::FindOptions,
+    },
+    /// Replace: the match in `at` (if it holds one) is replaced, then the
+    /// next match is `Reply::found`.
+    Replace {
+        at: CellAddr,
+        needle: String,
+        replacement: String,
+        opts: ops::FindOptions,
+    },
+    /// Replace All on `sheet` as one undo step: `Reply::count` cells changed.
+    ReplaceAll {
+        sheet: u32,
+        needle: String,
+        replacement: String,
+        opts: ops::FindOptions,
     },
     /// AutoSum: `Reply::area` = the run of numbers above `at` (else to its
     /// left) the `=SUM(..)` should add up; nothing is written.
     SumRange {
         at: CellAddr,
+    },
+    /// Merge & Center the area (the top-left input stays).
+    MergeCenter {
+        area: CellArea,
+    },
+    /// Removes the merges overlapping the area.
+    Unmerge {
+        area: CellArea,
+    },
+    /// A conditional format over the area.
+    AddConditional {
+        area: CellArea,
+        rule: CondRule,
+        look: CondLook,
+    },
+    /// Removes the conditional formats overlapping the area.
+    ClearConditional {
+        area: CellArea,
     },
     AddSheet,
     RenameSheet {
@@ -238,6 +273,10 @@ pub struct Snapshot {
     pub row_heights: Vec<(i32, f64)>,
     /// The frozen panes: (rows, columns).
     pub frozen: (i32, i32),
+    /// The merged areas of the sheet.
+    pub merges: Vec<CellArea>,
+    /// The sheet's conditional formats.
+    pub conditional: Vec<ConditionalFormat>,
     pub grid_lines: bool,
     /// (max_row, max_column) of the sheet's data.
     pub extent: (i32, i32),
@@ -365,6 +404,8 @@ pub fn snapshot(engine: &dyn SheetEngine, view: &ViewRequest) -> Snapshot {
         cells,
         styles,
         frozen: engine.frozen(sheet),
+        merges: engine.merges(sheet),
+        conditional: engine.conditional_formats(sheet),
         grid_lines: engine.show_grid_lines(sheet),
         extent: engine.extent(sheet),
         stats: ops::selection_stats(engine, &view.selection),
@@ -449,14 +490,40 @@ fn run(
             extras.count = Some(ops::filter_rows(engine, *area, *column, keep.as_deref())?);
             Ok(())
         }
-        Command::Find { from, needle } => {
-            extras.found = ops::find_next(engine, *from, needle);
+        Command::Find { from, needle, opts } => {
+            extras.found = ops::find_match(engine, *from, needle, *opts);
+            Ok(())
+        }
+        Command::Replace {
+            at,
+            needle,
+            replacement,
+            opts,
+        } => {
+            let input = engine.cell_input(*at);
+            if let Some(new) = ops::replace_text(&input, needle, replacement, *opts) {
+                engine.set_cell_input(*at, &new)?;
+            }
+            extras.found = ops::find_match(engine, *at, needle, *opts);
+            Ok(())
+        }
+        Command::ReplaceAll {
+            sheet,
+            needle,
+            replacement,
+            opts,
+        } => {
+            extras.count = Some(ops::replace_all(engine, *sheet, needle, replacement, *opts)?);
             Ok(())
         }
         Command::SumRange { at } => {
             extras.area = ops::sum_range_above(engine, *at);
             Ok(())
         }
+        Command::MergeCenter { area } => ops::merge_and_center(engine, *area),
+        Command::Unmerge { area } => engine.unmerge(*area),
+        Command::AddConditional { area, rule, look } => engine.add_conditional_format(*area, rule, *look),
+        Command::ClearConditional { area } => engine.clear_conditional_formats(*area),
         Command::AddSheet => engine.add_sheet(),
         Command::RenameSheet { sheet, name } => engine.rename_sheet(*sheet, name),
         Command::DeleteSheet { sheet } => engine.delete_sheet(*sheet),
@@ -688,6 +755,7 @@ mod tests {
                 Command::Find {
                     from: at(1, 1),
                     needle: "NEED".into(),
+                    opts: ops::FindOptions::default(),
                 },
                 ViewRequest::default(),
                 tx,

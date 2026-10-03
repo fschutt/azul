@@ -11,19 +11,24 @@
 //! fields, so it is built through serde; `save_to_xlsx` refuses to overwrite,
 //! so saving goes through `save_xlsx_to_writer`; the xlsx import does not
 //! evaluate, so a load evaluates once; `paste_csv_string` reads TAB-separated
-//! text, so `set_inputs` writes it with the same `csv` crate.
+//! text with a csv reader that drops a row of another length, so
+//! `set_inputs` writes a padded rectangle with the same `csv` crate
+//! (`model::tsv_of`).
 
-use std::io::Cursor;
+use std::{collections::BTreeMap, io::Cursor};
 
 use ironcalc::base::{
     cell::CellValue as IcCellValue,
+    cf_types::{CfRule, CfRuleInput, TextOperator, ValueOperator},
     expressions::types::Area,
-    types::{BorderItem, CellType, Color, HorizontalAlignment, Style, VerticalAlignment},
+    types::{BorderItem, CellType, Color, Dxf, DxfFont, Fill, HorizontalAlignment, Style, VerticalAlignment},
+    expressions::utils::{column_to_number, number_to_column},
     BorderArea, Model, UserModel,
 };
 
 use crate::engine::{
-    BorderPreset, CellAddr, CellArea, CellBorders, CellStyle, CellValue, DefinedName, EngineError,
+    BorderPreset, CellAddr, CellArea, CellBorders, CellStyle, CellValue, CondLook, CondRule, ConditionalFormat,
+    DefinedName, EngineError,
     FillTo, HAlign, SheetEngine, SheetInfo, StylePatch, VAlign,
 };
 
@@ -39,6 +44,12 @@ const LANGUAGE: &str = "en";
 /// The real engine.
 pub struct IronCalcEngine {
     model: UserModel<'static>,
+    /// The merged areas by worksheet `sheet_id` (stable across moves and
+    /// renames). IronCalc reads and writes a sheet's `<mergeCells>`, but its
+    /// UserModel cannot change them: the engine keeps them here and writes
+    /// them into the saved file. (Not undo steps; rows and columns inserted
+    /// or deleted do not move them.)
+    merges: BTreeMap<u32, Vec<CellArea>>,
 }
 
 impl Default for IronCalcEngine {
@@ -57,6 +68,7 @@ impl IronCalcEngine {
     pub fn new_empty() -> Self {
         Self {
             model: empty_model("Book1").expect("the built-in locale, time zone and language"),
+            merges: BTreeMap::new(),
         }
     }
 
@@ -66,11 +78,22 @@ impl IronCalcEngine {
             .map_err(|e| format!("Could not read the workbook: {e}"))?;
         let model = Model::from_workbook(workbook, LANGUAGE)
             .map_err(|e| format!("Could not open the workbook: {e}"))?;
+        let merges = merges_of(&model);
         let mut model = UserModel::from_model(model);
         // The import keeps the cached values; recalculate once so every
         // formula shows what IronCalc computes.
         model.evaluate();
-        Ok(Self { model })
+        Ok(Self { model, merges })
+    }
+
+    /// The stable id of the worksheet at `sheet`.
+    fn sheet_id(&self, sheet: u32) -> Option<u32> {
+        self.model
+            .get_model()
+            .workbook
+            .worksheets
+            .get(sheet as usize)
+            .map(|w| w.sheet_id)
     }
 
     /// The `#RRGGBB` of `color` (theme colours resolved), `None` for no colour.
@@ -85,6 +108,144 @@ fn empty_model(name: &str) -> Result<UserModel<'static>, EngineError> {
     let mut model = Model::new_empty("Book1", LOCALE, TIMEZONE, LANGUAGE)?;
     model.workbook.name = name.to_string();
     Ok(UserModel::from_model(model))
+}
+
+/// A sheet's merges as the file holds them (`A1:C3`), by sheet id.
+fn merges_of(model: &Model<'_>) -> BTreeMap<u32, Vec<CellArea>> {
+    model
+        .workbook
+        .worksheets
+        .iter()
+        .enumerate()
+        .map(|(i, ws)| {
+            let sheet = u32::try_from(i).unwrap_or(0);
+            let areas = ws
+                .merge_cells
+                .iter()
+                .filter_map(|r| area_of_ref(sheet, r))
+                .filter(|a| a.width * a.height > 1)
+                .collect();
+            (ws.sheet_id, areas)
+        })
+        .collect()
+}
+
+/// `A1:C3` (`$` allowed) as an area on `sheet`.
+fn area_of_ref(sheet: u32, text: &str) -> Option<CellArea> {
+    let cell = |t: &str| -> Option<(i32, i32)> {
+        let t = t.trim().replace('$', "").to_ascii_uppercase();
+        let split = t.find(|c: char| c.is_ascii_digit())?;
+        let (letters, digits) = t.split_at(split);
+        let column = column_to_number(letters).ok()?;
+        let row: i32 = digits.parse().ok()?;
+        (row >= 1).then_some((row, column))
+    };
+    let (a, b) = match text.split_once(':') {
+        Some((a, b)) => (cell(a)?, cell(b)?),
+        None => {
+            let c = cell(text)?;
+            (c, c)
+        }
+    };
+    Some(CellArea::spanning(sheet, a.0, a.1, b.0, b.1))
+}
+
+/// An area as the file writes a merge (`A1:C3`).
+fn ref_of_area(a: &CellArea) -> Option<String> {
+    Some(format!(
+        "{}{}:{}{}",
+        number_to_column(a.column)?,
+        a.row,
+        number_to_column(a.last_column())?,
+        a.last_row()
+    ))
+}
+
+/// A rule in IronCalc's terms, matching cells drawn in `look`.
+fn rule_input(rule: &CondRule, look: CondLook) -> CfRuleInput {
+    let (fill, ink) = look.colors();
+    let format = Dxf {
+        font: Some(DxfFont {
+            color: Color::Rgb(ink.to_string()),
+            ..DxfFont::default()
+        }),
+        fill: Some(Fill {
+            color: Color::Rgb(fill.to_string()),
+        }),
+        ..Dxf::default()
+    };
+    let cell_is = |operator, formula: &str, formula2: Option<&str>| CfRuleInput::CellIs {
+        operator,
+        formula: formula.to_string(),
+        formula2: formula2.map(str::to_string),
+        format: format.clone(),
+        stop_if_true: false,
+    };
+    match rule {
+        CondRule::GreaterThan(v) => cell_is(ValueOperator::GreaterThan, v, None),
+        CondRule::LessThan(v) => cell_is(ValueOperator::LessThan, v, None),
+        CondRule::Between(a, b) => cell_is(ValueOperator::Between, a, Some(b)),
+        CondRule::EqualTo(v) => cell_is(ValueOperator::Equal, v, None),
+        CondRule::TextContains(t) => CfRuleInput::Text {
+            operator: TextOperator::Contains,
+            value: t.clone(),
+            format,
+            stop_if_true: false,
+        },
+        CondRule::Duplicates => CfRuleInput::DuplicateValues {
+            format,
+            stop_if_true: false,
+        },
+        CondRule::AboveAverage => CfRuleInput::AboveAverage {
+            format,
+            stop_if_true: false,
+        },
+        CondRule::BelowAverage => CfRuleInput::BelowAverage {
+            format,
+            stop_if_true: false,
+        },
+    }
+}
+
+/// What a stored rule says, in the words of [`CondRule::describe`] where it
+/// is one of ours.
+fn describe_rule(rule: &CfRule) -> String {
+    match rule {
+        CfRule::CellIs {
+            operator,
+            formula,
+            formula2,
+            ..
+        } => {
+            let ours = match operator {
+                ValueOperator::GreaterThan => Some(CondRule::GreaterThan(formula.clone())),
+                ValueOperator::LessThan => Some(CondRule::LessThan(formula.clone())),
+                ValueOperator::Equal => Some(CondRule::EqualTo(formula.clone())),
+                ValueOperator::Between => {
+                    Some(CondRule::Between(formula.clone(), formula2.clone().unwrap_or_default()))
+                }
+                _ => None,
+            };
+            ours.map_or_else(|| format!("Cell value {operator:?} {formula}"), |r| r.describe())
+        }
+        CfRule::Text {
+            operator: TextOperator::Contains,
+            value,
+            ..
+        } => CondRule::TextContains(value.clone()).describe(),
+        CfRule::DuplicateValues { .. } => CondRule::Duplicates.describe(),
+        CfRule::AboveAverage { .. } => CondRule::AboveAverage.describe(),
+        CfRule::BelowAverage { .. } => CondRule::BelowAverage.describe(),
+        CfRule::ColorScale { .. } => String::from("Color scale"),
+        _ => String::from("Rule"),
+    }
+}
+
+/// The file of `model`.
+fn export(model: &Model<'_>) -> Result<Vec<u8>, EngineError> {
+    ironcalc::export::save_xlsx_to_writer(model, Cursor::new(Vec::new()))
+        .map(Cursor::into_inner)
+        .map_err(|e| format!("Could not write the workbook: {e}"))
 }
 
 /// `Some(s)` unless `s` is empty.
@@ -235,28 +396,10 @@ pub(crate) fn value_from(value: IcCellValue, is_error: bool) -> CellValue {
     }
 }
 
-/// `rows` as tab-separated text in the form IronCalc's `paste_csv_string`
-/// reads (the `csv` crate quotes what holds a tab, a quote or a newline).
-pub(crate) fn tsv_of(rows: &[Vec<String>]) -> Result<String, EngineError> {
-    let mut writer = csv::WriterBuilder::new()
-        .delimiter(b'\t')
-        .terminator(csv::Terminator::Any(b'\n'))
-        .flexible(true)
-        .from_writer(Vec::new());
-    for row in rows {
-        writer
-            .write_record(row)
-            .map_err(|e| format!("Could not write the cells: {e}"))?;
-    }
-    let bytes = writer
-        .into_inner()
-        .map_err(|_| String::from("Could not write the cells."))?;
-    String::from_utf8(bytes).map_err(|e| e.to_string())
-}
-
 impl SheetEngine for IronCalcEngine {
     fn new_workbook(&mut self, name: &str) -> Result<(), EngineError> {
         self.model = empty_model(name)?;
+        self.merges.clear();
         Ok(())
     }
 
@@ -266,9 +409,23 @@ impl SheetEngine for IronCalcEngine {
     }
 
     fn save_xlsx(&self) -> Result<Vec<u8>, EngineError> {
-        ironcalc::export::save_xlsx_to_writer(self.model.get_model(), Cursor::new(Vec::new()))
-            .map(Cursor::into_inner)
-            .map_err(|e| format!("Could not write the workbook: {e}"))
+        let live = self.model.get_model();
+        let unmerged = self.merges.values().all(Vec::is_empty)
+            && live.workbook.worksheets.iter().all(|w| w.merge_cells.is_empty());
+        if unmerged {
+            return export(live);
+        }
+        // The merges go into a copy of the model (the live one keeps its
+        // undo history).
+        let mut copy = Model::from_bytes(&self.model.to_bytes(), LANGUAGE)?;
+        for ws in &mut copy.workbook.worksheets {
+            ws.merge_cells = self
+                .merges
+                .get(&ws.sheet_id)
+                .map(|list| list.iter().filter_map(ref_of_area).collect())
+                .unwrap_or_default();
+        }
+        export(&copy)
     }
 
     fn workbook_name(&self) -> String {
@@ -337,7 +494,8 @@ impl SheetEngine for IronCalcEngine {
         if rows.is_empty() {
             return Ok(());
         }
-        let tsv = tsv_of(rows)?;
+        // Rectangular: IronCalc's paste drops a row of another length.
+        let tsv = crate::model::tsv_of(rows);
         self.paste_tsv(top_left, &tsv)
     }
 
@@ -372,8 +530,10 @@ impl SheetEngine for IronCalcEngine {
     }
 
     fn cell_style(&self, at: CellAddr) -> CellStyle {
-        match self.model.get_cell_style(at.sheet, at.row, at.column) {
-            Ok(style) => style_from(&style, &|c: &Color| self.model.resolve_color(c)),
+        // The extended style: the cell's own with the conditional formats
+        // that match it laid over (IronCalc evaluates them).
+        match self.model.get_extended_cell_style(at.sheet, at.row, at.column) {
+            Ok(extended) => style_from(&extended.style, &|c: &Color| self.model.resolve_color(c)),
             Err(_) => CellStyle::default(),
         }
     }
@@ -523,6 +683,72 @@ impl SheetEngine for IronCalcEngine {
     fn delete_defined_name(&mut self, name: &str, scope: Option<u32>) -> Result<(), EngineError> {
         self.model.delete_defined_name(name, scope)
     }
+
+    fn merges(&self, sheet: u32) -> Vec<CellArea> {
+        let mut out: Vec<CellArea> = self
+            .sheet_id(sheet)
+            .and_then(|id| self.merges.get(&id))
+            .map(|list| list.iter().map(|m| CellArea { sheet, ..*m }).collect())
+            .unwrap_or_default();
+        out.sort_by_key(|m| (m.row, m.column));
+        out
+    }
+
+    fn merge(&mut self, area: CellArea) -> Result<(), EngineError> {
+        let id = self.sheet_id(area.sheet).ok_or_else(|| String::from("There is no such sheet."))?;
+        if area.width * area.height <= 1 {
+            return Ok(());
+        }
+        let list = self.merges.entry(id).or_default();
+        list.retain(|m| !CellArea { sheet: area.sheet, ..*m }.overlaps(&area));
+        list.push(area);
+        Ok(())
+    }
+
+    fn unmerge(&mut self, area: CellArea) -> Result<(), EngineError> {
+        let id = self.sheet_id(area.sheet).ok_or_else(|| String::from("There is no such sheet."))?;
+        if let Some(list) = self.merges.get_mut(&id) {
+            list.retain(|m| !CellArea { sheet: area.sheet, ..*m }.overlaps(&area));
+        }
+        Ok(())
+    }
+
+    fn conditional_formats(&self, sheet: u32) -> Vec<ConditionalFormat> {
+        let mut list = self.model.get_conditional_formatting_list(sheet).unwrap_or_default();
+        list.sort_by_key(|v| v.index);
+        list.into_iter()
+            .filter_map(|v| {
+                // A rule over several ranges ("A1:A3 C1:C3") is listed by its first.
+                let first = v.range.split_whitespace().next()?;
+                Some(ConditionalFormat {
+                    index: v.index,
+                    area: area_of_ref(sheet, first)?,
+                    description: describe_rule(&v.cf_rule),
+                })
+            })
+            .collect()
+    }
+
+    fn add_conditional_format(&mut self, area: CellArea, rule: &CondRule, look: CondLook) -> Result<(), EngineError> {
+        let range = ref_of_area(&area).ok_or_else(|| String::from("The range is outside the sheet."))?;
+        self.model.add_conditional_formatting(area.sheet, &range, rule_input(rule, look))
+    }
+
+    fn clear_conditional_formats(&mut self, area: CellArea) -> Result<(), EngineError> {
+        let mut doomed: Vec<usize> = self
+            .conditional_formats(area.sheet)
+            .into_iter()
+            .filter(|c| c.area.overlaps(&area))
+            .map(|c| c.index)
+            .collect();
+        // The later ones first: a deletion moves the indices after it.
+        doomed.sort_unstable_by(|a, b| b.cmp(a));
+        for index in doomed {
+            let index = u32::try_from(index).map_err(|_| String::from("Too many rules."))?;
+            self.model.delete_conditional_formatting(area.sheet, index)?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -664,7 +890,7 @@ mod tests {
             vec![String::from("=IF(A1=\"x\",1,2)"), String::new()],
         ];
         assert_eq!(
-            tsv_of(&rows).unwrap(),
+            crate::model::tsv_of(&rows),
             "a\t\"b\tc\"\n\"=IF(A1=\"\"x\"\",1,2)\"\t\n"
         );
     }
@@ -681,6 +907,29 @@ mod tests {
         e.set_cell_input(at(2, 1), "=1/0").unwrap();
         assert!(matches!(e.cell_value(at(2, 1)), CellValue::Error(_)));
         assert_eq!(e.extent(0), (2, 1));
+    }
+
+    /// Seen in the sample (wave 6): only the title "Household budget 2027"
+    /// arrived, the rows under it were blank. IronCalc's paste reader is not
+    /// flexible: a record whose length differs from the first is dropped
+    /// whole. Every row of a ragged block reaches the sheet.
+    #[test]
+    fn ragged_rows_all_reach_the_sheet() {
+        let mut e = IronCalcEngine::new_empty();
+        e.set_inputs(
+            at(1, 1),
+            &[
+                vec![String::from("Title")],
+                vec![String::from("a"), String::from("b"), String::from("c")],
+                vec![String::from("1"), String::from("2")],
+            ],
+        )
+        .unwrap();
+        assert_eq!(e.cell_input(at(1, 1)), "Title");
+        assert_eq!(e.cell_input(at(2, 1)), "a");
+        assert_eq!(e.cell_input(at(2, 3)), "c");
+        assert_eq!(e.cell_input(at(3, 2)), "2");
+        assert_eq!(e.extent(0), (3, 3));
     }
 
     #[test]
@@ -746,6 +995,56 @@ mod tests {
             back.column_width(0, 2)
         );
         assert_eq!(back.frozen(0), (1, 0));
+    }
+
+    /// IronCalc keeps a sheet's merges (`<mergeCells>`) but its UserModel
+    /// cannot change them: the engine keeps them by the sheet's stable id
+    /// and writes them into the saved file.
+    #[test]
+    fn merges_are_saved_into_the_xlsx_and_follow_their_sheet() {
+        let mut e = IronCalcEngine::new_empty();
+        e.add_sheet().unwrap();
+        e.merge(CellArea::spanning(1, 2, 2, 3, 3)).unwrap(); // Sheet2!B2:C3
+        e.merge(CellArea::spanning(0, 1, 1, 1, 4)).unwrap(); // Sheet1!A1:D1
+        e.merge(CellArea::spanning(0, 1, 2, 1, 2)).unwrap(); // one cell: no merge
+        assert_eq!(e.merges(0), vec![CellArea::spanning(0, 1, 1, 1, 4)]);
+        e.move_sheet(1, 0).unwrap();
+        assert_eq!(e.merges(0), vec![CellArea::spanning(0, 2, 2, 3, 3)], "the merge moved with its sheet");
+
+        let bytes = e.save_xlsx().unwrap();
+        let mut back = IronCalcEngine::new_empty();
+        back.load_xlsx(&bytes, "copy").unwrap();
+        assert_eq!(back.merges(0), vec![CellArea::spanning(0, 2, 2, 3, 3)]);
+        assert_eq!(back.merges(1), vec![CellArea::spanning(1, 1, 1, 1, 4)]);
+
+        back.merge(CellArea::spanning(1, 1, 3, 2, 5)).unwrap(); // overlaps A1:D1: replaces it
+        assert_eq!(back.merges(1), vec![CellArea::spanning(1, 1, 3, 2, 5)]);
+        back.unmerge(CellArea::cell(CellAddr::new(1, 2, 4))).unwrap();
+        assert!(back.merges(1).is_empty());
+    }
+
+    /// The brief's conditional formatting, IronCalc evaluating it: a cell
+    /// that matches a rule shows the rule's look, the others their own.
+    #[test]
+    fn a_conditional_format_colours_the_matching_cells_and_clearing_it_restores_them() {
+        let mut e = IronCalcEngine::new_empty();
+        for (row, v) in [(1, "1"), (2, "6"), (3, "9")] {
+            e.set_cell_input(at(row, 1), v).unwrap();
+        }
+        let area = CellArea::spanning(0, 1, 1, 3, 1);
+        e.add_conditional_format(area, &CondRule::GreaterThan(String::from("5")), CondLook::LightRed)
+            .unwrap();
+        let list = e.conditional_formats(0);
+        assert_eq!(list.len(), 1);
+        assert_eq!((list[0].area, list[0].description.as_str()), (area, "Cell value > 5"));
+        assert_eq!(e.cell_style(at(1, 1)).fill, None, "1 is not > 5");
+        let six = e.cell_style(at(2, 1));
+        assert_eq!(six.fill.as_deref().map(str::to_ascii_uppercase).as_deref(), Some("#FFC7CE"));
+        assert_eq!(six.font_color.as_deref().map(str::to_ascii_uppercase).as_deref(), Some("#9C0006"));
+
+        e.clear_conditional_formats(CellArea::cell(at(2, 1))).unwrap();
+        assert!(e.conditional_formats(0).is_empty());
+        assert_eq!(e.cell_style(at(2, 1)).fill, None);
     }
 
     #[test]

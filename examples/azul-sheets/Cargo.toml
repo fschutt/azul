@@ -18,6 +18,9 @@ publish = false
 [dependencies]
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
 azul-storage = { path = "../azul-storage" }
+# The app skeleton: switches, the data root, the settings file, the
+# shortcuts table, the settings page.
+azul-appkit = { path = "../azul-appkit", features = ["azul"] }
 # The spreadsheet engine, pinned: the version the engine study benchmarked
 # (crates.io max_stable_version on 2026-10-01).
 ironcalc = "=0.8.3"
@@ -25,7 +28,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # IronCalc's own CSV reader parses `paste_csv_string`; the same crate writes it.
 csv = "1.4"
-uuid = { version = "1", features = ["v4"] }
 
 [lib]
 name = "azsheets"

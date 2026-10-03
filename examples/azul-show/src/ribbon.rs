@@ -17,8 +17,8 @@ use crate::{
     commands::on_command,
     editor::Editor,
     model::{
-        Align, AnimationEffect, Background, ChartKind, Color, ElementKind, FontScheme, LayoutKind, ShapeKind,
-        SlideSize, TransitionKind, ZOrder,
+        Align, AnimationEffect, Background, ChartKind, Color, ElementKind, FontScheme, ImageFit, LayoutKind,
+        ShapeKind, SlideSize, TransitionKind, ZOrder,
     },
     render::{css_color, css_font_family},
     text, themes,
@@ -45,6 +45,12 @@ fn small(app: &RefAny, icon: &str, label: &str, cmd: Command) -> RibbonItem {
 
 fn toggle(app: &RefAny, icon: &str, label: &str, cmd: Command, on: bool) -> RibbonItem {
     RibbonItem::SmallButton(button(app, icon, label, cmd).with_toggled(on))
+}
+
+/// An icon-only small button (PowerPoint's Font / Paragraph rows), named
+/// `name` for assistive technology (it was announced as "button").
+fn icon_button(app: &RefAny, icon: &str, name: &str, cmd: Command, on: bool) -> RibbonItem {
+    RibbonItem::SmallButton(button(app, icon, "", cmd).with_toggled(on).with_alt(s(name)))
 }
 
 fn column(items: Vec<RibbonItem>) -> RibbonItem {
@@ -110,14 +116,33 @@ extern "C" fn on_tab_click(mut data: RefAny, mut info: CallbackInfo, index: usiz
     crate::commands::run(&mut data, Command::RibbonTab(index), &mut info)
 }
 
+/// How many cells each gallery shows in the ribbon (the row holding the
+/// selected one; "More" opens all): every tab fits a 1280 px window
+/// (HOME's seven layouts inline were 863 px and pushed Font, Paragraph and
+/// Editing off it).
+fn visible_cells(kind: GalleryKind) -> usize {
+    match kind {
+        GalleryKind::Layout => 3,
+        GalleryKind::NewSlide | GalleryKind::Theme => 4,
+        GalleryKind::Variant | GalleryKind::Fonts => 3,
+        GalleryKind::Transition => 4,
+        GalleryKind::Animation => 6,
+    }
+}
+
 fn gallery(app: &RefAny, kind: GalleryKind, cells: Vec<RibbonGalleryCell>, selected: usize) -> RibbonItem {
-    RibbonItem::Gallery(RibbonGallery::create(cells).with_selected(selected).with_on_select(
-        RefAny::new(GalleryData {
-            app: app.clone(),
-            kind,
-        }),
-        on_gallery as RibbonGalleryOnSelectCallbackType,
-    ))
+    RibbonItem::Gallery(
+        RibbonGallery::create(cells)
+            .with_selected(selected)
+            .with_visible(visible_cells(kind))
+            .with_on_select(
+                RefAny::new(GalleryData {
+                    app: app.clone(),
+                    kind,
+                }),
+                on_gallery as RibbonGalleryOnSelectCallbackType,
+            ),
+    )
 }
 
 /// A layout's little picture: the title bar and the bodies as grey blocks.
@@ -231,16 +256,16 @@ fn home_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
             "Font",
             vec![column(vec![
                 row(vec![
-                    toggle(app, "format_bold", "", Command::Bold, has(F::Bold)),
-                    toggle(app, "format_italic", "", Command::Italic, has(F::Italic)),
-                    toggle(app, "format_underlined", "", Command::Underline, has(F::Underline)),
-                    toggle(app, "strikethrough_s", "", Command::Strike, has(F::Strike)),
+                    icon_button(app, "format_bold", "Bold", Command::Bold, has(F::Bold)),
+                    icon_button(app, "format_italic", "Italic", Command::Italic, has(F::Italic)),
+                    icon_button(app, "format_underlined", "Underline", Command::Underline, has(F::Underline)),
+                    icon_button(app, "strikethrough_s", "Strikethrough", Command::Strike, has(F::Strike)),
                 ]),
                 row(vec![
-                    small(app, "text_increase", "", Command::Grow(1)),
-                    small(app, "text_decrease", "", Command::Grow(-1)),
-                    small(app, "format_color_text", "", Command::TextColor(Some(accent))),
-                    small(app, "format_color_reset", "", Command::TextColor(None)),
+                    icon_button(app, "text_increase", "Increase font size", Command::Grow(1), false),
+                    icon_button(app, "text_decrease", "Decrease font size", Command::Grow(-1), false),
+                    icon_button(app, "format_color_text", "Font color: accent", Command::TextColor(Some(accent)), false),
+                    icon_button(app, "format_color_reset", "Font color: automatic", Command::TextColor(None), false),
                 ]),
             ])],
         ))
@@ -248,21 +273,21 @@ fn home_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
             "Paragraph",
             vec![column(vec![
                 row(vec![
-                    toggle(
+                    icon_button(
                         app,
                         "format_list_bulleted",
-                        "",
+                        "Bullets",
                         Command::Bullets,
                         body.is_some_and(|b| !b.paragraphs.is_empty() && b.paragraphs.iter().all(|p| p.bullet)),
                     ),
-                    small(app, "format_indent_decrease", "", Command::Indent(-1)),
-                    small(app, "format_indent_increase", "", Command::Indent(1)),
+                    icon_button(app, "format_indent_decrease", "Decrease list level", Command::Indent(-1), false),
+                    icon_button(app, "format_indent_increase", "Increase list level", Command::Indent(1), false),
                 ]),
                 row(vec![
-                    toggle(app, "format_align_left", "", Command::Align(Align::Left), align == Align::Left),
-                    toggle(app, "format_align_center", "", Command::Align(Align::Center), align == Align::Center),
-                    toggle(app, "format_align_right", "", Command::Align(Align::Right), align == Align::Right),
-                    toggle(app, "format_align_justify", "", Command::Align(Align::Justify), align == Align::Justify),
+                    icon_button(app, "format_align_left", "Align left", Command::Align(Align::Left), align == Align::Left),
+                    icon_button(app, "format_align_center", "Center", Command::Align(Align::Center), align == Align::Center),
+                    icon_button(app, "format_align_right", "Align right", Command::Align(Align::Right), align == Align::Right),
+                    icon_button(app, "format_align_justify", "Justify", Command::Align(Align::Justify), align == Align::Justify),
                 ]),
             ])],
         ))
@@ -270,8 +295,8 @@ fn home_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
             "Drawing",
             vec![
                 column(vec![
-                    row(ShapeKind::ALL[..3].iter().map(|k| small(app, k.icon(), "", Command::Shape(*k))).collect()),
-                    row(ShapeKind::ALL[3..].iter().map(|k| small(app, k.icon(), "", Command::Shape(*k))).collect()),
+                    row(ShapeKind::ALL[..3].iter().map(|k| icon_button(app, k.icon(), k.label(), Command::Shape(*k), false)).collect()),
+                    row(ShapeKind::ALL[3..].iter().map(|k| icon_button(app, k.icon(), k.label(), Command::Shape(*k), false)).collect()),
                 ]),
                 column(vec![
                     small(app, "flip_to_front", "Bring to Front", Command::Arrange(ZOrder::BringToFront)),
@@ -287,11 +312,17 @@ fn home_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
         ))
         .with_group(group(
             "Editing",
-            vec![column(vec![
-                small(app, "select_all", "Select All", Command::SelectAll),
-                small(app, "undo", "Undo", Command::Undo),
-                small(app, "redo", "Redo", Command::Redo),
-            ])],
+            vec![
+                column(vec![
+                    small(app, "search", "Find", Command::Find(false)),
+                    small(app, "find_replace", "Replace", Command::Find(true)),
+                    small(app, "select_all", "Select All", Command::SelectAll),
+                ]),
+                column(vec![
+                    small(app, "undo", "Undo", Command::Undo),
+                    small(app, "redo", "Redo", Command::Redo),
+                ]),
+            ],
         ))
 }
 
@@ -519,19 +550,11 @@ fn view_tab(app: &RefAny, st: &AppState) -> RibbonTab {
                 toggle(app, "fit_screen", "Fit to Window", Command::ZoomFit, st.zoom.is_none()),
             ])],
         ))
+        // The app theme and the mode are File > Options (appkit's settings
+        // page: one switch, remembered across restarts).
         .with_group(group(
             "Window",
-            vec![
-                column(vec![
-                    small(app, "palette", "Flat", Command::AppTheme(String::from("flat"))),
-                    small(app, "spa", "Flora", Command::AppTheme(String::from("flora"))),
-                ]),
-                column(vec![
-                    small(app, "light_mode", "Light", Command::Mode(Some(false))),
-                    small(app, "dark_mode", "Dark", Command::Mode(Some(true))),
-                    small(app, "contrast", "System", Command::Mode(None)),
-                ]),
-            ],
+            vec![small(app, "settings", "Options", Command::OpenBackstage(BackstagePage::Options))],
         ))
 }
 
@@ -562,13 +585,35 @@ fn format_tab(app: &RefAny, ed: &Editor) -> RibbonTab {
             ]),
         ],
     ));
+    // A selected picture: how it fills its frame (PowerPoint's Crop > Fit /
+    // Fill).
+    let picture_fit = ed
+        .selection
+        .keys
+        .as_ref()
+        .iter()
+        .filter_map(|id| ed.slide().element(*id))
+        .find_map(|e| match e.kind {
+            ElementKind::Image { fit, .. } => Some(fit),
+            _ => None,
+        });
+    if let Some(fit) = picture_fit {
+        tab = tab.with_group(group(
+            "Picture",
+            vec![column(vec![
+                toggle(app, "fit_screen", "Fit", Command::ImageFit(ImageFit::Contain), fit == ImageFit::Contain),
+                toggle(app, "crop", "Fill", Command::ImageFit(ImageFit::Cover), fit == ImageFit::Cover),
+                toggle(app, "aspect_ratio", "Stretch", Command::ImageFit(ImageFit::Stretch), fit == ImageFit::Stretch),
+            ])],
+        ));
+    }
     if shapes {
         tab = tab.with_group(group(
             "Shape Styles",
             vec![
                 row(fills
                     .iter()
-                    .map(|col| small(app, "square", "", Command::Fill(Some(*col))))
+                    .map(|col| icon_button(app, "square", "Fill with a theme colour", Command::Fill(Some(*col)), false))
                     .collect()),
                 column(vec![
                     small(app, "format_color_reset", "No Fill", Command::Fill(None)),

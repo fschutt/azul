@@ -19,9 +19,10 @@
 //!
 //! FILES (the S3 split): a workbook is `sheets/<uuid>.xlsx` plus
 //! `sheets/<uuid>.json` (title, zoom, sheet, cursor) in the data folder,
-//! written and read through azul-storage's `Drive` (a `LocalDrive` rooted at
-//! `AZSHEETS_DATA`, else `<user data dir>/Azlin`) from an azul `Thread`.
-//! Exports go to `exports/` in the same folder.
+//! written and read through the app's ONE azul-storage `Drive` (a
+//! `LocalDrive` on azul-appkit's data root: `--data-dir`, `AZLIN_DATA`, the
+//! user's data folder) from an azul `Thread`. Exports go to
+//! `sheets/exports/` through the same drive.
 //!
 //! On stdout, for scripts: `AZSHEETS_READY`, `AZSHEETS_REPLY <seq> ok|err`,
 //! `AZSHEETS_CELL <A1> <shown text>` (the active cell after a reply),
@@ -30,12 +31,17 @@
 //! `AZSHEETS_SHEETS <name>,..`.
 
 pub mod args;
+pub mod conditional_panel;
 pub mod engine;
 pub mod fake_engine;
+pub mod format_cells;
+mod format_dialog;
 pub mod functions;
+pub mod ids;
 pub mod ironcalc_engine;
 pub mod model;
 pub mod ops;
+pub mod refs;
 pub mod sample;
 pub mod storage;
 pub mod worker;
@@ -54,32 +60,33 @@ use azul::{
         BackstageOnNavSelectCallbackType, ButtonOnClickCallbackType,
         CellGridDataSourceCallbackType, CellGridOnEventCallbackType,
         CellGridStyleSourceCallbackType, RibbonOnTabClickCallbackType,
-        ShellSettingsLayoutOnCategoryCallbackType, TextInputOnTextInputCallbackType,
-        TextInputOnVirtualKeyDownCallbackType,
+        CloseGuardOnEventCallbackType, SliderOnValueChangeCallbackType,
+        StandardDialogOnEventCallbackType,
+        TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallbackType,
     },
-    css::{DarkLightMode, HoverEventFilter},
+    css::{FocusEventFilter, HoverEventFilter},
     dialog::{FileDialog, FileOpenResult},
-    dom::VirtualKeyCode,
-    file::FilePath,
-    option::{OptionColorU, OptionDarkLightMode, OptionFileTypeList, OptionString},
+    dom::{AccessibilityInfo, AccessibilityRole, AccessibilityState, DomId, TabIndex, VirtualKeyCode},
+    option::{OptionColorU, OptionFileTypeList, OptionString},
     pdf::Pdf,
     prelude::*,
-    shells::{
-        DocumentShell, ShellSettingsLayout, ShellSettingsSection, ShellThemeAccent,
-        ShellThemeScope,
-    },
+    shells::{DocumentShell, ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
-    vec::{BackstageNavItemVec, CellGridRangeVec, CellGridSizeVec, StringVec},
+    svg::{CssPath, CssPathSelector},
+    vec::{AccessibilityStateVec, BackstageNavItemVec, CellGridRangeVec, CellGridSizeVec, StringVec},
     widgets::{
-        Backstage, BackstageNavItem, Button, CellGrid, CellGridCell,
+        AboutDialog, Backstage, BackstageNavItem, Button, CellGrid, CellGridCell, CloseGuard,
+        CloseGuardEvent, CloseGuardEventKind,
         CellGridCellKind, CellGridCellRef, CellGridCellStyle, CellGridEditMode, CellGridEvent,
         CellGridEventKind, CellGridHorizontalAlign, CellGridRange, CellGridSize,
         CellGridVerticalAlign, CellGridView, OnTextInputReturn, Ribbon, RibbonAppButton,
-        RibbonButton, RibbonColumn, RibbonGroup, RibbonItem, RibbonTab, StatusBar,
-        StatusBarSegment, StatusBarZoom, TextInput, TextInputState, TextInputValid, Titlebar,
+        RibbonButton, RibbonColumn, RibbonGroup, RibbonItem, RibbonRow, RibbonTab, SliderState, StatusBar,
+        FindReplaceDialog, StandardDialogEvent, StandardDialogEventKind, StatusBarSegment,
+        StatusBarZoom, TextInput, TextInputState,
+        TextInputValid, Titlebar,
     },
-    window::WindowDecorations,
 };
+use azul_appkit::{ui as kit, AboutInfo, Shortcut};
 use azul_storage::{local::LocalDrive, Drive};
 
 pub use crate::args::Args;
@@ -93,17 +100,52 @@ use crate::{
     worker::{Command, EngineMsg, Reply, Snapshot, ValueKind, ViewRequest},
 };
 
-/// The grid node's id (scripts focus it by it).
-pub const GRID_ID: &str = "cell-grid";
-/// The formula bar's field.
-pub const FORMULA_ID: &str = "formula-bar";
-/// The name box.
-pub const NAME_BOX_ID: &str = "name-box";
 /// The px the chrome around the grid takes (title row, ribbon, formula bar,
 /// sheet tabs, status bar) - the rest of the window is the grid's viewport.
 const CHROME_HEIGHT: f32 = 236.0;
 /// The suggestions the formula bar offers at most.
 const SUGGESTIONS: usize = 6;
+
+// ==== The app's facts (azul-appkit) ====
+
+/// What the About box and the settings page say.
+pub const ABOUT: AboutInfo = AboutInfo {
+    name: "AzSheets",
+    version: env!("CARGO_PKG_VERSION"),
+    summary: "A spreadsheet: workbooks as .xlsx files, IronCalc as the engine on its own thread, \
+              the CellGrid widget as the sheet. Part of the Azlin apps, built with azul.",
+    license: "MIT",
+    app_folder: storage::DIR,
+};
+
+/// The keys AzSheets answers, as the settings page lists them (`Mod` = Cmd
+/// on macOS, Ctrl elsewhere). The window's and the grid's handlers are the
+/// ones that act; this table is what they do.
+pub const SHORTCUTS: [Shortcut; 23] = [
+    Shortcut::new("File", "Mod+S", "Save the workbook"),
+    Shortcut::new("File", "Mod+O", "Open a workbook"),
+    Shortcut::new("File", "Mod+N", "New blank workbook"),
+    Shortcut::new("Edit", "Mod+Z", "Undo"),
+    Shortcut::new("Edit", "Mod+Y / Mod+Shift+Z", "Redo"),
+    Shortcut::new("Edit", "Mod+C / Mod+X / Mod+V", "Copy / cut / paste the selection"),
+    Shortcut::new("Edit", "Delete", "Clear the selection's contents"),
+    Shortcut::new("Edit", "Mod+F / Mod+H", "Find / replace"),
+    Shortcut::new("Format", "Mod+B / Mod+I / Mod+U", "Bold / italic / underline"),
+    Shortcut::new("Format", "Mod+1", "Format Cells"),
+    Shortcut::new("Cells", "F2", "Edit the active cell"),
+    Shortcut::new("Cells", "F4 (editing)", "Cycle the reference at the caret: A1, $A$1, A$1, $A1"),
+    Shortcut::new("Cells", "Enter / Tab", "Commit and move down / right (Shift: back)"),
+    Shortcut::new("Cells", "Escape", "Cancel the edit (or leave the backstage)"),
+    Shortcut::new("Move", "Arrows", "Move the cell cursor"),
+    Shortcut::new("Move", "Mod+Arrows", "To the edge of the data"),
+    Shortcut::new("Move", "Shift+Arrows", "Extend the selection"),
+    Shortcut::new("Move", "Mod+Home / Mod+End", "To A1 / to the last cell with data"),
+    Shortcut::new("Move", "PageUp / PageDown", "A screen up / down"),
+    Shortcut::new("Select", "Mod+A", "Select the whole sheet"),
+    Shortcut::new("Sheets", "Mod+PageDown / Mod+PageUp", "The next / previous sheet"),
+    Shortcut::new("Select", "Shift+Space / Mod+Space", "Select the row / the column"),
+    Shortcut::new("Formulas", "F9", "Calculate now"),
+];
 
 // ==== The state ====
 
@@ -118,6 +160,8 @@ pub enum Screen {
 pub const BACKSTAGE_ITEMS: [&str; 9] = [
     "Info", "New", "Open", "Save", "Save As", "Export", "Close", "Options", "About",
 ];
+/// "Options" in [`BACKSTAGE_ITEMS`].
+pub const OPTIONS_PANE: usize = 7;
 
 /// A side panel over the grid's right edge.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -131,6 +175,8 @@ pub enum Panel {
     Find,
     /// The chart placeholder (the engine has no charts).
     Chart,
+    /// Conditional Formatting: add a rule to the selection, clear, list.
+    Conditional,
 }
 
 /// What a message to the engine was for.
@@ -140,6 +186,8 @@ pub enum Pending {
     Other,
     /// `Reply::found`: move the cursor there.
     Find,
+    /// `Reply::count`: cells changed by Replace All.
+    Replaced,
     /// `Reply::area`: propose `=SUM(area)` in this cell's editor.
     SumRange(CellAddr),
     /// `Reply::count`: duplicates removed.
@@ -248,23 +296,41 @@ pub struct AppState {
     /// A sheet tab being renamed: (sheet, text).
     pub renaming: Option<(u32, String)>,
     pub panel: Panel,
-    /// The find field's text.
+    /// The Find / Replace dialog's fields, options and result line.
     pub find: String,
+    pub replace: String,
+    pub find_opts: ops::FindOptions,
+    pub find_status: String,
+    /// The dialog shows the replace field (Mod+H, HOME > Replace).
+    pub show_replace: bool,
     /// A line for the user (an error, a result).
     pub message: String,
     /// The internal clipboard of the ribbon's Copy / Cut: the range, cut?,
     /// its inputs.
     pub clipboard: Option<(CellArea, bool, Vec<Vec<String>>)>,
-    /// The data folder.
+    /// The data folder (for the user's eyes: files go through `drive`).
     pub data_root: PathBuf,
+    /// The ONE drive every file job of the app goes through - a `LocalDrive`
+    /// on `data_root` today, an `S3Drive` later with no other change
+    /// (DEDUP_OFFICE D21: a fresh drive per job was an S3 blocker).
+    pub drive: Arc<dyn Drive>,
+    /// azul-appkit's kit (settings, data root, shortcuts, About); `None` in
+    /// the unit tests.
+    pub kit: Option<RefAny>,
     /// The workbooks in the data folder (the backstage's Open list).
     pub workbooks: Vec<(String, Sidecar)>,
     /// The window size the last layout saw.
     pub window: (f32, f32),
     /// The command line, until the window's startup has acted on it.
     pub args: Option<Args>,
-    /// The Options page's category.
-    pub settings_category: usize,
+    /// The Format Cells dialog, while it is open.
+    pub format: Option<format_cells::FormatDraft>,
+    /// The Conditional Formatting panel's choices.
+    pub cond: conditional_panel::CondDraft,
+    /// The window is asking "save changes?" (the close guard).
+    pub asking_close: bool,
+    /// The window closes once the save in flight is written.
+    pub close_after_save: bool,
 }
 
 impl AppState {
@@ -294,13 +360,22 @@ impl AppState {
             renaming: None,
             panel: Panel::None,
             find: String::new(),
+            replace: String::new(),
+            find_opts: ops::FindOptions::default(),
+            find_status: String::new(),
+            show_replace: false,
             message: String::new(),
             clipboard: None,
+            drive: Arc::new(LocalDrive::new(data_root.clone())),
             data_root,
+            kit: None,
             workbooks: Vec::new(),
             window: (1280.0, 800.0),
             args: None,
-            settings_category: 0,
+            format: None,
+            cond: conditional_panel::CondDraft::default(),
+            asking_close: false,
+            close_after_save: false,
         }
     }
 
@@ -386,6 +461,15 @@ pub fn to_area(sheet: u32, range: CellGridRange) -> CellArea {
     let a = to_addr(sheet, range.first);
     let b = to_addr(sheet, range.last);
     CellArea::spanning(sheet, a.row, a.column, b.row, b.column)
+}
+
+/// An engine area (1-based) as a grid range (0-based).
+#[must_use]
+pub fn to_range(area: CellArea) -> CellGridRange {
+    CellGridRange {
+        first: to_cell(CellAddr::new(area.sheet, area.row, area.column)),
+        last: to_cell(CellAddr::new(area.sheet, area.last_row(), area.last_column())),
+    }
 }
 
 /// An engine address as a grid cell.
@@ -515,12 +599,12 @@ enum Post {
     None,
     /// `sheets/<id>.xlsx` and `.json` from `Reply::saved`.
     Save {
-        root: PathBuf,
+        drive: Arc<dyn Drive>,
         id: String,
         sidecar: Sidecar,
     },
-    /// `exports/<name>.csv` from `Reply::csv`.
-    Csv { root: PathBuf, name: String },
+    /// `exports/<name>.csv` from `Reply::csv`, into the data tree.
+    Csv { drive: Arc<dyn Drive>, name: String },
 }
 
 /// A waiting thread's start data, taken out once.
@@ -556,23 +640,21 @@ pub fn safe_name(title: &str) -> String {
 fn run_post(post: Post, reply: &Reply) -> Option<Result<String, String>> {
     match post {
         Post::None => None,
-        Post::Save { root, id, sidecar } => {
+        Post::Save { drive, id, sidecar } => {
             let bytes = reply.saved.as_ref()?;
-            let drive = LocalDrive::new(root);
             Some(
-                storage::save(&drive, &id, bytes, &sidecar)
+                storage::save(&*drive, &id, bytes, &sidecar)
                     .map(|()| id)
                     .map_err(|e| format!("Could not save the workbook: {e}")),
             )
         }
-        Post::Csv { root, name } => {
+        Post::Csv { drive, name } => {
             let csv = reply.csv.as_ref()?;
-            let key = format!("exports/{name}.csv");
-            let drive = LocalDrive::new(root.clone());
+            let key = storage::export_key(&name, "csv");
             Some(
                 drive
                     .put(&key, csv.as_bytes())
-                    .map(|()| root.join(&key).display().to_string())
+                    .map(|()| storage::shown_path(&*drive, &key))
                     .map_err(|e| format!("Could not export: {e}")),
             )
         }
@@ -719,6 +801,11 @@ fn apply_reply(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, reply: R
                 s.doc.dirty = false;
                 s.message = format!("Saved \"{}\".", s.doc.title);
                 println!("AZSHEETS_SAVED {text}");
+                if s.close_after_save {
+                    // "Save" in the close question: written, now the window goes.
+                    s.close_after_save = false;
+                    info.close_window();
+                }
             }
             Pending::Exported => {
                 s.message = format!("Exported to {text}");
@@ -726,7 +813,11 @@ fn apply_reply(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, reply: R
             }
             _ => {}
         },
-        Some(Err(e)) => s.message = e,
+        Some(Err(e)) => {
+            // A failed save keeps the window (and the work) open.
+            s.close_after_save = false;
+            s.message = e;
+        }
         None => {}
     }
     match &pending {
@@ -734,9 +825,15 @@ fn apply_reply(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, reply: R
             Some(at) => {
                 let cell = to_cell(at);
                 go_to(s, at.sheet, CellGridRange { first: cell, last: cell });
+                s.find_status = format!("Found in {}.", a1(at));
             }
-            None => s.message = format!("\"{}\" was not found.", s.find),
+            None => s.find_status = format!("\"{}\" was not found.", s.find),
         },
+        Pending::Replaced => {
+            if let Some(n) = reply.count {
+                s.find_status = format!("{n} cell(s) replaced.");
+            }
+        }
         Pending::SumRange(at) => {
             let formula = match reply.area {
                 Some(area) => format!("=SUM({})", a1_area(area)),
@@ -806,13 +903,14 @@ extern "C" fn on_reply(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo)
 /// A blocking storage call for a worker thread.
 enum Job {
     /// The workbooks in the data folder.
-    List { root: PathBuf },
+    List { drive: Arc<dyn Drive> },
     /// `sheets/<id>.xlsx` and its sidecar.
-    Load { root: PathBuf, id: String },
-    /// An `.xlsx` from anywhere on disk.
+    Load { drive: Arc<dyn Drive>, id: String },
+    /// An `.xlsx` the user picked from anywhere on disk (outside the data
+    /// tree: read once, saved into the tree like any workbook).
     Import { path: PathBuf },
-    /// Bytes to `<root>/<key>` (the PDF export).
-    Write { root: PathBuf, key: String, bytes: Vec<u8> },
+    /// Bytes to `key` in the data tree (the PDF export).
+    Write { drive: Arc<dyn Drive>, key: String, bytes: Vec<u8> },
 }
 
 /// What a job answers.
@@ -833,11 +931,11 @@ struct JobMsg {
 
 fn run_job(job: Job) -> JobDone {
     match job {
-        Job::List { root } => JobDone::Listed(
-            storage::list(&LocalDrive::new(root)).map_err(|e| format!("Could not list the workbooks: {e}")),
+        Job::List { drive } => JobDone::Listed(
+            storage::list(&*drive).map_err(|e| format!("Could not list the workbooks: {e}")),
         ),
-        Job::Load { root, id } => JobDone::Loaded(
-            storage::load(&LocalDrive::new(root), &id)
+        Job::Load { drive, id } => JobDone::Loaded(
+            storage::load(&*drive, &id)
                 .map(|(bytes, sidecar)| (id.clone(), bytes, sidecar, false))
                 .map_err(|e| format!("Could not open the workbook: {e}")),
         ),
@@ -851,15 +949,12 @@ fn run_job(job: Job) -> JobDone {
                 })
                 .map_err(|e| format!("Could not read {}: {e}", path.display())),
         ),
-        Job::Write { root, key, bytes } => {
-            let drive = LocalDrive::new(root.clone());
-            JobDone::Wrote(
-                drive
-                    .put(&key, &bytes)
-                    .map(|()| root.join(&key).display().to_string())
-                    .map_err(|e| format!("Could not write {key}: {e}")),
-            )
-        }
+        Job::Write { drive, key, bytes } => JobDone::Wrote(
+            drive
+                .put(&key, &bytes)
+                .map(|()| storage::shown_path(&*drive, &key))
+                .map_err(|e| format!("Could not write {key}: {e}")),
+        ),
     }
 }
 
@@ -961,7 +1056,7 @@ fn sidecar_of(s: &AppState) -> Sidecar {
 /// Saves the workbook on screen as `sheets/<id>.xlsx` (+ sidecar).
 fn save(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState) {
     let post = Post::Save {
-        root: s.data_root.clone(),
+        drive: Arc::clone(&s.drive),
         id: s.doc.id.clone(),
         sidecar: sidecar_of(s),
     };
@@ -1050,7 +1145,7 @@ fn grid(s: &AppState, app: &RefAny) -> Dom {
         u32::try_from(LAST_ROW).unwrap_or(1_048_576),
         u32::try_from(LAST_COLUMN).unwrap_or(16_384),
     )
-    .with_id(AzString::from(GRID_ID))
+    .with_id(ids::GRID)
     .with_accessibility_name(AzString::from(name))
     .with_view(s.view.clone())
     .with_viewport(s.window.0, (s.window.1 - CHROME_HEIGHT).max(120.0))
@@ -1058,6 +1153,9 @@ fn grid(s: &AppState, app: &RefAny) -> Dom {
     .with_default_sizes(column_default, row_default)
     .with_column_widths(size_overrides(&snap.column_widths, column_default))
     .with_row_heights(size_overrides(&snap.row_heights, row_default))
+    .with_merges(CellGridRangeVec::from_vec(
+        snap.merges.iter().map(|m| to_range(*m)).collect(),
+    ))
     .with_frozen(
         u32::try_from(snap.frozen.0).unwrap_or(0),
         u32::try_from(snap.frozen.1).unwrap_or(0),
@@ -1079,6 +1177,12 @@ fn grid(s: &AppState, app: &RefAny) -> Dom {
 /// A command of the ribbon (and of the keyboard shortcuts).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
+    /// The Format Cells dialog on its tab (0 Number .. 4 Fill).
+    FormatCells(u8),
+    /// Merge & Center the selection, or unmerge the merge the cursor is in.
+    MergeCenter,
+    /// The Conditional Formatting panel.
+    Conditional,
     Undo,
     Redo,
     Paste,
@@ -1135,6 +1239,7 @@ pub enum Action {
     ClearFilter,
     RemoveDuplicates,
     Find,
+    Replace,
     ClearContents,
     ClearFormats,
     Chart,
@@ -1151,10 +1256,6 @@ pub enum Action {
     ZoomIn,
     ZoomOut,
     Zoom100,
-    ThemeFlat,
-    ThemeFlora,
-    ModeLight,
-    ModeDark,
     Save,
     ExportCsv,
     ExportPdf,
@@ -1194,8 +1295,24 @@ fn column(items: Vec<RibbonItem>) -> RibbonItem {
     RibbonItem::Column(RibbonColumn::create().with_items(items))
 }
 
+fn row(items: Vec<RibbonItem>) -> RibbonItem {
+    RibbonItem::Row(RibbonRow::create().with_items(items))
+}
+
+/// An icon-only small button (Excel's Font / Alignment rows), named `name`
+/// for assistive technology.
+fn icon(app: &RefAny, icon: &str, name: &str, action: Action, on: bool) -> RibbonItem {
+    RibbonItem::SmallButton(action_button(app, icon, "", action, on).with_alt(AzString::from(name)))
+}
+
 fn group(label: &str, items: Vec<RibbonItem>) -> RibbonGroup {
     RibbonGroup::create(AzString::from(label)).with_items(items)
+}
+
+/// A group whose launcher (the corner arrow) opens Format Cells on `tab`,
+/// as Excel's Font, Alignment and Number groups do.
+fn format_group(app: &RefAny, tab: u8, label: &str, items: Vec<RibbonItem>) -> RibbonGroup {
+    group(label, items).with_launcher(action_ref(app, Action::FormatCells(tab)), on_action as ButtonOnClickCallbackType)
 }
 
 fn tab(label: &str, groups: Vec<RibbonGroup>) -> RibbonTab {
@@ -1210,6 +1327,17 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
         .cloned()
         .unwrap_or_default();
     let (fr, fc) = s.cache.snapshot.frozen;
+    let active = s.active();
+    let merged_here = s
+        .cache
+        .snapshot
+        .merges
+        .iter()
+        .any(|m| m.sheet == s.sheet && m.contains(active.row, active.column));
+    // Excel 2010's HOME: the Font, Alignment, Number and Cells commands are
+    // rows of icon-only buttons (named for assistive technology), so the
+    // whole tab fits a 1280 px window (labelled, Cells and Editing fell off
+    // its right edge and could not be clicked).
     let home = tab(
         "HOME",
         vec![
@@ -1220,72 +1348,85 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
                     column(vec![
                         small(app, "content_cut", "Cut", Action::Cut),
                         small(app, "content_copy", "Copy", Action::Copy),
-                        small(app, "undo", "Undo", Action::Undo),
+                        row(vec![
+                            icon(app, "undo", "Undo", Action::Undo, false),
+                            icon(app, "redo", "Redo", Action::Redo, false),
+                        ]),
                     ]),
-                    column(vec![small(app, "redo", "Redo", Action::Redo)]),
                 ],
             ),
-            group(
+            format_group(
+                app,
+                2,
                 "Font",
-                vec![
-                    column(vec![
-                        toggle(app, "format_bold", "Bold", Action::Bold, style.bold),
-                        toggle(app, "format_italic", "Italic", Action::Italic, style.italic),
-                        toggle(app, "format_underlined", "Underline", Action::Underline, style.underline),
+                vec![column(vec![
+                    row(vec![
+                        icon(app, "format_bold", "Bold", Action::Bold, style.bold),
+                        icon(app, "format_italic", "Italic", Action::Italic, style.italic),
+                        icon(app, "format_underlined", "Underline", Action::Underline, style.underline),
+                        icon(app, "format_strikethrough", "Strikethrough", Action::Strike, style.strike),
+                        icon(app, "text_increase", "Grow font", Action::Grow, false),
+                        icon(app, "text_decrease", "Shrink font", Action::Shrink, false),
                     ]),
-                    column(vec![
-                        toggle(app, "format_strikethrough", "Strikethrough", Action::Strike, style.strike),
-                        small(app, "text_increase", "Grow font", Action::Grow),
-                        small(app, "text_decrease", "Shrink font", Action::Shrink),
+                    row(vec![
+                        icon(app, "format_color_text", "Red text", Action::InkRed, false),
+                        icon(app, "format_color_reset", "Automatic text colour", Action::InkAuto, false),
+                        icon(app, "format_color_fill", "Yellow fill", Action::FillYellow, false),
+                        icon(app, "format_paint", "Green fill", Action::FillGreen, false),
+                        icon(app, "block", "No fill", Action::FillNone, false),
                     ]),
-                    column(vec![
-                        small(app, "format_color_text", "Red text", Action::InkRed),
-                        small(app, "format_color_reset", "Automatic text", Action::InkAuto),
-                        small(app, "format_color_fill", "Yellow fill", Action::FillYellow),
+                    row(vec![
+                        icon(app, "border_all", "All borders", Action::BordersAll, false),
+                        icon(app, "border_outer", "Outside borders", Action::BordersOutline, false),
+                        icon(app, "border_clear", "No borders", Action::BordersNone, false),
                     ]),
-                    column(vec![
-                        small(app, "format_color_fill", "Green fill", Action::FillGreen),
-                        small(app, "format_color_reset", "No fill", Action::FillNone),
-                    ]),
-                ],
+                ])],
             ),
-            group(
+            format_group(
+                app,
+                1,
                 "Alignment",
-                vec![
-                    column(vec![
-                        toggle(app, "vertical_align_top", "Top", Action::AlignTop, style.v_align == VAlign::Top),
-                        toggle(app, "vertical_align_center", "Middle", Action::AlignMiddle, style.v_align == VAlign::Center),
-                        toggle(app, "vertical_align_bottom", "Bottom", Action::AlignBottom, style.v_align == VAlign::Bottom),
+                vec![column(vec![
+                    row(vec![
+                        icon(app, "vertical_align_top", "Top", Action::AlignTop, style.v_align == VAlign::Top),
+                        icon(app, "vertical_align_center", "Middle", Action::AlignMiddle, style.v_align == VAlign::Center),
+                        icon(app, "vertical_align_bottom", "Bottom", Action::AlignBottom, style.v_align == VAlign::Bottom),
                     ]),
-                    column(vec![
-                        toggle(app, "format_align_left", "Left", Action::AlignLeft, style.h_align == HAlign::Left),
-                        toggle(app, "format_align_center", "Center", Action::AlignCenter, style.h_align == HAlign::Center),
-                        toggle(app, "format_align_right", "Right", Action::AlignRight, style.h_align == HAlign::Right),
+                    row(vec![
+                        icon(app, "format_align_left", "Left", Action::AlignLeft, style.h_align == HAlign::Left),
+                        icon(app, "format_align_center", "Center", Action::AlignCenter, style.h_align == HAlign::Center),
+                        icon(app, "format_align_right", "Right", Action::AlignRight, style.h_align == HAlign::Right),
                     ]),
-                    column(vec![toggle(app, "wrap_text", "Wrap text", Action::Wrap, style.wrap)]),
-                ],
+                    row(vec![
+                        icon(app, "wrap_text", "Wrap text", Action::Wrap, style.wrap),
+                        icon(app, "merge_type", "Merge & Center", Action::MergeCenter, merged_here),
+                    ]),
+                ])],
             ),
-            group(
+            format_group(
+                app,
+                0,
                 "Number",
-                vec![
-                    column(vec![
-                        small(app, "notes", "General", Action::FormatGeneral),
-                        small(app, "pin", "Number", Action::FormatNumber),
-                        small(app, "payments", "Currency", Action::FormatCurrency),
+                vec![column(vec![
+                    row(vec![
+                        icon(app, "notes", "General", Action::FormatGeneral, false),
+                        icon(app, "pin", "Number", Action::FormatNumber, false),
+                        icon(app, "payments", "Currency", Action::FormatCurrency, false),
                     ]),
-                    column(vec![
-                        small(app, "percent", "Percent", Action::FormatPercent),
-                        small(app, "calendar_today", "Date", Action::FormatDate),
+                    row(vec![
+                        icon(app, "percent", "Percent", Action::FormatPercent, false),
+                        icon(app, "calendar_today", "Date", Action::FormatDate, false),
                     ]),
-                    column(vec![
-                        small(app, "add", "More decimals", Action::DecimalMore),
-                        small(app, "remove", "Fewer decimals", Action::DecimalLess),
+                    row(vec![
+                        icon(app, "add", "More decimals", Action::DecimalMore, false),
+                        icon(app, "remove", "Fewer decimals", Action::DecimalLess, false),
                     ]),
-                ],
+                ])],
             ),
             group(
                 "Styles",
                 vec![
+                    large(app, "rule", "Conditional Formatting", Action::Conditional),
                     column(vec![
                         small(app, "title", "Heading", Action::StyleHeading),
                         small(app, "functions", "Total", Action::StyleTotal),
@@ -1294,48 +1435,44 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
                         small(app, "thumb_up", "Good", Action::StyleGood),
                         small(app, "thumb_down", "Bad", Action::StyleBad),
                     ]),
-                    column(vec![
-                        small(app, "border_all", "All borders", Action::BordersAll),
-                        small(app, "border_outer", "Outside borders", Action::BordersOutline),
-                        small(app, "border_clear", "No borders", Action::BordersNone),
-                    ]),
                 ],
             ),
             group(
                 "Cells",
-                vec![
-                    column(vec![
-                        small(app, "table_rows", "Insert row", Action::InsertRow),
-                        small(app, "view_column", "Insert column", Action::InsertColumn),
-                        small(app, "add_box", "Insert sheet", Action::InsertSheet),
+                vec![column(vec![
+                    row(vec![
+                        icon(app, "table_rows", "Insert row", Action::InsertRow, false),
+                        icon(app, "view_column", "Insert column", Action::InsertColumn, false),
+                        icon(app, "add_box", "Insert sheet", Action::InsertSheet, false),
                     ]),
-                    column(vec![
-                        small(app, "delete_sweep", "Delete row", Action::DeleteRow),
-                        small(app, "delete", "Delete column", Action::DeleteColumn),
-                        small(app, "delete_forever", "Delete sheet", Action::DeleteSheet),
+                    row(vec![
+                        icon(app, "delete_sweep", "Delete row", Action::DeleteRow, false),
+                        icon(app, "delete", "Delete column", Action::DeleteColumn, false),
+                        icon(app, "delete_forever", "Delete sheet", Action::DeleteSheet, false),
                     ]),
-                    column(vec![
-                        small(app, "drive_file_rename_outline", "Rename sheet", Action::RenameSheet),
-                        small(app, "arrow_back", "Move sheet left", Action::SheetLeft),
-                        small(app, "arrow_forward", "Move sheet right", Action::SheetRight),
+                    row(vec![
+                        icon(app, "drive_file_rename_outline", "Rename sheet", Action::RenameSheet, false),
+                        icon(app, "arrow_back", "Move sheet left", Action::SheetLeft, false),
+                        icon(app, "arrow_forward", "Move sheet right", Action::SheetRight, false),
+                        icon(app, "palette", "Tab color", Action::TabColor, false),
                     ]),
-                    column(vec![small(app, "palette", "Tab color", Action::TabColor)]),
-                ],
+                ])],
             ),
             group(
                 "Editing",
                 vec![
                     large(app, "functions", "AutoSum", Action::AutoSum),
                     column(vec![
-                        small(app, "arrow_downward", "Fill down", Action::FillDown),
-                        small(app, "arrow_forward", "Fill right", Action::FillRight),
-                        small(app, "backspace", "Clear contents", Action::ClearContents),
-                    ]),
-                    column(vec![
                         small(app, "sort_by_alpha", "Sort A to Z", Action::SortAsc),
                         small(app, "filter_alt", "Filter", Action::Filter),
-                        small(app, "search", "Find", Action::Find),
+                        row(vec![
+                            icon(app, "arrow_downward", "Fill down", Action::FillDown, false),
+                            icon(app, "arrow_forward", "Fill right", Action::FillRight, false),
+                            icon(app, "backspace", "Clear contents", Action::ClearContents, false),
+                            icon(app, "find_replace", "Replace", Action::Replace, false),
+                        ]),
                     ]),
+                    large(app, "search", "Find", Action::Find),
                 ],
             ),
         ],
@@ -1344,7 +1481,7 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
         "INSERT",
         vec![
             group("Charts", vec![large(app, "insert_chart", "Chart", Action::Chart)]),
-            group("Functions", vec![large(app, "function", "Function", Action::InsertFunction)]),
+            group("Functions", vec![large(app, "functions", "Function", Action::InsertFunction)]),
         ],
     );
     let formulas = tab(
@@ -1353,7 +1490,7 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
             group(
                 "Function Library",
                 vec![
-                    large(app, "function", "Insert Function", Action::InsertFunction),
+                    large(app, "functions", "Insert Function", Action::InsertFunction),
                     large(app, "functions", "AutoSum", Action::AutoSum),
                 ],
             ),
@@ -1426,19 +1563,6 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
                     small(app, "fit_screen", "100%", Action::Zoom100),
                 ])],
             ),
-            group(
-                "Look",
-                vec![
-                    column(vec![
-                        small(app, "crop_square", "Flat", Action::ThemeFlat),
-                        small(app, "spa", "Flora", Action::ThemeFlora),
-                    ]),
-                    column(vec![
-                        small(app, "light_mode", "Light", Action::ModeLight),
-                        small(app, "dark_mode", "Dark", Action::ModeDark),
-                    ]),
-                ],
-            ),
         ],
     );
     Ribbon::create(vec![home, insert, formulas, data, view])
@@ -1458,7 +1582,6 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
 enum Field {
     NameBox,
     Formula,
-    Find,
     Rename,
 }
 
@@ -1502,11 +1625,16 @@ fn formula_bar(s: &AppState, app: &RefAny) -> Dom {
     } else {
         s.view.edit_text.as_str().to_string()
     };
-    let name_box = field(app, Field::NameBox, &name, "Name box")
-        .with_accessibility_name(AzString::from("Name box"))
-        .dom()
-        .with_id(AzString::from(NAME_BOX_ID))
-        .with_css("width: 110px; flex-grow: 0; margin-right: 6px;");
+    // A fixed-width box around the field: the field's own (inline) style
+    // makes it grow, which beats a sheet on its root - it took half the bar.
+    let name_box = Dom::create_div()
+        .with_css("display: flex; flex-direction: row; width: 110px; flex-grow: 0; flex-shrink: 0; margin-right: 6px;")
+        .with_child(
+            field(app, Field::NameBox, &name, "Name box")
+                .with_accessibility_name(AzString::from("Name box"))
+                .dom()
+                .with_id(ids::NAME_BOX),
+        );
     let fx = Button::create(AzString::from("fx"))
         .with_on_click(
             RefAny::new(ActionRef {
@@ -1520,10 +1648,10 @@ fn formula_bar(s: &AppState, app: &RefAny) -> Dom {
     let input = field(app, Field::Formula, &formula, "")
         .with_accessibility_name(AzString::from("Formula bar"))
         .dom()
-        .with_id(AzString::from(FORMULA_ID))
+        .with_id(ids::FORMULA)
         .with_css("flex-grow: 1; min-width: 0px;");
     let bar = Dom::create_div()
-        .with_id(AzString::from("formula-row"))
+        .with_id(ids::FORMULA_ROW)
         .with_css(
             "display: flex; flex-direction: row; align-items: center; flex-grow: 0; padding: 4px \
              8px; border-bottom: 1px solid rgba(128, 128, 128, 0.35);",
@@ -1541,7 +1669,7 @@ fn formula_bar(s: &AppState, app: &RefAny) -> Dom {
             let found = functions::by_prefix(&prefix, SUGGESTIONS);
             if !found.is_empty() {
                 let mut row = Dom::create_div()
-                    .with_id(AzString::from("formula-suggestions"))
+                    .with_id(ids::SUGGESTIONS)
                     .with_css(
                         "display: flex; flex-direction: row; align-items: center; flex-grow: 0; \
                          padding: 2px 8px; font-size: 12px;",
@@ -1574,67 +1702,90 @@ struct TabRef {
     sheet: u32,
 }
 
+/// Excel's sheet tab strip under the grid: a tab list (one Tab stop - the
+/// active sheet's tab; Left / Right on it and Ctrl+PageUp / PageDown
+/// anywhere switch sheets), the active tab bold and underlined, a tab's
+/// colour under it, a double-click renames, "+" adds a sheet.
 fn sheet_tabs(s: &AppState, app: &RefAny) -> Dom {
-    let mut row = Dom::create_div().with_id(AzString::from("sheet-tabs")).with_css(
-        "display: flex; flex-direction: row; align-items: center; flex-grow: 0; padding: 2px 8px; \
-         border-top: 1px solid rgba(128, 128, 128, 0.35);",
-    );
+    let mut row = Dom::create_div()
+        .with_id(ids::SHEET_TABS)
+        .with_css(
+            "display: flex; flex-direction: row; align-items: stretch; flex-grow: 0; padding: 0px 8px 2px 8px; \
+             border-top: 1px solid rgba(128, 128, 128, 0.35);",
+        )
+        .with_accessibility_info(AccessibilityInfo::named(AzString::from("Sheets"), AccessibilityRole::PageTabList));
+    // An icon-only button, named for assistive technology ("New sheet").
     row.add_child(
         Button::create(AzString::from(""))
             .with_icon(AzString::from("add"))
-            .with_on_click(
-                RefAny::new(ActionRef {
-                    app: app.clone(),
-                    action: Action::InsertSheet,
-                }),
-                on_action as ButtonOnClickCallbackType,
-            )
+            .with_on_click(action_ref(app, Action::InsertSheet), on_action as ButtonOnClickCallbackType)
             .dom()
-            .with_css("flex-grow: 0; margin-right: 6px;"),
+            .with_accessibility_name(AzString::from("New sheet"))
+            .with_css("flex-grow: 0; margin: 2px 6px 0px 0px;"),
     );
     for (i, info) in s.cache.snapshot.sheets.iter().enumerate() {
         let sheet = u32::try_from(i).unwrap_or(0);
         if info.hidden {
             continue;
         }
-        let underline = info
-            .color
-            .as_deref()
-            .and_then(|h| ColorU::parse_hex(h).into_option())
-            .map_or_else(String::new, |c| {
-                format!("border-bottom: 3px solid rgb({}, {}, {});", c.r, c.g, c.b)
-            });
         if let Some((renaming, text)) = &s.renaming {
             if *renaming == sheet {
                 row.add_child(
                     field(app, Field::Rename, text, "Sheet name")
                         .with_accessibility_name(AzString::from("Sheet name"))
                         .dom()
-                        .with_id(AzString::from("sheet-rename"))
-                        .with_css("width: 140px; flex-grow: 0; margin-right: 4px;"),
+                        .with_id(ids::SHEET_RENAME)
+                        .with_css("width: 140px; flex-grow: 0; margin: 2px 4px 0px 0px;"),
                 );
                 continue;
             }
         }
-        let kind = if sheet == s.sheet {
-            azul::widgets::ButtonType::Primary
+        let active = sheet == s.sheet;
+        let tab_color = info
+            .color
+            .as_deref()
+            .and_then(|h| ColorU::parse_hex(h).into_option())
+            .map(|c| format!("rgb({}, {}, {})", c.r, c.g, c.b));
+        // The active tab: bold, attached to the grid (no top edge), its
+        // underline the tab colour or Excel's green; the others: flat, only
+        // their own colour under them.
+        let look = if active {
+            format!(
+                "font-weight: 600; border-left: 1px solid rgba(128, 128, 128, 0.5); \
+                 border-right: 1px solid rgba(128, 128, 128, 0.5); border-bottom: 3px solid {};",
+                tab_color.as_deref().unwrap_or("#217346")
+            )
         } else {
-            azul::widgets::ButtonType::Default
+            format!(
+                "border-left: 1px solid transparent; border-right: 1px solid transparent; border-bottom: 3px solid {};",
+                tab_color.as_deref().unwrap_or("transparent")
+            )
         };
         let data = RefAny::new(TabRef {
             app: app.clone(),
             sheet,
         });
+        let states = if active {
+            AccessibilityStateVec::from_vec(vec![AccessibilityState::Selected])
+        } else {
+            AccessibilityStateVec::from_vec(Vec::new())
+        };
         row.add_child(
-            Button::with_type(AzString::from(info.name.as_str()), kind)
-                .with_on_click(data.clone(), on_tab_click as ButtonOnClickCallbackType)
-                .dom()
-                .with_css(format!("flex-grow: 0; margin-right: 4px; {underline}"))
-                .with_callback(
-                    EventFilter::Hover(HoverEventFilter::DoubleClick),
-                    data,
-                    on_tab_double_click,
-                ),
+            Dom::create_div()
+                .with_id(ids::sheet_tab(sheet))
+                .with_css(format!(
+                    "display: flex; flex-direction: row; align-items: center; flex-grow: 0; padding: 3px 14px; \
+                     margin-right: 1px; cursor: pointer; {look}"
+                ))
+                .with_tab_index(if active { TabIndex::Auto } else { TabIndex::NoKeyboardFocus })
+                .with_accessibility_info(AccessibilityInfo {
+                    states,
+                    ..AccessibilityInfo::named(AzString::from(info.name.as_str()), AccessibilityRole::PageTab)
+                })
+                .with_child(Dom::create_p_with_text(AzString::from(info.name.as_str())).with_css("margin: 0px; font-size: 12px;"))
+                .with_callback(EventFilter::Hover(HoverEventFilter::MouseDown), data.clone(), on_tab_click)
+                .with_callback(EventFilter::Hover(HoverEventFilter::DoubleClick), data.clone(), on_tab_double_click)
+                .with_callback(EventFilter::Focus(FocusEventFilter::VirtualKeyDown), data, on_tab_key),
         );
     }
     row
@@ -1648,7 +1799,14 @@ const ZOOM_MIN: u32 = 10;
 /// See [`ZOOM_MIN`].
 const ZOOM_MAX: u32 = 400;
 
-fn zoom_action(app: &RefAny, action: Action) -> RefAny {
+/// Labels for a Segmented / DropDown / TabHeader (one helper for the
+/// app's dialogs and panels).
+pub(crate) fn strs<'a>(items: impl IntoIterator<Item = &'a str>) -> StringVec {
+    StringVec::from_vec(items.into_iter().map(AzString::from).collect())
+}
+
+/// The data of a button that runs `action`.
+fn action_ref(app: &RefAny, action: Action) -> RefAny {
     RefAny::new(ActionRef {
         app: app.clone(),
         action,
@@ -1667,9 +1825,23 @@ fn status_bar(s: &AppState, app: &RefAny) -> Dom {
     // The slider spans the buttons' whole range: a fixed 10..190 window
     // pinned a 400 % zoom's thumb to its end (DEDUP_OFFICE D28).
     let zoom = StatusBarZoom::create(s.zoom as f32, ZOOM_MIN as f32, ZOOM_MAX as f32)
-        .with_on_zoom_out(zoom_action(app, Action::ZoomOut), on_action as ButtonOnClickCallbackType)
-        .with_on_zoom_in(zoom_action(app, Action::ZoomIn), on_action as ButtonOnClickCallbackType);
+        .with_on_zoom_out(action_ref(app, Action::ZoomOut), on_action as ButtonOnClickCallbackType)
+        .with_on_zoom_in(action_ref(app, Action::ZoomIn), on_action as ButtonOnClickCallbackType)
+        .with_on_slider_change(app.clone(), on_zoom_slider as SliderOnValueChangeCallbackType);
     StatusBar::create(segments).with_zoom(zoom).dom()
+}
+
+/// The status bar's zoom slider moved: the zoom follows it (whole percent,
+/// inside the buttons' range), the window in view is fetched if it grew.
+extern "C" fn on_zoom_slider(mut data: RefAny, mut info: CallbackInfo, slider: SliderState) -> Update {
+    with_app(&mut data, &mut info, |info, app, s| {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let percent = slider.value.round().clamp(ZOOM_MIN as f32, ZOOM_MAX as f32) as u32;
+        if percent != s.zoom {
+            s.zoom = percent;
+            fetch_if_needed(info, app, s);
+        }
+    })
 }
 
 // ==== The side panel ====
@@ -1689,7 +1861,7 @@ struct NameRef {
 fn panel(s: &AppState, app: &RefAny) -> Option<Dom> {
     let frame = |title: &str| {
         Dom::create_div()
-            .with_id(AzString::from("side-panel"))
+            .with_id(ids::SIDE_PANEL)
             .with_css(
                 "display: flex; flex-direction: column; flex-grow: 0; width: 280px; padding: 8px; \
                  border-left: 1px solid rgba(128, 128, 128, 0.35); overflow-y: auto;",
@@ -1705,6 +1877,7 @@ fn panel(s: &AppState, app: &RefAny) -> Option<Dom> {
     let line = |text: &str| Dom::create_p_with_text(AzString::from(text)).with_css("font-size: 12px; margin: 2px 0px;");
     match s.panel {
         Panel::None => None,
+        Panel::Conditional => Some(conditional_panel::panel(s, app)),
         Panel::Functions => {
             let mut p = frame("Insert Function");
             for category in functions::Category::ALL {
@@ -1747,15 +1920,17 @@ fn panel(s: &AppState, app: &RefAny) -> Option<Dom> {
             Some(p.with_child(close()))
         }
         Panel::Find => {
-            let mut p = frame("Find");
-            p.add_child(
-                field(app, Field::Find, &s.find, "Find what")
-                    .with_accessibility_name(AzString::from("Find what"))
-                    .dom()
-                    .with_id(AzString::from("find-field")),
-            );
-            p.add_child(line("Enter finds the next cell."));
-            Some(p.with_child(close()))
+            // The standard Find / Replace dialog (DEDUP_OFFICE D12): its
+            // fields, options and buttons report to on_find_event.
+            let mut dialog = FindReplaceDialog::create(AzString::from(s.find.as_str()))
+                .with_options(s.find_opts.match_case, s.find_opts.whole_word)
+                .with_status(AzString::from(s.find_status.as_str()))
+                .with_on_event(app.clone(), on_find_event as StandardDialogOnEventCallbackType);
+            if s.show_replace {
+                dialog = dialog.with_replace(AzString::from(s.replace.as_str()));
+            }
+            let title = if s.show_replace { "Find and Replace" } else { "Find" };
+            Some(frame(title).with_child(dialog.dom().with_id(ids::FIND)))
         }
         Panel::Chart => {
             let mut p = frame("Charts");
@@ -1802,7 +1977,7 @@ fn backstage(s: &AppState, app: &RefAny) -> Dom {
             .with_css("flex-grow: 0; margin: 4px 0px; width: 220px;")
     };
     let mut pane = Dom::create_div()
-        .with_id(AzString::from("backstage-pane"))
+        .with_id(ids::BACKSTAGE_PANE)
         .with_css("display: flex; flex-direction: column; flex-grow: 1; padding: 24px 40px;")
         .with_child(
             Dom::create_p_with_text(AzString::from(BACKSTAGE_ITEMS[s.backstage_pane.min(BACKSTAGE_ITEMS.len() - 1)]))
@@ -1821,14 +1996,14 @@ fn backstage(s: &AppState, app: &RefAny) -> Dom {
                 Button::create(AzString::from("Blank workbook"))
                     .with_on_click(app.clone(), on_new_blank as ButtonOnClickCallbackType)
                     .dom()
-                    .with_id(AzString::from("new-blank"))
+                    .with_id(ids::NEW_BLANK)
                     .with_css("flex-grow: 0; margin: 4px 0px; width: 220px;"),
             );
             pane.add_child(
                 Button::create(AzString::from("Budget 2027 (sample)"))
                     .with_on_click(app.clone(), on_new_sample as ButtonOnClickCallbackType)
                     .dom()
-                    .with_id(AzString::from("new-sample"))
+                    .with_id(ids::NEW_SAMPLE)
                     .with_css("flex-grow: 0; margin: 4px 0px; width: 220px;"),
             );
         }
@@ -1854,7 +2029,7 @@ fn backstage(s: &AppState, app: &RefAny) -> Dom {
                             on_open_entry as ButtonOnClickCallbackType,
                         )
                         .dom()
-                        .with_id(AzString::from(format!("open-{i}"))),
+                        .with_id(ids::open_row(i)),
                 );
             }
         }
@@ -1886,33 +2061,26 @@ fn backstage(s: &AppState, app: &RefAny) -> Dom {
             );
         }
         "Options" => {
-            let mut appearance = Dom::create_div().with_css("display: flex; flex-direction: column;");
-            appearance.add_child(line("The look follows the app theme and the system's mode; pick them here."));
-            appearance.add_child(button("Flat", Action::ThemeFlat));
-            appearance.add_child(button("Flora", Action::ThemeFlora));
-            appearance.add_child(button("Light", Action::ModeLight));
-            appearance.add_child(button("Dark", Action::ModeDark));
-            let files = Dom::create_div()
-                .with_css("display: flex; flex-direction: column;")
-                .with_child(line(&format!("Data folder: {}", s.data_root.display())))
-                .with_child(line("Workbooks: sheets/<id>.xlsx with a sheets/<id>.json sidecar; exports: exports/."))
-                .with_child(line("Set AZSHEETS_DATA to use another folder."));
-            pane.add_child(
-                ShellSettingsLayout::create(StringVec::from_vec(vec![
-                    AzString::from("Appearance"),
-                    AzString::from("Files"),
-                ]))
-                .with_active_category(s.settings_category)
-                .with_on_category(app.clone(), on_settings_category as ShellSettingsLayoutOnCategoryCallbackType)
-                .with_section(ShellSettingsSection::create(AzString::from("Appearance"), appearance))
-                .with_section(ShellSettingsSection::create(AzString::from("Files"), files))
-                .dom(),
-            );
+            // appkit's settings page: Appearance (the app theme and the mode,
+            // saved and applied at once), Data (the folder), the shortcuts
+            // table, About - one page for every Azlin app (DEDUP_OFFICE D13).
+            match &s.kit {
+                Some(kit_ref) => pane.add_child(kit::settings_page(kit_ref, Vec::new())),
+                None => pane.add_child(line("The settings are not available.")),
+            }
         }
         _ => {
-            pane.add_child(line("AzSheets - a spreadsheet on azul."));
-            pane.add_child(line("Engine: IronCalc 0.8.3 (MIT OR Apache-2.0), on its own thread."));
-            pane.add_child(line("Shortcuts: Ctrl+S save, Ctrl+Z / Ctrl+Y undo / redo, Ctrl+B / I / U, Ctrl+F find, F9 calculate."));
+            // The standard About box (DEDUP_OFFICE D12); OK goes back.
+            pane.add_child(
+                AboutDialog::create(AzString::from(ABOUT.name), AzString::from(ABOUT.version))
+                    .with_icon(AzString::from("grid_on"))
+                    .with_description(AzString::from(ABOUT.summary))
+                    .with_copyright(AzString::from("Copyright 2026 Felix Schuett. MIT license."))
+                    .with_credit(AzString::from("IronCalc 0.8.3"), AzString::from("MIT OR Apache-2.0"))
+                    .with_credit(AzString::from("azul"), AzString::from("MIT"))
+                    .with_on_event(app.clone(), on_about_event as StandardDialogOnEventCallbackType)
+                    .dom(),
+            );
         }
     }
     Backstage::create(BackstageNavItemVec::from_vec(items))
@@ -1959,25 +2127,35 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         if let Some(p) = panel(s, &app) {
             middle.add_child(p);
         }
-        let document = Dom::create_div()
-            .with_id(AzString::from("workbook"))
+        let mut document = Dom::create_div()
+            .with_id(ids::WORKBOOK)
             .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
             .with_child(formula_bar(s, &app))
             .with_child(middle)
             .with_child(sheet_tabs(s, &app));
+        if let Some(d) = &s.format {
+            document.add_child(format_dialog::dialog(d, &app));
+        }
         DocumentShell::create(document)
             .office_shell()
             .with_title_row(title_row(s))
             .with_ribbon(ribbon(s, &app))
             .with_status_bar(status_bar(s, &app))
     };
-    Dom::create_body()
-        .with_css("display: flex; flex-direction: column;")
-        .with_child(
-            ShellThemeScope::create(shell.dom())
-                .with_accent(ShellThemeAccent::Leaf)
-                .dom(),
-        )
+    // "Save changes?" before the window closes with unsaved work: the close
+    // request is held while the workbook is dirty (the standard question
+    // over the window, the answer in on_close_guard).
+    let guarded = CloseGuard::create(shell.dom(), AzString::from(s.doc.title.as_str()))
+        .with_dirty(s.doc.dirty)
+        .with_asking(s.asking_close)
+        .with_on_event(app.clone(), on_close_guard as CloseGuardOnEventCallbackType)
+        .dom();
+    // The scope as the window's body (SMALL6's engine fix): no UA margin,
+    // the full window height - the shell's rows share it, the grid takes
+    // what is left and clips, the status bar stays on screen.
+    ShellThemeScope::create(guarded)
+        .with_accent(ShellThemeAccent::Leaf)
+        .body()
         .with_callback(
             EventFilter::Window(WindowEventFilter::VirtualKeyDown),
             app,
@@ -1986,6 +2164,25 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
 }
 
 // ==== Callbacks ====
+
+/// The close guard's answers: ask, save then close, close without saving,
+/// or stay.
+extern "C" fn on_close_guard(mut data: RefAny, mut info: CallbackInfo, event: CloseGuardEvent) -> Update {
+    with_app(&mut data, &mut info, |info, app, s| match event.kind {
+        CloseGuardEventKind::Ask => s.asking_close = true,
+        CloseGuardEventKind::Save => {
+            s.asking_close = false;
+            s.close_after_save = true;
+            save(info, app, s);
+        }
+        CloseGuardEventKind::Discard => {
+            // The guard closes the window itself.
+            s.asking_close = false;
+            s.doc.dirty = false;
+        }
+        CloseGuardEventKind::Cancel => s.asking_close = false,
+    })
+}
 
 /// Runs `f` on the app state and rebuilds.
 fn with_app(
@@ -2222,6 +2419,22 @@ fn act(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, action: Action) 
         .unwrap_or_default();
     let color = |hex: &str| Some(String::from(hex));
     match action {
+        Action::FormatCells(tab) => format_dialog::open(s, style.clone(), usize::from(tab)),
+        Action::Conditional => s.panel = Panel::Conditional,
+        Action::MergeCenter => {
+            let merged = s
+                .cache
+                .snapshot
+                .merges
+                .iter()
+                .copied()
+                .find(|m| m.sheet == sheet && m.contains(at.row, at.column));
+            match merged {
+                Some(m) => run(info, app, s, Command::Unmerge { area: m }),
+                None if area.width * area.height > 1 => run(info, app, s, Command::MergeCenter { area }),
+                None => s.message = String::from("Select two or more cells to merge."),
+            }
+        }
         Action::Undo => run(info, app, s, Command::Undo),
         Action::Redo => run(info, app, s, Command::Redo),
         Action::Copy | Action::Cut => {
@@ -2463,7 +2676,11 @@ fn act(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, action: Action) 
                 Post::None,
             );
         }
-        Action::Find => s.panel = Panel::Find,
+        Action::Find | Action::Replace => {
+            s.panel = Panel::Find;
+            s.show_replace = action == Action::Replace;
+            s.find_status.clear();
+        }
         Action::ClearContents => {
             let areas = s.areas();
             run(info, app, s, Command::Clear { areas });
@@ -2508,14 +2725,10 @@ fn act(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, action: Action) 
             };
             fetch_if_needed(info, app, s);
         }
-        Action::ThemeFlat => info.set_theme(AzString::from("flat")),
-        Action::ThemeFlora => info.set_theme(AzString::from("flora")),
-        Action::ModeLight => info.set_mode(OptionDarkLightMode::Some(DarkLightMode::Light)),
-        Action::ModeDark => info.set_mode(OptionDarkLightMode::Some(DarkLightMode::Dark)),
         Action::Save => save(info, app, s),
         Action::ExportCsv => {
             let post = Post::Csv {
-                root: s.data_root.clone(),
+                drive: Arc::clone(&s.drive),
                 name: safe_name(&s.doc.title),
             };
             send(info, app, s, Command::ExportCsv { sheet }, Pending::Exported, post);
@@ -2579,8 +2792,8 @@ fn export_pdf(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState) {
         info,
         app,
         Job::Write {
-            root: s.data_root.clone(),
-            key: format!("exports/{}.pdf", safe_name(&s.doc.title)),
+            drive: Arc::clone(&s.drive),
+            key: storage::export_key(&safe_name(&s.doc.title), "pdf"),
             bytes,
         },
     );
@@ -2617,7 +2830,6 @@ extern "C" fn on_field_text(mut data: RefAny, mut info: CallbackInfo, state: Tex
     let mut rebuild = false;
     with_app(&mut app, &mut info, |_, _, s| match which {
         Field::NameBox => s.name_box = Some(text),
-        Field::Find => s.find = text,
         Field::Rename => {
             if let Some((sheet, _)) = s.renaming.clone() {
                 s.renaming = Some((sheet, text));
@@ -2713,14 +2925,6 @@ extern "C" fn on_field_key(mut data: RefAny, mut info: CallbackInfo, state: Text
         }
         (Field::Formula, Some(VirtualKeyCode::Tab)) => commit_formula(info, app, s, false),
         (Field::Formula, _) => commit_formula(info, app, s, true),
-        (Field::Find, Some(VirtualKeyCode::Return)) => {
-            let needle = s.find.clone();
-            if !needle.is_empty() {
-                let from = s.active();
-                send(info, app, s, Command::Find { from, needle }, Pending::Find, Post::None);
-            }
-        }
-        (Field::Find, _) => s.panel = Panel::None,
         (Field::Rename, Some(VirtualKeyCode::Return)) => {
             if let Some((sheet, name)) = s.renaming.take() {
                 let name = name.trim().to_string();
@@ -2794,11 +2998,38 @@ extern "C" fn on_tab_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((mut app, sheet)) = data.downcast_ref::<TabRef>().map(|r| (r.app.clone(), r.sheet)) else {
         return Update::DoNothing;
     };
+    with_app(&mut app, &mut info, |info, app, s| switch_sheet(info, app, s, sheet))
+}
+
+/// Switches to `sheet`: a fresh view of it, fetched.
+fn switch_sheet(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, sheet: u32) {
+    if s.sheet != sheet {
+        s.sheet = sheet;
+        s.view = CellGridView::create();
+        send(info, app, s, Command::Fetch, Pending::Other, Post::None);
+    }
+}
+
+/// Left / Right on the active tab: the previous / next sheet, its tab the
+/// focused one (the list's one Tab stop moves with it).
+extern "C" fn on_tab_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(mut app) = data.downcast_ref::<TabRef>().map(|r| r.app.clone()) else {
+        return Update::DoNothing;
+    };
+    let forward = match info.get_current_keyboard_state().current_virtual_keycode.into_option() {
+        Some(VirtualKeyCode::Right) => true,
+        Some(VirtualKeyCode::Left) => false,
+        _ => return Update::DoNothing,
+    };
     with_app(&mut app, &mut info, |info, app, s| {
-        if s.sheet != sheet {
-            s.sheet = sheet;
-            s.view = CellGridView::create();
-            send(info, app, s, Command::Fetch, Pending::Other, Post::None);
+        if let Some(next) = model::step_sheet(&s.cache.snapshot.sheets, s.sheet, forward) {
+            switch_sheet(info, app, s, next);
+            info.set_focus_to_path(
+                DomId { inner: 0 },
+                CssPath {
+                    selectors: vec![CssPathSelector::Id(ids::sheet_tab(next))].into(),
+                },
+            );
         }
     })
 }
@@ -2828,7 +3059,7 @@ fn backstage_pane(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, pane:
             info,
             app,
             Job::List {
-                root: s.data_root.clone(),
+                drive: Arc::clone(&s.drive),
             },
         );
     }
@@ -2847,8 +3078,73 @@ extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, index: 
     })
 }
 
-extern "C" fn on_settings_category(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
-    with_app(&mut data, &mut info, |_, _, s| s.settings_category = index)
+/// The Find / Replace dialog: its fields and options are kept in the state
+/// (no rebuild while typing - the field shows its own text), its buttons ask
+/// the engine.
+extern "C" fn on_find_event(mut data: RefAny, mut info: CallbackInfo, event: StandardDialogEvent) -> Update {
+    if event.kind == StandardDialogEventKind::FieldChanged {
+        if let Some(mut s) = data.downcast_mut::<AppState>() {
+            let text = event.text.as_str().to_string();
+            if event.index == 0 {
+                s.find = text;
+            } else {
+                s.replace = text;
+            }
+        }
+        return Update::DoNothing;
+    }
+    with_app(&mut data, &mut info, |info, app, s| {
+        let needle = s.find.clone();
+        let opts = s.find_opts;
+        match event.kind {
+            StandardDialogEventKind::OptionToggled => {
+                if event.index == 0 {
+                    s.find_opts.match_case = event.checked;
+                } else {
+                    s.find_opts.whole_word = event.checked;
+                }
+            }
+            StandardDialogEventKind::FindNext | StandardDialogEventKind::FindPrevious if !needle.is_empty() => {
+                let opts = ops::FindOptions {
+                    backwards: event.kind == StandardDialogEventKind::FindPrevious,
+                    ..opts
+                };
+                let from = s.active();
+                send(info, app, s, Command::Find { from, needle, opts }, Pending::Find, Post::None);
+            }
+            StandardDialogEventKind::Replace if !needle.is_empty() => {
+                let at = s.active();
+                let replacement = s.replace.clone();
+                s.doc.dirty = true;
+                let command = Command::Replace {
+                    at,
+                    needle,
+                    replacement,
+                    opts,
+                };
+                send(info, app, s, command, Pending::Find, Post::None);
+            }
+            StandardDialogEventKind::ReplaceAll if !needle.is_empty() => {
+                let sheet = s.sheet;
+                let replacement = s.replace.clone();
+                s.doc.dirty = true;
+                let command = Command::ReplaceAll {
+                    sheet,
+                    needle,
+                    replacement,
+                    opts,
+                };
+                send(info, app, s, command, Pending::Replaced, Post::None);
+            }
+            StandardDialogEventKind::Cancel => s.panel = Panel::None,
+            _ => {}
+        }
+    })
+}
+
+/// The About box's OK: back to the workbook.
+extern "C" fn on_about_event(mut data: RefAny, mut info: CallbackInfo, _event: StandardDialogEvent) -> Update {
+    with_app(&mut data, &mut info, |_, _, s| s.screen = Screen::Workbook)
 }
 
 extern "C" fn on_backstage_back(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -2908,7 +3204,7 @@ extern "C" fn on_open_entry(mut data: RefAny, mut info: CallbackInfo) -> Update 
                 info,
                 app,
                 Job::Load {
-                    root: s.data_root.clone(),
+                    drive: Arc::clone(&s.drive),
                     id,
                 },
             );
@@ -2955,6 +3251,8 @@ extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update 
         Some(VirtualKeyCode::I) if command => Some(Action::Italic),
         Some(VirtualKeyCode::U) if command => Some(Action::Underline),
         Some(VirtualKeyCode::F) if command => Some(Action::Find),
+        Some(VirtualKeyCode::H) if command => Some(Action::Replace),
+        Some(VirtualKeyCode::Key1) if command => Some(Action::FormatCells(0)),
         Some(VirtualKeyCode::F9) => Some(Action::CalculateNow),
         _ => None,
     };
@@ -2968,8 +3266,41 @@ extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update 
         Some(VirtualKeyCode::N) if command => {
             with_app(&mut data, &mut info, |info, app, s| new_workbook(info, app, s, false))
         }
+        // Excel's sheet keys: the next / previous visible sheet.
+        Some(key @ (VirtualKeyCode::PageDown | VirtualKeyCode::PageUp)) if command => {
+            with_app(&mut data, &mut info, |info, app, s| {
+                let forward = key == VirtualKeyCode::PageDown;
+                if let Some(next) = model::step_sheet(&s.cache.snapshot.sheets, s.sheet, forward) {
+                    switch_sheet(info, app, s, next);
+                }
+            })
+        }
+        // F4 while a formula is being edited: the reference at the caret
+        // cycles through $A$1, A$1, $A1, A1 (Excel).
+        Some(VirtualKeyCode::F4) => with_app(&mut data, &mut info, |_, _, s| {
+            if s.view.edit_mode != CellGridEditMode::None {
+                let cursor = s.view.edit_cursor as usize;
+                if let Some((text, caret)) = refs::cycle_reference(s.view.edit_text.as_str(), cursor) {
+                    s.view.edit_text = AzString::from(text);
+                    s.view.edit_cursor = u32::try_from(caret).unwrap_or(u32::MAX);
+                }
+            }
+        }),
+        // The kit's keys (every Azlin app): Mod+, opens the settings, F1
+        // opens them at the shortcuts - here, the backstage's Options pane.
+        Some(VirtualKeyCode::Comma) if command => with_app(&mut data, &mut info, |info, app, s| {
+            backstage_pane(info, app, s, OPTIONS_PANE);
+        }),
+        Some(VirtualKeyCode::F1) => with_app(&mut data, &mut info, |info, app, s| {
+            if let Some(kit_ref) = &s.kit {
+                kit::open_settings(kit_ref, Some("Shortcuts"));
+            }
+            backstage_pane(info, app, s, OPTIONS_PANE);
+        }),
         Some(VirtualKeyCode::Escape) => with_app(&mut data, &mut info, |_, _, s| {
-            if s.screen == Screen::Backstage {
+            if s.format.is_some() {
+                s.format = None;
+            } else if s.screen == Screen::Backstage {
                 s.screen = Screen::Workbook;
             }
         }),
@@ -2977,13 +3308,16 @@ extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update 
     }
 }
 
-/// The window is up: act on the command line.
+/// The window is up: act on the command line (and start appkit's `--shot`).
 extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_app(&mut data, &mut info, |info, app, s| {
+        if let Some(kit_ref) = s.kit.clone() {
+            kit::on_window_created(&kit_ref, info);
+        }
         let args = s.args.take().unwrap_or_default();
         if let Some(path) = args.open.clone() {
             spawn_job(info, app, Job::Import { path });
-        } else if args.sample {
+        } else if args.sample() {
             new_workbook(info, app, s, true);
         } else {
             send(info, app, s, Command::Fetch, Pending::Other, Post::None);
@@ -2993,6 +3327,7 @@ extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
             args::Screen::BackstageInfo => backstage_pane(info, app, s, 0),
             args::Screen::BackstageNew => backstage_pane(info, app, s, 1),
             args::Screen::BackstageOpen => backstage_pane(info, app, s, 2),
+            args::Screen::Options => backstage_pane(info, app, s, OPTIONS_PANE),
         }
         println!("AZSHEETS_READY {}", s.data_root.display());
     })
@@ -3000,51 +3335,36 @@ extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
 
 // ==== Entry ====
 
-fn user_data_dir() -> Option<PathBuf> {
-    FilePath::get_data_dir()
-        .into_option()
-        .map(|dir| PathBuf::from(dir.inner.as_str()))
-}
-
 /// The engine the app runs: IronCalc, built on the engine thread.
 fn make_engine() -> Box<dyn engine::SheetEngine> {
     Box::new(IronCalcEngine::new_empty())
 }
 
+/// The data root the kit resolved (`--data-dir`, `AZLIN_DATA`, the user's
+/// data folder).
+fn kit_data_root(kit_ref: &RefAny) -> PathBuf {
+    let mut k = kit_ref.clone();
+    k.downcast_ref::<kit::Kit>()
+        .map_or_else(|| PathBuf::from(azul_appkit::data::ROOT_DIR), |k| k.data_root.clone())
+}
+
+/// Starts AzSheets on azul-appkit: the kit reads the settings file (the
+/// app theme and the mode the user picked last time), the data root and
+/// the switches; the window is the kit's (`NoTitle`, `--size`, a minimum).
 pub fn start(args: Args) {
-    let data_root = storage::data_root(
-        std::env::var(storage::DATA_VAR).ok().as_deref(),
-        user_data_dir(),
-    );
-    let mut state = AppState::new(data_root);
+    let kit_ref = kit::create_kit(args::SPEC, ABOUT, &SHORTCUTS, &[], args.kit.clone());
+    let mut state = AppState::new(kit_data_root(&kit_ref));
+    state.kit = Some(kit_ref.clone());
     match worker::spawn_engine(make_engine) {
         Ok(tx) => state.engine = Some(tx),
         Err(e) => state.message = format!("The spreadsheet engine could not start: {e}"),
     }
-    let (width, height) = args.size.unwrap_or((1280.0, 800.0));
-    state.window = (width, height);
-    let mut config = AppConfig::create();
-    if let Some(theme) = args.theme {
-        config = config.with_theme(AzString::from(match theme {
-            args::Theme::Flat => "flat",
-            args::Theme::Flora => "flora",
-        }));
-    }
-    if let Some(mode) = args.mode {
-        config = config.with_mode(OptionDarkLightMode::Some(match mode {
-            args::Mode::Light => DarkLightMode::Light,
-            args::Mode::Dark => DarkLightMode::Dark,
-        }));
-    }
+    state.window = args.size().unwrap_or((1280.0, 800.0));
+    let config = kit::app_config(&kit_ref);
     eprintln!("[azsheets] data folder {}", state.data_root.display());
     state.args = Some(args);
-    let app = App::create(RefAny::new(state), config);
-    let mut window = WindowCreateOptions::create(layout);
-    window.window_state.size.dimensions = LogicalSize::create(width, height);
-    window.window_state.title = AzString::from("AzSheets");
-    window.window_state.flags.decorations = WindowDecorations::NoTitle;
-    window.create_callback = Some(Callback::create(startup)).into();
-    app.run(window);
+    let window = kit::window_options(&kit_ref, layout, (1280.0, 800.0), (720.0, 480.0), startup);
+    App::create(RefAny::new(state), config).run(window);
 }
 
 #[cfg(test)]

@@ -8,21 +8,19 @@
 //! the user's data folder today, an `S3Drive` later), and blocks: the app
 //! calls these from an azul `Thread`, never from a callback.
 
-use std::path::PathBuf;
-
 use azul_storage::{Drive, DriveError, ListRequest};
 use serde::{Deserialize, Serialize};
 
 /// The folder of the workbooks under the data root.
 pub const DIR: &str = "sheets";
 
-/// The environment variable that overrides the data root.
-pub const DATA_VAR: &str = "AZSHEETS_DATA";
-
-/// A new workbook id: a v4 UUID, lowercase and hyphenated.
+/// A new workbook id: a v4-shaped UUID, lowercase and hyphenated, from the
+/// one id mint of the Azlin apps (`azul_storage::ids::new_uuid`, INFRA6): it
+/// names a file in the drive (an S3 bucket later), so no other launch or
+/// device picks it.
 #[must_use]
 pub fn new_id() -> String {
-    uuid::Uuid::new_v4().to_string()
+    azul_storage::ids::new_uuid()
 }
 
 /// `sheets/<id>.xlsx`.
@@ -138,18 +136,27 @@ pub fn list(drive: &dyn Drive) -> Result<Vec<(String, Sidecar)>, DriveError> {
     Ok(out)
 }
 
-/// The data root: `var` (`AZSHEETS_DATA`) when set, else `Azlin` in the
-/// user's data folder, else `./azsheets-data`.
+/// Where an export of the workbook goes: `sheets/exports/<name>.<ext>` - in
+/// the data tree, through the drive, like every durable file (user ruling
+/// 2026-10-02: no direct writes, the later S3 sync only diffs the tree).
 #[must_use]
-pub fn data_root(var: Option<&str>, user_data_dir: Option<PathBuf>) -> PathBuf {
-    match var.map(str::trim).filter(|v| !v.is_empty()) {
-        Some(v) => PathBuf::from(v),
-        None => user_data_dir.map_or_else(|| PathBuf::from("azsheets-data"), |d| d.join("Azlin")),
-    }
+pub fn export_key(name: &str, ext: &str) -> String {
+    format!("{DIR}/exports/{name}.{ext}")
+}
+
+/// A key as the user reads it: the file on disk for a local drive, else the
+/// key.
+#[must_use]
+pub fn shown_path(drive: &dyn Drive, key: &str) -> String {
+    drive
+        .local_path(key)
+        .map_or_else(|| key.to_string(), |p| p.display().to_string())
 }
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use azul_storage::LocalDrive;
 
     use super::*;
@@ -204,16 +211,14 @@ mod tests {
     }
 
     #[test]
-    fn the_data_root_is_the_variable_then_the_user_data_folder_then_a_local_folder() {
+    fn an_export_is_a_file_in_the_apps_folder_of_the_data_tree() {
+        assert_eq!(export_key("Budget-2027", "csv"), "sheets/exports/Budget-2027.csv");
+        let t = TempDrive::new();
+        let key = export_key("x", "pdf");
         assert_eq!(
-            data_root(Some("/tmp/x"), Some(PathBuf::from("/home/u/.local/share"))),
-            PathBuf::from("/tmp/x")
+            shown_path(&t.drive, &key),
+            t.root.join("sheets").join("exports").join("x.pdf").display().to_string()
         );
-        assert_eq!(
-            data_root(Some("  "), Some(PathBuf::from("/data"))),
-            PathBuf::from("/data/Azlin")
-        );
-        assert_eq!(data_root(None, None), PathBuf::from("azsheets-data"));
     }
 
     #[test]

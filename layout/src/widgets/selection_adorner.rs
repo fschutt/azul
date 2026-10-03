@@ -855,6 +855,25 @@ pub(crate) fn rotated(
     }
 }
 
+/// `f` turned by `deg` degrees (clockwise on screen) about (`cx`, `cy`): its
+/// centre orbits the point, its own rotation grows by `deg` (a member of a
+/// turned multi-selection).
+pub(crate) fn turned_about(f: &AdornerFrame, cx: f32, cy: f32, deg: f32) -> AdornerFrame {
+    let (s, c) = deg.to_radians().sin_cos();
+    let (dx, dy) = (f.center_x() - cx, f.center_y() - cy);
+    let (nx, ny) = (cx + dx * c - dy * s, cy + dx * s + dy * c);
+    let mut rotation = (f.rotation + deg).rem_euclid(360.0);
+    if (rotation - 360.0).abs() < 1e-3 {
+        rotation = 0.0;
+    }
+    AdornerFrame {
+        x: nx - f.width / 2.0,
+        y: ny - f.height / 2.0,
+        rotation,
+        ..*f
+    }
+}
+
 /// `f` mapped from the box `from` onto the box `to` (a member of a resized
 /// multi-selection).
 pub(crate) fn map_frame(f: &AdornerFrame, from: &AdornerFrame, to: &AdornerFrame) -> AdornerFrame {
@@ -1140,8 +1159,10 @@ impl AdornerState {
         } else if selected.len() > 1 {
             let frames: Vec<AdornerFrame> = selected.iter().map(|&i| self.items[i].frame).collect();
             if let Some(around) = union(&frames) {
-                if let Some(handle) = handle_at(&around, x, y, self.scale, false) {
-                    if handle.is_resize() {
+                // The box's handles: the eight resize ones and its rotate
+                // handle (the whole selection turns about the box's centre).
+                if let Some(handle) = handle_at(&around, x, y, self.scale, true) {
+                    if handle.is_resize() || handle == AdornerHandle::Rotate {
                         self.begin(DragKind::Transform, handle, x, y, &selected, around);
                         return (Vec::new(), true);
                     }
@@ -1252,6 +1273,17 @@ impl AdornerState {
                     }
                 }
                 self.drag.frames.iter().map(|f| f.translated(dx, dy)).collect()
+            }
+            AdornerHandle::Rotate if self.drag.frames.len() > 1 => {
+                // The box around the selection is unturned: the pointer's
+                // angle about its centre is the turn.
+                let around = self.drag.reference;
+                let deg = rotated(&around, x, y, shift, self.snap).rotation;
+                self.drag
+                    .frames
+                    .iter()
+                    .map(|f| turned_about(f, around.center_x(), around.center_y(), deg))
+                    .collect()
             }
             AdornerHandle::Rotate => self
                 .drag
@@ -1660,6 +1692,29 @@ mod geometry_and_drag_tests {
             close(rotated(&f, qx, qy, false, true).rotation, 90.0),
             "the magnet pulls to a right angle"
         );
+    }
+
+    /// The brief's "multi-selection rotate" (AzShow): the box around a
+    /// multi-selection has a rotate handle too, and turning it turns every
+    /// object about the box's centre - each one's centre orbits it, each
+    /// one's own rotation grows by the same angle (PowerPoint).
+    #[test]
+    fn a_multi_selection_turns_about_the_centre_of_its_box() {
+        let mut s = AdornerState::new(
+            vec![
+                item(100.0, 100.0, 100.0, 100.0, true),
+                item(300.0, 100.0, 100.0, 100.0, true),
+            ],
+            1000.0,
+            600.0,
+        );
+        // The box: 100..400 x 100..200, centre (250, 150); its handle above.
+        s.press(250.0, 100.0 - ROTATE_OFFSET_PX, false, false);
+        let step = s.drag_to(350.0, 150.0, false).expect("a turn");
+        assert_eq!(indices(&step), vec![0, 1]);
+        let f = frames(&step);
+        assert!(same(&f[0], &AdornerFrame::create(200.0, 0.0, 100.0, 100.0).with_rotation(90.0)), "{f:?}");
+        assert!(same(&f[1], &AdornerFrame::create(200.0, 200.0, 100.0, 100.0).with_rotation(90.0)), "{f:?}");
     }
 
     #[test]
@@ -2116,7 +2171,7 @@ pub(crate) fn build(adorner: SelectionAdorner, look: &SelectionAdornerLook) -> D
         if let Some(around) = union(&frames) {
             children.push(
                 piece(GROUP_CLASS, ADORNER_PIECE_BASE, &look.group, &around, scale, Some(StyleCursor::Move))
-                    .with_children(DomVec::from_vec(handles(look, false))),
+                    .with_children(DomVec::from_vec(handles(look, true))),
             );
         }
     }
@@ -2436,7 +2491,7 @@ mod dom_tests {
     }
 
     #[test]
-    fn several_selected_objects_get_outlines_and_one_box_with_the_resize_handles() {
+    fn several_selected_objects_get_outlines_and_one_box_with_the_resize_and_rotate_handles() {
         let log = log();
         let mut a = adorner(&log).with_theme(UiTheme::Flat);
         a.items.as_mut()[1].selected = true;
@@ -2447,7 +2502,12 @@ mod dom_tests {
         for want in at(50.0, 25.0).iter().chain(sized(300.0, 225.0).iter()) {
             assert!(p.contains(want), "the box at half scale: {want:?} in {p:?}");
         }
-        assert_eq!(theme_checks::find_all(group, HANDLE_CLASS).len(), 8, "resize handles, no rotate handle");
+        assert_eq!(
+            theme_checks::find_all(group, HANDLE_CLASS).len(),
+            9,
+            "eight resize handles and the rotate handle (the selection turns as one)"
+        );
+        assert_eq!(theme_checks::find_all(group, ROTATE_CLASS).len(), 1);
         for f in theme_checks::find_all(&dom, FRAME_CLASS) {
             assert!(theme_checks::find(f, HANDLE_CLASS).is_none(), "the outlines carry no handles");
         }

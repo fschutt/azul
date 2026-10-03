@@ -14,13 +14,29 @@ use crate::model::Deck;
 
 /// The app's folder in the user's storage.
 pub const APP_FOLDER: &str = "show";
-/// The variable naming the data root (a test, a second profile).
-pub const DATA_VAR: &str = "AZSHOW_DATA";
 
 /// `show/<id>/deck.json`.
 #[must_use]
 pub fn deck_key(id: &str) -> String {
     format!("{APP_FOLDER}/{id}/deck.json")
+}
+
+/// The deck id of a `show/<id>/deck.json` key; `None` for any other key (a
+/// picture under `media/`, a stray file).
+#[must_use]
+pub fn deck_id_of(key: &str) -> Option<&str> {
+    let id = key
+        .strip_prefix(APP_FOLDER)?
+        .strip_prefix('/')?
+        .strip_suffix("/deck.json")?;
+    (!id.is_empty() && !id.contains('/')).then_some(id)
+}
+
+/// `show/exports/<name>`: where an export (a PDF, a slide picture) lands -
+/// in the data tree, through the drive, like every durable file.
+#[must_use]
+pub fn export_key(name: &str) -> String {
+    format!("{APP_FOLDER}/exports/{name}")
 }
 
 /// `show/<id>/<media>`, `media` being an element's `media/<name>` key.
@@ -53,6 +69,8 @@ pub enum Job {
     /// Reads a picture the user picked and stores it under the deck's
     /// `media/` (a fresh name, the file's extension).
     ImportFile { deck: String, path: PathBuf },
+    /// Writes an export (`name` with its extension) to `show/exports/`.
+    Export { name: String, bytes: Vec<u8> },
 }
 
 /// What came back.
@@ -66,6 +84,8 @@ pub enum Outcome {
     Listed(Result<Vec<DeckSummary>, String>),
     /// The picture's media key (`media/<name>`) and its bytes, or why not.
     MediaStored(Result<(String, Vec<u8>), String>),
+    /// The export's key (`show/exports/<name>`), or why not.
+    Exported(Result<String, String>),
 }
 
 fn why(e: DriveError) -> String {
@@ -124,30 +144,27 @@ pub fn run_job(drive: &dyn Drive, job: Job) -> Outcome {
             Ok((Box::new(deck), media))
         })()),
         Job::List => Outcome::Listed((|| -> Result<Vec<DeckSummary>, String> {
-            let page = drive
-                .list(&ListRequest::folder(&format!("{APP_FOLDER}/")))
-                .map_err(why)?;
+            // Every page of the listing (a bucket answers a thousand keys a
+            // page); a deck is a `show/<id>/deck.json`, its date comes with
+            // the listing (no extra round trip per deck).
+            let prefix = format!("{APP_FOLDER}/");
+            let objects = azul_storage::ops::list_all(drive, &prefix).map_err(why)?;
             let mut decks = Vec::new();
-            for folder in page.folders {
-                let id = folder
-                    .trim_end_matches('/')
-                    .rsplit('/')
-                    .next()
-                    .unwrap_or_default()
-                    .to_string();
-                let key = deck_key(&id);
-                let Ok(bytes) = drive.get(&key) else {
+            for object in objects {
+                let Some(id) = deck_id_of(&object.key) else {
+                    continue;
+                };
+                let Ok(bytes) = drive.get(&object.key) else {
                     continue;
                 };
                 let Ok(deck) = Deck::from_json(&String::from_utf8_lossy(&bytes)) else {
                     continue;
                 };
-                let modified = drive.head(&key).ok().and_then(|o| o.modified);
                 decks.push(DeckSummary {
-                    id,
+                    id: id.to_string(),
                     title: deck.title.clone(),
                     slides: deck.slides.len(),
-                    modified,
+                    modified: object.modified,
                 });
             }
             decks.sort_by(|a, b| b.modified.cmp(&a.modified).then_with(|| a.title.cmp(&b.title)));
@@ -175,6 +192,10 @@ pub fn run_job(drive: &dyn Drive, job: Job) -> Outcome {
             }
             Err(e) => Outcome::MediaStored(Err(format!("{}: {e}", path.display()))),
         },
+        Job::Export { name, bytes } => {
+            let key = export_key(&name);
+            Outcome::Exported(drive.put(&key, &bytes).map(|()| key).map_err(why))
+        }
         Job::PutMedia { deck, name, bytes } => {
             let media = format!("media/{name}");
             Outcome::MediaStored(
@@ -193,18 +214,6 @@ pub fn local_drive(root: PathBuf) -> LocalDrive {
     LocalDrive::new(root)
 }
 
-/// The data root: `AZSHOW_DATA`, else `<the user's data folder>/azul`, else
-/// `./azul-data`.
-#[must_use]
-pub fn data_root(user_data_dir: Option<PathBuf>) -> PathBuf {
-    if let Some(v) = std::env::var(DATA_VAR).ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) {
-        return PathBuf::from(v);
-    }
-    match user_data_dir {
-        Some(dir) => dir.join("azul"),
-        None => PathBuf::from("azul-data"),
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -287,6 +296,84 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    /// A drive that answers two entries per page (an S3 bucket answers a
+    /// thousand): a listing that reads one page misses the rest.
+    struct TwoPerPage(LocalDrive);
+
+    impl Drive for TwoPerPage {
+        fn list(&self, request: &ListRequest) -> Result<azul_storage::ListPage, DriveError> {
+            self.0.list(&request.clone().with_max_keys(2))
+        }
+        fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+            self.0.get(key)
+        }
+        fn get_range(&self, key: &str, range: azul_storage::ByteRange) -> Result<Vec<u8>, DriveError> {
+            self.0.get_range(key, range)
+        }
+        fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+            self.0.put(key, bytes)
+        }
+        fn delete(&self, key: &str) -> Result<(), DriveError> {
+            self.0.delete(key)
+        }
+        fn head(&self, key: &str) -> Result<azul_storage::ObjectInfo, DriveError> {
+            self.0.head(key)
+        }
+    }
+
+    /// DEDUP_OFFICE N2 / D4 (an S3 blocker): `Job::List` read ONE page, so
+    /// on a bucket the decks past the first thousand keys vanished from
+    /// File > Open.
+    #[test]
+    fn the_open_page_lists_every_deck_past_the_first_page_of_the_listing() {
+        let root = temp_root("pages");
+        let drive = TwoPerPage(local_drive(root.clone()));
+        for i in 0..5 {
+            let deck = sample_deck(&format!("deck-{i}"), Theme::office());
+            assert!(matches!(run_job(&drive, Job::Save { deck: Box::new(deck) }), Outcome::Saved(Ok(_))));
+        }
+        let picture = Job::PutMedia {
+            deck: String::from("deck-0"),
+            name: String::from("a.png"),
+            bytes: vec![1, 2, 3],
+        };
+        assert!(matches!(run_job(&drive, picture), Outcome::MediaStored(Ok(_))), "a picture is no deck");
+        match run_job(&drive, Job::List) {
+            Outcome::Listed(Ok(decks)) => {
+                let mut ids: Vec<String> = decks.iter().map(|d| d.id.clone()).collect();
+                ids.sort();
+                assert_eq!(ids, vec!["deck-0", "deck-1", "deck-2", "deck-3", "deck-4"]);
+                assert!(decks.iter().all(|d| d.modified.is_some()), "the date comes with the listing");
+            }
+            other => panic!("{other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// User ruling 2026-10-02: every durable write - exports included - goes
+    /// INTO the data tree through the drive (the PDF / PNG went to a save
+    /// dialog's path, outside the tree a later S3 sync diffs).
+    #[test]
+    fn an_export_is_written_into_show_exports_in_the_data_tree() {
+        let root = temp_root("export");
+        let drive = local_drive(root.clone());
+        match run_job(
+            &drive,
+            Job::Export {
+                name: String::from("Azlin Workspace.pdf"),
+                bytes: vec![b'%', b'P', b'D', b'F'],
+            },
+        ) {
+            Outcome::Exported(Ok(key)) => assert_eq!(key, "show/exports/Azlin Workspace.pdf"),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(
+            std::fs::read(root.join("show/exports/Azlin Workspace.pdf")).expect("the file"),
+            b"%PDF".to_vec()
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     #[test]
     fn a_missing_deck_is_an_error_not_a_panic() {
         let root = temp_root("missing");
@@ -299,14 +386,12 @@ mod tests {
     }
 
     #[test]
-    fn the_data_root_is_the_users_data_folder_unless_the_variable_says_otherwise() {
-        if std::env::var(DATA_VAR).is_err() {
-            assert_eq!(
-                data_root(Some(PathBuf::from("/home/u/.local/share"))),
-                PathBuf::from("/home/u/.local/share/azul")
-            );
-        }
+    fn the_keys_of_a_deck_its_media_and_an_export() {
         assert_eq!(deck_key("x"), "show/x/deck.json");
+        assert_eq!(deck_id_of("show/x/deck.json"), Some("x"));
+        assert_eq!(deck_id_of("show/x/media/deck.json"), None);
+        assert_eq!(deck_id_of("show/exports/a.pdf"), None);
+        assert_eq!(export_key("a.pdf"), "show/exports/a.pdf");
         assert_eq!(media_key("x", "media/a.png"), "show/x/media/a.png");
     }
 }

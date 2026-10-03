@@ -6,7 +6,9 @@
 
 use std::{cmp::Ordering, collections::HashSet};
 
-use crate::engine::{CellAddr, CellArea, CellValue, EngineError, SheetEngine};
+use azul_appkit::find::{self, TextMatch};
+
+use crate::engine::{CellAddr, CellArea, CellValue, EngineError, HAlign, SheetEngine, StylePatch};
 
 /// Count / Sum / Min / Max of a selection (the status bar's Average comes
 /// from [`SelectionStats::average`]).
@@ -226,9 +228,28 @@ pub fn filter_rows(
 }
 
 /// The next cell after `from` (row by row, wrapping once, `from` itself
-/// last) whose displayed value or input contains `needle`, ignoring case.
+/// last) whose displayed value or input contains `needle`, ignoring case:
+/// [`find_match`] with the default options.
 #[must_use]
 pub fn find_next(engine: &dyn SheetEngine, from: CellAddr, needle: &str) -> Option<CellAddr> {
+    find_match(engine, from, needle, FindOptions::default())
+}
+
+/// How Find / Replace match (the standard FindReplaceDialog's options).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct FindOptions {
+    /// Upper and lower case differ.
+    pub match_case: bool,
+    /// The needle must stand as a whole word (not inside a longer one).
+    pub whole_word: bool,
+    /// Find previous: row by row backwards.
+    pub backwards: bool,
+}
+
+/// The next (or previous) cell after `from` - row by row, wrapping once,
+/// `from` itself last - whose displayed value or input holds `needle`.
+#[must_use]
+pub fn find_match(engine: &dyn SheetEngine, from: CellAddr, needle: &str, opts: FindOptions) -> Option<CellAddr> {
     if needle.is_empty() {
         return None;
     }
@@ -236,29 +257,111 @@ pub fn find_next(engine: &dyn SheetEngine, from: CellAddr, needle: &str) -> Opti
     if max_row < 1 || max_column < 1 {
         return None;
     }
-    let needle = needle.to_lowercase();
     let columns = i64::from(max_column);
     let total = i64::from(max_row) * columns;
     let inside =
         from.row >= 1 && from.row <= max_row && from.column >= 1 && from.column <= max_column;
-    let start = if inside {
-        i64::from(from.row - 1) * columns + i64::from(from.column - 1)
-    } else {
-        -1
+    let start = match (inside, opts.backwards) {
+        (true, _) => i64::from(from.row - 1) * columns + i64::from(from.column - 1),
+        (false, false) => -1,
+        (false, true) => total,
     };
     for step in 1..=total {
-        let i = (start + step).rem_euclid(total);
-        let at = CellAddr::new(
-            from.sheet,
-            (i / columns) as i32 + 1,
-            (i % columns) as i32 + 1,
-        );
-        let shown = engine.cell_formatted(at).to_lowercase();
-        if shown.contains(&needle) || engine.cell_input(at).to_lowercase().contains(&needle) {
+        let i = (if opts.backwards { start - step } else { start + step }).rem_euclid(total);
+        #[allow(clippy::cast_possible_truncation)]
+        let at = CellAddr::new(from.sheet, (i / columns) as i32 + 1, (i % columns) as i32 + 1);
+        if holds(&engine.cell_formatted(at), needle, opts) || holds(&engine.cell_input(at), needle, opts) {
             return Some(at);
         }
     }
     None
+}
+
+/// How the shared matcher (azul-appkit's `find`) reads the options.
+const fn how(opts: FindOptions) -> TextMatch {
+    TextMatch {
+        match_case: opts.match_case,
+        whole_word: opts.whole_word,
+    }
+}
+
+/// Whether `text` holds `needle` under `opts`.
+fn holds(text: &str, needle: &str, opts: FindOptions) -> bool {
+    find::holds(text, needle, how(opts))
+}
+
+/// `text` with every match of `needle` replaced by `replacement`; `None`
+/// when nothing matches.
+#[must_use]
+pub fn replace_text(text: &str, needle: &str, replacement: &str, opts: FindOptions) -> Option<String> {
+    find::replace(text, needle, replacement, how(opts))
+}
+
+/// Replace All on `sheet`: every cell whose INPUT holds `needle` gets it
+/// replaced (formulas too, as Excel does), as ONE undo step; how many cells
+/// changed.
+pub fn replace_all(
+    engine: &mut dyn SheetEngine,
+    sheet: u32,
+    needle: &str,
+    replacement: &str,
+    opts: FindOptions,
+) -> Result<usize, EngineError> {
+    let (max_row, max_column) = engine.extent(sheet);
+    let mut changed: std::collections::HashMap<(i32, i32), String> = std::collections::HashMap::new();
+    for row in 1..=max_row {
+        for column in 1..=max_column {
+            let input = engine.cell_input(CellAddr::new(sheet, row, column));
+            if let Some(new) = replace_text(&input, needle, replacement, opts) {
+                changed.insert((row, column), new);
+            }
+        }
+    }
+    if changed.is_empty() {
+        return Ok(0);
+    }
+    // One paste of the changed cells' bounding block = one undo step; the
+    // cells in it without a match are written back as they were.
+    let r0 = changed.keys().map(|k| k.0).min().unwrap_or(1);
+    let r1 = changed.keys().map(|k| k.0).max().unwrap_or(1);
+    let c0 = changed.keys().map(|k| k.1).min().unwrap_or(1);
+    let c1 = changed.keys().map(|k| k.1).max().unwrap_or(1);
+    let rows: Vec<Vec<String>> = (r0..=r1)
+        .map(|row| {
+            (c0..=c1)
+                .map(|column| {
+                    changed
+                        .get(&(row, column))
+                        .cloned()
+                        .unwrap_or_else(|| engine.cell_input(CellAddr::new(sheet, row, column)))
+                })
+                .collect()
+        })
+        .collect();
+    engine.set_inputs(CellAddr::new(sheet, r0, c0), &rows)?;
+    Ok(changed.len())
+}
+
+/// Merge & Center: `area` becomes one cell holding its top-left cell's input
+/// (the other inputs are cleared, one undo step), centred.
+pub fn merge_and_center(engine: &mut dyn SheetEngine, area: CellArea) -> Result<(), EngineError> {
+    let keep = engine.cell_input(CellAddr::new(area.sheet, area.row, area.column));
+    let others_hold_input = (area.row..=area.last_row()).any(|r| {
+        (area.column..=area.last_column())
+            .any(|c| (r, c) != (area.row, area.column) && !engine.cell_input(CellAddr::new(area.sheet, r, c)).is_empty())
+    });
+    if others_hold_input {
+        let rows: Vec<Vec<String>> = (0..area.height)
+            .map(|r| {
+                (0..area.width)
+                    .map(|c| if r == 0 && c == 0 { keep.clone() } else { String::new() })
+                    .collect()
+            })
+            .collect();
+        engine.set_inputs(CellAddr::new(area.sheet, area.row, area.column), &rows)?;
+    }
+    engine.update_style(area, &StylePatch::HAlign(HAlign::Center))?;
+    engine.merge(area)
 }
 
 /// The sheet's used range as CSV (RFC 4180 quoting, `\n` lines), the
@@ -465,5 +568,68 @@ mod tests {
             "nothing above: the run to the left"
         );
         assert_eq!(sum_range_above(&e, at(1, 3)), None);
+    }
+
+    /// The standard FindReplaceDialog asks for match case, whole word and
+    /// Find previous; the side panel's Find knew only "next, any case".
+    #[test]
+    fn merge_and_center_keeps_the_top_left_input_centred_over_the_area() {
+        let mut e = engine_with(&[&["Budget", "x"], &["1", "2"]]);
+        let area = CellArea::spanning(0, 1, 1, 2, 2);
+        merge_and_center(&mut e, area).unwrap();
+        assert_eq!(e.merges(0), vec![area]);
+        assert_eq!(e.cell_input(at(1, 1)), "Budget");
+        for (r, c) in [(1, 2), (2, 1), (2, 2)] {
+            assert_eq!(e.cell_input(at(r, c)), "", "the other cells are cleared");
+        }
+        assert_eq!(e.cell_style(at(1, 1)).h_align, crate::engine::HAlign::Center);
+        e.unmerge(area).unwrap();
+        assert!(e.merges(0).is_empty());
+    }
+
+    #[test]
+    fn find_honours_case_whole_words_and_the_direction() {
+        let e = engine_with(&[&["Rent", "rental"], &["rent", "x"], &["", "RENT"]]);
+        let any = FindOptions::default();
+        assert_eq!(find_match(&e, at(1, 1), "rent", any), Some(at(1, 2)), "the next cell, any case");
+        let case = FindOptions { match_case: true, ..any };
+        assert_eq!(find_match(&e, at(1, 1), "rent", case), Some(at(1, 2)));
+        assert_eq!(find_match(&e, at(1, 2), "rent", case), Some(at(2, 1)), "rental's 'rent', then row 2");
+        let whole = FindOptions { whole_word: true, ..any };
+        assert_eq!(find_match(&e, at(1, 1), "rent", whole), Some(at(2, 1)), "'rental' is no whole word");
+        let back = FindOptions { backwards: true, ..any };
+        assert_eq!(find_match(&e, at(2, 1), "rent", back), Some(at(1, 2)), "the previous cell");
+        assert_eq!(find_match(&e, at(1, 1), "rent", back), Some(at(3, 2)), "wraps to the end");
+        assert_eq!(find_match(&e, at(1, 1), "", any), None);
+    }
+
+    #[test]
+    fn replacing_keeps_the_rest_of_the_text_and_respects_the_options() {
+        let any = FindOptions::default();
+        assert_eq!(replace_text("Rent and rent", "rent", "Lease", any).as_deref(), Some("Lease and Lease"));
+        let case = FindOptions { match_case: true, ..any };
+        assert_eq!(replace_text("Rent and rent", "rent", "lease", case).as_deref(), Some("Rent and lease"));
+        let whole = FindOptions { whole_word: true, ..any };
+        assert_eq!(replace_text("rental rent", "rent", "x", whole).as_deref(), Some("rental x"));
+        assert_eq!(replace_text("nothing", "rent", "x", any), None);
+        assert_eq!(replace_text("=SUM(A1:A2)", "A2", "A3", any).as_deref(), Some("=SUM(A1:A3)"), "formulas too");
+    }
+
+    #[test]
+    fn replace_all_rewrites_every_matching_cell_as_one_undo_step() {
+        let mut e = engine_with(&[&["Rent", "rent 2"], &["Food", "=1+1"], &["", "RENT"]]);
+        let before_undo = e.can_undo();
+        let n = replace_all(&mut e, 0, "rent", "Lease", FindOptions::default()).unwrap();
+        assert_eq!(n, 3);
+        assert_eq!(e.cell_input(at(1, 1)), "Lease");
+        assert_eq!(e.cell_input(at(1, 2)), "Lease 2");
+        assert_eq!(e.cell_input(at(3, 2)), "Lease");
+        assert_eq!(e.cell_input(at(2, 1)), "Food", "a cell without a match is untouched");
+        assert_eq!(e.cell_input(at(2, 2)), "=1+1");
+        assert!(e.can_undo());
+        e.undo().unwrap();
+        assert_eq!(e.cell_input(at(1, 1)), "Rent", "one undo brings all of it back");
+        assert_eq!(e.cell_input(at(3, 2)), "RENT");
+        let _ = before_undo;
     }
 }

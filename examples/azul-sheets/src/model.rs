@@ -3,7 +3,7 @@
 //! steps, the status bar's numbers, colours. Tested on its own.
 
 use crate::{
-    engine::{CellArea, FillTo, LAST_COLUMN, LAST_ROW},
+    engine::{CellArea, FillTo, SheetInfo, LAST_COLUMN, LAST_ROW},
     ops::SelectionStats,
 };
 
@@ -191,15 +191,25 @@ pub fn autofit_px<'a>(texts: impl Iterator<Item = &'a str>, font_px: f64) -> f64
 }
 
 /// Rows of cell inputs as the engine's tab-separated paste text (the csv
-/// crate, the same that reads it on the engine side).
+/// crate, the same that reads it on the engine side) - the ONE encoder of
+/// the app (the ribbon's Paste and the engine adapter's `set_inputs`).
+///
+/// The block is padded to a rectangle with empty fields: IronCalc reads a
+/// paste with a csv reader that is not flexible and drops every record
+/// whose length differs from the first one (the Budget sample's one-cell
+/// title row cost it every row under it).
 #[must_use]
 pub fn tsv_of(rows: &[Vec<String>]) -> String {
+    let width = rows.iter().map(Vec::len).max().unwrap_or(0);
     let mut writer = csv::WriterBuilder::new()
         .delimiter(b'\t')
+        .terminator(csv::Terminator::Any(b'\n'))
         .has_headers(false)
         .from_writer(Vec::new());
     for row in rows {
-        if writer.write_record(row).is_err() {
+        let mut record: Vec<&str> = row.iter().map(String::as_str).collect();
+        record.resize(width, "");
+        if writer.write_record(&record).is_err() {
             return String::new();
         }
     }
@@ -208,6 +218,21 @@ pub fn tsv_of(rows: &[Vec<String>]) -> String {
         .ok()
         .and_then(|bytes| String::from_utf8(bytes).ok())
         .unwrap_or_default()
+}
+
+/// The sheet Ctrl+PageDown (`forward`) or Ctrl+PageUp goes to from `from`:
+/// the next visible one, wrapping; `None` when no other sheet is visible.
+#[must_use]
+pub fn step_sheet(sheets: &[SheetInfo], from: u32, forward: bool) -> Option<u32> {
+    let n = sheets.len();
+    if n < 2 {
+        return None;
+    }
+    let from = (from as usize).min(n - 1);
+    (1..n)
+        .map(|k| if forward { (from + k) % n } else { (from + n - k) % n })
+        .find(|i| !sheets[*i].hidden)
+        .and_then(|i| u32::try_from(i).ok())
 }
 
 /// The title a new workbook gets: "Book1", "Book2", ... - the first one no
@@ -293,8 +318,24 @@ mod tests {
         assert!((autofit_px(std::iter::empty(), 12.0) - 30.0).abs() < 0.01);
         assert_eq!(
             tsv_of(&[vec![String::from("a"), String::from("=SUM(A1:A2)")], vec![String::from("x\ty")]]),
-            "a\t=SUM(A1:A2)\n\"x\ty\"\n"
+            "a\t=SUM(A1:A2)\n\"x\ty\"\t\n",
+            "a ragged block is padded to a rectangle: IronCalc's paste drops a row of another length"
         );
         assert_eq!(next_book_title(&[String::from("Book1")]), "Book2");
+    }
+
+    #[test]
+    fn the_sheet_keys_step_over_hidden_sheets_and_wrap() {
+        let sheet = |name: &str, hidden: bool| SheetInfo {
+            name: name.to_string(),
+            color: None,
+            hidden,
+        };
+        let sheets = vec![sheet("A", false), sheet("B", true), sheet("C", false), sheet("D", false)];
+        assert_eq!(step_sheet(&sheets, 0, true), Some(2), "B is hidden");
+        assert_eq!(step_sheet(&sheets, 3, true), Some(0), "wraps");
+        assert_eq!(step_sheet(&sheets, 0, false), Some(3), "wraps back");
+        assert_eq!(step_sheet(&sheets, 2, false), Some(0));
+        assert_eq!(step_sheet(&[sheet("Only", false)], 0, true), None);
     }
 }

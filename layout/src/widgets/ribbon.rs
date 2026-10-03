@@ -2708,6 +2708,11 @@ pub struct RibbonButton {
     /// reason as its description, and shows the reason as a tooltip on hover
     /// and on click (Office's greyed commands and their tooltips).
     pub disabled_reason: AzString,
+    /// The name of an icon-only button (empty `label`): what a screen reader
+    /// says ("Bold"). Office's Font and Alignment groups are rows of such
+    /// buttons; without a name each was announced as "button". Empty = the
+    /// label names the button.
+    pub alt: AzString,
 }
 
 /// Drop-down decoration of a [`RibbonButton`].
@@ -2734,6 +2739,11 @@ pub struct RibbonGallery {
     pub selected: usize,
     /// Optional callback fired when a cell is clicked (receives cell index).
     pub on_select: OptionRibbonGalleryOnSelect,
+    /// How many cells the in-ribbon strip shows (0: every cell). Office's
+    /// galleries show one row of a few cells - the row holding the selected
+    /// one - and "More" opens all of them; a gallery of every cell inline
+    /// pushed the groups after it off a 1280 px window (AzShow's Layout).
+    pub visible: usize,
 }
 
 /// One gallery cell: an arbitrary preview [`Dom`] over a name label.
@@ -3066,7 +3076,21 @@ impl RibbonButton {
             toggled: false,
             on_click: OptionButtonOnClick::None,
             disabled_reason: AzString::from_const_str(""),
+            alt: AzString::from_const_str(""),
         }
+    }
+
+    /// Names an icon-only button for assistive technology (see
+    /// [`Self::alt`]).
+    pub fn set_alt(&mut self, alt: AzString) {
+        self.alt = alt;
+    }
+
+    /// Builder method: [`Self::set_alt`].
+    #[must_use]
+    pub fn with_alt(mut self, alt: AzString) -> Self {
+        self.set_alt(alt);
+        self
     }
 
     /// Disables the button: `reason` says why the command cannot run now
@@ -3135,7 +3159,21 @@ impl RibbonGallery {
             cells,
             selected: 0,
             on_select: None.into(),
+            visible: 0,
         }
+    }
+
+    /// Shows `visible` cells in the ribbon (0: every cell); see
+    /// [`Self::visible`].
+    pub const fn set_visible(&mut self, visible: usize) {
+        self.visible = visible;
+    }
+
+    /// Builder method: [`Self::set_visible`].
+    #[must_use]
+    pub const fn with_visible(mut self, visible: usize) -> Self {
+        self.set_visible(visible);
+        self
     }
 
     /// Builder method: sets the selected cell index and returns `self`.
@@ -3752,9 +3790,12 @@ fn styled_button(
     trailing_icon_style: CssPropertyWithConditionsVec,
     on_click: OptionButtonOnClick,
     disabled_reason: AzString,
+    alt: AzString,
     theme: UiTheme,
 ) -> Dom {
     let mut b = Button::create(label);
+    // An icon-only button's name ("Bold"); empty = the label names it.
+    b.alt = alt;
     b.icon = icon;
     b.trailing_icon = trailing_icon;
     b.container_style = OptionCssPropertyWithConditionsVec::Some(container_style);
@@ -3811,6 +3852,7 @@ fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: U
         s.resolved_arrow_icon_style(),
         rb.on_click,
         rb.disabled_reason,
+        rb.alt,
         theme,
     );
     if disabled {
@@ -3934,6 +3976,7 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior, theme: UiTh
             s.resolved_arrow_icon_style(),
             Some(l).into(),
             AzString::from_const_str(""),
+            AzString::from_const_str("More options"),
             theme,
         ));
     }
@@ -3957,20 +4000,39 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior, theme: UiTh
         .with_children(DomVec::from_vec(vec![items_row, footer]))
 }
 
+/// The cells the in-ribbon strip shows: the row of `visible` cells holding
+/// `selected` (the last row filled from the end; no selection - an index
+/// past the cells - is the first row), or every cell when `visible` is 0 or
+/// covers them all.
+fn gallery_window(len: usize, selected: usize, visible: usize) -> core::ops::Range<usize> {
+    if visible == 0 || visible >= len {
+        return 0..len;
+    }
+    let selected = if selected < len { selected } else { 0 };
+    let start = ((selected / visible) * visible).min(len - visible);
+    start..start + visible
+}
+
 fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior, theme: UiTheme) -> Dom {
     let RibbonGallery {
         cells,
         selected,
         on_select,
+        visible,
     } = gallery;
     let has_callback = on_select.is_some();
     let cells = cells.into_library_owned_vec();
+    let strip_cells = gallery_window(cells.len(), selected, visible);
 
     // The cells are built twice: once for the in-ribbon strip and once for
     // the expansion panel, so "More" can show every cell without a relayout.
     let build_cells = |in_panel: bool| -> Vec<Dom> {
         let mut out: Vec<Dom> = Vec::with_capacity(cells.len());
         for (idx, cell) in cells.iter().enumerate() {
+            // The strip shows its window of cells; the panel every cell.
+            if !in_panel && !strip_cells.contains(&idx) {
+                continue;
+            }
             let (classes, cell_style) = if idx == selected {
                 (
                     CLS_GALLERY_CELL_SELECTED,
@@ -4038,6 +4100,7 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior, theme
                 s.resolved_arrow_icon_style(),
                 OptionButtonOnClick::None,
                 AzString::from_const_str(""),
+                AzString::from_const_str(["Previous row", "Next row", "More"][i]),
                 theme,
             );
             // The third button is "More": it expands the panel.
@@ -5177,6 +5240,16 @@ mod tests {
         );
     }
 
+    /// AzSheets' Font and Alignment groups become rows of icon-only buttons
+    /// (Excel's); each must still say what it is.
+    #[test]
+    fn an_icon_only_button_is_named_by_its_alt() {
+        let rb = small_btn("format_bold", "").with_alt(AzString::from_const_str("Bold"));
+        let node = render_item(RibbonItem::SmallButton(rb));
+        let info = node.root.get_accessibility_info().expect("a button role");
+        assert_eq!(info.accessibility_name.as_ref().map(|n| n.as_str()), Some("Bold"));
+    }
+
     #[test]
     fn icon_only_small_button_skips_the_empty_label() {
         let node = render_item(RibbonItem::SmallButton(small_btn("format_bold", "")));
@@ -5590,6 +5663,41 @@ mod tests {
             assert!(matches!(b.root.get_node_type(), NodeType::Button));
             assert_eq!(icon_name_of(&b.children.as_ref()[0]), Some(expected_icon));
         }
+    }
+
+    /// AzShow's HOME put all seven layouts inline (863 px) and pushed Font,
+    /// Paragraph and Editing off a 1280 px window. A gallery shows one row
+    /// of `visible` cells - the row holding the selected cell - and "More"
+    /// every cell; a click still reports the cell's own index.
+    #[test]
+    fn a_gallery_shows_the_row_of_the_selected_cell_and_more_shows_every_cell() {
+        let wrapper = render_item(RibbonItem::Gallery(gallery(7).with_selected(4).with_visible(3)));
+        let frame = &wrapper.children.as_ref()[0];
+        let strip = &frame.children.as_ref()[0];
+        let labels: Vec<String> = strip
+            .children
+            .as_ref()
+            .iter()
+            .map(|c| text_of(&c.children.as_ref()[1]).unwrap_or_default().to_string())
+            .collect();
+        assert_eq!(labels, vec!["Style 3", "Style 4", "Style 5"], "the row of cell 4");
+        let panel = &wrapper.children.as_ref()[1];
+        assert_eq!(panel.children.as_ref().len(), 7, "More shows every cell");
+
+        // The last row is filled from the end, not left short.
+        let last = render_item(RibbonItem::Gallery(gallery(7).with_selected(6).with_visible(3)));
+        let strip = &last.children.as_ref()[0].children.as_ref()[0];
+        assert_eq!(text_of(&strip.children.as_ref()[0].children.as_ref()[1]), Some("Style 4"));
+        assert_eq!(strip.children.as_ref().len(), 3);
+
+        // No selection (AzShow's New Slide gallery): the first row.
+        let none = render_item(RibbonItem::Gallery(gallery(7).with_selected(usize::MAX).with_visible(3)));
+        let strip = &none.children.as_ref()[0].children.as_ref()[0];
+        assert_eq!(text_of(&strip.children.as_ref()[0].children.as_ref()[1]), Some("Style 0"));
+
+        // 0 (the default) shows every cell.
+        let all = render_item(RibbonItem::Gallery(gallery(5)));
+        assert_eq!(all.children.as_ref()[0].children.as_ref()[0].children.as_ref().len(), 5);
     }
 
     #[test]
