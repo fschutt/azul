@@ -3,6 +3,8 @@
 
 /// The history of one measure: a ring of the last readings.
 pub mod history;
+/// The live machine: this computer through the `sysinfo` crate.
+pub mod live;
 /// The sampling model: readings, rates, the process rows, sort and filter.
 pub mod model;
 /// The sample machine (`--sample`): a deterministic system.

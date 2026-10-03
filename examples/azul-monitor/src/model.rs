@@ -373,9 +373,9 @@ pub fn matches(row: &ProcRow, query: &str) -> bool {
 // ---- what a sampler reads ----
 
 /// What a sampler reads the system through: the live machine (`sysinfo`,
-/// [`crate::live`]) or the sample machine ([`crate::sample`]). Lives on
-/// the sampler's Thread.
-pub trait Source: Send {
+/// [`crate::live`]) or the sample machine ([`crate::sample`]). Made ON the
+/// sampler's Thread and never leaves it (so it need not be `Send`).
+pub trait Source {
     /// One reading; every "since the previous reading" count covers
     /// `elapsed_ms` (0 for the first reading).
     fn read(&mut self, elapsed_ms: u64) -> Snapshot;
