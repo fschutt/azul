@@ -522,6 +522,13 @@ pub mod chart;
 /// peaks come from `AudioFileDecoder::waveform` or the app's own samples
 /// (`WaveformPeaks`, `resample_peaks`); see `waveform.rs`.
 pub mod waveform;
+/// Level meter widget.
+///
+/// How loud something is now (a microphone, the music playing): a trough
+/// filled on the dB scale, green, amber past -18 dB, red past -6 dB,
+/// horizontal or vertical, moved in place without a rebuild
+/// (`LevelMeter::update_level`, `LevelMeterThrottle`); see `level_meter.rs`.
+pub mod level_meter;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
