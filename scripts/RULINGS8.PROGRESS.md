@@ -18,6 +18,9 @@ Brief: scripts/waves/wave8/PLAN.md section "RULINGS8".
 - 1e5ec4293 BASELINE RED: layout/tests/an_atomic_inline_sits_on_the_baseline_of_its_content.rs (Chrome numbers)
 - d06b7c8b6 BASELINE GREEN (d): fc.rs line_baseline(LineEdge) + atomic_inline_content_baseline in
   measure_atomic_inline (flex/grid First, block Last, overflow rule inline-block only)
+- bb575b00f RED + 72ef0a634 GREEN (e): IFC baseline = positioned last line baseline
+  (PositionedItem::baseline_y, UnifiedLayout::first_line_baseline_y / last_line_baseline_y; fc.rs layout_ifc
+  both exits + line_baseline)
 - 91928b72d FOCUS GREEN: managers::hover::focusable_under_pointer walks core::events::get_event_path (4th closure
   host_of); dll event.rs + runner.rs pass virtual_view_manager.host_of_nested_dom; hover.rs unit tests updated.
 
