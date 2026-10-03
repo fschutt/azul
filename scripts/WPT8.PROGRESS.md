@@ -74,15 +74,21 @@ Brief: scripts/waves/wave8/PLAN.md section "WPT8". Items in order:
   `inset_radius` free fns. API.JSON: StyleBackgroundClip, StyleBackgroundClipValue,
   CssProperty::BackgroundClip, CssPropertyType::BackgroundClip (+ consts) - list in report.
 
+- 32245314b report scripts/WPT8_2026_10_03.md (api.json list, least-sure spots, test commands,
+  expected reftest flips, what is left incl. the generated-content design).
+
 ## IN PROGRESS
-- deciding on ::before/::after generated content (item 3 remainder)
+- nothing. All 8 brief items handled (item 3 partial: ::before/::after generated content and
+  `inline list-item` documented as features with a design, not built).
 
 ## NEXT
-- generated content if feasible (design: parser2 `::before`/`:before` -> DirectChildren +
-  Type(NodeTypeTag::Before)? + pseudo nodes + content eval), else the report
-  scripts/WPT8_2026_10_03.md.
+- (only if resumed with more time) background-size/position/origin painting, or generated content
+  as its own task. Otherwise done.
 
 ## Decisions / open questions
+- Generated content NOT built here: it needs DOM pseudo nodes before the cascade (core styled_dom /
+  loaders = XML8 + parent territory); design in the report sec. 7.
+- WPT expectations NOT edited blind: the parent blesses with AZ_WPT_BLESS=1 after the build.
 - Tests use the document loader (`parse_xml_to_styled_dom`), which keeps `<html>` attributes.
 - The canvas ignores the root's border-radius (as the colour path always did).
 - background-size / background-position are still not honoured anywhere (only repeat, only on the
