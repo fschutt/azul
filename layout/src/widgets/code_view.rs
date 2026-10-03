@@ -1499,7 +1499,85 @@ pub(crate) enum CaretRule {
 
 /// Where `start` is after `text` is inserted there.
 pub(crate) fn end_of_insert(start: CodeViewPosition, text: &str) -> CodeViewPosition {
-    todo!("GREEN: end_of_insert {} {text}", start.line)
+    match text.rfind('\n') {
+        None => CodeViewPosition::create(start.line, start.column.saturating_add(len32(text))),
+        Some(i) => CodeViewPosition::create(
+            start.line.saturating_add(newlines(text)),
+            len32(&text[i + 1..]),
+        ),
+    }
+}
+
+/// How many line breaks `text` has.
+fn newlines(text: &str) -> u32 {
+    u32::try_from(text.bytes().filter(|b| *b == b'\n').count()).unwrap_or(u32::MAX)
+}
+
+/// The running shift of a pass over sorted changes: the lines gained so
+/// far, and where the last change ended before and after it (a position
+/// on that old line moves with it).
+#[derive(Debug, Clone, Copy, Default)]
+struct Shift {
+    lines: i64,
+    last: Option<(CodeViewPosition, CodeViewPosition)>,
+}
+
+impl Shift {
+    /// Where `at` (after every change seen so far, before the next) is now.
+    fn moved(&self, at: CodeViewPosition) -> CodeViewPosition {
+        if let Some((old_end, new_end)) = self.last {
+            if at.line == old_end.line && at.column >= old_end.column {
+                return CodeViewPosition::create(
+                    new_end.line,
+                    new_end.column.saturating_add(at.column - old_end.column),
+                );
+            }
+        }
+        let line = (i64::from(at.line) + self.lines).clamp(0, i64::from(u32::MAX));
+        CodeViewPosition::create(u32::try_from(line).unwrap_or(u32::MAX), at.column)
+    }
+
+    /// `change` seen; returns where its inserted text ends now.
+    fn step(&mut self, change: &Change) -> CodeViewPosition {
+        let new_end = end_of_insert(self.moved(change.start), &change.text);
+        self.lines += i64::from(newlines(&change.text))
+            - i64::from(change.end.line.saturating_sub(change.start.line));
+        self.last = Some((change.end, new_end));
+        new_end
+    }
+}
+
+/// Where `at` (in the text before `changes`, sorted and apart) is after
+/// them: a position inside a replaced range - or at an insertion point -
+/// goes to the end of what replaced it.
+pub(crate) fn map_position(changes: &[Change], at: CodeViewPosition) -> CodeViewPosition {
+    let mut shift = Shift::default();
+    for c in changes {
+        if c.start > at {
+            break;
+        }
+        let new_end = shift.step(c);
+        if at <= c.end {
+            return new_end;
+        }
+    }
+    shift.moved(at)
+}
+
+/// The cursors with a caret on the same place as a later one dropped (the
+/// later one - the primary is last - wins); never empty.
+fn normalized(all: Vec<CodeViewCursor>) -> Vec<CodeViewCursor> {
+    let mut out: Vec<CodeViewCursor> = Vec::with_capacity(all.len());
+    for c in all.into_iter().rev() {
+        if !out.iter().any(|o| o.head == c.head) {
+            out.push(c);
+        }
+    }
+    out.reverse();
+    if out.is_empty() {
+        out.push(CodeViewCursor::default());
+    }
+    out
 }
 
 /// The text's changes for every cursor applied at once: the edits for the
@@ -1510,11 +1588,48 @@ pub(crate) fn apply_changes(
     per_cursor: Vec<Vec<Change>>,
     rule: CaretRule,
 ) -> (Vec<CodeViewEdit>, CodeViewView) {
-    todo!(
-        "GREEN: apply_changes {} {} {rule:?}",
-        view.cursor_count(),
-        per_cursor.len()
-    )
+    let mut all: Vec<(usize, Change)> = per_cursor
+        .into_iter()
+        .enumerate()
+        .flat_map(|(i, changes)| changes.into_iter().map(move |c| (i, c)))
+        .collect();
+    all.sort_by(|a, b| a.1.start.cmp(&b.1.start).then(a.1.end.cmp(&b.1.end)));
+    let mut kept: Vec<(usize, Change)> = Vec::with_capacity(all.len());
+    for (i, c) in all {
+        if let Some((_, prev)) = kept.last() {
+            if c.start < prev.end || c.start == prev.start {
+                continue;
+            }
+        }
+        kept.push((i, c));
+    }
+    let changes: Vec<Change> = kept.iter().map(|(_, c)| c.clone()).collect();
+    let mut shift = Shift::default();
+    let ends: Vec<CodeViewPosition> = changes.iter().map(|c| shift.step(c)).collect();
+    let moved: Vec<CodeViewCursor> = view
+        .cursors
+        .as_slice()
+        .iter()
+        .enumerate()
+        .map(|(ci, cursor)| match rule {
+            CaretRule::AfterInsert => match kept.iter().rposition(|(i, _)| *i == ci) {
+                Some(k) => CodeViewCursor::create(ends[k]),
+                None => CodeViewCursor::create(map_position(&changes, cursor.head)),
+            },
+            CaretRule::Carry => CodeViewCursor::create_selection(
+                map_position(&changes, cursor.anchor),
+                map_position(&changes, cursor.head),
+            ),
+        })
+        .collect();
+    let mut next = view.clone();
+    next.cursors = CodeViewCursorVec::from_vec(normalized(moved));
+    let edits = changes
+        .into_iter()
+        .rev()
+        .map(|c| CodeViewEdit::create(c.start, c.end, AzString::from(c.text)))
+        .collect();
+    (edits, next)
 }
 
 /// The modifiers of a key, read the platform's way.
