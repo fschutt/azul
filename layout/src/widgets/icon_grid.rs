@@ -798,3 +798,323 @@ pub(crate) fn build(grid: IconGrid, look: &IconGridLook) -> Dom {
             ..Default::default()
         })
 }
+
+#[cfg(test)]
+mod icon_grid_tests {
+    use std::sync::{Arc, Mutex};
+
+    use azul_core::{
+        dom::{DomId, DomNodeId, NodeId},
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+        window::VirtualKeyCode as K,
+    };
+
+    use super::*;
+    use crate::{
+        callbacks::CallbackChange,
+        widgets::{
+            roving::test_support as rv,
+            themes::{theme_blocks::checks, theme_checks},
+        },
+    };
+
+    type Asked = Arc<Mutex<Vec<usize>>>;
+    type Log = Arc<Mutex<Vec<String>>>;
+
+    extern "C" fn items(mut data: RefAny, index: usize) -> IconGridItem {
+        if let Some(asked) = data.downcast_ref::<Asked>() {
+            asked.lock().expect("asked").push(index);
+        }
+        IconGridItem::create(AzString::from(format!("File {index}")), AzString::from("description"))
+    }
+
+    extern "C" fn record(mut data: RefAny, _: CallbackInfo, e: IconGridEvent) -> Update {
+        if let Some(log) = data.downcast_ref::<Log>() {
+            log.lock().expect("log").push(format!(
+                "{:?} {:?} {:?}",
+                e.kind,
+                e.index.into_option(),
+                e.view.selection.keys.as_slice()
+            ));
+        }
+        Update::RefreshDom
+    }
+
+    /// 100 items in a 400 x 300 viewport of 96 x 104 cells: 4 columns (the
+    /// scroll bar takes 12 px), 25 rows, 2 rows wholly in view, 3 shown.
+    fn grid(asked: &Asked, log: &Log) -> IconGrid {
+        IconGrid::create(100, 400.0, 300.0)
+            .with_data_source(RefAny::new(asked.clone()), items as IconGridDataSourceCallbackType)
+            .with_on_event(RefAny::new(log.clone()), record as IconGridOnEventCallbackType)
+            .with_accessibility_name(AzString::from("Pictures"))
+    }
+
+    fn fresh() -> (Asked, Log) {
+        (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())))
+    }
+
+    fn selected(view: &IconGridView) -> Vec<u64> {
+        view.selection.keys.as_slice().to_vec()
+    }
+
+    fn with_selection(g: IconGrid, keys: &[u64], focus: u64) -> IconGrid {
+        let mut view = g.view.clone();
+        view.selection.select_keys(U64Vec::from_vec(keys.to_vec()));
+        view.selection.anchor = OptionU64::Some(focus);
+        view.selection.focus = OptionU64::Some(focus);
+        g.with_view(view)
+    }
+
+    // ---- geometry ----
+
+    #[test]
+    fn the_cells_fill_whole_columns_and_the_scroll_bar_takes_its_strip() {
+        let (asked, log) = fresh();
+        let geo = geometry(&grid(&asked, &log));
+        assert_eq!(geo.columns, 4);
+        assert_eq!(geo.rows, 25);
+        assert_eq!(geo.page_rows, 2);
+        assert_eq!(geo.max_top, 23);
+        assert_eq!((geo.first, geo.end), (0, 12), "three rows shown, the last one in part");
+        assert!((geo.body_width - 388.0).abs() < 0.01);
+        let bar = geo.vbar.expect("the rows overflow");
+        assert_eq!(bar.track, (388.0, 0.0, 12.0, 300.0));
+        let scrolled = geometry(&grid(&asked, &log).with_view(IconGridView::create().with_top_row(5)));
+        assert_eq!((scrolled.top, scrolled.first, scrolled.end), (5, 20, 32));
+        let past = geometry(&grid(&asked, &log).with_view(IconGridView::create().with_top_row(99)));
+        assert_eq!(past.top, 23, "kept in range");
+        let few = geometry(&IconGrid::create(5, 400.0, 300.0));
+        assert!(few.vbar.is_none(), "every row fits");
+        assert_eq!((few.columns, few.rows, few.end), (4, 2, 5));
+    }
+
+    #[test]
+    fn a_point_is_over_an_item_empty_space_or_the_scroll_bar() {
+        let (asked, log) = fresh();
+        let geo = geometry(&grid(&asked, &log));
+        assert_eq!(hit_test(&geo, 10.0, 10.0), Hit::Item(0));
+        assert_eq!(hit_test(&geo, 100.0, 10.0), Hit::Item(1));
+        assert_eq!(hit_test(&geo, 10.0, 250.0), Hit::Item(8));
+        assert_eq!(hit_test(&geo, 386.0, 10.0), Hit::Empty, "right of the last column");
+        assert_eq!(hit_test(&geo, 392.0, 10.0), Hit::Thumb);
+        assert_eq!(hit_test(&geo, 392.0, 200.0), Hit::Track(true));
+        assert_eq!(hit_test(&geo, -1.0, 10.0), Hit::Nothing);
+        let few = geometry(&IconGrid::create(5, 400.0, 300.0));
+        assert_eq!(hit_test(&few, 150.0, 120.0), Hit::Empty, "after the last item");
+        assert_eq!(item_rect(&geo, 5), Some((96.0, 104.0, 96.0, 104.0)));
+        assert_eq!(item_rect(&geo, 40), None, "not in view");
+    }
+
+    #[test]
+    fn a_rubber_band_selects_the_cells_it_crosses() {
+        let (asked, log) = fresh();
+        let geo = geometry(&grid(&asked, &log));
+        assert_eq!(marquee_keys(&geo, 150.0, 120.0, 10.0, 10.0), vec![0, 1, 4, 5]);
+        assert_eq!(marquee_keys(&geo, 386.0, 10.0, 387.0, 20.0), Vec::<u64>::new(), "past the columns");
+    }
+
+    // ---- the pointer ----
+
+    #[test]
+    fn a_click_selects_ctrl_toggles_shift_extends() {
+        let (asked, log) = fresh();
+        let g = grid(&asked, &log);
+        let geo = geometry(&g);
+        let e = press(&g, &geo, Hit::Item(5), 0.0, 0.0, 0.0, false, false).expect("a select");
+        assert_eq!(e.kind, IconGridEventKind::Select);
+        assert_eq!(selected(&e.view), vec![5]);
+        let g = g.with_view(e.view);
+        let e = press(&g, &geo, Hit::Item(7), 0.0, 0.0, 0.0, false, true).expect("a toggle");
+        assert_eq!(selected(&e.view), vec![5, 7]);
+        let e = press(&g, &geo, Hit::Item(9), 0.0, 0.0, 0.0, true, false).expect("an extend");
+        assert_eq!(selected(&e.view), vec![5, 6, 7, 8, 9]);
+    }
+
+    #[test]
+    fn a_press_on_a_selected_item_keeps_the_selection_until_the_release() {
+        let (asked, log) = fresh();
+        let g = with_selection(grid(&asked, &log), &[5, 7], 7);
+        let geo = geometry(&g);
+        let e = press(&g, &geo, Hit::Item(5), 10.0, 10.0, 10.0, false, false).expect("a press");
+        assert_eq!(selected(&e.view), vec![5, 7], "the selection can be dragged out");
+        assert_eq!(e.view.drag.kind, IconGridDragKind::Pending);
+        let g = g.with_view(e.view);
+        let e = drag_end(&g).expect("the release");
+        assert_eq!(e.kind, IconGridEventKind::Select);
+        assert_eq!(selected(&e.view), vec![5]);
+        assert_eq!(e.view.drag.kind, IconGridDragKind::None);
+    }
+
+    #[test]
+    fn a_press_on_empty_space_clears_and_starts_a_rubber_band_that_selects_on_the_move() {
+        let (asked, log) = fresh();
+        let g = with_selection(grid(&asked, &log), &[20], 20);
+        let geo = geometry(&g);
+        let e = press(&g, &geo, Hit::Empty, 10.0, 10.0, 10.0, false, false).expect("a press");
+        assert!(selected(&e.view).is_empty());
+        assert_eq!(e.view.drag.kind, IconGridDragKind::Marquee);
+        let moving = g.clone().with_view(e.view);
+        let e = drag_move(&moving, &geo, 150.0, 120.0, 120.0).expect("a move");
+        assert_eq!(selected(&e.view), vec![0, 1, 4, 5]);
+        let done = drag_end(&moving.with_view(e.view)).expect("the release");
+        assert_eq!(done.view.drag.kind, IconGridDragKind::None);
+        assert_eq!(selected(&done.view), vec![0, 1, 4, 5]);
+        // Ctrl adds the band to what was selected.
+        let e = press(&g, &geo, Hit::Empty, 10.0, 10.0, 10.0, false, true).expect("a press");
+        assert_eq!(selected(&e.view), vec![20]);
+        let e = drag_move(&g.clone().with_view(e.view), &geo, 150.0, 120.0, 120.0).expect("a move");
+        assert_eq!(selected(&e.view), vec![0, 1, 4, 5, 20]);
+    }
+
+    #[test]
+    fn the_scroll_bar_pages_and_its_thumb_drags_the_rows() {
+        let (asked, log) = fresh();
+        let g = grid(&asked, &log);
+        let geo = geometry(&g);
+        let e = press(&g, &geo, Hit::Track(true), 392.0, 200.0, 200.0, false, false).expect("a page");
+        assert_eq!((e.kind, e.view.top_row), (IconGridEventKind::Scroll, 2));
+        let e = press(&g, &geo, Hit::Thumb, 392.0, 10.0, 10.0, false, false).expect("a grab");
+        assert_eq!(e.view.drag.kind, IconGridDragKind::Thumb);
+        let held = g.with_view(e.view);
+        // 276 px of travel for 23 rows: 138 px is half way.
+        let e = drag_move(&held, &geo, 392.0, 148.0, 148.0).expect("a move");
+        assert_eq!((e.kind, e.view.top_row), (IconGridEventKind::Scroll, 12));
+        assert_eq!(drag_end(&held).map(|e| e.kind), Some(IconGridEventKind::Scroll));
+    }
+
+    #[test]
+    fn the_wheel_and_the_scroll_stay_in_range() {
+        let (asked, log) = fresh();
+        let g = grid(&asked, &log);
+        let geo = geometry(&g);
+        assert_eq!(scroll_by(&g, &geo, 3).top_row, 3);
+        assert_eq!(scroll_by(&g, &geo, -3).top_row, 0);
+        assert_eq!(scroll_by(&g, &geo, 100).top_row, 23);
+    }
+
+    // ---- the keys ----
+
+    #[test]
+    fn the_arrows_move_by_an_item_or_a_row_and_shift_extends() {
+        let (asked, log) = fresh();
+        let g = grid(&asked, &log);
+        let geo = geometry(&g);
+        let key = |g: &IconGrid, k: K, shift: bool, ctrl: bool| grid_key(g, &geo, k, shift, ctrl).expect("a key");
+        assert_eq!(selected(&key(&g, K::Right, false, false).view), vec![0], "nothing focused: the first");
+        let at5 = with_selection(g.clone(), &[5], 5);
+        assert_eq!(selected(&key(&at5, K::Down, false, false).view), vec![9]);
+        assert_eq!(selected(&key(&at5, K::Down, true, false).view), vec![5, 6, 7, 8, 9]);
+        let moved = key(&at5, K::Down, false, true).view;
+        assert_eq!(selected(&moved), vec![5], "Ctrl moves the focus alone");
+        assert_eq!(moved.selection.focus.into_option(), Some(9));
+        assert_eq!(selected(&key(&at5, K::Left, false, false).view), vec![4]);
+        let at1 = with_selection(g.clone(), &[1], 1);
+        assert_eq!(selected(&key(&at1, K::Up, false, false).view), vec![0], "held at the top");
+        assert_eq!(selected(&key(&at1, K::PageDown, false, false).view), vec![9]);
+        let end = key(&at1, K::End, false, false).view;
+        assert_eq!(selected(&end), vec![99]);
+        assert_eq!(end.top_row, 23, "the last row is revealed");
+        assert_eq!(selected(&key(&at5.clone().with_view(end), K::Home, false, false).view), vec![0]);
+    }
+
+    #[test]
+    fn ctrl_a_selects_all_enter_activates_the_menu_key_asks_for_a_menu_escape_clears() {
+        let (asked, log) = fresh();
+        let at5 = with_selection(grid(&asked, &log), &[5], 5);
+        let geo = geometry(&at5);
+        let all = grid_key(&at5, &geo, K::A, false, true).expect("select all");
+        assert_eq!(all.view.selection.keys.len(), 100);
+        let open = grid_key(&at5, &geo, K::Return, false, false).expect("activate");
+        assert_eq!((open.kind, open.index.into_option()), (IconGridEventKind::Activate, Some(5)));
+        let menu = grid_key(&at5, &geo, K::Apps, false, false).expect("a menu");
+        assert_eq!((menu.kind, menu.index.into_option()), (IconGridEventKind::ContextMenu, Some(5)));
+        let menu = grid_key(&at5, &geo, K::F10, true, false).expect("a menu");
+        assert_eq!(menu.kind, IconGridEventKind::ContextMenu);
+        let cleared = grid_key(&at5, &geo, K::Escape, false, false).expect("a clear");
+        assert!(selected(&cleared.view).is_empty());
+        let none = with_selection(grid(&asked, &log), &[], 5);
+        assert!(grid_key(&none, &geo, K::Escape, false, false).is_none(), "nothing to clear");
+    }
+
+    // ---- the DOM ----
+
+    fn id(n: NodeId) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+        }
+    }
+
+    #[test]
+    fn only_the_items_in_view_are_asked_for_and_built() {
+        let (asked, log) = fresh();
+        let dom = with_selection(grid(&asked, &log), &[1, 3], 1)
+            .with_theme(UiTheme::Flat)
+            .dom();
+        assert_eq!(*asked.lock().expect("asked"), (0..12).collect::<Vec<_>>());
+        assert!(theme_checks::has_class(&dom, GRID_CLASS));
+        let info = dom.root.get_accessibility_info().cloned().unwrap_or_default();
+        assert_eq!(info.role, AccessibilityRole::List);
+        assert!(info.states.as_ref().contains(&AccessibilityState::Multiselectable));
+        assert_eq!(dom.root.get_tab_index(), Some(TabIndex::Auto), "one Tab stop");
+        let items: Vec<&Dom> = dom
+            .children
+            .as_ref()
+            .iter()
+            .filter(|c| theme_checks::has_class(c, ITEM_CLASS))
+            .collect();
+        assert_eq!(items.len(), 12);
+        assert!(theme_checks::has_class(items[1], ITEM_SELECTED_CLASS));
+        assert!(theme_checks::has_class(items[1], ITEM_FOCUSED_CLASS));
+        assert!(theme_checks::has_class(items[3], ITEM_SELECTED_CLASS));
+        assert!(!theme_checks::has_class(items[3], ITEM_FOCUSED_CLASS));
+        assert!(!theme_checks::has_class(items[0], ITEM_SELECTED_CLASS));
+        let item = items[1].root.get_accessibility_info().cloned().unwrap_or_default();
+        assert_eq!(item.role, AccessibilityRole::ListItem);
+        assert_eq!(item.accessibility_name.as_ref().map(|n| n.as_str().to_string()), Some(String::from("File 1")));
+        assert!(item.states.as_ref().contains(&AccessibilityState::Selected));
+        assert!(items[1].root.attributes().as_ref().contains(&AttributeType::Draggable(true)));
+        assert!(theme_checks::find(items[1], THUMB_CLASS).is_some());
+        assert!(theme_checks::find(items[1], LABEL_CLASS).is_some());
+        assert!(theme_checks::find(&dom, TRACK_CLASS).is_some(), "the scroll bar");
+        assert!(theme_checks::find(&dom, SCROLL_THUMB_CLASS).is_some());
+    }
+
+    #[test]
+    fn a_drag_out_carries_the_selected_indices_and_tells_the_app() {
+        let (asked, log) = fresh();
+        let styled = StyledDom::create_from_dom(
+            with_selection(grid(&asked, &log), &[1, 3], 1)
+                .with_theme(UiTheme::Flat)
+                .dom(),
+        );
+        let hierarchy = styled.node_hierarchy.as_ref();
+        let mut items = Vec::new();
+        let mut next = hierarchy[0].first_child_id(NodeId::new(0));
+        while let Some(n) = next {
+            items.push(n);
+            next = hierarchy[n.index()].next_sibling_id();
+        }
+        let (_, changes) = rv::fire(&styled, id(items[1]), EventFilter::Hover(HoverEventFilter::DragStart))
+            .expect("a drag source");
+        assert!(changes.iter().any(|c| matches!(
+            c,
+            CallbackChange::SetDragData { mime_type, data }
+                if mime_type.as_str() == ICON_GRID_DRAG_MIME && data.as_slice() == b"1,3"
+        )));
+        let logged = log.lock().expect("log").clone();
+        assert_eq!(logged, vec![String::from("DragStart Some(1) [1, 3]")]);
+    }
+
+    #[test]
+    fn a_grid_without_a_theme_follows_the_app_theme_and_declares_its_structure_once() {
+        let (asked, log) = fresh();
+        let sample = || with_selection(grid(&asked, &log), &[1, 3], 1);
+        checks::assert_follows_the_app_theme("icon_grid", || sample().dom(), |t: UiTheme| sample().with_theme(t).dom());
+        for theme in checks::BOTH {
+            let dom = checks::under(theme, || sample().dom());
+            theme_checks::assert_structure_is_shared(&format!("icon_grid built for {}", theme.name()), &dom, &[]);
+            theme_checks::assert_theme_invariants(&format!("icon_grid ({})", theme.name()), &dom);
+        }
+    }
+}
