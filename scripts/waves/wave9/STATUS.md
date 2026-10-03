@@ -9,7 +9,7 @@ Resume: SendMessage the agent id ("continue from your progress file"). Worktrees
 | MAIL9 | a4d36f4ef063912bd | wt/mail9 | PAUSED - resume from scripts/MAIL9.PROGRESS.md (report scripts/MAIL9_2026_10_03.md: direct delivery + client DKIM DONE end to end; submission via lettre started; remote-content pre-pass NOT started) |
 | PDF9 | a90ecd8756e4fac61 | wt/pdf9 | DONE (19 commits; report scripts/PDF9_2026_10_03.md; ParsedPdf -> page SVG in the API (api list in report), CPU SVG renderer: rgb() colours, transform order / lists, fit honoured; AzPdf viewer + export; scripts/pdf_chrome_probe.py; NEXT: azul SVG renderer lacks <text> / <image> (PDF pages show shapes only) - plan in PDF9.PROGRESS.md) |
 | READER9 | ad5e2a07b9e50eb78 | wt/reader9 | running (base e537ddbe2) |
-| TERM9 | aeeb57dd4eb500ff0 | wt/term9 | running (base e537ddbe2) |
+| TERM9 | aeeb57dd4eb500ff0 | wt/term9 | DONE (report scripts/TERM9_2026_10_03.md with the api.json entries; TerminalView widget (VirtualView, xterm encoding, theme palettes) + AzTerm on alacritty_terminal 0.26 (engine + PTY; new crates listed for vet); engine: a focused node with a Paste callback now gets the paste) |
 | CODE9 | aec89a04e113059d5 | wt/code9 | running (base e537ddbe2) |
 | MEDIA9 | a78d3666fb280f6a4 | wt/media9 | running (base e537ddbe2) |
 | CLOCK9 | a77d97682c470b269 | wt/clock9 | DONE (4dc00fe0f; report scripts/CLOCK9_2026_10_03.md; scheduled notifications in the engine (Notification.deliver_at: Apple UN trigger, Windows ScheduledToast, held + woken elsewhere) - api.json: field deliver_at LAST + with_deliver_at; AzClock (DST-correct RRULE alarms via chrono-tz, timers, stopwatch, world clock)) |
