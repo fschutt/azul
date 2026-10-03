@@ -1,0 +1,46 @@
+[package]
+name = "AzClock"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzClock - alarms, timers, a stopwatch and a world clock (the plan:
+    azul-apps/planning/core/clock.md), on azul's S9 UtilityShell with the
+    app-drawn Titlebar, flat and flora, light and dark. Alarms repeat by an
+    RRULE (azul's DateRepeatPicker) and ring in the window while AzClock runs;
+    their next occurrences are also handed to the OS as scheduled
+    notifications (Notification::with_deliver_at), so on macOS and Windows
+    they ring while AzClock is closed. Times are DST-correct in the device's
+    zone (chrono-tz); one JSON file per alarm and per timer in the data tree
+    (clock/alarms/<uuid>.json, clock/timers/<uuid>.json, clock/world.json,
+    clock/stopwatch.json), written through azul-storage from an azul Thread.
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+# The shared app skeleton: switches, the data root, settings, shortcuts, About, file jobs.
+azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+# The RRULE subset and its dates (an alarm's repeat), the write-behind queue.
+azul-pim = { path = "../azul-pim" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The same features azul-pim and AzTasks build chrono with.
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+# The tz database (DST-correct alarms, the world clock). Already in Cargo.lock
+# (0.10.4, through ironcalc_base): no new crate.
+chrono-tz = "0.10"
+# The device's zone NAME (Europe/Berlin), for the world clock's local row.
+# Already in Cargo.lock (0.1.65; chrono's `clock` feature uses it with
+# `fallback`): no new crate, no new feature.
+iana-time-zone = { version = "0.1", features = ["fallback"] }
+
+[lib]
+name = "azclock"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "AzClock"
+path = "src/main.rs"
