@@ -312,9 +312,145 @@ pub struct GoneApiFunction {
     pub is_constructor: bool,
 }
 
-/// Every api.json function whose Rust method is gone.
-pub fn gone_api_functions(_index: &TypeIndex, _api_data: &ApiData) -> Vec<GoneApiFunction> {
-    Vec::new()
+/// Methods a type has without an impl block the index can see: derive
+/// output and std (blanket) trait methods.
+const DERIVED_OR_BLANKET_METHODS: &[&str] = &[
+    "clone", "clone_from", "to_string", "to_owned", "into", "try_into", "from", "try_from",
+    "eq", "ne", "cmp", "partial_cmp", "lt", "le", "gt", "ge", "max", "min", "clamp", "hash",
+    "fmt", "default", "as_ref", "as_mut", "borrow", "borrow_mut", "deref", "deref_mut", "drop",
+];
+
+/// The identifier at the start of `s`.
+fn leading_ident(s: &str) -> &str {
+    let end = s
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .unwrap_or(s.len());
+    &s[..end]
+}
+
+/// The Rust method an api.json fn_body calls on its own class: the first
+/// `object.m(..)` of the body, else `<path>::m(..)` for one of the class's
+/// `paths`. None for any other body (a free function, a field access, an
+/// expression the scan cannot read).
+fn called_method<'a>(fn_body: &'a str, paths: &[&str]) -> Option<&'a str> {
+    let mut from = 0;
+    while let Some(pos) = fn_body[from..].find("object.") {
+        let at = from + pos;
+        let whole_word = fn_body[..at]
+            .chars()
+            .next_back()
+            .map_or(true, |c| !(c.is_ascii_alphanumeric() || c == '_'));
+        if whole_word {
+            let rest = &fn_body[at + "object.".len()..];
+            let name = leading_ident(rest);
+            return (!name.is_empty() && rest[name.len()..].starts_with('(')).then_some(name);
+        }
+        from = at + "object.".len();
+    }
+    for path in paths.iter().filter(|p| !p.is_empty()) {
+        let needle = format!("{path}::");
+        if let Some(pos) = fn_body.find(&needle) {
+            let rest = &fn_body[pos + needle.len()..];
+            let name = leading_ident(rest);
+            if !name.is_empty() && rest[name.len()..].starts_with('(') {
+                return Some(name);
+            }
+        }
+    }
+    None
+}
+
+/// Whether the source file text defines a fn `name` (`fn name(` /
+/// `fn name<`): the safety net for methods the index does not extract
+/// (generic ones that are not `Into<T>`-bound).
+fn source_file_defines_fn(file: &std::path::Path, name: &str) -> bool {
+    let Ok(text) = std::fs::read_to_string(file) else {
+        return false;
+    };
+    let needle = format!("fn {name}");
+    text.match_indices(&needle).any(|(at, _)| {
+        let after = text[at + needle.len()..].trim_start();
+        after.starts_with('(') || after.starts_with('<')
+    })
+}
+
+/// Every api.json function whose Rust method is gone: its fn_body calls
+/// `object.m(..)` or `<the class's path>::m(..)` and the class's source type
+/// has no method `m` (BLOCKS' 84 preset-shell setters, wave 5, which the
+/// scan kept until they were removed by hand). Not judged: a class without a
+/// source type or whose api.json path names a different type (a path fix
+/// comes first), a macro-made type (impl_vec!, impl_option!: methods the
+/// index does not see), a type with a `Deref` impl, any other body shape,
+/// and derive / std-trait methods ([`DERIVED_OR_BLANKET_METHODS`]).
+pub fn gone_api_functions(index: &TypeIndex, api_data: &ApiData) -> Vec<GoneApiFunction> {
+    let Some(version) = api_data.get_latest_version_str() else {
+        return Vec::new();
+    };
+    let Some(version_data) = api_data.get_version(version) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (module_name, module) in &version_data.api {
+        for (class_name, class) in &module.classes {
+            let Some(external) = class.external.as_deref() else {
+                continue;
+            };
+            let Some(def) = index
+                .resolve(class_name, None)
+                .or_else(|| index.resolve(&format!("Az{class_name}"), None))
+            else {
+                continue;
+            };
+            if !super::diff::paths_are_equivalent(external, &def.full_path) {
+                continue;
+            }
+            let derefs = match &def.kind {
+                TypeDefKind::Struct { custom_impls, .. } | TypeDefKind::Enum { custom_impls, .. } => {
+                    custom_impls.iter().any(|t| t.ends_with("Deref"))
+                }
+                _ => false,
+            } || def
+                .methods
+                .iter()
+                .any(|m| m.from_trait.as_deref() == Some("Deref"));
+            if def.is_macro_generated() || derefs {
+                continue;
+            }
+            let entries = class
+                .constructors
+                .iter()
+                .flat_map(|c| c.iter().map(|e| (e, true)))
+                .chain(
+                    class
+                        .functions
+                        .iter()
+                        .flat_map(|f| f.iter().map(|e| (e, false))),
+                );
+            for ((api_name, f), is_constructor) in entries {
+                let Some(body) = f.fn_body.as_deref() else {
+                    continue;
+                };
+                let Some(rust_name) = called_method(body, &[external, def.full_path.as_str()])
+                else {
+                    continue;
+                };
+                if DERIVED_OR_BLANKET_METHODS.contains(&rust_name)
+                    || def.methods.iter().any(|m| m.name == rust_name)
+                    || source_file_defines_fn(&def.file_path, rust_name)
+                {
+                    continue;
+                }
+                out.push(GoneApiFunction {
+                    module: module_name.clone(),
+                    class: class_name.clone(),
+                    api_name: api_name.clone(),
+                    rust_name: rust_name.to_string(),
+                    is_constructor,
+                });
+            }
+        }
+    }
+    out
 }
 
 /// Whether `body` passes the argument `name` to a call as it is
@@ -1039,11 +1175,25 @@ pub fn generate_remove_functions_patch(
     module_name: &str,
     version: &str,
 ) -> ApiPatch {
-    // For now, add both remove_functions and remove_constructors
-    // The patch application logic will handle whichever is present
+    // Both lists: the patch application removes whichever exists
+    generate_remove_entries_patch(type_name, function_names, function_names, module_name, version)
+}
+
+/// A patch removing exactly these `functions` and `constructors` of a class
+/// (an empty list removes nothing from that map).
+pub fn generate_remove_entries_patch(
+    type_name: &str,
+    functions: &[&str],
+    constructors: &[&str],
+    module_name: &str,
+    version: &str,
+) -> ApiPatch {
+    let names = |list: &[&str]| -> Option<Vec<String>> {
+        (!list.is_empty()).then(|| list.iter().map(|s| s.to_string()).collect())
+    };
     let mut class_patch = ClassPatch::default();
-    class_patch.remove_functions = Some(function_names.iter().map(|s| s.to_string()).collect());
-    class_patch.remove_constructors = Some(function_names.iter().map(|s| s.to_string()).collect());
+    class_patch.remove_functions = names(functions);
+    class_patch.remove_constructors = names(constructors);
 
     let mut classes = BTreeMap::new();
     classes.insert(type_name.to_string(), class_patch);

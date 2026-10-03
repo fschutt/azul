@@ -462,7 +462,7 @@ fn needs_path_fix(api_path: &str, workspace_path: &str) -> bool {
 /// stopped being true when the root+leaf rule was added directly beneath it. A
 /// doc comment that contradicts its own body is worse than none — it is what a
 /// reader trusts instead of reading the code.)
-fn paths_are_equivalent(path1: &str, path2: &str) -> bool {
+pub(crate) fn paths_are_equivalent(path1: &str, path2: &str) -> bool {
     if path1 == path2 {
         return true;
     }
