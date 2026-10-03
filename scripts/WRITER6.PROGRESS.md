@@ -28,11 +28,13 @@ Branch `wt/writer6` from `25d78e309`. Brief: scripts/waves/wave6/WRITER6.md.
   61583aeac GREEN (handle_key_down gets has_selection; claims only on editable focus or a selection),
   f203c4cbe RED + 2d76958f5 GREEN for Ctrl+D.
 
+- 08f6e5586 AzWriter Cow fix, 9e5086d05 scripts/azwriter_e2e.py, 78bd32e87 AzNotes `__aznotes_` ids.
+
 ## IN PROGRESS
-- NEXT: scripts/azwriter_e2e.py (new: sample doc, type, Ctrl+B, Ctrl+Z, ribbon, save -> file on disk,
-  export pdf -> writer/exports, backstage open, close guard via `close` op, restart reads it back, shots
-  flat/flora x light/dark). Register it nowhere else (E2E scripts are run by the parent).
-- THEN: AzNotes prefixes (`__aznotes_`, E2E selectors follow), AzNotes appkit (settings page N3), report.
+- NEXT: AzNotes on azul-appkit: kit (args, data root via create_kit -> INFRA6 migration of `AzNotes/`),
+  settings page = kit::settings_page with the app's sections (fixes N3), About = AboutDialog, shortcuts
+  table = appkit Shortcut list. Files: examples/azul-notes/src/{lib.rs,args.rs,ui.rs}.
+- THEN: N1 layout tree investigation for the report (no headless runs while power is unstable), report.
 - Scratch helpers (api.json lookup script) live in the session scratchpad; it was wiped by the restart.
 - USER asked "don't we already have pagination?": yes - paginate.rs does NOT re-implement it. It calls the
   engine's Pdf::compute_pagination (PaginationSnapshot::break_path) and only maps each break path to the
