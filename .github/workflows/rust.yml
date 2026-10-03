@@ -817,6 +817,14 @@ jobs:
           cargo test -p AzDashboard --lib --no-fail-fast 2>&1 | tee azul-dashboard-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-dashboard-tests.txt
 
+      - name: Run AzERP tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzERP --lib --no-fail-fast 2>&1 | tee azul-erp-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-erp-tests.txt
+
       - name: Check azul-dll (release feature set)
         run: cargo check -p azul-dll --no-default-features --features "link-static,logging,ico,tga,hdr,webp,pnm,gif,png,tiff,bmp,a11y"
 
