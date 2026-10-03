@@ -1127,3 +1127,230 @@ mod geometry_tests {
         assert_eq!(neutral.summary().as_str(), "10%");
     }
 }
+
+// ==== fixtures (the widget manifest's sample) ====
+
+/// Samples for the widget manifest (`widgets::label_convention`) and the
+/// tests.
+#[cfg(test)]
+pub(crate) mod fixtures {
+    use super::*;
+
+    /// The three bands of a load meter: ok to 70, warning to 90, critical.
+    pub(crate) fn load_bands() -> GaugeBandVec {
+        GaugeBandVec::from_vec(alloc::vec![
+            GaugeBand::create(0.0, 70.0, GaugeBandKind::Ok),
+            GaugeBand::create(70.0, 90.0, GaugeBandKind::Warn),
+            GaugeBand::create(90.0, 100.0, GaugeBandKind::Bad),
+        ])
+    }
+
+    /// A CPU dial at 73% (in the warning band).
+    pub(crate) fn sample() -> Gauge {
+        Gauge::create(73.0, 0.0, 100.0)
+            .with_label(AzString::from_const_str("CPU"))
+            .with_unit(AzString::from_const_str("%"))
+            .with_bands(load_bands())
+    }
+
+    /// The same load as a bar, 200 px wide.
+    pub(crate) fn linear() -> Gauge {
+        Gauge::create_linear(73.0, 0.0, 100.0)
+            .with_label(AzString::from_const_str("CPU"))
+            .with_unit(AzString::from_const_str("%"))
+            .with_bands(load_bands())
+    }
+}
+
+#[cfg(test)]
+mod dom_tests {
+    use azul_core::{
+        a11y::AccessibilityRole,
+        dom::{NodeType, SvgNodeData},
+    };
+    use azul_css::props::{
+        layout::LayoutWidth,
+        property::{CssProperty, CssPropertyType},
+    };
+
+    use super::{fixtures::*, *};
+    use crate::widgets::themes::{flat, theme_blocks::checks, theme_checks as tc};
+
+    fn texts(dom: &Dom) -> Vec<String> {
+        tc::nodes(dom)
+            .into_iter()
+            .filter_map(|(_, n)| match n.root.get_node_type() {
+                NodeType::Text(s) => Some(s.as_str().to_string()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn declares(node: &Dom, property: &CssProperty) -> bool {
+        node.root
+            .style
+            .iter_inline_properties()
+            .any(|(p, _)| p == property)
+    }
+
+    #[test]
+    fn a_dial_is_one_user_space_of_its_size() {
+        let dom = sample().with_size(140.0).with_theme(UiTheme::Flat).dom();
+        let dial = tc::find(&dom, GAUGE_DIAL_CLASS).expect("the dial");
+        match dial.root.get_svg_data() {
+            Some(SvgNodeData::ViewBox {
+                min_x,
+                min_y,
+                width,
+                height,
+            }) => {
+                assert_eq!((*min_x, *min_y, *width, *height), (0.0, 0.0, 140.0, 140.0));
+            }
+            other => panic!("the dial carries no viewBox: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_track_every_band_and_the_value_are_one_path_node_each() {
+        let dom = sample().with_theme(UiTheme::Flat).dom();
+        let track = tc::find_all(&dom, GAUGE_TRACK_CLASS);
+        let bands = tc::find_all(&dom, GAUGE_BAND_CLASS);
+        let value = tc::find_all(&dom, GAUGE_VALUE_CLASS);
+        assert_eq!((track.len(), bands.len(), value.len()), (1, 3, 1));
+        for node in track.iter().chain(&bands).chain(&value) {
+            assert!(matches!(
+                node.root.get_svg_data(),
+                Some(SvgNodeData::Path(_))
+            ));
+            assert!(tc::background(node, false).is_some(), "an arc is its fill");
+        }
+    }
+
+    #[test]
+    fn without_bands_shown_the_track_is_bare() {
+        let dom = sample().with_show_bands(false).dom();
+        assert!(tc::find_all(&dom, GAUGE_BAND_CLASS).is_empty());
+    }
+
+    #[test]
+    fn a_value_at_the_start_of_the_range_draws_no_arc() {
+        let dom = sample().with_value(0.0).dom();
+        assert!(tc::find(&dom, GAUGE_VALUE_CLASS).is_none());
+        assert!(
+            tc::find(&dom, GAUGE_TRACK_CLASS).is_some(),
+            "the track stays"
+        );
+    }
+
+    #[test]
+    fn the_value_wears_the_colour_of_its_band_or_the_accent() {
+        let skin = flat::gauge_skin();
+        assert_eq!(value_color(&sample(), &skin), skin.warn);
+        assert_eq!(value_color(&sample().with_value(20.0), &skin), skin.ok);
+        assert_eq!(value_color(&sample().with_value(95.0), &skin), skin.bad);
+        let unbanded = Gauge::create(50.0, 0.0, 100.0);
+        assert_eq!(value_color(&unbanded, &skin), skin.accent);
+        let own = ChartColor::same(azul_css::props::basic::color::ColorU::rgb(1, 2, 3));
+        assert_eq!(value_color(&unbanded.clone().with_accent(own), &skin), own);
+        let custom =
+            unbanded.with_band(GaugeBand::create(0.0, 100.0, GaugeBandKind::Ok).with_color(own));
+        assert_eq!(
+            value_color(&custom, &skin),
+            own,
+            "a band's own colour wins over its kind's"
+        );
+    }
+
+    #[test]
+    fn the_value_and_the_label_are_written_in_the_middle() {
+        let all = texts(&sample().dom());
+        assert!(all.iter().any(|t| t == "73%"), "{all:?}");
+        assert!(all.iter().any(|t| t == "CPU"), "{all:?}");
+    }
+
+    #[test]
+    fn a_gauge_is_a_meter_named_by_its_label_with_its_summary_as_value() {
+        let dom = sample().dom();
+        let info = dom
+            .root
+            .get_accessibility_info()
+            .expect("the root is the meter");
+        assert_eq!(info.role, AccessibilityRole::Indicator);
+        assert_eq!(
+            info.accessibility_name
+                .as_ref()
+                .map(|n| n.as_str().to_string()),
+            Some(String::from("CPU"))
+        );
+        assert_eq!(
+            info.accessibility_value
+                .as_ref()
+                .map(|n| n.as_str().to_string()),
+            Some(String::from("73% (warning)"))
+        );
+        let named = sample().with_accessibility_name("Processor load").dom();
+        let info = named.root.get_accessibility_info().expect("the meter");
+        assert_eq!(
+            info.accessibility_name
+                .as_ref()
+                .map(|n| n.as_str().to_string()),
+            Some(String::from("Processor load"))
+        );
+    }
+
+    #[test]
+    fn a_gauge_is_not_a_tab_stop() {
+        for dom in [sample().dom(), linear().dom()] {
+            assert!(tc::focusable(&dom).is_empty(), "a meter takes no focus");
+        }
+    }
+
+    #[test]
+    fn a_linear_gauge_fills_its_bar_as_far_as_the_value() {
+        let dom = linear().with_value(25.0).with_size(200.0).dom();
+        let bar = tc::find(&dom, GAUGE_BAR_CLASS).expect("the bar");
+        assert!(declares(
+            bar,
+            &CssProperty::const_width(LayoutWidth::px(200.0))
+        ));
+        let value = tc::find(&dom, GAUGE_VALUE_CLASS).expect("the value's fill");
+        assert!(declares(
+            value,
+            &CssProperty::const_width(LayoutWidth::px(50.0))
+        ));
+        assert_eq!(tc::find_all(&dom, GAUGE_BAND_CLASS).len(), 3);
+        let all = texts(&dom);
+        assert_eq!(all, vec![String::from("CPU"), String::from("25%")]);
+        assert!(
+            !value
+                .root
+                .style
+                .iter_inline_properties()
+                .any(|(p, _)| p.get_type() == CssPropertyType::Width
+                    && *p == CssProperty::const_width(LayoutWidth::px(200.0))),
+            "the fill is not the whole bar"
+        );
+    }
+
+    #[test]
+    fn a_gauge_follows_the_app_theme() {
+        checks::assert_follows_the_app_theme(
+            "gauge",
+            || sample().dom(),
+            |theme| sample().with_theme(theme).dom(),
+        );
+        checks::assert_follows_the_app_theme(
+            "gauge (linear)",
+            || linear().dom(),
+            |theme| linear().with_theme(theme).dom(),
+        );
+    }
+
+    #[test]
+    fn a_pinned_gauge_keeps_its_theme_invariants() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            tc::assert_theme_invariants("gauge", &sample().with_theme(theme).dom());
+            tc::assert_theme_invariants("gauge (linear)", &linear().with_theme(theme).dom());
+        }
+    }
+}

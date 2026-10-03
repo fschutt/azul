@@ -1870,6 +1870,9 @@ mod label_convention {
             "money_input (empty, en)",
             super::money_input::fixtures::empty_dollars().dom(),
         ));
+        // The gauge: a CPU dial at 73% (the warning band), and as a bar.
+        all.push(("gauge", super::gauge::fixtures::sample().dom()));
+        all.push(("gauge (linear)", super::gauge::fixtures::linear().dom()));
         all
     }
 
@@ -2688,7 +2691,16 @@ mod theme_contrast {
     }
 
     /// Feedback and tags: the widgets with a semantic colour per kind.
-    const STATUS: &[&str] = &["alert", "badge", "chip", "toast", "spinner", "info_bar"];
+    const STATUS: &[&str] = &[
+        "alert",
+        "badge",
+        "chip",
+        "toast",
+        "spinner",
+        "info_bar",
+        "gauge",
+        "gauge (linear)",
+    ];
     /// Surfaces that hold the application's own content.
     const CONTAINERS: &[&str] = &[
         "accordion",
