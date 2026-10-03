@@ -45,10 +45,11 @@ pub fn run(app: &mut RefAny, cmd: Command, info: &mut CallbackInfo) -> Update {
 }
 
 /// A fresh deck id (the deck's folder under `show/`): random, so no launch
-/// reuses another's (`Uuid::v4` is a process-local marker sequence).
+/// reuses another's - the one id mint of the Azlin apps
+/// (`azul_storage::ids::new_uuid`, INFRA6).
 #[must_use]
 pub fn new_deck_id() -> String {
-    azul::uuid::Uuid::from_seed(azul_storage::ids::random_seed()).as_str().to_string()
+    azul_storage::ids::new_uuid()
 }
 
 /// Opens `deck` for editing on its first slide (or `--slide`).

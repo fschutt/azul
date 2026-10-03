@@ -15,14 +15,12 @@ use serde::{Deserialize, Serialize};
 pub const DIR: &str = "sheets";
 
 /// A new workbook id: a v4-shaped UUID, lowercase and hyphenated, from the
-/// one id mint of the Azlin apps (azul's `Uuid::from_seed` over
-/// azul-storage's random seed): it names a file in the drive (an S3 bucket
-/// later), so no other launch or device picks it.
+/// one id mint of the Azlin apps (`azul_storage::ids::new_uuid`, INFRA6): it
+/// names a file in the drive (an S3 bucket later), so no other launch or
+/// device picks it.
 #[must_use]
 pub fn new_id() -> String {
-    azul::uuid::Uuid::from_seed(azul_storage::ids::random_seed())
-        .as_str()
-        .to_string()
+    azul_storage::ids::new_uuid()
 }
 
 /// `sheets/<id>.xlsx`.
