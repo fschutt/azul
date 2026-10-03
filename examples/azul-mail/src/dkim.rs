@@ -661,7 +661,10 @@ mod tests {
         assert!(lines[0].contains("published"), "{lines:?}");
         assert_eq!(lines[1], "DMARC: v=DMARC1; p=none");
         assert!(lines[2].starts_with("SPF: v=spf1 mx -all"), "{lines:?}");
-        assert!(lines[2].contains("~all"), "a hard -all is pointed out: {lines:?}");
+        assert!(
+            lines[2].contains("~all"),
+            "a hard -all is pointed out: {lines:?}"
+        );
         let missing = report_lines(&DnsReport {
             dkim: Published::Missing,
             dmarc: None,
