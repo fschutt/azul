@@ -550,6 +550,106 @@ pub fn audio_line(name: &str, stats: &JitterStats, buffered: usize) -> String {
     )
 }
 
+// ---- Opus on the wire ----
+
+/// Codec byte: Opus packets (RFC 6716) of 20 ms at 48 kHz, made by `AudioEncoder`.
+pub const CODEC_OPUS: u8 = 2;
+/// The sample rate an Opus frame names: Opus's own.
+pub const OPUS_RATE: u32 = 48_000;
+/// What one Opus voice is sent at (kbit/s): clear speech, 24 times less than 16-bit PCM.
+pub const OPUS_KBPS: u32 = 32;
+
+/// One Opus packet (20 ms of audio) and its place in the sender's stream.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpusPacket {
+    pub sequence: u32,
+    pub data: Vec<u8>,
+}
+
+/// The codec byte of an audio frame ([`CODEC_PCM16`] or [`CODEC_OPUS`]); `None` for another
+/// version or a frame shorter than its header.
+pub fn frame_codec(bytes: &[u8]) -> Option<u8> {
+    // RED stub.
+    let _ = bytes;
+    None
+}
+
+/// The frame carrying the Opus `packets` (oldest first): the PCM frame's layout with codec byte
+/// [`CODEC_OPUS`], rate [`OPUS_RATE`], and each packet's length in bytes. More than 255 packets
+/// keep the newest 255; a packet keeps at most 65535 bytes.
+pub fn encode_opus_frame(packets: &[OpusPacket]) -> Vec<u8> {
+    // RED stub.
+    let _ = packets;
+    Vec::new()
+}
+
+/// Reads an Opus frame; `None` for another version or codec, no packets, a rate other than
+/// [`OPUS_RATE`], or bytes that do not add up.
+pub fn decode_opus_frame(bytes: &[u8]) -> Option<Vec<OpusPacket>> {
+    // RED stub.
+    let _ = bytes;
+    None
+}
+
+/// Numbers the Opus packets the encoder makes and wraps each new one, with the
+/// [`REDUNDANCY`] - 1 before it, into a frame - the PCM [`Packetizer`]'s rule for the
+/// latest-wins frame path.
+#[derive(Debug, Default)]
+pub struct OpusFramer {
+    next_sequence: u32,
+    recent: VecDeque<OpusPacket>,
+}
+
+impl OpusFramer {
+    pub fn new() -> Self {
+        OpusFramer::default()
+    }
+
+    /// The frame to send for the encoder's next packet.
+    pub fn push(&mut self, data: Vec<u8>) -> Vec<u8> {
+        // RED stub.
+        let _ = data;
+        Vec::new()
+    }
+
+    /// Forgets the packets a frame repeats, as on mute. Sequence numbers continue.
+    pub fn reset(&mut self) {
+        self.recent.clear();
+    }
+
+    /// The sequence number the next packet gets.
+    pub fn next_sequence(&self) -> u32 {
+        self.next_sequence
+    }
+}
+
+/// `samples` (interleaved, `channels` of them) mixed down to mono; empty for no channels.
+pub fn mix_to_mono(channels: u16, samples: &[f32]) -> Vec<f32> {
+    // RED stub.
+    let _ = (channels, samples);
+    Vec::new()
+}
+
+/// Whether to send this side's audio as Opus: it has an Opus encoder, and every peer said it
+/// decodes Opus (a peer whose caps have not arrived, or an older AzMeet, gets 16-bit PCM - and
+/// so does everyone else, since forwarders pass one stream on).
+pub fn send_opus(encoder_open: bool, peers_decode_opus: &[Option<bool>]) -> bool {
+    // RED stub.
+    let _ = (encoder_open, peers_decode_opus);
+    false
+}
+
+impl JitterBuffer {
+    /// Whether a packet numbered `sequence` would be taken in: not seen yet and not late. A
+    /// receiver asks before it decodes an Opus packet, so each is decoded once, in the order the
+    /// frames bring them, and copies cost nothing.
+    pub fn wants(&self, sequence: u32) -> bool {
+        // RED stub.
+        let _ = sequence;
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1063,5 +1163,170 @@ mod tests {
             audio_line("Ben", &stats, 3),
             "Audio from Ben: 250 packets, 240 played, 3 silent, 1 late, 3 buffered"
         );
+    }
+}
+
+#[cfg(test)]
+mod opus_wire_tests {
+    use super::*;
+
+    fn opus(sequence: u32, len: usize) -> OpusPacket {
+        OpusPacket {
+            sequence,
+            data: (0..len)
+                .map(|i| (i as u8).wrapping_add(sequence as u8))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn an_opus_frame_round_trips_and_says_its_codec() {
+        let packets = vec![opus(41, 83), opus(42, 1), opus(43, 117)];
+        let bytes = encode_opus_frame(&packets);
+        assert_eq!(
+            &bytes[..8],
+            &[WIRE_VERSION, CODEC_OPUS, 3, 0, 0x80, 0xbb, 0, 0],
+            "the PCM frame's header: version, codec, count, rate 48000"
+        );
+        assert_eq!(
+            &bytes[8..14],
+            &[41, 0, 0, 0, 83, 0],
+            "sequence, length in bytes"
+        );
+        assert_eq!(bytes.len(), 8 + (6 + 83) + (6 + 1) + (6 + 117));
+        assert_eq!(decode_opus_frame(&bytes), Some(packets));
+        assert_eq!(frame_codec(&bytes), Some(CODEC_OPUS));
+        // Neither reader takes the other codec's frame.
+        assert_eq!(decode_frame(&bytes), None);
+        let pcm = encode_frame(
+            OPUS_RATE,
+            &[Packet {
+                sequence: 1,
+                samples: vec![0; 960],
+            }],
+        );
+        assert_eq!(frame_codec(&pcm), Some(CODEC_PCM16));
+        assert_eq!(decode_opus_frame(&pcm), None);
+        assert_eq!(frame_codec(&[WIRE_VERSION]), None);
+        assert_eq!(frame_codec(&[9, CODEC_OPUS, 1, 0, 0, 0, 0, 0]), None);
+    }
+
+    #[test]
+    fn a_malformed_opus_frame_is_refused() {
+        let good = encode_opus_frame(&[opus(1, 60)]);
+        assert!(decode_opus_frame(&good).is_some());
+        let mut bad: Vec<Vec<u8>> = vec![
+            Vec::new(),
+            good[..7].to_vec(),
+            good[..good.len() - 1].to_vec(),
+        ];
+        let mut trailing = good.clone();
+        trailing.push(0);
+        bad.push(trailing);
+        // Another version, no packets, more packets than there are.
+        for (index, value) in [(0, 2), (2, 0), (2, 2)] {
+            let mut changed = good.clone();
+            changed[index] = value;
+            bad.push(changed);
+        }
+        // Opus is always 48 kHz.
+        let mut other_rate = good.clone();
+        other_rate[4..8].copy_from_slice(&44_100u32.to_le_bytes());
+        bad.push(other_rate);
+        for bytes in bad {
+            assert_eq!(
+                decode_opus_frame(&bytes),
+                None,
+                "{:?}",
+                &bytes[..bytes.len().min(12)]
+            );
+        }
+    }
+
+    #[test]
+    fn each_opus_frame_repeats_the_packets_before_it_and_numbers_go_on_after_a_reset() {
+        let mut framer = OpusFramer::new();
+        let carried: Vec<Vec<u32>> = (0..5u8)
+            .map(|i| framer.push(vec![i; 70]))
+            .map(|frame| {
+                decode_opus_frame(&frame)
+                    .expect("the framer's frames decode")
+                    .iter()
+                    .map(|p| p.sequence)
+                    .collect()
+            })
+            .collect();
+        assert_eq!(
+            carried,
+            vec![
+                vec![0],
+                vec![0, 1],
+                vec![0, 1, 2],
+                vec![1, 2, 3],
+                vec![2, 3, 4]
+            ]
+        );
+        let last = decode_opus_frame(&framer.push(vec![9; 3])).expect("a frame");
+        assert_eq!(
+            last.last(),
+            Some(&OpusPacket {
+                sequence: 5,
+                data: vec![9; 3]
+            })
+        );
+        framer.reset();
+        let after = decode_opus_frame(&framer.push(vec![7; 2])).expect("a frame");
+        assert_eq!(
+            after,
+            vec![OpusPacket {
+                sequence: 6,
+                data: vec![7; 2]
+            }]
+        );
+        assert_eq!(framer.next_sequence(), 7);
+    }
+
+    #[test]
+    fn interleaved_channels_mix_down_to_mono() {
+        assert_eq!(mix_to_mono(2, &[0.5, -0.5, 1.0, 0.0]), vec![0.0, 0.5]);
+        assert_eq!(mix_to_mono(1, &[0.25, -0.25]), vec![0.25, -0.25]);
+        assert_eq!(
+            mix_to_mono(2, &[0.5, 0.5, 0.25]),
+            vec![0.5],
+            "a partial frame is dropped"
+        );
+        assert!(mix_to_mono(0, &[0.5]).is_empty());
+    }
+
+    #[test]
+    fn opus_is_sent_only_when_every_peer_decodes_it() {
+        assert!(send_opus(true, &[Some(true), Some(true)]));
+        assert!(
+            !send_opus(true, &[Some(true), Some(false)]),
+            "an older AzMeet"
+        );
+        assert!(!send_opus(true, &[Some(true), None]), "caps not here yet");
+        assert!(!send_opus(false, &[Some(true)]), "no encoder on this side");
+        assert!(!send_opus(true, &[]), "nobody listens");
+    }
+
+    #[test]
+    fn a_receiver_decodes_each_opus_packet_once_and_none_whose_turn_passed() {
+        let mut jitter = JitterBuffer::new(1, MAX_PACKETS);
+        assert!(jitter.wants(10));
+        jitter.push(
+            OPUS_RATE,
+            Packet {
+                sequence: 10,
+                samples: vec![1; 960],
+            },
+        );
+        assert!(!jitter.wants(10), "a copy");
+        assert!(jitter.wants(11));
+        assert!(jitter.wants(9), "not late before anything played");
+        assert!(jitter.pop().is_some(), "10 plays");
+        assert!(!jitter.wants(9), "its turn passed");
+        assert!(!jitter.wants(10));
+        assert!(jitter.wants(12));
     }
 }

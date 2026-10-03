@@ -2483,7 +2483,7 @@ fn apply_video_control(
             }
             false
         }
-        Control::Caps { h264, encodes } => {
+        Control::Caps { h264, encodes, .. } => {
             let Some(remote) = s.remotes.iter_mut().find(|r| r.handle == conn) else {
                 return false;
             };
@@ -2908,7 +2908,7 @@ fn send_sync(s: &MeetState, handles: &[u64]) {
 
 /// Tells the peers behind `handles` whether this side decodes and encodes H.264.
 fn send_caps(s: &MeetState, handles: &[u64]) {
-    let caps = video_wire::encode_caps(s.video.decodes_h264, s.video.encoder.is_ok());
+    let caps = video_wire::encode_caps(s.video.decodes_h264, s.video.encoder.is_ok(), false);
     send_message_to(s, handles, &caps);
 }
 
