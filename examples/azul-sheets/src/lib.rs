@@ -54,8 +54,8 @@ use azul::{
         BackstageOnNavSelectCallbackType, ButtonOnClickCallbackType,
         CellGridDataSourceCallbackType, CellGridOnEventCallbackType,
         CellGridStyleSourceCallbackType, RibbonOnTabClickCallbackType,
-        ShellSettingsLayoutOnCategoryCallbackType, TextInputOnTextInputCallbackType,
-        TextInputOnVirtualKeyDownCallbackType,
+        ShellSettingsLayoutOnCategoryCallbackType, SliderOnValueChangeCallbackType,
+        TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallbackType,
     },
     css::{DarkLightMode, HoverEventFilter},
     dialog::{FileDialog, FileOpenResult},
@@ -75,7 +75,7 @@ use azul::{
         CellGridCellKind, CellGridCellRef, CellGridCellStyle, CellGridEditMode, CellGridEvent,
         CellGridEventKind, CellGridHorizontalAlign, CellGridRange, CellGridSize,
         CellGridVerticalAlign, CellGridView, OnTextInputReturn, Ribbon, RibbonAppButton,
-        RibbonButton, RibbonColumn, RibbonGroup, RibbonItem, RibbonTab, StatusBar,
+        RibbonButton, RibbonColumn, RibbonGroup, RibbonItem, RibbonTab, SliderState, StatusBar,
         StatusBarSegment, StatusBarZoom, TextInput, TextInputState, TextInputValid, Titlebar,
     },
     window::WindowDecorations,
@@ -1668,8 +1668,22 @@ fn status_bar(s: &AppState, app: &RefAny) -> Dom {
     // pinned a 400 % zoom's thumb to its end (DEDUP_OFFICE D28).
     let zoom = StatusBarZoom::create(s.zoom as f32, ZOOM_MIN as f32, ZOOM_MAX as f32)
         .with_on_zoom_out(zoom_action(app, Action::ZoomOut), on_action as ButtonOnClickCallbackType)
-        .with_on_zoom_in(zoom_action(app, Action::ZoomIn), on_action as ButtonOnClickCallbackType);
+        .with_on_zoom_in(zoom_action(app, Action::ZoomIn), on_action as ButtonOnClickCallbackType)
+        .with_on_slider_change(app.clone(), on_zoom_slider as SliderOnValueChangeCallbackType);
     StatusBar::create(segments).with_zoom(zoom).dom()
+}
+
+/// The status bar's zoom slider moved: the zoom follows it (whole percent,
+/// inside the buttons' range), the window in view is fetched if it grew.
+extern "C" fn on_zoom_slider(mut data: RefAny, mut info: CallbackInfo, slider: SliderState) -> Update {
+    with_app(&mut data, &mut info, |info, app, s| {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let percent = slider.value.round().clamp(ZOOM_MIN as f32, ZOOM_MAX as f32) as u32;
+        if percent != s.zoom {
+            s.zoom = percent;
+            fetch_if_needed(info, app, s);
+        }
+    })
 }
 
 // ==== The side panel ====
