@@ -679,5 +679,453 @@ impl Default for Chart {
     }
 }
 
-// CHART7-NEXT: the math (ticks, scales, decimation, formatting), the
-// geometry, the build, the pointer and the keys, the tests.
+// ==== the math (pure, unit-tested) ====
+
+/// The ticks of an axis: from `min` to `max` (both ticks) every `step`,
+/// the step 1, 2 or 5 times a power of ten.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NiceTicks {
+    /// The axis' lower end: the first tick.
+    pub min: f64,
+    /// The axis' upper end: the last tick.
+    pub max: f64,
+    /// The distance between two ticks.
+    pub step: f64,
+}
+
+impl NiceTicks {
+    /// The tick values, `min` to `max`.
+    #[must_use]
+    pub fn values(&self) -> Vec<f64> {
+        todo!("CHART7 GREEN")
+    }
+}
+
+/// The smallest "nice" step not below `raw`: 1, 2 or 5 times a power of
+/// ten. A step that is not a positive finite number is 1.
+#[must_use]
+pub fn nice_step(raw: f64) -> f64 {
+    todo!("CHART7 GREEN")
+}
+
+/// Nice ticks over `[lo, hi]` in about `target` steps: the step from
+/// [`nice_step`], the ends rounded OUT to a multiple of it. An empty range
+/// (`lo == hi`) is widened around its value; the ends may come in either
+/// order; a non-finite end reads as 0.
+#[must_use]
+pub fn nice_ticks(lo: f64, hi: f64, target: usize) -> NiceTicks {
+    todo!("CHART7 GREEN")
+}
+
+/// Where a chart's values land in its plot: the x and y domains and the
+/// plot's size in px. A category axis (`bands > 0`) puts category `i` at the
+/// centre of the `i`-th of `bands` equal bands.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PlotFrame {
+    /// The x domain's left end (a number axis).
+    pub x_min: f64,
+    /// The x domain's right end (a number axis).
+    pub x_max: f64,
+    /// The y domain's lower end (the plot's bottom edge).
+    pub y_min: f64,
+    /// The y domain's upper end (the plot's top edge).
+    pub y_max: f64,
+    /// The plot's width in px.
+    pub width: f32,
+    /// The plot's height in px.
+    pub height: f32,
+    /// The number of categories along x, or 0 for a number axis.
+    pub bands: usize,
+}
+
+impl PlotFrame {
+    /// A band's width in px (a category axis), or the whole width.
+    #[must_use]
+    pub fn band(&self) -> f32 {
+        todo!("CHART7 GREEN")
+    }
+
+    /// `x` in px from the plot's left edge.
+    #[must_use]
+    pub fn px_x(&self, x: f64) -> f32 {
+        todo!("CHART7 GREEN")
+    }
+
+    /// `y` in px from the plot's top edge.
+    #[must_use]
+    pub fn px_y(&self, y: f64) -> f32 {
+        todo!("CHART7 GREEN")
+    }
+
+    /// The x value at `px` from the plot's left edge (on a category axis,
+    /// the fractional index whose band centre is there).
+    #[must_use]
+    pub fn x_at(&self, px: f32) -> f64 {
+        todo!("CHART7 GREEN")
+    }
+}
+
+/// The points of a line worth drawing in `frame`: for every run of points
+/// in one pixel column, its first, lowest, highest and last point (M4), in
+/// drawing order - the picture of the whole line at a few points per
+/// column. A line short enough to draw whole comes back whole. Points with
+/// a non-finite coordinate are left out.
+#[must_use]
+pub fn decimate_line(points: &[ChartPoint], frame: &PlotFrame) -> Vec<usize> {
+    todo!("CHART7 GREEN")
+}
+
+/// The dots of a scatter worth drawing in `frame`: the first dot of every
+/// `cell` x `cell` px cell it occupies, in drawing order. Dots outside the
+/// plot or with a non-finite coordinate are left out.
+#[must_use]
+pub fn thin_scatter(points: &[ChartPoint], frame: &PlotFrame, cell: f32) -> Vec<usize> {
+    todo!("CHART7 GREEN")
+}
+
+/// Whether the points' x never decreases (a line over time).
+#[must_use]
+pub fn is_sorted_by_x(points: &[ChartPoint]) -> bool {
+    todo!("CHART7 GREEN")
+}
+
+/// The point whose x is nearest to `x` in points sorted by x (binary
+/// search); ties go to the earlier point.
+#[must_use]
+pub fn nearest_by_x(points: &[ChartPoint], x: f64) -> Option<usize> {
+    todo!("CHART7 GREEN")
+}
+
+/// How a tick value is written: in `unit`s (1, thousands, millions,
+/// billions) with `suffix` ("", "K", "M", "B") and `decimals` places - one
+/// format for every tick of an axis, so they line up.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TickFormat {
+    /// What one written unit is worth.
+    pub unit: f64,
+    /// The unit's suffix.
+    pub suffix: &'static str,
+    /// The places after the point.
+    pub decimals: usize,
+}
+
+impl TickFormat {
+    /// The format of an axis with these ticks: the unit from its largest
+    /// magnitude (thousands from 10,000 on), the places from its step.
+    #[must_use]
+    pub fn of(ticks: &NiceTicks) -> Self {
+        todo!("CHART7 GREEN")
+    }
+
+    /// `v` written in this format ("12.5K", "1,500", "0.25").
+    #[must_use]
+    pub fn format(&self, v: f64) -> String {
+        todo!("CHART7 GREEN")
+    }
+}
+
+/// A value as the tooltip and the table write it: whole numbers with
+/// thousands separators, others with two places (four significant digits
+/// under 1), trailing zeros dropped.
+#[must_use]
+pub fn format_value(v: f64) -> String {
+    todo!("CHART7 GREEN")
+}
+
+#[cfg(test)]
+mod math_tests {
+    use super::*;
+
+    fn is_one_two_five(step: f64) -> bool {
+        let exp = step.log10().floor();
+        let f = step / 10f64.powf(exp);
+        [1.0, 2.0, 5.0, 10.0].iter().any(|n| (f - n).abs() < 1e-6)
+    }
+
+    #[test]
+    fn a_nice_step_is_the_next_one_two_or_five() {
+        assert_eq!(nice_step(1.0), 1.0);
+        assert_eq!(nice_step(1.1), 2.0);
+        assert_eq!(nice_step(3.0), 5.0);
+        assert_eq!(nice_step(7.0), 10.0);
+        assert_eq!(nice_step(250.0), 500.0);
+        assert!((nice_step(0.3) - 0.5).abs() < 1e-12);
+        assert!((nice_step(0.1) - 0.1).abs() < 1e-12, "0.1 is already nice");
+        assert!((nice_step(0.02) - 0.02).abs() < 1e-12, "0.02 is already nice");
+    }
+
+    #[test]
+    fn a_step_that_is_not_a_positive_number_is_one() {
+        assert_eq!(nice_step(0.0), 1.0);
+        assert_eq!(nice_step(-3.0), 1.0);
+        assert_eq!(nice_step(f64::NAN), 1.0);
+        assert_eq!(nice_step(f64::INFINITY), 1.0);
+    }
+
+    #[test]
+    fn every_nice_step_is_one_two_or_five_times_a_power_of_ten() {
+        let mut raw = 1e-6;
+        while raw < 1e9 {
+            let step = nice_step(raw);
+            assert!(step >= raw * (1.0 - 1e-9), "{step} is below {raw}");
+            assert!(is_one_two_five(step), "{step} (from {raw}) is not 1-2-5");
+            assert!(step <= raw * 2.5 + 1e-12, "{step} is too coarse for {raw}");
+            raw *= 1.37;
+        }
+    }
+
+    #[test]
+    fn nice_ticks_round_the_ends_out_to_the_step() {
+        let t = nice_ticks(3.0, 97.0, 5);
+        assert_eq!((t.min, t.max, t.step), (0.0, 100.0, 20.0));
+        assert_eq!(t.values(), vec![0.0, 20.0, 40.0, 60.0, 80.0, 100.0]);
+
+        let t = nice_ticks(-12.0, 47.0, 6);
+        assert_eq!((t.min, t.max, t.step), (-20.0, 50.0, 10.0));
+    }
+
+    #[test]
+    fn nice_ticks_cover_the_data_whatever_the_order_of_the_ends() {
+        let t = nice_ticks(97.0, 3.0, 5);
+        assert!(t.min <= 3.0 && t.max >= 97.0);
+    }
+
+    #[test]
+    fn small_fractions_get_fractional_ticks() {
+        let t = nice_ticks(0.001, 0.0093, 4);
+        assert!((t.step - 0.005).abs() < 1e-12);
+        assert!(t.min.abs() < 1e-12);
+        assert!((t.max - 0.01).abs() < 1e-12);
+    }
+
+    #[test]
+    fn an_empty_range_is_widened_around_its_value() {
+        let t = nice_ticks(5.0, 5.0, 5);
+        assert!(t.min < 5.0 && t.max > 5.0, "{t:?}");
+        let t = nice_ticks(0.0, 0.0, 5);
+        assert!(t.min <= 0.0 && t.max > 0.0, "{t:?}");
+    }
+
+    #[test]
+    fn a_non_finite_end_reads_as_zero() {
+        let t = nice_ticks(f64::NAN, 10.0, 5);
+        assert!(t.min.is_finite() && t.max.is_finite());
+        assert_eq!(t.min, 0.0);
+    }
+
+    #[test]
+    fn the_tick_count_stays_near_the_target() {
+        for (lo, hi) in [(0.0, 1.0), (0.0, 97.0), (-3.3, 8.8), (1e3, 7.7e6), (0.02, 0.031)] {
+            for target in 2..12 {
+                let n = nice_ticks(lo, hi, target).values().len() - 1;
+                assert!(n >= 1 && n <= target * 3, "{lo}..{hi} / {target}: {n} steps");
+            }
+        }
+    }
+
+    fn frame(bands: usize) -> PlotFrame {
+        PlotFrame {
+            x_min: 0.0,
+            x_max: 100.0,
+            y_min: 0.0,
+            y_max: 50.0,
+            width: 200.0,
+            height: 100.0,
+            bands,
+        }
+    }
+
+    #[test]
+    fn a_number_axis_maps_its_domain_onto_the_plot() {
+        let f = frame(0);
+        assert_eq!(f.px_x(0.0), 0.0);
+        assert_eq!(f.px_x(100.0), 200.0);
+        assert_eq!(f.px_x(25.0), 50.0);
+        assert_eq!(f.px_y(0.0), 100.0, "y grows upwards");
+        assert_eq!(f.px_y(50.0), 0.0);
+        assert!((f.x_at(50.0) - 25.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_category_sits_at_the_centre_of_its_band() {
+        let f = frame(4);
+        assert_eq!(f.band(), 50.0);
+        assert_eq!(f.px_x(0.0), 25.0);
+        assert_eq!(f.px_x(3.0), 175.0);
+        assert!((f.x_at(125.0) - 2.0).abs() < 1e-9);
+    }
+
+    fn wave(n: usize) -> Vec<ChartPoint> {
+        (0..n)
+            .map(|i| {
+                ChartPoint::create(
+                    i as f64,
+                    ((i as f64) * 0.001).sin() + ((i * 7919) % 101) as f64 * 0.01,
+                )
+            })
+            .collect()
+    }
+
+    fn wave_frame(n: usize, width: f32) -> PlotFrame {
+        PlotFrame {
+            x_min: 0.0,
+            x_max: (n - 1) as f64,
+            y_min: -2.0,
+            y_max: 2.0,
+            width,
+            height: 200.0,
+            bands: 0,
+        }
+    }
+
+    #[test]
+    fn a_long_line_keeps_at_most_four_points_per_pixel_column() {
+        let points = wave(500_000);
+        let f = wave_frame(points.len(), 500.0);
+        let kept = decimate_line(&points, &f);
+        assert!(kept.len() <= 4 * 501, "{} points kept", kept.len());
+        assert!(kept.len() >= 500, "every column keeps a point, got {}", kept.len());
+    }
+
+    #[test]
+    fn the_decimated_line_keeps_every_columns_extremes_and_its_ends() {
+        let points = wave(100_000);
+        let f = wave_frame(points.len(), 300.0);
+        let kept = decimate_line(&points, &f);
+        assert_eq!(kept.first(), Some(&0));
+        assert_eq!(kept.last(), Some(&(points.len() - 1)));
+        let col = |p: &ChartPoint| f.px_x(p.x).floor() as i64;
+        let mut full = std::collections::BTreeMap::<i64, (u64, u64)>::new();
+        for p in &points {
+            let e = full.entry(col(p)).or_insert((f64::MAX.to_bits(), f64::MIN.to_bits()));
+            e.0 = f64::from_bits(e.0).min(p.y).to_bits();
+            e.1 = f64::from_bits(e.1).max(p.y).to_bits();
+        }
+        let mut seen = std::collections::BTreeMap::<i64, (u64, u64)>::new();
+        for &i in &kept {
+            let p = &points[i];
+            let e = seen.entry(col(p)).or_insert((f64::MAX.to_bits(), f64::MIN.to_bits()));
+            e.0 = f64::from_bits(e.0).min(p.y).to_bits();
+            e.1 = f64::from_bits(e.1).max(p.y).to_bits();
+        }
+        assert_eq!(full, seen, "a column lost its lowest or highest point");
+    }
+
+    #[test]
+    fn the_decimated_line_is_in_drawing_order() {
+        let points = wave(50_000);
+        let kept = decimate_line(&points, &wave_frame(points.len(), 200.0));
+        assert!(kept.windows(2).all(|w| w[0] < w[1]));
+    }
+
+    #[test]
+    fn a_short_line_is_kept_whole() {
+        let points = wave(300);
+        let kept = decimate_line(&points, &wave_frame(points.len(), 400.0));
+        assert_eq!(kept, (0..300).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn a_point_with_a_non_finite_coordinate_is_left_out() {
+        let mut points = wave(10);
+        points[4].y = f64::NAN;
+        points[6].x = f64::INFINITY;
+        let kept = decimate_line(&points, &wave_frame(10, 400.0));
+        assert!(!kept.contains(&4) && !kept.contains(&6));
+        assert_eq!(kept.len(), 8);
+    }
+
+    #[test]
+    fn a_dense_scatter_keeps_one_dot_per_occupied_cell() {
+        // 100k dots inside a 10 x 10 px patch of a 200 x 100 plot.
+        let points: Vec<ChartPoint> = (0..100_000)
+            .map(|i| {
+                ChartPoint::create(
+                    (i % 317) as f64 / 317.0 * 5.0,
+                    (i % 211) as f64 / 211.0 * 5.0,
+                )
+            })
+            .collect();
+        let kept = thin_scatter(&points, &frame(0), 2.0);
+        assert!(kept.len() <= 6 * 6 * 4, "{} dots kept", kept.len());
+        assert!(!kept.is_empty());
+    }
+
+    #[test]
+    fn a_sparse_scatter_keeps_every_dot() {
+        let points: Vec<ChartPoint> =
+            (0..20).map(|i| ChartPoint::create(i as f64 * 5.0, i as f64 * 2.0)).collect();
+        assert_eq!(thin_scatter(&points, &frame(0), 2.0), (0..20).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn a_dot_outside_the_plot_is_left_out() {
+        let points = vec![ChartPoint::create(10.0, 10.0), ChartPoint::create(10.0, 500.0)];
+        assert_eq!(thin_scatter(&points, &frame(0), 2.0), vec![0]);
+    }
+
+    #[test]
+    fn the_nearest_point_by_x_is_found_by_binary_search() {
+        let points: Vec<ChartPoint> =
+            (0..1000).map(|i| ChartPoint::create(i as f64 * 2.0, 0.0)).collect();
+        assert!(is_sorted_by_x(&points));
+        assert_eq!(nearest_by_x(&points, 0.0), Some(0));
+        assert_eq!(nearest_by_x(&points, 7.1), Some(4), "7.1 is nearer 8 than 6");
+        assert_eq!(nearest_by_x(&points, 6.9), Some(3));
+        assert_eq!(nearest_by_x(&points, -50.0), Some(0));
+        assert_eq!(nearest_by_x(&points, 1e9), Some(999));
+        assert_eq!(nearest_by_x(&[], 1.0), None);
+        assert!(!is_sorted_by_x(&[
+            ChartPoint::create(2.0, 0.0),
+            ChartPoint::create(1.0, 0.0)
+        ]));
+    }
+
+    fn labels(t: &NiceTicks) -> Vec<String> {
+        let f = TickFormat::of(t);
+        t.values().iter().map(|v| f.format(*v)).collect()
+    }
+
+    #[test]
+    fn an_axis_writes_every_tick_in_one_unit() {
+        assert_eq!(
+            labels(&nice_ticks(0.0, 19_000.0, 4)),
+            vec!["0", "5K", "10K", "15K", "20K"]
+        );
+        assert_eq!(
+            labels(&nice_ticks(0.0, 1400.0, 3)),
+            vec!["0", "500", "1,000", "1,500"]
+        );
+        assert_eq!(
+            labels(&nice_ticks(0.0, 1.0, 5)),
+            vec!["0.0", "0.2", "0.4", "0.6", "0.8", "1.0"]
+        );
+        let t = nice_ticks(-2.5e6, 2.5e6, 4);
+        let f = TickFormat::of(&t);
+        assert_eq!(f.suffix, "M");
+        assert_eq!(f.format(-2e6), "-2M");
+    }
+
+    #[test]
+    fn a_tick_that_rounds_to_zero_is_written_without_a_sign() {
+        let f = TickFormat {
+            unit: 1.0,
+            suffix: "",
+            decimals: 1,
+        };
+        assert_eq!(f.format(-0.01), "0.0");
+    }
+
+    #[test]
+    fn a_value_is_written_for_reading() {
+        assert_eq!(format_value(1234.0), "1,234");
+        assert_eq!(format_value(-1_234_567.0), "-1,234,567");
+        assert_eq!(format_value(1234.5), "1,234.5");
+        assert_eq!(format_value(3.14159), "3.14");
+        assert_eq!(format_value(0.000_123_46), "0.0001235");
+        assert_eq!(format_value(0.0), "0");
+        assert_eq!(format_value(f64::NAN), "-");
+    }
+}
+
+// CHART7-NEXT: the geometry, the build, the pointer and the keys.
