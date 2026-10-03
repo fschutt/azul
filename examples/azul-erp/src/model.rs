@@ -180,6 +180,27 @@ impl MaintenanceKind {
         MaintenanceKind::Other,
     ];
 
+    /// The code the files hold: `SERVICE`.
+    #[must_use]
+    pub fn code(self) -> &'static str {
+        match self {
+            MaintenanceKind::Service => "SERVICE",
+            MaintenanceKind::Inspection => "INSPECTION",
+            MaintenanceKind::Repair => "REPAIR",
+            MaintenanceKind::Calibration => "CALIBRATION",
+            MaintenanceKind::Other => "OTHER",
+        }
+    }
+
+    /// A code or a label, any case.
+    #[must_use]
+    pub fn parse(text: &str) -> Option<MaintenanceKind> {
+        let t = text.trim();
+        MaintenanceKind::ALL
+            .into_iter()
+            .find(|k| k.code().eq_ignore_ascii_case(t) || k.label().eq_ignore_ascii_case(t))
+    }
+
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
