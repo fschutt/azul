@@ -4594,7 +4594,7 @@ fn layout_ifc<T: ParsedFontTrait>(
                     let main_frag = cached.materialized();
                     let mut output = LayoutOutput {
                         overflow_size: ifc_extent(&main_frag),
-                        baseline: main_frag.last_baseline(),
+                        baseline: main_frag.last_line_baseline_y(),
                         ..Default::default()
                     };
                     // The cache-reuse exit must trim like the full path: a
@@ -4843,7 +4843,11 @@ fn layout_ifc<T: ParsedFontTrait>(
         // exit above reports the same, so two layouts of unchanged content
         // agree to the bit.
         output.overflow_size = ifc_extent(main_frag);
-        output.baseline = main_frag.last_baseline();
+        // WHERE the last line's baseline is (an inline-block's baseline, CSS
+        // 2.2 10.8.1) - not the last item's own offset (`last_baseline`), which
+        // put a two-line inline-block on its first line and read a box's
+        // distance from its bottom as one from the top.
+        output.baseline = main_frag.last_line_baseline_y();
         warm_node.baseline = output.baseline;
 
         apply_text_box_trim(
@@ -9249,13 +9253,12 @@ fn line_baseline(index: usize, tree: &LayoutTree, depth: usize, edge: LineEdge) 
     {
         // (d6h) Materialized: sentinel-safe line baseline.
         let inline_result = cached_layout.materialized();
-        let item = match edge {
-            LineEdge::First => inline_result.items.first(),
-            LineEdge::Last => inline_result.items.last(),
+        let baseline = match edge {
+            LineEdge::First => inline_result.first_line_baseline_y(),
+            LineEdge::Last => inline_result.last_line_baseline_y(),
         };
-        if let Some(item) = item {
-            let (item_ascent, _) = text3::cache::get_item_vertical_metrics_approx(&item.item);
-            return Some(content_top + item.position.y + item_ascent);
+        if let Some(baseline) = baseline {
+            return Some(content_top + baseline);
         }
     }
     if depth >= MAX_DEPTH {

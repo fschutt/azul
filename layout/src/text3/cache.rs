@@ -5763,6 +5763,30 @@ pub struct PositionedItem {
     pub line_index: usize,
 }
 
+impl PositionedItem {
+    /// The y of the baseline this item sits on, in its layout's space:
+    /// `position_one_line` put its top at (its baseline - its ascent). A box
+    /// (inline-block, image, combined text) rises `height - baseline_offset`
+    /// above its baseline; a glyph run by its ascent; a break or a tab, with
+    /// no geometry, sits on the baseline.
+    #[must_use]
+    pub fn baseline_y(&self) -> f32 {
+        match &self.item {
+            ShapedItem::Object {
+                bounds,
+                baseline_offset,
+                ..
+            }
+            | ShapedItem::CombinedBlock {
+                bounds,
+                baseline_offset,
+                ..
+            } => self.position.y + bounds.height - baseline_offset,
+            other => self.position.y + get_item_vertical_metrics_approx(other).0,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct UnifiedLayout {
     pub items: Vec<PositionedItem>,
@@ -5848,6 +5872,25 @@ impl UnifiedLayout {
             .iter()
             .rev()
             .find_map(|item| get_baseline_for_item(&item.item))
+    }
+
+    /// Where this layout's FIRST line's baseline is, in its own space (the
+    /// content box of its IFC root): the baseline of the first positioned
+    /// item. [`Self::first_baseline`] answers an item's OWN baseline offset
+    /// (a glyph's ascent, a box's distance from its bottom), not a position.
+    #[must_use]
+    pub fn first_line_baseline_y(&self) -> Option<f32> {
+        self.items.first().map(PositionedItem::baseline_y)
+    }
+
+    /// Where this layout's LAST line's baseline is, in its own space: the
+    /// baseline of the last positioned item - an inline-block's baseline
+    /// (CSS 2.2 10.8.1). [`Self::last_baseline`] is the last item's own
+    /// offset, which put a two-line inline-block on its FIRST line and read a
+    /// box's distance from its bottom as one from the top.
+    #[must_use]
+    pub fn last_line_baseline_y(&self) -> Option<f32> {
+        self.items.last().map(PositionedItem::baseline_y)
     }
 
     /// The closest logical cursor position to a point in this layout's OWN
