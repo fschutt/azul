@@ -62,6 +62,17 @@ impl ShmPoolLayout {
     pub(crate) fn pixel_bytes(&self, height: i32) -> usize {
         self.stride.max(0) as usize * height.max(1) as usize
     }
+
+    /// One row in pixels, padding included: the width of the renderer's view
+    /// of a buffer (an `AzulPixmap`'s width IS its row pitch).
+    pub(crate) fn pitch_px(&self) -> u32 {
+        (self.stride.max(0) as usize / BYTES_PER_PIXEL) as u32
+    }
+
+    /// Pixels of padding at the end of every row of a `width`-pixel buffer.
+    pub(crate) fn padding_px(&self, width: i32) -> u32 {
+        (self.pitch_px() as usize).saturating_sub(width.max(1) as usize) as u32
+    }
 }
 
 /// `value` rounded up to the next multiple of `alignment` (`alignment` > 0).
@@ -289,11 +300,22 @@ mod tests {
     }
 
     #[test]
-    fn the_row_pitch_stays_tight_because_the_renderer_draws_into_the_buffer() {
+    fn the_row_pitch_is_the_row_rounded_up_to_256_bytes_so_any_gpu_can_sample_it() {
         for &(w, h) in SIZES {
             let l = pool_layout(w, h, 2, 4096).expect("fits");
-            assert_eq!(l.stride as usize, w as usize * BYTES_PER_PIXEL, "{w}x{h}");
+            let row = w as usize * BYTES_PER_PIXEL;
+            let pitch = l.stride as usize;
+            assert_eq!(pitch % 256, 0, "{w}x{h}: pitch {pitch}");
+            assert!(pitch >= row, "{w}x{h}: pitch {pitch} < row {row}");
+            assert!(pitch < row + 256, "{w}x{h}: more than one step of padding");
+            // The padding is whole pixels (the renderer's view of the slot is
+            // a pixmap `pitch / 4` pixels wide).
+            assert_eq!(pitch % BYTES_PER_PIXEL, 0);
+            assert_eq!(l.padding_px(w) as usize, (pitch - row) / BYTES_PER_PIXEL);
         }
+        // Widths that are multiples of 64 px need no padding at all.
+        assert_eq!(pool_layout(1920, 1080, 2, 4096).unwrap().stride, 1920 * 4);
+        assert_eq!(pool_layout(1921, 1080, 2, 4096).unwrap().stride, 1984 * 4);
     }
 
     #[test]
@@ -305,8 +327,9 @@ mod tests {
     #[test]
     fn a_zero_or_negative_size_is_laid_out_as_one_pixel() {
         let l = pool_layout(0, -5, 2, 4096).expect("fits");
-        assert_eq!(l.stride, 4);
+        assert_eq!(l.stride, 256);
         assert_eq!(l.slot_bytes, 4096);
+        assert_eq!(l.padding_px(0), 63);
     }
 
     #[test]
