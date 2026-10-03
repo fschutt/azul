@@ -31,13 +31,15 @@ Scratch helpers (not committed): /tmp/pimdrive7/rep.py (exact replacements from 
 - 50775f491 / 41b2ce569 RED / GREEN tag suggestions (views::tag_suggestions, chips under the tag field)
 - affe9544d AzCalendar Month days = azul_pim::dates::month_grid (month_grid_start gone)
 
+- 4778a86fc / a05db19a7 item 4 RED / GREEN: AzCalendar start reads events / calendars / settings through
+  the data folder's Drive, --sample writes through it; std::fs helpers gone; the meeting server line is
+  AzCalendar's own (rooms.rs drops encode_settings / decode_settings / MAX_SETTINGS_BYTES)
+
 ## IN PROGRESS
-- 4. AzCalendar start through the Drive: read lib.rs start / CalState::new, store.rs, settings.rs, event.rs
-  load, calendars.rs load, sample.rs; move the start reads (events / calendars / settings) and --sample's
-  writes onto the azul-storage Drive (LocalDrive on the data dir), RED tests first.
+- 5. AzContacts LOOK (prebuilt, capped): list, card + photo avatar, edit form + birthday picker, CSV import
+  mapping table; fix the app's bugs (RED first). Driver: /tmp/pimdrive7/look_contacts.py on azlin_e2e.
 
 ## NEXT
-- 5. AzContacts LOOK + fixes.
 - 6. AzDrive Details on a widget; AzMeet chat on rejoin; azdrive / azmeet E2E onto azlin_e2e.py.
 - 7. LOOK at all five apps.
 
