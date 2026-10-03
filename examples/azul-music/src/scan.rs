@@ -13,14 +13,40 @@ pub const MAX_DEPTH: usize = 12;
 /// and folders (a leading dot) are skipped; unreadable folders are skipped silently.
 #[must_use]
 pub fn audio_files(folder: &Path) -> Vec<PathBuf> {
-    let _ = folder;
-    Vec::new()
+    fn walk(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
+        if depth > MAX_DEPTH {
+            return;
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            if entry.file_name().to_string_lossy().starts_with('.') {
+                continue;
+            }
+            let path = entry.path();
+            // `file_type` does not follow links: a linked folder is not walked (no loops).
+            match entry.file_type() {
+                Ok(t) if t.is_dir() => walk(&path, depth + 1, out),
+                Ok(t) if t.is_file() && is_audio_file(&path) => out.push(path),
+                _ => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(folder, 0, &mut out);
+    out.sort();
+    out
 }
 
 /// The default music folder: `~/Music` (`%USERPROFILE%\Music` on Windows).
 #[must_use]
 pub fn default_music_folder() -> PathBuf {
-    PathBuf::new()
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
+    match home {
+        Some(home) => PathBuf::from(home).join("Music"),
+        None => PathBuf::from("Music"),
+    }
 }
 
 #[cfg(test)]
