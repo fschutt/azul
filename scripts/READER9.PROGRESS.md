@@ -60,7 +60,18 @@ AzReader, lib azreader). Never compile; rustfmt --edition 2021 <file> as the par
    toggle_bookmark, settings_changed, on_chapter_ready, on_job_done; uses kit category
    "Reading" -> create_kit must get app_categories &["Reading"]), 88a9283a1 Job::ImportBytes,
    ff447ab12 src/sample.rs, b73580b16 src/ribbon.rs (ribbon(app, st) for both screens),
-   e43d89523 src/ui_library.rs (navigation, content, status_bar). NEXT = (e) src/ui_reader.rs:
+   e43d89523 src/ui_library.rs (navigation, content, status_bar), 1a2ec31dc src/ui_reader.rs
+   (navigation -> Option<Dom>, pages, status_bar). NEXT = (f) src/lib.rs: replace the
+   placeholder with SPEC/ABOUT/SHORTCUTS, start() (AppArgs::from_env; kit::create_kit(SPEC,
+   ABOUT, &SHORTCUTS, &["Reading"], args); ReadingSettings::from_settings(&kit.settings);
+   AppState::new; files on the command line -> st.import_on_start; kit::app_config;
+   kit::window_options(.., layout, (1180, 820), (640, 480), on_window_created)), layout()
+   (mode -> st.dark; window size -> st.window; fonts snapshot; settings page with the
+   "Reading" AppSection; DocumentShell for both screens; About modal; window key handler),
+   on_window_created (kit::on_window_created, scan, import_on_start, 400 ms timer area_tick:
+   measure area -> st.area, commands::ensure_layout), on_key (arrows / PageUp / PageDown /
+   Space / Home, Mod+D bookmark, Mod+O add book, Mod+L library, Escape). Then (g) the reading
+   settings section for the settings page. Was (e) src/ui_reader.rs:
    navigation (TOC rows / bookmark rows, click -> GoToEntry / GoToBookmark), pages view
    (reading area with .with_marker(st.area_marker), prev/next zones, running head, page
    frames: each = paper div (geometry.margin padding, paper colours) > clip div (width
