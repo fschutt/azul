@@ -19,9 +19,10 @@
 //!
 //! FILES (the S3 split): a workbook is `sheets/<uuid>.xlsx` plus
 //! `sheets/<uuid>.json` (title, zoom, sheet, cursor) in the data folder,
-//! written and read through azul-storage's `Drive` (a `LocalDrive` rooted at
-//! `AZSHEETS_DATA`, else `<user data dir>/Azlin`) from an azul `Thread`.
-//! Exports go to `exports/` in the same folder.
+//! written and read through the app's ONE azul-storage `Drive` (a
+//! `LocalDrive` on azul-appkit's data root: `--data-dir`, `AZLIN_DATA`, the
+//! user's data folder) from an azul `Thread`. Exports go to
+//! `sheets/exports/` through the same drive.
 //!
 //! On stdout, for scripts: `AZSHEETS_READY`, `AZSHEETS_REPLY <seq> ok|err`,
 //! `AZSHEETS_CELL <A1> <shown text>` (the active cell after a reply),
