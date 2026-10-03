@@ -33,10 +33,20 @@ Screenshots: target/pim6-shots (not committed).
 - 219816350 / fe972fc15 RED/GREEN editor::close_answer - Save closes without asking (INFRA6's
   CloseRequested on the app's own close_window); E2E editor stage asserts no "asking"
 
+- AzCalendar storage DONE: 1a84f09fb WriteQueue moved to azul_pim::write_queue (additive; AzTasks
+  re-exports); 338260031/832f83cd5 store.rs jobs_of/failures_of/export_key; 58f701239 CalState
+  queues (store_event/remove_event_file/store_calendar/remove_calendar_file/save_setting/
+  store_task); 1d178e0e1/17734974a writes.rs (100 ms main-window timer -> spawn_file_jobs,
+  on_writes_done, InFlight lines AZCAL_SAVED/SYNCED/DELETED printed once landed, retry at the
+  sync tick) + main window CloseRequested waits (store::main_close); c7b96e0e2 registered link +
+  delete; 3386d7872 chrome.rs calendars/tasks/server/export; edff14d32 import read on a thread;
+  e2f2a6f23 E2E views stage checks settings.txt.
+- Restart 2026-10-03: scratchpad wiped (look.py gone; rewrite if a LOOK run is needed). INFRA6
+  note (Save closes without asking) was already covered by 219816350/fe972fc15.
+
 ## IN PROGRESS
-- AzCalendar storage onto the azul-storage Drive on a Thread (events, calendars, tasks,
-  settings, exports). NEXT: read examples/azul-appkit/src/files.rs + ui.rs spawn_file_jobs and
-  AzContacts' use; design a write queue in AzCalendar (CalState.pending writes -> one job thread).
+- AzCalendar finish checklist: navigator DatePicker week start (chrome.rs), `__azcal_` prefix
+  constants, `ctrl || meta` grep, timegrid short-event block (flex-shrink 0). Then AzTasks.
 
 ## (old notes, done) RecurrenceEditor GREEN part 2 steps, in layout/src/widgets/recurrence_editor.rs:
   1. replace the 4 remaining `todo!()`: `RecurrenceEditor::create` (week_start Monday default,
