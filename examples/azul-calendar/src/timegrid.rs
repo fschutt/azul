@@ -614,7 +614,8 @@ fn queue_zoom_save(s: &mut CalState, info: &mut CallbackInfo, app: &RefAny) {
 extern "C" fn on_save_zoom(mut data: RefAny, _info: TimerCallbackInfo) -> TimerCallbackReturn {
     if let Some(mut s) = data.downcast_mut::<CalState>() {
         s.zoom_save_queued = false;
-        s.save_setting(&settings::hour_px_line(s.hour_px));
+        let line = settings::hour_px_line(s.hour_px);
+        s.save_setting(&line);
     }
     TimerCallbackReturn::terminate_unchanged()
 }

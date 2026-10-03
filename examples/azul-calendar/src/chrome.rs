@@ -1098,13 +1098,10 @@ extern "C" fn on_todo_event(
                 let order = azul_pim::task::next_order(&s.tasks, &s.task_list);
                 let now = chrono::Local::now().naive_local();
                 if let Some(task) = tasks::new_task(&title, &s.task_list, order, now) {
-                    match tasks::save(&s.tasks_root, &task) {
-                        Ok(()) => {
-                            s.tasks.push(task);
-                            tasks::sort(&mut s.tasks);
-                        }
-                        Err(e) => s.notice = format!("The task could not be saved: {e}"),
-                    }
+                    // Its file is written on the file thread (`writes.rs`).
+                    s.store_task(&task);
+                    s.tasks.push(task);
+                    tasks::sort(&mut s.tasks);
                 }
                 Update::RefreshDom
             })
@@ -1117,9 +1114,7 @@ extern "C" fn on_todo_event(
             let next = tasks::toggle_done(task, chrono::Local::now().naive_local());
             let task = task.clone();
             for changed in std::iter::once(task).chain(next.clone()) {
-                if let Err(e) = tasks::save(&s.tasks_root, &changed) {
-                    s.notice = format!("The task could not be saved: {e}");
-                }
+                s.store_task(&changed);
             }
             s.tasks.extend(next);
             tasks::sort(&mut s.tasks);
@@ -1314,14 +1309,7 @@ fn import(s: &mut CalState) {
             name,
             colour: calendars::next_colour(&s.calendars),
         };
-        if let Err(e) = calendars::save(&s.data_dir, &made) {
-            report(
-                s,
-                true,
-                format!("Could not make the calendar {:?}: {e}", made.name),
-            );
-            return;
-        }
+        s.store_calendar(&made);
         let id = made.id.clone();
         s.calendars.push(made);
         id
@@ -1384,21 +1372,25 @@ fn export_name(s: &CalState) -> String {
 
 /// Export: the chosen calendar's events (or all) as an .ics file, at the path given (else in
 /// the Documents folder, named after the calendar).
-extern "C" fn on_export_run(mut data: RefAny, _info: CallbackInfo) -> Update {
+extern "C" fn on_export_run(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app = data.clone();
     with_state(&mut data, |s| {
-        export(s);
+        export(s, &mut info, &app);
         Update::RefreshDom
     })
 }
 
-fn export(s: &mut CalState) {
+/// The export file is written on a file thread (`writes::export`); `AZCAL_EXPORTED` and the
+/// report line once it landed.
+fn export(s: &mut CalState, info: &mut CallbackInfo, app: &RefAny) {
     let name = export_name(s);
     let path = if s.export_path.trim().is_empty() {
-        let folder = FilePath::get_document_dir()
-            .into_option()
-            .map(|dir| PathBuf::from(dir.inner.as_str()))
-            .unwrap_or_else(|| s.data_dir.clone());
-        folder.join(ics::file_name_for(&name))
+        // The Documents folder, else the data tree's exports folder.
+        let file = ics::file_name_for(&name);
+        match FilePath::get_document_dir().into_option() {
+            Some(dir) => PathBuf::from(dir.inner.as_str()).join(file),
+            None => s.data_dir.join(crate::store::export_key(&file)),
+        }
     } else {
         PathBuf::from(s.export_path.trim())
     };
@@ -1414,18 +1406,8 @@ fn export(s: &mut CalState) {
         .collect();
     let text = ics::write(&events, &name, chrono::Utc::now().naive_utc());
     let count = events.len();
-    match std::fs::write(&path, text) {
-        Ok(()) => {
-            println!("AZCAL_EXPORTED {count} {}", path.display());
-            s.export_path = path.display().to_string();
-            report(
-                s,
-                false,
-                format!("Exported {count} event(s) to {}.", path.display()),
-            );
-        }
-        Err(e) => report(s, true, format!("Could not write {}: {e}", path.display())),
-    }
+    report(s, false, format!("Exporting {count} event(s) to {}...", path.display()));
+    crate::writes::export(s, info, app, path, text, count);
 }
 
 // ==== Callbacks: Calendars ====
@@ -1463,10 +1445,8 @@ extern "C" fn on_calendar_rename(
         };
         c.name = name;
         let c = c.clone();
-        s.calendar_error = match calendars::save(&s.data_dir, &c) {
-            Ok(_) => String::new(),
-            Err(e) => format!("Could not save the calendar: {e}"),
-        };
+        s.store_calendar(&c);
+        s.calendar_error.clear();
         Update::RefreshDom
     });
     OnTextInputReturn {
@@ -1491,10 +1471,8 @@ extern "C" fn on_calendar_colour(mut data: RefAny, _info: CallbackInfo, index: u
         };
         c.colour = colour;
         let c = c.clone();
-        s.calendar_error = match calendars::save(&s.data_dir, &c) {
-            Ok(_) => String::new(),
-            Err(e) => format!("Could not save the calendar: {e}"),
-        };
+        s.store_calendar(&c);
+        s.calendar_error.clear();
         Update::RefreshDom
     })
 }
@@ -1524,10 +1502,7 @@ extern "C" fn on_calendar_remove(mut data: RefAny, _info: CallbackInfo) -> Updat
                 return Update::RefreshDom;
             }
         }
-        if let Err(e) = calendars::remove(&s.data_dir, &id) {
-            s.calendar_error = format!("Could not remove the calendar: {e}");
-            return Update::RefreshDom;
-        }
+        s.remove_calendar_file(&id);
         s.calendars.retain(|c| c.id != id);
         s.hidden.remove(&id);
         s.import_calendar = 0;
@@ -1557,14 +1532,10 @@ extern "C" fn on_calendar_add(mut data: RefAny, _info: CallbackInfo) -> Update {
             name,
             colour: calendars::next_colour(&s.calendars),
         };
-        match calendars::save(&s.data_dir, &made) {
-            Ok(_) => {
-                s.calendars.push(made);
-                s.calendar_name.clear();
-                s.calendar_error.clear();
-            }
-            Err(e) => s.calendar_error = format!("Could not save the calendar: {e}"),
-        }
+        s.store_calendar(&made);
+        s.calendars.push(made);
+        s.calendar_name.clear();
+        s.calendar_error.clear();
         Update::RefreshDom
     })
 }
@@ -1583,10 +1554,7 @@ extern "C" fn on_server_save(mut data: RefAny, mut info: CallbackInfo) -> Update
             );
             return Update::RefreshDom;
         };
-        if let Err(e) = meeting::save_server(&settings::path(&s.data_dir), &server) {
-            s.server_error = format!("Could not save the setting: {e}");
-            return Update::RefreshDom;
-        }
+        s.save_setting(&meet_rooms::encode_settings(&server));
         eprintln!("[azcalendar] meeting server: {server}");
         let moving: Vec<event::Event> = s
             .events

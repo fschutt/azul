@@ -101,7 +101,7 @@ use azul::{
     vec::{StyledTextRunVec, U8Vec},
     window::WindowDecorations,
 };
-use azul_pim::write_queue::{Write, WriteQueue};
+use azul_pim::write_queue::WriteQueue;
 use chrono::{Datelike, NaiveDate, NaiveTime, Timelike};
 
 use crate::{
@@ -267,9 +267,9 @@ pub(crate) struct CalState {
     pub(crate) data_writes: WriteQueue,
     /// Writes into the task store's folder (the To-Do bar's tasks).
     pub(crate) task_writes: WriteQueue,
-    /// The batch of each queue on its way (to tell which writes failed).
-    pub(crate) data_batch: Vec<Write>,
-    pub(crate) task_batch: Vec<Write>,
+    /// The batch of each queue on its way, with the lines it prints once landed.
+    pub(crate) data_flight: writes::InFlight,
+    pub(crate) task_flight: writes::InFlight,
     /// The settings file's text as last written (a setting replaces its line in it).
     pub(crate) settings_text: String,
     /// The main window was asked to close while writes waited: it closes once they landed.
@@ -1303,8 +1303,8 @@ pub fn start() {
         editor_asking: false,
         data_writes: WriteQueue::new(),
         task_writes: WriteQueue::new(),
-        data_batch: Vec::new(),
-        task_batch: Vec::new(),
+        data_flight: writes::InFlight::default(),
+        task_flight: writes::InFlight::default(),
         settings_text: text.to_string(),
         closing: false,
         close_despite_failures: false,

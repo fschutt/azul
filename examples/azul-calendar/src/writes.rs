@@ -17,11 +17,32 @@ use azul_appkit::{
     files::{FileJob, FileOutcome},
     ui as kit,
 };
+use azul_pim::write_queue::Write;
 
 use crate::{store, CalState};
 
 /// How often the main window's timer looks for writes to start.
 pub(crate) const WRITE_TICK_MS: u64 = 100;
+
+/// A batch on its way, and the lines it prints once its writes landed: the lines announced
+/// for its keys before it was taken (a line announced later waits for the next write of its
+/// key - an `AZCAL_SYNCED` is not said by the write that still says "pending").
+#[derive(Debug, Default)]
+pub(crate) struct InFlight {
+    pub(crate) batch: Vec<Write>,
+    pub(crate) lines: Vec<(String, String)>,
+}
+
+impl InFlight {
+    /// `batch` on its way, taking the waiting lines of its keys out of `waiting`.
+    fn start(batch: Vec<Write>, waiting: &mut Vec<(String, String)>) -> InFlight {
+        let (lines, rest): (Vec<_>, Vec<_>) = std::mem::take(waiting)
+            .into_iter()
+            .partition(|(key, _)| batch.iter().any(|w| w.key() == key));
+        *waiting = rest;
+        InFlight { batch, lines }
+    }
+}
 
 /// Starts each queue's next batch on a file thread (when none is on its way). Called from the
 /// main window only.
@@ -35,7 +56,7 @@ pub(crate) fn pump(s: &mut CalState, info: &mut CallbackInfo, app: &RefAny) {
             store::TAG_DATA,
             on_writes_done,
         );
-        s.data_batch = batch;
+        s.data_flight = InFlight::start(batch, &mut s.on_landing);
     }
     if let Some(batch) = s.task_writes.take() {
         kit::spawn_file_jobs(
@@ -46,7 +67,7 @@ pub(crate) fn pump(s: &mut CalState, info: &mut CallbackInfo, app: &RefAny) {
             store::TAG_TASKS,
             on_writes_done,
         );
-        s.task_batch = batch;
+        s.task_flight = InFlight::start(batch, &mut s.on_landing);
     }
 }
 
@@ -131,23 +152,22 @@ extern "C" fn on_writes_done(mut app: RefAny, mut msg: RefAny, mut info: Callbac
             refresh = true;
         }
         tag @ (store::TAG_DATA | store::TAG_TASKS) => {
-            let (batch, root) = if tag == store::TAG_DATA {
-                (std::mem::take(&mut s.data_batch), s.data_dir.clone())
+            let (flight, root) = if tag == store::TAG_DATA {
+                (std::mem::take(&mut s.data_flight), s.data_dir.clone())
             } else {
-                (std::mem::take(&mut s.task_batch), s.tasks_root.clone())
+                (std::mem::take(&mut s.task_flight), s.tasks_root.clone())
             };
-            let failed = store::failures_of(&batch, &reply.outcomes);
-            for write in &batch {
-                let key = write.key();
-                if failed.iter().any(|(f, _)| f.key() == key) {
-                    continue;
-                }
-                eprintln!("[azcalendar] wrote {}", root.join(key).display());
-                let (now, later): (Vec<_>, Vec<_>) =
-                    std::mem::take(&mut s.on_landing).into_iter().partition(|(k, _)| k == key);
-                s.on_landing = later;
-                for (_, line) in now {
+            let failed = store::failures_of(&flight.batch, &reply.outcomes);
+            let landed = |key: &str| !failed.iter().any(|(f, _)| f.key() == key);
+            for write in flight.batch.iter().filter(|w| landed(w.key())) {
+                eprintln!("[azcalendar] wrote {}", root.join(write.key()).display());
+            }
+            for (key, line) in flight.lines {
+                if landed(&key) {
                     println!("{line}");
+                } else {
+                    // Said when the retry lands.
+                    s.on_landing.push((key, line));
                 }
             }
             for (write, why) in &failed {
