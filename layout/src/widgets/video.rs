@@ -22,7 +22,7 @@ use azul_core::{
 };
 
 use super::capture_common::{
-    invoke_on_frame, OnVideoFrame, OnVideoFrameCallback, OptionOnVideoFrame,
+    invoke_on_frame, terminate_requested, OnVideoFrame, OnVideoFrameCallback, OptionOnVideoFrame,
 };
 
 use crate::{
@@ -682,8 +682,11 @@ extern "C" fn video_on_resize(mut data: RefAny, info: CallbackInfo) -> Update {
 
 /// Background worker (test pattern): SMPTE-style colour bars scrolling
 /// horizontally ~30x/s. Replaced by the real vk-video decode worker later.
+///
+/// Stops when it is told to (`TerminateThread`: its `<video>` left the DOM or
+/// the window closed) or when the main thread stops receiving.
 #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-extern "C" fn video_test_worker(_init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
+extern "C" fn video_test_worker(_init: RefAny, mut sender: ThreadSender, mut recv: ThreadReceiver) {
     const BARS: [[u8; 3]; 7] = [
         [235, 235, 235],
         [235, 235, 16],
@@ -696,6 +699,9 @@ extern "C" fn video_test_worker(_init: RefAny, mut sender: ThreadSender, _recv: 
     let (w, h) = (DEFAULT_W as usize, DEFAULT_H as usize);
     let mut tick: u32 = 0;
     loop {
+        if terminate_requested(&mut recv) {
+            break;
+        }
         let shift = (tick as usize / 4) % 7;
         let mut bytes = Vec::with_capacity(w * h * 4);
         for _y in 0..h {
@@ -723,11 +729,12 @@ extern "C" fn video_test_worker(_init: RefAny, mut sender: ThreadSender, _recv: 
 /// path as the test pattern, so real decoded pixels land in the shared GL
 /// texture. `init` is the `RefAny` handed to
 /// [`VideoWidget::with_frames`](VideoWidget::with_frames); if it doesn't hold a
-/// non-empty `Vec<VideoFrame>` the worker just returns.
+/// non-empty `Vec<VideoFrame>` the worker just returns. Like the test
+/// pattern, it stops when it is told to (`TerminateThread`).
 extern "C" fn video_replay_worker(
     mut init: RefAny,
     mut sender: ThreadSender,
-    _recv: ThreadReceiver,
+    mut recv: ThreadReceiver,
 ) {
     let frames: Vec<VideoFrame> = match init.downcast_ref::<Vec<VideoFrame>>() {
         Some(f) => f.clone(),
@@ -738,6 +745,9 @@ extern "C" fn video_replay_worker(
     }
     let mut idx: usize = 0;
     loop {
+        if terminate_requested(&mut recv) {
+            break;
+        }
         let frame = frames[idx % frames.len()].clone();
         let sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
             WriteBackCallback::new(video_writeback),
