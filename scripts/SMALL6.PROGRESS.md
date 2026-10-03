@@ -29,24 +29,14 @@ Screenshots: target/small6-shots/ (not committed). Look driver: target/small6/lo
   Flat/Flora = the app theme (get_theme/set_theme); 84ddb8ad2 e2e/building_blocks.json; e22863a7a Titlebar.
 
 - AzMaps: 4d18cda71 / 2e0f66938 model.rs (pins file, kept viewport, pan math; RED/GREEN); a8759df48 WIP part 1
-  of the lib.rs rewrite (header doc, imports, SPEC/ABOUT/SHORTCUTS, MapState + methods, ids.rs). lib.rs is
-  INCOMPLETE until part 2: the old layout / callbacks / start / engine_feature_tests / android ctor are in
-  commit 2e0f66938, examples/azul-maps/src/lib.rs (port from there).
+  of the lib.rs rewrite; 4d8a9006b part 2 (BrowserShell layout, callbacks, pins file + kept view, appkit);
+  0bb82399f scripts/azmaps_e2e.py. (Resumed after the power loss from 05f87019f.)
 
 ## NEXT (exact)
-- AzMaps part 2 (examples/azul-maps/src/lib.rs, append after `// ==== LAYOUT (next commit) ====`): layout()
-  (BrowserShell: address bar = toolbar ids::PAN_*/ZOOM_*/RECENTRE/LOCATE/CLEAR_PINS/SETTINGS + coords; tree =
-  pins column; content = map area with MapWidget + compass + location dot; details = DetailsPane of the centre;
-  ShellThemeScope::body(); kit::settings_page when open), callbacks (buttons, on_key via kit::handle_key first,
-  on_viewport_changed, on_pin_tap -> save pins, the sensor timer also keeps the viewport after
-  VIEW_SAVE_IDLE_TICKS), on_window_created (kit + FileJob::Get pins), on_files_done, start() (AppArgs, kit,
-  parse_view(VIEW_KEY)), keep engine_feature_tests + android ctor. Then part 3: scripts/azmaps_e2e.py.
-- (old plan) AzMaps (examples/azul-maps/src/lib.rs, 634 lines, hand-rolled header): on BrowserShell (S5) - address bar
-  slot = search/coords + zoom/pan Toolbar buttons, tree = pins list (TreeView), content = the MapWidget,
-  details = selected pin (DetailsPane), status bar = centre/zoom; ShellThemeScope::body(); appkit (args,
-  settings: last viewport; pins saved as maps/pins.json through kit::spawn_file_jobs); ids `__azmaps_`;
-  E2E scripts/azmaps_e2e.py (pan / zoom buttons -> AZMAPS_VIEW lines; pin list; restart remembers).
-- then AzReview (DocumentShell), AzBuilder (minimal).
+- AzReview (examples/azul-review/src/*.rs): read it first; then ShellThemeScope::body() + DocumentShell, the
+  hard-coded light colours -> system colours / theme, appkit (args, settings page, About), sessions through
+  kit::spawn_file_jobs into review/ (not std::fs from callbacks), ids `__azreview_`, E2E onto azlin_e2e.
+- then AzBuilder (minimal: body() + a real window instead of the empty white body; appkit args/About).
 - AzShells: body(), appkit, prefixes, About, E2E.
 - AzWidgets: the new widgets; app theme; LOOK (short, it has a <video>).
 - AzMaps, AzReview: onto shells + themes + appkit + Drive; AzBuilder: checklist minimal.
