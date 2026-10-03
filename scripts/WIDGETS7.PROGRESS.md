@@ -37,10 +37,17 @@ Look run (one at a time, capped): run_capped.sh --cap-mb 1500 --seconds 90 --log
 - item 6b check box colour: the token prints as hex. 25f1e9804 RED (css text.rs
   a_system_colour_prints_as_its_keyword), cbd4265ee GREEN (ColorU::to_css_value pub(crate) + printers).
 
+- item 7 F2: ALREADY DONE before this wave (24a191049: ModuleSwitcher removed, the pane's switcher is the
+  one, wraps). Nothing to do.
+- item 7 F20: 909aaeb50 rename script (scripts/waves/wave7/widgets7_rename_summary_list.py), bf12be9ff
+  --layout part (message_list.rs -> summary_list.rs, types, classes, themes, fixtures, showcase).
+  Parent: --apps after OFFICE7, --api, then css/tools/gen_codegen_lowering.py.
+
 ## IN PROGRESS
-- item 7: DEDUP F2 (ModuleSwitcher vs ShellNavigationPane), F20 (MessageList -> SummaryList)
+- the report scripts/WIDGETS7_2026_10_03.md
 
 ## NEXT
+- (none after the report)
 7. DEDUP F2 ModuleSwitcher vs ShellNavigationPane; F20 MessageList -> SummaryList (only if mechanical)
 
 ## Decisions
