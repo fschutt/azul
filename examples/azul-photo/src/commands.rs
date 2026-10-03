@@ -14,9 +14,9 @@ use azul_appkit::{
 };
 
 use azul::{
-    css::{DarkLightMode, TextRasterStyle},
+    css::DarkLightMode,
     dialog::{FileDialog, FileOpenResult},
-    image::RawImageData,
+    image::{RawImageData, TextRasterStyle},
     option::{OptionDarkLightMode, OptionFileTypeList},
     prelude::*,
     widgets::{

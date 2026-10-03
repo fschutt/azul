@@ -506,7 +506,6 @@ pub fn generate_fn_body(method: &MethodDef, full_path: &str) -> String {
         "setter" => generate_setter_body(method),
         "method" => generate_method_body(method, full_path),
         "static" => generate_static_body(method, full_path),
-        "destructor" => generate_destructor_body(method),
         _ => generate_method_body(method, full_path),
     }
 }
@@ -518,10 +517,10 @@ fn determine_fn_type(method: &MethodDef, type_name: &str) -> String {
         return "constructor".to_string();
     }
 
-    // Destructor: typically named "drop" or similar
-    if method.name == "drop" || method.name.starts_with("destroy") {
-        return "destructor".to_string();
-    }
+    // A `destroy*` method is called like any other (a `drop` is a Drop
+    // impl's: never a candidate). It used to be `core::mem::drop(object)`:
+    // the method was not called, and the codegen does not rewrite a bare
+    // `object`.
 
     // Getter: &self, no args, returns something
     if method.self_kind == Some(SelfKind::Ref)
@@ -610,11 +609,6 @@ fn generate_static_body(method: &MethodDef, full_path: &str) -> String {
     format!("{}::{}({})", full_path, method.name, args_str)
 }
 
-fn generate_destructor_body(method: &MethodDef) -> String {
-    // fn_body should just be the drop expression
-    "core::mem::drop(object)".to_string()
-}
-
 // return type conversion for ffi
 /// Convert Rust return types to api.json format:
 /// - `Result<X, Y>` -> `ResultXY` (with `.into()` added to fn_body)
@@ -670,6 +664,12 @@ enum ReturnConversion {
     /// `<call>.map(|s| azul_css::AzString::from(s)).into()`: an `Option` of a
     /// `str` or a std `String` as `OptionString`
     OptionOwnedStr,
+    /// `<call>.clone()`: a borrowed `&T` return crosses as a value
+    Cloned,
+    /// `<call>.clone().into()`: a borrowed return whose value converts
+    ClonedInto,
+    /// `<call>.cloned().into()`: an `Option<&T>` as `OptionT`
+    OptionCloned,
 }
 
 impl ReturnConversion {
@@ -681,6 +681,25 @@ impl ReturnConversion {
             ReturnConversion::OptionOwnedStr => {
                 format!("{call}.map(|s| azul_css::AzString::from(s)).into()")
             }
+            ReturnConversion::Cloned => format!("{call}.clone()"),
+            ReturnConversion::ClonedInto => format!("{call}.clone().into()"),
+            ReturnConversion::OptionCloned => format!("{call}.cloned().into()"),
+        }
+    }
+
+    /// The conversion for `method`'s return when it is a borrow: an api.json
+    /// function returns a value, so `&T` is cloned and `Option<&T>`
+    /// `.cloned()` (AUTOFIX6: `object.block(i)` returned `&RichBlock` as
+    /// `RichBlock`). A borrowed `str` is [`ReturnConversion::OwnedStr`]
+    /// already; a slice has no FFI form and is left to the signature check.
+    fn for_borrowed_return(self, method: &MethodDef) -> Self {
+        let ret = method.return_type.as_deref().unwrap_or("").trim();
+        let borrowed = matches!(method.return_ref_kind, RefKind::Ref | RefKind::RefMut);
+        match self {
+            ReturnConversion::None if borrowed && !ret.starts_with('[') => ReturnConversion::Cloned,
+            ReturnConversion::Into if borrowed => ReturnConversion::ClonedInto,
+            ReturnConversion::Into if ret.starts_with("Option<&") => ReturnConversion::OptionCloned,
+            other => other,
         }
     }
 }
@@ -789,13 +808,7 @@ fn same_ffi_arg_type(api_ty: &str, source_ty: &str) -> bool {
         .strip_prefix("Option<")
         .and_then(|t| t.strip_suffix('>'))
     {
-        let inner = inner.trim();
-        let mut cap = inner.chars();
-        let upper = cap
-            .next()
-            .map(|c| c.to_ascii_uppercase().to_string() + cap.as_str())
-            .unwrap_or_default();
-        return api_ty == format!("Option{upper}");
+        return api_ty == format!("Option{}", capitalize(inner.trim()));
     }
     false
 }
@@ -827,40 +840,38 @@ pub fn signature_drift(
     out
 }
 
-/// Convert a Rust argument type to an FFI-compatible type
-/// Returns (ffi_type, accessor_suffix) where accessor_suffix is appended to the variable in fn_body
-/// e.g. ("String", ".as_str()") for &str
+/// Convert a Rust argument type to an FFI-compatible type.
+/// Returns (ffi_type, accessor) where the accessor is a `{}` template for
+/// the argument in the fn_body (`{}.as_str()` for `&str`): every accessor is
+/// a template, substituted for WHOLE arguments only - a suffix spliced in
+/// with `replace("text)")` also hit `context)` (AUTOFIX6).
 fn convert_arg_type_for_ffi(ty: &str) -> (String, Option<String>) {
     let trimmed = ty.trim();
 
     // Handle &str and str -> String (need .as_str() in fn_body)
     if trimmed == "&str" || trimmed == "str" {
-        return ("String".to_string(), Some(".as_str()".to_string()));
-    }
-
-    // Handle &[u8] and [u8] -> U8VecRef (need .as_slice() in fn_body)
-    if trimmed == "&[u8]" || trimmed == "[u8]" {
-        return ("U8VecRef".to_string(), Some(".as_slice()".to_string()));
+        return ("String".to_string(), Some("{}.as_str()".to_string()));
     }
 
     // Handle &String -> String (need .as_str() in fn_body if function expects &str)
     if trimmed == "&String" {
-        return ("String".to_string(), Some(".as_str()".to_string()));
+        return ("String".to_string(), Some("{}.as_str()".to_string()));
     }
 
     // Handle &Vec<u8> -> U8VecRef (need .as_slice() in fn_body)
     if trimmed == "&Vec<u8>" || trimmed == "Vec<u8>" {
-        return ("U8VecRef".to_string(), Some(".as_slice()".to_string()));
+        return ("U8VecRef".to_string(), Some("{}.as_slice()".to_string()));
     }
 
-    // Handle generic slices &[T] -> TypeVecRef with .as_slice()
-    if trimmed.starts_with("&[") && trimmed.ends_with(']') {
-        let inner = &trimmed[2..trimmed.len() - 1];
-        let inner_clean = inner.trim();
-        return (
-            format!("{}VecRef", inner_clean),
-            Some(".as_slice()".to_string()),
-        );
+    // Slices `[T]` (the source parser splits the `&` off before) or `&[T]`
+    if let Some(elem) = trimmed
+        .strip_prefix("&[")
+        .or_else(|| trimmed.strip_prefix('['))
+        .and_then(|rest| rest.strip_suffix(']'))
+    {
+        if let Some(slice) = slice_arg_type(elem.trim()) {
+            return (slice, Some("{}.as_slice()".to_string()));
+        }
     }
 
     // Reference to an API type: crosses the ABI as a raw pointer (the FFI
@@ -868,9 +879,7 @@ fn convert_arg_type_for_ffi(ty: &str) -> (String, Option<String>) {
     // it. The PREVIOUS behavior stripped the `&` down to a VALUE, so the
     // generated call tried to MOVE a struct the caller still owns — a
     // signature mismatch that broke codegen compilation, silently, on the
-    // first method imported with a reference argument. The accessor is a
-    // `{}` template (the whole argument expression is substituted), unlike
-    // the plain-suffix accessors above.
+    // first method imported with a reference argument.
     if let Some(inner) = trimmed.strip_prefix("&mut ") {
         return (
             format!("*mut {}", inner.trim()),
@@ -892,6 +901,75 @@ fn convert_arg_type_for_ffi(ty: &str) -> (String, Option<String>) {
 
     // No conversion needed
     (trimmed.to_string(), None)
+}
+
+/// The api.json type a `&[elem]` argument crosses as: the impl_vec! slice
+/// `{Elem}VecSlice` (the house convention), or for u8 / f32 / i32 the gl
+/// `{Elem}VecRef` api.json already uses (`U8VecRef`). `None` for an element
+/// that is not one plain name (`&str`, a tuple): no FFI form.
+fn slice_arg_type(elem: &str) -> Option<String> {
+    if elem.is_empty() || !elem.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return None;
+    }
+    if matches!(elem, "u8" | "f32" | "i32") {
+        return Some(format!("{}VecRef", capitalize(elem)));
+    }
+    if is_primitive_type(elem) {
+        return Some(format!("{}VecSlice", capitalize(elem)));
+    }
+    Some(format!("{elem}VecSlice"))
+}
+
+/// The api.json type and body accessor of an `Option<inner>` argument
+/// (`source_ty` as written, `Option<AzString>` / `Option<String>`): its FFI
+/// option, converted back - `.into()` for an owned value (a std `String`
+/// through `into_library_owned_string`), `.as_ref()` for a borrow, the
+/// `Option<&str>` from the `OptionString`. `None` when the inner type is not
+/// one plain name (`Option<Vec<T>>`, `Option<&mut T>`): no FFI form here.
+/// `Option<i32>` went out as written, a type api.json does not have.
+fn option_arg_ffi_type(inner: &str, source_ty: &str) -> Option<(String, Option<String>)> {
+    let plain = |t: &str| !t.is_empty() && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if inner == "&str" || inner == "str" {
+        return Some((
+            "OptionString".to_string(),
+            Some("{}.as_ref().map(|s| s.as_str())".to_string()),
+        ));
+    }
+    if let Some(borrowed) = inner.strip_prefix('&') {
+        let borrowed = borrowed.trim();
+        return plain(borrowed).then(|| {
+            (
+                crate::autofix::utils::canonicalize_option_type_name(borrowed),
+                Some("{}.as_ref()".to_string()),
+            )
+        });
+    }
+    if !plain(inner) {
+        return None;
+    }
+    let written_inner = source_ty
+        .strip_prefix("Option<")
+        .and_then(|r| r.strip_suffix('>'))
+        .map(str::trim);
+    if inner == "String" && written_inner == Some("String") {
+        return Some((
+            "OptionString".to_string(),
+            Some("{}.map(|s| s.into_library_owned_string())".to_string()),
+        ));
+    }
+    Some((
+        crate::autofix::utils::canonicalize_option_type_name(inner),
+        Some("{}.into()".to_string()),
+    ))
+}
+
+/// `u32` -> `U32`, `LayoutRect` stays.
+fn capitalize(name: &str) -> String {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
+        None => String::new(),
+    }
 }
 
 // // helper functions for list/add/remove
@@ -1065,11 +1143,11 @@ pub fn api_candidate_methods<'a>(
 /// - it returns no borrow (`&T`, `&str`, `&[T]`, `&mut T`, `Option<&T>`):
 ///   those are Rust-side accessors;
 /// - every argument and the return type, spelled as api.json spells it
-///   (`&str` -> `String`, `&T` -> `*const T`, `Option<X>` -> `OptionX`), is a
-///   scalar, the type itself, or a type `carries` says the FFI carries (an
-///   api.json type, a C-repr workspace type: [`ffi_carries`]). `Vec<T>`,
-///   slices, tuples, `Option<&str>` arguments, `Instant`, a struct without a
-///   C repr have no FFI form.
+///   (`&str` -> `String`, `&T` -> `*const T`, `Option<X>` -> `OptionX`,
+///   `Option<&str>` -> `OptionString`, `&[T]` -> `TVecSlice`), is a scalar,
+///   the type itself, or a type `carries` says the FFI carries (an api.json
+///   type, a C-repr workspace type: [`ffi_carries`]). `Vec<T>`, tuples,
+///   `Instant`, a struct without a C repr have no FFI form.
 ///
 /// Everything else is a Rust-only helper (RichTextDoc's 29 of wave 5). A
 /// helper that HAS an FFI form but is not API stays `pub(crate)` (house
@@ -1128,19 +1206,36 @@ pub fn generate_add_functions_patch(
     version: &str,
     type_def: &TypeDefinition,
 ) -> ApiPatch {
-    let mut functions: IndexMap<String, FunctionData> = IndexMap::new();
-    let mut constructors: IndexMap<String, FunctionData> = IndexMap::new();
-
     // Use the full_path from type_def (e.g. "azul_core::dom::Dom")
     let full_path = &type_def.full_path;
+    let entries = methods
+        .iter()
+        .map(|method| {
+            (
+                api_name_of(method),
+                method_to_function_data(method, full_path),
+                method.is_constructor,
+            )
+        })
+        .collect();
+    generate_add_entries_patch(type_name, entries, module_name, version)
+}
 
-    for method in methods {
-        let fn_data = method_to_function_data(method, full_path);
-
-        if method.is_constructor {
-            constructors.insert(api_name_of(method), fn_data);
+/// A patch adding `entries` - (api.json name, entry, is a constructor) -
+/// to the class `type_name`, merged with what the class has.
+pub fn generate_add_entries_patch(
+    type_name: &str,
+    entries: Vec<(String, FunctionData, bool)>,
+    module_name: &str,
+    version: &str,
+) -> ApiPatch {
+    let mut functions: IndexMap<String, FunctionData> = IndexMap::new();
+    let mut constructors: IndexMap<String, FunctionData> = IndexMap::new();
+    for (name, data, is_constructor) in entries {
+        if is_constructor {
+            constructors.insert(name, data);
         } else {
-            functions.insert(api_name_of(method), fn_data);
+            functions.insert(name, data);
         }
     }
 
@@ -1353,6 +1448,23 @@ fn source_arg_ffi_type(arg: &super::type_index::MethodArg) -> (String, Option<St
             return ("String".to_string(), accessor.map(str::to_string));
         }
     }
+    // A borrowed callback info crosses by value and is re-borrowed (a `&mut`
+    // one from a mutable copy the fn_body binds: `rebound_handle_args`)
+    if is_by_value_handle(&arg.ty) {
+        match arg.ref_kind {
+            crate::api::RefKind::RefMut => return (arg.ty.clone(), Some("&mut {}".to_string())),
+            crate::api::RefKind::Ref => return (arg.ty.clone(), Some("&{}".to_string())),
+            _ => {}
+        }
+    }
+    // An `Option<X>` crosses as its FFI option and is converted back
+    if arg.ref_kind == crate::api::RefKind::Value {
+        if let Some(inner) = arg.ty.strip_prefix("Option<").and_then(|r| r.strip_suffix('>')) {
+            if let Some(converted) = option_arg_ffi_type(inner.trim(), &arg.source_ty) {
+                return converted;
+            }
+        }
+    }
     let (ffi_type, accessor) = convert_arg_type_for_ffi(&arg.ty);
     // The source parser splits `&mut Dom` into ty="Dom" + ref_kind=RefMut
     // BEFORE this point, so the string-prefix arms in
@@ -1379,17 +1491,86 @@ fn source_arg_ffi_type(arg: &super::type_index::MethodArg) -> (String, Option<St
     }
 }
 
-fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData {
-    use super::type_index::SelfKind;
+/// Whether a borrowed argument of type `ty` crosses the FFI by value: a
+/// callback info handle (`CallbackInfo`, `TimerCallbackInfo`, ...). A
+/// callback receives its info by value (CallbackType's fn_args) and the info
+/// is a set of pointers into the window state, so a `&mut` call through a
+/// copy changes the same state: `{ let mut info = info; f(&mut info, ..) }`
+/// (ProgressBar.update_progress, TextInput.set_text_in). Any other struct
+/// borrowed `&mut` crosses as a pointer: a copy would lose the change.
+fn is_by_value_handle(ty: &str) -> bool {
+    ty.ends_with("CallbackInfo")
+}
 
+/// The arguments a fn_body binds as a mutable copy before the call: the
+/// `&mut` callback infos ([`is_by_value_handle`]).
+fn rebound_handle_args(method: &MethodDef) -> Vec<&str> {
+    method
+        .args
+        .iter()
+        .filter(|a| is_by_value_handle(&a.ty) && a.ref_kind == crate::api::RefKind::RefMut)
+        .map(|a| a.name.as_str())
+        .collect()
+}
+
+/// The api.json entry `autofix add <class>.<api_name> --fn <path>` writes,
+/// and whether it is a constructor: a function of `class_name` whose body
+/// calls the free function. A first argument of the class's own type (by
+/// value, `&` or `&mut`) is the receiver (`self`: value / ref / refmut),
+/// passed on under the codegen's receiver name (`raw_image` for RawImage:
+/// the generated function's parameter, which no fn_body rewrite has to
+/// find); every other argument as for a method. A constructor when the API
+/// name is `create*` and the function returns the class.
+pub fn free_fn_entry(
+    class_name: &str,
+    api_name: &str,
+    free_fn: &super::type_index::FreeFnDef,
+) -> (FunctionData, bool) {
+    let mut method = free_fn.method.clone();
+    let receiver = method
+        .args
+        .first()
+        .filter(|a| {
+            a.ty == class_name
+                && matches!(
+                    a.ref_kind,
+                    crate::api::RefKind::Value | crate::api::RefKind::Ref | crate::api::RefKind::RefMut
+                )
+        })
+        .cloned();
+    let mut call_args: Vec<String> = Vec::new();
+    if let Some(receiver) = &receiver {
+        method.args.remove(0);
+        method.self_kind = Some(match receiver.ref_kind {
+            crate::api::RefKind::Ref => SelfKind::Ref,
+            crate::api::RefKind::RefMut => SelfKind::RefMut,
+            _ => SelfKind::Value,
+        });
+        call_args.push(crate::codegen::v2::ir::receiver_arg_name(class_name));
+    }
+    call_args.extend(method.args.iter().map(|a| a.name.clone()));
+    method.is_constructor =
+        receiver.is_none() && method.is_constructor && api_name.starts_with("create");
+    let call = format!("{}({})", free_fn.path, call_args.join(", "));
+    let is_constructor = method.is_constructor;
+    (function_data_for_call(&method, class_name, call), is_constructor)
+}
+
+fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData {
     // Extract class name from full_path for Self replacement
     let class_name = full_path.rsplit("::").next().unwrap_or(full_path);
+    function_data_for_call(method, class_name, generate_fn_body(method, full_path))
+}
 
+/// The api.json entry for `method` of `class_name` whose fn_body is `call`
+/// (the plain call: the arguments by name), with the arguments converted
+/// for the FFI and the return value converted to its api.json type.
+fn function_data_for_call(method: &MethodDef, class_name: &str, call: String) -> FunctionData {
     // Build fn_args - first add self if present (non-constructor)
     let mut fn_args: Vec<IndexMap<String, String>> = Vec::new();
 
     // Track argument accessors for fn_body generation
-    // Maps arg_name -> accessor_suffix (e.g. "svg_string" -> ".as_str()")
+    // Maps arg_name -> accessor template (e.g. "svg_string" -> "{}.as_str()")
     let mut arg_accessors: Vec<(String, Option<String>)> = Vec::new();
 
     // Add self parameter for non-static, non-constructor methods
@@ -1450,40 +1631,39 @@ fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData 
         (None, ReturnConversion::None)
     };
 
-    // Generate fn_body using the full external path
-    let mut fn_body_str = generate_fn_body(method, full_path);
+    let mut fn_body_str = call;
 
-    // Apply argument accessors to fn_body
-    // Replace each argument reference with the accessor version
+    // Apply argument accessors to fn_body: every accessor is a `{}`
+    // template, and the WHOLE argument expression is substituted - only an
+    // argument standing alone between `(` / `, ` and `,` / `)` (a suffix
+    // spliced in with `replace("text)")` also hit `context)`, AUTOFIX6)
     for (arg_name, accessor_opt) in &arg_accessors {
         if let Some(accessor) = accessor_opt {
-            if accessor.contains("{}") {
-                // Template accessor: the WHOLE argument expression is
-                // substituted (pointer re-borrows like `unsafe { &mut *x }`).
-                let wrapped = accessor.replace("{}", arg_name);
-                fn_body_str = fn_body_str
-                    .replace(&format!("({},", arg_name), &format!("({},", wrapped))
-                    .replace(&format!(", {},", arg_name), &format!(", {},", wrapped))
-                    .replace(&format!("({})", arg_name), &format!("({})", wrapped))
-                    .replace(&format!(", {})", arg_name), &format!(", {})", wrapped));
-                continue;
-            }
-            // Replace "arg_name," or "arg_name)" patterns
-            // This handles cases like func(arg_name, other) or func(arg_name)
-            fn_body_str = fn_body_str.replace(
-                &format!("{},", arg_name),
-                &format!("{}{},", arg_name, accessor),
-            );
-            fn_body_str = fn_body_str.replace(
-                &format!("{})", arg_name),
-                &format!("{}{})", arg_name, accessor),
-            );
+            let wrapped = accessor.replace("{}", arg_name);
+            fn_body_str = fn_body_str
+                .replace(&format!("({},", arg_name), &format!("({},", wrapped))
+                .replace(&format!(", {},", arg_name), &format!(", {},", wrapped))
+                .replace(&format!("({})", arg_name), &format!("({})", wrapped))
+                .replace(&format!(", {})", arg_name), &format!(", {})", wrapped));
         }
     }
 
     // Convert the return value to its api.json type (`.into()` for the
-    // Result / Option wrappers, an owned `String` for a borrowed `str`)
-    let fn_body_str = conversion.wrap(fn_body_str);
+    // Result / Option wrappers, an owned `String` for a borrowed `str`, a
+    // clone of a borrow)
+    let fn_body_str = conversion.for_borrowed_return(method).wrap(fn_body_str);
+
+    // A `&mut` callback info is re-borrowed from a mutable copy
+    let rebound = rebound_handle_args(method);
+    let fn_body_str = if rebound.is_empty() {
+        fn_body_str
+    } else {
+        let bindings: String = rebound
+            .iter()
+            .map(|name| format!("let mut {name} = {name}; "))
+            .collect();
+        format!("{{ {bindings}{fn_body_str} }}")
+    };
 
     let fn_body = Some(fn_body_str);
 
@@ -1509,7 +1689,6 @@ fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData 
 }
 
 // type addition with transitive dependencies
-use super::{diff::TypeAddition, module_map::determine_module};
 
 /// Result of adding a type with its dependencies
 #[derive(Debug)]
@@ -1526,6 +1705,9 @@ pub struct AddTypeResult {
     pub skipped_types: Vec<String>,
     /// Types that couldn't be found in workspace (warnings)
     pub missing_types: Vec<String>,
+    /// The functions / constructors of the primary type (merge mode), when
+    /// methods were requested and some matched
+    pub functions_patch: Option<ApiPatch>,
 }
 
 /// Check if a type already exists in api.json
@@ -1703,7 +1885,7 @@ fn get_callback_typedef_info(
 ///
 /// This function:
 /// 1. Finds the type in the workspace index
-/// 2. Determines the correct module using determine_module()
+/// 2. Determines the module with module_map::new_type_module (the one the scan keeps)
 /// 3. Collects all types referenced by the type's fields, methods, etc.
 /// 4. Recursively adds those types if they're not in api.json
 /// 5. Returns patches for all types that need to be added
@@ -1733,6 +1915,7 @@ pub fn generate_add_type_patches(
         added_methods: Vec::new(),
         skipped_types: Vec::new(),
         missing_types: Vec::new(),
+        functions_patch: None,
     };
 
     // Track which types we've already processed to avoid infinite loops
@@ -1773,11 +1956,19 @@ pub fn generate_add_type_patches(
             }
         };
 
-        // Determine module (path-aware for widget types; see widget_module_for)
-        let (module_name, is_misc) = match crate::autofix::module_map::widget_module_for(&current_type, &type_def.full_path) {
-            Some(m) => (m, false),
-            None => determine_module(&current_type),
-        };
+        // A path through a private module nothing re-exports: the bindings
+        // cannot name the type (TextRasterStyle, wave 6)
+        if let Some(private) = index.private_module_on(&type_def.full_path) {
+            return Err(format!(
+                "`{}` is behind the private module `{}` and no `pub use` re-exports it: \
+                 declare the module `pub` or re-export the type, then add",
+                type_def.full_path, private
+            ));
+        }
+
+        // The module the scan keeps a new type in (see new_type_module)
+        let (module_name, is_misc) =
+            crate::autofix::module_map::new_type_module(&current_type, &type_def.full_path);
         if is_misc {
             eprintln!(
                 "[WARN] Type '{}' mapped to 'misc' module - consider adding a keyword mapping",
@@ -1987,8 +2178,11 @@ pub fn generate_add_type_patches(
                         {
                             // Need to add this type too
                             if let Some(ref_type_def) = index.resolve(&ref_type, None) {
-                                let module = crate::autofix::module_map::widget_module_for(&ref_type, &ref_type_def.full_path)
-                                    .unwrap_or_else(|| determine_module(&ref_type).0);
+                                let module = crate::autofix::module_map::new_type_module(
+                                    &ref_type,
+                                    &ref_type_def.full_path,
+                                )
+                                .0;
                                 let ref_derives = get_derives_from_kind(ref_type_def);
                                 // Generate a simple add patch for the referenced type
                                 let mut ref_patch =
@@ -2056,8 +2250,11 @@ pub fn generate_add_type_patches(
                             && !type_exists_in_api(&ref_type, version_data)
                         {
                             if let Some(ref_type_def) = index.resolve(&ref_type, None) {
-                                let module = crate::autofix::module_map::widget_module_for(&ref_type, &ref_type_def.full_path)
-                                    .unwrap_or_else(|| determine_module(&ref_type).0);
+                                let module = crate::autofix::module_map::new_type_module(
+                                    &ref_type,
+                                    &ref_type_def.full_path,
+                                )
+                                .0;
                                 let ref_derives = get_derives_from_kind(ref_type_def);
                                 let mut ref_patch =
                                     AutofixPatch::new(format!("Add type {}", ref_type));
@@ -2092,18 +2289,15 @@ pub fn generate_add_type_patches(
                 result.added_methods.push(method.name.clone());
             }
 
-            // Generate the functions patch
-            let func_patch = generate_add_functions_patch(
+            // The functions patch (the one-item commands' format): the
+            // caller writes it next to the type patches
+            result.functions_patch = Some(generate_add_functions_patch(
                 type_name,
                 &methods,
                 &result.primary_module,
                 version,
                 type_def,
-            );
-
-            // Convert ApiPatch to AutofixPatch format
-            // For now, we'll write the function patch separately
-            // The caller should apply both the type patches and the function patch
+            ));
         }
     }
 
@@ -2444,9 +2638,11 @@ mod tests {
             .map(|m| api_name_of(m))
             .collect();
         names.sort();
+        // `set_link(url: Option<&str>)` crosses as `OptionString` since the
+        // add converts Option arguments (TOOLS7)
         assert_eq!(
             names,
-            vec!["block_count", "create", "link_at", "preview", "same", "set_kind"]
+            vec!["block_count", "create", "link_at", "preview", "same", "set_kind", "set_link"]
         );
 
         let named = api_candidate_methods("T", &refs, "take_blocks", None, &carries);
@@ -2615,6 +2811,261 @@ mod tests {
                 "fn_body": "object.get(&id, span.into())"}}}"#,
         );
         assert!(found.is_empty(), "{found:?}");
+    }
+
+    /// The free function `name` of `source`, read for class `class` and
+    /// called through `path`.
+    fn free_fn(source: &str, name: &str, class: &str, path: &str) -> super::super::type_index::FreeFnDef {
+        let file: syn::File = syn::parse_file(source).expect("test source parses");
+        let method = file
+            .items
+            .iter()
+            .find_map(|item| match item {
+                syn::Item::Fn(f) if f.sig.ident == name => {
+                    super::super::type_index::free_fn_method(f, class)
+                }
+                _ => None,
+            })
+            .expect("the free fn");
+        super::super::type_index::FreeFnDef {
+            path: path.to_string(),
+            defined_in: String::new(),
+            method,
+        }
+    }
+
+    fn arg_list(f: &FunctionData) -> Vec<(String, String)> {
+        f.fn_args
+            .iter()
+            .flat_map(|a| a.iter().map(|(n, t)| (n.clone(), t.clone())))
+            .collect()
+    }
+
+    fn pairs(list: &[(&str, &str)]) -> Vec<(String, String)> {
+        list.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect()
+    }
+
+    /// Xml.encode_text / encode_attribute, RawImage.from_text / draw_text
+    /// needed a hand-written patch at the wave-6 integration: `autofix add`
+    /// could not make a function whose body calls a FREE function. With
+    /// `--fn <path>` the entry takes the free function's arguments; a first
+    /// argument of the class's own type is the receiver, passed on in the
+    /// codegen's receiver form (`raw_image`, the generated function's
+    /// parameter - a bare `object` is not rewritten and did not compile).
+    #[test]
+    fn a_free_function_becomes_a_function_of_the_class() {
+        let source = r#"
+            pub fn text_image(text: AzString, style: TextRasterStyle) -> OptionRawImage { todo!() }
+            pub fn draw_text(image: &mut RawImage, text: AzString, style: TextRasterStyle, x: f32, y: f32) -> bool { todo!() }
+            pub fn encode_text(s: &str) -> String { todo!() }
+            pub fn blank(width: u32, height: u32) -> RawImage { todo!() }
+        "#;
+        let path = "azul_layout::cpurender";
+
+        let (f, ctor) = free_fn_entry(
+            "RawImage",
+            "from_text",
+            &free_fn(source, "text_image", "RawImage", &format!("{path}::text_image")),
+        );
+        assert!(!ctor);
+        assert_eq!(arg_list(&f), pairs(&[("text", "String"), ("style", "TextRasterStyle")]));
+        assert_eq!(returns_of(&f), Some("OptionRawImage"));
+        assert_eq!(f.fn_body.as_deref(), Some("azul_layout::cpurender::text_image(text, style)"));
+
+        let (f, ctor) = free_fn_entry(
+            "RawImage",
+            "draw_text",
+            &free_fn(source, "draw_text", "RawImage", &format!("{path}::draw_text")),
+        );
+        assert!(!ctor);
+        assert_eq!(
+            arg_list(&f),
+            pairs(&[
+                ("self", "refmut"),
+                ("text", "String"),
+                ("style", "TextRasterStyle"),
+                ("x", "f32"),
+                ("y", "f32")
+            ])
+        );
+        assert_eq!(returns_of(&f), Some("bool"));
+        assert_eq!(
+            f.fn_body.as_deref(),
+            Some("azul_layout::cpurender::draw_text(raw_image, text, style, x, y)")
+        );
+
+        let (f, _) = free_fn_entry(
+            "Xml",
+            "encode_text",
+            &free_fn(source, "encode_text", "Xml", "azul_core::xml::html::encode_text"),
+        );
+        assert_eq!(arg_list(&f), pairs(&[("s", "String")]));
+        assert_eq!(returns_of(&f), Some("String"));
+        assert_eq!(
+            f.fn_body.as_deref(),
+            Some("azul_core::xml::html::encode_text(s.as_str()).into()")
+        );
+
+        // a `create*` name returning the class is a constructor
+        let blank = free_fn(source, "blank", "RawImage", &format!("{path}::blank"));
+        let (f, ctor) = free_fn_entry("RawImage", "create_blank", &blank);
+        assert!(ctor);
+        assert_eq!(f.fn_body.as_deref(), Some("azul_layout::cpurender::blank(width, height)"));
+        let (_, ctor) = free_fn_entry("RawImage", "blank", &blank);
+        assert!(!ctor, "only a create* name is a constructor");
+    }
+
+    /// A callback receives its info by value (CallbackType's fn_args), and
+    /// the info is a set of pointers into the window state, so it crosses by
+    /// value and the body re-borrows a mutable copy - the pattern of
+    /// ProgressBar.update_progress and TextInput.set_text_in. `autofix add`
+    /// wrote `*mut CallbackInfo` and the scan called the existing entries
+    /// drifted.
+    #[test]
+    fn a_callback_info_argument_crosses_by_value_and_is_re_borrowed() {
+        let source = r#"
+            impl T {
+                pub fn set_text_in(info: &mut CallbackInfo, container: DomNodeId, text: AzString) {}
+                pub fn update_progress(callback_info: &mut CallbackInfo, node_id: DomNodeId, percent_done: f32) -> bool { true }
+            }
+        "#;
+        let ms = methods(source);
+        let f = method_to_function_data(&ms["set_text_in"], "azul_layout::widgets::text_input::TextInput");
+        assert_eq!(
+            arg_list(&f),
+            pairs(&[("info", "CallbackInfo"), ("container", "DomNodeId"), ("text", "String")])
+        );
+        assert_eq!(
+            f.fn_body.as_deref(),
+            Some(
+                "{ let mut info = info; \
+                 azul_layout::widgets::text_input::TextInput::set_text_in(&mut info, container, text) }"
+            )
+        );
+
+        let found = diffs(
+            source,
+            r#"{"functions": {"update_progress": {
+                "fn_args": [{"callback_info": "CallbackInfo"}, {"node_id": "DomNodeId"},
+                            {"percent_done": "f32"}],
+                "returns": {"type": "bool"},
+                "fn_body": "{ let mut callback_info = callback_info; azul_layout::widgets::progressbar::ProgressBar::update_progress(&mut callback_info, node_id, percent_done) }"}}}"#,
+        );
+        assert!(found.is_empty(), "{found:?}");
+    }
+
+    /// The only body `autofix add` wrote with a bare `object` - which the
+    /// codegen does not rewrite - was a `destroy*` method's
+    /// `core::mem::drop(object)`, and it did not even call the method. A
+    /// `destroy*` method is called like any other.
+    #[test]
+    fn a_destroy_method_is_called_and_no_body_passes_a_bare_object() {
+        let source = r#"
+            impl T {
+                pub fn destroy(&mut self) {}
+                pub fn destroy_child(&mut self, index: usize) -> bool { true }
+            }
+        "#;
+        assert_eq!(added(source, "destroy").fn_body.as_deref(), Some("object.destroy()"));
+        assert_eq!(
+            added(source, "destroy_child").fn_body.as_deref(),
+            Some("object.destroy_child(index)")
+        );
+    }
+
+    /// AUTOFIX6 "seen broken": `autofix add RichTextDoc.block` (by name) for
+    /// `fn block(&self, i) -> &RichBlock` wrote `object.block(i)` returning
+    /// `RichBlock` - a borrow where a value is due, which did not compile.
+    /// A borrowed return is cloned; an `Option<&T>` is `.cloned()`.
+    #[test]
+    fn a_borrowed_return_added_by_name_is_cloned() {
+        let source = r#"
+            impl T {
+                pub fn block(&self, index: usize) -> &RichBlock { todo!() }
+                pub fn block_mut(&mut self, index: usize) -> &mut RichBlock { todo!() }
+                pub fn find(&self, index: usize) -> Option<&RichBlock> { todo!() }
+            }
+        "#;
+        let f = added(source, "block");
+        assert_eq!(returns_of(&f), Some("RichBlock"));
+        assert_eq!(f.fn_body.as_deref(), Some("object.block(index).clone()"));
+        assert_eq!(added(source, "block_mut").fn_body.as_deref(), Some("object.block_mut(index).clone()"));
+        let f = added(source, "find");
+        assert_eq!(returns_of(&f), Some("OptionRichBlock"));
+        assert_eq!(f.fn_body.as_deref(), Some("object.find(index).cloned().into()"));
+    }
+
+    /// `Option<T>` arguments went out as written (`Option<i32>`, no api.json
+    /// type): an argument crosses as its FFI option and is converted back
+    /// in the body - `.into()` for an owned value, `.as_ref()` for a borrow,
+    /// and the string forms (`Option<&str>`, a std `Option<String>`).
+    #[test]
+    fn an_option_argument_crosses_as_its_ffi_option() {
+        let source = r#"
+            impl T {
+                pub fn span(&mut self, span: Option<i32>) {}
+                pub fn style(&mut self, style: Option<TextStyle>) {}
+                pub fn peek(&self, style: Option<&TextStyle>) {}
+                pub fn label(&mut self, label: Option<&str>) {}
+                pub fn title(&mut self, title: Option<String>) {}
+                pub fn name(&mut self, name: Option<AzString>) {}
+            }
+        "#;
+        let cases = [
+            ("span", "OptionI32", "object.span(span.into())"),
+            ("style", "OptionTextStyle", "object.style(style.into())"),
+            ("peek", "OptionTextStyle", "object.peek(style.as_ref())"),
+            ("label", "OptionString", "object.label(label.as_ref().map(|s| s.as_str()))"),
+            ("title", "OptionString", "object.title(title.map(|s| s.into_library_owned_string()))"),
+            ("name", "OptionString", "object.name(name.into())"),
+        ];
+        for (name, ty, body) in cases {
+            let f = added(source, name);
+            let args = arg_list(&f);
+            assert_eq!(args.last().map(|(_, t)| t.as_str()), Some(ty), "{name}: {args:?}");
+            assert_eq!(f.fn_body.as_deref(), Some(body), "{name}");
+        }
+    }
+
+    /// `&[T]` arguments mapped to `{T}VecRef`, which exists for u8 / f32 /
+    /// i32 only (the gl types); the house convention is the impl_vec! slice,
+    /// `{T}VecSlice`, read with `.as_slice()`.
+    #[test]
+    fn a_slice_argument_crosses_as_its_vec_slice() {
+        let source = r#"
+            impl T {
+                pub fn union(rects: &[LayoutRect]) -> LayoutRect { todo!() }
+                pub fn bytes(&mut self, data: &[u8]) {}
+                pub fn ids(&mut self, ids: &[u32]) {}
+            }
+        "#;
+        let cases = [
+            ("union", "LayoutRectVecSlice", "azul_layout::widgets::t::T::union(rects.as_slice())"),
+            ("bytes", "U8VecRef", "object.bytes(data.as_slice())"),
+            ("ids", "U32VecSlice", "object.ids(ids.as_slice())"),
+        ];
+        for (name, ty, body) in cases {
+            let f = added(source, name);
+            let args = arg_list(&f);
+            assert_eq!(args.last().map(|(_, t)| t.as_str()), Some(ty), "{name}: {args:?}");
+            assert_eq!(f.fn_body.as_deref(), Some(body), "{name}");
+        }
+    }
+
+    /// The `.as_str()` / `.as_slice()` accessors were spliced in with
+    /// `replace("text)")`, which also hit an argument whose name ENDS with
+    /// another's (`context)` for `text`). Every accessor matches whole
+    /// arguments.
+    #[test]
+    fn an_accessor_never_hits_an_argument_whose_name_ends_with_another() {
+        let source = r#"
+            impl T {
+                pub fn f(&self, text: &str, context: u32) {}
+                pub fn g(&self, data: &[u8], metadata: u32) {}
+            }
+        "#;
+        assert_eq!(added(source, "f").fn_body.as_deref(), Some("object.f(text.as_str(), context)"));
+        assert_eq!(added(source, "g").fn_body.as_deref(), Some("object.g(data.as_slice(), metadata)"));
     }
 }
 

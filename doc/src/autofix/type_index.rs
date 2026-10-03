@@ -817,6 +817,194 @@ fn split_generic_args(s: &str) -> Option<(String, String)> {
 }
 
 // type index
+/// The crates the index reads: (crate name, source folder under the
+/// workspace root).
+pub(crate) const CRATE_DIRS: &[(&str, &str)] = &[
+    ("azul_core", "core/src"),
+    ("azul_css", "css/src"),
+    ("azul_layout", "layout/src"),
+    ("azul_dll", "dll/src"),
+];
+
+/// A public free function, as `autofix add <Class>.<name> --fn <path>`
+/// reads it.
+#[derive(Debug, Clone)]
+pub struct FreeFnDef {
+    /// The path the api.json fn_body calls: the one given (a public
+    /// re-export path stays as it is)
+    pub path: String,
+    /// The module the function is defined in (`cpurender::text_raster`)
+    pub defined_in: String,
+    /// Its signature, read with the class it is added to as `Self`
+    pub method: MethodDef,
+}
+
+/// The public free function `path` (`azul_layout::cpurender::text_image`),
+/// read with `class_name` as the type it is added to. The definition is
+/// looked up in the path's crate: in the named module, else in a child of it
+/// (a `pub use child::*` re-export). A file a `#[path = ".."]` module
+/// declaration names has the declared module's path (`xml::html` lives in
+/// xml_html.rs).
+pub fn find_free_fn(workspace_root: &Path, path: &str, class_name: &str) -> Result<FreeFnDef, String> {
+    let segments: Vec<&str> = path.split("::").collect();
+    let (crate_name, module, fn_name) = match segments.as_slice() {
+        [crate_name, modules @ .., fn_name] if !fn_name.is_empty() => {
+            (*crate_name, modules.join("::"), *fn_name)
+        }
+        _ => return Err(format!("`{path}` is not a path `<crate>::<module>::<fn>`")),
+    };
+    let Some((_, src)) = CRATE_DIRS.iter().find(|(c, _)| *c == crate_name) else {
+        let known: Vec<&str> = CRATE_DIRS.iter().map(|(c, _)| *c).collect();
+        return Err(format!(
+            "unknown crate `{crate_name}` in `{path}` (the index reads {})",
+            known.join(", ")
+        ));
+    };
+    let mut files = Vec::new();
+    collect_rust_files(&mut files, crate_name, &workspace_root.join(src));
+
+    // Files a `#[path = ".."]` module declaration names: the declared path
+    let mut declared: BTreeMap<PathBuf, String> = BTreeMap::new();
+    for (_, file) in &files {
+        let Ok(text) = fs::read_to_string(file) else {
+            continue;
+        };
+        if !text.contains("#[path") {
+            continue;
+        }
+        let Ok(ast) = syn::parse_file(&text) else {
+            continue;
+        };
+        let parent_module = infer_module_path(crate_name, file);
+        for item in &ast.items {
+            let Item::Mod(m) = item else { continue };
+            if m.content.is_some() {
+                continue;
+            }
+            let Some(target) = m.attrs.iter().find_map(path_attr_value) else {
+                continue;
+            };
+            let Some(dir) = file.parent() else { continue };
+            let module_path = if parent_module.is_empty() {
+                m.ident.to_string()
+            } else {
+                format!("{parent_module}::{}", m.ident)
+            };
+            declared.insert(dir.join(target), module_path);
+        }
+    }
+
+    let needle = format!("fn {fn_name}");
+    let mut found: Vec<(String, MethodDef)> = Vec::new();
+    for (_, file) in &files {
+        let Ok(text) = fs::read_to_string(file) else {
+            continue;
+        };
+        if !text.contains(&needle) {
+            continue;
+        }
+        let Ok(ast) = syn::parse_file(&text) else {
+            continue;
+        };
+        let module_path = declared
+            .get(file)
+            .cloned()
+            .unwrap_or_else(|| infer_module_path(crate_name, file));
+        collect_free_fns(&ast.items, &module_path, fn_name, class_name, &mut found);
+    }
+
+    let child = format!("{module}::");
+    let exact: Vec<&(String, MethodDef)> = found.iter().filter(|(m, _)| *m == module).collect();
+    let children: Vec<&(String, MethodDef)> = found
+        .iter()
+        .filter(|(m, _)| module.is_empty() || m.starts_with(&child))
+        .collect();
+    let chosen = match (exact.as_slice(), children.as_slice()) {
+        ([one], _) | ([], [one]) => *one,
+        _ => {
+            let at: Vec<&str> = found.iter().map(|(m, _)| m.as_str()).collect();
+            return Err(if found.is_empty() {
+                format!("no public fn `{fn_name}` in {crate_name}")
+            } else {
+                format!(
+                    "`{path}`: no single public fn `{fn_name}` in `{module}` or a child of it \
+                     (found in: {})",
+                    at.join(", ")
+                )
+            });
+        }
+    };
+    Ok(FreeFnDef {
+        path: path.to_string(),
+        defined_in: chosen.0.clone(),
+        method: chosen.1.clone(),
+    })
+}
+
+/// The file a `#[path = "file.rs"]` attribute names.
+fn path_attr_value(attr: &syn::Attribute) -> Option<String> {
+    if !attr.path().is_ident("path") {
+        return None;
+    }
+    let syn::Meta::NameValue(nv) = &attr.meta else {
+        return None;
+    };
+    match &nv.value {
+        syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Str(s),
+            ..
+        }) => Some(s.value()),
+        _ => None,
+    }
+}
+
+/// The public free functions `fn_name` in `items` (inline modules too),
+/// with their module paths.
+fn collect_free_fns(
+    items: &[Item],
+    module: &str,
+    fn_name: &str,
+    class_name: &str,
+    out: &mut Vec<(String, MethodDef)>,
+) {
+    for item in items {
+        match item {
+            Item::Fn(f)
+                if f.sig.ident == fn_name && matches!(f.vis, syn::Visibility::Public(_)) =>
+            {
+                if let Some(method) = free_fn_method(f, class_name) {
+                    out.push((module.to_string(), method));
+                }
+            }
+            Item::Mod(m) => {
+                if let Some((_, nested)) = &m.content {
+                    let nested_module = if module.is_empty() {
+                        m.ident.to_string()
+                    } else {
+                        format!("{module}::{}", m.ident)
+                    };
+                    collect_free_fns(nested, &nested_module, fn_name, class_name, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The signature of the free function `f` as a static method of
+/// `class_name` (the method extraction's rules: `Into<T>` generics resolved,
+/// other generics skipped, `Self` / constructor-ness against `class_name`).
+pub(crate) fn free_fn_method(f: &syn::ItemFn, class_name: &str) -> Option<MethodDef> {
+    let as_method = syn::ImplItemFn {
+        attrs: f.attrs.clone(),
+        vis: f.vis.clone(),
+        defaultness: None,
+        sig: f.sig.clone(),
+        block: (*f.block).clone(),
+    };
+    extract_method_def(&as_method, class_name)
+}
+
 /// Fast lookup index for type definitions
 #[derive(Debug, Default)]
 pub struct TypeIndex {
@@ -824,6 +1012,9 @@ pub struct TypeIndex {
     by_name: BTreeMap<String, Vec<Arc<TypeDefinition>>>,
     /// Map from full path to definition
     by_path: BTreeMap<String, Arc<TypeDefinition>>,
+    /// The modules declared without `pub` (`azul_layout::cpurender::named`):
+    /// a path through one does not name its type from another crate
+    private_modules: std::collections::BTreeSet<String>,
     /// Errors encountered during indexing
     pub errors: Vec<String>,
 }
@@ -837,18 +1028,10 @@ impl TypeIndex {
     pub fn build(workspace_root: &Path, verbose: bool) -> Result<Self> {
         let mut index = Self::new();
 
-        // Crate directories to scan
-        let crate_dirs = [
-            ("azul_core", "core/src"),
-            ("azul_css", "css/src"),
-            ("azul_layout", "layout/src"),
-            ("azul_dll", "dll/src"),
-        ];
-
         // Collect all .rs files
         let mut all_files: Vec<(String, PathBuf)> = Vec::new();
 
-        for (crate_name, src_path) in &crate_dirs {
+        for (crate_name, src_path) in CRATE_DIRS {
             let src_dir = workspace_root.join(src_path);
             if src_dir.exists() {
                 collect_rust_files(&mut all_files, crate_name, &src_dir);
@@ -866,17 +1049,45 @@ impl TypeIndex {
             .collect();
 
         // Merge results
+        let mut parsed: Vec<TypeDefinition> = Vec::new();
+        let mut facts = ModuleFacts::default();
         for result in results {
             match result {
-                Ok(types) => {
-                    for typedef in types {
-                        index.add_type(typedef);
-                    }
+                Ok((types, file_facts)) => {
+                    parsed.extend(types);
+                    facts.private.extend(file_facts.private);
+                    facts.public.extend(file_facts.public);
+                    facts.reexports.extend(file_facts.reexports);
                 }
                 Err(e) => {
                     index.errors.push(e);
                 }
             }
+        }
+
+        // A type behind a private module is named by the `pub use` that
+        // re-exports it: the private path does not compile in another crate
+        // (TextRasterStyle, wave 6). azul_dll is left out: the generated code
+        // lives in that crate, where its private modules are in reach.
+        let public: std::collections::BTreeSet<&String> = facts.public.iter().collect();
+        index.private_modules = facts
+            .private
+            .iter()
+            .filter(|m| !public.contains(m) && !m.starts_with("azul_dll::"))
+            .cloned()
+            .collect();
+        for mut typedef in parsed {
+            let public = typedef
+                .full_path
+                .rsplit_once("::")
+                .filter(|(module, _)| first_private_module(module, &index.private_modules).is_some())
+                .and_then(|(module, name)| {
+                    public_path(module, name, &index.private_modules, &facts.reexports, 0)
+                });
+            if let Some(path) = public {
+                typedef.full_path = path;
+            }
+            index.add_type(typedef);
         }
 
         // Phase 2: Collect cross-file impl blocks and attach methods to types
@@ -1062,6 +1273,18 @@ impl TypeIndex {
     /// Get the number of unique type names
     pub fn type_count(&self) -> usize {
         self.by_name.len()
+    }
+
+    /// The first private module on the way to `path` (a type or module
+    /// path), if any: the path does not name its item from another crate.
+    pub fn private_module_on(&self, path: &str) -> Option<String> {
+        first_private_module(path, &self.private_modules)
+    }
+
+    /// Record `module` as declared without `pub` (tests).
+    #[cfg(test)]
+    pub fn add_private_module_for_test(&mut self, module: &str) {
+        self.private_modules.insert(module.to_string());
     }
 
     /// Add a type definition for testing purposes
@@ -1338,7 +1561,10 @@ fn expand_local_item_macros(file: &mut File) {
     file.items.extend(expanded);
 }
 
-fn parse_file_for_types(crate_name: &str, file_path: &Path) -> Result<Vec<TypeDefinition>, String> {
+fn parse_file_for_types(
+    crate_name: &str,
+    file_path: &Path,
+) -> Result<(Vec<TypeDefinition>, ModuleFacts), String> {
     let content = fs::read_to_string(file_path)
         .map_err(|e| format!("Failed to read {}: {}", file_path.display(), e))?;
 
@@ -1432,7 +1658,185 @@ fn parse_file_for_types(crate_name: &str, file_path: &Path) -> Result<Vec<TypeDe
         }
     }
 
-    Ok(types)
+    let facts = module_facts(crate_name, &module_path, &syntax_tree.items);
+    Ok((types, facts))
+}
+
+/// What one file's top-level items say about reaching definitions from
+/// another crate: its module declarations and its `pub use` re-exports.
+#[derive(Debug, Default)]
+struct ModuleFacts {
+    /// Modules declared without `pub` (absolute paths)
+    private: Vec<String>,
+    /// Modules declared `pub` (absolute paths): a `#[cfg]` pair of a private
+    /// and a public declaration of one module is public
+    public: Vec<String>,
+    /// `pub use` items
+    reexports: Vec<Reexport>,
+}
+
+/// One item of a `pub use`.
+#[derive(Debug, Clone)]
+struct Reexport {
+    /// The module declaring it (absolute: `azul_layout::cpurender`)
+    at: String,
+    /// The module its items come from (absolute: `..::cpurender::text_raster`)
+    from: String,
+    /// `None` for a glob, else the item's name (a rename is not followed)
+    item: Option<String>,
+}
+
+/// The [`ModuleFacts`] of `items`, the top level of the module `module_path`
+/// of `crate_name`.
+fn module_facts(crate_name: &str, module_path: &str, items: &[Item]) -> ModuleFacts {
+    let at = if module_path.is_empty() {
+        crate_name.to_string()
+    } else {
+        format!("{crate_name}::{module_path}")
+    };
+    let mut facts = ModuleFacts::default();
+    for item in items {
+        match item {
+            Item::Mod(m) => {
+                let path = format!("{at}::{}", m.ident);
+                if matches!(m.vis, syn::Visibility::Public(_)) {
+                    facts.public.push(path);
+                } else {
+                    facts.private.push(path);
+                }
+            }
+            Item::Use(u) if matches!(u.vis, syn::Visibility::Public(_)) => {
+                let mut flat = Vec::new();
+                flatten_use_tree(&u.tree, &mut Vec::new(), &mut flat);
+                for (prefix, item) in flat {
+                    if let Some(from) = resolve_use_prefix(crate_name, &at, &prefix) {
+                        facts.reexports.push(Reexport {
+                            at: at.clone(),
+                            from,
+                            item,
+                        });
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    facts
+}
+
+/// The leaves of a use tree: (path prefix, `None` for a glob or the name).
+/// A rename (`a as b`) is left out: its type is reached under another name.
+fn flatten_use_tree(
+    tree: &UseTree,
+    prefix: &mut Vec<String>,
+    out: &mut Vec<(Vec<String>, Option<String>)>,
+) {
+    match tree {
+        UseTree::Path(p) => {
+            prefix.push(p.ident.to_string());
+            flatten_use_tree(&p.tree, prefix, out);
+            prefix.pop();
+        }
+        UseTree::Name(n) => out.push((prefix.clone(), Some(n.ident.to_string()))),
+        UseTree::Rename(_) => {}
+        UseTree::Glob(_) => out.push((prefix.clone(), None)),
+        UseTree::Group(g) => {
+            for t in &g.items {
+                flatten_use_tree(t, prefix, out);
+            }
+        }
+    }
+}
+
+/// The absolute module a `use` path prefix names from module `at`:
+/// `crate::..`, `self::..`, `super::..`, another crate of the index, or a
+/// child of `at`. `None` for an empty prefix or a `super` above the root.
+fn resolve_use_prefix(crate_name: &str, at: &str, prefix: &[String]) -> Option<String> {
+    let (first, rest) = prefix.split_first()?;
+    let mut base: Vec<String> = match first.as_str() {
+        "crate" => vec![crate_name.to_string()],
+        "self" => at.split("::").map(str::to_string).collect(),
+        "super" => {
+            let mut segs: Vec<String> = at.split("::").map(str::to_string).collect();
+            segs.pop();
+            segs
+        }
+        other if CRATE_DIRS.iter().any(|(c, _)| *c == other) => vec![other.to_string()],
+        other => {
+            let mut segs: Vec<String> = at.split("::").map(str::to_string).collect();
+            segs.push(other.to_string());
+            segs
+        }
+    };
+    for seg in rest {
+        if seg == "super" {
+            base.pop();
+        } else {
+            base.push(seg.clone());
+        }
+    }
+    (!base.is_empty()).then(|| base.join("::"))
+}
+
+/// The first module of `private` on the way to `path` (`path` itself
+/// included): `azul_layout::cpurender::named` for
+/// `azul_layout::cpurender::named::NotNamed`.
+fn first_private_module(path: &str, private: &std::collections::BTreeSet<String>) -> Option<String> {
+    let segs: Vec<&str> = path.split("::").collect();
+    (2..=segs.len())
+        .map(|i| segs[..i].join("::"))
+        .find(|p| private.contains(p))
+}
+
+/// The path `module::name` is reached by from another crate: itself when no
+/// module on the way is private, else the path of a `pub use` that
+/// re-exports it - a glob or the name of its module, or a glob / the name of
+/// a (public) module on the way - followed up the tree. `None` when nothing
+/// re-exports it.
+fn public_path(
+    module: &str,
+    name: &str,
+    private: &std::collections::BTreeSet<String>,
+    reexports: &[Reexport],
+    depth: usize,
+) -> Option<String> {
+    if first_private_module(module, private).is_none() {
+        return Some(format!("{module}::{name}"));
+    }
+    if depth > 8 {
+        return None;
+    }
+    reexports.iter().find_map(|r| {
+        // `module::name` as a path relative to `r.at`
+        let relative = if r.from == module {
+            match &r.item {
+                None => name.to_string(),
+                Some(item) if item == name => name.to_string(),
+                Some(_) => return None,
+            }
+        } else {
+            let rest = module.strip_prefix(r.from.as_str())?.strip_prefix("::")?;
+            let (first, tail) = match rest.split_once("::") {
+                Some((first, tail)) => (first, Some(tail)),
+                None => (rest, None),
+            };
+            // a private child module is not re-exported (neither by a glob
+            // nor by name)
+            if private.contains(&format!("{}::{first}", r.from)) {
+                return None;
+            }
+            if r.item.as_deref().is_some_and(|item| item != first) {
+                return None;
+            }
+            match tail {
+                Some(tail) => format!("{first}::{tail}::{name}"),
+                None => format!("{first}::{name}"),
+            }
+        };
+        let full = format!("{}::{relative}", r.at);
+        let (m, n) = full.rsplit_once("::")?;
+        public_path(m, n, private, reexports, depth + 1)
+    })
 }
 
 /// Parse a file to extract impl blocks for cross-file method attachment.
@@ -3629,13 +4033,42 @@ fn written_type_name(ty: &syn::Type) -> String {
         syn::Type::Reference(r) => r.elem.as_ref(),
         other => other,
     };
+    written_type(ty)
+}
+
+/// A type as the source writes it, each path by its last segment and with
+/// its generic arguments (`Option<AzString>` vs `Option<String>`, `&str`):
+/// the index's own spelling strips the `Az` prefix and cannot tell an
+/// `Option` of a std `String` from one of an `AzString`.
+fn written_type(ty: &syn::Type) -> String {
     match ty {
-        syn::Type::Path(p) if p.qself.is_none() => p
-            .path
-            .segments
-            .last()
-            .map(|seg| seg.ident.to_string())
-            .unwrap_or_default(),
+        syn::Type::Path(p) if p.qself.is_none() => match p.path.segments.last() {
+            Some(seg) => {
+                let ident = seg.ident.to_string();
+                let syn::PathArguments::AngleBracketed(args) = &seg.arguments else {
+                    return ident;
+                };
+                let inner: Vec<String> = args
+                    .args
+                    .iter()
+                    .filter_map(|a| match a {
+                        syn::GenericArgument::Type(t) => Some(written_type(t)),
+                        _ => None,
+                    })
+                    .collect();
+                if inner.is_empty() {
+                    ident
+                } else {
+                    format!("{ident}<{}>", inner.join(", "))
+                }
+            }
+            None => String::new(),
+        },
+        syn::Type::Reference(r) => format!(
+            "&{}{}",
+            if r.mutability.is_some() { "mut " } else { "" },
+            written_type(&r.elem)
+        ),
         other => clean_type_string(&other.to_token_stream().to_string()),
     }
 }
@@ -3690,6 +4123,97 @@ fn clean_type_string(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `autofix add RawImage.from_text --fn azul_layout::cpurender::text_image`
+    /// (wave 6 wrote these by hand): the function is defined in
+    /// cpurender/text_raster.rs and re-exported by `pub use text_raster::*`;
+    /// `azul_core::xml::html::encode_text` lives in a `#[path]` module
+    /// (xml_html.rs). Both are found, the body keeps the path given.
+    #[test]
+    fn a_free_function_is_found_through_a_re_export_or_a_path_module() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let write = |rel: &str, text: &str| {
+            let path = root.path().join(rel);
+            fs::create_dir_all(path.parent().expect("parent")).expect("dirs");
+            fs::write(path, text).expect("written");
+        };
+        write("layout/src/cpurender/mod.rs", "pub mod text_raster;\npub use text_raster::*;\n");
+        write(
+            "layout/src/cpurender/text_raster.rs",
+            "pub fn text_image(text: AzString, style: TextRasterStyle) -> OptionRawImage { todo!() }\n\
+             fn private_helper() {}\n",
+        );
+        write("layout/src/other.rs", "fn text_image() {}\n");
+        write("core/src/xml.rs", "#[path = \"xml_html.rs\"]\npub mod html;\n");
+        write("core/src/xml_html.rs", "pub fn encode_text(s: &str) -> String { todo!() }\n");
+
+        let found = find_free_fn(root.path(), "azul_layout::cpurender::text_image", "RawImage")
+            .expect("found through the re-export");
+        assert_eq!(found.path, "azul_layout::cpurender::text_image");
+        assert_eq!(found.defined_in, "cpurender::text_raster");
+        let args: Vec<&str> = found.method.args.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(args, vec!["text", "style"]);
+        assert_eq!(found.method.return_type.as_deref(), Some("OptionRawImage"));
+        assert!(found.method.self_kind.is_none());
+
+        let found = find_free_fn(root.path(), "azul_core::xml::html::encode_text", "Xml")
+            .expect("found in the #[path] module");
+        assert_eq!(found.defined_in, "xml::html", "the declared module path");
+
+        assert!(find_free_fn(root.path(), "azul_layout::other::text_image", "RawImage").is_err(), "not public");
+        assert!(find_free_fn(root.path(), "azul_layout::cpurender::nope", "RawImage").is_err());
+        assert!(find_free_fn(root.path(), "nocrate::f", "RawImage").is_err());
+    }
+
+    /// `TextRasterStyle` is defined in `cpurender/text_raster.rs`, and
+    /// `cpurender` re-exported it (`mod text_raster; pub use text_raster::*;`):
+    /// api.json got the private path `azul_layout::cpurender::text_raster::
+    /// TextRasterStyle` and the dylib did not compile (15 E0603, wave 6) until
+    /// the module was made pub. A type behind a private module is indexed by
+    /// the path of the `pub use` that re-exports it (a glob of its module or
+    /// its name); one nothing re-exports keeps its path and the index names
+    /// the private module on the way.
+    #[test]
+    fn a_type_in_a_private_module_is_indexed_by_its_public_re_export_path() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let write = |rel: &str, text: &str| {
+            let path = root.path().join(rel);
+            fs::create_dir_all(path.parent().expect("parent")).expect("dirs");
+            fs::write(path, text).expect("written");
+        };
+        write("layout/src/lib.rs", "pub mod cpurender;\n");
+        write(
+            "layout/src/cpurender/mod.rs",
+            "mod text_raster;\npub use text_raster::*;\nmod named;\npub use self::named::{Only};\n\
+             mod internal;\npub mod open;\n",
+        );
+        write("layout/src/cpurender/text_raster.rs", "#[repr(C)] pub struct TextRasterStyle { pub size: f32 }\n");
+        write(
+            "layout/src/cpurender/named.rs",
+            "#[repr(C)] pub struct Only { pub a: u8 }\n#[repr(C)] pub struct NotNamed { pub a: u8 }\n",
+        );
+        write("layout/src/cpurender/internal.rs", "#[repr(C)] pub struct Internal { pub a: u8 }\n");
+        write("layout/src/cpurender/open.rs", "#[repr(C)] pub struct Open { pub a: u8 }\n");
+
+        let index = TypeIndex::build(root.path(), false).expect("index");
+        let path_of = |name: &str| index.resolve(name, None).expect(name).full_path.clone();
+
+        assert_eq!(path_of("TextRasterStyle"), "azul_layout::cpurender::TextRasterStyle");
+        assert!(index.get_by_path("azul_layout::cpurender::TextRasterStyle").is_some());
+        assert_eq!(path_of("Only"), "azul_layout::cpurender::Only");
+        assert_eq!(path_of("Open"), "azul_layout::cpurender::open::Open");
+        assert_eq!(index.private_module_on("azul_layout::cpurender::open::Open"), None);
+
+        assert_eq!(path_of("NotNamed"), "azul_layout::cpurender::named::NotNamed");
+        assert_eq!(
+            index.private_module_on("azul_layout::cpurender::named::NotNamed").as_deref(),
+            Some("azul_layout::cpurender::named")
+        );
+        assert_eq!(
+            index.private_module_on("azul_layout::cpurender::internal::Internal").as_deref(),
+            Some("azul_layout::cpurender::internal")
+        );
+    }
 
     /// A method in an `impl T` block of another file (`impl CallbackInfo` in
     /// widgets/form.rs, `impl RichTextDoc` in rich_text/html.rs) is attached

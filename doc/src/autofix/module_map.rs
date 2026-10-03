@@ -678,6 +678,11 @@ const DIFFICULT_TYPE_MODULES: &[(&str, &str)] = &[
     // "event" is a dom keyword, so the transport events sorted into dom next to the DOM events.
     ("Wt", "webtransport"),
     ("Iroh", "iroh"),
+    // The CPU rasterizer's text style (`RawImage::from_text` / `draw_text`,
+    // `CallbackInfo::text_image`): "Style" filed it under css; it belongs
+    // beside `RawImage` in image (MEDIA6). Spelled in full - "Text" alone
+    // would capture every text type.
+    ("TextRasterStyle", "image"),
 ];
 
 /// Module for a known-difficult type name, if it is one.
@@ -877,6 +882,45 @@ pub fn widget_module_for(type_name: &str, full_path: &str) -> Option<String> {
     Some(module.to_string())
 }
 
+/// Whether the name alone settles the module: `Option*`, the `*Vec` family,
+/// `*Error`, `Result*` (the scan never lets a path or a table move these).
+fn is_structural(type_name: &str) -> bool {
+    let lower = type_name.to_lowercase();
+    lower.starts_with("option")
+        || is_vec_family(type_name)
+        || lower.ends_with("error")
+        || lower.starts_with("result")
+}
+
+/// THE module of a type api.json does not have yet, `(module, is_guess)`,
+/// for every path that adds one (`autofix add`, its dependency types, the
+/// scan's additions, an Add patch without a module): the placement the
+/// scan's move check ([`get_correct_module_with_path`]) keeps, decided in
+/// its order - a structural name, the exceptions table, the widget rule, a
+/// confident keyword, then the module of the source path, else the
+/// keyword's guess (`misc`). The add used a rule of its own (widget rule,
+/// else keywords), so the next scan moved a keyword-less name out of
+/// `misc` and a widget's `*Error` out of `widgets`.
+pub fn new_type_module(type_name: &str, full_path: &str) -> (String, bool) {
+    let (by_name, is_guess) = determine_module(type_name);
+    if is_structural(type_name) && !is_guess {
+        return (by_name, false);
+    }
+    if let Some(forced) = difficult_type_module(type_name) {
+        return (forced.to_string(), false);
+    }
+    if let Some(module) = widget_module_for(type_name, full_path) {
+        return (module, false);
+    }
+    if !is_guess {
+        return (by_name, false);
+    }
+    match module_from_external_path(full_path) {
+        Some(module) => (module, false),
+        None => (by_name, true),
+    }
+}
+
 /// Check if a type is in the correct module and return the correct module if not.
 /// Uses the external path (if available) as the primary signal, falling back to
 /// keyword-based `determine_module` if no external path is provided.
@@ -899,13 +943,7 @@ pub fn get_correct_module_with_path(
     // (a widget's slice with its widget, below). Counting it here answered
     // with the name's keyword before the widget rule was asked, so
     // `CellGridRangeVecSlice` was "correct" in css (DEDUP_WIDGETS_API F17).
-    let lower_name = type_name.to_lowercase();
-    let is_structural = lower_name.starts_with("option")
-        || is_vec_family(type_name)
-        || lower_name.ends_with("error")
-        || lower_name.starts_with("result");
-
-    if is_structural && !is_warning {
+    if is_structural(type_name) && !is_warning {
         if name_module != current_module {
             return Some(name_module);
         } else {
@@ -1106,6 +1144,10 @@ fn module_from_external_path(path: &str) -> Option<String> {
     }
     // Same for the image-decode result struct (`ImageDecodeResult`).
     if path.starts_with("azul_layout::image::") {
+        return Some("image".to_string());
+    }
+    // The CPU rasterizer draws into a `RawImage` (text to pixels too).
+    if path.starts_with("azul_layout::cpurender::") {
         return Some("image".to_string());
     }
     if path.starts_with("azul_layout::fmt::") {
@@ -1316,6 +1358,61 @@ mod tests {
                 get_correct_module_with_path(name, module, Some("azul_layout::widgets::button::X")),
                 None,
                 "{name} in {module}"
+            );
+        }
+    }
+
+    /// `autofix add` placed a new type by a rule of its own (the widget rule,
+    /// else the name's keywords) and the scan's move check by another: a name
+    /// no keyword knows went to `misc` and the next scan moved it to its
+    /// path's module; a widget's `*Error` went to `widgets` and the scan moved
+    /// it to `error`. One rule for a new type: the placement the scan keeps.
+    /// And `TextRasterStyle` (the CPU rasterizer's text style, beside
+    /// `RawImage`) went to `css` by the word "Style"; MEDIA6 wanted `image` -
+    /// the exceptions table names it, so the scan moves the one api.json has.
+    #[test]
+    fn a_new_type_goes_where_the_scan_keeps_it() {
+        let raster = "azul_layout::cpurender::text_raster::TextRasterStyle";
+        assert_eq!(new_type_module("TextRasterStyle", raster), ("image".to_string(), false));
+        assert_eq!(
+            get_correct_module_with_path("TextRasterStyle", "css", Some(raster)).as_deref(),
+            Some("image"),
+            "the one api.json already has moves to image"
+        );
+        assert_eq!(
+            new_type_module("Quux", "azul_layout::cpurender::quux::Quux").0,
+            "image",
+            "a name no keyword knows goes where it lives"
+        );
+        assert_eq!(
+            new_type_module("ListViewError", "azul_layout::widgets::list_view::ListViewError").0,
+            "error"
+        );
+        // DEDUP_WIDGETS_API F17: a `*VecSlice` lives with its element - a
+        // widget's slice in widgets, even when a word of its name is a
+        // keyword of another module ("grid", "range")
+        let slice = "azul_layout::widgets::cell_grid::CellGridRangeVecSlice";
+        assert_eq!(new_type_module("CellGridRangeVecSlice", slice).0, "widgets");
+        assert_eq!(get_correct_module_with_path("CellGridRangeVecSlice", "css", Some(slice)).as_deref(), Some("widgets"));
+        for (name, path) in [
+            ("TextRasterStyle", raster),
+            ("Quux", "azul_layout::cpurender::quux::Quux"),
+            ("OptionTextRasterStyle", "azul_layout::cpurender::text_raster::OptionTextRasterStyle"),
+            ("TextRasterError", "azul_layout::cpurender::text_raster::TextRasterError"),
+            ("ListViewError", "azul_layout::widgets::list_view::ListViewError"),
+            ("FocusTarget", "azul_core::dom::FocusTarget"),
+            ("ComponentFoo", "azul_core::xml::ComponentFoo"),
+            ("ButtonOnClickCallback", "azul_layout::widgets::button::ButtonOnClickCallback"),
+            ("ShellPaletteCommandVecSlice", "azul_layout::widgets::shells::p::ShellPaletteCommandVecSlice"),
+            ("WindowFlags", "azul_core::window::WindowFlags"),
+            ("SvgFillStyle", "azul_layout::svg::SvgFillStyle"),
+            ("Quux", "azul_layout::nowhere::Quux"),
+        ] {
+            let (module, _) = new_type_module(name, path);
+            assert_eq!(
+                get_correct_module_with_path(name, &module, Some(path)),
+                None,
+                "{name} added to {module} must stay there"
             );
         }
     }

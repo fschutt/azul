@@ -912,9 +912,60 @@ fn main() -> anyhow::Result<()> {
             }
             return Ok(());
         }
-        ["autofix", "add", fn_spec] => {
+        ["autofix", "add", fn_spec, "--fn", free_fn_path] => {
+            // A function whose body calls a FREE function:
+            // autofix add RawImage.from_text --fn azul_layout::cpurender::text_image
+            let patches_dir = pending_patches_dir(&project_root, "ADD")?;
+            let api_data = load_api_json(&api_path)?;
+            let version = api_data
+                .get_latest_version_str()
+                .ok_or_else(|| anyhow::anyhow!("No versions in api.json"))?
+                .to_string();
+            let version_data = api_data
+                .get_version(&version)
+                .ok_or_else(|| anyhow::anyhow!("Version not found"))?;
+            match autofix::add::free_fn_patch_file(
+                &project_root,
+                fn_spec,
+                free_fn_path,
+                version_data,
+                &version,
+            ) {
+                Ok((file, patch, free_fn)) => {
+                    println!(
+                        "[ADD] {} calls {} (defined in {}): {}",
+                        fn_spec,
+                        free_fn.path,
+                        free_fn.defined_in,
+                        free_fn.method.signature()
+                    );
+                    autofix::add::write_patch_files(&patches_dir, std::slice::from_ref(&file))?;
+                    let class_name = fn_spec.rsplit('.').nth(1).unwrap_or_default();
+                    // a pending removal of the whole class: remove, then add = replace
+                    autofix::pending::prepare_add(&patches_dir, class_name, version_data)?;
+                    let superseded =
+                        autofix::pending::supersede_pending_removals(&patches_dir, class_name, &patch)?;
+                    if !superseded.is_empty() {
+                        println!(
+                            "[ADD] Supersedes the pending removal of {}: {}",
+                            class_name,
+                            superseded.join(", ")
+                        );
+                    }
+                    println!("\n[OK] Patch written to: {}", patches_dir.join(&file.name).display());
+                    println!("  cargo run --bin azul-doc -- autofix apply {}", patches_dir.display());
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+            return Ok(());
+        }
+        ["autofix", "add", fn_specs @ ..] if !fn_specs.is_empty() && !fn_specs.contains(&"--fn") => {
             // Add function(s) to api.json: autofix add Dom.add_callback
             // Or with wildcard: autofix add Dom.*
+            // Several at once (one index build): autofix add Dom.a Dom.b T.*
             // Also automatically adds the type if it's not in api.json yet
 
             let patches_dir = pending_patches_dir(&project_root, "ADD")?;
@@ -928,259 +979,211 @@ fn main() -> anyhow::Result<()> {
                 .ok_or_else(|| anyhow::anyhow!("No versions in api.json"))?
                 .to_string();
 
-            // Parse fn_spec: "TypeName.method" or "TypeName.*" or "module.TypeName.method"
-            let parts: Vec<&str> = fn_spec.split('.').collect();
+            for &fn_spec in fn_specs {
+                // Parse fn_spec: "TypeName.method" or "TypeName.*" or "module.TypeName.method"
+                let parts: Vec<&str> = fn_spec.split('.').collect();
 
-            if parts.len() < 2 {
-                eprintln!(
-                    "Error: Invalid format. Use: TypeName.method or TypeName.* or \
-                     module.TypeName.method"
-                );
-                std::process::exit(1);
-            }
-
-            let (type_name, method_spec) = if parts.len() == 2 {
-                (parts[0], parts[1])
-            } else {
-                // module.TypeName.method - ignore the module prefix, we'll determine it
-                // automatically
-                (parts[parts.len() - 2], parts[parts.len() - 1])
-            };
-
-            // Find the type in source
-            let type_def = match index.resolve(type_name, None) {
-                Some(t) => t,
-                None => {
-                    eprintln!("Error: Type '{}' not found in source code", type_name);
+                if parts.len() < 2 {
+                    eprintln!(
+                        "Error: Invalid format. Use: TypeName.method or TypeName.* or \
+                         module.TypeName.method"
+                    );
                     std::process::exit(1);
                 }
-            };
 
-            // Find which module the type is in (from api.json), or determine automatically
-            let version_data = api_data
-                .get_version(&version)
-                .ok_or_else(|| anyhow::anyhow!("Version not found"))?;
+                let (type_name, method_spec) = if parts.len() == 2 {
+                    (parts[0], parts[1])
+                } else {
+                    // module.TypeName.method - ignore the module prefix, we'll determine it
+                    // automatically
+                    (parts[parts.len() - 2], parts[parts.len() - 1])
+                };
 
-            let type_exists = autofix::function_diff::type_exists_in_api(type_name, version_data);
-
-            if !type_exists {
-                // Type doesn't exist in api.json - use the new function to add it with dependencies
-                println!(
-                    "[ADD] Type '{}' not found in api.json, adding with transitive \
-                     dependencies...\n",
-                    type_name
-                );
-
-                let method_spec_opt = Some(method_spec);
-
-                match autofix::function_diff::generate_add_type_patches(
-                    type_name,
-                    method_spec_opt,
-                    &index,
-                    version_data,
-                    &version,
-                ) {
-                    Ok((patches, result)) => {
-                        // Show what will be added
-                        println!("Types to add:");
-                        for (ty, module) in &result.added_types {
-                            println!("  + {} (-> {} module)", ty, module);
-                        }
-
-                        if !result.skipped_types.is_empty() {
-                            println!("\nTypes already in api.json (skipped):");
-                            for ty in &result.skipped_types {
-                                println!("  - {}", ty);
-                            }
-                        }
-
-                        if !result.missing_types.is_empty() {
-                            println!("\n[WARN] Types not found in workspace:");
-                            for ty in &result.missing_types {
-                                println!("  ? {}", ty);
-                            }
-                        }
-
-                        if !result.added_methods.is_empty() {
-                            println!("\nMethods to add to {}:", type_name);
-                            for m in &result.added_methods {
-                                println!("  + {}", m);
-                            }
-                        }
-
-                        // Write patches to files
-                        let patches_dir =
-                            project_root.join("target").join("autofix").join("patches");
-                        fs::create_dir_all(&patches_dir)?;
-
-                        for (i, patch) in patches.iter().enumerate() {
-                            let patch_filename =
-                                format!("add_{}_{}.patch.json", type_name.to_lowercase(), i);
-                            let patch_path = patches_dir.join(&patch_filename);
-
-                            let json = patch
-                                .to_json()
-                                .unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e));
-                            fs::write(&patch_path, &json)?;
-                        }
-
-                        // Also generate the functions patch if methods were requested
-                        if !result.added_methods.is_empty() {
-                            let all: Vec<_> = type_def.methods.iter().collect();
-                            let methods = autofix::function_diff::api_candidate_methods(
-                                type_name,
-                                &all,
-                                method_spec,
-                                None,
-                                &|t: &str| {
-                                    autofix::function_diff::ffi_carries(t, version_data, &index)
-                                },
-                            );
-
-                            let func_patch = autofix::function_diff::generate_add_functions_patch(
-                                type_name,
-                                &methods,
-                                &result.primary_module,
-                                &version,
-                                type_def,
-                            );
-
-                            let patch_filename =
-                                format!("add_{}_functions.patch.json", type_name.to_lowercase());
-                            let patch_path = patches_dir.join(&patch_filename);
-                            let json = serde_json::to_string_pretty(&func_patch)?;
-                            fs::write(&patch_path, &json)?;
-                        }
-
-                        println!(
-                            "\n[OK] {} patches written to: {}",
-                            patches.len() + 1,
-                            patches_dir.display()
-                        );
-                        println!(
-                            "\n\x1b[1;33mIMPORTANT\x1b[0m: Apply patches immediately or they may \
-                             become stale:"
-                        );
-                        println!(
-                            "  cargo run --bin azul-doc -- autofix apply {}",
-                            patches_dir.display()
-                        );
-                        println!("\nTo preview changes without applying:");
-                        println!("  cargo run --bin azul-doc -- autofix explain");
-                    }
-                    Err(e) => {
-                        eprintln!("Error generating patches: {}", e);
+                // Find the type in source
+                let type_def = match index.resolve(type_name, None) {
+                    Some(t) => t,
+                    None => {
+                        eprintln!("Error: Type '{}' not found in source code", type_name);
                         std::process::exit(1);
                     }
+                };
+
+                // Find which module the type is in (from api.json), or determine automatically
+                let version_data = api_data
+                    .get_version(&version)
+                    .ok_or_else(|| anyhow::anyhow!("Version not found"))?;
+
+                let type_exists = autofix::function_diff::type_exists_in_api(type_name, version_data);
+
+                if !type_exists {
+                    // Type doesn't exist in api.json - use the new function to add it with dependencies
+                    println!(
+                        "[ADD] Type '{}' not found in api.json, adding with transitive \
+                         dependencies...\n",
+                        type_name
+                    );
+
+                    match autofix::add::new_type_patch_files(
+                        type_name,
+                        method_spec,
+                        &index,
+                        version_data,
+                        &version,
+                    ) {
+                        Ok((files, result)) => {
+                            // Show what will be added
+                            println!("Types to add:");
+                            for (ty, module) in &result.added_types {
+                                println!("  + {} (-> {} module)", ty, module);
+                            }
+
+                            if !result.skipped_types.is_empty() {
+                                println!("\nTypes already in api.json (skipped):");
+                                for ty in &result.skipped_types {
+                                    println!("  - {}", ty);
+                                }
+                            }
+
+                            if !result.missing_types.is_empty() {
+                                println!("\n[WARN] Types not found in workspace:");
+                                for ty in &result.missing_types {
+                                    println!("  ? {}", ty);
+                                }
+                            }
+
+                            if !result.added_methods.is_empty() {
+                                println!("\nMethods to add to {}:", type_name);
+                                for m in &result.added_methods {
+                                    println!("  + {}", m);
+                                }
+                            }
+
+                            autofix::add::write_patch_files(&patches_dir, &files)?;
+                            for file in &files {
+                                println!("  [FILE] {}", file.name);
+                            }
+
+                            println!(
+                                "\n[OK] {} patches written to: {}",
+                                files.len(),
+                                patches_dir.display()
+                            );
+                            println!(
+                                "\n\x1b[1;33mIMPORTANT\x1b[0m: Apply patches immediately or they may \
+                                 become stale:"
+                            );
+                            println!(
+                                "  cargo run --bin azul-doc -- autofix apply {}",
+                                patches_dir.display()
+                            );
+                            println!("\nTo preview changes without applying:");
+                            println!("  cargo run --bin azul-doc -- autofix explain");
+                        }
+                        Err(e) => {
+                            eprintln!("Error generating patches: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+
+                    continue;
                 }
 
-                return Ok(());
-            }
+                // Type exists - just add the functions (original behavior)
+                let module_name = autofix::function_diff::find_type_module(type_name, version_data)
+                    .unwrap()
+                    .to_string();
 
-            // Type exists - just add the functions (original behavior)
-            let module_name = autofix::function_diff::find_type_module(type_name, version_data)
-                .unwrap()
-                .to_string();
+                // api.json as the pending patches will leave it: an entry a pending
+                // `autofix remove` drops can be re-added (a changed signature) in
+                // the same round; a pending removal of the whole class becomes a
+                // removal of its entries (remove, then add = replace)
+                let pending =
+                    autofix::pending::prepare_add(&patches_dir, type_name, version_data)?;
+                if pending.class {
+                    eprintln!(
+                        "Error: a pending patch in {} removes the class '{}'; run `autofix apply` \
+                         first, then add",
+                        patches_dir.display(),
+                        type_name
+                    );
+                    std::process::exit(1);
+                }
+                let api_class = autofix::function_diff::find_api_class(type_name, version_data)
+                    .map(|class| pending.apply_to(class));
 
-            // api.json as the pending patches will leave it: an entry a pending
-            // `autofix remove` drops can be re-added (a changed signature) in
-            // the same round
-            let pending = autofix::pending::PendingRemovals::read(&patches_dir, type_name);
-            if pending.class {
-                eprintln!(
-                    "Error: a pending patch in {} removes the class '{}'; run `autofix apply` \
-                     first, then add",
-                    patches_dir.display(),
+                // Get matching methods
+                let all: Vec<_> = type_def.methods.iter().collect();
+                let methods = autofix::function_diff::api_candidate_methods(
+                    type_name,
+                    &all,
+                    method_spec,
+                    api_class.as_ref(),
+                    &|t: &str| autofix::function_diff::ffi_carries(t, version_data, &index),
+                );
+
+                if methods.is_empty() {
+                    println!(
+                        "No matching public methods found for '{}.{}'",
+                        type_name, method_spec
+                    );
+                    continue;
+                }
+
+                println!(
+                    "[ADD] Generating patch to add {} function(s) to {}\n",
+                    methods.len(),
                     type_name
                 );
-                std::process::exit(1);
-            }
-            let api_class = autofix::function_diff::find_api_class(type_name, version_data)
-                .map(|class| pending.apply_to(class));
 
-            // Get matching methods
-            let all: Vec<_> = type_def.methods.iter().collect();
-            let methods = autofix::function_diff::api_candidate_methods(
-                type_name,
-                &all,
-                method_spec,
-                api_class.as_ref(),
-                &|t: &str| autofix::function_diff::ffi_carries(t, version_data, &index),
-            );
-
-            if methods.is_empty() {
-                println!(
-                    "No matching public methods found for '{}.{}'",
-                    type_name, method_spec
-                );
-                return Ok(());
-            }
-
-            println!(
-                "[ADD] Generating patch to add {} function(s) to {}\n",
-                methods.len(),
-                type_name
-            );
-
-            // Show what will be added
-            for m in &methods {
-                let ctor_str = if m.is_constructor {
-                    " [constructor]"
-                } else {
-                    ""
-                };
-                println!("  + fn {}{}{}", m.name, m.signature(), ctor_str);
-            }
-
-            // Generate the patch
-            let patch = autofix::function_diff::generate_add_functions_patch(
-                type_name,
-                &methods,
-                &module_name,
-                &version,
-                type_def,
-            );
-
-            // Write patch to file
-            let patches_dir = project_root.join("target").join("autofix").join("patches");
-            fs::create_dir_all(&patches_dir)?;
-
-            let patch_filename = format!(
-                "add_{}_{}.patch.json",
-                type_name.to_lowercase(),
-                if method_spec == "*" {
-                    "all"
-                } else {
-                    method_spec
+                // Show what will be added
+                for m in &methods {
+                    let ctor_str = if m.is_constructor {
+                        " [constructor]"
+                    } else {
+                        ""
+                    };
+                    println!("  + fn {}{}{}", m.name, m.signature(), ctor_str);
                 }
-            );
-            let patch_path = patches_dir.join(&patch_filename);
 
-            let json = serde_json::to_string_pretty(&patch)?;
-            fs::write(&patch_path, &json)?;
-
-            // The re-added entries supersede their pending removals, whatever
-            // order `autofix apply` takes the patches in
-            let superseded =
-                autofix::pending::supersede_pending_removals(&patches_dir, type_name, &patch)?;
-            if !superseded.is_empty() {
-                println!(
-                    "[ADD] Supersedes the pending removal of {}: {}",
+                // Generate the patch
+                let patch = autofix::function_diff::generate_add_functions_patch(
                     type_name,
-                    superseded.join(", ")
+                    &methods,
+                    &module_name,
+                    &version,
+                    type_def,
                 );
-            }
 
-            println!("\n[OK] Patch written to: {}", patch_path.display());
-            println!(
-                "\n\x1b[1;33mIMPORTANT\x1b[0m: Apply patches immediately or they may become stale:"
-            );
-            println!(
-                "  cargo run --bin azul-doc -- autofix apply {}",
-                patches_dir.display()
-            );
-            println!("\nTo preview changes without applying:");
-            println!("  cargo run --bin azul-doc -- autofix explain");
+                // Write patch to file
+                let patch_path = patches_dir
+                    .join(autofix::add::functions_patch_file_name(type_name, method_spec));
+
+                let json = serde_json::to_string_pretty(&patch)?;
+                fs::write(&patch_path, &json)?;
+
+                // The re-added entries supersede their pending removals, whatever
+                // order `autofix apply` takes the patches in
+                let superseded =
+                    autofix::pending::supersede_pending_removals(&patches_dir, type_name, &patch)?;
+                if !superseded.is_empty() {
+                    println!(
+                        "[ADD] Supersedes the pending removal of {}: {}",
+                        type_name,
+                        superseded.join(", ")
+                    );
+                }
+
+                println!("\n[OK] Patch written to: {}", patch_path.display());
+                println!(
+                    "\n\x1b[1;33mIMPORTANT\x1b[0m: Apply patches immediately or they may become stale:"
+                );
+                println!(
+                    "  cargo run --bin azul-doc -- autofix apply {}",
+                    patches_dir.display()
+                );
+                println!("\nTo preview changes without applying:");
+                println!("  cargo run --bin azul-doc -- autofix explain");
+            }
 
             return Ok(());
         }
@@ -2878,6 +2881,9 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    autofix list <Type>           - List functions for a type (source vs api.json)");
     println!("    autofix add <Type.method>     - Add function(s) to api.json");
     println!("    autofix add <Type.*>          - Add all public methods of a type");
+    println!("    autofix add <T.a> <T.b> ..    - Several in one run (one index build)");
+    println!("    autofix add <Type.name> --fn <crate::path::free_fn>");
+    println!("                                  - A function whose body calls a free function");
     println!("    autofix remove <Type.method>  - Remove function from api.json");
     println!("    autofix apply                 - Apply patches from target/autofix/patches");
     println!("    autofix apply <file|dir>      - Apply a patch file or directory");
