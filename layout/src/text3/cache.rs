@@ -5943,19 +5943,21 @@ impl UnifiedLayout {
     pub const fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
+    /// Where the FIRST line's baseline lies, from the top of the layout (the
+    /// IFC's content box): see [`baseline_in_layout`].
     #[must_use]
     pub fn first_baseline(&self) -> Option<f32> {
-        self.items
-            .iter()
-            .find_map(|item| get_baseline_for_item(&item.item))
+        self.items.iter().find_map(baseline_in_layout)
     }
 
+    /// Where the LAST line's baseline lies, from the top of the layout (the
+    /// IFC's content box) - an inline-block's baseline (CSS 2.2 s10.8.1).
+    /// It used to be the last item's ascent alone, wherever that item sat:
+    /// the half-leading of a tall line and every line above went missing,
+    /// and an inline-block of `line-height: 5` text rose 40px above its line.
     #[must_use]
     pub fn last_baseline(&self) -> Option<f32> {
-        self.items
-            .iter()
-            .rev()
-            .find_map(|item| get_baseline_for_item(&item.item))
+        self.items.iter().rev().find_map(baseline_in_layout)
     }
 
     /// The closest logical cursor position to a point in this layout's OWN
@@ -7057,31 +7059,26 @@ impl UnifiedLayout {
     }
 }
 
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
-                                  // (or cross-type bindings that can't merge)
-fn get_baseline_for_item(item: &ShapedItem) -> Option<f32> {
-    match item {
-        ShapedItem::CombinedBlock {
-            baseline_offset, ..
-        } => Some(*baseline_offset),
+/// Where `positioned`'s baseline lies in its layout (from the top of the
+/// IFC's content box): its top - the line put it at `baseline - ascent` - plus
+/// the ascent the line used (`get_item_vertical_metrics`: a glyph run's with
+/// its half-leading; an atomic inline's is its height above its
+/// `baseline_offset`, which counts from its bottom edge). `None` for what has
+/// no baseline: a break, a tab, a cluster without glyphs.
+fn baseline_in_layout(positioned: &PositionedItem) -> Option<f32> {
+    let ascent = match &positioned.item {
+        ShapedItem::Cluster(c) if c.glyphs.is_empty() => return None,
         ShapedItem::Object {
-            baseline_offset, ..
-        } => Some(*baseline_offset),
-        // We have to get the clusters font from the last glyph
-        ShapedItem::Cluster(ref cluster) => cluster.glyphs.last().map(|last_glyph| {
-            last_glyph
-                .font_metrics
-                .baseline_scaled(cluster.style.font_size_px)
-        }),
-        ShapedItem::Break { source, break_info } => {
-            // Breaks do not contribute to baseline
-            None
+            bounds,
+            baseline_offset,
+            ..
+        } => bounds.height - *baseline_offset,
+        ShapedItem::Cluster(_) | ShapedItem::CombinedBlock { .. } => {
+            get_item_vertical_metrics_approx(&positioned.item).0
         }
-        ShapedItem::Tab { source, bounds } => {
-            // Tabs do not contribute to baseline
-            None
-        }
-    }
+        ShapedItem::Break { .. } | ShapedItem::Tab { .. } => return None,
+    };
+    Some(positioned.position.y + ascent)
 }
 
 /// Stores information about content that exceeded the available layout space.
@@ -16885,17 +16882,24 @@ mod autotest_generated {
     }
 
     #[test]
-    fn get_baseline_for_item_only_defined_for_clusters_and_boxes() {
-        assert_eq!(get_baseline_for_item(&brk()), None);
-        assert_eq!(get_baseline_for_item(&tab(8.0, 16.0)), None);
-        assert_eq!(get_baseline_for_item(&obj(10.0, 20.0, 3.0)), Some(3.0));
-        // Cluster: baseline of the LAST glyph, scaled to font size (800/1000*16).
+    fn baseline_in_layout_only_defined_for_clusters_and_boxes() {
+        assert_eq!(baseline_in_layout(&pos(brk(), 0.0, 0.0, 0)), None);
+        assert_eq!(baseline_in_layout(&pos(tab(8.0, 16.0), 0.0, 0.0, 0)), None);
+        // An atomic inline: its top plus its height above `baseline_offset`
+        // (which counts from its bottom).
+        assert_eq!(
+            baseline_in_layout(&pos(obj(10.0, 20.0, 3.0), 0.0, 4.0, 0)),
+            Some(4.0 + 17.0)
+        );
+        // Cluster: its top plus the ascent the line used (13px at 16px, see
+        // `get_item_vertical_metrics_approx_for_every_variant`).
         approx(
-            get_baseline_for_item(&cl("a", 8.0)).expect("a glyph-bearing cluster has a baseline"),
-            12.8,
+            baseline_in_layout(&pos(cl("a", 8.0), 0.0, 30.0, 0))
+                .expect("a glyph-bearing cluster has a baseline"),
+            43.0,
         );
         assert_eq!(
-            get_baseline_for_item(&cl_no_glyphs("", 0.0)),
+            baseline_in_layout(&pos(cl_no_glyphs("", 0.0), 0.0, 0.0, 0)),
             None,
             "a glyph-less cluster has no baseline"
         );
@@ -18068,11 +18072,14 @@ mod autotest_generated {
             pos(obj(10.0, 20.0, 5.0), 10.0, 0.0, 0),
             pos(tab(8.0, 16.0), 20.0, 0.0, 0),
         ]);
+        // Where each baseline LIES (the item's top plus the ascent the line
+        // used): the cluster's 13px ascent, the 20px object's 15px above its
+        // `baseline_offset` of 5.
         approx(
             l.first_baseline().expect("the cluster, not the break"),
-            12.8,
+            13.0,
         );
-        assert_eq!(l.last_baseline(), Some(5.0), "the object, not the tab");
+        assert_eq!(l.last_baseline(), Some(15.0), "the object, not the tab");
     }
 
     #[test]
