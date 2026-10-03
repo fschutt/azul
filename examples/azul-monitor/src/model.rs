@@ -626,9 +626,39 @@ impl Model {
     /// memory in percent and the four rates in bytes per second. What
     /// "Export the last minute" writes into the data tree.
     #[must_use]
+    #[allow(clippy::cast_precision_loss)] // reading counts far below 2^52
     pub fn history_csv(&self, seconds_per_reading: f64) -> String {
-        let _ = seconds_per_reading;
-        todo!("GREEN: Model::history_csv")
+        let columns = [
+            self.cpu.to_vec(),
+            self.memory.to_vec(),
+            self.disk_read.to_vec(),
+            self.disk_write.to_vec(),
+            self.net_in.to_vec(),
+            self.net_out.to_vec(),
+        ];
+        let rows = columns.iter().map(Vec::len).min().unwrap_or(0);
+        let mut csv = String::with_capacity(HISTORY_CSV_HEADER.len() + 1 + rows * 48);
+        csv.push_str(HISTORY_CSV_HEADER);
+        csv.push('\n');
+        for i in 0..rows {
+            let ago = (rows - 1 - i) as f64 * seconds_per_reading;
+            let ago = if ago.fract() == 0.0 {
+                format!("{ago:.0}")
+            } else {
+                format!("{ago:.1}")
+            };
+            let at = |c: usize| columns[c].get(i).copied().unwrap_or(0.0);
+            csv.push_str(&format!(
+                "{ago},{:.1},{:.1},{:.0},{:.0},{:.0},{:.0}\n",
+                at(0),
+                at(1),
+                at(2),
+                at(3),
+                at(4),
+                at(5)
+            ));
+        }
+        csv
     }
 }
 
