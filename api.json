@@ -48947,7 +48947,8 @@
                                 "Change": {},
                                 "Reset": {},
                                 "Invalid": {},
-                                "MouseMove": {}
+                                "MouseMove": {},
+                                "TypingStyleChanged": {}
                             }
                         ],
                         "repr": "C"
