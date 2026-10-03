@@ -2483,16 +2483,23 @@ pub(crate) fn build(resolved: CellGridResolved, look: &CellGridLook) -> Dom {
             } else {
                 content.text
             };
+            // Named by its place ("B2", what a screen reader says first),
+            // its text as its value.
+            let value = if text.as_str().is_empty() {
+                None
+            } else {
+                Some(text.clone())
+            };
             row_children.push(
                 Dom::create_div()
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(CELL_CLASS))
                     .with_css_props(CssPropertyWithConditionsVec::from_vec(p))
                     .with_accessibility_info(AccessibilityInfo {
-                        role: AccessibilityRole::GridCell,
                         row_index: azul_css::corety::OptionUsize::Some(r.index as usize + 1),
                         column_index: azul_css::corety::OptionUsize::Some(c.index as usize + 1),
                         states: AccessibilityStateVec::from_vec(states),
-                        ..Default::default()
+                        accessibility_value: value.into(),
+                        ..AccessibilityInfo::named(CellGrid::cell_label(at), AccessibilityRole::GridCell)
                     })
                     .with_child(cell_text(text, &style)),
             );
