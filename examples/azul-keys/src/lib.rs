@@ -12,7 +12,8 @@
 //! - [`lock`]: the idle lock and the wait after wrong master passwords;
 //! - [`audit`]: weak, reused and old passwords, logins without a one-time code;
 //! - [`store`]: the files in the data tree and the work on them (list, create, unlock, save);
-//! - [`sample`]: the `--sample` vault.
+//! - [`sample`]: the `--sample` vault;
+//! - [`session`]: an unlocked vault in the window (selection, edit form, reading pane).
 
 pub mod audit;
 pub mod clipboard;
@@ -22,6 +23,7 @@ pub mod ids;
 pub mod import;
 pub mod lock;
 pub mod sample;
+pub mod session;
 pub mod store;
 pub mod totp;
 pub mod vault;
