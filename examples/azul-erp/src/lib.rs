@@ -43,3 +43,6 @@ pub mod depreciation;
 pub mod store;
 /// CSV export of the register and a schedule; CSV import with a mapping.
 pub mod csv_io;
+/// Totals by category and location, the depreciation forecast,
+/// maintenance due, overdue check-outs.
+pub mod reports;
