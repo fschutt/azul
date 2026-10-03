@@ -8542,6 +8542,22 @@ impl TextShapingCache {
         let mut cur_word = 0.0f32;
         let mut max_line_height = 0.0f32;
 
+        // CSS Text 3 4.1.2 (white-space Phase II): in the collapsing modes the
+        // spaces at a line's start and end are removed - the line breaker
+        // strips them (`break_one_line`'s strip_leading / strip_trailing), so
+        // the max-content does not hold them either: a leading one is never
+        // folded, and a line measures to its last item that is not one
+        // (`line_content`). `<td> text </td>` was two spaces wider than its
+        // text, and centred content sat off-centre in it (MAILREF8 group F).
+        let collapsing = matches!(
+            constraints.white_space_mode,
+            WhiteSpaceMode::Normal | WhiteSpaceMode::Nowrap | WhiteSpaceMode::PreLine
+        );
+        let mut line_has_content = false;
+        let mut line_content = 0.0f32;
+        let line_width =
+            |total: f32, line_content: f32| if collapsing { line_content } else { total };
+
         // `text-indent` counts in the intrinsic sizes (CSS Text 3 8.1; the
         // caller passes a percentage as 0): a line box is narrower by its indent
         // (`text_indent_of_line`), so a box sized from these widths must hold
@@ -8560,13 +8576,16 @@ impl TextShapingCache {
             // content) over-measures its max-content as the concatenation of all
             // lines. Reset the line accumulators here.
             if let ShapedItem::Break { .. } = item {
-                if total + line_indent > max_line {
-                    max_line = total + line_indent;
+                let width = line_width(total, line_content);
+                if width + line_indent > max_line {
+                    max_line = width + line_indent;
                 }
                 if cur_word > 0.0 && cur_word + word_indent > max_word {
                     max_word = cur_word + word_indent;
                 }
                 total = 0.0;
+                line_content = 0.0;
+                line_has_content = false;
                 cur_word = 0.0;
                 forced_lines += 1;
                 line_indent = text_indent_of_line(constraints, false, forced_lines > 0);
@@ -8579,7 +8598,14 @@ impl TextShapingCache {
             // letter-spacing, word-spacing included; see that function's doc
             // for why any other grouping re-introduces the one-word-wrap bug).
             let adv = get_item_measure_with_spacing(item, scan_is_vertical).max(0.0);
-            total = fold_line_width(total, item, scan_is_vertical);
+            let removable_space = collapsing && is_collapsible_whitespace(item);
+            if line_has_content || !removable_space {
+                total = fold_line_width(total, item, scan_is_vertical);
+            }
+            if !removable_space {
+                line_has_content = true;
+                line_content = total;
+            }
 
             let (asc, desc) = get_item_vertical_metrics_approx(item);
             let h = (asc + desc).max(item.bounds().height);
@@ -8616,8 +8642,9 @@ impl TextShapingCache {
         }
         // The last line: an indent only counts on a line that holds something
         // (an empty paragraph has no line box to indent).
-        if (total > 0.0 || forced_lines > 0) && total + line_indent > max_line {
-            max_line = total + line_indent;
+        let width = line_width(total, line_content);
+        if (width > 0.0 || forced_lines > 0) && width + line_indent > max_line {
+            max_line = width + line_indent;
         }
 
         // white-space:nowrap forbids soft-wrap opportunities entirely, so the
