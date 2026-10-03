@@ -1254,6 +1254,7 @@ pub mod parsed {
                 x_height: None, /* will be populated from OS/2 table via from_font_metrics if
                                  * available */
                 cap_height: None,
+                browser_ascent_boost: false,
             };
 
             // Build PDF-specific font metrics
@@ -2266,6 +2267,7 @@ pub mod parsed {
                 units_per_em: self.font_metrics.units_per_em,
                 x_height: self.font_metrics.x_height,
                 cap_height: self.font_metrics.cap_height,
+                browser_ascent_boost: self.font_metrics.browser_ascent_boost,
             }
         }
 
@@ -2683,6 +2685,7 @@ pub mod parsed {
                 units_per_em: 1000,
                 x_height: None,
                 cap_height: None,
+                browser_ascent_boost: false,
             }
         }
 
@@ -3137,6 +3140,7 @@ pub mod parsed {
                 units_per_em: 0,
                 x_height: Some(f32::MAX),
                 cap_height: None,
+                browser_ascent_boost: false,
             });
             assert!(extreme.font_metrics.ascent.is_infinite());
             assert!(extreme.font_metrics.descent.is_nan());

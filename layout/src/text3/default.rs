@@ -904,6 +904,7 @@ fn shape_text_internal(
         units_per_em: parsed_font.font_metrics.units_per_em,
         x_height: parsed_font.font_metrics.x_height,
         cap_height: parsed_font.font_metrics.cap_height,
+        browser_ascent_boost: parsed_font.font_metrics.browser_ascent_boost,
     };
     let style_arc = Arc::new(style.clone());
     let bidi_level = BidiLevel::new(u8::from(direction.is_rtl()));

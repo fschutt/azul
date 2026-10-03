@@ -37,6 +37,7 @@ fn hhea(ascent: f32, descent: f32, line_gap: f32, upem: u16) -> LayoutFontMetric
         units_per_em: upem,
         x_height: None,
         cap_height: None,
+        browser_ascent_boost: false,
     }
 }
 

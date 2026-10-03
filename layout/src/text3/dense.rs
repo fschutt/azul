@@ -254,6 +254,7 @@ impl DenseText {
                     ascent: 0.0,
                     descent: 0.0,
                     cap_height: None,
+                    browser_ascent_boost: false,
                     x_height: None,
                     line_gap: 0.0,
                     units_per_em: 0,

@@ -129,7 +129,9 @@ impl LineHeight {
     /// Resolve to a pixel value, using font metrics when `Normal`.
     ///
     /// `ascent`, `descent` (negative in OpenType convention), `line_gap` are in font units.
-    /// `font_size_px` and `units_per_em` are used to scale.
+    /// `font_size_px` and `units_per_em` are used to scale. `normal` is the
+    /// browsers' rounded `A + D + G` ([`LayoutFontMetrics::line_metrics_px`],
+    /// for a face without the macOS ascent boost), 1.2em without units.
     #[must_use]
     pub fn resolve(
         &self,
@@ -139,28 +141,32 @@ impl LineHeight {
         line_gap: f32,
         units_per_em: u16,
     ) -> f32 {
-        match self {
-            Self::Px(px) => *px,
-            Self::Normal => {
-                if units_per_em == 0 {
-                    return font_size_px * 1.2; // fallback
-                }
-                let scale = font_size_px / f32::from(units_per_em);
-                (ascent - descent + line_gap) * scale
-            }
-        }
+        self.resolve_with_metrics(
+            font_size_px,
+            &LayoutFontMetrics {
+                ascent,
+                descent,
+                line_gap,
+                units_per_em,
+                x_height: None,
+                cap_height: None,
+                browser_ascent_boost: false,
+            },
+        )
     }
 
-    /// Resolve using a `LayoutFontMetrics` struct for convenience.
+    /// Resolve against a face's metrics: `normal` is the line height a
+    /// browser gives a line of that face, `A + D + G` each rounded to whole
+    /// pixels at the font size ([`LayoutFontMetrics::line_metrics_px`]),
+    /// 1.2em for a face without units.
     #[must_use]
     pub fn resolve_with_metrics(&self, font_size_px: f32, metrics: &LayoutFontMetrics) -> f32 {
-        self.resolve(
-            font_size_px,
-            metrics.ascent,
-            metrics.descent,
-            metrics.line_gap,
-            metrics.units_per_em,
-        )
+        match self {
+            Self::Px(px) => *px,
+            Self::Normal => metrics
+                .line_metrics_px(font_size_px)
+                .map_or(font_size_px * 1.2, |(a, d, g)| a + d + g),
+        }
     }
 }
 
@@ -2833,9 +2839,46 @@ pub struct LayoutFontMetrics {
     /// OS/2 sCapHeight: height of capital letters from baseline (in font units).
     /// Used for drop cap / initial-letter alignment per CSS Inline 3 §7.1.1.
     pub cap_height: Option<f32>,
+    /// The face is Apple's Times, Helvetica or Courier on macOS: browsers
+    /// there grow its rounded ascent by 15% of ascent + descent
+    /// ([`Self::line_metrics_px`]). Set where the face is parsed
+    /// (`crate::font::parsed::browser_ascent_boost`).
+    pub browser_ascent_boost: bool,
 }
 
 impl LayoutFontMetrics {
+    /// The `(ascent, descent, line gap)` a browser lays a line of this face
+    /// out with at `font_size_px`, in px, `None` for a face without units.
+    ///
+    /// Each is rounded to a whole pixel AT THE FONT SIZE (Blink
+    /// `FontMetrics::AscentDescentWithHacks`: `SkScalarRoundToScalar` of the
+    /// ascent and descent; `SimpleFontData::PlatformInit`: `lroundf` of the
+    /// line gap), so `line-height: normal` is `A + D + G` in whole pixels: a
+    /// 16px Arial line is 14 + 3 + 1 = 18px, as in Chrome (the unrounded sum
+    /// is 18.4px, and every line of a mail drifted 0.4px against Chrome).
+    /// Then, for [`Self::browser_ascent_boost`] faces only, the rounded
+    /// ascent grows by `floor((A + D) * 0.15 + 0.5)` (Blink, macOS; WebKit
+    /// `SimpleFontData::platformInit`): 16px Helvetica is 14 + 4 + 0 = 18px.
+    /// The descent is the hhea descender's distance below the baseline
+    /// (stored negative), the line gap is floored at zero (CSS Inline 3
+    /// §3.2.2). Measured against Chrome 154 for 11 faces x 13 sizes
+    /// (layout/tests/a_normal_line_is_as_tall_as_chromes.rs).
+    #[must_use]
+    pub fn line_metrics_px(&self, font_size_px: f32) -> Option<(f32, f32, f32)> {
+        if self.units_per_em == 0 {
+            return None;
+        }
+        let scale = font_size_px / f32::from(self.units_per_em);
+        let round = |v: f32| (v + 0.5).floor();
+        let mut ascent = round(self.ascent * scale);
+        let descent = round((-self.descent * scale).max(0.0));
+        let line_gap = round((self.line_gap * scale).max(0.0));
+        if self.browser_ascent_boost {
+            ascent += round((ascent + descent) * 0.15);
+        }
+        Some((ascent, descent, line_gap))
+    }
+
     // +spec:font-metrics:006bd8 - baseline position from font design coordinates, scaled with font
     // size +spec:font-metrics:910c0a - dominant-baseline: auto resolves to alphabetic for
     // horizontal text +spec:writing-modes:098958 - baseline is along the inline axis, used to
@@ -2910,6 +2953,9 @@ impl LayoutFontMetrics {
             units_per_em: metrics.units_per_em,
             x_height,
             cap_height,
+            // No family name reaches this constructor (an embedder's face
+            // metrics): only `ParsedFont` sets the macOS ascent boost.
+            browser_ascent_boost: false,
         }
     }
 
@@ -7202,6 +7248,7 @@ impl CompactShapedEntry {
                     ascent: 0.0,
                     descent: 0.0,
                     cap_height: None,
+                    browser_ascent_boost: false,
                     x_height: None,
                     line_gap: 0.0,
                     units_per_em: 0,
@@ -14567,6 +14614,7 @@ mod autotest_generated {
             units_per_em: upem,
             x_height: None,
             cap_height: None,
+            browser_ascent_boost: false,
         }
     }
 
@@ -14878,21 +14926,29 @@ mod autotest_generated {
             LineHeight::Normal.resolve(16.0, 800.0, -200.0, 250.0, 1000),
             20.0,
         );
-        // A descent given with the WRONG (positive) sign shrinks the line box —
-        // the formula subtracts it unconditionally.
+        // A descent given with the WRONG (positive) sign lies ABOVE the
+        // baseline: the line keeps no descent at all (floored at zero), and
+        // the ascent alone rounds to 13px (MAILENG6: rounded like Chrome).
         approx(
             LineHeight::Normal.resolve(16.0, 800.0, 200.0, 0.0, 1000),
-            9.6,
+            13.0,
+        );
+        // Each of A, D and G is rounded to whole pixels BEFORE the sum
+        // (Blink): Arial 16px is 14 + 3 + 1 = 18, not the 18.4 of the
+        // unrounded sum.
+        approx(
+            LineHeight::Normal.resolve(16.0, 1854.0, -434.0, 67.0, 2048),
+            18.0,
         );
     }
 
     #[test]
     fn line_height_normal_at_u16_max_upem_does_not_panic() {
         let v = LineHeight::Normal.resolve(16.0, 800.0, -200.0, 0.0, u16::MAX);
-        assert!(v.is_finite() && v > 0.0, "got {v}");
+        assert!(v.is_finite() && v >= 0.0, "got {v}");
         assert!(
             v < 1.0,
-            "a 65535-upem font must produce a tiny scale, got {v}"
+            "a 65535-upem font must produce a tiny scale (0.2px of ascent rounds to 0), got {v}"
         );
     }
 
@@ -14904,10 +14960,11 @@ mod autotest_generated {
         assert!(LineHeight::Normal
             .resolve(f32::INFINITY, 800.0, -200.0, 0.0, 1000)
             .is_infinite());
-        // ascent == descent == inf → inf - inf == NaN
+        // ascent == descent == +inf: the (positive) descent is floored at
+        // zero, the ascent stays infinite.
         assert!(LineHeight::Normal
             .resolve(16.0, f32::INFINITY, f32::INFINITY, 0.0, 1000)
-            .is_nan());
+            .is_infinite());
     }
 
     #[test]
