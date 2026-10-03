@@ -323,14 +323,34 @@ impl EditorForm {
     /// rule; `None` when it does not repeat.
     #[must_use]
     pub fn shown_rule(&self) -> Option<Rule> {
-        todo!()
+        if self.repeat == Repeat::Custom {
+            return self.custom.clone();
+        }
+        rule_of(
+            self.repeat,
+            self.interval,
+            self.ends,
+            self.count,
+            self.until,
+            self.date,
+        )
     }
 
     /// Takes the rule the recurrence editor made (`None`: it does not repeat): a rule one of
     /// the choices makes shows as that choice, any other is kept as the form's own.
     pub fn set_rule(&mut self, rule: Option<Rule>) {
-        let _ = rule;
-        todo!()
+        let Some(rule) = rule else {
+            self.repeat = Repeat::Never;
+            self.custom = None;
+            return;
+        };
+        let shown = repeat_of(&rule, self.date);
+        self.repeat = shown.repeat;
+        self.interval = shown.interval;
+        self.ends = shown.ends;
+        self.count = shown.count;
+        self.until = shown.until;
+        self.custom = (shown.repeat == Repeat::Custom).then_some(rule);
     }
 }
 
