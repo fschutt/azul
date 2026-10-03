@@ -22,8 +22,15 @@ const ROW_ITEM_CSS: &str = "padding: 5px 10px; font-size: 13px; color: system:te
 const ROW_SELECTED_CSS: &str = "padding: 5px 10px; font-size: 13px; cursor: pointer; \
                                 background-color: system:accent; color: system:accent-text;";
 
-/// The mailboxes of the selection demo, in list order.
-const MAILBOXES: [&str; 6] = ["Inbox", "Drafts", "Sent", "Archive", "Spam", "Trash"];
+/// The folders of the selection demo, in list order (names no other card uses).
+const MAILBOXES: [&str; 6] = [
+    "Quarterly reports",
+    "Receipts 2026",
+    "Travel plans",
+    "Family photos",
+    "Newsletters",
+    "Old projects",
+];
 
 /// The status bar's zoom range and step.
 const ZOOM_MIN: f32 = 25.0;
@@ -94,7 +101,7 @@ pub(crate) fn blocks_section(data: &RefAny, b: &BlocksDemo, theme: UiTheme) -> D
 
     let mut list = Dom::create_div()
         .with_css(LIST_CSS)
-        .with_accessibility_name("Mailboxes");
+        .with_accessibility_name("Folders");
     for name in MAILBOXES {
         let key = ListSelection::key_of(name);
         let css = if b.selection.contains(key) { ROW_SELECTED_CSS } else { ROW_ITEM_CSS };
