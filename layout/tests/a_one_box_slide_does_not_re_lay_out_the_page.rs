@@ -88,6 +88,19 @@ fn card(i: usize, edited: bool) -> Dom {
                 ))
                 .with_child(Dom::create_span_with_text("link")),
         )
+        .with_child(
+            // A group in wrapping columns: as tall as its options stacked when
+            // its column offers max-content height, as tall as one option at
+            // min-content (every option its own line). So the card's height -
+            // and the height its column measures its width at - differs
+            // between the column's max-content and min-content measures, as
+            // AzWidgets' form section's does (938 / 906 px).
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: column; flex-wrap: wrap;")
+                .with_child(Dom::create_div_with_text(format!("Option {i} a")))
+                .with_child(Dom::create_div_with_text(format!("Option {i} b")))
+                .with_child(Dom::create_div_with_text(format!("Option {i} c"))),
+        )
 }
 
 /// The card holding the switch: a label and a fixed-size track with its knob,
@@ -119,15 +132,23 @@ fn widgets_page(cards: usize) -> Dom {
 /// [`widgets_page`] with the knob `knob_px` into its track and card `edited`
 /// (if any) relabelled.
 fn widgets_page_with(cards: usize, knob_px: isize, edited: Option<usize>) -> Dom {
-    let mut content = Dom::create_div()
+    // The page column inside the scrolling one: a flex item with a visible
+    // overflow, so its container measures its automatic minimum height
+    // (a min-content measure) as well as its basis (max-content) - two
+    // passes over its cards with different available heights, as AzWidgets'
+    // page column gets from its body.
+    let mut page = Dom::create_div()
+        .with_css("display: flex; flex-direction: column;")
+        .with_child(switch_card(knob_px));
+    for i in 0..cards {
+        page = page.with_child(card(i, edited == Some(i)));
+    }
+    let content = Dom::create_div()
         .with_css(
             "display: flex; flex-direction: column; flex-grow: 1; overflow-y: auto; \
              padding: 24px;",
         )
-        .with_child(switch_card(knob_px));
-    for i in 0..cards {
-        content = content.with_child(card(i, edited == Some(i)));
-    }
+        .with_child(page);
     Dom::create_html()
         .with_child(Dom::create_div().with_css("height: 26px;"))
         .with_child(
