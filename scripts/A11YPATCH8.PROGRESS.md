@@ -4,16 +4,21 @@ Task: the accessibility tree sends patches (accesskit TreeUpdate with only chang
 NOTHING when a frame changed nothing a11y-visible. Brief: scripts/waves/wave8/PLAN.md "A11YPATCH8".
 
 ## DONE
-- (none yet)
+- c73731cb2 progress file; 93928238a measurement
+- d2d7e3cb4 RED: layout/tests/an_animation_frame_sends_assistive_technology_only_what_moved.rs (registered in all.rs)
 
 ## IN PROGRESS
-- reading the a11y code, measuring the a11y cost per tick on the current build
+- GREEN in layout/src/managers/a11y.rs: retained tree (per-node input signature + built node), diff -> patch, publish validates a patch in O(patch) (no full mirror clone), fold prunes removed nodes
 
 ## NEXT
-- measure (AZ_PROFILE=cpu tick scenario, /Users/fschutt/Development/azul-work/lp8/)
+- a11y.rs GREEN (A11yRetainedTree + A11yManager::refresh), then window.rs update_a11y_tree -> refresh, incremental path keeps retained in sync / resyncs on refusal
+- fix tests whose premise was 'every pass parks a full tree': a11y_consumer_contract a_parked_full_tree_absorbs..., scroll_chain a_fixed_box_is_reported...
+- dll feed (common/accessibility.rs): HashMap tree, O(patch) merge, missed delivery -> full resync; macOS init_accessibility asks for a full tree
 
 ## Decisions
-- (none yet)
+- Bounds of a moving node are sent EVERY frame they change (a 1-node patch); no throttle: accesskit has no lazy bounds, the cost was the 3 ms full rebuild + full-tree consumer diff, not one node.
+- Per-node change detection = a SipHash signature of every input the node's content is built from (node_type, attributes, flags, AccessibilityInfo, focusable/activation bools, direct children's text, text override, cursor, screen bounds, scroll info); an unchanged signature reuses the retained node, no build.
+- A refused publish or a new adapter -> the retained tree is dropped, the next pass publishes a FULL tree (resync).
 
 ## Open questions
 - (none yet)
