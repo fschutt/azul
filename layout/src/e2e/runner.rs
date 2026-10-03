@@ -7292,6 +7292,69 @@ mod tests {
             offset.y,
         );
     }
+
+    // ── The undo keys in a scenario (EVENTS7) ────────────────────────────────
+
+    /// The key the platform's shortcuts are held with: Cmd under the Mac's
+    /// conventions, Ctrl elsewhere (`KeyModifiers::primary_down`).
+    fn primary_key() -> VirtualKeyCode {
+        if azul_core::window::mac_shortcut_conventions() {
+            VirtualKeyCode::LWin
+        } else {
+            VirtualKeyCode::LControl
+        }
+    }
+
+    /// An editor that owns its undo history: it vetoes the undo keys' default
+    /// action (and lets every other key through).
+    extern "C" fn veto_the_undo_keys(_data: RefAny, mut info: CallbackInfo) -> Update {
+        let keyboard = info.get_current_keyboard_state();
+        let key = keyboard.current_virtual_keycode.into_option();
+        if keyboard.primary_down() && matches!(key, Some(VirtualKeyCode::Z | VirtualKeyCode::Y)) {
+            info.prevent_default();
+        }
+        Update::DoNothing
+    }
+
+    /// WRITER6 / HEADLESS6: the runner had no arm for the undo keys' default
+    /// actions (`DefaultAction::UndoTextEdit` / `RedoTextEdit`) - and had never
+    /// applied `SystemChange::UndoTextEdit` either, its body lived in the dll -
+    /// so a JSON scenario's Ctrl/Cmd+Z undid nothing. The one body is
+    /// `LayoutWindow::undo_text_edit` now, which both hosts call.
+    #[test]
+    fn a_scenarios_undo_key_undoes_the_typing_and_the_redo_key_redoes_it() {
+        let mut runner = editor_runner("abc", false, None);
+        press_key_with_text(&mut runner, VirtualKeyCode::X, "x");
+        let typed = text_of(&runner);
+        assert_ne!(typed, "abc", "premise: the keystroke types into the editor");
+
+        tap_key(&mut runner, VirtualKeyCode::Z, &[primary_key()]);
+        assert_eq!(text_of(&runner), "abc", "primary + Z undoes the typing");
+
+        tap_key(
+            &mut runner,
+            VirtualKeyCode::Z,
+            &[primary_key(), VirtualKeyCode::LShift],
+        );
+        assert_eq!(text_of(&runner), typed, "primary + Shift + Z redoes it");
+
+        tap_key(&mut runner, VirtualKeyCode::Z, &[primary_key()]);
+        tap_key(&mut runner, VirtualKeyCode::Y, &[primary_key()]);
+        assert_eq!(text_of(&runner), typed, "primary + Y redoes too");
+    }
+
+    /// The other half of the browser keydown model in a scenario: an editor
+    /// that vetoes the undo key keeps the engine's text undo from running.
+    #[test]
+    fn a_scenarios_undo_key_vetoed_by_the_editor_undoes_nothing() {
+        let mut runner = editor_runner("abc", false, Some(veto_the_undo_keys));
+        press_key_with_text(&mut runner, VirtualKeyCode::X, "x");
+        let typed = text_of(&runner);
+        assert_ne!(typed, "abc", "premise: the keystroke types into the editor");
+
+        tap_key(&mut runner, VirtualKeyCode::Z, &[primary_key()]);
+        assert_eq!(text_of(&runner), typed, "the editor's veto stands");
+    }
 }
 
 // ==== E2E tooling follow-ups (E1): tests ====
