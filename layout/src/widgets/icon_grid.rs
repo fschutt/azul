@@ -253,6 +253,8 @@ pub enum IconGridDragKind {
 pub struct IconGridDrag {
     /// Marquee: the selection the band adds to (Ctrl), else empty.
     pub base: U64Vec,
+    /// Pending: the pressed item.
+    pub index: usize,
     /// Where the press was, px in the grid (Thumb: the window y).
     pub start_x: f32,
     /// See `start_x`.
@@ -263,8 +265,6 @@ pub struct IconGridDrag {
     pub y: f32,
     /// Thumb: `top_row` when it was pressed.
     pub start_top: f32,
-    /// Pending: the pressed item.
-    pub index: usize,
     /// What the drag does.
     pub kind: IconGridDragKind,
 }
@@ -273,12 +273,12 @@ impl Default for IconGridDrag {
     fn default() -> Self {
         Self {
             base: U64Vec::from_const_slice(&[]),
+            index: 0,
             start_x: 0.0,
             start_y: 0.0,
             x: 0.0,
             y: 0.0,
             start_top: 0.0,
-            index: 0,
             kind: IconGridDragKind::None,
         }
     }
