@@ -8,7 +8,7 @@ reconcile; (2) style-only changes take the DL patch path; (3) css_transition_tic
 VirtualView callbacks not re-run on a relayout whose host node is unchanged. Never compile; never touch
 page_breaks.rs. Not the a11y code (A11YPATCH8).
 
-## STATUS: IN PROGRESS
+## STATUS: ALL ITEMS DONE, REPORT WRITTEN (scripts/ANIMFRAME8_2026_10_03.md). In the final self-review pass.
 
 ## DONE (oldest first)
 - 047a83241 progress file
@@ -26,7 +26,6 @@ page_breaks.rs. Not the a11y code (A11YPATCH8).
   dll raises content_repaint_pending for a repaint frame (headless paints instead of relayout_only);
   dll driver tests write the knob transform
 - c9d59e666 switch_animation.rs pins the margin-left tween with an explicit margin knob style
-- eb17a9528 progress
 - d332a93fb RED layout/tests/a_face_fade_frame_is_patched_in_place.rs (item 3)
 - 5c5668705 GREEN item 3: batched restyle (one recompute per frame), PaintColorSlot border patch +
   patch_compact_border_color, text-colour fade refreshes inheritance on its last frame
@@ -34,12 +33,25 @@ page_breaks.rs. Not the a11y code (A11YPATCH8).
 - f581d023a GREEN items 1+2: LayoutCache::overrides_only_hint + OverridesOnlyStamp, armed in tick_animations
   (tween_keeps_layout_tree_shape allowlist), consumed in layout_document Step 1; css_dirty_reemit_set in the
   patch arm; voided by apply_content_change and new generations
+- 1823dcb68 RED layout/tests/a_relayout_keeps_the_virtual_views_of_an_unchanged_host.rs (item 4)
+- 64feec075 GREEN item 4: VirtualViewManager record_invoked_node / invoked_node / carry_over_views /
+  take_carried / take_all_carried; funnel keeps unchanged views (unchanged_virtual_views); invoke re-renders a
+  carried view whose box changed size; unreached kept views drop their child
+- 16c1989d6 scripts/animframe8_tick_probe_gen.py (frame-report probe); before: 6 ticks = 6 layout passes
+- 7e79718e6 + 5a851d5d6 report sections 3-8 (what changed, commits, expected after, api.json, least sure,
+  test commands, left/risks)
 
 ## IN PROGRESS
-- item 4: VirtualView keep-alive on the relayout entry (host VirtualViewNode identity in the manager).
+- Self-review of the diff (`git diff 5745afee6`) for compile / behaviour slips. Reviewed so far:
+  solver3/mod.rs (ok). Next to re-read: dll headless/mod.rs:7012 reads `last_reconcile_was_skipped` (now
+  also true for an overrides-only pass - check that test's meaning), then window.rs tick block once more.
 
-## NEXT
-- report sections 3/4, measurement commands, api.json (none), least-sure list.
+## NEXT (if resumed)
+1. dll/src/desktop/shell2/headless/mod.rs ~7012: the resize test asserts the resize took the fast path via
+   `last_reconcile_was_skipped`; an overrides-only pass sets it too. Only a problem if that test arms a tween
+   (it does not, as far as read) - confirm and note in the report.
+2. Re-read window.rs `tick_animations` css block (search "THE GPU PROPERTY PATH") end to end.
+3. Nothing else owed: report + progress committed. The parent builds and runs section 7 of the report.
 
 ## DECISIONS
 - Knob: transform in BOTH states (translateX(0px) when off) so the reference frame exists from the first
@@ -48,6 +60,13 @@ page_breaks.rs. Not the a11y code (A11YPATCH8).
   opacity channel is key-bound); an opacity tween keeps the DL-rebuild path (now without lingering dirt).
 - The three tick decisions unified in LayoutWindow::take_animation_frame_work (dll wraps it to raise
   content_repaint_pending for the paint-only frame).
+- Overrides-only latch armed only for shape-keeping layout tweens (allowlist), never with paint restyles in
+  the same frame or other pending dirt; voided by content changes / new generations; stamp = node count +
+  cascade epoch + states hash.
+- VirtualView identity = the VirtualViewNode (callback + RefAny instance) the view was last invoked for;
+  only on the relayout entry; a carried view re-renders when its box size changed.
+- Not done (documented in the report "Left"): per-node compact patch, CSS opacity on the GPU channel, the
+  DL Arc copy of a colour patch, the no-op relayout's reconcile, lints per relayout.
 
 ## OPEN QUESTIONS
 - none blocking.
