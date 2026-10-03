@@ -9,7 +9,7 @@ pub mod pixmap;
 mod raster;
 mod shape;
 mod svg;
-mod text_raster;
+pub mod text_raster;
 
 pub use compositor::*;
 pub use pixmap::*;

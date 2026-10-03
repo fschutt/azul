@@ -109533,7 +109533,7 @@
                                 "returns": {
                                     "type": "bool"
                                 },
-                                "fn_body": "azul_layout::cpurender::draw_text(object, text, style, x, y)"
+                                "fn_body": "azul_layout::cpurender::draw_text(rawimage, text, style, x, y)"
                             }
                         },
                         "repr": "C"
