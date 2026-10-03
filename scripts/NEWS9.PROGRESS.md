@@ -46,8 +46,14 @@ On resume: read this file, `git -C <worktree> status`, `git log --oneline -12`, 
   214 unread, 16 starred, 6 saved, BROKEN_404 = 20, BROKEN_INVALID = 33, NO_PICTURES = 2,
   PICTURES = 30). Type-check clean (harness7 = harness5 + sample).
 
+- eccf4acd0 src/jobs.rs (A below: spawn_refresh / spawn_pictures / spawn_find, RefreshJob,
+  RefreshEvent, PictureEvent, FindEvent, take::<T>(&mut msg)). "Open original": azul has no
+  open-URL API -> plan: append `open_external(target)` to azul-appkit/src/files.rs (std Command:
+  open / xdg-open / cmd start; twin of azul-review lib.rs:573) and list an engine API as left.
+
 ## NEXT: the window (azul-dependent; model it on examples/azul-contacts/src/ui.rs line by line)
-A. src/jobs.rs - three azul Threads (pattern: azul-appkit/src/ui.rs file_thread + azul-mail
+B (next step). src/ui.rs - see B below. Then C, D.
+A (done). src/jobs.rs - three azul Threads (pattern: azul-appkit/src/ui.rs file_thread + azul-mail
    lib.rs run_sync/post for several WriteBack messages and TerminateThread):
    - refresh: init {feeds: Vec<(id, url, etag, last_modified)>}; in the thread
      `AzulTransport::new(fetch::USER_AGENT).with_timeout(30)`, per feed `fetch::fetch` -> send
