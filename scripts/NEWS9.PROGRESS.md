@@ -34,8 +34,26 @@ On resume: read this file, `git -C <worktree> status`, `git log --oneline -12`, 
   + store + an opml stub {Subscription, parse, write}; azul_appkit rmeta built from the worktree
   like azul_pim, without its `azul` feature).
 
+- 2ad860375 RED / bf200bd5b GREEN src/fetch.rs (USER_AGENT, ACCEPT, Fetched {NotModified, Feed,
+  Page, Failed}, FeedLink, Candidate, request, interpret, fetch, normalize_input, find_feeds) +
+  reader::feed_links. Type-check clean (harness6 = harness2 with a feed_links stub + fetch).
+
 ## NEXT (in this order; RED commit with tests + stubs, then GREEN commit, each)
-6. src/fetch.rs (next step): see item 6 below.
+7. reader view (next step), in src/reader.rs: `ImagePolicy { Always, OnClick, Never }`,
+   `Article { xml: Xml (html > head > style READER_CSS, body > div.__aznews_article > cleaned
+   tree), images: Vec<String> (Xml::scan_external_resources of the cleaned tree, kind Image,
+   web only), blocked: usize, words: usize }`, `article(html, base, policy, strip_tracking) ->
+   Article`; policy: keep p h1-h6 (h1 -> h2) blockquote pre code ul ol li dl dt dd figure ->
+   div, figcaption -> div.__aznews_caption, img (src resolved, alt; tracking pixels <= 2px
+   dropped; not loaded -> span.__aznews_image-placeholder "[image: alt]"), a (href resolved,
+   tracking stripped), em strong b i u s sub sup mark small q cite abbr kbd, table thead tbody
+   tr td th caption (colspan / rowspan), br hr; drop script style iframe object embed form input
+   button select textarea svg math noscript template nav; unknown -> children kept; no other
+   attributes. `reading_minutes(words)` (230 wpm, at least 1). READER_CSS: typography only,
+   colours inherited from the theme (works in both modes), font-size / max-width from the
+   settings (`reader_css(font_px, measure_px, sepia)`). Tests: scripts gone, relative links
+   resolved, pictures listed / blocked, tracking pixel dropped, the stylesheet present.
+(done) 6. src/fetch.rs: see item 6 below.
 (done) 4. src/library.rs (pure, type-checkable with harness2 + `--extern azul_pim=<rlib>`):
    `FeedMeta` (serde, feed.json: format "aznews.feed" v1, url, title, site, icon, kind, etag,
    last_modified, checked, updated, status, error), `FeedData { sub: Subscription, meta, items:
