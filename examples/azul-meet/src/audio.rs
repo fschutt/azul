@@ -684,22 +684,27 @@ pub fn send_opus(encoder_open: bool, peers_decode_opus: &[Option<bool>]) -> bool
             .all(|decodes| *decodes == Some(true))
 }
 
-impl JitterBuffer {
-    /// Whether a packet numbered `sequence` would be taken in: not seen yet and not late. A
-    /// receiver asks before it decodes an Opus packet, so each is decoded once, in the order the
-    /// frames bring them, and copies cost nothing.
-    pub fn wants(&self, sequence: u32) -> bool {
-        if self.floor.is_some_and(|floor| sequence < floor) {
-            return false;
-        }
-        match self.newest {
-            // Further back than the 128 remembered: new, as `mark_seen` counts it.
-            Some(newest) if sequence <= newest => {
-                let back = newest - sequence;
-                back >= 128 || self.seen & (1_u128 << back) == 0
-            }
-            _ => true,
-        }
+/// Which received Opus packets to decode: each once, in sequence order - a decoder carries state
+/// from one packet to the next, and every frame repeats the two packets before its newest. A
+/// packet at or below the newest one decoded is a copy, or came after a newer one (the jitter
+/// buffer would drop it as late anyway). Decoded whether or not this side listens (deafened), so
+/// the decoder never skips ahead and the active speaker is still measured. A peer that reconnects
+/// gets a fresh one (its numbers start over).
+#[derive(Debug, Default)]
+pub struct OpusOrder {
+    next: Option<u32>,
+}
+
+impl OpusOrder {
+    pub fn new() -> Self {
+        OpusOrder::default()
+    }
+
+    /// Whether to decode the packet numbered `sequence` (then it counts as decoded).
+    pub fn take(&mut self, sequence: u32) -> bool {
+        // RED stub.
+        let _ = sequence;
+        false
     }
 }
 
@@ -1364,22 +1369,19 @@ mod opus_wire_tests {
     }
 
     #[test]
-    fn a_receiver_decodes_each_opus_packet_once_and_none_whose_turn_passed() {
-        let mut jitter = JitterBuffer::new(1, MAX_PACKETS);
-        assert!(jitter.wants(10));
-        jitter.push(
-            OPUS_RATE,
-            Packet {
-                sequence: 10,
-                samples: vec![1; 960],
-            },
-        );
-        assert!(!jitter.wants(10), "a copy");
-        assert!(jitter.wants(11));
-        assert!(jitter.wants(9), "not late before anything played");
-        assert!(jitter.pop().is_some(), "10 plays");
-        assert!(!jitter.wants(9), "its turn passed");
-        assert!(!jitter.wants(10));
-        assert!(jitter.wants(12));
+    fn each_opus_packet_is_decoded_once_in_order_and_none_after_a_newer_one() {
+        let mut order = OpusOrder::new();
+        // Frames bring [0], [0, 1], [0, 1, 2], [1, 2, 3]: each packet decoded the first time.
+        let taken: Vec<u32> = [0, 0, 1, 0, 1, 2, 1, 2, 3]
+            .into_iter()
+            .filter(|seq| order.take(*seq))
+            .collect();
+        assert_eq!(taken, vec![0, 1, 2, 3]);
+        // A frame that was overtaken: its packets are older than what was decoded.
+        assert!(!order.take(2));
+        // A lost frame: the decoder goes on from the newest packet that came.
+        assert!(order.take(7));
+        assert!(!order.take(5), "after 7, 5 would play out of order");
+        assert!(order.take(8));
     }
 }
