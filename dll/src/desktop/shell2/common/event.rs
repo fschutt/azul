@@ -4231,8 +4231,8 @@ pub trait PlatformWindow {
     /// Undo is Cmd+Z). Run as that keystroke, a command picked with the
     /// pointer gives the app's key handlers the same first say the key gives
     /// them - an editor that owns its undo history takes Undo - where applying
-    /// the engine's text undo directly ran it behind the editor's back. A key
-    /// the user already holds stays held; only what this pressed comes up.
+    /// the engine's text undo directly ran it behind the editor's back. A
+    /// modifier the user already holds stays held; the key itself comes up.
     fn press_shortcut_keys(
         &mut self,
         keys: &[azul_core::window::VirtualKeyCode],
@@ -4245,13 +4245,12 @@ pub trait PlatformWindow {
         self.snapshot_window_state_baseline(site);
         let pressed_here: Vec<azul_core::window::VirtualKeyCode> = {
             let keyboard = self.get_common_mut().keyboard_state_mut();
-            let pressed_here: Vec<azul_core::window::VirtualKeyCode> = keys
-                .iter()
-                .copied()
-                .filter(|k| !keyboard.is_key_down(*k))
-                .collect();
-            for k in &pressed_here {
-                keyboard.pressed_virtual_keycodes.insert_hm_item(*k);
+            let mut pressed_here: Vec<azul_core::window::VirtualKeyCode> = Vec::new();
+            for k in keys {
+                if !keyboard.is_key_down(*k) {
+                    keyboard.pressed_virtual_keycodes.insert_hm_item(*k);
+                    pressed_here.push(*k);
+                }
             }
             keyboard.current_virtual_keycode = azul_core::window::OptionVirtualKeyCode::Some(key);
             keyboard.is_repeat = false;
@@ -4266,6 +4265,9 @@ pub trait PlatformWindow {
             for k in &pressed_here {
                 keyboard.pressed_virtual_keycodes.remove_hm_item(k);
             }
+            // The key itself is a tap, even if the engine had it down already:
+            // a key held with Cmd never gets its macOS `keyUp:`.
+            keyboard.pressed_virtual_keycodes.remove_hm_item(&key);
             keyboard.current_virtual_keycode = azul_core::window::OptionVirtualKeyCode::None;
             keyboard.sync_modifiers();
         }

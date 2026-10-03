@@ -548,32 +548,53 @@ mod view_handlers {
         Redo,
     }
 
-    /// MWA-B14: route an Edit-menu command into the SAME SystemChange path
-    /// the keyboard shortcuts use, then run an event pass.
-    pub(super) fn edit_command(window_ptr: Option<*mut std::ffi::c_void>, cmd: EditCommand) {
-        use azul_core::events::SystemChange;
+    impl EditCommand {
+        /// The keystroke the command stands for - its key equivalent in the
+        /// Edit menu - with the platform's primary modifier (Cmd, or Ctrl
+        /// when the app asked for the other platforms' shortcuts on a Mac):
+        /// modifiers first, the key last.
+        pub(super) fn keys(self) -> Vec<azul_core::window::VirtualKeyCode> {
+            use azul_core::window::VirtualKeyCode as K;
+            let primary = if azul_core::window::mac_shortcut_conventions() {
+                K::LWin
+            } else {
+                K::LControl
+            };
+            match self {
+                Self::Undo => vec![primary, K::Z],
+                Self::Redo => vec![primary, K::LShift, K::Z],
+                Self::Cut => vec![primary, K::X],
+                Self::Copy => vec![primary, K::C],
+                Self::Paste => vec![primary, K::V],
+                Self::SelectAll => vec![primary, K::A],
+            }
+        }
+    }
 
+    /// MWA-B14 / EVENTS7: an Edit-menu command runs as the KEYSTROKE it
+    /// stands for, through the same key passes as the key itself: the app's
+    /// key handlers first, then the key's default action - the engine's text
+    /// undo, copy, paste ... - unless a handler called `prevent_default`
+    /// (WRITER6's rule for the keys).
+    ///
+    /// It used to apply the SystemChange directly. AppKit hands a key
+    /// equivalent to the menu BEFORE the view's `keyDown:`, so with the Undo
+    /// item enabled Cmd+Z never reached a key handler: the rich-text editor,
+    /// which owns its undo history, lost Undo to the engine's text undo on
+    /// native macOS, and an app's own Cmd+C on a non-editable focus never ran.
+    ///
+    /// One path whether the item was picked with the pointer or by its key
+    /// equivalent: the engine never saw the letter key go down (the menu took
+    /// the key event), so the keystroke is pressed and released here; a Cmd
+    /// the user holds stays held. Pressing it here also releases it: AppKit
+    /// sends no `keyUp:` for a key released while Cmd is held.
+    pub(super) fn edit_command(window_ptr: Option<*mut std::ffi::c_void>, cmd: EditCommand) {
         let Some(window_ptr) = window_ptr else { return };
         unsafe {
             let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-            let focused = macos_window
-                .common
-                .layout_window
-                .as_ref()
-                .and_then(|lw| lw.focus_manager.get_focused_node().copied());
-            let change = match cmd {
-                EditCommand::Copy => Some(SystemChange::CopyToClipboard),
-                EditCommand::Paste => Some(SystemChange::PasteFromClipboard),
-                EditCommand::SelectAll => Some(SystemChange::SelectAllText),
-                // Target-carrying commands need a focused node.
-                EditCommand::Cut => focused.map(|target| SystemChange::CutToClipboard { target }),
-                EditCommand::Undo => focused.map(|target| SystemChange::UndoTextEdit { target }),
-                EditCommand::Redo => focused.map(|target| SystemChange::RedoTextEdit { target }),
-            };
-            let Some(change) = change else { return };
-            macos_window.snapshot_window_state_baseline("macos.edit_command");
-            let result = macos_window.apply_system_change(&change);
+            let result = macos_window.press_shortcut_keys(&cmd.keys(), "macos.edit_command");
             macos_window.apply_activation_pass_result(result);
+            macos_window.sync_window_state();
         }
     }
 
@@ -1405,8 +1426,8 @@ define_class!(
         // selectors registered ABOVE (`edit_undo`/`edit_redo`, MWA-B14 Edit
         // menu) — registering them a second time here made objc2's
         // class_addMethod abort at first view creation ("failed to add
-        // method undo:"). perform_undo/perform_redo delegate to the same
-        // UndoTextEdit/RedoTextEdit arms, so one registration serves both.
+        // method undo:"). One registration: `edit_command` runs the
+        // command as its keystroke (the key handlers first, EVENTS7).
 
         #[unsafe(method(validateUserInterfaceItem:))]
         fn validate_user_interface_item(&self, item: &ProtocolObject<dyn NSObjectProtocol>) -> Bool {
@@ -9327,55 +9348,30 @@ impl MacOSEvent {
 
 impl MacOSWindow {
     // NSResponder Undo/Redo Integration (macOS Native)
+    //
+    // The `undo:` / `redo:` actions run as their keystroke
+    // (`view_handlers::edit_command`); the old `perform_undo` /
+    // `perform_redo`, which applied the engine's text undo directly, had no
+    // caller left and went (EVENTS7).
 
-    /// Perform undo operation (called by NSResponder undo: selector)
-    pub fn perform_undo(&mut self) {
-        // MWA-C-undo_redo: delegate to the SHARED UndoTextEdit arm — this fn
-        // previously carried a hand-copied variant of the apply logic that
-        // had already drifted (no styled-snapshot restore, no selection
-        // restore, redo re-entered the recording pipeline). One
-        // implementation, zero drift.
-        use azul_core::events::SystemChange;
-
-        use crate::desktop::shell2::common::event::PlatformWindow;
-        let target = match self
-            .common
+    /// Whether the focus is a text-editing host: its editor may keep an undo
+    /// history of its own that the engine cannot see (the rich-text editor
+    /// does), and takes Undo / Redo in its key handler.
+    fn focus_is_editing(&self) -> bool {
+        self.common
             .layout_window
             .as_ref()
-            .and_then(|lw| lw.focus_manager.get_focused_node().copied())
-        {
-            Some(t) => t,
-            None => return,
-        };
-        let _ = self.apply_system_change(&SystemChange::UndoTextEdit { target });
-        // request_redraw (not a bare setViewsNeedDisplay) so the frame survives
-        // the drawRect-side early-return.
-        self.request_redraw();
+            .is_some_and(|lw| lw.text_edit_manager.has_active_editing())
     }
 
-    /// Perform redo operation (called by NSResponder redo: selector)
-    pub fn perform_redo(&mut self) {
-        // MWA-C-undo_redo: shared RedoTextEdit arm (see perform_undo).
-        use azul_core::events::SystemChange;
-
-        use crate::desktop::shell2::common::event::PlatformWindow;
-        let target = match self
-            .common
-            .layout_window
-            .as_ref()
-            .and_then(|lw| lw.focus_manager.get_focused_node().copied())
-        {
-            Some(t) => t,
-            None => return,
-        };
-        let _ = self.apply_system_change(&SystemChange::RedoTextEdit { target });
-        // request_redraw (not a bare setViewsNeedDisplay) so the frame survives
-        // the drawRect-side early-return.
-        self.request_redraw();
-    }
-
-    /// Check if undo is available (for menu validation)
+    /// Whether Edit > Undo is enabled (menu validation): the engine has a
+    /// text edit to undo on the focused node, or the focus is an editing
+    /// host ([`Self::focus_is_editing`]). A disabled item would hide the
+    /// editor's own history from the menu.
     pub fn can_undo(&self) -> bool {
+        if self.focus_is_editing() {
+            return true;
+        }
         if let Some(layout_window) = self.common.layout_window.as_ref() {
             if let Some(focused_node) = layout_window.focus_manager.get_focused_node() {
                 if let Some(node_id) = focused_node.node.into_crate_internal() {
@@ -9386,8 +9382,11 @@ impl MacOSWindow {
         false
     }
 
-    /// Check if redo is available (for menu validation)
+    /// Whether Edit > Redo is enabled (menu validation): see [`Self::can_undo`].
     pub fn can_redo(&self) -> bool {
+        if self.focus_is_editing() {
+            return true;
+        }
         if let Some(layout_window) = self.common.layout_window.as_ref() {
             if let Some(focused_node) = layout_window.focus_manager.get_focused_node() {
                 if let Some(node_id) = focused_node.node.into_crate_internal() {
