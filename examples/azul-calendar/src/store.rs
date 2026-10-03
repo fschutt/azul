@@ -38,8 +38,13 @@ pub enum MainClose {
 /// `failures` did not land, and the user was `told` about them already.
 #[must_use]
 pub fn main_close(waiting: bool, failures: usize, told: bool) -> MainClose {
-    let _ = (waiting, failures, told);
-    todo!()
+    if waiting {
+        MainClose::Wait
+    } else if failures > 0 && !told {
+        MainClose::Tell
+    } else {
+        MainClose::Close
+    }
 }
 
 /// The file jobs that write `batch`, in order.
