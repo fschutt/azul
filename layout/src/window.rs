@@ -6498,6 +6498,19 @@ impl LayoutWindow {
         let is_child_dom = styled_dom.dom_id.inner != 0;
         if is_child_dom {
             let saved_root_cache = core::mem::take(&mut self.layout_cache);
+            // The host's font chains, and the signature of the font stacks
+            // they were resolved for, survive the child's pass the same way.
+            // The font manager has ONE slot for each, a child's pass resolves
+            // its own into them, and the host's next pass then never matched
+            // its own signature: it re-resolved its whole page on every
+            // relayout (AzWidgets, three views: 2.2 ms of every switch-knob
+            // frame), and between passes the cache described the last view.
+            // The child resolves against an empty slot; afterwards the host's
+            // chains and signature are back, with the child's chains for the
+            // stacks only it uses kept beside them (text edited inside the
+            // view still finds its chains).
+            let host_font_chains = core::mem::take(&mut self.font_manager.font_chain_cache);
+            let host_font_sig = self.font_manager.last_resolved_font_stacks_sig.take();
             let result = self.layout_dom_recursive_sized_by_views(
                 styled_dom,
                 window_state,
@@ -6507,6 +6520,15 @@ impl LayoutWindow {
                 child_viewport,
             );
             self.layout_cache = saved_root_cache;
+            let view_font_chains =
+                core::mem::replace(&mut self.font_manager.font_chain_cache, host_font_chains);
+            for (key, chain) in view_font_chains {
+                self.font_manager
+                    .font_chain_cache
+                    .entry(key)
+                    .or_insert(chain);
+            }
+            self.font_manager.last_resolved_font_stacks_sig = host_font_sig;
             return result;
         }
         self.layout_dom_recursive_sized_by_views(
