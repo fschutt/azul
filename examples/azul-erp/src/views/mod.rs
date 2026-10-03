@@ -252,8 +252,10 @@ impl View {
     /// The record kind the view reads (its `get`, else `post` / `put`).
     #[must_use]
     pub fn kind_of_records(&self) -> Option<Kind> {
-        let _ = self;
-        todo!("GREEN")
+        [&self.api.get, &self.api.post, &self.api.put]
+            .into_iter()
+            .flatten()
+            .find_map(|path| api_kind(path))
     }
 }
 
@@ -277,8 +279,7 @@ impl Route<'_> {
 impl ViewFile {
     /// Reads a view file.
     pub fn parse(json: &str) -> Result<ViewFile, String> {
-        let _ = json;
-        todo!("GREEN")
+        serde_json::from_str::<ViewFile>(json).map_err(|e| e.to_string())
     }
 
     /// The asset section ([`ASSET_VIEWS`]).
@@ -301,8 +302,29 @@ impl ViewFile {
     /// asset called "new".
     #[must_use]
     pub fn route(&self, path: &str) -> Option<Route<'_>> {
-        let _ = path;
-        todo!("GREEN")
+        let mut best: Option<(usize, Route<'_>)> = None;
+        for view in self.views.values() {
+            for pattern in view.path.all() {
+                let Some(params) = match_path(pattern, path) else {
+                    continue;
+                };
+                let literal = segments(pattern)
+                    .iter()
+                    .filter(|s| !s.starts_with(':'))
+                    .count();
+                if best.as_ref().map_or(true, |(n, _)| literal > *n) {
+                    best = Some((
+                        literal,
+                        Route {
+                            view,
+                            pattern,
+                            params,
+                        },
+                    ));
+                }
+            }
+        }
+        best.map(|(_, route)| route)
     }
 }
 
@@ -310,31 +332,72 @@ impl ViewFile {
 /// `None` when it does not match.
 #[must_use]
 pub fn match_path(pattern: &str, path: &str) -> Option<Params> {
-    let _ = (pattern, path);
-    todo!("GREEN")
+    let wanted = segments(pattern);
+    let given = segments(path);
+    if wanted.len() != given.len() {
+        return None;
+    }
+    let mut params = Params::new();
+    for (w, g) in wanted.iter().zip(&given) {
+        match w.strip_prefix(':') {
+            Some(name) => {
+                params.insert(name.to_string(), (*g).to_string());
+            }
+            None if w != g => return None,
+            None => {}
+        }
+    }
+    Some(params)
+}
+
+/// The non-empty `/`-separated segments of a path.
+fn segments(path: &str) -> Vec<&str> {
+    path.split('/').filter(|s| !s.is_empty()).collect()
 }
 
 /// `pattern` with its parameters filled in (`:id` -> `params["id"]`).
 #[must_use]
 pub fn fill_path(pattern: &str, params: &Params) -> String {
-    let _ = (pattern, params);
-    todo!("GREEN")
+    pattern
+        .split('/')
+        .map(|segment| match segment.strip_prefix(':') {
+            Some(name) => params.get(name).cloned().unwrap_or_default(),
+            None => segment.to_string(),
+        })
+        .collect::<Vec<String>>()
+        .join("/")
 }
 
 /// The record kind an `api` path reads (`/api/assets/fixed-assets/:id` ->
 /// assets).
 #[must_use]
 pub fn api_kind(api: &str) -> Option<Kind> {
-    let _ = api;
-    todo!("GREEN")
+    let path = api.split('?').next().unwrap_or("");
+    let mut parts = segments(path);
+    if parts.last().is_some_and(|s| s.starts_with(':')) {
+        parts.pop();
+    }
+    match parts.as_slice() {
+        ["api", "assets", "fixed-assets"] => Some(Kind::Asset),
+        ["api", "assets", "categories"] => Some(Kind::Category),
+        ["api", "assets", "locations"] => Some(Kind::Location),
+        ["api", "assets", "maintenance"] => Some(Kind::Maintenance),
+        ["api", "assets", "checkouts"] => Some(Kind::Checkout),
+        _ => None,
+    }
 }
 
 /// The parent filter of an `api` path's query (`?asset_id=:id` with
 /// `id = x` -> `("asset_id", "x")`).
 #[must_use]
 pub fn api_filter(api: &str, params: &Params) -> Option<(String, String)> {
-    let _ = (api, params);
-    todo!("GREEN")
+    let (_, query) = api.split_once('?')?;
+    let (key, value) = query.split_once('=')?;
+    let value = match value.strip_prefix(':') {
+        Some(name) => params.get(name)?.clone(),
+        None => value.to_string(),
+    };
+    Some((key.to_string(), value))
 }
 
 /// The labels of the keys.
@@ -368,8 +431,29 @@ impl Labels {
 /// order no` (its kind prefix and `label` / `title` suffix dropped).
 #[must_use]
 pub fn humanize(key: &str) -> String {
-    let _ = key;
-    todo!("GREEN")
+    const KINDS: [&str; 8] = [
+        "fields",
+        "view",
+        "actions",
+        "tab",
+        "menu",
+        "steps",
+        "depreciation",
+        "maintenance",
+    ];
+    let mut parts: Vec<&str> = key.split('.').filter(|s| !s.is_empty()).collect();
+    if parts.len() > 1 && KINDS.contains(&parts[0]) {
+        parts.remove(0);
+    }
+    if parts.len() > 1 && matches!(parts.last().copied(), Some("label" | "title")) {
+        parts.pop();
+    }
+    let text = parts.join(" ").replace('_', " ");
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
 }
 
 #[cfg(test)]
