@@ -28,18 +28,22 @@
 //! pool out so every buffer in it passes, and [`create_shm_file`] makes a file
 //! that carries the seal. None of it needs a compositor, so it is tested here.
 //!
-//! The row pitch stays TIGHT (`width * 4`): the CPU renderer draws straight into
-//! a slot (`AzulPixmap::from_external`, no row pitch of its own). A width whose
-//! rows are already a multiple of 256 bytes (every width divisible by 64 px)
-//! meets the pitch every common GPU accepts and gets the zero-copy path; other
-//! widths still get the udmabuf, and the driver decides whether it can sample
-//! that pitch (else KWin copies, exactly as before).
+//! The row pitch is the row rounded up to [`GPU_PITCH_ALIGN`] (256) bytes - the
+//! LINEAR pitch every common GPU samples, so the udmabuf is used in place
+//! instead of copied. There is no protocol to learn the compositor GPU's real
+//! rule; Qt uses the same 256. Widths divisible by 64 px need no padding. The
+//! CPU renderer draws straight into a slot through a pixmap `pitch / 4` pixels
+//! wide (`AzulPixmap`'s width is its pitch); the padding columns are drawn
+//! into by full repaints and never shown (the `wl_buffer` is `width` wide).
 
 use std::ffi::CString;
 
 /// Bytes per pixel of every format we allocate (`ARGB8888` / `ABGR8888` /
 /// `XRGB8888`).
 pub(crate) const BYTES_PER_PIXEL: usize = 4;
+
+/// Row pitch alignment, in bytes, of every buffer we hand a compositor.
+pub(crate) const GPU_PITCH_ALIGN: usize = 256;
 
 /// Byte layout of a `wl_shm_pool` holding `count` equal buffers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,8 +105,8 @@ pub(crate) fn page_size() -> usize {
 ///
 /// Every buffer starts on a `page` boundary and owns a whole number of pages
 /// (its pixels, rounded up), so each one passes [`udmabuf_importable`] - the
-/// padding is less than one page per buffer. The row pitch stays tight (see
-/// the module docs).
+/// padding is less than one page per buffer. Each row is padded to
+/// [`GPU_PITCH_ALIGN`] bytes (see the module docs).
 pub(crate) fn pool_layout(
     width: i32,
     height: i32,
@@ -111,7 +115,7 @@ pub(crate) fn pool_layout(
 ) -> Option<ShmPoolLayout> {
     let w = width.max(1) as usize;
     let h = height.max(1) as usize;
-    let stride = w.checked_mul(BYTES_PER_PIXEL)?;
+    let stride = align_up(w.checked_mul(BYTES_PER_PIXEL)?, GPU_PITCH_ALIGN)?;
     let slot_bytes = align_up(stride.checked_mul(h)?, page)?;
     let pool_bytes = slot_bytes.checked_mul(count.max(1))?;
     if pool_bytes > i32::MAX as usize {
