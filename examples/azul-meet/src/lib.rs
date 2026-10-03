@@ -82,6 +82,16 @@
 //!   played, and the camera and the screen share are test patterns (off until switched on, unless
 //!   `AZMEET_TEST_PATTERN=1`).
 
+/// What AzMeet's About says (azul-appkit's facts, azul's AboutDialog shows them).
+pub(crate) const ABOUT: azul_appkit::AboutInfo = azul_appkit::AboutInfo {
+    name: "AzMeet",
+    version: env!("CARGO_PKG_VERSION"),
+    summary: "Video meetings over azul.iroh: camera, screen sharing, the people and a chat; each \
+              meeting's record and chat are files in the Azlin data tree.",
+    license: "MIT",
+    app_folder: store::APP_FOLDER,
+};
+
 mod args;
 mod audio;
 mod chat;
@@ -123,8 +133,8 @@ use azul::{
     vec::{F32Vec, StyledTextRunVec, U8Vec, U8VecRef},
     video::{VideoDecoder, VideoEncoder, VideoFrame},
     widgets::{
-        ConsumerFrame, FrameConsumer, OnTextInputReturn, ProgressBar, SegmentedState, TextInput,
-        TextInputState, TextInputValid,
+        ConsumerFrame, FrameConsumer, OnTextInputReturn, ProgressBar, SegmentedState,
+        StandardDialogEvent, TextInput, TextInputState, TextInputValid,
     },
     window::{HwAcceleration, PlatformCapability, Vsync, WindowDecorations},
 };
@@ -991,6 +1001,14 @@ fn snapshot(s: &MeetState) -> ui::CallView {
                 .unwrap_or_else(|| String::from("none (local demo)")),
             name: s.name.clone(),
             codec: codec_status(s),
+            data_folder: files_root().map_or_else(
+                || String::from("none (a headless run without --data-dir or AZLIN_DATA)"),
+                |root| {
+                    azul_appkit::data::local_path(root, store::APP_FOLDER)
+                        .display()
+                        .to_string()
+                },
+            ),
         },
     }
 }
@@ -1013,6 +1031,7 @@ const ACTIONS: ui::Actions = ui::Actions {
     chat_key: on_chat_key,
     chat_send: on_chat_send,
     chat_blur: on_chat_blur,
+    about_event: on_about_event,
     name_text: on_name_text,
     server_text: on_server_text,
     server_key: on_server_key,
@@ -4650,6 +4669,11 @@ extern "C" fn on_settings_open(mut data: RefAny, _info: CallbackInfo) -> Update 
         s.settings_open = true;
     }
     Update::RefreshDom
+}
+
+/// The About's OK (or its close box): closes the settings.
+extern "C" fn on_about_event(data: RefAny, info: CallbackInfo, _event: StandardDialogEvent) -> Update {
+    on_settings_back(data, info)
 }
 
 extern "C" fn on_settings_back(mut data: RefAny, _info: CallbackInfo) -> Update {

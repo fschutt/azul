@@ -35,6 +35,8 @@ pub const JOIN: AzString = AzString::from_const_str("__azmeet_join");
 // ==== The settings ====
 
 pub const SETTINGS_BACK: AzString = AzString::from_const_str("__azmeet_settings_back");
+/// The settings' About: azul's AboutDialog.
+pub const ABOUT: AzString = AzString::from_const_str("__azmeet_about");
 
 // ==== The tiles ====
 

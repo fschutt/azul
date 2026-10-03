@@ -24,6 +24,7 @@ use azul::{
     callbacks::{
         ButtonOnClickCallbackType, CallbackType, DropDownOnChoiceChangeCallbackType,
         SegmentedOnChangeCallbackType, ShellSettingsLayoutOnCategoryCallbackType,
+        StandardDialogOnEventCallbackType,
         TextInputOnFocusLostCallbackType, TextInputOnTextInputCallbackType,
         TextInputOnVirtualKeyDownCallbackType,
     },
@@ -36,8 +37,8 @@ use azul::{
     str::String as AzString,
     vec::{DomVec, StringVec, U8VecRef},
     widgets::{
-        Avatar, AvatarSize, Badge, Button, ButtonType, CameraWidget, DropDown, MicrophoneWidget,
-        ProgressBar, ScreenCaptureWidget, Segmented, Titlebar,
+        AboutDialog, Avatar, AvatarSize, Badge, Button, ButtonType, CameraWidget, DropDown,
+        MicrophoneWidget, ProgressBar, ScreenCaptureWidget, Segmented, Titlebar,
     },
 };
 
@@ -136,6 +137,8 @@ pub(crate) struct SettingsView {
     pub name: String,
     /// "Video: H.264 (VideoToolbox)".
     pub codec: String,
+    /// Where this run keeps its files (`<data root>/meet`), or why it keeps none.
+    pub data_folder: String,
 }
 
 /// Everything the window shows.
@@ -200,6 +203,8 @@ pub(crate) struct Actions {
     pub chat_send: ButtonOnClickCallbackType,
     /// The chat field lost the focus (a click on Send): the draft as the field holds it.
     pub chat_blur: TextInputOnFocusLostCallbackType,
+    /// The About's OK (it closes the settings).
+    pub about_event: StandardDialogOnEventCallbackType,
     pub name_text: TextInputOnTextInputCallbackType,
     pub server_text: TextInputOnTextInputCallbackType,
     pub server_key: TextInputOnVirtualKeyDownCallbackType,
@@ -927,10 +932,11 @@ fn settings(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
             AzString::from("About"),
             Dom::create_div()
                 .with_css("display: flex; flex-direction: column;")
-                .with_child(text("AzMeet - video meetings over azul.iroh", "font-size: 13px;"))
+                .with_child(about(data, actions))
                 .with_child(text(&format!("You appear as {}", s.name), SECONDARY))
                 .with_child(text(&format!("Meeting server: {}", s.server), SECONDARY))
-                .with_child(text(&s.codec, SECONDARY)),
+                .with_child(text(&s.codec, SECONDARY))
+                .with_child(text(&format!("Files: {}", s.data_folder), SECONDARY)),
         ),
     };
     let layout = ShellSettingsLayout::create(StringVec::from_vec(
@@ -952,6 +958,20 @@ fn settings(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
             ),
         )
         .with_child(layout)
+}
+
+/// The About: azul's standard AboutDialog with AzMeet's facts (`crate::ABOUT`); OK closes the
+/// settings.
+fn about(data: &RefAny, actions: &Actions) -> Dom {
+    let facts = crate::ABOUT;
+    AboutDialog::create(facts.name, facts.version)
+        .with_icon("videocam")
+        .with_description(facts.summary)
+        .with_credit("azul", "MIT")
+        .with_credit("azul.iroh (iroh)", "MIT / Apache-2.0")
+        .with_on_event(data.clone(), actions.about_event)
+        .dom()
+        .with_id(ids::ABOUT)
 }
 
 /// A drop-down of `choices` with `selected` chosen.
