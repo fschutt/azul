@@ -8,15 +8,21 @@ Branch `wt/media6` from `25d78e309`. Brief: `scripts/waves/wave6/MEDIA6.md`.
 - `6d5b2748f` `b09fd8448` `f6d634f31` GREEN: layout/src/cpurender/text_raster.rs (TextRasterStyle,
   rasterize_text_at, text_image(_with), draw_text(_with), unpremultiply_rgba); raster.rs
   `render_text` pub(super).
+- AzPhoto: `1660ad26c` RED (state tests: text tool, live move, tool availability); GREEN
+  `5ae307c52` (engine live edits), `fba92ddca` (state text/move), `49ea43c0a` (commands:
+  azul_text on RawImage::from_text, on_text, Field::Text*), `aba432ca6` (ui Text bar, tool rail
+  with_toggled/with_disabled; canvas Enter/Escape).
+- AzVideoCut V1/V3: `e73d06036` RED (E2E fills-the-window), `239cf5e5e` GREEN.
 
 ## IN PROGRESS
-- AzPhoto text tool (state.rs: TextDraft + a rasteriser closure; commands/ui: options bar).
+- (between units)
 
 ## NEXT (in order)
-2. AzPhoto: text tool on it; move-tool live preview (engine begin_move/move_to/end_move);
-   tool rail Button with_toggled / with_disabled; sheets -> Dialog/dialog_kit, About ->
-   AboutDialog; export into the data tree `photo/<uuid>/exports/` via Drive; appkit; prefixes.
-3. AzVideoCut: V1 (body height 100%, margin 0, scope flex-grow) + E2E check; fit_within ->
+2. AzPhoto: export into the data tree `photo/<uuid>/exports/` via Drive (storage::export_key,
+   RED in storage tests); close guard (CloseRequested + prevent_window_close when modified);
+   sheets -> Dialog, About -> AboutDialog; appkit (args/data root/settings/shortcuts); prefixes;
+   E2E (text tool + live move steps).
+3. AzVideoCut: fit_within ->
    export core `image_scale::fit_within` as `RawImage::fit_size` or use `thumbnail`;
    ProgressDialog for export; AboutDialog; appkit; prefixes.
 4. AzPaint: stroke not shown (poke_canvas passes `NodeId{inner: raw}` - off by one vs Photo /
