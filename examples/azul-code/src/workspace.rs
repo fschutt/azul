@@ -60,12 +60,50 @@ impl Workspace {
     /// A workspace at `root`, nothing listed yet.
     #[must_use]
     pub fn new(root: Root) -> Workspace {
-        todo!("GREEN: new {}", root.name)
+        Workspace {
+            root,
+            listings: BTreeMap::new(),
+            expanded: BTreeSet::from([String::new()]),
+            selected: None,
+        }
     }
 
     /// The entries of `folder` (a key ending in `/`, or `""`) arrived.
-    pub fn set_listing(&mut self, folder: &str, folders: Vec<String>, files: Vec<String>) {
-        todo!("GREEN: set_listing {folder} {} {}", folders.len(), files.len())
+    pub fn set_listing(&mut self, folder: &str, mut folders: Vec<String>, mut files: Vec<String>) {
+        folders.sort_by_key(|n| n.to_lowercase());
+        files.sort_by_key(|n| n.to_lowercase());
+        let entries = folders
+            .into_iter()
+            .map(|name| Entry { name, folder: true })
+            .chain(files.into_iter().map(|name| Entry { name, folder: false }))
+            .collect();
+        self.listings.insert(folder.to_string(), entries);
+    }
+
+    /// `folder`'s entries as rows at `depth`, open folders' entries under
+    /// them.
+    fn walk(&self, folder: &str, depth: usize, out: &mut Vec<Row>) {
+        let Some(entries) = self.listings.get(folder) else {
+            return;
+        };
+        for e in entries {
+            let key = if e.folder {
+                format!("{folder}{}/", e.name)
+            } else {
+                format!("{folder}{}", e.name)
+            };
+            let expanded = e.folder && self.expanded.contains(&key);
+            out.push(Row {
+                key: key.clone(),
+                name: e.name.clone(),
+                depth,
+                folder: e.folder,
+                expanded,
+            });
+            if expanded {
+                self.walk(&key, depth + 1, out);
+            }
+        }
     }
 
     /// Whether `folder` was listed.
@@ -76,14 +114,22 @@ impl Workspace {
 
     /// Opens or closes `folder`; `true` when it must be listed first.
     pub fn toggle(&mut self, folder: &str, open: bool) -> bool {
-        todo!("GREEN: toggle {folder} {open}")
+        if open {
+            self.expanded.insert(folder.to_string());
+            !self.listings.contains_key(folder)
+        } else {
+            self.expanded.remove(folder);
+            false
+        }
     }
 
     /// The explorer's rows: the workspace's entries, an open folder's
     /// entries under it, depth first.
     #[must_use]
     pub fn rows(&self) -> Vec<Row> {
-        todo!("GREEN: rows {}", self.listings.len())
+        let mut out = Vec::new();
+        self.walk("", 0, &mut out);
+        out
     }
 
     /// The drive key of workspace key `key`.
@@ -148,12 +194,34 @@ impl<D: TabDoc> Tabs<D> {
     /// `doc` in front: its own tab when the file is open already (the new
     /// copy is dropped), else a new tab after the active one.
     pub fn open(&mut self, doc: D) -> usize {
-        todo!("GREEN: open {}", doc.key())
+        if let Some(i) = self.find(doc.key()) {
+            self.active = i;
+            return i;
+        }
+        let at = if self.docs.is_empty() {
+            0
+        } else {
+            (self.active + 1).min(self.docs.len())
+        };
+        self.docs.insert(at, doc);
+        self.active = at;
+        at
     }
 
     /// Closes tab `index`; the one right of it (else left) comes to front.
     pub fn close(&mut self, index: usize) -> Option<D> {
-        todo!("GREEN: close {index}")
+        if index >= self.docs.len() {
+            return None;
+        }
+        let doc = self.docs.remove(index);
+        if self.docs.is_empty() {
+            self.active = 0;
+        } else if self.active > index {
+            self.active -= 1;
+        } else if self.active == index {
+            self.active = index.min(self.docs.len() - 1);
+        }
+        Some(doc)
     }
 
     #[must_use]
