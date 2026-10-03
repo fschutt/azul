@@ -70,7 +70,7 @@ screenshots + hierarchy dumps under target/sheetshow6-shots/.
 ## NEXT (exact)
 1-3. (done)
 4. (done)
-5. NEXT: Sheets merge cells, conditional formatting, tab strip; Show (drop indicator, multi-select
+5. NEXT: Sheets conditional formatting, tab strip; Show (drop indicator, multi-select
    rotate, tables in place, picture contain / cover, find / replace, presenter on a chosen monitor).
 6. Check both apps for `ctrl || meta` and duplicated helpers (checklist).
 
