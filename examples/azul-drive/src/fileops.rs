@@ -669,6 +669,10 @@ pub struct QueuedJob {
     pub label: String,
     pub state: JobState,
     pub progress: Progress,
+    /// When it started running (milliseconds since 1970; 0 while it waits).
+    pub started_ms: u64,
+    /// The progress dialog was shown for it (once closed it stays closed).
+    pub dialog_shown: bool,
 }
 
 /// The transfers, one running at a time (the status bar shows it).
@@ -687,6 +691,8 @@ impl TransferQueue {
             label,
             state: JobState::Waiting,
             progress: Progress::default(),
+            started_ms: 0,
+            dialog_shown: false,
         });
         self.next_id
     }
@@ -707,7 +713,9 @@ impl TransferQueue {
             .map(|j| j.id)
     }
 
-    pub fn start(&mut self, id: u64) {
+    /// Transfer `id` runs from `now_ms` (milliseconds since 1970) on.
+    pub fn start(&mut self, id: u64, now_ms: u64) {
+        let _ = now_ms; // RED: not kept yet
         if let Some(job) = self.job_mut(id) {
             job.state = JobState::Running;
         }
@@ -808,6 +816,19 @@ impl TransferQueue {
     #[must_use]
     pub fn jobs(&self) -> &[QueuedJob] {
         &self.jobs
+    }
+
+    /// The running transfer that has taken `after_ms` or longer by `now_ms` and has not had
+    /// its progress dialog yet: Explorer shows the dialog for a long copy, not for a quick one.
+    #[must_use]
+    pub fn wants_progress_dialog(&self, now_ms: u64, after_ms: u64) -> Option<u64> {
+        let _ = (now_ms, after_ms); // RED
+        None
+    }
+
+    /// The progress dialog of transfer `id` was shown.
+    pub fn mark_dialog_shown(&mut self, id: u64) {
+        let _ = id; // RED
     }
 }
 
@@ -1125,12 +1146,36 @@ mod tests {
     }
 
     #[test]
+    fn a_transfer_running_two_seconds_asks_for_the_progress_dialog_once() {
+        let mut queue = TransferQueue::default();
+        let a = queue.push("Copying 1 item to docs".to_string());
+        assert_eq!(queue.wants_progress_dialog(5_000, 2_000), None, "nothing runs");
+        queue.start(a, 1_000);
+        assert_eq!(
+            queue.wants_progress_dialog(2_500, 2_000),
+            None,
+            "a quick copy shows no dialog"
+        );
+        assert_eq!(queue.wants_progress_dialog(3_000, 2_000), Some(a));
+        queue.mark_dialog_shown(a);
+        assert_eq!(
+            queue.wants_progress_dialog(9_000, 2_000),
+            None,
+            "a dialog the user closed stays closed"
+        );
+        queue.finish(a, None);
+        let b = queue.push("Copying 2 items to docs".to_string());
+        queue.start(b, 10_000);
+        assert_eq!(queue.wants_progress_dialog(12_000, 2_000), Some(b), "the next one asks again");
+    }
+
+    #[test]
     fn a_transfer_queue_runs_one_job_at_a_time_and_sums_the_progress() {
         let mut queue = TransferQueue::default();
         let a = queue.push("Copying 3 items".to_string());
         let b = queue.push("Uploading photo.jpg".to_string());
         assert_eq!(queue.next_to_start(), Some(a));
-        queue.start(a);
+        queue.start(a, 1_000);
         assert_eq!(queue.next_to_start(), None, "one at a time");
         queue.progress(
             a,
@@ -1150,7 +1195,7 @@ mod tests {
         );
         queue.finish(a, None);
         assert_eq!(queue.next_to_start(), Some(b));
-        queue.start(b);
+        queue.start(b, 2_000);
         queue.finish(b, Some("no answer".to_string()));
         assert!(queue.is_idle());
         assert_eq!(queue.failed().len(), 1);

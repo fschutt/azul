@@ -1105,7 +1105,7 @@ pub(crate) fn pump_queue(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         same_drive: job.same_drive,
         kind: job.kind,
     };
-    s.queue.start(id);
+    s.queue.start(id, now_ms());
     spawn(info, app, s, plan_job);
 }
 
