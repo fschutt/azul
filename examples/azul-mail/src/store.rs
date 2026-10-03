@@ -13,13 +13,16 @@
 //! message's path is known before its body is fetched. Every key is a `/`-separated relative path,
 //! the same string an S3 bucket would use under the account's prefix.
 //!
-//! [`LocalFolder`] is the one writer. It only puts, gets and sizes whole files (writing a
-//! temporary file and renaming it, so a crash never leaves half a file) and moves a folder aside:
-//! the operations the shared `Drive` (DRIVE1's `examples/azul-storage`) offers, which is where it
-//! will be swapped in.
+//! [`MailStore`] is the one writer, and it writes through the shared azul-storage `Drive`
+//! (`examples/azul-storage`): ONE `LocalDrive` at the data root, the account's folder as its
+//! scoped prefix ([`DriveFolder`]), so every file lands in the data tree's one `.azlin/cache`
+//! manifest and the later S3 sync swaps the drive, nothing else. The drive writes a file whole or
+//! not at all (a temporary file, then a rename). An account synced to a folder outside the data
+//! tree gets a drive of its own there that keeps no manifest.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
+use azul_storage::{Drive, DriveError, ListRequest, LocalDrive, ScopedDrive};
 use serde::{Deserialize, Serialize};
 
 /// The prefix of every synced folder.
@@ -97,95 +100,249 @@ pub fn write_atomic(path: &Path, bytes: &[u8], durable: bool) -> std::io::Result
     Ok(())
 }
 
-/// The synced files of one account, under one folder on this computer.
+/// A folder of AzMail's files on a drive: the drive's root on this computer, whether that root
+/// is the data tree (its drive keeps the `.azlin/cache` manifest) and the folder's key prefix in
+/// the drive (empty, or `/`-separated names each ending in `/`).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocalFolder {
+pub struct DriveFolder {
     root: PathBuf,
+    data_tree: bool,
+    prefix: String,
 }
 
-impl LocalFolder {
-    pub fn new(root: PathBuf) -> LocalFolder {
-        LocalFolder { root }
+impl DriveFolder {
+    /// `path` (a folder on this computer) placed against the data tree at `data_root`: inside
+    /// it, a folder of the tree's ONE drive (its files land in the tree's manifest); outside it
+    /// (a folder the user chose elsewhere, `AZMAIL_DATA`), the root of a drive of its own that
+    /// keeps no manifest.
+    pub fn of(path: &Path, data_root: &Path) -> DriveFolder {
+        if data_root.as_os_str().is_empty() {
+            return DriveFolder::outside(path.to_path_buf());
+        }
+        let Ok(rest) = path.strip_prefix(data_root) else {
+            return DriveFolder::outside(path.to_path_buf());
+        };
+        let mut prefix = String::new();
+        for component in rest.components() {
+            match component {
+                Component::Normal(name) => match name.to_str() {
+                    Some(name) if is_valid_key(name) => {
+                        prefix.push_str(name);
+                        prefix.push('/');
+                    }
+                    _ => return DriveFolder::outside(path.to_path_buf()),
+                },
+                Component::CurDir => {}
+                _ => return DriveFolder::outside(path.to_path_buf()),
+            }
+        }
+        DriveFolder {
+            root: data_root.to_path_buf(),
+            data_tree: true,
+            prefix,
+        }
     }
 
-    pub fn root(&self) -> &Path {
-        &self.root
+    /// `path` as the root of a drive of its own that keeps no manifest (not the data tree).
+    pub fn outside(path: PathBuf) -> DriveFolder {
+        DriveFolder {
+            root: path,
+            data_tree: false,
+            prefix: String::new(),
+        }
     }
 
-    /// The file a key names; an error for a key that is not valid.
-    pub fn path_of(&self, key: &str) -> std::io::Result<PathBuf> {
-        if !is_valid_key(key) {
-            return Err(std::io::Error::new(
+    /// `path` placed as this folder's drive places it: on the data tree's drive when this one
+    /// is the data tree's and `path` is inside it, else a drive of its own.
+    pub fn locate(&self, path: &Path) -> DriveFolder {
+        if self.data_tree {
+            DriveFolder::of(path, &self.root)
+        } else {
+            DriveFolder::outside(path.to_path_buf())
+        }
+    }
+
+    /// The folder `name` (one name, no `/`) in this one.
+    pub fn child(&self, name: &str) -> DriveFolder {
+        DriveFolder {
+            root: self.root.clone(),
+            data_tree: self.data_tree,
+            prefix: format!("{}{name}/", self.prefix),
+        }
+    }
+
+    /// Whether the folder is part of the data tree (its drive keeps the manifest).
+    pub fn is_data_tree(&self) -> bool {
+        self.data_tree
+    }
+
+    /// The folder on this computer.
+    pub fn path(&self) -> PathBuf {
+        self.prefix
+            .split('/')
+            .filter(|name| !name.is_empty())
+            .fold(self.root.clone(), |path, name| path.join(name))
+    }
+
+    /// The drive of the folder: the data tree's (with its manifest) or the folder's own,
+    /// scoped to the folder.
+    fn drive(&self) -> Result<ScopedDrive<LocalDrive>, DriveError> {
+        let local = if self.data_tree {
+            LocalDrive::new(self.root.clone())
+        } else {
+            LocalDrive::without_manifest(self.root.clone())
+        };
+        ScopedDrive::new(local, &self.prefix, true)
+    }
+}
+
+/// A drive's error as the `std::io::Error` AzMail's callers read (a missing file is `NotFound`).
+fn io_error(e: DriveError) -> std::io::Error {
+    let kind = match &e {
+        DriveError::NotFound { .. } => std::io::ErrorKind::NotFound,
+        DriveError::InvalidKey { .. } => std::io::ErrorKind::InvalidInput,
+        DriveError::Denied { .. } => std::io::ErrorKind::PermissionDenied,
+        _ => std::io::ErrorKind::Other,
+    };
+    std::io::Error::new(kind, e.to_string())
+}
+
+/// The files of one folder of AzMail (an account's synced mail, its own folder, the AzMail
+/// folder), read and written through its drive. Blocking: call it from an azul `Thread`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MailStore {
+    folder: DriveFolder,
+}
+
+impl MailStore {
+    pub fn new(folder: DriveFolder) -> MailStore {
+        MailStore { folder }
+    }
+
+    /// Where the files are.
+    pub fn folder(&self) -> &DriveFolder {
+        &self.folder
+    }
+
+    fn drive(&self) -> std::io::Result<ScopedDrive<LocalDrive>> {
+        self.folder.drive().map_err(io_error)
+    }
+
+    /// The error for a key AzMail never writes.
+    fn check(key: &str) -> std::io::Result<()> {
+        if is_valid_key(key) {
+            Ok(())
+        } else {
+            Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 format!("{key:?} is not a key AzMail writes"),
-            ));
+            ))
         }
-        Ok(key
-            .split('/')
-            .fold(self.root.clone(), |path, segment| path.join(segment)))
     }
 
-    /// Writes the object `key` whole (see [`write_atomic`]).
-    pub fn put(&self, key: &str, bytes: &[u8], durable: bool) -> std::io::Result<()> {
-        write_atomic(&self.path_of(key)?, bytes, durable)
+    /// Writes the object `key` whole (the drive writes a temporary file and renames it).
+    pub fn put(&self, key: &str, bytes: &[u8]) -> std::io::Result<()> {
+        Self::check(key)?;
+        self.drive()?.put(key, bytes).map_err(io_error)
     }
 
     /// Reads the object `key`.
     pub fn get(&self, key: &str) -> std::io::Result<Vec<u8>> {
-        std::fs::read(self.path_of(key)?)
+        Self::check(key)?;
+        self.drive()?.get(key).map_err(io_error)
     }
 
     /// Removes the object `key` (on an object store: DeleteObject). A missing one is no error.
     pub fn delete(&self, key: &str) -> std::io::Result<()> {
-        match std::fs::remove_file(self.path_of(key)?) {
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            other => other,
+        Self::check(key)?;
+        match self.drive()?.delete(key) {
+            Ok(()) | Err(DriveError::NotFound { .. }) => Ok(()),
+            Err(e) => Err(io_error(e)),
         }
     }
 
     /// The size of the object `key`, or `None` when there is none.
     pub fn size_of(&self, key: &str) -> Option<u64> {
-        let meta = std::fs::metadata(self.path_of(key).ok()?).ok()?;
-        meta.is_file().then(|| meta.len())
+        Self::check(key).ok()?;
+        self.drive().ok()?.head(key).ok().map(|info| info.size)
+    }
+
+    /// Every key under the folder `prefix` (`outbox`, `mail/inbox`; at any depth), in key order.
+    pub fn keys(&self, prefix: &str) -> Vec<String> {
+        let Ok(drive) = self.drive() else {
+            return Vec::new();
+        };
+        let folder = format!("{}/", prefix.trim_end_matches('/'));
+        let mut keys: Vec<String> = azul_storage::ops::list_all(&drive, &folder)
+            .map(|objects| objects.into_iter().map(|o| o.key).collect())
+            .unwrap_or_default();
+        keys.sort();
+        keys
+    }
+
+    /// The names of the folders directly in the folder `prefix` (empty: this folder's own).
+    pub fn subfolders(&self, prefix: &str) -> Vec<String> {
+        let Ok(drive) = self.drive() else {
+            return Vec::new();
+        };
+        let folder = match prefix.trim_end_matches('/') {
+            "" => String::new(),
+            p => format!("{p}/"),
+        };
+        let mut names = Vec::new();
+        let mut request = ListRequest::folder(&folder);
+        loop {
+            let Ok(page) = drive.list(&request) else {
+                break;
+            };
+            names.extend(page.folders.iter().filter_map(|f| {
+                let name = f.strip_prefix(folder.as_str())?.trim_end_matches('/');
+                (!name.is_empty()).then(|| name.to_string())
+            }));
+            match page.next {
+                Some(token) => request = ListRequest::folder(&folder).with_continuation(token),
+                None => break,
+            }
+        }
+        names.sort();
+        names.dedup();
+        names
     }
 
     /// Moves every object under `from` to the same place under `to` (on an object store: copy,
-    /// then delete). A missing `from` moves nothing.
+    /// then delete). A missing `from` moves nothing; when `to` is taken (moved aside before
+    /// under the same UIDVALIDITY), the move goes next to it as `<to>-2`, `<to>-3`, ...
     pub fn move_prefix(&self, from: &str, to: &str) -> std::io::Result<()> {
-        let from = self.path_of(from)?;
-        let to = self.path_of(to)?;
-        if !from.exists() {
+        Self::check(from)?;
+        Self::check(to)?;
+        if self.keys(from).is_empty() {
             return Ok(());
         }
-        if to.exists() {
-            // Moved aside before under the same UIDVALIDITY: keep that, add a new one next to it.
-            let mut n = 2;
-            let base = to.clone();
-            let mut target = to;
-            while target.exists() {
-                target = PathBuf::from(format!("{}-{n}", base.display()));
-                n += 1;
-            }
-            return std::fs::rename(&from, &target);
+        let taken = |name: &str| {
+            !self.keys(name).is_empty()
+                || self
+                    .folder
+                    .path()
+                    .join(name.replace('/', std::path::MAIN_SEPARATOR_STR))
+                    .exists()
+        };
+        let mut target = to.to_string();
+        let mut n = 2;
+        while taken(&target) {
+            target = format!("{to}-{n}");
+            n += 1;
         }
-        if let Some(parent) = to.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::rename(&from, &to)
+        self.drive()?
+            .rename(&format!("{from}/"), &format!("{target}/"))
+            .map_err(io_error)
     }
 
     /// The synced folders: every `mail/<folder>` holding a state file, by name.
     pub fn folders(&self) -> Vec<String> {
-        let Ok(entries) = std::fs::read_dir(self.root.join(MAIL_PREFIX)) else {
-            return Vec::new();
-        };
-        let mut folders: Vec<String> = entries
-            .flatten()
-            .filter(|e| e.path().join(STATE_FILE).is_file())
-            .filter_map(|e| e.file_name().to_str().map(str::to_string))
-            .collect();
-        folders.sort();
-        folders
+        self.subfolders(MAIL_PREFIX)
+            .into_iter()
+            .filter(|name| self.size_of(&state_key(name)).is_some())
+            .collect()
     }
 }
 
@@ -397,45 +554,63 @@ mod tests {
         ] {
             assert!(!is_valid_key(bad), "{bad:?}");
         }
-        let store = LocalFolder::new(PathBuf::from("/data"));
-        assert!(store.path_of("../x").is_err());
+        let store = MailStore::new(DriveFolder::outside(PathBuf::from("/data")));
+        assert!(store.get("../x").is_err());
         assert_eq!(
-            store.path_of("mail/inbox/state.json").unwrap(),
-            Path::new("/data")
-                .join("mail")
-                .join("inbox")
-                .join("state.json")
+            DriveFolder::of(Path::new("/data/mail/ada"), Path::new("/data"))
+                .child("inbox")
+                .path(),
+            Path::new("/data").join("mail").join("ada").join("inbox")
         );
+    }
+
+    #[test]
+    fn a_folder_lists_its_keys_and_its_subfolders() {
+        let dir = TempDir::new("store");
+        let store = MailStore::new(DriveFolder::outside(dir.0.clone()));
+        store.put("outbox/b.json", b"{}").unwrap();
+        store.put("outbox/a.json", b"{}").unwrap();
+        store.put("outbox/a.eml", b"x").unwrap();
+        store.put("ada/account.json", b"{}").unwrap();
+        assert_eq!(
+            store.keys("outbox"),
+            vec!["outbox/a.eml", "outbox/a.json", "outbox/b.json"]
+        );
+        assert!(store.keys("nothing").is_empty());
+        assert_eq!(store.subfolders(""), vec!["ada", "outbox"]);
+        store.delete("outbox/a.eml").unwrap();
+        store.delete("outbox/a.eml").unwrap();
+        assert_eq!(store.size_of("outbox/a.eml"), None);
     }
 
     #[test]
     fn an_object_is_written_whole_and_leaves_no_temporary_file() {
         let dir = TempDir::new("store");
-        let store = LocalFolder::new(dir.0.clone());
+        let store = MailStore::new(DriveFolder::outside(dir.0.clone()));
         let key = message_key("inbox", 2026, 9, 1);
         assert_eq!(store.size_of(&key), None);
-        store.put(&key, b"From: a\r\n\r\nhi\r\n", false).unwrap();
+        store.put(&key, b"From: a\r\n\r\nhi\r\n").unwrap();
         assert_eq!(store.get(&key).unwrap(), b"From: a\r\n\r\nhi\r\n");
         assert_eq!(store.size_of(&key), Some(15));
-        store.put(&key, b"again", true).unwrap();
+        store.put(&key, b"again").unwrap();
         assert_eq!(store.get(&key).unwrap(), b"again");
         let names: Vec<String> = std::fs::read_dir(dir.0.join("mail/inbox/2026/09"))
             .unwrap()
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
         assert_eq!(names, vec![String::from("1.eml")]);
-        assert!(store.put("../escape", b"x", false).is_err());
+        assert!(store.put("../escape", b"x").is_err());
         assert!(!dir.0.parent().unwrap().join("escape").exists());
     }
 
     #[test]
     fn a_folder_moves_aside_whole() {
         let dir = TempDir::new("store");
-        let store = LocalFolder::new(dir.0.clone());
+        let store = MailStore::new(DriveFolder::outside(dir.0.clone()));
         store
-            .put(&message_key("inbox", 2026, 9, 1), b"one", false)
+            .put(&message_key("inbox", 2026, 9, 1), b"one")
             .unwrap();
-        store.put(&index_key("inbox"), b"{}\n", false).unwrap();
+        store.put(&index_key("inbox"), b"{}\n").unwrap();
         store
             .move_prefix(&folder_prefix("inbox"), &stale_prefix("inbox", 7))
             .unwrap();
@@ -446,22 +621,29 @@ mod tests {
         store
             .move_prefix(&folder_prefix("nothing"), &stale_prefix("nothing", 1))
             .unwrap();
+        // Moved aside again under the same UIDVALIDITY: next to the first.
+        store.put(&index_key("inbox"), b"again\n").unwrap();
+        store
+            .move_prefix(&folder_prefix("inbox"), &stale_prefix("inbox", 7))
+            .unwrap();
+        assert_eq!(store.get("stale/inbox/7/index.jsonl").unwrap(), b"{}\n");
+        assert_eq!(store.get("stale/inbox/7-2/index.jsonl").unwrap(), b"again\n");
     }
 
     #[test]
     fn the_synced_folders_are_those_with_a_state_file() {
         let dir = TempDir::new("store");
-        let store = LocalFolder::new(dir.0.clone());
+        let store = MailStore::new(DriveFolder::outside(dir.0.clone()));
         assert!(store.folders().is_empty());
         let state = FolderState::create("INBOX", "Inbox", 1);
         store
-            .put(&state_key("spam"), state.to_json().as_bytes(), false)
+            .put(&state_key("spam"), state.to_json().as_bytes())
             .unwrap();
         store
-            .put(&state_key("inbox"), state.to_json().as_bytes(), false)
+            .put(&state_key("inbox"), state.to_json().as_bytes())
             .unwrap();
         store
-            .put("mail/half-done/2026/09/1.eml", b"x", false)
+            .put("mail/half-done/2026/09/1.eml", b"x")
             .unwrap();
         assert_eq!(
             store.folders(),
