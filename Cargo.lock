@@ -171,10 +171,10 @@ dependencies = [
 name = "AzShow"
 version = "0.1.0"
 dependencies = [
- "AzWriter",
  "azul-appkit",
  "azul-dll",
  "azul-storage",
+ "pulldown-cmark",
  "serde",
  "serde_json",
 ]

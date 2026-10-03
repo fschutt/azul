@@ -826,18 +826,6 @@ fn append_wire_paragraph(blocks: &mut Vec<IrBlock>, p: wire::Para) {
     blocks.push(IrBlock::Paragraph(IrParagraph { style, align, runs }));
 }
 
-pub fn from_docx_bytes(data: &[u8]) -> Result<IrDocument, String> {
-    match docx_parser::parse_docx_native(data) {
-        Ok(json) => match from_docx_wire(&json) {
-            Ok(doc) => Ok(doc),
-            Err(wire_err) => docx_parser::to_markdown_native(data)
-                .map(|md| from_markdown(&md))
-                .map_err(|md_err| format!("wire: {wire_err}; markdown: {md_err}")),
-        },
-        Err(e) => Err(e),
-    }
-}
-
 use azul::{
     css::DocumentOperation,
     dom::{DocOpMergeNodes, DocOpSplitNode},
@@ -1352,39 +1340,5 @@ mod tests {
         let ir = from_markdown(SAMPLE);
         assert_eq!(ir.derived_title().as_deref(), Some("Title"));
         assert!(ir.word_count() >= 14, "count = {}", ir.word_count());
-    }
-}
-
-#[cfg(test)]
-mod docx_end_to_end {
-    use super::*;
-
-    #[test]
-    fn a_real_docx_lands_in_the_ir() {
-        let bytes = include_bytes!("../testdata/sample.docx");
-        let ir = from_docx_bytes(bytes).expect("docx must load");
-        assert!(
-            matches!(&ir.blocks[0], IrBlock::Paragraph(p)
-                if p.style == IrParaStyle::Heading(1)
-                && flatten_runs(&p.runs) == "A Real Heading"),
-            "block 0: {:?}",
-            ir.blocks.first()
-        );
-        let IrBlock::Paragraph(p) = &ir.blocks[1] else {
-            panic!("block 1: {:?}", ir.blocks.get(1))
-        };
-        assert_eq!(flatten_runs(&p.runs), "Plain then bold italic");
-        assert!(
-            p.runs.iter().any(|r| r.bold),
-            "a bold run survives: {:?}",
-            p.runs
-        );
-        assert!(p.runs.iter().any(|r| r.italic), "an italic run survives");
-        assert!(
-            ir.blocks.iter().any(|b| matches!(b, IrBlock::PageBreak)),
-            "the page break survives: {:?}",
-            ir.blocks
-        );
-        assert_eq!(ir.derived_title().as_deref(), Some("A Real Heading"));
     }
 }
