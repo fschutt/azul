@@ -1,10 +1,13 @@
-//! The seed for ids that leave the process.
+//! The seed for ids that leave the process - the ONE seed source of the repo.
 //!
 //! A document, note, deck or project id names a folder in the drive (an S3
 //! bucket later), so it must not repeat across launches and devices.
 //! `azul::uuid::Uuid::v4` is a process-local counter - the same sequence in
 //! every run - and azul carries no randomness source on purpose, so the id
 //! is `Uuid::from_seed(random_seed())`: azul's mint, seeded from here.
+//! Plain-Rust code that cannot call azul (azul-appkit's plain modules, the
+//! tests) takes [`new_uuid`]: the same kind of id, 128 random bits from two
+//! seeds.
 
 use std::{
     collections::hash_map::RandomState,
@@ -29,6 +32,41 @@ pub fn random_seed() -> u64 {
     );
     h.write_u32(std::process::id());
     h.finish()
+}
+
+/// A new random id for a record file (`contacts/<id>.vcf`): a version 4 UUID
+/// in its usual 8-4-4-4-12 lowercase form, from two [`random_seed`]s. For
+/// code without azul; with azul, `Uuid::from_seed(random_seed())` is the
+/// same kind of id.
+#[must_use]
+pub fn new_uuid() -> String {
+    uuid_from_words(random_seed(), random_seed())
+}
+
+/// The UUID text of 128 bits, with the version (4) and variant (10xx) bits set.
+#[must_use]
+pub fn uuid_from_words(hi: u64, lo: u64) -> String {
+    let hi = (hi & 0xffff_ffff_ffff_0fff) | 0x0000_0000_0000_4000;
+    let lo = (lo & 0x3fff_ffff_ffff_ffff) | 0x8000_0000_0000_0000;
+    format!(
+        "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
+        hi >> 32,
+        (hi >> 16) & 0xffff,
+        hi & 0xffff,
+        lo >> 48,
+        lo & 0xffff_ffff_ffff
+    )
+}
+
+/// Whether `text` is a UUID in the 8-4-4-4-12 hex form (any case).
+#[must_use]
+pub fn is_uuid(text: &str) -> bool {
+    let groups: Vec<&str> = text.split('-').collect();
+    groups.len() == 5
+        && groups
+            .iter()
+            .zip([8, 4, 4, 4, 12])
+            .all(|(g, n)| g.len() == n && g.chars().all(|c| c.is_ascii_hexdigit()))
 }
 
 #[cfg(test)]
@@ -77,7 +115,10 @@ mod tests {
         assert!(is_uuid("00000000-0000-4000-8000-000000000000"));
         assert!(is_uuid("ABCDEF01-2345-4678-9ABC-DEF012345678"), "any case");
         assert!(!is_uuid("not-a-uuid"));
-        assert!(!is_uuid("00000000-0000-4000-8000-00000000000"), "one digit short");
+        assert!(
+            !is_uuid("00000000-0000-4000-8000-00000000000"),
+            "one digit short"
+        );
         assert!(!is_uuid("00000000-0000-4000-8000-00000000000g"), "not hex");
         assert!(!is_uuid(""));
     }
