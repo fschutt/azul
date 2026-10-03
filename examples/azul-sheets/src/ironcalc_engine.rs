@@ -683,6 +683,29 @@ mod tests {
         assert_eq!(e.extent(0), (2, 1));
     }
 
+    /// Seen in the sample (wave 6): only the title "Household budget 2027"
+    /// arrived, the rows under it were blank. IronCalc's paste reader is not
+    /// flexible: a record whose length differs from the first is dropped
+    /// whole. Every row of a ragged block reaches the sheet.
+    #[test]
+    fn ragged_rows_all_reach_the_sheet() {
+        let mut e = IronCalcEngine::new_empty();
+        e.set_inputs(
+            at(1, 1),
+            &[
+                vec![String::from("Title")],
+                vec![String::from("a"), String::from("b"), String::from("c")],
+                vec![String::from("1"), String::from("2")],
+            ],
+        )
+        .unwrap();
+        assert_eq!(e.cell_input(at(1, 1)), "Title");
+        assert_eq!(e.cell_input(at(2, 1)), "a");
+        assert_eq!(e.cell_input(at(2, 3)), "c");
+        assert_eq!(e.cell_input(at(3, 2)), "2");
+        assert_eq!(e.extent(0), (3, 3));
+    }
+
     #[test]
     fn many_inputs_are_one_undo_step() {
         let mut e = IronCalcEngine::new_empty();

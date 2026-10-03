@@ -293,7 +293,8 @@ mod tests {
         assert!((autofit_px(std::iter::empty(), 12.0) - 30.0).abs() < 0.01);
         assert_eq!(
             tsv_of(&[vec![String::from("a"), String::from("=SUM(A1:A2)")], vec![String::from("x\ty")]]),
-            "a\t=SUM(A1:A2)\n\"x\ty\"\n"
+            "a\t=SUM(A1:A2)\n\"x\ty\"\t\n",
+            "a ragged block is padded to a rectangle: IronCalc's paste drops a row of another length"
         );
         assert_eq!(next_book_title(&[String::from("Book1")]), "Book2");
     }
