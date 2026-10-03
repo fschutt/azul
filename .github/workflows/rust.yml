@@ -818,12 +818,15 @@ jobs:
           ./scripts/zero_test_guard.sh --strict azul-dashboard-tests.txt
 
       - name: Run AzTerm tests
+      - name: Run AzPdf tests
         env:
           AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
         run: |
           set -o pipefail
           cargo test -p AzTerm --lib --no-fail-fast 2>&1 | tee azul-term-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-term-tests.txt
+          cargo test -p AzPdf --lib --no-fail-fast 2>&1 | tee azul-pdf-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-pdf-tests.txt
 
       - name: Check azul-dll (release feature set)
         run: cargo check -p azul-dll --no-default-features --features "link-static,logging,ico,tga,hdr,webp,pnm,gif,png,tiff,bmp,a11y"

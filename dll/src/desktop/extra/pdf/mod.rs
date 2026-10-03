@@ -18,6 +18,10 @@ use azul_core::{dom::Dom, json::Json};
 use azul_css::U8Vec;
 use azul_layout::solver3::display_list::DisplayListItem;
 
+/// PDF -> page count, page sizes, page N as SVG, page text, outline (PDF9).
+mod parsed;
+pub use parsed::*;
+
 /// Say once per process that the `pdf` feature is compiled out. Every stub
 /// arm below returns an empty/none result that is byte-for-byte
 /// indistinguishable from "the document rendered to nothing" — the same
@@ -294,18 +298,17 @@ impl Pdf {
     }
 }
 
-/// PDF bytes -> per-page SVG strings (see [`Pdf::to_svg_pages`]).
+/// PDF bytes -> per-page SVG strings (see [`Pdf::to_svg_pages`]). Renders
+/// EVERY page: a viewer parses once with [`ParsedPdf`] and renders only the
+/// pages it shows. Same render path (`ParsedPdf::page_to_svg`); empty without
+/// the `pdf` feature (`ParsedPdf::from_bytes` announces that) or on a parse
+/// failure.
 pub fn pdf_to_svg_pages(bytes: &[u8]) -> Vec<String> {
-    #[cfg(feature = "pdf")]
-    {
-        engine::pdf_to_svg_pages(bytes)
-    }
-    #[cfg(not(feature = "pdf"))]
-    {
-        announce_pdf_stub("pdf_to_svg_pages");
-        let _ = bytes;
-        Vec::new()
-    }
+    let pdf = ParsedPdf::from_bytes(bytes);
+    (0..pdf.page_count())
+        .filter_map(|index| pdf.page_to_svg(index).into_option())
+        .map(azul_css::AzString::into_library_owned_string)
+        .collect()
 }
 
 /// One page-SVG -> Dom (see [`Pdf::svg_page_to_dom`]).
@@ -451,22 +454,6 @@ mod engine {
                 P::RGBA8
             }
         }
-    }
-
-    /// REVERSE path: parse PDF bytes and render every page to a standalone
-    /// SVG string (printpdf's `page_to_svg`; pages are 1-indexed there).
-    /// Each SVG can then be turned into a Dom via
-    /// `azul_layout::widgets::map::svg_string_to_dom` (the same svg-to-dom
-    /// path the map tiles use) — see `Pdf::svg_page_to_dom`.
-    pub fn pdf_to_svg_pages(bytes: &[u8]) -> Vec<String> {
-        let mut warnings: Vec<PdfWarnMsg> = Vec::new();
-        let Ok(doc) = PdfDocument::parse(bytes, &PdfParseOptions::default(), &mut warnings) else {
-            return Vec::new();
-        };
-        let opts = printpdf::PdfToSvgOptions::default();
-        (1..=doc.pages.len())
-            .filter_map(|n| doc.page_to_svg(n, &opts, &mut warnings))
-            .collect()
     }
 
     /// Walk one page's display list into printpdf draw ops via printpdf's own
@@ -959,3 +946,8 @@ mod tests {
         );
     }
 }
+
+/// `ParsedPdf` (PDF9): page count, page sizes, page N as SVG, page text, outline.
+#[cfg(all(test, feature = "pdf"))]
+#[path = "parsed_tests.rs"]
+mod parsed_tests;

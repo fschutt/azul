@@ -457,12 +457,16 @@ fn render_svg_group_inner(
     use agg_rust::math_stroke::{LineCap, LineJoin};
     use azul_core::xml::XmlNodeChild;
 
+    // A node's own transform maps its user space into its parent's: it
+    // applies FIRST, the parent's after (`multiply`). `premultiply` ran the
+    // parent's first - an element moved inside a page scaled 2x moved by
+    // half as much as it should.
     let group_transform = node
         .attributes
         .get_key("transform")
         .map_or(*parent_transform, |t| {
             let mut tf = parse_svg_transform(t.as_str());
-            tf.premultiply(parent_transform);
+            tf.multiply(parent_transform);
             tf
         });
 
@@ -511,7 +515,7 @@ fn render_svg_group_inner(
                         .get_key("transform")
                         .map_or(group_transform, |t| {
                             let mut tf = parse_svg_transform(t.as_str());
-                            tf.premultiply(&group_transform);
+                            tf.multiply(&group_transform);
                             tf
                         });
 
@@ -765,11 +769,16 @@ fn svg_multi_polygon_to_path_storage(mp: &azul_core::svg::SvgMultiPolygon) -> Pa
     path
 }
 
-/// Parse SVG transform attribute (supports matrix, translate, scale, rotate).
+/// Parse an SVG `transform` attribute: a LIST of transform functions -
+/// `matrix(a b c d e f)`, `translate(tx [ty])`, `scale(sx [sy])`,
+/// `rotate(angle [cx cy])`, `skewX(angle)`, `skewY(angle)` - separated by
+/// whitespace and / or commas. The list applies RIGHT TO LEFT (SVG 1.1 7.6:
+/// `translate(8) scale(2)` scales first, then moves). A list with an unknown
+/// function or junk is in error and means no transform (identity). The
+/// result maps the element's user space into its parent's: compose it with
+/// the parent's as `own.multiply(&parent)` (own first, then the parent's).
 #[cfg(all(feature = "std", feature = "xml"))]
 fn parse_svg_transform(s: &str) -> TransAffine {
-    let s = s.trim();
-
     let parse_nums = |inner: &str| -> Vec<f64> {
         inner
             .split(|c: char| c == ',' || c.is_ascii_whitespace())
@@ -777,114 +786,98 @@ fn parse_svg_transform(s: &str) -> TransAffine {
             .filter_map(|s| s.parse().ok())
             .collect()
     };
+    let is_separator = |c: char| c == ',' || c.is_ascii_whitespace();
 
-    if let Some(inner) = s.strip_prefix("matrix(").and_then(|s| s.strip_suffix(')')) {
-        let nums = parse_nums(inner);
-        if nums.len() == 6 {
-            return TransAffine::new_custom(nums[0], nums[1], nums[2], nums[3], nums[4], nums[5]);
+    // `None` until the first function: a one-function list is that function
+    // EXACTLY (no multiply by identity, which turns +-inf into NaN).
+    let mut result: Option<TransAffine> = None;
+    let mut rest = s;
+    loop {
+        rest = rest.trim_start_matches(is_separator);
+        if rest.is_empty() {
+            break;
         }
-    } else if let Some(inner) = s
-        .strip_prefix("translate(")
-        .and_then(|s| s.strip_suffix(')'))
-    {
-        let nums = parse_nums(inner);
-        let tx = nums.first().copied().unwrap_or(0.0);
-        let ty = nums.get(1).copied().unwrap_or(0.0);
-        return TransAffine::new_custom(1.0, 0.0, 0.0, 1.0, tx, ty);
-    } else if let Some(inner) = s.strip_prefix("scale(").and_then(|s| s.strip_suffix(')')) {
-        let nums = parse_nums(inner);
-        let sx = nums.first().copied().unwrap_or(1.0);
-        let sy = nums.get(1).copied().unwrap_or(sx);
-        return TransAffine::new_custom(sx, 0.0, 0.0, sy, 0.0, 0.0);
-    } else if let Some(inner) = s.strip_prefix("rotate(").and_then(|s| s.strip_suffix(')')) {
-        let nums = parse_nums(inner);
-        let angle = nums.first().copied().unwrap_or(0.0).to_radians();
-        let cos_a = angle.cos();
-        let sin_a = angle.sin();
-        return TransAffine::new_custom(cos_a, sin_a, -sin_a, cos_a, 0.0, 0.0);
+        let Some(open) = rest.find('(') else {
+            return TransAffine::new();
+        };
+        let Some(len) = rest[open..].find(')') else {
+            return TransAffine::new();
+        };
+        let close = open + len;
+        let Some(function) =
+            svg_transform_function(rest[..open].trim(), &parse_nums(&rest[open + 1..close]))
+        else {
+            return TransAffine::new();
+        };
+        // Each later function applies BEFORE the ones already read.
+        result = Some(match result {
+            None => function,
+            Some(mut so_far) => {
+                so_far.premultiply(&function);
+                so_far
+            }
+        });
+        rest = &rest[close + 1..];
     }
-    TransAffine::new()
+    result.unwrap_or_else(TransAffine::new)
 }
 
-/// Parse SVG color string (#RRGGBB, #RGB, named colors).
+/// One SVG transform function `name(args)` as a matrix; `None` for an unknown
+/// name or a `matrix` without exactly six numbers.
+#[cfg(all(feature = "std", feature = "xml"))]
+fn svg_transform_function(name: &str, args: &[f64]) -> Option<TransAffine> {
+    let arg = |i: usize, default: f64| args.get(i).copied().unwrap_or(default);
+    let translate = |tx: f64, ty: f64| TransAffine::new_custom(1.0, 0.0, 0.0, 1.0, tx, ty);
+    Some(match name {
+        "matrix" => {
+            if args.len() != 6 {
+                return None;
+            }
+            TransAffine::new_custom(args[0], args[1], args[2], args[3], args[4], args[5])
+        }
+        "translate" => translate(arg(0, 0.0), arg(1, 0.0)),
+        "scale" => {
+            let sx = arg(0, 1.0);
+            TransAffine::new_custom(sx, 0.0, 0.0, arg(1, sx), 0.0, 0.0)
+        }
+        "rotate" => {
+            let (sin_a, cos_a) = arg(0, 0.0).to_radians().sin_cos();
+            let rotation = TransAffine::new_custom(cos_a, sin_a, -sin_a, cos_a, 0.0, 0.0);
+            if args.len() >= 3 {
+                // rotate(a cx cy) = translate(cx cy) rotate(a) translate(-cx -cy)
+                let (cx, cy) = (args[1], args[2]);
+                let mut about = translate(-cx, -cy);
+                about.multiply(&rotation);
+                about.multiply(&translate(cx, cy));
+                about
+            } else {
+                rotation
+            }
+        }
+        "skewX" => TransAffine::new_custom(1.0, 0.0, arg(0, 0.0).to_radians().tan(), 1.0, 0.0, 0.0),
+        "skewY" => TransAffine::new_custom(1.0, arg(0, 0.0).to_radians().tan(), 0.0, 1.0, 0.0, 0.0),
+        _ => return None,
+    })
+}
+
+/// Parse an SVG paint colour: any CSS colour - `#rgb`, `#rgba`, `#rrggbb`,
+/// `#rrggbbaa`, `rgb()`, `rgba()`, `hsl()`, `hsla()` and every CSS colour
+/// keyword (SVG paints ARE CSS colours). One colour parser: the CSS one
+/// ([`ColorU::parse_css`]); `currentColor` and paint servers (`url(#..)`)
+/// are the callers'. A PDF page's SVG (printpdf) writes every paint as
+/// `rgb(r, g, b)`: with the old `#hex` + 8 names table it drew nothing.
 #[cfg(all(feature = "std", feature = "xml"))]
 fn parse_svg_color(s: &str) -> Option<Rgba8> {
     let s = s.trim();
-    if let Some(hex) = s.strip_prefix('#') {
-        // The arms below index `hex` at fixed BYTE offsets, but `hex.len()` is a byte
-        // count: a multibyte char (e.g. "#€123", € = 3 bytes) makes the byte length hit
-        // the 6/3 arm while the slice boundary lands mid-character and panics. Valid hex
-        // is ASCII, so reject anything else up front.
-        if !hex.is_ascii() {
-            return None;
-        }
-        return match hex.len() {
-            6 => {
-                let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
-                let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
-                let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
-                Some(Rgba8 { r, g, b, a: 255 })
-            }
-            3 => {
-                let r = u8::from_str_radix(&hex[0..1], 16).ok()? * 17;
-                let g = u8::from_str_radix(&hex[1..2], 16).ok()? * 17;
-                let b = u8::from_str_radix(&hex[2..3], 16).ok()? * 17;
-                Some(Rgba8 { r, g, b, a: 255 })
-            }
-            _ => None,
-        };
+    if s.is_empty() {
+        return None;
     }
-    match s.to_lowercase().as_str() {
-        "black" => Some(Rgba8 {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 255,
-        }),
-        "white" => Some(Rgba8 {
-            r: 255,
-            g: 255,
-            b: 255,
-            a: 255,
-        }),
-        "red" => Some(Rgba8 {
-            r: 255,
-            g: 0,
-            b: 0,
-            a: 255,
-        }),
-        "green" => Some(Rgba8 {
-            r: 0,
-            g: 128,
-            b: 0,
-            a: 255,
-        }),
-        "blue" => Some(Rgba8 {
-            r: 0,
-            g: 0,
-            b: 255,
-            a: 255,
-        }),
-        "yellow" => Some(Rgba8 {
-            r: 255,
-            g: 255,
-            b: 0,
-            a: 255,
-        }),
-        "orange" => Some(Rgba8 {
-            r: 255,
-            g: 165,
-            b: 0,
-            a: 255,
-        }),
-        "gold" => Some(Rgba8 {
-            r: 255,
-            g: 215,
-            b: 0,
-            a: 255,
-        }),
-        _ => None,
-    }
+    ColorU::parse_css(s).map(|c| Rgba8 {
+        r: c.r,
+        g: c.g,
+        b: c.b,
+        a: c.a,
+    })
 }
 
 #[cfg(all(test, feature = "std", feature = "xml"))]
@@ -1017,10 +1010,30 @@ mod autotest_generated {
 
     #[test]
     fn parse_svg_color_wrong_hex_lengths_are_none() {
-        // note: 8-digit #RRGGBBAA is valid CSS but unsupported here
-        for s in ["#f", "#ff", "#ffff", "#fffff", "#fffffff", "#ffffffff"] {
+        // 3, 4, 6 and 8 digits are CSS hex colours; every other length is not.
+        for s in ["#f", "#ff", "#fffff", "#fffffff", "#fffffffff"] {
             assert_eq!(parse_svg_color(s), None, "{s} must be rejected");
         }
+        assert_eq!(
+            parse_svg_color("#ff000080"),
+            Some(Rgba8 {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 128
+            }),
+            "#rrggbbaa carries its alpha"
+        );
+        assert_eq!(
+            parse_svg_color("#f008"),
+            Some(Rgba8 {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 136
+            }),
+            "#rgba carries its alpha"
+        );
     }
 
     #[test]
@@ -1066,30 +1079,50 @@ mod autotest_generated {
     }
 
     #[test]
-    fn parse_svg_color_unsupported_named_colors_are_none() {
-        // Only 8 names are in the table; every other CSS keyword silently falls
-        // back to None (the caller then paints nothing).
-        for s in [
-            "gray",
-            "grey",
-            "cyan",
-            "magenta",
-            "transparent",
-            "currentColor",
-        ] {
-            assert_eq!(parse_svg_color(s), None, "{s} is not in the named table");
-        }
+    fn parse_svg_color_every_css_keyword_is_a_paint() {
+        // SVG paints are CSS colours: the whole keyword table, not 8 names.
+        let grey = Some(Rgba8 {
+            r: 128,
+            g: 128,
+            b: 128,
+            a: 255,
+        });
+        assert_eq!(parse_svg_color("gray"), grey);
+        assert_eq!(parse_svg_color("grey"), grey);
+        assert_eq!(
+            parse_svg_color("cyan"),
+            Some(Rgba8 {
+                r: 0,
+                g: 255,
+                b: 255,
+                a: 255
+            })
+        );
+        assert_eq!(parse_svg_color("transparent").map(|c| c.a), Some(0));
+        // `currentColor` is the caller's (SvgPaintContext::resolve).
+        assert_eq!(parse_svg_color("currentColor"), None);
+    }
+
+    #[test]
+    fn parse_svg_color_functional_notations_are_paints() {
+        assert_eq!(parse_svg_color("rgb(255,0,0)"), Some(RED));
+        assert_eq!(
+            parse_svg_color("rgb(255, 0, 0)"),
+            Some(RED),
+            "printpdf's form"
+        );
+        assert_eq!(
+            parse_svg_color("rgba(255, 0, 0, 0.5)").map(|c| (c.r, c.a)),
+            Some((255, 128))
+        );
+        assert_eq!(parse_svg_color("hsl(0, 100%, 50%)"), Some(RED));
     }
 
     #[test]
     fn parse_svg_color_leading_trailing_junk_is_rejected() {
         assert_eq!(parse_svg_color("red;garbage"), None);
         assert_eq!(parse_svg_color("#ff0000;"), None);
-        assert_eq!(
-            parse_svg_color("rgb(255,0,0)"),
-            None,
-            "rgb() is unsupported"
-        );
+        assert_eq!(parse_svg_color("rgb(255,0)"), None, "a channel missing");
         assert_eq!(parse_svg_color("url(#grad)"), None, "paint servers -> None");
     }
 
@@ -1250,13 +1283,15 @@ mod autotest_generated {
     }
 
     #[test]
-    fn parse_svg_transform_rotate_with_center_ignores_the_center() {
-        // `rotate(angle cx cy)` is legal SVG; the extra args are silently dropped
-        // and the rotation happens around the origin instead of (cx, cy).
+    fn parse_svg_transform_rotate_turns_about_its_centre() {
+        // rotate(90 50 50) = translate(50 50) rotate(90) translate(-50 -50):
+        // the centre stays put, so the translation is c - R c = (100, 0).
         let with_center = parse_svg_transform("rotate(90 50 50)");
         let without = parse_svg_transform("rotate(90)");
-        assert_eq!((with_center.tx, with_center.ty), (0.0, 0.0));
-        assert_eq!(with_center.sx, without.sx);
+        assert!((with_center.tx - 100.0).abs() < 1e-9, "{}", with_center.tx);
+        assert!(with_center.ty.abs() < 1e-9, "{}", with_center.ty);
+        assert!((with_center.sx - without.sx).abs() < 1e-12);
+        assert!((with_center.shy - without.shy).abs() < 1e-12);
     }
 
     #[test]
@@ -1285,17 +1320,26 @@ mod autotest_generated {
     }
 
     #[test]
-    fn parse_svg_transform_transform_list_keeps_only_the_first_function() {
-        // SVG allows a whitespace-separated transform *list*. This parser only
-        // understands a single function: for "translate(10,20) scale(2)" the
-        // strip_suffix(')') leaves "10,20) scale(2" as the argument text, whose
-        // only parseable number is 10 -> ty and the whole scale() are dropped.
-        //
-        // Characterization, not an endorsement — see the report: a transform
-        // list renders *wrong* (ty lost, scale ignored) rather than crashing.
+    fn parse_svg_transform_a_list_applies_right_to_left() {
+        // SVG 1.1 7.6: "translate(10,20) scale(2)" scales first, then moves:
+        // p' = 2 p + (10, 20).
         let t = parse_svg_transform("translate(10,20) scale(2)");
-        assert_eq!((t.sx, t.sy), (1.0, 1.0), "scale() silently dropped");
-        assert_eq!((t.tx, t.ty), (10.0, 0.0), "translate ty silently dropped");
+        assert_eq!((t.sx, t.sy), (2.0, 2.0));
+        assert_eq!((t.tx, t.ty), (10.0, 20.0));
+        // The other order moves first, then scales: p' = 2 (p + (10, 20)).
+        let t = parse_svg_transform("scale(2), translate(10 20)");
+        assert_eq!((t.sx, t.sy), (2.0, 2.0));
+        assert_eq!((t.tx, t.ty), (20.0, 40.0));
+        // An unknown function puts the whole list in error.
+        assert_identity(&parse_svg_transform("translate(10,20) wobble(2)"));
+    }
+
+    #[test]
+    fn parse_svg_transform_skews_by_the_tangent() {
+        let t = parse_svg_transform("skewX(45)");
+        assert!((t.shx - 1.0).abs() < 1e-9 && t.shy == 0.0);
+        let t = parse_svg_transform("skewY(45)");
+        assert!((t.shy - 1.0).abs() < 1e-9 && t.shx == 0.0);
     }
 
     #[test]

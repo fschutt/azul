@@ -920,3 +920,7 @@ mod an_animation_frame_sends_assistive_technology_only_what_moved;
 mod a_frame_pump_leaves_the_cpu_profiles_spans_for_its_report;
 #[path = "system_ui_is_the_system_font_at_its_optical_size.rs"]
 mod system_ui_is_the_system_font_at_its_optical_size;
+#[path = "an_svg_paints_any_css_colour_and_nests_its_transforms.rs"]
+mod an_svg_paints_any_css_colour_and_nests_its_transforms;
+#[path = "an_svg_renders_at_the_size_its_fit_asks_for.rs"]
+mod an_svg_renders_at_the_size_its_fit_asks_for;

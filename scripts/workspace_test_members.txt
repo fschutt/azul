@@ -47,6 +47,7 @@ tested: AzTasks              # dll_tests (quick-add parser, repeat rules, smart 
 tested: azul-pim             # dll_tests (dates, RRULE, repeats, content lines, addresses, search, initials, the task store)
 tested: AzDashboard          # dll_tests (the generated orders, their texts and values, edit validation, the table glue)
 tested: AzTerm               # dll_tests (VT state -> the view's screen, sessions and recordings, tabs, the data callback)
+tested: AzPdf                # dll_tests (zoom, the page strip, size labels, render widths, the page cache, search, recent documents)
 
 # ── members with genuinely no tests. The script verifies the claim by grepping
 #    for #[test]; if any of these grows one, it fails until it is moved up and

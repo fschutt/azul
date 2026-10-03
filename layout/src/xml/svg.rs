@@ -2411,7 +2411,42 @@ pub const fn svg_root(s: &ParsedSvg) -> ParsedSvgXmlNode {
     }
 }
 
-/// Render a `ParsedSvg` to a `RawImage` using the agg-rust pipeline.
+/// The largest side [`svg_render_size`] derives from `fit`, in px (a zoomed
+/// page must not ask for a gigapixel buffer).
+#[cfg(feature = "cpurender")]
+const SVG_FIT_MAX_SIDE_PX: f32 = 16384.0;
+
+/// The pixel size [`svg_render`] draws at: the explicit `target_size`, else
+/// the SVG's natural size (its `width` / `height`, else its viewBox; 800 x 600
+/// when it states none) as `fit` asks - `Original` as it is, `Width(w)` /
+/// `Height(h)` keeping the aspect ratio, `Zoom(z)` scaled. `fit` used to be
+/// ignored: every render without a target size was 800 x 600.
+#[cfg(feature = "cpurender")]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)] // clamped px sizes
+fn svg_render_size(s: &ParsedSvg, options: &SvgRenderOptions) -> (u32, u32) {
+    if let Some(size) = options.target_size.as_ref() {
+        return (size.width.max(0) as u32, size.height.max(0) as u32);
+    }
+    let (w, h) = crate::cpurender::svg_natural_size(s.svg_data.as_ref()).unwrap_or((
+        DEFAULT_SVG_RENDER_SIZE.0 as f32,
+        DEFAULT_SVG_RENDER_SIZE.1 as f32,
+    ));
+    // NaN (a NaN zoom) clamps to NaN and casts to 0: no image.
+    let px = |v: f32| v.round().clamp(0.0, SVG_FIT_MAX_SIDE_PX) as u32;
+    match options.fit {
+        SvgFitTo::Original => (px(w), px(h)),
+        SvgFitTo::Width(width) => (width, px(width as f32 * h / w)),
+        SvgFitTo::Height(height) => (px(height as f32 * w / h), height),
+        SvgFitTo::Zoom(zoom) => (px(w * zoom), px(h * zoom)),
+    }
+}
+
+/// Render a `ParsedSvg` to a `RawImage` using the agg-rust pipeline, at the
+/// size [`svg_render_size`] picks (`target_size`, else `fit`).
 ///
 /// Requires the `cpurender` feature (the agg-rust + png rasterization pipeline).
 /// Without it, SVG parsing/layout still work but rasterizing yields `None`.
@@ -2421,12 +2456,7 @@ pub const fn svg_root(s: &ParsedSvg) -> ParsedSvgXmlNode {
 pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> {
     use azul_core::resources::RawImageData;
 
-    let (target_width, target_height) = options
-        .target_size
-        .as_ref()
-        .map_or(DEFAULT_SVG_RENDER_SIZE, |s| {
-            (s.width as u32, s.height as u32)
-        });
+    let (target_width, target_height) = svg_render_size(s, &options);
 
     if target_width == 0 || target_height == 0 {
         return None;
