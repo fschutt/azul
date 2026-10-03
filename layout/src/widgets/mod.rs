@@ -1870,6 +1870,9 @@ mod label_convention {
             "toolbar (overflow)",
             super::toolbar::fixtures::sample().with_available_width(240.0).dom(),
         ));
+        // The token input: two chips, "al" typed, three suggestions showing
+        // (one highlighted).
+        all.push(("token_input", super::token_input::fixtures::sample().dom()));
         all
     }
 
@@ -2762,6 +2765,8 @@ mod theme_contrast {
         "shortcut_recorder",
         "shortcut_recorder (recording)",
         "date_repeat_picker",
+        // The token input: chips, the entry and its suggestions.
+        "token_input",
     ];
     /// Navigation and application chrome.
     const CHROME: &[&str] = &[

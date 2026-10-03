@@ -1346,6 +1346,42 @@ extern "C" fn on_option_click(mut data: RefAny, mut info: CallbackInfo) -> Updat
     }
 }
 
+// ==== fixtures (the widget manifest's sample) ====
+
+/// The token input the widget manifest builds (`widgets::label_convention`):
+/// two recipients, "al" typed and three suggestions showing, the second one
+/// highlighted.
+#[cfg(test)]
+pub(crate) mod fixtures {
+    use super::*;
+
+    fn s(text: &str) -> AzString {
+        AzString::from(text)
+    }
+
+    /// The sample field.
+    pub(crate) fn sample() -> TokenInput {
+        TokenInput::create(
+            StringVec::from_vec(alloc::vec![s("alice@example.org"), s("bob@example.org")]),
+            s("To"),
+        )
+        .with_state(
+            TokenInputState::create(StringVec::from_vec(alloc::vec![
+                s("alice@example.org"),
+                s("bob@example.org"),
+            ]))
+            .with_text(s("al"))
+            .with_active(1),
+        )
+        .with_suggestions(StringVec::from_vec(alloc::vec![
+            s("Alan Turing <alan@example.org>"),
+            s("Malcolm X <malcolm@example.org>"),
+            s("Albert Camus <albert@example.org>"),
+        ]))
+        .with_placeholder(s("Add people"))
+    }
+}
+
 #[cfg(test)]
 mod token_input_tests {
     use std::sync::{Arc, Mutex};
