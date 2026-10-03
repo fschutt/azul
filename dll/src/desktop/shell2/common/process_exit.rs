@@ -42,25 +42,36 @@ impl ExitRequest {
     /// one (a second failure path racing the first) does not change the
     /// verdict already handed over.
     pub fn request(&self, code: i32) {
-        let _ = code;
+        let mut slot = self
+            .code
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if slot.is_none() {
+            *slot = Some(code);
+        }
     }
 
     /// The code asked for, if any (read by the run loop every turn).
     #[must_use]
     pub fn requested(&self) -> Option<i32> {
-        None
+        *self
+            .code
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// A run loop that ends the process on a request is running (called by
     /// that loop before its first turn).
-    pub fn loop_takes_requests(&self) {}
+    pub fn loop_takes_requests(&self) {
+        self.taken_by_loop.store(true, Ordering::SeqCst);
+    }
 
     /// Must the asking worker end the process itself? Only when no loop takes
     /// requests - otherwise the loop exits on the UI thread with everything
     /// else stopped, and the worker waits for that.
     #[must_use]
     pub fn worker_must_exit_itself(&self) -> bool {
-        true
+        !self.taken_by_loop.load(Ordering::SeqCst)
     }
 }
 
