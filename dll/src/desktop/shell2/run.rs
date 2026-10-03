@@ -406,7 +406,7 @@ fn setup_e2e_runner(test_file: &str) {
                 Ok(r) => r,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     eprintln!("\nerror: E2E test timeout (600 s)");
-                    exit_dumping_profile(1);
+                    end_process_from_worker(1);
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                     eprintln!(
@@ -414,7 +414,7 @@ fn setup_e2e_runner(test_file: &str) {
                          (lost display connection, protocol error, or a panic in the event loop). \
                          This is NOT a timeout; nothing waited."
                     );
-                    exit_dumping_profile(1);
+                    end_process_from_worker(1);
                 }
             };
 
@@ -425,15 +425,15 @@ fn setup_e2e_runner(test_file: &str) {
                 } => r.results,
                 DebugResponseData::Ok { .. } => {
                     eprintln!("\nerror: unexpected response (no E2eResults)");
-                    exit_dumping_profile(1);
+                    end_process_from_worker(1);
                 }
                 DebugResponseData::Err(msg) => {
                     eprintln!("\nerror: {}", msg);
-                    exit_dumping_profile(1);
+                    end_process_from_worker(1);
                 }
                 DebugResponseData::PendingScreenshot(_) => {
                     eprintln!("\nerror: unexpected response (a screenshot, no E2eResults)");
-                    exit_dumping_profile(1);
+                    end_process_from_worker(1);
                 }
             };
 
@@ -443,7 +443,7 @@ fn setup_e2e_runner(test_file: &str) {
             // on which entry point ran it.
             let (report, verdict) = debug_server::render_report(&report_tests, &results);
             eprintln!("{report}");
-            exit_dumping_profile(verdict.exit_code());
+            end_process_from_worker(verdict.exit_code());
         })
         .expect("failed to spawn e2e-result-printer thread");
 }
@@ -3009,7 +3009,66 @@ pub fn run_tray_only(
 /// `std::process::exit`, with an instrumented build's PGO counters written
 /// first (`azul_layout::pgo`): written by the exit handler they race the
 /// threads still running, and came out truncated.
-fn exit_dumping_profile(code: i32) -> ! {
+pub(crate) fn exit_dumping_profile(code: i32) -> ! {
     let _ = azul_layout::pgo::dump_profile();
     std::process::exit(code)
+}
+
+/// How long the debug server's thread gets to see its shutdown signal (it
+/// polls every 10 ms) before the process exits without it - it may be blocked
+/// on a client that never reads.
+const DEBUG_SERVER_STOP_GRACE: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// How long a worker that asked a run loop to end the process waits for it
+/// before ending it itself (a loop that died, or one stuck in a callback).
+const EXIT_REQUEST_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// End the process FROM THE UI THREAD with nothing else running: the caller
+/// has joined its windows' worker threads; this stops the debug server's
+/// thread, then dumps the profile and exits. libc `exit()` runs the atexit
+/// handlers (the profile writer, the system frameworks' teardown), and a
+/// thread still running under them touches torn-down state.
+pub(crate) fn exit_from_ui_thread(code: i32) -> ! {
+    #[cfg(feature = "debug-server")]
+    if let Some(server) = debug_server::get_debug_server() {
+        let _ = server.shutdown_tx.send(());
+        let handle = server
+            .thread_handle
+            .lock()
+            .ok()
+            .and_then(|mut slot| slot.take());
+        if let Some(handle) = handle {
+            let deadline = std::time::Instant::now() + DEBUG_SERVER_STOP_GRACE;
+            while !handle.is_finished() && std::time::Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            if handle.is_finished() {
+                let _ = handle.join();
+            }
+        }
+    }
+    exit_dumping_profile(code)
+}
+
+/// End the process from a WORKER thread (the AZ_E2E verdict printer): hand
+/// the code to the run loop, which exits on the UI thread with its threads
+/// joined (`common::process_exit`). Only when no loop takes requests - or the
+/// one that does has not ended the process after a grace period - does this
+/// thread exit itself.
+#[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
+fn end_process_from_worker(code: i32) -> ! {
+    use super::common::process_exit::EXIT_REQUEST;
+    if EXIT_REQUEST.worker_must_exit_itself() {
+        exit_dumping_profile(code);
+    }
+    EXIT_REQUEST.request(code);
+    // Wake the loop now instead of at its next poll.
+    azul_layout::e2e::announce_debug_request();
+    std::thread::sleep(EXIT_REQUEST_GRACE);
+    eprintln!(
+        "[azul] the run loop did not end the process within {} s of the exit request - \
+         exiting from the worker thread",
+        EXIT_REQUEST_GRACE.as_secs()
+    );
+    exit_dumping_profile(code)
 }

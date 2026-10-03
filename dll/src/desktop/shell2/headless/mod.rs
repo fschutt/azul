@@ -2382,6 +2382,15 @@ impl HeadlessWindow {
         lw.threads.clear();
     }
 
+    /// [`Self::shutdown_threads`] for this window and every child window it
+    /// pumps: the threads a callback of a dialog started are joined too.
+    fn shutdown_all_threads(&mut self) {
+        for child in &mut self.children {
+            child.shutdown_all_threads();
+        }
+        self.shutdown_threads();
+    }
+
     // === Layout ===
 
     /// Regenerate layout and rebuild CPU hit-tester.
@@ -3232,7 +3241,9 @@ impl HeadlessWindow {
         // A request the debug server queues wakes this loop too: Phase 2
         // (`process_timers_and_threads`) re-arms the debug poll at the busy
         // rate, so the poll's idle period is a safety net, not a latency.
-        #[cfg(feature = "debug-server")]
+        // So does an exit request (`common::process_exit`, the AZ_E2E verdict
+        // printer), which a script-only build (`e2e-scripting`) makes too.
+        #[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
         {
             let condvar = self.wake_condvar.clone();
             let mutex = self.wake_mutex.clone();
@@ -3244,7 +3255,16 @@ impl HeadlessWindow {
             }));
         }
 
+        // This loop ends the process when a worker asks (the AZ_E2E verdict
+        // printer): on THIS thread, with the windows' threads joined - see
+        // `common::process_exit`.
+        let exit_request = &crate::desktop::shell2::common::process_exit::EXIT_REQUEST;
+        exit_request.loop_takes_requests();
+
         while self.is_open() {
+            if exit_request.requested().is_some() {
+                break;
+            }
             self.pump_once(true);
 
             // ── Phase 3 + 4: spawn and pump the child windows ─────
@@ -3345,6 +3365,14 @@ impl HeadlessWindow {
             start.elapsed().as_secs_f64()
         );
 
+        // A worker asked to end the process with a code (the AZ_E2E verdict):
+        // whatever the termination behaviour, the process ends here, on the
+        // UI thread, after every window's threads are joined.
+        if let Some(code) = exit_request.requested() {
+            self.shutdown_all_threads();
+            crate::desktop::shell2::run::exit_from_ui_thread(code);
+        }
+
         // Handle termination behaviour (same as every platform run())
         match self.config.termination_behavior {
             AppTerminationBehavior::EndProcess => {
@@ -3361,8 +3389,10 @@ impl HeadlessWindow {
                 // single frame, with all of them still in flight. Dropping the
                 // registry here runs those destructors while the process is
                 // still alive.
-                self.shutdown_threads();
-                std::process::exit(0);
+                self.shutdown_all_threads();
+                // Through the run module's exit: the debug server's thread
+                // stops first and an instrumented build's profile is written.
+                crate::desktop::shell2::run::exit_from_ui_thread(0);
             }
             AppTerminationBehavior::ReturnToMain => { /* return normally */ }
             AppTerminationBehavior::RunForever => { /* all windows closed */ }
