@@ -39,3 +39,5 @@ pub mod money;
 pub mod model;
 /// Straight-line and declining-balance schedules, the book value on a day.
 pub mod depreciation;
+/// The data tree (`erp/<kind>/<uuid>.json`) and the records in memory.
+pub mod store;
