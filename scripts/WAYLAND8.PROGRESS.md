@@ -20,8 +20,37 @@ if clear, with tests that run without a compositor. Report: scripts/WAYLAND8_202
     No protocol change, no feedback of the alignment - 256 is "what all common GPUs can read from".
   - Cost: 3840x2160 -> ~1.6% more memory per buffer. Result: KWin 80-90% of one core -> ~20% scrolling KDevelop.
 
+  - KWin MR diff (fetched via GitLab API): GpuManager opens /dev/udmabuf; createUdmabuf(shm) refuses
+    `offset % pagesize != 0`, ioctl UDMABUF_CREATE {memfd = pool fd, offset, size = align(h*stride, page)};
+    pitch = stride, LINEAR. Import cached per buffer; failure -> old loadShmTexture/updateShmTexture copy path.
+    UDmabufReleasePoint keeps the client buffer referenced until the GPU fence of the frame that sampled it
+    -> with udmabuf the CURRENT buffer stays busy until the next commit + GPU done (no early release).
+  - KERNEL (drivers/dma-buf/udmabuf.c, fetched): check_memfd_seals: file must be shmem/hugetlb AND have
+    F_SEAL_SHRINK AND must NOT have F_SEAL_WRITE/F_SEAL_FUTURE_WRITE; offset and size PAGE_ALIGNED;
+    memfd_pin_folios: end >= i_size -> EINVAL (range must lie inside the file).
+- step 2 (our backend) read: CpuFallbackState::new (wayland/mod.rs ~8940): memfd_create("azul-fb", MFD_CLOEXEC)
+  -> NO MFD_ALLOW_SEALING, NO F_SEAL_SHRINK => the kernel REFUSES udmabuf for every buffer we make.
+  Pool = 2 slots, stride = w*4 (tight), slot 1 offset = stride*h (page-aligned only if w*h % 1024 == 0).
+  Present: native path renders straight into the slot (AzulPixmap::from_external, TIGHT stride required:
+  render_frame checks target dims == frame dims), catch_up_slot copies the other slot's stale rects,
+  ARGB-only compositors get an in-place R<->B swizzle of the damage; per-rect wl_surface.damage_buffer (v4+);
+  attach only when damaged. Resize = new pool each configure. Duplicate allocators: tooltip.rs
+  allocate_shm_buffer, screencopy.rs memfd() - same memfd-then-shm_open code three times.
+
+## Decisions
+- D1: the clear client win = memfd with MFD_ALLOW_SEALING + F_SEAL_SHRINK|F_SEAL_SEAL, every slot's offset and
+  size page-aligned (slot_bytes = align_up(stride*h, page), pool = 2*slot_bytes). Zero renderer impact.
+- D2: stride stays TIGHT (w*4): the renderer draws directly into the slot and AzulPixmap has no row pitch.
+  Widths with w*4 % 256 == 0 (w % 64 == 0: 1280/1920/2560/3840...) then get KWin's zero-copy path; others get a
+  udmabuf whose EGL import may refuse the pitch (driver rule) -> KWin's old copy, no regression. Padding the
+  pitch = plan item (needs a row-pitch in AzulPixmap) - not done here.
+- D3: ONE helper for the shm file (new wayland/shm.rs), used by the window pool, the tooltip and screencopy
+  (NO DUPLICATION rule) - the three copies are twins today.
+- D4: tests live in wayland/shm.rs (#[cfg(test)]): pure layout math + a real memfd seal check; Linux-only
+  module => they run on Linux CI without a compositor; the Mac build does not compile them.
+
 ## IN PROGRESS
-- step 2: read dll/src/desktop/shell2/linux/wayland/* present path (wl_shm pool, buffers, damage, memcpy)
+- step 4: RED tests in dll/src/desktop/shell2/linux/wayland/shm.rs
 
 ## NEXT
 - step 3: write findings into the report
