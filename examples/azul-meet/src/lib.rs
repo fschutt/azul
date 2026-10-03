@@ -98,6 +98,7 @@ mod chat;
 mod ids;
 mod keys;
 mod pace;
+mod rate;
 mod rooms;
 mod routes;
 mod speaker;
