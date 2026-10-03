@@ -216,9 +216,185 @@ fn collect_feed_links(nodes: &[XmlNodeChild], base: &str, out: &mut Vec<FeedLink
     }
 }
 
+
+// ==== The reader view ====
+
+/// An article made ready for the reading pane.
+#[derive(Debug, Clone)]
+pub struct Article {
+    /// `<html><head><style>` the reader stylesheet `</style></head><body><div class="__aznews_article">`
+    /// the cleaned article `</div></body></html>`, for `Dom::create_from_parsed_xml`.
+    pub xml: Xml,
+    /// The web pictures it shows, each once (`Xml::scan_external_resources` of the cleaned tree):
+    /// what is fetched on a Thread and put into the image cache under its address.
+    pub images: Vec<String>,
+    /// Pictures not loaded (shown as `[image: alt]`): the "load pictures" notice counts them.
+    pub blocked: usize,
+    /// Words of text (the reading time).
+    pub words: usize,
+}
+
+/// The reading time of `words`, in minutes (230 words a minute, at least one).
+#[must_use]
+pub fn reading_minutes(words: usize) -> usize {
+    let _ = words;
+    0
+}
+
+/// The reader stylesheet: typography only - the colours come from the app's theme and mode, so
+/// the article reads in flat and flora, light and dark; `sepia` puts it on warm paper.
+#[must_use]
+pub fn reader_css(_font_px: u32, _measure_px: u32, _sepia: bool) -> String {
+    String::new()
+}
+
+/// `html` (an article's body) through azul's HTML5-like parser into the reader view: only what
+/// reads (paragraphs, headings, quotes, lists, code, tables, figures, links, pictures), every
+/// link and picture absolute against `base` (tracking parameters off with `strip_tracking`),
+/// pictures as placeholders unless `load_images`, tracking pixels gone, scripts, styles, forms
+/// and frames gone with their content, `css` (see [`reader_css`]) in its head.
+#[must_use]
+pub fn article(_html: &str, _base: &str, _load_images: bool, _strip_tracking: bool, _css: &str) -> Article {
+    Article {
+        xml: Xml::create_from_html(""),
+        images: Vec::new(),
+        blocked: 0,
+        words: 0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every element's name in document order, `name.class` when it has a class.
+    fn outline(nodes: &[XmlNodeChild], out: &mut Vec<String>) {
+        for node in nodes {
+            if let XmlNodeChild::Element(e) = node {
+                let class = attribute_of(e, "class");
+                let name = e.node_type.inner.as_str().to_string();
+                out.push(if class.is_empty() { name } else { format!("{name}.{class}") });
+                outline(&e.children, out);
+            }
+        }
+    }
+
+    fn names(a: &Article) -> Vec<String> {
+        let mut out = Vec::new();
+        outline(&a.xml.root, &mut out);
+        out
+    }
+
+    /// The values of `attribute` on every `element` in document order.
+    fn values(nodes: &[XmlNodeChild], element: &str, attribute: &str, out: &mut Vec<String>) {
+        for node in nodes {
+            if let XmlNodeChild::Element(e) = node {
+                if e.node_type.inner.as_str() == element {
+                    out.push(attribute_of(e, attribute));
+                }
+                values(&e.children, element, attribute, out);
+            }
+        }
+    }
+
+    fn attr_values(a: &Article, element: &str, attribute: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        values(&a.xml.root, element, attribute, &mut out);
+        out
+    }
+
+    fn text(a: &Article) -> String {
+        let mut out = String::new();
+        text_of(&a.xml.root, &mut out, 0);
+        collapse(&out)
+    }
+
+    const PAGE: &str = "<h1>Title</h1><p>Hello <b>world</b>, read <a href=\"/more?utm_source=rss&id=3\">more</a>.</p>\
+        <script>alert('x')</script><style>p { color: red }</style><form><input name=q><button>Go</button></form>\
+        <iframe src=\"https://ads.example.net/\"></iframe>\
+        <figure><img src=\"images/hero.jpg\" alt=\"The hero\"><figcaption>A caption</figcaption></figure>\
+        <p><img src=\"https://pixel.example.net/t.gif\" width=\"1\" height=\"1\"></p>\
+        <custom-widget><p>Kept text</p></custom-widget>";
+
+    #[test]
+    fn the_reader_keeps_what_reads_and_drops_scripts_forms_and_frames() {
+        let a = article(PAGE, "https://example.org/blog/post.html", true, false, "");
+        let names = names(&a);
+        for gone in ["script", "form", "input", "button", "iframe", "custom-widget", "h1"] {
+            assert!(!names.iter().any(|n| n == gone), "{gone} in {names:?}");
+        }
+        assert!(names.contains(&"h2".to_string()), "h1 becomes h2: {names:?}");
+        assert!(names.contains(&"div.__aznews_article".to_string()), "{names:?}");
+        assert!(names.contains(&"div.__aznews_caption".to_string()), "{names:?}");
+        let t = text(&a);
+        assert!(t.contains("Hello world, read more."), "{t}");
+        assert!(t.contains("Kept text"), "an unknown element keeps its text: {t}");
+        assert!(!t.contains("alert"), "{t}");
+        assert!(!t.contains("color: red"), "the article's own style is gone: {t}");
+    }
+
+    #[test]
+    fn links_and_pictures_resolve_against_the_base_and_tracking_comes_off() {
+        let a = article(PAGE, "https://example.org/blog/post.html", true, true, "");
+        assert_eq!(attr_values(&a, "a", "href"), vec!["https://example.org/more?id=3".to_string()]);
+        assert_eq!(attr_values(&a, "img", "src"), vec!["https://example.org/blog/images/hero.jpg".to_string()]);
+        assert_eq!(attr_values(&a, "img", "alt"), vec!["The hero".to_string()]);
+        let kept = article(PAGE, "https://example.org/blog/post.html", true, false, "");
+        assert_eq!(attr_values(&kept, "a", "href"), vec!["https://example.org/more?utm_source=rss&id=3".to_string()]);
+    }
+
+    #[test]
+    fn the_pictures_are_listed_when_loaded_and_placeholders_otherwise() {
+        let loaded = article(PAGE, "https://example.org/blog/post.html", true, false, "");
+        assert_eq!(loaded.images, vec!["https://example.org/blog/images/hero.jpg".to_string()], "the tracking pixel is not one");
+        assert_eq!(loaded.blocked, 0);
+        let blocked = article(PAGE, "https://example.org/blog/post.html", false, false, "");
+        assert!(blocked.images.is_empty());
+        assert_eq!(blocked.blocked, 1);
+        assert!(attr_values(&blocked, "img", "src").is_empty());
+        assert!(text(&blocked).contains("[image: The hero]"), "{}", text(&blocked));
+        assert!(names(&blocked).contains(&"span.__aznews_image-placeholder".to_string()));
+    }
+
+    #[test]
+    fn the_reader_stylesheet_is_in_the_head_and_follows_the_settings() {
+        let css = reader_css(20, 680, false);
+        assert!(css.contains(".__aznews_article"), "{css}");
+        assert!(css.contains("font-size: 20px"), "{css}");
+        assert!(css.contains("max-width: 680px"), "{css}");
+        assert!(!css.contains("background-color: #f4ecd8"), "no paper colour unless sepia");
+        assert!(reader_css(18, 600, true).contains("background-color: #f4ecd8"));
+        let a = article("<p>x</p>", "https://example.org/", true, false, &css);
+        fn style_texts(nodes: &[XmlNodeChild], out: &mut Vec<String>) {
+            for node in nodes {
+                if let XmlNodeChild::Element(e) = node {
+                    if e.node_type.inner.as_str() == "style" {
+                        let mut t = String::new();
+                        for c in e.children.iter() {
+                            if let XmlNodeChild::Text(x) = c {
+                                t.push_str(x.as_str());
+                            }
+                        }
+                        out.push(t);
+                    }
+                    style_texts(&e.children, out);
+                }
+            }
+        }
+        let mut styles = Vec::new();
+        style_texts(&a.xml.root, &mut styles);
+        assert_eq!(styles, vec![css.clone()], "one style element holds the sheet");
+    }
+
+    #[test]
+    fn the_reading_time_is_the_words_over_230_at_least_one_minute() {
+        assert_eq!(reading_minutes(0), 1);
+        assert_eq!(reading_minutes(230), 1);
+        assert_eq!(reading_minutes(231), 2);
+        assert_eq!(reading_minutes(2_300), 10);
+        let a = article("<p>one two three</p><script>four five</script>", "https://example.org/", true, false, "");
+        assert_eq!(a.words, 3);
+    }
 
     #[test]
     fn a_web_page_names_its_feeds_in_alternate_links() {
