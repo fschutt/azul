@@ -3,13 +3,17 @@
 Branch: wt/chart7 (base 2e55eef06)
 
 ## DONE
-- 3a3269baa progress file
+- 3a3269baa progress file; b94bb9bf1 design
+- 9e152cc78 chart.rs piece 1: data types + Chart builder, `pub mod chart;` appended in widgets/mod.rs
+- cb7fef475 RED math tests; 2323d7036 GREEN math (nice ticks, PlotFrame, decimate_line, thin_scatter,
+  nearest_by_x, TickFormat, format_value)
 
 ## IN PROGRESS
 - item 1: layout/src/widgets/chart.rs, written in pieces (types -> math -> geometry -> build -> callbacks)
 
 ## NEXT
-- chart.rs piece 1: module docs, data types, Chart builder
+- chart.rs piece 3: geometry (line / area / bars / stacked / scatter dots / pie wedges as SvgMultiPolygon),
+  replacing the `// CHART7-NEXT` marker at the end of chart.rs
 
 ## Design (decided, read before continuing)
 - DRAWING: the engine's SVG path - a plot div carries `SvgNodeData::ViewBox{0,0,pw,ph}` (1 unit = 1 px), every
