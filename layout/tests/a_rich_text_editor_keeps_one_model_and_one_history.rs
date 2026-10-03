@@ -540,3 +540,99 @@ fn ctrl_or_cmd_z_undoes_the_editors_own_history_and_cancels_the_engines_text_und
         "Y redoes too"
     );
 }
+
+// ---- WRITER6: a paginated document (AzWriter's A4 sheets) ----
+
+/// `doc` split into pages starting at the blocks `starts`, every page an
+/// editing host of its own (`page_doms`), laid out one under the other.
+fn paged_editor(doc: RichTextDoc, starts: Vec<u32>) -> (LayoutWindow, Log) {
+    let log: Log = Arc::new(Mutex::new(Vec::new()));
+    let count = starts.len();
+    let pages = RichTextEditor::create(RichTextEditorState::create(doc))
+        .with_on_change(
+            RefAny::new(log.clone()),
+            record as RichTextEditorOnChangeCallbackType,
+        )
+        .page_doms(starts.into(), 0, count);
+    let mut body = Dom::create_body();
+    for page in pages.as_ref() {
+        body.add_child(page.clone());
+    }
+    (lay_out(body), log)
+}
+
+/// The node index of the element whose DOM id is `id`.
+fn node_with_id(lw: &LayoutWindow, id: &str) -> usize {
+    styled(lw)
+        .node_data
+        .as_ref()
+        .iter()
+        .position(|n| n.has_id(id))
+        .unwrap_or_else(|| panic!("a node with the id {id:?}"))
+}
+
+/// Fires the handler for `event` of the host with the DOM id `id`.
+fn fire_on(lw: &LayoutWindow, id: &str, event: EventFilter) -> (Update, Vec<CallbackChange>) {
+    let host = node_with_id(lw, id);
+    let (callback, data) = styled(lw).node_data.as_ref()[host]
+        .get_callbacks()
+        .as_ref()
+        .iter()
+        .find(|cb| cb.event == event)
+        .map(|cb| (cb.callback.clone(), cb.refany.clone()))
+        .expect("the page's host handles the event");
+    with_info(lw, dnid(host), |info| {
+        Callback::from_core(callback).invoke(data, info)
+    })
+}
+
+fn four_paragraphs() -> RichTextDoc {
+    RichTextDoc::from_blocks(vec![
+        RichBlock::paragraph("one"),
+        RichBlock::paragraph("two"),
+        RichBlock::paragraph("three"),
+        RichBlock::paragraph("four"),
+    ])
+}
+
+/// A page's blocks carry their index in the WHOLE document: typing on the
+/// second page edits the document's third block, not the page's first.
+#[test]
+fn typing_on_the_second_page_edits_that_block_of_the_whole_document() {
+    let (mut lw, log) = paged_editor(four_paragraphs(), vec![0, 2]);
+    assert!(
+        styled(&lw).node_data.as_ref()[node_with_id(&lw, "az-rich-text-2")]
+            .has_id("az-rich-text-2"),
+        "the third block keeps its document index on the second page"
+    );
+    let page = node_with_id(&lw, "az-rich-text-page-2");
+    lw.focus_manager.set_focused_node(Some(dnid(page)));
+    let three = text_node(&lw, "three");
+    select(&mut lw, three, 5, three, 5);
+    type_text(&mut lw, "!");
+
+    let _ = fire_on(&lw, "az-rich-text-page-2", EventFilter::Focus(FocusEventFilter::TextChanged));
+
+    let texts: Vec<String> = last(&log).doc.blocks().iter().map(RichBlock::flat).collect();
+    assert_eq!(texts, vec!["one", "two", "three!", "four"]);
+}
+
+/// The pages share ONE state: what was typed on one page is still there
+/// after typing on another (no page keeps a stale copy of the document).
+#[test]
+fn the_pages_of_one_editor_share_one_document() {
+    let (mut lw, log) = paged_editor(four_paragraphs(), vec![0, 2]);
+    let one = text_node(&lw, "one");
+    select(&mut lw, one, 3, one, 3);
+    type_text(&mut lw, "A");
+    let (_, changes) = fire_on(&lw, "az-rich-text-page-0", EventFilter::Focus(FocusEventFilter::TextChanged));
+    apply_acks(&mut lw, &changes);
+
+    let four = text_node(&lw, "four");
+    select(&mut lw, four, 4, four, 4);
+    type_text(&mut lw, "B");
+    let _ = fire_on(&lw, "az-rich-text-page-2", EventFilter::Focus(FocusEventFilter::TextChanged));
+
+    let texts: Vec<String> = last(&log).doc.blocks().iter().map(RichBlock::flat).collect();
+    assert_eq!(texts, vec!["oneA", "two", "three", "fourB"]);
+}
