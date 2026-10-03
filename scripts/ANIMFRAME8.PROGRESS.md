@@ -8,7 +8,7 @@ reconcile; (2) style-only changes take the DL patch path; (3) css_transition_tic
 VirtualView callbacks not re-run on a relayout whose host node is unchanged. Never compile; never touch
 page_breaks.rs. Not the a11y code (A11YPATCH8).
 
-## STATUS: ALL ITEMS DONE, REPORT WRITTEN (scripts/ANIMFRAME8_2026_10_03.md). In the final self-review pass.
+## STATUS: DONE - report scripts/ANIMFRAME8_2026_10_03.md; self-review done
 
 ## DONE (oldest first)
 - 047a83241 progress file
@@ -42,16 +42,15 @@ page_breaks.rs. Not the a11y code (A11YPATCH8).
   test commands, left/risks)
 
 ## IN PROGRESS
-- Self-review of the diff (`git diff 5745afee6`) for compile / behaviour slips. Reviewed so far:
-  solver3/mod.rs (ok). Next to re-read: dll headless/mod.rs:7012 reads `last_reconcile_was_skipped` (now
-  also true for an overrides-only pass - check that test's meaning), then window.rs tick block once more.
+- nothing.
 
 ## NEXT (if resumed)
-1. dll/src/desktop/shell2/headless/mod.rs ~7012: the resize test asserts the resize took the fast path via
-   `last_reconcile_was_skipped`; an overrides-only pass sets it too. Only a problem if that test arms a tween
-   (it does not, as far as read) - confirm and note in the report.
-2. Re-read window.rs `tick_animations` css block (search "THE GPU PROPERTY PATH") end to end.
-3. Nothing else owed: report + progress committed. The parent builds and runs section 7 of the report.
+- Nothing on this branch. Parent: build, run the report's section 7 test commands, then the AzWidgets probe
+  of section 4 (expected: the knob ticks run no layout pass and no display-list rebuild).
+- Self-review notes: dll headless/mod.rs resize test reads `last_reconcile_was_skipped` but arms no tween
+  (unaffected); `an_unchanged_refresh_dom_still_reinvokes_virtual_views` re-invokes through the drain
+  (reason overrides), not the funnel (unaffected); the VV tests that rebuild their DOM with a new RefAny
+  (vview_contenteditable_e2e, click_into_a_virtual_view_page) re-render as before.
 
 ## DECISIONS
 - Knob: transform in BOTH states (translateX(0px) when off) so the reference frame exists from the first
