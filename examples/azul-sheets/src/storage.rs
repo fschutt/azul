@@ -19,10 +19,15 @@ pub const DIR: &str = "sheets";
 /// The environment variable that overrides the data root.
 pub const DATA_VAR: &str = "AZSHEETS_DATA";
 
-/// A new workbook id: a v4 UUID, lowercase and hyphenated.
+/// A new workbook id: a v4-shaped UUID, lowercase and hyphenated, from the
+/// one id mint of the Azlin apps (azul's `Uuid::from_seed` over
+/// azul-storage's random seed): it names a file in the drive (an S3 bucket
+/// later), so no other launch or device picks it.
 #[must_use]
 pub fn new_id() -> String {
-    uuid::Uuid::new_v4().to_string()
+    azul::uuid::Uuid::from_seed(azul_storage::ids::random_seed())
+        .as_str()
+        .to_string()
 }
 
 /// `sheets/<id>.xlsx`.
