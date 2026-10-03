@@ -35,7 +35,7 @@ AzReader, lib azreader). Never compile; rustfmt --edition 2021 <file> as the par
    chapter thread (read_chapter + decode pictures with RawImage::decode_image_bytes_any,
    thumbnail to <= 2x page, then pagination) -> write-back {book, chapter, generation, Chapter,
    PageMap, images: Vec<(src, ImageRef)>}.
-4. src/plainbook.rs: .txt / .html files as a Container + Book (split text at CHAPTER headings
+4. DONE 7f66dfcff src/plainbook.rs (and 96cda63f5 src/settings.rs = step 6): .txt / .html files as a Container + Book (split text at CHAPTER headings
    or every ~60 KB; TOC from headings).
 5. src/library.rs + src/storage.rs: keys reader/books/<uuid>/{book.<ext>, info.json,
    state.json, cover.png}; BookInfo, BookState (position, bookmarks, last_read, finished);
