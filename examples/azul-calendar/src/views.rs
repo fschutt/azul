@@ -100,7 +100,8 @@ pub fn days_shown(kind: ViewKind, anchor: NaiveDate) -> Vec<NaiveDate> {
         ViewKind::Day | ViewKind::Schedule => vec![anchor],
         ViewKind::WorkWeek => run(week::week_start(anchor), 5),
         ViewKind::Week => run(week::week_start(anchor), 7),
-        ViewKind::Month => run(month_grid_start(anchor), 7 * MONTH_WEEKS as i64),
+        // The one month grid of the PIM apps (AzTasks' planned month too), Monday first.
+        ViewKind::Month => azul_pim::dates::month_grid(anchor, chrono::Weekday::Mon),
         ViewKind::Agenda => run(anchor, AGENDA_DAYS),
     }
 }
@@ -121,12 +122,6 @@ pub fn month_end(day: NaiveDate) -> NaiveDate {
         NaiveDate::from_ymd_opt(first.year(), first.month() + 1, 1)
     };
     next.and_then(|d| d.pred_opt()).unwrap_or(day)
-}
-
-/// The Monday the month grid of `day`'s month starts on.
-#[must_use]
-pub fn month_grid_start(day: NaiveDate) -> NaiveDate {
-    week::week_start(month_start(day))
 }
 
 /// The days the view is ABOUT, for the date navigator to light: the shown days, except that the
