@@ -1822,6 +1822,11 @@ mod label_convention {
             "rich_text_editor",
             super::rich_text_editor::fixtures::sample().dom(),
         ));
+        // The recurrence editor: weekly on two days, ending after ten times.
+        all.push((
+            "recurrence_editor",
+            super::recurrence_editor::fixtures::sample().dom(),
+        ));
         all
     }
 
@@ -2711,6 +2716,7 @@ mod theme_contrast {
         "path_input",
         "shortcut_recorder",
         "shortcut_recorder (recording)",
+        "recurrence_editor",
     ];
     /// Navigation and application chrome.
     const CHROME: &[&str] = &[
