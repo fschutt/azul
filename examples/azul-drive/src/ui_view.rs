@@ -321,8 +321,9 @@ fn drive_tile(s: &DriveState, app: &RefAny, index: usize) -> Dom {
         (Some((total, free)), _) => tile = tile.with_capacity(TileCapacity::create(*total, *free)),
         (None, Some(count)) => {
             tile = tile.with_detail(AzString::from(format!(
-                "{}, {count} items at the root",
-                slot.kind()
+                "{}, {} at the root",
+                slot.kind(),
+                browse::counted(*count, "item", "items")
             )));
         }
         (None, None) => tile = tile.with_detail(AzString::from(slot.kind())),

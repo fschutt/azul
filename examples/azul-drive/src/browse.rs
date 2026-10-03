@@ -435,8 +435,7 @@ pub fn crumbs_of(place: &Place, drive_name: &str) -> Vec<(String, Place)> {
 /// `n` things as Explorer counts them: "1 item", "3 items", "0 items".
 #[must_use]
 pub fn counted(n: usize, one: &str, many: &str) -> String {
-    let _ = one; // RED
-    format!("{n} {many}")
+    format!("{n} {}", if n == 1 { one } else { many })
 }
 
 /// A `file://` URL of a local path, percent-encoded, for the OS to open.

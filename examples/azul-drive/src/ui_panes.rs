@@ -325,20 +325,26 @@ extern "C" fn on_nav_event(
 pub(crate) fn status_bar(s: &DriveState, app: &RefAny) -> Dom {
     let mut segments = Vec::new();
     let count = match &s.place {
-        Place::ThisPc => format!("{} drives", s.slots.len()),
-        Place::QuickAccess => format!("{} pinned folders", s.settings.pinned.len()),
+        Place::ThisPc => browse::counted(s.slots.len(), "drive", "drives"),
+        Place::QuickAccess => {
+            browse::counted(s.settings.pinned.len(), "pinned folder", "pinned folders")
+        }
         Place::Folder { .. } if s.loading => String::from("Loading..."),
         Place::Folder { .. } => {
             let shown = s.visible_entries().len();
             let more = if s.next.is_some() { "+" } else { "" };
-            format!("{shown}{more} items")
+            if more.is_empty() {
+                browse::counted(shown, "item", "items")
+            } else {
+                format!("{shown}{more} items")
+            }
         }
     };
     segments.push(StatusBarSegment::create(AzString::from(count)).with_marker(AzString::from("items")));
     let selected = s.selected_entries();
     if !selected.is_empty() {
         let bytes: u64 = selected.iter().filter_map(|e| e.size).sum();
-        let mut text = format!("{} items selected", selected.len());
+        let mut text = browse::counted(selected.len(), "item selected", "items selected");
         if bytes > 0 {
             text.push_str(&format!("  {}", browse::format_size(Some(bytes))));
         }
@@ -606,7 +612,7 @@ pub(crate) fn details_pane(s: &DriveState) -> Dom {
             }
             None => DetailsPane::create(AzString::from(browse::THIS_PC))
                 .with_icon(AzString::from("computer"))
-                .with_subtitle(AzString::from(format!("{} drives", s.slots.len()))),
+                .with_subtitle(AzString::from(browse::counted(s.slots.len(), "drive", "drives"))),
         },
         Place::QuickAccess => DetailsPane::create(AzString::from(browse::QUICK_ACCESS))
             .with_icon(AzString::from("star"))
