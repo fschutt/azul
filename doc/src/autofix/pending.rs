@@ -13,7 +13,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{api::ClassData, patch::ApiPatch};
+use crate::{api::ClassData, autofix::patch_format::AutofixPatch, patch::ApiPatch};
 
 /// What the pending patches remove from one class.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -27,15 +27,47 @@ pub struct PendingRemovals {
 }
 
 impl PendingRemovals {
-    /// What the patches in `dir` remove from the class `class_name`.
-    pub fn read(_dir: &Path, _class_name: &str) -> Self {
-        Self::default()
+    /// What the patches in `dir` remove from the class `class_name` (both
+    /// patch formats; an unreadable file removes nothing).
+    pub fn read(dir: &Path, class_name: &str) -> Self {
+        let mut out = Self::default();
+        for path in patch_files(dir) {
+            let Ok(patch) = ApiPatch::from_file(&path) else {
+                continue;
+            };
+            for version in patch.versions.values() {
+                for module in version.modules.values() {
+                    let Some(cp) = module.classes.get(class_name) else {
+                        continue;
+                    };
+                    out.class |= cp.is_removal();
+                    out.functions
+                        .extend(cp.remove_functions.iter().flatten().cloned());
+                    out.constructors
+                        .extend(cp.remove_constructors.iter().flatten().cloned());
+                }
+            }
+        }
+        out
     }
 
     /// `class` as `autofix apply` will leave it: without the pending
     /// removals of its functions and constructors.
     pub fn apply_to(&self, class: &ClassData) -> ClassData {
-        class.clone()
+        let mut out = class.clone();
+        let strip = |map: &mut Option<indexmap::IndexMap<String, crate::api::FunctionData>>,
+                     names: &BTreeSet<String>| {
+            if let Some(entries) = map.as_mut() {
+                if names.contains("*") {
+                    entries.clear();
+                } else {
+                    entries.retain(|name, _| !names.contains(name));
+                }
+            }
+        };
+        strip(&mut out.functions, &self.functions);
+        strip(&mut out.constructors, &self.constructors);
+        out
     }
 }
 
@@ -66,12 +98,90 @@ fn patch_files(dir: &Path) -> Vec<PathBuf> {
 /// `constructors`). Rewrites the pending files (deletes one left empty) and
 /// returns the superseded names.
 pub fn supersede_pending_removals(
-    _dir: &Path,
-    _class_name: &str,
-    _added: &ApiPatch,
+    dir: &Path,
+    class_name: &str,
+    added: &ApiPatch,
 ) -> anyhow::Result<Vec<String>> {
-    let _ = patch_files;
-    Ok(Vec::new())
+    // The names the add writes, per map
+    let mut functions = BTreeSet::new();
+    let mut constructors = BTreeSet::new();
+    for version in added.versions.values() {
+        for module in version.modules.values() {
+            if let Some(cp) = module.classes.get(class_name) {
+                functions.extend(cp.functions.iter().flat_map(|f| f.keys().cloned()));
+                constructors.extend(cp.constructors.iter().flat_map(|c| c.keys().cloned()));
+            }
+        }
+    }
+
+    let mut superseded = Vec::new();
+    for path in patch_files(dir) {
+        // Only the one-item commands' format carries function removals; a
+        // scan patch (AutofixPatch) is left as it is.
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
+        if serde_json::from_str::<AutofixPatch>(&text).is_ok() {
+            continue;
+        }
+        let Ok(mut patch) = serde_json::from_str::<ApiPatch>(&text) else {
+            continue;
+        };
+        let mut changed = false;
+        for version in patch.versions.values_mut() {
+            for module in version.modules.values_mut() {
+                let Some(cp) = module.classes.get_mut(class_name) else {
+                    continue;
+                };
+                changed |= drop_names(&mut cp.remove_functions, &functions, &mut superseded);
+                changed |= drop_names(&mut cp.remove_constructors, &constructors, &mut superseded);
+                let spent = cp.is_empty()
+                    && cp.remove_functions.is_none()
+                    && cp.remove_constructors.is_none();
+                if spent {
+                    module.classes.remove(class_name);
+                }
+            }
+            version.modules.retain(|_, m| !m.classes.is_empty());
+        }
+        if !changed {
+            continue;
+        }
+        patch.versions.retain(|_, v| !v.modules.is_empty());
+        if patch.versions.is_empty() {
+            fs::remove_file(&path)?;
+        } else {
+            fs::write(&path, serde_json::to_string_pretty(&patch)?)?;
+        }
+    }
+    superseded.sort();
+    superseded.dedup();
+    Ok(superseded)
+}
+
+/// Drop `names` from a pending removal list (`None` when it ends empty);
+/// whether anything was dropped. The dropped names go to `dropped`.
+fn drop_names(
+    list: &mut Option<Vec<String>>,
+    names: &BTreeSet<String>,
+    dropped: &mut Vec<String>,
+) -> bool {
+    let Some(entries) = list.as_mut() else {
+        return false;
+    };
+    let before = entries.len();
+    entries.retain(|name| {
+        let hit = names.contains(name);
+        if hit {
+            dropped.push(name.clone());
+        }
+        !hit
+    });
+    let changed = entries.len() != before;
+    if entries.is_empty() {
+        *list = None;
+    }
+    changed
 }
 
 #[cfg(test)]
