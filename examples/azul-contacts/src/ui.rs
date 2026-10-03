@@ -22,7 +22,10 @@
 //! `AZCONTACTS_EXPORTED <key>`, `AZCONTACTS_DUPLICATES <n>`,
 //! `AZCONTACTS_MERGED <uid>`, `AZCONTACTS_JUMP <letter>`.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 use azul::{
     callbacks::{
@@ -33,6 +36,8 @@ use azul::{
     },
     dialog::{FileDialog, FileOpenResult},
     dom::{ClipboardContent, DomNodeId, ScrollIntoViewOptions},
+    error::ResultRawImageDecodeImageError,
+    image::{ImageRef, RawImage},
     option::{OptionFileTypeList, OptionString},
     prelude::*,
     shells::{
@@ -40,7 +45,7 @@ use azul::{
         ShellNavigationPaneEventKind, ShellThemeAccent, ShellThemeScope,
     },
     str::String as AzString,
-    vec::{StringVec, StyledTextRunVec},
+    vec::{StringVec, StyledTextRunVec, U8VecRef},
     widgets::{
         Avatar, AvatarSize, ButtonType, CheckBoxState, Chip, ChipState, DropDown, OnTextInputReturn, Segmented,
         SegmentedState, StatusBar, StatusBarSegment, Switch, SwitchState, TextArea, TextAreaState,
@@ -196,6 +201,9 @@ pub struct ContactsApp {
     pub export_version: Version,
     /// The screen `--screen` asked for, applied once the contacts are loaded.
     pub start_screen: String,
+    /// Decoded photos by `photo::key` (`None`: azul could not decode it - the initials show),
+    /// filled after each change for the contact shown and the form (`refresh_photos`).
+    pub photos: BTreeMap<u64, Option<ImageRef>>,
 }
 
 fn now_secs() -> u64 {
@@ -251,6 +259,7 @@ impl ContactsApp {
             ignored,
             export_version: version,
             start_screen: args.screen.clone().unwrap_or_default(),
+            photos: BTreeMap::new(),
         }
     }
 
@@ -409,7 +418,7 @@ fn contact_row(s: &ContactsApp, app: &RefAny, c: &Contact) -> Dom {
         texts.push(block("font-size: 11px; opacity: 0.7;", text(subtitle)));
     }
     let mut children = vec![
-        Avatar::create(book::initials(c)).with_size(AvatarSize::Small).dom(),
+        avatar(s, c, AvatarSize::Small),
         column("flex-grow: 1; padding-left: 8px; min-width: 0px;", texts),
     ];
     if c.favorite {
@@ -572,7 +581,7 @@ fn card_view(s: &ContactsApp, app: &RefAny, c: &Contact) -> Dom {
         row(
             "padding: 12px 0px;",
             vec![
-                Avatar::create(book::initials(c)).with_size(AvatarSize::Large).dom(),
+                avatar(s, c, AvatarSize::Large),
                 column(
                     "padding-left: 12px;",
                     vec![
@@ -759,7 +768,7 @@ fn labels_for(kind: RowKind) -> &'static [&'static str] {
     }
 }
 
-fn edit_view(app: &RefAny, form: &Form) -> Dom {
+fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
     let d = &form.draft;
     let mut children = Vec::new();
     children.push(row(
@@ -771,7 +780,7 @@ fn edit_view(app: &RefAny, form: &Form) -> Dom {
         ],
     ));
     let mut photo_row = vec![
-        Avatar::create(book::initials(d)).with_size(AvatarSize::Medium).dom(),
+        avatar(s, d, AvatarSize::Medium),
         button("Change photo\u{2026}", "edit-photo", app, on_photo_choose),
     ];
     if !d.photo.trim().is_empty() {
@@ -1136,7 +1145,7 @@ fn merge_view(s: &ContactsApp, app: &RefAny, st: &MergeState) -> Dom {
 
 fn reading_pane(s: &ContactsApp, app: &RefAny) -> Dom {
     match &s.reading {
-        Reading::Edit(form) => edit_view(app, form),
+        Reading::Edit(form) => edit_view(s, app, form),
         Reading::Import(st) => import_view(s, app, st),
         Reading::Merge(st) => merge_view(s, app, st),
         Reading::Card => match s.selected_index() {
@@ -1264,7 +1273,53 @@ fn with_app(
         return Update::DoNothing;
     };
     f(&mut guard, info, &handle);
+    refresh_photos(&mut guard);
     Update::RefreshDom
+}
+
+/// The photo as a picture azul shows: decoded and scaled to the largest avatar.
+fn decode_photo(photo: &str) -> Option<ImageRef> {
+    let bytes = crate::photo::image_bytes(photo)?;
+    let image = match RawImage::decode_image_bytes_any(U8VecRef::from(bytes.as_slice())) {
+        ResultRawImageDecodeImageError::Ok(image) => image,
+        ResultRawImageDecodeImageError::Err(_) => return None,
+    };
+    let image = image.thumbnail(PHOTO_PX, PHOTO_PX).into_option()?;
+    ImageRef::create_rawimage(image).into_option()
+}
+
+/// The largest a decoded photo is kept, in pixels (the large avatar, on a 2x screen).
+const PHOTO_PX: u32 = 160;
+
+/// Decodes the photos the window shows next - the list's visible contacts are many, so only
+/// the selected contact's and the form's - once each (`photo::KEPT` at most).
+fn refresh_photos(s: &mut ContactsApp) {
+    let mut wanted: Vec<String> = Vec::new();
+    if let Some(c) = s.selected.as_ref().and_then(|uid| s.book.iter().find(|c| &c.uid == uid)) {
+        wanted.push(c.photo.clone());
+    }
+    if let Reading::Edit(form) = &s.reading {
+        wanted.push(form.draft.photo.clone());
+    }
+    for photo in wanted.into_iter().filter(|p| !p.trim().is_empty()) {
+        let key = crate::photo::key(&photo);
+        if s.photos.contains_key(&key) {
+            continue;
+        }
+        if s.photos.len() >= crate::photo::KEPT {
+            s.photos.clear();
+        }
+        s.photos.insert(key, decode_photo(&photo));
+    }
+}
+
+/// The contact's avatar: its photo when one is decoded, else its initials.
+fn avatar(s: &ContactsApp, c: &Contact, size: AvatarSize) -> Dom {
+    let mut a = Avatar::create(book::initials(c)).with_size(size);
+    if let Some(Some(image)) = s.photos.get(&crate::photo::key(&c.photo)) {
+        a = a.with_image(image.clone());
+    }
+    a.dom()
 }
 
 fn write_files(s: &ContactsApp, info: &mut CallbackInfo, app: &RefAny, jobs: Vec<FileJob>, tag: u64) {
