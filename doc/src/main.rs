@@ -1079,6 +1079,9 @@ fn main() -> anyhow::Result<()> {
                                 &all,
                                 method_spec,
                                 None,
+                                &|t: &str| {
+                                    autofix::function_diff::ffi_carries(t, version_data, &index)
+                                },
                             );
 
                             let func_patch = autofix::function_diff::generate_add_functions_patch(
@@ -1133,6 +1136,7 @@ fn main() -> anyhow::Result<()> {
                 &all,
                 method_spec,
                 autofix::function_diff::find_api_class(type_name, version_data),
+                &|t: &str| autofix::function_diff::ffi_carries(t, version_data, &index),
             );
 
             if methods.is_empty() {

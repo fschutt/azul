@@ -856,6 +856,7 @@ pub fn api_candidate_methods<'a>(
     methods: &[&'a MethodDef],
     spec: &str,
     api_class: Option<&ClassData>,
+    _carries: &dyn Fn(&str) -> bool,
 ) -> Vec<&'a MethodDef> {
     let existing: Vec<(&String, &FunctionData)> = api_class
         .map(|c| {
@@ -1189,6 +1190,33 @@ pub struct AddTypeResult {
 /// Check if a type already exists in api.json
 pub fn type_exists_in_api(type_name: &str, version_data: &VersionData) -> bool {
     find_type_module(type_name, version_data).is_some()
+}
+
+/// THE `carries` predicate of the `Type.*` rule ([`wildcard_skip_reason`])
+/// for the real API: a type api.json has, or a workspace type the FFI can
+/// carry - a struct / enum with a C (or transparent) repr, a callback
+/// typedef, a type alias, or a macro-made Vec / Option / Result.
+pub fn ffi_carries(type_name: &str, version_data: &VersionData, index: &TypeIndex) -> bool {
+    if type_exists_in_api(type_name, version_data) {
+        return true;
+    }
+    let Some(def) = index
+        .resolve(type_name, None)
+        .or_else(|| index.resolve(&format!("Az{type_name}"), None))
+    else {
+        return false;
+    };
+    match &def.kind {
+        TypeDefKind::Struct { repr, .. } | TypeDefKind::Enum { repr, .. } => {
+            repr.as_deref().is_some_and(|r| {
+                let r = r.to_lowercase();
+                r.contains('c') || r.contains("transparent")
+            })
+        }
+        TypeDefKind::CallbackTypedef { .. }
+        | TypeDefKind::TypeAlias { .. }
+        | TypeDefKind::MacroGenerated { .. } => true,
+    }
 }
 
 /// Helper to extract fields from TypeDefKind (expands MacroGenerated types)
@@ -1577,6 +1605,7 @@ pub fn generate_add_type_patches(
             &all,
             spec,
             find_api_class(type_name, version_data),
+            &|t: &str| ffi_carries(t, version_data, index),
         );
         let mut std_impls: Vec<String> = type_def
             .methods
@@ -1831,7 +1860,7 @@ mod tests {
         }
         let refs: Vec<&MethodDef> = ms.iter().collect();
 
-        let fresh = api_candidate_methods("T", &refs, "*", None);
+        let fresh = api_candidate_methods("T", &refs, "*", None, &|_: &str| true);
         let mut names: Vec<String> = fresh.iter().map(|m| api_name_of(m)).collect();
         names.sort();
         assert_eq!(names, vec!["create", "create_with_icon", "with_label"]);
@@ -1841,12 +1870,12 @@ mod tests {
                 "fn_body": "azul_layout::widgets::t::T::new(label)"}}}"#,
         )
         .expect("test class parses");
-        let existing = api_candidate_methods("T", &refs, "*", Some(&class));
+        let existing = api_candidate_methods("T", &refs, "*", Some(&class), &|_: &str| true);
         let mut names: Vec<String> = existing.iter().map(|m| api_name_of(m)).collect();
         names.sort();
         assert_eq!(names, vec!["create_with_icon", "with_label"], "`new` is reached by `create`");
 
-        let one = api_candidate_methods("T", &refs, "with_label", Some(&class));
+        let one = api_candidate_methods("T", &refs, "with_label", Some(&class), &|_: &str| true);
         assert_eq!(one.len(), 1);
     }
 
@@ -1868,9 +1897,59 @@ mod tests {
         .into_values()
         .collect();
         let refs: Vec<&MethodDef> = ms.iter().collect();
-        let fresh = api_candidate_methods("T", &refs, "*", None);
+        let fresh = api_candidate_methods("T", &refs, "*", None, &|_: &str| true);
         let rust: Vec<&str> = fresh.iter().map(|m| m.name.as_str()).collect();
         assert_eq!(rust, vec!["create"], "only the real create: {rust:?}");
+    }
+
+    /// `autofix add RichTextDoc.*` exported 29 Rust-only helpers (RichRun 7):
+    /// slices, `Vec`s, tuples, `Option<&T>` and `&str` accessors, types
+    /// without a C repr. THE wildcard rule: `Type.*` takes a method only when
+    /// its whole signature crosses the FFI as written - no borrowed return,
+    /// and every argument and the return type (as api.json spells it) a
+    /// scalar, an api.json type or a type the FFI carries. A method named
+    /// explicitly still goes out.
+    #[test]
+    fn the_wildcard_exports_only_methods_whose_signature_crosses_the_ffi() {
+        let ms: Vec<MethodDef> = methods(
+            r#"
+            impl T {
+                pub fn create() -> Self { todo!() }
+                pub fn block_count(&self) -> usize { 0 }
+                pub fn set_kind(&mut self, index: usize, kind: Kind) -> bool { true }
+                pub fn preview(&self, title: &str) -> AzString { todo!() }
+                pub fn link_at(&self, index: usize) -> Option<String> { None }
+                pub fn same(&self, other: &T) -> bool { true }
+                pub fn blocks(&self) -> &[Block] { todo!() }
+                pub fn block(&self, index: usize) -> Option<&Block> { None }
+                pub fn as_str(&self) -> &str { "" }
+                pub fn link_str(&self) -> Option<&str> { None }
+                pub fn take_blocks(&mut self) -> Vec<Block> { todo!() }
+                pub fn put_blocks(&mut self, blocks: Vec<Block>) {}
+                pub fn checklist(&self) -> (usize, usize) { (0, 0) }
+                pub fn set_link(&mut self, url: Option<&str>) {}
+                pub fn apply(&mut self, shortcut: &Shortcut) {}
+                pub fn when(&self) -> Instant { todo!() }
+            }
+        "#,
+        )
+        .into_values()
+        .collect();
+        let refs: Vec<&MethodDef> = ms.iter().collect();
+        let carries = |t: &str| matches!(t, "String" | "OptionString" | "Kind");
+
+        let mut names: Vec<String> = api_candidate_methods("T", &refs, "*", None, &carries)
+            .iter()
+            .map(|m| api_name_of(m))
+            .collect();
+        names.sort();
+        assert_eq!(
+            names,
+            vec!["block_count", "create", "link_at", "preview", "same", "set_kind"]
+        );
+
+        let named = api_candidate_methods("T", &refs, "take_blocks", None, &carries);
+        assert_eq!(named.len(), 1, "a method named explicitly still goes out");
     }
 
     /// The api.json entry `autofix add` writes for method `name` of `source`.
