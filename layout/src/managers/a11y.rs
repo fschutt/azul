@@ -1002,6 +1002,12 @@ impl A11yManager {
                     AccessibilityState::Offscreen => {
                         builder.set_hidden();
                     }
+                    AccessibilityState::SortedAscending => {
+                        builder.set_sort_direction(accesskit::SortDirection::Ascending);
+                    }
+                    AccessibilityState::SortedDescending => {
+                        builder.set_sort_direction(accesskit::SortDirection::Descending);
+                    }
                     _ => {}
                 }
             }
