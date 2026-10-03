@@ -48,14 +48,18 @@ screenshots + hierarchy dumps under target/sheetshow6-shots/.
   fa94952ef AzShow galleries show 3-6 cells (every tab fits 1280 px; api.json RibbonGallery.visible / set_visible /
   with_visible); b02c045e8 AzShow icon-only buttons named (icon_button + with_alt).
 
+- d335b8d7c AzShow New's theme cards show the accents.
+- 0bd51d09f RED / e51203add GREEN: refs::cycle_reference (F4); 3e7a1e1b3 F4 wired in on_window_key (editing).
+- c0fff7291 + 6780b41c7 RED / e005cb20d GREEN: CellGrid point mode (click / drag / arrows insert references;
+  CellGridDragKind::Point - api.json). AzSheets needs nothing more (EditText events store the view).
+
 ## IN PROGRESS
 - (none)
 
 ## NEXT (exact)
 1-3. (done)
 4. (done)
-5. NEXT: Sheets F4 reference cycling (a pure formula-text function, RED first in a new module refs.rs), then point
-   mode, Format Cells dialog, merge cells, conditional formatting, tab strip; Show (drop indicator, multi-select
+5. NEXT: Sheets Format Cells dialog, merge cells, conditional formatting, tab strip; Show (drop indicator, multi-select
    rotate, tables in place, picture contain / cover, find / replace, presenter on a chosen monitor).
 6. Check both apps for `ctrl || meta` and duplicated helpers (checklist).
 
