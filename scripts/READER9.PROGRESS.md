@@ -61,7 +61,14 @@ AzReader, lib azreader). Never compile; rustfmt --edition 2021 <file> as the par
    "Reading" -> create_kit must get app_categories &["Reading"]), 88a9283a1 Job::ImportBytes,
    ff447ab12 src/sample.rs, b73580b16 src/ribbon.rs (ribbon(app, st) for both screens),
    e43d89523 src/ui_library.rs (navigation, content, status_bar), 1a2ec31dc src/ui_reader.rs
-   (navigation -> Option<Dom>, pages, status_bar). NEXT = (f) src/lib.rs: replace the
+   (navigation -> Option<Dom>, pages, status_bar), 855582663 src/lib.rs + src/ui_settings.rs
+   (THE APP IS COMPLETE IN SOURCE - never compiled). NEXT = 8: scripts/azreader_e2e.py
+   (model on scripts/shells_e2e.py: start AzReader --sample with AZ_BACKEND=headless
+   AZ_DEBUG=<port> through run_capped.sh, wait for AZREADER_LISTED / IMPORTED / OPENED /
+   PAGES on stdout, assert nodes __azreader_book-0, __azreader_page-0, folio text, key Right
+   -> AZREADER_PAGE, Mod+D -> AZREADER_BOOKMARKS 1, toc pane rows), then a self-review pass
+   for compile risks (list them in the report), then the report scripts/READER9_<date>.md.
+   Was (f) src/lib.rs: replace the
    placeholder with SPEC/ABOUT/SHORTCUTS, start() (AppArgs::from_env; kit::create_kit(SPEC,
    ABOUT, &SHORTCUTS, &["Reading"], args); ReadingSettings::from_settings(&kit.settings);
    AppState::new; files on the command line -> st.import_on_start; kit::app_config;
