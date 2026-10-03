@@ -23,3 +23,7 @@ replacing the CSS Content type with it; ANIM8 closure lifetime fixed). NOT BUILT
 2026-10-03 evening: WAVE 8 COMPILES (dylib + 24 crates, 21 apps) after EchoCanceller -> audio (94c741e71) and the AzMeet Send newtype (5a4ce677b). MAIL CORPUS: 20 mails, 944 boxes, 0 MISMATCHED (wave-8 base: 531 of 923; first measure 874) - target/refci/mail-wave8/.
 2026-10-03: LAYOUTPERF8B merged (wt/layoutperf8b): the reconcile now finds inline content after a block (it was rebuilt fresh every layout - 607 of 618 misses), VirtualView passes keep the host's font chains (2.2 ms/tick). Rebuilding.
 2026-10-03 19:10: wave 8 + LAYOUTPERF8B BUILT (all apps compile) and pushed. Re-measured the knob tick: UNCHANGED (288 re-flows, 618 misses, 19 ms root pass) - the 8B fix does not hit AzWidgets' real cause; LAYOUTPERF8 resumed on wt/layoutperf8c against the real build.
+2026-10-03 19:35: LAYOUTPERF8C merged + the build-script fix (7be0bbee0: link-dynamic apps re-copy libazul when it changes - the
+"no change" measure had run the OLD library: SIP strips DYLD_* through /usr/bin/env, and the OUT_DIR copy never refreshed).
+MEASURED on the fresh build, AzWidgets knob tick: root_layout_pass 0.42 ms (was 19-229 ms), 11 taffy misses (was 12181),
+0 text re-flows (was 2853), relayout 31-32 ms profiled / 20-21 ms UNPROFILED (was 157-309 profiled).
