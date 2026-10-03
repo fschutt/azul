@@ -91,7 +91,7 @@ class Process:
     capped runner stops the app it runs too)."""
 
     def __init__(self, name, command, env, logs):
-        self.name = name
+        self.tag = name
         self.log_path = os.path.join(logs, "%s.log" % name)
         self.process = subprocess.Popen(
             command, env=env, stdin=subprocess.DEVNULL,
@@ -166,7 +166,7 @@ def until(what, check, deadline, procs=(), interval=0.5):
     while time.time() < deadline:
         for p in procs:
             if not p.alive():
-                raise Failure("%s exited (%s) while waiting for %s" % (p.name, p.process.returncode, what))
+                raise Failure("%s exited (%s) while waiting for %s" % (p.tag, p.process.returncode, what))
         try:
             value = check()
             if value:
@@ -245,7 +245,7 @@ def check_files(app, data, other, deadline, procs):
     while not app.printed("AZMEET_SAVED") and time.time() < grace:
         time.sleep(0.25)
     if not app.printed("AZMEET_SAVED"):
-        log("%s: no AZMEET_SAVED - a build without the meeting files; check skipped" % app.name)
+        log("%s: no AZMEET_SAVED - a build without the meeting files; check skipped" % app.tag)
         return
 
     def written():
@@ -258,9 +258,9 @@ def check_files(app, data, other, deadline, procs):
             return found
         return None
 
-    lines, record = until("%s's chat.jsonl and meeting.json" % app.name, written, deadline, procs)
+    lines, record = until("%s's chat.jsonl and meeting.json" % app.tag, written, deadline, procs)
     log("%s kept the meeting %s: %d chat lines, people %s"
-        % (app.name, record.get("meeting"), len(lines), record.get("people")))
+        % (app.tag, record.get("meeting"), len(lines), record.get("people")))
 
 
 def chat(sender, receiver, sender_name, text, use_enter, deadline, procs):
@@ -277,23 +277,23 @@ def chat(sender, receiver, sender_name, text, use_enter, deadline, procs):
     else:
         sender.must("click", selector="#" + sender.id("chat-send"))
     sender.frame()
-    until("%s's message on %s's stdout" % (sender_name, receiver.name),
+    until("%s's message on %s's stdout" % (sender_name, receiver.tag),
           lambda: "%s: %s" % (sender_name, text) in receiver.printed("AZMEET_CHAT"),
           deadline, procs)
-    log("%s printed AZMEET_CHAT %s: %s" % (receiver.name, sender_name, text))
+    log("%s printed AZMEET_CHAT %s: %s" % (receiver.tag, sender_name, text))
     if not any(t.startswith("Chat (") for t in receiver.texts()):
         # The receiver's chat may already be open (the answer goes to Ada, whose chat is open).
         if not any(text in t for t in receiver.texts()):
-            raise Failure("%s's window neither counts the message unread nor shows it" % receiver.name)
+            raise Failure("%s's window neither counts the message unread nor shows it" % receiver.tag)
     receiver.must("click", text="Chat")
     receiver.frame()
-    until("the message in %s's chat panel" % receiver.name,
+    until("the message in %s's chat panel" % receiver.tag,
           lambda: any(t == text for t in receiver.texts()), deadline, procs)
-    log("%s's chat panel shows %r" % (receiver.name, text))
+    log("%s's chat panel shows %r" % (receiver.tag, text))
     field_after = [t for t in sender.texts() if t == text]
     # The sender lists its own message once (the field is empty again).
     if len(field_after) != 1:
-        raise Failure("%s's window shows the sent text %d times (the field kept it?)" % (sender.name, len(field_after)))
+        raise Failure("%s's window shows the sent text %d times (the field kept it?)" % (sender.tag, len(field_after)))
 
 
 def main():
@@ -354,7 +354,7 @@ def main():
         procs.append(ben)
 
         for app in (ada, ben):
-            until("%s's debug server" % app.name, lambda app=app: app.op("wait_frame") is not None, deadline, procs)
+            until("%s's debug server" % app.tag, lambda app=app: app.op("wait_frame") is not None, deadline, procs)
             app.must("resize", width=args.width, height=args.height)
             app.frame()
 
@@ -363,17 +363,17 @@ def main():
             def tile_shown(app=app, other=other):
                 node, rect = app.node_rect(app.id("tile-%s-camera" % other))
                 return node is not None and inside(rect, args.width, args.height)
-            until("%s's tile in %s's window" % (other, app.name), tile_shown, deadline, procs)
-            log("%s shows %s's tile" % (app.name, other))
+            until("%s's tile in %s's window" % (other, app.tag), tile_shown, deadline, procs)
+            log("%s shows %s's tile" % (app.tag, other))
 
         # Each decodes the other's video.
         for app, other in ((ada, "Ben"), (ben, "Ada")):
-            got = until("%s decoding %s's video" % (app.name, other),
+            got = until("%s decoding %s's video" % (app.tag, other),
                         lambda app=app, other=other: (lambda d: d if d and d[1] > 0 else None)(decoded_from(app, other)),
                         deadline, procs)
-            log("%s decodes %s's camera: %s, %d frames" % (app.name, other, got[0], got[1]))
+            log("%s decodes %s's camera: %s, %d frames" % (app.tag, other, got[0], got[1]))
             if args.require_h264 and got[0] != "H.264":
-                raise Failure("%s gets %s's camera as %s, not H.264" % (app.name, other, got[0]))
+                raise Failure("%s gets %s's camera as %s, not H.264" % (app.tag, other, got[0]))
 
         # Chat: Ada sends with Enter, Ben answers with the Send button.
         chat(ada, ben, "Ada", MESSAGE, True, deadline, procs)
@@ -420,13 +420,13 @@ def main():
             log("Ada's chat.jsonl holds the first visit's chat and the new message")
 
         for app in (ada, ben):
-            app.screenshot(os.path.join(out, "azmeet-%s.png" % app.name))
+            app.screenshot(os.path.join(out, "azmeet-%s.png" % app.tag))
         passed = True
         log("PASS")
     except Failure as e:
         log("FAIL: %s" % e)
         for p in procs:
-            log("----- %s (tail) -----\n%s" % (p.name, p.tail()))
+            log("----- %s (tail) -----\n%s" % (p.tag, p.tail()))
     finally:
         for p in reversed(procs):
             p.stop()

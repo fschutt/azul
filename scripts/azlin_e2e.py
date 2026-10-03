@@ -173,7 +173,6 @@ class App:
     def __init__(self, tag, binary, args, port, logs, timeout, extra_env=None, capped=None,
                  cap_mb=1500, cap_seconds=None):
         self.tag = tag
-        self.name = tag
         self.port = port
         self.deadline = time.time() + timeout
         self.out_path = os.path.join(logs, "%s.stdout" % tag)
