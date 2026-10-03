@@ -2,14 +2,16 @@
 """AzPhoto end to end over the debug server (headless).
 
     1. starts AzPhoto with --sample (the photo, a light leak in Screen mode, a Curves
-       adjustment) on a fresh data folder and export folder, headless with the debug server;
+       adjustment) on a fresh data folder (--data-dir), headless with the debug server;
     2. checks the document (1920 x 1080, three layers) and that the canvas node is laid out;
     3. selects the Photo layer and paints a brush stroke across the canvas: the History
        ends in "Brush" and the canvas got PARTIAL updates (`AZPHOTO_UPDATE` rects smaller
        than the view - the dirty-rect path, never the whole canvas per pointer move);
     4. adds a layer (Layers panel "+"), sets its opacity to 50 % (Move tool, key 5),
-       undoes that (Ctrl+Z: the History is back at "New Layer");
-    5. exports (Ctrl+Shift+E, Export) into the export folder and checks the PNG;
+       undoes that (Ctrl+Z: the History is back at "New Layer"); drags the Photo layer
+       with the Move tool (canvas updates WHILE dragging, one "Move" state); sets a text
+       with the Text tool (azul's RawImage::from_text: a fifth layer, one "Text" state);
+    5. exports (Ctrl+Shift+E, Export) into the data tree (photo/<uuid>/exports/) and checks the PNG;
     6. saves (Ctrl+S) and checks photo/<uuid>/doc.json and the layer tiles;
     7. takes screenshots (flat light, flora dark).
 
@@ -150,6 +152,14 @@ class App:
     def shows(self, text):
         return any(text in t for t in self.texts())
 
+    def has_id(self, node_id):
+        answer = self.op("get_node_layout", selector="#%s" % node_id)
+        if not isinstance(answer, dict) or answer.get("status") == "error":
+            return False
+        data = answer.get("data") or {}
+        value = data.get("value") if isinstance(data, dict) else None
+        return isinstance(value, dict) and value.get("node_id") is not None
+
     def printed(self, key, pattern=r".*"):
         try:
             with open(self.out_path, "r", encoding="utf-8", errors="replace") as f:
@@ -223,17 +233,14 @@ def run(args, logs, out):
     binary = find_binary(args.bin)
     deadline = time.time() + args.timeout
     data = os.path.join(logs, "data")
-    export = os.path.join(logs, "export")
     os.makedirs(data, exist_ok=True)
-    os.makedirs(export, exist_ok=True)
     env = dict(os.environ)
     env.update({
         "AZ_BACKEND": "headless",
         "AZ_DEBUG": str(args.debug_port),
-        "AZPHOTO_DATA": data,
-        "AZPHOTO_EXPORT_DIR": export,
     })
-    app = App(binary, ["--sample", "--theme", "flat", "--mode", "light"], args.debug_port, env, logs, deadline)
+    app = App(binary, ["--sample", "--theme", "flat", "--mode", "light", "--data-dir", data],
+              args.debug_port, env, logs, deadline)
     try:
         # 1-2: the sample is open.
         app.until("the sample document", lambda: app.last("AZPHOTO_DOC", r"\S+ \d+ .*"))
@@ -244,16 +251,16 @@ def run(args, logs, out):
         app.must("resize", width=args.width, height=args.height)
         app.frame(3)
         app.until("the canvas size", lambda: app.last("AZPHOTO_VIEW", r"\d+x\d+"))
-        canvas = app.rect("#photo-canvas")
+        canvas = app.rect("#__azphoto_canvas")
         view = app.last("AZPHOTO_VIEW", r"\d+x\d+")
         vw, vh = (int(v) for v in view.split("x"))
         log("canvas %s, view %dx%d px" % (canvas, vw, vh))
         app.screenshot(os.path.join(out, "azphoto-sample.png"))
 
         # 3: the Photo layer, then a brush stroke across the canvas.
-        app.click("#layer-row-1")
+        app.click("#__azphoto_layer-row-1")
         app.until("the Photo layer to be active", lambda: (app.last("AZPHOTO_LAYERS", r"\d+ .*") or "").endswith("Photo"))
-        app.click("#tool-brush")
+        app.click("#__azphoto_tool-brush")
         updates_before = len(app.printed("AZPHOTO_UPDATE", r"-?\d+ -?\d+ \d+ \d+"))
         x0 = float(canvas["x"]) + float(canvas["width"]) * 0.3
         y0 = float(canvas["y"]) + float(canvas["height"]) * 0.45
@@ -277,9 +284,9 @@ def run(args, logs, out):
             len(updates), max(updates, key=lambda u: int(u.split()[2]) * int(u.split()[3]))))
 
         # 4: a new layer, its opacity, undo.
-        app.click("#layer-new")
+        app.click("#__azphoto_layer-new")
         app.until("the new layer", lambda: (app.last("AZPHOTO_LAYERS", r"\d+ .*") or "").startswith("4 "))
-        app.click("#tool-move")
+        app.click("#__azphoto_tool-move")
         app.key("5")
         app.until("the opacity", lambda: (app.last("AZPHOTO_OPACITY", r"\d+ \d+") or "").endswith(" 50"))
         count, current, label = history(app)
@@ -291,12 +298,61 @@ def run(args, logs, out):
             raise Failure("undo should go back to New Layer, got %r" % (history(app),))
         log("layer added, opacity 50 %%, undone (History %s)" % (history(app),))
 
-        # 5: export into the export folder.
+        # 4b: the Move tool moves the Photo layer WHILE dragging (canvas
+        # updates before the release), one "Move" History state after it.
+        app.click("#__azphoto_layer-row-1")
+        app.click("#__azphoto_tool-move")
+        steps = history(app)[0]
+        mx = float(canvas["x"]) + float(canvas["width"]) * 0.5
+        my = float(canvas["y"]) + float(canvas["height"]) * 0.5
+        app.must("mouse_move", x=mx, y=my)
+        app.must("mouse_down", x=mx, y=my)
+        app.frame(1)
+        before = len(app.printed("AZPHOTO_UPDATE", r"-?\d+ -?\d+ \d+ \d+"))
+        for i in range(1, 6):
+            app.must("mouse_move", x=mx + i * 8.0, y=my + i * 4.0)
+            app.frame(1)
+        live = len(app.printed("AZPHOTO_UPDATE", r"-?\d+ -?\d+ \d+ \d+")) - before
+        if live == 0:
+            raise Failure("the move drag did not redraw the canvas before the release (no live preview)")
+        if history(app)[0] != steps:
+            raise Failure("the move drag recorded History before the release: %s" % (history(app),))
+        app.must("mouse_up", x=mx + 40.0, y=my + 20.0)
+        app.frame(3)
+        app.until("the Move in the History", lambda: (history(app) or (0, 0, ""))[2] == "Move")
+        if history(app)[0] != steps + 1:
+            raise Failure("the move should be ONE History state: %s" % (history(app),))
+        log("live move: %d canvas updates while dragging, one Move state" % live)
+
+        # 4c: the Text tool on azul's text raster (RawImage::from_text): a
+        # click starts a text, typing sets it as a live layer, Enter places it.
+        app.click("#__azphoto_tool-text")
+        app.must("mouse_move", x=mx - 200.0, y=my - 100.0)
+        app.must("mouse_down", x=mx - 200.0, y=my - 100.0)
+        app.must("mouse_up", x=mx - 200.0, y=my - 100.0)
+        app.frame(3)
+        app.until("the text field", lambda: app.has_id("__azphoto_text-field"))
+        app.must("focus_node", selector="#__azphoto_text-field")
+        app.frame(1)
+        app.must("text_input", text="Hello")
+        app.frame(3)
+        app.key("enter")
+        app.until("the Text in the History", lambda: (history(app) or (0, 0, ""))[2] == "Text")
+        layers = app.last("AZPHOTO_LAYERS", r"\d+ .*") or ""
+        if not layers.startswith("5 "):
+            raise Failure("the text should be a fifth layer, got %r" % layers)
+        app.screenshot(os.path.join(out, "azphoto-text.png"))
+        log("text placed: %s" % layers)
+
+        # 5: export into the data tree, beside the document.
         app.key("e", primary=True, shift=True)
         app.until("the export sheet", lambda: app.shows("Export"))
-        app.click("#sheet-ok")
+        app.click("#__azphoto_sheet-ok")
         exported = app.until("the export", lambda: app.last("AZPHOTO_EXPORTED", r"\d+ .+"))
-        size, path = exported.split(" ", 1)
+        size, key = exported.split(" ", 1)
+        if not key.startswith("photo/") or "/exports/" not in key:
+            raise Failure("the export is not in the data tree: %s" % key)
+        path = os.path.join(data, *key.split("/"))
         with open(path, "rb") as f:
             head = f.read(8)
         if head != PNG_MAGIC or int(size) < 1000:
@@ -315,7 +371,7 @@ def run(args, logs, out):
         pngs = [os.path.join(dp, fn) for dp, _, fns in os.walk(os.path.join(folder, "layers")) for fn in fns]
         if len(pngs) != int(tiles) or not pngs:
             raise Failure("saved %s tiles but found %d files" % (tiles, len(pngs)))
-        if saved_doc.get("width") != 1920 or len(saved_doc.get("layers", [])) != 4:
+        if saved_doc.get("width") != 1920 or len(saved_doc.get("layers", [])) != 5:
             raise Failure("doc.json does not describe the document: %s" % json.dumps(saved_doc)[:300])
         log("saved photo/%s: doc.json + %d tiles" % (uuid, len(pngs)))
 
@@ -325,7 +381,8 @@ def run(args, logs, out):
         app.must("set_mode", mode="dark")
         app.frame(4)
         app.screenshot(os.path.join(out, "azphoto-flora-dark.png"))
-        log("PASS: sample, stroke (dirty rects), layer, opacity, undo, export, save; screenshots in %s" % out)
+        log("PASS: sample, stroke (dirty rects), layer, opacity, undo, live move, text, export, save; "
+            "screenshots in %s" % out)
         return True
     except Failure as e:
         log("FAIL: %s" % e)

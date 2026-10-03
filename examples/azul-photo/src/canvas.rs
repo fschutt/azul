@@ -13,7 +13,7 @@ use azul::{
 };
 
 use crate::{
-    codec,
+    codec, ids,
     commands::{self, Command},
     raster::IRect,
     say,
@@ -21,10 +21,6 @@ use crate::{
     AppScreen, PhotoApp,
 };
 
-/// The canvas image node's DOM id.
-pub const CANVAS_ID: &str = "photo-canvas";
-/// The status bar segment that shows the cursor position.
-pub const CURSOR_MARKER: &str = "photo-cursor";
 
 /// The canvas node: one image whose pixels the render callback provides.
 pub fn canvas_dom(app: &RefAny, tool: Tool) -> Dom {
@@ -39,7 +35,7 @@ pub fn canvas_dom(app: &RefAny, tool: Tool) -> Dom {
         RenderImageCallback::create(render_canvas).to_core(),
         app.clone(),
     ))
-    .with_id(CANVAS_ID)
+    .with_id(ids::CANVAS)
     .with_css(format!(
         "flex-grow: 1; align-self: stretch; min-width: 0px; min-height: 0px; cursor: {cursor};"
     ))
@@ -59,7 +55,7 @@ pub fn canvas_dom(app: &RefAny, tool: Tool) -> Dom {
 #[must_use]
 pub fn canvas_node(info: &CallbackInfo) -> Option<(DomId, NodeId)> {
     let dom = DomId { inner: 0 };
-    let raw = info.get_node_id_by_id_attribute(dom, CANVAS_ID).into_raw();
+    let raw = info.get_node_id_by_id_attribute(dom, ids::CANVAS).into_raw();
     (raw != 0).then(|| (dom, NodeId::create(raw - 1)))
 }
 
@@ -114,7 +110,7 @@ pub fn cursor_label(app: &PhotoApp) -> String {
 
 fn update_cursor_label(app: &PhotoApp, info: &mut CallbackInfo) {
     let label = cursor_label(app);
-    if let Some(node) = info.get_node_id_by_marker(CURSOR_MARKER).into_option() {
+    if let Some(node) = info.get_node_id_by_marker(ids::CURSOR).into_option() {
         let _ = StatusBar::update_segment_label(*info, node, label.as_str());
     }
 }

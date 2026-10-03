@@ -35,6 +35,7 @@ pub mod args;
 pub mod canvas;
 pub mod codec;
 pub mod commands;
+pub mod ids;
 pub mod jobs;
 pub mod raster;
 pub mod state;

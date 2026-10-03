@@ -27,7 +27,7 @@ use azul::{
 use azul_appkit::ui as kit;
 
 use crate::{
-    canvas,
+    canvas, ids,
     commands::{self, cmd, field, Command, Field},
     jobs::ExportFormat,
     raster::{layer, Adjustment, BlendMode, LayerContent, SelectMode},
@@ -351,7 +351,7 @@ extern "C" fn on_menu_button(mut data: RefAny, mut info: CallbackInfo) -> Update
 
 /// The menu row (the S2 shell's title row).
 fn menu_row(app: &RefAny, p: &Palette) -> Dom {
-    let mut bar = row(&format!("padding: 2px 6px; background: {}; flex-shrink: 0;", p.chrome)).with_id("photo-menu");
+    let mut bar = row(&format!("padding: 2px 6px; background: {}; flex-shrink: 0;", p.chrome)).with_id(ids::MENU);
     for (i, (title, _)) in menu_table().iter().enumerate() {
         bar.add_child(
             Button::create(AzString::from(*title))
@@ -372,8 +372,6 @@ fn menu_row(app: &RefAny, p: &Palette) -> Dom {
 
 // ==== Options bar and tools ====
 
-/// The Text tool's field (scripts type into it).
-pub const TEXT_FIELD_ID: &str = "photo-text-field";
 
 /// The options bar: the active tool's settings.
 fn options_bar(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
@@ -381,7 +379,7 @@ fn options_bar(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
     let o = &s.opts;
     let hint = |t: &str| text(t, &format!("font-size: 12px; color: {}; margin-right: 10px;", p.muted));
     let mut bar = row(&format!("padding: 4px 8px; background: {}; flex-shrink: 0; min-height: 30px;", p.chrome))
-        .with_id("photo-options")
+        .with_id(ids::OPTIONS)
         .with_child(text(s.tool.name(), &format!("font-size: 12px; font-weight: bold; color: {}; margin-right: 12px;", p.text)));
     match s.tool {
         Tool::Brush | Tool::Pencil | Tool::Eraser | Tool::CloneStamp => {
@@ -446,7 +444,7 @@ fn options_bar(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
                     .with_accessibility_name(AzString::from("Font"))
                     .with_on_choice_change(field(app, Field::TextFamily), commands::on_choice as DropDownOnChoiceChangeCallbackType)
                     .dom()
-                    .with_id("photo-text-family")
+                    .with_id(ids::TEXT_FAMILY)
                     .with_css("margin-right: 10px;"),
             );
             bar.add_child(number(app, "Size", o.text_size, Field::TextSize, p));
@@ -461,17 +459,17 @@ fn options_bar(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
                             .with_accessibility_name(AzString::from("Text"))
                             .with_on_text_input(field(app, Field::Text), commands::on_text as TextInputOnTextInputCallbackType)
                             .dom()
-                            .with_id(TEXT_FIELD_ID)
+                            .with_id(ids::TEXT_FIELD)
                             .with_css("width: 220px; margin-right: 8px;"),
                     );
                     bar.add_child(
                         Button::with_type(AzString::from("Commit"), ButtonType::Primary)
                             .with_on_click(cmd(app, Command::TextCommit), commands::on_command as ButtonOnClickCallbackType)
                             .dom()
-                            .with_id("photo-text-commit")
+                            .with_id(ids::TEXT_COMMIT)
                             .with_css("margin-right: 6px;"),
                     );
-                    bar.add_child(button(app, "Cancel", Command::TextCancel).with_id("photo-text-cancel"));
+                    bar.add_child(button(app, "Cancel", Command::TextCancel).with_id(ids::TEXT_CANCEL));
                 }
                 None => bar.add_child(hint("Click the canvas where the text starts")),
             }
@@ -479,14 +477,14 @@ fn options_bar(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
     }
     bar.add_child(Dom::create_div().with_css("flex-grow: 1;"));
     if !s.status.is_empty() {
-        bar.add_child(text(&s.status, &format!("font-size: 12px; color: {};", p.muted)).with_id("photo-status-line"));
+        bar.add_child(text(&s.status, &format!("font-size: 12px; color: {};", p.muted)).with_id(ids::STATUS_LINE));
     }
     bar
 }
 
 /// The tools column, the colour chips under it.
 fn tools_column(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
-    let mut col = column(&format!("align-items: center; padding: 4px 0px; background: {};", p.chrome)).with_id("photo-tools");
+    let mut col = column(&format!("align-items: center; padding: 4px 0px; background: {};", p.chrome)).with_id(ids::TOOLS);
     for t in Tool::ALL {
         // The chosen tool is a toggled button; a tool that cannot act on the
         // active layer (a pixel tool on an adjustment or a locked layer) is
@@ -508,7 +506,7 @@ fn tools_column(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
                 )),
         );
     }
-    let chip = |c: [u8; 4], id: &str| {
+    let chip = |c: [u8; 4], id: AzString| {
         Dom::create_div()
             .with_id(id)
             .with_css(format!("width: 18px; height: 18px; background: {}; border: 1px solid {};", hex(c), p.line))
@@ -517,8 +515,8 @@ fn tools_column(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
     col.add_child(
         Dom::create_div()
             .with_css("position: relative; width: 30px; height: 30px;")
-            .with_child(chip(a.s.bg, "photo-bg-chip").with_css("position: absolute; left: 10px; top: 10px;"))
-            .with_child(chip(a.s.fg, "photo-fg-chip").with_css("position: absolute; left: 0px; top: 0px;"))
+            .with_child(chip(a.s.bg, ids::BG_CHIP).with_css("position: absolute; left: 10px; top: 10px;"))
+            .with_child(chip(a.s.fg, ids::FG_CHIP).with_css("position: absolute; left: 0px; top: 0px;"))
             .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), cmd(app, Command::SwapColors), commands::on_command),
     );
     col
@@ -526,7 +524,7 @@ fn tools_column(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
 
 // ==== Panels ====
 
-fn section(title: &str, id: &str, p: &Palette, body: Dom) -> Dom {
+fn section(title: &str, id: AzString, p: &Palette, body: Dom) -> Dom {
     column(&format!("border-bottom: 1px solid {}; padding: 6px 8px; flex-shrink: 0;", p.line))
         .with_id(id)
         .with_child(text(
@@ -542,7 +540,7 @@ fn navigator_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
     if let Some(image) = crate::codec::view_image(thumb.width, thumb.height, &thumb.bgra) {
         body.add_child(
             Dom::create_image(image)
-                .with_id("photo-navigator-image")
+                .with_id(ids::NAVIGATOR_IMAGE)
                 .with_css(format!("width: {}px; height: {}px; margin-bottom: 4px;", thumb.width, thumb.height)),
         );
     }
@@ -554,13 +552,13 @@ fn navigator_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
                     .with_accessibility_name(AzString::from("Zoom %"))
                     .with_on_value_change(field(app, Field::ZoomPercent), commands::on_number as NumberInputOnValueChangeCallbackType)
                     .dom()
-                    .with_id("photo-zoom-input")
+                    .with_id(ids::ZOOM_INPUT)
                     .with_css("width: 70px;"),
             )
             .with_child(icon_button(app, "zoom_in", "Zoom in", Command::ZoomIn))
             .with_child(button(app, "Fit", Command::Fit)),
     );
-    section("NAVIGATOR", "panel-navigator", p, body)
+    section("NAVIGATOR", ids::PANEL_NAVIGATOR, p, body)
 }
 
 fn color_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
@@ -574,7 +572,7 @@ fn color_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
     for (i, c) in a.s.swatches.iter().enumerate() {
         swatches.add_child(
             Dom::create_div()
-                .with_id(format!("swatch-{i}"))
+                .with_id(ids::numbered(ids::SWATCH_PREFIX, i))
                 .with_css(format!(
                     "width: 18px; height: 18px; margin: 0px 3px 3px 0px; background: {}; border: 1px solid {};",
                     hex(*c),
@@ -607,7 +605,7 @@ fn color_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
                 .with_child(button(app, "Default", Command::DefaultColors)),
         )
         .with_child(swatches);
-    section("COLOR", "panel-color", p, body)
+    section("COLOR", ids::PANEL_COLOR, p, body)
 }
 
 fn layer_icon(content: &LayerContent) -> &'static str {
@@ -633,7 +631,7 @@ fn layers_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
                         .with_accessibility_name(AzString::from("Blend mode"))
                         .with_on_choice_change(field(app, Field::LayerBlend), commands::on_choice as DropDownOnChoiceChangeCallbackType)
                         .dom()
-                        .with_id("layer-blend")
+                        .with_id(ids::LAYER_BLEND)
                         .with_css("margin-right: 8px;"),
                 )
                 .with_child(text("Opacity", &format!("font-size: 12px; color: {}; margin-right: 4px;", p.muted)))
@@ -642,7 +640,7 @@ fn layers_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
                         .with_accessibility_name(AzString::from("Layer opacity %"))
                         .with_on_value_change(field(app, Field::LayerOpacity), commands::on_number as NumberInputOnValueChangeCallbackType)
                         .dom()
-                        .with_id("layer-opacity-input")
+                        .with_id(ids::LAYER_OPACITY_INPUT)
                         .with_css("width: 52px;"),
                 ),
         );
@@ -651,11 +649,11 @@ fn layers_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
                 .with_accessibility_name(AzString::from("Layer opacity"))
                 .with_on_value_change(field(app, Field::LayerOpacity), commands::on_slider as SliderOnValueChangeCallbackType)
                 .dom()
-                .with_id("layer-opacity")
+                .with_id(ids::LAYER_OPACITY)
                 .with_css("margin-bottom: 6px;"),
         );
     }
-    let mut list = column(&format!("border: 1px solid {}; min-height: 60px;", p.line)).with_id("layer-list");
+    let mut list = column(&format!("border: 1px solid {}; min-height: 60px;", p.line)).with_id(ids::LAYER_LIST);
     for (depth, id) in layer::rows(&doc.layers) {
         let Some(l) = doc.layer(id) else {
             continue;
@@ -667,7 +665,7 @@ fn layers_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
             p.line,
             if selected { format!("background: {};", p.selected) } else { String::new() }
         ))
-        .with_id(format!("layer-row-{id}"))
+        .with_id(ids::numbered(ids::LAYER_ROW_PREFIX, id))
         .with_callback(EventFilter::Hover(HoverEventFilter::MouseDown), cmd(app, Command::LayerPress(id)), commands::on_command)
         .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), cmd(app, Command::LayerRelease(id)), commands::on_command)
         .with_child(icon_button(
@@ -703,23 +701,23 @@ fn layers_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
     body.add_child(list);
     body.add_child(
         row("margin-top: 4px; flex-wrap: wrap;")
-            .with_child(icon_button(app, "add", "New layer", Command::NewLayer).with_id("layer-new"))
-            .with_child(icon_button(app, "create_new_folder", "New group", Command::NewGroup).with_id("layer-new-group"))
-            .with_child(icon_button(app, "control_point_duplicate", "Duplicate layer", Command::Duplicate).with_id("layer-duplicate"))
-            .with_child(icon_button(app, "merge_type", "Merge down", Command::MergeDown).with_id("layer-merge"))
-            .with_child(icon_button(app, "arrow_upward", "Move up", Command::LayerUp).with_id("layer-up"))
-            .with_child(icon_button(app, "arrow_downward", "Move down", Command::LayerDown).with_id("layer-down"))
-            .with_child(icon_button(app, "delete", "Delete layer", Command::Delete).with_id("layer-delete")),
+            .with_child(icon_button(app, "add", "New layer", Command::NewLayer).with_id(ids::LAYER_NEW))
+            .with_child(icon_button(app, "create_new_folder", "New group", Command::NewGroup).with_id(ids::LAYER_NEW_GROUP))
+            .with_child(icon_button(app, "control_point_duplicate", "Duplicate layer", Command::Duplicate).with_id(ids::LAYER_DUPLICATE))
+            .with_child(icon_button(app, "merge_type", "Merge down", Command::MergeDown).with_id(ids::LAYER_MERGE))
+            .with_child(icon_button(app, "arrow_upward", "Move up", Command::LayerUp).with_id(ids::LAYER_UP))
+            .with_child(icon_button(app, "arrow_downward", "Move down", Command::LayerDown).with_id(ids::LAYER_DOWN))
+            .with_child(icon_button(app, "delete", "Delete layer", Command::Delete).with_id(ids::LAYER_DELETE)),
     );
-    section("LAYERS", "panel-layers", p, body)
+    section("LAYERS", ids::PANEL_LAYERS, p, body)
 }
 
 fn adjustments_panel(app: &RefAny, p: &Palette) -> Dom {
     let mut body = row("flex-wrap: wrap;");
     for (i, a) in Adjustment::catalog().iter().enumerate() {
-        body.add_child(button(app, a.name(), Command::NewAdjustment(i)).with_id(format!("adjust-{i}")).with_css("margin: 0px 4px 4px 0px;"));
+        body.add_child(button(app, a.name(), Command::NewAdjustment(i)).with_id(ids::numbered(ids::ADJUST_PREFIX, i)).with_css("margin: 0px 4px 4px 0px;"));
     }
-    section("ADJUSTMENTS", "panel-adjustments", p, body)
+    section("ADJUSTMENTS", ids::PANEL_ADJUSTMENTS, p, body)
 }
 
 fn properties_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
@@ -754,12 +752,12 @@ fn properties_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
     if let Some(label) = commands::selection_label(a) {
         body.add_child(text(&label, &format!("font-size: 11px; color: {}; margin-top: 4px;", p.muted)));
     }
-    section("PROPERTIES", "panel-properties", p, body)
+    section("PROPERTIES", ids::PANEL_PROPERTIES, p, body)
 }
 
 fn history_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
     let (labels, current) = a.s.engine.history();
-    let mut list = column("").with_id("history-list");
+    let mut list = column("").with_id(ids::HISTORY_LIST);
     for (i, label) in labels.iter().enumerate() {
         let css = format!(
             "font-size: 12px; padding: 2px 6px; color: {}; {}",
@@ -768,7 +766,7 @@ fn history_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
         );
         list.add_child(
             text(label, &css)
-                .with_id(format!("history-{i}"))
+                .with_id(ids::numbered(ids::HISTORY_PREFIX, i))
                 .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), cmd(app, Command::HistoryJump(i)), commands::on_command),
         );
     }
@@ -776,16 +774,16 @@ fn history_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
         .with_child(list)
         .with_child(
             row("margin-top: 4px;")
-                .with_child(icon_button(app, "undo", "Undo", Command::Undo).with_id("history-undo"))
-                .with_child(icon_button(app, "redo", "Redo", Command::Redo).with_id("history-redo")),
+                .with_child(icon_button(app, "undo", "Undo", Command::Undo).with_id(ids::HISTORY_UNDO))
+                .with_child(icon_button(app, "redo", "Redo", Command::Redo).with_id(ids::HISTORY_REDO)),
         );
-    section("HISTORY", "panel-history", p, body)
+    section("HISTORY", ids::PANEL_HISTORY, p, body)
 }
 
 /// The panels column (scrolls when it is taller than the window).
 fn panels(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
     column(&format!("background: {}; overflow-y: auto; min-height: 0px; flex-grow: 1;", p.panel))
-        .with_id("photo-panels")
+        .with_id(ids::PANELS)
         .with_child(navigator_panel(app, a, p))
         .with_child(color_panel(app, a, p))
         .with_child(layers_panel(app, a, p))
@@ -819,7 +817,7 @@ fn ruler(a: &PhotoApp, p: &Palette, horizontal: bool) -> Dom {
     };
     let first = ((-pan / v.zoom) / step as f32).floor() as i32 * step;
     let mut r = Dom::create_div()
-        .with_id(if horizontal { "photo-ruler-x" } else { "photo-ruler-y" })
+        .with_id(if horizontal { ids::RULER_X } else { ids::RULER_Y })
         .with_css(format!(
             "position: relative; overflow: hidden; background: {}; {}",
             p.ruler,
@@ -872,7 +870,7 @@ fn doc_tab(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
     row(&format!("padding: 2px 8px; background: {}; flex-shrink: 0;", p.chrome))
         .with_child(
             row(&format!("padding: 2px 8px; background: {}; border-radius: 4px 4px 0px 0px;", p.panel))
-                .with_id("photo-doc-tab")
+                .with_id(ids::DOC_TAB)
                 .with_child(text(
                     &format!("{}{}", a.s.name, if a.s.modified { " \u{25cf}" } else { "" }),
                     &format!("font-size: 12px; color: {}; margin-right: 6px;", p.text),
@@ -884,20 +882,20 @@ fn doc_tab(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
 fn status_bar(a: &PhotoApp) -> Dom {
     let (w, h) = a.s.engine.size();
     let mut segments = vec![
-        StatusBarSegment::create(AzString::from(a.s.view.percent_label())).with_marker(AzString::from("photo-zoom")),
+        StatusBarSegment::create(AzString::from(a.s.view.percent_label())).with_marker(ids::ZOOM),
         StatusBarSegment::create(AzString::from(format!("{w} x {h} px \u{b7} RGBA 8-bit"))),
-        StatusBarSegment::create(AzString::from(canvas::cursor_label(a))).with_marker(AzString::from(canvas::CURSOR_MARKER)),
+        StatusBarSegment::create(AzString::from(canvas::cursor_label(a))).with_marker(ids::CURSOR),
     ];
     if a.busy > 0 {
         segments.push(StatusBarSegment::create(AzString::from("Working...")));
     }
-    StatusBar::create(segments).dom().with_id("photo-status")
+    StatusBar::create(segments).dom().with_id(ids::STATUS)
 }
 
 // ==== Start screen ====
 
 fn start_screen(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
-    let mut recent = column("margin-top: 16px; min-width: 360px;").with_id("photo-recent");
+    let mut recent = column("margin-top: 16px; min-width: 360px;").with_id(ids::RECENT);
     if a.recent.is_empty() {
         recent.add_child(
             ShellEmptyState::create(AzString::from("No saved documents yet"))
@@ -910,19 +908,19 @@ fn start_screen(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
         for (i, d) in a.recent.iter().enumerate().take(12) {
             recent.add_child(
                 row("margin-bottom: 2px;")
-                    .with_child(button(app, &d.name, Command::OpenRecent(d.uuid.clone())).with_id(format!("recent-{i}")))
+                    .with_child(button(app, &d.name, Command::OpenRecent(d.uuid.clone())).with_id(ids::numbered(ids::RECENT_PREFIX, i)))
                     .with_child(text(&format!("{} x {} px", d.width, d.height), &format!("font-size: 12px; color: {}; margin-left: 8px;", p.muted))),
             );
         }
     }
     column(&format!("flex-grow: 1; align-items: center; justify-content: center; background: {};", p.panel))
-        .with_id("photo-start")
+        .with_id(ids::START)
         .with_child(text("AzPhoto", &format!("font-size: 28px; font-weight: bold; color: {}; margin-bottom: 12px;", p.text)))
         .with_child(
             row("")
-                .with_child(button(app, "Open...", Command::Open).with_id("start-open").with_css("margin-right: 8px;"))
-                .with_child(button(app, "New image...", Command::Sheet(Sheet::NewImage)).with_id("start-new").with_css("margin-right: 8px;"))
-                .with_child(button(app, "Open sample", Command::OpenSample).with_id("start-sample")),
+                .with_child(button(app, "Open...", Command::Open).with_id(ids::START_OPEN).with_css("margin-right: 8px;"))
+                .with_child(button(app, "New image...", Command::Sheet(Sheet::NewImage)).with_id(ids::START_NEW).with_css("margin-right: 8px;"))
+                .with_child(button(app, "Open sample", Command::OpenSample).with_id(ids::START_SAMPLE)),
         )
         .with_child(text(
             "Opens PNG \u{b7} JPEG \u{b7} WebP \u{b7} GIF (first frame) \u{b7} BMP \u{b7} TIFF \u{b7} TGA",
@@ -941,13 +939,13 @@ fn start_screen(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
 /// the body, then Cancel (Close) and the OK button when it has one.
 fn sheet_frame(app: &RefAny, _p: &Palette, title: &str, body: Dom, ok: Option<(&str, Command)>) -> Dom {
     let mut buttons = row("justify-content: flex-end; margin-top: 12px;");
-    buttons.add_child(button(app, if ok.is_some() { "Cancel" } else { "Close" }, Command::CloseSheet).with_id("sheet-cancel"));
+    buttons.add_child(button(app, if ok.is_some() { "Cancel" } else { "Close" }, Command::CloseSheet).with_id(ids::SHEET_CANCEL));
     if let Some((label, command)) = ok {
         buttons.add_child(
             Button::with_type(AzString::from(label), ButtonType::Primary)
                 .with_on_click(cmd(app, command), commands::on_command as ButtonOnClickCallbackType)
                 .dom()
-                .with_id("sheet-ok")
+                .with_id(ids::SHEET_OK)
                 .with_css("margin-left: 8px;"),
         );
     }
@@ -958,7 +956,7 @@ fn sheet_frame(app: &RefAny, _p: &Palette, title: &str, body: Dom, ok: Option<(&
         .with_close_button(true)
         .with_on_close(app.clone(), commands::on_sheet_close as DialogOnCloseCallbackType)
         .dom()
-        .with_id("photo-sheet")
+        .with_id(ids::SHEET)
 }
 
 fn sheet_dom(app: &RefAny, a: &PhotoApp, p: &Palette, sheet: Sheet) -> Dom {
@@ -1059,7 +1057,7 @@ fn sheet_dom(app: &RefAny, a: &PhotoApp, p: &Palette, sheet: Sheet) -> Dom {
                 .with_close_button(true)
                 .with_on_close(app.clone(), commands::on_sheet_close as DialogOnCloseCallbackType)
                 .dom()
-                .with_id("photo-sheet")
+                .with_id(ids::SHEET)
         }
     }
 }
