@@ -58,7 +58,21 @@ headless Chrome and the prebuilt azul (AzPaint `mount`, capped runner), prints r
   skip a marker that has a host, a marker IFC collects only its marker; no marker box for none.
 
 ## IN PROGRESS
-- item 10: a block taller than a page overflows its sheet (pagination, NOT page_breaks.rs) - study + RED
+- item 10: a block taller than a page overflows its sheet. FINDINGS so far: the engine's pagination
+  (page_breaks.rs slicer + paged_layout.rs `pagination_to_dom_breaks`) already SPLITS a tall block:
+  a paragraph between line boxes (StructuralBreak.line_start = (run, byte), pinned by
+  layout/tests/pagination_dom_breaks.rs mid_paragraph_break_exposes_the_line_start_byte), a monolith
+  taller than the page is torn/sliced (css-break-3 permits slicing in paged media). The overflow is the
+  CONSUMER: AzWriter paginate.rs `starts_from_breaks` keeps only `break_path(i)[0]` (whole blocks) and
+  `RichTextEditor::page_doms` takes block starts only (WIDGETS7 / OFFICE7 files). Engine gap in reach:
+  `PaginationSnapshot` (layout/src/resource_handles.rs) does not expose `line_start` over the FFI.
+  NEXT: (a) RED test layout/tests/a_block_taller_than_a_page_is_split_across_pages.rs - a tall
+  paragraph -> breaks inside it carry a line start through the snapshot handle
+  (PaginationSnapshot::from_analysis with structural breaks), a tall monolithic box (overflow:hidden
+  fixed height 500 in 200px pages) -> sliced: page_count 3, next block after it; (b) GREEN: add
+  `PaginationSnapshot::break_line_start_run(index) -> Option<u32>` / `break_line_start_byte(index)`
+  (api.json: OptionU32 returns) in resource_handles.rs; (c) report the consumer change for
+  WIDGETS7 (page_doms with (block, byte) page starts) and OFFICE7 (starts_from_breaks).
 - DECISION: item 6 (CSS zoom) moved after items 7-10: a new CssProperty touches property.rs (~30 spots),
   css codegen (format.rs, lower_types.rs ~9 lists), core prop_cache, 30 codegen golden files, and the
   used-length effect needs ~140 resolution sites or a paint transform in core/gpu.rs + display_list
