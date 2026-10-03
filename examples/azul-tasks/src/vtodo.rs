@@ -14,10 +14,16 @@
 //! `COMPLETED`, `CATEGORIES`, `RRULE` when a to-do's repeat can hold it. What cannot be read
 //! is said, one sentence each; the rest of the file is still read.
 
-use azul_pim::content_line::{fold, parse_line, unfold, ContentLine};
+use azul_pim::{
+    content_line::{escape_text, fold, parse_line, unfold, ContentLine},
+    rrule::Rule,
+};
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 
-use crate::model::{Priority, Task};
+use crate::{
+    model::{Priority, Task},
+    recur::Repeat,
+};
 
 /// The `PRODID` AzTasks writes.
 pub const PRODID: &str = "-//Azlin//AzTasks//EN";
@@ -41,8 +47,186 @@ pub fn write(
     stamp: NaiveDateTime,
     to_utc: &dyn Fn(NaiveDateTime) -> NaiveDateTime,
 ) -> String {
-    let _ = (tasks, name, stamp, to_utc);
-    todo!()
+    let mut out = String::new();
+    let mut push = |l: ContentLine| {
+        out.push_str(&fold(&l.to_line()));
+        out.push_str("\r\n");
+    };
+    let raw = ContentLine::new;
+    push(raw("BEGIN", "VCALENDAR"));
+    push(raw("VERSION", "2.0"));
+    push(raw("PRODID", PRODID));
+    if !name.trim().is_empty() {
+        push(ContentLine::text_value("X-WR-CALNAME", name.trim()));
+    }
+    for t in tasks {
+        push(raw("BEGIN", "VTODO"));
+        push(raw("UID", &t.id));
+        push(raw("DTSTAMP", &utc_moment(stamp)));
+        push(ContentLine::text_value("SUMMARY", &t.title));
+        if !t.notes.is_empty() {
+            push(ContentLine::text_value("DESCRIPTION", &t.notes));
+        }
+        if let Some(due) = t.due {
+            match t.due_time {
+                // A floating local time, as the task's own.
+                Some(time) => push(raw("DUE", &local_moment(due.and_time(time)))),
+                None => push(raw("DUE", &basic_date(due)).with_param("VALUE", &["DATE"])),
+            }
+            // A repeat RRULE cannot say (counting from the completion) stays in AzTasks.
+            if let Some(rule) = t.repeat.as_ref().and_then(|r| r.to_rule(due)) {
+                push(raw("RRULE", &rule.to_rrule(t.due_time.is_none())));
+            }
+        }
+        if let Some(p) = priority_number(t.priority) {
+            push(raw("PRIORITY", &p.to_string()));
+        }
+        if !t.tags.is_empty() {
+            let tags: Vec<String> = t.tags.iter().map(|tag| escape_text(tag)).collect();
+            push(raw("CATEGORIES", &tags.join(",")));
+        }
+        match t.completed {
+            Some(done) => {
+                push(raw("STATUS", "COMPLETED"));
+                push(raw("COMPLETED", &utc_moment(to_utc(done))));
+            }
+            None => push(raw("STATUS", "NEEDS-ACTION")),
+        }
+        push(raw("END", "VTODO"));
+    }
+    push(raw("END", "VCALENDAR"));
+    out
+}
+
+/// `20261014`.
+fn basic_date(d: NaiveDate) -> String {
+    d.format("%Y%m%d").to_string()
+}
+
+/// `20261014T093000`: a floating local moment.
+fn local_moment(at: NaiveDateTime) -> String {
+    at.format("%Y%m%dT%H%M%S").to_string()
+}
+
+/// `20261014T093000Z`: a moment in UTC.
+fn utc_moment(at: NaiveDateTime) -> String {
+    format!("{}Z", local_moment(at))
+}
+
+/// The iCalendar PRIORITY of a priority (none: no PRIORITY line).
+fn priority_number(p: Priority) -> Option<u8> {
+    match p {
+        Priority::High => Some(1),
+        Priority::Medium => Some(5),
+        Priority::Low => Some(9),
+        Priority::None => None,
+    }
+}
+
+/// The priority of an iCalendar PRIORITY: 1-4 high, 5 medium, 6-9 low, else none.
+fn priority_of(number: &str) -> Priority {
+    match number.trim().parse::<u8>() {
+        Ok(1..=4) => Priority::High,
+        Ok(5) => Priority::Medium,
+        Ok(6..=9) => Priority::Low,
+        _ => Priority::None,
+    }
+}
+
+/// A DUE / DTSTART / COMPLETED value: a date (`VALUE=DATE` or 8 digits), or a date and time -
+/// floating or with a TZID as its wall time, in UTC (`Z`) turned local by `to_local`.
+fn moment(
+    l: &ContentLine,
+    to_local: &dyn Fn(NaiveDateTime) -> NaiveDateTime,
+) -> Option<(NaiveDate, Option<NaiveTime>)> {
+    let v = l.value.trim();
+    let date_only = l
+        .param_value("VALUE")
+        .is_some_and(|value| value.eq_ignore_ascii_case("DATE"))
+        || v.len() == 8;
+    if date_only {
+        return NaiveDate::parse_from_str(v, "%Y%m%d").ok().map(|d| (d, None));
+    }
+    let (body, utc) = match v.strip_suffix(['Z', 'z']) {
+        Some(body) => (body, true),
+        None => (v, false),
+    };
+    let at = NaiveDateTime::parse_from_str(body, "%Y%m%dT%H%M%S").ok()?;
+    let at = if utc { to_local(at) } else { at };
+    Some((at.date(), Some(at.time())))
+}
+
+/// One VTODO's lines as a task of `list` (`None`, and why in `problems`, without a title).
+fn to_task(
+    lines: &[ContentLine],
+    list: &str,
+    now: NaiveDateTime,
+    new_id: &mut dyn FnMut() -> String,
+    to_local: &dyn Fn(NaiveDateTime) -> NaiveDateTime,
+    problems: &mut Vec<String>,
+) -> Option<Task> {
+    let get = |name: &str| lines.iter().find(|l| l.name == name);
+    let title = get("SUMMARY")
+        .map(|l| l.text().trim().to_string())
+        .unwrap_or_default();
+    if title.is_empty() {
+        let uid = get("UID").map(|l| format!(" ({})", l.text())).unwrap_or_default();
+        problems.push(format!("A to-do with no title{uid} was left out."));
+        return None;
+    }
+    let mut t = Task::new(new_id(), list.to_string(), title, now);
+    t.notes = get("DESCRIPTION").map(ContentLine::text).unwrap_or_default();
+    if let Some(l) = get("DUE").or_else(|| get("DTSTART")) {
+        match moment(l, to_local) {
+            Some((date, time)) => {
+                t.due = Some(date);
+                t.due_time = time;
+            }
+            None => problems.push(format!(
+                "{:?}: the date {:?} could not be read; it was imported without a date.",
+                t.title, l.value
+            )),
+        }
+    }
+    if let Some(l) = get("PRIORITY") {
+        t.priority = priority_of(&l.value);
+    }
+    for l in lines.iter().filter(|l| l.name == "CATEGORIES") {
+        for tag in l.list() {
+            let tag = tag.trim_start_matches('#').trim().to_string();
+            if !tag.is_empty() && !t.tags.iter().any(|x| x.eq_ignore_ascii_case(&tag)) {
+                t.tags.push(tag);
+            }
+        }
+    }
+    let status_done =
+        get("STATUS").is_some_and(|l| l.value.trim().eq_ignore_ascii_case("COMPLETED"));
+    let completed = get("COMPLETED")
+        .and_then(|l| moment(l, to_local))
+        .map(|(d, time)| d.and_time(time.unwrap_or(NaiveTime::MIN)));
+    if status_done || completed.is_some() {
+        t.completed = Some(completed.unwrap_or(now));
+    }
+    if let Some(l) = get("RRULE") {
+        match t.due {
+            None => problems.push(format!(
+                "{:?} repeats but has no date; it was imported without its repeat.",
+                t.title
+            )),
+            Some(due) => match Rule::parse(&l.value)
+                .ok()
+                .and_then(|rule| Repeat::from_rule(&rule, due))
+            {
+                Some(repeat) => t.repeat = Some(repeat),
+                None => problems.push(format!(
+                    "{:?} repeats in a way a to-do cannot ({}); it was imported without its \
+                     repeat.",
+                    t.title, l.value
+                )),
+            },
+        }
+    }
+    Some(t)
 }
 
 /// The VTODOs of `text` as new tasks of the list `list`, each with an id from `new_id`, made
@@ -54,16 +238,74 @@ pub fn read(
     new_id: &mut dyn FnMut() -> String,
     to_local: &dyn Fn(NaiveDateTime) -> NaiveDateTime,
 ) -> Imported {
-    let _ = (text, list, now, new_id, to_local);
-    todo!()
+    let mut out = Imported::default();
+    // The lines of the VTODO being read, and how deep inside it a component (a VALARM) is.
+    let mut current: Option<Vec<ContentLine>> = None;
+    let mut nested = 0usize;
+    let mut seen = 0usize;
+    for raw in unfold(text) {
+        let line = match parse_line(&raw) {
+            Ok(line) => line,
+            Err(e) => {
+                out.problems
+                    .push(format!("A line could not be read ({e}); it was left out."));
+                continue;
+            }
+        };
+        let value = line.value.trim().to_ascii_uppercase();
+        let name = line.name.clone();
+        let open = current.is_some();
+        match name.as_str() {
+            "BEGIN" if !open && value == "VTODO" => {
+                current = Some(Vec::new());
+                nested = 0;
+                seen += 1;
+            }
+            "BEGIN" if open => nested += 1,
+            "END" if open && nested > 0 => nested -= 1,
+            "END" if open && value == "VTODO" => {
+                if let Some(lines) = current.take() {
+                    if let Some(task) =
+                        to_task(&lines, list, now, new_id, to_local, &mut out.problems)
+                    {
+                        out.tasks.push(task);
+                    }
+                }
+            }
+            _ if open && nested == 0 => {
+                if let Some(lines) = current.as_mut() {
+                    lines.push(line);
+                }
+            }
+            _ => {}
+        }
+    }
+    if seen == 0 {
+        out.problems
+            .push(String::from("There are no to-dos (VTODO) in the file."));
+    }
+    out
 }
 
 /// The export's file name for the list `name`: `Work.ics` (a character a file name cannot
 /// hold becomes `_`; no name: `Tasks.ics`).
 #[must_use]
 pub fn file_name_for(name: &str) -> String {
-    let _ = name;
-    todo!()
+    let name = name.trim();
+    if name.is_empty() {
+        return String::from("Tasks.ics");
+    }
+    let safe: String = name
+        .chars()
+        .map(|c| {
+            if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    format!("{safe}.ics")
 }
 
 #[cfg(test)]
