@@ -508,6 +508,8 @@ pub fn todo_bar(s: &Tasks, app: &RefAny, now: NaiveDateTime) -> Dom {
         .with_today(ty, tm, td)
         .with_appointments(StringVec::from(appointments))
         .with_appointments_empty("No reminders on this day.")
+        // The calendar's rows start on the settings' week start (WIDGETS7's ToDoBar week start).
+        .with_week_start(crate::repeat_form::picker_week_start(s.settings.week_start))
         .with_task_line(line, s.drafts.todo.as_str())
         .with_tasks(tasks)
         .with_accessibility_name("To-Do bar")

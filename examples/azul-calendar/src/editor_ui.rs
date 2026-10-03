@@ -13,7 +13,8 @@
 
 use azul::{
     callbacks::{
-        ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, CloseGuardOnEventCallbackType,
+        ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, CloseGuardDirtyCheckCallbackType,
+        CloseGuardOnEventCallbackType,
         DatePickerOnChangeCallbackType, DateRepeatPickerOnChangeCallbackType,
         SegmentedOnChangeCallbackType, TextAreaOnTextInputCallbackType,
         TimePickerOnChangeCallbackType,
@@ -24,7 +25,8 @@ use azul::{
     str::String as AzString,
     vec::StringVec,
     widgets::{
-        ButtonType, CheckBoxState, CloseGuard, CloseGuardEvent, CloseGuardEventKind, DatePicker,
+        ButtonType, CheckBoxState, CloseGuard, CloseGuardDocumentState, CloseGuardEvent,
+        CloseGuardEventKind, DatePicker,
         DatePickerState, DatePickerWeekStart,
         OnTextInputReturn, DateRepeatPicker, DateRepeatRule, Ribbon, RibbonButton, RibbonGroup,
         RibbonItem, RibbonTab, Segmented, SegmentedState, TextArea, TextAreaState,
@@ -195,13 +197,12 @@ extern "C" fn editor_layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             .with_css(PAGE)
             .with_child(Dom::create_span_with_text("This appointment is closed.")),
     };
-    // "Save changes?" over the window: the close guard's question and answers. Its veto is
-    // `on_editor_close_requested`'s, made from the form as it is when the close comes - the
-    // guard's own reads the form as this DOM was built, and would stop the close a Save &
-    // Close makes right after its save (reported to INFRA6).
+    // "Save changes?" over the window: the close guard holds a close while the form differs
+    // from the one it opened with - asked when the close comes (`editor_dirty_check`), so the
+    // close a Save & Close makes right after its save passes (WIDGETS7's dirty check).
     let shell = match &s.editor {
         Some(form) => CloseGuard::create(shell, form.window_title())
-            .with_dirty(false)
+            .with_dirty_check(app.clone(), editor_dirty_check as CloseGuardDirtyCheckCallbackType)
             .with_asking(s.editor_asking)
             .with_on_event(app.clone(), on_editor_answer as CloseGuardOnEventCallbackType)
             .dom(),
@@ -900,17 +901,13 @@ fn save(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
 
 /// Cancel / Close: the window goes, nothing is saved.
 extern "C" fn on_cancel(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some(mut s) = data.downcast_mut::<CalState>() else {
+    // An edited appointment asks first (Outlook's "Do you want to save changes?"): the close
+    // guard holds the close and asks; a clean one closes (`on_editor_close_requested`).
+    if data.downcast_ref::<CalState>().map_or(true, |s| s.editor.is_none()) {
         return Update::DoNothing;
-    };
-    // An edited appointment asks first (Outlook's "Do you want to save changes?").
-    if s.editor_dirty() {
-        s.editor_asking = true;
-        return Update::RefreshDom;
     }
-    closed(&mut s);
     info.close_window();
-    Update::RefreshDomAllWindows
+    Update::DoNothing
 }
 
 /// Delete: the event's file goes (every occurrence of a repeating one).
@@ -975,23 +972,28 @@ extern "C" fn on_delete_occurrence(mut data: RefAny, mut info: CallbackInfo) -> 
 }
 
 /// The window is closed by its close button (or the system): the form goes unsaved.
-extern "C" fn on_editor_close_requested(mut data: RefAny, mut info: CallbackInfo) -> Update {
+extern "C" fn on_editor_close_requested(mut data: RefAny, _info: CallbackInfo) -> Update {
     let Some(mut s) = data.downcast_mut::<CalState>() else {
         return Update::DoNothing;
     };
-    if s.editor.is_none() {
+    // An edited appointment is not lost to the close button (B29): the close guard holds the
+    // close (its dirty check is `editor_dirty_check`) and asks "save changes?"
+    // (`on_editor_answer` hears it). A clean one closes, and its form goes with it.
+    if s.editor.is_none() || s.editor_dirty() {
         return Update::DoNothing;
-    }
-    // An edited appointment is not lost to the close button (B29): the close is held and the
-    // window asks "save changes?" (`on_editor_answer` hears the answer).
-    if s.editor_dirty() {
-        s.editor_asking = true;
-        println!("AZCAL_EDITOR asking");
-        info.prevent_window_close();
-        return Update::RefreshDom;
     }
     closed(&mut s);
     Update::RefreshDomAllWindows
+}
+
+/// The close guard asks this when a close request arrives: does the form hold edits NOW (it
+/// differs from the one the editor opened with)? A form just saved is gone, so a Save & Close
+/// passes.
+extern "C" fn editor_dirty_check(mut data: RefAny, _info: CallbackInfo) -> CloseGuardDocumentState {
+    match data.downcast_ref::<CalState>() {
+        Some(s) if s.editor_dirty() => CloseGuardDocumentState::Unsaved,
+        _ => CloseGuardDocumentState::Saved,
+    }
 }
 
 /// The answer to "save changes?": Save saves and closes (or shows why it cannot), Don't Save
@@ -1015,7 +1017,16 @@ extern "C" fn on_editor_answer(
             closed(&mut s);
             Update::RefreshDomAllWindows
         }
-        CloseGuardEventKind::Cancel | CloseGuardEventKind::Ask => {
+        // The guard held a close of an edited appointment: show the question.
+        CloseGuardEventKind::Ask => {
+            let Some(mut s) = data.downcast_mut::<CalState>() else {
+                return Update::DoNothing;
+            };
+            s.editor_asking = true;
+            println!("AZCAL_EDITOR asking");
+            Update::RefreshDom
+        }
+        CloseGuardEventKind::Cancel => {
             let Some(mut s) = data.downcast_mut::<CalState>() else {
                 return Update::DoNothing;
             };

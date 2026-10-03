@@ -381,6 +381,8 @@ fn todo_bar(s: &CalState, app: &RefAny) -> Dom {
         s.anchor.day(),
     )
     .with_today(s.today.year().max(1) as u32, s.today.month(), s.today.day())
+    // The calendar's weeks run Monday to Sunday: so do the To-Do bar's rows (WIDGETS7).
+    .with_week_start(DatePickerWeekStart::Monday)
     .with_appointments(StringVec::from(appointments))
     .with_appointments_empty("No upcoming appointments.")
     .with_task_line("Type a new task", s.task_text.as_str())
