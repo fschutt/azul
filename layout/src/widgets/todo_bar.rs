@@ -672,7 +672,7 @@ pub(crate) fn build(bar: ToDoBar, look: &ToDoBarLook) -> Dom {
         on_appointment,
         calendar,
         today,
-        week_start: _,
+        week_start,
         theme,
     } = bar;
     let theme = theme.into_option();
@@ -693,6 +693,7 @@ pub(crate) fn build(bar: ToDoBar, look: &ToDoBarLook) -> Dom {
     // The calendar: the date picker, inline, today ringed.
     let mut picker = DatePicker::create(calendar.year, calendar.month, calendar.day)
         .with_inline(true)
+        .with_week_start(week_start)
         .with_accessibility_name("Calendar")
         .with_on_change(shared.clone(), on_calendar_change as DatePickerOnChangeCallbackType);
     if let Some(t) = today.into_option() {
