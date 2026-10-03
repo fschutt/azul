@@ -95,8 +95,19 @@ pub fn site_name(link: &str) -> String {
 /// `*.invalid`): no feed is ever there - the `--sample` library's addresses, which a refresh
 /// does not ask.
 #[must_use]
-pub fn is_documentation_host(_link: &str) -> bool {
-    false
+pub fn is_documentation_host(link: &str) -> bool {
+    let Some(host) = url::Url::parse(link.trim())
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_ascii_lowercase))
+    else {
+        return false;
+    };
+    let host = host.trim_end_matches('.');
+    ["example.com", "example.net", "example.org"]
+        .iter()
+        .any(|d| host == *d || host.ends_with(&format!(".{d}")))
+        || host.ends_with(".example")
+        || host.ends_with(".invalid")
 }
 
 /// Whether the address is on the web (`http:` / `https:`) - what may be fetched.
