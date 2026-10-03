@@ -14463,6 +14463,126 @@ impl LayoutWindow {
             })
     }
 
+    /// The FLIP transform to PUBLISH for every node in a move / enter / exit
+    /// animation: its own - in ABSOLUTE terms, old place minus new place -
+    /// relative to the sliding frame its frame is painted inside.
+    ///
+    /// The reconcile slides every node whose layout position changed, so
+    /// when a section moves, the section and each of its descendants slide
+    /// by the same absolute offset. The display list nests their reference
+    /// frames and every renderer composes nested frames: published as they
+    /// are, a child moved by its own offset and its parent's, a grandchild
+    /// three times (AzTasks mid-slide: rows over rows). Published relative to
+    /// the enclosing slide, a child that moves with its parent is still.
+    ///
+    /// Which frame encloses a node's is the display list's paint structure:
+    /// everything below a stacking context is painted inside its frame; an
+    /// in-flow box or a positioned box (`node_paints_as_positioned_box`)
+    /// wraps only what its in-flow walk paints - a stacking context or a
+    /// positioned box below it is painted by the enclosing stacking context.
+    /// With the enclosing slide `e` (origin `o`, scale `S`, offset `t`; the
+    /// frames act about their box's origin), `A = o - S o + t` and the
+    /// published slide of `n` is `S_n / S_e`, `(A_n - A_e) / S_e - o_n + S o_n`
+    /// - for pure moves simply `t_n - t_e`.
+    fn published_flips(&self) -> BTreeMap<NodeId, azul_core::animation::FlipTransform> {
+        use azul_core::animation::FlipTransform;
+
+        use crate::solver3::display_list::{
+            node_establishes_stacking_context, node_paints_as_positioned_box,
+        };
+
+        let own: BTreeMap<NodeId, FlipTransform> = self
+            .animations
+            .iter()
+            .filter_map(|(key, anim)| {
+                Some((
+                    self.anim_key_to_node.get(&key).copied()?,
+                    anim.current_transform(),
+                ))
+            })
+            .collect();
+        let Some(result) = self.layout_results.get(&DomId::ROOT_ID) else {
+            return own;
+        };
+        let tree = &result.layout_tree;
+        let styled_dom = &result.styled_dom;
+        let layout_index = |node: &NodeId| {
+            tree.dom_to_layout
+                .get(node)
+                .and_then(|indices| indices.first())
+                .map(|index| index.index())
+        };
+        let origin_of = |index: usize| {
+            result
+                .calculated_positions
+                .get(index)
+                .copied()
+                .unwrap_or_default()
+        };
+        // Painted by the stacking-context walk, not by an in-flow parent's.
+        let leaves_in_flow_frames = |index: usize| {
+            node_establishes_stacking_context(styled_dom, tree, index)
+                || node_paints_as_positioned_box(styled_dom, tree, index)
+        };
+
+        own.iter()
+            .map(|(node, t)| {
+                let Some(index) = layout_index(node) else {
+                    return (*node, *t);
+                };
+                // The nearest sliding ancestor whose frame paints this one.
+                let mut escaped = leaves_in_flow_frames(index);
+                let mut cur = index;
+                let mut enclosing: Option<(usize, FlipTransform)> = None;
+                for _ in 0..tree.nodes.len() {
+                    let Some(parent) = tree.get(LayoutNodeId::new(cur)).and_then(|n| n.parent)
+                    else {
+                        break;
+                    };
+                    let is_context = node_establishes_stacking_context(styled_dom, tree, parent);
+                    let slide = tree
+                        .get(LayoutNodeId::new(parent))
+                        .and_then(|n| n.dom_node_id)
+                        .and_then(|id| own.get(&id));
+                    if let Some(slide) = slide {
+                        if is_context || !escaped {
+                            enclosing = Some((parent, *slide));
+                            break;
+                        }
+                    }
+                    escaped |= is_context || leaves_in_flow_frames(parent);
+                    cur = parent;
+                }
+                let Some((e_index, e)) = enclosing else {
+                    return (*node, *t);
+                };
+                let (o_n, o_e) = (origin_of(index), origin_of(e_index));
+                let axis = |o_n: f32, s_n: f32, t_n: f32, o_e: f32, s_e: f32, t_e: f32| {
+                    if s_e.abs() < f32::EPSILON {
+                        return (s_n, t_n);
+                    }
+                    let a_n = o_n - s_n * o_n + t_n;
+                    let a_e = o_e - s_e * o_e + t_e;
+                    let s = s_n / s_e;
+                    (s, (a_n - a_e) / s_e - o_n + s * o_n)
+                };
+                let (scale_x, translate_x) =
+                    axis(o_n.x, t.scale_x, t.translate_x, o_e.x, e.scale_x, e.translate_x);
+                let (scale_y, translate_y) =
+                    axis(o_n.y, t.scale_y, t.translate_y, o_e.y, e.scale_y, e.translate_y);
+                (
+                    *node,
+                    FlipTransform {
+                        translate_x,
+                        translate_y,
+                        scale_x,
+                        scale_y,
+                    },
+                )
+            })
+            .collect()
+    }
+
     /// Advance layout animations by `dt` seconds and publish the result to the
     /// GPU value cache. Returns true while anything is still moving, which is
     /// the caller's signal to schedule another frame.
@@ -14497,6 +14617,10 @@ impl LayoutWindow {
             })
             .collect();
 
+        // Each slide relative to the sliding frame it is painted inside
+        // (`published_flips`), read BEFORE the GPU cache borrow below.
+        let published = self.published_flips();
+
         let dom_id = DomId::ROOT_ID;
         let cache = self.gpu_state_manager.caches.entry(dom_id).or_default();
 
@@ -14508,7 +14632,10 @@ impl LayoutWindow {
                 // to write and skipping is correct, not a lost frame.
                 continue;
             };
-            let t = anim.current_transform();
+            let t = published
+                .get(&node_id)
+                .copied()
+                .unwrap_or_else(|| anim.current_transform());
             // A reference frame requires BOTH a key and a value: the display
             // list builder emits `PushReferenceFrame` only when one channel
             // has both for the node (`GpuValueCache::reference_frame_of`).
