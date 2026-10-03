@@ -2248,6 +2248,9 @@ mod wheel_ownership {
                 "cell_grid".to_string(),
                 // The data table scrolls by whole rows too.
                 "data_table".to_string(),
+                // The terminal view scrolls its scrollback by whole lines
+                // (or reports the wheel to the program in it).
+                "terminal_view".to_string(),
             ],
             "a widget started listening for the wheel: a closed control must leave the gesture to \
              the page under it",
