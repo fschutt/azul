@@ -83,6 +83,7 @@ mod pace;
 mod rooms;
 mod routes;
 mod speaker;
+mod store;
 mod tiles;
 mod ui;
 mod video_wire;
