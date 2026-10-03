@@ -183,7 +183,9 @@ mod tests {
         assert!(is_documentation_host("http://news.example.net/rss"));
         assert!(is_documentation_host("https://feeds.example/rss"));
         assert!(is_documentation_host("https://nothing.invalid/"));
-        assert!(!is_documentation_host("https://blog.rust-lang.org/feed.xml"));
+        assert!(!is_documentation_host(
+            "https://blog.rust-lang.org/feed.xml"
+        ));
         assert!(!is_documentation_host("https://notexample.org/feed"));
         assert!(!is_documentation_host("http://127.0.0.1:8790/feed.xml"));
         assert!(!is_documentation_host("not a link"));
