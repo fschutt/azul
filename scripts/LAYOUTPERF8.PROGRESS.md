@@ -75,3 +75,15 @@ with counts, fix, expected numbers. Report scripts/LAYOUTPERF8B_<date>.md.
 Nothing left on wt/layoutperf8b. Parent: build, run the report's test commands, re-measure the tick.
 Open levers (report "Left"): css-dirty DL splicing, a css-only reconcile skip, a11y_update_tree per relayout,
 css_transition_tick, VirtualView re-invocation per relayout (identity latch), bugs B/C.
+
+# LAYOUTPERF8C (branch wt/layoutperf8c, base 615cccdfd = 8B merged + built 19:04)
+
+Coordinator: on the 8B build the tick is UNCHANGED (288 flows, 618 misses, root pass 19.2 ms,
+font_chain_resolve in the root pass). Verify on THIS build with AZ_TAFFY_DEBUG / AZ_RECON_DEBUG, root-cause,
+RED that reproduces the real app, fix; append to scripts/LAYOUTPERF8B_2026_10_03.md.
+
+## 8C DONE
+- (this section)
+
+## 8C NEXT
+- run the tick scenario on the 19:04 build with AZ_RECON_DEBUG + AZ_TAFFY_DEBUG; check DOM 3459-3461
