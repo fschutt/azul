@@ -506,7 +506,6 @@ pub fn generate_fn_body(method: &MethodDef, full_path: &str) -> String {
         "setter" => generate_setter_body(method),
         "method" => generate_method_body(method, full_path),
         "static" => generate_static_body(method, full_path),
-        "destructor" => generate_destructor_body(method),
         _ => generate_method_body(method, full_path),
     }
 }
@@ -518,10 +517,10 @@ fn determine_fn_type(method: &MethodDef, type_name: &str) -> String {
         return "constructor".to_string();
     }
 
-    // Destructor: typically named "drop" or similar
-    if method.name == "drop" || method.name.starts_with("destroy") {
-        return "destructor".to_string();
-    }
+    // A `destroy*` method is called like any other (a `drop` is a Drop
+    // impl's: never a candidate). It used to be `core::mem::drop(object)`:
+    // the method was not called, and the codegen does not rewrite a bare
+    // `object`.
 
     // Getter: &self, no args, returns something
     if method.self_kind == Some(SelfKind::Ref)
@@ -608,11 +607,6 @@ fn generate_static_body(method: &MethodDef, full_path: &str) -> String {
         .join(", ");
 
     format!("{}::{}({})", full_path, method.name, args_str)
-}
-
-fn generate_destructor_body(method: &MethodDef) -> String {
-    // fn_body should just be the drop expression
-    "core::mem::drop(object)".to_string()
 }
 
 // return type conversion for ffi
