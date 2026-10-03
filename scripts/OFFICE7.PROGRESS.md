@@ -45,11 +45,6 @@ Branch `wt/office7` from `2e55eef06` (the wave-6 integration; every app compiles
   if /tmp was wiped).
 - Report scripts/OFFICE7_2026_10_03.md.
 
-## NEXT
-- 7. AzSheets: Replace in the grid's edit, pickers, Format Cells = one undo step.
-- 8. LOOK at each app.
-- Report `scripts/OFFICE7_2026_10_03.md`.
-
 ## Decisions
 - WIDGETS7 heads-up (coordinator): MessageList -> SummaryList is applied by the parent AFTER merging this
   branch; keep using the MessageList names here (I do not touch them).
