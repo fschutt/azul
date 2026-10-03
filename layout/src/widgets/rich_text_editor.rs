@@ -27,7 +27,9 @@
 //!   (paragraph, headings), Ctrl/Cmd+Shift+7 / 8 / 9 (lists, checks),
 //!   Ctrl/Cmd+Enter (tick), Enter in a code block, Enter on an empty list item
 //!   or quoted line, Backspace at a list item's / heading's / quote's start,
-//!   Tab / Shift+Tab in a list.
+//!   Tab / Shift+Tab in a list, and Ctrl/Cmd+Z / Shift+Z / Y: the editor's
+//!   ONE history (the engine's text undo is only the keys' default action,
+//!   cancelled).
 //!
 //! The app owns the [`RichTextEditorState`] (the document, its ONE undo
 //! history, the typing style, where the caret was): it builds the editor
@@ -2189,6 +2191,12 @@ extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
             )),
             (VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter, false) => {
                 Some((RichTextCommand::ToggleCheck, true))
+            }
+            // The editor's ONE history: the engine's text undo (the keys'
+            // default action) is cancelled below.
+            (VirtualKeyCode::Z, false) => Some((RichTextCommand::Undo, true)),
+            (VirtualKeyCode::Z, true) | (VirtualKeyCode::Y, _) => {
+                Some((RichTextCommand::Redo, true))
             }
             _ => None,
         };
