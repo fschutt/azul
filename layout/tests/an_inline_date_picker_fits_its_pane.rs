@@ -48,7 +48,7 @@ fn laid_out(pane: f32) -> LayoutWindow {
 
     let mut dom = Dom::create_body().with_child(
         Dom::create_div()
-            .with_css(format!(
+            .with_css(&format!(
                 "display: flex; flex-direction: column; width: {pane}px;"
             ))
             .with_child(DatePicker::create(2026, 10, 3).with_inline(true).dom()),
