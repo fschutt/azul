@@ -81,6 +81,7 @@ pub mod dlopen;
 pub mod events;
 pub mod gl;
 pub mod menu;
+mod shm;
 pub mod tooltip;
 
 use std::{
