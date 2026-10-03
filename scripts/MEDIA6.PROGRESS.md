@@ -3,13 +3,37 @@
 Branch `wt/media6` from `25d78e309`. Brief: `scripts/waves/wave6/MEDIA6.md`.
 
 ## DONE
-- (none yet)
+- LOOK of all three apps (list below).
+- `e24841ffb` RED: layout/tests/a_text_rasterises_into_a_raw_image.rs (+ all.rs).
 
 ## IN PROGRESS
-- LOOK: run AzPhoto / AzVideoCut / AzPaint headless (prebuilt aa59b2d84), screenshots in target/media6/ (not committed)
+- GREEN text raster: new file `layout/src/cpurender/text_raster.rs` (`mod text_raster; pub use
+  text_raster::*;` in cpurender/mod.rs); make `fn render_text` in cpurender/raster.rs
+  `pub(super)`. Contents: `TextRasterStyle {font_family: AzString, size_px, line_height,
+  color: ColorU, bold, italic}` repr(C) + `create/with_bold/with_italic/with_line_height`;
+  `shared_font_cache()` (OnceLock<FcFontCache>, build_font_cache); `resolve_font(fc, style)`
+  (query_with_fallback: family+bold/italic, then family, then sans-serif); shape each '\n' line
+  with `text3::default::shape_text_for_parsed_font`, GlyphInstance at baseline (point = pen,
+  baseline), line box = (ascent - descent + max(line_gap,0)) * scale, step = box * line_height;
+  render with `super::raster::render_text(.., force_grayscale = true)` into a transparent
+  AzulPixmap (premultiplied); `text_image_with` un-premultiplies -> RawImage RGBA8 straight;
+  `draw_text_with(fc, img, text, style, x, y)` composites (RGBA8/BGRA8, straight or
+  premultiplied target), false for other formats; `text_image(AzString, TextRasterStyle) ->
+  OptionRawImage` and `draw_text(&mut RawImage, AzString, TextRasterStyle, f32, f32) -> bool`
+  on the shared cache (the api.json fn_body targets).
 
-## NEXT
-- write the broken list below, then fix RED first
+## NEXT (in order)
+1. GREEN text raster (above), commit.
+2. AzPhoto: text tool on it; move-tool live preview (engine begin_move/move_to/end_move);
+   tool rail Button with_toggled / with_disabled; sheets -> Dialog/dialog_kit, About ->
+   AboutDialog; export into the data tree `photo/<uuid>/exports/` via Drive; appkit; prefixes.
+3. AzVideoCut: V1 (body height 100%, margin 0, scope flex-grow) + E2E check; fit_within ->
+   export core `image_scale::fit_within` as `RawImage::fit_size` or use `thumbnail`;
+   ProgressDialog for export; AboutDialog; appkit; prefixes.
+4. AzPaint: stroke not shown (poke_canvas passes `NodeId{inner: raw}` - off by one vs Photo /
+   VideoCut `raw - 1`; verify); appkit, `__azpaint_` prefixes (markers const, not Uuid::short),
+   UndoHistory, exports into the data tree, E2E script.
+POWER: Mac on battery (coordinator 14:xx) - no long headless runs, commit every unit.
 
 ## Seen broken (LOOK)
 Screenshots: `target/media6/{photo,vc,paint}/*.png` (not committed). LOOK harness:
