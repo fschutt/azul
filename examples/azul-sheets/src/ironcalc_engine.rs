@@ -549,6 +549,10 @@ impl SheetEngine for IronCalcEngine {
         }
     }
 
+    fn update_styles(&mut self, a: CellArea, patches: &[StylePatch]) -> Result<(), EngineError> {
+        patches.iter().try_for_each(|p| self.update_style(a, p))
+    }
+
     fn clear_contents(&mut self, a: CellArea) -> Result<(), EngineError> {
         self.model.range_clear_contents(&area(a))
     }
@@ -760,6 +764,39 @@ mod tests {
 
     fn at(row: i32, column: i32) -> CellAddr {
         CellAddr::new(0, row, column)
+    }
+
+    /// Format Cells' OK: bold, italic, a fill and an outline.
+    fn format_cells_patches() -> Vec<StylePatch> {
+        vec![
+            StylePatch::Bold(true),
+            StylePatch::Italic(true),
+            StylePatch::Fill(Some(String::from("#FF0000"))),
+            StylePatch::Borders {
+                preset: crate::engine::BorderPreset::Outer,
+                color: String::from("#000000"),
+            },
+        ]
+    }
+
+    #[test]
+    fn format_cells_ok_is_one_undo_step() {
+        let mut e = IronCalcEngine::new_empty();
+        e.set_cell_input(at(2, 2), "x").unwrap();
+        let a = CellArea::spanning(0, 2, 2, 3, 3);
+        e.update_styles(a, &format_cells_patches()).unwrap();
+        let s = e.cell_style(at(2, 2));
+        assert!(s.bold && s.italic, "{s:?}");
+        assert_eq!(s.fill.as_deref(), Some("#FF0000"));
+        assert!(s.borders.top.is_some() && s.borders.left.is_some(), "the outline: {s:?}");
+        assert!(e.cell_style(at(3, 3)).borders.bottom.is_some());
+        e.undo().unwrap();
+        let s = e.cell_style(at(2, 2));
+        assert!(!s.bold && !s.italic && s.fill.is_none() && s.borders.top.is_none(), "one undo takes all of it back: {s:?}");
+        assert_eq!(e.cell_input(at(2, 2)), "x", "and only it");
+        e.redo().unwrap();
+        let s = e.cell_style(at(2, 2));
+        assert!(s.bold && s.italic && s.fill.is_some(), "one redo brings all of it: {s:?}");
     }
 
     // ---- the mapping functions ----

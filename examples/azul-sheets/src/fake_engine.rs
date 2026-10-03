@@ -653,6 +653,10 @@ impl SheetEngine for FakeEngine {
             .unwrap_or_default()
     }
 
+    fn update_styles(&mut self, area: CellArea, patches: &[StylePatch]) -> Result<(), EngineError> {
+        patches.iter().try_for_each(|p| self.update_style(area, p))
+    }
+
     fn update_style(&mut self, area: CellArea, patch: &StylePatch) -> Result<(), EngineError> {
         self.check_sheet(area.sheet)?;
         self.checkpoint();
@@ -1035,6 +1039,26 @@ mod tests {
 
     fn at(row: i32, column: i32) -> CellAddr {
         CellAddr::new(0, row, column)
+    }
+
+    #[test]
+    fn format_cells_ok_is_one_undo_step() {
+        let mut e = FakeEngine::new();
+        e.set_cell_input(at(2, 2), "x").unwrap();
+        e.update_styles(
+            CellArea::spanning(0, 2, 2, 3, 3),
+            &[
+                StylePatch::Bold(true),
+                StylePatch::Italic(true),
+                StylePatch::Fill(Some(String::from("#FF0000"))),
+            ],
+        )
+        .unwrap();
+        assert!(e.cell_style(at(2, 2)).bold && e.cell_style(at(3, 3)).italic);
+        e.undo().unwrap();
+        let s = e.cell_style(at(2, 2));
+        assert!(!s.bold && !s.italic && s.fill.is_none(), "one undo takes all of it back: {s:?}");
+        assert_eq!(e.cell_input(at(2, 2)), "x", "and only it");
     }
 
     #[test]
