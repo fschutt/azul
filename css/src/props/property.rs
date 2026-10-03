@@ -10144,3 +10144,101 @@ mod transform_tween_tests {
         assert_eq!(turn.interpolate(&shift, 0.75, &r), shift);
     }
 }
+
+/// A face that changes between two GRADIENTS of the same shape fades stop by
+/// stop (ANIM8, 2026-10-03). flora's buttons are gradient faces (a paper face
+/// that hovers to a lighter paper, a stone with a streak), and a background
+/// tween understood only one solid colour: anything else held its start face
+/// until the midpoint and then jumped - a declared hover fade that snapped
+/// half way. Layers pair up one to one: colour with colour, a linear gradient
+/// with a linear gradient of the same direction, extend mode and stop
+/// positions; then every colour tweens. Anything that does not pair up keeps
+/// the half-way switch (`interpolate_a_solid_background_colour_tweens_and_a_gradient_jumps`).
+#[cfg(test)]
+mod background_face_tween_tests {
+    use super::*;
+    use crate::props::{
+        basic::{
+            animation::AnimationInterpolationFunction,
+            color::ColorU,
+            direction::{Direction, DirectionCorner, DirectionCorners},
+            length::PercentageValue,
+        },
+        style::background::{
+            ExtendMode, LinearGradient, NormalizedLinearColorStop, NormalizedLinearColorStopVec,
+            StyleBackgroundContent as B,
+        },
+    };
+
+    fn linear() -> InterpolateResolver {
+        InterpolateResolver {
+            interpolate_func: AnimationInterpolationFunction::Linear,
+            parent_rect_width: 100.0,
+            parent_rect_height: 100.0,
+            current_rect_width: 100.0,
+            current_rect_height: 100.0,
+        }
+    }
+
+    fn rgb(r: u8, g: u8, b: u8) -> ColorU {
+        ColorU { r, g, b, a: 255 }
+    }
+
+    /// A top-to-bottom face, `top` at 0 % and `bottom` at `at` %.
+    fn face(top: ColorU, bottom: ColorU, at: isize) -> B {
+        B::LinearGradient(LinearGradient {
+            direction: Direction::FromTo(DirectionCorners {
+                dir_from: DirectionCorner::Top,
+                dir_to: DirectionCorner::Bottom,
+            }),
+            extend_mode: ExtendMode::Clamp,
+            stops: NormalizedLinearColorStopVec::from_vec(vec![
+                NormalizedLinearColorStop::new(PercentageValue::const_new(0), top),
+                NormalizedLinearColorStop::new(PercentageValue::const_new(at), bottom),
+            ]),
+        })
+    }
+
+    fn background(layers: Vec<B>) -> CssProperty {
+        CssProperty::background_content(layers.into())
+    }
+
+    #[test]
+    fn two_faces_of_the_same_shape_tween_layer_by_layer() {
+        let rest = background(vec![
+            face(rgb(0, 0, 0), rgb(100, 100, 100), 100),
+            B::Color(rgb(200, 0, 0)),
+        ]);
+        let hover = background(vec![
+            face(rgb(200, 200, 200), rgb(0, 0, 0), 100),
+            B::Color(rgb(0, 0, 200)),
+        ]);
+        assert_eq!(
+            rest.interpolate(&hover, 0.5, &linear()),
+            background(vec![
+                face(rgb(100, 100, 100), rgb(50, 50, 50), 100),
+                B::Color(rgb(100, 0, 100)),
+            ]),
+            "half way, every stop and every colour layer is half way"
+        );
+        assert_eq!(rest.interpolate(&hover, 0.0, &linear()), rest);
+        assert_eq!(rest.interpolate(&hover, 1.0, &linear()), hover);
+    }
+
+    #[test]
+    fn faces_that_do_not_pair_up_keep_the_half_way_switch() {
+        let r = linear();
+        let one = background(vec![face(rgb(0, 0, 0), rgb(100, 100, 100), 100)]);
+        // Another stop position: no stop-to-stop correspondence.
+        let moved = background(vec![face(rgb(200, 200, 200), rgb(0, 0, 0), 50)]);
+        assert_eq!(one.interpolate(&moved, 0.25, &r), one);
+        assert_eq!(one.interpolate(&moved, 0.75, &r), moved);
+        // Another layer count.
+        let two = background(vec![
+            face(rgb(200, 200, 200), rgb(0, 0, 0), 100),
+            B::Color(rgb(0, 0, 200)),
+        ]);
+        assert_eq!(one.interpolate(&two, 0.25, &r), one);
+        assert_eq!(one.interpolate(&two, 0.75, &r), two);
+    }
+}
