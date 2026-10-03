@@ -1969,6 +1969,45 @@ mod tests {
         );
     }
 
+    /// AUTOFIX6 "seen broken": `ClassPatch::is_empty` ignored the `remove_*`
+    /// lists, so a move patch that also removes functions moved the class and
+    /// dropped the removals (the moved class is patched only when the patch
+    /// is not empty). A removal-only patch is not empty - and still never
+    /// creates a class it names but the module does not have.
+    #[test]
+    fn a_patch_that_only_removes_is_not_empty_and_creates_no_class() {
+        let removes = ClassPatch {
+            remove_functions: Some(vec!["a".to_string()]),
+            ..Default::default()
+        };
+        assert!(!removes.is_empty());
+        assert!(!ClassPatch { remove_constructors: Some(vec!["c".to_string()]), ..Default::default() }.is_empty());
+        assert!(!ClassPatch { remove_derive: Some(vec!["Hash".to_string()]), ..Default::default() }.is_empty());
+        assert!(!ClassPatch { remove_custom_impls: Some(vec!["Drop".to_string()]), ..Default::default() }.is_empty());
+        assert!(ClassPatch::default().is_empty());
+
+        let body = |name: &str| serde_json::json!({"fn_args": [{"self": "ref"}], "fn_body": format!("object.{name}()")});
+        let mut api: ApiData = serde_json::from_value(serde_json::json!({
+            "1.0.0": {"apiversion": 1, "git": "", "date": "", "api": {"widgets": {"classes": {
+                "T": {"external": "azul_layout::widgets::t::T", "functions": {"a": body("a"), "b": body("b")}}
+            }}}}
+        }))
+        .expect("test api parses");
+        let patch: ApiPatch = serde_json::from_value(serde_json::json!({"versions": {"1.0.0": {"modules": {
+            "widgets": {"classes": {
+                "T": {"move_to_module": "shells", "remove_functions": ["a"]},
+                "Missing": {"remove_functions": ["x"]}
+            }}
+        }}}}))
+        .expect("test patch parses");
+        patch.apply(&mut api).expect("applies");
+        let v = api.get_version("1.0.0").expect("version");
+        let functions: Vec<&String> = v.api["shells"].classes["T"].functions.iter().flat_map(|f| f.keys()).collect();
+        assert_eq!(functions, vec!["b"], "moved AND the removal applied");
+        assert!(!v.api["widgets"].classes.contains_key("Missing"), "no class from a removal");
+        assert!(!v.api["widgets"].classes.contains_key("T"));
+    }
+
     /// Every patch of the wave-6 round said "Successfully applied", and one
     /// method per new type was in api.json afterwards. A function a patch
     /// writes and a later patch of the round drops (a replace-mode map) is
