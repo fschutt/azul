@@ -10,7 +10,8 @@ Branch `wt/widgets9a` from `e537ddbe2`. Nothing compiled (house rule). Report: `
 
 ## IN PROGRESS
 - TokenInput: `layout/src/widgets/token_input.rs` - skeleton abd8bf85c, RED tests b8bbd71c2, rules GREEN 87ee03dbb.
-  STILL STUBS: `look_for`, `build` (and the handlers). Step 2a is DONE; continue at 2b.
+  build + handlers GREEN 98dc8aeb1. Steps 2a and 2b DONE; continue at 2c (theme appends `token_input_look()` in
+  flat.rs / flora.rs - `look_for` already calls them), then 2d (fixtures + manifest).
 
 ## NEXT (exact)
 2. TokenInput, in `layout/src/widgets/token_input.rs`:
