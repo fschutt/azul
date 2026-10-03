@@ -153,12 +153,12 @@ impl ThreadOwnerManager {
     }
 }
 
-/// An orphan's turn in `LayoutWindow::run_all_threads`: drops whatever it
-/// wrote back (no node reads it, and delivering it would request frames for
-/// nothing) and says whether to retire it NOW - it has finished, so the join
-/// in the thread's destructor returns at once; or it is overdue, and its join
-/// handle is detached first, so the destructor does not wait on a worker that
-/// never answers `TerminateThread`.
+/// An orphan's turn in `LayoutWindow::run_all_threads` (and in [`stop_all`]):
+/// drops whatever it wrote back (no node reads it, and delivering it would
+/// request frames for nothing) and says whether to retire it NOW - it has
+/// finished, so the join in the thread's destructor returns at once; or it is
+/// overdue, and its join handle is detached first, so the destructor does not
+/// wait on a worker that never answers `TerminateThread`.
 #[cfg(all(feature = "std", feature = "text_layout"))]
 #[must_use]
 pub fn poll_orphan(
@@ -178,13 +178,44 @@ pub fn poll_orphan(
     if orphaned.is_overdue(now) {
         drop(inner.thread_handle.take());
         eprintln!(
-            "[azul][thread] the worker of an unmounted node did not stop within {} ms of \
-             TerminateThread; it was DETACHED (it ends with the process)",
+            "[azul][thread] a worker whose node unmounted (or whose window closed) did not stop \
+             within {} ms of TerminateThread; it was DETACHED (it ends with the process)",
             ORPHAN_GRACE.as_millis()
         );
         return true;
     }
     false
+}
+
+/// Stop EVERY worker in `threads` - the window they belong to is going away.
+///
+/// All of them are told `TerminateThread` first and then polled TOGETHER
+/// against one shared [`ORPHAN_GRACE`] (a worker still running after it is
+/// detached, [`poll_orphan`]); then the map is emptied, and each `Thread`
+/// destructor finds its worker finished (or its handle gone) and returns at
+/// once. A window closes in the time its SLOWEST worker takes to stop, at
+/// most one grace period - dropping the map entry by entry made each worker
+/// wait for the previous one, the sum of them all, N x 2 s for workers stuck
+/// in a device read.
+#[cfg(all(feature = "std", feature = "text_layout"))]
+pub fn stop_all(threads: &mut BTreeMap<ThreadId, crate::thread::Thread>) {
+    if threads.is_empty() {
+        return;
+    }
+    for thread in threads.values() {
+        let _ = thread.send_message(azul_core::task::ThreadSendMsg::TerminateThread);
+    }
+    let told = Orphaned::now();
+    let mut running: Vec<&crate::thread::Thread> = threads.values().collect();
+    loop {
+        let now = std::time::Instant::now();
+        running.retain(|thread| !poll_orphan(told, thread, now));
+        if running.is_empty() {
+            break;
+        }
+        std::thread::sleep(core::time::Duration::from_millis(2));
+    }
+    threads.clear();
 }
 
 #[cfg(test)]
