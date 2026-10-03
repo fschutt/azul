@@ -36,6 +36,17 @@ Commit messages are written to scripts/.paint7_msg.txt (untracked, never staged)
   compose -> moved 2x/3x)
 - fea2f1dd1 GREEN: LayoutWindow::published_flips - each slide relative to the enclosing sliding frame
 
+- 60e1f3a0d RED 4d: layout/tests/the_animation_channel_holds_only_what_an_animation_drives.rs (prebuilt
+  AzDrive: theme switch mid backstage exit -> 15 stale anim values with 0 animations; back button in the
+  corner, search box gone)
+- 53f1b748b GREEN: LayoutWindow::release_undriven_animation_values (tick, idle early return,
+  finish_reconciliation after drop_unplaced)
+- WIDGETS7 finding (2) "three one-hour events show only their colour" = item 7, fixed by 2b6ff6269.
+- WIDGETS7 finding (1) AzCalendar backstage dark: NOT paint, NOT layout: the DL paints the backstage
+  content WHITE (#ffffff rects for nodes 9/10 `__azul-native-backstage __azul-theme-flat` and 33/34
+  `-right`/`-content`) and the 28px page heading "Calendars" in #ffffffd8 -> white on white. Widget
+  styling (BackstageTheme content_bg WHITE wins over the dark mode); note for the widgets owner.
+
 ## IN PROGRESS (old notes)
 - item 1/4a CPU side. Findings:
   - the layered compositor composites every child layer AFTER all of its parent's own items
