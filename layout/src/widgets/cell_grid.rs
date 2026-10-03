@@ -2221,10 +2221,7 @@ pub(crate) fn spill_spans(resolved: &CellGridResolved, ri: usize) -> Vec<u32> {
             end += 1;
         }
         if end > ci + 1 {
-            #[allow(clippy::cast_possible_truncation)]
-            {
-                spans[ci] = (end - ci) as u32;
-            }
+            spans[ci] = u32::try_from(end - ci).unwrap_or(u32::MAX);
             for covered in &mut spans[ci + 1..end] {
                 *covered = 0;
             }

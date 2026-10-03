@@ -10,14 +10,13 @@ use azul::{
     },
     prelude::*,
     str::String as AzString,
-    vec::StringVec,
     widgets::{Button, ButtonType, DropDown, OnTextInputReturn, TextInput, TextInputState},
 };
 
 use crate::{
     a1_area,
     engine::{CondLook, CondRule},
-    ids, on_panel_close, run, state_text, text_return, with_app,
+    ids, on_panel_close, run, state_text, strs, text_return, with_app,
     worker::Command,
     AppState,
 };
@@ -100,10 +99,6 @@ struct CondRef {
 
 fn cond_ref(app: &RefAny, which: Which) -> RefAny {
     RefAny::new(CondRef { app: app.clone(), which })
-}
-
-fn strs<'a>(items: impl IntoIterator<Item = &'a str>) -> StringVec {
-    StringVec::from_vec(items.into_iter().map(AzString::from).collect())
 }
 
 fn label(text: &str) -> Dom {

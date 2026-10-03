@@ -11,7 +11,6 @@ use azul::{
     },
     prelude::*,
     str::String as AzString,
-    vec::StringVec,
     widgets::{
         Button, ButtonType, CheckBox, CheckBoxState, Modal, ModalState, Segmented, SegmentedState,
         TabHeader, TabHeaderState,
@@ -21,7 +20,7 @@ use azul::{
 use crate::{
     engine::{BorderPreset, HAlign, VAlign},
     format_cells::{FormatDraft, NumberCategory, TABS},
-    restyle, with_app, AppState,
+    restyle, strs, with_app, AppState,
 };
 
 /// Font colours offered: (name, `#RRGGBB`; `None` = automatic).
@@ -96,10 +95,6 @@ struct ControlRef {
 
 fn control_ref(app: &RefAny, control: Control) -> RefAny {
     RefAny::new(ControlRef { app: app.clone(), control })
-}
-
-fn strs<'a>(items: impl IntoIterator<Item = &'a str>) -> StringVec {
-    StringVec::from_vec(items.into_iter().map(AzString::from).collect())
 }
 
 fn label(text: &str) -> Dom {

@@ -73,7 +73,7 @@ use azul::{
     shells::{DocumentShell, ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
     svg::{CssPath, CssPathSelector},
-    vec::{AccessibilityStateVec, BackstageNavItemVec, CellGridRangeVec, CellGridSizeVec},
+    vec::{AccessibilityStateVec, BackstageNavItemVec, CellGridRangeVec, CellGridSizeVec, StringVec},
     widgets::{
         AboutDialog, Backstage, BackstageNavItem, Button, CellGrid, CellGridCell, CloseGuard,
         CloseGuardEvent, CloseGuardEventKind,
@@ -1798,6 +1798,12 @@ fn sheet_tabs(s: &AppState, app: &RefAny) -> Dom {
 const ZOOM_MIN: u32 = 10;
 /// See [`ZOOM_MIN`].
 const ZOOM_MAX: u32 = 400;
+
+/// Labels for a Segmented / DropDown / TabHeader (one helper for the
+/// app's dialogs and panels).
+pub(crate) fn strs<'a>(items: impl IntoIterator<Item = &'a str>) -> StringVec {
+    StringVec::from_vec(items.into_iter().map(AzString::from).collect())
+}
 
 /// The data of a button that runs `action`.
 fn action_ref(app: &RefAny, action: Action) -> RefAny {
