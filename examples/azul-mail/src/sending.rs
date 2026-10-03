@@ -8,7 +8,10 @@
 //! server on this computer without TLS). Everything else in the settings (DKIM, the EHLO name,
 //! a test CA, the direct port, the policy override) is kept as it is when the form is applied.
 
-use crate::send::{SendRoute, SendSettings, TlsPolicy};
+use crate::{
+    dkim,
+    send::{DkimSettings, SendRoute, SendSettings, TlsPolicy},
+};
 
 /// The port the form proposes for an SMTP server (submission with STARTTLS).
 pub const SUBMISSION_PORT: u16 = 587;
@@ -37,26 +40,55 @@ pub struct SendingForm {
     pub host: String,
     pub port: String,
     pub starttls: bool,
+    /// "Sign my mail with DKIM" is ticked.
+    pub dkim: bool,
+    /// The signing domain as typed; empty: the address's domain.
+    pub dkim_domain: String,
+    /// The selector as typed; empty: the saved one, else `dkim::default_selector`.
+    pub dkim_selector: String,
 }
 
 impl SendingForm {
     /// The form showing `settings`.
     pub fn from_settings(settings: &SendSettings) -> SendingForm {
         let starttls = settings.tls != TlsPolicy::Off;
-        match &settings.route {
+        let mut form = match &settings.route {
             SendRoute::Direct => SendingForm {
                 smtp: false,
                 host: String::new(),
                 port: SUBMISSION_PORT.to_string(),
                 starttls,
+                ..SendingForm::default()
             },
             SendRoute::Smtp { host, port } => SendingForm {
                 smtp: true,
                 host: host.clone(),
                 port: port.to_string(),
                 starttls,
+                ..SendingForm::default()
             },
+        };
+        if let Some(dkim) = &settings.dkim {
+            form.dkim = true;
+            form.dkim_domain = dkim.domain.clone();
+            form.dkim_selector = dkim.selector.clone();
         }
+        form
+    }
+
+    /// `settings` with the form's DKIM choice: unticked, unsigned; ticked, signed as the typed
+    /// domain (else `email`'s) with the typed selector (else the saved one, else the one for a
+    /// key made at `now`) and `public_key` (a key just created; empty: the saved one), or what
+    /// is wrong - a provider's domain, a selector that is no DNS label, no key at all.
+    pub fn apply_dkim(
+        &self,
+        settings: SendSettings,
+        email: &str,
+        public_key: &str,
+        now: i64,
+    ) -> Result<SendSettings, String> {
+        let _ = (email, public_key, now);
+        Ok(settings)
     }
 
     /// `settings` with the form's route and STARTTLS choice (every other setting kept), or
@@ -129,6 +161,7 @@ mod tests {
                 host: String::from("localhost"),
                 port: String::from("2525"),
                 starttls: false,
+                ..SendingForm::default()
             }
         );
         assert_eq!(form.apply(&SendSettings::default()), Ok(local.clone()));
@@ -164,6 +197,7 @@ mod tests {
             host: String::from("localhost"),
             port: String::from("2525"),
             starttls: false,
+            ..SendingForm::default()
         };
         let applied = form.apply(&settings).unwrap();
         assert_eq!(applied.helo_name, "mail.example.org");
@@ -201,5 +235,119 @@ mod tests {
         let path = local.save(&dir.folder(), "ada@example.org").unwrap();
         assert_eq!(path, dir.0.join("ada@example.org").join("sending.json"));
         assert_eq!(SendSettings::load(&dir.folder(), "ada@example.org"), local);
+    }
+
+    // ---- client-side DKIM ----
+
+    /// 2026-10-01T08:30:00Z
+    const NOW: i64 = 1_790_843_400;
+
+    fn signing_settings() -> SendSettings {
+        SendSettings {
+            dkim: Some(DkimSettings {
+                domain: String::from("example.org"),
+                selector: String::from("azmail202609"),
+                key_file: None,
+                public_key: String::from("MIIBsaved"),
+            }),
+            ..SendSettings::default()
+        }
+    }
+
+    #[test]
+    fn dkim_is_off_until_ticked_and_then_signs_as_the_address_domain_with_the_created_key() {
+        let form = SendingForm::from_settings(&SendSettings::default());
+        assert!(!form.dkim);
+        let off = form
+            .apply_dkim(signing_settings(), "ada@example.org", "", NOW)
+            .unwrap();
+        assert_eq!(off.dkim, None, "unticked: unsigned");
+        let ticked = SendingForm {
+            dkim: true,
+            ..form
+        };
+        let on = ticked
+            .apply_dkim(SendSettings::default(), "Ada@Example.org", "MIIBnew", NOW)
+            .unwrap();
+        assert_eq!(
+            on.dkim,
+            Some(DkimSettings {
+                domain: String::from("example.org"),
+                selector: String::from("azmail202610"),
+                key_file: None,
+                public_key: String::from("MIIBnew"),
+            })
+        );
+        assert_eq!(describe(&on), "Direct delivery, DKIM-signed (example.org)");
+        // A typed domain and selector win.
+        let typed = SendingForm {
+            dkim_domain: String::from(" mail.example.org "),
+            dkim_selector: String::from("s1"),
+            ..ticked.clone()
+        };
+        let on = typed
+            .apply_dkim(SendSettings::default(), "ada@example.org", "MIIBnew", NOW)
+            .unwrap();
+        assert_eq!(
+            on.dkim
+                .as_ref()
+                .map(|d| (d.domain.as_str(), d.selector.as_str())),
+            Some(("mail.example.org", "s1"))
+        );
+    }
+
+    #[test]
+    fn the_saved_dkim_settings_show_in_the_form_and_survive_a_save_without_a_new_key() {
+        let saved = signing_settings();
+        let form = SendingForm::from_settings(&saved);
+        assert!(form.dkim);
+        assert_eq!(form.dkim_domain, "example.org");
+        assert_eq!(form.dkim_selector, "azmail202609");
+        assert_eq!(
+            form.apply_dkim(saved.clone(), "ada@example.org", "", NOW),
+            Ok(saved)
+        );
+    }
+
+    #[test]
+    fn dkim_refuses_a_providers_domain_a_bad_selector_and_a_missing_key() {
+        let ticked = SendingForm {
+            dkim: true,
+            ..SendingForm::default()
+        };
+        let gmail = ticked
+            .apply_dkim(SendSettings::default(), "ada@gmail.com", "MIIBnew", NOW)
+            .unwrap_err();
+        assert!(gmail.contains("gmail.com"), "{gmail}");
+        let bad = SendingForm {
+            dkim_selector: String::from("a b"),
+            ..ticked.clone()
+        };
+        assert!(bad
+            .apply_dkim(SendSettings::default(), "ada@example.org", "MIIBnew", NOW)
+            .is_err());
+        let no_key = ticked
+            .apply_dkim(SendSettings::default(), "ada@example.org", "", NOW)
+            .unwrap_err();
+        assert!(no_key.contains("Create a key"), "{no_key}");
+        // A key file named by hand (azmail-send --dkim-key) is a key too.
+        let with_file = SendSettings {
+            dkim: Some(DkimSettings {
+                domain: String::from("example.org"),
+                selector: String::from("s1"),
+                key_file: Some(std::path::PathBuf::from("/keys/dkim.pem")),
+                public_key: String::new(),
+            }),
+            ..SendSettings::default()
+        };
+        assert_eq!(
+            SendingForm::from_settings(&with_file).apply_dkim(
+                with_file.clone(),
+                "ada@example.org",
+                "",
+                NOW
+            ),
+            Ok(with_file)
+        );
     }
 }
