@@ -11,7 +11,7 @@ use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 
 use azul::widgets::ListSelection;
 use azul_storage::Drive;
-use chrono::{Local, NaiveDate, NaiveDateTime, TimeZone, Timelike};
+use chrono::{Datelike, Local, NaiveDate, NaiveDateTime, TimeZone, Timelike};
 
 use crate::{
     model::{self, Settings, Task, TaskList},
@@ -160,6 +160,15 @@ pub struct Tasks {
     pub drag: Option<String>,
     /// The moment the window was last built for (a new day rebuilds).
     pub clock: NaiveDateTime,
+}
+
+/// A monthly or yearly repeat follows its task's due day of the month (the due date moved).
+pub fn reanchor(t: &mut Task) {
+    if let (Some(rule), Some(due)) = (t.repeat.as_mut(), t.due) {
+        if matches!(rule.unit, crate::recur::Unit::Month | crate::recur::Unit::Year) {
+            rule.month_day = Some(due.day());
+        }
+    }
 }
 
 /// The user's wall clock now, to the second.
@@ -635,14 +644,35 @@ impl Tasks {
     /// mark it not started / started, Done completes it (a repeating task leaves its next
     /// occurrence behind). Returns the index of a spawned next occurrence.
     pub fn move_to_column(&mut self, i: usize, column: views::Column, now: NaiveDateTime) -> Option<usize> {
-        let _ = (i, column, now);
+        if i >= self.tasks.len() || views::Column::of(&self.tasks[i]) == column {
+            return None;
+        }
+        println!("AZTASKS_COLUMN {} {}", self.tasks[i].id, column.key());
+        if column == views::Column::Done {
+            return self.toggle_done(i, now);
+        }
+        if self.tasks[i].is_done() {
+            self.toggle_done(i, now);
+        }
+        self.tasks[i].set_started(column == views::Column::Doing, now);
+        self.save_task(i);
         None
     }
 
     /// The planned month's drop: task `i` due on `day` (its time kept; a monthly or yearly
     /// repeat takes the new day of the month; it reminds again).
     pub fn reschedule(&mut self, i: usize, day: NaiveDate) {
-        let _ = (i, day);
+        let Some(t) = self.tasks.get_mut(i) else {
+            return;
+        };
+        if t.due == Some(day) {
+            return;
+        }
+        t.due = Some(day);
+        t.reminded = None;
+        reanchor(t);
+        println!("AZTASKS_DUE {} {}", t.id, model::format_date(day));
+        self.save_task(i);
     }
 
     /// Completes the selected tasks (or opens them again when all are completed).

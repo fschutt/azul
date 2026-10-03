@@ -731,15 +731,6 @@ fn next_week(today: NaiveDate, start: Weekday) -> NaiveDate {
     today - Duration::days(i64::from(back)) + Duration::days(7)
 }
 
-/// A month or year rule follows its task's new due date to the new day of the month.
-fn reanchor(t: &mut Task) {
-    if let (Some(rule), Some(due)) = (t.repeat.as_mut(), t.due) {
-        if matches!(rule.unit, Unit::Month | Unit::Year) {
-            rule.month_day = Some(due.day());
-        }
-    }
-}
-
 /// 0 Today, 1 Tomorrow, 2 Next week, 3 Clear.
 extern "C" fn on_due_quick(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_task(&mut data, &mut info, |_info, _app, s, i, n| {
@@ -756,7 +747,7 @@ extern "C" fn on_due_quick(mut data: RefAny, mut info: CallbackInfo) -> Update {
             t.due_time = None;
         }
         t.reminded = None;
-        reanchor(t);
+        state::reanchor(t);
     })
 }
 
@@ -768,7 +759,7 @@ extern "C" fn on_due_date(mut data: RefAny, mut info: CallbackInfo, state: DateP
         let t = &mut s.tasks[i];
         t.due = Some(date);
         t.reminded = None;
-        reanchor(t);
+        state::reanchor(t);
     })
 }
 

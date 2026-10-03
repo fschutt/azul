@@ -607,8 +607,22 @@ pub fn summary(tasks: &[Task], now: NaiveDateTime) -> (usize, usize) {
 /// each day's by time, priority and the manual order: the planned month's cells.
 #[must_use]
 pub fn planned_month(tasks: &[Task], days: &[NaiveDate]) -> Vec<Vec<usize>> {
-    let _ = tasks;
-    vec![Vec::new(); days.len()]
+    let mut cells: Vec<Vec<usize>> = vec![Vec::new(); days.len()];
+    let (Some(&first), Some(&last)) = (days.first(), days.last()) else {
+        return cells;
+    };
+    for (i, t) in tasks.iter().enumerate() {
+        let Some(due) = t.due.filter(|d| !t.is_done() && *d >= first && *d <= last) else {
+            continue;
+        };
+        if let Some(n) = days.iter().position(|d| *d == due) {
+            cells[n].push(i);
+        }
+    }
+    for cell in &mut cells {
+        sort_day(cell, tasks);
+    }
+    cells
 }
 
 /// A board's column: where a task of a list stands (the plan's To do / Doing / Done).
@@ -659,8 +673,14 @@ impl Column {
 /// the list's manual order, Done the latest completed first.
 #[must_use]
 pub fn board(tasks: &[Task], list: &str) -> [Vec<usize>; 3] {
-    let _ = (tasks, list);
-    [Vec::new(), Vec::new(), Vec::new()]
+    let (doing, todo): (Vec<usize>, Vec<usize>) = manual_order(tasks, list)
+        .into_iter()
+        .partition(|&i| tasks[i].started.is_some());
+    let mut done: Vec<usize> = (0..tasks.len())
+        .filter(|&i| tasks[i].list == list && tasks[i].is_done())
+        .collect();
+    done.sort_by(|&a, &b| tasks[b].completed.cmp(&tasks[a].completed));
+    [todo, doing, done]
 }
 
 #[cfg(test)]
