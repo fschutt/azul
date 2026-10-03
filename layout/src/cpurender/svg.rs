@@ -457,12 +457,16 @@ fn render_svg_group_inner(
     use agg_rust::math_stroke::{LineCap, LineJoin};
     use azul_core::xml::XmlNodeChild;
 
+    // A node's own transform maps its user space into its parent's: it
+    // applies FIRST, the parent's after (`multiply`). `premultiply` ran the
+    // parent's first - an element moved inside a page scaled 2x moved by
+    // half as much as it should.
     let group_transform = node
         .attributes
         .get_key("transform")
         .map_or(*parent_transform, |t| {
             let mut tf = parse_svg_transform(t.as_str());
-            tf.premultiply(parent_transform);
+            tf.multiply(parent_transform);
             tf
         });
 
@@ -511,7 +515,7 @@ fn render_svg_group_inner(
                         .get_key("transform")
                         .map_or(group_transform, |t| {
                             let mut tf = parse_svg_transform(t.as_str());
-                            tf.premultiply(&group_transform);
+                            tf.multiply(&group_transform);
                             tf
                         });
 
@@ -765,11 +769,16 @@ fn svg_multi_polygon_to_path_storage(mp: &azul_core::svg::SvgMultiPolygon) -> Pa
     path
 }
 
-/// Parse SVG transform attribute (supports matrix, translate, scale, rotate).
+/// Parse an SVG `transform` attribute: a LIST of transform functions -
+/// `matrix(a b c d e f)`, `translate(tx [ty])`, `scale(sx [sy])`,
+/// `rotate(angle [cx cy])`, `skewX(angle)`, `skewY(angle)` - separated by
+/// whitespace and / or commas. The list applies RIGHT TO LEFT (SVG 1.1 7.6:
+/// `translate(8) scale(2)` scales first, then moves). A list with an unknown
+/// function or junk is in error and means no transform (identity). The
+/// result maps the element's user space into its parent's: compose it with
+/// the parent's as `own.multiply(&parent)` (own first, then the parent's).
 #[cfg(all(feature = "std", feature = "xml"))]
 fn parse_svg_transform(s: &str) -> TransAffine {
-    let s = s.trim();
-
     let parse_nums = |inner: &str| -> Vec<f64> {
         inner
             .split(|c: char| c == ',' || c.is_ascii_whitespace())
@@ -777,33 +786,78 @@ fn parse_svg_transform(s: &str) -> TransAffine {
             .filter_map(|s| s.parse().ok())
             .collect()
     };
+    let is_separator = |c: char| c == ',' || c.is_ascii_whitespace();
 
-    if let Some(inner) = s.strip_prefix("matrix(").and_then(|s| s.strip_suffix(')')) {
-        let nums = parse_nums(inner);
-        if nums.len() == 6 {
-            return TransAffine::new_custom(nums[0], nums[1], nums[2], nums[3], nums[4], nums[5]);
+    // `None` until the first function: a one-function list is that function
+    // EXACTLY (no multiply by identity, which turns +-inf into NaN).
+    let mut result: Option<TransAffine> = None;
+    let mut rest = s;
+    loop {
+        rest = rest.trim_start_matches(is_separator);
+        if rest.is_empty() {
+            break;
         }
-    } else if let Some(inner) = s
-        .strip_prefix("translate(")
-        .and_then(|s| s.strip_suffix(')'))
-    {
-        let nums = parse_nums(inner);
-        let tx = nums.first().copied().unwrap_or(0.0);
-        let ty = nums.get(1).copied().unwrap_or(0.0);
-        return TransAffine::new_custom(1.0, 0.0, 0.0, 1.0, tx, ty);
-    } else if let Some(inner) = s.strip_prefix("scale(").and_then(|s| s.strip_suffix(')')) {
-        let nums = parse_nums(inner);
-        let sx = nums.first().copied().unwrap_or(1.0);
-        let sy = nums.get(1).copied().unwrap_or(sx);
-        return TransAffine::new_custom(sx, 0.0, 0.0, sy, 0.0, 0.0);
-    } else if let Some(inner) = s.strip_prefix("rotate(").and_then(|s| s.strip_suffix(')')) {
-        let nums = parse_nums(inner);
-        let angle = nums.first().copied().unwrap_or(0.0).to_radians();
-        let cos_a = angle.cos();
-        let sin_a = angle.sin();
-        return TransAffine::new_custom(cos_a, sin_a, -sin_a, cos_a, 0.0, 0.0);
+        let Some(open) = rest.find('(') else {
+            return TransAffine::new();
+        };
+        let Some(len) = rest[open..].find(')') else {
+            return TransAffine::new();
+        };
+        let close = open + len;
+        let Some(function) =
+            svg_transform_function(rest[..open].trim(), &parse_nums(&rest[open + 1..close]))
+        else {
+            return TransAffine::new();
+        };
+        // Each later function applies BEFORE the ones already read.
+        result = Some(match result {
+            None => function,
+            Some(mut so_far) => {
+                so_far.premultiply(&function);
+                so_far
+            }
+        });
+        rest = &rest[close + 1..];
     }
-    TransAffine::new()
+    result.unwrap_or_else(TransAffine::new)
+}
+
+/// One SVG transform function `name(args)` as a matrix; `None` for an unknown
+/// name or a `matrix` without exactly six numbers.
+#[cfg(all(feature = "std", feature = "xml"))]
+fn svg_transform_function(name: &str, args: &[f64]) -> Option<TransAffine> {
+    let arg = |i: usize, default: f64| args.get(i).copied().unwrap_or(default);
+    let translate = |tx: f64, ty: f64| TransAffine::new_custom(1.0, 0.0, 0.0, 1.0, tx, ty);
+    Some(match name {
+        "matrix" => {
+            if args.len() != 6 {
+                return None;
+            }
+            TransAffine::new_custom(args[0], args[1], args[2], args[3], args[4], args[5])
+        }
+        "translate" => translate(arg(0, 0.0), arg(1, 0.0)),
+        "scale" => {
+            let sx = arg(0, 1.0);
+            TransAffine::new_custom(sx, 0.0, 0.0, arg(1, sx), 0.0, 0.0)
+        }
+        "rotate" => {
+            let (sin_a, cos_a) = arg(0, 0.0).to_radians().sin_cos();
+            let rotation = TransAffine::new_custom(cos_a, sin_a, -sin_a, cos_a, 0.0, 0.0);
+            if args.len() >= 3 {
+                // rotate(a cx cy) = translate(cx cy) rotate(a) translate(-cx -cy)
+                let (cx, cy) = (args[1], args[2]);
+                let mut about = translate(-cx, -cy);
+                about.multiply(&rotation);
+                about.multiply(&translate(cx, cy));
+                about
+            } else {
+                rotation
+            }
+        }
+        "skewX" => TransAffine::new_custom(1.0, 0.0, arg(0, 0.0).to_radians().tan(), 1.0, 0.0, 0.0),
+        "skewY" => TransAffine::new_custom(1.0, arg(0, 0.0).to_radians().tan(), 0.0, 1.0, 0.0, 0.0),
+        _ => return None,
+    })
 }
 
 /// Parse an SVG paint colour: any CSS colour - `#rgb`, `#rgba`, `#rrggbb`,
@@ -1229,13 +1283,15 @@ mod autotest_generated {
     }
 
     #[test]
-    fn parse_svg_transform_rotate_with_center_ignores_the_center() {
-        // `rotate(angle cx cy)` is legal SVG; the extra args are silently dropped
-        // and the rotation happens around the origin instead of (cx, cy).
+    fn parse_svg_transform_rotate_turns_about_its_centre() {
+        // rotate(90 50 50) = translate(50 50) rotate(90) translate(-50 -50):
+        // the centre stays put, so the translation is c - R c = (100, 0).
         let with_center = parse_svg_transform("rotate(90 50 50)");
         let without = parse_svg_transform("rotate(90)");
-        assert_eq!((with_center.tx, with_center.ty), (0.0, 0.0));
-        assert_eq!(with_center.sx, without.sx);
+        assert!((with_center.tx - 100.0).abs() < 1e-9, "{}", with_center.tx);
+        assert!(with_center.ty.abs() < 1e-9, "{}", with_center.ty);
+        assert!((with_center.sx - without.sx).abs() < 1e-12);
+        assert!((with_center.shy - without.shy).abs() < 1e-12);
     }
 
     #[test]
@@ -1264,17 +1320,26 @@ mod autotest_generated {
     }
 
     #[test]
-    fn parse_svg_transform_transform_list_keeps_only_the_first_function() {
-        // SVG allows a whitespace-separated transform *list*. This parser only
-        // understands a single function: for "translate(10,20) scale(2)" the
-        // strip_suffix(')') leaves "10,20) scale(2" as the argument text, whose
-        // only parseable number is 10 -> ty and the whole scale() are dropped.
-        //
-        // Characterization, not an endorsement — see the report: a transform
-        // list renders *wrong* (ty lost, scale ignored) rather than crashing.
+    fn parse_svg_transform_a_list_applies_right_to_left() {
+        // SVG 1.1 7.6: "translate(10,20) scale(2)" scales first, then moves:
+        // p' = 2 p + (10, 20).
         let t = parse_svg_transform("translate(10,20) scale(2)");
-        assert_eq!((t.sx, t.sy), (1.0, 1.0), "scale() silently dropped");
-        assert_eq!((t.tx, t.ty), (10.0, 0.0), "translate ty silently dropped");
+        assert_eq!((t.sx, t.sy), (2.0, 2.0));
+        assert_eq!((t.tx, t.ty), (10.0, 20.0));
+        // The other order moves first, then scales: p' = 2 (p + (10, 20)).
+        let t = parse_svg_transform("scale(2), translate(10 20)");
+        assert_eq!((t.sx, t.sy), (2.0, 2.0));
+        assert_eq!((t.tx, t.ty), (20.0, 40.0));
+        // An unknown function puts the whole list in error.
+        assert_identity(&parse_svg_transform("translate(10,20) wobble(2)"));
+    }
+
+    #[test]
+    fn parse_svg_transform_skews_by_the_tangent() {
+        let t = parse_svg_transform("skewX(45)");
+        assert!((t.shx - 1.0).abs() < 1e-9 && t.shy == 0.0);
+        let t = parse_svg_transform("skewY(45)");
+        assert!((t.shy - 1.0).abs() < 1e-9 && t.shx == 0.0);
     }
 
     #[test]

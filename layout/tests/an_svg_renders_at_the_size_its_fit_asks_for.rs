@@ -75,10 +75,12 @@ fn a_pdf_page_fitted_by_width_fills_the_image_edge_to_edge() {
         panic!("expected 8-bit pixels");
     };
     let bytes = bytes.as_ref();
-    let corner = ((image.height - 1) * image.width + (image.width - 1)) * 4;
+    // One pixel in from the corner: the rounded height (141.42 -> 141) leaves
+    // the last column a fraction of a pixel short.
+    let corner = ((image.height - 2) * image.width + (image.width - 2)) * 4;
     assert!(
         bytes[corner] > 200 && bytes[corner + 3] > 200,
-        "the bottom-right pixel is the page's, not a letterbox: {:?}",
+        "the bottom-right is the page's, not a letterbox: {:?}",
         &bytes[corner..corner + 4]
     );
 }
