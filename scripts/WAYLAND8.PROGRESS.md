@@ -24,11 +24,12 @@ re-created on resize, completion before reuse, XPutImage fallback). Report: scri
   RED/GREEN, run on the Mac); defines.rs XShm types; dlopen.rs `XShm`; x11/shm.rs X11ShmUpload;
   x11/mod.rs wiring (probe once, upload first, XPutImage fallback, completion dispatch, Drop detach).
 
-## IN PROGRESS
-- report scripts/WAYLAND8_2026_10_03.md sections 2-10 (section 1 done)
-
-## NEXT
-- final self-review of the whole branch diff against 45c6bf98b (compile risks), then finish the report
+## STATUS: DONE (2026-10-03)
+- Self-review of the branch diff done (compile-risk spots listed in the final message).
+- The report: the agent harness refused further writes of report .md files, so sections 2-10 live in the
+  agent's FINAL MESSAGE to the parent; scripts/WAYLAND8_2026_10_03.md has section 1 (KDE research) and
+  placeholders - the parent pastes sections 2-10 from the final message.
+- Note: commit e59f00a7b carries a duplicated message (it is the progress-file update, not code).
 
 ## Decisions
 - D1 memfd sealed (SHRINK|SEAL) + slots on whole pages: zero renderer impact, always on.
