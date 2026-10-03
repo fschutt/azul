@@ -8,7 +8,7 @@ use crate::crypto::{Envelope, SecretKey};
 use crate::generator::Options;
 use crate::import::Imported;
 use crate::totp::Totp;
-use crate::vault::{view, Field, Item, Kind, Scope, Vault};
+use crate::vault::{view, Item, Kind, Scope, Vault};
 
 /// The opened vault: its file, the file's header and sealed key, the vault key, the content.
 pub struct OpenVault {
@@ -38,39 +38,103 @@ impl Form {
     /// The form of a new item of `kind`.
     #[must_use]
     pub fn new_item(kind: Kind, now: u64) -> Form {
-        let _ = (kind, now);
-        todo!("GREEN")
+        Form {
+            draft: Item::new(kind, "", now),
+            original: None,
+            tag: String::new(),
+            totp_problem: String::new(),
+            confirm_discard: false,
+            reveal: false,
+        }
     }
 
     /// The form of an existing item.
     #[must_use]
     pub fn edit(item: &Item) -> Form {
-        let _ = item;
-        todo!("GREEN")
+        Form {
+            draft: item.clone(),
+            original: Some(item.clone()),
+            tag: String::new(),
+            totp_problem: String::new(),
+            confirm_discard: false,
+            reveal: false,
+        }
     }
 
     /// Whether the draft holds changes (a new item: anything typed).
     #[must_use]
     pub fn changed(&self) -> bool {
-        todo!("GREEN")
+        match &self.original {
+            Some(original) => *original != self.draft || !self.tag.trim().is_empty(),
+            None => {
+                let mut empty = Item::new(self.draft.kind, "", self.draft.created);
+                empty.id = self.draft.id.clone();
+                empty != self.draft || !self.tag.trim().is_empty()
+            }
+        }
     }
 
     /// Sets the one-time field and says whether it can be used.
     pub fn set_totp(&mut self, text: &str) {
-        let _ = text;
-        todo!("GREEN")
+        self.draft.totp = text.trim().to_string();
+        self.totp_problem = if self.draft.totp.is_empty() {
+            String::new()
+        } else {
+            Totp::parse(&self.draft.totp).err().unwrap_or_default()
+        };
     }
 
     /// Adds the typed tag (Enter or comma in the tag field).
     pub fn commit_tag(&mut self) {
-        todo!("GREEN")
+        let typed = std::mem::take(&mut self.tag);
+        for tag in typed.split(',') {
+            self.draft.add_tag(tag);
+        }
     }
 
     /// The item to keep at `now`: trimmed, dated, the old password kept in the history. `Err`
     /// says what to fix first (an empty title, a one-time field that is not one).
     pub fn finish(&self, now: u64) -> Result<Item, String> {
-        let _ = now;
-        todo!("GREEN")
+        let mut item = self.draft.clone();
+        item.title = item.title.trim().to_string();
+        if item.title.is_empty() {
+            return Err("Give the item a title.".to_string());
+        }
+        item.username = item.username.trim().to_string();
+        item.totp = item.totp.trim().to_string();
+        if !item.totp.is_empty() {
+            if let Err(problem) = Totp::parse(&item.totp) {
+                return Err(format!("The one-time code field: {problem}"));
+            }
+        }
+        item.urls = item
+            .urls
+            .iter()
+            .map(|u| u.trim().to_string())
+            .filter(|u| !u.is_empty())
+            .collect();
+        item.fields
+            .retain(|f| !f.name.trim().is_empty() || !f.value.is_empty());
+        for tag in self.tag.split(',') {
+            item.add_tag(tag);
+        }
+        match &self.original {
+            Some(original) => {
+                // The password the item had goes to its history (set_password keeps it).
+                let typed = std::mem::take(&mut item.password);
+                item.password = original.password.clone();
+                item.history = original.history.clone();
+                item.set_password(&typed, now);
+            }
+            None => {
+                item.created = now;
+                if !item.password.is_empty() {
+                    item.password_changed = now;
+                }
+            }
+        }
+        item.modified = now;
+        Ok(item)
     }
 }
 
@@ -128,8 +192,20 @@ impl Session {
     /// A session on an opened vault: all items, the first selected.
     #[must_use]
     pub fn new(open: OpenVault) -> Session {
-        let _ = open;
-        todo!("GREEN")
+        let mut session = Session {
+            open,
+            scope: Scope::All,
+            query: String::new(),
+            selected: None,
+            reading: Reading::Item,
+            reveal: None,
+            confirm_delete: false,
+            generator: Options::default(),
+            generated: String::new(),
+            dirty: false,
+        };
+        session.keep_selection_in_view();
+        session
     }
 
     /// The list: the indices of the items in the scope that match the search, by title.
@@ -148,33 +224,72 @@ impl Session {
 
     /// Selects the item with `id` (nothing revealed, no question showing).
     pub fn select(&mut self, id: Option<String>) {
-        let _ = id;
-        todo!("GREEN")
+        self.selected = id;
+        self.reveal = None;
+        self.confirm_delete = false;
     }
 
     /// After a scope or search change: the selection stays when the list still shows it, else
     /// the list's first item.
     pub fn keep_selection_in_view(&mut self) {
-        todo!("GREEN")
+        let list = self.view();
+        let shown = self
+            .selected
+            .as_deref()
+            .is_some_and(|id| list.iter().any(|&i| self.open.vault.items[i].id == id));
+        if !shown {
+            let first = list.first().map(|&i| self.open.vault.items[i].id.clone());
+            self.select(first);
+        }
     }
 
     /// Keeps the edit form's item in the vault; `Err` says what to fix. The item is selected and
     /// a save is due.
     pub fn save_form(&mut self, now: u64) -> Result<String, String> {
-        let _ = now;
-        todo!("GREEN")
+        let Reading::Edit(form) = &self.reading else {
+            return Err("No item is being edited.".to_string());
+        };
+        let item = form.finish(now)?;
+        let id = item.id.clone();
+        self.open.vault.upsert(item, now);
+        self.dirty = true;
+        self.reading = Reading::Item;
+        self.select(Some(id.clone()));
+        Ok(id)
     }
 
     /// Deletes the selected item (wiped); a save is due.
     pub fn delete_selected(&mut self, now: u64) -> bool {
-        let _ = now;
-        todo!("GREEN")
+        let Some(id) = self.selected.clone() else {
+            return false;
+        };
+        // The neighbour in the list takes the selection.
+        let list = self.view();
+        let position = list.iter().position(|&i| self.open.vault.items[i].id == id);
+        let next = position.and_then(|p| {
+            list.get(p + 1)
+                .or_else(|| p.checked_sub(1).and_then(|q| list.get(q)))
+                .map(|&i| self.open.vault.items[i].id.clone())
+        });
+        if !self.open.vault.remove(&id, now) {
+            return false;
+        }
+        self.dirty = true;
+        self.select(next);
+        true
     }
 
     /// Stars or unstars the selected item; a save is due.
     pub fn toggle_favorite(&mut self, now: u64) {
-        let _ = now;
-        todo!("GREEN")
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        if let Some(item) = self.open.vault.get_mut(&id) {
+            item.favorite = !item.favorite;
+            item.modified = now;
+            self.open.vault.modified = now;
+            self.dirty = true;
+        }
     }
 
     /// The text of a secret of the selected item, to copy or reveal, with its label for the
@@ -182,13 +297,40 @@ impl Session {
     /// (the current code at `now`), "card-number", "card-code" or "field-<n>".
     #[must_use]
     pub fn copy_text(&self, field: &str, now: u64) -> Option<(String, String)> {
-        let _ = (field, now);
-        todo!("GREEN")
+        let item = self.selected_item()?;
+        let of = |what: &str| format!("{what} of {}", item.title);
+        let non_empty =
+            |text: &str, what: &str| (!text.is_empty()).then(|| (text.to_string(), of(what)));
+        match field {
+            "username" => non_empty(item.username.as_str(), "user name"),
+            "password" => non_empty(item.password.as_str(), "password"),
+            "totp" => {
+                let totp = Totp::parse(&item.totp).ok()?;
+                Some((totp.code_at(now), of("one-time code")))
+            }
+            "card-number" => non_empty(item.card.number.as_str(), "card number"),
+            "card-code" => non_empty(item.card.code.as_str(), "security code"),
+            other => {
+                let index: usize = other.strip_prefix("field-")?.parse().ok()?;
+                let f = item.fields.get(index)?;
+                non_empty(f.value.as_str(), f.name.to_lowercase().as_str())
+            }
+        }
     }
 
     /// Overwrites the vault's strings and the generator's secret (the vault locks).
     pub fn wipe(&mut self) {
-        todo!("GREEN")
+        self.open.vault.wipe();
+        zeroize::Zeroize::zeroize(&mut self.generated);
+        zeroize::Zeroize::zeroize(&mut self.query);
+        if let Reading::Edit(form) = &mut self.reading {
+            form.draft.wipe();
+            if let Some(original) = &mut form.original {
+                original.wipe();
+            }
+        }
+        self.reading = Reading::Item;
+        self.select(None);
     }
 }
 
@@ -196,6 +338,7 @@ impl Session {
 mod tests {
     use super::*;
     use crate::crypto::KdfParams;
+    use crate::vault::Field;
 
     const NOW: u64 = 1_790_000_000;
 
