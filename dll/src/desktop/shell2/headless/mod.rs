@@ -2271,7 +2271,31 @@ impl HeadlessWindow {
     /// Spawns a window for every pending create request and pumps the open child windows
     /// (one turn of each), dropping the closed ones.
     pub fn pump_children(&mut self) {
-        while let Some(pending_create) = self.pending_window_creates.pop() {
+        while let Some(mut pending_create) = self.pending_window_creates.pop() {
+            // Every menu window is `azul-menu` (`desktop::menu::show_menu`):
+            // one opened while another is open (a submenu, a second
+            // drop-down) gets an id of its own - `azul-menu-2`, ... - or the
+            // debug server, which routes by id, could only reach the first.
+            if pending_create.window_state.flags.window_type
+                == azul_core::window::WindowType::Menu
+            {
+                let open_menus = self
+                    .children
+                    .iter()
+                    .filter(|c| {
+                        c.common.current_window_state().flags.window_type
+                            == azul_core::window::WindowType::Menu
+                    })
+                    .count();
+                if open_menus > 0 {
+                    let id = format!(
+                        "{}-{}",
+                        pending_create.window_state.window_id.as_str(),
+                        open_menus + 1
+                    );
+                    pending_create.window_state.window_id = id.into();
+                }
+            }
             log_debug!(
                 LogCategory::Window,
                 "[Headless] Spawning sub-HeadlessWindow (type: {:?})",
@@ -3512,13 +3536,28 @@ impl PlatformWindow for HeadlessWindow {
         self.pending_window_creates.push(options);
     }
 
+    /// A menu is what the X11 / Wayland fallback makes it: a window of its
+    /// own with the menu DOM (`desktop::menu::show_menu`), spawned and pumped
+    /// as a child of this window ([`HeadlessWindow::pump_children`]), so the
+    /// debug server reaches it by `window_id` (`azul-menu`; see
+    /// `list_windows`) and a script can read and click its items. A headless
+    /// window sits at the origin of no screen: the parent position is (0, 0).
     fn show_menu_from_callback(
         &mut self,
-        _menu: &azul_core::menu::Menu,
-        _position: LogicalPosition,
-        _anchor: Option<azul_core::geom::LogicalRect>,
+        menu: &azul_core::menu::Menu,
+        position: LogicalPosition,
+        anchor: Option<azul_core::geom::LogicalRect>,
     ) {
-        // TODO: could create a sub-HeadlessWindow with the menu content
+        let options = crate::desktop::menu::show_menu(
+            menu.clone(),
+            self.common.system_style.clone(),
+            LogicalPosition { x: 0.0, y: 0.0 },
+            anchor,
+            Some(position),
+            None,
+        );
+        self.pending_window_creates.push(options);
+        self.wake();
     }
 
     fn show_tooltip_from_callback(&mut self, _text: &str, _position: LogicalPosition) {
