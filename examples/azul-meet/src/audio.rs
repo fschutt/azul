@@ -702,9 +702,11 @@ impl OpusOrder {
 
     /// Whether to decode the packet numbered `sequence` (then it counts as decoded).
     pub fn take(&mut self, sequence: u32) -> bool {
-        // RED stub.
-        let _ = sequence;
-        false
+        if self.next.is_some_and(|next| sequence < next) {
+            return false;
+        }
+        self.next = Some(sequence.wrapping_add(1));
+        true
     }
 }
 
