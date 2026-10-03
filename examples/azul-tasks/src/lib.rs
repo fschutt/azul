@@ -142,14 +142,11 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_css("position: relative; display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
         .with_child(shell.dom())
         .with_child(chrome::palette(s, &app));
-    Dom::create_body()
-        // LOOK: without `margin: 0` the body kept a white 8 px strip at the left and bottom.
-        .with_css("display: flex; flex-direction: column; margin: 0px;")
-        .with_child(
-            ShellThemeScope::create(root)
-                .with_accent(ShellThemeAccent::Leaf)
-                .dom(),
-        )
+    // LOOK: a hand-styled <body> kept the UA's 8 px margin (a white strip at the left and
+    // bottom); the theme scope's own body (SMALL6) fills the window.
+    ShellThemeScope::create(root)
+        .with_accent(ShellThemeAccent::Leaf)
+        .body()
         .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app, on_key)
 }
 

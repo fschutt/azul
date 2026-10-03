@@ -1244,9 +1244,10 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             .dom()
     };
     let root = column("flex-grow: 1; min-height: 0px;", vec![content]);
-    Dom::create_body()
-        .with_css("display: flex; flex-direction: column; margin: 0px;")
-        .with_child(ShellThemeScope::create(root).with_accent(ShellThemeAccent::Blue).dom())
+    // The theme scope's own body (SMALL6): no UA margin, the window's full height.
+    ShellThemeScope::create(root)
+        .with_accent(ShellThemeAccent::Blue)
+        .body()
         .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app, on_key)
 }
 
