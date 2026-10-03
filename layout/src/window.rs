@@ -24920,7 +24920,10 @@ impl LayoutWindow {
             laid_out_safe_area_insets: _,
             // App-level animation CONFIG (durations + fn pointers), no node ids.
             system_animations_override: _,
-            timers: _,
+            // NODE-KEYED through `thread_owners`, like `threads`: a timer one
+            // of a node's lifecycle callbacks started stops when the node
+            // unmounts (handled below).
+            timers,
             // One `Timer` handed to the shell to arm; carries no node id.
             unarmed_blink_timer: _,
             // NODE-KEYED through `thread_owners`: a worker one of a node's
@@ -25042,6 +25045,11 @@ impl LayoutWindow {
             if let Some(thread) = threads.get(&thread_id) {
                 let _ = thread.send_message(azul_core::task::ThreadSendMsg::TerminateThread);
             }
+        }
+        // Their timers never fire again: out of the window's timer map now;
+        // the shell stops the OS timers from the manager's stop list.
+        for timer_id in thread_owners.timers_to_stop() {
+            timers.remove(timer_id);
         }
 
         scroll_manager.remap_node_ids(dom, map);
