@@ -7,9 +7,12 @@ Branch: wt/clock9 (base e537ddbe2). Brief: scripts/waves/wave9/PLAN.md "CLOCK9",
 - d2106068f progress file; 6c3d3daa2 plan
 - c4908aa79 RED crate skeleton + registration + alarm/tone tests
 - 7cb992a6c GREEN alarm.rs (occurrences, DST, due/snooze/arm, labels) + tone.rs
+- f9f8e6149 RED / b0a6d4ee7 GREEN timer.rs, stopwatch.rs, fmt.rs
+- de56163d4 RED / 04941615e GREEN world.rs (chrono-tz zones, rows, search)
+- 9e6f356ec RED / cf8ab9ae9 GREEN schedule.rs (OS notification plan, diff, payloads)
 
 ## IN PROGRESS
-- A2 RED timer.rs + stopwatch.rs + fmt.rs, then world.rs, schedule.rs
+- E1 RED engine tests (layout/tests/native_notifications.rs APPEND): deliver_at, scheduled queue, wire helpers
 
 ## NEXT (plan, in order)
 - A1 skeleton + register (root Cargo.toml members, scripts/workspace_test_members.txt, rust.yml dll_tests step)
