@@ -4176,11 +4176,33 @@ impl Runner {
             }
             // Ctrl/Cmd+B / I / U: the typing style at the caret, as the dll
             // shell sets it.
+            //
+            // The toggle changes nothing on screen, so the editing host hears
+            // it: `TypingStyleChanged`, after the toggle (EVENTS7) - the
+            // shell's dispatch, ported.
             DefaultAction::ToggleTextFormat { target, format } => {
-                if is_primary {
-                    let _ = self.layout_window.toggle_text_format(*target, *format);
+                if !(is_primary && self.layout_window.toggle_text_format(*target, *format)) {
+                    return (ProcessEventResult::DoNothing, false);
                 }
-                (ProcessEventResult::DoNothing, false)
+                let changed = azul_core::events::SyntheticEvent::new(
+                    azul_core::events::EventType::TypingStyleChanged,
+                    azul_core::events::EventSource::User,
+                    *target,
+                    self.now(),
+                    azul_core::events::EventData::None,
+                );
+                let (r, update, _, _) = self.dispatch_events_propagated(&[changed]);
+                if matches!(
+                    update,
+                    azul_core::callbacks::Update::RefreshDom
+                        | azul_core::callbacks::Update::RefreshDomAllWindows
+                ) {
+                    return (
+                        r.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow),
+                        false,
+                    );
+                }
+                (r, false)
             }
             // ==== E1: `ScrollFocusedContainer` ====
             // PgUp / PgDn / Space / Home / End, and an arrow with nowhere to

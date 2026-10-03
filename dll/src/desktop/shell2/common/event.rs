@@ -12550,6 +12550,10 @@ pub trait PlatformWindow {
         // KEYBOARD DEFAULT ACTIONS (Tab navigation, Enter/Space activation, Escape)
         let mut default_action_focus_changed = false;
         let mut synthetic_click_target: Option<azul_core::dom::DomNodeId> = None;
+        // The editing host whose typing style a format key just toggled
+        // (Ctrl/Cmd+B / I / U at a caret): told after the match, like the
+        // synthetic click (EVENTS7).
+        let mut typing_style_changed_at: Option<azul_core::dom::DomNodeId> = None;
 
         if !prevent_default {
             let has_key_event = pre_filter
@@ -12971,10 +12975,12 @@ pub trait PlatformWindow {
                                     // Ctrl/Cmd+B / I / U: the typing style at the
                                     // primary's caret (nothing to repaint - the
                                     // next typed text shows it).
-                                    if key_seat == azul_core::window::PRIMARY_POINTER_SEAT {
-                                        if let Some(lw) = self.get_layout_window_mut() {
-                                            let _ = lw.toggle_text_format(*target, *format);
-                                        }
+                                    if key_seat == azul_core::window::PRIMARY_POINTER_SEAT
+                                        && self
+                                            .get_layout_window_mut()
+                                            .is_some_and(|lw| lw.toggle_text_format(*target, *format))
+                                    {
+                                        typing_style_changed_at = Some(*target);
                                     }
                                 }
 
@@ -13098,6 +13104,33 @@ pub trait PlatformWindow {
                     "[Event] Dispatched synthetic click for element activation: {:?}",
                     click_target
                 );
+            }
+        }
+
+        // TYPING STYLE CHANGED (EVENTS7): a format key toggled the caret's
+        // typing style - the next typed text's formats - and nothing repaints,
+        // so the editing host hears it here, after the toggle (its KeyDown ran
+        // before it): a toolbar reads `get_typing_formats` and shows the
+        // pressed B at once.
+        if let Some(host) = typing_style_changed_at {
+            if depth + 1 < MAX_EVENT_RECURSION_DEPTH {
+                let changed = azul_core::events::SyntheticEvent::new(
+                    azul_core::events::EventType::TypingStyleChanged,
+                    azul_core::events::EventSource::User,
+                    host,
+                    azul_core::task::Instant::now(),
+                    azul_core::events::EventData::None,
+                );
+                let (changed_result, changed_update, _, _) =
+                    self.dispatch_events_propagated(&[changed]);
+                result = result.max(changed_result);
+                if matches!(
+                    changed_update,
+                    Update::RefreshDom | Update::RefreshDomAllWindows
+                ) {
+                    self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                    result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+                }
             }
         }
 
