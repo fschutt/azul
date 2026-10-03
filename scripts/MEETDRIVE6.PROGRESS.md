@@ -65,10 +65,11 @@ scratchpad/msg.txt).
 - LOOK (paused: battery warning - no long headless runs until told otherwise)
 
 ## NEXT
-- AzMeet: About section = AboutDialog (ui.rs settings `_ =>` arm); shortcuts as an appkit
-  Shortcut table (keys.rs like AzDrive's) checked by a test; E2E: AZLIN_DATA per app, check
-  meet/<room>/chat.jsonl + meet/settings.json (AZMEET_SAVED lines)
-- then the LOOK runs (battery permitting)
+- AzDrive: Quick access (0) row; look at 14-options / 15-flora-dark shots
+- AzMeet: LOOK (headless lobby / settings / demo call, flat+flora light+dark); About section =
+  AboutDialog (ui.rs settings `_ =>` arm); shortcuts as an appkit Shortcut table checked by a
+  test; E2E: AZLIN_DATA per app, check meet/<room>/chat.jsonl + meet/settings.json
+- then the report scripts/MEETDRIVE6_2026_10_03.md
 (older NEXT below)
 - when power allows: run scripts/azdrive_e2e.py (prebuilt AzDrive) through run_capped, look at
   every screenshot (target/md6/drive-shots), then AzMeet (run the WHOLE meet E2E under ONE
@@ -109,6 +110,24 @@ scratchpad/msg.txt).
   - 03-tiles.png after cycling all layouts showed overlapping icons + smeared text; a fresh
     `--layout tiles` start is clean (dl2.png) -> captured mid layout-change animation (opacity
     + moving items), not a layout bug.
+
+- After LOOK run 2 (all committed):
+  - e397c98bf AzDrive F2 commits the TextInputState its key/blur hook gets (on_rename_text sees
+    only typing; deletions were lost: "todo.txtn")
+  - b6874438e RED / 833b0f7a1 + 1f47bd911 GREEN text_input caret_byte: the mirror's caret honours
+    TRAILING affinity (End + typing was mirrored one char early); empty engine read keeps old rule
+  - 268ed106c AzDrive body font-family system:ui (inline sheet was serif) + sheet z-index
+  - 2df280d23 azdrive_e2e.py: settle() before screenshots (details pane rows animate in; a
+    shot right after a change showed them overlapping), ribbon() for Select all / Copy / Paste /
+    Undo in steps 5/7/9/10, new step 16 checks Cmd+A / Cmd+C with the pane focused
+  - 0e0d91854 RED / ef71d259c GREEN browse::metadata_rows (no duplicate Location, Created as a
+    date) used by the details pane and Properties
+  - local LOOK copy target/md6/e2e_local.py (skips 7 and 16) PASSES against the prebuilt.
+- Seen, NOT fixed (report): CPU compositor paints a later root-layer sibling (the inline
+  sheet) UNDER an earlier scroll-frame layer (list header / selected row cover the sheet);
+  13-properties.png: after the pane toggles of step 12 the details list drew shifted left
+  under the navigation pane (clip / layer offset); status-bar segments overlapped mid-animation
+  (settles); ribbon VIEW tab clips its last group at 1280 px.
 
 ## Decisions
 - AzMeet keeps android/ios link-static targets: use azul-appkit WITHOUT its `azul` feature
