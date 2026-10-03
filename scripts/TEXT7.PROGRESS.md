@@ -18,13 +18,17 @@ Branch `wt/text7` from `2e55eef06`. Brief: scripts/waves/wave7/TEXT7.md. Never c
 - 5d493ef05 RED item 4: dll/src/desktop/shell2/headless/tests/permission_probe.rs (Linux-only; mod line in
   headless/mod.rs tests)
 - 397eb4432 GREEN item 4: the one line in dll common/layout.rs (`Some(NodeId::new(i)).into()`)
+- 91298b55a item 5: pin (fixed in wave 5) - layout/tests/a_line_height_is_the_line_pitch_on_screen.rs
+- 22899ad78 item 6: pin (done in wave 5) - layout/tests/a_line_height_in_rem_or_viewport_units_is_the_pitch_on_screen.rs,
+  table_markup::lay_out_in
+- 1ae5e4cdd style fix in getters::resolve_text_indent
+- report scripts/TEXT7_2026_10_03.md
 
 ## IN PROGRESS
-- item 5: line-height 19px pitched 19.55 (probing pdfocr markup) - reproduce in code first
+- (none - all six items done, report written)
 
 ## NEXT
-- item 6: line-height rem/vw/vh
-- then the report scripts/TEXT7_2026_10_03.md
+- (none) - the parent compiles and runs the commands in the report
 
 ## Decisions
 - text-indent is applied as geometry of the line box (start-side segment narrowed), not a pen shift.
