@@ -315,8 +315,12 @@ impl EditorForm {
     /// edits.
     #[must_use]
     pub fn changed_since(&self, opened: &EditorForm) -> bool {
-        let _ = opened;
-        todo!()
+        let edits = |f: &EditorForm| EditorForm {
+            serial: 0,
+            error: String::new(),
+            ..f.clone()
+        };
+        edits(self) != edits(opened)
     }
 
     /// The rule the recurrence editor shows: the form's choice made into a rule, or its own
