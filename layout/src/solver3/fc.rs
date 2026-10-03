@@ -1364,11 +1364,11 @@ fn layout_bfc<T: ParsedFontTrait>(
             // block is `auto` as well (CSS 2.2 10.5): its used height is the
             // placeholder too (AzMail's `height: 100%` paper, an inline-block).
             let height_is_auto = tree.warm(LayoutNodeId::new(node_index)).is_none_or(|w| {
-                w.computed_style.height.is_none()
-                    || crate::solver3::sizing::percentage_height_computes_to_auto(
-                        w.computed_style.height.as_ref(),
-                        constraints.containing_block_size.height.is_finite(),
-                    )
+                crate::solver3::sizing::height_is_auto_for_children(
+                    &node.formatting_context,
+                    w.computed_style.height.as_ref(),
+                    constraints.containing_block_size.height.is_finite(),
+                )
             });
             if height_is_auto {
                 LogicalSize::new(inner.width, constraints.available_size.height)
@@ -10466,9 +10466,21 @@ fn measure_atomic_inline<T: ParsedFontTrait>(
         let nd = &ctx.styled_dom.node_data.as_container()[dom_id];
         matches!(nd.get_node_type(), NodeType::Image(_)) || nd.is_virtual_view_node()
     };
+    // A percentage height against the IFC's indefinite block size computes to
+    // `auto` (CSS 2.2 10.5): as tall as the content, like an `auto` height -
+    // `tentative_size` holds only the sizing estimate for it (AzMail's
+    // `height: 100%` paper ended hundreds of px above the mail's end).
+    let percentage_is_auto = crate::solver3::sizing::percentage_height_computes_to_auto(
+        css_height.as_exact(),
+        atomic_inline_containing_block(constraints)
+            .height
+            .is_finite(),
+    );
+    let height_is_auto =
+        percentage_is_auto || matches!(css_height.clone().unwrap_or_default(), LayoutHeight::Auto);
     // Determine final border-box height
-    let final_height = match css_height.clone().unwrap_or_default() {
-        LayoutHeight::Auto if !is_replaced_atomic => atomic_inline_auto_height(
+    let final_height = match height_is_auto {
+        true if !is_replaced_atomic => atomic_inline_auto_height(
             tree.get(LayoutNodeId::new(child_index))
                 .map(|n| n.formatting_context),
             tree.get(LayoutNodeId::new(child_index))

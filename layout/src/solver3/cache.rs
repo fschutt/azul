@@ -2744,11 +2744,11 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
     // computes to auto against this box's indefinite containing block (CSS
     // 2.2 10.5): its used height is only a placeholder until its content is
     // laid out, never a height its children's percentages resolve against.
-    let height_is_auto = warm.computed_style.height.is_none()
-        || super::sizing::percentage_height_computes_to_auto(
-            warm.computed_style.height.as_ref(),
-            cb.height.is_definite(),
-        );
+    let height_is_auto = super::sizing::height_is_auto_for_children(
+        &node.formatting_context,
+        warm.computed_style.height.as_ref(),
+        cb.height.is_definite(),
+    );
 
     let available_size_for_children = if height_is_auto {
         // Height is auto - use containing block size as available size

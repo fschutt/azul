@@ -2138,6 +2138,33 @@ pub(crate) fn percentage_height_computes_to_auto(
         )
 }
 
+/// Whether a box's `height` (`None` = auto) gives its children NO height to
+/// resolve their percentages against - `auto`, or a percentage that computes
+/// to auto ([`percentage_height_computes_to_auto`]) - so its used height
+/// before layout is only a placeholder. A table box keeps its used height
+/// for its children: the table algorithm decides the heights of a table, its
+/// rows and its cells (CSS 2.2 17.5.3), and a cell's percentage child
+/// resolves against the cell. Asked by `cache::prepare_layout_context` and
+/// `fc::layout_bfc`, the two places that hand a box's height to its children.
+pub(crate) fn height_is_auto_for_children(
+    formatting_context: &FormattingContext,
+    height: Option<&LayoutHeight>,
+    containing_block_height_is_definite: bool,
+) -> bool {
+    let table_box = matches!(
+        formatting_context,
+        FormattingContext::Table
+            | FormattingContext::TableRowGroup
+            | FormattingContext::TableRow
+            | FormattingContext::TableCell
+            | FormattingContext::TableColumnGroup
+            | FormattingContext::TableCaption
+    );
+    height.is_none()
+        || (!table_box
+            && percentage_height_computes_to_auto(height, containing_block_height_is_definite))
+}
+
 #[allow(clippy::match_same_arms)]
 // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't
 // merge)
