@@ -1770,6 +1770,9 @@ pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
     // borrow `&slider`, and the thumb's margin is derived from the state.
     let resolved_track_style = slider.resolved_track_style();
     let resolved_thumb_style = slider.resolved_thumb_style();
+    // A part the caller styled (`Some`) is the caller's: no theme paint on it.
+    let track_is_callers = slider.track_style.is_some();
+    let thumb_is_callers = slider.thumb_style.is_some();
 
     let state = RefAny::new(slider.slider_state);
     let mk = |event: EventFilter, cb: usize| CoreCallbackData {
@@ -1824,28 +1827,36 @@ pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
     // with `.fl-orb-gloss`: laid OVER whatever colour the widget resolved for
     // the thumb — read back rather than restated, so it cannot drift from
     // slider.rs — and over the theme's accent in dark mode.
-    track_style.push(CssPropertyWithConditions::dark_mode(
-        CssProperty::BackgroundContent(
-            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_TRACK)])
+    // Only on the widget's own parts: a style the caller set is the caller's
+    // (the status bar's zoom slider draws its own rail and thumb).
+    if !track_is_callers {
+        track_style.push(CssPropertyWithConditions::dark_mode(
+            CssProperty::BackgroundContent(
+                StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(
+                    DARK_TRACK,
+                )])
                 .into(),
-        ),
-    ));
-    let mut thumb_layers: Vec<StyleBackgroundContent> = thumb_style
-        .iter()
-        .rev()
-        .find_map(|p| match &p.property {
-            CssProperty::BackgroundContent(b) if p.apply_if.as_ref().is_empty() => {
-                b.get_property().map(|b| b.as_ref().to_vec())
-            }
-            _ => None,
-        })
-        .unwrap_or_default();
-    thumb_layers.push(ORB_GLOSS);
-    thumb_style.push(CssPropertyWithConditions::simple(layers(thumb_layers)));
-    thumb_style.push(CssPropertyWithConditions::dark_mode(layers(vec![
-        StyleBackgroundContent::Color(DARK_ACC),
-        ORB_GLOSS,
-    ])));
+            ),
+        ));
+    }
+    if !thumb_is_callers {
+        let mut thumb_layers: Vec<StyleBackgroundContent> = thumb_style
+            .iter()
+            .rev()
+            .find_map(|p| match &p.property {
+                CssProperty::BackgroundContent(b) if p.apply_if.as_ref().is_empty() => {
+                    b.get_property().map(|b| b.as_ref().to_vec())
+                }
+                _ => None,
+            })
+            .unwrap_or_default();
+        thumb_layers.push(ORB_GLOSS);
+        thumb_style.push(CssPropertyWithConditions::simple(layers(thumb_layers)));
+        thumb_style.push(CssPropertyWithConditions::dark_mode(layers(vec![
+            StyleBackgroundContent::Color(DARK_ACC),
+            ORB_GLOSS,
+        ])));
+    }
 
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(

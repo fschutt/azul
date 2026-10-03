@@ -1359,6 +1359,9 @@ pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
     // borrow `&slider`, and the thumb's margin is derived from the state.
     let resolved_track_style = slider.resolved_track_style();
     let resolved_thumb_style = slider.resolved_thumb_style();
+    // A part the caller styled (`Some`) is the caller's: no theme paint on it.
+    let track_is_callers = slider.track_style.is_some();
+    let thumb_is_callers = slider.thumb_style.is_some();
 
     let state = RefAny::new(slider.slider_state);
     let mk = |event: EventFilter, cb: usize| CoreCallbackData {
@@ -1409,9 +1412,14 @@ pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
 
     // Flat specific, dark theme: the rail is a groove in the desktop's field
     // colour and the thumb keeps the role it has in the light theme - the
-    // accent - in the desktop's own accent.
-    track_style.push(system_palette::DARK_CONTROL_BACKGROUND);
-    thumb_style.push(system_palette::DARK_ACCENT_BACKGROUND);
+    // accent - in the desktop's own accent. Only on the widget's own parts:
+    // a style the caller set is the caller's (the status bar's zoom slider).
+    if !track_is_callers {
+        track_style.push(system_palette::DARK_CONTROL_BACKGROUND);
+    }
+    if !thumb_is_callers {
+        thumb_style.push(system_palette::DARK_ACCENT_BACKGROUND);
+    }
 
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(
