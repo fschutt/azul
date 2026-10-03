@@ -6423,6 +6423,10 @@ pub trait PlatformWindow {
             CallbackChange::AddTimer { timer_id, timer } => {
                 if let Some(lw) = self.get_layout_window_mut() {
                     lw.timers.insert(*timer_id, timer.clone());
+                    // A new timer under this id: an old owner no longer
+                    // speaks for it (the dispatcher binds a node's own after
+                    // this, `managers::thread_owner`).
+                    lw.thread_owners.forget_timer(timer_id);
                 }
                 self.start_timer(timer_id.id, timer.clone());
                 ProcessEventResult::DoNothing
@@ -6431,6 +6435,7 @@ pub trait PlatformWindow {
             CallbackChange::RemoveTimer { timer_id } => {
                 if let Some(lw) = self.get_layout_window_mut() {
                     lw.timers.remove(timer_id);
+                    lw.thread_owners.forget_timer(timer_id);
                 }
                 self.stop_timer(timer_id.id);
                 ProcessEventResult::DoNothing
@@ -9763,6 +9768,10 @@ pub trait PlatformWindow {
         let borrows = self.prepare_callback_invocation();
         let mut all_updates: Vec<Update> = Vec::new();
         let mut all_changes: Vec<azul_layout::callbacks::CallbackChange> = Vec::new();
+        // Timers a node's lifecycle callback started, bound to that node once
+        // the changes are applied (applying `AddTimer` forgets an old owner).
+        let mut node_timers: Vec<(azul_core::task::TimerId, azul_core::dom::DomNodeId)> =
+            Vec::new();
         let mut any_prevent_default = false;
         // WHICH event was vetoed, not merely that something was. A pass can
         // carry a wheel and a key at once, and a key handler's
@@ -9838,6 +9847,16 @@ pub trait PlatformWindow {
             let binds_threads = azul_layout::managers::thread_owner::binds_threads_to_node(
                 &planned.callback_data.event,
             );
+            // Its timers too (the map's tile sweep): they stop with the node.
+            if binds_threads {
+                for change in &changes {
+                    if let azul_layout::callbacks::CallbackChange::AddTimer { timer_id, .. } =
+                        change
+                    {
+                        node_timers.push((*timer_id, hit_node));
+                    }
+                }
+            }
             all_changes.extend(changes.into_iter().map(|c| match c {
                 azul_layout::callbacks::CallbackChange::CapturePointer { node, .. } => {
                     azul_layout::callbacks::CallbackChange::CapturePointer {
@@ -9877,6 +9896,15 @@ pub trait PlatformWindow {
         for change in &all_changes {
             let r = self.apply_user_change(change);
             changes_result = changes_result.max(r);
+        }
+        if let Some(lw) = self.get_layout_window_mut() {
+            for (timer_id, owner) in node_timers {
+                // Only a timer that is still running: a later change of the
+                // same pass may have removed it again.
+                if lw.timers.contains_key(&timer_id) {
+                    lw.thread_owners.bind_timer(timer_id, owner);
+                }
+            }
         }
 
         // Compute the maximum update level across all callbacks
@@ -10679,6 +10707,21 @@ pub trait PlatformWindow {
     /// (headless, iOS and Android run one window).
     fn adopt_app_mode_in_other_windows(&mut self) {}
 
+    /// Stop the OS timers of nodes that unmounted (`managers::thread_owner`):
+    /// a timer one of a node's lifecycle callbacks started - the map's tile
+    /// sweep - stops with the node. The window already dropped them from its
+    /// timer map at the unmount; this stops the platform timer that would
+    /// still wake the loop for them.
+    fn stop_timers_of_unmounted_nodes(&mut self) {
+        let stopped = self
+            .get_layout_window_mut()
+            .map(|lw| lw.thread_owners.take_timers_to_stop())
+            .unwrap_or_default();
+        for timer_id in stopped {
+            self.stop_timer(timer_id.id);
+        }
+    }
+
     /// Drain `LayoutWindow.pending_lifecycle_events` and dispatch each event.
     ///
     /// Reconciliation (see `common::layout::regenerate_layout`) queues
@@ -10692,6 +10735,10 @@ pub trait PlatformWindow {
     /// consistent post-layout DOM. Returning `true` means at least one callback
     /// reported `Update::Refresh(Dom)` and the caller should regenerate again.
     fn dispatch_pending_lifecycle_events(&mut self) -> bool {
+        // The rebuild that queued these events also unmounted nodes: their
+        // timers stop before anything else runs.
+        self.stop_timers_of_unmounted_nodes();
+
         // Snapshot both queues up front so we hold no borrow on the layout
         // window when invoking callbacks (callbacks may mutate it).
         let (events, unmount_invocations) = match self.get_layout_window_mut() {
@@ -13778,6 +13825,11 @@ pub trait PlatformWindow {
     fn invoke_expired_timers(&mut self) -> (ProcessEventResult, Vec<azul_core::callbacks::Update>) {
         use azul_core::{callbacks::Update, task::TimerId};
         use azul_layout::callbacks::ExternalSystemCallbacks;
+
+        // A rebuild outside `regenerate_layout` (a VirtualView re-render) can
+        // have unmounted nodes too: their platform timers stop here at the
+        // latest, before this pass looks for expired ones.
+        self.stop_timers_of_unmounted_nodes();
 
         // Get current system time
         let system_callbacks = ExternalSystemCallbacks::rust_internal();

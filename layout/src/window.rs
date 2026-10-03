@@ -2007,6 +2007,20 @@ pub struct LayoutWindow {
     pub icu_localizer: IcuLocalizerHandle,
 }
 
+/// A window that goes away stops its background workers TOGETHER
+/// (`managers::thread_owner::stop_all`): every one is told `TerminateThread`
+/// first and they are waited for on one shared grace period. Dropping the
+/// `threads` map entry by entry made each worker's destructor wait for its
+/// worker before the next one even heard of it - a window closed in the SUM
+/// of its workers' stop times, on the UI thread. One place, so every shell's
+/// close path gets it.
+impl Drop for LayoutWindow {
+    fn drop(&mut self) {
+        #[cfg(feature = "std")]
+        crate::managers::thread_owner::stop_all(&mut self.threads);
+    }
+}
+
 const fn default_duration_500ms() -> Duration {
     Duration::System(SystemTimeDiff::from_millis(500))
 }
@@ -24906,7 +24920,10 @@ impl LayoutWindow {
             laid_out_safe_area_insets: _,
             // App-level animation CONFIG (durations + fn pointers), no node ids.
             system_animations_override: _,
-            timers: _,
+            // NODE-KEYED through `thread_owners`, like `threads`: a timer one
+            // of a node's lifecycle callbacks started stops when the node
+            // unmounts (handled below).
+            timers,
             // One `Timer` handed to the shell to arm; carries no node id.
             unarmed_blink_timer: _,
             // NODE-KEYED through `thread_owners`: a worker one of a node's
@@ -25028,6 +25045,11 @@ impl LayoutWindow {
             if let Some(thread) = threads.get(&thread_id) {
                 let _ = thread.send_message(azul_core::task::ThreadSendMsg::TerminateThread);
             }
+        }
+        // Their timers never fire again: out of the window's timer map now;
+        // the shell stops the OS timers from the manager's stop list.
+        for timer_id in thread_owners.timers_to_stop() {
+            timers.remove(timer_id);
         }
 
         scroll_manager.remap_node_ids(dom, map);
