@@ -135,10 +135,8 @@ pub fn supersede_pending_removals(
                 };
                 changed |= drop_names(&mut cp.remove_functions, &functions, &mut superseded);
                 changed |= drop_names(&mut cp.remove_constructors, &constructors, &mut superseded);
-                let spent = cp.is_empty()
-                    && cp.remove_functions.is_none()
-                    && cp.remove_constructors.is_none();
-                if spent {
+                // `is_empty` counts the remove lists: nothing left at all
+                if cp.is_empty() {
                     module.classes.remove(class_name);
                 }
             }

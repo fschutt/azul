@@ -162,6 +162,22 @@ impl ClassPatch {
             && self.constructors.is_none()
             && self.functions.is_none()
             && self.move_to_module.is_none()
+            && !self.has_removals()
+    }
+
+    /// Whether the patch removes entries of the class (functions,
+    /// constructors, derives, custom impls).
+    pub fn has_removals(&self) -> bool {
+        self.remove_functions.is_some()
+            || self.remove_constructors.is_some()
+            || self.remove_derive.is_some()
+            || self.remove_custom_impls.is_some()
+    }
+
+    /// Whether the patch only removes entries: applied to a class the module
+    /// does not have, it has nothing to do (it never creates the class).
+    pub fn removes_only(&self) -> bool {
+        self.has_removals() && self.carries_nothing_but_removals()
     }
 
     /// Check if this patch is a removal patch
@@ -174,8 +190,16 @@ impl ClassPatch {
         self.move_to_module.is_some()
     }
 
-    /// Check if this patch is completely empty (no fields set)
+    /// Check if this patch is completely empty (no fields set). The `remove_*`
+    /// lists count: a move patch that also removes functions was applied as
+    /// "empty" after the move and lost its removals (AUTOFIX6).
     pub fn is_empty(&self) -> bool {
+        !self.has_removals() && self.carries_nothing_but_removals()
+    }
+
+    /// No field set but the `remove_*` lists (and the merge flags, which only
+    /// say how a set field is applied).
+    fn carries_nothing_but_removals(&self) -> bool {
         self.remove.is_none()
             && self.move_to_module.is_none()
             && self.external.is_none()
@@ -1179,6 +1203,13 @@ fn apply_module_patch(
         if let Some(class_data) = module_data.classes.get_mut(class_name) {
             // Update existing class
             patches_applied += apply_class_patch(class_data, class_patch, module_name, class_name)?;
+        } else if class_patch.removes_only() {
+            // Nothing to remove from a class the module does not have; a
+            // removal never creates the class
+            eprintln!(
+                "Warning: Class '{}' not found in module '{}' - nothing to remove",
+                class_name, module_name
+            );
         } else {
             // Insert new class from patch
             if !class_patch.is_empty() {
