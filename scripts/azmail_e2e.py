@@ -165,9 +165,12 @@ class Run:
                 pass
         return text
 
-    def until(self, what, check, interval=0.25):
+    def until(self, what, check, interval=0.25, limit=None):
+        """Waits for `check`; `limit` seconds at most (a check that waits for one feature must
+        not eat the whole run's time), else until the run's deadline."""
         last = None
-        while time.time() < self.deadline:
+        deadline = self.deadline if limit is None else min(self.deadline, time.time() + limit)
+        while time.time() < deadline:
             for name, child in self.children:
                 if name == 'azmail' and child.poll() is not None:
                     raise Failure(f'AzMail exited ({child.returncode}) while waiting for {what}')
@@ -551,7 +554,11 @@ class SampleRun(Run):
         self.must('key_down', key='enter', modifiers={})
         self.must('key_up', key='enter', modifiers={})
         self.frame(None, 2)
-        self.until('the To-Do bar to list the task', lambda: self.shows(TASK))
+        try:
+            self.until('the To-Do bar to list the task', lambda: self.shows(TASK), limit=20)
+        except Failure as e:
+            self.check('the To-Do bar lists a typed task', False, str(e))
+            return
         files = []
 
         def stored():
@@ -564,7 +571,7 @@ class SampleRun(Run):
                                 files.append(os.path.join(dirpath, n))
             return files
         try:
-            self.until('the task file in the shared task store', stored)
+            self.until('the task file in the shared task store', stored, limit=20)
             self.check('a To-Do bar task is a file of the shared task store (tasks/<list>/<id>.json)',
                        True, files[0])
         except Failure as e:
@@ -588,7 +595,7 @@ class SampleRun(Run):
         self.frame(None, 2)
         try:
             self.until('the "save changes?" question',
-                       lambda: self.shows('Do you want to save changes', window))
+                       lambda: self.shows('Do you want to save changes', window), limit=20)
             asked = window not in self.printed('AZMAIL_COMPOSE_CLOSED')
             self.check('closing an edited mail asks "save changes?" and keeps the window', asked)
             self.click("Don't Save", window)
