@@ -286,3 +286,29 @@ fn the_s3_get_lifecycle_example_signs_a_valueless_query_parameter() {
         "fea454ca298b7da1c68078a5d1bdbfbbe0d65c699e0f91ac7a200a0136783543"
     );
 }
+
+#[test]
+fn uri_decode_undoes_uri_encode_and_refuses_a_broken_escape() {
+    for key in ["notes/My Notes/50% \u{fc}ber.md", "a+b=c&d", "plain/key.txt", ""] {
+        assert_eq!(
+            sigv4::uri_decode(&sigv4::uri_encode(key, false)).as_deref(),
+            Some(key)
+        );
+    }
+    assert_eq!(sigv4::uri_decode("a%2"), None, "a % without two digits");
+    assert_eq!(sigv4::uri_decode("a%zz"), None, "not hex");
+    assert_eq!(sigv4::uri_decode("%FF"), None, "not UTF-8");
+}
+
+#[test]
+fn the_streamed_sha256_is_the_sha256_of_the_whole() {
+    let data: Vec<u8> = (0..200_000u32).map(|i| (i % 251) as u8).collect();
+    assert_eq!(
+        sigv4::sha256_hex_of(&data[..]).unwrap(),
+        sigv4::sha256_hex(&data)
+    );
+    assert_eq!(
+        sigv4::sha256_hex_of(&b""[..]).unwrap(),
+        sigv4::EMPTY_SHA256
+    );
+}
