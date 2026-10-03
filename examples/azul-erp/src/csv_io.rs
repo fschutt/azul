@@ -186,73 +186,158 @@ const GUESSES: [(Field, &[&str]); 18] = [
     (
         Field::Number,
         &[
-            "asset number", "asset no", "asset nr", "asset tag", "tag", "tag number", "number", "no",
-            "inventory number", "inventory no", "inventarnummer", "inventar nr", "inv nr",
-            "anlagennummer", "anlage nr", "anlagen nr",
+            "asset number",
+            "asset no",
+            "asset nr",
+            "asset tag",
+            "tag",
+            "tag number",
+            "number",
+            "no",
+            "inventory number",
+            "inventory no",
+            "inventarnummer",
+            "inventar nr",
+            "inv nr",
+            "anlagennummer",
+            "anlage nr",
+            "anlagen nr",
         ],
     ),
     (
         Field::Name,
-        &["name", "asset name", "item", "title", "bezeichnung", "anlagenbezeichnung", "benennung"],
+        &[
+            "name",
+            "asset name",
+            "item",
+            "title",
+            "bezeichnung",
+            "anlagenbezeichnung",
+            "benennung",
+        ],
     ),
     (
         Field::Category,
-        &["category", "category name", "asset class", "class", "kategorie", "anlagenklasse", "anlagengruppe"],
+        &[
+            "category",
+            "category name",
+            "asset class",
+            "class",
+            "kategorie",
+            "anlagenklasse",
+            "anlagengruppe",
+        ],
     ),
-    (Field::Location, &["location", "site", "room", "standort", "ort", "raum"]),
+    (
+        Field::Location,
+        &["location", "site", "room", "standort", "ort", "raum"],
+    ),
     (
         Field::Serial,
-        &["serial number", "serial no", "serial", "sn", "seriennummer", "serien nr", "serien nummer"],
+        &[
+            "serial number",
+            "serial no",
+            "serial",
+            "sn",
+            "seriennummer",
+            "serien nr",
+            "serien nummer",
+        ],
     ),
     (
         Field::Acquired,
         &[
-            "acquisition date", "acquired", "date acquired", "purchase date", "date of purchase",
-            "in service date", "anschaffungsdatum", "kaufdatum", "zugangsdatum",
+            "acquisition date",
+            "acquired",
+            "date acquired",
+            "purchase date",
+            "date of purchase",
+            "in service date",
+            "anschaffungsdatum",
+            "kaufdatum",
+            "zugangsdatum",
         ],
     ),
     (
         Field::Cost,
         &[
-            "acquisition cost", "cost", "purchase price", "price", "anschaffungskosten", "ak",
-            "kaufpreis", "anschaffungswert",
+            "acquisition cost",
+            "cost",
+            "purchase price",
+            "price",
+            "anschaffungskosten",
+            "ak",
+            "kaufpreis",
+            "anschaffungswert",
         ],
     ),
     (
         Field::Residual,
-        &["residual value", "residual", "salvage value", "salvage", "restwert", "schrottwert"],
+        &[
+            "residual value",
+            "residual",
+            "salvage value",
+            "salvage",
+            "restwert",
+            "schrottwert",
+        ],
     ),
     (
         Field::Life,
         &[
-            "useful life years", "useful life", "life", "life years", "years", "nutzungsdauer",
-            "nutzungsdauer jahre", "nd",
+            "useful life years",
+            "useful life",
+            "life",
+            "life years",
+            "years",
+            "nutzungsdauer",
+            "nutzungsdauer jahre",
+            "nd",
         ],
     ),
     (
         Field::Method,
         &[
-            "depreciation method", "method", "afa methode", "afa art", "abschreibungsmethode",
+            "depreciation method",
+            "method",
+            "afa methode",
+            "afa art",
+            "abschreibungsmethode",
             "abschreibungsart",
         ],
     ),
     (
         Field::Rate,
         &[
-            "declining rate percent", "declining rate", "depreciation rate", "rate", "afa satz",
+            "declining rate percent",
+            "declining rate",
+            "depreciation rate",
+            "rate",
+            "afa satz",
             "abschreibungssatz",
         ],
     ),
     (Field::Status, &["status", "state", "zustand"]),
     (
         Field::Custodian,
-        &["custodian", "assigned to", "holder", "checked out to", "verantwortlich", "mitarbeiter"],
+        &[
+            "custodian",
+            "assigned to",
+            "holder",
+            "checked out to",
+            "verantwortlich",
+            "mitarbeiter",
+        ],
     ),
     (
         Field::MaintenanceMonths,
         &[
-            "maintenance interval months", "maintenance interval", "service interval",
-            "service interval months", "wartungsintervall", "wartungsintervall monate",
+            "maintenance interval months",
+            "maintenance interval",
+            "service interval",
+            "service interval months",
+            "wartungsintervall",
+            "wartungsintervall monate",
         ],
     ),
     (
@@ -261,18 +346,40 @@ const GUESSES: [(Field, &[&str]); 18] = [
     ),
     (
         Field::DisposalAmount,
-        &["disposal amount", "sale price", "proceeds", "erlös", "veräußerungserlös", "abgangserlös"],
+        &[
+            "disposal amount",
+            "sale price",
+            "proceeds",
+            "erlös",
+            "veräußerungserlös",
+            "abgangserlös",
+        ],
     ),
     (
         Field::BookValue,
-        &["book value", "net book value", "nbv", "buchwert", "restbuchwert"],
+        &[
+            "book value",
+            "net book value",
+            "nbv",
+            "buchwert",
+            "restbuchwert",
+        ],
     ),
     (
         Field::Notes,
-        &["notes", "note", "comment", "comments", "remarks", "bemerkung", "bemerkungen", "notiz", "notizen"],
+        &[
+            "notes",
+            "note",
+            "comment",
+            "comments",
+            "remarks",
+            "bemerkung",
+            "bemerkungen",
+            "notiz",
+            "notizen",
+        ],
     ),
 ];
-}
 
 /// A CSV file: its header and its rows (each as long as the header).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -380,7 +487,11 @@ pub fn export_assets(book: &Book, today: NaiveDate) -> String {
     let mut w = writer();
     let _ = w.write_record(Field::EXPORT.iter().map(|f| f.header()));
     for asset in &book.assets {
-        let _ = w.write_record(Field::EXPORT.iter().map(|f| cell_text(*f, asset, book, today)));
+        let _ = w.write_record(
+            Field::EXPORT
+                .iter()
+                .map(|f| cell_text(*f, asset, book, today)),
+        );
     }
     written(w)
 }
@@ -478,7 +589,9 @@ pub fn import_assets(
                 work.put(done.asset.clone());
                 out.assets.push(done.asset);
             }
-            Err(problems) => out.problems.push(format!("Row {line}: {}", problems.join("; "))),
+            Err(problems) => out
+                .problems
+                .push(format!("Row {line}: {}", problems.join("; "))),
         }
     }
     out
@@ -494,7 +607,11 @@ struct RowDone {
 
 /// A whole number at the start of a cell (`3`, `3 years`, `3 Jahre`).
 fn leading_number(text: &str) -> Option<u32> {
-    let digits: String = text.trim().chars().take_while(char::is_ascii_digit).collect();
+    let digits: String = text
+        .trim()
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
     digits.parse().ok()
 }
 
@@ -598,7 +715,9 @@ fn import_row<'r>(
     match cell(Field::Method) {
         Some(t) => match Method::parse(t) {
             Some(m) => a.method = m,
-            None => problems.push(format!("the depreciation method \"{t}\" is not one AzERP knows")),
+            None => problems.push(format!(
+                "the depreciation method \"{t}\" is not one AzERP knows"
+            )),
         },
         None if is_new => {
             if let Some((_, m)) = defaults {
@@ -625,7 +744,9 @@ fn import_row<'r>(
     if let Some(t) = cell(Field::MaintenanceMonths) {
         match leading_number(t) {
             Some(n) => a.maintenance_months = n,
-            None => problems.push(format!("the maintenance interval \"{t}\" is not a number of months")),
+            None => problems.push(format!(
+                "the maintenance interval \"{t}\" is not a number of months"
+            )),
         }
     }
     if let Some(t) = cell(Field::Disposed) {
