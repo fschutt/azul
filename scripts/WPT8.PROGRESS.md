@@ -44,13 +44,23 @@ Brief: scripts/waves/wave8/PLAN.md section "WPT8". Items in order:
     (inline-formatting-context-002/006 need per-element inline fragments); line breaking ignores
     inline insets; a span's several text children get insets each (Arc per text node in fc.rs CASE 1).
 
+- item 3 (counters) PARTIAL:
+  - 79da84eb6 RED + d85dbf66f fix: reversed list without start counts down into its first <li value>
+    (cache.rs reversed_list_start)
+  - FOUND: `::before` / `::after` generated content does not exist at all (parser2.rs
+    pseudo_selector_from_str rejects "before"/"after" -> the whole rule is dropped; nothing creates
+    NodeType::Before/After; css Content is "parsed but not consumed"). Every WPT counter test uses
+    `::before { content: counter(..) }`. Deferred to the end (a feature: selector -> pseudo node ->
+    cascade -> generated inline box -> content eval with counters).
+  - `display: inline list-item` does not parse (needs LayoutDisplay::InlineListItem = api.json) - deferred.
+- item 4: b9121f729 RED + 19fd42e92 fix: single-stop gradients (css background.rs normalizers)
+
 ## IN PROGRESS
-- item 3: counters / `inline list-item` (WPT css/CSS2/lists counter-*, css/css-lists counter-list-item,
-  inline-list, li-list-item-counter-*)
+- item 5: background-clip
 
 ## NEXT
-- item 3 RED, then 4 single-stop gradients, 5 background-clip, 6 border-width keywords, 7 box-shadow,
-  8 reftest budget (doc/src/reftest/pipeline.rs), then the report scripts/WPT8_2026_10_03.md.
+- 6 border-width keywords, 7 box-shadow, 8 reftest budget (doc/src/reftest/pipeline.rs), then back to
+  ::before/::after generated content if feasible, then the report scripts/WPT8_2026_10_03.md.
 
 ## Decisions / open questions
 - Tests use the document loader (`parse_xml_to_styled_dom`), which keeps `<html>` attributes.
