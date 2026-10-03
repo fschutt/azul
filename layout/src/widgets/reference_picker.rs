@@ -504,6 +504,208 @@ pub(crate) fn field_text(
         .unwrap_or_default()
 }
 
+// ==== the DOM: a combobox over the listed records ====
+
+/// What the picker's handlers share: the listed records' ids and labels in
+/// the list's order, the "create" row's place, the query typed so far, the
+/// hook, the debounce and the timer counting it down.
+pub(crate) struct ReferenceShared {
+    pub(crate) ids: Vec<u64>,
+    pub(crate) labels: Vec<AzString>,
+    pub(crate) create_index: Option<usize>,
+    pub(crate) query: String,
+    pub(crate) on_event: OptionReferencePickerOnEvent,
+    pub(crate) debounce_ms: u32,
+    pub(crate) timer: Option<TimerId>,
+}
+
+impl ReferencePicker {
+    /// Renders the picker: a combobox listing the records found (each with
+    /// its detail line), the "create" row, the status line; the field holds
+    /// the query or the picked record's label. Its look is the combobox's
+    /// (flat / flora, following the app theme unless pinned).
+    #[must_use]
+    pub fn dom(self) -> Dom {
+        let items = self.items.as_slice();
+        let query = self.query.as_str();
+        let (rows, more) = shown_rows(items, query, self.filter, self.max_rows);
+
+        let mut labels: Vec<AzString> = rows.iter().map(|i| items[*i].label.clone()).collect();
+        let mut details: Vec<AzString> = rows.iter().map(|i| items[*i].detail.clone()).collect();
+        let ids: Vec<u64> = rows.iter().map(|i| items[*i].id).collect();
+        let selected_row = self
+            .selected
+            .into_option()
+            .and_then(|id| ids.iter().position(|i| *i == id));
+        let create_label = self.create_label.as_ref().map(AzString::as_str);
+        let create_index = create_row(create_label, query, items).map(|text| {
+            labels.push(AzString::from(text));
+            details.push(AzString::from_const_str(""));
+            labels.len() - 1
+        });
+        let status = status_line(
+            self.loading,
+            rows.len() + usize::from(create_index.is_some()),
+            more,
+        );
+        let text = field_text(query, self.selected.into_option(), items);
+
+        let shared = RefAny::new(ReferenceShared {
+            ids,
+            labels: labels.clone(),
+            create_index,
+            query: String::from(query),
+            on_event: self.on_event.clone(),
+            debounce_ms: self.debounce_ms,
+            timer: None,
+        });
+        let on_text: ComboBoxOnTextInputCallbackType = on_reference_text_input;
+        let on_select: ComboBoxOnSelectCallbackType = on_reference_select;
+        let mut combo = ComboBox::new(StringVec::from_vec(labels))
+            .with_item_details(StringVec::from_vec(details))
+            .with_open_on_type(true)
+            .with_text(AzString::from(text))
+            .with_placeholder(self.placeholder.clone())
+            .with_on_text_input(shared.clone(), on_text)
+            .with_on_select(shared, on_select);
+        if let Some(row) = selected_row {
+            combo = combo.with_selected(row);
+        }
+        if let Some(status) = status {
+            combo = combo.with_status(AzString::from(status));
+        }
+        if let Some(name) = self.accessibility_name.into_option() {
+            combo = combo.with_accessibility_name(name);
+        }
+        if let Some(theme) = self.theme.into_option() {
+            combo = combo.with_theme(theme);
+        }
+        let mut dom = combo.dom();
+        dom.add_class(AzString::from_const_str(REFERENCE_PICKER_CLASS));
+        dom
+    }
+}
+
+impl From<ReferencePicker> for Dom {
+    fn from(p: ReferencePicker) -> Self {
+        p.dom()
+    }
+}
+
+/// Hands `event` to the app's hook.
+fn report(shared: &mut RefAny, info: CallbackInfo, event: ReferencePickerEvent) -> Update {
+    let hook = match shared.downcast_ref::<ReferenceShared>() {
+        Some(s) => s.on_event.clone(),
+        None => return Update::DoNothing,
+    };
+    match hook.as_ref() {
+        Some(ReferencePickerOnEvent { callback, refany }) => {
+            callback.invoke(refany.clone(), info, event)
+        }
+        None => Update::DoNothing,
+    }
+}
+
+/// Reports the query typed so far.
+fn report_query(shared: &mut RefAny, info: CallbackInfo) -> Update {
+    let text = match shared.downcast_ref::<ReferenceShared>() {
+        Some(s) => AzString::from(s.query.clone()),
+        None => return Update::DoNothing,
+    };
+    report(
+        shared,
+        info,
+        ReferencePickerEvent {
+            text,
+            id: 0,
+            kind: ReferencePickerEventKind::Query,
+        },
+    )
+}
+
+/// The user typed: the query is kept, and reported once the debounce has
+/// passed without another keystroke (at once without a debounce).
+extern "C" fn on_reference_text_input(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    state: ComboBoxState,
+) -> Update {
+    let (debounce_ms, pending) = {
+        let Some(mut s) = data.downcast_mut::<ReferenceShared>() else {
+            return Update::DoNothing;
+        };
+        s.query = String::from(state.text.as_str());
+        (s.debounce_ms, s.timer.take())
+    };
+    if let Some(timer) = pending {
+        info.remove_timer(timer);
+    }
+    if debounce_ms == 0 {
+        return report_query(&mut data, info);
+    }
+    let id = TimerId::unique();
+    let timer = Timer::create(
+        data.clone(),
+        TimerCallback::create(on_reference_debounce),
+        info.get_system_time_fn(),
+    )
+    .with_delay(Duration::from_millis(u64::from(debounce_ms)));
+    info.add_timer(id, timer);
+    if let Some(mut s) = data.downcast_mut::<ReferenceShared>() {
+        s.timer = Some(id);
+    }
+    Update::DoNothing
+}
+
+/// The debounce passed: the query is reported, once.
+extern "C" fn on_reference_debounce(
+    mut data: RefAny,
+    info: TimerCallbackInfo,
+) -> TimerCallbackReturn {
+    if let Some(mut s) = data.downcast_mut::<ReferenceShared>() {
+        s.timer = None;
+    }
+    let update = report_query(&mut data, *info.get_callback_info());
+    TimerCallbackReturn::create(update, TerminateTimer::Terminate)
+}
+
+/// An option was picked (a click, Enter on the active one): a record - its
+/// id and label - or the "create" row - the query.
+extern "C" fn on_reference_select(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    state: ComboBoxState,
+) -> Update {
+    let (event, pending) = {
+        let Some(mut s) = data.downcast_mut::<ReferenceShared>() else {
+            return Update::DoNothing;
+        };
+        let event = if Some(state.selected) == s.create_index {
+            ReferencePickerEvent {
+                text: AzString::from(s.query.trim().to_string()),
+                id: 0,
+                kind: ReferencePickerEventKind::Create,
+            }
+        } else {
+            let (Some(id), Some(label)) = (s.ids.get(state.selected), s.labels.get(state.selected))
+            else {
+                return Update::DoNothing;
+            };
+            ReferencePickerEvent {
+                text: label.clone(),
+                id: *id,
+                kind: ReferencePickerEventKind::Pick,
+            }
+        };
+        // A pick ends the typing: a query still counting down is dropped.
+        (event, s.timer.take())
+    };
+    if let Some(timer) = pending {
+        info.remove_timer(timer);
+    }
+    report(&mut data, info, event)
+}
+
 #[cfg(test)]
 mod list_tests {
     use super::*;
