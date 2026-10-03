@@ -44,8 +44,12 @@ screenshots + hierarchy dumps under target/sheetshow6-shots/.
 - Resumed after the power loss (coordinator, 2026-10-03): power back; the uuid note is done (d265c5ccb dropped the
   crate, cf5d4b1ce new_uuid).
 
+- b2358810a RED / 7c75b824e GREEN: RibbonGallery.visible (the row of the selected cell; More shows all);
+  fa94952ef AzShow galleries show 3-6 cells (every tab fits 1280 px; api.json RibbonGallery.visible / set_visible /
+  with_visible); b02c045e8 AzShow icon-only buttons named (icon_button + with_alt).
+
 ## IN PROGRESS
-- AzShow HOME width (see Broken below).
+- (none)
 
 ## NEXT (exact)
 1-3. (done)
@@ -70,10 +74,10 @@ AzSheets:
   target/sheetshow6-shots/look1/{07-flat-dark,12-editing-suggestions,13-bs-info}.png vs the .json dumps beside them.
 
 AzShow (looked 2026-10-03, prebuilt aa59b2d84, --sample --no-presenter, 1280x800, target/sheetshow6-shots/show1/):
-- HOME is 1666 px wide (the Layout gallery alone 863 px: all 7 layouts inline): Font is cut at the window's edge,
+- [FIXED fa94952ef] HOME is 1666 px wide (the Layout gallery alone 863 px: all 7 layouts inline): Font is cut at the window's edge,
   Paragraph / Drawing / Editing are off-screen (02-normal.json group rects). PowerPoint has "Layout" as a dropdown
   in the Slides group.
-- VIEW > Window had Flat / Flora / Light / Dark / System buttons (gone in cf3f7a6fa: Options).
+- [FIXED cf3f7a6fa] VIEW > Window had Flat / Flora / Light / Dark / System buttons (gone in cf3f7a6fa: Options).
 - New: the theme previews all look the same (beige ground, tiny title): the accent does not show.
 - ENGINE (HEADLESS6): the same stale / doubled paint as in Sheets - bold ghost labels after a theme switch
   (14-flora-light-full), sorter thumbnails painted overlapping while their rects are adjacent 232 px tiles
