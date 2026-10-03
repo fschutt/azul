@@ -1527,6 +1527,80 @@ impl RichTextDoc {
         self.set_format(index, start, end, format, on)
     }
 
+    /// The bold / italic / underline / strike of bytes `start..end` of block
+    /// `index` (an edit's new text) taken from what the ENGINE reports for
+    /// them: `spans` are `(start, end, formats)` byte spans of the block's
+    /// text (`DocumentTextEdit::runs`, the formats over the block's own
+    /// style; text in no span is plain). The typing style of Ctrl/Cmd+B at a
+    /// caret and an inline formatted paste arrive this way. Inline code and
+    /// links stay the model's (the engine has no such formats), and so does
+    /// a link's underline (the link's own style draws it). Returns whether
+    /// anything changed.
+    pub(crate) fn apply_reported_formats(
+        &mut self,
+        index: usize,
+        start: usize,
+        end: usize,
+        spans: &[(usize, usize, RichFormats)],
+    ) -> bool {
+        let Some(block) = self.block_mut(index) else {
+            return false;
+        };
+        if start >= end || block.kind.is_code() || !block.kind.has_text() {
+            return false;
+        }
+        let flat = block.flat();
+        let start = floor_char_boundary(&flat, start);
+        let end = floor_char_boundary(&flat, end).max(start);
+        if start == end {
+            return false;
+        }
+        let mut runs = block.runs_vec();
+        split_at_byte(&mut runs, start);
+        split_at_byte(&mut runs, end);
+        for (s, e, _) in spans {
+            for at in [*s, *e] {
+                if at > start && at < end {
+                    split_at_byte(&mut runs, at);
+                }
+            }
+        }
+        let mut changed = false;
+        let mut acc = 0usize;
+        for run in &mut runs {
+            let at = acc;
+            let len = run.text.as_str().len();
+            acc += len;
+            if len == 0 || at < start || at >= end {
+                continue;
+            }
+            let reported = spans
+                .iter()
+                .find(|(s, e, _)| *s <= at && at < *e)
+                .map_or(RichFormats::create(), |(_, _, f)| *f);
+            for format in [
+                RichFormat::Bold,
+                RichFormat::Italic,
+                RichFormat::Underline,
+                RichFormat::Strike,
+            ] {
+                if format == RichFormat::Underline && run.link_str().is_some() {
+                    continue;
+                }
+                let on = reported.has(format);
+                if run.has(format) != on {
+                    run.set(format, on);
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            normalize_runs(&mut runs);
+            block.set_runs(runs);
+        }
+        changed
+    }
+
     /// Whether every run over `start..end` of block `index` carries
     /// `format` (a collapsed range asks the run before it).
     #[must_use]
@@ -1814,6 +1888,35 @@ mod tests {
                 plain("d").with_format(RichFormat::Italic)
             ]
         );
+    }
+
+    /// The engine's report decides the bold / italic / underline / strike of
+    /// new text (a pasted `a <b>b</b> c`, text typed after Ctrl/Cmd+B); the
+    /// text around it and a link's own underline stay as they were.
+    #[test]
+    fn the_formats_the_engine_reports_for_new_text_go_into_its_runs() {
+        let link = plain("go").with_link(AzString::from("https://example.org"));
+        let mut doc = RichTextDoc::from_blocks(vec![para(vec![
+            bold("x"),
+            plain("helloa b c world"),
+            link.clone(),
+        ])]);
+        let b = RichFormats::create().with(RichFormat::Bold);
+        let u = RichFormats::create().with(RichFormat::Underline);
+        // "a b c" is bytes 6..11; the engine reports "x" bold, "b" bold and
+        // the link underlined (its own style).
+        assert!(doc.apply_reported_formats(0, 6, 11, &[(0, 1, b), (8, 9, b), (17, 19, u)]));
+        assert_eq!(
+            runs(&doc, 0),
+            vec![bold("x"), plain("helloa "), bold("b"), plain(" c world"), link.clone()]
+        );
+        assert!(
+            !doc.apply_reported_formats(0, 6, 11, &[(0, 1, b), (8, 9, b)]),
+            "the same report again changes nothing"
+        );
+        // Text the engine reports plain loses a format the model guessed.
+        assert!(doc.apply_reported_formats(0, 8, 9, &[]));
+        assert_eq!(runs(&doc, 0)[1], plain("helloa b c world"));
     }
 
     #[test]
