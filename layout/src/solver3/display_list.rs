@@ -3088,9 +3088,14 @@ impl DisplayListBuilder {
         border: Option<&crate::text3::cache::InlineBorderInfo>,
         image_cache: &azul_core::resources::ImageCache,
     ) {
-        // Paint solid background color if present
-        if let Some(bg_color) = background_color {
-            self.push_rect(bounds, bg_color, BorderRadius::default());
+        // The layers hold the solid colour too (`background_color` is their
+        // first `Color` layer, kept for the PDF runs): painting both drew a
+        // span's background twice, a translucent one twice as dark. The
+        // colour alone only when there are no layers.
+        if background_contents.is_empty() {
+            if let Some(bg_color) = background_color {
+                self.push_rect(bounds, bg_color, BorderRadius::default());
+            }
         }
 
         // Paint all background layers in order (CSS paints backgrounds back to front)
