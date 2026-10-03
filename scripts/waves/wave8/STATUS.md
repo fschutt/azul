@@ -10,7 +10,7 @@ progress file"). Worktrees: /Users/fschutt/Development/azul/.claude/worktrees/ag
 | WPT8 | ab3291d23e4f4deb8 | wt/wpt8 | running (worktree .claude/worktrees/agent-ab3291d23e4f4deb8) |
 | WAYLAND8 | a5a0fcdd7da40495e | wt/wayland8 | running (worktree .claude/worktrees/agent-a5a0fcdd7da40495e) |
 | ABI8 | a570ada0acafb9cbe | wt/abi8 | running (worktree .claude/worktrees/agent-a570ada0acafb9cbe) |
-| THREADS8 | a4a2effff66331779 | wt/threads8 | running (worktree .claude/worktrees/agent-a4a2effff66331779) |
+| THREADS8 | a4a2effff66331779 | wt/threads8 | DONE (report scripts/THREADS8_2026_10_03.md; task already done in 7c1c12389 - fixed 3 gaps: video workers honour stop, stop_all on window close (Drop for LayoutWindow), mount-started timers stop on unmount; no api.json) |
 | XML8 | acfe4639b5484119d | wt/xml8 | running (worktree .claude/worktrees/agent-acfe4639b5484119d) |
 | VIDEO8 | a6e731cce5b11a63a | wt/video8 | running (worktree .claude/worktrees/agent-a6e731cce5b11a63a) |
 | RULINGS8 | addd801aa5b76e026 | wt/rulings8 | running (worktree .claude/worktrees/agent-addd801aa5b76e026; base 72d0d6639) |
