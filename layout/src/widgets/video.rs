@@ -2688,18 +2688,28 @@ mod autotest_generated {
         );
     }
 
+    /// THREADS8 (PR #476 engine backlog 4): a `<video>` that leaves the DOM
+    /// has its worker told to stop (`managers::thread_owner`), and a window
+    /// that closes tells every worker the same. The test-pattern worker never
+    /// read its receiver: it ran on until the 2 s grace expired and was
+    /// DETACHED ("did not acknowledge TerminateThread"), and every resize /
+    /// per-frame `Tick` message piled up unread in its channel meanwhile.
     #[test]
-    fn test_worker_ignores_terminate_and_scrolls_the_pattern() {
-        // ADVERSARIAL: the worker never polls its receiver, so `TerminateThread`
-        // - the message the framework's thread destructor sends before joining -
-        // is ignored outright. The only thing that stops it is a failed send.
+    fn the_test_pattern_worker_stops_when_it_is_told_to_terminate() {
         let sent = run_worker(video_test_worker, RefAny::new(()), 3, true);
 
-        assert_eq!(
-            sent.len(),
-            4,
-            "3 accepted + 1 rejected: TerminateThread did not stop the worker"
+        assert!(
+            sent.is_empty(),
+            "a worker told to stop before its first frame sends nothing (sent {})",
+            sent.len()
         );
+    }
+
+    #[test]
+    fn test_worker_scrolls_the_pattern() {
+        let sent = run_worker(video_test_worker, RefAny::new(()), 3, false);
+
+        assert_eq!(sent.len(), 4, "3 accepted + 1 rejected");
         for f in &sent {
             assert_eq!(f.len, 1280 * 720 * 4);
             assert!(f.rows_identical);
@@ -2764,6 +2774,20 @@ mod autotest_generated {
             false,
         );
         assert!(sent.is_empty());
+    }
+
+    /// THREADS8: the replay worker, like the test pattern, ran on after its
+    /// `<video>` left the DOM until the grace period detached it.
+    #[test]
+    fn the_replay_worker_stops_when_it_is_told_to_terminate() {
+        let frames = vec![frame_raw(1, 1, vec![0; 4]), frame_raw(2, 2, vec![1; 16])];
+        let sent = run_worker(video_replay_worker, RefAny::new(frames), 3, true);
+
+        assert!(
+            sent.is_empty(),
+            "a worker told to stop before its first frame sends nothing (sent {})",
+            sent.len()
+        );
     }
 
     #[test]
