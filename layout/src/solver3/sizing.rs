@@ -535,8 +535,28 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             if let MultiValue::Exact(mw) =
                 get_css_min_width(self.ctx.styled_dom, dom_id, node_state)
             {
-                if let Some(min_w) = super::calc::resolve_pixel_value_no_percent(&mw.inner, em, rem)
+                if let Some(mut min_w) =
+                    super::calc::resolve_pixel_value_no_percent(&mw.inner, em, rem)
                 {
+                    // Intrinsics are CONTENT sizes: a border-box min-width
+                    // sheds its border and padding, as `width` and
+                    // `max-width` do above (a `min-width: 300px` border box
+                    // with 12px padding offered 300px of content: 324).
+                    if matches!(
+                        get_css_box_sizing(self.ctx.styled_dom, dom_id, node_state),
+                        MultiValue::Exact(azul_css::props::layout::LayoutBoxSizing::BorderBox)
+                    ) {
+                        let bp = tree
+                            .get(LayoutNodeId::new(node_index))
+                            .map(|n| n.box_props.unpack())
+                            .unwrap_or_default();
+                        min_w = (min_w
+                            - bp.border.left
+                            - bp.border.right
+                            - bp.padding.left
+                            - bp.padding.right)
+                            .max(0.0);
+                    }
                     intrinsic.min_content_width = intrinsic.min_content_width.max(min_w);
                     intrinsic.max_content_width = intrinsic.max_content_width.max(min_w);
                 }
@@ -2707,15 +2727,46 @@ pub fn calculate_used_size_for_node(
             box_props,
         )
     } else {
-        // Non-replaced element: apply width and height constraints independently
-        let cw = apply_width_constraints(
-            styled_dom,
-            id,
-            node_state,
-            resolved_width,
-            cbw_unresolvable_nan,
-            box_props,
-        );
+        // Non-replaced element: apply width and height constraints independently.
+        //
+        // The min/max widths and the tentative width must be in ONE box
+        // space. With `box-sizing: border-box` the min/max widths are
+        // border-box sizes (CSS Box Sizing 3 s3); a quantitative width is
+        // one too, but an auto / intrinsic-keyword width is a CONTENT size
+        // (`width_is_quantitative`). Clamping that content size with a
+        // border-box `min-width: 100%` and adding the padding afterwards made
+        // AzMail's inline-block paper 524px wide in a 500px pane (MAIL6,
+        // Chrome 500): the content width goes into border-box space for the
+        // clamp and back out of it.
+        let border_box_constraints_on_content = !width_is_quantitative
+            && matches!(
+                get_css_box_sizing(styled_dom, id, node_state),
+                MultiValue::Exact(azul_css::props::layout::LayoutBoxSizing::BorderBox)
+            );
+        let cw = if border_box_constraints_on_content {
+            let pb_w = box_props.padding.left
+                + box_props.padding.right
+                + box_props.border.left
+                + box_props.border.right;
+            (apply_width_constraints(
+                styled_dom,
+                id,
+                node_state,
+                resolved_width + pb_w,
+                cbw_unresolvable_nan,
+                box_props,
+            ) - pb_w)
+                .max(0.0)
+        } else {
+            apply_width_constraints(
+                styled_dom,
+                id,
+                node_state,
+                resolved_width,
+                cbw_unresolvable_nan,
+                box_props,
+            )
+        };
 
         let ch = apply_height_constraints(
             styled_dom,
