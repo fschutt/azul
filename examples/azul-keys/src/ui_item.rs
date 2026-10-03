@@ -1611,7 +1611,7 @@ fn audit_view(session: &Session, filter: Filter, app: &RefAny) -> Dom {
         ))
         .with_id(ids::AUDIT_SUMMARY),
     ];
-    // TODO(WIDGETS9B): a DataTable with sortable columns; plain rows for now.
+    // TODO: azul's DataTable (sortable columns) in place of these rows.
     let mut shown = 0;
     for finding in a.findings.iter().filter(|f| filter.holds(&f.problems)) {
         let Some(item) = vault.items.get(finding.index) else {
