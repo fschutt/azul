@@ -7,7 +7,7 @@
        tone and the test pattern for their devices, each under the capped runner
        (run_capped.sh, 1000 MB and --app-seconds each: two apps run at once here, so each gets
        the smaller cap);
-    3. asserts each window has the other's camera tile (`#azmeet-tile-<name>-camera`, laid out
+    3. asserts each window has the other's camera tile (`#__azmeet_tile_<name>_camera`, laid out
        inside the window) and decodes the other's video (the statistics panel's "Video from
        <name> (camera ...): <codec>, decoded N" line, N > 0; H.264 with --require-h264);
     4. Ada opens the chat, types a message and presses Enter: Ben's process prints
@@ -41,10 +41,11 @@ import urllib.error
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_CAPPED = (
-    "/private/tmp/claude-501/-Users-fschutt-Development-azul/"
-    "344f2a1f-485e-4b53-8631-15c97f8eeca1/scratchpad/run_capped.sh"
-)
+# The capped runner (scripts/waves/tools/run_capped.sh) holds a machine-wide lock, so a second
+# runner inside one waits forever: run this WHOLE script under one runner (it caps the tree:
+# node, both apps and this script) and leave --capped empty. --capped / AZ_RUN_CAPPED still cap
+# each app on their own where no outer runner is used.
+DEFAULT_CAPPED = None
 MESSAGE = "Hello Ben, can you see me?"
 ANSWER = "Loud and clear, Ada"
 
@@ -207,6 +208,17 @@ class App(Process):
         value = self.value("get_node_layout", selector="#%s" % node_id)
         return value.get("node_id"), value.get("rect") or {}
 
+    def id(self, short):
+        """An AzMeet id by its short name (`chat-field`, `tile-ben-camera`): `__azmeet_chat_field`
+        since the wave-6 prefix ruling (src/ids.rs), `azmeet-chat-field` on an older build. The
+        naming is found once, from the Settings button every screen has."""
+        if getattr(self, "prefixed", None) is None:
+            found = self.op("get_node_layout", selector="#__azmeet_settings")
+            self.prefixed = isinstance(found, dict) and found.get("status") != "error"
+        if self.prefixed:
+            return "__azmeet_" + short.replace("-", "_")
+        return "azmeet-" + short
+
     def screenshot(self, path):
         value = self.value("take_screenshot")
         data = value.get("data") if isinstance(value, dict) else None
@@ -278,7 +290,7 @@ def chat(sender, receiver, sender_name, text, use_enter, deadline, procs):
     """`sender` opens the chat and sends `text`; `receiver` prints it, counts it, shows it."""
     sender.must("click", text="Chat")
     sender.frame()
-    sender.must("click", selector="#azmeet-chat-field")
+    sender.must("click", selector="#" + sender.id("chat-field"))
     sender.frame()
     sender.must("text_input", text=text)
     sender.frame()
@@ -286,7 +298,7 @@ def chat(sender, receiver, sender_name, text, use_enter, deadline, procs):
         sender.must("key_down", key="Return")
         sender.must("key_up", key="Return")
     else:
-        sender.must("click", selector="#azmeet-chat-send")
+        sender.must("click", selector="#" + sender.id("chat-send"))
     sender.frame()
     until("%s's message on %s's stdout" % (sender_name, receiver.name),
           lambda: "%s: %s" % (sender_name, text) in receiver.printed("AZMEET_CHAT"),
@@ -367,7 +379,7 @@ def main():
         # Each sees the other's camera tile, inside the window.
         for app, other in ((ada, "ben"), (ben, "ada")):
             def tile_shown(app=app, other=other):
-                node, rect = app.rect("azmeet-tile-%s-camera" % other)
+                node, rect = app.rect(app.id("tile-%s-camera" % other))
                 return node is not None and inside(rect, args.width, args.height)
             until("%s's tile in %s's window" % (other, app.name), tile_shown, deadline, procs)
             log("%s shows %s's tile" % (app.name, other))
