@@ -2119,6 +2119,25 @@ fn auto_inline_size_for(
     }
 }
 
+/// Whether `height` is a percentage that computes to `auto` because the
+/// containing block's height is not definite - it depends on the content
+/// (CSS 2.2 10.5). THE one test for it: the used size
+/// (`calculate_used_size_for_node`), the content-based height after layout
+/// and the height a box's children resolve against (`cache`), the block
+/// container's children (`fc::layout_bfc`) and the atomic-inline measurement
+/// (`fc::measure_atomic_inline`) all ask it, so a box never is `auto` to one
+/// of them and a definite length to another.
+pub(crate) fn percentage_height_computes_to_auto(
+    height: Option<&LayoutHeight>,
+    containing_block_height_is_definite: bool,
+) -> bool {
+    !containing_block_height_is_definite
+        && matches!(
+            height,
+            Some(LayoutHeight::Px(px)) if px.metric == azul_css::props::basic::SizeMetric::Percent
+        )
+}
+
 #[allow(clippy::match_same_arms)]
 // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't
 // merge)
@@ -2224,6 +2243,22 @@ pub fn calculate_used_size_for_node(
     } else {
         css_height
     };
+
+    // CSS 2.2 10.5: a percentage height against a containing block whose
+    // height is not definite COMPUTES to `auto` - in every arm below, not
+    // only as a value: a block-level box then starts from the 0 placeholder
+    // an `auto` block gets, and `apply_content_based_height` (cache.rs) makes
+    // it exactly as tall as its content. Resolved to the sizing estimate
+    // (`intrinsic.max_content_height`) instead, the estimate became the floor
+    // of that content height - too tall where it counted a clipped
+    // preheader's text - and, for an inline-block, the height its own
+    // percentage children resolved against (AzMail's paper, MAILREF8).
+    let css_height =
+        if percentage_height_computes_to_auto(css_height.as_exact(), cb_h.definite().is_some()) {
+            MultiValue::Exact(LayoutHeight::Auto)
+        } else {
+            css_height
+        };
 
     // Remember if width/height were auto before consuming them
     let width_is_auto =

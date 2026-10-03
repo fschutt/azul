@@ -2740,8 +2740,15 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
     let display = warm.computed_style.display;
     let overflow_y = warm.computed_style.overflow_y;
 
-    // Check if height is auto (no explicit height set)
-    let height_is_auto = warm.computed_style.height.is_none();
+    // Check if height is auto (no explicit height set), or a percentage that
+    // computes to auto against this box's indefinite containing block (CSS
+    // 2.2 10.5): its used height is only a placeholder until its content is
+    // laid out, never a height its children's percentages resolve against.
+    let height_is_auto = warm.computed_style.height.is_none()
+        || super::sizing::percentage_height_computes_to_auto(
+            warm.computed_style.height.as_ref(),
+            cb.height.is_definite(),
+        );
 
     let available_size_for_children = if height_is_auto {
         // Height is auto - use containing block size as available size
@@ -3902,7 +3909,10 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
     // (`calculate_used_size_for_node`) could only give it a pre-layout
     // estimate (`intrinsic.max_content_height`, 0 where the intrinsic pass
     // short-circuits); the laid-out content decides here.
-    let percentage_height_is_auto = !cb.height.is_definite() && is_percentage_height(&css_height);
+    let percentage_height_is_auto = super::sizing::percentage_height_computes_to_auto(
+        css_height.as_exact(),
+        cb.height.is_definite(),
+    );
 
     if should_use_content_height(&css_height) || percentage_height_is_auto {
         let skip_expansion = scrolls_vertically
@@ -4196,17 +4206,6 @@ fn position_flex_child_descendants(
     }
 
     Ok(())
-}
-
-/// Whether `css_height` is a percentage (`height: 50%`): it resolves against
-/// the containing block's height, and computes to `auto` where that height
-/// is not definite (CSS 2.2 10.5).
-fn is_percentage_height(css_height: &MultiValue<LayoutHeight>) -> bool {
-    matches!(
-        css_height,
-        MultiValue::Exact(LayoutHeight::Px(px))
-            if px.metric == azul_css::props::basic::SizeMetric::Percent
-    )
 }
 
 /// Checks if the given CSS height value should use content-based sizing

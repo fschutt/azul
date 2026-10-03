@@ -1360,9 +1360,16 @@ fn layout_bfc<T: ParsedFontTrait>(
             // where its content decides it (`cache::forwards_containing_block_height`,
             // CSS 2.2 10.5).
             let inner = node.box_props.inner_size(used_size, writing_mode);
-            let height_is_auto = tree
-                .warm(LayoutNodeId::new(node_index))
-                .is_none_or(|w| w.computed_style.height.is_none());
+            // A percentage height against this box's own indefinite containing
+            // block is `auto` as well (CSS 2.2 10.5): its used height is the
+            // placeholder too (AzMail's `height: 100%` paper, an inline-block).
+            let height_is_auto = tree.warm(LayoutNodeId::new(node_index)).is_none_or(|w| {
+                w.computed_style.height.is_none()
+                    || crate::solver3::sizing::percentage_height_computes_to_auto(
+                        w.computed_style.height.as_ref(),
+                        constraints.containing_block_size.height.is_finite(),
+                    )
+            });
             if height_is_auto {
                 LogicalSize::new(inner.width, constraints.available_size.height)
             } else {
