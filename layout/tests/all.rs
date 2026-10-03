@@ -774,3 +774,5 @@ mod a_spanning_cells_percentage_is_shared_by_its_columns;
 mod a_right_to_left_tables_columns_run_from_the_right;
 #[path = "a_virtual_views_child_dom_state_goes_with_its_host.rs"]
 mod a_virtual_views_child_dom_state_goes_with_its_host;
+#[path = "a_transformed_box_is_hit_where_it_is_painted.rs"]
+mod a_transformed_box_is_hit_where_it_is_painted;
