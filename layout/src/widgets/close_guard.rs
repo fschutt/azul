@@ -21,6 +21,13 @@
 //! a close (nobody could answer). The guard owns nothing: the app keeps
 //! `dirty` and `asking`.
 //!
+//! `dirty` is what the app knew when it built the DOM. An app whose
+//! document can change state between builds and the close (saved and
+//! closed in one callback, a save that lands on a thread) gives the guard a
+//! [`CloseGuard::with_dirty_check`] callback instead: the guard asks it
+//! when the close request arrives ([`CloseGuardDocumentState`]), and the
+//! static flag is not read.
+//!
 //! Every backend delivers every close through the same protocol (the window
 //! manager's close button, Alt+F4, `close_window`, the CSD titlebar's close
 //! button), and judges it by the DOM the app's LAST callback asked for: a
@@ -130,6 +137,50 @@ azul_core::impl_managed_callback! {
     extra_args:     [ event: CloseGuardEvent ],
 }
 
+/// The app's answer when the guard asks, at the moment a close is
+/// requested, whether the document has unsaved work.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum CloseGuardDocumentState {
+    /// Nothing unsaved: the window closes.
+    #[default]
+    Saved,
+    /// Unsaved work: the close is held and the app hears `Ask`.
+    Unsaved,
+}
+
+impl azul_core::host_invoker::HostOut for CloseGuardDocumentState {
+    /// A host that does not answer holds nothing: the window can close.
+    fn unwritten() -> Self {
+        Self::Saved
+    }
+}
+
+/// Callback the guard asks when a close is requested: is the document
+/// dirty NOW? (The `dirty` flag is what the app knew when it built the
+/// DOM; this is what it knows when the close arrives.)
+pub type CloseGuardDirtyCheckCallbackType =
+    extern "C" fn(RefAny, CallbackInfo) -> CloseGuardDocumentState;
+impl_widget_callback!(
+    CloseGuardDirtyCheck,
+    OptionCloseGuardDirtyCheck,
+    CloseGuardDirtyCheckCallback,
+    CloseGuardDirtyCheckCallbackType
+);
+
+azul_core::impl_managed_callback! {
+    wrapper:        CloseGuardDirtyCheckCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      CloseGuardDocumentState,
+    default_ret:    CloseGuardDocumentState::Saved,
+    invoker_static: CLOSE_GUARD_DIRTY_CHECK_INVOKER,
+    invoker_ty:     AzCloseGuardDirtyCheckCallbackInvoker,
+    thunk_fn:       az_close_guard_dirty_check_callback_thunk,
+    setter_fn:      AzApp_setCloseGuardDirtyCheckCallbackInvoker,
+    from_handle_fn: AzCloseGuardDirtyCheckCallback_createFromHostHandle,
+    from_handle_byref_fn: AzCloseGuardDirtyCheckCallback_createFromHostHandleByref,
+}
+
 /// The "Save changes?" guard around a window's content.
 #[repr(C)]
 #[derive(Debug, Clone)]
@@ -151,6 +202,9 @@ pub struct CloseGuard {
     pub cancel_label: AzString,
     /// Every answer.
     pub on_event: OptionCloseGuardOnEvent,
+    /// Asked when a close is requested: does the document have unsaved
+    /// work now? Set, it decides instead of `dirty`.
+    pub dirty_check: OptionCloseGuardDirtyCheck,
     /// The widget theme the question is PINNED to, or `None` to follow the
     /// app theme.
     pub theme: OptionUiTheme,
@@ -184,13 +238,16 @@ impl CloseGuard {
             discard_label: AzString::from_const_str("Don't Save"),
             cancel_label: AzString::from_const_str("Cancel"),
             on_event: None.into(),
+            dirty_check: None.into(),
             theme: OptionUiTheme::None,
             dirty: false,
             asking: false,
         }
     }
 
-    /// The document has unsaved work.
+    /// The document has unsaved work - as known when the DOM is built. For
+    /// a document that can be saved and closed in one callback, use
+    /// [`Self::set_dirty_check`]: it is asked when the close arrives.
     pub const fn set_dirty(&mut self, dirty: bool) {
         self.dirty = dirty;
     }
@@ -199,6 +256,33 @@ impl CloseGuard {
     #[must_use]
     pub const fn with_dirty(mut self, dirty: bool) -> Self {
         self.set_dirty(dirty);
+        self
+    }
+
+    /// The callback asked when a close is requested: does the document have
+    /// unsaved work NOW? It decides instead of [`Self::set_dirty`], so an
+    /// app that saves and closes in one callback is not held by the state
+    /// its DOM was built with.
+    pub fn set_dirty_check<C: Into<CloseGuardDirtyCheckCallback>>(
+        &mut self,
+        data: RefAny,
+        callback: C,
+    ) {
+        self.dirty_check = Some(CloseGuardDirtyCheck {
+            refany: data,
+            callback: callback.into(),
+        })
+        .into();
+    }
+
+    /// [`Self::set_dirty_check`] for the builder chain.
+    #[must_use]
+    pub fn with_dirty_check<C: Into<CloseGuardDirtyCheckCallback>>(
+        mut self,
+        data: RefAny,
+        callback: C,
+    ) -> Self {
+        self.set_dirty_check(data, callback);
         self
     }
 
@@ -324,6 +408,7 @@ impl From<CloseGuard> for Dom {
 /// passes).
 struct GuardRef {
     on_event: OptionCloseGuardOnEvent,
+    dirty_check: OptionCloseGuardDirtyCheck,
     dirty: bool,
     confirmed: bool,
 }
@@ -338,6 +423,7 @@ fn build(guard: CloseGuard) -> Dom {
         discard_label,
         cancel_label,
         on_event,
+        dirty_check,
         theme,
         dirty,
         asking,
@@ -345,6 +431,7 @@ fn build(guard: CloseGuard) -> Dom {
     let theme = theme.into_option();
     let shared = RefAny::new(GuardRef {
         on_event,
+        dirty_check,
         dirty,
         confirmed: false,
     });
@@ -674,6 +761,73 @@ mod close_guard_tests {
             .map(|(_, c)| c)
             .unwrap_or_default();
         assert!(!vetoed(&changes));
+    }
+
+    /// What the app knows now: its document's dirty flag, shared with the
+    /// guard's check.
+    type Dirty = Arc<Mutex<bool>>;
+
+    extern "C" fn dirty_now(mut data: RefAny, _info: CallbackInfo) -> CloseGuardDocumentState {
+        let dirty = data
+            .downcast_ref::<Dirty>()
+            .is_some_and(|d| *d.lock().expect("dirty"));
+        if dirty {
+            CloseGuardDocumentState::Unsaved
+        } else {
+            CloseGuardDocumentState::Saved
+        }
+    }
+
+    fn checked_guard(log: &Log, dirty: &Dirty, built_dirty: bool) -> CloseGuard {
+        guard(log, built_dirty, false).with_dirty_check(
+            RefAny::new(dirty.clone()),
+            dirty_now as CloseGuardDirtyCheckCallbackType,
+        )
+    }
+
+    #[test]
+    fn a_document_saved_after_the_dom_was_built_closes_without_a_question() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let dirty: Dirty = Arc::new(Mutex::new(true));
+        // Built while dirty, then saved in the callback that also closes.
+        let styled = StyledDom::create_from_dom(checked_guard(&log, &dirty, true).dom());
+        *dirty.lock().expect("dirty") = false;
+        let changes = rv::fire(&styled, node(0), CLOSE)
+            .map(|(_, c)| c)
+            .unwrap_or_default();
+        assert!(!vetoed(&changes), "the saved document is not held");
+        assert!(log.lock().expect("log").is_empty(), "nobody is asked");
+    }
+
+    #[test]
+    fn a_document_changed_after_the_dom_was_built_holds_the_close_and_asks() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let dirty: Dirty = Arc::new(Mutex::new(false));
+        let styled = StyledDom::create_from_dom(checked_guard(&log, &dirty, false).dom());
+        *dirty.lock().expect("dirty") = true;
+        let (_, changes) = rv::fire(&styled, node(0), CLOSE).expect("the guard hears the close");
+        assert!(vetoed(&changes), "the unsaved document is held");
+        assert_eq!(
+            log.lock().expect("log").clone(),
+            vec![CloseGuardEventKind::Ask]
+        );
+    }
+
+    #[test]
+    fn the_dirty_check_still_lets_an_answered_close_through() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let dirty: Dirty = Arc::new(Mutex::new(true));
+        let styled =
+            StyledDom::create_from_dom(checked_guard(&log, &dirty, true).with_asking(true).dom());
+        let changes = click(&styled, "Don't Save");
+        assert!(closes(&changes), "Don't Save closes the window");
+        let changes = rv::fire(&styled, node(0), CLOSE)
+            .map(|(_, c)| c)
+            .unwrap_or_default();
+        assert!(
+            !vetoed(&changes),
+            "the close it asked for is not held again"
+        );
     }
 
     extern "C" fn retitle_then_veto(_data: RefAny, mut info: CallbackInfo) -> Update {
