@@ -385,3 +385,383 @@ pub(crate) fn edit_money(
         state,
     }
 }
+
+#[cfg(test)]
+mod money_tests {
+    use super::*;
+
+    fn eur() -> MoneyCurrency {
+        MoneyCurrency::from_code(AzString::from_const_str("EUR"))
+    }
+
+    fn usd() -> MoneyCurrency {
+        MoneyCurrency::from_code(AzString::from_const_str("USD"))
+    }
+
+    fn jpy() -> MoneyCurrency {
+        MoneyCurrency::from_code(AzString::from_const_str("JPY"))
+    }
+
+    fn en(text: &str) -> Result<Option<i64>, MoneyInputError> {
+        parse_money(text, &MoneyLocale::en_us(), &usd())
+    }
+
+    fn de(text: &str) -> Result<Option<i64>, MoneyInputError> {
+        parse_money(text, &MoneyLocale::de_de(), &eur())
+    }
+
+    #[test]
+    fn an_english_amount_reads_as_minor_units() {
+        assert_eq!(en("1,234.56"), Ok(Some(123_456)));
+        assert_eq!(en("1234.56"), Ok(Some(123_456)));
+        assert_eq!(en("0.5"), Ok(Some(50)));
+        assert_eq!(en(".5"), Ok(Some(50)));
+        assert_eq!(en("12"), Ok(Some(1200)));
+        assert_eq!(en("12."), Ok(Some(1200)));
+        assert_eq!(en("1,234,567.89"), Ok(Some(123_456_789)));
+    }
+
+    #[test]
+    fn a_german_amount_reads_with_the_comma_as_its_decimal_point() {
+        assert_eq!(de("1.234,56"), Ok(Some(123_456)));
+        assert_eq!(de("1234,5"), Ok(Some(123_450)));
+        assert_eq!(de("0,05"), Ok(Some(5)));
+        assert_eq!(de("1.234.567"), Ok(Some(123_456_700)));
+    }
+
+    #[test]
+    fn a_french_amount_reads_with_spaces_between_its_groups() {
+        let fr = MoneyLocale::fr_fr();
+        for text in ["1\u{202f}234,56", "1 234,56", "1\u{a0}234,56"] {
+            assert_eq!(
+                parse_money(text, &fr, &eur()),
+                Ok(Some(123_456)),
+                "{text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_swiss_amount_reads_with_the_apostrophe_grouping() {
+        let ch = MoneyLocale::de_ch();
+        let chf = MoneyCurrency::from_code(AzString::from_const_str("CHF"));
+        for text in ["1\u{2019}234.50", "1'234.50", "1234.50"] {
+            assert_eq!(parse_money(text, &ch, &chf), Ok(Some(123_450)), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn an_empty_text_is_no_amount_and_no_error() {
+        assert_eq!(en(""), Ok(None));
+        assert_eq!(en("   "), Ok(None));
+    }
+
+    #[test]
+    fn a_negative_amount_reads_with_a_minus_or_in_parentheses() {
+        assert_eq!(en("-12.50"), Ok(Some(-1250)));
+        assert_eq!(en("\u{2212}12.50"), Ok(Some(-1250)));
+        assert_eq!(en("(12.50)"), Ok(Some(-1250)));
+        assert_eq!(en("12.50-"), Ok(Some(-1250)));
+        assert_eq!(en("+12.50"), Ok(Some(1250)));
+        assert_eq!(de("-1.234,50"), Ok(Some(-123_450)));
+    }
+
+    #[test]
+    fn the_currency_code_or_symbol_may_be_typed_around_the_amount() {
+        assert_eq!(de("\u{20ac} 12,50"), Ok(Some(1250)));
+        assert_eq!(de("12,50 EUR"), Ok(Some(1250)));
+        assert_eq!(de("12,50\u{20ac}"), Ok(Some(1250)));
+        assert_eq!(en("$12.50"), Ok(Some(1250)));
+        assert_eq!(en("12.50 usd"), Ok(Some(1250)));
+        assert_eq!(en("-$12.50"), Ok(Some(-1250)));
+    }
+
+    #[test]
+    fn more_decimals_than_the_currency_has_are_refused_unless_they_are_zeros() {
+        assert_eq!(en("1.234"), Err(MoneyInputError::TooManyDecimals));
+        assert_eq!(en("1.230"), Ok(Some(123)));
+        let yen = |t: &str| parse_money(t, &MoneyLocale::en_us(), &jpy());
+        assert_eq!(yen("12.5"), Err(MoneyInputError::TooManyDecimals));
+        assert_eq!(yen("1,234"), Ok(Some(1234)));
+        assert_eq!(yen("12.0"), Ok(Some(12)));
+    }
+
+    #[test]
+    fn a_lone_separator_that_cannot_group_is_the_decimal_point() {
+        // The numeric keypad's '.' in German, and ',' in English.
+        assert_eq!(de("12.5"), Ok(Some(1250)));
+        assert_eq!(de("12.50"), Ok(Some(1250)));
+        assert_eq!(en("12,5"), Ok(Some(1250)));
+        assert_eq!(en("12,50"), Ok(Some(1250)));
+        // Followed by three digits it IS grouping.
+        assert_eq!(de("1.234"), Ok(Some(123_400)));
+        assert_eq!(en("1,234"), Ok(Some(123_400)));
+        // French groups with spaces: a '.' is the decimal point.
+        assert_eq!(
+            parse_money("12.50", &MoneyLocale::fr_fr(), &eur()),
+            Ok(Some(1250))
+        );
+    }
+
+    #[test]
+    fn grouping_must_come_in_threes() {
+        assert_eq!(en("1,23,456.00"), Err(MoneyInputError::Invalid));
+        assert_eq!(en("12,3456"), Err(MoneyInputError::Invalid));
+        assert_eq!(en(",123"), Err(MoneyInputError::Invalid));
+        assert_eq!(en("1,,234"), Err(MoneyInputError::Invalid));
+        assert_eq!(de("1.234,5.6"), Err(MoneyInputError::Invalid));
+    }
+
+    #[test]
+    fn a_text_on_the_way_to_an_amount_is_incomplete() {
+        for text in ["-", "+", "(", ".", "-.", "1,", "$", "-$", "(12"] {
+            assert_eq!(en(text), Err(MoneyInputError::Incomplete), "{text:?}");
+        }
+        assert_eq!(de("1."), Err(MoneyInputError::Incomplete));
+        assert_eq!(de("\u{20ac}"), Err(MoneyInputError::Incomplete));
+    }
+
+    #[test]
+    fn letters_and_doubled_points_are_invalid() {
+        for text in ["12a", "1.2.3", "--1", "1-2", "abc", "1 2", "12)", "()"] {
+            assert_eq!(en(text), Err(MoneyInputError::Invalid), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn an_amount_past_the_64_bit_range_is_too_large() {
+        assert_eq!(en("99999999999999999999"), Err(MoneyInputError::TooLarge));
+        assert_eq!(en("92233720368547758.08"), Err(MoneyInputError::TooLarge));
+        assert_eq!(en("92233720368547758.07"), Ok(Some(i64::MAX)));
+    }
+
+    #[test]
+    fn an_amount_writes_with_the_locales_grouping_and_every_decimal() {
+        let en = MoneyLocale::en_us();
+        assert_eq!(format_money(123_456, &en, 2, None), "1,234.56");
+        assert_eq!(
+            format_money(123_456, &MoneyLocale::de_de(), 2, None),
+            "1.234,56"
+        );
+        assert_eq!(
+            format_money(123_456, &MoneyLocale::fr_fr(), 2, None),
+            "1\u{202f}234,56"
+        );
+        assert_eq!(
+            format_money(123_456, &MoneyLocale::de_ch(), 2, None),
+            "1\u{2019}234.56"
+        );
+        assert_eq!(format_money(-150, &en, 2, None), "-1.50");
+        assert_eq!(format_money(5, &en, 2, None), "0.05");
+        assert_eq!(format_money(-5, &en, 2, None), "-0.05");
+        assert_eq!(format_money(1_234_567, &en, 0, None), "1,234,567");
+        assert_eq!(format_money(0, &MoneyLocale::de_de(), 2, None), "0,00");
+        assert_eq!(format_money(123, &en, 3, None), "0.123");
+        assert_eq!(
+            format_money(i64::MIN, &en, 2, None),
+            "-92,233,720,368,547,758.08"
+        );
+        let ungrouped = MoneyLocale::en_us().with_separators('.' as u32, 0);
+        assert_eq!(format_money(123_456, &ungrouped, 2, None), "1234.56");
+    }
+
+    #[test]
+    fn the_symbol_goes_on_the_locales_side() {
+        let en = MoneyLocale::en_us();
+        assert_eq!(format_money(123_456, &en, 2, Some("$")), "$1,234.56");
+        assert_eq!(format_money(-123_456, &en, 2, Some("$")), "-$1,234.56");
+        assert_eq!(
+            format_money(123_456, &MoneyLocale::de_de(), 2, Some("\u{20ac}")),
+            "1.234,56\u{a0}\u{20ac}"
+        );
+        assert_eq!(
+            format_money(123_456, &MoneyLocale::de_ch(), 2, Some("CHF")),
+            "CHF\u{a0}1\u{2019}234.56"
+        );
+    }
+
+    #[test]
+    fn formatting_then_parsing_gives_back_the_amount() {
+        let locales = [
+            MoneyLocale::en_us(),
+            MoneyLocale::de_de(),
+            MoneyLocale::fr_fr(),
+            MoneyLocale::de_ch(),
+        ];
+        for locale in locales {
+            for amount in [
+                0_i64,
+                1,
+                99,
+                100,
+                123_456,
+                -987_654_321,
+                i64::MAX,
+                i64::MIN + 1,
+            ] {
+                let text = format_money(amount, &locale, 2, None);
+                assert_eq!(
+                    parse_money(&text, &locale, &eur()),
+                    Ok(Some(amount)),
+                    "{locale:?} {text:?}"
+                );
+                let with_symbol = format_money(amount, &locale, 2, Some("\u{20ac}"));
+                assert_eq!(
+                    parse_money(&with_symbol, &locale, &eur()),
+                    Ok(Some(amount)),
+                    "{locale:?} {with_symbol:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_locale_tag_picks_its_separators() {
+        let tag = |t: &'static str| MoneyLocale::from_tag(AzString::from_const_str(t));
+        assert_eq!(tag("en-US"), MoneyLocale::en_us());
+        assert_eq!(tag("de-DE"), MoneyLocale::de_de());
+        assert_eq!(tag("de"), MoneyLocale::de_de());
+        assert_eq!(tag("de_AT"), MoneyLocale::de_de());
+        assert_eq!(tag("DE-de"), MoneyLocale::de_de());
+        assert_eq!(tag("fr-FR"), MoneyLocale::fr_fr());
+        assert_eq!(tag("de-CH"), MoneyLocale::de_ch());
+        assert_eq!(tag("ja-JP"), MoneyLocale::en_us());
+        assert_eq!(tag("xx"), MoneyLocale::en_us());
+        assert_eq!(tag(""), MoneyLocale::en_us());
+        let br = tag("pt-BR");
+        assert_eq!((br.decimal(), br.group()), (',', Some('.')));
+        assert_eq!(br.symbol_position, MoneySymbolPosition::Before);
+        let sv = tag("sv-SE");
+        assert_eq!((sv.decimal(), sv.group()), (',', Some('\u{a0}')));
+        assert_eq!(sv.symbol_position, MoneySymbolPosition::After);
+    }
+
+    #[test]
+    fn a_formatted_sample_gives_its_separators() {
+        let sample = |s: &'static str| MoneyLocale::from_sample(AzString::from_const_str(s));
+        let en = sample("1,234,567.89");
+        assert_eq!((en.decimal(), en.group()), ('.', Some(',')));
+        assert_eq!(en.symbol_position, MoneySymbolPosition::Before);
+        let de = sample("1.234.567,89");
+        assert_eq!((de.decimal(), de.group()), (',', Some('.')));
+        assert_eq!(de.symbol_position, MoneySymbolPosition::After);
+        let fr = sample("1\u{202f}234\u{202f}567,89");
+        assert_eq!((fr.decimal(), fr.group()), (',', Some('\u{202f}')));
+        let ch = sample("1\u{2019}234\u{2019}567.89");
+        assert_eq!((ch.decimal(), ch.group()), ('.', Some('\u{2019}')));
+        let plain = sample("1234567.89");
+        assert_eq!((plain.decimal(), plain.group()), ('.', None));
+        assert_eq!(sample("garbage"), MoneyLocale::en_us());
+        assert_eq!(sample(""), MoneyLocale::en_us());
+    }
+
+    #[test]
+    fn a_currency_code_knows_its_minor_digits_and_symbol() {
+        let eur = eur();
+        assert_eq!(
+            (eur.code.as_str(), eur.symbol.as_str(), eur.minor_digits),
+            ("EUR", "\u{20ac}", 2)
+        );
+        let yen = MoneyCurrency::from_code(AzString::from_const_str("jpy"));
+        assert_eq!(
+            (yen.code.as_str(), yen.symbol.as_str(), yen.minor_digits),
+            ("JPY", "\u{a5}", 0)
+        );
+        let kwd = MoneyCurrency::from_code(AzString::from_const_str("KWD"));
+        assert_eq!(kwd.minor_digits, 3);
+        let gbp = MoneyCurrency::from_code(AzString::from_const_str("GBP"));
+        assert_eq!(gbp.symbol.as_str(), "\u{a3}");
+        let odd = MoneyCurrency::from_code(AzString::from_const_str("XYZ"));
+        assert_eq!((odd.symbol.as_str(), odd.minor_digits), ("XYZ", 2));
+        let capped = MoneyCurrency::create(
+            AzString::from_const_str("X"),
+            AzString::from_const_str("x"),
+            9,
+        );
+        assert_eq!(capped.minor_digits, 4);
+    }
+
+    #[test]
+    fn an_amount_is_checked_against_the_sign_and_the_bounds() {
+        let mut state = MoneyInputState::default();
+        assert_eq!(check_amount(-1, &state), MoneyInputError::None);
+        state.allow_negative = false;
+        assert_eq!(check_amount(-1, &state), MoneyInputError::Negative);
+        state.min = OptionI64::Some(500);
+        state.max = OptionI64::Some(10_000);
+        assert_eq!(check_amount(499, &state), MoneyInputError::BelowMin);
+        assert_eq!(check_amount(500, &state), MoneyInputError::None);
+        assert_eq!(check_amount(10_000, &state), MoneyInputError::None);
+        assert_eq!(check_amount(10_001, &state), MoneyInputError::AboveMax);
+    }
+
+    fn edit(text: &str, state: MoneyInputState) -> MoneyEdit {
+        edit_money(text, state, &MoneyLocale::de_de(), &eur())
+    }
+
+    #[test]
+    fn an_edit_to_an_amount_is_accepted_and_stored() {
+        let e = edit("12,50", MoneyInputState::default());
+        assert!(e.accepted);
+        assert_eq!(e.state.amount, OptionI64::Some(1250));
+        assert_eq!(e.state.error, MoneyInputError::None);
+    }
+
+    #[test]
+    fn an_edit_on_the_way_to_an_amount_is_accepted_without_one() {
+        let before = MoneyInputState {
+            amount: OptionI64::Some(100),
+            ..MoneyInputState::default()
+        };
+        let e = edit("-", before);
+        assert!(e.accepted);
+        assert_eq!(e.state.amount, OptionI64::None);
+        assert_eq!(e.state.error, MoneyInputError::Incomplete);
+        let e = edit("", before);
+        assert!(e.accepted);
+        assert_eq!(e.state.amount, OptionI64::None);
+        assert_eq!(e.state.error, MoneyInputError::None);
+    }
+
+    #[test]
+    fn an_edit_that_can_never_be_an_amount_is_refused_and_changes_nothing() {
+        let before = MoneyInputState {
+            amount: OptionI64::Some(100),
+            ..MoneyInputState::default()
+        };
+        for text in ["1a", "1,234", "99999999999999999999"] {
+            let e = edit(text, before);
+            assert!(!e.accepted, "{text:?}");
+            assert_eq!(e.state, before, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn a_minus_is_refused_where_negatives_are_off() {
+        let off = MoneyInputState {
+            allow_negative: false,
+            ..MoneyInputState::default()
+        };
+        assert!(!edit("-", off).accepted);
+        assert!(!edit("-1", off).accepted);
+        assert!(edit("1", off).accepted);
+    }
+
+    #[test]
+    fn the_bounds_are_reported_but_never_refuse_a_keystroke() {
+        let bounded = MoneyInputState {
+            min: OptionI64::Some(5000),
+            max: OptionI64::Some(10_000),
+            ..MoneyInputState::default()
+        };
+        let e = edit("1", bounded);
+        assert!(e.accepted, "typing 1 on the way to 150 must work");
+        assert_eq!(e.state.amount, OptionI64::Some(100));
+        assert_eq!(e.state.error, MoneyInputError::BelowMin);
+        let e = edit("150", bounded);
+        assert!(e.accepted);
+        assert_eq!(e.state.error, MoneyInputError::AboveMax);
+        let e = edit("75", bounded);
+        assert_eq!(e.state.error, MoneyInputError::None);
+    }
+}
