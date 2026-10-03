@@ -59,7 +59,14 @@ AzReader, lib azreader). Never compile; rustfmt --edition 2021 <file> as the par
    open_book, go_to, request_chapter, ensure_layout, turn_page, moved, save_state,
    toggle_bookmark, settings_changed, on_chapter_ready, on_job_done; uses kit category
    "Reading" -> create_kit must get app_categories &["Reading"]), 88a9283a1 Job::ImportBytes,
-   ff447ab12 src/sample.rs. NEXT = (d) src/ui_library.rs: fn library_view(app, st) -> Dom
+   ff447ab12 src/sample.rs, b73580b16 src/ribbon.rs (ribbon(app, st) for both screens),
+   e43d89523 src/ui_library.rs (navigation, content, status_bar). NEXT = (e) src/ui_reader.rs:
+   navigation (TOC rows / bookmark rows, click -> GoToEntry / GoToBookmark), pages view
+   (reading area with .with_marker(st.area_marker), prev/next zones, running head, page
+   frames: each = paper div (geometry.margin padding, paper colours) > clip div (width
+   text_width, height span.1, overflow hidden) > shift div (position relative; top -span.0)
+   > paginate::column_dom(&chapter.content.xml, &st.settings, text_width)), status bar
+   (chapter title, "PAGE n OF m", percent, notice). Was (d) src/ui_library.rs: fn library_view(app, st) -> Dom
    (DocumentShell::create(grid).with_navigation(shelves).office_shell() + ribbon HOME: Add
    book, Open, Remove; Sort; VIEW: Settings, About), covers grid of tiles (cover ImageRef via
    Dom::create_image(image.clone()) else a coloured tile with the title; title, author,
