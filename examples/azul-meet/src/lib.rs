@@ -1738,10 +1738,14 @@ struct VideoOut {
     /// The `frame_no` of every frame in the encoder whose packet has not come out yet, oldest
     /// first (the encoder works on its own thread).
     in_encoder: std::collections::VecDeque<u32>,
+    /// What the encoder may spend: the rendition's ladder rate, lowered while a receiver's link
+    /// does not keep up ([`adapt_rates`]).
+    rate: rate::RateControl,
 }
 
 impl VideoOut {
-    fn new() -> Self {
+    /// The sending side of a rendition `rendition` lines tall.
+    fn new(rendition: u16) -> Self {
         VideoOut {
             encoder: None,
             size: (0, 0),
@@ -1754,6 +1758,7 @@ impl VideoOut {
             jpeg_frames: 0,
             dropped: 0,
             in_encoder: std::collections::VecDeque::new(),
+            rate: rate::RateControl::new(IrohLoadBalancer::rendition_kbps(u32::from(rendition))),
         }
     }
 
@@ -1964,7 +1969,7 @@ fn send_video(s: &mut MeetState, track: u32, rendition: u16, frame: VideoFrame) 
     let out = s
         .video_out
         .entry((track, rendition))
-        .or_insert_with(VideoOut::new);
+        .or_insert_with(|| VideoOut::new(rendition));
     out.frame_no = out.frame_no.wrapping_add(1);
     // The encoder takes the frame by value: it is moved there, and copied
     // only when JPEG peers need it as well.
@@ -2026,7 +2031,8 @@ fn send_h264(
             out.keyframes.reopened();
         }
         if out.encoder.is_none() {
-            let kbps = IrohLoadBalancer::rendition_kbps(u32::from(rendition));
+            // A re-opened encoder keeps the rate the link was found to carry.
+            let kbps = out.rate.rate_kbps();
             let encoder = VideoEncoder::open(width, height, false, kbps);
             if encoder.is_open() {
                 // For scripts (`scripts/azmeet_cpu.py`): where this rendition encodes.
@@ -2158,6 +2164,48 @@ fn drain_encoders(s: &mut MeetState, endpoint: &IrohEndpoint) {
         .collect();
     for key in keys {
         drain_h264(s, endpoint, key);
+    }
+    adapt_rates(s);
+}
+
+/// Every pump: each H.264 encoder's rate follows the worst queue (packets sent, not yet
+/// acknowledged) among the peers that get its stream now ([`rate::RateControl`]); a new rate goes
+/// to the encoder, which spends it from its next frame on - no restart, no keyframe.
+fn adapt_rates(s: &mut MeetState) {
+    let now = now_ms(s);
+    let keys: Vec<(u32, u16)> = s
+        .video_out
+        .iter()
+        .filter(|(_, out)| out.encoder.is_some())
+        .map(|(key, _)| *key)
+        .collect();
+    for key in keys {
+        let (track, rendition) = key;
+        let peers = stream_targets(s, track, rendition, true);
+        let in_flight: Vec<usize> = s
+            .remotes
+            .iter()
+            .filter(|r| peers.contains(&r.handle))
+            .filter_map(|r| r.sent.get(&key))
+            .map(|window| window.in_flight())
+            .collect();
+        let Some(out) = s.video_out.get_mut(&key) else {
+            continue;
+        };
+        for queued in in_flight {
+            out.rate.observe(queued);
+        }
+        let Some(kbps) = out.rate.tick(now) else {
+            continue;
+        };
+        if let Some(encoder) = out.encoder.as_ref() {
+            let _ = encoder.set_bitrate(kbps);
+        }
+        // For scripts: the rate each rendition spends now.
+        println!(
+            "AZMEET_RATE {} {kbps}",
+            rendition_label(track, rendition).replace(' ', "-")
+        );
     }
 }
 
@@ -2493,13 +2541,17 @@ fn video_lines(s: &MeetState) -> Vec<String> {
     let mut lines = Vec::new();
     for ((track, height), out) in &s.video_out {
         if out.h264_packets + out.jpeg_frames + out.dropped > 0 {
-            lines.push(video_wire::send_line(
+            let mut line = video_wire::send_line(
                 &rendition_label(*track, *height),
                 out.h264_packets,
                 out.jpeg_frames,
                 &out.keyframes.stats(),
                 out.dropped,
-            ));
+            );
+            if out.encoder.is_some() {
+                line.push_str(&format!(", H.264 at {}", out.rate.label()));
+            }
+            lines.push(line);
         }
     }
     for r in &s.remotes {
