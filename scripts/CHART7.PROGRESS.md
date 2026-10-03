@@ -11,15 +11,17 @@ Branch: wt/chart7 (base 2e55eef06)
 - 2f0afcff4 RED DOM tests; b619781ee look + summary + table rows; b4ccaa6a6 the DOM build;
   1ae310e66 pointer + keys (ChartState, show(), on_chart_*); 77225318f flat/flora chart_skin appends;
   be755a7d7 manifest entry (every_widget_dom + CHROME group) + chart::fixtures
+- 94ca634f2 pointer tests (hit / tooltip / selection / keys over the built state)
+- 59d043baf layout/tests/a_chart_paints_its_series_through_the_svg_path.rs (cpurender pixel counts), all.rs append
+- review pass of build / legend / table / events done (no open compile doubts beyond the report's list)
 
 ## IN PROGRESS
 - item 1: layout/src/widgets/chart.rs, written in pieces (types -> math -> geometry -> build -> callbacks)
 
 ## NEXT
-- review pass of chart.rs for compile errors (read it all once)
-- item 3: an integration test in layout/tests (render a chart with cpurender, count series pixels) + run the
-  prebuilt binaries? (no app has a chart yet -> pixels via render_dom_to_rgba in a test only)
-- item 4: api.json list; item 5: examples/azul-dashboard/src/chart.rs + doc/guide/en/dashboard_tutorial.md
+- item 5: examples/azul-dashboard/src/chart.rs (the dashboard's chart half, against the GENERATED azul crate
+  API names - read dll/ or examples/azul-drive for how the generated crate is imported)
+- then doc/guide/en/dashboard_tutorial.md, then the report scripts/CHART7_2026_10_03.md (api.json list there)
 
 ## Design (decided, read before continuing)
 - DRAWING: the engine's SVG path - a plot div carries `SvgNodeData::ViewBox{0,0,pw,ph}` (1 unit = 1 px), every
