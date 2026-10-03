@@ -18,6 +18,7 @@ if /tmp was wiped).
 - 200eaef7c src/session.rs: Session::spawn (tty::new + EventLoop + Notifier), Session::replay (recording, echo),
   write / resize / is_live / size, Signals {dirty, title, bell, exited} polled by the UI (take_dirty / take_title /
   take_bell); Listener answers PtyWrite through the EventLoopSender
+- 1f69d558f src/ids.rs (const AzString __azterm_ ids) + src/sample.rs (build_session, log_session(n), PROMPT)
 
 ## IN PROGRESS
 - (none - between units)
@@ -26,7 +27,7 @@ if /tmp was wiped).
 1. (done) Manifest. 2. (done) Engine paste fix (focus_hears_paste; see commits above). The widget's key handler
    leaves the paste chord alone (KeyAction::Paste -> DoNothing): the engine's Paste event brings the text to
    on_terminal_paste. Shift+Insert has no engine paste yet (limitation for the report).
-3. examples/azul-term (AzTerm) - next file: src/ids.rs + src/sample.rs (recordings), then src/lib.rs (replace the
+3. examples/azul-term (AzTerm) - NEXT FILE: src/lib.rs (replace the
    stub start(); the window), then registration + scripts/azterm_e2e.py:
    - src/lib.rs (start; layout: ShellThemeScope::body + appkit title row + a tab strip + the
      TerminalView pane (a `position: relative; flex-grow: 1` container) + StatusBar; CloseGuard asks when a tab
