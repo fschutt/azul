@@ -19,8 +19,9 @@ use std::{collections::BTreeMap, io::Cursor};
 
 use ironcalc::base::{
     cell::CellValue as IcCellValue,
+    cf_types::{CfRule, CfRuleInput, TextOperator, ValueOperator},
     expressions::types::Area,
-    types::{BorderItem, CellType, Color, HorizontalAlignment, Style, VerticalAlignment},
+    types::{BorderItem, CellType, Color, Dxf, DxfFont, Fill, HorizontalAlignment, Style, VerticalAlignment},
     expressions::utils::{column_to_number, number_to_column},
     BorderArea, Model, UserModel,
 };
@@ -158,6 +159,86 @@ fn ref_of_area(a: &CellArea) -> Option<String> {
         number_to_column(a.last_column())?,
         a.last_row()
     ))
+}
+
+/// A rule in IronCalc's terms, matching cells drawn in `look`.
+fn rule_input(rule: &CondRule, look: CondLook) -> CfRuleInput {
+    let (fill, ink) = look.colors();
+    let format = Dxf {
+        font: Some(DxfFont {
+            color: Color::Rgb(ink.to_string()),
+            ..DxfFont::default()
+        }),
+        fill: Some(Fill {
+            color: Color::Rgb(fill.to_string()),
+        }),
+        ..Dxf::default()
+    };
+    let cell_is = |operator, formula: &str, formula2: Option<&str>| CfRuleInput::CellIs {
+        operator,
+        formula: formula.to_string(),
+        formula2: formula2.map(str::to_string),
+        format: format.clone(),
+        stop_if_true: false,
+    };
+    match rule {
+        CondRule::GreaterThan(v) => cell_is(ValueOperator::GreaterThan, v, None),
+        CondRule::LessThan(v) => cell_is(ValueOperator::LessThan, v, None),
+        CondRule::Between(a, b) => cell_is(ValueOperator::Between, a, Some(b)),
+        CondRule::EqualTo(v) => cell_is(ValueOperator::Equal, v, None),
+        CondRule::TextContains(t) => CfRuleInput::Text {
+            operator: TextOperator::Contains,
+            value: t.clone(),
+            format,
+            stop_if_true: false,
+        },
+        CondRule::Duplicates => CfRuleInput::DuplicateValues {
+            format,
+            stop_if_true: false,
+        },
+        CondRule::AboveAverage => CfRuleInput::AboveAverage {
+            format,
+            stop_if_true: false,
+        },
+        CondRule::BelowAverage => CfRuleInput::BelowAverage {
+            format,
+            stop_if_true: false,
+        },
+    }
+}
+
+/// What a stored rule says, in the words of [`CondRule::describe`] where it
+/// is one of ours.
+fn describe_rule(rule: &CfRule) -> String {
+    match rule {
+        CfRule::CellIs {
+            operator,
+            formula,
+            formula2,
+            ..
+        } => {
+            let ours = match operator {
+                ValueOperator::GreaterThan => Some(CondRule::GreaterThan(formula.clone())),
+                ValueOperator::LessThan => Some(CondRule::LessThan(formula.clone())),
+                ValueOperator::Equal => Some(CondRule::EqualTo(formula.clone())),
+                ValueOperator::Between => {
+                    Some(CondRule::Between(formula.clone(), formula2.clone().unwrap_or_default()))
+                }
+                _ => None,
+            };
+            ours.map_or_else(|| format!("Cell value {operator:?} {formula}"), |r| r.describe())
+        }
+        CfRule::Text {
+            operator: TextOperator::Contains,
+            value,
+            ..
+        } => CondRule::TextContains(value.clone()).describe(),
+        CfRule::DuplicateValues { .. } => CondRule::Duplicates.describe(),
+        CfRule::AboveAverage { .. } => CondRule::AboveAverage.describe(),
+        CfRule::BelowAverage { .. } => CondRule::BelowAverage.describe(),
+        CfRule::ColorScale { .. } => String::from("Color scale"),
+        _ => String::from("Rule"),
+    }
 }
 
 /// The file of `model`.
@@ -449,8 +530,10 @@ impl SheetEngine for IronCalcEngine {
     }
 
     fn cell_style(&self, at: CellAddr) -> CellStyle {
-        match self.model.get_cell_style(at.sheet, at.row, at.column) {
-            Ok(style) => style_from(&style, &|c: &Color| self.model.resolve_color(c)),
+        // The extended style: the cell's own with the conditional formats
+        // that match it laid over (IronCalc evaluates them).
+        match self.model.get_extended_cell_style(at.sheet, at.row, at.column) {
+            Ok(extended) => style_from(&extended.style, &|c: &Color| self.model.resolve_color(c)),
             Err(_) => CellStyle::default(),
         }
     }
@@ -631,17 +714,39 @@ impl SheetEngine for IronCalcEngine {
     }
 
     fn conditional_formats(&self, sheet: u32) -> Vec<ConditionalFormat> {
-        let _ = sheet;
-        Vec::new()
+        let mut list = self.model.get_conditional_formatting_list(sheet).unwrap_or_default();
+        list.sort_by_key(|v| v.index);
+        list.into_iter()
+            .filter_map(|v| {
+                // A rule over several ranges ("A1:A3 C1:C3") is listed by its first.
+                let first = v.range.split_whitespace().next()?;
+                Some(ConditionalFormat {
+                    index: v.index,
+                    area: area_of_ref(sheet, first)?,
+                    description: describe_rule(&v.cf_rule),
+                })
+            })
+            .collect()
     }
 
     fn add_conditional_format(&mut self, area: CellArea, rule: &CondRule, look: CondLook) -> Result<(), EngineError> {
-        let _ = (area, rule, look);
-        Ok(())
+        let range = ref_of_area(&area).ok_or_else(|| String::from("The range is outside the sheet."))?;
+        self.model.add_conditional_formatting(area.sheet, &range, rule_input(rule, look))
     }
 
     fn clear_conditional_formats(&mut self, area: CellArea) -> Result<(), EngineError> {
-        let _ = area;
+        let mut doomed: Vec<usize> = self
+            .conditional_formats(area.sheet)
+            .into_iter()
+            .filter(|c| c.area.overlaps(&area))
+            .map(|c| c.index)
+            .collect();
+        // The later ones first: a deletion moves the indices after it.
+        doomed.sort_unstable_by(|a, b| b.cmp(a));
+        for index in doomed {
+            let index = u32::try_from(index).map_err(|_| String::from("Too many rules."))?;
+            self.model.delete_conditional_formatting(area.sheet, index)?;
+        }
         Ok(())
     }
 }
