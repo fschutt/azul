@@ -15,25 +15,33 @@ Branch: wt/clock9 (base e537ddbe2). Brief: scripts/waves/wave9/PLAN.md "CLOCK9",
   (delivery_delay_ms, apple_trigger_interval, windows_datetime), assert_notification scheduled/deliver_at
 - a87ba8425 dll: Apple UNTimeIntervalNotificationTrigger, Windows ScheduledToastNotification, held queue +
   deadline thread elsewhere, withdraw cancels
+- ae51363d3 RED / 38c1661b6 GREEN store.rs (keys clock/alarms/<id>.json etc, load_jobs, read_loaded, sample)
 
 ## IN PROGRESS
-- A4 store.rs (files in the data tree) + sample data, then A5 UI (ui/*.rs)
+- A5 the window: examples/azul-clock/src/ui.rs (NOT written yet). lib.rs `start()` is still an empty stub.
 
-## NEXT (plan, in order)
-- A1 skeleton + register (root Cargo.toml members, scripts/workspace_test_members.txt, rust.yml dll_tests step)
-- A2 RED model tests: alarm.rs (next occurrence: DST gap / overlap, weekly across a weekend, one-shot,
-  RRULE count / until, snooze), timer.rs (state machine), stopwatch.rs (laps), world.rs (zones, offsets,
-  day/night), schedule.rs (which OS notifications to schedule / withdraw)
-- A3 GREEN model
-- E1 RED engine: Notification::with_deliver_at, layout ScheduledNotifications queue, wire helpers
-  (apple trigger interval, windows delivery time), recorder keeps deliver_at
-  -> layout/tests/native_notifications.rs (APPEND)
-- E2 GREEN engine: core field, layout queue + wire, dll service (Apple UNTimeIntervalNotificationTrigger,
-  Windows ScheduledToastNotification + AddToSchedule, in-process queue elsewhere), withdraw cancels
-- A4 store (files in the data tree), sample data
-- A5 UI (UtilityShell, modes, analog face, lists, editor modal w/ TimePicker + DateRepeatPicker,
-  ringing overlay + tone), A6 notifications wiring, A7 settings/about/shortcuts/args
-- A8 scripts/azclock_e2e.py; A9 report
+## NEXT (exact)
+1. Write examples/azul-clock/src/ui.rs (model it on examples/azul-calculator/src/ui.rs: kit::create_kit,
+   kit::window_options, kit::app_config, UtilityShell + kit::title_row, ShellThemeScope::body()):
+   - state struct ClockApp { kit, screen (World/Alarms/Timer/Stopwatch), alarms, timers, world, stopwatch,
+     queue: azul_pim::write_queue::WriteQueue, last_plan: Option<schedule::Plan>, editor: Option<draft>,
+     ringing: Vec<Ring>, sink: Option<AudioSink>, notice };
+   - layout: modes row (Segmented) + "+" button + Settings; screens world / alarms / timer / stopwatch;
+     alarm editor Modal (TimePicker, DateRepeatPicker, TextInput label, DropDown sound, NumberInput snooze,
+     Delete / Cancel / Save); ringing Modal (Snooze / Dismiss); add-city Modal (search TextInput + result buttons)
+   - 1 s Timer tick: alarm.due -> ring (tone via AudioSink::open + tone::pattern), timer.tick, refresh;
+     fast 33 ms tick only while the stopwatch runs on screen: change_node_text on a marker (no relayout)
+   - notifications: after every change schedule::plan + schedule::diff(last_plan) -> info.post_notification(
+     Notification::create(id,title).with_body(..).with_payload(..).with_action("snooze",..).with_action(
+     "dismiss",..).with_deliver_at(at_ms as u64)) / info.withdraw_notification(id); app-level handler via
+     AppConfig::set_notification_handler(app_ref, on_notification)
+   - writes: WriteQueue -> FileJob::Put/Delete via kit::spawn_file_jobs (tag TAG_SAVE), load via store::load_jobs
+   - Linux / no OS scheduling: CloseRequested -> prevent_window_close + minimize while an alarm/timer is armed
+2. Then lib.rs start() -> ui::start(); ids.rs names as needed.
+3. scripts/azclock_e2e.py (model scripts/shells_e2e.py), then the report scripts/CLOCK9_2026_10_03.md
+   (api.json list: Notification.deliver_at field (OptionU64, LAST field) + Notification::with_deliver_at(
+   unix_ms: u64) "object.with_deliver_at(unix_ms)"; Cargo.lock gains the AzClock package; TODO(WIDGETS9B)
+   Gauge for the timer ring (ProgressBar for now)).
 
 ## Decisions
 - Time zones: chrono + chrono-tz 0.10 (both already in Cargo.lock: chrono-tz via ironcalc_base) and
