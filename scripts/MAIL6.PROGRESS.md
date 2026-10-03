@@ -22,7 +22,10 @@ POWER: battery warning from the coordinator - commit after every small unit, no 
 - 61e803731 ids.rs __azmail_ constants (needs SMALL6 codegen AzString::from_const_str); E2E scripts updated
 - 8ab5e1ed2 / 62eb61a93 RED/GREEN sanitizer: mail classes behind a per-message prefix (m<hash>_), class
   selectors renamed, paper class = ids::PAPER (__azmail_paper)
-- NEXT NOW: step 6 (escapers -> one; third decoder check)
+- 1f5b490f1 / 2cd4e4c30 RED/GREEN html.rs escape_into -> push_text / push_attribute on Xml::encode_text /
+  encode_attribute (needs the 2 api.json fns HYGIENE proposed); third decoder: already gone (engine parser);
+  compose.rs escaper: already gone (RichTextDoc serializer). DEL now stays (legal XML) - test restated.
+- NEXT NOW: step 7 (StatusBarZoom for the reading pane), then LOOK item 5 (dark paper frame / 600px table)
 
 ## NEXT (exact)
 1. ui_main View tab: drop the Look group (theme/mode buttons) -> File > Options opens the kit settings page
